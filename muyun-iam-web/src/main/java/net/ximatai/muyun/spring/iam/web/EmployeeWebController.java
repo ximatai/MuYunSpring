@@ -7,10 +7,9 @@ import net.ximatai.muyun.spring.platform.web.ModuleUiDefinition;
 import net.ximatai.muyun.spring.platform.web.PageTemplates;
 import net.ximatai.muyun.spring.platform.web.PageNavigatorSingleResultPolicy;
 import net.ximatai.muyun.spring.platform.web.PageNavigatorSourceScope;
-import net.ximatai.muyun.spring.platform.web.StaticRecordReadProjectionService;
 import net.ximatai.muyun.spring.platform.web.StaticModuleUiContributor;
 import net.ximatai.muyun.spring.platform.web.StaticModuleOpenApi;
-import net.ximatai.muyun.spring.platform.web.LegacyStaticReadProjectionCompatibility;
+import net.ximatai.muyun.spring.platform.web.StaticModuleWebControllerAdapter;
 import net.ximatai.muyun.spring.platform.web.CrudWeb;
 import net.ximatai.muyun.spring.platform.web.AggregateChildRelationExpansionGateway;
 import net.ximatai.muyun.spring.platform.web.AggregateChildRelationExpansionWeb;
@@ -18,12 +17,8 @@ import net.ximatai.muyun.spring.web.BusinessMutation;
 import net.ximatai.muyun.spring.web.MutationTenantScopeExecutor;
 import net.ximatai.muyun.spring.web.MutationTenantScopeResolver;
 import net.ximatai.muyun.spring.web.WebListResponse;
-import net.ximatai.muyun.spring.web.WebSupport;
 import net.ximatai.muyun.spring.common.platform.CustomActionEndpoint;
-import net.ximatai.muyun.spring.common.platform.ActionEndpoint;
-import net.ximatai.muyun.spring.common.platform.PlatformAction;
 import net.ximatai.muyun.spring.common.platform.PlatformActionLevel;
-import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.iam.employee.Employee;
 import net.ximatai.muyun.spring.iam.employee.EmployeeFormulas;
 import net.ximatai.muyun.spring.iam.employee.EmployeeAccount;
@@ -42,7 +37,6 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.util.List;
 import java.util.Optional;
 import java.util.function.Supplier;
 
@@ -51,16 +45,14 @@ import java.util.function.Supplier;
 @StaticModuleOpenApi
 @PlatformMenu(parent = PlatformMenuGroups.IDENTITY, title = "职员管理", order = 50)
 @RequestMapping("/iam.employee")
-public class EmployeeWebController extends WebSupport<EmployeeService> implements
+public class EmployeeWebController extends StaticModuleWebControllerAdapter<EmployeeService> implements
         CrudWeb<Employee, EmployeeService>,
         AggregateChildRelationExpansionWeb<Employee, EmployeeService>,
         MutationTenantScopeResolver<Employee>,
-        StaticModuleUiContributor,
-        LegacyStaticReadProjectionCompatibility {
+        StaticModuleUiContributor {
     private final EmployeeAccountService employeeAccountService;
     private final EmployeeDelegationService employeeDelegationService;
     private OrganizationService organizationService;
-    private StaticRecordReadProjectionService staticRecordReadProjectionService;
     private AggregateChildRelationExpansionGateway aggregateChildRelationExpansionGateway;
 
     @Autowired
@@ -76,11 +68,6 @@ public class EmployeeWebController extends WebSupport<EmployeeService> implement
     }
 
     @Autowired(required = false)
-    void setStaticRecordReadProjectionService(StaticRecordReadProjectionService staticRecordReadProjectionService) {
-        this.staticRecordReadProjectionService = staticRecordReadProjectionService;
-    }
-
-    @Autowired(required = false)
     void setAggregateChildRelationExpansionGateway(
             AggregateChildRelationExpansionGateway aggregateChildRelationExpansionGateway) {
         this.aggregateChildRelationExpansionGateway = aggregateChildRelationExpansionGateway;
@@ -89,11 +76,6 @@ public class EmployeeWebController extends WebSupport<EmployeeService> implement
     @Override
     public AggregateChildRelationExpansionGateway aggregateChildRelationExpansionGateway() {
         return aggregateChildRelationExpansionGateway;
-    }
-
-    @Override
-    public StaticRecordReadProjectionService staticRecordReadProjectionService() {
-        return staticRecordReadProjectionService;
     }
 
     @Override

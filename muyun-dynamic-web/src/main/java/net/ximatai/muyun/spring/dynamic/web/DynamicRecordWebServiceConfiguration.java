@@ -9,9 +9,6 @@ import net.ximatai.muyun.spring.platform.attachment.RecordAttachmentService;
 import net.ximatai.muyun.spring.platform.code.CodeBusinessPreviewService;
 import net.ximatai.muyun.spring.platform.duplicate.RecordDuplicateCheckService;
 import net.ximatai.muyun.spring.platform.generation.ReferenceRecordGenerationFacade;
-import net.ximatai.muyun.spring.platform.metadata.ModuleMetadataFieldService;
-import net.ximatai.muyun.spring.platform.metadata.FieldUiControlBindingService;
-import net.ximatai.muyun.spring.platform.metadata.FieldUiControlService;
 import net.ximatai.muyun.spring.platform.ui.PlatformPageConfigSnapshotService;
 import net.ximatai.muyun.spring.platform.ui.PlatformQueryItemService;
 import net.ximatai.muyun.spring.platform.ui.PlatformRecordNavigationService;
@@ -25,21 +22,15 @@ public class DynamicRecordWebServiceConfiguration {
     DynamicRecordQueryServices dynamicRecordQueryServices(
             ObjectProvider<PlatformPageConfigSnapshotService> pageConfigSnapshotService,
             ObjectProvider<PlatformQueryItemService> queryItemService,
-            ObjectProvider<ModuleMetadataFieldService> moduleMetadataFieldService,
-            ObjectProvider<FieldUiControlService> fieldUiControlService,
-            ObjectProvider<FieldUiControlBindingService> fieldUiControlBindingService,
             DynamicRelationProjectionReadService relationProjectionReadService,
-            ObjectProvider<ModuleExecutionPlanCatalog> executionPlanCatalog,
+            ModuleExecutionPlanCatalog executionPlanCatalog,
             ObjectProvider<ListQuerySummaryRuntime> listQuerySummaryRuntime,
             ObjectProvider<PlatformModuleRuntimeContextService> runtimeContextService) {
         return new DynamicRecordQueryServices(
                 pageConfigSnapshotService.getIfAvailable(),
                 queryItemService.getIfAvailable(),
-                moduleMetadataFieldService.getIfAvailable(),
-                fieldUiControlService.getIfAvailable(),
-                fieldUiControlBindingService.getIfAvailable(),
                 relationProjectionReadService,
-                executionPlanCatalog.getIfAvailable(), listQuerySummaryRuntime.getIfAvailable(), runtimeContextService.getIfAvailable());
+                executionPlanCatalog, listQuerySummaryRuntime.getIfAvailable(), runtimeContextService.getIfAvailable());
     }
 
     @Bean

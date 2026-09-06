@@ -7,7 +7,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
-import java.util.ArrayList;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
@@ -55,33 +54,6 @@ class PlatformArchitectureBoundaryTest {
                     .as("%s must expose renderer facts, not frontend implementation details", source)
                     .isFalse();
         }
-    }
-
-    @Test
-    void legacyReadProjectionMarkerHasOneExplicitConsumerAndRemovalChecklist() throws IOException {
-        List<Path> consumers = new ArrayList<>();
-        try (Stream<Path> files = Files.walk(REPOSITORY_ROOT)) {
-            for (Path path : files
-                    .filter(path -> path.toString().endsWith(".java"))
-                    .filter(path -> !path.toString().replace('\\', '/').contains("/src/test/"))
-                    .toList()) {
-                if (Files.readString(path).contains("LegacyStaticReadProjectionCompatibility")) {
-                    consumers.add(path);
-                }
-            }
-        }
-        assertThat(consumers.stream()
-                .map(path -> REPOSITORY_ROOT.relativize(path).toString().replace('\\', '/'))
-                .toList())
-                .containsExactlyInAnyOrder(
-                        "muyun-platform-web/src/main/java/net/ximatai/muyun/spring/platform/web/CrudWeb.java",
-                        "muyun-platform-web/src/main/java/net/ximatai/muyun/spring/platform/web/LegacyStaticReadProjectionCompatibility.java",
-                        "muyun-platform-web/src/main/java/net/ximatai/muyun/spring/platform/web/StaticModuleDefinitionScanner.java",
-                        "muyun-iam-web/src/main/java/net/ximatai/muyun/spring/iam/web/EmployeeWebController.java");
-        assertThat(Files.readString(Path.of("../docs/TECHNICAL_DEBT.md")))
-                .contains("| TD-049 | 职员模块仍依赖静态读投影兼容路径 |")
-                .contains("LegacyStaticReadProjectionCompatibility")
-                .contains("计划缺失启动失败、请求期不重解 DSL");
     }
 
     private List<Path> javaSources(Path sourceRoot) throws IOException {

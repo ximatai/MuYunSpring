@@ -9,7 +9,7 @@ import net.ximatai.muyun.spring.platform.metadata.ModuleMetadataFieldService;
 import net.ximatai.muyun.spring.platform.metadata.FieldUiControl;
 import net.ximatai.muyun.spring.platform.metadata.FieldUiControlBinding;
 import net.ximatai.muyun.spring.platform.metadata.FieldUiControlBindingService;
-import net.ximatai.muyun.spring.platform.metadata.FieldUiControlQueryMode;
+import net.ximatai.muyun.spring.platform.web.ModuleQueryFormField;
 import net.ximatai.muyun.spring.platform.metadata.FieldUiControlService;
 import net.ximatai.muyun.spring.platform.metadata.RelationRole;
 import net.ximatai.muyun.spring.platform.metadata.ResolvedModuleMetadataField;
@@ -56,7 +56,7 @@ final class DynamicWebQueryFormSupport {
         PlatformPageConfigSnapshot snapshot = snapshotService.snapshot(moduleAlias);
         PlatformUiConfig uiConfig = publishedUiConfig(snapshot, request.uiConfigId());
         requireListUiConfig(snapshot, uiConfig);
-        Map<String, QueryFormField> fields = visibleMainFields(snapshot, uiConfig, moduleFieldService,
+        Map<String, ModuleQueryFormField> fields = visibleMainFields(snapshot, uiConfig, moduleFieldService,
                 fieldUiControlService, fieldUiControlBindingService);
         List<DynamicQueryCondition> conditions = new ArrayList<>();
         for (Map.Entry<String, Object> entry : effectiveValues.entrySet()) {
@@ -64,7 +64,7 @@ final class DynamicWebQueryFormSupport {
             if (!hasText(fieldName)) {
                 continue;
             }
-            QueryFormField field = fields.get(fieldName);
+            ModuleQueryFormField field = fields.get(fieldName);
             if (field == null) {
                 throw new PlatformException("Query form field is not available in UI config: " + fieldName);
             }
@@ -86,12 +86,12 @@ final class DynamicWebQueryFormSupport {
         return effective;
     }
 
-    private static Map<String, QueryFormField> visibleMainFields(PlatformPageConfigSnapshot snapshot,
+    private static Map<String, ModuleQueryFormField> visibleMainFields(PlatformPageConfigSnapshot snapshot,
                                                                  PlatformUiConfig uiConfig,
                                                                  ModuleMetadataFieldService moduleFieldService,
                                                                  FieldUiControlService fieldUiControlService,
                                                                  FieldUiControlBindingService bindingService) {
-        Map<String, QueryFormField> fields = new LinkedHashMap<>();
+        Map<String, ModuleQueryFormField> fields = new LinkedHashMap<>();
         Map<String, FieldUiControl> controls = new LinkedHashMap<>();
         Map<String, List<String>> bindingKeys = new LinkedHashMap<>();
         for (PlatformUiConfigField field : snapshot.uiFields()) {
@@ -102,8 +102,8 @@ final class DynamicWebQueryFormSupport {
             ResolvedModuleMetadataField resolved = moduleFieldService.resolve(field.getModuleMetadataFieldId());
             if (resolved.relationRole() == RelationRole.MAIN) {
                 if (!hasText(field.getFieldUiControlAlias())) {
-                    fields.put(resolved.fieldName(), new QueryFormField(resolved.fieldName(),
-                            FieldUiControlQueryMode.DEFAULT, List.of()));
+                    fields.put(resolved.fieldName(), new ModuleQueryFormField(resolved.fieldName(),
+                            ModuleQueryFormField.Mode.DEFAULT, List.of()));
                     continue;
                 }
                 if (fieldUiControlService == null || bindingService == null) {
@@ -115,14 +115,16 @@ final class DynamicWebQueryFormSupport {
                         .listByFieldUiControlAliases(List.of(alias)).stream()
                         .map(FieldUiControlBinding::getValueKey)
                         .toList());
-                fields.put(resolved.fieldName(), new QueryFormField(resolved.fieldName(), control.getQueryMode(), keys));
+                fields.put(resolved.fieldName(), new ModuleQueryFormField(resolved.fieldName(),
+                        control.getQueryMode() == null ? ModuleQueryFormField.Mode.DEFAULT
+                                : ModuleQueryFormField.Mode.valueOf(control.getQueryMode().name()), keys));
             }
         }
         return fields;
     }
 
-    private static DynamicQueryCondition condition(QueryFormField field, Object value) {
-        if (field.queryMode() == FieldUiControlQueryMode.BETWEEN) {
+    static DynamicQueryCondition condition(ModuleQueryFormField field, Object value) {
+        if (field.mode() == ModuleQueryFormField.Mode.BETWEEN) {
             RangeQueryValue range = rangeValue(field.fieldName(), value, field.bindingKeys());
             if (range.values().isEmpty()) {
                 return null;
@@ -204,7 +206,7 @@ final class DynamicWebQueryFormSupport {
         return value != null && !value.isBlank();
     }
 
-    private static boolean isEmptyValue(Object value) {
+    static boolean isEmptyValue(Object value) {
         if (value == null) {
             return true;
         }
@@ -226,9 +228,6 @@ final class DynamicWebQueryFormSupport {
         }
         String text = String.valueOf(value).trim();
         return text.isBlank() ? null : text;
-    }
-
-    private record QueryFormField(String fieldName, FieldUiControlQueryMode queryMode, List<String> bindingKeys) {
     }
 
     private record RangeQueryValue(List<?> values, String timeZone) {

@@ -1,17 +1,14 @@
 package net.ximatai.muyun.spring.dynamic.web;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletRequest;
 import net.ximatai.muyun.database.core.orm.Criteria;
-import net.ximatai.muyun.database.core.orm.AggregateQuery;
 import net.ximatai.muyun.database.core.orm.CriteriaOperator;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.database.core.orm.PageResult;
 import net.ximatai.muyun.database.core.orm.Sort;
 import net.ximatai.muyun.spring.ability.DataScopeAbility;
-import net.ximatai.muyun.spring.ability.OptimisticLockException;
 import net.ximatai.muyun.spring.ability.TreeAbility;
 import net.ximatai.muyun.spring.ability.reference.ReferenceCandidateCriteria;
 import net.ximatai.muyun.spring.ability.reference.ReferenceTenantScope;
@@ -21,9 +18,7 @@ import net.ximatai.muyun.spring.platform.web.CrudWeb;
 import net.ximatai.muyun.spring.platform.web.RecycleBinPurgeWeb;
 import net.ximatai.muyun.spring.platform.web.PageContextBindingDefinition;
 import net.ximatai.muyun.spring.platform.web.PageContextScopePolicy;
-import net.ximatai.muyun.spring.platform.web.PageContextSource;
 import net.ximatai.muyun.spring.platform.web.PageContextTarget;
-import net.ximatai.muyun.spring.platform.web.NavigatorListQueryMode;
 import net.ximatai.muyun.spring.platform.web.ModuleExecutionPlanCatalog;
 import net.ximatai.muyun.spring.platform.web.ModuleExecutionPlan;
 import net.ximatai.muyun.spring.platform.web.PlatformModuleRuntimeContextService;
@@ -83,11 +78,7 @@ import net.ximatai.muyun.spring.platform.generation.RecordGenerationCommitResult
 import net.ximatai.muyun.spring.platform.generation.RecordGenerationDraft;
 import net.ximatai.muyun.spring.platform.generation.RecordGenerationResult;
 import net.ximatai.muyun.spring.platform.generation.ReferenceRecordGenerationFacade;
-import net.ximatai.muyun.spring.platform.metadata.ModuleMetadataFieldService;
-import net.ximatai.muyun.spring.platform.metadata.FieldUiControlBindingService;
-import net.ximatai.muyun.spring.platform.metadata.FieldUiControlService;
 import net.ximatai.muyun.spring.platform.metadata.RelationRole;
-import net.ximatai.muyun.spring.platform.metadata.ResolvedModuleMetadataField;
 import net.ximatai.muyun.spring.dynamic.descriptor.DynamicModuleDescriptor;
 import net.ximatai.muyun.spring.dynamic.descriptor.DynamicActionDescriptor;
 import net.ximatai.muyun.spring.dynamic.descriptor.DynamicEntityDescriptor;
@@ -98,17 +89,14 @@ import net.ximatai.muyun.spring.dynamic.metadata.EntityActionLevel;
 import net.ximatai.muyun.spring.dynamic.metadata.FieldDefinition;
 import net.ximatai.muyun.spring.dynamic.metadata.FieldType;
 import net.ximatai.muyun.spring.common.security.FieldOutputContext;
-import net.ximatai.muyun.spring.dynamic.metadata.ModuleDefinitionException;
 import net.ximatai.muyun.spring.dynamic.openapi.DynamicOpenApiGenerator;
 import net.ximatai.muyun.spring.common.openapi.OpenApi31Projector;
-import net.ximatai.muyun.spring.dynamic.runtime.DynamicActionExecutionException;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicActionExecutionRequest;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicActionAvailability;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicAssociationViewDiagnosis;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicEntityOperations;
 import net.ximatai.muyun.spring.dynamic.descriptor.DynamicAssociationViewDescriptor;
 import net.ximatai.muyun.spring.dynamic.descriptor.DynamicAssociationRelationOverview;
-import net.ximatai.muyun.spring.dynamic.descriptor.DynamicQuerySchemas;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicQueryCondition;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecord;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecordService;
@@ -126,16 +114,12 @@ import net.ximatai.muyun.spring.platform.ui.PlatformRecordNavigationContext;
 import net.ximatai.muyun.spring.platform.ui.PlatformRecordNavigationMove;
 import net.ximatai.muyun.spring.platform.ui.PlatformRecordNavigationService;
 import net.ximatai.muyun.spring.platform.ui.PlatformUiConfig;
-import net.ximatai.muyun.spring.platform.ui.PlatformPageLayoutNavigator;
-import net.ximatai.muyun.spring.platform.ui.PlatformUiConfigField;
 import net.ximatai.muyun.spring.platform.ui.PlatformUiSet;
 import net.ximatai.muyun.spring.platform.ui.PlatformUiSetType;
 import net.ximatai.muyun.spring.platform.deletion.RecycleBinFacade;
 import org.springframework.http.HttpStatus;
-import org.springframework.http.converter.HttpMessageConversionException;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -146,16 +130,15 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.math.BigDecimal;
-import java.math.MathContext;
 import java.util.List;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.function.Supplier;
+import java.util.function.Function;
 
 @RestController
 @RequestMapping("/{moduleAlias:[a-z][a-z0-9_]*(?:\\.[a-z][a-z0-9_]*)+}")
@@ -176,9 +159,6 @@ public class DynamicRecordWebController implements
     private final ReferenceRecordGenerationFacade referenceRecordGenerationFacade;
     private final PlatformPageConfigSnapshotService pageConfigSnapshotService;
     private final PlatformQueryItemService queryItemService;
-    private final ModuleMetadataFieldService moduleMetadataFieldService;
-    private final FieldUiControlService fieldUiControlService;
-    private final FieldUiControlBindingService fieldUiControlBindingService;
     private final RecordAttachmentService recordAttachmentService;
     private final RecordAttachmentAccessService recordAttachmentAccessService;
     private final RecordDuplicateCheckService duplicateCheckService;
@@ -204,9 +184,6 @@ public class DynamicRecordWebController implements
         this.referenceRecordGenerationFacade = actionServices.referenceRecordGenerationFacade();
         this.pageConfigSnapshotService = queryServices.pageConfigSnapshotService();
         this.queryItemService = queryServices.queryItemService();
-        this.moduleMetadataFieldService = queryServices.moduleMetadataFieldService();
-        this.fieldUiControlService = queryServices.fieldUiControlService();
-        this.fieldUiControlBindingService = queryServices.fieldUiControlBindingService();
         this.recordAttachmentService = attachmentServices.attachmentService();
         this.recordAttachmentAccessService = attachmentServices.attachmentAccessService();
         this.duplicateCheckService = actionServices.duplicateCheckService();
@@ -291,18 +268,9 @@ public class DynamicRecordWebController implements
     @ActionEndpoint(PlatformAction.QUERY)
     public QuerySchema querySchema(@RequestParam(required = false) String uiConfigId) {
         return webScope(() -> {
-            if (executionPlanCatalog != null) {
-                var plan = requireExecutionPlan(DynamicWebRequest.moduleAlias());
-                requirePlanListUiConfig(plan, uiConfigId);
-                return plan.querySchema();
-            }
-            String queryTemplateId = DynamicWebRequest.queryParameter("queryTemplateId");
-            if (hasText(queryTemplateId)) {
-                validateQueryTemplateBelongsToModule(DynamicWebRequest.moduleAlias(), queryTemplateId);
-            }
-            return DynamicQuerySchemas.from(DynamicWebRequest.moduleAlias(),
-                    service().describe(), quickSearchFieldsForSchema(uiConfigId),
-                    querySchemaExternalCriteriaKeys(DynamicWebRequest.moduleAlias(), uiConfigId, queryTemplateId));
+            var plan = requireExecutionPlan(DynamicWebRequest.moduleAlias());
+            requirePlanListUiConfig(plan, uiConfigId);
+            return plan.querySchema();
         });
     }
 
@@ -313,45 +281,14 @@ public class DynamicRecordWebController implements
 
     @Override
     public Criteria queryCriteria(WebQueryRequest request) {
-        if (executionPlanCatalog != null) {
-            return plannedQueryCriteria(DynamicWebRequest.moduleAlias(), request);
-        }
-        Criteria templateCriteria = Criteria.of();
-        if (request != null && hasText(request.queryTemplateId())) {
-            requireLowCodeQueryServices();
-            validateQueryTemplateBelongsToModule(DynamicWebRequest.moduleAlias(), request.queryTemplateId());
-            templateCriteria = queryItemService.compile(request.queryTemplateId(), request.externalQueryValues());
-        }
-        Criteria manualCriteria = request == null || request.conditions().isEmpty()
-                ? Criteria.of()
-                : service().queryCriteria(DynamicWebQueryMapper.queryConditions(request.conditions()));
-        Criteria treeCriteria = request == null || request.criteria() == null
-                ? Criteria.of()
-                : DynamicWebQueryMapper.queryCriteria(request.criteria(), service()::queryCriteria);
-        Criteria queryFormCriteria = DynamicWebQueryFormSupport.queryFormCriteria(DynamicWebRequest.moduleAlias(),
-                request, pageConfigSnapshotService, moduleMetadataFieldService, fieldUiControlService,
-                fieldUiControlBindingService, service()::queryCriteria);
-        Criteria quickCriteria = quickSearchCriteria(DynamicWebRequest.moduleAlias(), request);
-        Criteria navigatorCriteria = navigatorCriteria(DynamicWebRequest.moduleAlias(), request);
-        return andCriteria(templateCriteria, queryFormCriteria, manualCriteria, treeCriteria, quickCriteria, navigatorCriteria);
+        return plannedQueryCriteria(DynamicWebRequest.moduleAlias(), request);
     }
 
-    /** Standard list paths consume only the installed immutable plan; snapshots remain legacy-only. */
+    /** Standard list paths consume query facts from the installed immutable plan. */
     private Criteria plannedQueryCriteria(String moduleAlias, WebQueryRequest request) {
         var plan = requireExecutionPlan(moduleAlias);
         requirePlanListUiConfig(plan, request == null ? null : request.uiConfigId());
-        Criteria templateCriteria = Criteria.of();
-        if (request != null && hasText(request.queryTemplateId())) {
-            if (!plan.queryTemplateIds().contains(request.queryTemplateId())) {
-                throw new PlatformException("Query template is not enabled by module execution plan: "
-                        + request.queryTemplateId());
-            }
-            ModuleQueryTemplatePlan template = plan.queryTemplates().stream()
-                    .filter(candidate -> candidate.templateId().equals(request.queryTemplateId())).findFirst()
-                    .orElseThrow(() -> new PlatformException("Query template has no compiled execution facts: "
-                            + request.queryTemplateId()));
-            templateCriteria = compiledTemplateCriteria(template, request.externalQueryValues());
-        }
+        Criteria templateCriteria = plannedTemplateCriteria(plan, request);
         List<DynamicQueryCondition> conditions = request == null ? List.of()
                 : DynamicWebQueryMapper.queryConditions(request.conditions());
         validatePlanConditions(plan.querySchema(), conditions);
@@ -365,6 +302,28 @@ public class DynamicRecordWebController implements
         Criteria quickCriteria = plannedQuickSearchCriteria(request, plan.querySchema());
         Criteria navigatorCriteria = navigatorCriteria(moduleAlias, request);
         return andCriteria(templateCriteria, queryFormCriteria, manualCriteria, treeCriteria, quickCriteria, navigatorCriteria);
+    }
+
+    private Criteria plannedTemplateCriteria(ModuleExecutionPlan plan, WebQueryRequest request) {
+        return plannedTemplateCriteria(plan, request, service()::queryCriteria);
+    }
+
+    private Criteria plannedTemplateCriteria(ModuleExecutionPlan plan, WebQueryRequest request,
+                                             Function<List<DynamicQueryCondition>, Criteria> compiler) {
+        if (request == null || !hasText(request.queryTemplateId())) {
+            return Criteria.of();
+        }
+        if (!plan.queryTemplateIds().contains(request.queryTemplateId())) {
+            throw new PlatformException("Query template is not enabled by module execution plan: "
+                    + request.queryTemplateId());
+        }
+        ModuleQueryTemplatePlan template = plan.queryTemplates().stream()
+                .filter(candidate -> candidate.templateId().equals(request.queryTemplateId())).findFirst()
+                .orElseThrow(() -> new PlatformException("Query template has no compiled execution facts: "
+                        + request.queryTemplateId()));
+        return compiledTemplateGroup(template.nodes(),
+                net.ximatai.muyun.spring.platform.ui.PlatformQueryGroupOperator.AND,
+                request.externalQueryValues(), compiler);
     }
 
     private void validatePlanConditions(QuerySchema schema, List<DynamicQueryCondition> conditions) {
@@ -383,34 +342,25 @@ public class DynamicRecordWebController implements
     }
 
     private Criteria plannedQueryFormCriteria(WebQueryRequest request, List<ModuleQueryFormField> fields) {
+        return plannedQueryFormCriteria(request, fields, service()::queryCriteria);
+    }
+
+    private Criteria plannedQueryFormCriteria(WebQueryRequest request, List<ModuleQueryFormField> fields,
+                                              Function<List<DynamicQueryCondition>, Criteria> compiler) {
         if (request == null || request.queryForm().isEmpty()) return Criteria.of();
         Map<String, ModuleQueryFormField> byName = fields.stream().collect(java.util.stream.Collectors.toMap(
                 ModuleQueryFormField::fieldName, field -> field, (left, right) -> left));
         List<DynamicQueryCondition> conditions = new ArrayList<>();
         for (Map.Entry<String, Object> entry : request.queryForm().entrySet()) {
-            if (entry.getValue() == null || entry.getValue() instanceof String text && text.isBlank()) continue;
+            if (DynamicWebQueryFormSupport.isEmptyValue(entry.getValue())) continue;
             ModuleQueryFormField field = byName.get(entry.getKey() == null ? null : entry.getKey().trim());
             if (field == null) throw new PlatformException("Query form field is not enabled by module execution plan: " + entry.getKey());
-            List<?> values = plannedQueryValues(field, entry.getValue());
-            if (!values.isEmpty()) conditions.add(new DynamicQueryCondition(field.fieldName(),
-                    field.mode() == ModuleQueryFormField.Mode.BETWEEN
-                            ? net.ximatai.muyun.spring.dynamic.metadata.DynamicQueryOperator.BETWEEN : null, values));
+            DynamicQueryCondition condition = DynamicWebQueryFormSupport.condition(field, entry.getValue());
+            if (condition != null) {
+                conditions.add(condition);
+            }
         }
-        return conditions.isEmpty() ? Criteria.of() : service().queryCriteria(conditions);
-    }
-
-    private List<?> plannedQueryValues(ModuleQueryFormField field, Object value) {
-        if (field.mode() == ModuleQueryFormField.Mode.BETWEEN && value instanceof Map<?, ?> values) {
-            List<Object> range = new ArrayList<>();
-            range.add(values.get("start"));
-            for (String key : field.bindingKeys()) range.add(values.get(key));
-            range.removeIf(Objects::isNull);
-            if (range.isEmpty()) return List.of();
-            if (range.size() != 2) throw new PlatformException("Query form range requires start and end values: " + field.fieldName());
-            return range;
-        }
-        if (value instanceof java.util.Collection<?> values) return values.stream().filter(Objects::nonNull).toList();
-        return List.of(value);
+        return conditions.isEmpty() ? Criteria.of() : compiler.apply(conditions);
     }
 
     private Criteria plannedQuickSearchCriteria(WebQueryRequest request, QuerySchema schema) {
@@ -418,26 +368,24 @@ public class DynamicRecordWebController implements
         List<String> fields = request.quickSearchFields().isEmpty() ? schema.quickSearch().fields()
                 : request.quickSearchFields();
         if (fields.isEmpty() || fields.stream().anyMatch(field -> !schema.quickSearch().fields().contains(field))) {
-            throw new PlatformException("Quick search field is not enabled by module execution plan");
+            String invalid = fields.stream().filter(field -> !schema.quickSearch().fields().contains(field))
+                    .findFirst().orElse(null);
+            throw new PlatformException("Quick search field is not enabled by module execution plan: " + invalid);
         }
         Criteria criteria = Criteria.of();
         criteria.andGroup(group -> fields.forEach(field -> group.or(field, CriteriaOperator.LIKE, request.quickSearch().trim())));
         return criteria;
     }
 
-    private Criteria compiledTemplateCriteria(ModuleQueryTemplatePlan template, Map<String, ?> externalValues) {
-        return compiledTemplateGroup(template.nodes(), net.ximatai.muyun.spring.platform.ui.PlatformQueryGroupOperator.AND,
-                externalValues == null ? Map.of() : externalValues);
-    }
-
     private Criteria compiledTemplateGroup(List<ModuleQueryTemplatePlan.Node> nodes,
                                            net.ximatai.muyun.spring.platform.ui.PlatformQueryGroupOperator operator,
-                                           Map<String, ?> externalValues) {
+                                           Map<String, ?> externalValues,
+                                           Function<List<DynamicQueryCondition>, Criteria> compiler) {
         Criteria criteria = Criteria.of();
         boolean first = true;
         for (ModuleQueryTemplatePlan.Node node : nodes) {
-            Criteria child = node.group() ? compiledTemplateGroup(node.children(), node.groupOperator(), externalValues)
-                    : compiledTemplateLeaf(node, externalValues);
+            Criteria child = node.group() ? compiledTemplateGroup(node.children(), node.groupOperator(), externalValues, compiler)
+                    : compiledTemplateLeaf(node, externalValues, compiler);
             if (child.isEmpty()) continue;
             if (first || operator == net.ximatai.muyun.spring.platform.ui.PlatformQueryGroupOperator.AND) {
                 criteria.andGroup(child.getRoot());
@@ -449,7 +397,8 @@ public class DynamicRecordWebController implements
         return criteria;
     }
 
-    private Criteria compiledTemplateLeaf(ModuleQueryTemplatePlan.Node node, Map<String, ?> externalValues) {
+    private Criteria compiledTemplateLeaf(ModuleQueryTemplatePlan.Node node, Map<String, ?> externalValues,
+                                          Function<List<DynamicQueryCondition>, Criteria> compiler) {
         Object value = node.externalValueKey() != null && externalValues.containsKey(node.externalValueKey())
                 ? externalValues.get(node.externalValueKey()) : node.defaultValue();
         boolean noValue = node.operator() == net.ximatai.muyun.spring.dynamic.metadata.DynamicQueryOperator.NULL
@@ -457,29 +406,31 @@ public class DynamicRecordWebController implements
                 || node.operator() == net.ximatai.muyun.spring.dynamic.metadata.DynamicQueryOperator.EMPTY
                 || node.operator() == net.ximatai.muyun.spring.dynamic.metadata.DynamicQueryOperator.NOT_EMPTY;
         if (!noValue && (value == null || value instanceof String text && text.isBlank())) return Criteria.of();
-        return service().queryCriteria(List.of(new DynamicQueryCondition(node.fieldName(), node.operator(),
-                value instanceof java.util.Collection<?> values ? List.copyOf(values) : List.of(value), node.timeZone())));
+        return compiler.apply(List.of(new DynamicQueryCondition(node.fieldName(), node.operator(),
+                noValue ? List.of() : value instanceof java.util.Collection<?> values ? List.copyOf(values) : List.of(value),
+                node.timeZone())));
     }
 
     private void requirePlanListUiConfig(net.ximatai.muyun.spring.platform.web.ModuleExecutionPlan plan,
                                          String uiConfigId) {
-        if (plan.listUiConfigId() != null && !plan.listUiConfigId().equals(uiConfigId)) {
-            throw new PlatformException("Query requires published LIST uiConfigId from module execution plan: "
-                    + plan.listUiConfigId());
-        }
+        requirePlanUiConfig(plan.moduleAlias(), plan.listUiConfigId(), uiConfigId, "LIST", "Query");
     }
 
-    private List<String> querySchemaExternalCriteriaKeys(String moduleAlias, String uiConfigId,
-                                                          String queryTemplateId) {
-        java.util.LinkedHashSet<String> keys = new java.util.LinkedHashSet<>();
-        navigatorQueryBindings(moduleAlias, uiConfigId, PageContextTarget.LIST_QUERY).stream()
-                .filter(binding -> binding.source() != PageContextSource.SESSION)
-                .map(PageContextBindingDefinition::targetKey)
-                .forEach(keys::add);
-        if (queryItemService != null && hasText(queryTemplateId)) {
-            keys.addAll(queryItemService.externalValueKeys(queryTemplateId));
+    private void requirePlanUiConfig(String moduleAlias, String expectedUiConfigId, String actualUiConfigId,
+                                     String uiType, String operation) {
+        if (expectedUiConfigId == null) return;
+        if (!hasText(actualUiConfigId)) {
+            throw PlatformErrors.badRequest(PlatformErrorCodes.VALIDATION_FAILED,
+                    operation + " requires published " + uiType + " uiConfigId from module execution plan: "
+                            + expectedUiConfigId);
         }
-        return List.copyOf(keys);
+        if (!expectedUiConfigId.equals(actualUiConfigId)) {
+            throw PlatformErrors.conflict(PlatformErrorCodes.CONFLICT_VERSION,
+                    operation + " uiConfigId does not match the published " + uiType + " plan: "
+                            + expectedUiConfigId,
+                    ErrorScope.module(moduleAlias),
+                    Map.of("expectedUiConfigId", expectedUiConfigId, "actualUiConfigId", actualUiConfigId));
+        }
     }
 
     private Criteria navigatorCriteria(String moduleAlias, WebQueryRequest request) {
@@ -507,51 +458,22 @@ public class DynamicRecordWebController implements
 
     /** Reference sources retain ordinary query controls but never inherit their own LIST_QUERY bindings. */
     private Criteria referenceSourceCriteria(String moduleAlias, WebQueryRequest request) {
-        if (executionPlanCatalog != null) {
-            ModuleExecutionPlan plan = requireExecutionPlan(moduleAlias);
-            Criteria templateCriteria = Criteria.of();
-            if (request != null && hasText(request.queryTemplateId())) {
-                if (!plan.queryTemplateIds().contains(request.queryTemplateId())) {
-                    throw new PlatformException("Query template is not enabled by module execution plan: "
-                            + request.queryTemplateId());
-                }
-                ModuleQueryTemplatePlan template = plan.queryTemplates().stream()
-                        .filter(candidate -> candidate.templateId().equals(request.queryTemplateId())).findFirst()
-                        .orElseThrow(() -> new PlatformException("Query template has no compiled execution facts: "
-                                + request.queryTemplateId()));
-                templateCriteria = compiledTemplateCriteria(template, request.externalQueryValues());
-            }
-            List<DynamicQueryCondition> conditions = request == null ? List.of()
-                    : DynamicWebQueryMapper.queryConditions(request.conditions());
-            validatePlanConditions(plan.querySchema(), conditions);
-            Criteria manualCriteria = conditions.isEmpty() ? Criteria.of() : service().queryCriteria(conditions);
-            Criteria treeCriteria = request == null || request.criteria() == null ? Criteria.of()
-                    : DynamicWebQueryMapper.queryCriteria(request.criteria(), nested -> {
-                        validatePlanConditions(plan.querySchema(), nested);
-                        return service().queryCriteria(nested);
-                    });
-            return andCriteria(templateCriteria, plannedQueryFormCriteria(request, plan.queryFormFields()), manualCriteria,
-                    treeCriteria, plannedQuickSearchCriteria(request, plan.querySchema()));
-        }
-        Criteria templateCriteria = Criteria.of();
-        if (request != null && hasText(request.queryTemplateId())) {
-            requireLowCodeQueryServices();
-            validateQueryTemplateBelongsToModule(moduleAlias, request.queryTemplateId());
-            templateCriteria = queryItemService.compile(request.queryTemplateId(), request.externalQueryValues());
-        }
-        Criteria manualCriteria = request == null || request.conditions().isEmpty()
-                ? Criteria.of() : service().queryCriteria(DynamicWebQueryMapper.queryConditions(request.conditions()));
+        ModuleExecutionPlan plan = requireExecutionPlan(moduleAlias);
+        Criteria templateCriteria = plannedTemplateCriteria(plan, request);
+        List<DynamicQueryCondition> conditions = request == null ? List.of()
+                : DynamicWebQueryMapper.queryConditions(request.conditions());
+        validatePlanConditions(plan.querySchema(), conditions);
+        Criteria manualCriteria = conditions.isEmpty() ? Criteria.of() : service().queryCriteria(conditions);
         Criteria treeCriteria = request == null || request.criteria() == null ? Criteria.of()
-                : DynamicWebQueryMapper.queryCriteria(request.criteria(), service()::queryCriteria);
-        Criteria queryFormCriteria = DynamicWebQueryFormSupport.queryFormCriteria(moduleAlias, request,
-                pageConfigSnapshotService, moduleMetadataFieldService, fieldUiControlService,
-                fieldUiControlBindingService, service()::queryCriteria);
-        return andCriteria(templateCriteria, queryFormCriteria, manualCriteria, treeCriteria,
-                quickSearchCriteria(moduleAlias, request));
+                : DynamicWebQueryMapper.queryCriteria(request.criteria(), nested -> {
+                    validatePlanConditions(plan.querySchema(), nested);
+                    return service().queryCriteria(nested);
+                });
+        return andCriteria(templateCriteria, plannedQueryFormCriteria(request, plan.queryFormFields()), manualCriteria,
+                treeCriteria, plannedQuickSearchCriteria(request, plan.querySchema()));
     }
 
     private List<PageContextBindingDefinition> navigatorReferenceBindings(String sourceModuleAlias, WebQueryRequest request) {
-        if (executionPlanCatalog == null) return List.of();
         var hostPlan = requireExecutionPlan(request.navigatorHostModuleAlias());
         var descriptor = runtimeContextService == null ? hostPlan.uiDescriptor()
                 : runtimeContextService.context(request.navigatorHostModuleAlias()).uiDescriptor();
@@ -568,40 +490,28 @@ public class DynamicRecordWebController implements
     }
 
     private Criteria navigatorCriteria(String moduleAlias, WebQueryRequest request, PageContextTarget target) {
-        return PageContextScopePolicy.criteria(navigatorQueryBindings(moduleAlias,
-                        request == null ? null : request.uiConfigId(), target),
+        return PageContextScopePolicy.criteria(navigatorQueryBindings(moduleAlias, target),
                 request == null ? Map.of() : request.externalQueryValues(), false);
     }
 
     @Override
     public List<PageContextBindingDefinition> recordScopeBindings() {
-        if (executionPlanCatalog == null) return List.of();
         return PageContextScopePolicy.recordScopeBindings(
                 requireExecutionPlan(DynamicWebRequest.moduleAlias()).pageContextBindings());
     }
 
-    private List<PageContextBindingDefinition> navigatorQueryBindings(String moduleAlias, String uiConfigId,
+    private List<PageContextBindingDefinition> navigatorQueryBindings(String moduleAlias,
                                                                        PageContextTarget target) {
-        if (executionPlanCatalog != null) {
-            return requireExecutionPlan(moduleAlias).pageContextBindings().stream()
-                    .filter(binding -> binding.target() == target)
-                    .toList();
-        }
-        // Compatibility only for standalone controller fixtures assembled without the platform runtime.
-        if (pageConfigSnapshotService == null || !hasText(uiConfigId)) return List.of();
-        PlatformUiConfig uiConfig = publishedUiConfig(pageConfigSnapshotService.snapshot(moduleAlias), uiConfigId);
-        return PlatformPageLayoutNavigator.contextBindings(uiConfig).stream()
-                .filter(binding -> target.name().equals(binding.target()))
-                .map(binding -> new PageContextBindingDefinition(PageContextSource.valueOf(binding.source()), binding.sourceKey(),
-                        PageContextTarget.valueOf(binding.target()), binding.targetKey(), binding.targetNavigatorLevelKey(),
-                        binding.targetPickerFieldKey(), binding.navigatorListQueryMode() == null ? null
-                                : NavigatorListQueryMode.valueOf(binding.navigatorListQueryMode())))
+        return requireExecutionPlan(moduleAlias).pageContextBindings().stream()
+                .filter(binding -> binding.target() == target)
                 .toList();
     }
 
-    private net.ximatai.muyun.spring.platform.web.ModuleExecutionPlan requireExecutionPlan(String moduleAlias) {
-        return executionPlanCatalog.find(moduleAlias).orElseThrow(() -> new PlatformException(
-                "Dynamic module has no executable published page plan: " + moduleAlias));
+    private ModuleExecutionPlan requireExecutionPlan(String moduleAlias) {
+        return executionPlanCatalog.find(moduleAlias).orElseThrow(() -> PlatformErrors.config(
+                PlatformErrorCodes.CONFIG_MISSING,
+                "Dynamic module has no executable published page plan: " + moduleAlias,
+                ErrorScope.module(moduleAlias)));
     }
 
     private Criteria andCriteria(Criteria... criteriaList) {
@@ -633,17 +543,13 @@ public class DynamicRecordWebController implements
         if (request == null || request.sorts().isEmpty()) {
             return new Sort[0];
         }
-        if (executionPlanCatalog != null) {
-            validatePlanSorts(requireExecutionPlan(DynamicWebRequest.moduleAlias()).querySchema(), request.sorts(), Set.of());
-        } else {
-            DynamicWebQueryFieldSupport.validatePhysicalSorts(service(), request.sorts());
-        }
+        validatePlanSorts(requireExecutionPlan(DynamicWebRequest.moduleAlias()).querySchema(), request.sorts(), Set.of());
         return DynamicWebQueryMapper.sorts(request.sorts());
     }
 
     @Override
     public PageResult<DynamicRecord> queryRecords(WebQueryRequest request) {
-        if (request == null || (!hasText(request.uiConfigId()) && executionPlanCatalog == null)) {
+        if (request == null) {
             return CrudWeb.super.queryRecords(request);
         }
         WebPageRequest webPage = request.pageOrDefault();
@@ -651,7 +557,7 @@ public class DynamicRecordWebController implements
         Criteria criteria = queryCriteria(request);
         Set<String> projectionFields = dynamicRelationProjectionReadService.resolveListOutputFields(
                 DynamicWebRequest.moduleAlias(), recordService,
-                projectionFields(DynamicWebRequest.moduleAlias(), request));
+                projectionFields(DynamicWebRequest.moduleAlias()));
         ProjectionQueryDescriptor projectionDescriptor = projectionListQueryDescriptor(projectionFields);
         Sort[] sorts = querySorts(request, projectionDescriptor.sortableFields());
         PageResult<DynamicRecord> projectedPage = projectionDescriptor.supported()
@@ -672,11 +578,7 @@ public class DynamicRecordWebController implements
         if (request == null || request.sorts().isEmpty()) {
             return new Sort[0];
         }
-        if (executionPlanCatalog != null) {
-            validatePlanSorts(requireExecutionPlan(DynamicWebRequest.moduleAlias()).querySchema(), request.sorts(), additionalSortableFields);
-        } else {
-            DynamicWebQueryFieldSupport.validatePhysicalSorts(service(), request.sorts(), additionalSortableFields);
-        }
+        validatePlanSorts(requireExecutionPlan(DynamicWebRequest.moduleAlias()).querySchema(), request.sorts(), additionalSortableFields);
         return DynamicWebQueryMapper.sorts(request.sorts());
     }
 
@@ -721,12 +623,12 @@ public class DynamicRecordWebController implements
     @Override
     public List<DynamicRecord> queryListRecords(WebQueryRequest request) {
         List<DynamicRecord> records = CrudWeb.super.queryListRecords(request);
-        if (request == null || (!hasText(request.uiConfigId()) && executionPlanCatalog == null)) {
+        if (request == null) {
             return records;
         }
         Set<String> projectionFields = dynamicRelationProjectionReadService.resolveListOutputFields(
                 DynamicWebRequest.moduleAlias(), recordService,
-                projectionFields(DynamicWebRequest.moduleAlias(), request));
+                projectionFields(DynamicWebRequest.moduleAlias()));
         return records.stream()
                 .map(record -> project(record, projectionFields))
                 .toList();
@@ -752,7 +654,7 @@ public class DynamicRecordWebController implements
     public WebPageResponse<DynamicRecord> attachListQuerySummaries(WebQueryRequest request,
                                                                      WebPageResponse<DynamicRecord> response) {
         String moduleAlias = DynamicWebRequest.moduleAlias();
-        if (executionPlanCatalog == null || listQuerySummaryRuntime == null) return response;
+        if (listQuerySummaryRuntime == null) return response;
         return executionPlanCatalog.find(moduleAlias)
                 .filter(plan -> plan.uiDescriptor().page() != null && plan.uiDescriptor().page().list() != null)
                 .filter(plan -> !plan.uiDescriptor().page().list().querySummaries().isEmpty())
@@ -831,7 +733,7 @@ public class DynamicRecordWebController implements
 
     private DynamicRecord detailOutput(DynamicRecord record) {
         DynamicRecord output = WebOutputSupport.record(service(), record, FieldOutputContext.VIEW);
-        if (output == null || executionPlanCatalog == null) return output;
+        if (output == null) return output;
         var plan = requireExecutionPlan(DynamicWebRequest.moduleAlias());
         DynamicRecord enriched = output.copy();
         plan.uiDescriptor().detailRelations().stream()
@@ -1086,88 +988,6 @@ public class DynamicRecordWebController implements
         return text.isBlank() ? null : text;
     }
 
-    private Criteria quickSearchCriteria(String moduleAlias, WebQueryRequest request) {
-        if (request == null || !hasText(request.quickSearch())) {
-            return Criteria.of();
-        }
-        if (!hasText(request.uiConfigId()) && executionPlanCatalog == null) {
-            throw new PlatformException("Legacy quick search requires published LIST uiConfigId");
-        }
-        String keyword = request.quickSearch().trim();
-        List<String> fields = quickSearchFields(moduleAlias, request);
-        if (fields.isEmpty()) {
-            throw new PlatformException("Quick search requires at least one searchable field");
-        }
-        Criteria criteria = Criteria.of();
-        criteria.andGroup(group -> {
-            for (String field : fields) {
-                group.or(field, CriteriaOperator.LIKE, keyword);
-            }
-        });
-        return criteria;
-    }
-
-    private List<String> quickSearchFields(String moduleAlias, WebQueryRequest request) {
-        if (executionPlanCatalog != null) {
-            QuerySchema schema = requireExecutionPlan(moduleAlias).querySchema();
-            List<String> fields = request.quickSearchFields().isEmpty() ? schema.quickSearch().fields()
-                    : request.quickSearchFields();
-            if (fields.stream().anyMatch(field -> !schema.quickSearch().fields().contains(field))) {
-                throw new PlatformException("Quick search field is not enabled by module execution plan");
-            }
-            return List.copyOf(fields);
-        }
-        requireLowCodePageServices();
-        PlatformPageConfigSnapshot snapshot = pageConfigSnapshotService.snapshot(moduleAlias);
-        PlatformUiConfig uiConfig = publishedUiConfig(snapshot, request.uiConfigId());
-        requireListUiConfig(snapshot, uiConfig);
-        Set<String> visibleFields = new LinkedHashSet<>();
-        for (PlatformUiConfigField field : snapshot.uiFields()) {
-            if (!Objects.equals(field.getUiConfigId(), uiConfig.getId())
-                    || !Boolean.TRUE.equals(field.getVisible())) {
-                continue;
-            }
-            ResolvedModuleMetadataField resolved = moduleMetadataFieldService.resolve(field.getModuleMetadataFieldId());
-            if (DynamicWebQueryFieldSupport.searchableTextField(resolved)) {
-                visibleFields.add(resolved.fieldName());
-            }
-        }
-        if (request.quickSearchFields().isEmpty()) {
-            return List.copyOf(visibleFields);
-        }
-        List<String> requestedFields = request.quickSearchFields().stream()
-                .filter(this::hasText)
-                .map(String::trim)
-                .distinct()
-                .toList();
-        for (String field : requestedFields) {
-            if (!visibleFields.contains(field)) {
-                throw new PlatformException("Quick search field is not searchable in UI config: " + field);
-            }
-        }
-        return requestedFields;
-    }
-
-    private void requireListUiConfig(PlatformPageConfigSnapshot snapshot, PlatformUiConfig uiConfig) {
-        PlatformUiSet uiSet = snapshot.uiSets().stream()
-                .filter(set -> Objects.equals(set.getId(), uiConfig.getUiSetId()))
-                .findFirst()
-                .orElseThrow(() -> new PlatformException("UI config set is not published in module snapshot: "
-                        + uiConfig.getUiSetId()));
-        if (uiSet.getSetType() != PlatformUiSetType.LIST) {
-            throw new PlatformException("List query requires LIST UI config: " + uiConfig.getId());
-        }
-    }
-
-    private List<String> quickSearchFieldsForSchema(String uiConfigId) {
-        if (!hasText(uiConfigId)) {
-            return List.of();
-        }
-        return quickSearchFields(DynamicWebRequest.moduleAlias(),
-                new WebQueryRequest(null, null, List.of(), null, Map.of(), List.of(),
-                        uiConfigId, null, Map.of(), null, null, List.of(), null));
-    }
-
     private void requireDataScopeRecord(PlatformAction action, String id) {
         Object operations = service();
         if (operations instanceof DataScopeAbility<?> dataScopeAbility) {
@@ -1187,92 +1007,35 @@ public class DynamicRecordWebController implements
                 .orElseGet(fallback::executionPolicy);
     }
 
-    private Set<String> projectionFields(String moduleAlias, WebQueryRequest request) {
-        if (executionPlanCatalog != null) {
-            return requireExecutionPlan(moduleAlias).readModel().fields().stream()
-                    .filter(field -> field.relationCode() == null || field.relationCode().isBlank())
-                    .map(net.ximatai.muyun.spring.platform.web.ResolvedModuleReadField::fieldName)
-                    .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new));
-        }
-        requireLowCodePageServices();
-        PlatformPageConfigSnapshot snapshot = pageConfigSnapshotService.snapshot(moduleAlias);
-        PlatformUiConfig uiConfig = publishedUiConfig(snapshot, request.uiConfigId());
-        Set<String> fields = new LinkedHashSet<>();
-        for (PlatformUiConfigField field : snapshot.uiFields()) {
-            if (!Objects.equals(field.getUiConfigId(), uiConfig.getId())
-                    || !Boolean.TRUE.equals(field.getVisible())) {
-                continue;
-            }
-            ResolvedModuleMetadataField resolved = moduleMetadataFieldService.resolve(field.getModuleMetadataFieldId());
-            if (resolved.relationRole() != RelationRole.MAIN) {
-                throw new PlatformException("List UI config only supports main relation fields: "
-                        + field.getModuleMetadataFieldId());
-            }
-            fields.add(resolved.fieldName());
-        }
-        return fields;
+    private Set<String> projectionFields(String moduleAlias) {
+        return requireExecutionPlan(moduleAlias).readModel().fields().stream()
+                .filter(field -> field.relationCode() == null || field.relationCode().isBlank())
+                .map(net.ximatai.muyun.spring.platform.web.ResolvedModuleReadField::fieldName)
+                .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new));
     }
 
     private Criteria targetQueryCriteria(String moduleAlias, String entityAlias, WebQueryRequest request) {
-        Criteria templateCriteria = Criteria.of();
-        if (request != null && hasText(request.queryTemplateId())) {
-            requireLowCodeQueryServices();
-            validateQueryTemplateBelongsToModule(moduleAlias, request.queryTemplateId());
-            templateCriteria = queryItemService.compile(request.queryTemplateId(), request.externalQueryValues());
-        }
+        ModuleExecutionPlan plan = requireExecutionPlan(moduleAlias);
+        Criteria templateCriteria = plannedTemplateCriteria(plan, request,
+                conditions -> recordService.queryCriteria(moduleAlias, entityAlias, conditions));
         Criteria manualCriteria = request == null || request.conditions().isEmpty()
                 ? Criteria.of()
                 : criteria(moduleAlias, entityAlias, request.conditions());
         Criteria treeCriteria = request == null || request.criteria() == null
                 ? Criteria.of()
                 : criteria(moduleAlias, entityAlias, request.criteria());
-        Criteria queryFormCriteria = DynamicWebQueryFormSupport.queryFormCriteria(moduleAlias,
-                request, pageConfigSnapshotService, moduleMetadataFieldService, fieldUiControlService,
-                fieldUiControlBindingService,
+        Criteria queryFormCriteria = plannedQueryFormCriteria(request, plan.queryFormFields(),
                 conditions -> recordService.queryCriteria(moduleAlias, entityAlias, conditions));
-        Criteria quickCriteria = quickSearchCriteria(moduleAlias, request);
+        Criteria quickCriteria = plannedQuickSearchCriteria(request, plan.querySchema());
         return andCriteria(templateCriteria, queryFormCriteria, manualCriteria, treeCriteria, quickCriteria);
     }
 
     private void validateUiSave(String moduleAlias, DynamicRecord record) {
         Object uiConfigIdValue = record.mutationMetadata().get("uiConfigId");
-        if (executionPlanCatalog != null) {
-            var plan = requireExecutionPlan(moduleAlias);
-            String uiConfigId = uiConfigIdValue instanceof String value && hasText(value) ? value : null;
-            if (plan.formUiConfigId() != null && !plan.formUiConfigId().equals(uiConfigId)) {
-                throw PlatformErrors.config(PlatformErrorCodes.CONFIG_MISSING,
-                        "Save requires published FORM uiConfigId from module execution plan: " + plan.formUiConfigId(),
-                        ErrorScope.module(moduleAlias));
-            }
-            validatePlanUiSave(moduleAlias, record, plan.mutationFieldValidations());
-            return;
-        }
-        if (!(uiConfigIdValue instanceof String uiConfigId) || !hasText(uiConfigId)) {
-            return;
-        }
-        requireLowCodePageServices();
-        PlatformPageConfigSnapshot snapshot = pageConfigSnapshotService.snapshot(moduleAlias);
-        PlatformUiConfig uiConfig = snapshot.uiConfigs().stream()
-                .filter(config -> Objects.equals(config.getId(), uiConfigId))
-                .findFirst()
-                .orElseThrow(() -> PlatformErrors.config(PlatformErrorCodes.CONFIG_MISSING,
-                        "UI config is not published in module snapshot: " + uiConfigId,
-                        ErrorScope.module(moduleAlias)));
-        Map<String, FieldDefinition> mainFields = record.getEntity().fields().stream()
-                .collect(java.util.stream.Collectors.toMap(FieldDefinition::fieldName, field -> field));
-        for (PlatformUiConfigField uiField : snapshot.uiFields()) {
-            if (!Objects.equals(uiField.getUiConfigId(), uiConfig.getId())
-                    || !Boolean.TRUE.equals(uiField.getVisible())) {
-                continue;
-            }
-            ResolvedModuleMetadataField resolved = moduleMetadataFieldService.resolve(uiField.getModuleMetadataFieldId());
-            if (resolved.relationRole() == RelationRole.MAIN) {
-                validateUiRecordField(moduleAlias, record, uiField, mainFields.get(resolved.fieldName()),
-                        resolved.fieldName());
-            } else if (resolved.relationRole() == RelationRole.CHILD) {
-                validateUiChildField(moduleAlias, record, uiField, resolved);
-            }
-        }
+        var plan = requireExecutionPlan(moduleAlias);
+        String uiConfigId = uiConfigIdValue instanceof String value && hasText(value) ? value : null;
+        requirePlanUiConfig(moduleAlias, plan.formUiConfigId(), uiConfigId, "FORM", "Save");
+        validatePlanUiSave(moduleAlias, record, plan.mutationFieldValidations());
     }
 
     private void validatePlanUiSave(String moduleAlias, DynamicRecord record,
@@ -1304,73 +1067,6 @@ public class DynamicRecordWebController implements
                 throw PlatformErrors.validation(PlatformErrorCodes.VALIDATION_FAILED,
                         "UI required field is missing: " + fieldPath, uiFieldTarget(moduleAlias, fieldPath, rowIndex));
             }
-        }
-    }
-
-    private void validateUiChildField(String moduleAlias,
-                                      DynamicRecord record,
-                                      PlatformUiConfigField uiField,
-                                      ResolvedModuleMetadataField resolved) {
-        List<DynamicRecord> rows = record.getChildren(resolved.relationAlias());
-        if (rows == null || rows.isEmpty()) {
-            return;
-        }
-        for (int rowIndex = 0; rowIndex < rows.size(); rowIndex++) {
-            DynamicRecord row = rows.get(rowIndex);
-            Map<String, FieldDefinition> fields = row.getEntity().fields().stream()
-                    .collect(java.util.stream.Collectors.toMap(FieldDefinition::fieldName, field -> field));
-            validateUiRecordField(moduleAlias, row, uiField, fields.get(resolved.fieldName()),
-                    resolved.relationAlias() + "." + resolved.fieldName(), rowIndex);
-        }
-    }
-
-    private void validateUiRecordField(String moduleAlias,
-                                       DynamicRecord record,
-                                       PlatformUiConfigField uiField,
-                                       FieldDefinition field,
-                                       String fieldPath) {
-        validateUiRecordField(moduleAlias, record, uiField, field, fieldPath, null);
-    }
-
-    private void validateUiRecordField(String moduleAlias,
-                                       DynamicRecord record,
-                                       PlatformUiConfigField uiField,
-                                       FieldDefinition field,
-                                       String fieldPath,
-                                       Integer rowIndex) {
-        if (field == null) {
-            return;
-        }
-        validateUiReadOnly(moduleAlias, record, uiField, field, fieldPath, rowIndex);
-        validateUiRequired(moduleAlias, record, uiField, field, fieldPath, rowIndex);
-    }
-
-    private void validateUiReadOnly(String moduleAlias,
-                                    DynamicRecord record,
-                                    PlatformUiConfigField uiField,
-                                    FieldDefinition field,
-                                    String fieldPath,
-                                    Integer rowIndex) {
-        if (Boolean.TRUE.equals(uiField.getReadOnly()) && record.isExplicitlySet(field.fieldName())) {
-            throw PlatformErrors.validation(PlatformErrorCodes.VALIDATION_FAILED,
-                    "UI read-only field cannot be saved: " + fieldPath, uiFieldTarget(moduleAlias, fieldPath, rowIndex));
-        }
-    }
-
-    private void validateUiRequired(String moduleAlias,
-                                    DynamicRecord record,
-                                    PlatformUiConfigField uiField,
-                                    FieldDefinition field,
-                                    String fieldPath,
-                                    Integer rowIndex) {
-        boolean required = Boolean.TRUE.equals(uiField.getRequiredOverride()) || field.isRequired();
-        if (!required) {
-            return;
-        }
-        Object value = record.getValues().get(field.fieldName());
-        if (value == null || value instanceof String text && text.isBlank()) {
-            throw PlatformErrors.validation(PlatformErrorCodes.VALIDATION_FAILED,
-                    "UI required field is missing: " + fieldPath, uiFieldTarget(moduleAlias, fieldPath, rowIndex));
         }
     }
 
@@ -1472,7 +1168,7 @@ public class DynamicRecordWebController implements
     }
 
     private void requireLowCodePageServices() {
-        if (pageConfigSnapshotService == null || moduleMetadataFieldService == null) {
+        if (pageConfigSnapshotService == null) {
             throw new PlatformException("dynamic low-code page services are not configured");
         }
     }
@@ -1531,15 +1227,11 @@ public class DynamicRecordWebController implements
 
     private Criteria treeSortScopeCriteria(String moduleAlias, TreeSortScopeRequest scope) {
         if (scope == null) {
-            if (executionPlanCatalog == null || !service().describe().capabilities().contains(EntityCapability.TREE.name())) {
+            if (!service().describe().capabilities().contains(EntityCapability.TREE.name())) {
                 return Criteria.of();
             }
             return PageContextScopePolicy.criteria(
-                    navigatorQueryBindings(moduleAlias, null, PageContextTarget.LIST_QUERY), Map.of(), false);
-        }
-        if (executionPlanCatalog == null) {
-            throw PlatformErrors.badRequest(PlatformErrorCodes.VALIDATION_FAILED,
-                    "Tree sort scope requires a published execution plan");
+                    navigatorQueryBindings(moduleAlias, PageContextTarget.LIST_QUERY), Map.of(), false);
         }
         List<PageContextBindingDefinition> bindings;
         if (hasText(scope.navigatorHostModuleAlias())) {
@@ -1547,7 +1239,7 @@ public class DynamicRecordWebController implements
             bindings = navigatorReferenceBindings(moduleAlias, query);
             return PageContextScopePolicy.criteria(bindings, scope.externalQueryValues(), true);
         }
-        bindings = navigatorQueryBindings(moduleAlias, null, PageContextTarget.LIST_QUERY);
+        bindings = navigatorQueryBindings(moduleAlias, PageContextTarget.LIST_QUERY);
         return PageContextScopePolicy.criteria(bindings, scope.externalQueryValues(), false);
     }
 

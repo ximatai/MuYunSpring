@@ -1,4 +1,4 @@
-import { flushPromises, shallowMount } from '@vue/test-utils';
+import { flushPromises, mount, shallowMount } from '@vue/test-utils';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { defineComponent } from 'vue';
 import ModulePageHost from '@/dynamic-page-runtime/ModulePageHost.vue';
@@ -15,6 +15,115 @@ describe('ModulePageHost', () => {
     window.localStorage.removeItem('muyun.preference.module-page.detail-surface.crm.customer');
     window.localStorage.removeItem('muyun.preference.module-page.list-page-size.crm.customer');
   });
+
+  it.each(['FLAT_MANAGEMENT', 'LIST_DETAIL_CARD', 'TREE_MANAGEMENT'] as const)(
+    'routes %s navigator interaction through PageNavigatorExplorer',
+    async (template) => {
+      globalThis.fetch = async (input) => {
+        const request = new Request(input);
+        if (request.url.endsWith('/platform.module/crm.customer/context')) {
+          return Response.json({
+            moduleAlias: 'crm.customer',
+            capabilities: [],
+            actions: [],
+            uiDescriptor: {
+              schemaVersion: '1',
+              moduleAlias: 'crm.customer',
+              page: page({
+                template,
+                navigator: {
+                  contextBindings: [
+                    {
+                      source: 'NAVIGATOR',
+                      sourceKey: 'organization',
+                      target: 'NAVIGATOR_QUERY',
+                      targetKey: 'organizationId',
+                      targetNavigatorLevelKey: 'tenant',
+                    },
+                  ],
+                  levels: [
+                    {
+                      key: 'organization',
+                      kind: 'MICRO_LIST',
+                      sourceModuleAlias: 'iam.organization',
+                      title: '组织',
+                    },
+                    {
+                      key: 'tenant',
+                      kind: 'MICRO_LIST',
+                      sourceModuleAlias: 'iam.tenant',
+                      title: '租户',
+                    },
+                  ],
+                },
+              }),
+            },
+          });
+        }
+        if (request.url.endsWith('/platform.module/iam.tenant/reference-context')) {
+          return Response.json({ moduleAlias: 'iam.tenant', capabilities: [], actions: [] });
+        }
+        if (request.url.endsWith('/platform.module/iam.organization/reference-context')) {
+          return Response.json({ moduleAlias: 'iam.organization', capabilities: [], actions: [] });
+        }
+        if (request.url.endsWith('/crm.customer/query')) {
+          return Response.json({
+            records: [],
+            total: 0,
+            pageNum: 1,
+            pageSize: 20,
+            pages: 0,
+            totalKnown: true,
+          });
+        }
+        throw new Error(`Unexpected request: ${request.url}`);
+      };
+      configureModuleContext({ httpFactory: () => createHttpClient({ baseUrl: 'http://api.local' }) });
+
+      const wrapper = mount(ModulePageHost, {
+        props: {
+          descriptor: {
+            pageType: 'dynamic-module',
+            openMode: 'dynamic-runner',
+            hostType: 'dynamic-module-host',
+            tabPolicy: { identity: 'by-menu' },
+            target: { moduleAlias: 'crm.customer', pageMode: 'LIST' },
+          },
+        },
+        global: {
+          stubs: {
+            StaticManagementLayout: {
+              template:
+                '<section><slot v-for="index in 2" name="navigator" :index="index - 1" /><slot name="explorer" /><slot /></section>',
+            },
+            ManagementWorkspace: { template: '<section><slot /></section>' },
+            ManagementExplorerColumn: { template: '<aside><slot /></aside>' },
+            RecordExplorerPanel: { template: '<section><slot /></section>' },
+            TreeRecordExplorer: { name: 'TreeRecordExplorer', template: '<div />' },
+            CrudRecordListExplorer: { name: 'CrudRecordListExplorer', template: '<div />' },
+            RecordQueryListPanel: { name: 'RecordQueryListPanel', template: '<div />' },
+            RecordPanelState: { name: 'RecordPanelState', template: '<div />' },
+            NavigatorPanelActions: { name: 'NavigatorPanelActions', template: '<div />' },
+          },
+        },
+      });
+      await flushPromises();
+
+      const navigators = wrapper.findAllComponents({ name: 'PageNavigatorExplorer' });
+      expect(navigators).toHaveLength(2);
+      const organization = navigators.find((item) => item.props('level').descriptor.key === 'organization')!;
+      const tenant = navigators.find((item) => item.props('level').descriptor.key === 'tenant')!;
+      expect(organization.props('ready')).toBe(true);
+      expect(tenant.props('ready')).toBe(false);
+      expect(tenant.findComponent({ name: 'CrudRecordListExplorer' }).exists()).toBe(false);
+      organization.vm.$emit('select', { id: 'organization-1', title: '总部' });
+      await flushPromises();
+      expect(tenant.props('ready')).toBe(true);
+      expect(tenant.findComponent({ name: 'CrudRecordListExplorer' }).exists()).toBe(true);
+      expect(tenant.props('externalQueryValues')).toEqual({ organizationId: 'organization-1' });
+      wrapper.unmount();
+    },
+  );
 
   it('executes a declared detail action block through the standard record action endpoint', async () => {
     const ExtensionDrawer = defineComponent({ name: 'ExtensionDrawer', template: '<section>扩展</section>' });
@@ -887,7 +996,7 @@ describe('ModulePageHost', () => {
     expect(stateScopes.at(-1)).toMatchObject({ moduleAlias: 'mr.knowledge_directory' });
 
     wrapper
-      .findComponent({ name: 'CrudRecordListExplorer' })
+      .findComponent({ name: 'PageNavigatorExplorer' })
       .vm.$emit('select', { id: 'directory-1', title: '设备资料' });
     await flushPromises();
 
@@ -1006,11 +1115,11 @@ describe('ModulePageHost', () => {
     await flushPromises();
 
     const explorers = wrapper
-      .findAllComponents({ name: 'CrudRecordListExplorer' })
-      .filter((explorer) => explorer.props('context').moduleAlias === 'iam.tenant');
+      .findAllComponents({ name: 'PageNavigatorExplorer' })
+      .filter((explorer) => explorer.props('level').context.moduleAlias === 'iam.tenant');
     const treeExplorer = wrapper
-      .findAllComponents({ name: 'TreeRecordExplorer' })
-      .find((explorer) => explorer.props('context').moduleAlias === 'iam.organization');
+      .findAllComponents({ name: 'PageNavigatorExplorer' })
+      .find((explorer) => explorer.props('level').context.moduleAlias === 'iam.organization');
     const panel = wrapper.findComponent({ name: 'RecordQueryListPanel' });
     expect(explorers).toHaveLength(1);
     expect(treeExplorer).toBeDefined();
@@ -1110,7 +1219,7 @@ describe('ModulePageHost', () => {
     });
     await flushPromises();
 
-    const navigator = wrapper.findComponent({ name: 'CrudRecordListExplorer' });
+    const navigator = wrapper.findComponent({ name: 'PageNavigatorExplorer' });
     const list = wrapper.findComponent({ name: 'RecordQueryListPanel' });
     navigator.vm.$emit('loaded', [{ id: 'xcmg', title: '徐工集团' }]);
     await flushPromises();
@@ -1186,7 +1295,7 @@ describe('ModulePageHost', () => {
     });
     await flushPromises();
 
-    const navigator = wrapper.findComponent({ name: 'CrudRecordListExplorer' });
+    const navigator = wrapper.findComponent({ name: 'PageNavigatorExplorer' });
     const list = wrapper.findComponent({ name: 'RecordQueryListPanel' });
     navigator.vm.$emit('loaded', [
       { id: 'tenant-a', title: '甲租户' },
@@ -1195,11 +1304,8 @@ describe('ModulePageHost', () => {
     await flushPromises();
 
     expect(list.props('externalQueryValues')).toEqual({ tenantId: 'tenant-a' });
-    expect(wrapper.findComponent({ name: 'CrudRecordListExplorer' }).exists()).toBe(true);
-    const navigatorActions = wrapper.findAllComponents({ name: 'NavigatorPanelActions' });
-    expect(navigatorActions).toHaveLength(1);
-    expect(navigatorActions[0].props('context').moduleAlias).toBe('iam.tenant');
-    expect(navigatorActions[0].props('createAvailable')).toBe(true);
+    expect(wrapper.findComponent({ name: 'PageNavigatorExplorer' }).exists()).toBe(true);
+    expect(navigator.props('createDisabled')).toBe(false);
 
     navigator.vm.$emit('deselect');
     await flushPromises();
@@ -1545,8 +1651,8 @@ describe('ModulePageHost', () => {
 
     await flushPromises();
     const navigator = wrapper
-      .findAllComponents({ name: 'CrudRecordListExplorer' })
-      .find((explorer) => explorer.props('context').moduleAlias === 'platform.module');
+      .findAllComponents({ name: 'PageNavigatorExplorer' })
+      .find((explorer) => explorer.props('level').context.moduleAlias === 'platform.module');
     expect(navigator).toBeDefined();
     navigator!.vm.$emit('loaded', [
       { id: 'platform.application', title: '平台应用' },
@@ -1640,8 +1746,8 @@ describe('ModulePageHost', () => {
 
     await flushPromises();
     const navigator = wrapper
-      .findAllComponents({ name: 'CrudRecordListExplorer' })
-      .find((explorer) => explorer.props('context').moduleAlias === 'platform.module');
+      .findAllComponents({ name: 'PageNavigatorExplorer' })
+      .find((explorer) => explorer.props('level').context.moduleAlias === 'platform.module');
     expect(navigator).toBeDefined();
     navigator!.vm.$emit('loaded', [{ id: 'other-module', title: '其他模块' }]);
     await flushPromises();
@@ -1739,8 +1845,8 @@ describe('ModulePageHost', () => {
 
     await flushPromises();
     const navigator = wrapper
-      .findAllComponents({ name: 'CrudRecordListExplorer' })
-      .find((explorer) => explorer.props('context').moduleAlias === 'platform.module');
+      .findAllComponents({ name: 'PageNavigatorExplorer' })
+      .find((explorer) => explorer.props('level').context.moduleAlias === 'platform.module');
     expect(navigator).toBeDefined();
     navigator!.vm.$emit('loaded', [{ id: 'platform.application', title: '平台应用' }]);
     await flushPromises();
