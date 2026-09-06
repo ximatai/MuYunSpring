@@ -45,7 +45,6 @@
 | --- | --- | --- | --- |
 | TD-042 | 表单型自定义动作尚无统一输入与提交协议 | 当前 editor surface 已可声明默认或具名编辑字段，并可由页面承载面选择；但 `CustomActionEndpoint` 的请求 DTO、记录上下文、提交 URL/方法和成功后的数据变化语义仍由各业务接口自行定义。若仅增加 `actionEditor(actionCode, ...)`，会形成能展示字段却无法可靠提交或刷新的一半能力 | 出现第二个需要“独立动作仅编辑少数字段”的标准页面场景时，定义动作输入 descriptor、actionEditor 与已发布动作的编译校验、前端提交/权限/记录上下文和统一数据变化回执，再开放 DSL |
 | TD-043 | 静态读 transport 的投影与 navigator 适配尚未形成专用门面 | 当前 `CrudWeb` 与 `StaticQueryViewWeb` 都要将静态 descriptor 的查询投影、navigator 条件和 `DataScopeAbility` 接入标准查询；二者已共用 `QueryViewWeb.queryRecords`，避免数据范围漂移，但其余适配逻辑仍各自表达。现在仅有两种 transport，提前抽成万能基类会抹平 schema、投影与 mutation surface 的真实差异 | 出现第三种需要静态 descriptor 驱动读投影的 transport 时，提炼仅负责 projection、navigator 和 action-aware query 的静态读投影门面；各 transport 继续独立决定 endpoint 与 mutation surface，禁止复制新的查询链路 |
-| TD-049 | 职员模块仍依赖静态读投影兼容路径 | `LegacyStaticReadProjectionCompatibility` 目前只由 `EmployeeWebController` 使用；兼容 marker、扫描目录字段和 `CrudWeb` fallback 允许该模块绕开严格的 `StandardModuleWebRuntime` 计划路径，若长期保留会形成第二套请求期读投影语义 | 将 `EmployeeWebController` 迁到由 `StandardModuleWebRuntime` 消费已编译 `ModuleExecutionPlan` 的路径，并以“计划缺失启动失败、请求期不重解 DSL”的契约测试替代兼容测试；随后同时删除 marker、目录字段和 fallback |
 
 ## 前端工作台关注
 

@@ -2,7 +2,6 @@ package net.ximatai.muyun.spring.platform.web;
 
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.Sort;
-import net.ximatai.muyun.spring.ability.CrudAbility;
 import net.ximatai.muyun.spring.ability.SortAbility;
 import net.ximatai.muyun.spring.ability.form.FormAbility;
 import net.ximatai.muyun.spring.ability.form.FormSchema;
@@ -237,9 +236,17 @@ final class CrudWebRuntimeSupport {
      * opaque-selection targets are resolved by their own page-context contracts and must not be
      * compiled a second time from the request body.
      */
-    private static WebQueryRequest withoutWorkspaceExternalValues(CrudWeb<?, ?> controller, WebQueryRequest request) {
+    static WebQueryRequest withoutWorkspaceExternalValues(CrudWeb<?, ?> controller, WebQueryRequest request) {
         if (request == null || request.externalQueryValues().isEmpty()) return request;
-        Set<String> workspaceKeys = pageContextBindings(controller, request.uiConfigId(), PageContextTarget.LIST_QUERY).stream()
+        return withoutWorkspaceExternalValues(request,
+                pageContextBindings(controller, request.uiConfigId(), PageContextTarget.LIST_QUERY));
+    }
+
+    static WebQueryRequest withoutWorkspaceExternalValues(WebQueryRequest request,
+                                                          List<PageContextBindingDefinition> bindings) {
+        if (request == null || request.externalQueryValues().isEmpty()) return request;
+        Set<String> workspaceKeys = bindings.stream()
+                .filter(binding -> binding.target() == PageContextTarget.LIST_QUERY)
                 .filter(binding -> binding.source() == PageContextSource.NAVIGATOR
                         || binding.source() == PageContextSource.RESOLVED_SELECTION)
                 .map(PageContextBindingDefinition::targetKey).collect(java.util.stream.Collectors.toSet());

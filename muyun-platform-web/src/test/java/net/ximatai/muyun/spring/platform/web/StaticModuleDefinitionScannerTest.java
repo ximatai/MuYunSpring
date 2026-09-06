@@ -51,7 +51,6 @@ import net.ximatai.muyun.spring.iam.user.PasswordPolicyRuleService;
 import net.ximatai.muyun.spring.platform.code.CodeRuleService;
 import net.ximatai.muyun.spring.platform.menu.MenuSchemeService;
 import net.ximatai.muyun.spring.platform.metadata.FieldSpecService;
-import net.ximatai.muyun.spring.iam.tenant.TenantApplicationService;
 import net.ximatai.muyun.spring.iam.user.PasswordHashingService;
 import net.ximatai.muyun.spring.iam.user.CurrentUserProfileService;
 import net.ximatai.muyun.spring.iam.user.UserAccountDao;
@@ -108,6 +107,7 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.withSettings;
@@ -268,6 +268,11 @@ class StaticModuleDefinitionScannerTest {
             List<StaticModuleDefinition> definitions = scanner.scan();
             Map<String, StaticModuleDefinition> byAlias = definitions.stream()
                     .collect(Collectors.toMap(StaticModuleDefinition::moduleAlias, Function.identity()));
+
+            ModuleExecutionPlanCatalog plans = new ModuleExecutionPlanCatalog(
+                    new StaticModuleDefinitionCatalog(List.of(byAlias.get("iam.employee"))));
+            assertThatCode(plans::afterSingletonsInstantiated).doesNotThrowAnyException();
+            assertThat(plans.find("iam.employee")).isPresent();
 
             assertThat(byAlias.keySet()).containsExactlyInAnyOrder(
                     "iam.tenant", "iam.organization", "iam.department", "iam.employee",

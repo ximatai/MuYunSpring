@@ -17,7 +17,6 @@ import net.ximatai.muyun.spring.ability.query.QueryDescriptor;
 import net.ximatai.muyun.spring.ability.query.QueryField;
 import net.ximatai.muyun.spring.ability.query.QueryOperator;
 import net.ximatai.muyun.spring.ability.query.QueryRequest;
-import net.ximatai.muyun.spring.ability.query.QuerySchema;
 import net.ximatai.muyun.spring.ability.query.QueryValueType;
 import net.ximatai.muyun.spring.ability.reference.ReferencePath;
 import net.ximatai.muyun.spring.ability.reference.ModuleReadProjection;
@@ -32,6 +31,8 @@ import net.ximatai.muyun.spring.platform.module.StaticModuleReadProjectionDefini
 import net.ximatai.muyun.spring.platform.module.StaticReferenceCompiler;
 import net.ximatai.muyun.spring.platform.web.StaticRecordReadProjectionService;
 import net.ximatai.muyun.spring.platform.web.StandardModuleWebRuntime;
+import net.ximatai.muyun.spring.platform.web.ModuleExecutionPlanCatalog;
+import net.ximatai.muyun.spring.platform.web.ListQuerySummaryRuntime;
 import net.ximatai.muyun.spring.platform.web.ActionEndpointWebConfiguration;
 import net.ximatai.muyun.spring.web.ActionResultResponseAdvice;
 import net.ximatai.muyun.spring.web.CurrentUserWebFilter;
@@ -76,16 +77,19 @@ import net.ximatai.muyun.spring.iam.user.UserAccount;
 import net.ximatai.muyun.spring.iam.user.UserAccountService;
 import net.ximatai.muyun.spring.platform.module.ModuleEntryType;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.BeforeEach;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Supplier;
@@ -95,6 +99,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isA;
 import static org.mockito.Mockito.atLeastOnce;
+import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doCallRealMethod;
 import static org.mockito.Mockito.never;
@@ -119,11 +124,17 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         ActionEndpointWebConfiguration.class,
         ActionResultResponseAdvice.class,
         PlatformWebExceptionHandler.class,
-        StaticRecordReadProjectionService.class
+        StaticRecordReadProjectionService.class,
+        StandardModuleWebRuntime.class,
+        ListQuerySummaryRuntime.class,
+        net.ximatai.muyun.spring.platform.web.ListQuerySummaryContributorCatalog.class
 })
 class IamWebMvcSliceTest {
     @Autowired
     private MockMvc mvc;
+
+    @MockitoSpyBean
+    private EmployeeWebController employeeController;
 
     @MockitoBean
     private TenantService tenantService;
@@ -152,8 +163,14 @@ class IamWebMvcSliceTest {
     @MockitoBean
     private StaticModuleDefinitionCatalog staticModuleDefinitionCatalog;
 
-    /** The migrated position endpoint must receive the standard execution-plan runtime from Spring. */
     @MockitoBean
+    private ModuleExecutionPlanCatalog executionPlanCatalog;
+
+    @MockitoBean
+    private net.ximatai.muyun.spring.platform.web.RelationProjectionReadService relationProjectionReadService;
+
+    /** The migrated endpoints receive a real execution-plan runtime from Spring. */
+    @MockitoSpyBean
     private StandardModuleWebRuntime standardModuleWebRuntime;
 
     @MockitoBean
@@ -170,6 +187,32 @@ class IamWebMvcSliceTest {
 
     @MockitoBean
     private CurrentUserProvider currentUserProvider;
+
+    @BeforeEach
+    void installEmployeeExecutionPlan() {
+        StaticModuleDefinition definition = employeeStaticModuleDefinition();
+        ModuleExecutionPlanCatalog compiledPlans = new ModuleExecutionPlanCatalog(
+                new StaticModuleDefinitionCatalog(List.of(definition,
+                        moduleDefinition("iam.tenant", "租户", Tenant.class),
+                        moduleDefinition("iam.position", "岗位", Position.class))));
+        compiledPlans.afterSingletonsInstantiated();
+        when(executionPlanCatalog.find(EmployeeService.MODULE_ALIAS)).thenReturn(compiledPlans.find(EmployeeService.MODULE_ALIAS));
+        when(executionPlanCatalog.find("iam.tenant")).thenReturn(compiledPlans.find("iam.tenant"));
+        when(executionPlanCatalog.find("iam.position")).thenReturn(compiledPlans.find("iam.position"));
+        clearInvocations(employeeController);
+    }
+
+    @Test
+    void shouldServeEmployeeReadFromInstalledPlanWithoutReinvokingUiDeclaration() throws Exception {
+        when(currentUserProvider.currentUser())
+                .thenReturn(Optional.of(CurrentUser.tenantUser("user-1", "User", "tenant_a")));
+
+        mvc.perform(get("/iam.employee/form/schema"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.scopeName").value(EmployeeService.MODULE_ALIAS));
+
+        verify(employeeController, never()).moduleUiDefinition();
+    }
 
     @Test
     void shouldUseInjectedServiceAndCurrentUserTenantInRealMvcContext() throws Exception {
@@ -319,7 +362,17 @@ class IamWebMvcSliceTest {
         when(currentUserProvider.currentUser())
                 .thenReturn(Optional.of(CurrentUser.tenantUser("user-1", "User", "tenant_a")));
 
+        Employee employee = new Employee();
+        employee.setId("employee-1");
+        employee.setOrganizationId("org-1");
+        when(employeeService.select("employee-1")).thenReturn(employee);
+        Employee previous = new Employee();
+        previous.setId("employee-0");
+        previous.setOrganizationId("org-1");
+        when(employeeService.select("employee-0")).thenReturn(previous);
+
         mvc.perform(post("/iam.employee/sort/employee-1")
+                        .header("X-MuYun-Page-Context", "{\"organization\":\"org-1\"}")
                         .contentType("application/json")
                         .content("""
                                 {"previousId":"employee-0"}
@@ -511,6 +564,17 @@ class IamWebMvcSliceTest {
         when(employeeService.pageQueryForAction(eq(PlatformAction.QUERY),
                 any(Criteria.class), any(PageRequest.class), any(Sort[].class)))
                 .thenReturn(PageResult.of(List.of(employee), 1, PageRequest.of(1, 20)));
+        var descriptor = org.mockito.Mockito.mock(net.ximatai.muyun.spring.platform.web.ProjectionQueryDescriptor.class);
+        when(descriptor.supported()).thenReturn(true);
+        when(relationProjectionReadService.describeListQuery(any(), any(), any())).thenReturn(descriptor);
+        when(employeeService.readScopeByPolicy(any(), any(Criteria.class)))
+                .thenAnswer(invocation -> DataScopeCriteriaResult.unrestricted(invocation.getArgument(1)));
+        doAnswer(invocation -> invocation.<Supplier<?>>getArgument(1).get())
+                .when(employeeService).withDataScopeTenant(any(), any());
+        when(relationProjectionReadService.queryList(any(), any(), any(), any(Criteria.class),
+                any(PageRequest.class), any(Sort[].class))).thenReturn(Optional.of(PageResult.of(List.of(Map.<String, Object>of(
+                        "id", "employee-1", "employeeNo", "E001", "title", "Alice", "mobile", "13800000000",
+                        "email", "alice@example.test", "enabled", true, "version", 7)), 1, PageRequest.of(1, 20))));
         PlatformAbilityRuntime.configureReferenceTargetResolver(target ->
                 ReferenceTarget.of("iam", "organization").equals(target)
                         ? java.util.Optional.of(organizationService)
@@ -1019,13 +1083,14 @@ class IamWebMvcSliceTest {
         return StaticModuleDefinition.builder("iam", EmployeeService.MODULE_ALIAS, "职员管理")
                        .parentModuleAlias(null)
                        .entry(ModuleEntryType.ROUTE, "/iam/employees", null)
-                       .capabilities(Set.of(EntityCapability.CRUD))
+                       .capabilities(Set.of(EntityCapability.CRUD, EntityCapability.ENABLE, EntityCapability.SORT, EntityCapability.SOFT_DELETE, EntityCapability.RECYCLE_BIN))
                        .actions(List.of())
                        .entities(List.of(
                                new StaticEntityDefinitionCompiler().compile("employee", "职员管理", Employee.class),
                                new StaticEntityDefinitionCompiler().compile("positions", "任职", EmployeePosition.class)
                        ))
                        .uiDefinition(controller.moduleUiDefinition())
+                       .pageContextBindings(controller.pageSelectionContextBindings())
                        .references(StaticReferenceCompiler.compile(Employee.class))
                        .readProjections(List.of(
                         new StaticModuleReadProjectionDefinition(
@@ -1051,6 +1116,7 @@ class IamWebMvcSliceTest {
                                 false)
                 ))
                        .modelClass(Employee.class)
+                       .queryDescriptor(employeeQueryDescriptor())
                        .projectionJoins(List.of())
                        .build();
     }

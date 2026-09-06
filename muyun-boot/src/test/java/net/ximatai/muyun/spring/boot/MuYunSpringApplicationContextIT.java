@@ -801,6 +801,20 @@ class MuYunSpringApplicationContextIT {
                             .containsEntry("accountBound", false);
                 });
 
+        WebQueryRequest employeeRequest = new WebQueryRequest(new WebPageRequest(1, 20),
+                List.of(new WebQueryCondition("username", "EQ", List.of(projectionUsername(tenantId, "alice")))),
+                List.of(new WebSort("employeeNo", false)))
+                .withExternalQueryValues(Map.of("organizationId", projectionOrganizationId(tenantId)));
+        ResponseEntity<JsonNode> employeeHttpPage = restTemplate.exchange(
+                "/iam.employee/query", HttpMethod.POST, new HttpEntity<>(employeeRequest, headers), JsonNode.class);
+        assertThat(employeeHttpPage.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(employeeHttpPage.getBody()).isNotNull();
+        assertThat(employeeHttpPage.getBody().path("records")).hasSize(1);
+        JsonNode employeeHttpAlice = employeeHttpPage.getBody().path("records").get(0);
+        assertThat(employeeHttpAlice.path("employeeNo").asText()).isEqualTo("E-PROJ-001");
+        assertThat(employeeHttpAlice.path("username").asText()).isEqualTo(projectionUsername(tenantId, "alice"));
+        assertThat(employeeHttpAlice.path("accountBound").asBoolean()).isTrue();
+
         ResponseEntity<JsonNode> employeeQuerySchema = restTemplate.exchange(
                 "/iam.employee/query/schema", HttpMethod.GET, new HttpEntity<>(headers), JsonNode.class);
 
@@ -871,6 +885,94 @@ class MuYunSpringApplicationContextIT {
             }
         }
         throw new AssertionError("missing query schema field: " + name);
+    }
+
+    @Test
+    void contributorCountMatchesListScopeForNavigationAndAdditionalConditions() {
+        String fixtureKey = "sum_" + Long.toUnsignedString(System.nanoTime(), 36);
+        String alias = fixtureKey;
+        String tenantId = insertSummaryTenant(alias);
+        String otherTenantId = insertSummaryTenant(alias + "_other");
+        String aliceId = fixtureKey + "_alice";
+        String bobId = fixtureKey + "_bob";
+        String offlineId = fixtureKey + "_offline";
+        String otherTenantUserId = fixtureKey + "_other";
+        insertUser(tenantId, aliceId, aliceId);
+        insertUser(tenantId, bobId, bobId);
+        insertUser(tenantId, offlineId, offlineId);
+        insertUser(otherTenantId, otherTenantUserId, otherTenantUserId);
+        insertActiveSession(tenantId, aliceId, "alice");
+        insertActiveSession(tenantId, bobId, "bob");
+        insertActiveSession(otherTenantId, otherTenantUserId, "other");
+
+        HttpHeaders headers = bearerHeaders(issueSuperAdminSessionToken());
+
+        JsonNode navigationOnly = querySummaryRecords(headers, tenantId, List.of());
+        assertListAndSummary(navigationOnly, 3, 2);
+
+        JsonNode ordinaryCondition = querySummaryRecords(headers, tenantId,
+                List.of(summaryCondition("username", "EQ", aliceId)));
+        assertListAndSummary(ordinaryCondition, 1, 1);
+
+        JsonNode offlineCondition = querySummaryRecords(headers, tenantId,
+                List.of(summaryCondition("username", "EQ", offlineId)));
+        assertListAndSummary(offlineCondition, 1, 0);
+    }
+
+    private JsonNode querySummaryRecords(HttpHeaders headers, String tenantId, List<Map<String, Object>> conditions) {
+        Map<String, Object> request = Map.of(
+                "page", Map.of("pageNum", 1, "pageSize", 20),
+                "conditions", conditions,
+                "sorts", List.of(),
+                "externalQueryValues", Map.of("tenantId", tenantId));
+        ResponseEntity<JsonNode> response = restTemplate.exchange(
+                "/iam.user/query", HttpMethod.POST, new HttpEntity<>(request, headers), JsonNode.class);
+        assertThat(response.getStatusCode().is2xxSuccessful()).isTrue();
+        assertThat(response.getBody()).isNotNull();
+        return response.getBody();
+    }
+
+    private void assertListAndSummary(JsonNode response, int records, int activeUsers) {
+        assertThat(response.path("total").asInt()).isEqualTo(records);
+        assertThat(response.path("records")).hasSize(records);
+        JsonNode summary = null;
+        for (JsonNode item : response.path("summaries")) {
+            if ("onlineUsers".equals(item.path("key").asText())) {
+                summary = item;
+                break;
+            }
+        }
+        assertThat(summary).isNotNull();
+        assertThat(summary.path("value").asInt()).isEqualTo(activeUsers);
+    }
+
+    private String insertSummaryTenant(String tenantId) {
+        try (TenantContext.Scope ignored = TenantContext.system("list summary integration test")) {
+            Tenant tenant = new Tenant();
+            tenant.setAlias(tenantId);
+            tenant.setTitle(tenantId);
+            tenant.setEnabled(Boolean.TRUE);
+            tenantService.insert(tenant);
+            return tenant.getId();
+        }
+    }
+
+    private Map<String, Object> summaryCondition(String field, String operator, String value) {
+        return Map.of("fieldName", field, "operator", operator, "values", List.of(value));
+    }
+
+    private void insertActiveSession(String tenantId, String userId, String code) {
+        Instant now = Instant.now().truncatedTo(ChronoUnit.MILLIS);
+        String token = "summary-token-" + tenantId + "-" + code;
+        jdbcTemplate.update("""
+                        insert into iam_user_session (
+                            id, tenant_id, user_id, username, token_hash, issued_at, expires_at,
+                            max_expires_at, last_seen_at, password_change_required, deleted
+                        ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                java.util.UUID.randomUUID().toString().replace("-", ""), tenantId, userId, code, tokenHash(token),
+                Timestamp.from(now), Timestamp.from(now.plus(1, ChronoUnit.HOURS)),
+                Timestamp.from(now.plus(1, ChronoUnit.DAYS)), Timestamp.from(now), Boolean.FALSE, Boolean.FALSE);
     }
 
     private String issueSuperAdminSessionToken() {

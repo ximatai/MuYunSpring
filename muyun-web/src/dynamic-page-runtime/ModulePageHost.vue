@@ -108,7 +108,6 @@ import ModulePageListExpansionSurface from './ModulePageListExpansionSurface.vue
 import ModulePageRecordContent from './ModulePageRecordContent.vue';
 import NavigatorManagementEditor from './NavigatorManagementEditor.vue';
 import PageNavigatorExplorer from './PageNavigatorExplorer.vue';
-import NavigatorPanelActions from './NavigatorPanelActions.vue';
 import { shouldHideSingleResultNavigator } from './navigatorVisibility';
 import { type RecordDetailTransitionOptions, useRecordDetailController } from './recordDetailController';
 import {
@@ -2598,77 +2597,34 @@ function recordTitle(record: QueryListRecord | undefined) {
           v-if="navigatorExtension && index === 0"
           :context="navigatorExtensionContext"
         />
-        <RecordExplorerPanel
+        <PageNavigatorExplorer
           v-else-if="navigatorLevelAt(index)"
-          :title="navigatorLevelAt(index)!.descriptor.title"
-          :refresh-title="`刷新${navigatorLevelAt(index)!.descriptor.title}${navigatorLevelAt(index)!.tree ? '树' : '列表'}`"
-          :search-keyword="scopeSearchKeyword"
-          :search-placeholder="navigatorLevelAt(index)!.descriptor.searchPlaceholder"
-          @update:search-keyword="scopeSearchKeyword = $event"
+          :level="navigatorLevelAt(index)!"
+          :selected-id="
+            selectedNavigatorRecords[navigatorLevelAt(index)!.descriptor.key]?.id == null
+              ? undefined
+              : String(selectedNavigatorRecords[navigatorLevelAt(index)!.descriptor.key]?.id)
+          "
+          :reload-key="navigatorReloadKey(navigatorLevelAt(index)!.descriptor.key)"
+          :keyword="scopeSearchKeyword"
+          :external-query-values="navigatorExplorerQueryValues(navigatorLevelAt(index)!.descriptor.key)"
+          :navigator-host-module-alias="context.moduleAlias"
+          :ready="navigatorManagementScopeReady(navigatorLevelAt(index)!)"
+          :create-disabled="!navigatorManagementScopeReady(navigatorLevelAt(index)!)"
+          :create-disabled-reason="navigatorManagementScopeDisabledReason(navigatorLevelAt(index)!)"
+          :scope-subtitle="navigatorPanelScopeContext(navigatorLevelAt(index)!.descriptor.key)"
+          :tree-parent-policy="navigatorTreeParentPolicy(navigatorLevelAt(index)!)"
+          :actions-of="(record) => navigatorInlineActions(navigatorLevelAt(index)!, record)"
+          :sort="navigatorSortState(navigatorLevelAt(index)!)"
+          @update:keyword="scopeSearchKeyword = $event"
           @refresh="scopeReloadKey += 1"
+          @create="createNavigatorRecord(navigatorLevelAt(index)!)"
+          @loaded="handleNavigatorLoaded(navigatorLevelAt(index)!, $event)"
+          @select="selectNavigatorRecord(navigatorLevelAt(index)!.descriptor.key, $event)"
+          @deselect="clearNavigatorRecord(navigatorLevelAt(index)!.descriptor.key)"
+          @action="(action, record) => handleNavigatorInlineAction(navigatorLevelAt(index)!, action, record)"
+          @toggle-sorting="toggleNavigatorSorting(navigatorLevelAt(index)!)"
         >
-          <template
-            v-if="
-              navigatorManagementAvailable(navigatorLevelAt(index)!) || navigatorLevelAt(index)!.sort.visible
-            "
-            #actions
-          >
-            <NavigatorPanelActions
-              :context="navigatorLevelAt(index)!.context"
-              :title="navigatorLevelAt(index)!.descriptor.title"
-              :sort="navigatorSortState(navigatorLevelAt(index)!)"
-              :create-available="navigatorManagementAvailable(navigatorLevelAt(index)!)"
-              :create-disabled="!navigatorManagementScopeReady(navigatorLevelAt(index)!)"
-              :create-disabled-reason="navigatorManagementScopeDisabledReason(navigatorLevelAt(index)!)"
-              @create="createNavigatorRecord(navigatorLevelAt(index)!)"
-              @toggle-sorting="toggleNavigatorSorting(navigatorLevelAt(index)!)"
-            />
-          </template>
-          <TreeRecordExplorer
-            v-if="navigatorLevelAt(index)!.tree"
-            :context="navigatorLevelAt(index)!.context"
-            :selected-id="
-              selectedNavigatorRecords[navigatorLevelAt(index)!.descriptor.key]?.id == null
-                ? undefined
-                : String(selectedNavigatorRecords[navigatorLevelAt(index)!.descriptor.key]?.id)
-            "
-            :reload-key="navigatorReloadKey(navigatorLevelAt(index)!.descriptor.key)"
-            :keyword="scopeSearchKeyword"
-            :external-query-values="navigatorExplorerQueryValues(navigatorLevelAt(index)!.descriptor.key)"
-            :sort-partition-fields="navigatorLevelAt(index)!.context.runtime.snapshot()?.sortPartitionFields"
-            search-mode="none"
-            :empty-description="`暂无${navigatorLevelAt(index)!.descriptor.title}`"
-            :actions-of="(record) => navigatorInlineActions(navigatorLevelAt(index)!, record)"
-            :can-drop-inside="navigatorTreeParentPolicy(navigatorLevelAt(index)!)?.canUseAsParent"
-            :sorting="navigatorSortState(navigatorLevelAt(index)!).active"
-            @loaded="handleNavigatorLoaded(navigatorLevelAt(index)!, $event)"
-            @select="selectNavigatorRecord(navigatorLevelAt(index)!.descriptor.key, $event)"
-            @deselect="clearNavigatorRecord(navigatorLevelAt(index)!.descriptor.key)"
-            @action="
-              (action, record) => handleNavigatorInlineAction(navigatorLevelAt(index)!, action, record)
-            "
-          />
-          <CrudRecordListExplorer
-            v-else
-            :context="navigatorLevelAt(index)!.context"
-            :selected-id="
-              selectedNavigatorRecords[navigatorLevelAt(index)!.descriptor.key]?.id == null
-                ? undefined
-                : String(selectedNavigatorRecords[navigatorLevelAt(index)!.descriptor.key]?.id)
-            "
-            :reload-key="navigatorReloadKey(navigatorLevelAt(index)!.descriptor.key)"
-            :keyword="scopeSearchKeyword"
-            :external-query-values="navigatorExplorerQueryValues(navigatorLevelAt(index)!.descriptor.key)"
-            :empty-description="`暂无${navigatorLevelAt(index)!.descriptor.title}`"
-            :actions-of="(record) => navigatorInlineActions(navigatorLevelAt(index)!, record)"
-            :sorting="navigatorSortState(navigatorLevelAt(index)!).active"
-            @loaded="handleNavigatorLoaded(navigatorLevelAt(index)!, $event)"
-            @select="selectNavigatorRecord(navigatorLevelAt(index)!.descriptor.key, $event)"
-            @deselect="clearNavigatorRecord(navigatorLevelAt(index)!.descriptor.key)"
-            @action="
-              (action, record) => handleNavigatorInlineAction(navigatorLevelAt(index)!, action, record)
-            "
-          />
           <template #editor>
             <NavigatorManagementEditor
               :open="
@@ -2700,7 +2656,7 @@ function recordTitle(record: QueryListRecord | undefined) {
               @validity-change="navigatorManagementFormValid = $event.valid"
             />
           </template>
-        </RecordExplorerPanel>
+        </PageNavigatorExplorer>
       </template>
       <template v-if="!flatManagementRecycleBin.active.value" #explorer-actions>
         <RecordPanelButton
@@ -2870,69 +2826,33 @@ function recordTitle(record: QueryListRecord | undefined) {
         :title="level.descriptor.title"
         :has-selection="selectedNavigatorRecords[level.descriptor.key]?.id != null"
       >
-        <RecordExplorerPanel
-          :title="level.descriptor.title"
-          :refresh-title="`刷新${level.descriptor.title}${level.tree ? '树' : '列表'}`"
-          :search-keyword="scopeSearchKeyword"
-          :search-placeholder="level.descriptor.searchPlaceholder"
-          @update:search-keyword="scopeSearchKeyword = $event"
+        <PageNavigatorExplorer
+          :level="level"
+          :selected-id="
+            selectedNavigatorRecords[level.descriptor.key]?.id == null
+              ? undefined
+              : String(selectedNavigatorRecords[level.descriptor.key]?.id)
+          "
+          :reload-key="navigatorReloadKey(level.descriptor.key)"
+          :keyword="scopeSearchKeyword"
+          :external-query-values="navigatorExplorerQueryValues(level.descriptor.key)"
+          :navigator-host-module-alias="context.moduleAlias"
+          :ready="navigatorManagementScopeReady(level)"
+          :create-disabled="!navigatorManagementScopeReady(level)"
+          :create-disabled-reason="navigatorManagementScopeDisabledReason(level)"
+          :scope-subtitle="navigatorPanelScopeContext(level.descriptor.key)"
+          :tree-parent-policy="navigatorTreeParentPolicy(level)"
+          :actions-of="(record) => navigatorInlineActions(level, record)"
+          :sort="navigatorSortState(level)"
+          @update:keyword="scopeSearchKeyword = $event"
           @refresh="scopeReloadKey += 1"
+          @create="createNavigatorRecord(level)"
+          @loaded="handleNavigatorLoaded(level, $event)"
+          @select="selectNavigatorRecord(level.descriptor.key, $event)"
+          @deselect="clearNavigatorRecord(level.descriptor.key)"
+          @action="(action, record) => handleNavigatorInlineAction(level, action, record)"
+          @toggle-sorting="toggleNavigatorSorting(level)"
         >
-          <template v-if="navigatorManagementAvailable(level) || level.sort.visible" #actions>
-            <NavigatorPanelActions
-              :context="level.context"
-              :title="level.descriptor.title"
-              :sort="navigatorSortState(level)"
-              :create-available="navigatorManagementAvailable(level)"
-              :create-disabled="!navigatorManagementScopeReady(level)"
-              :create-disabled-reason="navigatorManagementScopeDisabledReason(level)"
-              @create="createNavigatorRecord(level)"
-              @toggle-sorting="toggleNavigatorSorting(level)"
-            />
-          </template>
-          <TreeRecordExplorer
-            v-if="level.tree"
-            :context="level.context"
-            :selected-id="
-              selectedNavigatorRecords[level.descriptor.key]?.id == null
-                ? undefined
-                : String(selectedNavigatorRecords[level.descriptor.key]?.id)
-            "
-            :reload-key="navigatorReloadKey(level.descriptor.key)"
-            :keyword="scopeSearchKeyword"
-            :external-query-values="navigatorExplorerQueryValues(level.descriptor.key)"
-            :navigator-host-module-alias="context.moduleAlias"
-            :sort-partition-fields="level.context.runtime.snapshot()?.sortPartitionFields"
-            search-mode="none"
-            :empty-description="`暂无${level.descriptor.title}`"
-            :actions-of="(record) => navigatorInlineActions(level, record)"
-            :can-drop-inside="navigatorTreeParentPolicy(level)?.canUseAsParent"
-            :sorting="navigatorSortState(level).active"
-            @loaded="handleNavigatorLoaded(level, $event)"
-            @select="selectNavigatorRecord(level.descriptor.key, $event)"
-            @deselect="clearNavigatorRecord(level.descriptor.key)"
-            @action="(action, record) => handleNavigatorInlineAction(level, action, record)"
-          />
-          <CrudRecordListExplorer
-            v-else
-            :context="level.context"
-            :selected-id="
-              selectedNavigatorRecords[level.descriptor.key]?.id == null
-                ? undefined
-                : String(selectedNavigatorRecords[level.descriptor.key]?.id)
-            "
-            :reload-key="navigatorReloadKey(level.descriptor.key)"
-            :keyword="scopeSearchKeyword"
-            :external-query-values="navigatorExplorerQueryValues(level.descriptor.key)"
-            :navigator-host-module-alias="context.moduleAlias"
-            :empty-description="`暂无${level.descriptor.title}`"
-            :actions-of="(record) => navigatorInlineActions(level, record)"
-            :sorting="navigatorSortState(level).active"
-            @loaded="handleNavigatorLoaded(level, $event)"
-            @select="selectNavigatorRecord(level.descriptor.key, $event)"
-            @deselect="clearNavigatorRecord(level.descriptor.key)"
-            @action="(action, record) => handleNavigatorInlineAction(level, action, record)"
-          />
           <template #editor>
             <NavigatorManagementEditor
               :open="
@@ -2964,7 +2884,7 @@ function recordTitle(record: QueryListRecord | undefined) {
               @validity-change="navigatorManagementFormValid = $event.valid"
             />
           </template>
-        </RecordExplorerPanel>
+        </PageNavigatorExplorer>
       </ManagementExplorerColumn>
       <RecordQueryListPanel
         class="module-list"

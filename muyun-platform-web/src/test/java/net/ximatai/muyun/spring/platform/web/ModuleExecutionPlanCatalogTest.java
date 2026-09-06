@@ -94,6 +94,12 @@ class ModuleExecutionPlanCatalogTest {
         assertThatThrownBy(catalog::plans)
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("unknownField");
+
+        ModuleExecutionPlanCatalog startupCatalog = new ModuleExecutionPlanCatalog(
+                new StaticModuleDefinitionCatalog(List.of(module("iam.user", "unknownField"))));
+        assertThatThrownBy(startupCatalog::afterSingletonsInstantiated)
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("unknownField");
     }
 
     @Test

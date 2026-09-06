@@ -169,7 +169,6 @@ public class StaticModuleDefinitionScanner implements StaticModuleRegistrationSo
                 .projectionJoins(projectionJoins)
                 .queryDescriptor(queryDescriptor(bean, module.alias()))
                 .openApiAvailable(AnnotationUtils.findAnnotation(beanClass, StaticModuleOpenApi.class) != null)
-                .legacyReadProjectionCompatibility(bean instanceof LegacyStaticReadProjectionCompatibility)
                 .build();
     }
 

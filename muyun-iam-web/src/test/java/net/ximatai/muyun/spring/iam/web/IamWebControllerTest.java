@@ -16,8 +16,6 @@ import net.ximatai.muyun.spring.platform.web.StaticRecordReadProjectionService;
 import net.ximatai.muyun.spring.platform.web.PageContextValue;
 import net.ximatai.muyun.spring.platform.web.PageSelectionContextRequest;
 import net.ximatai.muyun.spring.platform.web.ResolvedPageSelectionContext;
-import net.ximatai.muyun.spring.platform.web.MenuEntryRequestContext;
-import net.ximatai.muyun.spring.platform.web.MenuEntryRequestInterceptor;
 import net.ximatai.muyun.spring.platform.web.ModuleExecutionPlanCatalog;
 import net.ximatai.muyun.spring.platform.web.ListQuerySummaryContributorCatalog;
 import net.ximatai.muyun.spring.platform.web.StandardModuleWebRuntime;
@@ -50,7 +48,6 @@ import net.ximatai.muyun.spring.common.tenant.TenantContext;
 import net.ximatai.muyun.spring.iam.department.Department;
 import net.ximatai.muyun.spring.iam.department.DepartmentService;
 import net.ximatai.muyun.spring.iam.employee.Employee;
-import net.ximatai.muyun.spring.iam.employee.EmployeeAccount;
 import net.ximatai.muyun.spring.iam.employee.EmployeeAccountService;
 import net.ximatai.muyun.spring.iam.employee.EmployeeDelegationService;
 import net.ximatai.muyun.spring.iam.employee.EmployeePositionDao;
@@ -87,7 +84,6 @@ import net.ximatai.muyun.spring.iam.user.UserAccountService;
 import net.ximatai.muyun.spring.platform.menu.Menu;
 import net.ximatai.muyun.spring.platform.menu.MenuOpenMode;
 import net.ximatai.muyun.spring.platform.menu.MenuService;
-import net.ximatai.muyun.spring.platform.application.ApplicationService;
 import net.ximatai.muyun.spring.platform.deletion.RecycleBinFacade;
 import net.ximatai.muyun.spring.platform.deletion.RecycleBinActionOutcome;
 import net.ximatai.muyun.spring.platform.deletion.RecycleBinItem;
@@ -105,7 +101,6 @@ import org.springframework.http.converter.json.MappingJackson2HttpMessageConvert
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
-import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.servlet.HandlerInterceptor;
 import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping;
 
@@ -1481,6 +1476,8 @@ class IamWebControllerTest {
                 mock(EmployeeAccountService.class), mock(EmployeeDelegationService.class));
         ReflectionTestUtils.setField(controller, "service", employeeService);
         controller.setOrganizationService(organizationService);
+        org.mockito.Mockito.doCallRealMethod().when(employeeService).moduleReadProjections();
+        controller.setStandardModuleWebRuntime(employeeRuntime(controller));
         MockMvc mvc = MockMvcBuilders.standaloneSetup(controller)
                 .setControllerAdvice(new PlatformWebExceptionHandler())
                 .setMessageConverters(new MappingJackson2HttpMessageConverter(objectMapper))
@@ -1869,6 +1866,17 @@ class IamWebControllerTest {
         StaticModuleDefinitionCatalog catalog = new StaticModuleDefinitionCatalog(List.of(definition, categoryDefinition));
         return new StandardModuleWebRuntime(new ModuleExecutionPlanCatalog(catalog),
                 new StaticRecordReadProjectionService(catalog));
+    }
+
+    private StandardModuleWebRuntime employeeRuntime(EmployeeWebController controller) {
+        try (GenericApplicationContext context = new GenericApplicationContext()) {
+            context.registerBean("employeeController", EmployeeWebController.class, () -> controller);
+            context.refresh();
+            StaticModuleDefinitionCatalog catalog = new StaticModuleDefinitionCatalog(
+                    new net.ximatai.muyun.spring.platform.web.StaticModuleDefinitionScanner(context).scan());
+            return new StandardModuleWebRuntime(new ModuleExecutionPlanCatalog(catalog),
+                    new StaticRecordReadProjectionService(catalog));
+        }
     }
 
     private StandardModuleWebRuntime tenantRuntime(TenantWebController controller) {

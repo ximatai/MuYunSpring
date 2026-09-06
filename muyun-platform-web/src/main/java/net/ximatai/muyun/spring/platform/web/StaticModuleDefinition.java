@@ -40,7 +40,6 @@ public final class StaticModuleDefinition implements StaticModuleRegistration {
     private final List<RelationProjectionJoinDefinition> projectionJoins;
     private final QueryDescriptor queryDescriptor;
     private final boolean openApiAvailable;
-    private final boolean legacyReadProjectionCompatibility;
 
     private StaticModuleDefinition(String applicationAlias,
                                    String moduleAlias,
@@ -61,8 +60,7 @@ public final class StaticModuleDefinition implements StaticModuleRegistration {
                                    Map<String, Class<?>> entityModelClasses,
                                    List<RelationProjectionJoinDefinition> projectionJoins,
                                    QueryDescriptor queryDescriptor,
-                                   boolean openApiAvailable,
-                                   boolean legacyReadProjectionCompatibility) {
+                                   boolean openApiAvailable) {
         applicationAlias = PlatformNameRules.requireApplicationAlias(applicationAlias);
         moduleAlias = PlatformNameRules.requireModuleAliasInApplication(moduleAlias, applicationAlias);
         title = title == null || title.isBlank() ? moduleAlias : title.trim();
@@ -115,7 +113,6 @@ public final class StaticModuleDefinition implements StaticModuleRegistration {
         this.projectionJoins = projectionJoins;
         this.queryDescriptor = queryDescriptor;
         this.openApiAvailable = openApiAvailable;
-        this.legacyReadProjectionCompatibility = legacyReadProjectionCompatibility;
     }
 
     public String applicationAlias() { return applicationAlias; }
@@ -138,7 +135,6 @@ public final class StaticModuleDefinition implements StaticModuleRegistration {
     public List<RelationProjectionJoinDefinition> projectionJoins() { return projectionJoins; }
     public QueryDescriptor queryDescriptor() { return queryDescriptor; }
     public boolean openApiAvailable() { return openApiAvailable; }
-    public boolean legacyReadProjectionCompatibility() { return legacyReadProjectionCompatibility; }
 
     public String getApplicationAlias() { return applicationAlias; }
     public String getModuleAlias() { return moduleAlias; }
@@ -160,7 +156,6 @@ public final class StaticModuleDefinition implements StaticModuleRegistration {
     public List<RelationProjectionJoinDefinition> getProjectionJoins() { return projectionJoins; }
     public QueryDescriptor getQueryDescriptor() { return queryDescriptor; }
     public boolean isOpenApiAvailable() { return openApiAvailable; }
-    public boolean isLegacyReadProjectionCompatibility() { return legacyReadProjectionCompatibility; }
 
     @Override
     public boolean equals(Object other) {
@@ -185,16 +180,14 @@ public final class StaticModuleDefinition implements StaticModuleRegistration {
                 && Objects.equals(entityModelClasses, that.entityModelClasses)
                 && Objects.equals(projectionJoins, that.projectionJoins)
                 && Objects.equals(queryDescriptor, that.queryDescriptor)
-                && openApiAvailable == that.openApiAvailable
-                && legacyReadProjectionCompatibility == that.legacyReadProjectionCompatibility;
+                && openApiAvailable == that.openApiAvailable;
     }
 
     @Override
     public int hashCode() {
         return Objects.hash(applicationAlias, moduleAlias, title, parentModuleAlias, entryType, entryRoute,
                 entryExternalUrl, capabilities, actions, entities, uiDefinition, pageContextBindings, references, readProjections,
-                modelClass, sortPartitionFields, entityModelClasses, projectionJoins, queryDescriptor, openApiAvailable,
-                legacyReadProjectionCompatibility);
+                modelClass, sortPartitionFields, entityModelClasses, projectionJoins, queryDescriptor, openApiAvailable);
     }
 
     @Override
@@ -245,8 +238,7 @@ public final class StaticModuleDefinition implements StaticModuleRegistration {
                 .entityModelClasses(entityModelClasses)
                 .projectionJoins(projectionJoins)
                 .queryDescriptor(queryDescriptor)
-                .openApiAvailable(openApiAvailable)
-                .legacyReadProjectionCompatibility(legacyReadProjectionCompatibility);
+                .openApiAvailable(openApiAvailable);
     }
 
     public static final class Builder {
@@ -270,7 +262,6 @@ public final class StaticModuleDefinition implements StaticModuleRegistration {
         private List<RelationProjectionJoinDefinition> projectionJoins = List.of();
         private QueryDescriptor queryDescriptor;
         private boolean openApiAvailable;
-        private boolean legacyReadProjectionCompatibility;
 
         private Builder(String applicationAlias, String moduleAlias, String title) {
             this.applicationAlias = applicationAlias;
@@ -356,16 +347,10 @@ public final class StaticModuleDefinition implements StaticModuleRegistration {
             return this;
         }
 
-        public Builder legacyReadProjectionCompatibility(boolean value) {
-            this.legacyReadProjectionCompatibility = value;
-            return this;
-        }
-
         public StaticModuleDefinition build() {
             return new StaticModuleDefinition(applicationAlias, moduleAlias, title, parentModuleAlias, entryType,
                     entryRoute, entryExternalUrl, capabilities, actions, entities, uiDefinition, pageContextBindings, references,
-                    readProjections, modelClass, sortPartitionFields, entityModelClasses, projectionJoins, queryDescriptor, openApiAvailable,
-                    legacyReadProjectionCompatibility);
+                    readProjections, modelClass, sortPartitionFields, entityModelClasses, projectionJoins, queryDescriptor, openApiAvailable);
         }
     }
 

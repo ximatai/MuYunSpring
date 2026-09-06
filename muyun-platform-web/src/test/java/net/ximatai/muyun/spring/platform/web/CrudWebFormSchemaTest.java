@@ -137,9 +137,9 @@ class CrudWebFormSchemaTest {
     @Test
     void shouldProjectStaticModuleQueryThroughCrudWebEndpoint() throws Exception {
         DemoRecordUiController controller = new DemoRecordUiController(new DemoRecordService());
-        controller.setStaticRecordReadProjectionService(new StaticRecordReadProjectionService(
-                new StaticModuleDefinitionCatalog(List.of(demoStaticModuleDefinition()))
-        ));
+        StaticModuleDefinitionCatalog catalog = new StaticModuleDefinitionCatalog(List.of(demoStaticModuleDefinition()));
+        controller.setStandardModuleWebRuntime(new StandardModuleWebRuntime(
+                new ModuleExecutionPlanCatalog(catalog), new StaticRecordReadProjectionService(catalog)));
         MockMvc mvc = MockMvcBuilders
                 .standaloneSetup(controller)
                 .build();
@@ -349,8 +349,7 @@ class CrudWebFormSchemaTest {
     @RestController
     @RequestMapping("/demo.record.ui")
     private static final class DemoRecordUiController extends WebSupport<DemoRecordService>
-            implements CrudWeb<DemoRecord, DemoRecordService>, StaticModuleUiContributor,
-            LegacyStaticReadProjectionCompatibility {
+            implements CrudWeb<DemoRecord, DemoRecordService>, StaticModuleUiContributor {
         private StaticRecordReadProjectionService staticRecordReadProjectionService;
         private StandardModuleWebRuntime standardModuleWebRuntime;
         private boolean rejectDefinitionLookup;

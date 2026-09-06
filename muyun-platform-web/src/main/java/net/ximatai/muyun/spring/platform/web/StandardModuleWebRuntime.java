@@ -1,15 +1,22 @@
 package net.ximatai.muyun.spring.platform.web;
 
 import net.ximatai.muyun.database.core.orm.Criteria;
+import net.ximatai.muyun.database.core.orm.AggregateQuery;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.database.core.orm.Sort;
 import net.ximatai.muyun.spring.ability.CrudAbility;
+import net.ximatai.muyun.spring.ability.DataScopeAbility;
 import net.ximatai.muyun.spring.ability.form.FormSchema;
 import net.ximatai.muyun.spring.ability.query.QuerySchema;
 import net.ximatai.muyun.spring.ability.query.QueryCompiler;
 import net.ximatai.muyun.spring.ability.query.QueryRequest;
 import net.ximatai.muyun.spring.common.platform.ActionExecutionPolicy;
+import net.ximatai.muyun.spring.common.platform.DataScopeCriteriaResult;
+import net.ximatai.muyun.spring.common.exception.ErrorScope;
+import net.ximatai.muyun.spring.common.exception.PlatformErrorCodes;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import net.ximatai.muyun.spring.web.WebPageResponse;
+import net.ximatai.muyun.spring.web.WebListQuerySummaryItem;
 import net.ximatai.muyun.spring.web.WebQueryRequest;
 import net.ximatai.muyun.spring.web.query.WebQueryRequests;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -56,8 +63,10 @@ public class StandardModuleWebRuntime {
 
     /** Returns the compiled plan or fails before a migrated endpoint can use a compatibility path. */
     public ModuleExecutionPlan requirePlan(String moduleAlias) {
-        return executionPlans.find(moduleAlias).orElseThrow(() -> new IllegalStateException(
-                "no executable module plan is registered for migrated module: " + moduleAlias));
+        return executionPlans.find(moduleAlias).orElseThrow(() -> PlatformErrors.config(
+                PlatformErrorCodes.CONFIG_MISSING,
+                "no executable module plan is registered for module: " + moduleAlias,
+                ErrorScope.module(moduleAlias)));
     }
 
     public Optional<QuerySchema> querySchema(String moduleAlias, CrudAbility<?> service) {
@@ -85,18 +94,20 @@ public class StandardModuleWebRuntime {
     }
 
     /** Calculates descriptor-owned summaries which need no domain-specific aggregate implementation. */
-    public java.util.List<net.ximatai.muyun.spring.web.WebListQuerySummaryItem> listQuerySummaries(String moduleAlias, WebQueryRequest request,
-                                                                                                     long matchedTotal, CrudAbility<?> service,
-                                                                                                     Criteria navigationCriteria,
-                                                                                                     ActionExecutionPolicy actionPolicy) {
-        if (requirePlan(moduleAlias).uiDescriptor().page() == null
-                || requirePlan(moduleAlias).uiDescriptor().page().list() == null) return List.of();
+    public List<WebListQuerySummaryItem> listQuerySummaries(String moduleAlias, WebQueryRequest request,
+                                                          long matchedTotal, CrudAbility<?> service,
+                                                          Criteria navigationCriteria,
+                                                          ActionExecutionPolicy actionPolicy) {
+        ModuleExecutionPlan plan = requirePlan(moduleAlias);
+        if (plan.uiDescriptor().page() == null || plan.uiDescriptor().page().list() == null) return List.of();
         Criteria baseCriteria = Criteria.copyOf(navigationCriteria == null ? Criteria.of() : navigationCriteria);
+        WebQueryRequest executionRequest = CrudWebRuntimeSupport.withoutWorkspaceExternalValues(request,
+                plan.pageContextBindings());
         return listQuerySummaryRuntime.summarize(moduleAlias,
-                requirePlan(moduleAlias).uiDescriptor().page().list().querySummaries(), request, matchedTotal,
-                additionalCriteria -> scopedSummaryCount(moduleAlias, request, service, baseCriteria,
+                plan.uiDescriptor().page().list().querySummaries(), request, matchedTotal,
+                additionalCriteria -> scopedSummaryCount(moduleAlias, executionRequest, service, baseCriteria,
                         actionPolicy, additionalCriteria), aggregateQuery -> scopedSummaryAggregate(moduleAlias,
-                        request, service, baseCriteria, actionPolicy, aggregateQuery));
+                        executionRequest, service, baseCriteria, actionPolicy, aggregateQuery));
     }
 
     private long scopedSummaryCount(String moduleAlias, WebQueryRequest request, CrudAbility<?> service,
@@ -107,8 +118,12 @@ public class StandardModuleWebRuntime {
                 moduleAlias, WebQueryRequests.from(request), criteria, PageRequest.of(1, 1), service,
                 actionPolicy, RecordReadVisibility.ACTIVE);
         if (projected.isPresent()) return projected.get().total();
-        if (service instanceof net.ximatai.muyun.spring.ability.DataScopeAbility<?> scoped) {
-            return scoped.countForAction(net.ximatai.muyun.spring.common.platform.PlatformAction.QUERY, criteria);
+        Criteria queryCriteria = new QueryCompiler(requirePlan(moduleAlias).queryDescriptor())
+                .criteria(WebQueryRequests.from(request));
+        criteria = Criteria.copyOf(queryCriteria).and(criteria);
+        if (service instanceof DataScopeAbility<?> scoped) {
+            DataScopeCriteriaResult scope = scoped.readScopeByPolicy(actionPolicy, criteria);
+            return scoped.withDataScopeTenant(scope, () -> service.count(scope.criteria()));
         }
         return service.count(criteria);
     }
@@ -116,7 +131,7 @@ public class StandardModuleWebRuntime {
     private List<Map<String, Object>> scopedSummaryAggregate(String moduleAlias, WebQueryRequest request,
                                                                CrudAbility<?> service, Criteria baseCriteria,
                                                                ActionExecutionPolicy actionPolicy,
-                                                               net.ximatai.muyun.database.core.orm.AggregateQuery aggregateQuery) {
+                                                               AggregateQuery aggregateQuery) {
         return readProjectionService.aggregateDefaultList(moduleAlias, WebQueryRequests.from(request), baseCriteria,
                         service, actionPolicy, RecordReadVisibility.ACTIVE, aggregateQuery)
                 .orElseThrow(() -> new UnsupportedOperationException(

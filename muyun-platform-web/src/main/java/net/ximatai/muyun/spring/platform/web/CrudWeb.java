@@ -57,11 +57,6 @@ public interface CrudWeb<T extends EntityContract, S extends CrudAbility<T>>
         return false;
     }
 
-    /** Temporary boundary for controllers explicitly migrating from the old read-projection path. */
-    default boolean allowsLegacyReadProjectionCompatibility() {
-        return this instanceof LegacyStaticReadProjectionCompatibility;
-    }
-
     /**
      * Optional business policy for a server-validated menu entry. A module can expose more than
      * one menu entry without inventing a second CRUD module or duplicating its endpoints.
@@ -219,7 +214,7 @@ public interface CrudWeb<T extends EntityContract, S extends CrudAbility<T>>
             applyMenuEntryQueryCriteria(navigationCriteria);
             return runtime.queryProjectedDefaultList(
                     moduleAlias,
-                    WebQueryRequests.from(request),
+                    WebQueryRequests.from(CrudWebRuntimeSupport.withoutWorkspaceExternalValues(this, request)),
                     navigationCriteria,
                     PageRequest.of(page.pageNum(), page.pageSize()),
                     service(),
@@ -227,23 +222,7 @@ public interface CrudWeb<T extends EntityContract, S extends CrudAbility<T>>
                     visibility
             );
         }
-        if (!allowsLegacyReadProjectionCompatibility()) {
-            return Optional.empty();
-        }
-        StaticRecordReadProjectionService projectionService = staticRecordReadProjectionService();
-        if (projectionService == null) return Optional.empty();
-        Criteria navigationCriteria = CrudWebRuntimeSupport.navigatorCriteria(this, request);
-        applyMenuEntryQueryCriteria(navigationCriteria);
-        return projectionService.queryDefaultList(
-                moduleAlias,
-                WebQueryRequests.from(request),
-                navigationCriteria,
-                PageRequest.of(page.pageNum(), page.pageSize()),
-                service(),
-                StaticStandardMutationSupport.actionPolicy(this, visibility.action()),
-                visibility,
-                allowsLegacyReadProjectionCompatibility()
-        );
+        return Optional.empty();
     }
 
     default WebPageResponse<T> projectStaticDefaultList(WebPageResponse<T> response) {
@@ -253,10 +232,7 @@ public interface CrudWeb<T extends EntityContract, S extends CrudAbility<T>>
         if (requiresModuleExecutionPlan() || runtime != null && runtime.hasPlan(webScopeName())) {
             return runtime.projectDefaultList(moduleAlias, response, service());
         }
-        if (!allowsLegacyReadProjectionCompatibility()) return response;
-        StaticRecordReadProjectionService projectionService = staticRecordReadProjectionService();
-        return projectionService == null ? response
-                : projectionService.projectDefaultList(moduleAlias, response, service(), true);
+        return response;
     }
 
     private String moduleAliasForRuntime() {

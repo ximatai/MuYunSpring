@@ -36,6 +36,8 @@
 
 管理页 explorer 标题使用单行标题，不显示业务分组 eyebrow。业务分组属于页面导航或详情区语义，不进入 explorer header。
 
+标准页面的导航交互统一由 `PageNavigatorExplorer` 承载。平面管理、列表详情和树管理布局只安排导航位置及编辑器插槽，复用同一套选择、搜索、范围就绪、排序和管理动作语义。
+
 `editor` slot 只承载显式 create/edit 态的轻量抽屉，不承载选中记录的常驻详情展示。选中记录是 explorer body 与右侧详情区的上下文，不应让 `RecordExplorerPanel` 因为 `selected` 存在就打开 editor。常见写法是由父页面用 `mode !== 'view'` 控制 editor 可见性。
 
 右上角动作区应保持克制：

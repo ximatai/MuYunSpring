@@ -14,6 +14,13 @@ import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecord;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecordService;
 import net.ximatai.muyun.spring.platform.web.PlatformModuleRuntimeActionWebController;
 import net.ximatai.muyun.spring.platform.web.DynamicRelationProjectionReadService;
+import net.ximatai.muyun.spring.platform.web.ModuleExecutionPlanCatalog;
+import net.ximatai.muyun.spring.platform.web.ModuleExecutionPlan;
+import net.ximatai.muyun.spring.platform.web.ResolvedModuleUiDescriptor;
+import net.ximatai.muyun.spring.platform.web.ResolvedModuleReadModel;
+import net.ximatai.muyun.spring.platform.web.ModuleUiDescriptorCompiler;
+import net.ximatai.muyun.spring.platform.web.ModuleUiDefinition;
+import net.ximatai.muyun.spring.platform.module.ModuleKind;
 import net.ximatai.muyun.spring.platform.web.PlatformRecordActionAvailability;
 import net.ximatai.muyun.spring.platform.web.PlatformRecordActionAvailabilityService;
 import net.ximatai.muyun.spring.web.CurrentUserWebFilter;
@@ -85,6 +92,9 @@ class DynamicRecordWebMvcSliceTest {
     @MockitoBean
     private PlatformRecordActionAvailabilityService recordActionAvailabilityService;
 
+    @MockitoBean
+    private ModuleExecutionPlanCatalog executionPlanCatalog;
+
     @Autowired
     DynamicRecordWebMvcSliceTest(MockMvc mvc) {
         this.mvc = mvc;
@@ -92,6 +102,11 @@ class DynamicRecordWebMvcSliceTest {
 
     @BeforeEach
     void setUpCurrentUser() {
+        ResolvedModuleUiDescriptor descriptor = ModuleUiDescriptorCompiler.compile(
+                ModuleUiDefinition.builder(MODULE).build(), ModuleKind.DYNAMIC, "Contract");
+        ModuleExecutionPlan plan = new ModuleExecutionPlan(MODULE, "test", descriptor,
+                new ResolvedModuleReadModel(MODULE, "contract", List.of()), List.of());
+        when(executionPlanCatalog.find(eq(MODULE))).thenReturn(Optional.of(plan));
         when(currentUserProvider.currentUser())
                 .thenReturn(Optional.of(CurrentUser.tenantUser("user-1", "User", "tenant_a")));
         when(recordService.actionAuthorizationAvailability(eq(MODULE), anyString(), any()))

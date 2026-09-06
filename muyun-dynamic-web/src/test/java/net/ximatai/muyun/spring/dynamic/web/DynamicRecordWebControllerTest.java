@@ -3,6 +3,7 @@ package net.ximatai.muyun.spring.dynamic.web;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import net.ximatai.muyun.spring.ability.OptimisticLockException;
 import net.ximatai.muyun.database.core.orm.Criteria;
+import net.ximatai.muyun.database.core.orm.CriteriaClause;
 import net.ximatai.muyun.database.core.orm.CriteriaGroup;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.database.core.orm.PageResult;
@@ -33,8 +34,6 @@ import net.ximatai.muyun.spring.dynamic.metadata.FieldDefinition;
 import net.ximatai.muyun.spring.dynamic.metadata.FieldType;
 import net.ximatai.muyun.spring.dynamic.metadata.ModuleDefinition;
 import net.ximatai.muyun.spring.dynamic.metadata.ModuleDefinitionException;
-import net.ximatai.muyun.spring.dynamic.openapi.DynamicOpenApiDocument;
-import net.ximatai.muyun.spring.dynamic.openapi.DynamicOpenApiGenerator;
 import net.ximatai.muyun.spring.ability.reference.ReferenceCardinality;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicActionExecutionRequest;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicActionExecutionResult;
@@ -99,21 +98,11 @@ import net.ximatai.muyun.spring.platform.code.CodeFieldRole;
 import net.ximatai.muyun.spring.platform.duplicate.RecordDuplicateCheckResult;
 import net.ximatai.muyun.spring.platform.duplicate.RecordDuplicateCheckService;
 import net.ximatai.muyun.spring.platform.duplicate.RecordDuplicateMatch;
-import net.ximatai.muyun.spring.platform.generation.RecordGenerationCommitResult;
 import net.ximatai.muyun.spring.platform.generation.RecordGenerationDraft;
 import net.ximatai.muyun.spring.platform.generation.RecordGenerationResult;
 import net.ximatai.muyun.spring.platform.generation.ReferenceRecordGenerationFacade;
 import net.ximatai.muyun.spring.platform.impact.RecordImpactType;
 import net.ximatai.muyun.spring.platform.impact.RecordOriginContext;
-import net.ximatai.muyun.spring.platform.metadata.ModuleMetadataFieldService;
-import net.ximatai.muyun.spring.platform.metadata.FieldUiControl;
-import net.ximatai.muyun.spring.platform.metadata.FieldUiControlBinding;
-import net.ximatai.muyun.spring.platform.metadata.FieldUiControlBindingService;
-import net.ximatai.muyun.spring.platform.metadata.FieldUiControlQueryMode;
-import net.ximatai.muyun.spring.platform.metadata.FieldUiControlService;
-import net.ximatai.muyun.spring.platform.metadata.MetadataFieldForm;
-import net.ximatai.muyun.spring.platform.metadata.RelationRole;
-import net.ximatai.muyun.spring.platform.metadata.ResolvedModuleMetadataField;
 import net.ximatai.muyun.spring.platform.ui.PlatformPageConfigSnapshot;
 import net.ximatai.muyun.spring.platform.ui.PlatformPageConfigSnapshotService;
 import net.ximatai.muyun.spring.platform.ui.PlatformQueryItemService;
@@ -121,9 +110,7 @@ import net.ximatai.muyun.spring.platform.ui.PlatformQueryTemplate;
 import net.ximatai.muyun.spring.platform.ui.PlatformRecordNavigationContext;
 import net.ximatai.muyun.spring.platform.ui.PlatformRecordNavigationMove;
 import net.ximatai.muyun.spring.platform.ui.PlatformRecordNavigationService;
-import net.ximatai.muyun.spring.platform.ui.PlatformUiClientType;
 import net.ximatai.muyun.spring.platform.ui.PlatformUiConfig;
-import net.ximatai.muyun.spring.platform.ui.PlatformUiConfigField;
 import net.ximatai.muyun.spring.platform.ui.PlatformUiSet;
 import net.ximatai.muyun.spring.platform.ui.PlatformUiSetType;
 import org.springframework.http.converter.json.MappingJackson2HttpMessageConverter;
@@ -559,47 +546,19 @@ class DynamicRecordWebControllerTest {
     void shouldValidateUiConfigWhenSavingDynamicRecord() throws Exception {
         PlatformPageConfigSnapshotService snapshotService = mock(PlatformPageConfigSnapshotService.class);
         PlatformQueryItemService queryItemService = mock(PlatformQueryItemService.class);
-        ModuleMetadataFieldService moduleFieldService = mock(ModuleMetadataFieldService.class);
+        ModuleExecutionPlanCatalog planCatalog = new ModuleExecutionPlanCatalog(new StaticModuleDefinitionCatalog(List.of()));
+        planCatalog.replaceDynamicPlan(MODULE, java.util.Optional.of(installedPublishedPagePlan("ui-form")));
         MockMvc lowCodeMvc = MockMvcBuilders
-                .standaloneSetup(controllerFixture(service, activeTenantVerifier).codePreview(codeBusinessPreviewService).generation(referenceGenerationFacade).query(snapshotService, queryItemService, moduleFieldService).build())
+                .standaloneSetup(controllerFixture(service, activeTenantVerifier).codePreview(codeBusinessPreviewService).generation(referenceGenerationFacade).query(snapshotService, queryItemService).executionPlans(planCatalog).build())
                 .setMessageConverters(new MappingJackson2HttpMessageConverter(objectMapper))
                 .setControllerAdvice(new PlatformWebExceptionHandler(), new DynamicWebExceptionHandler())
                 .addFilters(new CurrentUserWebFilter(() -> java.util.Optional.of(
                         CurrentUser.tenantUser("user-1", "User", "tenant_a"))))
                 .build();
-        PlatformUiConfig uiConfig = new PlatformUiConfig();
-        uiConfig.setId("ui-form");
-        uiConfig.setUiSetId("set-form");
-        uiConfig.setClientType(PlatformUiClientType.WEB);
-        uiConfig.setPublished(true);
-        PlatformUiConfigField codeField = uiField("ui-form", "module-field-code");
-        codeField.setRequiredOverride(true);
-        PlatformUiConfigField amountField = uiField("ui-form", "module-field-amount");
-        amountField.setReadOnly(true);
-        PlatformUiConfigField lineNoField = uiField("ui-form", "module-field-line-no");
-        lineNoField.setRequiredOverride(true);
-        PlatformUiConfigField lineAmountField = uiField("ui-form", "module-field-line-amount");
-        lineAmountField.setReadOnly(true);
-        when(snapshotService.snapshot(MODULE)).thenReturn(new PlatformPageConfigSnapshot(
-                MODULE,
-                List.of(),
-                List.of(uiConfig),
-                List.of(codeField, amountField, lineNoField, lineAmountField),
-                List.of(),
-                List.of()
-        ));
         when(service.relations(MODULE)).thenReturn(List.of(
                 new DynamicRelationDescriptor("lines", ENTITY, "contract_line", "contractId", false, false)
         ));
         when(service.newRecord(MODULE, "contract_line")).thenAnswer(invocation -> new DynamicRecord(lineEntity()));
-        when(moduleFieldService.resolve("module-field-code")).thenReturn(resolvedModuleField(
-                "module-field-code", "code"));
-        when(moduleFieldService.resolve("module-field-amount")).thenReturn(resolvedModuleField(
-                "module-field-amount", "amount"));
-        when(moduleFieldService.resolve("module-field-line-no")).thenReturn(resolvedModuleField(
-                "module-field-line-no", "lineNo", RelationRole.CHILD, "lines", "string"));
-        when(moduleFieldService.resolve("module-field-line-amount")).thenReturn(resolvedModuleField(
-                "module-field-line-amount", "lineAmount", RelationRole.CHILD, "lines", "decimal"));
         DynamicRecord created = new DynamicRecord(entity()).setValue("code", "C-001");
         created.setId("contract-1");
         DynamicRecord saved = new DynamicRecord(entity()).setValue("code", "C-002");
@@ -761,9 +720,10 @@ class DynamicRecordWebControllerTest {
                                 }
                                 """))
                 .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.code").value(PlatformErrorCodes.CONFIG_MISSING))
+                .andExpect(jsonPath("$.code").value(PlatformErrorCodes.CONFLICT_VERSION))
                 .andExpect(jsonPath("$.scope.moduleAlias").value(MODULE))
-                .andExpect(jsonPath("$.message").value("UI config is not published in module snapshot: missing-ui"));
+                .andExpect(jsonPath("$.details.expectedUiConfigId").value("ui-form"))
+                .andExpect(jsonPath("$.details.actualUiConfigId").value("missing-ui"));
     }
 
     @Test
@@ -1075,7 +1035,7 @@ class DynamicRecordWebControllerTest {
         when(mainEntity.pageQuery(eq(criteria), any(PageRequest.class), any(Sort[].class)))
                 .thenReturn(PageResult.of(List.of(record), 1, PageRequest.of(2, 30)));
 
-        mvc.perform(post("/{moduleAlias}/query", MODULE)
+                mvc.perform(post("/{moduleAlias}/query", MODULE)
                         .contentType("application/json")
                         .content(json(Map.of(
                                 "conditions", List.of(Map.of(
@@ -1130,7 +1090,7 @@ class DynamicRecordWebControllerTest {
     void shouldApplyOnlyTargetNavigatorQueryBindingToCrossModuleDynamicNavigatorReference() throws Exception {
         String hostModule = "mr.device";
         ModuleExecutionPlanCatalog catalog = new ModuleExecutionPlanCatalog(new StaticModuleDefinitionCatalog(List.of()));
-        catalog.replaceDynamicPlan(MODULE, java.util.Optional.of(installedDynamicPlan()));
+        catalog.replaceDynamicPlan(MODULE, java.util.Optional.of(installedPublishedPagePlan()));
         catalog.replaceDynamicPlan(hostModule, java.util.Optional.of(installedNavigatorHostPlan(hostModule, List.of(
                 PageContextBindingDefinition.navigator("tenant", PageContextTarget.LIST_QUERY, "ignoredTenantId"),
                 PageContextBindingDefinition.navigatorToNavigator("tenant", "project", "tenantId")))));
@@ -1189,7 +1149,7 @@ class DynamicRecordWebControllerTest {
     void shouldRejectNavigatorReferenceWhenTargetLevelIsHiddenOrPointsAtAnotherSource() throws Exception {
         String hostModule = "mr.device";
         ModuleExecutionPlanCatalog catalog = new ModuleExecutionPlanCatalog(new StaticModuleDefinitionCatalog(List.of()));
-        catalog.replaceDynamicPlan(MODULE, java.util.Optional.of(installedDynamicPlan()));
+        catalog.replaceDynamicPlan(MODULE, java.util.Optional.of(installedPublishedPagePlan()));
         catalog.replaceDynamicPlan(hostModule, java.util.Optional.of(installedNavigatorHostPlan(hostModule, List.of(
                 PageContextBindingDefinition.navigatorToNavigator("tenant", "project", "tenantId")))));
         MockMvc plannedMvc = MockMvcBuilders.standaloneSetup(controllerFixture(service, activeTenantVerifier)
@@ -1422,58 +1382,26 @@ class DynamicRecordWebControllerTest {
     void shouldApplyLowCodeQueryTemplateAndProjectByUiConfig() throws Exception {
         PlatformPageConfigSnapshotService snapshotService = mock(PlatformPageConfigSnapshotService.class);
         PlatformQueryItemService queryItemService = mock(PlatformQueryItemService.class);
-        ModuleMetadataFieldService moduleFieldService = mock(ModuleMetadataFieldService.class);
         MockMvc lowCodeMvc = MockMvcBuilders
-                .standaloneSetup(controllerFixture(service, activeTenantVerifier).codePreview(codeBusinessPreviewService).generation(referenceGenerationFacade).query(snapshotService, queryItemService, moduleFieldService).build())
+                .standaloneSetup(controllerFixture(service, activeTenantVerifier).codePreview(codeBusinessPreviewService).generation(referenceGenerationFacade).query(snapshotService, queryItemService).executionPlan(externalTemplatePlan()).build())
                 .setMessageConverters(new MappingJackson2HttpMessageConverter(objectMapper))
                 .setControllerAdvice(new PlatformWebExceptionHandler(), new DynamicWebExceptionHandler())
                 .addFilters(new CurrentUserWebFilter(() -> java.util.Optional.of(
                         CurrentUser.tenantUser("user-1", "User", "tenant_a"))))
                 .build();
-        PlatformUiConfig uiConfig = new PlatformUiConfig();
-        uiConfig.setId("ui-list");
-        uiConfig.setUiSetId("set-list");
-        uiConfig.setClientType(PlatformUiClientType.WEB);
-        uiConfig.setPublished(true);
-        uiConfig.setLayoutJson("""
-                {"template":"LIST_DETAIL_CARD","traits":[],"navigator":{"contextBindings":[{
-                  "source":"NAVIGATOR","sourceKey":"tenant","target":"LIST_QUERY","targetKey":"tenantId"
-                }],"levels":[{
-                  "key":"tenant","kind":"MICRO_LIST","sourceModuleAlias":"iam.tenant"
-                }]}}""");
-        PlatformUiConfigField codeField = new PlatformUiConfigField();
-        codeField.setUiConfigId("ui-list");
-        codeField.setModuleMetadataFieldId("module-field-code");
-        codeField.setVisible(true);
-        PlatformUiConfigField displayField = new PlatformUiConfigField();
-        displayField.setUiConfigId("ui-list");
-        displayField.setModuleMetadataFieldId("module-field-display-code");
-        displayField.setVisible(true);
-        PlatformQueryTemplate template = new PlatformQueryTemplate();
-        template.setId("tpl-active");
-        template.setModuleAlias(MODULE);
-        template.setAlias("active");
-        when(snapshotService.snapshot(MODULE)).thenReturn(new PlatformPageConfigSnapshot(
-                MODULE,
-                List.of(),
-                List.of(uiConfig),
-                List.of(codeField, displayField),
-                List.of(template),
-                List.of()
-        ));
-        when(moduleFieldService.resolve("module-field-code")).thenReturn(resolvedModuleField(
-                "module-field-code", "code"));
-        when(moduleFieldService.resolve("module-field-display-code")).thenReturn(resolvedModuleField(
-                "module-field-display-code", "displayCode", RelationRole.MAIN, "main", "string",
-                MetadataFieldForm.VIRTUAL));
-        Criteria templateCriteria = Criteria.of().eq("code", "C-001");
-        when(queryItemService.compile(eq("tpl-active"), any())).thenReturn(templateCriteria);
         DynamicRecord record = new DynamicRecord(entity())
                 .setValue("code", "C-001")
                 .putDisplayValue("displayCode", "C-001 / Customer")
                 .setValue("amount", BigDecimal.TEN);
         record.setId("contract-1");
-        when(mainEntity.queryCriteria(any())).thenReturn(Criteria.of().eq("amount", BigDecimal.TEN));
+        when(mainEntity.queryCriteria(any())).thenAnswer(invocation -> {
+            List<DynamicQueryCondition> conditions = invocation.getArgument(0);
+            Criteria criteria = Criteria.of();
+            for (DynamicQueryCondition condition : conditions) {
+                criteria.eq(condition.fieldName(), condition.values().getFirst());
+            }
+            return criteria;
+        });
         when(mainEntity.pageQuery(any(Criteria.class), any(PageRequest.class), any(Sort[].class)))
                 .thenReturn(PageResult.of(List.of(record), 1, PageRequest.of(1, 20)));
 
@@ -1505,12 +1433,14 @@ class DynamicRecordWebControllerTest {
                 .andExpect(jsonPath("$.total").value(1));
 
         @SuppressWarnings("unchecked")
-        ArgumentCaptor<Map<String, Object>> externalValues = ArgumentCaptor.forClass(Map.class);
-        verify(queryItemService).compile(eq("tpl-active"), externalValues.capture());
-        assertThat(externalValues.getValue()).containsEntry("owner", "user-1");
-        assertThat(externalValues.getValue()).containsEntry("optional", null);
-        verify(mainEntity).queryCriteria(any());
-        verify(snapshotService, times(3)).snapshot(MODULE);
+        ArgumentCaptor<List<DynamicQueryCondition>> compiledConditions = ArgumentCaptor.forClass(List.class);
+        verify(mainEntity, org.mockito.Mockito.atLeastOnce()).queryCriteria(compiledConditions.capture());
+        assertThat(compiledConditions.getAllValues().stream().flatMap(List::stream).toList())
+                .extracting(DynamicQueryCondition::fieldName).contains("owner", "amount").doesNotContain("optional");
+        ArgumentCaptor<Criteria> finalCriteria = ArgumentCaptor.forClass(Criteria.class);
+        verify(mainEntity).pageQuery(finalCriteria.capture(), any(PageRequest.class), any(Sort[].class));
+        assertThat(containsCondition(finalCriteria.getValue().getRoot(), "owner", "user-1")).isTrue();
+        verifyNoInteractions(queryItemService, snapshotService);
     }
 
     @Test
@@ -1518,7 +1448,7 @@ class DynamicRecordWebControllerTest {
         PlatformPageConfigSnapshotService snapshotService = mock(PlatformPageConfigSnapshotService.class);
         ModuleExecutionPlanCatalog catalog = new ModuleExecutionPlanCatalog(new StaticModuleDefinitionCatalog(List.of()));
         MockMvc mvc = MockMvcBuilders.standaloneSetup(controllerFixture(service, activeTenantVerifier)
-                        .query(snapshotService, null, null)
+                        .query(snapshotService, null)
                         .executionPlans(catalog)
                         .build())
                 .setMessageConverters(new MappingJackson2HttpMessageConverter(objectMapper))
@@ -1530,7 +1460,8 @@ class DynamicRecordWebControllerTest {
         mvc.perform(post("/{moduleAlias}/query", MODULE)
                         .contentType("application/json")
                         .content("{\"uiConfigId\":\"ui-list\"}"))
-                .andExpect(status().isBadRequest())
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value(PlatformErrorCodes.CONFIG_MISSING))
                 .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString(
                         "no executable published page plan")));
 
@@ -1541,9 +1472,9 @@ class DynamicRecordWebControllerTest {
     void shouldExecuteStandardQueryAndSavePathsFromInstalledPlanWithoutReadingSnapshot() throws Exception {
         PlatformPageConfigSnapshotService snapshotService = mock(PlatformPageConfigSnapshotService.class);
         ModuleExecutionPlanCatalog catalog = new ModuleExecutionPlanCatalog(new StaticModuleDefinitionCatalog(List.of()));
-        catalog.replaceDynamicPlan(MODULE, java.util.Optional.of(installedDynamicPlan()));
+        catalog.replaceDynamicPlan(MODULE, java.util.Optional.of(installedPublishedPagePlan()));
         MockMvc plannedMvc = MockMvcBuilders.standaloneSetup(controllerFixture(service, activeTenantVerifier)
-                        .query(snapshotService, null, null).executionPlans(catalog).build())
+                        .query(snapshotService, null).executionPlans(catalog).build())
                 .setMessageConverters(new MappingJackson2HttpMessageConverter(objectMapper))
                 .setControllerAdvice(new PlatformWebExceptionHandler(), new DynamicWebExceptionHandler())
                 .addFilters(new CurrentUserWebFilter(() -> java.util.Optional.of(
@@ -1563,22 +1494,29 @@ class DynamicRecordWebControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.records[0].values.code").value("C-001"));
         plannedMvc.perform(post("/{moduleAlias}/query", MODULE).contentType("application/json")
+                        .content("{}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(PlatformErrorCodes.VALIDATION_FAILED));
+        plannedMvc.perform(post("/{moduleAlias}/query", MODULE).contentType("application/json")
                         .content("{\"uiConfigId\":\"ui-list\",\"queryTemplateId\":\"tpl-active\",\"externalQueryValues\":{\"code\":\"C-001\"}}"))
                 .andExpect(status().isOk());
         plannedMvc.perform(get("/{moduleAlias}/query/schema", MODULE).param("uiConfigId", "stale-list"))
-                .andExpect(status().isBadRequest());
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value(PlatformErrorCodes.CONFLICT_VERSION));
         plannedMvc.perform(post("/{moduleAlias}/insert", MODULE).contentType("application/json")
                         .content("{\"uiConfigId\":\"form-v1\",\"values\":{}}"))
                 .andExpect(status().isUnprocessableEntity())
                 .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("UI required field is missing: code")));
         plannedMvc.perform(post("/{moduleAlias}/insert", MODULE).contentType("application/json")
                         .content("{\"values\":{\"code\":\"C-001\"}}"))
-                .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("Save requires published FORM uiConfigId")));
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(PlatformErrorCodes.VALIDATION_FAILED));
         plannedMvc.perform(post("/{moduleAlias}/insert", MODULE).contentType("application/json")
                         .content("{\"uiConfigId\":\"stale-form\",\"values\":{\"code\":\"C-001\"}}"))
                 .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("Save requires published FORM uiConfigId")));
+                .andExpect(jsonPath("$.code").value(PlatformErrorCodes.CONFLICT_VERSION))
+                .andExpect(jsonPath("$.details.expectedUiConfigId").value("form-v1"))
+                .andExpect(jsonPath("$.details.actualUiConfigId").value("stale-form"));
 
         verifyNoInteractions(snapshotService);
     }
@@ -1587,9 +1525,9 @@ class DynamicRecordWebControllerTest {
     void shouldExecutePublishedPageCompositionQueryWithoutLegacyUiConfigId() throws Exception {
         PlatformPageConfigSnapshotService snapshotService = mock(PlatformPageConfigSnapshotService.class);
         ModuleExecutionPlanCatalog catalog = new ModuleExecutionPlanCatalog(new StaticModuleDefinitionCatalog(List.of()));
-        catalog.replaceDynamicPlan(MODULE, java.util.Optional.of(installedPageCompositionPlan()));
+        catalog.replaceDynamicPlan(MODULE, java.util.Optional.of(installedDynamicPlan()));
         MockMvc plannedMvc = MockMvcBuilders.standaloneSetup(controllerFixture(service, activeTenantVerifier)
-                        .query(snapshotService, null, null).executionPlans(catalog).build())
+                        .query(snapshotService, null).executionPlans(catalog).build())
                 .setMessageConverters(new MappingJackson2HttpMessageConverter(objectMapper))
                 .setControllerAdvice(new PlatformWebExceptionHandler(), new DynamicWebExceptionHandler())
                 .addFilters(new CurrentUserWebFilter(() -> java.util.Optional.of(
@@ -1617,7 +1555,7 @@ class DynamicRecordWebControllerTest {
                 PageContextBindingDefinition.navigatorList("tenant", "tenantId", NavigatorListQueryMode.REQUIRED_SCOPE),
                 PageContextBindingDefinition.navigatorList("project", "projectId", NavigatorListQueryMode.OPTIONAL_FILTER)))));
         MockMvc plannedMvc = MockMvcBuilders.standaloneSetup(controllerFixture(service, activeTenantVerifier)
-                        .query(snapshotService, null, null).executionPlans(catalog).build())
+                        .query(snapshotService, null).executionPlans(catalog).build())
                 .setMessageConverters(new MappingJackson2HttpMessageConverter(objectMapper))
                 .setControllerAdvice(new PlatformWebExceptionHandler(), new DynamicWebExceptionHandler())
                 .addFilters(new CurrentUserWebFilter(() -> java.util.Optional.of(
@@ -1650,45 +1588,14 @@ class DynamicRecordWebControllerTest {
     @Test
     void shouldApplyQuickSearchWithinPublishedListUiConfig() throws Exception {
         PlatformPageConfigSnapshotService snapshotService = mock(PlatformPageConfigSnapshotService.class);
-        ModuleMetadataFieldService moduleFieldService = mock(ModuleMetadataFieldService.class);
         MockMvc lowCodeMvc = MockMvcBuilders
                 .standaloneSetup(controllerFixture(service, activeTenantVerifier).codePreview(codeBusinessPreviewService).generation(referenceGenerationFacade)
-                        .query(snapshotService, null, moduleFieldService).build())
+                        .query(snapshotService, null).build())
                 .setMessageConverters(new MappingJackson2HttpMessageConverter(objectMapper))
                 .setControllerAdvice(new PlatformWebExceptionHandler(), new DynamicWebExceptionHandler())
                 .addFilters(new CurrentUserWebFilter(() -> java.util.Optional.of(
                         CurrentUser.tenantUser("user-1", "User", "tenant_a"))))
                 .build();
-        PlatformUiSet uiSet = new PlatformUiSet();
-        uiSet.setId("set-list");
-        uiSet.setModuleAlias(MODULE);
-        uiSet.setAlias("list");
-        uiSet.setSetType(PlatformUiSetType.LIST);
-        PlatformUiConfig uiConfig = new PlatformUiConfig();
-        uiConfig.setId("ui-list");
-        uiConfig.setUiSetId("set-list");
-        uiConfig.setClientType(PlatformUiClientType.WEB);
-        uiConfig.setPublished(true);
-        PlatformUiConfigField codeField = new PlatformUiConfigField();
-        codeField.setUiConfigId("ui-list");
-        codeField.setModuleMetadataFieldId("module-field-code");
-        codeField.setVisible(true);
-        PlatformUiConfigField amountField = new PlatformUiConfigField();
-        amountField.setUiConfigId("ui-list");
-        amountField.setModuleMetadataFieldId("module-field-amount");
-        amountField.setVisible(true);
-        when(snapshotService.snapshot(MODULE)).thenReturn(new PlatformPageConfigSnapshot(
-                MODULE,
-                List.of(uiSet),
-                List.of(uiConfig),
-                List.of(codeField, amountField),
-                List.of(),
-                List.of()
-        ));
-        when(moduleFieldService.resolve("module-field-code")).thenReturn(resolvedModuleField(
-                "module-field-code", "code"));
-        when(moduleFieldService.resolve("module-field-amount")).thenReturn(resolvedModuleField(
-                "module-field-amount", "amount", RelationRole.MAIN, "decimal"));
         DynamicRecord record = new DynamicRecord(entity()).setValue("code", "C-001");
         record.setId("contract-1");
         when(mainEntity.pageQuery(any(Criteria.class), any(PageRequest.class), any(Sort[].class)))
@@ -1720,46 +1627,21 @@ class DynamicRecordWebControllerTest {
                                 }
                                 """))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.message").value("Quick search field is not searchable in UI config: amount"));
+                .andExpect(jsonPath("$.message").value("Quick search field is not enabled by module execution plan: amount"));
     }
 
     @Test
     void shouldExposeDynamicQuerySchemaWithUiScopedQuickSearchFields() throws Exception {
         PlatformPageConfigSnapshotService snapshotService = mock(PlatformPageConfigSnapshotService.class);
-        ModuleMetadataFieldService moduleFieldService = mock(ModuleMetadataFieldService.class);
+        ModuleExecutionPlanCatalog planCatalog = new ModuleExecutionPlanCatalog(new StaticModuleDefinitionCatalog(List.of()));
+        planCatalog.replaceDynamicPlan(MODULE, java.util.Optional.of(installedQuickSearchOnlyPlan()));
         MockMvc lowCodeMvc = MockMvcBuilders
-                .standaloneSetup(controllerFixture(service, activeTenantVerifier).codePreview(codeBusinessPreviewService).generation(referenceGenerationFacade).query(snapshotService, null, moduleFieldService).build())
+                .standaloneSetup(controllerFixture(service, activeTenantVerifier).codePreview(codeBusinessPreviewService).generation(referenceGenerationFacade).query(snapshotService, null).executionPlans(planCatalog).build())
                 .setMessageConverters(new MappingJackson2HttpMessageConverter(objectMapper))
                 .setControllerAdvice(new PlatformWebExceptionHandler(), new DynamicWebExceptionHandler())
                 .addFilters(new CurrentUserWebFilter(() -> java.util.Optional.of(
                         CurrentUser.tenantUser("user-1", "User", "tenant_a"))))
                 .build();
-        PlatformUiSet uiSet = new PlatformUiSet();
-        uiSet.setId("set-list");
-        uiSet.setModuleAlias(MODULE);
-        uiSet.setAlias("list");
-        uiSet.setSetType(PlatformUiSetType.LIST);
-        PlatformUiConfig uiConfig = new PlatformUiConfig();
-        uiConfig.setId("ui-list");
-        uiConfig.setUiSetId("set-list");
-        uiConfig.setClientType(PlatformUiClientType.WEB);
-        uiConfig.setPublished(true);
-        PlatformUiConfigField codeField = uiField("ui-list", "module-field-code");
-        PlatformUiConfigField amountField = uiField("ui-list", "module-field-amount");
-        when(snapshotService.snapshot(MODULE)).thenReturn(new PlatformPageConfigSnapshot(
-                MODULE,
-                List.of(uiSet),
-                List.of(uiConfig),
-                List.of(codeField, amountField),
-                List.of(),
-                List.of()
-        ));
-        when(moduleFieldService.resolve("module-field-code")).thenReturn(resolvedModuleField(
-                "module-field-code", "code"));
-        when(moduleFieldService.resolve("module-field-amount")).thenReturn(resolvedModuleField(
-                "module-field-amount", "amount", RelationRole.MAIN, "decimal"));
-        when(mainEntity.describe()).thenReturn(DynamicEntityDescriptor.from(entity()));
-
         lowCodeMvc.perform(get("/{moduleAlias}/query/schema", MODULE)
                         .param("uiConfigId", "ui-list"))
                 .andExpect(status().isOk())
@@ -1780,37 +1662,13 @@ class DynamicRecordWebControllerTest {
     @Test
     void shouldRejectVirtualFieldInQuickSearch() throws Exception {
         PlatformPageConfigSnapshotService snapshotService = mock(PlatformPageConfigSnapshotService.class);
-        ModuleMetadataFieldService moduleFieldService = mock(ModuleMetadataFieldService.class);
         MockMvc lowCodeMvc = MockMvcBuilders
-                .standaloneSetup(controllerFixture(service, activeTenantVerifier).codePreview(codeBusinessPreviewService).generation(referenceGenerationFacade).query(snapshotService, null, moduleFieldService).build())
+                .standaloneSetup(controllerFixture(service, activeTenantVerifier).codePreview(codeBusinessPreviewService).generation(referenceGenerationFacade).query(snapshotService, null).build())
                 .setMessageConverters(new MappingJackson2HttpMessageConverter(objectMapper))
                 .setControllerAdvice(new PlatformWebExceptionHandler(), new DynamicWebExceptionHandler())
                 .addFilters(new CurrentUserWebFilter(() -> java.util.Optional.of(
                         CurrentUser.tenantUser("user-1", "User", "tenant_a"))))
                 .build();
-        PlatformUiSet uiSet = new PlatformUiSet();
-        uiSet.setId("set-list");
-        uiSet.setModuleAlias(MODULE);
-        uiSet.setAlias("list");
-        uiSet.setSetType(PlatformUiSetType.LIST);
-        PlatformUiConfig uiConfig = new PlatformUiConfig();
-        uiConfig.setId("ui-list");
-        uiConfig.setUiSetId("set-list");
-        uiConfig.setClientType(PlatformUiClientType.WEB);
-        uiConfig.setPublished(true);
-        PlatformUiConfigField displayField = uiField("ui-list", "module-field-display-code");
-        when(snapshotService.snapshot(MODULE)).thenReturn(new PlatformPageConfigSnapshot(
-                MODULE,
-                List.of(uiSet),
-                List.of(uiConfig),
-                List.of(displayField),
-                List.of(),
-                List.of()
-        ));
-        when(moduleFieldService.resolve("module-field-display-code")).thenReturn(resolvedModuleField(
-                "module-field-display-code", "displayCode", RelationRole.MAIN, "main", "string",
-                MetadataFieldForm.VIRTUAL));
-
         lowCodeMvc.perform(post("/{moduleAlias}/query", MODULE)
                         .contentType("application/json")
                         .content("""
@@ -1822,7 +1680,7 @@ class DynamicRecordWebControllerTest {
                                 """))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.message")
-                        .value("Quick search field is not searchable in UI config: displayCode"));
+                        .value("Quick search field is not enabled by module execution plan: displayCode"));
 
         verify(mainEntity, never()).pageQuery(any(Criteria.class), any(PageRequest.class), any(Sort[].class));
     }
@@ -1840,25 +1698,15 @@ class DynamicRecordWebControllerTest {
                                 """))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.message")
-                        .value("Sort field is not a physical dynamic field: displayCode"));
+                        .value("Sort field is not enabled by module execution plan: displayCode"));
 
         verify(mainEntity, never()).pageQuery(any(Criteria.class), any(PageRequest.class), any(Sort[].class));
     }
 
     @Test
     void shouldAllowProjectionFieldSortsWhenDynamicSqlProjectionIsSupported() throws Exception {
-        PlatformPageConfigSnapshotService snapshotService = mock(PlatformPageConfigSnapshotService.class);
-        ModuleMetadataFieldService moduleFieldService = mock(ModuleMetadataFieldService.class);
         DynamicRelationProjectionReadService projectionReadService = mock(DynamicRelationProjectionReadService.class);
-        MockMvc lowCodeMvc = projectionMvc(snapshotService, moduleFieldService, projectionReadService);
-        publishedListUiConfig(snapshotService,
-                uiField("ui-list", "module-field-code"),
-                uiField("ui-list", "module-field-customer-title"));
-        when(moduleFieldService.resolve("module-field-code")).thenReturn(resolvedModuleField(
-                "module-field-code", "code"));
-        when(moduleFieldService.resolve("module-field-customer-title")).thenReturn(resolvedModuleField(
-                "module-field-customer-title", "customerTitle", RelationRole.MAIN, "main", "string",
-                MetadataFieldForm.VIRTUAL));
+        MockMvc lowCodeMvc = projectionMvc(projectionReadService);
         when(projectionReadService.describeListQuery(eq(MODULE), eq(service), any()))
                 .thenReturn(new ProjectionQueryDescriptor(
                         MODULE,
@@ -1904,18 +1752,8 @@ class DynamicRecordWebControllerTest {
 
     @Test
     void shouldFallbackWhenDynamicSqlProjectionDoesNotSupportAllUiFields() throws Exception {
-        PlatformPageConfigSnapshotService snapshotService = mock(PlatformPageConfigSnapshotService.class);
-        ModuleMetadataFieldService moduleFieldService = mock(ModuleMetadataFieldService.class);
         DynamicRelationProjectionReadService projectionReadService = mock(DynamicRelationProjectionReadService.class);
-        MockMvc lowCodeMvc = projectionMvc(snapshotService, moduleFieldService, projectionReadService);
-        publishedListUiConfig(snapshotService,
-                uiField("ui-list", "module-field-code"),
-                uiField("ui-list", "module-field-display-code"));
-        when(moduleFieldService.resolve("module-field-code")).thenReturn(resolvedModuleField(
-                "module-field-code", "code"));
-        when(moduleFieldService.resolve("module-field-display-code")).thenReturn(resolvedModuleField(
-                "module-field-display-code", "displayCode", RelationRole.MAIN, "main", "string",
-                MetadataFieldForm.VIRTUAL));
+        MockMvc lowCodeMvc = projectionMvc(projectionReadService);
         when(projectionReadService.describeListQuery(eq(MODULE), eq(service), any()))
                 .thenReturn(ProjectionQueryDescriptor.unsupported(
                         MODULE,
@@ -1949,71 +1787,14 @@ class DynamicRecordWebControllerTest {
     @Test
     void shouldApplyQueryFormWithinPublishedListUiConfig() throws Exception {
         PlatformPageConfigSnapshotService snapshotService = mock(PlatformPageConfigSnapshotService.class);
-        ModuleMetadataFieldService moduleFieldService = mock(ModuleMetadataFieldService.class);
-        FieldUiControlService fieldUiControlService = mock(FieldUiControlService.class);
-        FieldUiControlBindingService bindingService = mock(FieldUiControlBindingService.class);
         MockMvc lowCodeMvc = MockMvcBuilders
                 .standaloneSetup(controllerFixture(service, activeTenantVerifier).codePreview(codeBusinessPreviewService).generation(referenceGenerationFacade)
-                        .query(snapshotService, null, moduleFieldService, fieldUiControlService, bindingService).build())
+                        .query(snapshotService, null).executionPlan(queryFormPlan()).build())
                 .setMessageConverters(new MappingJackson2HttpMessageConverter(objectMapper))
                 .setControllerAdvice(new PlatformWebExceptionHandler(), new DynamicWebExceptionHandler())
                 .addFilters(new CurrentUserWebFilter(() -> java.util.Optional.of(
                         CurrentUser.tenantUser("user-1", "User", "tenant_a"))))
                 .build();
-        PlatformUiSet uiSet = new PlatformUiSet();
-        uiSet.setId("set-list");
-        uiSet.setModuleAlias(MODULE);
-        uiSet.setAlias("list");
-        uiSet.setSetType(PlatformUiSetType.LIST);
-        PlatformUiConfig uiConfig = new PlatformUiConfig();
-        uiConfig.setId("ui-list");
-        uiConfig.setUiSetId("set-list");
-        uiConfig.setClientType(PlatformUiClientType.WEB);
-        uiConfig.setPublished(true);
-        PlatformUiConfig restrictedUiConfig = new PlatformUiConfig();
-        restrictedUiConfig.setId("ui-list-restricted");
-        restrictedUiConfig.setUiSetId("set-list");
-        restrictedUiConfig.setClientType(PlatformUiClientType.WEB);
-        restrictedUiConfig.setPublished(true);
-        PlatformUiConfigField codeField = uiField("ui-list", "module-field-code");
-        PlatformUiConfigField amountField = uiField("ui-list", "module-field-amount");
-        PlatformUiConfigField submittedAtField = uiField("ui-list", "module-field-submitted-at");
-        submittedAtField.setFieldUiControlAlias("period_window");
-        PlatformUiConfigField hiddenField = uiField("ui-list-restricted", "module-field-hidden");
-        hiddenField.setVisible(false);
-        PlatformUiConfigField lineField = uiField("ui-list-restricted", "module-field-line-code");
-        PlatformPageConfigSnapshot snapshot = new PlatformPageConfigSnapshot(
-                MODULE,
-                List.of(uiSet),
-                List.of(uiConfig, restrictedUiConfig),
-                List.of(codeField, amountField, submittedAtField, hiddenField, lineField),
-                List.of(),
-                List.of()
-        );
-        when(snapshotService.snapshot(MODULE)).thenReturn(snapshot);
-        when(moduleFieldService.resolve("module-field-code")).thenReturn(resolvedModuleField(
-                "module-field-code", "code"));
-        when(moduleFieldService.resolve("module-field-amount")).thenReturn(resolvedModuleField(
-                "module-field-amount", "amount", RelationRole.MAIN, "decimal"));
-        when(moduleFieldService.resolve("module-field-submitted-at")).thenReturn(resolvedModuleField(
-                "module-field-submitted-at", "submittedAt", RelationRole.MAIN, "timestamp"));
-        when(moduleFieldService.resolve("module-field-line-code")).thenReturn(resolvedModuleField(
-                "module-field-line-code", "lineCode", RelationRole.CHILD));
-        when(fieldUiControlService.requireFieldUiControl(anyString())).thenAnswer(invocation -> {
-            FieldUiControl control = new FieldUiControl();
-            control.setAlias(invocation.getArgument(0));
-            control.setQueryMode(FieldUiControlQueryMode.DEFAULT);
-            return control;
-        });
-        FieldUiControl periodWindow = new FieldUiControl();
-        periodWindow.setAlias("period_window");
-        periodWindow.setQueryMode(FieldUiControlQueryMode.BETWEEN);
-        when(fieldUiControlService.requireFieldUiControl("period_window")).thenReturn(periodWindow);
-        FieldUiControlBinding begin = new FieldUiControlBinding();
-        begin.setValueKey("beginAt");
-        FieldUiControlBinding finish = new FieldUiControlBinding();
-        finish.setValueKey("finishAt");
-        when(bindingService.listByFieldUiControlAliases(List.of("period_window"))).thenReturn(List.of(begin, finish));
         when(mainEntity.queryCriteria(any())).thenReturn(Criteria.of().like("code", "C-001"));
         DynamicRecord record = new DynamicRecord(entity()).setValue("code", "C-001");
         record.setId("contract-1");
@@ -2082,7 +1863,8 @@ class DynamicRecordWebControllerTest {
                                   "uiConfigId": "ui-list",
                                   "queryForm": {
                                     "code": "",
-                                    "amount": []
+                                    "amount": [],
+                                    "missing": []
                                   }
                                 }
                                 """))
@@ -2101,33 +1883,33 @@ class DynamicRecordWebControllerTest {
                                 }
                         """))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.message").value("Query form field is not available in UI config: missing"));
+                .andExpect(jsonPath("$.message").value("Query form field is not enabled by module execution plan: missing"));
 
         lowCodeMvc.perform(post("/{moduleAlias}/query", MODULE)
                         .contentType("application/json")
                         .content("""
                                 {
-                                  "uiConfigId": "ui-list-restricted",
+                                  "uiConfigId": "ui-list",
                                   "queryForm": {
                                     "lineCode": "L-001"
                                   }
                                 }
                                 """))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.message").value("Query form field is not available in UI config: lineCode"));
+                .andExpect(jsonPath("$.message").value("Query form field is not enabled by module execution plan: lineCode"));
 
         lowCodeMvc.perform(post("/{moduleAlias}/query", MODULE)
                         .contentType("application/json")
                         .content("""
                                 {
-                                  "uiConfigId": "ui-list-restricted",
+                                  "uiConfigId": "ui-list",
                                   "queryForm": {
                                     "hidden": "x"
                                   }
                                 }
                                 """))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.message").value("Query form field is not available in UI config: hidden"));
+                .andExpect(jsonPath("$.message").value("Query form field is not enabled by module execution plan: hidden"));
     }
 
     @Test
@@ -2172,6 +1954,142 @@ class DynamicRecordWebControllerTest {
         verify(service).associationViewPage(eq(MODULE), eq(ENTITY), eq("contract-1"), eq("lines"),
                 criteria.capture(), any(PageRequest.class), any(Sort[].class));
         assertThat(criteria.getValue()).isSameAs(targetCriteria);
+    }
+
+    @Test
+    void shouldReadAssociationWithoutTargetPageButRequirePlanForPageQueryInputs() throws Exception {
+        String targetModule = "sales.line";
+        DynamicAssociationViewDescriptor association = new DynamicAssociationViewDescriptor(
+                "lines", ENTITY, targetModule, "line",
+                net.ximatai.muyun.spring.dynamic.metadata.AssociationViewDisplayMode.INLINE_LIST,
+                "lines", null, net.ximatai.muyun.spring.dynamic.metadata.EntityViewType.LIST, true);
+        // The default fixture installs only the source module's plan, never sales.line.
+        when(service.associationView(MODULE, ENTITY, "lines")).thenReturn(association);
+        when(service.entity(targetModule, "line")).thenReturn(mock(DynamicEntityOperations.class));
+        Criteria targetCriteria = Criteria.of().like("summary", "Line");
+        when(service.queryCriteria(eq(targetModule), eq("line"), any())).thenReturn(targetCriteria);
+        when(service.associationViewPage(eq(MODULE), eq(ENTITY), eq("contract-1"), eq("lines"),
+                any(Criteria.class), any(PageRequest.class), any(Sort[].class)))
+                .thenReturn(PageResult.of(List.of(), 0, PageRequest.of(1, 20)));
+        when(service.diagnoseAssociationView(eq(MODULE), eq(ENTITY), eq("contract-1"), eq("lines"),
+                any(Criteria.class))).thenReturn(new DynamicAssociationViewDiagnosis(association,
+                Criteria.of(), Criteria.of(), Criteria.of(), 0, DynamicAssociationViewDiagnosisStatus.OK, "matched"));
+
+        List<String> entityRequests = java.util.Arrays.asList(null, "{}",
+                """
+                {"conditions":[{"fieldName":"summary","operator":"LIKE","values":["Line"]}]}
+                """,
+                """
+                {"criteria":{"operator":"AND","conditions":[{"fieldName":"summary","operator":"LIKE","values":["Line"]}]}}
+                """,
+                """
+                {"queryForm":{"summary":"", "unused":[]}}
+                """);
+        for (String endpoint : List.of("query", "diagnose")) {
+            for (String body : entityRequests) {
+                var request = post("/{moduleAlias}/view/{id}/associations/{viewCode}/" + endpoint,
+                        MODULE, "contract-1", "lines");
+                if (body != null) request.contentType("application/json").content(body);
+                mvc.perform(request).andExpect(status().isOk());
+            }
+            for (String body : List.of(
+                    "{\"uiConfigId\":\"target-ui\"}",
+                    "{\"queryTemplateId\":\"target-template\"}",
+                    "{\"queryForm\":{\"summary\":\"Line\"}}",
+                    "{\"quickSearch\":\"Line\"}")) {
+                mvc.perform(post("/{moduleAlias}/view/{id}/associations/{viewCode}/" + endpoint,
+                                MODULE, "contract-1", "lines").contentType("application/json").content(body))
+                        .andExpect(status().isConflict())
+                        .andExpect(jsonPath("$.code").value(PlatformErrorCodes.CONFIG_MISSING))
+                        .andExpect(jsonPath("$.scope.moduleAlias").value(targetModule));
+            }
+        }
+        ArgumentCaptor<Criteria> queryCriteria = ArgumentCaptor.forClass(Criteria.class);
+        verify(service, org.mockito.Mockito.times(5)).associationViewPage(eq(MODULE), eq(ENTITY),
+                eq("contract-1"), eq("lines"), queryCriteria.capture(), any(PageRequest.class), any(Sort[].class));
+        ArgumentCaptor<Criteria> diagnosisCriteria = ArgumentCaptor.forClass(Criteria.class);
+        verify(service, org.mockito.Mockito.times(5)).diagnoseAssociationView(eq(MODULE), eq(ENTITY),
+                eq("contract-1"), eq("lines"), diagnosisCriteria.capture());
+        for (List<Criteria> captured : List.of(queryCriteria.getAllValues(), diagnosisCriteria.getAllValues())) {
+            assertThat(captured.get(0).isEmpty()).isTrue();
+            assertThat(captured.get(1).isEmpty()).isTrue();
+            assertThat(captured.get(2)).isSameAs(targetCriteria);
+            assertThat(captured.get(3)).usingRecursiveComparison()
+                    .isEqualTo(Criteria.of().andGroup(targetCriteria.getRoot()));
+            assertThat(captured.get(4).isEmpty()).isTrue();
+        }
+        verify(service, org.mockito.Mockito.times(4)).queryCriteria(eq(targetModule), eq("line"), any());
+        verify(mainEntity, never()).queryCriteria(any());
+    }
+
+    @Test
+    void shouldCompileAssociationFormAndTemplateWithTargetModuleAndEntity() throws Exception {
+        String targetModule = "sales.line";
+        var targetUi = ModuleUiDescriptorCompiler.compile(ModuleUiDefinition.builder(targetModule).build(),
+                ModuleKind.DYNAMIC, "Line");
+        var targetPlan = new ModuleExecutionPlan(targetModule, "target-test", targetUi,
+                new ResolvedModuleReadModel(targetModule, "line", List.of()), List.of(),
+                net.ximatai.muyun.spring.ability.query.QueryDescriptor.builder(targetModule).build(),
+                net.ximatai.muyun.spring.ability.query.QuerySchema.from(
+                        net.ximatai.muyun.spring.ability.query.QueryDescriptor.builder(targetModule).build()),
+                List.of("target-only"), List.of(new ModuleQueryTemplatePlan("target-only", List.of(
+                        new ModuleQueryTemplatePlan.Node(null, "ownerId", DynamicQueryOperator.EQ, null, "owner", null, List.of()),
+                        new ModuleQueryTemplatePlan.Node(null, "deletedAt", DynamicQueryOperator.NULL, null, null, null, List.of())))),
+                null, null, List.of(new ModuleQueryFormField("summary", ModuleQueryFormField.Mode.DEFAULT, List.of())),
+                List.of(), List.of(), List.of(), false);
+        MockMvc targetMvc = MockMvcBuilders.standaloneSetup(controllerFixture(service, activeTenantVerifier)
+                        .executionPlan(targetPlan).build())
+                .setMessageConverters(new MappingJackson2HttpMessageConverter(objectMapper))
+                .setControllerAdvice(new PlatformWebExceptionHandler(), new DynamicWebExceptionHandler())
+                .addFilters(new CurrentUserWebFilter(() -> java.util.Optional.of(
+                        CurrentUser.tenantUser("user-1", "User", "tenant_a"))))
+                .build();
+        DynamicEntityOperations lineOperations = mock(DynamicEntityOperations.class);
+        DynamicAssociationViewDescriptor association = new DynamicAssociationViewDescriptor(
+                "lines",
+                ENTITY,
+                targetModule,
+                "line",
+                net.ximatai.muyun.spring.dynamic.metadata.AssociationViewDisplayMode.INLINE_LIST,
+                "lines",
+                null,
+                net.ximatai.muyun.spring.dynamic.metadata.EntityViewType.LIST,
+                true
+        );
+        DynamicRecord line = new DynamicRecord(associationLineEntity()).setValue("contractId", "contract-1")
+                .setValue("summary", "Line A");
+        line.setId("line-1");
+        Criteria targetCriteria = Criteria.of().like("summary", "Line");
+        when(service.associationView(MODULE, ENTITY, "lines")).thenReturn(association);
+        when(service.queryCriteria(eq(targetModule), eq("line"), any())).thenReturn(targetCriteria);
+        when(service.associationViewPage(eq(MODULE), eq(ENTITY), eq("contract-1"), eq("lines"),
+                any(Criteria.class), any(PageRequest.class), any(Sort[].class)))
+                .thenReturn(PageResult.of(List.of(line), 1, PageRequest.of(1, 20)));
+        when(service.entity(targetModule, "line")).thenReturn(lineOperations);
+
+        targetMvc.perform(post("/{moduleAlias}/view/{id}/associations/{viewCode}/query", MODULE, "contract-1", "lines")
+                        .contentType("application/json")
+                        .content("""
+                                {
+                                  "queryForm": {"summary": "Line"},
+                                  "queryTemplateId": "target-only",
+                                  "externalQueryValues": {"owner": "user-1"}
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.records[0].id").value("line-1"))
+                .andExpect(jsonPath("$.records[0].values.summary").value("Line A"));
+
+        ArgumentCaptor<Criteria> criteria = ArgumentCaptor.forClass(Criteria.class);
+        verify(service).associationViewPage(eq(MODULE), eq(ENTITY), eq("contract-1"), eq("lines"),
+                criteria.capture(), any(PageRequest.class), any(Sort[].class));
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<DynamicQueryCondition>> conditions = ArgumentCaptor.forClass(List.class);
+        verify(service, org.mockito.Mockito.times(3)).queryCriteria(eq(targetModule), eq("line"), conditions.capture());
+        assertThat(conditions.getAllValues().stream().flatMap(List::stream).toList())
+                .extracting(DynamicQueryCondition::fieldName).containsExactly("ownerId", "deletedAt", "summary");
+        assertThat(conditions.getAllValues().get(1).getFirst().values()).isEmpty();
+        verify(mainEntity, never()).queryCriteria(any());
     }
 
     @Test
@@ -3243,9 +3161,8 @@ class DynamicRecordWebControllerTest {
     void shouldApplyReferenceQueryTemplateBeforeResolvingCandidates() throws Exception {
         PlatformPageConfigSnapshotService snapshotService = mock(PlatformPageConfigSnapshotService.class);
         PlatformQueryItemService queryItemService = mock(PlatformQueryItemService.class);
-        ModuleMetadataFieldService moduleFieldService = mock(ModuleMetadataFieldService.class);
         MockMvc referenceMvc = MockMvcBuilders
-                .standaloneSetup(controllerFixture(service, activeTenantVerifier).codePreview(codeBusinessPreviewService).generation(referenceGenerationFacade).query(snapshotService, queryItemService, moduleFieldService).build())
+                .standaloneSetup(controllerFixture(service, activeTenantVerifier).codePreview(codeBusinessPreviewService).generation(referenceGenerationFacade).query(snapshotService, queryItemService).build())
                 .setMessageConverters(new MappingJackson2HttpMessageConverter(objectMapper))
                 .setControllerAdvice(new PlatformWebExceptionHandler(), new DynamicWebExceptionHandler())
                 .addFilters(new CurrentUserWebFilter(() -> java.util.Optional.of(
@@ -3332,7 +3249,7 @@ class DynamicRecordWebControllerTest {
         PlatformPageConfigSnapshotService snapshotService = mock(PlatformPageConfigSnapshotService.class);
         PlatformQueryItemService queryItemService = mock(PlatformQueryItemService.class);
         MockMvc referenceMvc = MockMvcBuilders
-                .standaloneSetup(controllerFixture(service, activeTenantVerifier).codePreview(codeBusinessPreviewService).generation(referenceGenerationFacade).query(snapshotService, queryItemService, null).build())
+                .standaloneSetup(controllerFixture(service, activeTenantVerifier).codePreview(codeBusinessPreviewService).generation(referenceGenerationFacade).query(snapshotService, queryItemService).build())
                 .setMessageConverters(new MappingJackson2HttpMessageConverter(objectMapper))
                 .setControllerAdvice(new PlatformWebExceptionHandler(), new DynamicWebExceptionHandler())
                 .addFilters(new CurrentUserWebFilter(() -> java.util.Optional.of(
@@ -3717,78 +3634,6 @@ class DynamicRecordWebControllerTest {
         ));
     }
 
-    private ResolvedModuleMetadataField resolvedModuleField(String moduleFieldId, String fieldName) {
-        return resolvedModuleField(moduleFieldId, fieldName, RelationRole.MAIN);
-    }
-
-    private ResolvedModuleMetadataField resolvedModuleField(String moduleFieldId,
-                                                           String fieldName,
-                                                           RelationRole relationRole) {
-        return resolvedModuleField(moduleFieldId, fieldName, relationRole, "main", "string");
-    }
-
-    private ResolvedModuleMetadataField resolvedModuleField(String moduleFieldId,
-                                                           String fieldName,
-                                                           RelationRole relationRole,
-                                                           String fieldSpecAlias) {
-        return resolvedModuleField(moduleFieldId, fieldName, relationRole, "main", fieldSpecAlias);
-    }
-
-    private ResolvedModuleMetadataField resolvedModuleField(String moduleFieldId,
-                                                           String fieldName,
-                                                           RelationRole relationRole,
-                                                           String relationAlias,
-                                                           String fieldSpecAlias) {
-        return resolvedModuleField(moduleFieldId, fieldName, relationRole, relationAlias, fieldSpecAlias,
-                MetadataFieldForm.PHYSICAL);
-    }
-
-    private ResolvedModuleMetadataField resolvedModuleField(String moduleFieldId,
-                                                           String fieldName,
-                                                           RelationRole relationRole,
-                                                           String relationAlias,
-                                                           String fieldSpecAlias,
-                                                           MetadataFieldForm fieldForm) {
-        return new ResolvedModuleMetadataField(
-                moduleFieldId,
-                MODULE,
-                "rel-main",
-                relationAlias,
-                relationRole,
-                "metadata-1",
-                relationRole == RelationRole.MAIN ? ENTITY : "contract_line",
-                "Contract",
-                "metadata-field-" + fieldName,
-                fieldName,
-                fieldName,
-                fieldName,
-                fieldSpecAlias,
-                fieldForm
-        );
-    }
-
-    private void publishedListUiConfig(PlatformPageConfigSnapshotService snapshotService,
-                                       PlatformUiConfigField... fields) {
-        PlatformUiSet uiSet = new PlatformUiSet();
-        uiSet.setId("set-list");
-        uiSet.setModuleAlias(MODULE);
-        uiSet.setAlias("list");
-        uiSet.setSetType(PlatformUiSetType.LIST);
-        PlatformUiConfig uiConfig = new PlatformUiConfig();
-        uiConfig.setId("ui-list");
-        uiConfig.setUiSetId("set-list");
-        uiConfig.setClientType(PlatformUiClientType.WEB);
-        uiConfig.setPublished(true);
-        when(snapshotService.snapshot(MODULE)).thenReturn(new PlatformPageConfigSnapshot(
-                MODULE,
-                List.of(uiSet),
-                List.of(uiConfig),
-                List.of(fields),
-                List.of(),
-                List.of()
-        ));
-    }
-
     private DynamicRecordWebController controller(DynamicRecordService recordService,
                                                   ActiveTenantVerifier activeTenantVerifier) {
         return controllerFixture(recordService, activeTenantVerifier).build();
@@ -3798,14 +3643,54 @@ class DynamicRecordWebControllerTest {
         return installedDynamicPlan(null, List.of());
     }
 
-    private ModuleExecutionPlan installedPageCompositionPlan() {
-        ModuleExecutionPlan legacyPlan = installedDynamicPlan();
-        return new ModuleExecutionPlan(legacyPlan.moduleAlias(), "dynamic-runtime-1-page-1-r1",
-                legacyPlan.uiDescriptor(), legacyPlan.readModel(), legacyPlan.pageContextBindings(),
-                legacyPlan.queryDescriptor(), legacyPlan.querySchema(), legacyPlan.queryTemplateIds(),
-                legacyPlan.queryTemplates(), null, null, legacyPlan.queryFormFields(),
-                legacyPlan.mutationConstraints(), legacyPlan.mutationFieldValidations(), legacyPlan.actions(),
-                legacyPlan.dataScopeEnabled());
+    private ModuleExecutionPlan queryFormPlan() {
+        ModuleExecutionPlan base = installedDynamicPlan();
+        return new ModuleExecutionPlan(MODULE, "query-form-test", base.uiDescriptor(), base.readModel(),
+                base.pageContextBindings(), base.queryDescriptor(), base.querySchema(), List.of(), List.of(),
+                "ui-list", null, List.of(new ModuleQueryFormField("code", ModuleQueryFormField.Mode.DEFAULT, List.of()),
+                        new ModuleQueryFormField("amount", ModuleQueryFormField.Mode.DEFAULT, List.of()),
+                        new ModuleQueryFormField("submittedAt", ModuleQueryFormField.Mode.BETWEEN,
+                                List.of("beginAt", "finishAt"))), List.of(), List.of(), List.of(), false);
+    }
+
+    private ModuleExecutionPlan externalTemplatePlan() {
+        ModuleExecutionPlan base = installedDynamicPlan();
+        var template = new ModuleQueryTemplatePlan("tpl-active", List.of(
+                new ModuleQueryTemplatePlan.Node(null, "owner", DynamicQueryOperator.EQ, null, "owner", null, List.of()),
+                new ModuleQueryTemplatePlan.Node(null, "optional", DynamicQueryOperator.EQ, "fallback", "optional", null, List.of())));
+        return new ModuleExecutionPlan(MODULE, "template-test", base.uiDescriptor(), base.readModel(),
+                base.pageContextBindings(), base.queryDescriptor(), base.querySchema(), List.of("tpl-active"),
+                List.of(template), "ui-list", null, base.queryFormFields(), List.of(), List.of(), List.of(), false);
+    }
+
+    private ModuleExecutionPlan installedQuickSearchOnlyPlan() {
+        ModuleExecutionPlan basePlan = installedDynamicPlan();
+        var schema = basePlan.querySchema();
+        var quickSearchOnlySchema = new net.ximatai.muyun.spring.ability.query.QuerySchema(
+                schema.scopeName(), schema.entityAlias(), schema.quickSearch(), List.of(),
+                schema.externalCriteria(), schema.defaultSorts());
+        return new ModuleExecutionPlan(basePlan.moduleAlias(), basePlan.versionKey(), basePlan.uiDescriptor(),
+                basePlan.readModel(), basePlan.pageContextBindings(), basePlan.queryDescriptor(), quickSearchOnlySchema,
+                basePlan.queryTemplateIds(), basePlan.queryTemplates(), basePlan.listUiConfigId(), basePlan.formUiConfigId(),
+                basePlan.queryFormFields(), basePlan.mutationConstraints(), basePlan.mutationFieldValidations(),
+                basePlan.actions(), basePlan.dataScopeEnabled());
+    }
+
+    private ModuleExecutionPlan installedPublishedPagePlan() {
+        return installedPublishedPagePlan("form-v1");
+    }
+
+    private ModuleExecutionPlan installedPublishedPagePlan(String formUiConfigId) {
+        ModuleExecutionPlan basePlan = installedDynamicPlan();
+        return new ModuleExecutionPlan(basePlan.moduleAlias(), "dynamic-runtime-1-page-1-r1",
+                basePlan.uiDescriptor(), basePlan.readModel(), basePlan.pageContextBindings(),
+                basePlan.queryDescriptor(), basePlan.querySchema(), basePlan.queryTemplateIds(),
+                basePlan.queryTemplates(), "ui-list", formUiConfigId, basePlan.queryFormFields(),
+                basePlan.mutationConstraints(), List.of(new ModuleMutationFieldValidation(null, "code", false, true),
+                        new ModuleMutationFieldValidation(null, "amount", true, false),
+                        new ModuleMutationFieldValidation("lines", "lineNo", false, true),
+                        new ModuleMutationFieldValidation("lines", "lineAmount", true, false)),
+                basePlan.actions(), basePlan.dataScopeEnabled());
     }
 
     private ModuleExecutionPlan installedDynamicPlan(
@@ -3829,22 +3714,59 @@ class DynamicRecordWebControllerTest {
                         .detail(detail -> detail.editor(editor -> editor.field("code", field -> field.required())))))
                 .build();
         var descriptor = ModuleUiDescriptorCompiler.compile(definition, ModuleKind.DYNAMIC, "Contract");
+        var codeQueryField = new net.ximatai.muyun.spring.ability.query.QuerySchema.Field("code", "Code",
+                net.ximatai.muyun.spring.ability.query.QueryValueType.STRING,
+                List.of(net.ximatai.muyun.spring.ability.query.QueryOperator.LIKE,
+                        net.ximatai.muyun.spring.ability.query.QueryOperator.EQ),
+                net.ximatai.muyun.spring.ability.query.QueryOperator.LIKE, true, true, null, null, null);
         var schema = new net.ximatai.muyun.spring.ability.query.QuerySchema(MODULE, ENTITY,
-                new net.ximatai.muyun.spring.ability.query.QuerySchema.QuickSearch(true, List.of("code"), List.of()),
-                List.of(new net.ximatai.muyun.spring.ability.query.QuerySchema.Field("code", "Code",
-                        net.ximatai.muyun.spring.ability.query.QueryValueType.STRING,
-                        List.of(net.ximatai.muyun.spring.ability.query.QueryOperator.EQ),
-                        net.ximatai.muyun.spring.ability.query.QueryOperator.EQ, true, true, null, null, null)),
+                new net.ximatai.muyun.spring.ability.query.QuerySchema.QuickSearch(true, List.of("code"), List.of(codeQueryField)),
+                List.of(codeQueryField,
+                        new net.ximatai.muyun.spring.ability.query.QuerySchema.Field("amount", "Amount",
+                                net.ximatai.muyun.spring.ability.query.QueryValueType.DECIMAL,
+                                List.of(net.ximatai.muyun.spring.ability.query.QueryOperator.EQ),
+                                net.ximatai.muyun.spring.ability.query.QueryOperator.EQ, true, true, null, null, null),
+                        new net.ximatai.muyun.spring.ability.query.QuerySchema.Field("submittedAt", "Submitted At",
+                                net.ximatai.muyun.spring.ability.query.QueryValueType.DATETIME,
+                                List.of(net.ximatai.muyun.spring.ability.query.QueryOperator.EQ),
+                                net.ximatai.muyun.spring.ability.query.QueryOperator.EQ, true, false, null, null, null),
+                        new net.ximatai.muyun.spring.ability.query.QuerySchema.Field("tags", "Tags",
+                                net.ximatai.muyun.spring.ability.query.QueryValueType.JSON,
+                                List.of(net.ximatai.muyun.spring.ability.query.QueryOperator.CONTAINS,
+                                        net.ximatai.muyun.spring.ability.query.QueryOperator.CONTAINS_ANY,
+                                        net.ximatai.muyun.spring.ability.query.QueryOperator.CONTAINS_ALL,
+                                        net.ximatai.muyun.spring.ability.query.QueryOperator.EMPTY,
+                                        net.ximatai.muyun.spring.ability.query.QueryOperator.NOT_EMPTY),
+                                net.ximatai.muyun.spring.ability.query.QueryOperator.CONTAINS, false, false, null, null, null),
+                        new net.ximatai.muyun.spring.ability.query.QuerySchema.Field("status", "Status",
+                                net.ximatai.muyun.spring.ability.query.QueryValueType.STRING,
+                                List.of(net.ximatai.muyun.spring.ability.query.QueryOperator.EQ),
+                                net.ximatai.muyun.spring.ability.query.QueryOperator.EQ, false, false, null, null, null),
+                        new net.ximatai.muyun.spring.ability.query.QuerySchema.Field("ownerId", "Owner",
+                                net.ximatai.muyun.spring.ability.query.QueryValueType.STRING,
+                                List.of(net.ximatai.muyun.spring.ability.query.QueryOperator.EQ),
+                                net.ximatai.muyun.spring.ability.query.QueryOperator.EQ, false, false, null, null, null),
+                        new net.ximatai.muyun.spring.ability.query.QuerySchema.Field("signedDate", "Signed Date",
+                                net.ximatai.muyun.spring.ability.query.QueryValueType.DATE,
+                                List.of(net.ximatai.muyun.spring.ability.query.QueryOperator.EQ),
+                                net.ximatai.muyun.spring.ability.query.QueryOperator.EQ, false, false, null, null, null),
+                        new net.ximatai.muyun.spring.ability.query.QuerySchema.Field("signedAt", "Signed At",
+                                net.ximatai.muyun.spring.ability.query.QueryValueType.INSTANT,
+                                List.of(net.ximatai.muyun.spring.ability.query.QueryOperator.EQ),
+                                net.ximatai.muyun.spring.ability.query.QueryOperator.EQ, false, false, null, null, null)),
                 List.of(), List.of());
         return new ModuleExecutionPlan(MODULE, "dynamic-runtime-1-ui-1", descriptor,
                 new ResolvedModuleReadModel(MODULE, ENTITY,
-                        List.of(new ResolvedModuleReadField(ENTITY, null, "code", false))), pageContextBindings,
+                        List.of(new ResolvedModuleReadField(ENTITY, null, "code", false),
+                                new ResolvedModuleReadField(ENTITY, null, "displayCode", true),
+                                new ResolvedModuleReadField(ENTITY, null, "signedDate", false),
+                                new ResolvedModuleReadField(ENTITY, null, "signedAt", false))), pageContextBindings,
                 net.ximatai.muyun.spring.ability.query.QueryDescriptor.builder(MODULE).build(), schema,
                 List.of("tpl-active"), List.of(new ModuleQueryTemplatePlan("tpl-active", List.of(
                         new ModuleQueryTemplatePlan.Node(net.ximatai.muyun.spring.platform.ui.PlatformQueryGroupOperator.AND,
-                                "code", DynamicQueryOperator.EQ, null, "code", null, List.of())))), "ui-list", "form-v1",
-                List.of(new ModuleQueryFormField("code", ModuleQueryFormField.Mode.DEFAULT, List.of())), List.of(),
-                List.of(new ModuleMutationFieldValidation(null, "code", false, true)), List.of(), false);
+                                "code", DynamicQueryOperator.EQ, null, "code", null, List.of())))), null, null,
+                List.of(), List.of(),
+                List.of(), List.of(), false);
     }
 
     private ModuleExecutionPlan installedNavigatorHostPlan(String moduleAlias,
@@ -3874,16 +3796,13 @@ class DynamicRecordWebControllerTest {
         return new DynamicRecordWebControllerFixture(recordService, activeTenantVerifier);
     }
 
-    private static final class DynamicRecordWebControllerFixture {
+    private final class DynamicRecordWebControllerFixture {
         private final DynamicRecordService recordService;
         private final ActiveTenantVerifier activeTenantVerifier;
         private CodeBusinessPreviewService codeBusinessPreviewService;
         private ReferenceRecordGenerationFacade referenceRecordGenerationFacade;
         private PlatformPageConfigSnapshotService pageConfigSnapshotService;
         private PlatformQueryItemService queryItemService;
-        private ModuleMetadataFieldService moduleMetadataFieldService;
-        private FieldUiControlService fieldUiControlService;
-        private FieldUiControlBindingService fieldUiControlBindingService;
         private RecordAttachmentService recordAttachmentService;
         private RecordAttachmentAccessService recordAttachmentAccessService;
         private RecordDuplicateCheckService duplicateCheckService;
@@ -3898,6 +3817,8 @@ class DynamicRecordWebControllerTest {
                 ActiveTenantVerifier activeTenantVerifier) {
             this.recordService = recordService;
             this.activeTenantVerifier = activeTenantVerifier;
+            this.executionPlanCatalog = new ModuleExecutionPlanCatalog(new StaticModuleDefinitionCatalog(List.of()));
+            this.executionPlanCatalog.replaceDynamicPlan(MODULE, java.util.Optional.of(installedDynamicPlan()));
         }
 
         DynamicRecordWebControllerFixture codePreview(CodeBusinessPreviewService value) {
@@ -3912,22 +3833,9 @@ class DynamicRecordWebControllerTest {
 
         DynamicRecordWebControllerFixture query(
                 PlatformPageConfigSnapshotService pageConfig,
-                PlatformQueryItemService queryItems,
-                ModuleMetadataFieldService metadataFields) {
-            return query(pageConfig, queryItems, metadataFields, null, null);
-        }
-
-        DynamicRecordWebControllerFixture query(
-                PlatformPageConfigSnapshotService pageConfig,
-                PlatformQueryItemService queryItems,
-                ModuleMetadataFieldService metadataFields,
-                FieldUiControlService fieldUiControls,
-                FieldUiControlBindingService bindings) {
+                PlatformQueryItemService queryItems) {
             pageConfigSnapshotService = pageConfig;
             queryItemService = queryItems;
-            moduleMetadataFieldService = metadataFields;
-            fieldUiControlService = fieldUiControls;
-            fieldUiControlBindingService = bindings;
             return this;
         }
 
@@ -3956,6 +3864,11 @@ class DynamicRecordWebControllerTest {
             return this;
         }
 
+        DynamicRecordWebControllerFixture executionPlan(ModuleExecutionPlan value) {
+            executionPlanCatalog.replaceDynamicPlan(value.moduleAlias(), java.util.Optional.of(value));
+            return this;
+        }
+
         DynamicRecordWebControllerFixture executionPlans(ModuleExecutionPlanCatalog value) {
             executionPlanCatalog = value;
             return this;
@@ -3971,24 +3884,21 @@ class DynamicRecordWebControllerTest {
                     recordService,
                     new TenantRequestScope(activeTenantVerifier),
                     new DynamicRecordQueryServices(pageConfigSnapshotService, queryItemService,
-                            moduleMetadataFieldService, fieldUiControlService, fieldUiControlBindingService,
-                            relationProjectionReadService, executionPlanCatalog, listQuerySummaryRuntime, null),
+                            relationProjectionReadService,
+                            executionPlanCatalog, listQuerySummaryRuntime, null),
                     new DynamicRecordAttachmentServices(recordAttachmentService, recordAttachmentAccessService),
                     new DynamicRecordActionServices(codeBusinessPreviewService, referenceRecordGenerationFacade,
                             duplicateCheckService, navigationService));
         }
     }
 
-    private MockMvc projectionMvc(PlatformPageConfigSnapshotService snapshotService,
-                                  ModuleMetadataFieldService moduleFieldService,
-                                  DynamicRelationProjectionReadService projectionReadService) {
+    private MockMvc projectionMvc(DynamicRelationProjectionReadService projectionReadService) {
         when(projectionReadService.resolveListOutputFields(eq(MODULE), eq(service), any()))
                 .thenAnswer(invocation -> invocation.getArgument(2));
         return MockMvcBuilders
                 .standaloneSetup(controllerFixture(service, activeTenantVerifier)
                         .codePreview(codeBusinessPreviewService)
                         .generation(referenceGenerationFacade)
-                        .query(snapshotService, null, moduleFieldService)
                         .projection(projectionReadService)
                         .build())
                 .setMessageConverters(new MappingJackson2HttpMessageConverter(objectMapper))
@@ -3996,14 +3906,6 @@ class DynamicRecordWebControllerTest {
                 .addFilters(new CurrentUserWebFilter(() -> java.util.Optional.of(
                         CurrentUser.tenantUser("user-1", "User", "tenant_a"))))
                 .build();
-    }
-
-    private PlatformUiConfigField uiField(String uiConfigId, String moduleFieldId) {
-        PlatformUiConfigField field = new PlatformUiConfigField();
-        field.setUiConfigId(uiConfigId);
-        field.setModuleMetadataFieldId(moduleFieldId);
-        field.setVisible(true);
-        return field;
     }
 
     private DynamicReferenceDescriptor reference(String sourceField, String queryTemplateId) {
@@ -4032,6 +3934,15 @@ class DynamicRecordWebControllerTest {
         attachment.setFileId(fileId);
         attachment.setDisplayName(displayName);
         return attachment;
+    }
+
+    private boolean containsCondition(CriteriaGroup group, String field, Object value) {
+        return group.getEntries().stream().anyMatch(entry -> {
+            Object node = entry.getNode();
+            return node instanceof CriteriaClause clause
+                    ? field.equals(clause.getField()) && clause.getValues().contains(value)
+                    : node instanceof CriteriaGroup child && containsCondition(child, field, value);
+        });
     }
 
     private Object criteriaNode(CriteriaGroup.Entry entry) {

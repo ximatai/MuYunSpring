@@ -10,6 +10,8 @@ import net.ximatai.muyun.database.core.orm.Sort;
 import net.ximatai.muyun.spring.ability.CrudAbility;
 import net.ximatai.muyun.spring.ability.DataScopeAbility;
 import net.ximatai.muyun.spring.ability.RecycleBinAbility;
+import net.ximatai.muyun.spring.common.exception.PlatformErrorCodes;
+import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.ability.query.QueryRequest;
 import net.ximatai.muyun.spring.ability.reference.ReferencePath;
 import net.ximatai.muyun.spring.web.WebPageResponse;
@@ -62,29 +64,21 @@ class StaticRecordReadProjectionServiceTest {
 
         assertThatThrownBy(() -> service.projectDefaultList("iam.employee",
                 WebPageResponse.fromList(List.of(new ProjectionEmployee())), null))
-                .isInstanceOf(IllegalStateException.class)
+                .isInstanceOfSatisfying(PlatformException.class, error -> {
+                    assertThat(error.code()).isEqualTo(PlatformErrorCodes.CONFIG_MISSING);
+                    assertThat(error.httpStatus()).isEqualTo(409);
+                    assertThat(error.scope().moduleAlias()).isEqualTo("iam.employee");
+                })
                 .hasMessageContaining("compiled module execution plan is required")
                 .hasMessageContaining("iam.employee");
-    }
 
-    @Test
-    void shouldPermitRequestTimeDslCompilationOnlyForExplicitLegacyCompatibility() {
-        StaticModuleDefinition definition = staticDefinition().toBuilder()
-                .legacyReadProjectionCompatibility(true)
-                .build();
-        ModuleExecutionPlanCatalog executionPlans = mock(ModuleExecutionPlanCatalog.class);
-        when(executionPlans.find("iam.employee")).thenReturn(Optional.empty());
-        StaticRecordReadProjectionService service = new StaticRecordReadProjectionService(
-                new StaticModuleDefinitionCatalog(List.of(definition)), executionPlans, null, null);
-        ProjectionEmployee record = new ProjectionEmployee();
-        record.setEmployeeNo("E001");
-        record.setTitle("Alice");
-
-        WebPageResponse<?> response = service.projectDefaultList("iam.employee",
-                WebPageResponse.fromList(List.of(record)), null);
-
-        assertThat(response.records()).hasSize(1);
-        assertThat(response.records().getFirst()).isInstanceOf(Map.class);
+        StandardModuleWebRuntime runtime = new StandardModuleWebRuntime(executionPlans, service);
+        assertThatThrownBy(() -> runtime.requirePlan("iam.employee"))
+                .isInstanceOfSatisfying(PlatformException.class, error -> {
+                    assertThat(error.code()).isEqualTo(PlatformErrorCodes.CONFIG_MISSING);
+                    assertThat(error.httpStatus()).isEqualTo(409);
+                    assertThat(error.scope().moduleAlias()).isEqualTo("iam.employee");
+                });
     }
 
     @Test
@@ -108,20 +102,31 @@ class StaticRecordReadProjectionServiceTest {
     @Test
     @SuppressWarnings({"rawtypes", "unchecked"})
     void shouldApplyDataScopeBeforeExplicitRecordVisibilityInSharedListPipeline() {
+        var descriptor = net.ximatai.muyun.spring.ability.query.QueryDescriptor.builder("iam.sample")
+                .field(net.ximatai.muyun.spring.ability.query.QueryField.of("requested",
+                        net.ximatai.muyun.spring.ability.query.QueryValueType.BOOLEAN,
+                        net.ximatai.muyun.spring.ability.query.QueryOperator.EQ)).build();
+        QueryRequest request = new QueryRequest(List.of(new net.ximatai.muyun.spring.ability.query.QueryCondition(
+                "requested", net.ximatai.muyun.spring.ability.query.QueryOperator.EQ, List.of(true), null)),
+                null, Map.of(), List.of(), null, null, Map.of(), null, List.of(), false, null);
+        ModuleExecutionPlanCatalog plans = mock(ModuleExecutionPlanCatalog.class);
+        when(plans.find("iam.sample")).thenReturn(Optional.of(new ModuleExecutionPlan("iam.sample", "test",
+                ModuleUiDescriptorCompiler.compile(ModuleUiDefinition.builder("iam.sample").build(),
+                        net.ximatai.muyun.spring.platform.module.ModuleKind.STATIC, "Sample"),
+                new ResolvedModuleReadModel("iam.sample", "sample", List.of()), List.of(), descriptor,
+                net.ximatai.muyun.spring.ability.query.QuerySchema.from(descriptor), List.of(), List.of(), false)));
         StaticRecordReadProjectionService service = spy(new StaticRecordReadProjectionService(
-                new StaticModuleDefinitionCatalog(List.of())));
+                new StaticModuleDefinitionCatalog(List.of()), plans, null, null));
         ScopedRecycleBinAbility recordService = mock(ScopedRecycleBinAbility.class);
         PageRequest pageRequest = PageRequest.of(1, 20);
         ActionExecutionPolicy policy = ActionExecutionPolicy.standard(PlatformAction.RECYCLE_BIN_QUERY);
-        Criteria compiled = Criteria.of().eq("requested", true);
+        Criteria compiled = new net.ximatai.muyun.spring.ability.query.QueryCompiler(descriptor).criteria(request);
         Criteria scoped = Criteria.of().eq("authorized", true);
         Criteria retained = Criteria.of().eq("authorized", true).eq("deleted", true);
         WebPageResponse<Map<String, Object>> expected = WebPageResponse.fromList(List.of(Map.of("id", "record-1")));
 
         doReturn(true).when(service).supportsDefaultListQuery("iam.sample", recordService);
-        doReturn(compiled).when(service).queryCriteria("iam.sample", recordService, QueryRequest.empty());
-        doReturn(new Sort[0]).when(service).querySorts("iam.sample", recordService, QueryRequest.empty());
-        when(recordService.readScopeByPolicy(policy, compiled))
+        when(recordService.readScopeByPolicy(eq(policy), any(Criteria.class)))
                 .thenReturn(DataScopeCriteriaResult.restricted(scoped));
         when(recordService.withDataScopeTenant(any(DataScopeCriteriaResult.class), any(Supplier.class)))
                 .thenAnswer(invocation -> invocation.<Supplier<?>>getArgument(1).get());
@@ -130,10 +135,12 @@ class StaticRecordReadProjectionServiceTest {
                 eq("iam.sample"), eq(retained), eq(pageRequest), eq(recordService), any(Sort[].class));
 
         Optional<WebPageResponse<Map<String, Object>>> result = service.queryDefaultList(
-                "iam.sample", QueryRequest.empty(), pageRequest, recordService, policy, RecordReadVisibility.RETAINED);
+                "iam.sample", request, pageRequest, recordService, policy, RecordReadVisibility.RETAINED);
 
         assertThat(result).contains(expected);
-        verify(recordService).readScopeByPolicy(policy, compiled);
+        var query = org.mockito.ArgumentCaptor.forClass(Criteria.class);
+        verify(recordService).readScopeByPolicy(eq(policy), query.capture());
+        assertThat(query.getValue()).usingRecursiveComparison().isEqualTo(compiled);
         verify(recordService).recycleBinReadCriteria(scoped);
     }
 
