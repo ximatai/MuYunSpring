@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useWorkspaceSortActivity } from './managementWorkspaceContext';
 import { computed, onMounted, ref, watch } from 'vue';
 import {
   confirmAction,
@@ -86,6 +87,7 @@ const loading = ref(false);
 const loadError = ref(false);
 const changeReason = ref<UiTreeChangeReason>('reset');
 const sortingRequest = ref(false);
+useWorkspaceSortActivity(sortingRequest);
 const records = ref<CrudRecordListBase[]>([]);
 let recordsRequestSeq = 0;
 const recycleBinState = useRecycleBinState({
@@ -137,7 +139,7 @@ watch(
 
 watch(
   () => props.reloadKey,
-  () => loadRecords(),
+  () => loadRecords('interaction'),
 );
 
 watch(
@@ -316,7 +318,7 @@ async function handleRecycleBinAction(action: UiRecordInlineAction, record: Crud
     });
     if (confirmed && (await recycleBinState.restore(item, false))) {
       emit('restored');
-      await loadRecords();
+      await loadRecords('interaction');
     }
     return;
   }
@@ -329,7 +331,7 @@ async function handleRecycleBinAction(action: UiRecordInlineAction, record: Crud
       requiredText: title,
     });
     if (confirmed && (await recycleBinState.purge(item, false))) {
-      await loadRecords();
+      await loadRecords('interaction');
     }
   }
 }

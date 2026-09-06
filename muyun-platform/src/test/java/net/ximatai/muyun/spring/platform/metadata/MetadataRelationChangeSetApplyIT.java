@@ -62,6 +62,9 @@ class MetadataRelationChangeSetApplyIT extends PlatformPostgresIntegrationTest {
     @Autowired private DynamicRecordService recordService;
     @Autowired private DynamicSchemaGovernanceFacts schemaFacts;
     @Autowired private DataSource dataSource;
+    @Autowired private net.ximatai.muyun.database.core.IDatabaseOperations<?> operations;
+    @Autowired private ModuleMetadataOrchestrationService orchestration;
+    @Autowired private MetadataModelDeletionService deletion;
 
     private String moduleAlias;
     private String relationId;
@@ -78,6 +81,7 @@ class MetadataRelationChangeSetApplyIT extends PlatformPostgresIntegrationTest {
         PlatformModule module = new PlatformModule();
         module.setAlias(moduleAlias);
         module.setModuleKind(ModuleKind.DYNAMIC);
+        module.setApplicationAlias("crm");
         when(moduleService.select(moduleAlias)).thenReturn(module);
 
         FieldSpec string = new FieldSpec();
@@ -140,6 +144,86 @@ class MetadataRelationChangeSetApplyIT extends PlatformPostgresIntegrationTest {
         relation.setRelationAlias(metadata.getAlias());
         relation.setTitle(metadata.getTitle());
         relationId = relationService.insert(relation);
+    }
+
+    @Test
+    void shouldCreateAndDeleteChildWithOnlySystemFieldsUsingRealTables() {
+        var child = orchestration.createChildMetadata(moduleAlias, relationId,
+                new ModuleChildMetadataCreateCommand("child_" + metadata.getAlias(), "子实体", null, null));
+        var fields = fieldService.list(Criteria.of().eq("metadataId", child.metadata().getId()),
+                new net.ximatai.muyun.database.core.orm.PageRequest(0, 100));
+        assertThat(fields).hasSize(MetadataSystemFieldCatalog.baselineFields().size() + 1);
+        assertThat(fields).allSatisfy(field -> {
+            assertThat(field.getFieldOwnership()).isEqualTo(MetadataFieldOwnership.STANDARD);
+            assertThat(field.getSystemManaged()).isTrue();
+            assertThat(columnExists(child.metadata().getTableName(), field.getColumnName())).isTrue();
+        });
+        var foreignKey = fields.stream().filter(field -> child.relation().getForeignKey().equals(field.getFieldName()))
+                .findFirst().orElseThrow();
+        assertThatThrownBy(() -> deletion.deleteField(moduleAlias, child.relation().getId(), foreignKey.getId()))
+                .hasMessageContaining("子实体外键不能删除");
+        useRealChildRuntime(child.metadata());
+        deletion.deleteMetadata(moduleAlias, child.relation().getId());
+        assertThat(metadataService.select(child.metadata().getId())).isNull();
+        assertThat(relationService.select(child.relation().getId())).isNull();
+        assertThat(columnExists(child.metadata().getTableName(), "id")).isFalse();
+        assertThat(metadataService.select(metadata.getId())).isNotNull();
+        verify(refreshCoordinator, org.mockito.Mockito.atLeastOnce()).activateModulesNow(List.of(moduleAlias));
+    }
+
+    @Test
+    void shouldRejectDeletingSystemOnlyChildWithSoftDeletedBusinessData() {
+        var child = orchestration.createChildMetadata(moduleAlias, relationId,
+                new ModuleChildMetadataCreateCommand("child_" + metadata.getAlias(), "子实体", null, null));
+        var entity = useRealChildRuntime(child.metadata());
+        String id = entity.create(entity.newRecord().setValue(child.relation().getForeignKey(), "parent-record"));
+        entity.delete(id);
+        assertThatThrownBy(() -> deletion.deleteMetadata(moduleAlias, child.relation().getId()))
+                .hasMessageContaining("已有业务数据");
+        assertThat(columnExists(child.metadata().getTableName(), "id")).isTrue();
+    }
+
+    private net.ximatai.muyun.spring.dynamic.runtime.DynamicEntityOperations useRealChildRuntime(Metadata child) {
+        var runtime = new net.ximatai.muyun.spring.dynamic.runtime.DynamicRecordRuntime(operations);
+        runtime.register(net.ximatai.muyun.spring.dynamic.metadata.ModuleDefinition.builder(moduleAlias, "测试")
+                .entities(List.of(entityCompiler.compile(child))).build());
+        var service = new DynamicRecordService(runtime);
+        when(recordService.schemaGovernanceFacts()).thenReturn(service.schemaGovernanceFacts());
+        return service.entity(moduleAlias, child.getAlias());
+    }
+
+    @Test
+    void shouldReconcileLegacyChildCatalogueIdempotentlyAndKeepBusinessFieldDeletionGuard() {
+        var child = orchestration.createChildMetadata(moduleAlias, relationId,
+                new ModuleChildMetadataCreateCommand("child_" + metadata.getAlias(), "子实体", null, null));
+        var foreignKey = fieldService.list(Criteria.of().eq("metadataId", child.metadata().getId())
+                .eq("fieldName", child.relation().getForeignKey())).getFirst();
+        net.ximatai.muyun.spring.ability.PlatformManagedMutationContext.runAsPlatformManaged(() -> {
+            foreignKey.setSystemManaged(false);
+            foreignKey.setFieldOwnership(MetadataFieldOwnership.BUSINESS);
+            fieldService.update(foreignKey);
+            var baseline = fieldService.list(Criteria.of().eq("metadataId", child.metadata().getId())
+                    .eq("fieldName", "createdAt")).getFirst();
+            fieldService.delete(baseline.getId(), baseline.getVersion());
+        });
+        orchestration.reconcileChildSystemFields(moduleAlias);
+        var reconciled = fieldService.select(foreignKey.getId());
+        assertThat(reconciled.getSystemManaged()).isTrue();
+        assertThat(reconciled.getFieldOwnership()).isEqualTo(MetadataFieldOwnership.STANDARD);
+        assertThat(fieldService.list(Criteria.of().eq("metadataId", child.metadata().getId())))
+                .hasSize(MetadataSystemFieldCatalog.baselineFields().size() + 1);
+        orchestration.reconcileChildSystemFields(moduleAlias);
+        assertThat(fieldService.select(foreignKey.getId()).getVersion()).isEqualTo(reconciled.getVersion());
+        MetadataField business = new MetadataField();
+        business.setMetadataId(child.metadata().getId());
+        business.setFieldName("notes");
+        business.setColumnName("notes");
+        business.setFieldSpecAlias("string");
+        business.setTitle("备注");
+        fieldService.insert(business);
+        assertThatThrownBy(() -> deletion.deleteMetadata(moduleAlias, child.relation().getId()))
+                .hasMessageContaining("全部业务字段");
+        assertThat(columnExists(child.metadata().getTableName(), "id")).isTrue();
     }
 
     @Test
@@ -361,6 +445,17 @@ class MetadataRelationChangeSetApplyIT extends PlatformPostgresIntegrationTest {
         @Bean DataSource dataSource() { return DataSourceBuilder.create().url(postgres.getJdbcUrl())
                 .username(postgres.getUsername()).password(postgres.getPassword())
                 .driverClassName(postgres.getDriverClassName()).build(); }
+        @Bean ModuleMetadataOrchestrationService orchestration(PlatformModuleService modules, MetadataService metadata,
+                ModuleMetadataRelationService relations, MetadataFieldService fields, TestSchemaEnsureService schema,
+                PlatformDynamicRuntimeRefreshCoordinator refresh) {
+            return new ModuleMetadataOrchestrationService(modules, metadata, relations, fields, schema, refresh);
+        }
+        @Bean MetadataModelDeletionService deletion(ModuleMetadataRelationService relations, MetadataService metadata,
+                MetadataFieldService fields, PlatformMetadataEntityDefinitionCompiler compiler, TestSchemaEnsureService schema,
+                DynamicRecordService records, PlatformDynamicRuntimeRefreshCoordinator refresh) {
+            return new MetadataModelDeletionService(relations, metadata, fields, mock(ModuleMetadataFieldService.class),
+                    compiler, schema, records, refresh);
+        }
         @Bean FieldSpecService fieldSpecService(FieldSpecDao dao) { return new FieldSpecService(dao); }
         @Bean MetadataService metadataService(MetadataDao dao) { return new MetadataService(dao); }
         @Bean PlatformModuleService moduleService() { return mock(PlatformModuleService.class); }

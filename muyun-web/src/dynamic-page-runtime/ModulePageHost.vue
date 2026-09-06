@@ -2855,6 +2855,7 @@ function recordTitle(record: QueryListRecord | undefined) {
     <ManagementWorkspace
       v-else-if="listDetailCardPage"
       class="module-list-detail-workspace"
+      :editing="editorMode !== 'view'"
       :explorer-count="navigatorExplorerCount"
       :detail-surface="!detailSurfaceUsesDrawer"
       :list-surface="detailSurfaceUsesDrawer"
@@ -3122,6 +3123,7 @@ function recordTitle(record: QueryListRecord | undefined) {
     <ManagementWorkspace
       v-else-if="treeManagementPage || treeModule"
       class="module-tree-workspace"
+      :editing="editorMode !== 'view'"
       :explorer-count="navigatorExplorerCount + 1"
     >
       <ManagementExplorerColumn v-if="navigatorExtension" :key="navigatorExtension.key">

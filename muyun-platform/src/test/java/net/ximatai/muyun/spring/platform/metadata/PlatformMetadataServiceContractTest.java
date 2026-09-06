@@ -1528,7 +1528,12 @@ class PlatformMetadataServiceContractTest {
         assertThat(child.relation().getForeignKey()).isEqualTo("customerId");
         assertThat(fieldService.list(Criteria.of().eq("metadataId", child.metadata().getId()), new PageRequest(0, 100)))
                 .extracting(MetadataField::getFieldName)
-                .contains("customerId");
+                .contains("customerId", "id", "tenantId", "version", "deleted", "createdAt", "updatedAt");
+        assertThat(fieldService.list(Criteria.of().eq("metadataId", child.metadata().getId()), new PageRequest(0, 100)))
+                .allSatisfy(field -> {
+                    assertThat(field.getFieldOwnership()).isEqualTo(MetadataFieldOwnership.STANDARD);
+                    assertThat(field.getSystemManaged()).isTrue();
+                });
         verify(schemaEnsureService).ensureNow(org.mockito.ArgumentMatchers.<Metadata>argThat(published ->
                 published != null && child.metadata().getId().equals(published.getId())));
         verify(runtimeRefreshCoordinator).activateModulesNow(List.of("crm.customer"));

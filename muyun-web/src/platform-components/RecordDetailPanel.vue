@@ -1,7 +1,15 @@
 <script setup lang="ts">
+import { computed, provide, inject } from 'vue';
+import { WORKSPACE_NAVIGATION_DISABLED, WORKSPACE_SORTING_BUSY } from './managementWorkspaceContext';
 import RecordDetailLayout from './RecordDetailLayout.vue';
 import ManagementPanelHeader from './ManagementPanelHeader.vue';
 import { usePageLayout } from './pageLayoutContext';
+
+// Detail relation lists belong to the active editor, not its surrounding navigation.
+provide(
+  WORKSPACE_NAVIGATION_DISABLED,
+  computed(() => false),
+);
 
 defineOptions({ name: 'RecordDetailPanel', inheritAttrs: false });
 
@@ -14,10 +22,20 @@ withDefaults(
   { subtitle: undefined, showHeader: true },
 );
 const pageLayout = usePageLayout();
+const sortingBusy = inject(
+  WORKSPACE_SORTING_BUSY,
+  computed(() => false),
+);
 </script>
 
 <template>
-  <section v-bind="$attrs" class="record-detail-panel-region">
+  <section
+    v-bind="$attrs"
+    class="record-detail-panel-region"
+    :inert="sortingBusy || undefined"
+    :aria-disabled="sortingBusy || undefined"
+    :class="{ 'record-detail-panel-region--busy': sortingBusy }"
+  >
     <div v-if="$slots['outside-top']" class="record-detail-panel-outside record-detail-panel-outside--top">
       <slot name="outside-top" />
     </div>
@@ -62,6 +80,10 @@ const pageLayout = usePageLayout();
 </template>
 
 <style scoped>
+.record-detail-panel-region--busy {
+  opacity: 0.65;
+}
+
 .record-detail-panel-region {
   display: grid;
   grid-template-areas:

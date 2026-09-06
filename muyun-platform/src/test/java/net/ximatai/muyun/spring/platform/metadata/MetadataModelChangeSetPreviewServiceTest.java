@@ -32,19 +32,19 @@ class MetadataModelChangeSetPreviewServiceTest {
     }
 
     @Test
-    void shouldCompileOnlyMovableFieldOrderForChildRelation() {
+    void shouldCompileDisplayOrderIncludingSystemFieldsAndChildForeignKey() {
         ModuleMetadataRelation child = child("child-1");
         MetadataField student = field("field-student", "studentId", false, MetadataFieldOwnership.BUSINESS);
         MetadataField foreignKey = field("field-exam", "examId", false, MetadataFieldOwnership.BUSINESS);
-        Fixture fixture = fixture(List.of(main(), child), List.of(student, foreignKey));
+        Fixture fixture = fixture(List.of(main(), child), List.of(student, foreignKey, field("system-id", "id", true, MetadataFieldOwnership.STANDARD)));
 
         MetadataModelChangeSetPreview preview = fixture.service.preview("education.exam", new MetadataModelChangeSetPreviewCommand(
-                List.of(), List.of(), List.of(new MetadataModelFieldOrder("child-1", List.of("field-student")))));
+                List.of(), List.of(), List.of(new MetadataModelFieldOrder("child-1", List.of("field-exam", "system-id", "field-student")))));
 
         assertThat(preview.valid()).isTrue();
         assertThat(preview.plan().fieldOrderPlans()).singleElement().satisfies(plan -> {
             assertThat(plan.relationId()).isEqualTo("child-1");
-            assertThat(plan.entries()).extracting(MetadataModelFieldOrderPlan.Entry::fieldId).containsExactly("field-student");
+            assertThat(plan.entries()).extracting(MetadataModelFieldOrderPlan.Entry::fieldId).containsExactly("field-exam", "system-id", "field-student");
         });
         verifyNoInteractions(fixture.relationPreviewService);
     }

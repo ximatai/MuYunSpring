@@ -9,7 +9,7 @@ export type {
 </script>
 
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue';
+import { computed, inject, onMounted, ref, watch } from 'vue';
 import {
   confirmAction,
   UiButton,
@@ -51,6 +51,7 @@ import {
   type ModuleContext,
 } from '@muyun/web-core';
 import { presentPlatformError, presentPlatformMessage } from './platformErrorFeedback';
+import { WORKSPACE_NAVIGATION_DISABLED } from './managementWorkspaceContext';
 import ManagementPanelHeader from './ManagementPanelHeader.vue';
 import RecordActionBar from './RecordActionBar.vue';
 import RecordQueryListCell from './RecordQueryListCell.vue';
@@ -72,6 +73,11 @@ import {
 } from './recordQueryListColumnModel';
 import { reconcileSelectedKeys } from './selectionRefresh';
 import { loadOptionFieldItems } from './optionFieldOptionCache';
+
+const navigationDisabled = inject(
+  WORKSPACE_NAVIGATION_DISABLED,
+  computed(() => false),
+);
 
 defineOptions({ name: 'RecordQueryListPanel' });
 
@@ -1109,6 +1115,8 @@ defineExpose({ clearSelection, refresh });
 <template>
   <main
     class="record-query-list-panel"
+    :inert="navigationDisabled || undefined"
+    :aria-disabled="navigationDisabled || undefined"
     :class="{
       'is-embedded': embedded,
       'is-chrome-free': !headerVisible && !pageable && !showRecycleBin,
@@ -1372,6 +1380,10 @@ defineExpose({ clearSelection, refresh });
 </template>
 
 <style scoped>
+.record-query-list-panel[inert] {
+  opacity: 0.55;
+}
+
 .record-query-list-panel {
   display: grid;
   grid-template-rows: auto auto minmax(0, 1fr) auto;

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import RecordFieldLabel from './RecordFieldLabel.vue';
 import { computed, ref, watch } from 'vue';
 import { UiButton } from '@muyun/vue-ui-antdv';
 import type { ModuleContext } from '@muyun/web-core';
@@ -119,10 +120,9 @@ function browserViewUrl(url: string) {
 <template>
   <div class="single-image-file-reference-field">
     <div class="single-image-file-reference-field__header">
-      <span class="single-image-file-reference-field__label">
-        {{ label }}
-        <strong v-if="required" aria-hidden="true">*</strong>
-      </span>
+      <RecordFieldLabel class="single-image-file-reference-field__label" :required="required">{{
+        label
+      }}</RecordFieldLabel>
       <div v-if="fileId" class="single-image-file-reference-field__actions">
         <template v-if="definition.readAvailable">
           <UiButton
@@ -236,10 +236,7 @@ function browserViewUrl(url: string) {
   font-size: 13px;
   white-space: nowrap;
 }
-.single-image-file-reference-field__label strong {
-  color: var(--muyun-danger-base);
-  font-weight: 600;
-}
+
 .single-image-file-reference-field__preview {
   display: grid;
   width: 100%;

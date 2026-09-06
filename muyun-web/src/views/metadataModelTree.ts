@@ -95,7 +95,7 @@ export function buildMetadataModelTree(input: MetadataModelTreeInput): MetadataM
       relationId: relation.id,
       fieldId,
       parentRelationId: relation.id,
-      draggable: !locked,
+      draggable: Boolean(field.id),
     };
   }
 

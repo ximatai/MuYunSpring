@@ -6,7 +6,7 @@ import {
   type ManagementExplorerColumnContext,
 } from './managementExplorerContext';
 import { MANAGEMENT_COLLAPSED_EXPLORER_LAYOUT } from './managementWorkspaceLayout';
-import { MANAGEMENT_WORKSPACE_CONTEXT } from './managementWorkspaceContext';
+import { MANAGEMENT_WORKSPACE_CONTEXT, WORKSPACE_NAVIGATION_DISABLED } from './managementWorkspaceContext';
 
 defineOptions({ name: 'ManagementExplorerColumn' });
 
@@ -26,6 +26,10 @@ const props = withDefaults(
   },
 );
 
+const navigationDisabled = inject(
+  WORKSPACE_NAVIGATION_DISABLED,
+  computed(() => false),
+);
 const workspace = inject(MANAGEMENT_WORKSPACE_CONTEXT, undefined);
 const instance = getCurrentInstance();
 const id = `management-explorer-${instance?.uid ?? Math.random().toString(36).slice(2)}`;
@@ -242,6 +246,8 @@ watch(collapsed, (isCollapsed) => {
 <template>
   <section
     class="management-explorer-column"
+    :inert="navigationDisabled || undefined"
+    :aria-disabled="navigationDisabled || undefined"
     :class="{
       'management-explorer-column--collapsible': isCollapsible,
       'management-explorer-column--collapsed': collapsed,
@@ -285,6 +291,10 @@ watch(collapsed, (isCollapsed) => {
 </template>
 
 <style scoped>
+.management-explorer-column[inert] {
+  opacity: 0.55;
+}
+
 .management-explorer-column {
   position: relative;
   display: flex;

@@ -356,7 +356,7 @@
 
 元数据字段治理读口同样以模块和关系为作用域。字段属性摘要返回当前关系下的有效基础、引用、字典或存量锁定绑定；引用目标字段目录只返回平台已验证可用的匹配键和展示字段候选，不读取目标业务记录。
 
-数据模型编辑只有模块级统一写入口：`change-set-preview` 接收 `relationDrafts`、`relationOrders` 和 `fieldOrders`，并把各节点字段影响、物理 schema 影响与排序影响汇总为一份预检结果；`change-set-apply` 必须携带同一 proposal 的 fingerprint。关系级 change-set preview/apply 不对外暴露。关系排序只能覆盖同一 `parentMetadataId` 下的完整节点集合，字段排序只能覆盖当前 relation 的完整可移动业务字段集合；两者都不能通过拖拽改变父子关系、外键、relation role 或跨实体移动字段。
+数据模型编辑只有模块级统一写入口：`change-set-preview` 接收 `relationDrafts`、`relationOrders` 和 `fieldOrders`，并把各节点字段影响、物理 schema 影响与排序影响汇总为一份预检结果；`change-set-apply` 必须携带同一 proposal 的 fingerprint。关系级 change-set preview/apply 不对外暴露。关系排序只能覆盖同一 `parentMetadataId` 下的完整节点集合，字段排序必须覆盖当前 relation 的全部字段集合（包含系统字段及子实体关联字段），只更新展示顺序，字段定义保护规则保持不变；两者都不能通过拖拽改变父子关系、外键、relation role 或跨实体移动字段。
 
 模块字段配置可声明计量单位消费契约。主数值字段通过 `unitCategoryAlias` 进入单位能力；`unitMode=FIXED` 时使用 `fixedUnitCode`，`unitMode=SELECTABLE` 时绑定同元数据、同 owner 的伴生单位字段 `unitFieldId`。`baseValueFieldId` 绑定同 owner 的影子标准值字段，`baseUnitCategoryAlias` 和 `baseUnitCode` 是归一基准单位，未配置基准分类时默认等于 `unitCategoryAlias`；`unitConversionMode` 表达线性目录换算或业务规则换算，`conversionScopeFieldId` 用于后续记录上下文换算。
 

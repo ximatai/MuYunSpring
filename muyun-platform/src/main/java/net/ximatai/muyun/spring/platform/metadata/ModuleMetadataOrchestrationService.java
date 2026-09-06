@@ -4,6 +4,7 @@ import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.util.PlatformNameRules;
 import net.ximatai.muyun.spring.ability.TransactionScopeSupport;
+import net.ximatai.muyun.spring.ability.PlatformManagedMutationContext;
 import net.ximatai.muyun.spring.platform.module.ModuleKind;
 import net.ximatai.muyun.spring.platform.module.PlatformModule;
 import net.ximatai.muyun.spring.platform.module.PlatformModuleService;
@@ -140,13 +141,14 @@ public class ModuleMetadataOrchestrationService {
         parentForeignKey.setFieldName(childForeignKeyName(parentMetadata.getAlias()));
         parentForeignKey.setColumnName(parentMetadata.getAlias() + "_id");
         parentForeignKey.setFieldSpecAlias("string");
-        parentForeignKey.setFieldOwnership(MetadataFieldOwnership.BUSINESS);
+        parentForeignKey.setFieldOwnership(MetadataFieldOwnership.STANDARD);
+        parentForeignKey.setSystemManaged(Boolean.TRUE);
         parentForeignKey.setFieldForm(MetadataFieldForm.PHYSICAL);
         parentForeignKey.setRequired(Boolean.TRUE);
         parentForeignKey.setIndexed(Boolean.TRUE);
         parentForeignKey.setTitle(parentMetadata.getTitle() + " ID");
         parentForeignKey.setEnabled(Boolean.TRUE);
-        fieldService.insert(parentForeignKey);
+        PlatformManagedMutationContext.runAsPlatformManaged(() -> fieldService.insert(parentForeignKey));
 
         ModuleMetadataRelation childRelation = new ModuleMetadataRelation();
         childRelation.setModuleAlias(validModuleAlias);
@@ -160,6 +162,35 @@ public class ModuleMetadataOrchestrationService {
         publishCreatedMetadata(metadataService.select(childMetadataId), validModuleAlias);
         return new ModuleMainMetadataCreationResult(metadataService.select(childMetadataId),
                 relationService.select(childRelationId));
+    }
+
+    /** Repairs child catalogues before activation without changing physical schema or business fields. */
+    @Transactional
+    public void reconcileChildSystemFields(String moduleAlias) {
+        requireDynamicModule(PlatformNameRules.requireModuleAlias(moduleAlias));
+        MetadataCapabilityGovernanceMutationContext.run(() -> {
+            for (ModuleMetadataRelation relation : relationService.list(Criteria.of().eq("moduleAlias", moduleAlias)
+                    .eq("relationRole", RelationRole.CHILD), new net.ximatai.muyun.database.core.orm.PageRequest(0, Integer.MAX_VALUE))) {
+                Metadata child = metadataService.select(relation.getMetadataId());
+                if (child == null) throw new PlatformException("子实体不存在：" + relation.getMetadataId());
+                MetadataCapabilityManagedFieldMaterializer.materialize(fieldService, child, java.util.Set.of());
+                var foreignKeys = fieldService.list(Criteria.of().eq("metadataId", child.getId())
+                        .eq("fieldName", relation.getForeignKey()), new net.ximatai.muyun.database.core.orm.PageRequest(0, Integer.MAX_VALUE));
+                if (foreignKeys.size() != 1 || foreignKeys.getFirst().getFieldForm() != MetadataFieldForm.PHYSICAL) {
+                    throw new PlatformException("子实体父关联字段必须唯一且为物理字段：" + relation.getForeignKey());
+                }
+                MetadataField foreignKey = foreignKeys.getFirst();
+                if (foreignKey.getFieldOwnership() != MetadataFieldOwnership.STANDARD
+                        || !Boolean.TRUE.equals(foreignKey.getSystemManaged())) {
+                    PlatformManagedMutationContext.runAsPlatformManaged(() -> {
+                        foreignKey.setFieldOwnership(MetadataFieldOwnership.STANDARD);
+                        foreignKey.setSystemManaged(Boolean.TRUE);
+                        fieldService.update(foreignKey);
+                    });
+                }
+            }
+            return null;
+        });
     }
 
     /** Publishes model creation through the same schema-then-post-commit-runtime boundary as change sets. */

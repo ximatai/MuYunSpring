@@ -44,7 +44,7 @@ export interface MetadataModelRelationDraftSource {
   sortOrder?: number;
   expectedMetadataVersion: number;
   fields: MetadataField[];
-  /** The server's sortable subset; system, capability and relation-owned fields never participate. */
+  /** The server's sortable set; definition protection does not restrict display ordering. */
   sortableFieldIds?: string[];
   fieldProperties?: MetadataFieldPropertySummary[];
 }

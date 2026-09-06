@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import RecordFieldLabel from './RecordFieldLabel.vue';
 import { computed, onMounted, ref, watch } from 'vue';
 import {
   UiButton,
@@ -577,10 +578,12 @@ function groupEndsAt(field: RecordFormFieldState, index: number) {
         'record-form-field--validation-pulse': validationRequestKey > 0 && fieldInvalid(field),
       }"
     >
-      <span v-if="showLabels && field.controlType !== 'imageFileTransfer'" class="record-form-field-label">
+      <RecordFieldLabel
+        v-if="showLabels && field.controlType !== 'imageFileTransfer'"
+        :required="field.required"
+      >
         {{ field.label }}
-        <strong v-if="field.required" aria-hidden="true">*</strong>
-      </span>
+      </RecordFieldLabel>
       <div class="record-form-field-control">
         <RecordStatusSwitch
           v-if="field.controlType === 'enabledStatus'"
@@ -805,17 +808,6 @@ function groupEndsAt(field: RecordFormFieldState, index: number) {
 
 .record-form-group-heading {
   grid-column: 1 / -1;
-}
-
-.record-form-field-label {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.record-form-field-label strong {
-  color: var(--muyun-danger-base);
-  font-weight: 600;
 }
 
 .record-form-field-error {

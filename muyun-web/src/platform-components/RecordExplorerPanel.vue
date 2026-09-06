@@ -11,6 +11,7 @@ const props = withDefaults(
     title: string;
     subtitle?: string;
     refreshTitle?: string;
+    refreshDisabled?: boolean;
     searchKeyword?: string;
     searchPlaceholder?: string;
     searchable?: boolean;
@@ -18,6 +19,7 @@ const props = withDefaults(
   }>(),
   {
     refreshTitle: undefined,
+    refreshDisabled: false,
     subtitle: undefined,
     searchKeyword: '',
     searchPlaceholder: '搜索名称、编码或 ID',
@@ -72,7 +74,8 @@ async function focusSearchInput() {
       :subtitle="subtitle"
       title-action-icon="reload"
       :title-action-title="refreshTitle ?? `刷新${title}`"
-      @title-action="emit('refresh')"
+      :title-action-disabled="refreshDisabled"
+      @title-action="!refreshDisabled && emit('refresh')"
     >
       <template v-if="$slots['title-extra']" #status>
         <slot name="title-extra" />

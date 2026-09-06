@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useWorkspaceSortActivity } from './managementWorkspaceContext';
 import { computed, onMounted, ref, watch } from 'vue';
 import {
   UiButton,
@@ -98,6 +99,7 @@ const loading = ref(false);
 const treeChangeReason = ref<UiTreeChangeReason>('reset');
 const loadError = ref(false);
 const sortingRequest = ref(false);
+useWorkspaceSortActivity(sortingRequest);
 const localKeyword = ref('');
 const searchExpanded = ref(false);
 const tree = ref<WebTreeNode<TreeRecordBase>[]>([]);
@@ -138,7 +140,7 @@ onMounted(loadTree);
 
 watch(
   () => props.reloadKey,
-  () => loadTree(),
+  () => loadTree('interaction'),
 );
 
 watch(
@@ -191,6 +193,7 @@ async function loadTree(reason: UiTreeChangeReason = 'reset', expandParentId?: s
     if (requestSeq !== treeRequestSeq) {
       return;
     }
+    const previousIds = new Set(flattenTreeRecords(tree.value).map((record) => String(record.id)));
     treeChangeReason.value = reason;
     tree.value = response.records;
     const keys = new Set(flattenTreeRecords(response.records).map((record) => String(record.id)));
@@ -198,8 +201,11 @@ async function loadTree(reason: UiTreeChangeReason = 'reset', expandParentId?: s
       reason === 'interaction'
         ? expandedKeys.value.filter((key) => keys.has(key))
         : firstTwoTreeLevels(response.records);
-    if (expandParentId && expandParentId !== 'root') {
-      let entry = locateTreeNode(expandParentId);
+    const revealId =
+      expandParentId ??
+      (props.selectedId && !previousIds.has(props.selectedId) ? props.selectedId : undefined);
+    if (revealId && revealId !== 'root') {
+      let entry = locateTreeNode(revealId);
       const path: string[] = [];
       while (entry) {
         path.push(String(entry.node.record.id));
@@ -510,11 +516,5 @@ defineExpose({ openSearch, toggleSearch });
 .tree-record-explorer > :not(.tree-record-search) {
   flex: 1 1 auto;
   min-height: 0;
-}
-
-.tree-record-explorer :deep(.ant-tree) {
-  flex: 1 1 auto;
-  min-height: 0;
-  overflow: auto;
 }
 </style>

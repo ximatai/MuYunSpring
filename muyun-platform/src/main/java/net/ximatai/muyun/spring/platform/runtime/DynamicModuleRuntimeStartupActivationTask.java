@@ -4,6 +4,7 @@ import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.spring.platform.metadata.ModuleMetadataRelationService;
 import net.ximatai.muyun.spring.platform.metadata.RelationRole;
+import net.ximatai.muyun.spring.platform.metadata.ModuleMetadataOrchestrationService;
 import net.ximatai.muyun.spring.platform.module.ModuleKind;
 import net.ximatai.muyun.spring.platform.module.PlatformModule;
 import net.ximatai.muyun.spring.platform.module.PlatformModuleService;
@@ -26,13 +27,16 @@ public class DynamicModuleRuntimeStartupActivationTask implements PlatformBootst
     private final PlatformModuleService moduleService;
     private final ModuleMetadataRelationService relationService;
     private final PlatformDynamicRuntimeRefreshService runtimeRefreshService;
+    private final ModuleMetadataOrchestrationService metadataOrchestration;
 
     public DynamicModuleRuntimeStartupActivationTask(PlatformModuleService moduleService,
                                                      ModuleMetadataRelationService relationService,
-                                                     PlatformDynamicRuntimeRefreshService runtimeRefreshService) {
+                                                     PlatformDynamicRuntimeRefreshService runtimeRefreshService,
+                                                     ModuleMetadataOrchestrationService metadataOrchestration) {
         this.moduleService = moduleService;
         this.relationService = relationService;
         this.runtimeRefreshService = runtimeRefreshService;
+        this.metadataOrchestration = metadataOrchestration;
     }
 
     @Override
@@ -56,6 +60,7 @@ public class DynamicModuleRuntimeStartupActivationTask implements PlatformBootst
 
     private void activatePublishedModule(PlatformModule module) {
         try {
+            metadataOrchestration.reconcileChildSystemFields(module.getAlias());
             runtimeRefreshService.activateNow(module.getAlias());
         } catch (RuntimeException exception) {
             // A persisted model can become invalid while governance evolves.  Keep the platform
