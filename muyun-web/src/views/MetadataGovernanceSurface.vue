@@ -283,8 +283,11 @@ const fieldPropertyKindOptions: Option[] = [
 ];
 
 function selectNewFieldPropertyKind(kind: unknown) {
-  if (state.fieldDraft.value.id || typeof kind !== 'string') return;
-  startCreateField(kind as MetadataFieldPropertyDraft['kind']);
+  if (state.fieldDraft.value.id || !['BASIC', 'MODULE_REFERENCE', 'DICTIONARY'].includes(String(kind)))
+    return;
+  const draft = { ...state.fieldDraft.value };
+  state.startCreateField(kind as MetadataFieldPropertyDraft['kind']);
+  state.fieldDraft.value = { ...draft, fieldSpecAlias: state.fieldDraft.value.fieldSpecAlias };
 }
 const projectionMappingsText = computed({
   get: () => state.fieldPropertyDraft.value.referenceConfig?.projectionMappings?.join('\n') ?? '',

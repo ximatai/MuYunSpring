@@ -145,7 +145,7 @@ class StaticReferenceResolveFacadeTest {
         assertThat(criteria.getAllValues().getFirst().getClauses()).singleElement().satisfies(clause -> {
             assertThat(clause.getField()).isEqualTo("title");
             assertThat(clause.getOperator()).isEqualTo(CriteriaOperator.LIKE);
-            assertThat(clause.getValues()).containsExactly("星云");
+            assertThat(clause.getValues()).containsExactly("%星云%");
         });
         assertThat(page.getAllValues().getFirst().getOffset()).isZero();
         assertThat(page.getAllValues().getFirst().getLimit()).isEqualTo(20);

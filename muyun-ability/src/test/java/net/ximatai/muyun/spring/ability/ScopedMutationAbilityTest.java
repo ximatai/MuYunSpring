@@ -5,11 +5,36 @@ import net.ximatai.muyun.spring.common.exception.PlatformErrorCodes;
 import net.ximatai.muyun.spring.common.tenant.TenantContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.aop.framework.ProxyFactory;
+import org.aopalliance.intercept.MethodInterceptor;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class ScopedMutationAbilityTest {
+    @Test
+    void tenantVerificationShouldDelegateThroughSpringClassProxy() {
+        java.util.List<String> verified = new java.util.ArrayList<>();
+        ProxyFactory factory = new ProxyFactory(new ProxyableTenantScopedService(tenantId -> {
+            verified.add(tenantId);
+            if ("disabled".equals(tenantId)) throw new IllegalStateException("tenant is disabled");
+        }));
+        factory.setProxyTargetClass(true);
+        factory.addAdvice((MethodInterceptor) invocation -> invocation.proceed());
+        TenantActiveScopedAbility<?> proxy = (TenantActiveScopedAbility<?>) factory.getProxy();
+
+        proxy.verifyActiveTenant("active");
+        assertThatThrownBy(() -> proxy.verifyActiveTenant("disabled"))
+                .isInstanceOf(IllegalStateException.class).hasMessage("tenant is disabled");
+        assertThat(verified).containsExactly("active", "disabled");
+    }
+
+    static class ProxyableTenantScopedService extends TenantActiveScopedService<DemoPlainRecord> {
+        ProxyableTenantScopedService(net.ximatai.muyun.spring.common.tenant.ActiveTenantVerifier verifier) {
+            super("demo.tenantProxy", DemoPlainRecord.class, new InMemoryBaseDao<>(), verifier);
+        }
+    }
+
     @AfterEach
     void tearDown() {
         TenantContext.clear();

@@ -28,8 +28,8 @@ import {
 } from '@muyun/platform-components';
 import {
   configureModuleContext,
-  createModuleContext,
   createAuthClient,
+  createMenuClient,
   createLoginContextClient,
   invokeBusinessNotificationRecordAction,
   provideModuleContextConfig,
@@ -89,7 +89,7 @@ import {
   restoreWorkbenchStartupStateFromUrl,
   updateLockedMenuTabs,
 } from './app/workbenchStartup';
-import { withPageInstanceKey } from './platform-workbench/menuNavigation';
+import { getMenuNavigationTarget, withPageInstanceKey } from './platform-workbench/menuNavigation';
 import { restoreLockedTabPreference, saveLockedTabPreference } from './app/lockedTabPreference';
 import {
   clearWorkbenchSessionTabs,
@@ -249,10 +249,24 @@ let lockedTabPreferenceWrite = Promise.resolve();
 
 configureModuleContext({ httpFactory: createBackendHttpClient });
 provideModuleContextConfig({ httpFactory: createBackendHttpClient });
-const employeeProfileContext = createModuleContext({ moduleAlias: 'iam.employee' });
 provideCurrentUserContext(currentUser);
 providePlatformTimeZoneContext(currentTimeZone);
 provideWorkbenchNavigation({
+  refreshMenus: async () => {
+    const token = effectiveAuthToken(import.meta.env.VITE_MUYUN_AUTH_TOKEN);
+    const { records } = await createMenuClient(createBackendHttpClient()).mine();
+    if (!startup.value || token !== effectiveAuthToken(import.meta.env.VITE_MUYUN_AUTH_TOKEN)) {
+      throw new Error('登录状态已变化，请重新打开菜单配置');
+    }
+    resetMenuRoutes();
+    await ensureMenuRoutes(records);
+    startup.value = { ...startup.value, menus: records };
+    return records;
+  },
+  openMenu: (menu) => {
+    const target = getMenuNavigationTarget(menu);
+    if (target) handleSelectMenu(menu, target);
+  },
   openRoute: handleOpenRoute,
   replaceRoute: handleReplaceRoute,
   closeCurrentTab: handleCloseCurrentTab,
@@ -1325,7 +1339,6 @@ function componentForCommittedRoute(route: RouteLocationNormalizedLoaded): VueCo
       :loading="profileLoading"
       :saving="profileSaving"
       :error="profileError"
-      :avatar-context="employeeProfileContext"
       @close="closeCurrentUserProfile"
       @submit="submitCurrentUserProfile"
     />

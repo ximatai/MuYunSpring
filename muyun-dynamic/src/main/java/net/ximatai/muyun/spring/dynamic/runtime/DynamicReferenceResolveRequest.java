@@ -4,6 +4,7 @@ import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 
 import java.util.LinkedHashMap;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
@@ -34,7 +35,8 @@ public record DynamicReferenceResolveRequest(
         matchMode = matchMode == null ? DynamicReferenceMatchMode.AUTO : matchMode;
         values = values == null ? List.of() : List.copyOf(values);
         pageRequest = pageRequest == null ? DEFAULT_PAGE : pageRequest;
-        formValues = formValues == null ? Map.of() : Map.copyOf(new LinkedHashMap<>(formValues));
+        // Empty form fields are valid explicit nulls, not malformed request entries.
+        formValues = formValues == null ? Map.of() : Collections.unmodifiableMap(new LinkedHashMap<>(formValues));
     }
 
     public static DynamicReferenceResolveRequest query(String fuzzy) {

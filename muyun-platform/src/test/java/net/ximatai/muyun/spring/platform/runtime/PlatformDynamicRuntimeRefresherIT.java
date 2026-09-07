@@ -156,8 +156,7 @@ class PlatformDynamicRuntimeRefresherIT extends PlatformPostgresIntegrationTest 
         DynamicRecordRuntime runtime = DynamicRecordRuntime.builder(operations)
                 .fieldValueValidator(new DictionaryFieldValueValidator(services.itemService))
                 .build();
-        PlatformDynamicRuntimeRefresher refresher = new PlatformDynamicRuntimeRefresher(
-                new PlatformModuleDefinitionCompiler(
+        PlatformModuleDefinitionCompiler compiler = new PlatformModuleDefinitionCompiler(
                         services.moduleService,
                         services.metadataService,
                         services.fieldService,
@@ -168,9 +167,9 @@ class PlatformDynamicRuntimeRefresherIT extends PlatformPostgresIntegrationTest 
                         services.viewFieldService,
                         services.actionService,
                         services.formulaRuleService
-                ),
-                new DynamicModuleRuntimeRefresher(schemaService, runtime)
-        );
+                );
+        PlatformDynamicRuntimeRefresher refresher = new PlatformDynamicRuntimeRefresher(
+                compiler, new DynamicModuleRuntimeRefresher(schemaService, runtime));
 
         refresher.refresh("crm.customer");
         DynamicRecordService runtimeService = new DynamicRecordService(runtime);
@@ -255,6 +254,20 @@ class PlatformDynamicRuntimeRefresherIT extends PlatformPostgresIntegrationTest 
         assertThat(customer.list(Criteria.of().eq("code", "C-001"), PageRequest.of(1, 10)))
                 .extracting(item -> item.getValue("title"))
                 .containsExactly("客户A");
+
+        // A new runtime has no in-memory registrations; startup must restore declarations and
+        // read the same persisted record and its reference projections without issuing DDL.
+        services.moduleService.insert(module("crm.unconfigured"));
+        DynamicRecordRuntime restarted = DynamicRecordRuntime.builder(operations)
+                .fieldValueValidator(new DictionaryFieldValueValidator(services.itemService)).build();
+        var restoredRefresher = new PlatformDynamicRuntimeRefresher(compiler,
+                new DynamicModuleRuntimeRefresher(schemaService, restarted));
+        new PlatformDynamicRuntimeBootstrapTask(services.moduleService, services.relationService,
+                new PlatformDynamicRuntimeRefreshService(restoredRefresher)).run();
+        assertThat(restarted.registry().findModule("crm.unconfigured")).isEmpty();
+        DynamicRecord restored = new DynamicRecordService(restarted).mainEntity("crm.customer").select(selected.getId());
+        assertThat(restored.getValue("title")).isEqualTo("客户A");
+        assertThat(restored.getChildren("contacts").getFirst().getValue("customerTitle")).isEqualTo("客户A");
 
         DynamicRecord invalid = customer.newRecord()
                 .setValue("title", "客户B")

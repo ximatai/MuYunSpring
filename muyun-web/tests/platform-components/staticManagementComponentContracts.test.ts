@@ -186,10 +186,6 @@ it('workbench opens the signed-in user profile through the dedicated self-servic
   assert.match(appSource, /authClient\.currentProfile\(token\)/);
   assert.match(appSource, /authClient\.updateCurrentProfile\(value, token\)/);
   assert.match(appSource, /<CurrentUserProfileDialog/);
-  assert.ok(
-    appSource.indexOf('configureModuleContext({ httpFactory: createBackendHttpClient })') <
-      appSource.indexOf("createModuleContext({ moduleAlias: 'iam.employee' })"),
-  );
   assert.match(clientSource, /path: '\/iam\.auth\/profile'/);
   assert.match(profileDialogSource, /title="个人信息"/);
   assert.match(profileDialogSource, /保存联系方式/);

@@ -386,6 +386,36 @@ it('preserves an explicitly edited child alias across title and mode changes', a
   expect(wrapper.text()).toContain('exam_students');
 });
 
+it('preserves the field draft and advanced editor when changing its business property', async () => {
+  configureModuleContext({ http: fakeHttp() });
+  const wrapper = shallowMount(MetadataGovernanceSurface, {
+    props: { moduleAlias: 'education.exam' },
+    global: { stubs: governanceStubs() },
+  });
+  mounted.add(wrapper);
+  await flushPromises();
+  await wrapper
+    .findAll('[data-testid="action-button"]')
+    .find((button) => button.text() === '＋ 字段')!
+    .trigger('click');
+  wrapper.findComponent({ name: 'UiRadioGroup' }).vm.$emit('update:value', 'ADVANCED');
+  await flushPromises();
+  const field = (label: string) => wrapper.findAll('label').find((item) => item.text().startsWith(label))!;
+  field('字段名称').findComponent({ name: 'UiInput' }).vm.$emit('update:value', 'supplierId');
+  field('物理列名').findComponent({ name: 'UiInput' }).vm.$emit('update:value', 'supplier_id');
+  field('显示名称').findComponent({ name: 'UiInput' }).vm.$emit('update:value', '供应商');
+  await flushPromises();
+  for (const kind of ['MODULE_REFERENCE', 'DICTIONARY', 'BASIC']) {
+    field('数据属性').findComponent({ name: 'UiSelect' }).vm.$emit('update:value', kind);
+    await flushPromises();
+    expect(field('字段名称').findComponent({ name: 'UiInput' }).props('value')).toBe('supplierId');
+    expect(field('物理列名').findComponent({ name: 'UiInput' }).props('value')).toBe('supplier_id');
+    expect(field('显示名称').findComponent({ name: 'UiInput' }).props('value')).toBe('供应商');
+    expect(wrapper.findComponent({ name: 'UiRadioGroup' }).props('value')).toBe('ADVANCED');
+    if (kind === 'MODULE_REFERENCE') expect(wrapper.text()).toContain('目标模块');
+  }
+});
+
 function governanceStubs() {
   return {
     RecordFieldLabel: false,

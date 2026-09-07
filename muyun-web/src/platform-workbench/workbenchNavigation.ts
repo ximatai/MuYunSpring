@@ -1,5 +1,5 @@
 import { inject, provide, type InjectionKey } from 'vue';
-import type { PageDescriptor, RouteQueryValue } from '@muyun/web-contracts';
+import type { MenuRecord, MenuTreeNode, PageDescriptor, RouteQueryValue } from '@muyun/web-contracts';
 
 export interface OpenRouteOptions {
   /** Opens an independent internal tab instance without changing the public URL. */
@@ -9,6 +9,10 @@ export interface OpenRouteOptions {
 }
 
 export interface WorkbenchNavigation {
+  /** Reloads visible menus without resetting open pages or their edits. */
+  refreshMenus?(): Promise<MenuTreeNode[]>;
+  /** Uses the same navigation policy as clicking a sidebar menu. */
+  openMenu?(menu: MenuRecord): void;
   openRoute(path: string, options?: OpenRouteOptions): WorkbenchPageOpenResult;
   replaceRoute(path: string, options?: OpenRouteOptions): WorkbenchPageOpenResult;
   closeCurrentTab(fallbackPath: string): WorkbenchPageOpenResult;

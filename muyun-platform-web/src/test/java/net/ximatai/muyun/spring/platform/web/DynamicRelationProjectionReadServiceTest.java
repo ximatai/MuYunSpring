@@ -83,6 +83,7 @@ class DynamicRelationProjectionReadServiceTest {
                 .contains("left join \"public\".\"crm_customer\" \"customer_id\"")
                 .contains("\"tenantId\"", "\"version\"")
                 .contains("\"main\".\"customer_id\" as \"customerId\"")
+                .contains("\"deleted\" IS NULL")
                 .contains("\"customer_id\".\"title\" as \"customerTitle\"");
     }
 
@@ -241,7 +242,7 @@ class DynamicRelationProjectionReadServiceTest {
         org.mockito.Mockito.verify(jdbcOperations).queryForList(sqlCaptor.capture(), paramsCaptor.capture());
         assertThat(sqlCaptor.getValue())
                 .contains("\"main\".\"tenant_id\" as \"tenantId\"")
-                .contains("where \"tenantId\" = :");
+                .contains("where (\"tenantId\" = :", "\"deleted\" IS NULL");
         assertThat(paramsCaptor.getValue()).containsValue("tenant_a");
     }
 

@@ -6,7 +6,7 @@ import AppWorkbenchShell from '@/consumer/AppWorkbenchShell.vue';
 import type { AppWorkbenchNavigation } from '@/consumer/workbenchNavigation';
 import Workbench from '@/platform-workbench/Workbench.vue';
 import { useWorkbenchNavigation, type WorkbenchNavigation } from '@/platform-workbench/workbenchNavigation';
-import type { WorkbenchStartupState } from '@/web-contracts';
+import type { MenuTreeNode, WorkbenchStartupState } from '@/web-contracts';
 import { configureUserPreferenceBackend } from '@/web-core/userPreferences';
 
 const tabs = [
@@ -62,7 +62,7 @@ function mountShell() {
   });
 }
 
-function mountShellWithNavigation() {
+function mountShellWithNavigation(loadMenus?: () => Promise<MenuTreeNode[]>) {
   let navigation: WorkbenchNavigation | undefined;
   // eslint-disable-next-line vue/one-component-per-file -- The probe only exposes the shell's provided navigation to this test.
   const NavigationProbe = defineComponent({
@@ -74,6 +74,7 @@ function mountShellWithNavigation() {
   const wrapper = mount(AppWorkbenchShell, {
     props: {
       startup: startup(),
+      loadMenus,
       location: '/a',
       realtimeStatus: 'connected',
       themeAppearance: 'dark',
@@ -257,4 +258,46 @@ it('preserves descriptor URL semantics when a menu opens in a new window', async
 
   expect(open).toHaveBeenCalledWith('https://bi.example.com/report', '_blank', 'noopener,noreferrer');
   open.mockRestore();
+});
+
+it('refreshes menus without replacing open pages or the active tab', async () => {
+  const menus = [
+    {
+      record: {
+        id: 'new',
+        title: '客户',
+        schemeId: 's',
+        moduleAlias: 'crm.customer',
+        entryType: 'module',
+        openMode: 'tab',
+      },
+      children: [],
+    },
+  ] as MenuTreeNode[];
+  const { wrapper, navigation } = mountShellWithNavigation(async () => menus);
+  await flushPromises();
+  const before = wrapper.props('startup');
+  await navigation()!.refreshMenus!();
+  const after = wrapper.emitted('update:startup')!.at(-1)![0] as WorkbenchStartupState;
+  expect(after.menus).toEqual(menus);
+  expect(after.tabs).toBe(before.tabs);
+  expect(after.activeTabKey).toBe(before.activeTabKey);
+  wrapper.unmount();
+});
+
+it('rejects an old menu response after the session has changed', async () => {
+  let resolve!: (nodes: MenuTreeNode[]) => void;
+  const { wrapper, navigation } = mountShellWithNavigation(
+    () =>
+      new Promise((done) => {
+        resolve = done;
+      }),
+  );
+  await flushPromises();
+  const pending = navigation()!.refreshMenus!();
+  await wrapper.setProps({ startup: startup() });
+  const rejection = expect(pending).rejects.toThrow('登录状态已变化');
+  resolve([]);
+  await rejection;
+  wrapper.unmount();
 });

@@ -127,6 +127,7 @@ export function useRecordDetailController<TRecord extends Record<string, unknown
   }
 
   function clearDeleted() {
+    open.value = false;
     record.value = undefined;
     draft.value = undefined;
     mode.value = 'view';

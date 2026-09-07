@@ -1,6 +1,8 @@
 import type { ModulePageEnhancement, ModulePageWorkspaceView } from '@muyun/dynamic-page-runtime';
 import type { QueryListRecord } from '@muyun/platform-components';
 import { moduleActionManagementWorkspaceView } from '../views/moduleActionManagementWorkspaceView';
+import ModuleMenuDrawer from './module-menu/ModuleMenuDrawer.vue';
+import ModuleMenuEntriesSection from './module-menu/ModuleMenuEntriesSection.vue';
 import { moduleGovernanceWorkspaceView } from '../views/moduleGovernanceWorkspaceView';
 
 // Workspace definitions use the platform-workbench's serializable input
@@ -23,7 +25,16 @@ export const platformModulePageEnhancement: ModulePageEnhancement = {
   // it has no menu identity and is not the general action-management entry.
   workspaceViews: [moduleGovernanceWorkspace, moduleActionWorkspaceView],
   detail: {
+    sections: [{ key: 'module-menu-entries', title: '菜单入口', component: ModuleMenuEntriesSection }],
     actions: [
+      {
+        key: 'module-add-to-menu',
+        title: '添加到菜单',
+        state: (record) => ({ visible: moduleAliasOf(record) !== undefined }),
+        run({ openDrawer }) {
+          openDrawer({ title: '添加到菜单', width: 480, component: ModuleMenuDrawer });
+        },
+      },
       {
         key: 'module-actions-workspace',
         title: '动作',

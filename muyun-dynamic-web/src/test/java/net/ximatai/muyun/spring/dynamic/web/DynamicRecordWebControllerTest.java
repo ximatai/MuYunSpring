@@ -3180,6 +3180,9 @@ class DynamicRecordWebControllerTest {
     @Test
     void shouldResolveMainEntityReferenceWithoutEntityLevelPath() throws Exception {
         Criteria criteria = Criteria.of().eq("customerType", "VIP");
+        Map<String, Object> formValues = new java.util.LinkedHashMap<>();
+        formValues.put("customerRegion", "north");
+        formValues.put("optionalField", null);
         when(service.mainEntityAlias(MODULE)).thenReturn(ENTITY);
         when(service.queryCriteria(eq("crm.customer"), eq("customer"), any())).thenReturn(criteria);
         when(service.resolveFieldReference(eq(MODULE), eq(ENTITY), eq("customerId"), any(DynamicReferenceResolveRequest.class)))
@@ -3207,7 +3210,7 @@ class DynamicRecordWebControllerTest {
                                         "operator", "EQ",
                                         "values", List.of("VIP")
                                 )),
-                                "formValues", Map.of("customerRegion", "north")
+                                "formValues", formValues
                         ))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("OK"))
@@ -3223,6 +3226,7 @@ class DynamicRecordWebControllerTest {
         assertThat(request.getValue().criteria()).isSameAs(criteria);
         assertThat(request.getValue().includeProjections()).isFalse();
         assertThat(request.getValue().formValues()).containsEntry("customerRegion", "north");
+        assertThat(request.getValue().formValues()).containsEntry("optionalField", null);
     }
 
     @Test
@@ -3658,6 +3662,81 @@ class DynamicRecordWebControllerTest {
                 .andExpect(jsonPath("$.code").value(PlatformErrorCodes.VALIDATION_FAILED))
                 .andExpect(jsonPath("$.status").value(400))
                 .andExpect(jsonPath("$.message").value("unknown dynamic field: unknown"));
+    }
+
+    @Test
+    void shouldRoundTripReferenceLabelsWithoutTreatingThemAsWritableFields() throws Exception {
+        var reference = net.ximatai.muyun.spring.dynamic.metadata.EntityReferenceDefinition
+                .to(ENTITY, "code", "sales.customer.customer")
+                .withProjection("title", "customerTitle")
+                .withProjection("code", "code");
+        when(service.references(MODULE, ENTITY)).thenReturn(List.of(DynamicReferenceDescriptor.from(reference)));
+        DynamicRecord saved = new DynamicRecord(entity()).setValue("code", "C-002");
+        saved.setId("contract-1");
+        when(mainEntity.update(any(DynamicRecord.class))).thenReturn(1);
+        when(mainEntity.select("contract-1")).thenReturn(saved);
+
+        mvc.perform(post("/{moduleAlias}/update/{recordId}", MODULE, "contract-1")
+                        .contentType("application/json")
+                        .content("""
+                                {"version":3,"code":"C-002","customerTitle":"forged label",
+                                 "deletedAt":null,"createdBy":"forged actor","deleted":true}
+                                """))
+                .andExpect(status().isOk());
+        ArgumentCaptor<DynamicRecord> updated = ArgumentCaptor.forClass(DynamicRecord.class);
+        verify(mainEntity).update(updated.capture());
+        assertThat(updated.getValue().getValue("code")).isEqualTo("C-002");
+        assertThat(updated.getValue().getValues()).doesNotContainKey("customerTitle");
+        assertThat(updated.getValue().getDeletedAt()).isNull();
+        assertThat(updated.getValue().getCreatedBy()).isNull();
+        assertThat(updated.getValue().getDeleted()).isNotEqualTo(Boolean.TRUE);
+
+        when(service.previewFormula(eq(MODULE), eq(ENTITY), any(DynamicRecord.class)))
+                .thenReturn(new DynamicFormulaPreviewResult(saved, null, List.of()));
+        Map<String, Object> previewValues = new java.util.LinkedHashMap<>();
+        previewValues.put("code", "C-002");
+        previewValues.put("amount", null);
+        previewValues.put("customerTitle", "forged label");
+        previewValues.put("deletedAt", null);
+        mvc.perform(post("/{moduleAlias}/formula/preview", MODULE)
+                        .contentType("application/json")
+                        .content(json(Map.of("record", Map.of("values", previewValues)))))
+                .andExpect(status().isOk());
+        ArgumentCaptor<DynamicRecord> preview = ArgumentCaptor.forClass(DynamicRecord.class);
+        verify(service).previewFormula(eq(MODULE), eq(ENTITY), preview.capture());
+        assertThat(preview.getValue().getValues()).doesNotContainKey("customerTitle");
+        assertThat(preview.getValue().getValues()).containsEntry("amount", null);
+
+        mvc.perform(post("/{moduleAlias}/update/{recordId}", MODULE, "contract-1")
+                        .contentType("application/json")
+                        .content(json(Map.of("code", "C-002", "unknownTitle", "not declared"))))
+                .andExpect(status().isBadRequest());
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.CsvSource({
+            "insert,record-created", "update/contract-1,record-updated", "delete/contract-1,record-deleted"
+    })
+    void shouldReportStandardMutationFactsWithTheResolvedModuleAlias(String path, String changeType) throws Exception {
+        DynamicRecord saved = new DynamicRecord(entity()).setValue("code", "C-001");
+        saved.setId("contract-1");
+        when(mainEntity.select("contract-1")).thenReturn(saved);
+        when(mainEntity.insert(any(DynamicRecord.class))).thenReturn("contract-1");
+        when(mainEntity.update(any(DynamicRecord.class))).thenReturn(1);
+        when(mainEntity.delete("contract-1", 0)).thenReturn(1);
+        var mutation = new net.ximatai.muyun.spring.ability.action.MutationContext();
+        try (var ignored = net.ximatai.muyun.spring.ability.action.MutationContextHolder.use(mutation)) {
+            mvc.perform(post("/" + MODULE + "/" + path).contentType("application/json")
+                            .content(json(path.startsWith("delete/") ? Map.of("version", 0)
+                                    : Map.of("version", 0, "code", "C-001"))))
+                    .andExpect(status().is2xxSuccessful());
+            assertThat(mutation.committedChangeSet(Class::getSimpleName).changes()).singleElement().satisfies(change -> {
+                assertThat(change.moduleAlias()).isEqualTo(MODULE);
+                assertThat(change.type()).isEqualTo(changeType);
+                assertThat(change.recordId()).isEqualTo("contract-1");
+            });
+            assertThat(mutation.message()).isNotNull();
+        }
     }
 
     private String json(Object value) throws Exception {
