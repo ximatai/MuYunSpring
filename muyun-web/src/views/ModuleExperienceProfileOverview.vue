@@ -21,6 +21,7 @@ type ExperienceProfile = {
   version?: number;
   mainMetadataVersion?: number;
   mainCapabilities: string[];
+  publishedRequiredCapabilities?: string[];
   capabilities?: Partial<Record<CapabilityGroup, CapabilityFact[]>>;
 };
 
@@ -91,7 +92,10 @@ const fallbackCapabilities: Record<ExperienceMode, Record<CapabilityGroup, Capab
 };
 const selectedModeDefinition = computed(() => modes.find((item) => item.mode === selectedMode.value)!);
 const selectedCapabilitySet = computed(() => new Set(selectedCapabilities.value));
-const requiredCapabilityCodes = computed(() => capabilityGroups.value.required.map((fact) => fact.code));
+const requiredCapabilityCodes = computed(() => [
+  ...capabilityGroups.value.required.map((fact) => fact.code),
+  ...(profile.value?.publishedRequiredCapabilities ?? []),
+]);
 const requiredCapabilities = computed(() => {
   const modeOwned = new Set(['TREE']);
   if (selectedMode.value !== 'LIST_CARD') modeOwned.add('SORT');
@@ -225,6 +229,9 @@ function normalizeProfile(value: unknown, fallbackMode: ExperienceMode = 'LIST_C
           : undefined,
     mainMetadataVersion:
       typeof source.mainMetadataVersion === 'number' ? source.mainMetadataVersion : undefined,
+    publishedRequiredCapabilities: Array.isArray(source.publishedRequiredCapabilities)
+      ? source.publishedRequiredCapabilities.filter((item): item is string => typeof item === 'string')
+      : [],
     mainCapabilities: Array.isArray(source.mainCapabilities)
       ? source.mainCapabilities.filter((item): item is string => typeof item === 'string')
       : [],
@@ -330,6 +337,10 @@ function normalizeCapabilities(value: unknown): CapabilityFact[] | undefined {
           title="能力边界"
           :subtitle="`${selectedModeDefinition.title}下的能力约束。`"
         />
+        <p v-if="profile?.publishedRequiredCapabilities?.length">
+          已发布页面仍依赖
+          {{ profile.publishedRequiredCapabilities.join('、') }}，这些能力会保留到新骨架发布后。
+        </p>
         <div class="module-experience-capabilities">
           <section
             v-for="group in ['required', 'recommended', 'optional'] as const"
@@ -357,7 +368,9 @@ function normalizeCapabilities(value: unknown): CapabilityFact[] | undefined {
               >
                 <UiCheckbox
                   :checked="group === 'required' || selectedCapabilitySet.has(fact.code)"
-                  :disabled="group === 'required' || !editing || saving"
+                  :disabled="
+                    group === 'required' || requiredCapabilityCodes.includes(fact.code) || !editing || saving
+                  "
                   @update:checked="(checked) => setCapability(fact.code, checked)"
                   >{{ fact.title }}</UiCheckbox
                 >

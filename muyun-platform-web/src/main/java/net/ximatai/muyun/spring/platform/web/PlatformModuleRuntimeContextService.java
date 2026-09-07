@@ -345,6 +345,11 @@ public class PlatformModuleRuntimeContextService {
                 .filter(field -> !Boolean.FALSE.equals(field.visible().constant()))
                 .map(field -> field.fieldRef().fieldName()).distinct().toList();
         List<String> quickSearchFields = listFields.stream().filter(field -> isSearchableText(mainEntity, field)).toList();
+        if (descriptor.page() != null && descriptor.page().quickSearchFields() != null) {
+            quickSearchFields = descriptor.page().quickSearchFields();
+            if (quickSearchFields.stream().anyMatch(field -> !isSearchableText(mainEntity, field)))
+                throw new IllegalArgumentException("Quick search requires searchable text fields");
+        }
         List<PageContextBindingDefinition> bindings = descriptor.page() == null || descriptor.page().navigator() == null
                 ? List.of() : descriptor.page().navigator().contextBindings().stream()
                 .map(binding -> new PageContextBindingDefinition(binding.source(), binding.sourceKey(), binding.target(),
@@ -365,8 +370,14 @@ public class PlatformModuleRuntimeContextService {
         String versionKey = "dynamic-runtime-" + dynamicRecordService.runtimeRevision(moduleAlias)
                 + "-page-" + publishedPage.revision().getId()
                 + "-r" + publishedPage.revision().getRevisionNo();
+        java.util.Set<String> readFields = new java.util.LinkedHashSet<>(listFields);
+        readFields.addAll(quickSearchFields);
+        if (descriptor.page() != null && descriptor.page().explorer() != null) {
+            readFields.add(descriptor.page().explorer().titleField());
+            if (descriptor.page().explorer().secondaryField() != null) readFields.add(descriptor.page().explorer().secondaryField());
+        }
         return new ModuleExecutionPlan(moduleAlias, versionKey, descriptor,
-                new ResolvedModuleReadModel(moduleAlias, runtimeContext.mainEntityAlias(), listFields.stream()
+                new ResolvedModuleReadModel(moduleAlias, runtimeContext.mainEntityAlias(), readFields.stream()
                         .map(field -> new ResolvedModuleReadField(runtimeContext.mainEntityAlias(), null, field, false))
                         .toList()),
                 bindings, QueryDescriptor.builder(moduleAlias).build(), querySchema, List.of(), List.of(), null, null,
@@ -461,6 +472,13 @@ public class PlatformModuleRuntimeContextService {
                                                                      String title,
                                                                      DynamicModuleDescriptor dynamicDescriptor,
                                                                      ModuleUiDefinition definition) {
+        if (definition.page() != null && definition.page().quickSearchFields() != null) {
+            DynamicEntityDescriptor main = dynamicDescriptor.entities().stream()
+                    .filter(entity -> dynamicDescriptor.mainEntityAlias().equals(entity.entityAlias())).findFirst().orElseThrow();
+            for (String field : definition.page().quickSearchFields()) {
+                if (!isSearchableText(main, field)) throw new IllegalArgumentException("快速查询仅支持文本字段：" + field);
+            }
+        }
         List<DynamicDetailRelationTarget> relationTargets = dynamicDetailRelationTargets(moduleAlias, dynamicDescriptor,
                 definition.detailRelations());
         java.util.Map<ViewFieldRef, FieldValueType> fieldTypes = new java.util.LinkedHashMap<>(
@@ -505,7 +523,7 @@ public class PlatformModuleRuntimeContextService {
                             throw new IllegalArgumentException("page revision relation field is unavailable: "
                                     + selection.code() + "." + fieldName);
                         }
-                        return field;
+                        return selection.applyColumnProperties(field);
                     }).toList();
             var projection = new net.ximatai.muyun.spring.platform.ui.ResolvedDetailRelationListProjection(null,
                     selectedFields);

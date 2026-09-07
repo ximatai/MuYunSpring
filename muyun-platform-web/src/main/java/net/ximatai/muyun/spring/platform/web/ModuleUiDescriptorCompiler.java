@@ -321,7 +321,7 @@ public final class ModuleUiDescriptorCompiler {
                         .toList(),
                 defaultRecordLabelField,
                 List.of(),
-                compilePage(definition.page(), optionFields, referenceFields, referenceSummaryFields, fieldTypes, fieldControls,
+                compilePage(definition.page(), definition.pageActions(), optionFields, referenceFields, referenceSummaryFields, fieldTypes, fieldControls,
                         sortPartitionFieldsByEntity),
                 definition.defaultEditor() == null ? null : compileView(definition.defaultEditor(), optionFields,
                         referenceFields, referenceSummaryFields, fieldTypes, fieldControls),
@@ -535,6 +535,7 @@ public final class ModuleUiDescriptorCompiler {
                         null, field.fieldControl() == null ? null : field.fieldControl().alias(),
                         field.valueType() == null ? null : field.valueType().name(),
                         relationColumnWidth(field.width()), field.align(), field.maxDisplayLines()))
+                .map(relation::applyColumnProperties)
                 .toList();
         return new ResolvedDetailRelationListProjection(null, fields);
     }
@@ -596,7 +597,7 @@ public final class ModuleUiDescriptorCompiler {
         return actionCode;
     }
 
-    private static ResolvedModulePageDescriptor compilePage(ModulePageDefinition page,
+    private static ResolvedModulePageDescriptor compilePage(ModulePageDefinition page, List<PageActionDefinition> pageActions,
                                                             Map<String, ResolvedOptionFieldDescriptor> optionFields,
                                                             Map<String, ResolvedReferenceFieldDescriptor> referenceFields,
                                                             Map<String, ResolvedReferenceSummaryFieldDescriptor> referenceSummaryFields,
@@ -613,7 +614,7 @@ public final class ModuleUiDescriptorCompiler {
                     flat.template(), ResolvedPageExplorerDescriptor.from(flat.explorer()),
                     ResolvedPageNavigatorDescriptor.from(flat.navigator()), null, null,
                     detail(flat.detail(), optionFields, referenceFields, referenceSummaryFields, fieldTypes, fieldControls),
-                    List.copyOf(flat.traits().values()));
+                    List.copyOf(flat.traits().values()), flat.quickSearchFields(), resolvedPageActions(pageActions));
             }
             case ListDetailCardPageDefinition card -> {
                 if (card.navigator() != null) {
@@ -636,21 +637,27 @@ public final class ModuleUiDescriptorCompiler {
                                         .map(ResolvedPageListQuerySummaryDescriptor::from)
                                 .toList()), null,
                         detail(card.detail(), optionFields, referenceFields, referenceSummaryFields, fieldTypes, fieldControls),
-                        List.copyOf(card.traits().values()));
+                        List.copyOf(card.traits().values()), card.quickSearchFields(), resolvedPageActions(pageActions));
             }
             case TreeManagementPageDefinition tree -> {
                 if (tree.navigator() != null) {
                     validateNavigator(tree.navigator(), referenceFields, "page navigator", editorFieldNames(tree.detail()), true);
                 }
                 validateTreeResource(tree.treeResource(), tree.navigator());
-                yield new ResolvedModulePageDescriptor(tree.template(), null,
+                yield new ResolvedModulePageDescriptor(tree.template(), ResolvedPageExplorerDescriptor.from(tree.explorer()),
                         ResolvedPageNavigatorDescriptor.from(tree.navigator()), null,
                         ResolvedPageTreeResourceDescriptor.from(tree.treeResource(),
                                 sortPartitionFields(tree.treeResource(), sortPartitionFieldsByEntity)),
                         detail(tree.detail(), optionFields, referenceFields, referenceSummaryFields, fieldTypes, fieldControls),
-                        List.copyOf(tree.traits().values()));
+                        List.copyOf(tree.traits().values()), tree.quickSearchFields(), resolvedPageActions(pageActions));
             }
         };
+    }
+
+    private static List<ResolvedPageActionDescriptor> resolvedPageActions(List<PageActionDefinition> actions) {
+        return (actions == null ? List.<PageActionDefinition>of() : actions).stream()
+                .map(action -> new ResolvedPageActionDescriptor(action.actionCode(), action.anchor()))
+                .toList();
     }
 
     private static ResolvedPageTextDescriptor pageText(PageTextDefinition definition) {
@@ -1656,15 +1663,17 @@ public final class ModuleUiDescriptorCompiler {
     }
 
     private static List<ViewFieldRef> pagePresentationFields(ModuleUiDefinition definition) {
-        if (!(definition.page() instanceof FlatManagementPageDefinition flat)) {
-            return List.of();
-        }
+        PageExplorerDefinition explorer = definition.page() instanceof FlatManagementPageDefinition flat ? flat.explorer()
+                : definition.page() instanceof TreeManagementPageDefinition tree ? tree.explorer() : null;
         java.util.ArrayList<ViewFieldRef> fields = new java.util.ArrayList<>();
-        fields.add(new ViewFieldRef(null, flat.explorer().titleField(), null));
-        if (flat.explorer().secondaryField() != null) {
-            fields.add(new ViewFieldRef(null, flat.explorer().secondaryField(), null));
+        if (definition.page() != null && definition.page().quickSearchFields() != null)
+            definition.page().quickSearchFields().forEach(field -> fields.add(new ViewFieldRef(null, field, null)));
+        if (explorer == null) return List.copyOf(fields);
+        fields.add(new ViewFieldRef(null, explorer.titleField(), null));
+        if (explorer.secondaryField() != null) {
+            fields.add(new ViewFieldRef(null, explorer.secondaryField(), null));
         }
-        if (flat.explorer().mutedWhenDisabled()) {
+        if (explorer.mutedWhenDisabled()) {
             fields.add(new ViewFieldRef(null, PlatformAbilityFields.ENABLED_FIELD, null));
         }
         return List.copyOf(fields);

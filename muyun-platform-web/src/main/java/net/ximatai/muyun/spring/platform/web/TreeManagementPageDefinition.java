@@ -1,12 +1,23 @@
 package net.ximatai.muyun.spring.platform.web;
 
+import java.util.List;
 import java.util.function.Consumer;
 
 /** Template-root definition for an optional scope navigator, tree explorer and one record detail surface. */
 public record TreeManagementPageDefinition(PageNavigatorDefinition navigator, PageTreeResourceDefinition treeResource,
-                                           PageDetailDefinition detail, PageTraitsDefinition traits)
+                                           PageDetailDefinition detail, PageTraitsDefinition traits, PageExplorerDefinition explorer, List<String> quickSearchFields)
         implements ModulePageDefinition {
+    public TreeManagementPageDefinition(PageNavigatorDefinition navigator, PageTreeResourceDefinition treeResource, PageDetailDefinition detail, PageTraitsDefinition traits, PageExplorerDefinition explorer) {
+        this(navigator, treeResource, detail, traits, explorer, null);
+    }
+
+    public TreeManagementPageDefinition(PageNavigatorDefinition navigator, PageTreeResourceDefinition treeResource,
+                                        PageDetailDefinition detail, PageTraitsDefinition traits) {
+        this(navigator, treeResource, detail, traits, null);
+    }
+
     public TreeManagementPageDefinition {
+        quickSearchFields = quickSearchFields == null ? null : List.copyOf(quickSearchFields);
         traits = traits == null ? new PageTraitsDefinition(null) : traits;
         if (traits.values().contains(PageTrait.RESPONSIVE_DETAIL_SURFACE)) {
             throw new IllegalArgumentException("tree management keeps its detail card persistent");
@@ -24,7 +35,16 @@ public record TreeManagementPageDefinition(PageNavigatorDefinition navigator, Pa
         private PageNavigatorDefinition navigator;
         private PageTreeResourceDefinition treeResource;
         private PageDetailDefinition detail;
+        private PageExplorerDefinition explorer;
+        public Builder explorer(Consumer<PageExplorerDefinition.Builder> customizer) {
+            var builder = PageExplorerDefinition.builder();
+            if (customizer != null) customizer.accept(builder);
+            explorer = builder.build();
+            return this;
+        }
         private PageTraitsDefinition traits;
+        private List<String> quickSearchFields;
+        public Builder quickSearch(String... fields) { quickSearchFields = List.of(fields); return this; }
 
         public Builder navigator(Consumer<PageNavigatorDefinition.Builder> customizer) {
             PageNavigatorDefinition.Builder builder = new PageNavigatorDefinition.Builder();
@@ -62,7 +82,7 @@ public record TreeManagementPageDefinition(PageNavigatorDefinition navigator, Pa
         }
 
         public TreeManagementPageDefinition build() {
-            return new TreeManagementPageDefinition(navigator, treeResource, detail, traits);
+            return new TreeManagementPageDefinition(navigator, treeResource, detail, traits, explorer, quickSearchFields);
         }
     }
 }

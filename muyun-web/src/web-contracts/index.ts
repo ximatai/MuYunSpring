@@ -1226,6 +1226,8 @@ export interface ResolvedPageDetailWorkspaceViewDescriptor {
 }
 
 export interface ResolvedModulePageDescriptor {
+  /** Omitted uses the module default; empty disables page quick search. */
+  quickSearchFields?: string[];
   template: ModulePageTemplate;
   explorer?: ResolvedPageExplorerDescriptor;
   navigator?: ResolvedPageNavigatorDescriptor;
@@ -1233,7 +1235,14 @@ export interface ResolvedModulePageDescriptor {
   /** Declared action-contribution tree rendered as the main TREE_MANAGEMENT resource. */
   treeResource?: ResolvedPageTreeResourceDescriptor;
   detail: ResolvedPageDetailDescriptor;
+  /** Actions placed only into platform-owned page regions. */
+  actions?: ResolvedPageActionDescriptor[];
   traits: ('STANDARD_CRUD' | 'ENABLED_STATUS' | 'RECYCLE_BIN' | 'RESPONSIVE_DETAIL_SURFACE')[];
+}
+
+export interface ResolvedPageActionDescriptor {
+  actionCode: string;
+  anchor: 'PAGE' | 'DETAIL' | 'FORM';
 }
 
 export interface ResolvedPageTreeResourceDescriptor {

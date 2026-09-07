@@ -338,7 +338,7 @@ class MetadataRelationChangeSetApplyIT extends PlatformPostgresIntegrationTest {
     }
 
     @org.junit.jupiter.params.ParameterizedTest
-    @org.junit.jupiter.params.provider.ValueSource(strings = {"list", "form", "group"})
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"list", "form", "group", "titleField", "secondaryField", "quickSearchFields"})
     void shouldProtectPersistedPageFieldsUntilActiveRevisionsReleaseThem(String placement) {
         applyNewStringField("pageField", "page_field");
         MetadataField field = field("pageField");
@@ -346,6 +346,12 @@ class MetadataRelationChangeSetApplyIT extends PlatformPostgresIntegrationTest {
         PlatformPresentationRevision revision = pageRevision("{\"template\":\"management\",\"templateVersion\":1,\"nodes\":["
                 + (placement.equals("group") ? "{\"slot\":\"form\",\"groups\":[{\"group\":\"basic\",\"title\":\"基本信息\"," + fields + "}]}"
                     : "{\"slot\":\"" + placement + "\"," + fields + "}") + "]}");
+        if (List.of("titleField", "secondaryField", "quickSearchFields").contains(placement)) {
+            revision.setTemplateVersion(2);
+            revision.setUiTreeJson(placement.equals("quickSearchFields")
+                    ? "{\"templateVersion\":2,\"quickSearchFields\":[\"pageField\"],\"nodes\":[]}"
+                    : "{\"templateVersion\":2,\"nodes\":[{\"slot\":\"explorer\",\"" + placement + "\":\"pageField\"}]}");
+        }
         for (PlatformPresentationRevisionStatus status : List.of(PlatformPresentationRevisionStatus.DRAFT,
                 PlatformPresentationRevisionStatus.PUBLISHED)) {
             revision.setStatus(status);

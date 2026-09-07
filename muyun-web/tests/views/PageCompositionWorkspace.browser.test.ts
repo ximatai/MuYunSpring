@@ -61,13 +61,13 @@ it.each([1440, 980])(
       await page.getByRole('textbox', { name: '搜索占位提示', exact: true }).fill('布局验收');
       await page.getByRole('button', { name: '关闭', exact: true }).click();
       await expect.element(page.getByRole('button', { name: '保存草稿', exact: true })).toBeEnabled();
-      await page.getByText('详情', { exact: true }).click();
+      await page.getByText('页面', { exact: true }).click();
       await expect
         .poll(() => wrapper.find('[data-page-composition-layout-key="detail:field:field0"]').exists())
         .toBe(true);
       const detailField = wrapper.get('[data-page-composition-layout-key="detail:field:field0"]').element;
       await page.elementLocator(detailField).dblClick();
-      await expect.element(page.getByRole('radio', { name: '详情', exact: true })).toBeChecked();
+      await expect.element(page.getByRole('radio', { name: '页面', exact: true })).toBeChecked();
       await expect.element(page.getByRole('textbox', { name: '展示标题', exact: true })).toBeVisible();
       await page.getByRole('button', { name: '关闭', exact: true }).click();
       await page.getByText('表单', { exact: true }).click();
@@ -119,6 +119,20 @@ function layoutHttp(): HttpClient {
   return {
     request: async <T>(request: { path: string; body?: unknown }) => {
       const path = request.path;
+      if (path.endsWith('/overview-mode'))
+        return {
+          overviewMode: 'LIST_CARD',
+          compositionSkeletons: [
+            {
+              mode: 'LIST_CARD',
+              title: '列表 + 卡片',
+              navigationTitle: '记录列表',
+              fieldGroupTitle: '列表展示字段',
+              columns: true,
+              maxIdentityFields: 0,
+            },
+          ],
+        } as T;
       if (path.endsWith('/context')) return { capabilities: [], actions: [] } as T;
       if (path.endsWith('/metadata-relations/query'))
         return list([{ id: 'main', metadataId: 'main', relationAlias: '主实体', relationRole: 'main' }]) as T;
@@ -153,7 +167,7 @@ function layoutHttp(): HttpClient {
             schemaVersion: '1',
             moduleAlias: 'education.layout',
             page: {
-              template: 'FLAT_MANAGEMENT',
+              template: 'LIST_DETAIL_CARD',
               traits: [],
               list: { fields: { viewCode: 'list', viewKind: 'LIST', fields: uiFields } },
               detail: {

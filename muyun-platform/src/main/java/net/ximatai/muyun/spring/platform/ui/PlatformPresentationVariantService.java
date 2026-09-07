@@ -119,6 +119,14 @@ public class PlatformPresentationVariantService extends AbstractAbilityService<P
         return variant;
     }
 
+    java.util.List<String> variantIdsForModule(String moduleAlias) {
+        var all = new net.ximatai.muyun.database.core.orm.PageRequest(0, Integer.MAX_VALUE);
+        var pageIds = pageService.list(Criteria.of().eq("moduleAlias", moduleAlias), all).stream()
+                .map(PlatformPageDefinition::getId).toList();
+        return pageIds.isEmpty() ? java.util.List.of() : list(Criteria.of().in("pageId", pageIds), all).stream()
+                .map(PlatformPresentationVariant::getId).toList();
+    }
+
     String moduleAliasForVariant(String variantId) {
         PlatformPresentationVariant variant = requireVisibleVariant(variantId);
         return pageService.requireVisiblePage(variant.getPageId()).getModuleAlias();

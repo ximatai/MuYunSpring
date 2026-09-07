@@ -2,6 +2,7 @@
 import { computed, ref, watch } from 'vue';
 import {
   RecordFormFields,
+  RecordFormGrid,
   type RecordFormFieldDescriptor,
   type RecordFormFieldState,
   type RecordFormFieldPickerConfig,
@@ -104,7 +105,7 @@ watch(
 </script>
 
 <template>
-  <div class="module-form">
+  <RecordFormGrid as="div" surface="record" class="module-form">
     <ModulePageFormContributionRenderer
       :contributions="contributionRef"
       surface="record-card"
@@ -161,21 +162,5 @@ watch(
       position="after-fields"
       :context-for="contextFor"
     />
-  </div>
+  </RecordFormGrid>
 </template>
-
-<style scoped>
-.module-form {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  column-gap: 12px;
-  row-gap: 16px;
-  --muyun-record-form-label-gap: 8px;
-}
-
-@media (max-width: 900px) {
-  .module-form {
-    grid-template-columns: 1fr;
-  }
-}
-</style>

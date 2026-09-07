@@ -99,10 +99,10 @@ describe('PageCompositionTree', () => {
     }
     expect(actionsAt('ui:template:list:quick-search')).toEqual(['configure']);
     expect(actionsAt('ui:slot:form')).toEqual(['add-group']);
-    expect(actionsAt('ui:groups:form')).toEqual(['add-group']);
+    expect(findNode(nodes, 'ui:groups:form')).toBeUndefined();
     expect(actionsAt('ui:relation:form:participants')).toEqual(['remove']);
-    expect(actionsAt('ui:relation-field:form:participants:exam-date')).toEqual(['remove']);
-    for (const key of ['ui:root', 'ui:slot:list', 'ui:slot:list:fields']) {
+    expect(actionsAt('ui:relation-field:form:participants:exam-date')).toEqual(['configure', 'remove']);
+    for (const key of ['ui:slot:list', 'ui:slot:list:fields']) {
       expect(actionsAt(key)).toEqual([]);
     }
 
@@ -132,8 +132,8 @@ describe('PageCompositionTree', () => {
     const tree = uiTree(wrapper);
     const field = findNode(tree.props('nodes'), 'ui:field:list:subject')!;
     const remove = field.actions!.find((action) => action.key === 'remove')!;
-    const root = findNode(tree.props('nodes'), 'ui:root')!;
-    tree.vm.$emit('action', remove, root);
+    const list = findNode(tree.props('nodes'), 'ui:slot:list')!;
+    tree.vm.$emit('action', remove, list);
     tree.vm.$emit('action', { ...remove, disabled: true }, field);
 
     await wrapper.setProps({ disabled: true });
@@ -183,9 +183,9 @@ describe('PageCompositionTree', () => {
     expect(initialExpanded).toContain('ui:slot:list');
     expect(initialExpanded).toContain('ui:slot:form');
 
-    tree.vm.$emit('update:expandedKeys', ['ui:root']);
+    tree.vm.$emit('update:expandedKeys', ['ui:slot:list']);
     await wrapper.vm.$nextTick();
-    expect(tree.props('expandedKeys')).toEqual(['ui:root']);
+    expect(tree.props('expandedKeys')).toEqual(['ui:slot:list']);
     expect(wrapper.findAllComponents({ name: 'UiTree' })).toHaveLength(1);
   });
 
@@ -238,7 +238,7 @@ describe('PageCompositionTree', () => {
 
     expect(wrapper.emitted('move-form-field-to-group')).toEqual([['exam-date', 'group_1', 1]]);
     expect(wrapper.emitted('move-group-field-to-form')).toEqual([['group_1', 'subject', 1]]);
-    expect(wrapper.emitted('reorder-group')).toEqual([['group_2', 0]]);
+    expect(wrapper.emitted('reorder-group')).toEqual([['group_2', 1]]);
     expect(wrapper.emitted('reorder-relation-field')).toEqual([['participants', 'exam-date', 0]]);
   });
 
@@ -288,6 +288,43 @@ describe('PageCompositionTree', () => {
     expect(canDrag({ key: 'ui:template:list:quick-search', title: '快速查询' })).toBe(false);
   });
 
+  it('uses action titles and emits ordered moves between action anchors', () => {
+    const wrapper = mountTree({
+      editorMode: 'actions',
+      moduleActions: [
+        { actionCode: 'create', title: '新建', actionLevel: 'LIST' },
+        { actionCode: 'delete', title: '删除', actionLevel: 'RECORD' },
+        { actionCode: 'update', title: '编辑', actionLevel: 'RECORD' },
+      ],
+      actionPlacements: [
+        { actionCode: 'create', anchor: 'page' },
+        { actionCode: 'delete', anchor: 'detail' },
+        { actionCode: 'update', anchor: 'detail' },
+      ],
+    });
+    const tree = uiTree(wrapper);
+    const nodes = tree.props('nodes') as TestNode[];
+    const canDrag = tree.props('canDrag') as (node: TestNode) => boolean;
+    const allowDrop = tree.props('allowDrop') as (event: ReturnType<typeof dropEvent>) => boolean;
+    const deleteAction = findNode(nodes, 'ui:action:detail:delete')!;
+    const updateAction = findNode(nodes, 'ui:action:detail:update')!;
+    const formAnchor = findNode(nodes, 'ui:action-anchor:form')!;
+
+    expect(deleteAction).toMatchObject({ title: '删除', secondary: 'delete' });
+    expect(canDrag(deleteAction)).toBe(true);
+    expect(allowDrop(dropEvent(updateAction, deleteAction, -1))).toBe(true);
+    expect(allowDrop(dropEvent(updateAction, formAnchor, 0, false))).toBe(true);
+    expect(allowDrop(dropEvent(deleteAction, formAnchor, 0, false))).toBe(false);
+
+    tree.vm.$emit('drop', dropEvent(updateAction, deleteAction, -1));
+    tree.vm.$emit('drop', dropEvent(updateAction, formAnchor, 0, false));
+
+    expect(wrapper.emitted('action-drop')).toEqual([
+      [{ actionCode: 'update' }, { anchor: 'detail', index: 0 }],
+      [{ actionCode: 'update' }, { anchor: 'form', index: 0 }],
+    ]);
+  });
+
   it('accepts a validated metadata payload into an empty group', () => {
     const wrapper = mountTree({
       formGroups: [{ id: 'group_1', groupCode: 'group_1', title: '分组', fields: [] }],
@@ -297,8 +334,8 @@ describe('PageCompositionTree', () => {
     const event = metadataEvent(group, 'inside');
     expect(tree.props('allowDrop')(event)).toBe(true);
     tree.vm.$emit('drop', event);
-    expect(wrapper.emitted('metadata-drop')).toEqual([
-      [{ kind: 'group', groupId: 'group_1' }, event.source.payload],
+    expect(wrapper.emitted('source-drop')).toEqual([
+      [{ kind: 'group', groupId: 'group_1', index: 0 }, event.source.payload],
     ]);
   });
   it('rejects malformed and unrelated external payloads', () => {
@@ -330,15 +367,15 @@ describe('PageCompositionTree', () => {
       const inside = metadataEvent(field, 'inside');
       expect(tree.props('allowDrop')(inside)).toBe(false);
       tree.vm.$emit('drop', inside);
-      expect(wrapper.emitted('metadata-drop')).toBeUndefined();
+      expect(wrapper.emitted('source-drop')).toBeUndefined();
       for (const position of ['before', 'after'] as const) {
         const event = metadataEvent(field, position);
         expect(tree.props('allowDrop')(event)).toBe(true);
         tree.vm.$emit('drop', event);
       }
-      expect(
-        wrapper.emitted('metadata-drop')!.map(([target]) => (target as { index: number }).index),
-      ).toEqual([0, 1]);
+      expect(wrapper.emitted('source-drop')!.map(([target]) => (target as { index: number }).index)).toEqual([
+        0, 1,
+      ]);
     },
   );
 
@@ -372,7 +409,7 @@ describe('PageCompositionTree', () => {
 
       expect(tree.props('allowDrop')(childEvent)).toBe(true);
       tree.vm.$emit('drop', childEvent);
-      expect(wrapper.emitted('metadata-drop')).toEqual([
+      expect(wrapper.emitted('source-drop')).toEqual([
         [{ kind: 'relation', relationId: 'participants', index }, payload],
       ]);
     },
@@ -412,7 +449,7 @@ describe('PageCompositionTree', () => {
     };
     expect(tree.props('allowDrop')(interior)).toBe(false);
     tree.vm.$emit('drop', interior);
-    expect(wrapper.emitted('metadata-drop')).toBeUndefined();
+    expect(wrapper.emitted('source-drop')).toBeUndefined();
   });
 });
 
@@ -437,7 +474,72 @@ it('preserves external field insertion index for a group', () => {
   const target = findNode(tree.props('nodes'), 'ui:group-field:form:group_1:exam-date')!;
   const event = metadataEvent(target, 'before');
   tree.vm.$emit('drop', event);
-  expect(wrapper.emitted('metadata-drop')).toEqual([
+  expect(wrapper.emitted('source-drop')).toEqual([
     [{ kind: 'group', groupId: 'group_1', index: 1 }, event.source.payload],
   ]);
+});
+
+it.each(['TREE_CARD', 'MICRO_LIST_CARD'])('fills %s navigation skeletons with field children', (mode) => {
+  const wrapper = mountTree({
+    skeleton: {
+      mode,
+      title: '导航 + 卡片',
+      navigationTitle: '导航',
+      fieldGroupTitle: '节点展示',
+      columns: false,
+    },
+    explorerTitle: '任务名称',
+    explorerSecondary: '负责人',
+    quickSearchFields: [{ fieldName: 'code', title: '任务编号' }],
+    searchableFieldIds: ['new-field'],
+  });
+  const tree = uiTree(wrapper);
+  const nodes = tree.props('nodes');
+  expect(findNode(nodes, 'ui:explorer-title')?.children?.[0].title).toBe('任务名称');
+  expect(findNode(nodes, 'ui:explorer-secondary')?.children?.[0].title).toBe('负责人');
+  expect(findNode(nodes, 'ui:template:list:quick-search')?.children?.[0].title).toBe('任务编号');
+  expect(findNode(nodes, 'ui:explorer-title')?.secondary).toBe('必填 · 拖入替换');
+  expect(findNode(nodes, 'ui:binding:explorer-title:field')?.actions).toBeUndefined();
+  expect(
+    findNode(nodes, 'ui:binding:explorer-secondary:field')?.actions?.map((action) => action.key),
+  ).toEqual(['remove']);
+  for (const [key, kind] of [
+    ['ui:explorer-title', 'explorer-title'],
+    ['ui:explorer-secondary', 'explorer-secondary'],
+    ['ui:template:list:quick-search', 'quick-search'],
+  ]) {
+    const event = metadataEvent(findNode(nodes, key)!, 'inside');
+    expect(tree.props('allowDrop')(event)).toBe(true);
+    tree.vm.$emit('drop', event);
+    expect(wrapper.emitted('source-drop')?.at(-1)).toEqual([{ kind }, event.source.payload]);
+    expect(tree.props('canDrag')(findNode(nodes, key))).toBe(false);
+  }
+  const invalid = metadataEvent(findNode(nodes, 'ui:template:list:quick-search')!, 'inside');
+  invalid.source.payload.fieldId = 'number-field';
+  expect(tree.props('allowDrop')(invalid)).toBe(false);
+  wrapper.unmount();
+});
+
+it('renders mixed root siblings and interprets group edges as root insertions', () => {
+  const wrapper = mountTree({
+    formFields: [subject, examDate],
+    formGroups: [{ id: 'group_1', groupCode: 'group_1', title: '分组', fields: [] }],
+    formOrder: [
+      { kind: 'field', id: 'subject' },
+      { kind: 'group', id: 'group_1' },
+      { kind: 'field', id: 'exam-date' },
+    ],
+  });
+  const tree = uiTree(wrapper);
+  const nodes = tree.props('nodes');
+  expect(findNode(nodes, 'ui:slot:form')!.children!.map((node) => node.key)).toEqual([
+    'ui:field:form:subject',
+    'ui:group:form:group_1',
+    'ui:field:form:exam-date',
+  ]);
+  const event = metadataEvent(findNode(nodes, 'ui:group:form:group_1')!, 'after');
+  expect(tree.props('allowDrop')(event)).toBe(true);
+  tree.vm.$emit('drop', event);
+  expect(wrapper.emitted('source-drop')).toEqual([[{ kind: 'form', index: 2 }, event.source.payload]]);
+  expect(wrapper.emitted('metadata-drop')).toBeUndefined();
 });

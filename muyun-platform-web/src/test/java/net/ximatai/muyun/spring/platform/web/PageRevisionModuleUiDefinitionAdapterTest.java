@@ -19,6 +19,72 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class PageRevisionModuleUiDefinitionAdapterTest {
     @Test
+    void compilesInterleavedFieldsAndGroupsInDeclaredOrder() {
+        var tree = """
+                {"template":"management","templateVersion":1,"nodes":[
+                  {"slot":"list","title":"列表","fields":["title"]},
+                  {"slot":"form","title":"表单","fields":["title","code"],
+                   "groups":[{"group":"details","title":"分组","fields":["note"]},
+                             {"group":"empty","title":"空组","fields":[]}],
+                   "order":[{"field":"title"},{"group":"empty"},{"group":"details"},{"field":"code"}]}]}
+                """;
+        var definition = PageRevisionModuleUiDefinitionAdapter.fromPublishedRevision(page(), revision(tree),
+                List.of("title", "code", "note"));
+        var editor = ModuleUiDescriptorCompiler.compile(definition).page().detail().editor();
+        assertThat(editor.fields()).extracting(field -> field.fieldRef().fieldName()).containsExactly("title", "note", "code");
+        assertThat(editor.formGroups()).extracting(ResolvedFormGroupDescriptor::groupCode).containsExactly("details", "empty");
+        assertThat(editor.formGroups().getFirst().fields()).extracting(ViewFieldRef::fieldName).containsExactly("note");
+    }
+
+    @Test
+    void shouldCompileVersionThreeActionPlacementsIntoTheResolvedPage() {
+        var revision = revision("""
+                {"template":"management","templateVersion":3,"mode":"LIST_CARD","quickSearchFields":[],
+                 "actions":[{"actionCode":"create","anchor":"page"},{"actionCode":"update","anchor":"detail"},{"actionCode":"delete","anchor":"form"}],
+                 "nodes":[{"slot":"list","title":"列表","fields":["title"]},{"slot":"form","title":"详情","fields":["title"]}]}
+                """);
+        revision.setTemplateVersion(3);
+        ModuleUiDefinition definition = PageRevisionModuleUiDefinitionAdapter.fromPublishedRevision(page(), revision,
+                new DynamicPageCompilationContext(DynamicModuleOverviewMode.LIST_CARD,
+                        Map.of("title", "名称"), java.util.Set.of(), Map.of()));
+
+        assertThat(definition.pageActions()).containsExactly(
+                new PageActionDefinition("create", PageActionAnchor.PAGE),
+                new PageActionDefinition("update", PageActionAnchor.DETAIL),
+                new PageActionDefinition("delete", PageActionAnchor.FORM));
+        assertThat(ModuleUiDescriptorCompiler.compile(definition).page().actions()).containsExactly(
+                new ResolvedPageActionDescriptor("create", PageActionAnchor.PAGE),
+                new ResolvedPageActionDescriptor("update", PageActionAnchor.DETAIL),
+                new ResolvedPageActionDescriptor("delete", PageActionAnchor.FORM));
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"TREE_CARD", "MICRO_LIST_CARD"})
+    void pinsNavigationBindingsAndSearchIndependentlyOfTheModuleMode(String mode) {
+        var revision = revision("""
+                {"template":"management","templateVersion":2,"mode":"%s","quickSearchFields":["code"],"nodes":[
+                  {"slot":"explorer","title":"导航","fields":[],"titleField":"code","secondaryField":"title"},
+                  {"slot":"form","title":"详情","fields":["title"]}
+                ]}
+                """.formatted(mode));
+        revision.setTemplateVersion(2);
+        var definition = PageRevisionModuleUiDefinitionAdapter.fromPublishedRevision(page(), revision,
+                new DynamicPageCompilationContext(DynamicModuleOverviewMode.LIST_CARD,
+                        Map.of("title", "名称", "code", "编码"), java.util.Set.of(), Map.of()));
+        assertThat(definition.page().quickSearchFields()).containsExactly("code");
+        PageExplorerDefinition explorer = definition.page() instanceof TreeManagementPageDefinition tree
+                ? tree.explorer() : ((FlatManagementPageDefinition) definition.page()).explorer();
+        assertThat(explorer.titleField()).isEqualTo("code");
+        assertThat(explorer.secondaryField()).isEqualTo("title");
+        assertThat(definition.page().template()).isEqualTo(mode.equals("TREE_CARD")
+                ? ModulePageTemplate.TREE_MANAGEMENT : ModulePageTemplate.FLAT_MANAGEMENT);
+        assertThatThrownBy(() -> PageRevisionModuleUiDefinitionAdapter.fromPublishedRevision(page(), revision,
+                new DynamicPageCompilationContext(DynamicModuleOverviewMode.LIST_CARD,
+                        Map.of("title", "名称"), java.util.Set.of(), Map.of())))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
     void shouldCompileEachDynamicOverviewModeToItsPageTemplate() {
         PlatformPresentationRevision revision = revision("""
                 {"template":"management","templateVersion":1,"nodes":[
@@ -200,7 +266,7 @@ class PageRevisionModuleUiDefinitionAdapterTest {
                 {"template":"management","templateVersion":1,"nodes":[
                   {"slot":"list","title":"考试","fields":["title"]},
                   {"slot":"form","title":"编辑考试","fields":["title"],
-                   "relations":[{"relation":"participants","title":"参考学生","fields":["studentName"]}]}
+                   "relations":[{"relation":"participants","title":"参考学生","fields":[{"field":"studentName","props":{"label":"学生姓名","width":"180px","align":"right"}}]}]}
                 ]}
                 """), Map.of("title", "考试名称"), Map.of("participants",
                 new DynamicAssociationViewDescriptor("participants", "exam", "education.exam", "exam_participant",
@@ -211,6 +277,13 @@ class PageRevisionModuleUiDefinitionAdapterTest {
             assertThat(relation.title()).isEqualTo("参考学生");
             assertThat(relation.targetEntityAlias()).isEqualTo("exam_participant");
             assertThat(relation.listFields()).containsExactly("studentName");
+            var resolved = relation.applyColumnProperties(new net.ximatai.muyun.spring.platform.ui.ResolvedDetailRelationListField(
+                    "studentName", "姓名", null, "text", "STRING", 100, "left", 2));
+            assertThat(resolved.title()).isEqualTo("学生姓名");
+            assertThat(resolved.width()).isEqualTo(180);
+            assertThat(resolved.align()).isEqualTo("right");
+            assertThat(resolved.fieldUiControlAlias()).isEqualTo("text");
+            assertThat(resolved.maxDisplayLines()).isEqualTo(2);
         });
     }
 

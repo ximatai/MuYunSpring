@@ -39,7 +39,10 @@ const emit = defineEmits<{
       </div>
       <div
         class="management-panel-header-title-copy"
-        :class="{ 'management-panel-header-title-copy--with-status': $slots.status }"
+        :class="{
+          'management-panel-header-title-copy--with-status': $slots.status,
+          'management-panel-header-title-copy--with-suffix': $slots['title-suffix'],
+        }"
       >
         <h2
           class="management-panel-header-title"
@@ -65,6 +68,9 @@ const emit = defineEmits<{
           <span v-else class="management-panel-header-title-label">{{ title }}</span>
         </h2>
         <p v-if="subtitle" class="management-panel-header-subtitle">{{ subtitle }}</p>
+      </div>
+      <div v-if="$slots['title-suffix']" class="management-panel-header-title-suffix">
+        <slot name="title-suffix" />
       </div>
       <div v-if="$slots.status" class="management-panel-header-status">
         <slot name="status" />
@@ -105,7 +111,17 @@ const emit = defineEmits<{
   flex: 0 1 auto;
 }
 
+.management-panel-header-title-copy--with-suffix {
+  flex: 0 1 auto;
+}
+
 .management-panel-header-title-prefix {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+}
+
+.management-panel-header-title-suffix {
   display: inline-flex;
   flex: 0 0 auto;
   align-items: center;

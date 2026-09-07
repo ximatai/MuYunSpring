@@ -237,6 +237,54 @@ class PlatformModuleRuntimeContextServiceTest {
         assertThat(formField.readOnly().constant()).isTrue();
     }
 
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {true, false})
+    void shouldCompileExplicitTreeSearchIntoQueryAndReadContracts(boolean searchable) {
+        PlatformModuleService moduleService = mock(PlatformModuleService.class);
+        PlatformModuleActionService actionService = mock(PlatformModuleActionService.class);
+        DynamicRecordService dynamicRecordService = mock(DynamicRecordService.class);
+        DynamicPublishedPageDefinitionResolver resolver = mock(DynamicPublishedPageDefinitionResolver.class);
+        DynamicModuleDescriptor descriptor = new DynamicModuleDescriptor(
+                "sales.contract", "合同", "contract", List.of(),
+                List.of(DynamicEntityDescriptor.from(entity("contract", Set.of(EntityCapability.CRUD)))),
+                List.of(), List.of(), List.of());
+        PlatformPageDefinition page = new PlatformPageDefinition();
+        page.setId("page-contract");
+        PlatformPresentationRevision revision = new PlatformPresentationRevision();
+        revision.setId("revision-contract");
+        revision.setRevisionNo(3);
+        ModuleUiDefinition definition = ModuleUiDefinition.builder("sales.contract")
+                .page(PageTemplates.treeManagement(tree -> tree
+                        .quickSearch(searchable ? new String[]{"title"} : new String[]{})
+                        .explorer(explorer -> explorer.titleField("title"))
+                        .detail(detail -> detail.editor(fields -> {}))))
+                .build();
+        when(moduleService.resolveVisibleModule("sales.contract"))
+                .thenReturn(module("sales.contract", "合同", ModuleKind.DYNAMIC));
+        when(actionService.listByModuleAliases(List.of("sales.contract"))).thenReturn(List.of());
+        when(dynamicRecordService.describe("sales.contract")).thenReturn(descriptor);
+        when(dynamicRecordService.actions("sales.contract")).thenReturn(List.of());
+        when(dynamicRecordService.runtimeRevision("sales.contract")).thenReturn(8L);
+        when(resolver.resolveWebGlobal(descriptor)).thenReturn(Optional.of(
+                new DynamicPublishedPageDefinitionResolver.ResolvedPublishedPage(page, revision, definition)));
+        PlatformModuleRuntimeContextService service = new PlatformModuleRuntimeContextService(
+                moduleService, actionService, new StaticModuleDefinitionCatalog(List.of()), dynamicRecordService,
+                null, null, allowAllPolicy(), List.of(), new DeclaredPageNavigatorResolver(), null,
+                null, null, null, null, resolver);
+
+        ModuleExecutionPlan plan = service.dynamicExecutionPlan("sales.contract").orElseThrow();
+
+        assertThat(plan.versionKey()).isEqualTo("dynamic-runtime-8-page-revision-contract-r3");
+        assertThat(plan.listUiConfigId()).isNull();
+        assertThat(plan.formUiConfigId()).isNull();
+        assertThat(plan.readModel().fields()).extracting(ResolvedModuleReadField::fieldName)
+                .containsExactly("title");
+        assertThat(plan.querySchema().quickSearch().fields()).isEqualTo(searchable ? List.of("title") : List.of());
+        assertThat(plan.querySchema().quickSearch().enabled()).isEqualTo(searchable);
+        assertThat(plan.uiDescriptor().page().explorer().titleField()).isEqualTo("title");
+        assertThat(plan.uiDescriptor().page().template()).isEqualTo(ModulePageTemplate.TREE_MANAGEMENT);
+    }
+
     @Test
     void shouldExposeStaticReferenceTargetWithItsCompletePlatformModuleAliasInPublishedDynamicPage() {
         PlatformModuleService moduleService = mock(PlatformModuleService.class);

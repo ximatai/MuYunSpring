@@ -1,12 +1,18 @@
 package net.ximatai.muyun.spring.platform.web;
 
+import java.util.List;
 import java.util.function.Consumer;
 
 /** Template-root definition for an optional scope navigator, pageable list and detail card. */
 public record ListDetailCardPageDefinition(PageNavigatorDefinition navigator, PageListDefinition list,
-                                           PageDetailDefinition detail, PageTraitsDefinition traits)
+                                           PageDetailDefinition detail, PageTraitsDefinition traits, List<String> quickSearchFields)
         implements ModulePageDefinition {
+    public ListDetailCardPageDefinition(PageNavigatorDefinition navigator, PageListDefinition list, PageDetailDefinition detail, PageTraitsDefinition traits) {
+        this(navigator, list, detail, traits, null);
+    }
+
     public ListDetailCardPageDefinition {
+        quickSearchFields = quickSearchFields == null ? null : List.copyOf(quickSearchFields);
         if (list == null) throw new IllegalArgumentException("list/detail card requires a list slot");
         traits = traits == null ? new PageTraitsDefinition(null) : traits;
         if (detail == null) throw new IllegalArgumentException("list/detail card requires a detail slot");
@@ -23,6 +29,8 @@ public record ListDetailCardPageDefinition(PageNavigatorDefinition navigator, Pa
         private PageListDefinition list;
         private PageDetailDefinition detail;
         private PageTraitsDefinition traits;
+        private List<String> quickSearchFields;
+        public Builder quickSearch(String... fields) { quickSearchFields = List.of(fields); return this; }
         public Builder navigator(Consumer<PageNavigatorDefinition.Builder> customizer) {
             PageNavigatorDefinition.Builder builder = new PageNavigatorDefinition.Builder();
             if (customizer != null) customizer.accept(builder);
@@ -47,6 +55,6 @@ public record ListDetailCardPageDefinition(PageNavigatorDefinition navigator, Pa
             traits = builder.build();
             return this;
         }
-        public ListDetailCardPageDefinition build() { return new ListDetailCardPageDefinition(navigator, list, detail, traits); }
+        public ListDetailCardPageDefinition build() { return new ListDetailCardPageDefinition(navigator, list, detail, traits, quickSearchFields); }
     }
 }

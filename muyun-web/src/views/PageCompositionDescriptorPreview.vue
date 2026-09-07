@@ -2,6 +2,12 @@
 import { computed, onBeforeUnmount, onBeforeUpdate, onUpdated, ref, watch } from 'vue';
 import {
   RecordFormFields,
+  RecordFormGrid,
+  RecordContentSectionHeading,
+  RecordDetailExtensionSection,
+  RecordRelationTable,
+  RecordRelationValue,
+  resolveRecordFormFieldState,
   RecordDetailFields,
   RecordQueryListCell,
   resolveRecordDetailFields,
@@ -10,26 +16,35 @@ import {
 } from '@muyun/platform-components';
 import {
   UiDataTable,
+  UiButton,
   UiEmpty,
   UiInput,
-  UiSwitch,
-  UiTextArea,
   type UiDataTableColumn,
   type UiDataTableRecord,
 } from '@muyun/vue-ui-antdv';
+import type { ModuleRuntimeAction } from '@muyun/web-core';
 import type {
   ResolvedDetailRelationDescriptor,
   ResolvedModuleUiDescriptor,
   ResolvedViewFieldDescriptor,
 } from '@muyun/web-contracts';
-import type { QueryListRecord, RecordFormFieldValue, RecordFormRecord } from '@muyun/platform-components';
+import type {
+  QueryListRecord,
+  RecordFormFieldDescriptor,
+  RecordFormFieldValue,
+  RecordFormRecord,
+} from '@muyun/platform-components';
 import {
+  containerKey,
   type CompositionPlacementSource,
   type CompositionPlacementTarget,
   type PageCompositionStructure,
   type CompositionContainer,
 } from './pageCompositionPlacement';
+import { orderedFormItems, type PageComposerFormItem } from './pageCompositionDraftState';
+import { canPlaceActionInAnchor, type PageCompositionActionPlacement } from './pageCompositionMode';
 import { usePageCompositionPreviewDrag, type PreviewPlacementEntry } from './usePageCompositionPreviewDrag';
+import { usePageCompositionActionPreviewDrag } from './usePageCompositionActionPreviewDrag';
 
 defineOptions({ name: 'PageCompositionDescriptorPreview' });
 
@@ -38,6 +53,8 @@ type PreviewSlot = 'list' | 'form';
 
 const props = defineProps<{
   descriptor: ResolvedModuleUiDescriptor;
+  surfaceOnly?: boolean;
+  wholePage?: boolean;
   moduleAlias: string;
   mode: PreviewMode;
   selectedFieldName?: string;
@@ -45,22 +62,78 @@ const props = defineProps<{
   acceptExternalDrop?: boolean;
   structure?: PageCompositionStructure;
   placementDisabled?: boolean;
+  /** A failed async descriptor refresh must not leave its pre-drop layout on screen. */
+  placementCommitFailed?: boolean;
+  actionPlacements?: PageCompositionActionPlacement[];
+  moduleActions?: ModuleRuntimeAction[];
 }>();
 
 const emit = defineEmits<{
   selectField: [slot: PreviewSlot, fieldName: string];
   configureField: [slot: PreviewSlot, fieldName: string];
+  configureRelationField: [relationCode: string, fieldName: string];
   'placement-drop': [source: CompositionPlacementSource, target: CompositionPlacementTarget];
+  'action-drop': [
+    source: { actionCode: string },
+    target: { anchor: 'page' | 'detail' | 'form'; index: number },
+  ];
 }>();
 
 const listColumns = computed(() => resolveRecordQueryListColumns(props.descriptor.page?.list?.fields));
+const transientExternalField = computed(() => {
+  const source = transientPlacement.value?.source;
+  return source?.kind === 'metadata' && source.metadata.kind === 'field' && source.metadata.fieldName
+    ? source.metadata
+    : undefined;
+});
+/**
+ * A metadata field is not part of the server-compiled descriptor until it is dropped.  Give the
+ * temporary item a small, source-neutral descriptor so it can participate in the same form grid
+ * as persisted fields instead of falling back to a separate drop affordance.
+ */
+const transientExternalFieldDescriptor = computed<RecordFormFieldDescriptor | undefined>(() => {
+  const field = transientExternalField.value;
+  if (!field?.fieldName) return undefined;
+  const alias = field.fieldSpecAlias?.toLowerCase() ?? '';
+  const rendererType = /datetime|timestamp|zoned/.test(alias)
+    ? 'DATETIME'
+    : /date/.test(alias)
+      ? 'DATE'
+      : /bool|switch/.test(alias)
+        ? 'SWITCH'
+        : /number|decimal|integer|long|float|double/.test(alias)
+          ? 'NUMBER'
+          : 'TEXT';
+  const valueType =
+    rendererType === 'DATE'
+      ? 'DATE'
+      : rendererType === 'DATETIME'
+        ? 'TIMESTAMP'
+        : rendererType === 'SWITCH'
+          ? 'BOOLEAN'
+          : rendererType === 'NUMBER'
+            ? 'DECIMAL'
+            : 'STRING';
+  return {
+    fieldRef: { fieldId: field.fieldId, fieldName: field.fieldName },
+    label: field.title ?? field.fieldName,
+    required: field.required == null ? undefined : { constant: field.required },
+    valueType,
+    fieldControl: { alias: rendererType.toLowerCase(), rendererType, valueShape: 'SCALAR' },
+  };
+});
 const dataTableColumns = computed<UiDataTableColumn[]>(() =>
-  listColumns.value.map((column) => ({
-    key: column.key,
-    title: column.title,
-    width: column.width,
-    align: column.align,
-  })),
+  stagedFieldNames(
+    { kind: 'list' },
+    listColumns.value.map((column) => column.key),
+  ).flatMap((fieldName) => {
+    const column = listColumns.value.find((candidate) => candidate.key === fieldName);
+    if (column) return [{ key: column.key, title: column.title, width: column.width, align: column.align }];
+    const external = transientExternalField.value;
+    return external?.fieldName === fieldName
+      ? [{ key: fieldName, title: external.title ?? fieldName, width: '140px', align: undefined }]
+      : [];
+  }),
 );
 const listRecord = computed<QueryListRecord>(() =>
   previewRecord(props.descriptor.page?.list?.fields.fields ?? []),
@@ -71,6 +144,47 @@ const detailFieldNames = computed(() => [...detailFields.value.keys()]);
 const detailRecord = computed<UiDataTableRecord>(() => previewRecord([...detailFields.value.values()]));
 const detailRelations = computed(() => props.descriptor.detailRelations ?? []);
 const formFields = computed(() => resolveRecordFormFields(props.descriptor));
+const detailFieldsWithTransient = computed(() => {
+  const external = transientExternalFieldDescriptor.value;
+  return external
+    ? new Map([...detailFields.value, [external.fieldRef.fieldName, external]])
+    : detailFields.value;
+});
+const formFieldsWithTransient = computed(() => {
+  const external = transientExternalFieldDescriptor.value;
+  return external
+    ? new Map([...formFields.value, [external.fieldRef.fieldName, external]])
+    : formFields.value;
+});
+function externalPreviewValue(field: RecordFormFieldDescriptor) {
+  switch (field.valueType) {
+    case 'DATE':
+      return '2026-09-07';
+    case 'TIMESTAMP':
+    case 'ZONED_TIMESTAMP':
+      return '2026-09-07T09:30';
+    case 'BOOLEAN':
+      return true;
+    case 'INTEGER':
+    case 'LONG':
+    case 'DECIMAL':
+      return 128;
+    default:
+      return '示例内容';
+  }
+}
+const detailRecordWithTransient = computed<UiDataTableRecord>(() => {
+  const field = transientExternalFieldDescriptor.value;
+  return field
+    ? { ...detailRecord.value, [field.fieldRef.fieldName]: externalPreviewValue(field) }
+    : detailRecord.value;
+});
+const formRecordWithTransient = computed<RecordFormRecord>(() => {
+  const field = transientExternalFieldDescriptor.value;
+  return field
+    ? { ...formRecord.value, [field.fieldRef.fieldName]: externalPreviewValue(field) }
+    : formRecord.value;
+});
 const formFieldNames = computed(() => [...formFields.value.keys()]);
 const formRecord = ref<RecordFormRecord>(previewRecord([]));
 const relationEditorRecords = ref<Record<string, UiDataTableRecord[]>>({});
@@ -85,6 +199,89 @@ const isDetailEmpty = computed(
 );
 const isFormEmpty = computed(() => formFieldNames.value.length === 0);
 const isEditEmpty = computed(() => isFormEmpty.value && detailRelations.value.length === 0);
+const actionsAt = (anchor: PageCompositionActionPlacement['anchor']) =>
+  computed(() =>
+    (props.actionPlacements ?? [])
+      .filter((placement) => placement.anchor === anchor)
+      .map((placement) => props.moduleActions?.find((action) => action.actionCode === placement.actionCode))
+      .filter((action): action is ModuleRuntimeAction => Boolean(action)),
+  );
+const pageActions = actionsAt('page');
+const detailActions = actionsAt('detail');
+const formActions = actionsAt('form');
+const pageActionRoot = ref<HTMLElement>();
+const detailActionRoot = ref<HTMLElement>();
+const formActionRoot = ref<HTMLElement>();
+const actionDropEnabled = computed(() => !!props.acceptExternalDrop && !props.placementDisabled);
+const actionCanOccupyAnchor = (actionCode: string, anchor: PageCompositionActionPlacement['anchor']) =>
+  canPlaceActionInAnchor(
+    props.moduleActions?.find((action) => action.actionCode === actionCode),
+    anchor,
+  );
+const pageActionDrag = usePageCompositionActionPreviewDrag(
+  pageActionRoot,
+  'page',
+  pageActions,
+  actionDropEnabled,
+  (source) => actionCanOccupyAnchor(source.actionCode, 'page'),
+  (source, target) => emit('action-drop', source, target),
+);
+const detailActionDrag = usePageCompositionActionPreviewDrag(
+  detailActionRoot,
+  'detail',
+  detailActions,
+  actionDropEnabled,
+  (source) => actionCanOccupyAnchor(source.actionCode, 'detail'),
+  (source, target) => emit('action-drop', source, target),
+);
+const formActionDrag = usePageCompositionActionPreviewDrag(
+  formActionRoot,
+  'form',
+  formActions,
+  actionDropEnabled,
+  (source) => actionCanOccupyAnchor(source.actionCode, 'form'),
+  (source, target) => emit('action-drop', source, target),
+);
+function actionItems(actionCodes: readonly string[]) {
+  return actionCodes.map(
+    (actionCode) =>
+      props.moduleActions?.find((action) => action.actionCode === actionCode) ?? {
+        actionCode,
+        title: actionCode,
+      },
+  );
+}
+function isTransientAction(drag: ReturnType<typeof usePageCompositionActionPreviewDrag>, actionCode: string) {
+  return drag.transientPlacement.value?.actionCode === actionCode;
+}
+function actionDropClass(feedback?: { key?: string; rejected: boolean }) {
+  return {
+    // A whole-bar outline means append-to-end. Item targets use an insertion line instead.
+    'page-composition-action-preview--drop-active': Boolean(feedback && !feedback.key),
+    'page-composition-action-preview--drop-rejected': feedback?.rejected === true,
+  };
+}
+function actionDropItemClass(
+  feedback: { key?: string; position: 'before' | 'inside' | 'after'; rejected: boolean } | undefined,
+  actionCode: string,
+) {
+  return {
+    'page-composition-action-preview__button--drop-before':
+      feedback?.key === actionCode && feedback.position === 'before' && !feedback.rejected,
+    'page-composition-action-preview__button--drop-after':
+      feedback?.key === actionCode && feedback.position === 'after' && !feedback.rejected,
+  };
+}
+function actionDropHint(
+  feedback: { key?: string; position: 'before' | 'inside' | 'after'; rejected: boolean } | undefined,
+  actions: { actionCode: string; title?: string }[],
+) {
+  if (!feedback) return undefined;
+  if (feedback.rejected) return '不能放置在此处';
+  if (!feedback.key) return '放置到动作末尾';
+  const title = actions.find((action) => action.actionCode === feedback.key)?.title ?? feedback.key;
+  return `放置：${title}${feedback.position === 'before' ? '之前' : feedback.position === 'after' ? '之后' : '内部'}`;
+}
 const structure = computed<PageCompositionStructure>(() => {
   if (props.structure) return props.structure;
   const field = (name: string) => ({ id: name, fieldName: name, title: name });
@@ -95,6 +292,16 @@ const structure = computed<PageCompositionStructure>(() => {
     form: [...new Set([...formFieldNames.value, ...detailFieldNames.value])]
       .filter((name) => !grouped.has(name))
       .map(field),
+    order: [
+      ...new Map<string, PageComposerFormItem>(
+        [...formFieldNames.value, ...detailFieldNames.value].map((name) => {
+          const group = groups.find((group) => group.fields.some((field) => field.fieldName === name));
+          return group
+            ? ([`group:${group.groupCode}`, { kind: 'group' as const, id: group.groupCode }] as const)
+            : ([`field:${name}`, { kind: 'field' as const, id: name }] as const);
+        }),
+      ).values(),
+    ],
     groups: groups.map((group) => ({
       id: group.groupCode,
       groupCode: group.groupCode,
@@ -124,10 +331,6 @@ const formSections = computed(() => [
     fields: group.fields,
   })),
 ]);
-// Section geometry is owned by the designer; controls and values still use the runtime renderers.
-const ungroupedFormFields = computed(
-  () => new Map([...formFields.value].map(([name, field]) => [name, { ...field, formGroup: undefined }])),
-);
 const placementEntries = computed(() => {
   const entries = new Map<string, PreviewPlacementEntry>();
   const mode = props.mode;
@@ -149,6 +352,10 @@ const placementEntries = computed(() => {
         title: field.properties?.label ?? field.title,
         container: section.container,
         nodeId: field.id,
+        // Both detail and edit surfaces are two-column field grids. Their left/right receiver
+        // semantics must stay identical instead of making edit mode fall back to row-only hits.
+        axis: mode === 'detail' || mode === 'edit' ? 'grid' : undefined,
+        region: section.container.kind === 'form' ? rootRegion(field.id) : section.key,
       });
     if (section.container.kind === 'group')
       entries.set(`${mode}:${section.key}`, {
@@ -181,13 +388,172 @@ const placementEntries = computed(() => {
   entries.set('relations:end', { title: '子表区域末尾', container: { kind: 'relations' } });
   return entries;
 });
-const { handleProps, feedback } = usePageCompositionPreviewDrag(
-  previewRoot,
-  placementEntries,
-  structure,
-  computed(() => !!props.acceptExternalDrop && !props.placementDisabled),
-  (source, target) => emit('placement-drop', source, target),
+const { handleProps, groupOutline, feedback, transientPlacement, abandonPendingPlacement } =
+  usePageCompositionPreviewDrag(
+    previewRoot,
+    placementEntries,
+    structure,
+    computed(() => !!props.acceptExternalDrop && !props.placementDisabled),
+    (source, target) => emit('placement-drop', source, target),
+  );
+watch(
+  () => props.placementCommitFailed,
+  (failed) => {
+    if (failed) abandonPendingPlacement();
+  },
 );
+
+/**
+ * The descriptor remains authoritative until drop. These projections only reorder already-known
+ * renderer fields, so the real cards/tables perform the same layout transition as the committed
+ * draft without asking the server to compile an intermediate descriptor.
+ */
+function fieldNameOf(id: string) {
+  for (const field of structure.value.list) if (field.id === id) return field.fieldName;
+  for (const field of structure.value.form) if (field.id === id) return field.fieldName;
+  for (const group of structure.value.groups)
+    for (const field of group.fields) if (field.id === id) return field.fieldName;
+  for (const relation of structure.value.relations)
+    for (const field of relation.fields) if (field.id === id) return field.fieldName;
+  return undefined;
+}
+function fieldContainerOf(id: string): CompositionContainer | undefined {
+  if (structure.value.list.some((field) => field.id === id)) return { kind: 'list' };
+  if (structure.value.form.some((field) => field.id === id)) return { kind: 'form' };
+  const group = structure.value.groups.find((candidate) => candidate.fields.some((field) => field.id === id));
+  if (group) return { kind: 'group', groupId: group.id };
+  const relation = structure.value.relations.find((candidate) =>
+    candidate.fields.some((field) => field.id === id),
+  );
+  return relation ? { kind: 'relation', relationId: relation.id } : undefined;
+}
+function transientField() {
+  const source = transientPlacement.value?.source;
+  if (!source) return undefined;
+  const id =
+    source.kind === 'node'
+      ? source.nodeId
+      : source.metadata.kind === 'field' || source.metadata.kind === 'relationField'
+        ? source.metadata.fieldId
+        : undefined;
+  return id
+    ? {
+        id,
+        // External metadata has not been added to `structure` yet, so it must retain the field
+        // fact carried by its drag payload. Looking it up only in the draft made live preview
+        // impossible for exactly the new-field path this surface is meant to support.
+        fieldName:
+          source.kind === 'metadata' && source.metadata.kind === 'field'
+            ? (source.metadata.fieldName ?? fieldNameOf(id))
+            : fieldNameOf(id),
+        container: fieldContainerOf(id),
+      }
+    : undefined;
+}
+function stagedFieldNames(container: CompositionContainer, fieldNames: readonly string[]) {
+  const staged = transientPlacement.value;
+  const field = transientField();
+  if (!staged || !field?.fieldName) return [...fieldNames];
+  const sourceContainer = staged.source.kind === 'node' ? staged.source.container : field.container;
+  const targetContainer = staged.placement.container;
+  let next = [...fieldNames];
+  if (sourceContainer && containerKey(sourceContainer) === containerKey(container))
+    next = next.filter((name) => name !== field.fieldName);
+  if (containerKey(targetContainer) !== containerKey(container)) return next;
+  next = next.filter((name) => name !== field.fieldName);
+  next.splice(Math.min(staged.placement.index, next.length), 0, field.fieldName);
+  return next;
+}
+function rootRegion(fieldId: string) {
+  const items = orderedFormItems(structure.value.form, structure.value.groups, structure.value.order);
+  let region = 0;
+  for (const item of items) {
+    if (item.kind === 'group') region++;
+    else if (item.id === fieldId) return `root:${region}`;
+  }
+  return `root:${region}`;
+}
+const renderedForm = computed(() => {
+  const form = [...structure.value.form];
+  const groups = structure.value.groups.map((group) => ({ ...group, fields: [...group.fields] }));
+  let order = orderedFormItems(form, groups, structure.value.order);
+  const staged = transientPlacement.value;
+  const moving = transientField();
+  if (staged?.source.kind === 'node' && staged.source.container.kind === 'groups') {
+    const id = staged.source.nodeId;
+    order = order.filter((item) => !(item.kind === 'group' && item.id === id));
+    order.splice(staged.placement.index, 0, { kind: 'group', id });
+  } else if (staged && moving?.fieldName && ['form', 'group'].includes(staged.placement.container.kind)) {
+    const field = form.find((field) => field.id === moving.id) ??
+      groups.flatMap((group) => group.fields).find((field) => field.id === moving.id) ?? {
+        id: moving.id,
+        fieldName: moving.fieldName,
+        title: moving.fieldName,
+      };
+    const rootIndex = form.findIndex((item) => item.id === field.id);
+    if (rootIndex >= 0) form.splice(rootIndex, 1);
+    groups.forEach((group) => {
+      group.fields = group.fields.filter((item) => item.id !== field.id);
+    });
+    order = order.filter((item) => item.kind !== 'field' || item.id !== field.id);
+    const container = staged.placement.container;
+    if (container.kind === 'form') {
+      form.push(field);
+      order.splice(staged.placement.index, 0, { kind: 'field', id: field.id });
+    } else if (container.kind === 'group')
+      groups.find((group) => group.id === container.groupId)?.fields.splice(staged.placement.index, 0, field);
+  }
+  return { form, groups, order };
+});
+const renderedFieldNames = computed(() =>
+  renderedForm.value.order.flatMap((item) =>
+    item.kind === 'field'
+      ? [renderedForm.value.form.find((field) => field.id === item.id)!.fieldName]
+      : renderedForm.value.groups
+          .find((group) => group.id === item.id)!
+          .fields.map((field) => field.fieldName),
+  ),
+);
+const renderedFormFields = computed(
+  () =>
+    new Map(
+      [...formFieldsWithTransient.value].map(([name, field]) => {
+        const group = renderedForm.value.groups.find((group) =>
+          group.fields.some((field) => field.fieldName === name),
+        );
+        return [
+          name,
+          {
+            ...field,
+            formGroup: group
+              ? {
+                  groupCode: group.id,
+                  title: group.title,
+                  subtitle: group.subtitle,
+                  fields: group.fields.map((field) => ({ fieldName: field.fieldName })),
+                }
+              : undefined,
+          },
+        ];
+      }),
+    ),
+);
+function emptyGroupsBefore(fieldName?: string) {
+  const pending: typeof renderedForm.value.groups = [];
+  for (const item of renderedForm.value.order) {
+    const group =
+      item.kind === 'group' ? renderedForm.value.groups.find((group) => group.id === item.id) : undefined;
+    const names = group
+      ? group.fields.map((field) => field.fieldName)
+      : [renderedForm.value.form.find((field) => field.id === item.id)!.fieldName];
+    if (group && !names.length) pending.push(group);
+    else {
+      if (names.includes(fieldName ?? '')) return names[0] === fieldName ? pending : [];
+      pending.length = 0;
+    }
+  }
+  return fieldName ? [] : pending;
+}
 
 watch(
   () => props.descriptor,
@@ -245,14 +611,30 @@ function previewValue(field: ResolvedViewFieldDescriptor): unknown {
 }
 
 function relationColumns(relation: ResolvedDetailRelationDescriptor): UiDataTableColumn[] {
-  return (relation.listProjection?.fields ?? []).map((field) => ({
-    key: field.fieldName,
-    title: field.title ?? field.fieldName,
-    ...(field.width ? { width: field.width } : {}),
-    ...(field.align === 'left' || field.align === 'center' || field.align === 'right'
-      ? { align: field.align }
-      : {}),
-  }));
+  const fields = relation.listProjection?.fields ?? [];
+  const compositionRelation = structure.value.relations.find(
+    (candidate) => candidate.relationCode === relation.code,
+  );
+  const container: CompositionContainer = compositionRelation
+    ? { kind: 'relation', relationId: compositionRelation.id }
+    : { kind: 'relation', relationId: relation.code };
+  return stagedFieldNames(
+    container,
+    fields.map((field) => field.fieldName),
+  ).flatMap((fieldName) => {
+    const field = fields.find((candidate) => candidate.fieldName === fieldName);
+    if (!field) return [];
+    return [
+      {
+        key: field.fieldName,
+        title: field.title ?? field.fieldName,
+        ...(field.width ? { width: field.width } : {}),
+        ...(field.align === 'left' || field.align === 'center' || field.align === 'right'
+          ? { align: field.align }
+          : {}),
+      },
+    ];
+  });
 }
 
 function relationRecord(relation: ResolvedDetailRelationDescriptor): UiDataTableRecord {
@@ -283,31 +665,15 @@ function updateRelationEditorField(
 }
 
 function relationPreviewValue(field: { fieldName: string; title?: string; valueType?: string }) {
-  if (relationEditorControlField(field) === 'switch') return true;
-  if (relationEditorControlField(field) === 'number') return 96;
-  if (relationEditorControlField(field) === 'date') return '2026-09-06';
+  if (field.valueType === 'BOOLEAN') return true;
+  if (['INTEGER', 'LONG', 'DECIMAL'].includes(field.valueType ?? '')) return 96;
+  if (field.valueType === 'DATE') return '2026-09-06';
   if (/(score|grade|amount|count|number)$/i.test(field.fieldName)) return 96;
   return `示例${field.title ?? field.fieldName}`;
 }
 
-function relationEditorControlField(field: { fieldUiControlAlias?: string; valueType?: string }) {
-  const alias = field.fieldUiControlAlias?.trim().toLowerCase();
-  if (alias === 'switch') return 'switch';
-  if (alias === 'textarea') return 'textarea';
-  if (alias === 'date') return 'date';
-  if (alias === 'datetime' || alias === 'date_time_with_time_zone') return 'datetime';
-  if (['number', 'integer', 'amount', 'percentage'].includes(alias ?? '')) return 'number';
-  if (field.valueType === 'BOOLEAN') return 'switch';
-  if (field.valueType === 'DATE') return 'date';
-  if (field.valueType === 'TIMESTAMP' || field.valueType === 'ZONED_TIMESTAMP') return 'datetime';
-  if (['INTEGER', 'LONG', 'DECIMAL'].includes(field.valueType ?? '')) return 'number';
-  return 'text';
-}
-
-function relationEditorControl(relation: ResolvedDetailRelationDescriptor, field: { key: string }) {
-  return relationEditorControlField(
-    relation.listProjection?.fields.find((candidate) => candidate.fieldName === field.key) ?? {},
-  );
+function relationFields(relation: ResolvedDetailRelationDescriptor) {
+  return resolveRecordFormFields(props.descriptor, relation.targetEntityAlias);
 }
 
 function isSelected(slot: PreviewSlot, fieldName: string) {
@@ -325,6 +691,7 @@ function layoutKeyOf(element: HTMLElement) {
 // Hover feedback and sample input update the component too, but do not change its composition.
 const layoutInputs = computed(() => [
   props.mode,
+  transientPlacement.value,
   listColumns.value,
   detailFields.value,
   formFields.value,
@@ -334,9 +701,12 @@ const layoutInputs = computed(() => [
 let renderedLayout = layoutInputs.value;
 let layoutChanged = false;
 const layoutAnimations = new Map<HTMLElement, Animation>();
+const layoutAnimationTimers = new Map<HTMLElement, number>();
 function cancelLayoutAnimations() {
   layoutAnimations.forEach((animation) => animation.cancel());
   layoutAnimations.clear();
+  layoutAnimationTimers.forEach((timer) => window.clearTimeout(timer));
+  layoutAnimationTimers.clear();
 }
 onBeforeUnmount(cancelLayoutAnimations);
 
@@ -385,7 +755,14 @@ function animateLayoutElement(element: HTMLElement, x: number, y: number) {
       ],
       { duration: 300, easing: 'cubic-bezier(0.2, 0, 0, 1)' },
     );
-    if (animation) layoutAnimations.set(element, animation);
+    if (animation) {
+      layoutAnimations.set(element, animation);
+      const cleanup = () => {
+        if (layoutAnimations.get(element) === animation) layoutAnimations.delete(element);
+      };
+      animation.onfinish = cleanup;
+      animation.oncancel = cleanup;
+    }
     return;
   }
   const originalTransition = element.style.transition;
@@ -397,17 +774,107 @@ function animateLayoutElement(element: HTMLElement, x: number, y: number) {
     'transform 300ms cubic-bezier(0.2, 0, 0, 1), opacity 300ms cubic-bezier(0.2, 0, 0, 1)';
   element.style.transform = 'translate(0, 0)';
   element.style.opacity = '1';
-  window.setTimeout(() => {
+  const timer = window.setTimeout(() => {
     element.style.transition = originalTransition;
     element.style.transform = '';
     element.style.opacity = '';
+    layoutAnimationTimers.delete(element);
   }, 320);
+  layoutAnimationTimers.set(element, timer);
 }
 </script>
 
 <template>
+  <div
+    v-if="wholePage && mode !== 'edit' && descriptor.page && !surfaceOnly"
+    class="page-composition-mode-preview"
+    :class="{
+      'page-composition-mode-preview--list': descriptor.page.template === 'LIST_DETAIL_CARD',
+      'page-composition-mode-preview--card-only': descriptor.page.template !== 'LIST_DETAIL_CARD',
+    }"
+  >
+    <div
+      ref="pageActionRoot"
+      class="page-composition-action-preview page-composition-action-preview--page"
+      :class="actionDropClass(pageActionDrag.feedback.value)"
+      data-ui-drop-root
+      tabindex="0"
+    >
+      <small>页面动作</small>
+      <span
+        v-if="pageActionDrag.feedback.value"
+        class="page-composition-action-preview__drop-hint"
+        role="status"
+        >{{ actionDropHint(pageActionDrag.feedback.value, pageActions) }}</span
+      >
+      <TransitionGroup name="page-composer-action-layout" tag="span" class="page-composer-action-layout">
+        <span
+          v-for="action in actionItems(pageActionDrag.stagedActionCodes.value)"
+          :key="action.actionCode"
+          :data-page-action-key="action.actionCode"
+          :class="[
+            actionDropItemClass(pageActionDrag.feedback.value, action.actionCode),
+            {
+              'page-composition-action-preview__button--transient': isTransientAction(
+                pageActionDrag,
+                action.actionCode,
+              ),
+            },
+          ]"
+        >
+          <span v-bind="pageActionDrag.dragHandleProps(action.actionCode, action.title ?? action.actionCode)"
+            >⠿</span
+          >
+          <UiButton size="small" disabled>{{ action.title ?? action.actionCode }}</UiButton>
+        </span>
+      </TransitionGroup>
+      <span v-if="!pageActionDrag.stagedActionCodes.value.length">拖入模块动作</span>
+    </div>
+    <section
+      v-if="descriptor.page.template === 'LIST_DETAIL_CARD'"
+      class="page-composition-mode-preview__navigation"
+    >
+      <PageCompositionDescriptorPreview
+        v-if="descriptor.page.template === 'LIST_DETAIL_CARD'"
+        :descriptor="descriptor"
+        :module-alias="moduleAlias"
+        mode="list"
+        surface-only
+        :structure="structure"
+        :selected-field-name="selectedFieldName"
+        :placement-disabled="placementDisabled"
+        :accept-external-drop="acceptExternalDrop"
+        :action-placements="actionPlacements"
+        :module-actions="moduleActions"
+        @select-field="(slot, field) => emit('selectField', slot, field)"
+        @configure-field="(slot, field) => emit('configureField', slot, field)"
+        @configure-relation-field="(relation, field) => emit('configureRelationField', relation, field)"
+        @placement-drop="(source, target) => emit('placement-drop', source, target)"
+        @action-drop="(source, target) => emit('action-drop', source, target)"
+      />
+    </section>
+    <section class="page-composition-mode-preview__detail">
+      <PageCompositionDescriptorPreview
+        :descriptor="descriptor"
+        :module-alias="moduleAlias"
+        mode="detail"
+        surface-only
+        :structure="structure"
+        :selected-field-name="selectedFieldName"
+        :placement-disabled="placementDisabled"
+        :accept-external-drop="acceptExternalDrop"
+        :action-placements="actionPlacements"
+        :module-actions="moduleActions"
+        @select-field="(slot, field) => emit('selectField', slot, field)"
+        @configure-field="(slot, field) => emit('configureField', slot, field)"
+        @configure-relation-field="(relation, field) => emit('configureRelationField', relation, field)"
+        @placement-drop="(source, target) => emit('placement-drop', source, target)"
+        @action-drop="(source, target) => emit('action-drop', source, target)"
+      />
+    </section>
+  </div>
   <section
-    v-if="mode === 'list'"
+    v-else-if="mode === 'list'"
     ref="previewRoot"
     class="page-composition-descriptor-preview"
     data-testid="page-composer-list-preview"
@@ -415,9 +882,12 @@ function animateLayoutElement(element: HTMLElement, x: number, y: number) {
     data-composer-drop-target="list"
   >
     <div
-      v-if="feedback"
+      v-if="feedback && !transientPlacement"
       class="page-composer-drop-indicator"
-      :class="{ 'page-composer-drop-indicator--rejected': feedback.rejected }"
+      :class="{
+        'page-composer-drop-indicator--rejected': feedback.rejected,
+        'page-composer-drop-indicator--transient': transientPlacement,
+      }"
       :style="{
         left: `${feedback.left}px`,
         top: `${feedback.top}px`,
@@ -463,7 +933,11 @@ function animateLayoutElement(element: HTMLElement, x: number, y: number) {
       <template #cell="{ column }">
         <button
           class="page-composition-descriptor-preview__field"
-          :class="{ 'page-composition-descriptor-preview__field--selected': isSelected('list', column.key) }"
+          :class="{
+            'page-composition-descriptor-preview__field--selected': isSelected('list', column.key),
+            'page-composer-external-field-preview--dragging':
+              transientExternalField?.fieldName === column.key,
+          }"
           type="button"
           :title="`配置${column.title}`"
           :data-page-composition-layout-key="`list:field:${column.key}`"
@@ -472,9 +946,11 @@ function animateLayoutElement(element: HTMLElement, x: number, y: number) {
           @keydown.space.prevent="emit('configureField', 'list', column.key)"
         >
           <RecordQueryListCell
+            v-if="listColumns.find((item) => item.key === column.key)"
             :record="listRecord"
             :column="listColumns.find((item) => item.key === column.key)!"
           />
+          <span v-else class="page-composer-external-field-preview">示例内容</span>
         </button>
       </template>
     </UiDataTable>
@@ -498,9 +974,12 @@ function animateLayoutElement(element: HTMLElement, x: number, y: number) {
     data-composer-drop-target="list"
   >
     <div
-      v-if="feedback"
+      v-if="feedback && !transientPlacement"
       class="page-composer-drop-indicator"
-      :class="{ 'page-composer-drop-indicator--rejected': feedback.rejected }"
+      :class="{
+        'page-composer-drop-indicator--rejected': feedback.rejected,
+        'page-composer-drop-indicator--transient': transientPlacement,
+      }"
       :style="{
         left: `${feedback.left}px`,
         top: `${feedback.top}px`,
@@ -526,9 +1005,18 @@ function animateLayoutElement(element: HTMLElement, x: number, y: number) {
     data-composer-drop-target="form"
   >
     <div
-      v-if="feedback"
+      v-if="groupOutline"
+      class="page-composer-group-drag-outline"
+      :style="groupOutline"
+      aria-hidden="true"
+    />
+    <div
+      v-if="feedback && !transientPlacement"
       class="page-composer-drop-indicator"
-      :class="{ 'page-composer-drop-indicator--rejected': feedback.rejected }"
+      :class="{
+        'page-composer-drop-indicator--rejected': feedback.rejected,
+        'page-composer-drop-indicator--transient': transientPlacement,
+      }"
       :style="{
         left: `${feedback.left}px`,
         top: `${feedback.top}px`,
@@ -539,111 +1027,149 @@ function animateLayoutElement(element: HTMLElement, x: number, y: number) {
     >
       <span>{{ feedback.title }}</span>
     </div>
-    <UiEmpty v-if="isDetailEmpty" description="当前草稿尚未配置详情字段或关联子表" />
-    <section v-for="section in formSections" :key="section.key" class="page-composer-form-section">
-      <header
-        v-if="section.container.kind === 'group'"
-        :data-composer-target="`detail:${section.key}`"
-        :data-ui-drop-key="`detail:${section.key}`"
-        tabindex="0"
+    <div
+      ref="detailActionRoot"
+      class="page-composition-action-preview"
+      :class="actionDropClass(detailActionDrag.feedback.value)"
+      data-ui-drop-root
+      tabindex="0"
+    >
+      <small>详情动作</small>
+      <span
+        v-if="detailActionDrag.feedback.value"
+        class="page-composition-action-preview__drop-hint"
+        role="status"
+        >{{ actionDropHint(detailActionDrag.feedback.value, detailActions) }}</span
       >
-        <span v-if="acceptExternalDrop" v-bind="handleProps(`detail:${section.key}`, section.title)">⠿</span
-        ><strong>{{ section.title }}</strong
-        ><small>{{ 'subtitle' in section ? section.subtitle : '' }}</small>
-      </header>
-      <div class="page-composer-detail-section">
-        <RecordDetailFields
-          interaction-mode="selectable"
-          :record="detailRecord"
-          :fields="detailFields"
-          :field-names="
-            section.fields.map((field) => field.fieldName).filter((name) => detailFields.has(name))
-          "
-          :selected-field-name="selectedDetailFieldName"
-          layout-transition-prefix="detail"
-          @select="(name) => emit('selectField', 'form', name)"
-          @configure="(name) => emit('configureField', 'form', name)"
+      <TransitionGroup name="page-composer-action-layout" tag="span" class="page-composer-action-layout">
+        <span
+          v-for="action in actionItems(detailActionDrag.stagedActionCodes.value)"
+          :key="action.actionCode"
+          :data-page-action-key="action.actionCode"
+          :class="[
+            actionDropItemClass(detailActionDrag.feedback.value, action.actionCode),
+            {
+              'page-composition-action-preview__button--transient': isTransientAction(
+                detailActionDrag,
+                action.actionCode,
+              ),
+            },
+          ]"
         >
-          <template #field-actions="{ field }">
-            <span
-              v-if="acceptExternalDrop"
-              v-bind="handleProps(`detail:field:${field.fieldName}`, field.label)"
-              :data-ui-drop-key="`detail:field:${field.fieldName}`"
-              >⠿</span
-            >
-          </template>
-        </RecordDetailFields>
-      </div>
-      <div
-        v-if="acceptExternalDrop"
-        class="page-composer-drop-zone"
-        :data-composer-target="`detail:container:${section.key}`"
-        :data-ui-drop-key="`detail:container:${section.key}`"
-        tabindex="0"
-      >
-        {{ section.fields.length ? '拖到此处追加字段' : '拖入字段' }}
-      </div>
-    </section>
-    <section
+          <span
+            v-bind="detailActionDrag.dragHandleProps(action.actionCode, action.title ?? action.actionCode)"
+            >⠿</span
+          >
+          <UiButton size="small" disabled>{{ action.title ?? action.actionCode }}</UiButton>
+        </span>
+      </TransitionGroup>
+      <span v-if="!detailActionDrag.stagedActionCodes.value.length">拖入模块动作</span>
+    </div>
+    <UiEmpty v-if="isDetailEmpty" description="当前草稿尚未配置详情字段或关联子表" />
+    <RecordDetailFields
+      interaction-mode="selectable"
+      :record="detailRecordWithTransient"
+      :fields="detailFieldsWithTransient"
+      :field-names="renderedFieldNames.filter((name) => detailFieldsWithTransient.has(name))"
+      :selected-field-name="selectedDetailFieldName"
+      layout-transition-prefix="detail"
+      @select="(name) => emit('selectField', 'form', name)"
+      @configure="(name) => emit('configureField', 'form', name)"
+    >
+      <template #field-actions="{ field }">
+        <span
+          v-if="acceptExternalDrop"
+          v-bind="handleProps(`detail:field:${field.fieldName}`, field.label)"
+          :data-ui-drop-key="`detail:field:${field.fieldName}`"
+          >⠿</span
+        >
+      </template>
+    </RecordDetailFields>
+    <div
+      v-if="acceptExternalDrop && !renderedFieldNames.length"
+      class="page-composer-drop-zone"
+      data-ui-drop-key="detail:container:form"
+      data-composer-target="detail:container:form"
+    >
+      拖入字段
+    </div>
+    <RecordDetailExtensionSection
       v-for="relation in detailRelations"
       :key="relation.code"
-      class="page-composition-descriptor-preview__relation"
+      :title="relation.title ?? relation.code"
+      kind="relation"
+      :heading-attributes="{
+        'data-composer-target': `detail:relation:${relation.code}`,
+        'data-ui-drop-key': `detail:relation:${relation.code}`,
+        tabindex: 0,
+      }"
     >
-      <header
-        :data-composer-target="`detail:relation:${relation.code}`"
-        :data-ui-drop-key="`detail:relation:${relation.code}`"
-        tabindex="0"
-      >
-        <strong>{{ relation.title ?? relation.code }}</strong>
+      <template #actions>
         <span
           v-if="acceptExternalDrop"
           v-bind="handleProps(`detail:relation:${relation.code}`, relation.title ?? relation.code)"
+          :data-ui-drop-key="`detail:relation:${relation.code}`"
           >⠿</span
         >
-      </header>
-      <div class="page-composition-descriptor-preview__relation-columns">
-        <UiDataTable
-          v-if="relation.listProjection?.fields?.length"
-          class="page-composition-descriptor-preview__relation-table"
-          :columns="relationColumns(relation)"
-          :rows="[relationRecord(relation)]"
-          row-key="id"
-          :pagination="false"
-          horizontal-scroll
-        >
-          <template #header="{ column }">
-            <span
-              class="page-composer-column-heading"
-              :data-page-composition-layout-key="`detail:relation:${relation.code}:header:${column.key}`"
-              :data-ui-drop-key="`detail:relation:${relation.code}:header:${column.key}`"
-              tabindex="0"
-            >
-              <span
-                v-if="acceptExternalDrop"
-                v-bind="handleProps(`detail:relation:${relation.code}:header:${column.key}`, column.title)"
-                >⠿</span
-              >
-              {{ column.title }}
-            </span>
-          </template>
-          <template #cell="{ column, record }">
-            <span :data-page-composition-layout-key="`detail:relation:${relation.code}:field:${column.key}`">
-              {{ record[column.key] }}
-            </span>
-          </template>
-        </UiDataTable>
-      </div>
+      </template>
+      <RecordRelationTable
+        v-if="relation.listProjection?.fields?.length"
+        :columns="
+          relationColumns(relation).map((column) => ({
+            fieldName: column.key,
+            title: column.title,
+            width: typeof column.width === 'number' ? column.width : undefined,
+            align: column.align,
+          }))
+        "
+        :rows="relationEditorRows(relation)"
+      >
+        <template #header="{ column }">
+          <span
+            class="page-composer-column-heading"
+            :data-page-composition-layout-key="`detail:relation:${relation.code}:header:${column.fieldName}`"
+            :data-ui-drop-key="`detail:relation:${relation.code}:header:${column.fieldName}`"
+            @dblclick.stop="emit('configureRelationField', relation.code, column.fieldName)"
+            @keydown.enter.self.stop.prevent="emit('configureRelationField', relation.code, column.fieldName)"
+            tabindex="0"
+            ><span
+              v-if="acceptExternalDrop"
+              v-bind="
+                handleProps(
+                  `detail:relation:${relation.code}:header:${column.fieldName}`,
+                  column.title ?? column.fieldName,
+                )
+              "
+              >⠿</span
+            >{{ column.title }}</span
+          >
+        </template>
+        <template #cell="{ column, row }">
+          <div
+            :data-page-composition-layout-key="`detail:relation:${relation.code}:field:${column.fieldName}`"
+          >
+            <RecordRelationValue
+              :field="
+                resolveRecordFormFieldState(column.fieldName, {
+                  fields: relationFields(relation),
+                  record: row,
+                })
+              "
+              :record="row"
+            />
+          </div>
+        </template>
+      </RecordRelationTable>
       <div
-        v-if="acceptExternalDrop"
+        v-if="acceptExternalDrop && !relation.listProjection?.fields?.length"
         class="page-composer-drop-zone"
         :data-composer-target="`detail:relation:${relation.code}:end`"
         :data-ui-drop-key="`detail:relation:${relation.code}:end`"
-        tabindex="0"
       >
         拖入此子表的字段
       </div>
       <UiEmpty v-if="!relation.listProjection?.fields?.length" description="尚未选择子表展示字段" />
-    </section>
+    </RecordDetailExtensionSection>
     <div
       v-if="acceptExternalDrop"
       class="page-composer-drop-zone"
@@ -664,9 +1190,18 @@ function animateLayoutElement(element: HTMLElement, x: number, y: number) {
     data-composer-drop-target="form"
   >
     <div
-      v-if="feedback"
+      v-if="groupOutline"
+      class="page-composer-group-drag-outline"
+      :style="groupOutline"
+      aria-hidden="true"
+    />
+    <div
+      v-if="feedback && !transientPlacement"
       class="page-composer-drop-indicator"
-      :class="{ 'page-composer-drop-indicator--rejected': feedback.rejected }"
+      :class="{
+        'page-composer-drop-indicator--rejected': feedback.rejected,
+        'page-composer-drop-indicator--transient': transientPlacement,
+      }"
       :style="{
         left: `${feedback.left}px`,
         top: `${feedback.top}px`,
@@ -677,143 +1212,223 @@ function animateLayoutElement(element: HTMLElement, x: number, y: number) {
     >
       <span>{{ feedback.title }}</span>
     </div>
-    <UiEmpty v-if="isEditEmpty" description="当前草稿尚未配置编辑字段或关联子表" />
-    <section v-for="section in formSections" :key="section.key" class="page-composer-form-section">
-      <header
-        v-if="section.container.kind === 'group'"
-        :data-composer-target="`edit:${section.key}`"
-        :data-ui-drop-key="`edit:${section.key}`"
-        tabindex="0"
+    <div
+      ref="formActionRoot"
+      class="page-composition-action-preview page-composition-action-preview--form"
+      :class="actionDropClass(formActionDrag.feedback.value)"
+      data-ui-drop-root
+      tabindex="0"
+    >
+      <small>表单动作</small>
+      <span
+        v-if="formActionDrag.feedback.value"
+        class="page-composition-action-preview__drop-hint"
+        role="status"
+        >{{ actionDropHint(formActionDrag.feedback.value, formActions) }}</span
       >
-        <span v-if="acceptExternalDrop" v-bind="handleProps(`edit:${section.key}`, section.title)">⠿</span
-        ><strong>{{ section.title }}</strong
-        ><small>{{ 'subtitle' in section ? section.subtitle : '' }}</small>
-      </header>
-      <div class="page-composition-descriptor-preview__form">
-        <RecordFormFields
-          :record="formRecord"
-          :fields="ungroupedFormFields"
-          :field-names="section.fields.map((field) => field.fieldName).filter((name) => formFields.has(name))"
-          :form-session-key="`page-composer:${moduleAlias}`"
-          layout-transition-prefix="edit"
-          @update:field="updateFormField"
+      <TransitionGroup name="page-composer-action-layout" tag="span" class="page-composer-action-layout">
+        <span
+          v-for="action in actionItems(formActionDrag.stagedActionCodes.value)"
+          :key="action.actionCode"
+          :data-page-action-key="action.actionCode"
+          :class="[
+            actionDropItemClass(formActionDrag.feedback.value, action.actionCode),
+            {
+              'page-composition-action-preview__button--transient': isTransientAction(
+                formActionDrag,
+                action.actionCode,
+              ),
+            },
+          ]"
         >
-          <template #field-actions="{ field }">
-            <span
+          <span v-bind="formActionDrag.dragHandleProps(action.actionCode, action.title ?? action.actionCode)"
+            >⠿</span
+          >
+          <UiButton size="small" disabled>{{ action.title ?? action.actionCode }}</UiButton>
+        </span>
+      </TransitionGroup>
+      <span v-if="!formActionDrag.stagedActionCodes.value.length">拖入模块动作</span>
+    </div>
+    <UiEmpty v-if="isEditEmpty" description="当前草稿尚未配置编辑字段或关联子表" />
+    <RecordFormGrid as="div" surface="record">
+      <RecordFormFields
+        :record="formRecordWithTransient"
+        :fields="renderedFormFields"
+        :field-names="renderedFieldNames.filter((name) => renderedFormFields.has(name))"
+        :form-session-key="`page-composer:${moduleAlias}`"
+        layout-transition-prefix="edit"
+        @update:field="updateFormField"
+      >
+        <template #before-field="{ field }">
+          <template v-for="group in emptyGroupsBefore(field.fieldName)" :key="group.id">
+            <RecordContentSectionHeading
+              class="page-composer-empty-group"
+              tabindex="0"
+              :title="group.title"
+              :subtitle="group.subtitle"
+              :data-page-composition-layout-key="`edit:group:${group.id}`"
+              :data-composer-target="`edit:group:${group.id}`"
+              :data-ui-drop-key="`edit:group:${group.id}`"
+            >
+              <template #actions>
+                <span v-if="acceptExternalDrop" v-bind="handleProps(`edit:group:${group.id}`, group.title)"
+                  >⠿</span
+                >
+              </template>
+            </RecordContentSectionHeading>
+            <div
               v-if="acceptExternalDrop"
-              v-bind="handleProps(`edit:field:${field.fieldName}`, field.label)"
-              :data-ui-drop-key="`edit:field:${field.fieldName}`"
+              class="page-composer-drop-zone page-composer-empty-group"
+              tabindex="0"
+              :data-composer-target="`edit:container:group:${group.id}`"
+              :data-ui-drop-key="`edit:container:group:${group.id}`"
+            >
+              拖入字段
+            </div>
+          </template>
+        </template>
+        <template #group-actions="{ group }">
+          <span
+            v-if="acceptExternalDrop && group"
+            v-bind="handleProps(`edit:group:${group.groupCode}`, group.title)"
+            :data-ui-drop-key="`edit:group:${group.groupCode}`"
+            >⠿</span
+          >
+        </template>
+        <template #field-actions="{ field }">
+          <span
+            v-if="acceptExternalDrop"
+            v-bind="handleProps(`edit:field:${field.fieldName}`, field.label)"
+            :data-ui-drop-key="`edit:field:${field.fieldName}`"
+            :class="{
+              'page-composer-external-field-preview--dragging':
+                transientExternalField?.fieldName === field.fieldName,
+            }"
+            >⠿</span
+          >
+        </template>
+      </RecordFormFields>
+      <template v-for="group in emptyGroupsBefore()" :key="group.id">
+        <RecordContentSectionHeading
+          class="page-composer-empty-group"
+          tabindex="0"
+          :title="group.title"
+          :subtitle="group.subtitle"
+          :data-page-composition-layout-key="`edit:group:${group.id}`"
+          :data-composer-target="`edit:group:${group.id}`"
+          :data-ui-drop-key="`edit:group:${group.id}`"
+        >
+          <template #actions>
+            <span v-if="acceptExternalDrop" v-bind="handleProps(`edit:group:${group.id}`, group.title)"
               >⠿</span
             >
           </template>
-        </RecordFormFields>
-      </div>
+        </RecordContentSectionHeading>
+        <div
+          v-if="acceptExternalDrop"
+          class="page-composer-drop-zone page-composer-empty-group"
+          tabindex="0"
+          :data-composer-target="`edit:container:group:${group.id}`"
+          :data-ui-drop-key="`edit:container:group:${group.id}`"
+        >
+          拖入字段
+        </div>
+      </template>
       <div
-        v-if="acceptExternalDrop"
-        class="page-composer-drop-zone"
-        :data-composer-target="`edit:container:${section.key}`"
-        :data-ui-drop-key="`edit:container:${section.key}`"
+        v-if="acceptExternalDrop && !renderedFieldNames.length && !renderedForm.groups.length"
+        class="page-composer-drop-zone page-composer-empty-group"
         tabindex="0"
+        data-composer-target="edit:container:form"
+        data-ui-drop-key="edit:container:form"
       >
-        {{ section.fields.length ? '拖到此处追加字段' : '拖入字段' }}
+        拖入字段
       </div>
-    </section>
-    <section
+    </RecordFormGrid>
+    <RecordDetailExtensionSection
       v-for="relation in detailRelations"
       :key="relation.code"
-      class="page-composition-descriptor-preview__relation page-composition-descriptor-preview__relation--editor"
+      :title="relation.title ?? relation.code"
+      kind="relation"
+      :heading-attributes="{
+        'data-composer-target': `edit:relation:${relation.code}`,
+        'data-ui-drop-key': `edit:relation:${relation.code}`,
+        tabindex: 0,
+      }"
     >
-      <header
-        :data-composer-target="`edit:relation:${relation.code}`"
-        :data-ui-drop-key="`edit:relation:${relation.code}`"
-        tabindex="0"
-      >
-        <strong>{{ relation.title ?? relation.code }}</strong>
+      <template #actions>
         <span
           v-if="acceptExternalDrop"
           v-bind="handleProps(`edit:relation:${relation.code}`, relation.title ?? relation.code)"
+          :data-ui-drop-key="`edit:relation:${relation.code}`"
           >⠿</span
         >
-      </header>
-      <div class="page-composition-descriptor-preview__relation-columns">
-        <UiDataTable
-          v-if="relation.listProjection?.fields?.length"
-          class="page-composition-descriptor-preview__relation-table"
-          :columns="relationColumns(relation)"
-          :rows="relationEditorRows(relation)"
-          row-key="id"
-          :pagination="false"
-          horizontal-scroll
-        >
-          <template #header="{ column }">
-            <span
-              class="page-composer-column-heading"
-              :data-page-composition-layout-key="`edit:relation:${relation.code}:header:${column.key}`"
-              :data-ui-drop-key="`edit:relation:${relation.code}:header:${column.key}`"
-              tabindex="0"
-            >
-              <span
-                v-if="acceptExternalDrop"
-                v-bind="handleProps(`edit:relation:${relation.code}:header:${column.key}`, column.title)"
-                >⠿</span
-              >
-              {{ column.title }}
-            </span>
-          </template>
-          <template #cell="{ column, record }">
-            <div :data-page-composition-layout-key="`edit:relation:${relation.code}:field:${column.key}`">
-              <UiSwitch
-                v-if="relationEditorControl(relation, column) === 'switch'"
-                :checked="record[column.key] === true"
-                :aria-label="`${relation.title ?? relation.code}：${column.title}`"
-                @change="(value) => updateRelationEditorField(relation, record.id, column.key, value)"
-              />
-              <UiTextArea
-                v-else-if="relationEditorControl(relation, column) === 'textarea'"
-                :value="String(record[column.key] ?? '')"
-                :aria-label="`${relation.title ?? relation.code}：${column.title}`"
-                @update:value="(value) => updateRelationEditorField(relation, record.id, column.key, value)"
-              />
-              <UiInput
-                v-else
-                :value="String(record[column.key] ?? '')"
-                :type="
-                  relationEditorControl(relation, column) === 'number'
-                    ? 'number'
-                    : relationEditorControl(relation, column) === 'date'
-                      ? 'date'
-                      : relationEditorControl(relation, column) === 'datetime'
-                        ? 'datetime-local'
-                        : 'text'
-                "
-                :step="relationEditorControl(relation, column) === 'number' ? 'any' : undefined"
-                :aria-label="`${relation.title ?? relation.code}：${column.title}`"
-                @update:value="(value) => updateRelationEditorField(relation, record.id, column.key, value)"
-              />
-            </div>
-          </template>
-          <template #empty>
-            <UiEmpty description="还没有子表记录，可新增一行预览" />
-          </template>
-        </UiDataTable>
-      </div>
-      <p
+      </template>
+      <RecordRelationTable
         v-if="relation.listProjection?.fields?.length"
-        class="page-composition-descriptor-preview__relation-note"
+        :columns="
+          relationColumns(relation).map((column) => ({
+            fieldName: column.key,
+            title: column.title,
+            width: typeof column.width === 'number' ? column.width : undefined,
+            align: column.align,
+          }))
+        "
+        :rows="relationEditorRows(relation)"
       >
-        可直接编辑示例值以检查编辑态。
-      </p>
+        <template #header="{ column }">
+          <span
+            class="page-composer-column-heading"
+            :data-page-composition-layout-key="`edit:relation:${relation.code}:header:${column.fieldName}`"
+            :data-ui-drop-key="`edit:relation:${relation.code}:header:${column.fieldName}`"
+            @dblclick.stop="emit('configureRelationField', relation.code, column.fieldName)"
+            @keydown.enter.self.stop.prevent="emit('configureRelationField', relation.code, column.fieldName)"
+            tabindex="0"
+            ><span
+              v-if="acceptExternalDrop"
+              v-bind="
+                handleProps(
+                  `edit:relation:${relation.code}:header:${column.fieldName}`,
+                  column.title ?? column.fieldName,
+                )
+              "
+              >⠿</span
+            >{{ column.title }}</span
+          >
+        </template>
+        <template #cell="{ column, row }">
+          <div :data-page-composition-layout-key="`edit:relation:${relation.code}:field:${column.fieldName}`">
+            <RecordFormFields
+              v-if="relationFields(relation).has(column.fieldName)"
+              :record="row"
+              :fields="relationFields(relation)"
+              :field-names="[column.fieldName]"
+              :form-session-key="String(row.id)"
+              :show-labels="false"
+              compact
+              @update:field="(name, value) => updateRelationEditorField(relation, row.id, name, value)"
+            /><RecordRelationValue
+              v-else
+              :field="
+                resolveRecordFormFieldState(column.fieldName, {
+                  fields: relationFields(relation),
+                  record: row,
+                })
+              "
+              :record="row"
+            />
+          </div>
+        </template>
+      </RecordRelationTable>
       <div
-        v-if="acceptExternalDrop"
+        v-if="acceptExternalDrop && !relation.listProjection?.fields?.length"
         class="page-composer-drop-zone"
         :data-composer-target="`edit:relation:${relation.code}:end`"
         :data-ui-drop-key="`edit:relation:${relation.code}:end`"
-        tabindex="0"
       >
         拖入此子表的字段
       </div>
       <UiEmpty v-if="!relation.listProjection?.fields?.length" description="尚未选择子表展示字段" />
-    </section>
+    </RecordDetailExtensionSection>
     <div
       v-if="acceptExternalDrop"
       class="page-composer-drop-zone"
@@ -827,6 +1442,158 @@ function animateLayoutElement(element: HTMLElement, x: number, y: number) {
 </template>
 
 <style scoped>
+.page-composer-empty-group {
+  grid-column: 1 / -1;
+}
+.page-composition-mode-preview {
+  display: grid;
+  grid-template-columns: minmax(120px, 1fr) minmax(220px, 2fr);
+  gap: 12px;
+  margin-top: 12px;
+}
+.page-composition-mode-preview--card-only {
+  grid-template-columns: minmax(0, 1fr);
+}
+.page-composition-mode-preview--list {
+  grid-template-columns: minmax(340px, 2fr) minmax(220px, 1fr);
+}
+.page-composition-mode-preview__navigation,
+.page-composition-mode-preview__detail {
+  min-width: 0;
+  overflow: auto;
+}
+.page-composition-mode-preview__navigation {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.page-composition-action-preview {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+  min-height: 32px;
+  padding: 6px 8px;
+  border: 1px dashed var(--muyun-border);
+  border-radius: 4px;
+  color: var(--muyun-text-muted);
+  font-size: 12px;
+}
+
+.page-composition-action-preview__drag-handle {
+  cursor: grab;
+  color: var(--ant-color-text-secondary);
+  user-select: none;
+}
+
+.page-composition-action-preview > [data-page-action-key] {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* Match field dragging: the item being carried has a thin, outward yellow boundary without
+   painting over its label or button surface. */
+.page-composition-action-preview > [data-page-action-key].page-composer-action-drag-source {
+  outline: 2px solid var(--ant-color-warning);
+  outline-offset: 3px;
+  border-radius: 3px;
+}
+
+.page-composer-action-layout {
+  display: contents;
+}
+.page-composer-action-layout-move {
+  transition: transform 220ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+.page-composition-action-preview__drag-handle:focus-visible {
+  outline: 2px solid var(--ant-color-primary);
+  outline-offset: 2px;
+}
+
+.page-composition-action-preview__drag-handle.is-dragging {
+  cursor: grabbing;
+}
+
+.page-composition-action-preview small {
+  margin-right: auto;
+  font-weight: 600;
+}
+
+.page-composition-action-preview__drop-hint {
+  color: var(--ant-color-primary);
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.page-composition-action-preview--drop-rejected .page-composition-action-preview__drop-hint {
+  color: var(--ant-color-error);
+}
+
+.page-composition-action-preview--page {
+  grid-column: 1 / -1;
+  margin-bottom: 0;
+}
+
+.page-composition-action-preview--drop-active {
+  border-color: var(--ant-color-primary);
+  background: var(--muyun-primary-surface, color-mix(in srgb, var(--ant-color-primary) 7%, transparent));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ant-color-primary) 35%, transparent);
+}
+
+.page-composition-action-preview--drop-rejected {
+  border-color: var(--ant-color-error);
+  background: color-mix(in srgb, var(--ant-color-error) 7%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ant-color-error) 35%, transparent);
+}
+
+.page-composition-action-preview [data-page-action-key].page-composition-action-preview__button--drop-before,
+.page-composition-action-preview [data-page-action-key].page-composition-action-preview__button--drop-after {
+  position: relative;
+  overflow: visible;
+}
+
+.page-composition-action-preview
+  [data-page-action-key].page-composition-action-preview__button--drop-before::before,
+.page-composition-action-preview
+  [data-page-action-key].page-composition-action-preview__button--drop-after::after {
+  position: absolute;
+  top: -4px;
+  bottom: -4px;
+  width: 3px;
+  border-radius: 999px;
+  background: var(--ant-color-primary);
+  content: '';
+}
+
+.page-composition-action-preview
+  [data-page-action-key].page-composition-action-preview__button--drop-before::before {
+  left: -5px;
+}
+.page-composition-action-preview
+  [data-page-action-key].page-composition-action-preview__button--drop-after::after {
+  right: -5px;
+}
+
+.page-composition-action-preview__button--transient {
+  animation: page-composer-transient-action 140ms ease-out;
+}
+
+@keyframes page-composer-transient-action {
+  from {
+    opacity: 0.38;
+    transform: scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
 .page-composition-descriptor-preview {
   position: relative;
   display: grid;
@@ -852,19 +1619,6 @@ function animateLayoutElement(element: HTMLElement, x: number, y: number) {
   margin: 0;
   color: var(--muyun-text-muted);
   font-size: 12px;
-}
-
-.page-composition-descriptor-preview__form {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 16px 12px;
-  --muyun-record-form-label-gap: 8px;
-}
-
-@media (max-width: 900px) {
-  .page-composition-descriptor-preview__form {
-    grid-template-columns: 1fr;
-  }
 }
 
 .page-composition-descriptor-preview__table :deep(.ant-table-cell) {
@@ -897,59 +1651,6 @@ function animateLayoutElement(element: HTMLElement, x: number, y: number) {
   background: var(--muyun-primary-surface, var(--muyun-hover));
 }
 
-.page-composition-descriptor-preview__relation {
-  display: grid;
-  gap: 10px;
-  padding: 14px;
-  border: 1px solid var(--muyun-border-subtle);
-  border-radius: 8px;
-  background: var(--muyun-surface-muted);
-}
-
-.page-composition-descriptor-preview__relation--editor {
-  margin-top: 4px;
-}
-
-.page-composition-descriptor-preview__relation > header {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.page-composition-descriptor-preview__relation > header span {
-  color: var(--muyun-text-muted);
-  font-size: 12px;
-}
-
-.page-composition-descriptor-preview__relation-columns {
-  min-width: 0;
-}
-
-.page-composition-descriptor-preview__relation-table :deep(.ant-table-cell) {
-  white-space: nowrap;
-}
-
-.page-composition-descriptor-preview__relation-table :deep([data-page-composition-layout-key]) {
-  display: block;
-  min-width: 0;
-  transform-origin: center left;
-  will-change: transform, opacity;
-}
-
-.page-composition-descriptor-preview__relation--editor
-  .page-composition-descriptor-preview__relation-table
-  :deep(.ant-table-cell) {
-  padding: 6px;
-}
-
-.page-composition-descriptor-preview__relation-note {
-  margin: 0;
-  color: var(--muyun-text-muted);
-  font-size: 12px;
-}
-</style>
-
-<style scoped>
 .page-composer-drop-zone {
   min-height: 28px;
   padding: 5px 8px;
@@ -958,18 +1659,14 @@ function animateLayoutElement(element: HTMLElement, x: number, y: number) {
   font-size: 12px;
   border-radius: 4px;
 }
-.page-composer-form-section {
-  min-width: 0;
-  display: grid;
-  gap: 10px;
-}
-.page-composer-form-section > header {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.page-composer-form-section small {
-  color: var(--muyun-text-muted);
+.page-composer-drop-zone--suppressed {
+  min-height: 0;
+  height: 0;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  color: transparent;
+  pointer-events: none;
 }
 .page-composer-column-heading {
   display: block;
@@ -990,12 +1687,90 @@ function animateLayoutElement(element: HTMLElement, x: number, y: number) {
   color: var(--muyun-primary);
   background: var(--muyun-hover);
 }
+.page-composer-group-drag-outline {
+  position: absolute;
+  z-index: 4;
+  box-sizing: border-box;
+  border: 2px solid var(--muyun-brand-accent-base);
+  border-radius: 6px;
+  pointer-events: none;
+}
+.page-composition-descriptor-preview:has(> .page-composer-group-drag-outline)
+  :deep(.page-composer-drag-source::after) {
+  display: none;
+}
+:deep(.page-composer-drag-source) {
+  position: relative !important;
+  z-index: 2;
+  outline: none !important;
+  background: transparent !important;
+}
+:deep(.page-composer-drag-source::after) {
+  position: absolute;
+  z-index: 3;
+  inset: -3px;
+  border: 2px solid var(--muyun-brand-accent-base);
+  border-radius: inherit;
+  pointer-events: none;
+  content: '';
+}
+/* Table scrollports clip overflow; draw column highlights inside the header shell. */
+:deep(.page-composer-column-heading.page-composer-drag-source::after) {
+  inset: 0;
+  border-radius: 2px;
+}
+:deep(.page-composition-descriptor-preview__field.page-composer-external-field-preview--dragging),
+:deep(.record-detail-field:has(.page-composer-external-field-preview--dragging)),
+:deep(.record-form-field-host:has(.page-composer-external-field-preview--dragging)) {
+  position: relative;
+  z-index: 2;
+  outline: none !important;
+  background: transparent !important;
+  animation: page-composer-external-field-enter 140ms ease-out both;
+}
+:deep(.page-composition-descriptor-preview__field.page-composer-external-field-preview--dragging::after),
+:deep(.record-detail-field:has(.page-composer-external-field-preview--dragging)::after),
+:deep(.record-form-field-host:has(.page-composer-external-field-preview--dragging)::after) {
+  position: absolute;
+  z-index: 3;
+  inset: -3px;
+  border: 2px solid var(--muyun-brand-accent-base);
+  border-radius: inherit;
+  pointer-events: none;
+  content: '';
+}
+@keyframes page-composer-external-field-enter {
+  from {
+    opacity: 0.58;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+:deep(.page-composer-drag-handle.is-dragging) {
+  color: var(--ant-color-warning);
+  cursor: grabbing;
+}
 .page-composer-drop-indicator {
   position: absolute;
   z-index: 5;
   border: 2px solid var(--muyun-primary);
   background: color-mix(in srgb, var(--muyun-primary) 8%, transparent);
   pointer-events: none;
+}
+.page-composer-drop-indicator--transient {
+  display: grid;
+  min-width: 88px;
+  place-items: center start;
+  padding: 0 10px;
+  overflow: hidden;
+  border-style: dashed;
+  border-radius: 6px;
+  color: var(--muyun-primary);
+  background: color-mix(in srgb, var(--muyun-primary) 14%, var(--muyun-surface));
+  box-shadow: 0 4px 14px color-mix(in srgb, var(--muyun-primary) 16%, transparent);
 }
 .page-composer-drop-indicator > span {
   position: absolute;
@@ -1006,6 +1781,15 @@ function animateLayoutElement(element: HTMLElement, x: number, y: number) {
   font-size: 12px;
   color: white;
   background: var(--muyun-primary);
+}
+.page-composer-drop-indicator--transient > span {
+  position: static;
+  max-width: 100%;
+  overflow: hidden;
+  color: inherit;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  background: transparent;
 }
 .page-composer-drop-indicator--rejected {
   border-color: var(--muyun-danger-base);

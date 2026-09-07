@@ -18,6 +18,8 @@ const props = withDefaults(
     actions?: ModulePageRecordActionContribution[];
     /** Server-resolved standard action blocks, intentionally separate from frontend extensions. */
     configuredActions?: RecordActionItem[];
+    /** Actions placed in the platform-owned form operation region. */
+    formActions?: RecordActionItem[];
     /** Custom record views retain their own operation model. */
     showStandardViewActions?: boolean;
     /** A workspace is a secondary navigation action, not a business operation. */
@@ -34,6 +36,7 @@ const props = withDefaults(
     recycleBinActive: false,
     actions: () => [],
     configuredActions: () => [],
+    formActions: () => [],
     showStandardViewActions: true,
     workspaceAvailable: false,
     createChildAvailable: false,
@@ -73,6 +76,13 @@ const headerActions = computed<RecordActionItem[]>(() => {
         loading: props.saving,
         disabled: !saveAvailable.value,
       },
+      ...props.formActions
+        .filter((action) => action.actionCode === (props.mode === 'create' ? 'create' : 'update'))
+        .map((action) => ({
+          ...action,
+          loading: props.saving,
+          disabled: props.saving || !saveAvailable.value || action.disabled,
+        })),
     ];
   }
   if (props.mode !== 'view' || props.recycleBinActive) return [];

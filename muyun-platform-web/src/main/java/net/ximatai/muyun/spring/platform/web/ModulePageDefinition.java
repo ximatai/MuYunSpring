@@ -1,5 +1,6 @@
 package net.ximatai.muyun.spring.platform.web;
 
+import java.util.List;
 import java.util.function.Consumer;
 
 /**
@@ -8,6 +9,9 @@ import java.util.function.Consumer;
 public sealed interface ModulePageDefinition permits FlatManagementPageDefinition, ListDetailCardPageDefinition,
         TreeManagementPageDefinition {
     ModulePageTemplate template();
+
+    /** Null preserves the module default; an empty list disables page quick search. */
+    List<String> quickSearchFields();
 
     static FlatManagementPageDefinition flatManagement(Consumer<FlatManagementPageDefinition.Builder> customizer) {
         FlatManagementPageDefinition.Builder builder = FlatManagementPageDefinition.builder();

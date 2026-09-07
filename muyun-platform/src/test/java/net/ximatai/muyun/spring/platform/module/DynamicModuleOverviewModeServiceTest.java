@@ -30,6 +30,42 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 class DynamicModuleOverviewModeServiceTest {
     @Test
+    void preservesPublishedTreeCapabilitiesWhenChoosingAListAndRejectsImplicitLegacyMigration() {
+        PlatformModuleService modules = new PlatformModuleService(new TestMemoryDao<>());
+        PlatformModule module = new PlatformModule();
+        module.setAlias("education.tree");
+        module.setApplicationAlias("education");
+        module.setTitle("树模块");
+        module.setModuleKind(ModuleKind.DYNAMIC);
+        module.setOverviewMode(DynamicModuleOverviewMode.TREE_CARD);
+        module.setMainCapabilityDeclarations(Set.of("TREE", "SORT"));
+        modules.insert(module);
+        var relations = mock(ModuleMetadataRelationService.class);
+        var metadata = mock(MetadataService.class);
+        var fields = mock(MetadataFieldService.class);
+        var preview = mock(MetadataRelationChangeSetPreviewService.class);
+        var apply = mock(MetadataRelationChangeSetApplyService.class);
+        var service = new DynamicModuleOverviewModeService(modules, relations, metadata, fields, preview, apply);
+        var revisions = mock(net.ximatai.muyun.spring.platform.ui.PlatformPresentationRevisionService.class);
+        var beans = new org.springframework.beans.factory.support.StaticListableBeanFactory();
+        beans.addBean("revisions", revisions);
+        service.setRevisionService(beans.getBeanProvider(net.ximatai.muyun.spring.platform.ui.PlatformPresentationRevisionService.class));
+        var command = new DynamicModuleOverviewModeSaveCommand(DynamicModuleOverviewMode.LIST_CARD, null,
+                Map.of(EntityCapability.TREE, false, EntityCapability.SORT, false), null);
+        when(revisions.hasLegacyPublishedPage(module.getAlias())).thenReturn(true);
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> service.save(module.getAlias(), command))
+                .isInstanceOf(net.ximatai.muyun.spring.ability.action.BusinessException.class);
+        assertThat(modules.select(module.getAlias()).getOverviewMode()).isEqualTo(DynamicModuleOverviewMode.TREE_CARD);
+        when(revisions.hasLegacyPublishedPage(module.getAlias())).thenReturn(false);
+        when(revisions.publishedRequiredCapabilities(module.getAlias())).thenReturn(Set.of(EntityCapability.TREE, EntityCapability.SORT));
+        var result = service.save(module.getAlias(), command);
+        assertThat(result.overviewMode()).isEqualTo(DynamicModuleOverviewMode.LIST_CARD);
+        assertThat(result.mainCapabilities()).containsExactlyInAnyOrder("TREE", "SORT");
+        assertThat(result.publishedRequiredCapabilities()).containsExactlyInAnyOrder("TREE", "SORT");
+        verifyNoInteractions(metadata, fields, preview, apply);
+    }
+
+    @Test
     void shouldSaveTreeIntentWithoutMainMetadataOrSchemaMutation() {
         PlatformModuleService modules = new PlatformModuleService(new TestMemoryDao<>());
         PlatformModule module = new PlatformModule();

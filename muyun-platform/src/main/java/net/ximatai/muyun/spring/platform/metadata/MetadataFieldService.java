@@ -89,6 +89,13 @@ public class MetadataFieldService extends AbstractAbilityService<MetadataField> 
                 "moduleServiceProvider must not be null");
     }
 
+    /** Query eligibility comes from the resolved field specification, never its alias spelling. */
+    public boolean supportsQuickSearch(MetadataField field) {
+        var type = fieldTypeService.requireFieldType(field.getFieldSpecAlias()).getFieldType();
+        return type == net.ximatai.muyun.spring.dynamic.metadata.FieldType.STRING
+                || type == net.ximatai.muyun.spring.dynamic.metadata.FieldType.TEXT;
+    }
+
     @Override
     public void beforeDelete(String id) {
         MetadataField field = id == null ? null : select(id);

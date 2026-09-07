@@ -937,6 +937,29 @@ class ModuleUiDescriptorCompilerTest {
     }
 
     @Test
+    void shouldCompileStaticTreeBindingsWithoutAddingEditableFields() {
+        var page = ModuleUiDefinition.builder("demo.task")
+                .page(PageTemplates.treeManagement(tree -> tree
+                        .explorer(explorer -> explorer.titleField("name").secondaryField("owner"))
+                        .quickSearch("code")
+                        .detail(detail -> detail.editor(editor -> editor.field("name")))))
+                .build();
+        var definition = StaticModuleDefinition.builder("demo", "demo.task", "任务")
+                .entities(List.of(new EntityDefinition("task", "demo_task", "任务", List.of(
+                        FieldDefinition.string("name", "名称"), FieldDefinition.string("owner", "负责人"),
+                        FieldDefinition.string("code", "编码")))))
+                .uiDefinition(page).build();
+        var result = ModuleUiDescriptorCompiler.compileModule(definition);
+        assertThat(result.readModel().fields()).extracting(ResolvedModuleReadField::fieldName)
+                .contains("name", "owner", "code");
+        var descriptor = result.uiDescriptor().page();
+        assertThat(descriptor.explorer().titleField()).isEqualTo("name");
+        assertThat(descriptor.quickSearchFields()).containsExactly("code");
+        assertThat(descriptor.detail().editor().fields()).extracting(field -> field.fieldRef().fieldName())
+                .containsExactly("name");
+    }
+
+    @Test
     void shouldCompileStaticDefinitionReadModelFromLogicalFieldFacts() {
         ModuleUiDefinition uiDefinition = listPage("iam.employee", list -> list
                 .field("employeeNo")

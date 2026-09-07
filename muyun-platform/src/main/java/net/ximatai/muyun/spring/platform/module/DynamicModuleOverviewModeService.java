@@ -1,5 +1,11 @@
 package net.ximatai.muyun.spring.platform.module;
 
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
+import net.ximatai.muyun.spring.platform.ui.PlatformPresentationRevisionService;
+import net.ximatai.muyun.spring.ability.action.BusinessExceptions;
+import net.ximatai.muyun.spring.platform.metadata.MetadataField;
+
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
@@ -49,6 +55,13 @@ public class DynamicModuleOverviewModeService {
         this.changeSetApplyService = changeSetApplyService;
     }
 
+    private ObjectProvider<PlatformPresentationRevisionService> revisions;
+
+    @Autowired
+    void setRevisionService(ObjectProvider<PlatformPresentationRevisionService> revisions) {
+        this.revisions = revisions;
+    }
+
     public DynamicModuleOverviewModeSnapshot get(String moduleAlias) { return snapshot(requireDynamicModule(moduleAlias)); }
 
     @Transactional
@@ -59,6 +72,18 @@ public class DynamicModuleOverviewModeService {
         // and leave the durable metadata/action catalogue behind the selected presentation.
         command = withRequiredCapabilities(command);
         PlatformModule module = requireDynamicModule(moduleAlias);
+        if (effectiveMode(module) != command.overviewMode() && revisions != null
+                && revisions.getObject().hasLegacyPublishedPage(module.getAlias())) {
+            throw BusinessExceptions.warning(
+                    "platform.page.mode-upgrade-required", "请先在页面配置中保存并发布新版骨架，再切换呈现方式；当前已发布页面仍使用旧模板。");
+        }
+        if (revisions != null) {
+            Map<EntityCapability, Boolean> selections = new java.util.LinkedHashMap<>();
+            if (command.capabilitySelections() != null) selections.putAll(command.capabilitySelections());
+            revisions.getObject().publishedRequiredCapabilities(module.getAlias()).forEach(capability -> selections.put(capability, true));
+            command = new DynamicModuleOverviewModeSaveCommand(command.overviewMode(), command.expectedMainMetadataVersion(),
+                    Map.copyOf(selections), command.dataScopeEnabled());
+        }
         MainMetadata main = mainMetadata(module.getAlias(), module);
         // Before a MAIN model exists this write only changes durable module intent. Runtime/schema
         // refreshes can legitimately advance the module version in the meantime, so they must not
@@ -85,7 +110,11 @@ public class DynamicModuleOverviewModeService {
         MainMetadata main = mainMetadata(module.getAlias(), module);
         return new DynamicModuleOverviewModeSnapshot(module.getAlias(), module.getVersion(), effectiveMode(module),
                 main.metadataId(), main.metadataVersion(), main.capabilities().stream().map(Enum::name)
-                .collect(java.util.stream.Collectors.toUnmodifiableSet()));
+                .collect(java.util.stream.Collectors.toUnmodifiableSet()),
+                main.metadataId() == null ? List.of() : fieldService.list(Criteria.of().eq("metadataId", main.metadataId()), ALL)
+                        .stream().filter(fieldService::supportsQuickSearch).map(MetadataField::getFieldName).toList(),
+                revisions == null ? Set.of() : revisions.getObject().publishedRequiredCapabilities(module.getAlias()).stream()
+                        .map(Enum::name).collect(java.util.stream.Collectors.toUnmodifiableSet()));
     }
 
     private PlatformModule requireDynamicModule(String moduleAlias) {

@@ -560,12 +560,23 @@ function groupEndsAt(field: RecordFormFieldState, index: number) {
       <div v-if="!groupOf(fieldStates[index - 1])" class="record-form-group-divider" aria-hidden="true" />
       <RecordContentSectionHeading
         class="record-form-group-heading"
+        :tabindex="layoutTransitionPrefix ? 0 : undefined"
+        :data-composer-target="
+          layoutTransitionPrefix ? `${layoutTransitionPrefix}:group:${groupOf(field)?.groupCode}` : undefined
+        "
+        :data-ui-drop-key="
+          layoutTransitionPrefix ? `${layoutTransitionPrefix}:group:${groupOf(field)?.groupCode}` : undefined
+        "
         :title="groupOf(field)?.title ?? ''"
         :subtitle="groupOf(field)?.subtitle"
         :data-page-composition-layout-key="
           layoutTransitionPrefix ? `${layoutTransitionPrefix}:group:${groupOf(field)?.groupCode}` : undefined
         "
-      />
+      >
+        <template v-if="$slots['group-actions']" #actions>
+          <slot name="group-actions" :group="groupOf(field)" />
+        </template>
+      </RecordContentSectionHeading>
     </template>
     <div
       class="record-form-field-host"

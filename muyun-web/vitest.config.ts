@@ -2,9 +2,11 @@ import { defineConfig, mergeConfig } from 'vitest/config';
 import { playwright } from '@vitest/browser-playwright';
 import {
   treeGesture,
+  treeMove,
   treeRelease,
   treeReducedMotion,
   treeScrollGesture,
+  treeWheel,
 } from './tests/vue-ui-antdv/browserCommands.ts';
 import { createViteConfig } from './vite.config.ts';
 
@@ -44,7 +46,14 @@ export default mergeConfig(
               headless: true,
               provider: playwright(),
               instances: [{ browser: 'chromium' }],
-              commands: { treeGesture, treeRelease, treeReducedMotion, treeScrollGesture },
+              commands: {
+                treeGesture,
+                treeMove,
+                treeRelease,
+                treeReducedMotion,
+                treeScrollGesture,
+                treeWheel,
+              },
             },
           },
         },

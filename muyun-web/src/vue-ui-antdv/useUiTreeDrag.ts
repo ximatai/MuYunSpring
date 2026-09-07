@@ -14,6 +14,12 @@ interface Surface {
   operation?: (source: UiDragSource) => UiDropOperation;
   drop: (event: UiTreeDropEvent) => void;
   feedback: (target?: UiDropTarget, rejected?: boolean) => void;
+  /**
+   * A canvas-like editor can opt into an intentional drag boundary: after the pointer has entered
+   * this surface, leaving it abandons the transient placement instead of carrying a stale drop
+   * candidate across unrelated controls.
+   */
+  cancelWhenPointerLeaves?: boolean;
 }
 interface Session {
   owner: string;
@@ -59,6 +65,7 @@ function createHub(document: Document) {
   let frame = 0;
   let suppressTimer: ReturnType<typeof setTimeout> | undefined;
   let candidate: { surface: Surface; event: UiTreeDropEvent } | undefined;
+  let enteredSurface: Surface | undefined;
   function clearFeedback() {
     surfaces.forEach((surface) => surface.feedback());
     candidate = undefined;
@@ -72,12 +79,24 @@ function createHub(document: Document) {
       return;
     }
     if (!origin) {
-      clearFeedback();
+      if (enteredSurface?.cancelWhenPointerLeaves) finish(true);
+      else clearFeedback();
       return;
     }
     const surface = [...surfaces]
       .filter((item) => item.root.contains(origin))
       .sort((a, b) => (a.root.contains(b.root) ? 1 : -1))[0];
+    if (enteredSurface?.cancelWhenPointerLeaves && enteredSurface !== surface) {
+      finish(true);
+      return;
+    }
+    if (!surface) {
+      clearFeedback();
+      return;
+    }
+    // Entering a preview transfers its leave/cancel boundary to this drag, including
+    // drags that began in an external palette without such a boundary.
+    enteredSurface = surface;
     surfaces.forEach((item) => {
       if (item !== surface) item.feedback();
     });
@@ -151,8 +170,12 @@ function createHub(document: Document) {
       // Each axis scrolls its nearest movable ancestor; an exhausted inner scrollport may yield outward.
       if (scrolledX && scrolledY) break;
     }
-    element = document.elementFromPoint?.(state.x, state.y);
-    if (element) targetAt(element);
+    // Pointer movement already performs hit testing. Re-resolving every animation frame creates
+    // a permanent update loop for preview surfaces; only scrolling changes the pointer geometry.
+    if (scrolledX || scrolledY) {
+      element = document.elementFromPoint?.(state.x, state.y);
+      if (element) targetAt(element);
+    }
     if (session.value) frame = requestAnimationFrame(scroll);
   }
   function preventClick(event: Event) {
@@ -164,10 +187,12 @@ function createHub(document: Document) {
   function finish(cancelled: boolean) {
     const old = session.value;
     session.value = undefined;
+    enteredSurface = undefined;
     cancelAnimationFrame(frame);
     clearFeedback();
     document.removeEventListener('mousemove', move);
     document.removeEventListener('mouseup', release);
+    document.removeEventListener('contextmenu', contextmenu, true);
     document.removeEventListener('keydown', keydown, true);
     document.defaultView?.removeEventListener('blur', blur);
     if (old?.started && !old.keyboard) {
@@ -198,6 +223,12 @@ function createHub(document: Document) {
     commit(event);
   }
   function blur() {
+    finish(true);
+  }
+  function contextmenu(event: MouseEvent) {
+    if (!session.value?.started) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
     finish(true);
   }
   function keydown(event: KeyboardEvent) {
@@ -239,6 +270,7 @@ function createHub(document: Document) {
     session.value = next;
     document.addEventListener('mousemove', move);
     document.addEventListener('mouseup', release);
+    document.addEventListener('contextmenu', contextmenu, true);
     document.addEventListener('keydown', keydown, true);
     document.defaultView?.addEventListener('blur', blur);
     if (next.keyboard) {
@@ -297,6 +329,11 @@ export function useUiDropTarget(
   return {
     hovered,
     rejected,
+    // Receivers need session lifetime even when the source belongs to another surface.
+    draggingSource: computed(() => {
+      const state = root.value && hubFor(root.value.ownerDocument).session.value;
+      return state?.started ? state.source() : undefined;
+    }),
     clear: () => {
       hovered.value = undefined;
       rejected.value = false;

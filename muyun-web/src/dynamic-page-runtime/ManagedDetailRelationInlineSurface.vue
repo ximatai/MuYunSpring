@@ -2,8 +2,9 @@
 import { computed, onMounted, ref, toRaw, watch } from 'vue';
 import {
   RecordFormFields,
+  RecordRelationTable,
   RecordSelectionCheckbox,
-  RecordStatusTag,
+  RecordRelationValue,
   UiModal,
   loadOptionFieldItems,
   recordPickerModeOf,
@@ -11,7 +12,6 @@ import {
   applyReferenceDependencyClears,
   resolveRecordFormFieldState,
   resolveRecordFormFields,
-  resolveRecordBooleanStatusValue,
   type QueryListRecord,
   type RecordFormFieldPickerConfig,
   type RecordFormFieldValue,
@@ -284,20 +284,6 @@ async function loadOptionFields() {
       // Keep the persisted code visible if the option source is temporarily unavailable.
     }
   }
-}
-
-function statusField(fieldName: string, row: DraftRow | QueryListRecord) {
-  const field = resolveRecordFormFieldState(fieldName, {
-    fields: formFields.value,
-    record: row as RecordFormRecord,
-  });
-  return field.controlType === 'enabledStatus' || field.controlType === 'booleanStatus' ? field : undefined;
-}
-
-function statusFieldValue(fieldName: string, row: DraftRow | QueryListRecord) {
-  const field = statusField(fieldName, row);
-  const value = row[fieldName];
-  return field?.controlType === 'booleanStatus' ? resolveRecordBooleanStatusValue(value) : value !== false;
 }
 
 function columnRequired(fieldName: string) {
@@ -587,96 +573,74 @@ onMounted(() => void load());
 </script>
 
 <template>
-  <section class="managed-relation-inline" :class="`managed-relation-inline--${density}`">
-    <div class="managed-relation-inline__scroll">
-      <table class="managed-relation-inline__table">
-        <colgroup>
-          <col v-if="editingEnabled" class="managed-relation-inline__selection-column" />
-          <col
-            v-for="column in columns"
-            :key="column.fieldName"
-            :style="column.width == null ? undefined : { width: `${column.width}px` }"
-          />
-        </colgroup>
-        <thead>
-          <tr>
-            <th v-if="editingEnabled" class="managed-relation-inline__selection">
-              <RecordSelectionCheckbox
-                :checked="allSelected"
-                :indeterminate="someSelected"
-                :disabled="selectableRows.length === 0"
-                aria-label="选择全部子表记录"
-                @update:checked="setAllSelected"
-              />
-            </th>
-            <th v-for="column in columns" :key="column.fieldName">
-              {{ column.title ?? column.fieldName }}
-              <strong
-                v-if="editingEnabled && columnRequired(column.fieldName)"
-                class="managed-relation-inline__required"
-                >*</strong
-              >
-            </th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="row in rows" :key="row.__draftKey">
-            <td v-if="editingEnabled" class="managed-relation-inline__selection">
-              <RecordSelectionCheckbox
-                :checked="selectedKeys.has(row.__draftKey)"
-                :disabled="row.id != null && !deleteAllowed"
-                :aria-label="`选择子表记录 ${row.id ?? row.__draftKey}`"
-                @update:checked="setRowSelected(row, $event)"
-              />
-            </td>
-            <td
-              v-for="column in columns"
-              :key="`${column.fieldName}:${validationRequestKey ?? 0}`"
-              :class="{
-                'managed-relation-inline__cell--validation-pulse':
-                  (validationRequestKey ?? 0) > 0 && cellInvalid(row, column.fieldName),
-              }"
-            >
-              <RecordFormFields
-                v-if="editingEnabled && formFields.has(column.fieldName)"
-                :record="displayRecord(row)"
-                :fields="formFields"
-                :field-names="[column.fieldName]"
-                :picker-configs="pickerConfigsOf(row)"
-                :option-context="sourceContext"
-                :option-entity-alias="relation.targetEntityAlias"
-                :form-session-key="row.__draftKey"
-                :disabled="row.id != null && !updateAllowed"
-                :show-labels="false"
-                compact
-                @update:field="(fieldName, value) => updateField(row, fieldName, value)"
-                @reference-projections-change="
-                  (fieldName, projections) => updateReferenceProjections(row, fieldName, projections)
-                "
-                @validity-change="updateValidity(row, column.fieldName, $event.valid)"
-              />
-              <RecordStatusTag
-                v-else-if="statusField(column.fieldName, row)"
-                :enabled="statusFieldValue(column.fieldName, row)"
-                :enabled-label="statusField(column.fieldName, row)?.booleanStatus?.trueLabel"
-                :disabled-label="statusField(column.fieldName, row)?.booleanStatus?.falseLabel"
-                :enabled-tone="statusField(column.fieldName, row)?.booleanStatus?.trueTone"
-                :disabled-tone="statusField(column.fieldName, row)?.booleanStatus?.falseTone"
-              />
-              <span v-else class="managed-relation-inline__value">{{
-                displayValue(row, column.fieldName)
-              }}</span>
-            </td>
-          </tr>
-          <tr v-if="rows.length === 0">
-            <td :colspan="columns.length + (editingEnabled ? 1 : 0)" class="managed-relation-inline__empty">
-              暂无关联记录
-            </td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
-  </section>
+  <RecordRelationTable
+    :columns="columns"
+    :rows="rows"
+    row-key="__draftKey"
+    :selection="editingEnabled"
+    :density="density"
+    :cell-key="(_row, column) => `${column.fieldName}:${validationRequestKey ?? 0}`"
+    :cell-class="
+      (row, column) =>
+        (validationRequestKey ?? 0) > 0 && cellInvalid(row, column.fieldName)
+          ? 'managed-relation-inline__cell--validation-pulse'
+          : undefined
+    "
+  >
+    <template #selection-header>
+      <RecordSelectionCheckbox
+        :checked="allSelected"
+        :indeterminate="someSelected"
+        :disabled="selectableRows.length === 0"
+        aria-label="选择全部子表记录"
+        @update:checked="setAllSelected"
+      />
+    </template>
+    <template #selection="{ row }">
+      <RecordSelectionCheckbox
+        :checked="selectedKeys.has(row.__draftKey)"
+        :disabled="row.id != null && !deleteAllowed"
+        :aria-label="`选择子表记录 ${row.id ?? row.__draftKey}`"
+        @update:checked="setRowSelected(row, $event)"
+      />
+    </template>
+    <template #header="{ column }">
+      {{ column.title ?? column.fieldName }}
+      <strong
+        v-if="editingEnabled && columnRequired(column.fieldName)"
+        class="managed-relation-inline__required"
+        >*</strong
+      >
+    </template>
+    <template #cell="{ row, column }">
+      <RecordFormFields
+        v-if="editingEnabled && formFields.has(column.fieldName)"
+        :record="displayRecord(row)"
+        :fields="formFields"
+        :field-names="[column.fieldName]"
+        :picker-configs="pickerConfigsOf(row)"
+        :option-context="sourceContext"
+        :option-entity-alias="relation.targetEntityAlias"
+        :form-session-key="row.__draftKey"
+        :disabled="row.id != null && !updateAllowed"
+        :show-labels="false"
+        compact
+        @update:field="(fieldName, value) => updateField(row, fieldName, value)"
+        @reference-projections-change="
+          (fieldName, projections) => updateReferenceProjections(row, fieldName, projections)
+        "
+        @validity-change="updateValidity(row, column.fieldName, $event.valid)"
+      />
+      <RecordRelationValue
+        v-else
+        :field="
+          resolveRecordFormFieldState(column.fieldName, { fields: formFields, record: displayRecord(row) })
+        "
+        :record="displayRecord(row)"
+        :text="displayValue(row, column.fieldName)"
+      />
+    </template>
+  </RecordRelationTable>
   <UiModal
     :open="recycleBinOpen"
     :title="`${relation.title ?? relation.code}回收站`"
@@ -705,17 +669,11 @@ onMounted(() => void load());
             />
           </td>
           <td v-for="column in columns" :key="column.fieldName">
-            <RecordStatusTag
-              v-if="statusField(column.fieldName, record)"
-              :enabled="statusFieldValue(column.fieldName, record)"
-              :enabled-label="statusField(column.fieldName, record)?.booleanStatus?.trueLabel"
-              :disabled-label="statusField(column.fieldName, record)?.booleanStatus?.falseLabel"
-              :enabled-tone="statusField(column.fieldName, record)?.booleanStatus?.trueTone"
-              :disabled-tone="statusField(column.fieldName, record)?.booleanStatus?.falseTone"
+            <RecordRelationValue
+              :field="resolveRecordFormFieldState(column.fieldName, { fields: formFields, record: record })"
+              :record="record"
+              :text="displayValue(record, column.fieldName)"
             />
-            <span v-else class="managed-relation-inline__value">{{
-              displayValue(record, column.fieldName)
-            }}</span>
           </td>
         </tr>
         <tr v-if="recycleBinRecords.length === 0">
@@ -726,205 +684,4 @@ onMounted(() => void load());
   </UiModal>
 </template>
 
-<style scoped>
-.managed-relation-inline {
-  min-width: 0;
-}
-
-.managed-relation-inline__scroll {
-  min-width: 0;
-  overflow-x: auto;
-  overflow-y: hidden;
-  overscroll-behavior-x: contain;
-  scrollbar-gutter: stable;
-}
-
-.managed-relation-inline--compact .managed-relation-inline__scroll {
-  scrollbar-width: thin;
-}
-
-.managed-relation-inline--compact .managed-relation-inline__table {
-  min-width: 760px;
-}
-
-.managed-relation-inline__table {
-  border-collapse: collapse;
-  font-size: var(--muyun-detail-relation-body-font-size, 12px);
-  min-width: 0;
-  table-layout: fixed;
-  width: 100%;
-}
-
-.managed-relation-inline__table th,
-.managed-relation-inline__table td {
-  border: 1px solid var(--muyun-border-subtle);
-  text-align: left;
-  vertical-align: middle;
-}
-
-.managed-relation-inline__value {
-  display: block;
-  overflow: hidden;
-  padding: 0 4px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.managed-relation-inline__table th {
-  background: var(--muyun-hover-subtle);
-  color: var(--muyun-text);
-  font-size: var(--muyun-detail-relation-header-font-size, 12px);
-  font-weight: 700;
-  height: var(--muyun-detail-relation-header-row-height, 30px);
-  padding: 0 4px;
-}
-
-.managed-relation-inline__table tbody tr {
-  height: var(--muyun-detail-relation-body-row-height, 30px);
-}
-
-.managed-relation-inline--compact .managed-relation-inline__table th {
-  height: 28px;
-}
-
-.managed-relation-inline--compact .managed-relation-inline__table tbody tr {
-  height: 28px;
-}
-
-.managed-relation-inline__table td {
-  padding: 0;
-  transition:
-    background-color 0.15s ease,
-    box-shadow 0.15s ease;
-}
-
-.managed-relation-inline__table td:hover {
-  background: var(--muyun-hover-subtle);
-}
-
-.managed-relation-inline__table td:focus-within {
-  background: var(--muyun-primary-soft);
-  outline: 1px solid var(--muyun-primary);
-  outline-offset: -1px;
-  position: relative;
-  z-index: 1;
-}
-
-.managed-relation-inline__required {
-  color: var(--muyun-danger-base);
-  font-weight: 600;
-  margin-left: 2px;
-}
-
-.managed-relation-inline__table td.managed-relation-inline__cell--validation-pulse {
-  position: relative;
-  z-index: 1;
-  animation: managed-relation-cell-validation-pulse 720ms ease-out;
-}
-
-.managed-relation-inline__table td.managed-relation-inline__cell--validation-pulse:focus-within {
-  outline: 0;
-}
-
-@keyframes managed-relation-cell-validation-pulse {
-  25%,
-  75% {
-    box-shadow: inset 0 0 0 1px var(--muyun-danger-base);
-  }
-}
-
-.managed-relation-inline__table td :deep(.record-form-field) {
-  min-width: 0;
-}
-
-.managed-relation-inline__table td :deep(.ant-input),
-.managed-relation-inline__table td :deep(.ant-input-affix-wrapper),
-.managed-relation-inline__table td :deep(.ant-select-selector),
-.managed-relation-inline__table td :deep(.ant-picker) {
-  background: transparent;
-  border-color: transparent !important;
-  border-radius: 0 !important;
-  box-shadow: none !important;
-  font-size: var(--muyun-detail-relation-body-font-size, 12px);
-}
-
-.managed-relation-inline__table td :deep(.ant-input-affix-wrapper) {
-  border: 0 !important;
-  min-height: 26px;
-  padding: 0;
-  width: 100%;
-}
-
-.managed-relation-inline__table td :deep(.ant-input:focus),
-.managed-relation-inline__table td :deep(.ant-input-focused) {
-  border-color: transparent !important;
-  box-shadow: none !important;
-  outline: 0;
-}
-
-.managed-relation-inline__table td :deep(.ant-input) {
-  border: 0 !important;
-  display: block;
-  min-height: 26px;
-  padding: 0 4px;
-  width: 100%;
-}
-
-.managed-relation-inline__table td :deep(.ant-select-selector) {
-  min-height: 26px !important;
-  padding-inline: 6px !important;
-}
-
-.managed-relation-inline__table td :deep(.ant-select-single) {
-  height: 26px;
-}
-
-.managed-relation-inline__table td :deep(.ant-select-single .ant-select-selection-item),
-.managed-relation-inline__table td :deep(.ant-select-single .ant-select-selection-placeholder) {
-  line-height: 24px;
-}
-
-.managed-relation-inline__table td :deep(.ant-input:disabled),
-.managed-relation-inline__table td :deep(.ant-input-affix-wrapper-disabled),
-.managed-relation-inline__table td :deep(.ant-select-disabled .ant-select-selector) {
-  background: transparent;
-}
-
-.managed-relation-inline__actions {
-  padding: 0 4px !important;
-  text-align: center !important;
-  width: 96px;
-}
-
-.managed-relation-inline__selection {
-  padding: 0 !important;
-  text-align: center !important;
-  width: 34px;
-}
-
-.managed-relation-inline__selection-column {
-  width: 34px;
-}
-
-.managed-relation-inline__actions :deep(.ant-btn) {
-  font-size: var(--muyun-detail-relation-body-font-size, 12px);
-  height: 26px;
-  padding-inline: 6px;
-}
-
-.managed-relation-inline__empty {
-  color: var(--muyun-text-muted);
-  padding: 24px !important;
-  text-align: center !important;
-}
-
-.managed-relation-inline__recycle-empty {
-  color: var(--muyun-text-muted);
-  padding: 24px;
-  text-align: center;
-}
-
-.managed-relation-inline__recycle-table {
-  table-layout: auto;
-}
-</style>
+<style scoped src="../platform-components/recordRelationTable.css"></style>

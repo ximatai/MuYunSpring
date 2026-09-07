@@ -9,8 +9,16 @@ public record ResolvedModulePageDescriptor(ModulePageTemplate template,
                                            ResolvedPageListDescriptor list,
                                            ResolvedPageTreeResourceDescriptor treeResource,
                                            ResolvedPageDetailDescriptor detail,
-                                           List<PageTrait> traits) {
+                                           List<PageTrait> traits, List<String> quickSearchFields,
+                                           List<ResolvedPageActionDescriptor> actions) {
+    public ResolvedModulePageDescriptor(ModulePageTemplate template, ResolvedPageExplorerDescriptor explorer,
+            ResolvedPageNavigatorDescriptor navigator, ResolvedPageListDescriptor list,
+            ResolvedPageTreeResourceDescriptor treeResource, ResolvedPageDetailDescriptor detail, List<PageTrait> traits) {
+        this(template, explorer, navigator, list, treeResource, detail, traits, null, List.of());
+    }
     public ResolvedModulePageDescriptor {
+        quickSearchFields = quickSearchFields == null ? null : List.copyOf(quickSearchFields);
+        actions = actions == null ? List.of() : List.copyOf(actions);
         if (template == null) throw new IllegalArgumentException("page template must not be null");
         traits = traits == null ? List.of() : List.copyOf(traits);
         switch (template) {
@@ -25,7 +33,7 @@ public record ResolvedModulePageDescriptor(ModulePageTemplate template,
                 }
             }
             case TREE_MANAGEMENT -> {
-                if (explorer != null || list != null || detail == null) {
+                if (list != null || detail == null) {
                     throw new IllegalArgumentException("tree/detail card requires optional navigator and detail/traits slots");
                 }
             }
@@ -34,6 +42,6 @@ public record ResolvedModulePageDescriptor(ModulePageTemplate template,
 
     /** Replaces only the resolved navigator slots after request-scoped descriptor resolution. */
     public ResolvedModulePageDescriptor withNavigator(ResolvedPageNavigatorDescriptor resolvedNavigator) {
-        return new ResolvedModulePageDescriptor(template, explorer, resolvedNavigator, list, treeResource, detail, traits);
+        return new ResolvedModulePageDescriptor(template, explorer, resolvedNavigator, list, treeResource, detail, traits, quickSearchFields, actions);
     }
 }
