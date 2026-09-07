@@ -125,7 +125,11 @@ final class DynamicRecordQueryRuntime {
 
     <R> R withQueryReadScope(String moduleAlias, Criteria criteria, Function<Criteria, R> action) {
         Objects.requireNonNull(action, "action must not be null");
-        return withScope(moduleAlias, PlatformAction.QUERY.executionPolicy(), criteria, action);
+        // Projection readers execute SQL outside the entity DAO, so carry its active-row
+        // boundary into the callback while the resolved tenant scope is still installed.
+        return withScope(moduleAlias, PlatformAction.QUERY.executionPolicy(), criteria,
+                scoped -> action.apply(entityService(moduleAlias, runtime.describe(moduleAlias).mainEntityAlias())
+                        .activeCriteria(scoped)));
     }
 
     private DynamicActionDescriptor requireAction(String moduleAlias, String entityAlias, String actionCode) {

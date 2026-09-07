@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref, watch } from 'vue';
+import { computed, onActivated, onBeforeUnmount, ref, watch } from 'vue';
 import {
   ManagementExplorerColumn,
   ManagementPanelHeader,
@@ -78,6 +78,14 @@ defineOptions({ name: 'PageCompositionWorkspace' });
 const props = defineProps<{ moduleAlias: string; moduleTitle?: string }>();
 const moduleContext = useModuleContext({ moduleAlias: 'platform.module' });
 const state = createPageCompositionDraftState();
+
+// Governance tabs retain drafts through KeepAlive. Re-entering the composer
+// refreshes its source catalogue, not the user's unsaved page composition.
+let activatedOnce = false;
+onActivated(() => {
+  if (activatedOnce && !isMutating.value) void loadMetadataTree();
+  activatedOnce = true;
+});
 const loading = ref(false);
 const saving = ref(false);
 const publishing = ref(false);

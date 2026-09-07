@@ -14,6 +14,7 @@ import net.ximatai.muyun.spring.ability.reference.ReferenceCandidateCriteria;
 import net.ximatai.muyun.spring.ability.reference.ReferenceTenantScope;
 import net.ximatai.muyun.spring.ability.query.QuerySchema;
 import net.ximatai.muyun.spring.web.ActionWeb;
+import net.ximatai.muyun.spring.web.StandardMutationResultSupport;
 import net.ximatai.muyun.spring.platform.web.CrudWeb;
 import net.ximatai.muyun.spring.platform.web.RecycleBinPurgeWeb;
 import net.ximatai.muyun.spring.platform.web.PageContextBindingDefinition;
@@ -216,6 +217,11 @@ public class DynamicRecordWebController implements
     @Override
     public DynamicEntityOperations service() {
         return recordService.mainEntity(DynamicWebRequest.moduleAlias());
+    }
+
+    @Override
+    public String webScopeName() {
+        return DynamicWebRequest.moduleAlias();
     }
 
     /** Same list-row aggregate expansion contract as static modules. */
@@ -800,7 +806,9 @@ public class DynamicRecordWebController implements
             validateUiSave(DynamicWebRequest.moduleAlias(), normalized);
             String id = service().insert(normalized);
             syncAttachmentsIfPresent(DynamicWebRequest.moduleAlias(), id, normalized);
-            return detailOutput(service().select(id));
+            DynamicRecord saved = detailOutput(service().select(id));
+            StandardMutationResultSupport.created(this, id, recordLabel(saved));
+            return saved;
         });
     }
 
@@ -817,9 +825,11 @@ public class DynamicRecordWebController implements
             validateWritableSaveFields(normalized, "");
             validateUiSave(DynamicWebRequest.moduleAlias(), normalized);
             requireDataScopeRecord(PlatformAction.UPDATE, id);
-            service().update(normalized);
+            int count = service().update(normalized);
             syncAttachmentsIfPresent(DynamicWebRequest.moduleAlias(), id, normalized);
-            return detailOutput(selectForAction(PlatformAction.VIEW, id));
+            DynamicRecord saved = detailOutput(selectForAction(PlatformAction.VIEW, id));
+            if (count > 0) StandardMutationResultSupport.updated(this, id, recordLabel(saved));
+            return saved;
         });
     }
 
@@ -1640,8 +1650,12 @@ public class DynamicRecordWebController implements
         if (normalized.version() != null) {
             record.setVersion(normalized.version());
         }
-        normalized.values().forEach((fieldName, value) ->
-                record.setValue(fieldName, webRecordValue(record, fieldName, value)));
+        Set<String> readFields = DynamicWebRecordReadFields.readOnlyOutputs(recordService, moduleAlias, record);
+        normalized.values().forEach((fieldName, value) -> {
+            if (!readFields.contains(fieldName)) {
+                record.setValue(fieldName, webRecordValue(record, fieldName, value));
+            }
+        });
         normalized.children().forEach((relationCode, rows) -> {
             if (rows == null) {
                 throw new PlatformException("dynamic child relation must be array: " + relationCode);

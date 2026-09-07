@@ -567,6 +567,45 @@ class DynamicSchemaServiceIT {
     }
 
     @Test
+    void shouldKeepProjectionReadScopeConsistentWithActiveTenantRowsOnRealDatabase() {
+        String moduleAlias = "sales.projection_scope";
+        EntityDefinition entity = new EntityDefinition("entry", "app_projection_scope_it", "Entry",
+                List.of(FieldDefinition.string("title", "Title")));
+        schemaService.ensureTable(entity);
+        DynamicRecordRuntime runtime = new DynamicRecordRuntime(operations);
+        runtime.register(new ModuleDefinition(moduleAlias, "Projection scope", List.of(entity)));
+        DynamicRecordService service = new DynamicRecordService(runtime);
+        DynamicRecordDao dao = new DynamicRecordDao(operations, entity);
+        String tenant = "projection-" + java.util.UUID.randomUUID();
+        String activeId;
+        String deletedId;
+        try (var ignored = TenantContext.use(tenant)) {
+            activeId = service.create(moduleAlias, "entry", service.newRecord(moduleAlias, "entry")
+                    .setValue("title", "Visible"));
+            deletedId = service.create(moduleAlias, "entry", service.newRecord(moduleAlias, "entry")
+                    .setValue("title", "Deleted"));
+            service.delete(moduleAlias, "entry", deletedId);
+            assertThat(service.selectIgnoreSoftDelete(moduleAlias, "entry", deletedId).getDeleted()).isTrue();
+        }
+        try (var ignored = TenantContext.use(tenant + "-other")) {
+            service.create(moduleAlias, "entry", service.newRecord(moduleAlias, "entry")
+                    .setValue("title", "Other tenant"));
+        }
+        try (var ignored = TenantContext.use(tenant)) {
+            // Projection adapters execute their own SQL; this callback must carry the same
+            // effective scope as the ordinary entity query, including its count query.
+            var page = service.withQueryReadScope(moduleAlias, Criteria.of(),
+                    scoped -> dao.pageQuery(scoped, PageRequest.of(1, 10)));
+            assertThat(page.getTotal()).isEqualTo(1);
+            assertThat(page.getRecords()).extracting(DynamicRecord::getId).containsExactly(activeId);
+            var deleted = service.withQueryReadScope(moduleAlias, Criteria.of().eq("id", deletedId),
+                    scoped -> dao.pageQuery(scoped, PageRequest.of(1, 10)));
+            assertThat(deleted.getTotal()).isZero();
+            assertThat(deleted.getRecords()).isEmpty();
+        }
+    }
+
+    @Test
     void shouldRunDynamicRecordMinimalDataAccessLoopOnRealDatabase() {
         EntityDefinition entity = entity("app_contract_record_it");
         schemaService.ensureTable(entity);

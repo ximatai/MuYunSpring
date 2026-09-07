@@ -105,7 +105,7 @@ public final class QueryCompiler {
             throw new IllegalArgumentException("quick search fields are not configured by " + descriptor.scopeName());
         }
         Criteria quick = Criteria.of();
-        String pattern = "%" + escapeLikeLiteral(keyword) + "%";
+        String pattern = QueryLikePattern.containsLiteral(keyword);
         for (String fieldName : fields) {
             QueryField field = requireField(fieldName, "quick search field");
             if (!field.quickSearch()) {
@@ -115,12 +115,6 @@ public final class QueryCompiler {
             quick.orLike(fieldName, pattern);
         }
         target.andGroup(quick.getRoot());
-    }
-
-    private String escapeLikeLiteral(String value) {
-        return value.replace("\\", "\\\\")
-                .replace("%", "\\%")
-                .replace("_", "\\_");
     }
 
     private void appendExternalCriteria(Criteria target, Map<String, Object> externalValues) {

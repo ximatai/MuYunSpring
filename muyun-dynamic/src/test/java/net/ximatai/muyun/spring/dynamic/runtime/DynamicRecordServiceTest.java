@@ -3214,7 +3214,7 @@ class DynamicRecordServiceTest {
                 return new CriteriaSqlCompiler().compile(criteria, field -> field, DBInfo.Type.POSTGRESQL).getSql();
             });
 
-            assertThat(scopedSql).contains("\"code\" =");
+            assertThat(scopedSql).contains("\"code\" =", "\"deleted\" IS NULL").doesNotContain("tenant_id");
             assertThat(TenantContext.currentTenantId()).contains("tenant-a");
             assertThat(TenantContext.tenantFilterBypassed()).isFalse();
         }

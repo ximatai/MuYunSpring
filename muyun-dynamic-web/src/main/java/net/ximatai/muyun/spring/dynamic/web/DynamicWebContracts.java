@@ -30,7 +30,7 @@ record DynamicRecordPayload(String id,
                             Map<String, Object> values,
                             Map<String, List<DynamicRecordPayload>> children) {
     DynamicRecordPayload {
-        values = values == null ? Map.of() : Map.copyOf(values);
+        values = values == null ? Map.of() : Collections.unmodifiableMap(new LinkedHashMap<>(values));
         if (children == null) {
             children = Map.of();
         } else {

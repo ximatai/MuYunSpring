@@ -1,4 +1,4 @@
-import { defineComponent, h } from 'vue';
+import { defineComponent, h, KeepAlive, nextTick, ref } from 'vue';
 import { mount } from '@vue/test-utils';
 import { expect, it } from 'vitest';
 import { page } from 'vitest/browser';
@@ -182,3 +182,75 @@ function layoutHttp(): HttpClient {
     },
   };
 }
+
+it('refreshes metadata after returning to a cached composer without discarding unsaved configuration', async () => {
+  const base = layoutHttp();
+  let catalogueChanged = false;
+  configureModuleContext({
+    http: {
+      request: async <T>(request: Parameters<HttpClient['request']>[0]) => {
+        const result = await base.request<T>(request);
+        if (catalogueChanged && request.path.endsWith('/fields/query')) {
+          const records = (result as { records: unknown[] }).records;
+          return {
+            ...result,
+            records: [
+              ...records,
+              {
+                id: 'new-field',
+                fieldName: 'newField',
+                title: '新增字段',
+                fieldOwnership: 'BUSINESS',
+                fieldForm: 'PHYSICAL',
+              },
+            ],
+          } as T;
+        }
+        return result;
+      },
+    },
+  });
+  const active = ref(true);
+  const wrapper = mount(
+    defineComponent({
+      setup() {
+        providePageLayout('workspace');
+        return () =>
+          h('div', { style: 'height: 650px' }, [
+            h(KeepAlive, null, {
+              default: () =>
+                active.value
+                  ? h(PageCompositionWorkspace, { moduleAlias: 'education.layout' })
+                  : h('div', '元数据'),
+            }),
+          ]);
+      },
+    }),
+    { attachTo: document.body },
+  );
+  try {
+    await expect.element(page.getByRole('button', { name: '发布草稿', exact: true })).toBeEnabled();
+    await page
+      .elementLocator(wrapper.get('[data-ui-tree-key="ui:template:list:quick-search"]').element)
+      .dblClick();
+    await page.getByRole('textbox', { name: '搜索占位提示', exact: true }).fill('保留未保存内容');
+    await page.getByRole('button', { name: '关闭', exact: true }).click();
+    active.value = false;
+    await nextTick();
+    catalogueChanged = true;
+    active.value = true;
+    await nextTick();
+    await expect
+      .poll(() => wrapper.find('[data-ui-tree-key="metadata:field:new-field"]').exists())
+      .toBe(true);
+    await page
+      .elementLocator(wrapper.get('[data-ui-tree-key="ui:template:list:quick-search"]').element)
+      .dblClick();
+    await expect
+      .element(page.getByRole('textbox', { name: '搜索占位提示', exact: true }))
+      .toHaveValue('保留未保存内容');
+    await expect.element(page.getByRole('button', { name: '保存草稿', exact: true })).toBeEnabled();
+  } finally {
+    wrapper.unmount();
+  }
+});

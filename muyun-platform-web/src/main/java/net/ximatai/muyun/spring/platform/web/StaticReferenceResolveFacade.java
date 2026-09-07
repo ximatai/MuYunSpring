@@ -1,5 +1,6 @@
 package net.ximatai.muyun.spring.platform.web;
 
+import net.ximatai.muyun.spring.ability.query.QueryLikePattern;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.database.core.orm.PageResult;
@@ -103,7 +104,7 @@ public class StaticReferenceResolveFacade {
         WebPageRequest page = request.page() == null ? WebPageRequest.DEFAULT : request.page();
         Criteria criteria = candidateCriteria(plan, request);
         if (request.fuzzy() != null && !request.fuzzy().isBlank()) {
-            criteria.like(titleField(plan), request.fuzzy().trim());
+            criteria.like(titleField(plan), QueryLikePattern.containsLiteral(request.fuzzy().trim()));
         }
         PageRequest pageRequest = PageRequest.of(page.pageNum(), page.pageSize());
         PageResult<ReferenceOption> result = referenceOptions(plan, criteria, pageRequest);

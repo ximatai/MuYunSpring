@@ -212,7 +212,11 @@ class DynamicEntityServiceReferenceReadTest {
         assertThatThrownBy(() -> service.beforeInsert(new DynamicRecord(line).setValue("studentId", "missing")))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("education.student.missing");
-        verify(student, times(2)).referenceOptions(any(Criteria.class), any(PageRequest.class));
+        var searchedCriteria = org.mockito.ArgumentCaptor.forClass(Criteria.class);
+        verify(student, times(2)).referenceOptions(searchedCriteria.capture(), any(PageRequest.class));
+        var searchSql = new CriteriaSqlCompiler().compile(searchedCriteria.getAllValues().getFirst(),
+                field -> field, DBInfo.Type.POSTGRESQL);
+        assertThat(searchSql.getParams()).containsValue("%张三%").containsValue("张三");
         verify(student, times(2)).projections(List.of("student-1"), List.of("studentNo"));
         verify(student).titles(List.of("student-1"));
     }
@@ -287,6 +291,7 @@ class DynamicEntityServiceReferenceReadTest {
         var compiled = new CriteriaSqlCompiler().compile(captured.get(), field -> field, DBInfo.Type.POSTGRESQL);
         assertThat(compiled.getSql()).contains("\"departmentCode\" =");
         assertThat(compiled.getParams()).containsValue("math");
+        assertThat(compiled.getParams()).containsValue("%张三%");
         verify(student).referenceOptions(any(Criteria.class), any(PageRequest.class));
     }
 

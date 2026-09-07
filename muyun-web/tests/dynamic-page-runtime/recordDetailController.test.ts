@@ -78,3 +78,17 @@ it('closes a row-initiated edit when it is cancelled', () => {
   expect(detail.mode.value).toBe('view');
   expect(detail.record.value?.title).toBe('编辑对象');
 });
+
+it('closes the deleted record detail and clears its editable draft', () => {
+  const detail = useRecordDetailController<RecordDetail>();
+  const record = { id: 'device-deleted', title: '待删除设备' };
+  detail.beginLoad(record, 'view');
+  detail.resolveLoad(record);
+  detail.finishLoad();
+  detail.clearDeleted();
+
+  expect(detail.open.value).toBe(false);
+  expect(detail.record.value).toBeUndefined();
+  expect(detail.draft.value).toBeUndefined();
+  expect(detail.beginEdit()).toBe(false);
+});

@@ -46,7 +46,7 @@ function normalize(value: unknown) {
 }
 
 const searchListeners = computed(() =>
-  props.showSearch ? { onSearch: (keyword: string) => emit('search', keyword) } : {},
+  props.showSearch ? { search: (keyword: string) => emit('search', keyword) } : {},
 );
 </script>
 

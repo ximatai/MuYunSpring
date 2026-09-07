@@ -78,10 +78,12 @@ final class DynamicRecordJsonDeserializer extends JsonDeserializer<DynamicRecord
                 ? childRelations(moduleAlias, record).stream().map(DynamicRelationDescriptor::code)
                         .filter(code -> acceptsFlatRelation(record, code)).toList()
                 : List.of();
+        var readFields = DynamicWebRecordReadFields.readOnlyOutputs(recordService, moduleAlias, record);
         Iterator<Map.Entry<String, JsonNode>> fields = values.properties().iterator();
         while (fields.hasNext()) {
             Map.Entry<String, JsonNode> field = fields.next();
-            if (isEnvelopeField(field.getKey()) || flatRelations.contains(field.getKey())) {
+            if (isEnvelopeField(field.getKey()) || flatRelations.contains(field.getKey())
+                    || readFields.contains(field.getKey())) {
                 continue;
             }
             try (JsonParser valueParser = field.getValue().traverse(parser.getCodec())) {

@@ -89,12 +89,13 @@ describe('platform module page enhancement', () => {
           moduleKind: 'static',
         }),
     ).toEqual({ visible: false });
-    expect(actions.map((action) => action.title)).toEqual(['动作', '低代码']);
+    expect(actions.map((action) => action.title)).toEqual(['添加到菜单', '动作', '低代码']);
   });
 
   it('exposes actions and the governance-backed low-code entry point in the module detail header', () => {
     const actions = platformModulePageEnhancement.detail?.actions ?? [];
     expect(actions.map((action) => action.key)).toEqual([
+      'module-add-to-menu',
       'module-actions-workspace',
       'module-ui-orchestration-workspace',
     ]);

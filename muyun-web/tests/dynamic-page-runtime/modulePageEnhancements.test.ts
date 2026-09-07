@@ -291,7 +291,7 @@ describe('module page enhancements', () => {
     configureModulePageEnhancements([]);
     expect(
       resolveModulePageEnhancement('platform.module')?.detail?.actions?.map((action) => action.key),
-    ).toEqual(['module-actions-workspace', 'module-ui-orchestration-workspace']);
+    ).toEqual(['module-add-to-menu', 'module-actions-workspace', 'module-ui-orchestration-workspace']);
   });
 
   it('accepts a business record-view presentation that keeps the platform view lifecycle', () => {

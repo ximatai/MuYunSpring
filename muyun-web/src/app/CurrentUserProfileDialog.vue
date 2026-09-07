@@ -2,7 +2,7 @@
 import { computed, ref, watch } from 'vue';
 import { UiInput, UiModal } from '@muyun/vue-ui-antdv';
 import { SingleImageFileReferenceField } from '@muyun/platform-components';
-import type { ModuleContext } from '@muyun/web-core';
+import { createModuleContext } from '@muyun/web-core';
 import type { CurrentUserProfile, ResolvedFileReferenceFieldDescriptor } from '@muyun/web-contracts';
 
 defineOptions({ name: 'CurrentUserProfileDialog' });
@@ -14,7 +14,6 @@ const props = withDefaults(
     loading?: boolean;
     saving?: boolean;
     error?: string;
-    avatarContext: ModuleContext<unknown>;
   }>(),
   { open: false, loading: false, saving: false, error: undefined, profile: undefined },
 );
@@ -38,6 +37,8 @@ watch(
 );
 
 const employee = computed(() => props.profile?.employee);
+// Avatar capabilities are needed only when the profile actually renders an employee.
+const avatarContext = computed(() => createModuleContext({ moduleAlias: 'iam.employee' }));
 const positions = computed(() => employee.value?.positions ?? []);
 const avatarDefinition: ResolvedFileReferenceFieldDescriptor = {
   fieldRef: { fieldName: 'avatarAssetId' },

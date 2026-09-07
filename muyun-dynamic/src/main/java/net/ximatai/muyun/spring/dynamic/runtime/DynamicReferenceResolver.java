@@ -1,5 +1,6 @@
 package net.ximatai.muyun.spring.dynamic.runtime;
 
+import net.ximatai.muyun.spring.ability.query.QueryLikePattern;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.database.core.orm.PageResult;
@@ -146,10 +147,11 @@ final class DynamicReferenceResolver {
         String fuzzy = request.fuzzy();
         if (fuzzy == null || fuzzy.isBlank()) return criteria;
         if (request.matchMode() == DynamicReferenceMatchMode.KEY) return criteria.eq(plan.targetKeyField(), fuzzy);
-        if (request.matchMode() == DynamicReferenceMatchMode.LABEL) return criteria.like(titleFieldName(), fuzzy);
+        String pattern = QueryLikePattern.containsLiteral(fuzzy.trim());
+        if (request.matchMode() == DynamicReferenceMatchMode.LABEL) return criteria.like(titleFieldName(), pattern);
         return criteria.andGroup(group -> group
                 .or(plan.targetKeyField(), net.ximatai.muyun.database.core.orm.CriteriaOperator.EQ, fuzzy)
-                .or(titleFieldName(), net.ximatai.muyun.database.core.orm.CriteriaOperator.LIKE, fuzzy));
+                .or(titleFieldName(), net.ximatai.muyun.database.core.orm.CriteriaOperator.LIKE, pattern));
     }
 
     private Criteria baseCriteria(Criteria base) {

@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import type {
   MenuNavigationTarget,
   MenuRecord,
+  MenuTreeNode,
   MenuTab,
   PageDescriptor,
   WorkbenchStartupState,
@@ -15,6 +16,7 @@ import {
   type OpenRouteOptions,
 } from '../platform-workbench/workbenchNavigation';
 import {
+  getMenuNavigationTarget,
   pageDescriptorToUrl,
   withPageInstanceKey,
   type PageDescriptorResolveOptions,
@@ -43,6 +45,8 @@ defineOptions({ name: 'AppWorkbenchShell' });
 const props = withDefaults(
   defineProps<{
     startup: WorkbenchStartupState;
+    /** Host-owned authenticated menu loader; refreshing preserves all page instances. */
+    loadMenus?: () => Promise<MenuTreeNode[]>;
     /** The consumer router's current full path, including search and hash. */
     location: string;
     resolveOptions?: PageDescriptorResolveOptions;
@@ -53,6 +57,7 @@ const props = withDefaults(
   }>(),
   {
     resolveOptions: () => ({}),
+    loadMenus: undefined,
     loading: false,
     error: undefined,
     realtimeStatus: 'unavailable',
@@ -74,6 +79,19 @@ let lockedTabPreferenceWrite = Promise.resolve();
 let isMounted = false;
 
 provideWorkbenchNavigation({
+  refreshMenus: props.loadMenus
+    ? async () => {
+        const session = props.startup.session;
+        const records = await props.loadMenus!();
+        if (!isMounted || session !== props.startup.session) throw new Error('登录状态已变化，请重试');
+        emit('update:startup', { ...props.startup, menus: records });
+        return records;
+      }
+    : undefined,
+  openMenu: (menu) => {
+    const target = getMenuNavigationTarget(menu);
+    if (target) selectMenu(menu, target);
+  },
   openRoute,
   replaceRoute,
   closeCurrentTab,

@@ -23,7 +23,9 @@ public abstract class TenantActiveScopedService<T extends EntityContract> extend
     }
 
     @Override
-    public final void verifyActiveTenant(String tenantId) {
+    // Must remain interceptable: Spring class proxies delegate to the initialized
+    // service target rather than reading fields on the constructor-bypassed proxy.
+    public void verifyActiveTenant(String tenantId) {
         activeTenantVerifier.verifyActiveTenant(tenantId);
     }
 }
