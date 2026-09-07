@@ -17,10 +17,6 @@ import net.ximatai.muyun.spring.platform.metadata.FieldUiControlService;
 import net.ximatai.muyun.spring.platform.metadata.FieldUiControlPropertyService;
 import net.ximatai.muyun.spring.platform.metadata.FieldUiControlBindingService;
 import net.ximatai.muyun.spring.platform.runtime.PlatformBootstrapTask;
-import net.ximatai.muyun.spring.platform.runtime.PlatformDynamicRuntimeBootstrapTask;
-import net.ximatai.muyun.spring.platform.runtime.PlatformDynamicRuntimeRefreshService;
-import net.ximatai.muyun.spring.platform.module.PlatformModuleService;
-import net.ximatai.muyun.spring.platform.metadata.ModuleMetadataRelationService;
 import net.ximatai.muyun.spring.platform.web.PlatformMenuInitialDataDeclarationProvider;
 import net.ximatai.muyun.spring.platform.web.PlatformMenuContributionReconciliationTask;
 import net.ximatai.muyun.spring.platform.web.StaticModuleDefinition;
@@ -54,16 +50,6 @@ public class MuYunSpringBootstrapConfiguration {
     /** 注册唯一的启动任务执行器，确保任务按 order 和名称稳定排序。 */
     PlatformBootstrapRunner platformBootstrapRunner(List<PlatformBootstrapTask> tasks) {
         return new PlatformBootstrapRunner(tasks);
-    }
-
-    @Bean
-    @ConditionalOnBean({PlatformModuleService.class, ModuleMetadataRelationService.class,
-            PlatformDynamicRuntimeRefreshService.class})
-    @ConditionalOnMissingBean(PlatformDynamicRuntimeBootstrapTask.class)
-    PlatformDynamicRuntimeBootstrapTask platformDynamicRuntimeBootstrapTask(
-            PlatformModuleService modules, ModuleMetadataRelationService relations,
-            PlatformDynamicRuntimeRefreshService runtime) {
-        return new PlatformDynamicRuntimeBootstrapTask(modules, relations, runtime);
     }
 
     @Bean

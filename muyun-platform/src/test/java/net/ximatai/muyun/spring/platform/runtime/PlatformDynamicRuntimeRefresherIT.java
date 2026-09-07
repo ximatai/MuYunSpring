@@ -262,8 +262,9 @@ class PlatformDynamicRuntimeRefresherIT extends PlatformPostgresIntegrationTest 
                 .fieldValueValidator(new DictionaryFieldValueValidator(services.itemService)).build();
         var restoredRefresher = new PlatformDynamicRuntimeRefresher(compiler,
                 new DynamicModuleRuntimeRefresher(schemaService, restarted));
-        new PlatformDynamicRuntimeBootstrapTask(services.moduleService, services.relationService,
-                new PlatformDynamicRuntimeRefreshService(restoredRefresher)).run();
+        new DynamicModuleRuntimeStartupActivationTask(services.moduleService, services.relationService,
+                new PlatformDynamicRuntimeRefreshService(restoredRefresher),
+                org.mockito.Mockito.mock(net.ximatai.muyun.spring.platform.metadata.ModuleMetadataOrchestrationService.class)).run();
         assertThat(restarted.registry().findModule("crm.unconfigured")).isEmpty();
         DynamicRecord restored = new DynamicRecordService(restarted).mainEntity("crm.customer").select(selected.getId());
         assertThat(restored.getValue("title")).isEqualTo("客户A");
