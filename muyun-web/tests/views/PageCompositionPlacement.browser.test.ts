@@ -20,6 +20,27 @@ const PlacementHost = defineComponent({
   },
 });
 
+it('renders full-width groups and empty group titles in the page preview', async () => {
+  await page.viewport(1082, 814);
+  configureModuleContext({ http: placementHttp([]) });
+  const wrapper = mount(PlacementHost, { attachTo: document.body, props: { height: 760 } });
+  try {
+    const selector = '[data-composer-target="detail:group:basic"]';
+    await expect.poll(() => wrapper.find(selector).exists()).toBe(true);
+    const grid = wrapper.get('.record-detail-fields').element.getBoundingClientRect();
+    const heading = wrapper.get(selector).element.getBoundingClientRect();
+    const field = wrapper.get('[data-field-name="b"]').element.getBoundingClientRect();
+    expect(Math.abs(heading.width - grid.width)).toBeLessThan(2);
+    expect(field.top).toBeGreaterThanOrEqual(heading.bottom);
+    expect(wrapper.get('[data-composer-target="detail:group:empty"]').text()).toContain('空分组');
+    expect(
+      wrapper.findAll('.record-detail-fields h3, .record-detail-fields dt').map((node) => node.text()),
+    ).toEqual(['字段甲', '基本分组', '自定义乙', '空分组']);
+  } finally {
+    wrapper.unmount();
+  }
+});
+
 it.each([760, 480])('uses one tree scrollport and reaches both ends at %ipx height', async (height) => {
   await page.viewport(1082, 814);
   configureModuleContext({ http: placementHttp([], true, 'LIST_CARD', true, 20) });
@@ -525,73 +546,81 @@ it.each([3, 4, 10])('keeps a new field at the trailing slot after a %i-field gri
   }
 });
 
-it('interleaves groups and fields through a held preview gesture and persists the same tree order', async () => {
-  await page.viewport(1082, 980);
-  const requests: HttpRequestOptions[] = [];
-  configureModuleContext({ http: placementHttp(requests) });
-  const wrapper = mount(PlacementHost, { attachTo: document.body, props: { height: 940 } });
-  const model = () => wrapper.findComponent(PageCompositionTree);
-  const grip = (key: string) => `[data-composer-drag="edit:${key}"]`;
-  const order = () =>
-    model()
-      .props('formOrder')!
-      .map((item: { kind: string; id: string }) => `${item.kind}:${item.id}`);
-  const visibleOrder = () =>
-    wrapper
-      .findAll(
-        '.record-form-grid > header[data-page-composition-layout-key], .record-form-grid > .record-form-field-host[data-page-composition-layout-key]',
-      )
-      .map((node) => node.attributes('data-page-composition-layout-key'));
-  const markers: HTMLElement[] = [];
-  try {
-    await expect.element(page.getByRole('button', { name: '发布草稿', exact: true })).toBeEnabled();
-    await page.getByText('表单', { exact: true }).click();
-    await expect.poll(() => wrapper.find(grip('group:empty')).exists()).toBe(true);
-    await expect
-      .element(page.elementLocator(wrapper.get(grip('group:empty')).element))
-      .toHaveAttribute('aria-disabled', 'false');
-    expect(model().text()).not.toContain('表单分组');
-    for (const key of ['field:a', 'group:basic']) {
-      const rect = wrapper
-        .get(`[data-page-composition-layout-key="edit:${key}"]`)
-        .element.getBoundingClientRect();
-      const marker = document.createElement('div');
-      marker.id = `mixed-${markers.length}`;
-      marker.style.cssText = `position:fixed;pointer-events:none;left:${rect.left}px;top:${rect.top}px;width:${rect.width}px;height:${rect.height}px`;
-      document.body.append(marker);
-      markers.push(marker);
+it.each(['edit', 'detail'] as const)(
+  'interleaves groups and fields through a held %s preview gesture and persists the same tree order',
+  async (mode) => {
+    await page.viewport(1082, 980);
+    const requests: HttpRequestOptions[] = [];
+    configureModuleContext({ http: placementHttp(requests) });
+    const wrapper = mount(PlacementHost, { attachTo: document.body, props: { height: 940 } });
+    const model = () => wrapper.findComponent(PageCompositionTree);
+    const grip = (key: string) => `[data-composer-drag="${mode}:${key}"]`;
+    const order = () =>
+      model()
+        .props('formOrder')!
+        .map((item: { kind: string; id: string }) => `${item.kind}:${item.id}`);
+    const visibleOrder = () =>
+      wrapper
+        .findAll(
+          mode === 'edit'
+            ? '.record-form-grid > header[data-page-composition-layout-key], .record-form-grid > .record-form-field-host[data-page-composition-layout-key]'
+            : '.record-detail-fields > [data-page-composition-layout-key]',
+        )
+        .map((node) => node.attributes('data-page-composition-layout-key'));
+    const markers: HTMLElement[] = [];
+    try {
+      await expect.element(page.getByRole('button', { name: '发布草稿', exact: true })).toBeEnabled();
+      if (mode === 'edit') await page.getByText('表单', { exact: true }).click();
+      await expect.poll(() => wrapper.find(grip('group:empty')).exists()).toBe(true);
+      await expect
+        .element(page.elementLocator(wrapper.get(grip('group:empty')).element))
+        .toHaveAttribute('aria-disabled', 'false');
+      expect(model().text()).not.toContain('表单分组');
+      const gripBounds = wrapper.get(grip('group:empty')).element.getBoundingClientRect();
+      expect(gripBounds.right).toBeLessThanOrEqual(window.innerWidth);
+
+      for (const key of ['field:a', 'group:basic']) {
+        const rect = wrapper
+          .get(`[data-page-composition-layout-key="${mode}:${key}"]`)
+          .element.getBoundingClientRect();
+        const marker = document.createElement('div');
+        marker.id = `mixed-${markers.length}`;
+        marker.style.cssText = `position:fixed;pointer-events:none;left:${rect.left}px;top:${rect.top}px;width:${rect.width}px;height:${rect.height}px`;
+        document.body.append(marker);
+        markers.push(marker);
+      }
+      await commands.treeGesture(grip('group:empty'), '#mixed-0', 0.5, 'hold', 0.1);
+      await expect
+        .poll(visibleOrder)
+        .toEqual([`${mode}:group:empty`, `${mode}:field:a`, `${mode}:group:basic`, `${mode}:field:b`]);
+      expect(order()).toEqual(['field:a', 'group:basic', 'group:empty']);
+      await commands.treeMove('#mixed-1', 0.1);
+      await expect
+        .poll(visibleOrder)
+        .toEqual([`${mode}:field:a`, `${mode}:group:empty`, `${mode}:group:basic`, `${mode}:field:b`]);
+      await commands.treeMove('#mixed-0', 0.5, 0.1);
+      await expect
+        .poll(visibleOrder)
+        .toEqual([`${mode}:group:empty`, `${mode}:field:a`, `${mode}:group:basic`, `${mode}:field:b`]);
+      await commands.treeRelease();
+      await expect.poll(order).toEqual(['group:empty', 'field:a', 'group:basic']);
+      await expect
+        .element(page.elementLocator(wrapper.get(grip('field:a')).element))
+        .toHaveAttribute('aria-disabled', 'false');
+      await page.getByRole('button', { name: '保存草稿', exact: true }).click();
+      await expect.element(page.getByRole('button', { name: '保存草稿', exact: true })).toBeDisabled();
+      await page.getByRole('button', { name: '刷新：页面结构', exact: true }).click();
+      await expect.poll(order).toEqual(['group:empty', 'field:a', 'group:basic']);
+      await expect
+        .poll(visibleOrder)
+        .toEqual([`${mode}:group:empty`, `${mode}:field:a`, `${mode}:group:basic`, `${mode}:field:b`]);
+    } finally {
+      await commands.treeRelease();
+      markers.forEach((marker) => marker.remove());
+      wrapper.unmount();
     }
-    await commands.treeGesture(grip('group:empty'), '#mixed-0', 0.5, 'hold', 0.1);
-    await expect
-      .poll(visibleOrder)
-      .toEqual(['edit:group:empty', 'edit:field:a', 'edit:group:basic', 'edit:field:b']);
-    expect(order()).toEqual(['field:a', 'group:basic', 'group:empty']);
-    await commands.treeMove('#mixed-1', 0.1);
-    await expect
-      .poll(visibleOrder)
-      .toEqual(['edit:field:a', 'edit:group:empty', 'edit:group:basic', 'edit:field:b']);
-    await commands.treeMove('#mixed-0', 0.5, 0.1);
-    await expect
-      .poll(visibleOrder)
-      .toEqual(['edit:group:empty', 'edit:field:a', 'edit:group:basic', 'edit:field:b']);
-    await commands.treeRelease();
-    await expect.poll(order).toEqual(['group:empty', 'field:a', 'group:basic']);
-    await expect
-      .element(page.elementLocator(wrapper.get(grip('field:a')).element))
-      .toHaveAttribute('aria-disabled', 'false');
-    await page.getByRole('button', { name: '保存草稿', exact: true }).click();
-    await expect.element(page.getByRole('button', { name: '保存草稿', exact: true })).toBeDisabled();
-    await page.getByRole('button', { name: '刷新：页面结构', exact: true }).click();
-    await expect.poll(order).toEqual(['group:empty', 'field:a', 'group:basic']);
-    await expect
-      .poll(visibleOrder)
-      .toEqual(['edit:group:empty', 'edit:field:a', 'edit:group:basic', 'edit:field:b']);
-  } finally {
-    await commands.treeRelease();
-    markers.forEach((marker) => marker.remove());
-    wrapper.unmount();
-  }
-});
+  },
+);
 
 it('keeps a palette field in the extra root cell before a group while crossing into and out of that group', async () => {
   await page.viewport(1082, 980);
@@ -1014,7 +1043,7 @@ function placementHttp(
           id: 'draft',
           revisionNo: 1,
           version: 1,
-          templateVersion: 2,
+          templateVersion: tree.templateVersion,
           uiTreeJson: JSON.stringify(tree),
         } as T;
       }

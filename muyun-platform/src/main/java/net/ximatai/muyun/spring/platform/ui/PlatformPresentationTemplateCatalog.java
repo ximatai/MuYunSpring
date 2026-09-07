@@ -22,6 +22,7 @@ public class PlatformPresentationTemplateCatalog {
     public static final int MODE_AWARE_VERSION = 2;
     /** Adds fixed, platform-owned action anchors while retaining the v2 page skeleton. */
     public static final int MODE_AWARE_ACTION_VERSION = 3;
+    public static final int MANAGED_ACTION_VERSION = 4;
 
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
     private static final PlatformPresentationTemplate MANAGEMENT = new PlatformPresentationTemplate(
@@ -35,7 +36,10 @@ public class PlatformPresentationTemplateCatalog {
                     "{\"template\":\"management\",\"templateVersion\":2,\"mode\":\"LIST_CARD\",\"quickSearchFields\":[],\"nodes\":[{\"slot\":\"list\",\"title\":\"记录列表\",\"fields\":[]},{\"slot\":\"form\",\"title\":\"详情 / 表单\",\"fields\":[]}]}"),
                     new PlatformPresentationTemplate(MANAGEMENT_ALIAS, MODE_AWARE_ACTION_VERSION,
                             PlatformPresentationClientType.WEB, java.util.Set.of(PlatformPageContractType.MANAGEMENT),
-                            "{\"template\":\"management\",\"templateVersion\":3,\"mode\":\"LIST_CARD\",\"quickSearchFields\":[],\"actions\":[],\"nodes\":[{\"slot\":\"list\",\"title\":\"记录列表\",\"fields\":[]},{\"slot\":\"form\",\"title\":\"详情 / 表单\",\"fields\":[]}]}")));
+                            "{\"template\":\"management\",\"templateVersion\":3,\"mode\":\"LIST_CARD\",\"quickSearchFields\":[],\"actions\":[],\"nodes\":[{\"slot\":\"list\",\"title\":\"记录列表\",\"fields\":[]},{\"slot\":\"form\",\"title\":\"详情 / 表单\",\"fields\":[]}]}"),
+                    new PlatformPresentationTemplate(MANAGEMENT_ALIAS, MANAGED_ACTION_VERSION,
+                            PlatformPresentationClientType.WEB, java.util.Set.of(PlatformPageContractType.MANAGEMENT),
+                            "{\"template\":\"management\",\"templateVersion\":4,\"mode\":\"LIST_CARD\",\"quickSearchFields\":[],\"actions\":[],\"nodes\":[{\"slot\":\"list\",\"title\":\"记录列表\",\"fields\":[]},{\"slot\":\"form\",\"title\":\"详情 / 表单\",\"fields\":[]}]}")));
 
     public record ManagementSkeleton(String mode, String title, String navigationTitle,
                                      String fieldGroupTitle, boolean columns, int maxIdentityFields) {}
@@ -97,7 +101,7 @@ public class PlatformPresentationTemplateCatalog {
             throw BusinessExceptions.warning("platform.presentation-revision.ui-tree-template-mismatch",
                     "Presentation revision UI tree does not match its template contract");
         }
-        if (template.version() == MODE_AWARE_VERSION || template.version() == MODE_AWARE_ACTION_VERSION) {
+        if (template.version() == MODE_AWARE_VERSION || template.version() == MODE_AWARE_ACTION_VERSION || template.version() == MANAGED_ACTION_VERSION) {
             validateModeAwareTree(root);
         } else if (MANAGEMENT_ALIAS.equals(template.alias())) {
             validateManagementTree(root);
@@ -108,7 +112,7 @@ public class PlatformPresentationTemplateCatalog {
     public static JsonNode validateModeAwareTree(JsonNode root) {
         if (root == null || !root.isObject()) throw invalidManagementTree();
         int version = root.path("templateVersion").asInt(-1);
-        if (!Set.of(MODE_AWARE_VERSION, MODE_AWARE_ACTION_VERSION).contains(version)) throw invalidManagementTree();
+        if (!Set.of(MODE_AWARE_VERSION, MODE_AWARE_ACTION_VERSION, MANAGED_ACTION_VERSION).contains(version)) throw invalidManagementTree();
         JsonNode searchFields = root.path("quickSearchFields");
         if (!searchFields.isArray()) throw invalidManagementTree();
         Set<String> uniqueSearchFields = new java.util.LinkedHashSet<>();
@@ -118,7 +122,7 @@ public class PlatformPresentationTemplateCatalog {
         }
         String mode = root.path("mode").asText();
         if (!Set.of("TREE_CARD", "LIST_CARD", "MICRO_LIST_CARD").contains(mode)) throw invalidManagementTree();
-        if (version == MODE_AWARE_ACTION_VERSION) validateManagementActions(root.path("actions"));
+        if (version >= MODE_AWARE_ACTION_VERSION) validateManagementActions(root.path("actions"), version == MANAGED_ACTION_VERSION);
         else if (root.has("actions")) throw invalidManagementTree();
         var normalized = ((com.fasterxml.jackson.databind.node.ObjectNode) root).deepCopy();
         normalized.remove("mode");
@@ -146,12 +150,12 @@ public class PlatformPresentationTemplateCatalog {
         return normalized;
     }
 
-    private static void validateManagementActions(JsonNode actions) {
+    private static void validateManagementActions(JsonNode actions, boolean managed) {
         if (!actions.isArray()) throw invalidManagementTree();
         Set<String> codes = new java.util.LinkedHashSet<>();
         for (JsonNode action : actions) {
-            if (!action.isObject() || action.size() != 2 || !action.path("actionCode").isTextual()
-                    || action.path("actionCode").asText().isBlank() || !codes.add(action.path("actionCode").asText())
+            if (!action.isObject() || (action.size() != 2 && !(managed && action.size() == 3 && action.path("title").isTextual() && !action.path("title").asText().isBlank())) || !action.path("actionCode").isTextual()
+                    || action.path("actionCode").asText().isBlank() || !codes.add((managed ? action.path("anchor").asText() + ":" : "") + action.path("actionCode").asText())
                     || !action.path("anchor").isTextual()
                     || !Set.of("page", "detail", "form").contains(action.path("anchor").asText())) {
                 throw invalidManagementTree();

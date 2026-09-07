@@ -14,7 +14,7 @@ it('keeps management quick search as a constrained template component', () => {
   assert.ok(!/VueDraggable|SortableEvent|vue-draggable-plus/.test(treeSource));
   assert.match(treeSource, /快速查询/);
   assert.match(treeSource, /双击编辑占位提示/);
-  assert.match(workspaceSource, /selectedQuickSearch\.value \? '配置：快速查询占位提示'/);
+  assert.match(workspaceSource, /selectedQuickSearch\.value\s*\? '配置：快速查询占位提示'/);
   assert.match(
     workspaceSource,
     /if \(key === 'ui:template:list:quick-search'\) return \{ kind: 'template' \}/,

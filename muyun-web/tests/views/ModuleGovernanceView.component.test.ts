@@ -4,6 +4,7 @@ import { defineComponent } from 'vue';
 import ModuleGovernanceView from '@/views/ModuleGovernanceView.vue';
 import MetadataOrchestrationView from '@/views/MetadataOrchestrationView.vue';
 import ModuleExperienceProfileOverview from '@/views/ModuleExperienceProfileOverview.vue';
+import ModuleBusinessPreview from '@/views/ModuleBusinessPreview.vue';
 import PageCompositionWorkspace from '@/views/PageCompositionWorkspace.vue';
 import { RecordDetailPanel } from '@/platform-components';
 import type { ModuleGovernanceTab } from '@/views/moduleGovernanceWorkspaceView';
@@ -20,6 +21,14 @@ const mountGovernanceView = (props: {
   });
 
 describe('ModuleGovernanceView', () => {
+  it('opens the operational business preview tab', () => {
+    const wrapper = mountGovernanceView({ moduleAlias: 'education.exam', governanceTab: 'preview' });
+    expect(wrapper.findComponent(ModuleBusinessPreview).props('moduleAlias')).toBe('education.exam');
+    expect(wrapper.findComponent({ name: 'RecordRelationTabs' }).props('tabs')).toContainEqual({
+      key: 'preview',
+      title: '业务预览',
+    });
+  });
   it('starts with the existing overview surface and keeps its module scope', () => {
     const wrapper = mountGovernanceView({ moduleAlias: 'education.exam', moduleTitle: '考试管理' });
 

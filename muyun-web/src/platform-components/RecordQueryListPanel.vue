@@ -135,6 +135,7 @@ const props = withDefaults(
     expandedRowKeys?: string[];
     reloadKey?: number;
     refreshTitle?: string;
+    refreshable?: boolean;
     /** Embedded section hosts may own the visible heading while this panel keeps an icon-only refresh. */
     showTitle?: boolean;
     /** Lets a parent lifecycle suppress the complete operation toolbar in read mode. */
@@ -176,6 +177,7 @@ const props = withDefaults(
     extraActions: () => [],
     batchActions: () => [],
     standardCrudActions: false,
+    refreshable: true,
     standardCrudRowActions: false,
     standardCrudRowActionKeys: () => ['view', 'edit', 'delete'],
     standardCrudRowActionCodes: () => ({}),
@@ -1127,7 +1129,7 @@ defineExpose({ clearSelection, refresh });
       class="record-query-list-header"
       :title="showTitle ? title : ''"
       :subtitle="showTitle ? subtitle : undefined"
-      :title-action-icon="showTitle ? 'reload' : undefined"
+      :title-action-icon="showTitle && refreshable ? 'reload' : undefined"
       :title-action-title="showTitle ? (refreshTitle ?? `刷新${title}`) : undefined"
       :title-action-disabled="queryActionsDisabled"
       @title-action="refresh"

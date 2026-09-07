@@ -10,6 +10,7 @@ withDefaults(
   defineProps<{
     explorerTitle: string;
     refreshTitle: string;
+    refreshable?: boolean;
     mode: 'view' | 'edit' | 'create';
     detailTitle: string;
     mutedMessage?: string;
@@ -20,6 +21,7 @@ withDefaults(
   }>(),
   {
     mutedMessage: undefined,
+    refreshable: true,
     explorerSearchKeyword: '',
     explorerSearchPlaceholder: '搜索名称、编码或 ID',
     explorerSearchable: true,
@@ -46,6 +48,7 @@ const emit = defineEmits<{
         class="static-management-sidebar"
         :title="explorerTitle"
         :refresh-title="refreshTitle"
+        :refreshable="refreshable"
         :search-keyword="explorerSearchKeyword"
         :search-placeholder="explorerSearchPlaceholder"
         :searchable="explorerSearchable"

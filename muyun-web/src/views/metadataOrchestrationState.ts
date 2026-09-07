@@ -478,12 +478,12 @@ export function fieldSpecDisplayLabel(fieldSpecAlias: string | undefined, specs:
 }
 
 export function entityTitleOf(relation: ModuleMetadataRelation, metadata: Metadata | undefined): string {
-  return metadata?.title ?? relation.relationAlias ?? '未命名实体';
+  return metadata?.title ?? relation.relationAlias ?? '未命名元数据';
 }
 
 export function relationRoleTag(role: ModuleMetadataRelation['relationRole']): string | undefined {
-  if (isMainRelation(role)) return '主实体';
-  if (role === 'CHILD' || role === 'child') return '子实体';
+  if (isMainRelation(role)) return '主元数据';
+  if (role === 'CHILD' || role === 'child') return '子元数据';
   return undefined;
 }
 

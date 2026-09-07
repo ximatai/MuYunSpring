@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { pageActionEntryTitle, pageActionEntryVisible } from '@muyun/web-core';
 import { computed, onBeforeUnmount, onBeforeUpdate, onUpdated, ref, watch } from 'vue';
 import {
   RecordFormFields,
@@ -65,6 +66,7 @@ const props = defineProps<{
   /** A failed async descriptor refresh must not leave its pre-drop layout on screen. */
   placementCommitFailed?: boolean;
   actionPlacements?: PageCompositionActionPlacement[];
+  actionFormMode?: 'create' | 'edit';
   moduleActions?: ModuleRuntimeAction[];
 }>();
 
@@ -72,9 +74,10 @@ const emit = defineEmits<{
   selectField: [slot: PreviewSlot, fieldName: string];
   configureField: [slot: PreviewSlot, fieldName: string];
   configureRelationField: [relationCode: string, fieldName: string];
+  configureAction: [anchor: 'page' | 'detail' | 'form', actionCode: string];
   'placement-drop': [source: CompositionPlacementSource, target: CompositionPlacementTarget];
   'action-drop': [
-    source: { actionCode: string },
+    source: { actionCode: string; sourceAnchor?: 'page' | 'detail' | 'form' },
     target: { anchor: 'page' | 'detail' | 'form'; index: number },
   ];
 }>();
@@ -195,16 +198,29 @@ const selectedDetailFieldName = computed(() =>
 );
 const isListEmpty = computed(() => listColumns.value.length === 0);
 const isDetailEmpty = computed(
-  () => detailFieldNames.value.length === 0 && detailRelations.value.length === 0,
+  () =>
+    detailFieldNames.value.length === 0 &&
+    detailRelations.value.length === 0 &&
+    structure.value.groups.length === 0,
 );
 const isFormEmpty = computed(() => formFieldNames.value.length === 0);
 const isEditEmpty = computed(() => isFormEmpty.value && detailRelations.value.length === 0);
 const actionsAt = (anchor: PageCompositionActionPlacement['anchor']) =>
   computed(() =>
     (props.actionPlacements ?? [])
-      .filter((placement) => placement.anchor === anchor)
-      .map((placement) => props.moduleActions?.find((action) => action.actionCode === placement.actionCode))
-      .filter((action): action is ModuleRuntimeAction => Boolean(action)),
+      .filter(
+        (placement) =>
+          placement.anchor === anchor &&
+          pageActionEntryVisible(
+            placement,
+            props.mode === 'edit' ? (props.actionFormMode ?? 'edit') : 'view',
+          ),
+      )
+      .map((placement) => {
+        const action = props.moduleActions?.find((action) => action.actionCode === placement.actionCode);
+        return action ? { ...action, title: pageActionEntryTitle(placement) } : undefined;
+      })
+      .filter((action) => action !== undefined),
   );
 const pageActions = actionsAt('page');
 const detailActions = actionsAt('detail');
@@ -242,14 +258,16 @@ const formActionDrag = usePageCompositionActionPreviewDrag(
   (source) => actionCanOccupyAnchor(source.actionCode, 'form'),
   (source, target) => emit('action-drop', source, target),
 );
-function actionItems(actionCodes: readonly string[]) {
-  return actionCodes.map(
-    (actionCode) =>
-      props.moduleActions?.find((action) => action.actionCode === actionCode) ?? {
+function actionItems(actionCodes: readonly string[], anchor: PageCompositionActionPlacement['anchor']) {
+  return actionCodes.map((actionCode) => ({
+    actionCode,
+    title: pageActionEntryTitle(
+      props.actionPlacements?.find((entry) => entry.anchor === anchor && entry.actionCode === actionCode) ?? {
         actionCode,
-        title: actionCode,
+        anchor,
       },
-  );
+    ),
+  }));
 }
 function isTransientAction(drag: ReturnType<typeof usePageCompositionActionPreviewDrag>, actionCode: string) {
   return drag.transientPlacement.value?.actionCode === actionCode;
@@ -285,16 +303,20 @@ function actionDropHint(
 const structure = computed<PageCompositionStructure>(() => {
   if (props.structure) return props.structure;
   const field = (name: string) => ({ id: name, fieldName: name, title: name });
-  const groups = props.descriptor.page?.detail?.editor?.formGroups ?? [];
+  const detail = props.descriptor.page?.detail;
+  const view =
+    props.mode === 'edit'
+      ? (detail?.editor ?? detail?.display ?? props.descriptor.defaultEditor)
+      : (detail?.display ?? detail?.editor ?? props.descriptor.defaultEditor);
+  const groups = view?.formGroups ?? [];
+  const names = props.mode === 'edit' ? formFieldNames.value : detailFieldNames.value;
   const grouped = new Set(groups.flatMap((group) => group.fields.map((field) => field.fieldName)));
   return {
     list: listColumns.value.map((column) => field(column.key)),
-    form: [...new Set([...formFieldNames.value, ...detailFieldNames.value])]
-      .filter((name) => !grouped.has(name))
-      .map(field),
+    form: names.filter((name) => !grouped.has(name)).map(field),
     order: [
       ...new Map<string, PageComposerFormItem>(
-        [...formFieldNames.value, ...detailFieldNames.value].map((name) => {
+        names.map((name) => {
           const group = groups.find((group) => group.fields.some((field) => field.fieldName === name));
           return group
             ? ([`group:${group.groupCode}`, { kind: 'group' as const, id: group.groupCode }] as const)
@@ -306,6 +328,7 @@ const structure = computed<PageCompositionStructure>(() => {
       id: group.groupCode,
       groupCode: group.groupCode,
       title: group.title,
+      subtitle: group.subtitle,
       fields: group.fields.map((ref) => field(ref.fieldName)),
     })),
     relations: detailRelations.value.map((relation) => ({
@@ -514,30 +537,40 @@ const renderedFieldNames = computed(() =>
           .fields.map((field) => field.fieldName),
   ),
 );
-const renderedFormFields = computed(
-  () =>
-    new Map(
-      [...formFieldsWithTransient.value].map(([name, field]) => {
-        const group = renderedForm.value.groups.find((group) =>
-          group.fields.some((field) => field.fieldName === name),
-        );
-        return [
-          name,
-          {
-            ...field,
-            formGroup: group
-              ? {
-                  groupCode: group.id,
-                  title: group.title,
-                  subtitle: group.subtitle,
-                  fields: group.fields.map((field) => ({ fieldName: field.fieldName })),
-                }
-              : undefined,
-          },
-        ];
-      }),
+function withRenderedGroups(fields: Map<string, RecordFormFieldDescriptor>) {
+  return new Map(
+    [...fields].map(([name, field]) => {
+      const group = renderedForm.value.groups.find((group) =>
+        group.fields.some((field) => field.fieldName === name),
+      );
+      return [
+        name,
+        {
+          ...field,
+          formGroup: group
+            ? {
+                groupCode: group.id,
+                title: group.title,
+                subtitle: group.subtitle,
+                fields: group.fields.map((field) => ({ fieldName: field.fieldName })),
+              }
+            : undefined,
+        },
+      ];
+    }),
+  );
+}
+const renderedFormFields = computed(() => withRenderedGroups(formFieldsWithTransient.value));
+const renderedDetailFields = computed(() => withRenderedGroups(detailFieldsWithTransient.value));
+const visiblePreviewFieldNames = computed(() => {
+  const fields = props.mode === 'edit' ? renderedFormFields.value : renderedDetailFields.value;
+  const record = props.mode === 'edit' ? formRecordWithTransient.value : detailRecordWithTransient.value;
+  return new Set(
+    renderedFieldNames.value.filter(
+      (name) => fields.has(name) && resolveRecordFormFieldState(name, { fields, record }).visible,
     ),
-);
+  );
+});
 function emptyGroupsBefore(fieldName?: string) {
   const pending: typeof renderedForm.value.groups = [];
   for (const item of renderedForm.value.order) {
@@ -548,7 +581,10 @@ function emptyGroupsBefore(fieldName?: string) {
       : [renderedForm.value.form.find((field) => field.id === item.id)!.fieldName];
     if (group && !names.length) pending.push(group);
     else {
-      if (names.includes(fieldName ?? '')) return names[0] === fieldName ? pending : [];
+      // Invisible members do not consume an empty heading's next visible anchor.
+      const visibleNames = names.filter((name) => visiblePreviewFieldNames.value.has(name));
+      if (!visibleNames.length) continue;
+      if (visibleNames.includes(fieldName ?? '')) return visibleNames[0] === fieldName ? pending : [];
       pending.length = 0;
     }
   }
@@ -809,7 +845,8 @@ function animateLayoutElement(element: HTMLElement, x: number, y: number) {
       >
       <TransitionGroup name="page-composer-action-layout" tag="span" class="page-composer-action-layout">
         <span
-          v-for="action in actionItems(pageActionDrag.stagedActionCodes.value)"
+          v-for="action in actionItems(pageActionDrag.stagedActionCodes.value, 'page')"
+          @dblclick.stop="emit('configureAction', 'page', action.actionCode)"
           :key="action.actionCode"
           :data-page-action-key="action.actionCode"
           :class="[
@@ -825,7 +862,9 @@ function animateLayoutElement(element: HTMLElement, x: number, y: number) {
           <span v-bind="pageActionDrag.dragHandleProps(action.actionCode, action.title ?? action.actionCode)"
             >⠿</span
           >
-          <UiButton size="small" disabled>{{ action.title ?? action.actionCode }}</UiButton>
+          <UiButton size="small" :danger="action.actionCode === 'delete'">{{
+            action.title ?? action.actionCode
+          }}</UiButton>
         </span>
       </TransitionGroup>
       <span v-if="!pageActionDrag.stagedActionCodes.value.length">拖入模块动作</span>
@@ -844,12 +883,14 @@ function animateLayoutElement(element: HTMLElement, x: number, y: number) {
         :selected-field-name="selectedFieldName"
         :placement-disabled="placementDisabled"
         :accept-external-drop="acceptExternalDrop"
+        :action-form-mode="actionFormMode"
         :action-placements="actionPlacements"
         :module-actions="moduleActions"
         @select-field="(slot, field) => emit('selectField', slot, field)"
         @configure-field="(slot, field) => emit('configureField', slot, field)"
         @configure-relation-field="(relation, field) => emit('configureRelationField', relation, field)"
         @placement-drop="(source, target) => emit('placement-drop', source, target)"
+        @configure-action="(anchor, code) => emit('configureAction', anchor, code)"
         @action-drop="(source, target) => emit('action-drop', source, target)"
       />
     </section>
@@ -863,12 +904,14 @@ function animateLayoutElement(element: HTMLElement, x: number, y: number) {
         :selected-field-name="selectedFieldName"
         :placement-disabled="placementDisabled"
         :accept-external-drop="acceptExternalDrop"
+        :action-form-mode="actionFormMode"
         :action-placements="actionPlacements"
         :module-actions="moduleActions"
         @select-field="(slot, field) => emit('selectField', slot, field)"
         @configure-field="(slot, field) => emit('configureField', slot, field)"
         @configure-relation-field="(relation, field) => emit('configureRelationField', relation, field)"
         @placement-drop="(source, target) => emit('placement-drop', source, target)"
+        @configure-action="(anchor, code) => emit('configureAction', anchor, code)"
         @action-drop="(source, target) => emit('action-drop', source, target)"
       />
     </section>
@@ -1043,7 +1086,8 @@ function animateLayoutElement(element: HTMLElement, x: number, y: number) {
       >
       <TransitionGroup name="page-composer-action-layout" tag="span" class="page-composer-action-layout">
         <span
-          v-for="action in actionItems(detailActionDrag.stagedActionCodes.value)"
+          v-for="action in actionItems(detailActionDrag.stagedActionCodes.value, 'detail')"
+          @dblclick.stop="emit('configureAction', 'detail', action.actionCode)"
           :key="action.actionCode"
           :data-page-action-key="action.actionCode"
           :class="[
@@ -1060,7 +1104,9 @@ function animateLayoutElement(element: HTMLElement, x: number, y: number) {
             v-bind="detailActionDrag.dragHandleProps(action.actionCode, action.title ?? action.actionCode)"
             >⠿</span
           >
-          <UiButton size="small" disabled>{{ action.title ?? action.actionCode }}</UiButton>
+          <UiButton size="small" :danger="action.actionCode === 'delete'">{{
+            action.title ?? action.actionCode
+          }}</UiButton>
         </span>
       </TransitionGroup>
       <span v-if="!detailActionDrag.stagedActionCodes.value.length">拖入模块动作</span>
@@ -1069,13 +1115,58 @@ function animateLayoutElement(element: HTMLElement, x: number, y: number) {
     <RecordDetailFields
       interaction-mode="selectable"
       :record="detailRecordWithTransient"
-      :fields="detailFieldsWithTransient"
+      :fields="renderedDetailFields"
       :field-names="renderedFieldNames.filter((name) => detailFieldsWithTransient.has(name))"
       :selected-field-name="selectedDetailFieldName"
       layout-transition-prefix="detail"
       @select="(name) => emit('selectField', 'form', name)"
       @configure="(name) => emit('configureField', 'form', name)"
     >
+      <template #before-field="{ field }">
+        <RecordContentSectionHeading
+          v-for="group in emptyGroupsBefore(field.fieldName)"
+          :key="group.id"
+          class="page-composer-empty-group"
+          :title="group.title"
+          :subtitle="group.subtitle"
+          :data-page-composition-layout-key="`detail:group:${group.id}`"
+          :data-composer-target="`detail:group:${group.id}`"
+          :data-ui-drop-key="`detail:group:${group.id}`"
+          tabindex="0"
+        >
+          <template #actions
+            ><span v-if="acceptExternalDrop" v-bind="handleProps(`detail:group:${group.id}`, group.title)"
+              >⠿</span
+            ></template
+          >
+        </RecordContentSectionHeading>
+      </template>
+      <template #group-actions="{ group }">
+        <span
+          v-if="acceptExternalDrop && group"
+          v-bind="handleProps(`detail:group:${group.groupCode}`, group.title)"
+          >⠿</span
+        >
+      </template>
+      <template #after-fields>
+        <RecordContentSectionHeading
+          v-for="group in emptyGroupsBefore()"
+          :key="group.id"
+          class="page-composer-empty-group"
+          :title="group.title"
+          :subtitle="group.subtitle"
+          :data-page-composition-layout-key="`detail:group:${group.id}`"
+          :data-composer-target="`detail:group:${group.id}`"
+          :data-ui-drop-key="`detail:group:${group.id}`"
+          tabindex="0"
+        >
+          <template #actions
+            ><span v-if="acceptExternalDrop" v-bind="handleProps(`detail:group:${group.id}`, group.title)"
+              >⠿</span
+            ></template
+          >
+        </RecordContentSectionHeading>
+      </template>
       <template #field-actions="{ field }">
         <span
           v-if="acceptExternalDrop"
@@ -1086,7 +1177,7 @@ function animateLayoutElement(element: HTMLElement, x: number, y: number) {
       </template>
     </RecordDetailFields>
     <div
-      v-if="acceptExternalDrop && !renderedFieldNames.length"
+      v-if="acceptExternalDrop && !renderedFieldNames.length && !renderedForm.groups.length"
       class="page-composer-drop-zone"
       data-ui-drop-key="detail:container:form"
       data-composer-target="detail:container:form"
@@ -1219,7 +1310,8 @@ function animateLayoutElement(element: HTMLElement, x: number, y: number) {
       data-ui-drop-root
       tabindex="0"
     >
-      <small>表单动作</small>
+      <small>表单操作区</small
+      ><UiButton size="small" disabled title="模板固定入口：放弃编辑并退出表单">取消</UiButton>
       <span
         v-if="formActionDrag.feedback.value"
         class="page-composition-action-preview__drop-hint"
@@ -1228,7 +1320,8 @@ function animateLayoutElement(element: HTMLElement, x: number, y: number) {
       >
       <TransitionGroup name="page-composer-action-layout" tag="span" class="page-composer-action-layout">
         <span
-          v-for="action in actionItems(formActionDrag.stagedActionCodes.value)"
+          v-for="action in actionItems(formActionDrag.stagedActionCodes.value, 'form')"
+          @dblclick.stop="emit('configureAction', 'form', action.actionCode)"
           :key="action.actionCode"
           :data-page-action-key="action.actionCode"
           :class="[
@@ -1244,7 +1337,9 @@ function animateLayoutElement(element: HTMLElement, x: number, y: number) {
           <span v-bind="formActionDrag.dragHandleProps(action.actionCode, action.title ?? action.actionCode)"
             >⠿</span
           >
-          <UiButton size="small" disabled>{{ action.title ?? action.actionCode }}</UiButton>
+          <UiButton size="small" type="primary" :danger="action.actionCode === 'delete'">{{
+            action.title ?? action.actionCode
+          }}</UiButton>
         </span>
       </TransitionGroup>
       <span v-if="!formActionDrag.stagedActionCodes.value.length">拖入模块动作</span>
@@ -1455,7 +1550,18 @@ function animateLayoutElement(element: HTMLElement, x: number, y: number) {
   grid-template-columns: minmax(0, 1fr);
 }
 .page-composition-mode-preview--list {
-  grid-template-columns: minmax(340px, 2fr) minmax(220px, 1fr);
+  display: flex;
+  flex-wrap: wrap;
+}
+.page-composition-mode-preview--list > .page-composition-action-preview--page {
+  flex: 0 0 100%;
+  box-sizing: border-box;
+}
+.page-composition-mode-preview--list > .page-composition-mode-preview__navigation {
+  flex: 2 1 340px;
+}
+.page-composition-mode-preview--list > .page-composition-mode-preview__detail {
+  flex: 1 1 220px;
 }
 .page-composition-mode-preview__navigation,
 .page-composition-mode-preview__detail {

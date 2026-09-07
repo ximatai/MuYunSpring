@@ -10,7 +10,13 @@ public record ResolvedModulePageDescriptor(ModulePageTemplate template,
                                            ResolvedPageTreeResourceDescriptor treeResource,
                                            ResolvedPageDetailDescriptor detail,
                                            List<PageTrait> traits, List<String> quickSearchFields,
-                                           List<ResolvedPageActionDescriptor> actions) {
+                                           List<ResolvedPageActionDescriptor> actions, boolean managedActions) {
+    public ResolvedModulePageDescriptor(ModulePageTemplate template, ResolvedPageExplorerDescriptor explorer,
+            ResolvedPageNavigatorDescriptor navigator, ResolvedPageListDescriptor list,
+            ResolvedPageTreeResourceDescriptor treeResource, ResolvedPageDetailDescriptor detail, List<PageTrait> traits,
+            List<String> quickSearchFields, List<ResolvedPageActionDescriptor> actions) {
+        this(template, explorer, navigator, list, treeResource, detail, traits, quickSearchFields, actions, false);
+    }
     public ResolvedModulePageDescriptor(ModulePageTemplate template, ResolvedPageExplorerDescriptor explorer,
             ResolvedPageNavigatorDescriptor navigator, ResolvedPageListDescriptor list,
             ResolvedPageTreeResourceDescriptor treeResource, ResolvedPageDetailDescriptor detail, List<PageTrait> traits) {
@@ -42,6 +48,6 @@ public record ResolvedModulePageDescriptor(ModulePageTemplate template,
 
     /** Replaces only the resolved navigator slots after request-scoped descriptor resolution. */
     public ResolvedModulePageDescriptor withNavigator(ResolvedPageNavigatorDescriptor resolvedNavigator) {
-        return new ResolvedModulePageDescriptor(template, explorer, resolvedNavigator, list, treeResource, detail, traits, quickSearchFields, actions);
+        return new ResolvedModulePageDescriptor(template, explorer, resolvedNavigator, list, treeResource, detail, traits, quickSearchFields, actions, managedActions);
     }
 }

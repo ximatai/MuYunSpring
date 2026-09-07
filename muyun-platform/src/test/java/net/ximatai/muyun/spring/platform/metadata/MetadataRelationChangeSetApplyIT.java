@@ -180,7 +180,7 @@ class MetadataRelationChangeSetApplyIT extends PlatformPostgresIntegrationTest {
         var foreignKey = fields.stream().filter(field -> child.relation().getForeignKey().equals(field.getFieldName()))
                 .findFirst().orElseThrow();
         assertThatThrownBy(() -> deletion.deleteField(moduleAlias, child.relation().getId(), foreignKey.getId()))
-                .hasMessageContaining("子实体外键不能删除");
+                .hasMessageContaining("子元数据外键不能删除");
         useRealChildRuntime(child.metadata());
         deletion.deleteMetadata(moduleAlias, child.relation().getId());
         assertThat(metadataService.select(child.metadata().getId())).isNull();

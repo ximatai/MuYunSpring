@@ -1,3 +1,4 @@
+import { pageActionIntent } from '@muyun/web-core';
 import type { ManagementUiTree } from './pageCompositionDraftState';
 
 export type CompositionMode = 'TREE_CARD' | 'LIST_CARD' | 'MICRO_LIST_CARD';
@@ -16,6 +17,7 @@ export interface ExplorerComposition {
 }
 export type PageCompositionActionAnchor = 'page' | 'detail' | 'form';
 export interface PageCompositionActionPlacement {
+  title?: string;
   actionCode: string;
   anchor: PageCompositionActionAnchor;
 }
@@ -30,10 +32,13 @@ export function canPlaceActionInAnchor(
   action: PageCompositionActionCandidate | undefined,
   anchor: PageCompositionActionAnchor,
 ) {
-  if (!action) return false;
+  if (!action || !pageActionIntent(action.actionCode, anchor)) return false;
   if (anchor === 'page') return action.actionLevel === 'LIST' || action.actionLevel === 'ANY';
   if (anchor === 'detail') return action.actionLevel === 'RECORD' || action.actionLevel === 'ANY';
-  return action.actionCode === 'create' || action.actionCode === 'update';
+  return (
+    action.actionLevel === 'ANY' ||
+    action.actionLevel === (action.actionCode === 'create' ? 'LIST' : 'RECORD')
+  );
 }
 
 export function modeAwareTree(
@@ -45,7 +50,7 @@ export function modeAwareTree(
 ) {
   return {
     ...tree,
-    templateVersion: 3,
+    templateVersion: 4,
     mode: skeleton.mode,
     quickSearchFields,
     actions,
@@ -57,4 +62,14 @@ export function modeAwareTree(
           : { slot: 'explorer', title: skeleton.navigationTitle, fields: [], ...explorer },
     ),
   };
+}
+
+export function defaultPageActionEntries(
+  actions: PageCompositionActionCandidate[],
+): PageCompositionActionPlacement[] {
+  return (['page', 'detail', 'form'] as const).flatMap((anchor) =>
+    actions
+      .filter((action) => canPlaceActionInAnchor(action, anchor))
+      .map((action) => ({ actionCode: action.actionCode, anchor })),
+  );
 }

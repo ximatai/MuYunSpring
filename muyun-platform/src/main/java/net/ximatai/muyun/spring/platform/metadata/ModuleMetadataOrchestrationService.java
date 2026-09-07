@@ -172,12 +172,12 @@ public class ModuleMetadataOrchestrationService {
             for (ModuleMetadataRelation relation : relationService.list(Criteria.of().eq("moduleAlias", moduleAlias)
                     .eq("relationRole", RelationRole.CHILD), new net.ximatai.muyun.database.core.orm.PageRequest(0, Integer.MAX_VALUE))) {
                 Metadata child = metadataService.select(relation.getMetadataId());
-                if (child == null) throw new PlatformException("子实体不存在：" + relation.getMetadataId());
+                if (child == null) throw new PlatformException("子元数据不存在：" + relation.getMetadataId());
                 MetadataCapabilityManagedFieldMaterializer.materialize(fieldService, child, java.util.Set.of());
                 var foreignKeys = fieldService.list(Criteria.of().eq("metadataId", child.getId())
                         .eq("fieldName", relation.getForeignKey()), new net.ximatai.muyun.database.core.orm.PageRequest(0, Integer.MAX_VALUE));
                 if (foreignKeys.size() != 1 || foreignKeys.getFirst().getFieldForm() != MetadataFieldForm.PHYSICAL) {
-                    throw new PlatformException("子实体父关联字段必须唯一且为物理字段：" + relation.getForeignKey());
+                    throw new PlatformException("子元数据父关联字段必须唯一且为物理字段：" + relation.getForeignKey());
                 }
                 MetadataField foreignKey = foreignKeys.getFirst();
                 if (foreignKey.getFieldOwnership() != MetadataFieldOwnership.STANDARD

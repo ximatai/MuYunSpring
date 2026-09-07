@@ -43,7 +43,7 @@ public class EmptyMetadataFieldSpecColumnRebuildService {
         long records = schemaFacts.countPhysicalRecords(validModuleAlias, metadata.getAlias(), Criteria.of());
         if (records > 0) {
             if (fieldSpecService.allowsDataSafeTarget(previousFieldSpecAlias, field.getFieldSpecAlias())) return;
-            throw new PlatformException("字段规格变更前实体新增了 " + records + " 条业务数据，请重新预检。");
+            throw new PlatformException("字段规格变更前元数据下新增了 " + records + " 条业务数据，请重新预检。");
         }
         String schema = PlatformNameRules.requireDatabaseName(metadata.getSchemaName(), "schemaName");
         String table = PlatformNameRules.requireDatabaseName(metadata.getTableName(), "tableName");

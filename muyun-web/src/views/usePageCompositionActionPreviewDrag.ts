@@ -20,7 +20,10 @@ export function usePageCompositionActionPreviewDrag(
   actions: Ref<{ actionCode: string; title?: string }[]>,
   enabled: Ref<boolean>,
   canDrop: (source: { actionCode: string }) => boolean,
-  onDrop: (source: { actionCode: string }, target: { anchor: Anchor; index: number }) => void,
+  onDrop: (
+    source: { actionCode: string; sourceAnchor?: Anchor },
+    target: { anchor: Anchor; index: number },
+  ) => void,
 ) {
   const instanceId = useId();
   const transientPlacement = shallowRef<{ actionCode: string; index: number }>();
@@ -79,8 +82,10 @@ export function usePageCompositionActionPreviewDrag(
   }
   function sourceOf(source: UiDragSource) {
     if (source.payloadType === ACTION_DRAG_TYPE) {
-      const value = source.payload as { actionCode?: unknown } | undefined;
-      return typeof value?.actionCode === 'string' ? { actionCode: value.actionCode } : undefined;
+      const value = source.payload as { actionCode?: unknown; sourceAnchor?: Anchor } | undefined;
+      return typeof value?.actionCode === 'string'
+        ? { actionCode: value.actionCode, sourceAnchor: value.sourceAnchor }
+        : undefined;
     }
     if (source.payloadType !== PAGE_COMPOSITION_DRAG_PAYLOAD_TYPE) return undefined;
     const value = parsePageCompositionDragPayload(source.payload);
@@ -104,12 +109,13 @@ export function usePageCompositionActionPreviewDrag(
       : ('before' as const);
   }
   const { hovered, rejected, clear } = useUiDropTarget(root, {
-    cancelWhenPointerLeaves: true,
+    // Entries can cross action bars; leaving a bar clears its preview without cancelling the gesture.
+    cancelWhenPointerLeaves: false,
     resolve(origin, _y, position, _source, x) {
       const target = origin.closest<HTMLElement>('[data-page-action-key]');
       const liveKey = target?.dataset.pageActionKey;
       const source = _source && sourceOf(_source);
-      const isLiveSource = source?.actionCode === liveKey;
+      const isLiveSource = source?.sourceAnchor === anchor && source.actionCode === liveKey;
       // A staged layout moves the buttons below the held pointer. Follow the live button for an
       // internal move, and reserve the initial geometry only for source/gap fallback and palette
       // actions, whose temporary button has not existed at capture time.
@@ -178,7 +184,7 @@ export function usePageCompositionActionPreviewDrag(
         node: { key, title: actions.value.find((action) => action.actionCode === key)?.title ?? key },
         operations: ['move'],
         payloadType: ACTION_DRAG_TYPE,
-        payload: { actionCode: key },
+        payload: { actionCode: key, sourceAnchor: anchor },
       };
     },
     {

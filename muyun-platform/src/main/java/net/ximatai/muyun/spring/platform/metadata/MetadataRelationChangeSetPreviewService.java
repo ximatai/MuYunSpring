@@ -195,11 +195,11 @@ public class MetadataRelationChangeSetPreviewService {
             return;
         }
         if (fields.values().stream().anyMatch(existing -> same(existing.getFieldName(), field.getFieldName()))) {
-            error(errors, "DUPLICATE_FIELD_NAME", field.getFieldName(), "字段名在最终模型中重复。");
+            error(errors, "DUPLICATE_FIELD_NAME", field.getFieldName(), "字段名在最终元数据结构中重复。");
             return;
         }
         if (fields.values().stream().anyMatch(existing -> same(existing.getColumnName(), field.getColumnName()))) {
-            error(errors, "DUPLICATE_COLUMN_NAME", field.getColumnName(), "物理列名在最终模型中重复。");
+            error(errors, "DUPLICATE_COLUMN_NAME", field.getColumnName(), "物理列名在最终元数据结构中重复。");
             return;
         }
         MetadataField normalized = newBusinessField(field);
@@ -330,8 +330,8 @@ public class MetadataRelationChangeSetPreviewService {
         Set<String> names = new HashSet<>();
         Set<String> columns = new HashSet<>();
         for (MetadataField field : fields) {
-            if (!names.add(field.getFieldName())) error(errors, "DUPLICATE_FIELD_NAME", field.getFieldName(), "字段名在最终模型中重复。");
-            if (!columns.add(field.getColumnName())) error(errors, "DUPLICATE_COLUMN_NAME", field.getColumnName(), "物理列名在最终模型中重复。");
+            if (!names.add(field.getFieldName())) error(errors, "DUPLICATE_FIELD_NAME", field.getFieldName(), "字段名在最终元数据结构中重复。");
+            if (!columns.add(field.getColumnName())) error(errors, "DUPLICATE_COLUMN_NAME", field.getColumnName(), "物理列名在最终元数据结构中重复。");
         }
     }
 

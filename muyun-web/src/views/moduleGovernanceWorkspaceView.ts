@@ -1,7 +1,7 @@
 import { defineAsyncComponent } from 'vue';
 import { defineWorkspaceView } from '../platform-admin-runtime/workspaceViewContract';
 
-export const moduleGovernanceTabs = ['overview', 'metadata', 'actions', 'ui', 'diagnostics'] as const;
+export const moduleGovernanceTabs = ['overview', 'metadata', 'actions', 'ui', 'preview'] as const;
 export type ModuleGovernanceTab = (typeof moduleGovernanceTabs)[number];
 
 export interface ModuleGovernanceWorkspaceViewInput {
@@ -25,7 +25,7 @@ export const moduleGovernanceWorkspaceView = defineWorkspaceView<ModuleGovernanc
   parse(query) {
     const moduleAlias = query.moduleAlias;
     const moduleTitle = query.moduleTitle;
-    const governanceTab = query.governanceTab;
+    const governanceTab = query.governanceTab === 'diagnostics' ? 'preview' : query.governanceTab;
     if (typeof moduleAlias !== 'string' || !moduleAlias) return undefined;
     return {
       moduleAlias,

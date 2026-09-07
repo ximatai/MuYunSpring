@@ -33,3 +33,29 @@ it('keeps placed save actions mode-specific and disabled during saving or failed
     wrapper.unmount();
   }
 });
+
+it('uses managed entries as the only configurable buttons while retaining cancel', async () => {
+  const context = { can: () => true } as unknown as ModuleContext<QueryListRecord>;
+  const wrapper = shallowMount(ModuleRecordDetailActions, {
+    props: {
+      context,
+      mode: 'edit',
+      managedActions: true,
+      record: { id: '1' },
+      formActions: [{ key: 'save-entry', actionCode: 'update', title: '提交修改' }],
+    },
+  });
+  const actions = () => wrapper.findComponent({ name: 'RecordActionBar' }).props('actions');
+  try {
+    expect(actions().map((item: { key: string }) => item.key)).toEqual(['__platform-cancel', 'save-entry']);
+    await wrapper.setProps({ formActions: [] });
+    expect(actions().map((item: { key: string }) => item.key)).toEqual(['__platform-cancel']);
+    await wrapper.setProps({
+      mode: 'view',
+      configuredActions: [{ key: 'delete-entry', actionCode: 'delete', title: '删除' }],
+    });
+    expect(actions().map((item: { key: string }) => item.key)).toEqual(['delete-entry']);
+  } finally {
+    wrapper.unmount();
+  }
+});

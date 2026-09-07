@@ -398,6 +398,133 @@ it('renders the same runtime form field renderer for the editable state', () => 
   expect(wrapper.findComponent({ name: 'RecordFormFields' }).props('fieldNames')).toEqual(['title']);
 });
 
+it.each(['TREE_MANAGEMENT', 'FLAT_MANAGEMENT', 'LIST_DETAIL_CARD'] as const)(
+  'renders group headings through the standard detail renderer in the %s page preview',
+  (template) => {
+    const value = descriptorWithTwoGroups();
+    value.page!.template = template;
+    const wrapper = mount(PageCompositionDescriptorPreview, {
+      props: { descriptor: value, moduleAlias: 'platform.module', mode: 'detail', wholePage: true },
+      global: { stubs: { UiDataTable: tableStub } },
+    });
+    try {
+      expect(wrapper.findAll('.record-detail-group-heading h3').map((node) => node.text())).toEqual([
+        '基础信息',
+        '科目信息',
+      ]);
+      expect(wrapper.findAll('[data-field-name]').map((node) => node.attributes('data-field-name'))).toEqual([
+        'examDate',
+        'subject',
+      ]);
+    } finally {
+      wrapper.unmount();
+    }
+  },
+);
+
+it('uses the display projection group and field order instead of the editor order', () => {
+  const value = descriptorWithTwoGroups();
+  value.page!.detail.display = {
+    ...value.page!.detail.editor!,
+    fields: [...value.page!.detail.editor!.fields].reverse(),
+    formGroups: [{ groupCode: 'read', title: '详情信息', fields: [{ fieldName: 'subject' }] }],
+  };
+  const wrapper = mount(PageCompositionDescriptorPreview, {
+    props: { descriptor: value, moduleAlias: 'platform.module', mode: 'detail' },
+  });
+  try {
+    expect(
+      wrapper.findAll('.record-detail-group-heading h3, [data-field-name] dt').map((node) => node.text()),
+    ).toEqual(['详情信息', '科目', '考试日期']);
+  } finally {
+    wrapper.unmount();
+  }
+});
+
+it.each(['detail', 'edit'] as const)(
+  'keeps empty headings anchored across hidden fields in %s preview',
+  (mode) => {
+    const value = descriptorWithTwoGroups();
+    value.page!.detail.editor!.fields.unshift({
+      fieldRef: { fieldName: 'title' },
+      label: '隐藏名称',
+      visible: { constant: false },
+    });
+    value.page!.detail.editor!.fields[1]!.visible = { constant: false };
+    const wrapper = mount(PageCompositionDescriptorPreview, {
+      props: {
+        descriptor: value,
+        moduleAlias: 'platform.module',
+        mode,
+        structure: {
+          list: [],
+          relations: [],
+          form: [{ id: 'title', fieldName: 'title', title: '隐藏名称' }],
+          groups: [
+            { id: 'empty', groupCode: 'empty', title: '前置空分组', fields: [] },
+            {
+              id: 'basic',
+              groupCode: 'basic',
+              title: '基础信息',
+              fields: [
+                { id: 'examDate', fieldName: 'examDate', title: '隐藏日期' },
+                { id: 'subject', fieldName: 'subject', title: '科目' },
+              ],
+            },
+            { id: 'tail', groupCode: 'tail', title: '末尾空分组', fields: [] },
+          ],
+          order: [
+            { kind: 'group', id: 'empty' },
+            { kind: 'field', id: 'title' },
+            { kind: 'group', id: 'basic' },
+            { kind: 'group', id: 'tail' },
+          ],
+        },
+      },
+    });
+    try {
+      expect(wrapper.findAll('h3').map((node) => node.text())).toEqual([
+        '前置空分组',
+        '基础信息',
+        '末尾空分组',
+      ]);
+      expect(wrapper.text()).not.toContain('隐藏名称');
+      expect(wrapper.text()).not.toContain('考试日期');
+    } finally {
+      wrapper.unmount();
+    }
+  },
+);
+
+it('shows empty design groups in mixed order without injecting a drop placeholder into the detail layout', () => {
+  const wrapper = mount(PageCompositionDescriptorPreview, {
+    props: {
+      descriptor: descriptorWithEditor(),
+      moduleAlias: 'platform.module',
+      mode: 'detail',
+      structure: {
+        list: [],
+        form: [{ id: 'title', fieldName: 'title', title: '名称' }],
+        relations: [],
+        groups: [{ id: 'empty', groupCode: 'empty', title: '空分组', fields: [] }],
+        order: [
+          { kind: 'group', id: 'empty' },
+          { kind: 'field', id: 'title' },
+        ],
+      },
+    },
+  });
+  try {
+    expect(wrapper.get('[data-composer-target="detail:group:empty"]').text()).toContain('空分组');
+    expect(
+      wrapper.findAll('.record-detail-fields h3, .record-detail-fields dt').map((node) => node.text()),
+    ).toEqual(['空分组', '考试名称']);
+    expect(wrapper.find('.page-composer-drop-zone').exists()).toBe(false);
+  } finally {
+    wrapper.unmount();
+  }
+});
+
 it('preserves every server-resolved FormGroup in the editable preview', () => {
   const wrapper = shallowMount(PageCompositionDescriptorPreview, {
     props: { descriptor: descriptorWithTwoGroups(), moduleAlias: 'platform.module', mode: 'edit' },

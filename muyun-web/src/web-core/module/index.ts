@@ -10,3 +10,5 @@ export type {
 } from './runtimeContext';
 export type { ModuleAbilityClients, ModuleAbilities } from './abilities';
 export * from './moduleContext';
+
+export * from './pageActionEntries';

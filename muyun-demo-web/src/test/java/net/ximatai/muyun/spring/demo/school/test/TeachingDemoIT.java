@@ -301,7 +301,8 @@ public class TeachingDemoIT {
                     .findFirst().orElseThrow();
             PlatformPresentationRevision draft = revisions.stream()
                     .filter(revision -> revision.getStatus() == PlatformPresentationRevisionStatus.DRAFT)
-                    .findFirst().orElseThrow();
+                    .filter(revision -> published.getUiTreeJson().equals(revision.getUiTreeJson()))
+                    .max(java.util.Comparator.comparing(PlatformPresentationRevision::getRevisionNo)).orElseThrow();
             assertThat(draft.getRevisionNo()).isGreaterThan(published.getRevisionNo());
             assertThat(draft.getUiTreeJson()).isEqualTo(published.getUiTreeJson());
             assertThat(published.getUiTreeJson()).contains("searchPlaceholder", "participants", "studentNo")
@@ -457,6 +458,168 @@ public class TeachingDemoIT {
     }
 
     @Test
+    void shouldPublishManagedActionEntriesAndSwitchOnlyAfterPublication() {
+        try (CurrentUserContext.Scope user = CurrentUserContext.use(CurrentUser.systemUser(
+                "exam-action-publication", "Exam Action Publication"));
+             TenantContext.Scope tenant = TenantContext.system("verify global page action publication")) {
+            PlatformPageDefinition page = pageDefinitions.resolveGlobalPage(ExamDemoBootstrapTask.MODULE_ALIAS,
+                    ExamPageDemoBootstrapTask.PAGE_ALIAS).orElseThrow();
+            PlatformPresentationVariant variant = presentationVariants.list(Criteria.of().eq("pageId", page.getId()))
+                    .getFirst();
+            String variantId = variant.getId();
+            List<PlatformPresentationRevision> revisions = presentationRevisions.list(Criteria.of().eq("variantId", variantId));
+            PlatformPresentationRevision baseline = revisions.stream()
+                    .filter(revision -> revision.getStatus() == PlatformPresentationRevisionStatus.PUBLISHED)
+                    .findFirst().orElseThrow();
+            int nextRevision = revisions.stream().mapToInt(PlatformPresentationRevision::getRevisionNo).max().orElseThrow() + 1;
+            try {
+                String tree = """
+                        {"template":"management","templateVersion":4,"mode":"LIST_CARD","quickSearchFields":[],
+                         "actions":[{"actionCode":"create","anchor":"page"},
+                                    {"actionCode":"update","anchor":"detail"},
+                                    {"actionCode":"create","anchor":"form"},
+                                    {"actionCode":"update","anchor":"form"}],
+                         "nodes":[{"slot":"list","title":"考试列表","fields":["title"]},
+                                  {"slot":"form","title":"考试详情","fields":["title","classroomId","subjectCategoryId","examDate"]}]}
+                        """;
+                PlatformPresentationRevision draft = new PlatformPresentationRevision();
+                draft.setVariantId(variantId);
+                draft.setRevisionNo(nextRevision);
+                draft.setTemplateAlias("management");
+                draft.setTemplateVersion(4);
+                draft.setStatus(PlatformPresentationRevisionStatus.DRAFT);
+                draft.setTitle("动作入口验收 v1");
+                draft.setUiTreeJson(tree);
+                String draftId = presentationRevisions.insert(draft);
+                assertThat(runtimeContexts.dynamicExecutionPlan(ExamDemoBootstrapTask.MODULE_ALIAS).orElseThrow()
+                        .versionKey()).doesNotContain("-page-" + draftId);
+                presentationRevisionPublisher.publish(draftId);
+                ModuleExecutionPlan published = runtimeContexts.dynamicExecutionPlan(ExamDemoBootstrapTask.MODULE_ALIAS)
+                        .orElseThrow();
+                assertThat(published.versionKey()).contains("-page-" + draftId);
+                assertThat(published.uiDescriptor().page().managedActions()).isTrue();
+                assertThat(published.uiDescriptor().page().actions()).extracting(action -> action.operation().name())
+                        .containsExactly("OPEN_CREATE", "OPEN_EDIT", "SUBMIT_CREATE", "SUBMIT_UPDATE");
+
+                PlatformPresentationRevision replacement = new PlatformPresentationRevision();
+                replacement.setVariantId(variantId);
+                replacement.setRevisionNo(nextRevision + 1);
+                replacement.setTemplateAlias("management");
+                replacement.setTemplateVersion(4);
+                replacement.setStatus(PlatformPresentationRevisionStatus.DRAFT);
+                replacement.setTitle("动作入口验收 v2");
+                replacement.setUiTreeJson(tree.replace("{\"actionCode\":\"create\",\"anchor\":\"page\"},", ""));
+                String replacementId = presentationRevisions.insert(replacement);
+                assertThat(runtimeContexts.dynamicExecutionPlan(ExamDemoBootstrapTask.MODULE_ALIAS).orElseThrow()
+                        .versionKey()).contains("-page-" + draftId);
+                presentationRevisionPublisher.publish(replacementId);
+                assertThat(presentationRevisions.select(draftId).getStatus())
+                        .isEqualTo(PlatformPresentationRevisionStatus.ARCHIVED);
+                ModuleExecutionPlan switched = runtimeContexts.dynamicExecutionPlan(ExamDemoBootstrapTask.MODULE_ALIAS)
+                        .orElseThrow();
+                assertThat(switched.versionKey()).contains("-page-" + replacementId);
+                assertThat(switched.uiDescriptor().page().actions()).extracting(action -> action.operation().name())
+                        .containsExactly("OPEN_EDIT", "SUBMIT_CREATE", "SUBMIT_UPDATE");
+            } finally {
+                PlatformPresentationRevision restored = new PlatformPresentationRevision();
+                restored.setVariantId(variantId);
+                restored.setRevisionNo(nextRevision + 2);
+                restored.setTemplateAlias(baseline.getTemplateAlias());
+                restored.setTemplateVersion(baseline.getTemplateVersion());
+                restored.setStatus(PlatformPresentationRevisionStatus.DRAFT);
+                restored.setTitle("恢复考试页面基线");
+                restored.setUiTreeJson(baseline.getUiTreeJson());
+                presentationRevisionPublisher.publish(presentationRevisions.insert(restored));
+                PlatformPresentationRevision followUp = new PlatformPresentationRevision();
+                followUp.setVariantId(variantId);
+                followUp.setRevisionNo(nextRevision + 3);
+                followUp.setTemplateAlias(baseline.getTemplateAlias());
+                followUp.setTemplateVersion(baseline.getTemplateVersion());
+                followUp.setStatus(PlatformPresentationRevisionStatus.DRAFT);
+                followUp.setTitle("考试页面基线后续草稿");
+                followUp.setUiTreeJson(baseline.getUiTreeJson());
+                presentationRevisions.insert(followUp);
+            }
+        }
+    }
+
+    @Test
+    void shouldPersistPublishedExamAggregateThroughHttpAndEnforceActionAndTenantBoundaries() throws Exception {
+        String title = "页面业务验收-" + serial();
+        String recordId;
+        String firstChildId;
+        MockMvc mvc = webAppContextSetup(webApplicationContext).build();
+        try (CurrentUserContext.Scope user = CurrentUserContext.use(CurrentUser.systemUser(
+                "exam-business-acceptance", "Exam Business Acceptance"));
+             TenantContext.Scope tenant = TenantContext.use(DemoBootstrapTask.TENANT_ALIAS)) {
+            assertThat(runtimeContexts.dynamicExecutionPlan(ExamDemoBootstrapTask.MODULE_ALIAS)
+                    .orElseThrow().uiDescriptor().detailRelations())
+                    .singleElement().satisfies(relation -> assertThat(relation.embeddedField()).isEqualTo("participants"));
+            String body = """
+                    {"values":{"title":"%s","classroomId":"demo_classroom_g1a",
+                     "subjectCategoryId":"demo_subject_mathematics","examDate":"2026-09-07"},
+                     "children":{"participants":[
+                       {"values":{"studentId":"demo_student_1001","score":81,"attendanceStatus":"ATTENDED"}},
+                       {"values":{"studentId":"demo_student_1002","score":82,"attendanceStatus":"ATTENDED"}}]}}
+                    """.formatted(title);
+            MvcResult created = mvc.perform(post("/education.exam/insert")
+                    .contentType("application/json").content(body)).andReturn();
+            assertThat(created.getResponse().getStatus()).as(created.getResponse().getContentAsString()).isEqualTo(201);
+            DynamicRecord saved = dynamicRecords.mainEntity(ExamDemoBootstrapTask.MODULE_ALIAS)
+                    .list(Criteria.of().eq("title", title), PageRequest.of(1, 10)).getFirst();
+            recordId = saved.getId();
+            List<DynamicRecord> rows = dynamicRecords.listSystem(ExamDemoBootstrapTask.MODULE_ALIAS,
+                    "exam_participant", Criteria.of().eq("examId", recordId));
+            assertThat(rows).hasSize(2);
+            DynamicRecord first = rows.stream().filter(row -> "demo_student_1001".equals(row.getValue("studentId")))
+                    .findFirst().orElseThrow();
+            firstChildId = first.getId();
+            String update = """
+                    {"version":%d,"values":{"title":"%s-更新","classroomId":"demo_classroom_g1a",
+                     "subjectCategoryId":"demo_subject_mathematics","examDate":"2026-09-07"},"children":{"participants":[
+                      {"id":"%s","version":%d,"values":{"studentId":"demo_student_1001",
+                       "score":95,"attendanceStatus":"ATTENDED"}}]}}
+                    """.formatted(saved.getVersion(), title, firstChildId, first.getVersion());
+            MvcResult updated = mvc.perform(post("/education.exam/update/{id}", recordId)
+                    .contentType("application/json").content(update)).andReturn();
+            assertThat(updated.getResponse().getStatus()).as(updated.getResponse().getContentAsString()).isEqualTo(200);
+            assertThat(dynamicRecords.mainEntity(ExamDemoBootstrapTask.MODULE_ALIAS).select(recordId).getValue("title"))
+                    .isEqualTo(title + "-更新");
+            assertThat(dynamicRecords.listSystem(ExamDemoBootstrapTask.MODULE_ALIAS, "exam_participant",
+                    Criteria.of().eq("examId", recordId))).singleElement().satisfies(row -> {
+                        assertThat(row.getId()).isEqualTo(firstChildId);
+                        assertThat(new java.math.BigDecimal(row.getValue("score").toString()))
+                                .isEqualByComparingTo("95");
+                    });
+            MvcResult viewed = mvc.perform(get("/education.exam/view/{id}", recordId)).andReturn();
+            assertThat(viewed.getResponse().getStatus()).as(viewed.getResponse().getContentAsString()).isEqualTo(200);
+            assertThat(viewed.getResponse().getContentAsString()).contains(title + "-更新", "陈晨")
+                    .doesNotContain("demo_student_1002");
+        }
+        try (CurrentUserContext.Scope user = CurrentUserContext.use(CurrentUser.tenantUser(
+                "exam-no-grants-" + serial(), "未授权用户", DemoBootstrapTask.TENANT_ALIAS));
+             TenantContext.Scope tenant = TenantContext.use(DemoBootstrapTask.TENANT_ALIAS)) {
+            MvcResult denied = mvc.perform(post("/education.exam/update/{id}", recordId)
+                    .contentType("application/json").content("{\"values\":{\"title\":\"越权修改\"}}"))
+                    .andReturn();
+            assertThat(denied.getResponse().getStatus()).as(denied.getResponse().getContentAsString()).isEqualTo(403);
+        }
+        try (CurrentUserContext.Scope user = CurrentUserContext.use(CurrentUser.systemUser(
+                "exam-tenant-boundary", "Exam Tenant Boundary"));
+             TenantContext.Scope tenant = TenantContext.use("exam-other-tenant")) {
+            assertThat(dynamicRecords.listSystem(ExamDemoBootstrapTask.MODULE_ALIAS, "exam",
+                    Criteria.of().eq("id", recordId))).isEmpty();
+            assertThat(dynamicRecords.listSystem(ExamDemoBootstrapTask.MODULE_ALIAS, "exam_participant",
+                    Criteria.of().eq("examId", recordId))).isEmpty();
+        }
+        try (TenantContext.Scope tenant = TenantContext.use(DemoBootstrapTask.TENANT_ALIAS)) {
+            assertThat(dynamicRecords.listSystem(ExamDemoBootstrapTask.MODULE_ALIAS, "exam",
+                    Criteria.of().eq("id", recordId))).singleElement()
+                    .satisfies(row -> assertThat(row.getValue("title")).isEqualTo(title + "-更新"));
+        }
+    }
+
+    @Test
     void shouldSwitchDynamicExecutionPlanWhenPublishingTheFollowUpDraft() {
         try (TenantContext.Scope ignored = TenantContext.system("publish academic evaluation page follow-up draft")) {
             PlatformPageDefinition page = pageDefinitions.resolveGlobalPage(ExamDemoBootstrapTask.MODULE_ALIAS,
@@ -475,7 +638,8 @@ public class TeachingDemoIT {
 
             PlatformPresentationRevision nextDraft = new PlatformPresentationRevision();
             nextDraft.setVariantId(variant.getId());
-            nextDraft.setRevisionNo(published.getRevisionNo() + 1);
+            nextDraft.setRevisionNo(presentationRevisions.list(Criteria.of().eq("variantId", variant.getId()))
+                    .stream().mapToInt(PlatformPresentationRevision::getRevisionNo).max().orElseThrow() + 1);
             nextDraft.setTemplateAlias(published.getTemplateAlias());
             nextDraft.setTemplateVersion(published.getTemplateVersion());
             nextDraft.setUiTreeJson(published.getUiTreeJson());

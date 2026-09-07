@@ -89,7 +89,7 @@ public class MetadataModelChangeSetPreviewService {
         }
         for (MetadataModelFieldOrderPlan order : fieldOrders) {
             impacts.add(new MetadataModelChangeSetOrderImpact("REORDER_FIELDS", order.relationId(), null,
-                    order.entries().stream().map(MetadataModelFieldOrderPlan.Entry::fieldId).toList(), "调整实体字段顺序。"));
+                    order.entries().stream().map(MetadataModelFieldOrderPlan.Entry::fieldId).toList(), "调整元数据字段顺序。"));
         }
         return List.copyOf(impacts);
     }
@@ -121,7 +121,7 @@ public class MetadataModelChangeSetPreviewService {
                 continue;
             }
             if (!seenMetadata.add(relation.getMetadataId())) {
-                error(errors, "DUPLICATE_METADATA_DRAFT", draft.relationId(), "同一元数据不能在一个模型草稿中由多个节点同时修改。");
+                error(errors, "DUPLICATE_METADATA_DRAFT", draft.relationId(), "同一元数据不能在一个元数据草稿中由多个节点同时修改。");
                 continue;
             }
             MetadataRelationChangeSetPreview preview = relationPreviewService.preview(moduleAlias, relation.getId(),
@@ -193,7 +193,7 @@ public class MetadataModelChangeSetPreviewService {
             List<MetadataField> fields = fieldService.list(Criteria.of().eq("metadataId", relation.getMetadataId()), ALL);
             List<MetadataField> movable = fields;
             if (!sameIds(order.fieldIds(), movable.stream().map(MetadataField::getId).toList())) {
-                error(errors, "INVALID_FIELD_ORDER", order.relationId(), "字段排序必须完整覆盖当前实体的所有字段。");
+                error(errors, "INVALID_FIELD_ORDER", order.relationId(), "字段排序必须完整覆盖当前元数据的所有字段。");
                 continue;
             }
             if (order.fieldIds().stream().anyMatch(mutationFieldIds::contains)) {

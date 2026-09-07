@@ -72,8 +72,8 @@ public class ModuleMetadataCapabilitySnapshotService {
             default -> "";
         };
         boolean configurable = !child && !blockedByChildUsage;
-        String reason = child ? "子实体不能启用该模块保留能力。"
-                : blockedByChildUsage ? "该元数据已参与子实体关联；首期不允许变更会影响子实体结构的能力。"
+        String reason = child ? "子元数据不能启用该模块保留能力。"
+                : blockedByChildUsage ? "该元数据已参与子元数据关联；首期不允许变更会影响子元数据结构的能力。"
                 : resolution.legacyFieldInference() ? "旧元数据暂由字段事实推导；首次治理后将写入能力声明。"
                 : "能力由元数据声明驱动。";
         return new ModuleMetadataCapabilityFact(capability, resolution.capabilities().contains(capability), configurable,
@@ -83,7 +83,7 @@ public class ModuleMetadataCapabilitySnapshotService {
     private ModuleMetadataCapabilityFact dataScopeCapability(ModuleMetadataRelation relation, Metadata metadata) {
         boolean child = relation.getRelationRole() == RelationRole.CHILD;
         return new ModuleMetadataCapabilityFact(EntityCapability.DATA_SCOPE, Boolean.TRUE.equals(metadata.getDataScopeEnabled()), !child,
-                child ? "子实体不能启用模块数据权限范围。" : "数据权限范围由现有元数据配置声明。",
+                child ? "子元数据不能启用模块数据权限范围。" : "数据权限范围由现有元数据配置声明。",
                 PlatformDataScopeSchema.fieldNames(), "CONTEXT",
                 "权限字段由当前用户与组织上下文填充。 ");
     }
@@ -97,9 +97,9 @@ public class ModuleMetadataCapabilitySnapshotService {
         boolean allowedForChild = capability == EntityCapability.REFERENCE;
         boolean configurable = (!child || allowedForChild) && !blockedByChildUsage;
         String reason = child && !allowedForChild
-                ? "子实体不能启用该模块保留能力。"
+                ? "子元数据不能启用该模块保留能力。"
                 : blockedByChildUsage
-                    ? "该元数据已参与子实体关联；首期不允许变更会影响子实体结构的能力。"
+                    ? "该元数据已参与子元数据关联；首期不允许变更会影响子元数据结构的能力。"
                     : "能力由已保存的标准字段事实推导。";
         return new ModuleMetadataCapabilityFact(capability, fields.stream().anyMatch(enabled), configurable, reason,
                 contributions, defaultKind, defaultDescription);

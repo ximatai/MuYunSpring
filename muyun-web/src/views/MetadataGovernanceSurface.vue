@@ -87,7 +87,7 @@ const metadataClient = createStaticResourceCrudClient<Metadata>(moduleContext.ht
 const state = createMetadataOrchestrationState();
 const editSession = createMetadataModelWorkspaceEditSession();
 const sorting = ref(false);
-useWorkspaceViewUnsavedState('数据模型', () => editSession.isDirty.value || state.mode.value !== 'view');
+useWorkspaceViewUnsavedState('元数据', () => editSession.isDirty.value || state.mode.value !== 'view');
 const mainMetadataDraft = state.mainMetadataDraft;
 const fieldDraft = state.fieldDraft;
 const fieldPropertyDraft = state.fieldPropertyDraft;
@@ -131,7 +131,7 @@ function updateChildAlias(alias: string) {
 }
 const childAliasError = computed(() => {
   const alias = childMetadataDraft.value.alias.trim();
-  if (!alias) return '请填写子实体标识';
+  if (!alias) return '请填写子元数据标识';
   if (!/^[a-z][a-z0-9_]{0,62}$/.test(alias))
     return '标识须以小写字母开头，仅含小写字母、数字或下划线，最多 63 个字符';
   return undefined;
@@ -585,7 +585,7 @@ function toggleSorting() {
 }
 
 async function previewAndApply(
-  operationName = '保存数据模型',
+  operationName = '保存元数据',
   mode: 'confirm' | 'immediate-order' = 'confirm',
 ) {
   const proposal = editSession.buildProposal();
@@ -635,7 +635,7 @@ async function previewAndApply(
         await synchronizeOrder(proposal);
       } catch (cause) {
         presentPlatformError(cause, { source: 'metadata-orchestration', phase: 'load' });
-        presentPlatformMessage('排序已保存，但最新数据同步失败；请使用数据模型的刷新操作重试。', {
+        presentPlatformMessage('排序已保存，但最新数据同步失败；请使用元数据的刷新操作重试。', {
           source: 'metadata-orchestration',
           phase: 'load',
         });
@@ -687,7 +687,7 @@ async function synchronizeOrder(proposal: MetadataModelChangeSetProposal) {
     Promise.all(
       proposal.fieldOrders.map(async ({ relationId }) => {
         const relation = state.relations.value.find((item) => item.id === relationId);
-        if (!relation?.metadataId) throw new Error('排序节点已失效，请刷新数据模型。');
+        if (!relation?.metadataId) throw new Error('排序节点已失效，请刷新元数据。');
         const records = await loadAllRecords<MetadataField>(
           `/platform.metadata/${encodeURIComponent(relation.metadataId)}/fields/query`,
         );
@@ -769,7 +769,7 @@ async function createChildMetadata() {
   childValidationAttempted.value = true;
   if (!relationId || childAliasError.value || !title) {
     if (title && childAliasError.value) editorMode.value = 'ADVANCED';
-    presentPlatformMessage(!title ? '请填写子实体名称' : (childAliasError.value ?? '请选择父实体'), {
+    presentPlatformMessage(!title ? '请填写子元数据名称' : (childAliasError.value ?? '请选择父元数据'), {
       source: 'metadata-orchestration',
       phase: 'validation',
     });
@@ -963,7 +963,7 @@ function candidateLabel(candidate: ReferenceTargetFieldCandidate): string {
 async function createMainMetadata() {
   const draft = normalizeMainMetadataDraft(state.mainMetadataDraft.value);
   if (!isValidMainMetadataDraft(draft)) {
-    presentPlatformMessage('请填写实体 alias 和名称', {
+    presentPlatformMessage('请填写元数据标识（alias）和名称', {
       source: 'metadata-orchestration',
       phase: 'validation',
     });
@@ -984,7 +984,7 @@ async function createMainMetadata() {
       selectedTreeKey.value = metadataNodeKey(result.relation.id);
     }
     await handlePlatformActionSuccess(
-      { success: true, message: '主实体已创建' },
+      { success: true, message: '主元数据已创建' },
       { source: 'metadata-orchestration' },
     );
   } catch (cause) {
@@ -1056,8 +1056,8 @@ function fieldProtectionReasonFor(
     {
       BUSINESS: undefined,
       CAPABILITY_DERIVED: '由已启用能力维护，不能作为业务字段编辑。',
-      PLATFORM_SYSTEM: '平台系统字段，不能在数据模型会话中修改。',
-      RELATION_FOREIGN_KEY: '由实体关系维护，不能作为独立字段修改。',
+      PLATFORM_SYSTEM: '平台系统字段，不能在元数据会话中修改。',
+      RELATION_FOREIGN_KEY: '由元数据关系维护，不能作为独立字段修改。',
     }[kind] ?? undefined
   );
 }
@@ -1169,9 +1169,9 @@ function capabilityTitleOf(capability: string): string {
     :sorting-request="saving && sorting && !state.fieldEditorOpen.value"
     list-surface
   >
-    <ManagementExplorerColumn title="数据模型" collapsible :has-selection="Boolean(selectedTreeKey)">
+    <ManagementExplorerColumn title="元数据" collapsible :has-selection="Boolean(selectedTreeKey)">
       <RecordExplorerPanel
-        title="数据模型"
+        title="元数据"
         :searchable="false"
         :collapse-action="false"
         :refresh-disabled="saving"
@@ -1200,7 +1200,7 @@ function capabilityTitleOf(capability: string): string {
             />
           </label>
         </template>
-        <UiSpin v-if="loading && metadataTreeNodes.length === 0" tip="加载数据模型" />
+        <UiSpin v-if="loading && metadataTreeNodes.length === 0" tip="加载元数据" />
         <UiTree
           v-else
           v-model:expanded-keys="expandedTreeKeys"
@@ -1220,14 +1220,14 @@ function capabilityTitleOf(capability: string): string {
       class="module-tree-card"
       :title="
         creatingChildMetadata
-          ? '新增子实体'
+          ? '新增子元数据'
           : selectedNodeIsField
             ? (selectedField?.title ?? '字段')
             : (state.selectedMetadata.value.title ?? '元数据')
       "
       :subtitle="
         creatingChildMetadata
-          ? `所属实体：${state.selectedMetadata.value.title}`
+          ? `所属元数据：${state.selectedMetadata.value.title}`
           : selectedNodeIsField
             ? selectedField?.fieldName
             : state.selectedMetadata.value.alias
@@ -1271,7 +1271,7 @@ function capabilityTitleOf(capability: string): string {
         <RecordFormGrid @submit.prevent="stageFieldDraft">
           <template v-if="!fieldDraft.id && childNodeType === 'CHILD_METADATA'">
             <label v-if="editorMode === 'ADVANCED' || Boolean(fieldDraft.id)">
-              <RecordFieldLabel required>子实体标识（alias）</RecordFieldLabel>
+              <RecordFieldLabel required>子元数据标识（alias）</RecordFieldLabel>
               <UiInput
                 :value="childMetadataDraft.alias"
                 required
@@ -1286,13 +1286,13 @@ function capabilityTitleOf(capability: string): string {
               >
             </label>
             <label>
-              <RecordFieldLabel required>子实体名称</RecordFieldLabel>
+              <RecordFieldLabel required>子元数据名称</RecordFieldLabel>
               <UiInput v-model:value="childMetadataDraft.title" required placeholder="例如 参考学生" />
               <span
                 v-if="childValidationAttempted && !childMetadataDraft.title.trim()"
                 class="metadata-field-error"
                 role="alert"
-                >请填写子实体名称</span
+                >请填写子元数据名称</span
               >
               <span v-if="editorMode === 'SIMPLE' && childMetadataDraft.alias" class="metadata-alias-hint"
                 >标识：{{ childMetadataDraft.alias }}</span
@@ -1364,7 +1364,7 @@ function capabilityTitleOf(capability: string): string {
                 v-if="fieldPropertyDraft.referenceConfig!.targetMetadataId"
                 class="field-property-binding record-form-full-row"
               >
-                <strong>目标实体绑定</strong
+                <strong>目标元数据绑定</strong
                 ><span>{{ fieldPropertyDraft.referenceConfig!.targetMetadataId }}</span>
               </div>
               <div class="orchestration-form-grid record-form-full-row">
@@ -1462,10 +1462,10 @@ function capabilityTitleOf(capability: string): string {
       </section>
 
       <section v-else-if="!selectedNodeIsField" class="metadata-node-summary">
-        <RecordContentSectionHeading title="实体身份" />
+        <RecordContentSectionHeading title="元数据信息" />
         <RecordDetailFields
           :record="{
-            entityRole: selectedRelationIsMain ? '主实体' : '子实体',
+            entityRole: selectedRelationIsMain ? '主元数据' : '子元数据',
             physicalTable: state.selectedMetadata.value.tableName || '物理表由平台生成',
             parentMetadata: selectedRelationIsMain
               ? undefined
@@ -1477,9 +1477,9 @@ function capabilityTitleOf(capability: string): string {
               : ['entityRole', 'physicalTable', 'parentMetadata']
           "
           :fallback="{
-            entityRole: { label: '实体类型' },
+            entityRole: { label: '元数据角色' },
             physicalTable: { label: '物理表' },
-            parentMetadata: { label: '父实体' },
+            parentMetadata: { label: '父元数据' },
           }"
         />
       </section>
@@ -1487,7 +1487,7 @@ function capabilityTitleOf(capability: string): string {
       <section v-else-if="!state.fieldEditorOpen.value" class="field-node-card">
         <RecordContentSectionHeading
           title="字段事实"
-          :subtitle="fieldProtectionReason(selectedField!) || '业务字段，可在模型编辑会话中调整。'"
+          :subtitle="fieldProtectionReason(selectedField!) || '业务字段，可在元数据编辑会话中调整。'"
         />
         <RecordDetailFields
           :record="{
@@ -1512,7 +1512,7 @@ function capabilityTitleOf(capability: string): string {
     </RecordDetailPanel>
     <RecordDetailPanel
       v-else
-      :title="state.mainEditorOpen.value ? '新建根元数据' : '数据模型'"
+      :title="state.mainEditorOpen.value ? '新建主元数据' : '元数据'"
       :subtitle="state.mainEditorOpen.value ? (moduleTitle ?? moduleAlias) : undefined"
     >
       <template v-if="state.mainEditorOpen.value" #status>
@@ -1531,17 +1531,17 @@ function capabilityTitleOf(capability: string): string {
           :disabled="loading || saving"
           @click="startCreateMainMetadata"
         >
-          新建根元数据
+          新建主元数据
         </UiActionButton>
       </template>
       <section v-if="state.mainEditorOpen.value" class="metadata-inline-editor">
         <RecordFormGrid @submit.prevent="createMainMetadata">
           <label v-if="editorMode === 'ADVANCED'">
-            <RecordFieldLabel required>实体 alias</RecordFieldLabel>
+            <RecordFieldLabel required>元数据标识（alias）</RecordFieldLabel>
             <UiInput v-model:value="mainMetadataDraft.alias" required placeholder="例如 customer" />
           </label>
           <label>
-            <RecordFieldLabel required>实体名称</RecordFieldLabel>
+            <RecordFieldLabel required>元数据名称</RecordFieldLabel>
             <UiInput v-model:value="mainMetadataDraft.title" required placeholder="例如 客户" />
           </label>
           <label v-if="editorMode === 'ADVANCED'">
@@ -1554,7 +1554,7 @@ function capabilityTitleOf(capability: string): string {
           </label>
         </RecordFormGrid>
       </section>
-      <UiEmpty v-else description="从右上角“新建根元数据”开始配置数据模型" />
+      <UiEmpty v-else description="从右上角“新建主元数据”开始配置元数据" />
     </RecordDetailPanel>
   </ManagementWorkspace>
 </template>

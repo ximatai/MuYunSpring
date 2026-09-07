@@ -11,6 +11,7 @@ const props = withDefaults(
     title: string;
     subtitle?: string;
     refreshTitle?: string;
+    refreshable?: boolean;
     refreshDisabled?: boolean;
     searchKeyword?: string;
     searchPlaceholder?: string;
@@ -19,6 +20,7 @@ const props = withDefaults(
   }>(),
   {
     refreshTitle: undefined,
+    refreshable: true,
     refreshDisabled: false,
     subtitle: undefined,
     searchKeyword: '',
@@ -72,7 +74,7 @@ async function focusSearchInput() {
       class="record-explorer-panel-header"
       :title="title"
       :subtitle="subtitle"
-      title-action-icon="reload"
+      :title-action-icon="refreshable ? 'reload' : undefined"
       :title-action-title="refreshTitle ?? `刷新${title}`"
       :title-action-disabled="refreshDisabled"
       @title-action="!refreshDisabled && emit('refresh')"

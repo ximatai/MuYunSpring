@@ -55,6 +55,31 @@ class PlatformPageCompositionDomainContractTest {
     }
 
     @Test
+    void managedStatusEntriesKeepEnableCapabilityUntilTheReplacementIsPublished() {
+        String pageId = seedPage();
+        try (TenantContext.Scope ignored = TenantContext.system("validate action dependencies")) {
+            String variantId = variantService.insert(variant(pageId, PlatformPresentationScopeType.GLOBAL, null));
+            for (String entries : List.of("[{\"actionCode\":\" enable \",\"anchor\":\"detail\"}]", "[]")) {
+                var draft = revision(variantId, entries.equals("[]") ? 2 : 1, PlatformPresentationRevisionStatus.DRAFT,
+                        """
+                        {"template":"management","templateVersion":4,"mode":"LIST_CARD","quickSearchFields":[],"actions":%s,
+                         "nodes":[{"slot":"list","title":"列表","fields":[]},{"slot":"form","title":"详情","fields":[]}]}
+                        """.formatted(entries));
+                draft.setTemplateVersion(4);
+                String id = revisionService.insert(draft);
+                if (entries.equals("[]")) {
+                    assertThat(revisionService.publishedRequiredCapabilities("crm.customer"))
+                            .contains(net.ximatai.muyun.spring.common.platform.EntityCapability.ENABLE);
+                }
+                revisionPublishService.publish(id);
+                assertThat(revisionService.publishedRequiredCapabilities("crm.customer"))
+                        .isEqualTo(entries.equals("[]") ? java.util.Set.of()
+                                : java.util.Set.of(net.ximatai.muyun.spring.common.platform.EntityCapability.ENABLE));
+            }
+        }
+    }
+
+    @Test
     void preservesPublishedCapabilitiesAcrossTemplateVersionsAndReleasesArchivedRequirements() {
         String pageId = seedPage();
         try (TenantContext.Scope ignored = TenantContext.system("validate published mode dependencies")) {

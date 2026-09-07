@@ -35,6 +35,16 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class ModuleUiDescriptorCompilerTest {
     @Test
+    void staticManagedEntriesValidateTheExecutableActionCatalog() {
+        var ui = ModuleUiDefinition.builder("demo.entry").managedActions().pageAction("create", PageActionAnchor.PAGE).build();
+        var missing = StaticModuleDefinition.builder("demo", "demo.entry", "入口").uiDefinition(ui).build();
+        assertThatThrownBy(() -> ModuleUiDescriptorCompiler.compile(missing)).hasMessageContaining("页面动作来源失效");
+        var wrongScope = StaticModuleDefinition.builder("demo", "demo.entry", "入口").uiDefinition(ui)
+                .actions(List.of(net.ximatai.muyun.spring.platform.module.StaticModuleActionDefinition.recordAction("create", "创建"))).build();
+        assertThatThrownBy(() -> ModuleUiDescriptorCompiler.compile(wrongScope)).hasMessageContaining("动作作用范围不支持");
+    }
+
+    @Test
     void shouldKeepDynamicRelationEditorFactsScopedWhenParentAndChildReuseAFieldName() {
         ModuleUiDefinition definition = ModuleUiDefinition.builder("education.exam")
                 .page(emptyEditorPage())
