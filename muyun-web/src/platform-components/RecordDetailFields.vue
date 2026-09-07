@@ -4,6 +4,7 @@ import { UiSwitch } from '@muyun/vue-ui-antdv';
 import type { OptionItemDescriptor } from '@muyun/web-contracts';
 import type { ModuleContext } from '@muyun/web-core';
 import RecordStatusTag from './RecordStatusTag.vue';
+import RecordContentSectionHeading from './RecordContentSectionHeading.vue';
 import RecordImageFileReferencePreview from './RecordImageFileReferencePreview.vue';
 import FileSizeText from './FileSizeText.vue';
 import {
@@ -140,66 +141,114 @@ function selectField(field: RecordFormFieldState) {
 function configureField(field: RecordFormFieldState) {
   if (isInteractiveField(field)) emit('configure', field.fieldName);
 }
+function groupStartsAt(index: number) {
+  const group = fieldStates.value[index]?.formGroup;
+  return group && group.groupCode !== fieldStates.value[index - 1]?.formGroup?.groupCode;
+}
+
+function groupEndsAt(index: number) {
+  const group = fieldStates.value[index]?.formGroup;
+  return group && group.groupCode !== fieldStates.value[index + 1]?.formGroup?.groupCode;
+}
 </script>
 
 <template>
-  <dl class="record-detail-fields">
-    <div
-      v-for="field in fieldStates"
-      :key="field.fieldName"
-      class="record-detail-field"
-      :class="{
-        'record-detail-field-full-row': field.columnSpan === 2,
-        'record-detail-field--interactive': isInteractiveField(field),
-        'record-detail-field--selected': isInteractiveField(field) && selectedFieldName === field.fieldName,
-      }"
-      :data-field-name="field.fieldName"
-      :data-page-composition-layout-key="
-        layoutTransitionPrefix ? `${layoutTransitionPrefix}:field:${field.fieldName}` : undefined
-      "
-      :role="isInteractiveField(field) ? 'button' : undefined"
-      :tabindex="isInteractiveField(field) ? 0 : undefined"
-      @click="selectField(field)"
-      @dblclick="configureField(field)"
-      @keydown.enter="selectField(field)"
-      @keydown.space.prevent="configureField(field)"
-    >
-      <slot name="field-actions" :field="field" />
-      <dt>{{ field.label }}</dt>
-      <dd>
-        <RecordStatusTag
-          v-if="field.controlType === 'enabledStatus' || field.controlType === 'booleanStatus'"
-          :enabled="statusFieldValue(field)"
-          :enabled-label="field.booleanStatus?.trueLabel"
-          :disabled-label="field.booleanStatus?.falseLabel"
-          :enabled-tone="field.booleanStatus?.trueTone"
-          :disabled-tone="field.booleanStatus?.falseTone"
+  <div class="record-detail-fields">
+    <template v-for="(field, index) in fieldStates" :key="field.fieldName">
+      <slot name="before-field" :field="field" />
+      <template v-if="groupStartsAt(index)">
+        <div
+          v-if="!fieldStates[index - 1]?.formGroup"
+          class="record-detail-group-divider"
+          aria-hidden="true"
         />
-        <UiSwitch
-          v-else-if="field.controlType === 'switch'"
-          :checked="props.record[field.fieldName] !== false"
-          disabled
-        />
-        <RecordImageFileReferencePreview
-          v-else-if="field.controlType === 'imageFileTransfer' && field.fileReference && fileTransferContext"
-          :value="props.record[field.fieldName]"
-          :record="props.record"
-          :context="fileTransferContext"
-          :definition="field.fileReference"
-        />
-        <span v-else-if="field.controlType === 'colorPicker'" class="record-color-value">
-          <i :style="{ backgroundColor: colorValue(field) }" aria-hidden="true" />
-          {{ displayValue(field) }}
-        </span>
-        <FileSizeText
-          v-else-if="field.valuePresentation === 'FILE_SIZE'"
-          :value="fileSizeValue(field)"
-          :empty-text="props.emptyText"
-        />
-        <span v-else>{{ displayValue(field) }}</span>
-      </dd>
-    </div>
-  </dl>
+        <RecordContentSectionHeading
+          class="record-detail-group-heading"
+          :title="field.formGroup?.title ?? ''"
+          :subtitle="field.formGroup?.subtitle"
+          :tabindex="layoutTransitionPrefix ? 0 : undefined"
+          :data-composer-target="
+            layoutTransitionPrefix
+              ? `${layoutTransitionPrefix}:group:${field.formGroup?.groupCode}`
+              : undefined
+          "
+          :data-ui-drop-key="
+            layoutTransitionPrefix
+              ? `${layoutTransitionPrefix}:group:${field.formGroup?.groupCode}`
+              : undefined
+          "
+          :data-page-composition-layout-key="
+            layoutTransitionPrefix
+              ? `${layoutTransitionPrefix}:group:${field.formGroup?.groupCode}`
+              : undefined
+          "
+        >
+          <template v-if="$slots['group-actions']" #actions
+            ><slot name="group-actions" :group="field.formGroup"
+          /></template>
+        </RecordContentSectionHeading>
+      </template>
+      <div
+        class="record-detail-field"
+        :class="{
+          'record-detail-field-full-row': field.columnSpan === 2,
+          'record-detail-field--interactive': isInteractiveField(field),
+          'record-detail-field--selected': isInteractiveField(field) && selectedFieldName === field.fieldName,
+        }"
+        :data-field-name="field.fieldName"
+        :data-page-composition-layout-key="
+          layoutTransitionPrefix ? `${layoutTransitionPrefix}:field:${field.fieldName}` : undefined
+        "
+        :role="isInteractiveField(field) ? 'button' : undefined"
+        :tabindex="isInteractiveField(field) ? 0 : undefined"
+        @click="selectField(field)"
+        @dblclick="configureField(field)"
+        @keydown.enter="selectField(field)"
+        @keydown.space.prevent="configureField(field)"
+      >
+        <slot name="field-actions" :field="field" />
+        <dl class="record-detail-field-values">
+          <dt>{{ field.label }}</dt>
+          <dd>
+            <RecordStatusTag
+              v-if="field.controlType === 'enabledStatus' || field.controlType === 'booleanStatus'"
+              :enabled="statusFieldValue(field)"
+              :enabled-label="field.booleanStatus?.trueLabel"
+              :disabled-label="field.booleanStatus?.falseLabel"
+              :enabled-tone="field.booleanStatus?.trueTone"
+              :disabled-tone="field.booleanStatus?.falseTone"
+            />
+            <UiSwitch
+              v-else-if="field.controlType === 'switch'"
+              :checked="props.record[field.fieldName] !== false"
+              disabled
+            />
+            <RecordImageFileReferencePreview
+              v-else-if="
+                field.controlType === 'imageFileTransfer' && field.fileReference && fileTransferContext
+              "
+              :value="props.record[field.fieldName]"
+              :record="props.record"
+              :context="fileTransferContext"
+              :definition="field.fileReference"
+            />
+            <span v-else-if="field.controlType === 'colorPicker'" class="record-color-value">
+              <i :style="{ backgroundColor: colorValue(field) }" aria-hidden="true" />
+              {{ displayValue(field) }}
+            </span>
+            <FileSizeText
+              v-else-if="field.valuePresentation === 'FILE_SIZE'"
+              :value="fileSizeValue(field)"
+              :empty-text="props.emptyText"
+            />
+            <span v-else>{{ displayValue(field) }}</span>
+          </dd>
+        </dl>
+      </div>
+      <div v-if="groupEndsAt(index)" class="record-detail-group-divider" aria-hidden="true" />
+    </template>
+    <slot name="after-fields" />
+  </div>
 </template>
 
 <style scoped>
@@ -208,6 +257,19 @@ function configureField(field: RecordFormFieldState) {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px 18px;
   margin: 0;
+}
+
+.record-detail-field-values {
+  margin: 0;
+}
+.record-detail-group-heading,
+.record-detail-group-divider {
+  grid-column: 1 / -1;
+}
+.record-detail-group-divider {
+  height: 1px;
+  margin: 4px 0 0;
+  background: var(--muyun-border-subtle);
 }
 
 .record-detail-field {

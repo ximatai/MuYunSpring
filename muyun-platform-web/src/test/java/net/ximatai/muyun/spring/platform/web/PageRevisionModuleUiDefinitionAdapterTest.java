@@ -19,6 +19,27 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class PageRevisionModuleUiDefinitionAdapterTest {
     @Test
+    void compilesManagedEntriesWithIndependentTitlesAndExplicitOperations() {
+        var revision = revision("""
+                {"template":"management","templateVersion":4,"mode":"LIST_CARD","quickSearchFields":[],
+                 "actions":[{"actionCode":"create","anchor":"page","title":"登记"},{"actionCode":"create","anchor":"form"}],
+                 "nodes":[{"slot":"list","title":"列表","fields":["title"]},{"slot":"form","title":"详情","fields":["title"]}]}
+                """);
+        revision.setTemplateVersion(4);
+        var definition = PageRevisionModuleUiDefinitionAdapter.fromPublishedRevision(page(), revision,
+                new DynamicPageCompilationContext(DynamicModuleOverviewMode.LIST_CARD,
+                        Map.of("title", "名称"), java.util.Set.of(), Map.of()));
+        var page = ModuleUiDescriptorCompiler.compile(definition).page();
+        assertThat(page.managedActions()).isTrue();
+        assertThat(page.actions()).containsExactly(
+                new ResolvedPageActionDescriptor("create", PageActionAnchor.PAGE, "登记", PageActionOperation.OPEN_CREATE),
+                new ResolvedPageActionDescriptor("create", PageActionAnchor.FORM, null, PageActionOperation.SUBMIT_CREATE));
+        assertThatThrownBy(() -> ModuleUiDescriptorCompiler.compile(ModuleUiDefinition.builder("sales.contract")
+                .page(definition.page()).managedActions().pageAction("approve", PageActionAnchor.DETAIL).build()))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("交互契约");
+    }
+
+    @Test
     void compilesInterleavedFieldsAndGroupsInDeclaredOrder() {
         var tree = """
                 {"template":"management","templateVersion":1,"nodes":[

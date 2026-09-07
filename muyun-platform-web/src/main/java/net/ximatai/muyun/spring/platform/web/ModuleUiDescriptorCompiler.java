@@ -82,6 +82,9 @@ public final class ModuleUiDescriptorCompiler {
         ModuleUiDefinition uiDefinition = definition.uiDefinition() == null
                 ? ModuleUiDefinition.builder(definition.moduleAlias()).build()
                 : definition.uiDefinition();
+        PageActionOperation.validate(uiDefinition, code -> definition.actions().stream()
+                .filter(action -> code.equals(action.actionCode()))
+                .map(action -> action.actionLevel().name()).findFirst().orElse(null));
         Map<String, FieldValueType> writeOnlyInputs = StaticWriteOnlyInputFields.resolve(definition.modelClass());
         validateFields(uiDefinition, definition.entities(), definition.moduleAlias(), readOutputFields(definition),
                 writeOnlyInputs.keySet());
@@ -321,7 +324,7 @@ public final class ModuleUiDescriptorCompiler {
                         .toList(),
                 defaultRecordLabelField,
                 List.of(),
-                compilePage(definition.page(), definition.pageActions(), optionFields, referenceFields, referenceSummaryFields, fieldTypes, fieldControls,
+                compilePage(definition.page(), definition.pageActions(), definition.managedActions(), optionFields, referenceFields, referenceSummaryFields, fieldTypes, fieldControls,
                         sortPartitionFieldsByEntity),
                 definition.defaultEditor() == null ? null : compileView(definition.defaultEditor(), optionFields,
                         referenceFields, referenceSummaryFields, fieldTypes, fieldControls),
@@ -597,7 +600,7 @@ public final class ModuleUiDescriptorCompiler {
         return actionCode;
     }
 
-    private static ResolvedModulePageDescriptor compilePage(ModulePageDefinition page, List<PageActionDefinition> pageActions,
+    private static ResolvedModulePageDescriptor compilePage(ModulePageDefinition page, List<PageActionDefinition> pageActions, boolean managedActions,
                                                             Map<String, ResolvedOptionFieldDescriptor> optionFields,
                                                             Map<String, ResolvedReferenceFieldDescriptor> referenceFields,
                                                             Map<String, ResolvedReferenceSummaryFieldDescriptor> referenceSummaryFields,
@@ -614,7 +617,7 @@ public final class ModuleUiDescriptorCompiler {
                     flat.template(), ResolvedPageExplorerDescriptor.from(flat.explorer()),
                     ResolvedPageNavigatorDescriptor.from(flat.navigator()), null, null,
                     detail(flat.detail(), optionFields, referenceFields, referenceSummaryFields, fieldTypes, fieldControls),
-                    List.copyOf(flat.traits().values()), flat.quickSearchFields(), resolvedPageActions(pageActions));
+                    List.copyOf(flat.traits().values()), flat.quickSearchFields(), resolvedPageActions(pageActions, managedActions), managedActions);
             }
             case ListDetailCardPageDefinition card -> {
                 if (card.navigator() != null) {
@@ -637,7 +640,7 @@ public final class ModuleUiDescriptorCompiler {
                                         .map(ResolvedPageListQuerySummaryDescriptor::from)
                                 .toList()), null,
                         detail(card.detail(), optionFields, referenceFields, referenceSummaryFields, fieldTypes, fieldControls),
-                        List.copyOf(card.traits().values()), card.quickSearchFields(), resolvedPageActions(pageActions));
+                        List.copyOf(card.traits().values()), card.quickSearchFields(), resolvedPageActions(pageActions, managedActions), managedActions);
             }
             case TreeManagementPageDefinition tree -> {
                 if (tree.navigator() != null) {
@@ -649,14 +652,15 @@ public final class ModuleUiDescriptorCompiler {
                         ResolvedPageTreeResourceDescriptor.from(tree.treeResource(),
                                 sortPartitionFields(tree.treeResource(), sortPartitionFieldsByEntity)),
                         detail(tree.detail(), optionFields, referenceFields, referenceSummaryFields, fieldTypes, fieldControls),
-                        List.copyOf(tree.traits().values()), tree.quickSearchFields(), resolvedPageActions(pageActions));
+                        List.copyOf(tree.traits().values()), tree.quickSearchFields(), resolvedPageActions(pageActions, managedActions), managedActions);
             }
         };
     }
 
-    private static List<ResolvedPageActionDescriptor> resolvedPageActions(List<PageActionDefinition> actions) {
+    private static List<ResolvedPageActionDescriptor> resolvedPageActions(List<PageActionDefinition> actions, boolean managedActions) {
         return (actions == null ? List.<PageActionDefinition>of() : actions).stream()
-                .map(action -> new ResolvedPageActionDescriptor(action.actionCode(), action.anchor()))
+                .map(action -> new ResolvedPageActionDescriptor(action.actionCode(), action.anchor(), action.title(),
+                        managedActions ? PageActionOperation.resolve(action.actionCode(), action.anchor()) : null))
                 .toList();
     }
 

@@ -47,3 +47,39 @@ it.each(['create', 'edit', 'view'] as const)('only exposes the matching save act
     mode === 'view' ? [] : [mode === 'create' ? 'create' : 'update'],
   );
 });
+
+it('gives the same action distinct interaction entries and mode-specific labels', () => {
+  const placements = [
+    { actionCode: 'create', anchor: 'PAGE' as const },
+    { actionCode: 'create', anchor: 'FORM' as const },
+    { actionCode: 'update', anchor: 'FORM' as const, title: '提交修改' },
+  ];
+  const actionOf = (actionCode: string) => ({ actionCode, actionLevel: 'ANY' });
+  expect(resolvePlacedPageActions(placements, 'PAGE', actionOf, [], 'view', true)[0]?.title).toBe('新建');
+  expect(
+    resolvePlacedPageActions(placements, 'FORM', actionOf, [], 'create', true).map((item) => item.title),
+  ).toEqual(['保存']);
+  expect(
+    resolvePlacedPageActions(placements, 'FORM', actionOf, [], 'edit', true).map((item) => item.title),
+  ).toEqual(['提交修改']);
+  expect(resolvePlacedPageActions(placements, 'FORM', actionOf, [], 'view', true)).toEqual([]);
+});
+
+it.each([true, false])('explains status operations that have already been applied (%s)', (enabled) => {
+  const actions = resolvePlacedPageActions(
+    [
+      { actionCode: 'enable', anchor: 'DETAIL' },
+      { actionCode: 'disable', anchor: 'DETAIL' },
+    ],
+    'DETAIL',
+    (actionCode) => ({ actionCode, actionLevel: 'RECORD' }),
+    [],
+    'view',
+    true,
+    { enabled },
+  );
+  expect(actions.map((action) => action.disabled)).toEqual([enabled, !enabled]);
+  expect(actions.find((action) => action.disabled)?.disabledReason).toBe(
+    enabled ? '当前记录已启用' : '当前记录已停用',
+  );
+});

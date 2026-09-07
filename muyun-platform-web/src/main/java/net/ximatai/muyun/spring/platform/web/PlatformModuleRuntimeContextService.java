@@ -472,6 +472,13 @@ public class PlatformModuleRuntimeContextService {
                                                                      String title,
                                                                      DynamicModuleDescriptor dynamicDescriptor,
                                                                      ModuleUiDefinition definition) {
+        if (definition.managedActions()) {
+            var available = actions(moduleAlias, ModuleKind.DYNAMIC, Optional.empty(), dynamicDescriptor);
+            PageActionOperation.validate(definition, code -> available.stream()
+                    .filter(action -> code.equals(action.actionCode()))
+                    .map(action -> action.actionLevel().name()).findFirst().orElse(null));
+        }
+
         if (definition.page() != null) {
             var main = dynamicDescriptor.entities().stream()
                     .filter(entity -> dynamicDescriptor.mainEntityAlias().equals(entity.entityAlias()))
@@ -608,7 +615,7 @@ public class PlatformModuleRuntimeContextService {
             contributions.add(new PageDetailEditorContribution(target.entity().entityAlias(), editor.build()));
         }
         return new ModuleUiDefinition(definition.moduleAlias(), definition.actions(), definition.page(),
-                definition.defaultEditor(), definition.editorSurfaces(), contributions, definition.detailRelations(), definition.pageActions());
+                definition.defaultEditor(), definition.editorSurfaces(), contributions, definition.detailRelations(), definition.pageActions(), definition.managedActions());
     }
 
     private void mergeDynamicRelationEditorFacts(String moduleAlias, DynamicDetailRelationTarget target,

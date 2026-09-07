@@ -9,13 +9,13 @@ import org.springframework.stereotype.Component;
 @Component
 @PlatformStaticActionDeclaration(module = ModuleMetadataRelationService.MODULE_ALIAS)
 public class PlatformMetadataModelChangeSetActionDeclaration {
-    @CustomActionEndpoint(value = "previewMetadataModelChangeSet", title = "预检数据模型变更集",
+    @CustomActionEndpoint(value = "previewMetadataModelChangeSet", title = "预检元数据变更集",
             level = PlatformActionLevel.LIST, dataAuth = false)
     public void preview() {
         // Declaration-only: HTTP delivery is owned by PlatformMetadataModelChangeSetWebController.
     }
 
-    @CustomActionEndpoint(value = "applyMetadataModelChangeSet", title = "发布数据模型变更集",
+    @CustomActionEndpoint(value = "applyMetadataModelChangeSet", title = "发布元数据变更集",
             level = PlatformActionLevel.LIST, dataAuth = false)
     public void apply() {
         // Declaration-only: HTTP delivery is owned by PlatformMetadataModelChangeSetWebController.

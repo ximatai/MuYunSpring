@@ -1118,3 +1118,27 @@ function dependentReferenceField(
     },
   };
 }
+
+it('resolves detail groups from the selected read projection without inheriting unrelated editor groups', () => {
+  const group = { groupCode: 'basic', title: '基础信息', fields: [{ fieldName: 'title' }] };
+  const editor = {
+    viewCode: 'editor',
+    viewKind: 'FORM' as const,
+    fields: [descriptorField('title', '名称')],
+    formGroups: [group],
+  };
+  const value: ResolvedModuleUiDescriptor = {
+    schemaVersion: '1',
+    moduleAlias: 'demo.warehouse',
+    page: {
+      template: 'LIST_DETAIL_CARD',
+      detail: { emptyDescription: '', createTitle: '', editor },
+      traits: [],
+    },
+  };
+  expect(resolveRecordDetailFields(value).get('title')?.formGroup).toEqual(group);
+  value.page!.detail.display = { ...editor, viewCode: 'display', formGroups: [] };
+  expect(resolveRecordDetailFields(value).get('title')?.formGroup).toBeUndefined();
+  value.page!.detail.display!.formGroups = [{ ...group, title: '只读信息' }];
+  expect(resolveRecordDetailFields(value).get('title')?.formGroup?.title).toBe('只读信息');
+});

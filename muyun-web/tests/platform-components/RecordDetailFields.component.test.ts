@@ -5,6 +5,42 @@ import RecordDetailFields from '@/platform-components/RecordDetailFields.vue';
 import RecordImageFileReferencePreview from '@/platform-components/RecordImageFileReferencePreview.vue';
 
 describe('RecordDetailFields', () => {
+  it('renders mixed groups in field order and removes headings when every member is hidden', async () => {
+    const group = {
+      groupCode: 'capacity',
+      title: '容量信息',
+      subtitle: '仓库容量',
+      fields: [{ fieldName: 'capacity' }],
+    };
+    const fields = new Map([
+      ['title', { fieldRef: { fieldName: 'title' }, label: '名称' }],
+      ['capacity', { fieldRef: { fieldName: 'capacity' }, label: '容量', formGroup: group }],
+      ['address', { fieldRef: { fieldName: 'address' }, label: '地址' }],
+    ]);
+    const wrapper = mount(RecordDetailFields, {
+      props: { record: { title: 'A', capacity: 128, address: 'B' }, fields },
+    });
+    try {
+      const order = () =>
+        wrapper.findAll('.record-detail-group-heading h3, [data-field-name] dt').map((node) => node.text());
+      expect(order()).toEqual(['名称', '容量信息', '容量', '地址']);
+      expect(wrapper.find('.record-detail-group-heading').text()).toContain('仓库容量');
+      expect(wrapper.findAll('.record-detail-group-divider')).toHaveLength(2);
+      await wrapper.setProps({ fieldNames: ['title', 'address'] });
+      expect(order()).toEqual(['名称', '地址']);
+      expect(wrapper.find('.record-detail-group-heading').exists()).toBe(false);
+      await wrapper.setProps({
+        fieldNames: undefined,
+        fields: new Map(
+          [...fields].map(([key, field]) => [key, { ...field, visible: { constant: key !== 'capacity' } }]),
+        ),
+      });
+      expect(order()).toEqual(['名称', '地址']);
+    } finally {
+      wrapper.unmount();
+    }
+  });
+
   it('emits descriptor field names for optional accessible inspection interactions', async () => {
     const wrapper = mount(RecordDetailFields, {
       props: {

@@ -1237,10 +1237,13 @@ export interface ResolvedModulePageDescriptor {
   detail: ResolvedPageDetailDescriptor;
   /** Actions placed only into platform-owned page regions. */
   actions?: ResolvedPageActionDescriptor[];
+  managedActions?: boolean;
   traits: ('STANDARD_CRUD' | 'ENABLED_STATUS' | 'RECYCLE_BIN' | 'RESPONSIVE_DETAIL_SURFACE')[];
 }
 
 export interface ResolvedPageActionDescriptor {
+  title?: string;
+  operation?: string;
   actionCode: string;
   anchor: 'PAGE' | 'DETAIL' | 'FORM';
 }

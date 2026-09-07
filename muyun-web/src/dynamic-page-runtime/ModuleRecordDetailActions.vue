@@ -22,6 +22,7 @@ const props = withDefaults(
     formActions?: RecordActionItem[];
     /** Custom record views retain their own operation model. */
     showStandardViewActions?: boolean;
+    managedActions?: boolean;
     /** A workspace is a secondary navigation action, not a business operation. */
     workspaceAvailable?: boolean;
     /** Tree cards may add a child from the selected parent. */
@@ -38,6 +39,7 @@ const props = withDefaults(
     configuredActions: () => [],
     formActions: () => [],
     showStandardViewActions: true,
+    managedActions: false,
     workspaceAvailable: false,
     createChildAvailable: false,
     createChildDisabled: false,
@@ -63,19 +65,27 @@ const saveAvailable = computed(() => {
   return props.context.can(props.mode === 'create' ? 'create' : 'update') === true;
 });
 const viewActionsActive = computed(
-  () => props.mode === 'view' && !props.recycleBinActive && props.showStandardViewActions,
+  () =>
+    props.mode === 'view' &&
+    !props.recycleBinActive &&
+    props.showStandardViewActions &&
+    !props.managedActions,
 );
 const headerActions = computed<RecordActionItem[]>(() => {
   if (formActive.value) {
     return [
       { key: '__platform-cancel', title: '取消', actionLevel: 'standard', disabled: props.saving },
-      {
-        key: '__platform-save',
-        title: props.saving ? '保存中' : '保存',
-        actionLevel: 'primary',
-        loading: props.saving,
-        disabled: !saveAvailable.value,
-      },
+      ...(!props.managedActions
+        ? [
+            {
+              key: '__platform-save',
+              title: props.saving ? '保存中' : '保存',
+              actionLevel: 'primary' as const,
+              loading: props.saving,
+              disabled: !saveAvailable.value,
+            },
+          ]
+        : []),
       ...props.formActions
         .filter((action) => action.actionCode === (props.mode === 'create' ? 'create' : 'update'))
         .map((action) => ({
@@ -104,7 +114,7 @@ const headerActions = computed<RecordActionItem[]>(() => {
     actions.push({
       key: '__platform-create-child',
       title: '新建子项',
-      actionLevel: 'primary',
+      actionLevel: 'primary' as const,
       iconName: 'plus',
       disabled: props.createChildDisabled,
     });

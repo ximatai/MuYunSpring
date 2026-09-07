@@ -678,7 +678,7 @@ public class StaticModuleDefinitionScanner implements StaticModuleRegistrationSo
         List<PageActionDefinition> pageActions = new ArrayList<>();
         if (targetUiDefinition != null) pageActions.addAll(targetUiDefinition.pageActions());
         for (PageActionDefinition action : contributionUiDefinition.pageActions()) {
-            if (pageActions.stream().anyMatch(existing -> existing.actionCode().equals(action.actionCode()))) {
+            if (pageActions.stream().anyMatch(existing -> existing.key().equals(action.key()))) {
                 throw new IllegalStateException("@PlatformStaticActionContribution page action conflicts with target module: "
                         + targetModule + "." + action.actionCode() + " <- " + contributor.getName());
             }
@@ -687,7 +687,8 @@ public class StaticModuleDefinitionScanner implements StaticModuleRegistrationSo
         return new ModuleUiDefinition(targetModule, List.copyOf(actions.values()),
                 targetUiDefinition != null && targetUiDefinition.page() != null
                         ? targetUiDefinition.page() : contributionUiDefinition.page(), defaultEditor,
-                editorSurfaces, editorContributions, detailRelations, pageActions);
+                editorSurfaces, editorContributions, detailRelations, pageActions,
+                (targetUiDefinition != null && targetUiDefinition.managedActions()) || contributionUiDefinition.managedActions());
     }
 
     private void mergeDeclaredAction(String sourceAnnotation,

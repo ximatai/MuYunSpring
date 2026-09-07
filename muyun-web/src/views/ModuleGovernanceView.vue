@@ -6,7 +6,7 @@ import ModuleActionManagementView from './ModuleActionManagementView.vue';
 import ModuleExperienceProfileOverview from './ModuleExperienceProfileOverview.vue';
 import MetadataOrchestrationView from './MetadataOrchestrationView.vue';
 import PageCompositionWorkspace from './PageCompositionWorkspace.vue';
-import PageCompositionRuntimeDiagnostics from './PageCompositionRuntimeDiagnostics.vue';
+import ModuleBusinessPreview from './ModuleBusinessPreview.vue';
 import { moduleGovernanceTabs, type ModuleGovernanceTab } from './moduleGovernanceWorkspaceView';
 
 defineOptions({ name: 'ModuleGovernanceView' });
@@ -21,10 +21,10 @@ const activeTab = ref<ModuleGovernanceTab>(props.governanceTab ?? 'overview');
 const navigation = useWorkspaceViewNavigation();
 const tabs: Array<{ key: ModuleGovernanceTab; title: string }> = [
   { key: 'overview', title: '概览' },
-  { key: 'metadata', title: '数据模型' },
+  { key: 'metadata', title: '元数据' },
   { key: 'actions', title: '动作' },
   { key: 'ui', title: '页面配置' },
-  { key: 'diagnostics', title: '运行与诊断' },
+  { key: 'preview', title: '业务预览' },
 ];
 
 watch(
@@ -43,8 +43,8 @@ const activePanel = computed<{ component: Component; props: Record<string, unkno
       return { component: ModuleActionManagementView, props: { ...moduleProps, moduleKind: 'dynamic' } };
     case 'ui':
       return { component: PageCompositionWorkspace, props: moduleProps };
-    case 'diagnostics':
-      return { component: PageCompositionRuntimeDiagnostics, props: moduleProps };
+    case 'preview':
+      return { component: ModuleBusinessPreview, props: moduleProps };
     case 'overview':
     default:
       return { component: ModuleExperienceProfileOverview, props: moduleProps };

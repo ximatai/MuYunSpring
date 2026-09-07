@@ -147,7 +147,7 @@ public final class PageRevisionModuleUiDefinitionAdapter {
         }
         if (!PlatformPresentationTemplateCatalog.MANAGEMENT_ALIAS.equals(revision.getTemplateAlias())
                 || revision.getTemplateVersion() == null
-                || !Set.of(PlatformPresentationTemplateCatalog.MANAGEMENT_VERSION, PlatformPresentationTemplateCatalog.MODE_AWARE_VERSION, PlatformPresentationTemplateCatalog.MODE_AWARE_ACTION_VERSION).contains(revision.getTemplateVersion())) {
+                || !Set.of(PlatformPresentationTemplateCatalog.MANAGEMENT_VERSION, PlatformPresentationTemplateCatalog.MODE_AWARE_VERSION, PlatformPresentationTemplateCatalog.MODE_AWARE_ACTION_VERSION, PlatformPresentationTemplateCatalog.MANAGED_ACTION_VERSION).contains(revision.getTemplateVersion())) {
             throw new IllegalArgumentException("page revision requires management v1 template: " + revision.getId());
         }
         Map<String, String> fieldTitles = fieldTitles(mainEntityFieldTitles);
@@ -181,7 +181,7 @@ public final class PageRevisionModuleUiDefinitionAdapter {
                     new PageListDefinition(searchPlaceholder, listView), detail, new PageTraitsDefinition(null), composition.quickSearchFields());
         };
         return new ModuleUiDefinition(page.getModuleAlias(), List.of(), pageDefinition,
-                null, List.of(), List.of(), detailRelations(form, associations), composition.pageActions());
+                null, List.of(), List.of(), detailRelations(form, associations), composition.pageActions(), composition.managedActions());
     }
 
     private static List<PageDetailRelationDefinition> detailRelations(
@@ -321,16 +321,17 @@ public final class PageRevisionModuleUiDefinitionAdapter {
         PageExplorerDefinition explorer = null;
         List<String> quickSearchFields = null;
         List<PageActionDefinition> pageActions = List.of();
+        boolean managedActions = root != null && root.path("templateVersion").asInt() == PlatformPresentationTemplateCatalog.MANAGED_ACTION_VERSION;
         if (root != null && Set.of(PlatformPresentationTemplateCatalog.MODE_AWARE_VERSION,
-                PlatformPresentationTemplateCatalog.MODE_AWARE_ACTION_VERSION).contains(root.path("templateVersion").asInt())) {
+                PlatformPresentationTemplateCatalog.MODE_AWARE_ACTION_VERSION, PlatformPresentationTemplateCatalog.MANAGED_ACTION_VERSION).contains(root.path("templateVersion").asInt())) {
             JsonNode normalized = PlatformPresentationTemplateCatalog.validateModeAwareTree(root);
             quickSearchFields = new java.util.ArrayList<>();
             for (JsonNode field : root.path("quickSearchFields")) quickSearchFields.add(field.asText());
-            if (root.path("templateVersion").asInt() == PlatformPresentationTemplateCatalog.MODE_AWARE_ACTION_VERSION) {
+            if (root.path("templateVersion").asInt() >= PlatformPresentationTemplateCatalog.MODE_AWARE_ACTION_VERSION) {
                 pageActions = new java.util.ArrayList<>();
                 for (JsonNode action : root.path("actions")) {
                     pageActions.add(new PageActionDefinition(action.path("actionCode").asText(),
-                            PageActionAnchor.valueOf(action.path("anchor").asText().toUpperCase(java.util.Locale.ROOT))));
+                            PageActionAnchor.valueOf(action.path("anchor").asText().toUpperCase(java.util.Locale.ROOT)), action.path("title").asText(null)));
                 }
             }
             mode = DynamicModuleOverviewMode.valueOf(root.path("mode").asText());
@@ -388,7 +389,7 @@ public final class PageRevisionModuleUiDefinitionAdapter {
                 searchPlaceholder = null;
             }
         }
-        return new Composition(Map.copyOf(slots), searchPlaceholder, mode, explorer, quickSearchFields, pageActions);
+        return new Composition(Map.copyOf(slots), searchPlaceholder, mode, explorer, quickSearchFields, pageActions, managedActions);
     }
 
     private static List<RelationNode> relationNodes(JsonNode nodes) {
@@ -462,7 +463,7 @@ public final class PageRevisionModuleUiDefinitionAdapter {
 
     private record Composition(Map<String, Slot> slots, String listSearchPlaceholder,
                                DynamicModuleOverviewMode mode, PageExplorerDefinition explorer, List<String> quickSearchFields,
-                               List<PageActionDefinition> pageActions) {
+                               List<PageActionDefinition> pageActions, boolean managedActions) {
     }
 
     private record FieldNode(String name, String label, String width, String align, Integer columnSpan,

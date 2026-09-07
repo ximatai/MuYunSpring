@@ -319,6 +319,11 @@ export function resolveRecordDetailFields(
   const references = new Map(
     (uiDescriptor?.fileReferences ?? []).map((reference) => [fieldRefKey(reference.fieldRef), reference]),
   );
+  const groupsByField = new Map(
+    detailView?.formGroups?.flatMap((group) =>
+      group.fields.map((field) => [field.fieldName, group] as const),
+    ),
+  );
   return new Map(
     detailView?.fields
       .filter((field) => field.fieldControl?.alias !== 'password')
@@ -326,6 +331,9 @@ export function resolveRecordDetailFields(
         field.fieldRef.fieldName,
         {
           ...field,
+          ...(groupsByField.has(field.fieldRef.fieldName)
+            ? { formGroup: groupsByField.get(field.fieldRef.fieldName) }
+            : {}),
           ...(references.has(fieldRefKey(field.fieldRef))
             ? { fileReference: references.get(fieldRefKey(field.fieldRef)) }
             : {}),

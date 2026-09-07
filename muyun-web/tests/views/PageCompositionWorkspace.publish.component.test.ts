@@ -1141,6 +1141,70 @@ describe('PageCompositionWorkspace publication flow', () => {
     }
   });
 
+  it('owns independent action entries across regions and preserves the other entry on removal', async () => {
+    const requests: HttpRequestOptions[] = [];
+    const delegate = publicationFlowHttp(requests);
+    configureModuleContext({
+      http: {
+        request: <T>(request: HttpRequestOptions) =>
+          request.path.endsWith('/context')
+            ? Promise.resolve({
+                actions: [
+                  { actionCode: 'create', title: '创建记录', actionLevel: 'LIST', authorized: false },
+                ],
+              } as T)
+            : delegate.request<T>(request),
+      },
+    });
+    const wrapper = mount(PageCompositionWorkspace, {
+      props: { moduleAlias: 'education.exam' },
+      global: { stubs: workspaceStubs() },
+    });
+    try {
+      await flushPromises();
+      const tree = wrapper.findComponent(PageCompositionTree);
+      tree.vm.$emit(
+        'source-drop',
+        { kind: 'action-anchor', anchor: 'page' },
+        { kind: 'action', actionCode: 'create' },
+      );
+      tree.vm.$emit(
+        'source-drop',
+        { kind: 'action-anchor', anchor: 'form' },
+        { kind: 'action', actionCode: 'create' },
+      );
+      await flushPromises();
+      expect(tree.props('actionPlacements')).toEqual([
+        { actionCode: 'create', anchor: 'page' },
+        { actionCode: 'create', anchor: 'form' },
+      ]);
+      tree.vm.$emit('double-click', 'ui:action:page:create');
+      await flushPromises();
+      const titleInput = wrapper.find('input[placeholder="新建"]');
+      expect(titleInput.exists()).toBe(true);
+      await titleInput.setValue('登记仓库');
+      expect(tree.props('actionPlacements')?.[0]).toMatchObject({ title: '登记仓库' });
+      tree.vm.$emit(
+        'source-drop',
+        { kind: 'action-anchor', anchor: 'page' },
+        { kind: 'action', actionCode: 'create' },
+      );
+      await flushPromises();
+      expect(tree.props('actionPlacements')).toContainEqual({
+        actionCode: 'create',
+        anchor: 'page',
+        title: '登记仓库',
+      });
+      tree.vm.$emit('node-action', 'remove', 'ui:action:form:create');
+      await flushPromises();
+      expect(tree.props('actionPlacements')).toEqual([
+        { actionCode: 'create', anchor: 'page', title: '登记仓库' },
+      ]);
+    } finally {
+      wrapper.unmount();
+    }
+  });
+
   it('refreshes query eligibility and module actions without losing local placements', async () => {
     const requests: HttpRequestOptions[] = [];
     const delegate = publicationFlowHttp(requests);

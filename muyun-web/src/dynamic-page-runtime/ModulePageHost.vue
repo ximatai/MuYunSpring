@@ -137,6 +137,11 @@ defineOptions({ name: 'ModulePageHost' });
 
 const props = defineProps<{
   descriptor: StandardModulePageDescriptor;
+  requireConfiguredPage?: boolean;
+}>();
+
+const emit = defineEmits<{
+  'interaction-state-change': [state: { editing: boolean; busy: boolean }];
 }>();
 
 const currentUser = useCurrentUserContext();
@@ -313,6 +318,7 @@ const {
 } = detail;
 // RecordFormFields owns parser and renderer diagnostics. Persist only its
 // validity fact here; the host remains responsible for the save boundary.
+const deleting = ref(false);
 const mainFormValid = ref(true);
 const relationDraftValid = ref(true);
 const formValidationRequestKey = ref(0);
@@ -608,6 +614,25 @@ const {
   presentSuccess: presentModuleActionSuccess,
   presentError: (cause, source) => presentPlatformError(cause, { source, phase: 'action' }),
 });
+// Hosts may protect reload/close without inspecting the runtime's private form drafts.
+watch(
+  () => ({
+    editing:
+      Boolean(detailOpen.value && editorMode.value !== 'view') ||
+      Boolean(navigatorManagementDetail.open.value && navigatorManagementDetail.mode.value !== 'view') ||
+      localEditOpen.value,
+    busy:
+      deleting.value ||
+      saving.value ||
+      togglingEnabled.value ||
+      localEditSaving.value ||
+      navigatorManagementDetail.saving.value ||
+      navigatorManagementTogglingEnabled.value,
+  }),
+  (state) => emit('interaction-state-change', state),
+  { immediate: true, flush: 'sync' },
+);
+
 watch(localEditOpen, () => {
   // The modal may be re-opened for a different record after an invalid edit.
   // Its mounted form immediately recomputes the current validity afterwards.
@@ -992,6 +1017,7 @@ function enhancementRowActionsFor(record: QueryListRecord) {
 const enhancementBatchActions = computed<ModulePageBatchActionContribution[]>(
   () => pageEnhancement.value?.list?.batchActions ?? [],
 );
+const managedPageActions = computed(() => runtimePage.value?.managedActions === true);
 const placedPageActions = computed<RecordActionItem[]>(() => placedActionsAt('PAGE'));
 const placedDetailActions = computed<RecordActionItem[]>(() => placedActionsAt('DETAIL'));
 const placedFormActions = computed<RecordActionItem[]>(() => placedActionsAt('FORM'));
@@ -1002,6 +1028,8 @@ function placedActionsAt(anchor: 'PAGE' | 'DETAIL' | 'FORM') {
     (code) => context.runtimeAction(code),
     detailPageActions.value,
     editorMode.value,
+    managedPageActions.value,
+    selectedRecord.value ?? undefined,
   );
 }
 const enhancementRowExpansion = computed(() => pageEnhancement.value?.list?.rowExpansion);
@@ -1215,6 +1243,8 @@ const flatManagementRecycleBin = useRecycleBinExplorerMode<QueryListRecord>({
 });
 const flatManagementActions = computed<RecordActionItem[]>(() => {
   if (flatManagementRecycleBin.active.value) return [];
+  if (managedPageActions.value)
+    return editorMode.value === 'view' ? [] : [{ key: 'cancel', title: '取消', disabled: saving.value }];
   if (editorMode.value !== 'view') {
     return [
       { key: 'cancel', title: '取消', disabled: saving.value },
@@ -1265,7 +1295,7 @@ const flatManagementDetailActions = computed<RecordActionItem[]>(() => [
   ...(!flatManagementRecycleBin.active.value && editorMode.value !== 'view'
     ? placedFormActions.value.map((action) => ({
         ...action,
-        disabled: saving.value || action.disabled,
+        disabled: saving.value || detailLoading.value || detailLoadFailed.value || action.disabled,
         loading: saving.value,
       }))
     : []),
@@ -2388,7 +2418,8 @@ async function saveRecord() {
 async function deleteRecord(record: QueryListRecord) {
   const id = record.id == null ? undefined : String(record.id);
   const version = typeof record.version === 'number' ? record.version : undefined;
-  if (!id || version === undefined) return;
+  if (!id || version === undefined || deleting.value) return;
+  deleting.value = true;
   try {
     if (
       !(await confirmAction({
@@ -2410,6 +2441,8 @@ async function deleteRecord(record: QueryListRecord) {
     await presentModuleActionSuccess(result, '删除成功');
   } catch (cause) {
     presentPlatformError(cause, { source: 'module-action', phase: 'action' });
+  } finally {
+    deleting.value = false;
   }
 }
 
@@ -2454,9 +2487,21 @@ function handleListAction(action: { key?: string }) {
   if (placedPageActions.value.some((item) => item.key === action.key)) handlePlacedPageAction(action);
 }
 
+function placedOperation(key: string | undefined) {
+  return runtimePage.value?.actions?.find(
+    (entry) => `page-placement:${entry.anchor}:${entry.actionCode}` === key,
+  )?.operation;
+}
+
 function handlePlacedPageAction(action: { key?: string; actionCode?: string }) {
   if (saving.value || !placedPageActions.value.some((item) => item.key === action.key && !item.disabled))
     return;
+  if (managedPageActions.value) {
+    const operation = placedOperation(action.key);
+    if (operation === 'OPEN_CREATE') createRecord();
+    else if (operation === 'REFRESH') refreshList();
+    return;
+  }
   if (action.actionCode === 'create') {
     createRecord();
     return;
@@ -2518,7 +2563,14 @@ function handleDetailAction(action: { key?: string }) {
 async function runPlacedRecordAction(action: { key?: string; actionCode?: string }) {
   const record = selectedRecord.value;
   const recordId = record?.id == null ? undefined : String(record.id);
-  const actionCode = action.actionCode;
+  const actionCode = managedPageActions.value
+    ? (
+        { OPEN_EDIT: 'update', DELETE: 'delete', ENABLE: 'enable', DISABLE: 'disable' } as Record<
+          string,
+          string
+        >
+      )[placedOperation(action.key) ?? '']
+    : action.actionCode;
   if (
     !record ||
     !recordId ||
@@ -2545,6 +2597,11 @@ async function runPlacedRecordAction(action: { key?: string; actionCode?: string
 
 function handlePlacedFormAction(action: { key?: string; actionCode?: string }) {
   if (saving.value || !placedFormActions.value.some((item) => item.key === action.key && !item.disabled))
+    return;
+  if (
+    managedPageActions.value &&
+    placedOperation(action.key) !== (editorMode.value === 'create' ? 'SUBMIT_CREATE' : 'SUBMIT_UPDATE')
+  )
     return;
   if (action.actionCode === 'create' || action.actionCode === 'update') {
     void saveRecord();
@@ -2682,7 +2739,10 @@ function recordTitle(record: QueryListRecord | undefined) {
 </script>
 
 <template>
-  <section v-if="pageBootstrapError" class="module-unsupported">
+  <section v-if="requireConfiguredPage && runtimePageResolved && !runtimePage" class="module-unsupported">
+    <RecordPanelState description="当前模块尚未发布页面，请先发布页面配置。" />
+  </section>
+  <section v-else-if="pageBootstrapError" class="module-unsupported">
     <RecordPanelState class="module-bootstrap-error" :description="pageBootstrapError" />
   </section>
   <section v-else-if="!pageReady" class="module-unsupported">
@@ -2699,6 +2759,7 @@ function recordTitle(record: QueryListRecord | undefined) {
     <StaticManagementLayout
       v-if="flatManagementPage"
       class="module-flat-management-workspace"
+      :refreshable="!managedPageActions || flatManagementRecycleBin.active.value"
       :explorer-title="
         flatManagementRecycleBin.active.value ? '回收站' : (flatManagementContent?.explorerTitle ?? title)
       "
@@ -2807,6 +2868,7 @@ function recordTitle(record: QueryListRecord | undefined) {
           @click="flatManagementSorting = !flatManagementSorting"
         />
         <ModuleActionButton
+          v-if="!managedPageActions"
           class="record-panel-create-button"
           :context="context"
           action-code="create"
@@ -2886,8 +2948,8 @@ function recordTitle(record: QueryListRecord | undefined) {
         <RecordStatusSwitch
           v-else-if="!flatManagementRecycleBin.active.value && selectedRecord"
           :enabled="selectedRecord.enabled !== false"
-          :disabled="!canToggleEnabled"
-          :disabled-reason="toggleEnabledDisabledReason"
+          :disabled="managedPageActions || !canToggleEnabled"
+          :disabled-reason="managedPageActions ? undefined : toggleEnabledDisabledReason"
           :loading="togglingEnabled"
           :show-label="false"
           @change="toggleEnabled"
@@ -3025,9 +3087,10 @@ function recordTitle(record: QueryListRecord | undefined) {
         :selected-key="selectedRecord?.id"
         :expanded-row-keys="expandedListRowKeys"
         :reload-key="reloadKey"
-        :standard-crud-actions="true"
+        :refreshable="!managedPageActions || listMode === 'recycleBin'"
+        :standard-crud-actions="!managedPageActions"
         :standard-crud-row-actions="true"
-        :standard-crud-row-action-keys="standardCrudRowActionKeys"
+        :standard-crud-row-action-keys="managedPageActions ? ['view'] : standardCrudRowActionKeys"
         :extra-actions="[...enhancementActions, ...placedPageActions]"
         :additional-columns="enhancementColumns"
         :cell-components="enhancementCellComponents"
@@ -3104,6 +3167,7 @@ function recordTitle(record: QueryListRecord | undefined) {
             :actions="enhancementDetailActions"
             :configured-actions="[...detailPageActions, ...placedDetailActions]"
             :form-actions="placedFormActions"
+            :managed-actions="managedPageActions"
             :workspace-available="detailWorkspaceAvailable"
             @cancel="cancelDetailEditing"
             @save="saveRecord"
@@ -3119,8 +3183,8 @@ function recordTitle(record: QueryListRecord | undefined) {
           <RecordStatusSwitch
             v-if="!recycleBinDetailActive && editorMode === 'view' && selectedRecord"
             :enabled="selectedRecord.enabled !== false"
-            :disabled="!canToggleEnabled"
-            :disabled-reason="toggleEnabledDisabledReason"
+            :disabled="managedPageActions || !canToggleEnabled"
+            :disabled-reason="managedPageActions ? undefined : toggleEnabledDisabledReason"
             :loading="togglingEnabled"
             :show-label="false"
             @change="toggleEnabled"
@@ -3252,6 +3316,7 @@ function recordTitle(record: QueryListRecord | undefined) {
       <ManagementExplorerColumn>
         <RecordExplorerPanel
           :title="treePanelTitle"
+          :refreshable="!managedPageActions"
           :subtitle="mainTreeScopeContext"
           :refresh-title="`刷新${treePanelTitle}`"
           :searchable="runtimePage?.quickSearchFields?.length !== 0"
@@ -3282,7 +3347,7 @@ function recordTitle(record: QueryListRecord | undefined) {
               @click="mainTreeSorting = !mainTreeSorting"
             />
             <ModuleActionButton
-              v-if="mainTreeScopeReady"
+              v-if="mainTreeScopeReady && !managedPageActions"
               class="record-panel-create-button"
               :context="context"
               action-code="create"
@@ -3345,8 +3410,9 @@ function recordTitle(record: QueryListRecord | undefined) {
             :actions="enhancementDetailActions"
             :configured-actions="[...detailPageActions, ...placedDetailActions]"
             :form-actions="placedFormActions"
+            :managed-actions="managedPageActions"
             :workspace-available="detailWorkspaceAvailable"
-            create-child-available
+            :create-child-available="!managedPageActions"
             :create-child-disabled="!selectedRecord || context.can('create') !== true"
             @cancel="closeTreeCardEditor"
             @save="saveRecord"
@@ -3363,8 +3429,8 @@ function recordTitle(record: QueryListRecord | undefined) {
           <RecordStatusSwitch
             v-if="editorMode === 'view' && selectedRecord"
             :enabled="selectedRecord.enabled !== false"
-            :disabled="!canToggleEnabled"
-            :disabled-reason="toggleEnabledDisabledReason"
+            :disabled="managedPageActions || !canToggleEnabled"
+            :disabled-reason="managedPageActions ? undefined : toggleEnabledDisabledReason"
             :loading="togglingEnabled"
             :show-label="false"
             @change="toggleEnabled"
@@ -3450,9 +3516,10 @@ function recordTitle(record: QueryListRecord | undefined) {
       :selected-key="selectedRecord?.id"
       :expanded-row-keys="expandedListRowKeys"
       :reload-key="reloadKey"
-      :standard-crud-actions="true"
+      :refreshable="!managedPageActions || listMode === 'recycleBin'"
+      :standard-crud-actions="!managedPageActions"
       :standard-crud-row-actions="true"
-      :standard-crud-row-action-keys="standardCrudRowActionKeys"
+      :standard-crud-row-action-keys="managedPageActions ? ['view'] : standardCrudRowActionKeys"
       :extra-actions="[...enhancementActions, ...placedPageActions]"
       :additional-columns="enhancementColumns"
       :cell-components="enhancementCellComponents"
@@ -3533,8 +3600,8 @@ function recordTitle(record: QueryListRecord | undefined) {
             !recycleBinDetailActive && !enhancementDetailDrawer && editorMode === 'view' && selectedRecord
           "
           :enabled="selectedRecord.enabled !== false"
-          :disabled="!canToggleEnabled"
-          :disabled-reason="toggleEnabledDisabledReason"
+          :disabled="managedPageActions || !canToggleEnabled"
+          :disabled-reason="managedPageActions ? undefined : toggleEnabledDisabledReason"
           :loading="togglingEnabled"
           :show-label="false"
           @change="toggleEnabled"
@@ -3552,6 +3619,7 @@ function recordTitle(record: QueryListRecord | undefined) {
           :actions="enhancementDetailActions"
           :configured-actions="[...detailPageActions, ...placedDetailActions]"
           :form-actions="placedFormActions"
+          :managed-actions="managedPageActions"
           :show-standard-view-actions="!enhancementDetailDrawer"
           @cancel="cancelDetailEditing"
           @save="saveRecord"

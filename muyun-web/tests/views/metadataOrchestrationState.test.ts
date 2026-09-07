@@ -186,10 +186,10 @@ it('entity explorer item maps title, alias and relation role tag', () => {
   assert.deepEqual(item, {
     title: '实体metadata-rel-1',
     secondary: 'metadata-rel-1',
-    tag: '主实体',
+    tag: '主元数据',
     muted: undefined,
   });
-  assert.equal(relationRoleTag('CHILD'), '子实体');
+  assert.equal(relationRoleTag('CHILD'), '子元数据');
   assert.equal(relationRoleTag(undefined), undefined);
 });
 

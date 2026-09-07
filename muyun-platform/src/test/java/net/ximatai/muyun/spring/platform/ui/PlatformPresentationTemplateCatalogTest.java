@@ -49,6 +49,19 @@ class PlatformPresentationTemplateCatalogTest {
     }
 
     @Test
+    void validatesManagedEntryIdentityWithinEachRegion() {
+        var template = catalog.require("management", 4, PlatformPresentationClientType.WEB, PlatformPageContractType.MANAGEMENT);
+        String tree = """
+                {"template":"management","templateVersion":4,"mode":"LIST_CARD","quickSearchFields":[],
+                 "actions":[{"actionCode":"create","anchor":"page","title":"登记"},{"actionCode":"create","anchor":"form"}],
+                 "nodes":[{"slot":"list","title":"列表","fields":[]},{"slot":"form","title":"表单","fields":[]}]}
+                """;
+        catalog.validateUiTree(tree, template);
+        assertThatThrownBy(() -> catalog.validateUiTree(tree.replace("\"anchor\":\"form\"", "\"anchor\":\"page\""), template))
+                .isInstanceOf(RuntimeException.class);
+    }
+
+    @Test
     void rejectsActionDeclarationsOnTheVersionTwoContract() throws Exception {
         var root = new com.fasterxml.jackson.databind.ObjectMapper().readTree("""
                 {"template":"management","templateVersion":2,"mode":"LIST_CARD","quickSearchFields":[],"actions":[],
@@ -84,7 +97,7 @@ class PlatformPresentationTemplateCatalogTest {
     void shouldExposeOnlyTemplatesCompatibleWithTheClientAndPageContract() {
         assertThat(catalog.listFor(PlatformPresentationClientType.WEB, PlatformPageContractType.MANAGEMENT))
                 .extracting(PlatformPresentationTemplate::version)
-                .containsExactly(1, 2, 3);
+                .containsExactly(1, 2, 3, 4);
         assertThat(catalog.listFor(PlatformPresentationClientType.MOBILE, PlatformPageContractType.MANAGEMENT))
                 .isEmpty();
     }

@@ -37,7 +37,7 @@ public class PlatformMetadataModelChangeSetWebController extends WebSupport<Meta
     }
 
     @PostMapping("/change-set-preview")
-    @CustomActionEndpoint(value = "previewMetadataModelChangeSet", title = "预检数据模型变更集",
+    @CustomActionEndpoint(value = "previewMetadataModelChangeSet", title = "预检元数据变更集",
             level = PlatformActionLevel.LIST, dataAuth = false)
     public MetadataModelChangeSetPreview preview(HttpServletRequest request,
                                                  @RequestBody MetadataModelChangeSetPreviewCommand command) {
@@ -45,7 +45,7 @@ public class PlatformMetadataModelChangeSetWebController extends WebSupport<Meta
     }
 
     @PostMapping("/change-set-apply")
-    @CustomActionEndpoint(value = "applyMetadataModelChangeSet", title = "发布数据模型变更集",
+    @CustomActionEndpoint(value = "applyMetadataModelChangeSet", title = "发布元数据变更集",
             level = PlatformActionLevel.LIST, dataAuth = false)
     public MetadataModelChangeSetPublishResult apply(HttpServletRequest request,
                                                      @RequestBody MetadataModelChangeSetApplyCommand command) {

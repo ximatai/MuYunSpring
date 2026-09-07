@@ -12,6 +12,8 @@ import {
 import { useWorkspaceViewUnsavedState } from '@muyun/platform-workbench';
 import {
   createStaticResourceCrudClient,
+  pageActionEntryDescription,
+  pageActionEntryTitle,
   normalizeError,
   platformErrorCodes,
   useModuleContext,
@@ -52,6 +54,7 @@ import {
   type CompositionMode,
   type CompositionSkeleton,
   type PageCompositionActionPlacement,
+  defaultPageActionEntries,
 } from './pageCompositionMode';
 import { pageCompositionTransport } from './pageCompositionTransport';
 import PageCompositionDescriptorPreview from './PageCompositionDescriptorPreview.vue';
@@ -95,6 +98,24 @@ const searchableFields = ref<string[]>([]);
 const explorerSecondaryField = ref<string>();
 const moduleActions = ref<ModuleRuntimeAction[]>([]);
 const actionPlacements = ref<PageCompositionActionPlacement[]>([]);
+const actionFormMode = ref<'create' | 'edit'>('edit');
+const selectedActionKey = ref<string>();
+const selectedActionEntry = computed(() =>
+  actionPlacements.value.find(
+    (entry) => `ui:action:${entry.anchor}:${entry.actionCode}` === selectedActionKey.value,
+  ),
+);
+const actionIssues = computed(() =>
+  actionPlacements.value
+    .filter(
+      (entry) =>
+        !moduleActions.value.some(
+          (action) => action.actionCode === entry.actionCode && canPlaceActionInAnchor(action, entry.anchor),
+        ),
+    )
+    .map((entry) => `${entry.title ?? entry.actionCode}：来源失效或此区域尚无执行契约`),
+);
+
 const editorMode = ref<'fields' | 'actions'>('fields');
 const editorModeOptions: UiRadioOption[] = [
   { value: 'fields', label: '字段模式' },
@@ -195,7 +216,11 @@ const selectedFieldLabel = computed(() =>
           : (selectedRelation.value?.title ?? '组件'),
 );
 const propertyDrawerTitle = computed(() =>
-  selectedQuickSearch.value ? '配置：快速查询占位提示' : `配置：${selectedFieldLabel.value}`,
+  selectedActionEntry.value
+    ? `配置：${pageActionEntryTitle(selectedActionEntry.value)}`
+    : selectedQuickSearch.value
+      ? '配置：快速查询占位提示'
+      : `配置：${selectedFieldLabel.value}`,
 );
 const selectedPreviewFieldName = computed(() => {
   const node = state.selectedNode.value;
@@ -255,6 +280,7 @@ const propertyValidationMessage = computed(() => {
   return '列宽需使用数字加 px 或 %，例如 160px、25%。';
 });
 const selectedUiTreeKey = computed(() => {
+  if (selectedActionKey.value) return selectedActionKey.value;
   const node = state.selectedNode.value;
   if (!node) return undefined;
   if (node.kind === 'template') return 'ui:template:list:quick-search';
@@ -328,8 +354,14 @@ const metadataTreeNodes = computed<UiTreeNode[]>(() => [
             key: `module-action:${action.actionCode}`,
             title: action.title ?? action.actionCode,
             secondary: action.actionCode,
-            tag: action.authorized ? undefined : '无权限',
-            muted: !action.authorized,
+            tag: !(['page', 'detail', 'form'] as const).some((anchor) =>
+              canPlaceActionInAnchor(action, anchor),
+            )
+              ? '暂不支持页面按钮'
+              : undefined,
+            muted: !(['page', 'detail', 'form'] as const).some((anchor) =>
+              canPlaceActionInAnchor(action, anchor),
+            ),
             isLeaf: true,
           })),
         },
@@ -337,6 +369,7 @@ const metadataTreeNodes = computed<UiTreeNode[]>(() => [
     : []),
 ]);
 watch(editorMode, () => {
+  selectedActionKey.value = undefined;
   propertyDrawerOpen.value = false;
   selectedMetadataTreeKey.value = undefined;
 });
@@ -539,7 +572,7 @@ async function loadMetadataTree(requestSequence = workspaceLoadSequence, moduleA
     skeletons.value = profile.compositionSkeletons;
     configuredMode.value = profile.overviewMode.toUpperCase() as CompositionMode;
     searchableFields.value = profile.searchableFields ?? [];
-    if (runtime) moduleActions.value = (runtime.actions ?? []).filter((action) => action.authorized);
+    if (runtime) moduleActions.value = runtime.actions ?? [];
     relation.value = main;
     metadataRelations.value = relations;
     metadataFields.value = toFields(fields);
@@ -764,6 +797,7 @@ function hydrateDraft(current: PresentationRevision | undefined, markSaved = tru
       }>;
     };
     const modeTree = JSON.parse(current.uiTreeJson) as {
+      templateVersion?: number;
       quickSearchFields?: string[];
       mode?: CompositionMode;
       actions?: PageCompositionActionPlacement[];
@@ -870,6 +904,18 @@ function hydrateDraft(current: PresentationRevision | undefined, markSaved = tru
         typeof placement?.anchor === 'string' &&
         ['page', 'detail', 'form'].includes(placement.anchor),
     );
+    if ((modeTree.templateVersion ?? 1) < 4) {
+      const defaults = defaultPageActionEntries(moduleActions.value);
+      actionPlacements.value = [
+        ...actionPlacements.value,
+        ...defaults.filter(
+          (entry) =>
+            !actionPlacements.value.some(
+              (existing) => existing.anchor === entry.anchor && existing.actionCode === entry.actionCode,
+            ),
+        ),
+      ];
+    }
     state.updateQuickSearchPlaceholder(
       typeof tree.props?.list?.searchPlaceholder === 'string' ? tree.props.list.searchPlaceholder : undefined,
     );
@@ -920,12 +966,13 @@ async function initializeComposition() {
       revisions.filter((item) => item.status === pageCompositionTransport.publishedRevision),
     );
     if (latestPublished) hydrateDraft(latestPublished, false);
+    else actionPlacements.value = defaultPageActionEntries(moduleActions.value);
     const treeJsonToPersist = currentUiTreeJson.value;
     const createdRevision = (
       await revisionClient(variant.value.id).insert({
         revisionNo: Math.max(0, ...revisions.map((item) => item.revisionNo ?? 0)) + 1,
         templateAlias: latestPublished?.templateAlias ?? 'management',
-        templateVersion: skeleton.value ? 3 : (latestPublished?.templateVersion ?? 1),
+        templateVersion: skeleton.value ? 4 : (latestPublished?.templateVersion ?? 1),
         uiTreeJson: treeJsonToPersist,
         status: pageCompositionTransport.draftRevision,
         title: latestPublished ? `基于 v${latestPublished.revisionNo ?? 1} 的草稿` : '初始草稿',
@@ -951,6 +998,7 @@ async function saveDraft(
   if (
     draftParseError.value ||
     propertyIssues.value.length > 0 ||
+    actionIssues.value.length > 0 ||
     draftConflict.value ||
     compositionLoading.value ||
     loading.value ||
@@ -968,7 +1016,7 @@ async function saveDraft(
   try {
     const result = await revisionClient(variantId).update(candidate.id!, {
       ...candidate,
-      templateVersion: skeleton.value ? 3 : candidate.templateVersion,
+      templateVersion: skeleton.value ? 4 : candidate.templateVersion,
       uiTreeJson: treeJsonToPersist,
     });
     if (!current()) return false;
@@ -990,6 +1038,7 @@ async function publishDraft() {
   if (
     isMutating.value ||
     propertyIssues.value.length > 0 ||
+    actionIssues.value.length > 0 ||
     draftConflict.value ||
     unavailableSources.value.length ||
     draftParseError.value ||
@@ -1146,6 +1195,12 @@ function addMetadataNode(action: UiRecordInlineAction, node: UiTreeNode) {
 }
 
 function selectUiTreeKey(key: string) {
+  selectedActionKey.value = key.startsWith('ui:action:') ? key : undefined;
+  if (selectedActionKey.value) {
+    state.selectedNodeId.value = undefined;
+    return;
+  }
+
   const parsed = parseUiNode(key);
   if (!parsed) return;
   if (parsed.kind === 'slot' || parsed.kind === 'fieldGroup') {
@@ -1215,12 +1270,26 @@ function selectUiTreeKey(key: string) {
 }
 
 function canDragMetadataNode(node: UiTreeNode) {
-  return !isMutating.value && metadataDragPayload(node) != null;
+  const payload = metadataDragPayload(node);
+  if (payload?.kind === 'action')
+    return (
+      !isMutating.value &&
+      (['page', 'detail', 'form'] as const).some((anchor) =>
+        canPlaceActionInAnchor(
+          moduleActions.value.find((action) => action.actionCode === payload.actionCode),
+          anchor,
+        ),
+      )
+    );
+  return !isMutating.value && payload != null;
 }
 
 function handleUiTreeDoubleClick(key: string) {
   selectUiTreeKey(key);
-  if (['field', 'groupField', 'relationField', 'group', 'template'].includes(parseUiNode(key)?.kind ?? ''))
+  if (
+    selectedActionEntry.value ||
+    ['field', 'groupField', 'relationField', 'group', 'template'].includes(parseUiNode(key)?.kind ?? '')
+  )
     openPropertyDrawer();
 }
 
@@ -1322,23 +1391,40 @@ function handleCompositionSourceDrop(target: ComposerDropTarget, payload: unknow
   }
   if (isMutating.value || target.kind !== 'action-anchor') return;
   const action = moduleActions.value.find((candidate) => candidate.actionCode === source.actionCode);
-  if (!action?.authorized || !actionCanOccupyAnchor(action, target.anchor)) return;
-  // An action has one page-level home. Dropping it again moves it instead of duplicating a button.
+  if (!action || !actionCanOccupyAnchor(action, target.anchor)) return;
+  if (target.anchor === 'form') {
+    actionFormMode.value = source.actionCode === 'create' ? 'create' : 'edit';
+    state.previewMode.value = 'edit';
+  }
+  const previous = actionPlacements.value.find(
+    (entry) => entry.actionCode === source.actionCode && entry.anchor === target.anchor,
+  );
+  // Source drops add an entry to this region; other regions retain their own entry.
   actionPlacements.value = [
-    ...actionPlacements.value.filter((placement) => placement.actionCode !== source.actionCode),
-    { actionCode: source.actionCode, anchor: target.anchor },
+    ...actionPlacements.value.filter(
+      (placement) => placement.actionCode !== source.actionCode || placement.anchor !== target.anchor,
+    ),
+    { ...previous, actionCode: source.actionCode, anchor: target.anchor },
   ];
 }
 
-/** C is an editing surface too: palette drops and internal moves update the same v3 action list as B. */
+/** C is an editing surface too: palette drops and internal moves update the same managed entry list as B. */
 function handlePreviewActionDrop(
-  source: { actionCode: string },
+  source: { actionCode: string; sourceAnchor?: PageCompositionActionPlacement['anchor'] },
   target: { anchor: PageCompositionActionPlacement['anchor']; index: number },
 ) {
   if (isMutating.value) return;
   const action = moduleActions.value.find((candidate) => candidate.actionCode === source.actionCode);
-  if (!action?.authorized || !actionCanOccupyAnchor(action, target.anchor)) return;
-  const without = actionPlacements.value.filter((placement) => placement.actionCode !== source.actionCode);
+  if (!action || !actionCanOccupyAnchor(action, target.anchor)) return;
+  const previous = actionPlacements.value.find(
+    (entry) =>
+      entry.actionCode === source.actionCode && entry.anchor === (source.sourceAnchor ?? target.anchor),
+  );
+  const without = actionPlacements.value.filter(
+    (entry) =>
+      entry.actionCode !== source.actionCode ||
+      (entry.anchor !== target.anchor && entry.anchor !== source.sourceAnchor),
+  );
   const index = Math.max(
     0,
     Math.min(target.index, without.filter((placement) => placement.anchor === target.anchor).length),
@@ -1348,7 +1434,8 @@ function handlePreviewActionDrop(
       placement.anchor === target.anchor &&
       without.slice(0, position + 1).filter((candidate) => candidate.anchor === target.anchor).length > index,
   );
-  const next = { actionCode: source.actionCode, anchor: target.anchor };
+  const next = { ...previous, actionCode: source.actionCode, anchor: target.anchor };
+  if (target.anchor === 'form') actionFormMode.value = source.actionCode === 'create' ? 'create' : 'edit';
   actionPlacements.value =
     insertion < 0 ? [...without, next] : [...without.slice(0, insertion), next, ...without.slice(insertion)];
 }
@@ -1524,6 +1611,7 @@ function parseUiNode(
 
 function selectNode(node: (typeof state.nodes.value)[number]) {
   if (isMutating.value) return;
+  selectedActionKey.value = undefined;
   state.selectNode(node);
 }
 
@@ -1575,9 +1663,9 @@ function handleNodeAction(action: 'configure' | 'remove' | 'add-group', key: str
     return;
   }
   if (action === 'remove' && key.startsWith('ui:action:')) {
-    const [, , , actionCode] = key.split(':');
+    const [, , anchor, actionCode] = key.split(':');
     actionPlacements.value = actionPlacements.value.filter(
-      (placement) => placement.actionCode !== actionCode,
+      (placement) => placement.actionCode !== actionCode || placement.anchor !== anchor,
     );
     return;
   }
@@ -1624,7 +1712,10 @@ function fieldDisplayTitle(field: PageComposerField) {
 }
 
 function openPropertyDrawer() {
-  if (isMutating.value || (!selectedField.value && !selectedQuickSearch.value && !selectedGroup.value))
+  if (
+    isMutating.value ||
+    (!selectedActionEntry.value && !selectedField.value && !selectedQuickSearch.value && !selectedGroup.value)
+  )
     return;
   if (selectedQuickSearch.value) quickSearchPlaceholderDraft.value = state.quickSearchPlaceholder.value ?? '';
   else if (selectedField.value) propertyDraft.value = { ...(selectedField.value.properties ?? {}) };
@@ -1666,7 +1757,8 @@ function openPropertyDrawer() {
                 isMutating ||
                 draftConflict ||
                 propertyIssues.length > 0 ||
-                (!hasUnsavedChanges && revision?.templateVersion === 2)
+                actionIssues.length > 0 ||
+                (!hasUnsavedChanges && revision?.templateVersion === 4)
               "
               @click="() => void saveDraft()"
             >
@@ -1682,6 +1774,7 @@ function openPropertyDrawer() {
                 isMutating ||
                 draftConflict ||
                 propertyIssues.length > 0 ||
+                actionIssues.length > 0 ||
                 unavailableSources.length > 0 ||
                 Boolean(draftParseError)
               "
@@ -1807,6 +1900,20 @@ function openPropertyDrawer() {
             @update:value="selectPreviewMode"
           />
         </template>
+        <div v-if="actionIssues.length" role="alert" class="page-composition-source-error">
+          {{ actionIssues.join('；') }}。请修正入口后发布。
+        </div>
+        <div v-if="editorMode === 'actions'" class="page-composition-action-help">
+          配置业务操作入口；取消、查看和导航工具由模板提供。同一动作可放到不同区域。
+        </div>
+        <UiRadioGroup
+          v-if="editorMode === 'actions' && state.previewMode.value === 'edit'"
+          v-model:value="actionFormMode"
+          :options="[
+            { value: 'create', label: '新建状态' },
+            { value: 'edit', label: '编辑状态' },
+          ]"
+        />
         <div v-if="propertyIssues.length" role="alert" class="page-composition-source-error">
           列宽格式有误，请修正后保存：
           <UiButton
@@ -1854,11 +1961,13 @@ function openPropertyDrawer() {
           :placement-disabled="isMutating || previewLoading || Boolean(previewError)"
           :placement-commit-failed="Boolean(previewError)"
           :structure="previewStructure"
+          :action-form-mode="actionFormMode"
           :action-placements="actionPlacements"
           :module-actions="moduleActions"
           @select-field="(slot, fieldName) => selectDescriptorPreviewField(slot, fieldName)"
           @configure-field="(slot, fieldName) => selectDescriptorPreviewField(slot, fieldName, true)"
           @configure-relation-field="configurePreviewRelationField"
+          @configure-action="(anchor, code) => handleUiTreeDoubleClick(`ui:action:${anchor}:${code}`)"
           @placement-drop="handlePreviewPlacement"
           @action-drop="handlePreviewActionDrop"
         />
@@ -1895,6 +2004,21 @@ function openPropertyDrawer() {
               @update:value="updateQuickSearch"
             />
           </label>
+        </div>
+        <div v-if="selectedActionEntry" class="component-property-drawer">
+          <label
+            ><span>按钮标题</span
+            ><UiInput
+              :value="selectedActionEntry.title ?? ''"
+              :placeholder="pageActionEntryTitle({ ...selectedActionEntry, title: undefined })"
+              @update:value="
+                (value) => {
+                  if (selectedActionEntry) selectedActionEntry.title = value.trim() || undefined;
+                }
+              "
+          /></label>
+          <p>业务动作：{{ selectedActionEntry.actionCode }}</p>
+          <p>交互：{{ pageActionEntryDescription(selectedActionEntry) }}</p>
         </div>
         <div v-else-if="selectedField" class="component-property-drawer">
           <label>

@@ -345,11 +345,11 @@ it('creates a child in simple mode from its title and keeps a failed draft locke
   await action('＋ 子元数据').trigger('click');
   await action('创建').trigger('click');
   expect(request.mock.calls.some(([options]) => options.path.endsWith('/create-child-metadata'))).toBe(false);
-  expect(wrapper.text()).toContain('请填写子实体名称');
+  expect(wrapper.text()).toContain('请填写子元数据名称');
   await wrapper.findComponent({ name: 'UiInput' }).vm.$emit('update:value', '参考学生');
   await flushPromises();
   expect(wrapper.findComponent({ name: 'ManagementWorkspace' }).props('editing')).toBe(true);
-  expect(wrapper.findComponent({ name: 'RecordDetailPanel' }).props('title')).toBe('新增子实体');
+  expect(wrapper.findComponent({ name: 'RecordDetailPanel' }).props('title')).toBe('新增子元数据');
   expect(wrapper.text()).toContain('can_kao_xue_sheng');
   await action('创建').trigger('click');
   expect(
@@ -488,7 +488,9 @@ function responseFor(options: HttpRequestOptions) {
           capability: 'TREE',
           enabled: false,
           configurable: true,
-          reason: options.path.includes('rel-child') ? '子实体不能启用该模块保留能力。' : '可由主实体声明。',
+          reason: options.path.includes('rel-child')
+            ? '子元数据不能启用该模块保留能力。'
+            : '可由主元数据声明。',
           fieldContributions: [],
           defaultKind: 'RUNTIME',
           defaultDescription: '',

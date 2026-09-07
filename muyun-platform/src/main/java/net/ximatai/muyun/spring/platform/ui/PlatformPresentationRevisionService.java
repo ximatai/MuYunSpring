@@ -75,10 +75,18 @@ public class PlatformPresentationRevisionService extends AbstractAbilityService<
         var required = EnumSet.noneOf(EntityCapability.class);
         for (var revision : list(Criteria.of().in("variantId", variants).eq("status", PlatformPresentationRevisionStatus.PUBLISHED)
                 .in("templateVersion", java.util.List.of(PlatformPresentationTemplateCatalog.MODE_AWARE_VERSION,
-                        PlatformPresentationTemplateCatalog.MODE_AWARE_ACTION_VERSION)),
+                        PlatformPresentationTemplateCatalog.MODE_AWARE_ACTION_VERSION, PlatformPresentationTemplateCatalog.MANAGED_ACTION_VERSION)),
                 new PageRequest(0, Integer.MAX_VALUE))) {
             try {
-                String mode = JSON.readTree(revision.getUiTreeJson()).path("mode").asText();
+                var tree = JSON.readTree(revision.getUiTreeJson());
+                String mode = tree.path("mode").asText();
+                if (revision.getTemplateVersion() == PlatformPresentationTemplateCatalog.MANAGED_ACTION_VERSION) {
+                    for (var entry : tree.path("actions")) {
+                        if (java.util.Set.of("enable", "disable").contains(entry.path("actionCode").asText().trim())) {
+                            required.add(EntityCapability.ENABLE);
+                        }
+                    }
+                }
                 if ("TREE_CARD".equals(mode)) required.add(EntityCapability.TREE);
                 if ("TREE_CARD".equals(mode) || "MICRO_LIST_CARD".equals(mode)) required.add(EntityCapability.SORT);
             } catch (JsonProcessingException exception) {

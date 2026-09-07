@@ -320,8 +320,14 @@ describe('PageCompositionTree', () => {
     tree.vm.$emit('drop', dropEvent(updateAction, formAnchor, 0, false));
 
     expect(wrapper.emitted('action-drop')).toEqual([
-      [{ actionCode: 'update' }, { anchor: 'detail', index: 0 }],
-      [{ actionCode: 'update' }, { anchor: 'form', index: 0 }],
+      [
+        { actionCode: 'update', sourceAnchor: 'detail' },
+        { anchor: 'detail', index: 0 },
+      ],
+      [
+        { actionCode: 'update', sourceAnchor: 'detail' },
+        { anchor: 'form', index: 0 },
+      ],
     ]);
   });
 

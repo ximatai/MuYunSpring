@@ -13,7 +13,13 @@ public record ModuleUiDefinition(String moduleAlias,
                                  List<EditorSurfaceDefinition> editorSurfaces,
                                  List<PageDetailEditorContribution> editorContributions,
                                  List<PageDetailRelationDefinition> detailRelations,
-                                 List<PageActionDefinition> pageActions) {
+                                 List<PageActionDefinition> pageActions, boolean managedActions) {
+    public ModuleUiDefinition(String moduleAlias, List<UiActionDefinition> actions, ModulePageDefinition page,
+            ViewDefinition defaultEditor, List<EditorSurfaceDefinition> editorSurfaces,
+            List<PageDetailEditorContribution> editorContributions, List<PageDetailRelationDefinition> detailRelations,
+            List<PageActionDefinition> pageActions) {
+        this(moduleAlias, actions, page, defaultEditor, editorSurfaces, editorContributions, detailRelations, pageActions, false);
+    }
     public ModuleUiDefinition(String moduleAlias, List<UiActionDefinition> actions, ModulePageDefinition page,
                               ViewDefinition defaultEditor, List<EditorSurfaceDefinition> editorSurfaces,
                               List<PageDetailEditorContribution> editorContributions,
@@ -46,8 +52,8 @@ public record ModuleUiDefinition(String moduleAlias,
             throw new IllegalArgumentException("duplicate detail relation code");
         }
         pageActions = pageActions == null ? List.of() : List.copyOf(pageActions);
-        if (pageActions.stream().map(PageActionDefinition::actionCode).distinct().count() != pageActions.size()) {
-            throw new IllegalArgumentException("a page action may have only one anchor");
+        if (pageActions.stream().map(PageActionDefinition::key).distinct().count() != pageActions.size()) {
+            throw new IllegalArgumentException("duplicate page action entry in one anchor");
         }
     }
 
@@ -67,11 +73,16 @@ public record ModuleUiDefinition(String moduleAlias,
         private final List<EditorSurfaceDefinition> editorSurfaces = new java.util.ArrayList<>();
         private final List<PageDetailEditorContribution> editorContributions = new java.util.ArrayList<>();
         private final List<PageDetailRelationDefinition> detailRelations = new java.util.ArrayList<>();
+        private boolean managedActions;
+        public Builder managedActions() { managedActions = true; return this; }
         private final List<PageActionDefinition> pageActions = new java.util.ArrayList<>();
 
         /** Places a declared module action into a platform-owned page, detail or form region. */
         public Builder pageAction(String actionCode, PageActionAnchor anchor) {
-            pageActions.add(new PageActionDefinition(actionCode, anchor));
+            return pageAction(actionCode, anchor, null);
+        }
+        public Builder pageAction(String actionCode, PageActionAnchor anchor, String title) {
+            pageActions.add(new PageActionDefinition(actionCode, anchor, title));
             return this;
         }
 
@@ -121,7 +132,7 @@ public record ModuleUiDefinition(String moduleAlias,
 
         public ModuleUiDefinition build() {
             return new ModuleUiDefinition(moduleAlias, actions, page, defaultEditor, editorSurfaces,
-                    editorContributions, detailRelations, pageActions);
+                    editorContributions, detailRelations, pageActions, managedActions);
         }
     }
 

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { pageActionEntryTitle, pageActionEntryDescription } from '@muyun/web-core';
 import {
   canPlaceActionInAnchor,
   type CompositionSkeleton,
@@ -76,7 +77,7 @@ const emit = defineEmits<{
   'reorder-relation-field': [relationId: string, fieldId: string, targetIndex: number];
   'source-drop': [target: ComposerDropTarget, payload: PageCompositionDragPayload];
   'action-drop': [
-    source: { actionCode: string },
+    source: { actionCode: string; sourceAnchor?: PageCompositionActionPlacement['anchor'] },
     target: { anchor: PageCompositionActionPlacement['anchor']; index: number },
   ];
   /** Kept for field/relation callers while actions use the broader source contract. */
@@ -214,10 +215,16 @@ const treeNodes = computed<UiTreeNode[]>(() => {
       secondary: props.actionPlacements?.some((placement) => placement.anchor === anchor)
         ? '拖拽调整顺序'
         : '拖入模块动作',
-      isLeaf: !(props.actionPlacements ?? []).some((placement) => placement.anchor === anchor),
-      children: (props.actionPlacements ?? [])
-        .filter((placement) => placement.anchor === anchor)
-        .map((placement) => actionNode(anchor, placement.actionCode)),
+      isLeaf:
+        anchor !== 'form' && !(props.actionPlacements ?? []).some((placement) => placement.anchor === anchor),
+      children: [
+        ...(anchor === 'form'
+          ? [{ key: 'ui:fixed:cancel', title: '取消', secondary: '模板固定 · 放弃编辑', isLeaf: true }]
+          : []),
+        ...(props.actionPlacements ?? [])
+          .filter((placement) => placement.anchor === anchor)
+          .map((placement) => actionNode(anchor, placement.actionCode)),
+      ],
     })),
   ];
   return props.editorMode === 'actions'
@@ -233,9 +240,20 @@ function actionNode(anchor: PageCompositionActionPlacement['anchor'], actionCode
   const action = props.moduleActions?.find((candidate) => candidate.actionCode === actionCode);
   return {
     key: `ui:action:${anchor}:${actionCode}`,
-    title: action?.title ?? actionCode,
-    secondary: action?.title ? actionCode : undefined,
-    actions: nodeActions('remove'),
+    title: pageActionEntryTitle(
+      props.actionPlacements?.find((entry) => entry.anchor === anchor && entry.actionCode === actionCode) ?? {
+        actionCode,
+        anchor,
+      },
+    ),
+    secondary:
+      anchor === 'form'
+        ? pageActionEntryDescription({ actionCode, anchor })
+        : action?.title
+          ? actionCode
+          : undefined,
+    tag: !action ? '来源失效' : undefined,
+    actions: nodeActions('configure', 'remove'),
     isLeaf: true,
   };
 }
@@ -516,7 +534,11 @@ function handleDrop(event: UiTreeDropEvent) {
             actionsAtTarget.findIndex((placement) => placement.actionCode === target.actionCode),
           ) + (event.target.position === 'after' ? 1 : 0)
         : actionsAtTarget.length;
-    emit('action-drop', { actionCode: source.actionCode }, { anchor, index: targetIndex });
+    emit(
+      'action-drop',
+      { actionCode: source.actionCode, sourceAnchor: source.anchor },
+      { anchor, index: targetIndex },
+    );
     return;
   }
 

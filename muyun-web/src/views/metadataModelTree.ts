@@ -23,7 +23,7 @@ export interface MetadataModelTreeInput {
 /**
  * The governance tree is a projection of the model, not a second persistence shape. Metadata
  * branches and field leaves retain their relation/field identities so the page can route to
- * strongly typed cards. The explorer title already states "数据模型", so entity nodes are roots
+ * strongly typed cards. The explorer title already states "元数据", so entity nodes are roots
  * rather than being wrapped in a redundant virtual node.
  */
 export function buildMetadataModelTree(input: MetadataModelTreeInput): MetadataModelTreeNode[] {
@@ -67,9 +67,9 @@ export function buildMetadataModelTree(input: MetadataModelTreeInput): MetadataM
     visiting.delete(relation.id);
     return {
       key: metadataNodeKey(relation.id),
-      title: metadata?.title || relation.relationAlias || relation.metadataId || '未命名实体',
+      title: metadata?.title || relation.relationAlias || relation.metadataId || '未命名元数据',
       secondary: metadata?.alias || relation.relationAlias,
-      tag: normalizedRole(relation.relationRole) === 'MAIN' ? '主实体' : '子实体',
+      tag: normalizedRole(relation.relationRole) === 'MAIN' ? '主元数据' : '子元数据',
       isLeaf: false,
       modelKind: 'METADATA',
       relationId: relation.id,

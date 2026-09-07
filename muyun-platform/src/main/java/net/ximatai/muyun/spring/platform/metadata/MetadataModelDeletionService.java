@@ -56,7 +56,7 @@ public class MetadataModelDeletionService {
         }
         if (Boolean.TRUE.equals(field.getSystemManaged()) || field.getFieldOwnership() != MetadataFieldOwnership.BUSINESS
                 || Objects.equals(relation.getForeignKey(), field.getFieldName())) {
-            throw new PlatformException("平台字段、能力字段和子实体外键不能删除：" + field.getTitle());
+            throw new PlatformException("平台字段、能力字段和子元数据外键不能删除：" + field.getTitle());
         }
         Metadata metadata = requireMetadata(relation);
         DynamicSchemaGovernanceFacts schemaFacts = recordService.schemaGovernanceFacts();
