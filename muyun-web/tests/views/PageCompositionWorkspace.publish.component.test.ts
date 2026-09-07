@@ -1141,6 +1141,53 @@ describe('PageCompositionWorkspace publication flow', () => {
     }
   });
 
+  it('refreshes query eligibility and module actions without losing local placements', async () => {
+    const requests: HttpRequestOptions[] = [];
+    const delegate = publicationFlowHttp(requests);
+    let refreshed = false;
+    configureModuleContext({
+      http: {
+        request: <T>(request: HttpRequestOptions) => {
+          if (request.path.endsWith('/overview-mode'))
+            return Promise.resolve({
+              ...compositionProfile(),
+              searchableFields: refreshed ? ['title'] : [],
+            } as T);
+          if (request.path.endsWith('/context'))
+            return Promise.resolve({
+              actions: refreshed
+                ? [{ actionCode: 'create', title: '创建', authorized: true, actionLevel: 'LIST' }]
+                : [],
+            } as T);
+          return delegate.request<T>(request);
+        },
+      },
+    });
+    const wrapper = mount(PageCompositionWorkspace, {
+      props: { moduleAlias: 'education.exam' },
+      global: { stubs: workspaceStubs() },
+    });
+    try {
+      await flushPromises();
+      const tree = wrapper.findComponent(PageCompositionTree);
+      tree.vm.$emit('source-drop', { kind: 'list' }, metadataDrop());
+      await flushPromises();
+      expect(tree.props('searchableFieldIds')).toEqual([]);
+      refreshed = true;
+      wrapper.findAllComponents({ name: 'RecordExplorerPanel' })[0]!.vm.$emit('refresh');
+      await flushPromises();
+      expect(tree.props('listFields')).toHaveLength(1);
+      expect(tree.props('searchableFieldIds')).toContain('field-title');
+      expect(tree.props('moduleActions')).toMatchObject([{ actionCode: 'create' }]);
+      tree.vm.$emit('source-drop', { kind: 'quick-search' }, metadataDrop());
+      await flushPromises();
+      expect(tree.props('quickSearchFields')).toMatchObject([{ fieldName: 'title' }]);
+      expect(canDiscardChanges(wrapper)).toBe(true);
+    } finally {
+      wrapper.unmount();
+    }
+  });
+
   it('refreshes source facts in place while preserving local page changes and detecting lost sources', async () => {
     const requests: HttpRequestOptions[] = [];
     const fields = [

@@ -472,6 +472,21 @@ public class PlatformModuleRuntimeContextService {
                                                                      String title,
                                                                      DynamicModuleDescriptor dynamicDescriptor,
                                                                      ModuleUiDefinition definition) {
+        if (definition.page() != null) {
+            var main = dynamicDescriptor.entities().stream()
+                    .filter(entity -> dynamicDescriptor.mainEntityAlias().equals(entity.entityAlias()))
+                    .findFirst().orElseThrow();
+            var required = switch (definition.page().template()) {
+                case TREE_MANAGEMENT -> Set.of(EntityCapability.TREE, EntityCapability.SORT);
+                case FLAT_MANAGEMENT -> Set.of(EntityCapability.SORT);
+                default -> Set.<EntityCapability>of();
+            };
+            for (var capability : required) {
+                if (!main.capabilities().contains(capability.name())) {
+                    throw new IllegalArgumentException("页面模式缺少实体能力：" + capability.name());
+                }
+            }
+        }
         if (definition.page() != null && definition.page().quickSearchFields() != null) {
             DynamicEntityDescriptor main = dynamicDescriptor.entities().stream()
                     .filter(entity -> dynamicDescriptor.mainEntityAlias().equals(entity.entityAlias())).findFirst().orElseThrow();
@@ -593,7 +608,7 @@ public class PlatformModuleRuntimeContextService {
             contributions.add(new PageDetailEditorContribution(target.entity().entityAlias(), editor.build()));
         }
         return new ModuleUiDefinition(definition.moduleAlias(), definition.actions(), definition.page(),
-                definition.defaultEditor(), definition.editorSurfaces(), contributions, definition.detailRelations());
+                definition.defaultEditor(), definition.editorSurfaces(), contributions, definition.detailRelations(), definition.pageActions());
     }
 
     private void mergeDynamicRelationEditorFacts(String moduleAlias, DynamicDetailRelationTarget target,

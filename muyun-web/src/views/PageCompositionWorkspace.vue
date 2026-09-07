@@ -471,43 +471,9 @@ async function applyConfiguredMode() {
 async function loadWorkspace() {
   const requestSequence = ++workspaceLoadSequence;
   const moduleAlias = props.moduleAlias;
-  try {
-    const profile = await moduleContext.http.request<{
-      overviewMode: CompositionMode;
-      compositionSkeletons: CompositionSkeleton[];
-      searchableFields?: string[];
-    }>({
-      method: 'GET',
-      path: `/platform.module/${encodeURIComponent(moduleAlias)}/overview-mode`,
-    });
-    if (requestSequence !== workspaceLoadSequence) return;
-    if (!profile.compositionSkeletons?.length)
-      throw new Error('服务端尚未提供页面骨架，请重启后端后重新加载');
-    skeletons.value = profile.compositionSkeletons;
-    searchableFields.value = profile.searchableFields ?? [];
-    void Promise.resolve()
-      .then(() =>
-        moduleContext.http.request<{ actions?: ModuleRuntimeAction[] }>({
-          method: 'GET',
-          path: `/platform.module/${encodeURIComponent(moduleAlias)}/context`,
-        }),
-      )
-      .then((runtime) => {
-        if (requestSequence === workspaceLoadSequence)
-          moduleActions.value = (runtime.actions ?? []).filter((action) => action.authorized);
-      })
-      .catch(() => {
-        // Action palette is additive; retain page composition when an older server has no context route.
-      });
-    configuredMode.value = profile.overviewMode.toUpperCase() as CompositionMode;
-    compositionMode.value = configuredMode.value;
-  } catch (cause) {
-    if (requestSequence === workspaceLoadSequence)
-      presentPlatformError(cause, { source: 'page-composition', phase: 'load' });
-    return;
-  }
-  await loadMetadataTree(requestSequence, moduleAlias);
+  if (!(await loadMetadataTree(requestSequence, moduleAlias))) return;
   if (requestSequence !== workspaceLoadSequence) return;
+  compositionMode.value = configuredMode.value;
   await loadComposition(requestSequence, moduleAlias);
 }
 
@@ -517,6 +483,24 @@ async function loadMetadataTree(requestSequence = workspaceLoadSequence, moduleA
     requestSequence === workspaceLoadSequence && metadataSequence === metadataLoadSequence;
   loading.value = true;
   try {
+    const [profile, runtime] = await Promise.all([
+      moduleContext.http.request<{
+        overviewMode: CompositionMode;
+        compositionSkeletons: CompositionSkeleton[];
+        searchableFields?: string[];
+      }>({ method: 'GET', path: `/platform.module/${encodeURIComponent(moduleAlias)}/overview-mode` }),
+      Promise.resolve()
+        .then(() =>
+          moduleContext.http.request<{ actions?: ModuleRuntimeAction[] }>({
+            method: 'GET',
+            path: `/platform.module/${encodeURIComponent(moduleAlias)}/context`,
+          }),
+        )
+        .catch(() => undefined),
+    ]);
+    if (!current()) return false;
+    if (!profile.compositionSkeletons?.length)
+      throw new Error('服务端尚未提供页面骨架，请重启后端后重新加载');
     const relations = await loadAll<ModuleMetadataRelation>(
       `/platform.module/${encodeURIComponent(moduleAlias)}/metadata-relations/query`,
     );
@@ -552,6 +536,10 @@ async function loadMetadataTree(requestSequence = workspaceLoadSequence, moduleA
     // Install a complete catalogue together. Refresh never empties the navigator or loses local edits.
     const treeJson = currentUiTreeJson.value;
     const selected = state.selectedNodeId.value;
+    skeletons.value = profile.compositionSkeletons;
+    configuredMode.value = profile.overviewMode.toUpperCase() as CompositionMode;
+    searchableFields.value = profile.searchableFields ?? [];
+    if (runtime) moduleActions.value = (runtime.actions ?? []).filter((action) => action.authorized);
     relation.value = main;
     metadataRelations.value = relations;
     metadataFields.value = toFields(fields);
@@ -560,6 +548,7 @@ async function loadMetadataTree(requestSequence = workspaceLoadSequence, moduleA
       hydrateDraft({ ...revision.value, uiTreeJson: treeJson }, false);
       if (state.nodes.value.some((node) => node.id === selected)) state.selectedNodeId.value = selected;
     }
+    return true;
   } catch (cause) {
     if (current()) presentPlatformError(cause, { source: 'page-composition', phase: 'load' });
   } finally {

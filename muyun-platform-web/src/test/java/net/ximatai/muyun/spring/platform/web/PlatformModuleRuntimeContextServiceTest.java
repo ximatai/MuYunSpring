@@ -140,6 +140,72 @@ class PlatformModuleRuntimeContextServiceTest {
         org.mockito.Mockito.verifyNoInteractions(pages, revisions);
     }
 
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.EnumSource(net.ximatai.muyun.spring.platform.module.DynamicModuleOverviewMode.class)
+    void shouldPreserveRevisionActionsAndRejectMissingModeCapabilities(
+            net.ximatai.muyun.spring.platform.module.DynamicModuleOverviewMode mode) {
+        PlatformModuleService modules = mock(PlatformModuleService.class);
+        PlatformModuleActionService actions = mock(PlatformModuleActionService.class);
+        DynamicRecordService records = mock(DynamicRecordService.class);
+        var pages = mock(net.ximatai.muyun.spring.platform.ui.PlatformPageDefinitionService.class);
+        var revisions = mock(net.ximatai.muyun.spring.platform.ui.PlatformPresentationRevisionResolver.class);
+        PlatformModule module = module("sales.contract", "合同", ModuleKind.DYNAMIC);
+        module.setOverviewMode(mode);
+        DynamicModuleDescriptor descriptor = new DynamicModuleDescriptor("sales.contract", "合同", "contract", List.of(),
+                List.of(DynamicEntityDescriptor.from(new EntityDefinition("contract", "合同", "contract",
+                        List.of(FieldDefinition.titleField().required()),
+                        mode == net.ximatai.muyun.spring.platform.module.DynamicModuleOverviewMode.TREE_CARD
+                                ? Set.of(EntityCapability.CRUD, EntityCapability.TREE)
+                                : mode == net.ximatai.muyun.spring.platform.module.DynamicModuleOverviewMode.MICRO_LIST_CARD
+                                ? Set.of(EntityCapability.CRUD, EntityCapability.SORT) : Set.of(EntityCapability.CRUD)))),
+                List.of(), List.of(), List.of());
+        PlatformPageDefinition page = new PlatformPageDefinition();
+        page.setId("page-contract");
+        page.setModuleAlias("sales.contract");
+        page.setContractType(net.ximatai.muyun.spring.platform.ui.PlatformPageContractType.MANAGEMENT);
+        PlatformPresentationRevision revision = new PlatformPresentationRevision();
+        revision.setId("revision-contract");
+        revision.setTemplateAlias("management");
+        revision.setTemplateVersion(3);
+        revision.setStatus(net.ximatai.muyun.spring.platform.ui.PlatformPresentationRevisionStatus.PUBLISHED);
+        String navigation = mode == net.ximatai.muyun.spring.platform.module.DynamicModuleOverviewMode.LIST_CARD
+                ? "{\"slot\":\"list\",\"title\":\"列表\",\"fields\":[\"title\"]}"
+                : "{\"slot\":\"explorer\",\"title\":\"导航\",\"titleField\":\"title\",\"fields\":[]}";
+        revision.setUiTreeJson("""
+                {"template":"management","templateVersion":3,"mode":"%s","quickSearchFields":[],
+                 "actions":[{"actionCode":"create","anchor":"page"}],"nodes":[%s,
+                 {"slot":"form","title":"编辑合同","fields":["title"]}]}
+                """.formatted(mode.name(), navigation));
+        when(modules.resolveVisibleModule("sales.contract")).thenReturn(module);
+        when(records.describe("sales.contract")).thenReturn(descriptor);
+        when(actions.listByModuleAliases(List.of("sales.contract"))).thenReturn(List.of());
+        when(pages.resolveGlobalPage("sales.contract", "management")).thenReturn(Optional.of(page));
+        when(revisions.resolve("page-contract", net.ximatai.muyun.spring.platform.ui.PlatformPresentationClientType.WEB,
+                null, null)).thenReturn(Optional.of(revision));
+        var resolver = new DynamicPublishedPageDefinitionResolver(pages, revisions, modules);
+        var service = new PlatformModuleRuntimeContextService(modules, actions,
+                new StaticModuleDefinitionCatalog(List.of()), records, null, null, allowAllPolicy(), List.of(),
+                new DeclaredPageNavigatorResolver(), null, null, null, null, null, resolver);
+        ResolvedModuleUiDescriptor published = service.context("sales.contract").uiDescriptor();
+        org.mockito.Mockito.clearInvocations(records, pages, revisions);
+        revision.setStatus(net.ximatai.muyun.spring.platform.ui.PlatformPresentationRevisionStatus.DRAFT);
+
+        ResolvedModuleUiDescriptor preview = service.previewDynamicPageDescriptor(page, revision, revision.getUiTreeJson());
+
+        assertThat(preview).usingRecursiveComparison().isEqualTo(published);
+        assertThat(preview.page().detail().editor().fields().getFirst().required().constant()).isTrue();
+        assertThat(preview.page().actions()).extracting(ResolvedPageActionDescriptor::actionCode).containsExactly("create");
+        if (mode != net.ximatai.muyun.spring.platform.module.DynamicModuleOverviewMode.LIST_CARD) {
+            var withoutCapabilities = new DynamicModuleDescriptor("sales.contract", "合同", "contract", List.of(),
+                    List.of(DynamicEntityDescriptor.from(new EntityDefinition("contract", "合同", "contract",
+                            List.of(FieldDefinition.titleField().required()), Set.of(EntityCapability.CRUD)))),
+                    List.of(), List.of(), List.of());
+            when(records.describe("sales.contract")).thenReturn(withoutCapabilities);
+            assertThatThrownBy(() -> service.previewDynamicPageDescriptor(page, revision, revision.getUiTreeJson()))
+                    .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("页面模式缺少实体能力");
+        }
+    }
+
     @Test
     void shouldExposeMainEntitySortPartitionFieldsInRuntimeContext() {
         PlatformModuleService moduleService = mock(PlatformModuleService.class);
@@ -246,7 +312,7 @@ class PlatformModuleRuntimeContextServiceTest {
         DynamicPublishedPageDefinitionResolver resolver = mock(DynamicPublishedPageDefinitionResolver.class);
         DynamicModuleDescriptor descriptor = new DynamicModuleDescriptor(
                 "sales.contract", "合同", "contract", List.of(),
-                List.of(DynamicEntityDescriptor.from(entity("contract", Set.of(EntityCapability.CRUD)))),
+                List.of(DynamicEntityDescriptor.from(entity("contract", Set.of(EntityCapability.CRUD, EntityCapability.TREE)))),
                 List.of(), List.of(), List.of());
         PlatformPageDefinition page = new PlatformPageDefinition();
         page.setId("page-contract");

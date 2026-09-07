@@ -3299,7 +3299,11 @@ function recordTitle(record: QueryListRecord | undefined) {
             :keyword="treeSearchKeyword"
             :title-of="runtimePage?.explorer ? mainTreeTitle : undefined"
             :secondary-of="runtimePage?.explorer ? mainTreeSecondary : undefined"
-            :filter-option="runtimePage?.explorer ? matchesPageQuickSearch : undefined"
+            :filter-option="
+              runtimePage?.explorer || runtimePage?.quickSearchFields != null
+                ? matchesPageQuickSearch
+                : undefined
+            "
             :sorting="mainTreeSorting"
             :sort-partition-fields="
               runtimePage?.treeResource

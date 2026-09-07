@@ -7,7 +7,6 @@
   overflow-x: auto;
   overflow-y: hidden;
   overscroll-behavior-x: contain;
-  scrollbar-gutter: stable;
 }
 
 .managed-relation-inline--compact .managed-relation-inline__scroll {

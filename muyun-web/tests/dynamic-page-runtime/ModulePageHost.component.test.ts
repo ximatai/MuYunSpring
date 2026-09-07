@@ -112,3 +112,15 @@ it('declares cancellation destinations from the detail entry context', () => {
     /function cancelDetailEditing\(\)[\s\S]*detail\.cancelEdit\(\);\s*if \(!detailOpen\.value\) return;/,
   );
 });
+
+// Static DSL allows query scope independently of explorer display bindings.
+it('installs explicit tree query scope even without explorer display bindings', () => {
+  const source = readFileSync(
+    resolve(import.meta.dirname, '../../src/dynamic-page-runtime/ModulePageHost.vue'),
+    'utf8',
+  );
+  assert.match(
+    source,
+    /<TreeRecordExplorer[\s\S]*?:filter-option="\s*runtimePage\?\.explorer \|\| runtimePage\?\.quickSearchFields != null\s+\? matchesPageQuickSearch\s+: undefined/,
+  );
+});
