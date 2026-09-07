@@ -224,3 +224,6 @@ export type {
 export type { TreeRecordBase } from './treeRecordModel';
 export type { ScopedTreeModuleContextOptions } from './scopedTreeModuleContext';
 export type { StaticTreeResourceModuleContextOptions } from './staticTreeResourceModuleContext';
+
+export { default as RecordRelationTable } from './RecordRelationTable.vue';
+export { default as RecordRelationValue } from './RecordRelationValue.vue';

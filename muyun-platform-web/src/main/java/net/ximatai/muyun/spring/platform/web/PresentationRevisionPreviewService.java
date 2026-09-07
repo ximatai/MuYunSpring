@@ -1,5 +1,8 @@
 package net.ximatai.muyun.spring.platform.web;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.core.JsonProcessingException;
+
 import net.ximatai.muyun.spring.ability.action.BusinessExceptions;
 import net.ximatai.muyun.spring.platform.ui.PlatformPageDefinition;
 import net.ximatai.muyun.spring.platform.ui.PlatformPageDefinitionService;
@@ -17,6 +20,7 @@ import org.springframework.stereotype.Service;
  */
 @Service
 public class PresentationRevisionPreviewService {
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
     private final PlatformPresentationVariantService variantService;
     private final PlatformPresentationRevisionService revisionService;
     private final PlatformPageDefinitionService pageService;
@@ -44,8 +48,15 @@ public class PresentationRevisionPreviewService {
         PlatformPresentationVariant variant = variantService.requireVisibleVariant(variantId);
         PlatformPresentationRevision revision = revisionService.requireVisibleRevision(variantId, revisionId);
         PlatformPageDefinition page = pageService.requireVisiblePage(variant.getPageId());
+        int previewVersion;
+        try {
+            var tree = OBJECT_MAPPER.readTree(request.uiTreeJson());
+            previewVersion = tree == null ? -1 : tree.path("templateVersion").asInt(-1);
+        } catch (JsonProcessingException exception) {
+            throw BusinessExceptions.warning("platform.presentation-preview.ui-tree-invalid", "页面草稿必须为有效 JSON");
+        }
         PlatformPresentationTemplate template = templateCatalog.require(revision.getTemplateAlias(),
-                revision.getTemplateVersion(), variant.getClientType(), page.getContractType());
+                previewVersion, variant.getClientType(), page.getContractType());
         templateCatalog.validateUiTree(request.uiTreeJson(), template);
 
         ResolvedModuleUiDescriptor descriptor = runtimeContextService.previewDynamicPageDescriptor(page, revision,

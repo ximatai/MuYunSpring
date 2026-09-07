@@ -145,8 +145,11 @@ public class PresentationConfigurationReferences {
         try {
             JsonNode root = JSON.readTree(revision.getUiTreeJson());
             if (root == null) throw new IllegalArgumentException("empty tree");
+            if (main && containsField(root.path("quickSearchFields"), field)) return true;
             for (JsonNode slot : root.path("nodes")) {
                 if (main) {
+                    if (Objects.equals(field, slot.path("titleField").asText(null))
+                            || Objects.equals(field, slot.path("secondaryField").asText(null))) return true;
                     if (containsField(slot.path("fields"), field)) return true;
                     for (JsonNode group : slot.path("groups")) {
                         if (containsField(group.path("fields"), field)) return true;

@@ -1,4 +1,9 @@
 <script setup lang="ts">
+import {
+  canPlaceActionInAnchor,
+  type CompositionSkeleton,
+  type PageCompositionActionPlacement,
+} from './pageCompositionMode';
 import { computed, ref, watch } from 'vue';
 import {
   UiTree,
@@ -6,25 +11,50 @@ import {
   type UiTreeDropEvent,
   type UiTreeNode,
 } from '@muyun/vue-ui-antdv';
-import type { PageComposerField, PageComposerGroup, PageComposerRelation } from './pageCompositionDraftState';
+import {
+  orderedFormItems,
+  type PageComposerFormItem,
+  type PageComposerField,
+  type PageComposerGroup,
+  type PageComposerRelation,
+} from './pageCompositionDraftState';
 import {
   PAGE_COMPOSITION_DRAG_PAYLOAD_TYPE,
-  type MetadataDragPayload,
-  parseMetadataDragPayload,
+  type PageCompositionDragPayload,
+  parsePageCompositionDragPayload,
 } from './pageCompositionDragPayload';
+
+import {
+  resolveCompositionPlacement,
+  type CompositionPlacementSource,
+  type CompositionPlacementTarget,
+} from './pageCompositionPlacement';
 
 defineOptions({ name: 'PageCompositionTree' });
 
 const props = withDefaults(
   defineProps<{
+    skeleton?: CompositionSkeleton;
+    explorerTitle?: string;
+    searchableFieldIds?: string[];
+    quickSearchFields?: { fieldName: string; title: string }[];
+    explorerSecondary?: string;
+    actionPlacements?: PageCompositionActionPlacement[];
+    moduleActions?: {
+      actionCode: string;
+      title?: string;
+      actionLevel?: 'LIST' | 'RECORD' | 'BATCH' | 'ANY' | 'DEFAULT';
+    }[];
+    editorMode?: 'fields' | 'actions';
     listFields: PageComposerField[];
     formFields: PageComposerField[];
     formGroups: PageComposerGroup[];
+    formOrder?: PageComposerFormItem[];
     formRelations: PageComposerRelation[];
     selectedKey?: string;
     disabled?: boolean;
   }>(),
-  { selectedKey: undefined, disabled: false },
+  { selectedKey: undefined, disabled: false, editorMode: 'fields', formOrder: undefined },
 );
 
 const emit = defineEmits<{
@@ -44,29 +74,38 @@ const emit = defineEmits<{
   ];
   'reorder-group': [groupId: string, targetIndex: number];
   'reorder-relation-field': [relationId: string, fieldId: string, targetIndex: number];
-  'metadata-drop': [target: ComposerDropTarget, payload: MetadataDragPayload];
+  'source-drop': [target: ComposerDropTarget, payload: PageCompositionDragPayload];
+  'action-drop': [
+    source: { actionCode: string },
+    target: { anchor: PageCompositionActionPlacement['anchor']; index: number },
+  ];
+  /** Kept for field/relation callers while actions use the broader source contract. */
 }>();
 
 type ComposerNodeAction = 'configure' | 'remove' | 'add-group';
 
 export type ComposerDropTarget = (
+  | { kind: 'explorer-title' | 'explorer-secondary' | 'quick-search' }
   | { kind: 'list' }
   | { kind: 'form' }
   | { kind: 'group'; groupId: string }
   | { kind: 'relation'; relationId: string }
+  | { kind: 'action-anchor'; anchor: PageCompositionActionPlacement['anchor'] }
 ) & { index?: number };
 
 type ComposerNodeRef =
-  | { kind: 'root' }
+  | { kind: 'explorer-title' | 'explorer-secondary' | 'quick-search' }
+  | { kind: 'binding'; role: 'explorer-title' | 'explorer-secondary' | 'quick-search'; fieldName: string }
   | { kind: 'slot'; slot: 'list' | 'form' }
   | { kind: 'template' }
   | { kind: 'fieldGroup'; slot: 'list' | 'form' }
   | { kind: 'field'; slot: 'list' | 'form'; fieldId: string }
-  | { kind: 'groups' }
   | { kind: 'group'; groupId: string }
   | { kind: 'groupField'; groupId: string; fieldId: string }
   | { kind: 'relation'; relationId: string }
-  | { kind: 'relationField'; relationId: string; fieldId: string };
+  | { kind: 'relationField'; relationId: string; fieldId: string }
+  | { kind: 'action-anchor'; anchor: PageCompositionActionPlacement['anchor'] }
+  | { kind: 'action'; anchor: PageCompositionActionPlacement['anchor']; actionCode: string };
 
 const expandedKeys = ref<string[]>([]);
 
@@ -92,60 +131,114 @@ const treeNodes = computed<UiTreeNode[]>(() => {
     children: relation.fields.map((field) => relationFieldNode(relation.id, field)),
   }));
 
-  return [
+  const nodes: UiTreeNode[] = [
     {
-      key: 'ui:root',
-      title: '页面',
+      key: 'ui:slot:list',
+      title: props.skeleton?.navigationTitle ?? '列表',
       isLeaf: false,
       children: [
         {
-          key: 'ui:slot:list',
-          title: '列表',
-          secondary: '标准列表',
-          isLeaf: false,
-          children: [
-            {
-              key: 'ui:template:list:quick-search',
-              title: '快速查询',
-              secondary: '可配置占位提示',
-              actions: nodeActions('configure'),
-              isLeaf: true,
-            },
-            {
-              key: 'ui:slot:list:fields',
-              title: '列表展示字段',
-              secondary: props.listFields.length ? '拖拽调整顺序' : '拖动字段到此处',
-              isLeaf: listFieldNodes.length === 0,
-              children: listFieldNodes,
-            },
-          ],
+          key: 'ui:template:list:quick-search',
+          title: '快速查询',
+          secondary: '拖入文本字段 · 双击编辑占位提示',
+          actions: nodeActions('configure'),
+          isLeaf: !props.quickSearchFields?.length,
+          children: (props.quickSearchFields ?? []).map((field) => ({
+            key: `ui:binding:quick-search:${field.fieldName}`,
+            title: field.title,
+            secondary: field.fieldName,
+            isLeaf: true,
+            actions: nodeActions('remove'),
+          })),
         },
         {
-          key: 'ui:slot:form',
-          title: '详情 / 表单',
-          actions: nodeActions('add-group'),
-          isLeaf: false,
-          children: [
-            ...formFieldNodes,
-            ...(props.formGroups.length
+          key: 'ui:slot:list:fields',
+          title: props.skeleton?.fieldGroupTitle ?? '列表展示字段',
+          secondary:
+            props.skeleton?.columns === false
+              ? undefined
+              : props.listFields.length
+                ? '拖拽调整顺序'
+                : '拖动字段到此处',
+          isLeaf: props.skeleton?.columns === false ? false : listFieldNodes.length === 0,
+          children:
+            props.skeleton?.columns === false
               ? [
                   {
-                    key: 'ui:groups:form',
-                    title: '表单分组',
-                    secondary: '拖拽字段到分组',
-                    actions: nodeActions('add-group'),
-                    isLeaf: false,
-                    children: groupNodes,
+                    key: 'ui:explorer-title',
+                    title: '标题',
+                    secondary: props.explorerTitle ? '必填 · 拖入替换' : '必填 · 拖入字段',
+                    isLeaf: !props.explorerTitle,
+                    children: props.explorerTitle
+                      ? [{ key: 'ui:binding:explorer-title:field', title: props.explorerTitle, isLeaf: true }]
+                      : [],
+                  },
+                  {
+                    key: 'ui:explorer-secondary',
+                    title: '辅助信息',
+                    secondary: '可选 · 拖入替换',
+                    isLeaf: !props.explorerSecondary,
+                    children: props.explorerSecondary
+                      ? [
+                          {
+                            key: 'ui:binding:explorer-secondary:field',
+                            title: props.explorerSecondary,
+                            isLeaf: true,
+                            actions: nodeActions('remove'),
+                          },
+                        ]
+                      : [],
                   },
                 ]
-              : []),
-            ...relationNodes,
-          ],
+              : listFieldNodes,
         },
       ],
     },
+    {
+      key: 'ui:slot:form',
+      title: '详情 / 表单',
+      actions: nodeActions('add-group'),
+      isLeaf: false,
+      children: [
+        ...orderedFormItems(props.formFields, props.formGroups, props.formOrder).map((item) =>
+          item.kind === 'field'
+            ? formFieldNodes.find((node) => node.key === `ui:field:form:${item.id}`)!
+            : groupNodes.find((node) => node.key === `ui:group:form:${item.id}`)!,
+        ),
+        ...relationNodes,
+      ],
+    },
+    ...(['page', 'detail', 'form'] as const).map((anchor) => ({
+      key: `ui:action-anchor:${anchor}`,
+      title: actionAnchorTitle(anchor),
+      secondary: props.actionPlacements?.some((placement) => placement.anchor === anchor)
+        ? '拖拽调整顺序'
+        : '拖入模块动作',
+      isLeaf: !(props.actionPlacements ?? []).some((placement) => placement.anchor === anchor),
+      children: (props.actionPlacements ?? [])
+        .filter((placement) => placement.anchor === anchor)
+        .map((placement) => actionNode(anchor, placement.actionCode)),
+    })),
   ];
+  return props.editorMode === 'actions'
+    ? nodes.filter((node) => node.key.startsWith('ui:action-anchor:'))
+    : nodes.filter((node) => !node.key.startsWith('ui:action-anchor:'));
 });
+
+function actionAnchorTitle(anchor: PageCompositionActionPlacement['anchor']) {
+  return anchor === 'page' ? '页面动作' : anchor === 'detail' ? '详情动作' : '表单动作';
+}
+
+function actionNode(anchor: PageCompositionActionPlacement['anchor'], actionCode: string): UiTreeNode {
+  const action = props.moduleActions?.find((candidate) => candidate.actionCode === actionCode);
+  return {
+    key: `ui:action:${anchor}:${actionCode}`,
+    title: action?.title ?? actionCode,
+    secondary: action?.title ? actionCode : undefined,
+    actions: nodeActions('remove'),
+    isLeaf: true,
+  };
+}
 
 let previousKeys = new Set<string>();
 watch(
@@ -153,11 +246,12 @@ watch(
   (nodes) => {
     const available = new Set(flattenNodes(nodes).map((node) => node.key));
     const defaults = [
-      'ui:root',
       'ui:slot:list',
       'ui:slot:list:fields',
+      'ui:template:list:quick-search',
+      'ui:explorer-title',
+      'ui:explorer-secondary',
       'ui:slot:form',
-      ...(props.formGroups.length ? ['ui:groups:form'] : []),
       ...props.formGroups.map((group) => `ui:group:form:${group.id}`),
     ];
     const current = expandedKeys.value.filter((key) => available.has(key));
@@ -196,11 +290,11 @@ function groupFieldNode(groupId: string, field: PageComposerField): UiTreeNode {
 function relationFieldNode(relationId: string, field: PageComposerField): UiTreeNode {
   return {
     key: `ui:relation-field:form:${relationId}:${field.id}`,
-    title: field.title,
+    title: field.properties?.label ?? field.title,
     secondary: field.fieldName,
     tag: field.unavailable ? '来源失效' : undefined,
     muted: field.unavailable,
-    actions: nodeActions('remove'),
+    actions: nodeActions('configure', 'remove'),
     isLeaf: true,
   };
 }
@@ -226,12 +320,29 @@ function handleNodeAction(action: UiRecordInlineAction, node: UiTreeNode) {
 }
 
 function parseNode(key: string): ComposerNodeRef | undefined {
-  if (key === 'ui:root') return { kind: 'root' };
+  const binding = /^ui:binding:(explorer-title|explorer-secondary|quick-search):(.+)$/.exec(key);
+  if (binding)
+    return {
+      kind: 'binding',
+      role: binding[1] as 'explorer-title' | 'explorer-secondary' | 'quick-search',
+      fieldName: binding[2],
+    };
+  if (key === 'ui:explorer-title') return { kind: 'explorer-title' };
+  if (key === 'ui:explorer-secondary') return { kind: 'explorer-secondary' };
   if (key === 'ui:slot:list') return { kind: 'slot', slot: 'list' };
   if (key === 'ui:slot:form') return { kind: 'slot', slot: 'form' };
   if (key === 'ui:template:list:quick-search') return { kind: 'template' };
   if (key === 'ui:slot:list:fields') return { kind: 'fieldGroup', slot: 'list' };
-  if (key === 'ui:groups:form') return { kind: 'groups' };
+  const action = /^ui:action:(page|detail|form):(.+)$/.exec(key);
+  if (action)
+    return {
+      kind: 'action',
+      anchor: action[1] as PageCompositionActionPlacement['anchor'],
+      actionCode: action[2],
+    };
+  const actionAnchor = /^ui:action-anchor:(page|detail|form)$/.exec(key);
+  if (actionAnchor)
+    return { kind: 'action-anchor', anchor: actionAnchor[1] as PageCompositionActionPlacement['anchor'] };
   const listField = /^ui:field:list:(.+)$/.exec(key);
   if (listField) return { kind: 'field', slot: 'list', fieldId: listField[1] };
   const formField = /^ui:field:form:(.+)$/.exec(key);
@@ -259,16 +370,108 @@ function doubleClick(event: { node: UiTreeNode }) {
 function canDragNode(node: UiTreeNode) {
   if (props.disabled) return false;
   const parsed = parseNode(node.key);
-  return Boolean(parsed && ['field', 'groupField', 'group', 'relationField'].includes(parsed.kind));
+  return Boolean(parsed && ['field', 'groupField', 'group', 'relationField', 'action'].includes(parsed.kind));
+}
+
+function formPlacement(event: UiTreeDropEvent) {
+  if (event.target.kind !== 'node') return;
+  const target = parseNode(event.target.node.key);
+  let destination: CompositionPlacementTarget | undefined;
+  if (target?.kind === 'slot' && target.slot === 'form' && event.target.position === 'inside')
+    destination = { container: { kind: 'form' }, position: 'inside' };
+  else if (target?.kind === 'field' && target.slot === 'form' && event.target.position !== 'inside')
+    destination = { container: { kind: 'form' }, anchorId: target.fieldId, position: event.target.position };
+  else if (target?.kind === 'group')
+    destination =
+      event.target.position === 'inside'
+        ? { container: { kind: 'group', groupId: target.groupId }, position: 'inside' }
+        : { container: { kind: 'form' }, anchorId: target.groupId, position: event.target.position };
+  else if (target?.kind === 'groupField' && event.target.position !== 'inside')
+    destination = {
+      container: { kind: 'group', groupId: target.groupId },
+      anchorId: target.fieldId,
+      position: event.target.position,
+    };
+  if (!destination) return;
+  const node = parseNode(event.source.node.key);
+  const metadata = parsePageCompositionDragPayload(event.source.payload);
+  let source: CompositionPlacementSource | undefined;
+  if (
+    event.operation === 'copy' &&
+    event.source.payloadType === PAGE_COMPOSITION_DRAG_PAYLOAD_TYPE &&
+    metadata?.kind === 'field'
+  )
+    source = { kind: 'metadata', metadata };
+  else if (event.operation !== 'copy') {
+    if (node?.kind === 'field' && node.slot === 'form')
+      source = { kind: 'node', container: { kind: 'form' }, nodeId: node.fieldId };
+    else if (node?.kind === 'groupField')
+      source = { kind: 'node', container: { kind: 'group', groupId: node.groupId }, nodeId: node.fieldId };
+    else if (node?.kind === 'group')
+      source = { kind: 'node', container: { kind: 'groups' }, nodeId: node.groupId };
+  }
+  if (!source) return;
+  const placement = resolveCompositionPlacement(
+    {
+      list: props.listFields,
+      form: props.formFields,
+      groups: props.formGroups,
+      relations: props.formRelations,
+      order: props.formOrder,
+    },
+    source,
+    destination,
+  );
+  return { source, destination, placement };
+}
+
+function emitFormPlacement(event: UiTreeDropEvent) {
+  const result = formPlacement(event);
+  if (!result) return false;
+  if (!result.placement || props.disabled) return true;
+  const {
+    source,
+    placement: { container, index },
+  } = result;
+  if (source.kind === 'metadata') {
+    if (container.kind === 'form' || container.kind === 'group') {
+      emit('source-drop', { ...container, index }, source.metadata);
+    }
+  } else if (source.container.kind === 'groups') emit('reorder-group', source.nodeId, index);
+  else if (container.kind === 'form') {
+    if (source.container.kind === 'group')
+      emit('move-group-field-to-form', source.container.groupId, source.nodeId, index);
+    else emit('reorder-form-field', source.nodeId, index);
+  } else if (container.kind === 'group') {
+    if (source.container.kind === 'group') {
+      if (source.container.groupId === container.groupId)
+        emit('reorder-group-field', container.groupId, source.nodeId, index);
+      else
+        emit('move-group-field-to-group', source.container.groupId, source.nodeId, container.groupId, index);
+    } else emit('move-form-field-to-group', source.nodeId, container.groupId, index);
+  }
+  return true;
 }
 
 function allowDrop(event: UiTreeDropEvent) {
+  const form = formPlacement(event);
+  if (form) return !props.disabled && !!form.placement;
   if (event.source.instanceId !== event.target.instanceId) return allowExternalDrop(event);
   if (event.target.kind !== 'node') return false;
   if (props.disabled || event.operation !== 'move') return false;
   const source = parseNode(event.source.node.key);
   const target = parseNode(event.target.node.key);
-  if (!source || !target || source.kind === 'root' || source.kind === 'template') return false;
+  if (!source || !target || source.kind === 'template') return false;
+  if (source.kind === 'action') {
+    if (event.source.node.key === event.target.node.key) return false;
+    if (target.kind === 'action-anchor')
+      return event.target.position === 'inside' && actionCanOccupyAnchor(source.actionCode, target.anchor);
+    return (
+      target.kind === 'action' &&
+      event.target.position !== 'inside' &&
+      actionCanOccupyAnchor(source.actionCode, target.anchor)
+    );
+  }
   if (target.kind === 'group' && source.kind !== 'group' && event.target.position !== 'inside') return false;
   const fieldTarget = ['field', 'groupField', 'relationField'].includes(target.kind);
   if (fieldTarget && event.target.position === 'inside') return false;
@@ -277,24 +480,6 @@ function allowDrop(event: UiTreeDropEvent) {
   if (source.kind === 'field' && source.slot === 'list') {
     return (target.kind === 'fieldGroup' && target.slot === 'list') || isFieldTarget(target, 'list');
   }
-  if (source.kind === 'field' && source.slot === 'form') {
-    return (
-      (target.kind === 'slot' && target.slot === 'form') ||
-      isFieldTarget(target, 'form') ||
-      target.kind === 'group' ||
-      target.kind === 'groupField'
-    );
-  }
-  if (source.kind === 'groupField') {
-    return (
-      (target.kind === 'slot' && target.slot === 'form') ||
-      isFieldTarget(target, 'form') ||
-      target.kind === 'group' ||
-      target.kind === 'groupField'
-    );
-  }
-  if (source.kind === 'group')
-    return target.kind === 'groups' || (target.kind === 'group' && event.target.position !== 'inside');
   if (source.kind === 'relationField') {
     return (
       (target.kind === 'relation' && target.relationId === source.relationId) ||
@@ -309,6 +494,7 @@ function isFieldTarget(target: ComposerNodeRef, slot: 'list' | 'form') {
 }
 
 function handleDrop(event: UiTreeDropEvent) {
+  if (emitFormPlacement(event)) return;
   if (event.source.instanceId !== event.target.instanceId) {
     handleExternalDrop(event);
     return;
@@ -319,6 +505,21 @@ function handleDrop(event: UiTreeDropEvent) {
   const target = parseNode(event.target.node.key);
   if (!source || !target) return;
 
+  if (source.kind === 'action') {
+    const anchor = target.kind === 'action' || target.kind === 'action-anchor' ? target.anchor : undefined;
+    if (!anchor) return;
+    const actionsAtTarget = actionPlacementsWithout(source.actionCode, anchor);
+    const targetIndex =
+      target.kind === 'action'
+        ? Math.max(
+            0,
+            actionsAtTarget.findIndex((placement) => placement.actionCode === target.actionCode),
+          ) + (event.target.position === 'after' ? 1 : 0)
+        : actionsAtTarget.length;
+    emit('action-drop', { actionCode: source.actionCode }, { anchor, index: targetIndex });
+    return;
+  }
+
   if (source.kind === 'field' && source.slot === 'list') {
     const targetIndex = insertionIndex(
       props.listFields.map((field) => field.id),
@@ -327,73 +528,6 @@ function handleDrop(event: UiTreeDropEvent) {
       event,
     );
     if (targetIndex !== undefined) emit('reorder-list-field', source.fieldId, targetIndex);
-    return;
-  }
-  if (source.kind === 'field' && source.slot === 'form') {
-    if (target.kind === 'group' || target.kind === 'groupField') {
-      const groupId = target.groupId;
-      const group = props.formGroups.find((candidate) => candidate.id === groupId);
-      if (group) {
-        const targetIndex = insertionIndex(
-          group.fields.map((field) => field.id),
-          source.fieldId,
-          targetFieldId(target),
-          event,
-        );
-        emit('move-form-field-to-group', source.fieldId, groupId, targetIndex ?? group.fields.length);
-      }
-      return;
-    }
-    const targetIndex = insertionIndex(
-      props.formFields.map((field) => field.id),
-      source.fieldId,
-      targetFieldId(target),
-      event,
-    );
-    if (targetIndex !== undefined) emit('reorder-form-field', source.fieldId, targetIndex);
-    return;
-  }
-  if (source.kind === 'groupField') {
-    if (target.kind === 'group' || target.kind === 'groupField') {
-      const targetGroupId = target.groupId;
-      const targetGroup = props.formGroups.find((group) => group.id === targetGroupId);
-      if (!targetGroup) return;
-      const targetIndex = insertionIndex(
-        targetGroup.fields.map((field) => field.id),
-        source.fieldId,
-        targetFieldId(target),
-        event,
-      );
-      if (source.groupId === targetGroupId)
-        emit('reorder-group-field', source.groupId, source.fieldId, targetIndex ?? targetGroup.fields.length);
-      else
-        emit(
-          'move-group-field-to-group',
-          source.groupId,
-          source.fieldId,
-          targetGroupId,
-          targetIndex ?? targetGroup.fields.length,
-        );
-      return;
-    }
-    const targetIndex = insertionIndex(
-      props.formFields.map((field) => field.id),
-      source.fieldId,
-      targetFieldId(target),
-      event,
-    );
-    if (targetIndex !== undefined)
-      emit('move-group-field-to-form', source.groupId, source.fieldId, targetIndex);
-    return;
-  }
-  if (source.kind === 'group') {
-    const targetIndex = insertionIndex(
-      props.formGroups.map((group) => group.id),
-      source.groupId,
-      target.kind === 'group' ? target.groupId : undefined,
-      event,
-    );
-    if (targetIndex !== undefined) emit('reorder-group', source.groupId, targetIndex);
     return;
   }
   if (source.kind === 'relationField') {
@@ -408,6 +542,12 @@ function handleDrop(event: UiTreeDropEvent) {
     if (targetIndex !== undefined)
       emit('reorder-relation-field', source.relationId, source.fieldId, targetIndex);
   }
+}
+
+function actionPlacementsWithout(actionCode: string, anchor: PageCompositionActionPlacement['anchor']) {
+  return (props.actionPlacements ?? []).filter(
+    (placement) => placement.actionCode !== actionCode && placement.anchor === anchor,
+  );
 }
 
 function targetFieldId(target: ComposerNodeRef) {
@@ -432,6 +572,8 @@ function insertionIndex(
 }
 
 function allowExternalDrop(event: UiTreeDropEvent) {
+  const form = formPlacement(event);
+  if (form) return !props.disabled && !!form.placement;
   if (event.operation !== 'copy') return false;
   if (event.target.kind !== 'node') return false;
   const target = composerDropTarget(event.target.node);
@@ -450,19 +592,43 @@ function allowExternalDrop(event: UiTreeDropEvent) {
     parsed?.kind !== 'relationField'
   )
     return false;
-  const metadata = parseMetadataDragPayload(event.source.payload);
+  const payload = parsePageCompositionDragPayload(event.source.payload);
+  if (target.kind === 'action-anchor')
+    return payload?.kind === 'action' && actionCanOccupyAnchor(payload.actionCode, target.anchor);
+  if (
+    target.kind === 'quick-search' &&
+    payload?.kind === 'field' &&
+    props.searchableFieldIds &&
+    !props.searchableFieldIds.includes(payload.fieldId)
+  )
+    return false;
   return (
     event.source.payloadType === PAGE_COMPOSITION_DRAG_PAYLOAD_TYPE &&
-    !!metadata &&
+    !!payload &&
     (target.kind === 'relation'
-      ? metadata.kind === 'relationField' && metadata.relationId === target.relationId
-      : metadata.kind === 'field' || target.kind === 'form')
+      ? payload.kind === 'relationField' && payload.relationId === target.relationId
+      : payload.kind === 'field' || target.kind === 'form')
   );
+}
+
+function actionCanOccupyAnchor(actionCode: string, anchor: PageCompositionActionPlacement['anchor']) {
+  const action = props.moduleActions?.find((candidate) => candidate.actionCode === actionCode);
+  return canPlaceActionInAnchor(action, anchor);
 }
 
 function composerDropTarget(node: UiTreeNode): ComposerDropTarget | undefined {
   const parsed = parseNode(node.key);
   if (!parsed) return undefined;
+  if (parsed.kind === 'template') return { kind: 'quick-search' };
+  if (parsed.kind === 'action-anchor') return { kind: 'action-anchor', anchor: parsed.anchor };
+  if (parsed.kind === 'binding') return { kind: parsed.role };
+  if (parsed.kind === 'explorer-title' || parsed.kind === 'explorer-secondary') return { kind: parsed.kind };
+  if (
+    props.skeleton?.columns === false &&
+    (parsed.kind === 'fieldGroup' || parsed.kind === 'slot' || parsed.kind === 'field') &&
+    parsed.slot === 'list'
+  )
+    return undefined;
   if (parsed.kind === 'fieldGroup' && parsed.slot === 'list') return { kind: 'list' };
   if (
     (parsed.kind === 'slot' && parsed.slot === 'list') ||
@@ -471,8 +637,7 @@ function composerDropTarget(node: UiTreeNode): ComposerDropTarget | undefined {
     return { kind: 'list' };
   if (
     (parsed.kind === 'slot' && parsed.slot === 'form') ||
-    (parsed.kind === 'field' && parsed.slot === 'form') ||
-    parsed.kind === 'groups'
+    (parsed.kind === 'field' && parsed.slot === 'form')
   )
     return { kind: 'form' };
   if (parsed.kind === 'group' || parsed.kind === 'groupField')
@@ -483,12 +648,17 @@ function composerDropTarget(node: UiTreeNode): ComposerDropTarget | undefined {
 }
 
 function handleExternalDrop(event: UiTreeDropEvent) {
+  if (emitFormPlacement(event)) return;
   if (event.target.kind !== 'node') return;
   const target = composerDropTarget(event.target.node);
   if (!target || props.disabled) return;
   if (!allowExternalDrop(event)) return;
   const parsed = parseNode(event.target.node.key);
-  const metadata = parseMetadataDragPayload(event.source.payload);
+  const metadata = parsePageCompositionDragPayload(event.source.payload);
+  if (target.kind === 'action-anchor') {
+    if (metadata?.kind === 'action') emit('source-drop', target, metadata);
+    return;
+  }
   if (target.kind === 'relation' && metadata?.kind === 'relationField') {
     const fields = props.formRelations.find((relation) => relation.id === target.relationId)?.fields ?? [];
     target.index =
@@ -505,6 +675,9 @@ function handleExternalDrop(event: UiTreeDropEvent) {
     event.target.position !== 'inside' &&
     metadata?.kind === 'field' &&
     target.kind !== 'relation' &&
+    target.kind !== 'explorer-title' &&
+    target.kind !== 'explorer-secondary' &&
+    target.kind !== 'quick-search' &&
     (parsed?.kind === 'field' || parsed?.kind === 'groupField')
   ) {
     const fields =
@@ -512,7 +685,9 @@ function handleExternalDrop(event: UiTreeDropEvent) {
         ? props.listFields
         : target.kind === 'form'
           ? props.formFields
-          : (props.formGroups.find((group) => group.id === target.groupId)?.fields ?? []);
+          : target.kind === 'group'
+            ? (props.formGroups.find((group) => group.id === target.groupId)?.fields ?? [])
+            : [];
     target.index = insertionIndex(
       fields.map((field) => field.id),
       metadata.fieldId,
@@ -520,7 +695,9 @@ function handleExternalDrop(event: UiTreeDropEvent) {
       event,
     );
   }
-  if (metadata) emit('metadata-drop', target, metadata);
+  if (metadata) {
+    emit('source-drop', target, metadata);
+  }
 }
 </script>
 
@@ -547,13 +724,18 @@ function handleExternalDrop(event: UiTreeDropEvent) {
 
 <style scoped>
 .page-composition-tree {
-  min-height: 260px;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
   color: var(--ant-color-text);
   font-size: 14px;
 }
 
 .page-composition-tree__ui-tree {
-  min-height: 260px;
+  flex: 1 1 auto;
+  min-height: 0;
 }
 
 .page-composition-tree__ui-tree :deep(.ant-tree) {

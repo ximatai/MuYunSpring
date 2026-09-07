@@ -1,6 +1,6 @@
 package net.ximatai.muyun.spring.platform.web;
 
-/** Visible content in the explorer slot of {@link ModulePageTemplate#FLAT_MANAGEMENT}. */
+/** Visible content in the flat or tree navigation explorer slot. */
 public record PageExplorerDefinition(String title, String searchPlaceholder, String emptyDescription,
                                      String recordLabel, String fallbackTitle, String titleField,
                                      String secondaryField, boolean mutedWhenDisabled) {

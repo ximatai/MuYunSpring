@@ -82,6 +82,7 @@ async function focusSearchInput() {
       </template>
       <template #actions>
         <div class="record-explorer-panel-actions">
+          <slot name="utility-actions" />
           <UiButton
             v-if="searchable"
             class="record-explorer-panel-action"
@@ -93,7 +94,6 @@ async function focusSearchInput() {
             :title="`搜索${title}`"
             @click="toggleSearch"
           />
-          <slot name="utility-actions" />
           <UiButton
             v-if="collapseAction && explorerColumn?.collapsible.value && !explorerColumn.collapsed.value"
             class="record-explorer-panel-action"

@@ -1,6 +1,8 @@
 <script setup lang="ts">
 defineOptions({ name: 'RecordFormGrid' });
 
+withDefaults(defineProps<{ as?: 'form' | 'div'; surface?: 'record' }>(), { as: 'form', surface: undefined });
+
 const emit = defineEmits<{ submit: [event: SubmitEvent] }>();
 
 function submit(event: SubmitEvent) {
@@ -9,7 +11,14 @@ function submit(event: SubmitEvent) {
 </script>
 
 <template>
-  <form class="record-form-grid" @submit="submit"><slot /></form>
+  <component
+    :is="as"
+    class="record-form-grid"
+    :class="{ 'record-form-grid--record': surface === 'record' }"
+    @submit="submit"
+  >
+    <slot />
+  </component>
 </template>
 
 <style scoped>
@@ -37,6 +46,11 @@ function submit(event: SubmitEvent) {
 
 @media (max-width: 720px) {
   .record-form-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+@media (max-width: 900px) {
+  .record-form-grid--record {
     grid-template-columns: minmax(0, 1fr);
   }
 }

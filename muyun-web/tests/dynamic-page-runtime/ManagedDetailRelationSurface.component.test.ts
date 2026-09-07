@@ -1,10 +1,18 @@
-import { flushPromises, shallowMount } from '@vue/test-utils';
-import { describe, expect, it, vi } from 'vitest';
+import { config, flushPromises, shallowMount } from '@vue/test-utils';
+import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 import ManagedDetailRelationSurface from '@/dynamic-page-runtime/ManagedDetailRelationSurface.vue';
 import ModulePageDetailRelations from '@/dynamic-page-runtime/ModulePageDetailRelations.vue';
 import ManagedDetailRelationInlineSurface from '@/dynamic-page-runtime/ManagedDetailRelationInlineSurface.vue';
 import type { ModuleContext } from '@muyun/web-core';
 import type { ResolvedDetailRelationDescriptor, ResolvedModuleUiDescriptor } from '@muyun/web-contracts';
+
+const originalStubs = config.global.stubs;
+beforeEach(() => {
+  config.global.stubs = { ...originalStubs, RecordRelationTable: false, RecordRelationValue: false };
+});
+afterEach(() => {
+  config.global.stubs = originalStubs;
+});
 
 describe('managed detail relation surface', () => {
   it('allows aggregate draft rows before the parent has been persisted', async () => {
@@ -306,6 +314,10 @@ describe('managed detail relation surface', () => {
     await wrapper.setProps({ validationRequestKey: 1 });
 
     expect(wrapper.find('.managed-relation-inline__cell--validation-pulse').exists()).toBe(true);
+    const firstPulse = wrapper.get('.managed-relation-inline__cell--validation-pulse').element;
+    await wrapper.setProps({ validationRequestKey: 2 });
+    expect(wrapper.get('.managed-relation-inline__cell--validation-pulse').element).not.toBe(firstPulse);
+    expect(wrapper.emitted('records-change')?.at(-1)).toEqual([[{ title: '已填写名称' }]]);
   });
 
   it('uses the same dynamic required formula for cell presentation and aggregate validity', async () => {

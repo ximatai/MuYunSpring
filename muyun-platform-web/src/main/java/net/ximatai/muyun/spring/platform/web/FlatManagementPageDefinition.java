@@ -1,13 +1,19 @@
 package net.ximatai.muyun.spring.platform.web;
 
+import java.util.List;
 import java.util.function.Consumer;
 
 /**
  * Template-root definition for a left record explorer and right detail card management page.
  */
 public record FlatManagementPageDefinition(PageNavigatorDefinition navigator, PageExplorerDefinition explorer, PageDetailDefinition detail,
-                                           PageTraitsDefinition traits) implements ModulePageDefinition {
+                                           PageTraitsDefinition traits, List<String> quickSearchFields) implements ModulePageDefinition {
+    public FlatManagementPageDefinition(PageNavigatorDefinition navigator, PageExplorerDefinition explorer, PageDetailDefinition detail, PageTraitsDefinition traits) {
+        this(navigator, explorer, detail, traits, null);
+    }
+
     public FlatManagementPageDefinition {
+        quickSearchFields = quickSearchFields == null ? null : List.copyOf(quickSearchFields);
         if (explorer == null) throw new IllegalArgumentException("flat management requires an explorer slot");
         traits = traits == null ? new PageTraitsDefinition(null) : traits;
         if (traits.values().contains(PageTrait.RESPONSIVE_DETAIL_SURFACE)) {
@@ -27,6 +33,8 @@ public record FlatManagementPageDefinition(PageNavigatorDefinition navigator, Pa
         private PageNavigatorDefinition navigator;
         private PageDetailDefinition detail;
         private PageTraitsDefinition traits;
+        private List<String> quickSearchFields;
+        public Builder quickSearch(String... fields) { quickSearchFields = List.of(fields); return this; }
         public Builder explorer(Consumer<PageExplorerDefinition.Builder> customizer) {
             PageExplorerDefinition.Builder builder = PageExplorerDefinition.builder();
             if (customizer != null) customizer.accept(builder);
@@ -51,6 +59,6 @@ public record FlatManagementPageDefinition(PageNavigatorDefinition navigator, Pa
             traits = builder.build();
             return this;
         }
-        public FlatManagementPageDefinition build() { return new FlatManagementPageDefinition(navigator, explorer, detail, traits); }
+        public FlatManagementPageDefinition build() { return new FlatManagementPageDefinition(navigator, explorer, detail, traits, quickSearchFields); }
     }
 }

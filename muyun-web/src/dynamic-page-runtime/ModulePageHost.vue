@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { resolvePlacedPageActions } from './pageActionPlacement';
 import { computed, nextTick, onMounted, onUnmounted, ref, shallowRef, toRaw, watch } from 'vue';
 import { useCurrentUserContext } from '../platform-admin-runtime/currentUserContext';
 import {
@@ -194,7 +195,21 @@ const rawContext = createModuleContext<QueryListRecord>({
 const context: ModuleContext<QueryListRecord> = {
   ...rawContext,
   crud: {
-    querySchema: (options) => (activeTreeResourceClient.value ?? rawContext.crud).querySchema(options),
+    async querySchema(options) {
+      const schema = await (activeTreeResourceClient.value ?? rawContext.crud).querySchema(options);
+      const fields = runtimePage.value?.quickSearchFields;
+      return fields == null
+        ? schema
+        : {
+            ...schema,
+            quickSearch: {
+              ...schema.quickSearch,
+              enabled: fields.length > 0,
+              fields,
+              fieldSchemas: schema.quickSearch.fieldSchemas.filter((field) => fields.includes(field.name)),
+            },
+          };
+    },
     query(request) {
       if (activeTreeResourceClient.value) return activeTreeResourceClient.value.query(request);
       const conditions = emptyNavigatorListScope.value ?? [];
@@ -851,7 +866,10 @@ const modulePageTitle = computed(
 const modulePageSubtitle = computed(() => pageText(runtimePage.value?.list?.subtitle));
 const treePanelTitle = computed(() => runtimePage.value?.treeResource?.title ?? modulePageTitle.value);
 const listSearchPlaceholder = computed(
-  () => runtimePage.value?.list?.searchPlaceholder ?? `搜索${recordLabel.value}`,
+  () =>
+    runtimePage.value?.list?.searchPlaceholder ??
+    runtimePage.value?.explorer?.searchPlaceholder ??
+    `搜索${recordLabel.value}`,
 );
 const listEmptyDescription = computed(
   () =>
@@ -974,6 +992,18 @@ function enhancementRowActionsFor(record: QueryListRecord) {
 const enhancementBatchActions = computed<ModulePageBatchActionContribution[]>(
   () => pageEnhancement.value?.list?.batchActions ?? [],
 );
+const placedPageActions = computed<RecordActionItem[]>(() => placedActionsAt('PAGE'));
+const placedDetailActions = computed<RecordActionItem[]>(() => placedActionsAt('DETAIL'));
+const placedFormActions = computed<RecordActionItem[]>(() => placedActionsAt('FORM'));
+function placedActionsAt(anchor: 'PAGE' | 'DETAIL' | 'FORM') {
+  return resolvePlacedPageActions(
+    runtimePage.value?.actions ?? [],
+    anchor,
+    (code) => context.runtimeAction(code),
+    detailPageActions.value,
+    editorMode.value,
+  );
+}
 const enhancementRowExpansion = computed(() => pageEnhancement.value?.list?.rowExpansion);
 const persistentListQueryControls = computed(() => runtimePage.value?.list?.persistentQueryControls ?? []);
 const listQuerySummaries = computed(() => runtimePage.value?.list?.querySummaries ?? []);
@@ -1231,6 +1261,14 @@ const flatManagementDetailActions = computed<RecordActionItem[]>(() => [
   ...flatManagementActions.value,
   ...flatManagementEnhancementActions.value,
   ...detailPageActions.value,
+  ...(flatManagementAllowsDetailEnhancement() ? placedDetailActions.value : []),
+  ...(!flatManagementRecycleBin.active.value && editorMode.value !== 'view'
+    ? placedFormActions.value.map((action) => ({
+        ...action,
+        disabled: saving.value || action.disabled,
+        loading: saving.value,
+      }))
+    : []),
 ]);
 const recycleBinDetailActive = computed(
   () => flatManagementRecycleBin.active.value || listMode.value === 'recycleBin',
@@ -1466,12 +1504,35 @@ function handleFlatManagementLoaded(records: QueryListRecord[]) {
   loadFlatManagementRecords(records, flatManagementRecycleBin.active.value);
 }
 
+function explorerRecordText(record: object, field: string | undefined): string | undefined {
+  if (!field) return undefined;
+  const value = (record as Record<string, unknown>)[field];
+  return value == null || String(value).trim() === '' ? undefined : String(value);
+}
+function matchesPageQuickSearch(record: object, keyword: string): boolean {
+  const fields = runtimePage.value?.quickSearchFields;
+  if (fields == null)
+    return `${mainTreeTitle(record)} ${mainTreeSecondary(record) ?? ''}`
+      .toLowerCase()
+      .includes(keyword.toLowerCase());
+  return fields.some((field) =>
+    (explorerRecordText(record, field) ?? '').toLowerCase().includes(keyword.toLowerCase()),
+  );
+}
+function mainTreeTitle(record: object): string {
+  return explorerRecordText(record, runtimePage.value?.explorer?.titleField ?? 'title') ?? '未命名记录';
+}
+function mainTreeSecondary(record: object): string | undefined {
+  return explorerRecordText(record, runtimePage.value?.explorer?.secondaryField);
+}
+
 function flatManagementItemOf(record: CrudRecordListBase): RecordExplorerItemDescriptor {
   const secondaryField = flatManagementContent.value?.secondaryField;
   const secondaryValue =
     secondaryField == null ? undefined : (record as unknown as Record<string, unknown>)[secondaryField];
   return {
     title:
+      explorerRecordText(record, runtimePage.value?.explorer?.titleField) ??
       record.title ??
       record.alias ??
       record.code ??
@@ -1496,6 +1557,14 @@ function openFlatManagementRecord(record: QueryListRecord) {
 }
 
 function handleFlatManagementAction(action: RecordActionItem) {
+  if (placedFormActions.value.some((item) => item.key === action.key)) {
+    handlePlacedFormAction(action);
+    return;
+  }
+  if (placedDetailActions.value.some((item) => item.key === action.key)) {
+    void runPlacedRecordAction(action);
+    return;
+  }
   const record = selectedRecord.value;
   const contribution = flatManagementEnhancementActions.value.find((item) => item.key === action.key);
   if (record && contribution) {
@@ -2380,7 +2449,19 @@ function handleListAction(action: { key?: string }) {
   const contribution = enhancementActionContributions.value.find((item) => item.key === action.key);
   if (contribution) {
     void runEnhancementAction(contribution, modulePageActionContext());
+    return;
   }
+  if (placedPageActions.value.some((item) => item.key === action.key)) handlePlacedPageAction(action);
+}
+
+function handlePlacedPageAction(action: { key?: string; actionCode?: string }) {
+  if (saving.value || !placedPageActions.value.some((item) => item.key === action.key && !item.disabled))
+    return;
+  if (action.actionCode === 'create') {
+    createRecord();
+    return;
+  }
+  if (action.actionCode === 'query') refreshList();
 }
 
 function handleRowAction(action: { key?: string }, record: QueryListRecord) {
@@ -2429,7 +2510,47 @@ function handleDetailAction(action: { key?: string }) {
   const contribution = enhancementDetailActions.value.find((item) => item.key === action.key);
   if (record && contribution) {
     void runEnhancementAction(contribution, { ...modulePageActionContext(record), record });
+    return;
   }
+  if (placedDetailActions.value.some((item) => item.key === action.key)) void runPlacedRecordAction(action);
+}
+
+async function runPlacedRecordAction(action: { key?: string; actionCode?: string }) {
+  const record = selectedRecord.value;
+  const recordId = record?.id == null ? undefined : String(record.id);
+  const actionCode = action.actionCode;
+  if (
+    !record ||
+    !recordId ||
+    !actionCode ||
+    editorMode.value !== 'view' ||
+    !placedDetailActions.value.some((item) => item.key === action.key && !item.disabled)
+  )
+    return;
+  if (actionCode === 'update') {
+    void editRecord(record, 'restore-view');
+    return;
+  }
+  if (actionCode === 'delete') {
+    void deleteRecord(record);
+    return;
+  }
+  if (actionCode === 'enable' || actionCode === 'disable') {
+    if ((actionCode === 'enable') === (record.enabled === false)) await toggleEnabled();
+    return;
+  }
+  const configured = detailPageActions.value.find((item) => item.actionCode === actionCode);
+  if (configured) handleConfiguredAction(configured);
+}
+
+function handlePlacedFormAction(action: { key?: string; actionCode?: string }) {
+  if (saving.value || !placedFormActions.value.some((item) => item.key === action.key && !item.disabled))
+    return;
+  if (action.actionCode === 'create' || action.actionCode === 'update') {
+    void saveRecord();
+    return;
+  }
+  void runPlacedRecordAction(action);
 }
 
 function handleBatchAction(action: { key?: string }, records: QueryListRecord[], clearSelection: () => void) {
@@ -2584,7 +2705,9 @@ function recordTitle(record: QueryListRecord | undefined) {
       :refresh-title="`刷新${flatManagementRecycleBin.active.value ? '回收站' : (flatManagementContent?.explorerTitle ?? title)}`"
       :explorer-search-keyword="flatManagementSearchKeyword"
       :explorer-search-placeholder="flatManagementContent?.explorerSearchPlaceholder"
-      :explorer-searchable="!flatManagementRecycleBin.active.value"
+      :explorer-searchable="
+        !flatManagementRecycleBin.active.value && runtimePage?.quickSearchFields?.length !== 0
+      "
       :mode="editorMode"
       :detail-title="detailTitle"
       :navigator-count="navigatorExplorerCount"
@@ -2659,6 +2782,12 @@ function recordTitle(record: QueryListRecord | undefined) {
         </PageNavigatorExplorer>
       </template>
       <template v-if="!flatManagementRecycleBin.active.value" #explorer-actions>
+        <RecordActionBar
+          v-if="placedPageActions.length"
+          :context="context"
+          :actions="placedPageActions"
+          @action="handlePlacedPageAction"
+        />
         <RecordPanelButton
           v-if="context.can('sort') === true"
           icon-name="swap-vertical"
@@ -2701,6 +2830,7 @@ function recordTitle(record: QueryListRecord | undefined) {
           "
           :fallback-title="flatManagementContent?.fallbackTitle"
           :item-of="flatManagementItemOf"
+          :filter-option="runtimePage?.quickSearchFields != null ? matchesPageQuickSearch : undefined"
           @recycle-bin-summary="flatManagementRecycleBin.updateSummary"
           @loaded="(records) => handleFlatManagementLoaded(records as QueryListRecord[])"
           @restored="refreshList"
@@ -2898,7 +3028,7 @@ function recordTitle(record: QueryListRecord | undefined) {
         :standard-crud-actions="true"
         :standard-crud-row-actions="true"
         :standard-crud-row-action-keys="standardCrudRowActionKeys"
-        :extra-actions="enhancementActions"
+        :extra-actions="[...enhancementActions, ...placedPageActions]"
         :additional-columns="enhancementColumns"
         :cell-components="enhancementCellComponents"
         :extra-row-actions-of="enhancementRowActionsFor"
@@ -2972,14 +3102,17 @@ function recordTitle(record: QueryListRecord | undefined) {
             :detail-load-failed="detailLoadFailed"
             :recycle-bin-active="recycleBinDetailActive"
             :actions="enhancementDetailActions"
-            :configured-actions="detailPageActions"
+            :configured-actions="[...detailPageActions, ...placedDetailActions]"
+            :form-actions="placedFormActions"
             :workspace-available="detailWorkspaceAvailable"
             @cancel="cancelDetailEditing"
             @save="saveRecord"
             @edit="selectedRecord && editRecord(selectedRecord, 'restore-view')"
             @delete="selectedRecord && deleteRecord(selectedRecord)"
             @open-workspace="openDetailWorkspaceView"
-            @detail-action="handleDetailAction"
+            @detail-action="
+              editorMode === 'view' ? handleDetailAction($event) : handlePlacedFormAction($event)
+            "
           />
         </template>
         <template #status>
@@ -3121,12 +3254,19 @@ function recordTitle(record: QueryListRecord | undefined) {
           :title="treePanelTitle"
           :subtitle="mainTreeScopeContext"
           :refresh-title="`刷新${treePanelTitle}`"
+          :searchable="runtimePage?.quickSearchFields?.length !== 0"
           :search-keyword="treeSearchKeyword"
           :search-placeholder="listSearchPlaceholder"
           @update:search-keyword="treeSearchKeyword = $event"
           @refresh="treeReloadKey += 1"
         >
           <template #actions>
+            <RecordActionBar
+              v-if="placedPageActions.length"
+              :context="context"
+              :actions="placedPageActions"
+              @action="handlePlacedPageAction"
+            />
             <RecordPanelButton
               v-if="mainTreeScopeReady && context.can('sort') === true"
               icon-name="swap-vertical"
@@ -3157,6 +3297,13 @@ function recordTitle(record: QueryListRecord | undefined) {
             :selected-id="selectedTreeRecord?.id == null ? undefined : String(selectedTreeRecord.id)"
             :reload-key="treeReloadKey"
             :keyword="treeSearchKeyword"
+            :title-of="runtimePage?.explorer ? mainTreeTitle : undefined"
+            :secondary-of="runtimePage?.explorer ? mainTreeSecondary : undefined"
+            :filter-option="
+              runtimePage?.explorer || runtimePage?.quickSearchFields != null
+                ? matchesPageQuickSearch
+                : undefined
+            "
             :sorting="mainTreeSorting"
             :sort-partition-fields="
               runtimePage?.treeResource
@@ -3196,7 +3343,8 @@ function recordTitle(record: QueryListRecord | undefined) {
             :detail-loading="detailLoading"
             :detail-load-failed="detailLoadFailed"
             :actions="enhancementDetailActions"
-            :configured-actions="detailPageActions"
+            :configured-actions="[...detailPageActions, ...placedDetailActions]"
+            :form-actions="placedFormActions"
             :workspace-available="detailWorkspaceAvailable"
             create-child-available
             :create-child-disabled="!selectedRecord || context.can('create') !== true"
@@ -3206,7 +3354,9 @@ function recordTitle(record: QueryListRecord | undefined) {
             @delete="selectedRecord && deleteRecord(selectedRecord)"
             @open-workspace="openDetailWorkspaceView"
             @create-child="createChildRecord"
-            @detail-action="handleDetailAction"
+            @detail-action="
+              editorMode === 'view' ? handleDetailAction($event) : handlePlacedFormAction($event)
+            "
           />
         </template>
         <template #status>
@@ -3303,7 +3453,7 @@ function recordTitle(record: QueryListRecord | undefined) {
       :standard-crud-actions="true"
       :standard-crud-row-actions="true"
       :standard-crud-row-action-keys="standardCrudRowActionKeys"
-      :extra-actions="enhancementActions"
+      :extra-actions="[...enhancementActions, ...placedPageActions]"
       :additional-columns="enhancementColumns"
       :cell-components="enhancementCellComponents"
       :extra-row-actions-of="enhancementRowActionsFor"
@@ -3400,13 +3550,14 @@ function recordTitle(record: QueryListRecord | undefined) {
           :detail-load-failed="detailLoadFailed"
           :recycle-bin-active="recycleBinDetailActive"
           :actions="enhancementDetailActions"
-          :configured-actions="detailPageActions"
+          :configured-actions="[...detailPageActions, ...placedDetailActions]"
+          :form-actions="placedFormActions"
           :show-standard-view-actions="!enhancementDetailDrawer"
           @cancel="cancelDetailEditing"
           @save="saveRecord"
           @edit="selectedRecord && editRecord(selectedRecord, 'restore-view')"
           @delete="selectedRecord && deleteRecord(selectedRecord)"
-          @detail-action="handleDetailAction"
+          @detail-action="editorMode === 'view' ? handleDetailAction($event) : handlePlacedFormAction($event)"
         />
       </template>
       <template #view>

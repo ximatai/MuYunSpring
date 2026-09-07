@@ -1,0 +1,195 @@
+.managed-relation-inline {
+  min-width: 0;
+}
+
+.managed-relation-inline__scroll {
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+}
+
+.managed-relation-inline--compact .managed-relation-inline__scroll {
+  scrollbar-width: thin;
+}
+
+.managed-relation-inline__table {
+  border-collapse: collapse;
+  font-size: var(--muyun-detail-relation-body-font-size, 12px);
+  min-width: 0;
+  table-layout: fixed;
+  width: 100%;
+}
+
+.managed-relation-inline__table th,
+.managed-relation-inline__table td {
+  border: 1px solid var(--muyun-border-subtle);
+  text-align: left;
+  vertical-align: middle;
+}
+
+.managed-relation-inline__value {
+  display: block;
+  overflow: hidden;
+  padding: 0 4px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.managed-relation-inline__table th {
+  background: var(--muyun-hover-subtle);
+  color: var(--muyun-text);
+  font-size: var(--muyun-detail-relation-header-font-size, 12px);
+  font-weight: 700;
+  height: var(--muyun-detail-relation-header-row-height, 30px);
+  padding: 0 4px;
+}
+
+.managed-relation-inline__table tbody tr {
+  height: var(--muyun-detail-relation-body-row-height, 30px);
+}
+
+.managed-relation-inline--compact .managed-relation-inline__table th {
+  height: 28px;
+}
+
+.managed-relation-inline--compact .managed-relation-inline__table tbody tr {
+  height: 28px;
+}
+
+.managed-relation-inline__table td {
+  padding: 0;
+  transition:
+    background-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.managed-relation-inline__table td:hover {
+  background: var(--muyun-hover-subtle);
+}
+
+.managed-relation-inline__table td:focus-within {
+  background: var(--muyun-primary-soft);
+  outline: 1px solid var(--muyun-primary);
+  outline-offset: -1px;
+  position: relative;
+  z-index: 1;
+}
+
+.managed-relation-inline__required {
+  color: var(--muyun-danger-base);
+  font-weight: 600;
+  margin-left: 2px;
+}
+
+.managed-relation-inline__table td.managed-relation-inline__cell--validation-pulse {
+  position: relative;
+  z-index: 1;
+  animation: managed-relation-cell-validation-pulse 720ms ease-out;
+}
+
+.managed-relation-inline__table td.managed-relation-inline__cell--validation-pulse:focus-within {
+  outline: 0;
+}
+
+@keyframes managed-relation-cell-validation-pulse {
+  25%,
+  75% {
+    box-shadow: inset 0 0 0 1px var(--muyun-danger-base);
+  }
+}
+
+.managed-relation-inline__table td :deep(.record-form-field) {
+  min-width: 0;
+}
+
+.managed-relation-inline__table td :deep(.ant-input),
+.managed-relation-inline__table td :deep(.ant-input-affix-wrapper),
+.managed-relation-inline__table td :deep(.ant-select-selector),
+.managed-relation-inline__table td :deep(.ant-picker) {
+  background: transparent;
+  border-color: transparent !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  font-size: var(--muyun-detail-relation-body-font-size, 12px);
+}
+
+.managed-relation-inline__table td :deep(.ant-input-affix-wrapper) {
+  border: 0 !important;
+  min-height: 26px;
+  padding: 0;
+  width: 100%;
+}
+
+.managed-relation-inline__table td :deep(.ant-input:focus),
+.managed-relation-inline__table td :deep(.ant-input-focused) {
+  border-color: transparent !important;
+  box-shadow: none !important;
+  outline: 0;
+}
+
+.managed-relation-inline__table td :deep(.ant-input) {
+  border: 0 !important;
+  display: block;
+  min-height: 26px;
+  padding: 0 4px;
+  width: 100%;
+}
+
+.managed-relation-inline__table td :deep(.ant-select-selector) {
+  min-height: 26px !important;
+  padding-inline: 6px !important;
+}
+
+.managed-relation-inline__table td :deep(.ant-select-single) {
+  height: 26px;
+}
+
+.managed-relation-inline__table td :deep(.ant-select-single .ant-select-selection-item),
+.managed-relation-inline__table td :deep(.ant-select-single .ant-select-selection-placeholder) {
+  line-height: 24px;
+}
+
+.managed-relation-inline__table td :deep(.ant-input:disabled),
+.managed-relation-inline__table td :deep(.ant-input-affix-wrapper-disabled),
+.managed-relation-inline__table td :deep(.ant-select-disabled .ant-select-selector) {
+  background: transparent;
+}
+
+.managed-relation-inline__actions {
+  padding: 0 4px !important;
+  text-align: center !important;
+  width: 96px;
+}
+
+.managed-relation-inline__selection {
+  padding: 0 !important;
+  text-align: center !important;
+  width: 34px;
+}
+
+.managed-relation-inline__selection-column {
+  width: 34px;
+}
+
+.managed-relation-inline__actions :deep(.ant-btn) {
+  font-size: var(--muyun-detail-relation-body-font-size, 12px);
+  height: 26px;
+  padding-inline: 6px;
+}
+
+.managed-relation-inline__empty {
+  color: var(--muyun-text-muted);
+  padding: 24px !important;
+  text-align: center !important;
+}
+
+.managed-relation-inline__recycle-empty {
+  color: var(--muyun-text-muted);
+  padding: 24px;
+  text-align: center;
+}
+
+.managed-relation-inline__recycle-table {
+  table-layout: auto;
+}

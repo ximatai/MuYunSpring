@@ -675,10 +675,19 @@ public class StaticModuleDefinitionScanner implements StaticModuleRegistrationSo
             }
             editorSurfaces.add(surface);
         }
+        List<PageActionDefinition> pageActions = new ArrayList<>();
+        if (targetUiDefinition != null) pageActions.addAll(targetUiDefinition.pageActions());
+        for (PageActionDefinition action : contributionUiDefinition.pageActions()) {
+            if (pageActions.stream().anyMatch(existing -> existing.actionCode().equals(action.actionCode()))) {
+                throw new IllegalStateException("@PlatformStaticActionContribution page action conflicts with target module: "
+                        + targetModule + "." + action.actionCode() + " <- " + contributor.getName());
+            }
+            pageActions.add(action);
+        }
         return new ModuleUiDefinition(targetModule, List.copyOf(actions.values()),
                 targetUiDefinition != null && targetUiDefinition.page() != null
                         ? targetUiDefinition.page() : contributionUiDefinition.page(), defaultEditor,
-                editorSurfaces, editorContributions, detailRelations);
+                editorSurfaces, editorContributions, detailRelations, pageActions);
     }
 
     private void mergeDeclaredAction(String sourceAnnotation,

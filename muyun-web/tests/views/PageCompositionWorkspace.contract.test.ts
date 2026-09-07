@@ -13,7 +13,7 @@ it('keeps management quick search as a constrained template component', () => {
   assert.match(treeSource, /<UiTree/);
   assert.ok(!/VueDraggable|SortableEvent|vue-draggable-plus/.test(treeSource));
   assert.match(treeSource, /快速查询/);
-  assert.match(treeSource, /可配置占位提示/);
+  assert.match(treeSource, /双击编辑占位提示/);
   assert.match(workspaceSource, /selectedQuickSearch\.value \? '配置：快速查询占位提示'/);
   assert.match(
     workspaceSource,
@@ -21,7 +21,6 @@ it('keeps management quick search as a constrained template component', () => {
   );
   assert.match(draftStateSource, /quickSearchPlaceholder/);
   assert.match(draftStateSource, /list: \{ searchPlaceholder: quickSearchPlaceholder\.value \}/);
-  assert.match(workspaceSource, /changes\.push\('修改快速查询占位提示'\)/);
   assert.match(
     workspaceSource,
     /state\.updateQuickSearchPlaceholder\([\s\S]*tree\.props\?\.list\?\.searchPlaceholder/,

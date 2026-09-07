@@ -120,6 +120,19 @@ class StaticModuleDefinitionScannerTest {
     }
 
     @Test
+    void shouldPreservePageActionsAcrossStaticContributions() {
+        try (GenericApplicationContext context = new GenericApplicationContext()) {
+            context.registerBean(ContributedActionTargetWeb.class);
+            context.registerBean(FirstContributedActionWeb.class);
+            context.refresh();
+            var definition = new StaticModuleDefinitionScanner(context).scan().stream()
+                    .filter(item -> item.moduleAlias().equals("demo.contributed_action")).findFirst().orElseThrow();
+            assertThat(definition.uiDefinition().pageActions()).extracting(PageActionDefinition::actionCode)
+                    .containsExactly("query", "run");
+        }
+    }
+
+    @Test
     void shouldCompilePlatformApplicationAsDescriptorDrivenModuleEntry() {
         try (GenericApplicationContext context = new GenericApplicationContext()) {
             context.registerBean(ApplicationWebController.class);
@@ -1682,12 +1695,18 @@ class StaticModuleDefinitionScannerTest {
     @RestController
     @PlatformStaticModule(application = net.ximatai.muyun.spring.platform.web.StaticTestApplications.DemoApplication.class,
             alias = "demo.contributed_action", title = "Contributed action")
-    static class ContributedActionTargetWeb {
+    static class ContributedActionTargetWeb implements StaticModuleUiContributor {
+        @Override public ModuleUiDefinition moduleUiDefinition() {
+            return ModuleUiDefinition.builder("demo.contributed_action").pageAction("query", PageActionAnchor.PAGE).build();
+        }
     }
 
     @RestController
     @PlatformStaticActionContribution(targetModule = "demo.contributed_action", resource = "child", resourceTitle = "Child")
-    static class FirstContributedActionWeb {
+    static class FirstContributedActionWeb implements StaticModuleUiContributor {
+        @Override public ModuleUiDefinition moduleUiDefinition() {
+            return ModuleUiDefinition.builder("demo.contributed_action").pageAction("run", PageActionAnchor.DETAIL).build();
+        }
         @CustomActionEndpoint("run")
         public void run() {
         }

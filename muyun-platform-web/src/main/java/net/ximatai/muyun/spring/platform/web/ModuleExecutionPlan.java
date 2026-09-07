@@ -120,6 +120,10 @@ public record ModuleExecutionPlan(String moduleAlias,
             throw new IllegalArgumentException("module execution query scope must match module alias: " + moduleAlias);
         }
         querySchema = querySchema == null ? QuerySchema.from(queryDescriptor) : querySchema;
+        if (uiDescriptor.page() != null && uiDescriptor.page().quickSearchFields() != null
+                && !querySchema.quickSearch().fields().containsAll(uiDescriptor.page().quickSearchFields())) {
+            throw new IllegalArgumentException("Page quick search fields must belong to the module query contract");
+        }
         validatePersistentQueryControls(moduleAlias, uiDescriptor, querySchema, pageContextBindings);
         queryTemplateIds = queryTemplateIds == null ? List.of() : queryTemplateIds.stream()
                 .filter(id -> id != null && !id.isBlank()).map(String::trim).distinct().toList();

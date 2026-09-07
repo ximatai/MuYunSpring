@@ -1,9 +1,22 @@
-import { mount, shallowMount } from '@vue/test-utils';
-import { expect, it, vi } from 'vitest';
+import { config, mount, shallowMount } from '@vue/test-utils';
+import { beforeEach, afterEach, expect, it, vi } from 'vitest';
 import UiTree from '@/vue-ui-antdv/components/UiTree.vue';
 import PageCompositionDescriptorPreview from '@/views/PageCompositionDescriptorPreview.vue';
 import { PAGE_COMPOSITION_DRAG_PAYLOAD_TYPE } from '@/views/pageCompositionDragPayload';
 import type { ResolvedDetailRelationDescriptor, ResolvedModuleUiDescriptor } from '@/web-contracts/index.ts';
+
+const originalStubs = config.global.stubs;
+beforeEach(() => {
+  config.global.stubs = {
+    ...originalStubs,
+    RecordFormGrid: false,
+    RecordDetailExtensionSection: false,
+    RecordRelationTable: false,
+  };
+});
+afterEach(() => {
+  config.global.stubs = originalStubs;
+});
 
 it('uses the standard list cell semantic component for descriptor list previews', () => {
   const list = shallowMount(PageCompositionDescriptorPreview, {
@@ -77,6 +90,77 @@ it('exposes the active preview mode as an external metadata drop target', async 
   });
 });
 
+it('renders an external metadata field inline before it is dropped into an existing form grid', async () => {
+  const preview = mount(PageCompositionDescriptorPreview, {
+    attachTo: document.body,
+    props: {
+      descriptor: descriptorWithEditor(),
+      moduleAlias: 'platform.module',
+      mode: 'edit',
+      acceptExternalDrop: true,
+      structure: {
+        list: [],
+        form: [{ id: 'title-id', fieldName: 'title', title: '考试名称' }],
+        groups: [],
+        relations: [],
+      },
+    },
+  });
+  const source = mount(UiTree, {
+    attachTo: document.body,
+    props: {
+      nodes: [{ key: 'reviewDate', title: '复核日期' }],
+      draggable: true,
+      dragOperations: ['copy'],
+      dragPayloadType: PAGE_COMPOSITION_DRAG_PAYLOAD_TYPE,
+      dragPayloadOf: () => ({
+        kind: 'field',
+        fieldId: 'review-date-id',
+        fieldName: 'reviewDate',
+        title: '复核日期',
+        fieldSpecAlias: 'date',
+      }),
+    },
+  });
+  const target = preview.get('[data-page-composition-layout-key="edit:field:title"]');
+  const original = document.elementFromPoint;
+  const originalRect = HTMLElement.prototype.getBoundingClientRect;
+  Object.defineProperty(document, 'elementFromPoint', { configurable: true, value: () => target.element });
+  vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+    if (this === target.element)
+      return { x: 0, y: 0, left: 0, right: 180, top: 0, bottom: 60, width: 180, height: 60 } as DOMRect;
+    return originalRect.call(this);
+  });
+  try {
+    await source
+      .get('[data-ui-tree-key="reviewDate"]')
+      .trigger('mousedown', { button: 0, clientX: 0, clientY: 0 });
+    await target.trigger('mousemove', { buttons: 1, clientX: 100, clientY: 30 });
+    await preview.vm.$nextTick();
+
+    expect(
+      preview.get('.record-form-field-host:has(.page-composer-external-field-preview--dragging)').text(),
+    ).toContain('复核日期');
+    expect(preview.get('input[type="date"]').attributes('type')).toBe('date');
+    expect(preview.findAll('.record-form-field').map((field) => field.text())).toEqual([
+      expect.stringContaining('复核日期'),
+      expect.stringContaining('考试名称'),
+    ]);
+
+    await preview.setProps({ placementCommitFailed: true });
+    expect(preview.find('.page-composer-external-field-preview--dragging').exists()).toBe(false);
+
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    await preview.vm.$nextTick();
+    expect(preview.find('.page-composer-external-field-preview--dragging').exists()).toBe(false);
+  } finally {
+    Object.defineProperty(document, 'elementFromPoint', { configurable: true, value: original });
+    vi.restoreAllMocks();
+    source.unmount();
+    preview.unmount();
+  }
+});
+
 it('ignores unrelated external drags', async () => {
   const wrapper = mount(PageCompositionDescriptorPreview, {
     attachTo: document.body,
@@ -106,6 +190,107 @@ it('ignores unrelated external drags', async () => {
 
   expect(wrapper.emitted('placement-drop')).toBeUndefined();
   expect(preview.classes()).not.toContain('page-composition-descriptor-preview--drag-over');
+});
+
+it('uses each action item as a before-or-after drop target instead of treating the whole detail bar as one target', async () => {
+  const preview = mount(PageCompositionDescriptorPreview, {
+    attachTo: document.body,
+    props: {
+      descriptor: descriptor(),
+      moduleAlias: 'platform.module',
+      mode: 'detail',
+      acceptExternalDrop: true,
+      actionPlacements: [
+        { actionCode: 'delete', anchor: 'detail' },
+        { actionCode: 'update', anchor: 'detail' },
+      ],
+      moduleActions: [
+        { actionCode: 'delete', title: '删除', actionLevel: 'RECORD', authorized: true },
+        { actionCode: 'update', title: '编辑', actionLevel: 'RECORD', authorized: true },
+      ],
+    },
+    global: { stubs: { UiDataTable: tableStub } },
+  });
+  const source = mount(UiTree, {
+    attachTo: document.body,
+    props: {
+      nodes: [{ key: 'update', title: '编辑' }],
+      draggable: true,
+      dragOperations: ['copy'],
+      dragPayloadType: PAGE_COMPOSITION_DRAG_PAYLOAD_TYPE,
+      dragPayloadOf: () => ({ kind: 'action', actionCode: 'update' }),
+    },
+  });
+  const deleteTarget = preview.get('[data-page-action-key="delete"]');
+  const original = document.elementFromPoint;
+  const originalRect = HTMLElement.prototype.getBoundingClientRect;
+  const rectSpy = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (
+    this: HTMLElement,
+  ) {
+    if (this.getAttribute('data-page-action-key') === 'delete')
+      return {
+        x: 0,
+        y: 0,
+        left: 0,
+        right: 100,
+        top: 0,
+        bottom: 24,
+        width: 100,
+        height: 24,
+        toJSON: () => ({}),
+      } as DOMRect;
+    return originalRect.call(this);
+  });
+  Object.defineProperty(document, 'elementFromPoint', {
+    configurable: true,
+    value: () => preview.get('[data-page-action-key="delete"]').element,
+  });
+  try {
+    await source
+      .get('[data-ui-tree-key="update"]')
+      .trigger('mousedown', { button: 0, clientX: 0, clientY: 0 });
+    await deleteTarget.trigger('mousemove', { buttons: 1, clientX: 40, clientY: 12 });
+    await preview.vm.$nextTick();
+
+    expect(preview.get('[data-page-action-key="delete"]').classes()).toContain(
+      'page-composition-action-preview__button--drop-before',
+    );
+    expect(preview.find('.page-composition-action-preview--drop-active').exists()).toBe(false);
+    expect(
+      preview.findAll('[data-page-action-key]').map((element) => element.attributes('data-page-action-key')),
+    ).toEqual(['update', 'delete']);
+    expect(preview.find('[data-page-action-key="update"]').classes()).toContain(
+      'page-composition-action-preview__button--transient',
+    );
+
+    await preview
+      .get('[data-page-action-key="delete"]')
+      .trigger('mouseup', { button: 0, clientX: 40, clientY: 12 });
+
+    await source
+      .get('[data-ui-tree-key="update"]')
+      .trigger('mousedown', { button: 0, clientX: 0, clientY: 0 });
+    await preview
+      .get('[data-page-action-key="delete"]')
+      .trigger('mousemove', { buttons: 1, clientX: 90, clientY: 12 });
+    await preview.vm.$nextTick();
+    expect(preview.get('[data-page-action-key="delete"]').classes()).toContain(
+      'page-composition-action-preview__button--drop-after',
+    );
+    await preview
+      .get('[data-page-action-key="delete"]')
+      .trigger('mouseup', { button: 0, clientX: 90, clientY: 12 });
+
+    expect(preview.emitted('action-drop')).toEqual([
+      [{ actionCode: 'update' }, { anchor: 'detail', index: 0 }],
+      [{ actionCode: 'update' }, { anchor: 'detail', index: 1 }],
+    ]);
+  } finally {
+    Object.defineProperty(document, 'elementFromPoint', { configurable: true, value: original });
+    rectSpy.mockRestore();
+    source.unmount();
+    preview.unmount();
+  }
 });
 
 it('animates stable list fields into their new descriptor order', async () => {
@@ -219,20 +404,40 @@ it('preserves every server-resolved FormGroup in the editable preview', () => {
   });
 
   const forms = wrapper.findAllComponents({ name: 'RecordFormFields' });
-  expect(forms.map((form) => form.props('fieldNames'))).toEqual([[], ['examDate'], ['subject']]);
-  expect(wrapper.findAll('.page-composer-form-section > header')).toHaveLength(2);
+  expect(forms.map((form) => form.props('fieldNames'))).toEqual([['examDate', 'subject']]);
+  expect(forms[0].props('fields').get('subject').formGroup.groupCode).toBe('subject');
 });
+
+it.each(['detail', 'edit'] as const)(
+  'opens column configuration from the %s preview header',
+  async (mode) => {
+    const wrapper = mount(PageCompositionDescriptorPreview, {
+      props: { descriptor: descriptorWithRelation(), moduleAlias: 'platform.module', mode },
+    });
+    try {
+      const header = wrapper.get(
+        `[data-page-composition-layout-key="${mode}:relation:participants:header:studentName"]`,
+      );
+      await header.trigger('dblclick');
+      expect(wrapper.emitted('configureRelationField')).toEqual([['participants', 'studentName']]);
+      await header.trigger('keydown', { key: 'Enter' });
+      expect(wrapper.emitted('configureRelationField')).toHaveLength(2);
+    } finally {
+      wrapper.unmount();
+    }
+  },
+);
 
 it('renders a detail relation projection as a standard descriptor-driven table', () => {
   const wrapper = shallowMount(PageCompositionDescriptorPreview, {
     props: { descriptor: descriptorWithRelation(), moduleAlias: 'platform.module', mode: 'detail' },
   });
 
-  const relationTable = wrapper.findComponent({ name: 'UiDataTable' });
+  const relationTable = wrapper.findComponent({ name: 'RecordRelationTable' });
   expect(relationTable.props('columns')).toEqual([
-    { key: 'studentNo', title: '学号' },
-    { key: 'studentName', title: '学生姓名' },
-    { key: 'score', title: '成绩', align: 'right' },
+    { fieldName: 'studentNo', title: '学号' },
+    { fieldName: 'studentName', title: '学生姓名' },
+    { fieldName: 'score', title: '成绩', width: 180, align: 'right' },
   ]);
   expect(relationTable.props('rows')).toMatchObject([
     { studentNo: '示例学号', studentName: '示例学生姓名', score: 96 },
@@ -247,15 +452,19 @@ it('renders an editable local child-table preview from the server-resolved proje
   });
 
   expect(wrapper.text()).toContain('参考学生');
-  expect(wrapper.findComponent({ name: 'UiDataTable' }).props('columns')).toEqual([
-    { key: 'studentNo', title: '学号' },
-    { key: 'studentName', title: '学生姓名' },
-    { key: 'score', title: '成绩', align: 'right' },
+  expect(wrapper.findComponent({ name: 'RecordRelationTable' }).props('columns')).toEqual([
+    { fieldName: 'studentNo', title: '学号' },
+    { fieldName: 'studentName', title: '学生姓名' },
+    { fieldName: 'score', title: '成绩', width: 180, align: 'right' },
   ]);
-  const studentNo = wrapper.get('input[aria-label="参考学生：学号"]');
+  expect(wrapper.findAll('th').at(-1)!.attributes('style')).toContain('text-align: right');
+  expect(wrapper.findAll('col').at(-1)!.attributes('style')).toContain('width: 180px');
+  const studentNo = wrapper.get(
+    '[data-page-composition-layout-key="edit:relation:participants:field:studentNo"] input',
+  );
   await studentNo.setValue('20260001');
   expect((studentNo.element as HTMLInputElement).value).toBe('20260001');
-  expect(wrapper.text()).toContain('可直接编辑示例值以检查编辑态');
+  expect(wrapper.findAllComponents({ name: 'RecordFormFields' })).toHaveLength(4);
 });
 
 it('uses relation value facts for the same scalar editor families as the runtime form', () => {
@@ -265,6 +474,26 @@ it('uses relation value facts for the same scalar editor families as the runtime
     { fieldName: 'deliveryDate', title: '交付日期', valueType: 'DATE' },
     { fieldName: 'amount', title: '含税单价', valueType: 'DECIMAL' },
     { fieldName: 'urgent', title: '紧急采购', valueType: 'BOOLEAN' },
+  ];
+  value.editorContributions![0].editor.fields = [
+    {
+      fieldRef: { fieldName: 'deliveryDate' },
+      label: '交付日期',
+      valueType: 'DATE',
+      fieldControl: { alias: 'date', rendererType: 'DATE', valueShape: 'SCALAR' },
+    },
+    {
+      fieldRef: { fieldName: 'amount' },
+      label: '含税单价',
+      valueType: 'DECIMAL',
+      fieldControl: { alias: 'number', rendererType: 'NUMBER', valueShape: 'SCALAR' },
+    },
+    {
+      fieldRef: { fieldName: 'urgent' },
+      label: '紧急采购',
+      valueType: 'BOOLEAN',
+      fieldControl: { alias: 'switch', rendererType: 'SWITCH', valueShape: 'SCALAR' },
+    },
   ];
   const wrapper = mount(PageCompositionDescriptorPreview, {
     attachTo: document.body,
@@ -276,8 +505,16 @@ it('uses relation value facts for the same scalar editor families as the runtime
     global: { stubs: { UiDataTable: tableStub } },
   });
 
-  expect(wrapper.get('input[aria-label="参考学生：交付日期"]').attributes('type')).toBe('date');
-  expect(wrapper.get('input[aria-label="参考学生：含税单价"]').attributes('type')).toBe('number');
+  expect(
+    wrapper
+      .get('[data-page-composition-layout-key="edit:relation:participants:field:deliveryDate"] input')
+      .attributes('type'),
+  ).toBe('date');
+  expect(
+    wrapper
+      .get('[data-page-composition-layout-key="edit:relation:participants:field:amount"] input')
+      .attributes('type'),
+  ).toBe('number');
   expect(wrapper.getComponent({ name: 'UiSwitch' }).props('checked')).toBe(true);
 });
 
@@ -303,8 +540,12 @@ it('retains child sample values while projections reorder and initializes only a
     props: { descriptor: descriptorWithRelation(), moduleAlias: 'platform.module', mode: 'edit' },
     global: { stubs: { UiDataTable: tableStub } },
   });
-  await wrapper.get('input[aria-label="参考学生：学号"]').setValue('20260001');
-  await wrapper.get('input[aria-label="参考学生：学生姓名"]').setValue('');
+  await wrapper
+    .get('[data-page-composition-layout-key="edit:relation:participants:field:studentNo"] input')
+    .setValue('20260001');
+  await wrapper
+    .get('[data-page-composition-layout-key="edit:relation:participants:field:studentName"] input')
+    .setValue('');
   const next = descriptorWithRelation();
   next.detailRelations![0].listProjection!.fields = [
     { fieldName: 'studentName', title: '学生姓名' },
@@ -313,7 +554,7 @@ it('retains child sample values while projections reorder and initializes only a
   ];
   await wrapper.setProps({ descriptor: next });
 
-  expect(wrapper.getComponent({ name: 'UiDataTable' }).props('rows')).toEqual([
+  expect(wrapper.getComponent({ name: 'RecordRelationTable' }).props('rows')).toEqual([
     {
       id: 'page-composition-relation-preview:participants',
       studentName: '',
@@ -321,14 +562,20 @@ it('retains child sample values while projections reorder and initializes only a
       note: '示例备注',
     },
   ]);
-  expect((wrapper.get('input[aria-label="参考学生：学号"]').element as HTMLInputElement).value).toBe(
-    '20260001',
-  );
+  expect(
+    (
+      wrapper.get('[data-page-composition-layout-key="edit:relation:participants:field:studentNo"] input')
+        .element as HTMLInputElement
+    ).value,
+  ).toBe('20260001');
   await wrapper.setProps({ descriptor: descriptorWithEditor() });
   await wrapper.setProps({ descriptor: descriptorWithRelation() });
-  expect((wrapper.get('input[aria-label="参考学生：学号"]').element as HTMLInputElement).value).toBe(
-    '示例学号',
-  );
+  expect(
+    (
+      wrapper.get('[data-page-composition-layout-key="edit:relation:participants:field:studentNo"] input')
+        .element as HTMLInputElement
+    ).value,
+  ).toBe('示例学号');
   wrapper.unmount();
 });
 
@@ -448,11 +695,28 @@ function descriptorWithRelation(): ResolvedModuleUiDescriptor {
       fields: [
         { fieldName: 'studentNo', title: '学号' },
         { fieldName: 'studentName', title: '学生姓名' },
-        { fieldName: 'score', title: '成绩', align: 'right' },
+        { fieldName: 'score', title: '成绩', width: 180, align: 'right' },
       ],
     },
   };
-  return { ...value, detailRelations: [relation] };
+  return {
+    ...value,
+    detailRelations: [relation],
+    editorContributions: [
+      {
+        resource: 'exam_participant',
+        editor: {
+          viewCode: 'participant_editor',
+          viewKind: 'FORM',
+          fields: ['studentNo', 'studentName', 'score', 'note'].map((fieldName) => ({
+            fieldRef: { fieldName },
+            label: fieldName,
+            uiType: 'input',
+          })),
+        },
+      },
+    ],
+  };
 }
 
 it.each(['tree', 'flat'] as const)(
@@ -487,7 +751,7 @@ it.each(['tree', 'flat'] as const)(
       for (const cancel of [true, false]) {
         await node.trigger('mousedown', { button: 0, clientX: 0, clientY: 0 });
         await target.trigger('mousemove', { buttons: 1, clientX: 200, clientY: 100 });
-        expect(preview.find('.page-composer-drop-indicator').exists()).toBe(true);
+        expect(preview.find('.page-composer-drop-indicator').exists()).toBe(false);
         if (cancel) {
           document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
           await preview.vm.$nextTick();
@@ -508,6 +772,65 @@ it.each(['tree', 'flat'] as const)(
     }
   },
 );
+
+it('cancels a staged preview placement when the pointer leaves its canvas or the user right-clicks', async () => {
+  const source = mount(UiTree, {
+    attachTo: document.body,
+    props: {
+      nodes: [{ key: 'field', title: '字段' }],
+      draggable: true,
+      dragOperations: ['copy'],
+      dragPayloadType: PAGE_COMPOSITION_DRAG_PAYLOAD_TYPE,
+      dragPayloadOf: () => ({ kind: 'field', fieldId: 'field' }),
+    },
+  });
+  const preview = mount(PageCompositionDescriptorPreview, {
+    attachTo: document.body,
+    props: {
+      descriptor: descriptor(),
+      moduleAlias: 'platform.module',
+      mode: 'list',
+      acceptExternalDrop: true,
+    },
+    global: { stubs: { UiDataTable: tableStub } },
+  });
+  const target = preview.get('[data-composer-target="list:end"]');
+  const original = document.elementFromPoint;
+  try {
+    Object.defineProperty(document, 'elementFromPoint', { configurable: true, value: () => target.element });
+    await source
+      .get('[data-ui-tree-key="field"]')
+      .trigger('mousedown', { button: 0, clientX: 0, clientY: 0 });
+    await target.trigger('mousemove', { buttons: 1, clientX: 200, clientY: 100 });
+    expect(preview.find('.page-composer-drop-indicator').exists()).toBe(false);
+
+    Object.defineProperty(document, 'elementFromPoint', { configurable: true, value: () => document.body });
+    document.dispatchEvent(
+      new MouseEvent('mousemove', { bubbles: true, buttons: 1, clientX: 240, clientY: 100 }),
+    );
+    await preview.vm.$nextTick();
+    expect(preview.find('.page-composer-drop-indicator').exists()).toBe(false);
+    document.dispatchEvent(
+      new MouseEvent('mouseup', { bubbles: true, button: 0, clientX: 240, clientY: 100 }),
+    );
+    expect(preview.emitted('placement-drop')).toBeUndefined();
+
+    Object.defineProperty(document, 'elementFromPoint', { configurable: true, value: () => target.element });
+    await source
+      .get('[data-ui-tree-key="field"]')
+      .trigger('mousedown', { button: 0, clientX: 0, clientY: 0 });
+    await target.trigger('mousemove', { buttons: 1, clientX: 200, clientY: 100 });
+    await target.trigger('contextmenu', { button: 2, clientX: 200, clientY: 100 });
+    await preview.vm.$nextTick();
+    expect(preview.find('.page-composer-drop-indicator').exists()).toBe(false);
+    await target.trigger('mouseup', { button: 0, clientX: 200, clientY: 100 });
+    expect(preview.emitted('placement-drop')).toBeUndefined();
+  } finally {
+    Object.defineProperty(document, 'elementFromPoint', { configurable: true, value: original });
+    source.unmount();
+    preview.unmount();
+  }
+});
 
 it('uses release coordinates for the final column edge and supports keyboard targets from a nested grip', async () => {
   const preview = mount(PageCompositionDescriptorPreview, {
@@ -553,7 +876,7 @@ it('uses release coordinates for the final column edge and supports keyboard tar
     await source.vm.$nextTick();
     await source.get('[data-ui-tree-key="new"]').trigger('mousedown', { button: 0, clientX: 0, clientY: 10 });
     await header.trigger('mousemove', { buttons: 1, clientX: 110, clientY: 10 });
-    expect(preview.find('.page-composer-drop-indicator').exists()).toBe(true);
+    expect(preview.find('.page-composer-drop-indicator').exists()).toBe(false);
     document.dispatchEvent(new MouseEvent('mouseup', { clientX: 190, clientY: 10, bubbles: true }));
     await preview.vm.$nextTick();
     expect(preview.emitted('placement-drop')![0][1]).toEqual({
@@ -593,3 +916,82 @@ it('keeps display-only fields in detail placement while editor-only fields stay 
   expect(wrapper.findComponent({ name: 'RecordDetailFields' }).props('fieldNames')).toEqual(['scope']);
   wrapper.unmount();
 });
+
+it('treats the right half of a detail-grid field as its after placement', async () => {
+  const value = descriptorWithEditor();
+  value.page!.detail!.display = {
+    viewCode: 'display',
+    viewKind: 'DETAIL',
+    fields: [
+      { fieldRef: { fieldName: 'department' }, label: '管理部门', uiType: 'input' },
+      { fieldRef: { fieldName: 'enabledAt' }, label: '启用日期', uiType: 'datePicker' },
+    ],
+  };
+  const preview = mount(PageCompositionDescriptorPreview, {
+    attachTo: document.body,
+    props: { descriptor: value, moduleAlias: 'platform.module', mode: 'detail', acceptExternalDrop: true },
+  });
+  const source = preview.get('[data-composer-drag="detail:field:department"]');
+  const target = preview.get('[data-page-composition-layout-key="detail:field:enabledAt"]');
+  const original = document.elementFromPoint;
+  const targetElement = target.element as HTMLElement;
+  const sourceElement = preview.get('[data-page-composition-layout-key="detail:field:department"]')
+    .element as HTMLElement;
+  const rectSpy = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (
+    this: HTMLElement,
+  ) {
+    if (this === targetElement)
+      return { left: 100, right: 200, top: 0, bottom: 40, width: 100, height: 40 } as DOMRect;
+    if (this === sourceElement)
+      return { left: 0, right: 100, top: 0, bottom: 40, width: 100, height: 40 } as DOMRect;
+    return { left: 0, right: 0, top: 0, bottom: 0, width: 0, height: 0 } as DOMRect;
+  });
+  Object.defineProperty(document, 'elementFromPoint', { configurable: true, value: () => targetElement });
+  try {
+    await source.trigger('mousedown', { button: 0, clientX: 10, clientY: 20 });
+    await target.trigger('mousemove', { buttons: 1, clientX: 190, clientY: 20 });
+    document.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, clientX: 190, clientY: 20 }));
+    expect(preview.emitted('placement-drop')?.[0]).toEqual([
+      { kind: 'node', container: { kind: 'form' }, nodeId: 'department' },
+      { container: { kind: 'form' }, anchorId: 'enabledAt', position: 'after' },
+    ]);
+  } finally {
+    rectSpy.mockRestore();
+    Object.defineProperty(document, 'elementFromPoint', { configurable: true, value: original });
+    preview.unmount();
+  }
+});
+
+it.each(['TREE_MANAGEMENT', 'FLAT_MANAGEMENT'] as const)(
+  'previews the shared card without a navigation mock for %s',
+  (template) => {
+    const definition = descriptor();
+    definition.page = {
+      ...definition.page!,
+      template,
+      list: undefined,
+      explorer: {
+        title: '任务导航',
+        searchPlaceholder: '搜索任务编号',
+        titleField: 'code',
+        secondaryField: 'owner',
+        emptyDescription: '暂无记录',
+        recordLabel: '任务',
+        fallbackTitle: '未命名',
+        mutedWhenDisabled: false,
+      },
+      quickSearchFields: ['code'],
+    };
+    const wrapper = mount(PageCompositionDescriptorPreview, {
+      props: {
+        descriptor: definition,
+        moduleAlias: 'platform.module',
+        mode: 'detail',
+        wholePage: true,
+      },
+    });
+    expect(wrapper.find('.page-composition-mode-preview__navigation').exists()).toBe(false);
+    expect(wrapper.find('[data-testid="page-composer-detail-preview"]').exists()).toBe(true);
+    wrapper.unmount();
+  },
+);

@@ -1,5 +1,12 @@
 package net.ximatai.muyun.spring.platform.ui;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import java.util.Set;
+import java.util.EnumSet;
+import net.ximatai.muyun.spring.common.platform.EntityCapability;
+import net.ximatai.muyun.database.core.orm.PageRequest;
+
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.spring.ability.AbstractAbilityService;
 import net.ximatai.muyun.spring.ability.BaseDao;
@@ -26,6 +33,7 @@ public class PlatformPresentationRevisionService extends AbstractAbilityService<
         QueryAbility<PlatformPresentationRevision> {
     public static final String MODULE_ALIAS = "platform.presentation_revision";
 
+    private static final ObjectMapper JSON = new ObjectMapper();
     private final PlatformPresentationVariantService variantService;
     private final PublishedPageExecutionCoordinator pageExecutionCoordinator;
 
@@ -49,6 +57,35 @@ public class PlatformPresentationRevisionService extends AbstractAbilityService<
         this.variantService = variantService;
         this.pageExecutionCoordinator = pageExecutionCoordinator == null
                 ? PublishedPageExecutionCoordinator.noop() : pageExecutionCoordinator;
+    }
+
+    /** Legacy pages resolve their mode from the module; require an explicit v2 publication before changing it. */
+    public boolean hasLegacyPublishedPage(String moduleAlias) {
+        var variants = variantService.variantIdsForModule(moduleAlias);
+        return !variants.isEmpty() && !list(Criteria.of().in("variantId", variants)
+                        .eq("status", PlatformPresentationRevisionStatus.PUBLISHED)
+                        .eq("templateVersion", PlatformPresentationTemplateCatalog.MANAGEMENT_VERSION),
+                new PageRequest(0, 1)).isEmpty();
+    }
+
+    /** A mode change cannot remove capabilities still used by a published page. */
+    public Set<EntityCapability> publishedRequiredCapabilities(String moduleAlias) {
+        var variants = variantService.variantIdsForModule(moduleAlias);
+        if (variants.isEmpty()) return Set.of();
+        var required = EnumSet.noneOf(EntityCapability.class);
+        for (var revision : list(Criteria.of().in("variantId", variants).eq("status", PlatformPresentationRevisionStatus.PUBLISHED)
+                .in("templateVersion", java.util.List.of(PlatformPresentationTemplateCatalog.MODE_AWARE_VERSION,
+                        PlatformPresentationTemplateCatalog.MODE_AWARE_ACTION_VERSION)),
+                new PageRequest(0, Integer.MAX_VALUE))) {
+            try {
+                String mode = JSON.readTree(revision.getUiTreeJson()).path("mode").asText();
+                if ("TREE_CARD".equals(mode)) required.add(EntityCapability.TREE);
+                if ("TREE_CARD".equals(mode) || "MICRO_LIST_CARD".equals(mode)) required.add(EntityCapability.SORT);
+            } catch (JsonProcessingException exception) {
+                throw new IllegalStateException("Published page mode cannot be resolved", exception);
+            }
+        }
+        return Set.copyOf(required);
     }
 
     @Override

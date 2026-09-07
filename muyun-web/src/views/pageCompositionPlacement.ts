@@ -1,8 +1,10 @@
+import { orderedFormItems, type PageComposerFormItem } from './pageCompositionDraftState';
 import type { PageComposerField, PageComposerGroup, PageComposerRelation } from './pageCompositionDraftState';
 import type { MetadataDragPayload } from './pageCompositionDragPayload';
 
 /** Editor placement facts shared by the structure tree and the descriptor preview. */
 export interface PageCompositionStructure {
+  order?: PageComposerFormItem[];
   list: PageComposerField[];
   form: PageComposerField[];
   groups: PageComposerGroup[];
@@ -41,7 +43,11 @@ export function compositionItems(structure: PageCompositionStructure, container:
     case 'list':
       return structure.list;
     case 'form':
-      return structure.form;
+      return orderedFormItems(structure.form, structure.groups, structure.order).map((item) =>
+        item.kind === 'field'
+          ? structure.form.find((field) => field.id === item.id)!
+          : structure.groups.find((group) => group.id === item.id)!,
+      );
     case 'groups':
       return structure.groups;
     case 'relations':
@@ -81,7 +87,8 @@ export function resolveCompositionPlacement(
     if (!compositionItems(structure, source.container)?.some((item) => item.id === source.nodeId)) return;
     const same = containerKey(source.container) === containerKey(target.container);
     const movingFormField = ['form', 'group'].includes(source.container.kind) && fieldTarget;
-    if (!same && !movingFormField) return;
+    const movingGroup = source.container.kind === 'groups' && target.container.kind === 'form';
+    if (!same && !movingFormField && !movingGroup) return;
     movingId = source.nodeId;
   }
   if (movingId === target.anchorId) return;

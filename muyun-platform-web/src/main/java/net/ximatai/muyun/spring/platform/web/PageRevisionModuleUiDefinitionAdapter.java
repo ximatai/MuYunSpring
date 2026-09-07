@@ -147,7 +147,7 @@ public final class PageRevisionModuleUiDefinitionAdapter {
         }
         if (!PlatformPresentationTemplateCatalog.MANAGEMENT_ALIAS.equals(revision.getTemplateAlias())
                 || revision.getTemplateVersion() == null
-                || revision.getTemplateVersion() != PlatformPresentationTemplateCatalog.MANAGEMENT_VERSION) {
+                || !Set.of(PlatformPresentationTemplateCatalog.MANAGEMENT_VERSION, PlatformPresentationTemplateCatalog.MODE_AWARE_VERSION, PlatformPresentationTemplateCatalog.MODE_AWARE_ACTION_VERSION).contains(revision.getTemplateVersion())) {
             throw new IllegalArgumentException("page revision requires management v1 template: " + revision.getId());
         }
         Map<String, String> fieldTitles = fieldTitles(mainEntityFieldTitles);
@@ -160,19 +160,28 @@ public final class PageRevisionModuleUiDefinitionAdapter {
                 list, knownFields, fieldTitles, requiredFields);
         PageDetailDefinition detail = new PageDetailDefinition(null, form.title(), null,
                 view(ModuleUiViewCodes.DEFAULT_FORM, ModuleViewKind.FORM, form, knownFields, fieldTitles, requiredFields));
+        if (composition.quickSearchFields() != null && !knownFields.containsAll(composition.quickSearchFields()))
+            throw new IllegalArgumentException("Unknown quick search field");
+        PageExplorerDefinition explorer = composition.explorer();
+        if (explorer != null) {
+            for (String field : java.util.stream.Stream.of(explorer.titleField(), explorer.secondaryField())
+                    .filter(java.util.Objects::nonNull).toList()) {
+                if (!knownFields.contains(field)) throw new IllegalArgumentException("Unknown explorer field: " + field);
+            }
+        }
         String searchPlaceholder = composition.listSearchPlaceholder() == null ? list.title()
                 : composition.listSearchPlaceholder();
-        ModulePageDefinition pageDefinition = switch (overviewMode == null
+        ModulePageDefinition pageDefinition = switch (composition.mode() != null ? composition.mode() : overviewMode == null
                 ? DynamicModuleOverviewMode.LIST_CARD : overviewMode) {
-            case TREE_CARD -> new TreeManagementPageDefinition(null, null, detail, new PageTraitsDefinition(null));
+            case TREE_CARD -> new TreeManagementPageDefinition(null, null, detail, new PageTraitsDefinition(null), explorer, composition.quickSearchFields());
             case MICRO_LIST_CARD -> new FlatManagementPageDefinition(null,
-                    new PageExplorerDefinition(list.title(), searchPlaceholder, null, null, null, "title", null, false),
-                    detail, new PageTraitsDefinition(null));
+                    explorer != null ? explorer : new PageExplorerDefinition(list.title(), searchPlaceholder, null, null, null, "title", null, false),
+                    detail, new PageTraitsDefinition(null), composition.quickSearchFields());
             case LIST_CARD -> new ListDetailCardPageDefinition(null,
-                    new PageListDefinition(searchPlaceholder, listView), detail, new PageTraitsDefinition(null));
+                    new PageListDefinition(searchPlaceholder, listView), detail, new PageTraitsDefinition(null), composition.quickSearchFields());
         };
         return new ModuleUiDefinition(page.getModuleAlias(), List.of(), pageDefinition,
-                null, List.of(), List.of(), detailRelations(form, associations));
+                null, List.of(), List.of(), detailRelations(form, associations), composition.pageActions());
     }
 
     private static List<PageDetailRelationDefinition> detailRelations(
@@ -189,7 +198,11 @@ public final class PageRevisionModuleUiDefinitionAdapter {
                         + relation.code());
             }
             return new PageDetailRelationDefinition(view.code(), relation.title(), view.targetEntityAlias(),
-                    view.relationCode(), true, true, relation.fields());
+                    view.relationCode(), true, true, relation.fields().stream().map(FieldNode::name).toList())
+                    .withColumnProperties(relation.fields().stream().collect(java.util.stream.Collectors.toMap(
+                            FieldNode::name, field -> new PageDetailRelationColumnProperties(field.label(),
+                                    field.width() == null ? null : Integer.valueOf(field.width().replace("px", "")),
+                                    field.align()))));
         }).toList();
     }
 
@@ -202,10 +215,21 @@ public final class PageRevisionModuleUiDefinitionAdapter {
                 ? slot.groups().stream().map(group -> {
                     List<ViewFieldDefinition> groupFields = group.fields().stream()
                             .map(field -> field(field, slot.slot(), knownFields, fieldTitles, requiredFields)).toList();
-                    fields.addAll(groupFields);
+
                     return new FormGroupDefinition(group.code(), group.title(), group.subtitle(), groupFields);
                 }).toList()
                 : List.of();
+        if ("form".equals(slot.slot())) {
+            Map<String, ViewFieldDefinition> rootFields = new LinkedHashMap<>();
+            for (int index = 0; index < slot.fields().size(); index++) rootFields.put(slot.fields().get(index).name(), fields.get(index));
+            Map<String, FormGroupDefinition> byCode = new LinkedHashMap<>();
+            groups.forEach(group -> byCode.put(group.groupCode(), group));
+            fields.clear();
+            for (var item : slot.order()) {
+                if (item.field() != null) fields.add(rootFields.get(item.field()));
+                else fields.addAll(byCode.get(item.group()).fields());
+            }
+        }
         return new ViewDefinition(viewCode, viewKind, ModuleUiClientType.WEB, slot.title(), fields,
                 null, groups, List.of());
     }
@@ -293,6 +317,32 @@ public final class PageRevisionModuleUiDefinitionAdapter {
             throw new IllegalArgumentException("management page revision UI tree must be valid JSON: " + revisionId,
                     exception);
         }
+        DynamicModuleOverviewMode mode = null;
+        PageExplorerDefinition explorer = null;
+        List<String> quickSearchFields = null;
+        List<PageActionDefinition> pageActions = List.of();
+        if (root != null && Set.of(PlatformPresentationTemplateCatalog.MODE_AWARE_VERSION,
+                PlatformPresentationTemplateCatalog.MODE_AWARE_ACTION_VERSION).contains(root.path("templateVersion").asInt())) {
+            JsonNode normalized = PlatformPresentationTemplateCatalog.validateModeAwareTree(root);
+            quickSearchFields = new java.util.ArrayList<>();
+            for (JsonNode field : root.path("quickSearchFields")) quickSearchFields.add(field.asText());
+            if (root.path("templateVersion").asInt() == PlatformPresentationTemplateCatalog.MODE_AWARE_ACTION_VERSION) {
+                pageActions = new java.util.ArrayList<>();
+                for (JsonNode action : root.path("actions")) {
+                    pageActions.add(new PageActionDefinition(action.path("actionCode").asText(),
+                            PageActionAnchor.valueOf(action.path("anchor").asText().toUpperCase(java.util.Locale.ROOT))));
+                }
+            }
+            mode = DynamicModuleOverviewMode.valueOf(root.path("mode").asText());
+            for (JsonNode node : root.path("nodes")) {
+                if ("explorer".equals(node.path("slot").asText())) {
+                    explorer = new PageExplorerDefinition(node.path("title").asText(),
+                            root.path("props").path("list").path("searchPlaceholder").asText(null),
+                            null, null, null, node.path("titleField").asText(), node.path("secondaryField").asText(null), false);
+                }
+            }
+            root = normalized;
+        }
         if (root == null || !root.isObject()
                 || !PlatformPresentationTemplateCatalog.MANAGEMENT_ALIAS.equals(root.path("template").asText())
                 || root.path("templateVersion").asInt(-1) != PlatformPresentationTemplateCatalog.MANAGEMENT_VERSION
@@ -326,7 +376,7 @@ public final class PageRevisionModuleUiDefinitionAdapter {
             if (allFields.size() != fields.size() + groups.stream().mapToInt(group -> group.fields().size()).sum()) {
                 throw new IllegalArgumentException("management form slot contains duplicate fields");
             }
-            if (slots.put(slot, new Slot(slot, title.trim(), List.copyOf(fields), relations, groups)) != null) {
+            if (slots.put(slot, new Slot(slot, title.trim(), List.copyOf(fields), relations, groups, "form".equals(slot) ? PlatformPresentationTemplateCatalog.managementFormOrder(node) : List.of())) != null) {
                 throw new IllegalArgumentException("management page revision declares duplicate " + slot + " slot");
             }
         }
@@ -338,7 +388,7 @@ public final class PageRevisionModuleUiDefinitionAdapter {
                 searchPlaceholder = null;
             }
         }
-        return new Composition(Map.copyOf(slots), searchPlaceholder);
+        return new Composition(Map.copyOf(slots), searchPlaceholder, mode, explorer, quickSearchFields, pageActions);
     }
 
     private static List<RelationNode> relationNodes(JsonNode nodes) {
@@ -367,15 +417,15 @@ public final class PageRevisionModuleUiDefinitionAdapter {
         return List.copyOf(values);
     }
 
-    private static List<String> relationFields(JsonNode fields) {
+    private static List<FieldNode> relationFields(JsonNode fields) {
         if (fields.isMissingNode()) return List.of();
-        List<String> values = new java.util.ArrayList<>();
-        fields.forEach(field -> values.add(field.asText(null)));
-        if (values.stream().anyMatch(field -> field == null || field.isBlank())
-                || values.stream().map(String::trim).collect(java.util.stream.Collectors.toSet()).size() != values.size()) {
+        List<FieldNode> values = new java.util.ArrayList<>();
+        fields.forEach(field -> values.add(fieldNode(field, "list")));
+        if (values.stream().anyMatch(field -> field.name() == null || field.name().isBlank())
+                || values.stream().map(FieldNode::name).collect(java.util.stream.Collectors.toSet()).size() != values.size()) {
             throw new IllegalArgumentException("management form relation contains invalid fields");
         }
-        return values.stream().map(String::trim).toList();
+        return List.copyOf(values);
     }
 
     private static Slot requireSlot(Map<String, Slot> slots, String slot, String revisionId) {
@@ -401,16 +451,18 @@ public final class PageRevisionModuleUiDefinitionAdapter {
     }
 
     private record Slot(String slot, String title, List<FieldNode> fields, List<RelationNode> relations,
-                        List<GroupNode> groups) {
+                        List<GroupNode> groups, List<PlatformPresentationTemplateCatalog.ManagementFormEntry> order) {
     }
 
-    private record RelationNode(String code, String title, List<String> fields) {
+    private record RelationNode(String code, String title, List<FieldNode> fields) {
     }
 
     private record GroupNode(String code, String title, String subtitle, List<FieldNode> fields) {
     }
 
-    private record Composition(Map<String, Slot> slots, String listSearchPlaceholder) {
+    private record Composition(Map<String, Slot> slots, String listSearchPlaceholder,
+                               DynamicModuleOverviewMode mode, PageExplorerDefinition explorer, List<String> quickSearchFields,
+                               List<PageActionDefinition> pageActions) {
     }
 
     private record FieldNode(String name, String label, String width, String align, Integer columnSpan,

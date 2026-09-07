@@ -8,7 +8,7 @@ import RecordFormSurface from '@/dynamic-page-runtime/RecordFormSurface.vue';
 describe('record form surface', () => {
   it('owns the standard record-card grid so every shell keeps the same field gaps', () => {
     const source = readFileSync(
-      resolve(import.meta.dirname, '../../src/dynamic-page-runtime/RecordFormSurface.vue'),
+      resolve(import.meta.dirname, '../../src/platform-components/RecordFormGrid.vue'),
       'utf8',
     );
 

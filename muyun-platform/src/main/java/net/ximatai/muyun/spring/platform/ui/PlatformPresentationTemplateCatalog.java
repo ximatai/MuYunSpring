@@ -19,6 +19,9 @@ import java.util.Set;
 public class PlatformPresentationTemplateCatalog {
     public static final String MANAGEMENT_ALIAS = "management";
     public static final int MANAGEMENT_VERSION = 1;
+    public static final int MODE_AWARE_VERSION = 2;
+    /** Adds fixed, platform-owned action anchors while retaining the v2 page skeleton. */
+    public static final int MODE_AWARE_ACTION_VERSION = 3;
 
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
     private static final PlatformPresentationTemplate MANAGEMENT = new PlatformPresentationTemplate(
@@ -26,7 +29,23 @@ public class PlatformPresentationTemplateCatalog {
             java.util.Set.of(PlatformPageContractType.MANAGEMENT),
             "{\"template\":\"management\",\"templateVersion\":1,\"nodes\":[]}");
     private static final Map<String, List<PlatformPresentationTemplate>> TEMPLATES = Map.of(
-            MANAGEMENT_ALIAS, List.of(MANAGEMENT));
+            MANAGEMENT_ALIAS, List.of(MANAGEMENT, new PlatformPresentationTemplate(
+                    MANAGEMENT_ALIAS, MODE_AWARE_VERSION, PlatformPresentationClientType.WEB,
+                    java.util.Set.of(PlatformPageContractType.MANAGEMENT),
+                    "{\"template\":\"management\",\"templateVersion\":2,\"mode\":\"LIST_CARD\",\"quickSearchFields\":[],\"nodes\":[{\"slot\":\"list\",\"title\":\"记录列表\",\"fields\":[]},{\"slot\":\"form\",\"title\":\"详情 / 表单\",\"fields\":[]}]}"),
+                    new PlatformPresentationTemplate(MANAGEMENT_ALIAS, MODE_AWARE_ACTION_VERSION,
+                            PlatformPresentationClientType.WEB, java.util.Set.of(PlatformPageContractType.MANAGEMENT),
+                            "{\"template\":\"management\",\"templateVersion\":3,\"mode\":\"LIST_CARD\",\"quickSearchFields\":[],\"actions\":[],\"nodes\":[{\"slot\":\"list\",\"title\":\"记录列表\",\"fields\":[]},{\"slot\":\"form\",\"title\":\"详情 / 表单\",\"fields\":[]}]}")));
+
+    public record ManagementSkeleton(String mode, String title, String navigationTitle,
+                                     String fieldGroupTitle, boolean columns, int maxIdentityFields) {}
+
+    public static List<ManagementSkeleton> managementSkeletons() {
+        return List.of(
+                new ManagementSkeleton("TREE_CARD", "树 + 卡片", "树导航", "节点展示", false, 2),
+                new ManagementSkeleton("LIST_CARD", "列表 + 卡片", "记录列表", "列表展示字段", true, 0),
+                new ManagementSkeleton("MICRO_LIST_CARD", "微列表 + 卡片", "记录导航", "条目展示", false, 2));
+    }
 
     public List<PlatformPresentationTemplate> listFor(PlatformPresentationClientType clientType,
                                                       PlatformPageContractType pageContractType) {
@@ -78,8 +97,65 @@ public class PlatformPresentationTemplateCatalog {
             throw BusinessExceptions.warning("platform.presentation-revision.ui-tree-template-mismatch",
                     "Presentation revision UI tree does not match its template contract");
         }
-        if (MANAGEMENT_ALIAS.equals(template.alias()) && template.version() == MANAGEMENT_VERSION) {
+        if (template.version() == MODE_AWARE_VERSION || template.version() == MODE_AWARE_ACTION_VERSION) {
+            validateModeAwareTree(root);
+        } else if (MANAGEMENT_ALIAS.equals(template.alias())) {
             validateManagementTree(root);
+        }
+    }
+
+    /** Fixed navigation slots; the form contract remains shared across all three modes. */
+    public static JsonNode validateModeAwareTree(JsonNode root) {
+        if (root == null || !root.isObject()) throw invalidManagementTree();
+        int version = root.path("templateVersion").asInt(-1);
+        if (!Set.of(MODE_AWARE_VERSION, MODE_AWARE_ACTION_VERSION).contains(version)) throw invalidManagementTree();
+        JsonNode searchFields = root.path("quickSearchFields");
+        if (!searchFields.isArray()) throw invalidManagementTree();
+        Set<String> uniqueSearchFields = new java.util.LinkedHashSet<>();
+        for (JsonNode field : searchFields) {
+            if (!field.isTextual() || field.asText().isBlank() || !uniqueSearchFields.add(field.asText()))
+                throw invalidManagementTree();
+        }
+        String mode = root.path("mode").asText();
+        if (!Set.of("TREE_CARD", "LIST_CARD", "MICRO_LIST_CARD").contains(mode)) throw invalidManagementTree();
+        if (version == MODE_AWARE_ACTION_VERSION) validateManagementActions(root.path("actions"));
+        else if (root.has("actions")) throw invalidManagementTree();
+        var normalized = ((com.fasterxml.jackson.databind.node.ObjectNode) root).deepCopy();
+        normalized.remove("mode");
+        normalized.remove("quickSearchFields");
+        normalized.remove("actions");
+        normalized.put("templateVersion", MANAGEMENT_VERSION);
+        if (!"LIST_CARD".equals(mode)) {
+            boolean found = false;
+            for (JsonNode node : normalized.path("nodes")) {
+                if ("list".equals(node.path("slot").asText())) throw invalidManagementTree();
+                if (!"explorer".equals(node.path("slot").asText())) continue;
+                if (found || !node.path("titleField").isTextual() || node.path("titleField").asText().isBlank()
+                        || !node.path("fields").isArray() || !node.path("fields").isEmpty()) throw invalidManagementTree();
+                if (node.has("secondaryField") && (!node.path("secondaryField").isTextual()
+                        || node.path("secondaryField").asText().isBlank())) throw invalidManagementTree();
+                var explorer = (com.fasterxml.jackson.databind.node.ObjectNode) node;
+                explorer.remove("titleField");
+                explorer.remove("secondaryField");
+                explorer.put("slot", "list");
+                found = true;
+            }
+            if (!found) throw invalidManagementTree();
+        }
+        validateManagementTree(normalized);
+        return normalized;
+    }
+
+    private static void validateManagementActions(JsonNode actions) {
+        if (!actions.isArray()) throw invalidManagementTree();
+        Set<String> codes = new java.util.LinkedHashSet<>();
+        for (JsonNode action : actions) {
+            if (!action.isObject() || action.size() != 2 || !action.path("actionCode").isTextual()
+                    || action.path("actionCode").asText().isBlank() || !codes.add(action.path("actionCode").asText())
+                    || !action.path("anchor").isTextual()
+                    || !Set.of("page", "detail", "form").contains(action.path("anchor").asText())) {
+                throw invalidManagementTree();
+            }
         }
     }
 
@@ -101,7 +177,7 @@ public class PlatformPresentationTemplateCatalog {
             java.util.Iterator<String> nodeNames = node.fieldNames();
             while (nodeNames.hasNext()) {
                 String name = nodeNames.next();
-                if (!Set.of("slot", "title", "fields", "relations", "groups").contains(name)
+                if (!Set.of("slot", "title", "fields", "relations", "groups", "order").contains(name)
                         || ("relations".equals(name) && !"form".equals(slot))) {
                     throw invalidManagementTree();
                 }
@@ -118,10 +194,39 @@ public class PlatformPresentationTemplateCatalog {
             }
             validateManagementRelations(node.path("relations"));
             validateManagementGroups(slot, node.path("groups"), fields);
+            if ("form".equals(slot)) managementFormOrder(node);
+            else if (node.has("order")) throw invalidManagementTree();
         }
         if (!slots.equals(Set.of("list", "form"))) {
             throw invalidManagementTree();
         }
+    }
+
+    /** One root placement; group members stay owned by the group. */
+    public record ManagementFormEntry(String field, String group) {}
+
+    /** Validates a complete permutation; older declarations retain fields-then-groups order. */
+    public static List<ManagementFormEntry> managementFormOrder(JsonNode node) {
+        List<ManagementFormEntry> declared = new java.util.ArrayList<>();
+        node.path("fields").forEach(field -> declared.add(new ManagementFormEntry(
+                field.isTextual() ? field.asText() : field.path("field").asText(), null)));
+        node.path("groups").forEach(group -> declared.add(new ManagementFormEntry(null, group.path("group").asText())));
+        if (!node.has("order")) return List.copyOf(declared);
+        JsonNode order = node.path("order");
+        if (!order.isArray() || order.size() != declared.size()) throw invalidManagementTree();
+        Set<ManagementFormEntry> remaining = new java.util.HashSet<>(declared);
+        List<ManagementFormEntry> result = new java.util.ArrayList<>();
+        for (JsonNode entry : order) {
+            if (!entry.isObject() || entry.size() != 1
+                    || !(entry.path("field").isTextual() || entry.path("group").isTextual())) throw invalidManagementTree();
+            ManagementFormEntry item = entry.has("field")
+                    ? new ManagementFormEntry(entry.path("field").asText(), null)
+                    : new ManagementFormEntry(null, entry.path("group").asText());
+            if (!remaining.remove(item)) throw invalidManagementTree();
+            result.add(item);
+        }
+        if (!remaining.isEmpty()) throw invalidManagementTree();
+        return List.copyOf(result);
     }
 
     /** Form groups are a typed template node, never an arbitrary nested property bag. */
@@ -172,8 +277,19 @@ public class PlatformPresentationTemplateCatalog {
                 if (!fields.isArray()) throw invalidManagementTree();
                 Set<String> fieldNames = new java.util.LinkedHashSet<>();
                 for (JsonNode field : fields) {
-                    if (!field.isTextual() || field.asText().isBlank() || !fieldNames.add(field.asText())) {
-                        throw invalidManagementTree();
+                    String name = field.isTextual() ? field.asText() : field.path("field").asText();
+                    if (name.isBlank() || !fieldNames.add(name)) throw invalidManagementTree();
+                    if (!field.isTextual()) {
+                        validateManagementFieldProperties("list", field);
+                        JsonNode width = field.path("props").path("width");
+                        if (!width.isMissingNode()) {
+                            if (!width.asText().matches("[1-9]\\d*px")) throw invalidManagementTree();
+                            try {
+                                Integer.parseInt(width.asText().replace("px", ""));
+                            } catch (NumberFormatException ex) {
+                                throw invalidManagementTree();
+                            }
+                        }
                     }
                 }
             }

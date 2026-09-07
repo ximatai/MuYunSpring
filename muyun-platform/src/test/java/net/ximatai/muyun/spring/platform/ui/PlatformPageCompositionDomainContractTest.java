@@ -55,6 +55,38 @@ class PlatformPageCompositionDomainContractTest {
     }
 
     @Test
+    void preservesPublishedCapabilitiesAcrossTemplateVersionsAndReleasesArchivedRequirements() {
+        String pageId = seedPage();
+        try (TenantContext.Scope ignored = TenantContext.system("validate published mode dependencies")) {
+            String variantId = variantService.insert(variant(pageId, PlatformPresentationScopeType.GLOBAL, null));
+            String tree = """
+                    {"template":"management","templateVersion":%d,"mode":"TREE_CARD","quickSearchFields":[],%s
+                     "nodes":[{"slot":"explorer","title":"导航","titleField":"title","fields":[]},
+                              {"slot":"form","title":"详情","fields":[]}]}
+                    """;
+            for (int version : List.of(2, 3)) {
+                var draft = revision(variantId, version, PlatformPresentationRevisionStatus.DRAFT,
+                        tree.formatted(version, version == 3 ? "\"actions\":[]," : ""));
+                draft.setTemplateVersion(version);
+                String id = revisionService.insert(draft);
+                revisionPublishService.publish(id);
+                assertThat(revisionService.publishedRequiredCapabilities("crm.customer"))
+                        .containsExactlyInAnyOrder(net.ximatai.muyun.spring.common.platform.EntityCapability.TREE,
+                                net.ximatai.muyun.spring.common.platform.EntityCapability.SORT);
+                assertThat(revisionService.hasLegacyPublishedPage("crm.customer")).isFalse();
+            }
+            var replacement = revision(variantId, 4, PlatformPresentationRevisionStatus.DRAFT,
+                    """
+                    {"template":"management","templateVersion":3,"mode":"LIST_CARD","quickSearchFields":[],"actions":[],
+                     "nodes":[{"slot":"list","title":"列表","fields":[]},{"slot":"form","title":"详情","fields":[]}]}
+                    """);
+            replacement.setTemplateVersion(3);
+            revisionPublishService.publish(revisionService.insert(replacement));
+            assertThat(revisionService.publishedRequiredCapabilities("crm.customer")).isEmpty();
+        }
+    }
+
+    @Test
     void shouldRequirePageAliasToBeUniqueWithinModule() {
         String mainRelationId = seedMainRelation("crm.customer", "customer");
 

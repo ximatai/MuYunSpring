@@ -266,3 +266,32 @@ describe('pageCompositionDraftState', () => {
     expect(state.listFields.value).toEqual([date, title]);
   });
 });
+
+it('persists mixed root order through group moves, membership changes and removal', () => {
+  const state = createPageCompositionDraftState();
+  state.addField(title, 'form');
+  state.addField(date, 'form');
+  state.addFormGroup();
+  state.moveFormGroup('group_1', 1);
+  expect(state.nodes.value.filter((node) => node.slot === 'form').map((node) => node.id)).toEqual([
+    'slot:form',
+    'form:title',
+    'form:group:group_1',
+    'form:date',
+  ]);
+  expect(state.toManagementUiTree().nodes[1].order).toEqual([
+    { field: 'title' },
+    { group: 'group_1' },
+    { field: 'examDate' },
+  ]);
+  state.moveFormFieldToGroup('date', 'group_1');
+  state.moveGroupFieldToForm('group_1', 'date', 0);
+  expect(state.toManagementUiTree().nodes[1].order).toEqual([
+    { field: 'examDate' },
+    { field: 'title' },
+    { group: 'group_1' },
+  ]);
+  state.selectedNodeId.value = 'form:group:group_1';
+  state.removeSelectedField();
+  expect(state.toManagementUiTree().nodes[1].fields).toEqual(['examDate', 'title']);
+});
