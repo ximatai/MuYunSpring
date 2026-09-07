@@ -318,6 +318,7 @@ const {
 } = detail;
 // RecordFormFields owns parser and renderer diagnostics. Persist only its
 // validity fact here; the host remains responsible for the save boundary.
+const deleting = ref(false);
 const mainFormValid = ref(true);
 const relationDraftValid = ref(true);
 const formValidationRequestKey = ref(0);
@@ -621,6 +622,7 @@ watch(
       Boolean(navigatorManagementDetail.open.value && navigatorManagementDetail.mode.value !== 'view') ||
       localEditOpen.value,
     busy:
+      deleting.value ||
       saving.value ||
       togglingEnabled.value ||
       localEditSaving.value ||
@@ -2416,7 +2418,8 @@ async function saveRecord() {
 async function deleteRecord(record: QueryListRecord) {
   const id = record.id == null ? undefined : String(record.id);
   const version = typeof record.version === 'number' ? record.version : undefined;
-  if (!id || version === undefined) return;
+  if (!id || version === undefined || deleting.value) return;
+  deleting.value = true;
   try {
     if (
       !(await confirmAction({
@@ -2438,6 +2441,8 @@ async function deleteRecord(record: QueryListRecord) {
     await presentModuleActionSuccess(result, '删除成功');
   } catch (cause) {
     presentPlatformError(cause, { source: 'module-action', phase: 'action' });
+  } finally {
+    deleting.value = false;
   }
 }
 

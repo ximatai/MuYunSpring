@@ -1,6 +1,12 @@
 import { flushPromises, mount, shallowMount } from '@vue/test-utils';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { defineComponent, ref } from 'vue';
+import { confirmAction } from '@muyun/vue-ui-antdv';
+
+vi.mock('@muyun/vue-ui-antdv', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@muyun/vue-ui-antdv')>()),
+  confirmAction: vi.fn(),
+}));
 import { configureModuleContext, createHttpClient } from '@muyun/web-core';
 import { provideWorkspaceViewHost } from '@/platform-workbench/workspaceViewHost';
 import ModuleBusinessPreview from '@/views/ModuleBusinessPreview.vue';
@@ -225,6 +231,67 @@ describe('ModuleBusinessPreview', () => {
     await flushPromises();
     expect(wrapper.findComponent({ name: 'ModulePageRecordContent' }).props('mode')).toBe('edit');
   });
+
+  it.each(['success', 'failure', 'cancel'] as const)(
+    'protects preview reload during deletion and releases it on %s',
+    async (outcome) => {
+      let confirm!: (accepted: boolean) => void;
+      vi.mocked(confirmAction).mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            confirm = resolve;
+          }),
+      );
+      let finishDelete!: () => void;
+      const pendingDelete = new Promise<void>((resolve) => {
+        finishDelete = resolve;
+      });
+      let deleted = false;
+      let deleteCalls = 0;
+      let contextCalls = 0;
+      const record = { id: 'exam-1', version: 1, title: '待删除记录' };
+      setup(async (url) => {
+        if (url.endsWith('/context')) {
+          contextCalls++;
+          return { ...runtime(), actions: [{ actionCode: 'delete', authorized: true }] };
+        }
+        if (url.endsWith('/query'))
+          return { records: deleted ? [] : [record], total: deleted ? 0 : 1, pageNum: 1, pageSize: 20 };
+        if (url.endsWith('/view/exam-1')) return record;
+        if (url.endsWith('/actions/exam-1')) return { recordId: record.id, actions: [] };
+        if (url.endsWith('/delete/exam-1')) {
+          deleteCalls++;
+          await pendingDelete;
+          if (outcome === 'failure') throw new Error('delete failed');
+          deleted = true;
+          return 1;
+        }
+        throw new Error(`Unexpected request: ${url}`);
+      });
+      const wrapper = render(false);
+      await flushPromises();
+      const panel = wrapper.findComponent({ name: 'RecordQueryListPanel' });
+      const host = wrapper.findComponent(ModulePageHost);
+      const reload = wrapper.find('header.business-preview__toolbar button');
+      const initialContexts = contextCalls;
+      panel.vm.$emit('rowAction', { key: 'delete' }, record);
+      await flushPromises();
+      expect(reload.attributes('disabled')).toBeDefined();
+      confirm(outcome !== 'cancel');
+      await flushPromises();
+      if (outcome !== 'cancel') {
+        expect(reload.attributes('disabled')).toBeDefined();
+        await reload.trigger('click');
+        expect(contextCalls).toBe(initialContexts);
+        expect(wrapper.findComponent(ModulePageHost).vm.$).toBe(host.vm.$);
+        finishDelete();
+        await flushPromises();
+      }
+      expect(deleteCalls).toBe(outcome === 'cancel' ? 0 : 1);
+      expect(reload.attributes('disabled')).toBeUndefined();
+      if (outcome === 'success') expect(wrapper.text()).not.toContain(record.title);
+    },
+  );
 
   it('blocks generic CRUD if the configured page disappears during startup', async () => {
     let contexts = 0;
