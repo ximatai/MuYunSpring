@@ -143,6 +143,7 @@ class PlatformDynamicRuntimeRefresherIT extends PlatformPostgresIntegrationTest 
         PlatformModuleAction createAction = moduleAction("crm.customer", "customer", "create");
         services.actionService.insert(createAction);
         PlatformModuleAction submitAction = moduleAction("crm.customer", "customer", "submit");
+        submitAction.setExecutorKey("test.submit");
         submitAction.setAvailableExpression("{title} != ''");
         submitAction.setUnavailableMessage("客户名称不能为空");
         services.actionService.insert(submitAction);

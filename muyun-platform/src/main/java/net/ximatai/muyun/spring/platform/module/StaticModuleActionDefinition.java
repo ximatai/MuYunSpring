@@ -22,7 +22,8 @@ public record StaticModuleActionDefinition(
         boolean dataAuth,
         ActionDefaultGrantPolicy defaultGrantPolicy,
         EntityActionExecutorType executorType,
-        String executorKey
+        String executorKey,
+        boolean formSupported
 ) {
     public StaticModuleActionDefinition(String actionCode,
                                         String permissionActionCode,
@@ -33,7 +34,7 @@ public record StaticModuleActionDefinition(
                                         boolean dataAuth,
                                         ActionDefaultGrantPolicy defaultGrantPolicy) {
         this(actionCode, permissionActionCode, title, actionLevel, null, accessMode, actionAuth, dataAuth,
-                defaultGrantPolicy, null, null);
+                defaultGrantPolicy, null, null, false);
     }
 
     public StaticModuleActionDefinition {
@@ -62,7 +63,7 @@ public record StaticModuleActionDefinition(
                 true,
                 ActionDefaultGrantPolicy.NONE,
                 null,
-                null
+                null, false
         );
     }
 
@@ -78,7 +79,7 @@ public record StaticModuleActionDefinition(
                 action.dataAuth(),
                 action.defaultGrantPolicy(),
                 null,
-                null
+                null, false
         );
     }
 
@@ -94,8 +95,17 @@ public record StaticModuleActionDefinition(
                 false,
                 ActionDefaultGrantPolicy.NONE,
                 EntityActionExecutorType.SERVICE,
-                "platform.workflow"
+                "platform.workflow", false
         );
+    }
+
+    public StaticModuleActionDefinition(String actionCode, String permissionActionCode, String title,
+                                        EntityActionLevel actionLevel, EntityActionCategory category,
+                                        EntityActionAccessMode accessMode, boolean actionAuth, boolean dataAuth,
+                                        ActionDefaultGrantPolicy defaultGrantPolicy,
+                                        EntityActionExecutorType executorType, String executorKey) {
+        this(actionCode, permissionActionCode, title, actionLevel, category, accessMode, actionAuth, dataAuth,
+                defaultGrantPolicy, executorType, executorKey, false);
     }
 
     /** Complete executable fallback consumed by HTTP authorization and data-scope resolution. */

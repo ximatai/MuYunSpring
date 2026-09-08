@@ -121,6 +121,8 @@ function actionFallbackLabel(action: UiRecordInlineAction) {
 
 <style scoped>
 .ui-record-explorer-item {
+  position: relative;
+  --item-actions-background: var(--muyun-surface);
   display: flex;
   align-items: center;
   gap: 6px;
@@ -139,12 +141,17 @@ function actionFallbackLabel(action: UiRecordInlineAction) {
   cursor: pointer;
 }
 
+.ui-record-explorer-item:hover {
+  --item-actions-background: var(--muyun-hover);
+}
+
 .ui-record-explorer-item-clickable:hover {
   background: var(--muyun-hover);
 }
 
 .ui-record-explorer-item-selected,
 .ui-record-explorer-item-selected:hover {
+  --item-actions-background: color-mix(in srgb, var(--muyun-primary) 10%, var(--muyun-surface));
   background: color-mix(in srgb, var(--muyun-primary) 10%, transparent);
 }
 
@@ -196,8 +203,15 @@ function actionFallbackLabel(action: UiRecordInlineAction) {
 }
 
 .ui-record-explorer-item-actions {
+  position: absolute;
+  inset-inline-end: 4px;
+  top: 50%;
+  transform: translateY(-50%);
   display: inline-flex;
-  flex: 0 0 auto;
+  padding-inline-start: 4px;
+  border-radius: 4px;
+  background: var(--item-actions-background);
+  pointer-events: none;
   gap: 2px;
   opacity: 0;
   transition: opacity 0.12s ease;
@@ -207,6 +221,7 @@ function actionFallbackLabel(action: UiRecordInlineAction) {
 .ui-record-explorer-item:focus-within .ui-record-explorer-item-actions,
 .ui-record-explorer-item-selected .ui-record-explorer-item-actions {
   opacity: 1;
+  pointer-events: auto;
 }
 
 .ui-record-explorer-item-action {

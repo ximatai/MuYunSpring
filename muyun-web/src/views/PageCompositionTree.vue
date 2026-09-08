@@ -1,7 +1,10 @@
 <script setup lang="ts">
-import { pageActionEntryTitle, pageActionEntryDescription } from '@muyun/web-core';
+import { pageActionEntryTitle, pageActionIntent } from '@muyun/web-core';
 import {
   canPlaceActionInAnchor,
+  actionButtons,
+  actionButtonKey,
+  actionButtonMembers,
   type CompositionSkeleton,
   type PageCompositionActionPlacement,
 } from './pageCompositionMode';
@@ -44,6 +47,9 @@ const props = withDefaults(
     moduleActions?: {
       actionCode: string;
       title?: string;
+      bindingPending?: boolean;
+      category?: string;
+      executorType?: string;
       actionLevel?: 'LIST' | 'RECORD' | 'BATCH' | 'ANY' | 'DEFAULT';
     }[];
     editorMode?: 'fields' | 'actions';
@@ -83,7 +89,7 @@ const emit = defineEmits<{
   /** Kept for field/relation callers while actions use the broader source contract. */
 }>();
 
-type ComposerNodeAction = 'configure' | 'remove' | 'add-group';
+type ComposerNodeAction = 'configure' | 'remove' | 'add-group' | 'toggle-visibility';
 
 export type ComposerDropTarget = (
   | { kind: 'explorer-title' | 'explorer-secondary' | 'quick-search' }
@@ -221,7 +227,7 @@ const treeNodes = computed<UiTreeNode[]>(() => {
         ...(anchor === 'form'
           ? [{ key: 'ui:fixed:cancel', title: '取消', secondary: '模板固定 · 放弃编辑', isLeaf: true }]
           : []),
-        ...(props.actionPlacements ?? [])
+        ...actionButtons(props.actionPlacements ?? [])
           .filter((placement) => placement.anchor === anchor)
           .map((placement) => actionNode(anchor, placement.actionCode)),
       ],
@@ -238,22 +244,42 @@ function actionAnchorTitle(anchor: PageCompositionActionPlacement['anchor']) {
 
 function actionNode(anchor: PageCompositionActionPlacement['anchor'], actionCode: string): UiTreeNode {
   const action = props.moduleActions?.find((candidate) => candidate.actionCode === actionCode);
+  const entry = props.actionPlacements?.find(
+    (entry) => entry.anchor === anchor && entry.actionCode === actionCode,
+  ) ?? { anchor, actionCode };
+  const members = actionButtonMembers(props.actionPlacements ?? [], entry);
+  const hidden = members.every((member) => member.hidden);
+  const standard = !!pageActionIntent(actionCode, anchor);
+  const button = actionButtonKey(entry);
   return {
     key: `ui:action:${anchor}:${actionCode}`,
-    title: pageActionEntryTitle(
-      props.actionPlacements?.find((entry) => entry.anchor === anchor && entry.actionCode === actionCode) ?? {
-        actionCode,
-        anchor,
-      },
-    ),
-    secondary:
-      anchor === 'form'
-        ? pageActionEntryDescription({ actionCode, anchor })
-        : action?.title
-          ? actionCode
+    title:
+      entry.title ??
+      (button === 'status'
+        ? '状态切换'
+        : !standard && action?.title
+          ? action.title
+          : pageActionEntryTitle(entry)),
+    secondary: hidden
+      ? '已隐藏'
+      : button === 'save'
+        ? '新建 / 编辑'
+        : button === 'status'
+          ? '随记录状态显示启用或停用'
           : undefined,
-    tag: !action ? '来源失效' : undefined,
-    actions: nodeActions('configure', 'remove'),
+    muted: hidden,
+    tag: !action ? '来源失效' : action.bindingPending ? '待绑定' : undefined,
+    actions: standard
+      ? [
+          ...(hidden ? [] : nodeActions('configure')),
+          {
+            key: 'toggle-visibility',
+            title: hidden ? '显示' : '隐藏',
+            iconName: hidden ? 'eye-off' : 'eye',
+            disabled: props.disabled,
+          },
+        ]
+      : nodeActions('configure', 'remove'),
     isLeaf: true,
   };
 }
@@ -264,6 +290,9 @@ watch(
   (nodes) => {
     const available = new Set(flattenNodes(nodes).map((node) => node.key));
     const defaults = [
+      'ui:action-anchor:page',
+      'ui:action-anchor:detail',
+      'ui:action-anchor:form',
       'ui:slot:list',
       'ui:slot:list:fields',
       'ui:template:list:quick-search',
@@ -325,6 +354,7 @@ function nodeActions(...keys: ComposerNodeAction[]): UiRecordInlineAction[] {
   const definitions: Record<ComposerNodeAction, UiRecordInlineAction> = {
     configure: { key: 'configure', title: '配置', iconName: 'edit' },
     remove: { key: 'remove', title: '移除', iconName: 'delete', danger: true },
+    'toggle-visibility': { key: 'toggle-visibility', title: '隐藏', iconName: 'eye' },
     'add-group': { key: 'add-group', title: '添加分组', iconName: 'plus' },
   };
   return keys.map((key) => ({ ...definitions[key], disabled: props.disabled }));
@@ -482,6 +512,12 @@ function allowDrop(event: UiTreeDropEvent) {
   if (!source || !target || source.kind === 'template') return false;
   if (source.kind === 'action') {
     if (event.source.node.key === event.target.node.key) return false;
+    if (
+      (target.kind === 'action' || target.kind === 'action-anchor') &&
+      source.anchor !== target.anchor &&
+      props.moduleActions?.find((action) => action.actionCode === source.actionCode)?.category !== 'CUSTOM'
+    )
+      return false;
     if (target.kind === 'action-anchor')
       return event.target.position === 'inside' && actionCanOccupyAnchor(source.actionCode, target.anchor);
     return (
@@ -567,7 +603,7 @@ function handleDrop(event: UiTreeDropEvent) {
 }
 
 function actionPlacementsWithout(actionCode: string, anchor: PageCompositionActionPlacement['anchor']) {
-  return (props.actionPlacements ?? []).filter(
+  return actionButtons(props.actionPlacements ?? []).filter(
     (placement) => placement.actionCode !== actionCode && placement.anchor === anchor,
   );
 }
@@ -603,7 +639,7 @@ function allowExternalDrop(event: UiTreeDropEvent) {
   const parsed = parseNode(event.target.node.key);
   if (
     parsed &&
-    ['field', 'groupField', 'relationField'].includes(parsed.kind) &&
+    ['field', 'groupField', 'relationField', 'action'].includes(parsed.kind) &&
     event.target.position === 'inside'
   )
     return false;
@@ -611,7 +647,8 @@ function allowExternalDrop(event: UiTreeDropEvent) {
     event.target.position !== 'inside' &&
     parsed?.kind !== 'field' &&
     parsed?.kind !== 'groupField' &&
-    parsed?.kind !== 'relationField'
+    parsed?.kind !== 'relationField' &&
+    parsed?.kind !== 'action'
   )
     return false;
   const payload = parsePageCompositionDragPayload(event.source.payload);
@@ -642,7 +679,8 @@ function composerDropTarget(node: UiTreeNode): ComposerDropTarget | undefined {
   const parsed = parseNode(node.key);
   if (!parsed) return undefined;
   if (parsed.kind === 'template') return { kind: 'quick-search' };
-  if (parsed.kind === 'action-anchor') return { kind: 'action-anchor', anchor: parsed.anchor };
+  if (parsed.kind === 'action-anchor' || parsed.kind === 'action')
+    return { kind: 'action-anchor', anchor: parsed.anchor };
   if (parsed.kind === 'binding') return { kind: parsed.role };
   if (parsed.kind === 'explorer-title' || parsed.kind === 'explorer-secondary') return { kind: parsed.kind };
   if (
@@ -678,7 +716,16 @@ function handleExternalDrop(event: UiTreeDropEvent) {
   const parsed = parseNode(event.target.node.key);
   const metadata = parsePageCompositionDragPayload(event.source.payload);
   if (target.kind === 'action-anchor') {
-    if (metadata?.kind === 'action') emit('source-drop', target, metadata);
+    if (metadata?.kind === 'action') {
+      const actions = actionPlacementsWithout(metadata.actionCode, target.anchor);
+      target.index = insertionIndex(
+        actions.map((action) => action.actionCode),
+        metadata.actionCode,
+        parsed?.kind === 'action' ? parsed.actionCode : undefined,
+        event,
+      );
+      emit('source-drop', target, metadata);
+    }
     return;
   }
   if (target.kind === 'relation' && metadata?.kind === 'relationField') {

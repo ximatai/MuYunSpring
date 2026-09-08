@@ -126,3 +126,45 @@ it.each(['right', 'left'] as const)(
     }
   },
 );
+
+it('keeps an external drag alive when entering an action bar nested in a preview', async () => {
+  const drops: string[] = [];
+  const Fixture = defineComponent({
+    setup() {
+      const outer = ref<HTMLElement>();
+      const inner = ref<HTMLElement>();
+      for (const [root, key, cancel] of [
+        [outer, 'preview', true],
+        [inner, 'actions', false],
+      ] as const) {
+        useUiDropTarget(root, {
+          cancelWhenPointerLeaves: cancel,
+          resolve: () => ({ instanceId: key, kind: 'node', node: { key, title: key }, position: 'inside' }),
+          allow: () => true,
+          drop: () => drops.push(key),
+        });
+      }
+      return () =>
+        h(
+          'div',
+          { style: 'position: fixed; top: 0; left: 0; z-index: 99999; width: 400px; background: white' },
+          [
+            h(UiTree, { nodes: [{ key: 'source', title: '自定义动作' }], draggable: true }),
+            h('div', { ref: outer, 'data-test': 'outer', style: 'padding: 40px; width: 300px' }, [
+              h('div', { ref: inner, 'data-test': 'inner', style: 'height: 40px' }, '表单动作'),
+            ]),
+          ],
+        );
+    },
+  });
+  const wrapper = mount(Fixture, { attachTo: document.body });
+  try {
+    await nextTick();
+    await commands.treeGesture('[data-ui-tree-key="source"]', '[data-test="outer"]', 0.05, 'hold', 0.05);
+    await commands.treeMove('[data-test="inner"]');
+    await commands.treeRelease();
+    expect(drops).toEqual(['actions']);
+  } finally {
+    wrapper.unmount();
+  }
+});

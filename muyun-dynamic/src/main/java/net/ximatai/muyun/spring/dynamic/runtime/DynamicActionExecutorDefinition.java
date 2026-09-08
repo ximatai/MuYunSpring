@@ -12,7 +12,8 @@ public record DynamicActionExecutorDefinition(
         String description,
         List<EntityActionCategory> supportedCategories,
         List<EntityActionLevel> supportedLevels,
-        boolean bindable
+        boolean bindable,
+        boolean formSupported
 ) {
     public DynamicActionExecutorDefinition {
         if (executorKey == null || executorKey.isBlank()) {
@@ -25,9 +26,15 @@ public record DynamicActionExecutorDefinition(
         supportedLevels = supportedLevels == null ? List.of() : List.copyOf(supportedLevels);
     }
 
+    public DynamicActionExecutorDefinition(String executorKey, String title, String description,
+                                           List<EntityActionCategory> supportedCategories,
+                                           List<EntityActionLevel> supportedLevels, boolean bindable) {
+        this(executorKey, title, description, supportedCategories, supportedLevels, bindable, false);
+    }
+
     /** Internal executors remain executable but are deliberately not selectable by module configuration. */
     public static DynamicActionExecutorDefinition internal(String executorKey) {
-        return new DynamicActionExecutorDefinition(executorKey, executorKey, null, List.of(), List.of(), false);
+        return new DynamicActionExecutorDefinition(executorKey, executorKey, null, List.of(), List.of(), false, false);
     }
 
     public boolean supports(EntityActionCategory category, EntityActionLevel level) {

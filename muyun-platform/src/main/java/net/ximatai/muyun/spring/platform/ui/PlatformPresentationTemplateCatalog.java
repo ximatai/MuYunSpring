@@ -154,13 +154,26 @@ public class PlatformPresentationTemplateCatalog {
         if (!actions.isArray()) throw invalidManagementTree();
         Set<String> codes = new java.util.LinkedHashSet<>();
         for (JsonNode action : actions) {
-            if (!action.isObject() || (action.size() != 2 && !(managed && action.size() == 3 && action.path("title").isTextual() && !action.path("title").asText().isBlank())) || !action.path("actionCode").isTextual()
+            if (!action.isObject() || !validActionProperties(action, managed) || !action.path("actionCode").isTextual()
                     || action.path("actionCode").asText().isBlank() || !codes.add((managed ? action.path("anchor").asText() + ":" : "") + action.path("actionCode").asText())
                     || !action.path("anchor").isTextual()
                     || !Set.of("page", "detail", "form").contains(action.path("anchor").asText())) {
                 throw invalidManagementTree();
             }
         }
+    }
+
+    private static boolean validActionProperties(JsonNode action, boolean managed) {
+        var names = action.fieldNames();
+        while (names.hasNext()) {
+            String name = names.next();
+            if (Set.of("actionCode", "anchor").contains(name)) continue;
+            if (!managed) return false;
+            if ("title".equals(name) && action.path(name).isTextual() && !action.path(name).asText().isBlank()) continue;
+            if ("hidden".equals(name) && action.path(name).isBoolean()) continue;
+            return false;
+        }
+        return action.has("actionCode") && action.has("anchor");
     }
 
     /**

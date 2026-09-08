@@ -55,6 +55,9 @@ import {
   type CompositionSkeleton,
   type PageCompositionActionPlacement,
   defaultPageActionEntries,
+  withStandardActionEntries,
+  actionButtonMembers,
+  actionButtons,
 } from './pageCompositionMode';
 import { pageCompositionTransport } from './pageCompositionTransport';
 import PageCompositionDescriptorPreview from './PageCompositionDescriptorPreview.vue';
@@ -352,28 +355,13 @@ const metadataTreeNodes = computed<UiTreeNode[]>(() => [
       ]
     : []),
   ...(editorMode.value === 'actions'
-    ? [
-        {
-          key: 'module-actions:root',
-          title: '模块动作',
-          secondary: moduleActions.value.length ? `${moduleActions.value.length} 个动作` : '暂无可用动作',
-          isLeaf: moduleActions.value.length === 0,
-          children: moduleActions.value.map((action) => ({
-            key: `module-action:${action.actionCode}`,
-            title: action.title ?? action.actionCode,
-            secondary: action.actionCode,
-            tag: !(['page', 'detail', 'form'] as const).some((anchor) =>
-              canPlaceActionInAnchor(action, anchor),
-            )
-              ? '暂不支持页面按钮'
-              : undefined,
-            muted: !(['page', 'detail', 'form'] as const).some((anchor) =>
-              canPlaceActionInAnchor(action, anchor),
-            ),
-            isLeaf: true,
-          })),
-        },
-      ]
+    ? moduleActions.value.map((action) => ({
+        key: `module-action:${action.actionCode}`,
+        title: action.title ?? action.actionCode,
+        tag: action.category === 'STANDARD' ? '平台托管' : undefined,
+        muted: !canDragPaletteAction(action),
+        isLeaf: true,
+      }))
     : []),
 ]);
 watch(editorMode, () => {
@@ -912,6 +900,8 @@ function hydrateDraft(current: PresentationRevision | undefined, markSaved = tru
         typeof placement?.anchor === 'string' &&
         ['page', 'detail', 'form'].includes(placement.anchor),
     );
+    if (modeTree.templateVersion === 4)
+      actionPlacements.value = withStandardActionEntries(actionPlacements.value, moduleActions.value);
     if ((modeTree.templateVersion ?? 1) < 4) {
       const defaults = defaultPageActionEntries(moduleActions.value);
       actionPlacements.value = [
@@ -1277,18 +1267,19 @@ function selectUiTreeKey(key: string) {
     });
 }
 
+function canDragPaletteAction(action: ModuleRuntimeAction) {
+  return (
+    action.category === 'CUSTOM' &&
+    (['page', 'detail', 'form'] as const).some((anchor) => canPlaceActionInAnchor(action, anchor))
+  );
+}
+
 function canDragMetadataNode(node: UiTreeNode) {
   const payload = metadataDragPayload(node);
-  if (payload?.kind === 'action')
-    return (
-      !isMutating.value &&
-      (['page', 'detail', 'form'] as const).some((anchor) =>
-        canPlaceActionInAnchor(
-          moduleActions.value.find((action) => action.actionCode === payload.actionCode),
-          anchor,
-        ),
-      )
-    );
+  if (payload?.kind === 'action') {
+    const action = moduleActions.value.find((action) => action.actionCode === payload.actionCode);
+    return !isMutating.value && !!action && canDragPaletteAction(action);
+  }
   return !isMutating.value && payload != null;
 }
 
@@ -1404,22 +1395,19 @@ function handleCompositionSourceDrop(target: ComposerDropTarget, payload: unknow
     actionFormMode.value = source.actionCode === 'create' ? 'create' : 'edit';
     state.previewMode.value = 'edit';
   }
-  const previous = actionPlacements.value.find(
-    (entry) => entry.actionCode === source.actionCode && entry.anchor === target.anchor,
-  );
-  // Source drops add an entry to this region; other regions retain their own entry.
-  actionPlacements.value = [
-    ...actionPlacements.value.filter(
-      (placement) => placement.actionCode !== source.actionCode || placement.anchor !== target.anchor,
-    ),
-    { ...previous, actionCode: source.actionCode, anchor: target.anchor },
-  ];
+  handlePreviewActionDrop(source, {
+    anchor: target.anchor,
+    index:
+      target.index ??
+      actionButtons(actionPlacements.value.filter((entry) => entry.anchor === target.anchor)).length,
+  });
 }
 
 /** C is an editing surface too: palette drops and internal moves update the same managed entry list as B. */
 function handlePreviewActionDrop(
   source: { actionCode: string; sourceAnchor?: PageCompositionActionPlacement['anchor'] },
   target: { anchor: PageCompositionActionPlacement['anchor']; index: number },
+  visibleOnly = false,
 ) {
   if (isMutating.value) return;
   const action = moduleActions.value.find((candidate) => candidate.actionCode === source.actionCode);
@@ -1428,24 +1416,24 @@ function handlePreviewActionDrop(
     (entry) =>
       entry.actionCode === source.actionCode && entry.anchor === (source.sourceAnchor ?? target.anchor),
   );
+  if (source.sourceAnchor && source.sourceAnchor !== target.anchor && action.category !== 'CUSTOM') return;
+  const members = previous
+    ? actionButtonMembers(actionPlacements.value, previous)
+    : [{ actionCode: source.actionCode, anchor: target.anchor, title: action.title }];
   const without = actionPlacements.value.filter(
     (entry) =>
-      entry.actionCode !== source.actionCode ||
-      (entry.anchor !== target.anchor && entry.anchor !== source.sourceAnchor),
+      !members.includes(entry) && !(entry.anchor === target.anchor && entry.actionCode === source.actionCode),
   );
-  const index = Math.max(
-    0,
-    Math.min(target.index, without.filter((placement) => placement.anchor === target.anchor).length),
+  const targetButtons = actionButtons(
+    without.filter((entry) => entry.anchor === target.anchor && (!visibleOnly || !entry.hidden)),
   );
-  const insertion = without.findIndex(
-    (placement, position) =>
-      placement.anchor === target.anchor &&
-      without.slice(0, position + 1).filter((candidate) => candidate.anchor === target.anchor).length > index,
-  );
-  const next = { ...previous, actionCode: source.actionCode, anchor: target.anchor };
-  if (target.anchor === 'form') actionFormMode.value = source.actionCode === 'create' ? 'create' : 'edit';
-  actionPlacements.value =
-    insertion < 0 ? [...without, next] : [...without.slice(0, insertion), next, ...without.slice(insertion)];
+  const before = targetButtons[Math.max(0, target.index)];
+  const insertion = before ? without.indexOf(before) : without.length;
+  actionPlacements.value = [
+    ...without.slice(0, insertion),
+    ...members.map((entry) => ({ ...entry, anchor: target.anchor })),
+    ...without.slice(insertion),
+  ];
 }
 
 /**
@@ -1656,7 +1644,7 @@ function selectPreviewMode(key: string) {
   state.previewMode.value = key as typeof state.previewMode.value;
 }
 
-function handleNodeAction(action: 'configure' | 'remove' | 'add-group', key: string) {
+function handleNodeAction(action: 'configure' | 'remove' | 'add-group' | 'toggle-visibility', key: string) {
   if (isMutating.value) return;
   if (action === 'add-group') {
     state.addFormGroup();
@@ -1668,6 +1656,19 @@ function handleNodeAction(action: 'configure' | 'remove' | 'add-group', key: str
     if (role === 'explorer-title') explorerTitleField.value = '';
     else if (role === 'explorer-secondary') explorerSecondaryField.value = undefined;
     else quickSearchFields.value = quickSearchFields.value.filter((field) => field !== fieldName);
+    return;
+  }
+  if (action === 'toggle-visibility' && key.startsWith('ui:action:')) {
+    const [, , anchor, actionCode] = key.split(':');
+    const entry = actionPlacements.value.find(
+      (entry) => entry.anchor === anchor && entry.actionCode === actionCode,
+    );
+    if (!entry) return;
+    const members = actionButtonMembers(actionPlacements.value, entry);
+    const hidden = !members.every((member) => member.hidden);
+    members.forEach((member) => {
+      member.hidden = hidden;
+    });
     return;
   }
   if (action === 'remove' && key.startsWith('ui:action:')) {
@@ -1837,6 +1838,7 @@ function openPropertyDrawer() {
               @select="selectMetadataNode"
               @action="addMetadataNode"
             />
+            <UiEmpty v-if="editorMode === 'actions' && !moduleActions.length" description="暂无模块动作" />
             <UiEmpty v-if="editorMode === 'fields' && !visibleFields.length" description="暂无可编排字段" />
           </div>
         </RecordExplorerPanel>
@@ -1912,7 +1914,7 @@ function openPropertyDrawer() {
           {{ actionIssues.join('；') }}。请修正入口后发布。
         </div>
         <div v-if="editorMode === 'actions'" class="page-composition-action-help">
-          配置业务操作入口；取消、查看和导航工具由模板提供。同一动作可放到不同区域。
+          标准按钮可隐藏或排序，自定义动作可拖入对应区域。
         </div>
         <UiRadioGroup
           v-if="editorMode === 'actions' && state.previewMode.value === 'edit'"
@@ -1977,7 +1979,7 @@ function openPropertyDrawer() {
           @configure-relation-field="configurePreviewRelationField"
           @configure-action="(anchor, code) => handleUiTreeDoubleClick(`ui:action:${anchor}:${code}`)"
           @placement-drop="handlePreviewPlacement"
-          @action-drop="handlePreviewActionDrop"
+          @action-drop="(source, target) => handlePreviewActionDrop(source, target, true)"
         />
         <UiEmpty
           v-else-if="revision && !previewLoading && !previewError"
@@ -2021,7 +2023,10 @@ function openPropertyDrawer() {
               :placeholder="pageActionEntryTitle({ ...selectedActionEntry, title: undefined })"
               @update:value="
                 (value) => {
-                  if (selectedActionEntry) selectedActionEntry.title = value.trim() || undefined;
+                  if (selectedActionEntry)
+                    actionButtonMembers(actionPlacements, selectedActionEntry).forEach((entry) => {
+                      entry.title = value.trim() || undefined;
+                    });
                 }
               "
           /></label>

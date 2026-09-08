@@ -19,10 +19,33 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class PageRevisionModuleUiDefinitionAdapterTest {
     @Test
+    void compilesCustomFormEntryWithoutRequiringAnExecutableBinding() {
+        var revision = revision("""
+                {"template":"management","templateVersion":4,"mode":"LIST_CARD","quickSearchFields":[],
+                 "actions":[{"actionCode":"pendingDemo0908","anchor":"form","title":"待绑定演示动作"}],
+                 "nodes":[{"slot":"list","title":"列表","fields":["title"]},{"slot":"form","title":"详情","fields":["title"]}]}
+                """);
+        revision.setTemplateVersion(4);
+        var definition = PageRevisionModuleUiDefinitionAdapter.fromPublishedRevision(page(), revision,
+                new DynamicPageCompilationContext(DynamicModuleOverviewMode.LIST_CARD,
+                        Map.of("title", "名称"), java.util.Set.of(), Map.of()));
+        for (var scope : List.of("LIST", "RECORD", "ANY")) {
+            PageActionOperation.validate(definition, code -> scope);
+        }
+        assertThat(ModuleUiDescriptorCompiler.compile(definition).page().actions()).containsExactly(
+                new ResolvedPageActionDescriptor("pendingDemo0908", PageActionAnchor.FORM,
+                        "待绑定演示动作", PageActionOperation.INVOKE));
+        assertThatThrownBy(() -> PageActionOperation.validate(definition, code -> null))
+                .hasMessageContaining("来源失效");
+        assertThatThrownBy(() -> PageActionOperation.resolve("delete", PageActionAnchor.FORM))
+                .hasMessageContaining("尚无可用交互契约");
+    }
+
+    @Test
     void compilesManagedEntriesWithIndependentTitlesAndExplicitOperations() {
         var revision = revision("""
                 {"template":"management","templateVersion":4,"mode":"LIST_CARD","quickSearchFields":[],
-                 "actions":[{"actionCode":"create","anchor":"page","title":"登记"},{"actionCode":"create","anchor":"form"}],
+                 "actions":[{"actionCode":"create","anchor":"page","title":"登记"},{"actionCode":"create","anchor":"form"},{"actionCode":"delete","anchor":"detail","hidden":true}],
                  "nodes":[{"slot":"list","title":"列表","fields":["title"]},{"slot":"form","title":"详情","fields":["title"]}]}
                 """);
         revision.setTemplateVersion(4);
@@ -34,9 +57,8 @@ class PageRevisionModuleUiDefinitionAdapterTest {
         assertThat(page.actions()).containsExactly(
                 new ResolvedPageActionDescriptor("create", PageActionAnchor.PAGE, "登记", PageActionOperation.OPEN_CREATE),
                 new ResolvedPageActionDescriptor("create", PageActionAnchor.FORM, null, PageActionOperation.SUBMIT_CREATE));
-        assertThatThrownBy(() -> ModuleUiDescriptorCompiler.compile(ModuleUiDefinition.builder("sales.contract")
-                .page(definition.page()).managedActions().pageAction("approve", PageActionAnchor.DETAIL).build()))
-                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("交互契约");
+        assertThat(ModuleUiDescriptorCompiler.compile(ModuleUiDefinition.builder("sales.contract")
+                .page(definition.page()).managedActions().pageAction("approve", PageActionAnchor.DETAIL).build()).page().actions().getFirst().operation()).isEqualTo(PageActionOperation.INVOKE);
     }
 
     @Test

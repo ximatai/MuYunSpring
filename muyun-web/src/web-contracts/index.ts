@@ -180,6 +180,8 @@ export type RecordInlineActionIconName =
   | 'down'
   | 'edit'
   | 'export'
+  | 'eye'
+  | 'eye-off'
   | 'filter'
   | 'help'
   | 'lock'
@@ -1625,6 +1627,8 @@ export interface PlatformModule extends StandardEnabledTreeEntity {
 
 /** A governed operation exposed by one platform module. */
 export interface PlatformModuleAction extends StandardEnabledSortableEntity {
+  bindingPending?: boolean;
+  formSupported?: boolean;
   moduleAlias?: string;
   actionCode?: string;
   entityAlias?: string;

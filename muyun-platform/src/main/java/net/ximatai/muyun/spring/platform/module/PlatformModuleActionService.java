@@ -72,7 +72,7 @@ public class PlatformModuleActionService extends AbstractAbilityService<Platform
 
     @Override
     public QueryDescriptor queryDescriptor() {
-        return QueryDescriptors.fromModel(MODULE_ALIAS, PlatformModuleAction.class, java.util.List.of("id", "moduleAlias", "actionCode", "entityAlias", "permissionActionCode", "title", "category", "actionLevel", "accessMode", "actionAuth", "dataAuth", "defaultGrantPolicy", "accessModeOverride", "actionAuthOverride", "dataAuthOverride", "defaultGrantPolicyOverride", "executorType", "executorKey", "sourceType", "sourceId", "bindingType", "bindingId", "bindingAlias", "systemManaged", "enabled", "sortOrder", "createdAt", "updatedAt"),
+        return QueryDescriptors.fromModel(MODULE_ALIAS, PlatformModuleAction.class, java.util.List.of("id", "moduleAlias", "actionCode", "entityAlias", "permissionActionCode", "title", "category", "actionLevel", "accessMode", "actionAuth", "dataAuth", "defaultGrantPolicy", "accessModeOverride", "actionAuthOverride", "dataAuthOverride", "defaultGrantPolicyOverride", "executorType", "executorKey", "formSupported", "sourceType", "sourceId", "bindingType", "bindingId", "bindingAlias", "systemManaged", "enabled", "sortOrder", "createdAt", "updatedAt"),
                 net.ximatai.muyun.database.core.orm.Sort.asc("sortOrder"));
     }
 
@@ -297,6 +297,12 @@ public class PlatformModuleActionService extends AbstractAbilityService<Platform
         if (Boolean.TRUE.equals(action.getSystemManaged()) || actionExecutorRegistry == null) {
             return;
         }
+        if (action.isBindingPending()) {
+            action.setBindingType(null);
+            action.setBindingId(null);
+            action.setBindingAlias(null);
+            return;
+        }
         if (module.getModuleKind() != ModuleKind.DYNAMIC) {
             throw new PlatformException("Manual module actions require a dynamic module: " + action.getModuleAlias());
         }
@@ -316,6 +322,13 @@ public class PlatformModuleActionService extends AbstractAbilityService<Platform
             throw new PlatformException("Executor cannot be bound to module action: "
                     + action.getModuleAlias() + "." + action.getActionCode());
         }
+        if (Boolean.TRUE.equals(action.getFormSupported()) && !definition.formSupported()) {
+            throw new PlatformException("Executor does not support form context: "
+                    + action.getModuleAlias() + "." + action.getActionCode());
+        }
+        // Form support is an executor-owned fact; persist the deployed definition rather
+        // than trusting a mutable configuration value.
+        action.setFormSupported(definition.formSupported());
         action.setBindingType(ModuleActionBindingType.DYNAMIC_ACTION_EXECUTOR);
         action.setBindingId(definition.executorKey());
         action.setBindingAlias(definition.executorKey());

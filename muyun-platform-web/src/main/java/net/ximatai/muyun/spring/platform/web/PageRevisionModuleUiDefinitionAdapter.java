@@ -330,6 +330,7 @@ public final class PageRevisionModuleUiDefinitionAdapter {
             if (root.path("templateVersion").asInt() >= PlatformPresentationTemplateCatalog.MODE_AWARE_ACTION_VERSION) {
                 pageActions = new java.util.ArrayList<>();
                 for (JsonNode action : root.path("actions")) {
+                    if (action.path("hidden").asBoolean(false)) continue;
                     pageActions.add(new PageActionDefinition(action.path("actionCode").asText(),
                             PageActionAnchor.valueOf(action.path("anchor").asText().toUpperCase(java.util.Locale.ROOT)), action.path("title").asText(null)));
                 }

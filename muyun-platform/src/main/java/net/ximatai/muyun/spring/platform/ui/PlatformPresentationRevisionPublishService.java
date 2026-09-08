@@ -17,6 +17,9 @@ public class PlatformPresentationRevisionPublishService {
     private final PlatformPresentationTemplateCatalog templateCatalog;
     private final PublishedPageExecutionCoordinator pageExecutionCoordinator;
 
+    @org.springframework.beans.factory.annotation.Autowired
+    private net.ximatai.muyun.spring.platform.module.PlatformModuleActionService moduleActionService;
+
     public PlatformPresentationRevisionPublishService(PlatformPresentationRevisionService revisionService,
                                                       PlatformPresentationVariantService variantService,
                                                       PlatformPageDefinitionService pageService,
@@ -83,6 +86,7 @@ public class PlatformPresentationRevisionPublishService {
             template = templateCatalog.require(publicationCandidate.getTemplateAlias(), publicationCandidate.getTemplateVersion(),
                     variant.getClientType(), page.getContractType());
             templateCatalog.validateUiTree(publicationCandidate, template);
+            validateActionBindings(page.getModuleAlias(), publicationCandidate);
             publishedRevision(variant.getId()).stream()
                     .filter(revision -> !revision.getId().equals(publicationCandidate.getId()))
                     .forEach(revision -> revisionService.update(copyWithStatus(revision,
@@ -96,6 +100,35 @@ public class PlatformPresentationRevisionPublishService {
         // preserves both the prior revision and the prior executable page.
         pageExecutionCoordinator.prepareAfterPublishedConfigurationChange(page.getModuleAlias());
         return requireRevision(revisionId);
+    }
+
+    private void validateActionBindings(String moduleAlias, PlatformPresentationRevision revision) {
+        if (moduleActionService == null) return;
+        try {
+            var tree = new com.fasterxml.jackson.databind.ObjectMapper().readTree(revision.getUiTreeJson());
+            var actions = moduleActionService.listByModuleAliases(java.util.List.of(moduleAlias)).stream()
+                    .collect(java.util.stream.Collectors.toMap(
+                            net.ximatai.muyun.spring.platform.module.PlatformModuleAction::getActionCode,
+                            action -> action));
+            for (var entry : tree.path("actions")) {
+                String code = entry.path("actionCode").asText();
+                var action = actions.get(code);
+                if (action == null) continue;
+                String title = action.getTitle() == null ? code : action.getTitle();
+                if (action.isBindingPending()) throw BusinessExceptions.warning(
+                        "platform.presentation-revision.action-binding-pending",
+                        "动作“" + title + "”尚未绑定执行能力，请绑定后再发布");
+                if ("form".equalsIgnoreCase(entry.path("anchor").asText())
+                        && action.getCategory() == net.ximatai.muyun.spring.dynamic.metadata.EntityActionCategory.CUSTOM
+                        && !Boolean.TRUE.equals(action.getFormSupported())) {
+                    throw BusinessExceptions.warning(
+                            "platform.presentation-revision.action-form-context-unsupported",
+                            "动作“" + title + "”不支持表单上下文，无法发布到表单区域");
+                }
+            }
+        } catch (com.fasterxml.jackson.core.JsonProcessingException exception) {
+            throw new IllegalArgumentException("Invalid page action configuration", exception);
+        }
     }
 
     private PlatformPresentationVariant copyForPublicationLease(PlatformPresentationVariant source) {

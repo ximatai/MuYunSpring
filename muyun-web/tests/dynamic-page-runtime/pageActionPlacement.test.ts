@@ -78,8 +78,46 @@ it.each([true, false])('explains status operations that have already been applie
     true,
     { enabled },
   );
-  expect(actions.map((action) => action.disabled)).toEqual([enabled, !enabled]);
-  expect(actions.find((action) => action.disabled)?.disabledReason).toBe(
-    enabled ? '当前记录已启用' : '当前记录已停用',
-  );
+  expect(actions).toHaveLength(1);
+  expect(actions[0]).toMatchObject({ actionCode: enabled ? 'disable' : 'enable', disabled: false });
+});
+
+it('exposes an issued custom service action without borrowing a form submission', () => {
+  const placements = [{ actionCode: 'approve', anchor: 'DETAIL' as const, operation: 'INVOKE' }];
+  const actionOf = (actionCode: string) => ({
+    actionCode,
+    actionLevel: 'RECORD',
+    category: 'CUSTOM',
+    executorType: 'SERVICE',
+    formSupported: true,
+  });
+  expect(resolvePlacedPageActions(placements, 'DETAIL', actionOf, [], 'view', true)[0]?.disabled).toBe(false);
+  expect(resolvePlacedPageActions(placements, 'DETAIL', actionOf, [], 'edit', true)).toEqual([]);
+});
+
+it('exposes an ANY custom service action in the unsaved form context', () => {
+  const action = {
+    actionCode: 'recalculate',
+    actionLevel: 'ANY',
+    category: 'CUSTOM',
+    executorType: 'SERVICE',
+    formSupported: true,
+  };
+  const placement = [{ actionCode: 'recalculate', anchor: 'FORM' as const, operation: 'INVOKE' }];
+  const resolved = resolvePlacedPageActions(placement, 'FORM', () => action, [], 'edit', true);
+  expect(resolved).toMatchObject([{ actionCode: 'recalculate', disabled: false }]);
+  expect(resolvePlacedPageActions(placement, 'FORM', () => action, [], 'view', true)).toEqual([]);
+});
+
+it('does not expose an unbound action as executable even when authorized', () => {
+  expect(
+    resolvePlacedPageActions(
+      [{ actionCode: 'approve', anchor: 'DETAIL', operation: 'INVOKE' }],
+      'DETAIL',
+      (actionCode) => ({ actionCode, actionLevel: 'RECORD', category: 'CUSTOM', bindingPending: true }),
+      [],
+      'view',
+      true,
+    ),
+  ).toEqual([]);
 });

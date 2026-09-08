@@ -19,7 +19,7 @@ export function usePageCompositionActionPreviewDrag(
   anchor: Anchor,
   actions: Ref<{ actionCode: string; title?: string }[]>,
   enabled: Ref<boolean>,
-  canDrop: (source: { actionCode: string }) => boolean,
+  canDrop: (source: { actionCode: string; sourceAnchor?: Anchor }) => boolean,
   onDrop: (
     source: { actionCode: string; sourceAnchor?: Anchor },
     target: { anchor: Anchor; index: number },
@@ -49,7 +49,8 @@ export function usePageCompositionActionPreviewDrag(
     }
     const { rect } = frozen;
     return {
-      ...rect,
+      width: rect.width,
+      height: rect.height,
       x: rect.x - xOffset,
       y: rect.y - yOffset,
       left: rect.left - xOffset,
@@ -74,7 +75,11 @@ export function usePageCompositionActionPreviewDrag(
     if (!geometryCaptured || x === undefined) return;
     return [...geometry.entries()]
       .map(([key, frozen]) => [key, currentFrozenRect(frozen)] as const)
-      .find(([, rect]) => x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom);
+      .filter(([, rect]) => y >= rect.top && y <= rect.bottom)
+      .sort(([, left], [, right]) => {
+        const distance = (rect: DOMRect) => Math.max(rect.left - x, x - rect.right, 0);
+        return distance(left) - distance(right);
+      })[0];
   }
   function clearGeometry() {
     geometry.clear();
@@ -96,6 +101,10 @@ export function usePageCompositionActionPreviewDrag(
     position: 'before' | 'inside' | 'after',
     sourceActionCode?: string,
   ) {
+    if (key === sourceActionCode) {
+      const index = actions.value.findIndex((action) => action.actionCode === key);
+      if (index >= 0) return { anchor, index };
+    }
     const available = actions.value.filter((action) => action.actionCode !== sourceActionCode);
     const index = key == null ? available.length : available.findIndex((action) => action.actionCode === key);
     return { anchor, index: index < 0 ? available.length : index + (position === 'after' ? 1 : 0) };
@@ -115,16 +124,13 @@ export function usePageCompositionActionPreviewDrag(
       const target = origin.closest<HTMLElement>('[data-page-action-key]');
       const liveKey = target?.dataset.pageActionKey;
       const source = _source && sourceOf(_source);
-      const isLiveSource = source?.sourceAnchor === anchor && source.actionCode === liveKey;
-      // A staged layout moves the buttons below the held pointer. Follow the live button for an
-      // internal move, and reserve the initial geometry only for source/gap fallback and palette
-      // actions, whose temporary button has not existed at capture time.
-      const preferLiveTarget = _source?.payloadType === ACTION_DRAG_TYPE && Boolean(liveKey) && !isLiveSource;
-      const frozen = preferLiveTarget ? undefined : frozenTargetAt(x, _y);
-      const key = preferLiveTarget ? liveKey : (frozen?.[0] ?? liveKey);
+      // Hit testing must use the layout before preview reordering. Animated buttons
+      // under a stationary pointer must not become new sorting targets.
+      if (source && enabled.value && canDrop(source)) captureGeometry();
+      const frozen = frozenTargetAt(x, _y);
+      const key = frozen?.[0] ?? liveKey;
       const rect = frozen?.[1] ?? target?.getBoundingClientRect() ?? root.value?.getBoundingClientRect();
       if (!rect) return;
-      if (isLiveSource) return;
       const ratio = ((x ?? rect.left + rect.width / 2) - rect.left) / Math.max(rect.width, 1);
       const dropPosition: 'before' | 'after' =
         ratio < 0.24
@@ -141,7 +147,6 @@ export function usePageCompositionActionPreviewDrag(
         position: (key ? dropPosition : 'inside') as 'before' | 'after' | 'inside',
       };
       if (source && enabled.value && canDrop(source)) {
-        captureGeometry();
         const next = {
           actionCode: source.actionCode,
           index: targetOf(key, resolved.position, source.actionCode).index,

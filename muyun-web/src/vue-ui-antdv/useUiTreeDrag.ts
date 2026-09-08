@@ -86,7 +86,7 @@ function createHub(document: Document) {
     const surface = [...surfaces]
       .filter((item) => item.root.contains(origin))
       .sort((a, b) => (a.root.contains(b.root) ? 1 : -1))[0];
-    if (enteredSurface?.cancelWhenPointerLeaves && enteredSurface !== surface) {
+    if (enteredSurface?.cancelWhenPointerLeaves && !enteredSurface.root.contains(origin)) {
       finish(true);
       return;
     }

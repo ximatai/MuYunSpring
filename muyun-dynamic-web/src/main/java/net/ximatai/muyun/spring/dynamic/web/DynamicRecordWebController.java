@@ -144,6 +144,7 @@ import java.util.function.Function;
 @RestController
 @RequestMapping("/{moduleAlias:[a-z][a-z0-9_]*(?:\\.[a-z][a-z0-9_]*)+}")
 public class DynamicRecordWebController implements
+        net.ximatai.muyun.spring.web.FormActionWeb<DynamicEntityOperations, DynamicRecord, DynamicWebActionExecutionResponse>,
         CrudWeb<DynamicRecord, DynamicEntityOperations>,
         EnableWeb<DynamicRecord, DynamicEntityOperations>,
         TreeWeb<DynamicRecord, DynamicEntityOperations>,
@@ -1332,6 +1333,21 @@ public class DynamicRecordWebController implements
         requireActionLevel(moduleAlias, actionCode, Set.of(EntityActionLevel.LIST, EntityActionLevel.ANY),
                 "dynamic action does not support list path: ");
         return executeAction(moduleAlias, actionCode, null, request);
+    }
+
+    @Override
+    public DynamicWebActionExecutionResponse executeFormAction(String actionCode, net.ximatai.muyun.spring.web.FormActionRequest<DynamicRecord> request) {
+        String moduleAlias = DynamicWebRequest.moduleAlias();
+        DynamicActionDescriptor action = recordService.action(moduleAlias, actionCode);
+        if (!recordService.formActionSupported(moduleAlias, actionCode)) {
+            throw new IllegalArgumentException("dynamic action does not support form context: " +
+                    (action == null ? actionCode : action.title()));
+        }
+        if (request == null || request.record() == null) {
+            throw new IllegalArgumentException("dynamic form action requires current form record: " + actionCode);
+        }
+        return DynamicWebActionExecutionResponse.from(recordService.executeAction(
+                moduleAlias, actionCode, DynamicActionExecutionRequest.record(request.record())));
     }
 
     @Override

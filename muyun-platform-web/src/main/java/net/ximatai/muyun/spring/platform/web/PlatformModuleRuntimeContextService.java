@@ -1037,7 +1037,7 @@ public class PlatformModuleRuntimeContextService {
         Map<String, PlatformModuleAction> persistedByCode = persisted.stream()
                 .collect(java.util.stream.Collectors.toMap(PlatformModuleAction::getActionCode,
                         action -> action, (first, ignored) -> first));
-        return staticDefinition.get().actions().stream()
+        var declaredActions = staticDefinition.get().actions().stream()
                 .map(declared -> {
                     PlatformModuleAction configured = persistedByCode.get(declared.actionCode());
                     if (configured != null && Boolean.FALSE.equals(configured.getEnabled())) {
@@ -1048,6 +1048,13 @@ public class PlatformModuleRuntimeContextService {
                 })
                 .filter(java.util.Objects::nonNull)
                 .toList();
+        var result = new java.util.ArrayList<>(declaredActions);
+        var declaredCodes = staticDefinition.get().actions().stream().map(StaticModuleActionDefinition::actionCode)
+                .collect(java.util.stream.Collectors.toSet());
+        persisted.stream().filter(PlatformModuleAction::isBindingPending)
+                .filter(action -> !Boolean.FALSE.equals(action.getEnabled()) && !declaredCodes.contains(action.getActionCode()))
+                .map(action -> runtimeAction(action, policy(action))).forEach(result::add);
+        return List.copyOf(result);
     }
 
     private List<PlatformModuleRuntimeAction> dynamicActions(String moduleAlias,
@@ -1082,7 +1089,9 @@ public class PlatformModuleRuntimeContextService {
                 action.getExecutorType(),
                 action.getExecutorKey(),
                 authorization.authorized(),
-                authorization.decision()
+                authorization.decision(),
+                action.isBindingPending(),
+                Boolean.TRUE.equals(action.getFormSupported())
         );
     }
 
@@ -1107,7 +1116,9 @@ public class PlatformModuleRuntimeContextService {
                 action.executorType(),
                 action.executorKey(),
                 authorization.authorized(),
-                authorization.decision()
+                authorization.decision(),
+                false,
+                action.formSupported()
         );
     }
 

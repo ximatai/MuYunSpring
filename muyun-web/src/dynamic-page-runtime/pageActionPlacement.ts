@@ -6,7 +6,17 @@ import type { ResolvedPageActionDescriptor } from '@muyun/web-contracts';
 export function resolvePlacedPageActions(
   placements: ResolvedPageActionDescriptor[],
   anchor: ResolvedPageActionDescriptor['anchor'],
-  actionOf: (code: string) => { actionCode: string; title?: string; actionLevel?: string } | undefined,
+  actionOf: (code: string) =>
+    | {
+        actionCode: string;
+        title?: string;
+        actionLevel?: string;
+        category?: string;
+        executorType?: string;
+        formSupported?: boolean;
+        bindingPending?: boolean;
+      }
+    | undefined,
   detailActions: RecordActionItem[],
   mode: 'create' | 'edit' | 'view',
   managed = false,
@@ -15,18 +25,28 @@ export function resolvePlacedPageActions(
   return placements.flatMap((placement) => {
     if (placement.anchor !== anchor) return [];
     const intent = pageActionIntent(placement.actionCode, anchor);
-    if (managed && (!intent || !pageActionEntryVisible(placement, mode))) return [];
+    const invoke = placement.operation === 'INVOKE';
+    if (managed && ((!intent && !invoke) || !pageActionEntryVisible(placement, mode))) return [];
     const action = actionOf(placement.actionCode);
-    if (!action) return [];
+    if (!action || action.bindingPending) return [];
     if (anchor === 'PAGE' && !['LIST', 'ANY'].includes(action.actionLevel ?? '')) return [];
     if (anchor === 'DETAIL' && !['RECORD', 'ANY'].includes(action.actionLevel ?? '')) return [];
     if (
       anchor === 'FORM' &&
-      (mode === 'view' || action.actionCode !== (mode === 'create' ? 'create' : 'update'))
+      (mode === 'view' ||
+        (action.actionCode !== (mode === 'create' ? 'create' : 'update') &&
+          !(action.category === 'CUSTOM' && action.formSupported === true)))
     )
       return [];
     const supported =
-      anchor === 'FORM' ||
+      (invoke &&
+        action.category === 'CUSTOM' &&
+        (!action.executorType || action.executorType === 'SERVICE')) ||
+      (anchor === 'FORM' &&
+        (action.actionCode === (mode === 'create' ? 'create' : 'update') ||
+          (action.category === 'CUSTOM' &&
+            (!action.executorType || action.executorType === 'SERVICE') &&
+            action.formSupported === true))) ||
       (anchor === 'PAGE'
         ? ['create', 'query'].includes(action.actionCode)
         : ['update', 'delete', 'enable', 'disable'].includes(action.actionCode) ||
@@ -39,11 +59,15 @@ export function resolvePlacedPageActions(
             ? '当前记录已停用'
             : undefined
         : undefined;
+    if (statusReason) return [];
     return [
       {
         key: `page-placement:${anchor}:${action.actionCode}`,
         actionCode: action.actionCode,
-        title: managed ? pageActionEntryTitle(placement) : (action.title ?? action.actionCode),
+        title: managed
+          ? (placement.title ??
+            (invoke ? (action.title ?? action.actionCode) : pageActionEntryTitle(placement)))
+          : (action.title ?? action.actionCode),
         danger: action.actionCode === 'delete',
         actionLevel:
           managed && anchor === 'FORM'

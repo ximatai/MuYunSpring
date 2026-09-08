@@ -18,12 +18,20 @@ export function pageActionEntryTitle(entry: { actionCode: string; anchor: string
 }
 
 export function pageActionEntryVisible(
-  entry: { actionCode: string; anchor: string },
+  entry: { actionCode: string; anchor: string; hidden?: boolean; operation?: string },
   mode: 'view' | 'create' | 'edit',
 ) {
+  if (entry.hidden) return false;
   const anchor = entry.anchor.toUpperCase();
   if (anchor === 'DETAIL') return mode === 'view';
-  if (anchor === 'FORM') return mode !== 'view' && pageActionIntent(entry.actionCode, anchor)?.mode === mode;
+  if (anchor === 'FORM') {
+    return (
+      mode !== 'view' &&
+      (entry.operation === 'INVOKE' ||
+        !pageActionIntent(entry.actionCode, anchor) ||
+        pageActionIntent(entry.actionCode, anchor)?.mode === mode)
+    );
+  }
   return true;
 }
 export function pageActionEntryDescription(entry: { actionCode: string; anchor: string }) {

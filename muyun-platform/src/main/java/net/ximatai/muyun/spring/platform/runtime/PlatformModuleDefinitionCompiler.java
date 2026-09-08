@@ -638,6 +638,7 @@ public class PlatformModuleDefinitionCompiler {
                 .filter(Objects::nonNull)
                 .collect(java.util.stream.Collectors.toMap(Metadata::getAlias, metadata -> metadata));
         List<EntityActionDefinition> actions = actionService.listByModuleAliases(List.of(moduleAlias)).stream()
+                .filter(action -> !action.isBindingPending())
                 .map(action -> action(action, mainEntityAlias, metadataByAlias))
                 .toList();
         return withWorkflowActions(actions, mainEntity(mainEntityAlias, entities));

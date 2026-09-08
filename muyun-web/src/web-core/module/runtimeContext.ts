@@ -5,6 +5,8 @@ import type { HttpClient } from '../http';
 import type { ModuleAbilityCode } from './abilityCodes';
 
 export interface ModuleRuntimeAction {
+  bindingPending?: boolean;
+  formSupported?: boolean;
   actionCode: string;
   permissionActionCode?: string;
   title?: string;
