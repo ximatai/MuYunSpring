@@ -2,6 +2,7 @@ package net.ximatai.muyun.spring.dynamic.web;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import net.ximatai.muyun.spring.ability.OptimisticLockException;
+import net.ximatai.muyun.spring.ability.action.FormActionResult;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.CriteriaClause;
 import net.ximatai.muyun.database.core.orm.CriteriaGroup;
@@ -2876,6 +2877,37 @@ class DynamicRecordWebControllerTest {
         assertThat(request.getValue().recordId()).isEqualTo("contract-1");
         assertThat(request.getValue().payload()).containsEntry("selectedDirectLinkKey", "leftRoute")
                 .containsEntry("selectedReason", "choose left");
+    }
+
+    @Test
+    void shouldExecuteFormActionAndReturnTypedPatchWithoutMutation() throws Exception {
+        DynamicActionDescriptor action = action("recalculate", EntityActionLevel.ANY);
+        when(service.action(MODULE, "recalculate")).thenReturn(action);
+        when(service.formActionSupported(MODULE, "recalculate")).thenReturn(true);
+        when(service.relations(MODULE)).thenReturn(List.of(
+                new DynamicRelationDescriptor("lines", ENTITY, "contract_line", "contractId", false, false)));
+        when(service.newRecord(MODULE, "contract_line")).thenAnswer(ignored -> new DynamicRecord(lineEntity()));
+        when(service.mainEntityAlias(MODULE)).thenReturn(ENTITY);
+        when(service.actionEntityAlias(MODULE, "recalculate")).thenReturn(ENTITY);
+        when(service.executeAction(eq(MODULE), eq("recalculate"), any(DynamicActionExecutionRequest.class)))
+                .thenAnswer(invocation -> {
+                    DynamicActionExecutionRequest request = invocation.getArgument(2);
+                    assertThat(request.record()).isNotNull();
+                    assertThat(request.record().getValue("code")).isEqualTo("未保存");
+                    assertThat(request.record().getChildren("lines")).singleElement()
+                            .satisfies(line -> assertThat(line.getValue("lineNo")).isEqualTo("draft-line"));
+                    return new DynamicActionExecutionResult(null, "trace", DynamicActionResultBody.of(
+                            new FormActionResult<>(request.record(), "已计算")));
+                });
+        mvc.perform(post("/{moduleAlias}/form-actions/{actionCode}", MODULE, "recalculate")
+                        .contentType("application/json")
+                .content(json(Map.of("record", Map.of("code", "未保存", "lines", List.of(Map.of("lineNo", "draft-line")))))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.body.value.recordPatch.values.code").value("未保存"))
+                .andExpect(jsonPath("$.body.value.recordPatch.children.lines[0].values.lineNo").value("draft-line"))
+                .andExpect(jsonPath("$.body.value.message").value("已计算"));
+        verify(mainEntity, never()).insert(any(DynamicRecord.class));
+        verify(mainEntity, never()).update(any(DynamicRecord.class));
     }
 
     @Test

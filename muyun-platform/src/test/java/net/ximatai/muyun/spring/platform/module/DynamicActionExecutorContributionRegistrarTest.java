@@ -24,6 +24,31 @@ import static org.mockito.Mockito.when;
 
 class DynamicActionExecutorContributionRegistrarTest {
     @Test
+    void shouldSaveUnboundDeclarationsForBothModuleKindsAndBindLater() {
+        PlatformModuleService modules = new PlatformModuleService(new TestMemoryDao<>());
+        modules.insert(module("sales.static", ModuleKind.STATIC));
+        modules.insert(module("sales.dynamic", ModuleKind.DYNAMIC));
+        PlatformModuleActionService actions = new PlatformModuleActionService(new TestMemoryDao<>(), modules,
+                Optional.empty(), Optional.of(new DynamicActionExecutorRegistry(List.of(new ConfigurableExecutor()))));
+        for (String alias : List.of("sales.static", "sales.dynamic")) {
+            var declaration = manualAction(alias);
+            declaration.setExecutorKey(null);
+            declaration.setEnabled(true);
+            String id = actions.insert(declaration);
+            var saved = actions.select(id);
+            assertThat(saved.isBindingPending()).isTrue();
+            assertThat(saved.getEnabled()).isTrue();
+            assertThat(saved.getBindingType()).isNull();
+            if (alias.equals("sales.dynamic")) {
+                saved.setExecutorKey("test.configurable");
+                actions.update(saved);
+                assertThat(actions.select(id).isBindingPending()).isFalse();
+                assertThat(actions.select(id).getBindingType()).isEqualTo(ModuleActionBindingType.DYNAMIC_ACTION_EXECUTOR);
+            }
+        }
+    }
+
+    @Test
     void shouldRejectContributionToStaticModule() {
         TestMemoryDao<PlatformModule> moduleDao = new TestMemoryDao<>();
         PlatformModuleService moduleService = new PlatformModuleService(moduleDao);

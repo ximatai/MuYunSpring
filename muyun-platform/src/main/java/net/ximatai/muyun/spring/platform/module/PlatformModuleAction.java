@@ -26,6 +26,12 @@ import net.ximatai.muyun.spring.dynamic.metadata.EntityActionLevel;
 @CompositeIndex(columns = {"module_alias", "action_code"}, unique = true)
 @net.ximatai.muyun.spring.ability.SortPartitionBy(fields = "moduleAlias")
 public class PlatformModuleAction extends StandardEnabledSortableEntity implements PlatformManagedCapable {
+    /** A declaration may exist before its executable implementation is deployed. */
+    public boolean isBindingPending() {
+        return !Boolean.TRUE.equals(getSystemManaged()) && getCategory() == EntityActionCategory.CUSTOM
+                && (getExecutorKey() == null || getExecutorKey().isBlank());
+    }
+
     @Column(name = "module_alias", type = ColumnType.VARCHAR, length = 128, nullable = false, comment = "Module alias")
     @ReferenceTo(target = PlatformModuleService.class, tenantScope = ReferenceTenantScope.GLOBAL)
     private String moduleAlias;
@@ -98,6 +104,10 @@ public class PlatformModuleAction extends StandardEnabledSortableEntity implemen
 
     @Column(name = "executor_key", type = ColumnType.VARCHAR, length = 128, comment = "Action executor key")
     private String executorKey;
+
+    @Column(name = "form_supported", comment = "Whether executor accepts unsaved form context",
+            defaultVal = @Default(bool = TrueOrFalse.FALSE))
+    private Boolean formSupported = Boolean.FALSE;
 
     @Column(name = "source_type", type = ColumnType.VARCHAR, length = 64, comment = "Action contribution source type")
     private ModuleActionSourceType sourceType;

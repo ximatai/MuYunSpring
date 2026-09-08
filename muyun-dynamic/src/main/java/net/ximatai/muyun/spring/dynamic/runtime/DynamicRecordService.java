@@ -179,6 +179,12 @@ public class DynamicRecordService {
         return entity(moduleAlias, mainEntityAlias(moduleAlias));
     }
 
+    public boolean formActionSupported(String moduleAlias, String actionCode) {
+        DynamicActionDescriptor action = actionDescriptor(moduleAlias, actionCode);
+        return action != null && action.executorKey() != null
+                && runtime.actionExecutorRegistry().definition(action.executorKey()).formSupported();
+    }
+
     /**
      * A scoped adapter for the cross-source reference reader.  It deliberately delegates every
      * projection to this service, where REFERENCE data scope and tenant context are applied.

@@ -749,6 +749,12 @@ class PlatformModuleDefinitionCompilerTest {
         export.setExecutorKey("customerExportDialog");
         actionService.insert(export);
 
+        PlatformModuleAction pending = moduleAction("crm.customer", "customer", "pendingApproval");
+        pending.setCategory(EntityActionCategory.CUSTOM);
+        pending.setExecutorType(EntityActionExecutorType.SERVICE);
+        pending.setExecutorKey(null);
+        actionService.insert(pending);
+
         ModuleDefinition definition = compiler.compile("crm.customer");
 
         assertThat(definition.entities().getFirst().supports(EntityCapability.DATA_SCOPE)).isTrue();
@@ -901,6 +907,7 @@ class PlatformModuleDefinitionCompilerTest {
         relationService.insert(childRelation("crm.customer", contactMetadataId, customerMetadataId));
         PlatformModuleAction childAction = moduleAction("crm.customer", "customer_contact", "auditContact");
         childAction.setTitle("审核联系人");
+        childAction.setExecutorKey("test.auditContact");
         actionService.insert(childAction);
 
         ModuleDefinition definition = compiler.compile("crm.customer");

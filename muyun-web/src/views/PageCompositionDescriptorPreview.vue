@@ -211,6 +211,13 @@ const actionsAt = (anchor: PageCompositionActionPlacement['anchor']) =>
       .filter(
         (placement) =>
           placement.anchor === anchor &&
+          !(
+            anchor === 'detail' &&
+            placement.actionCode === 'enable' &&
+            (props.actionPlacements ?? []).some(
+              (entry) => entry.anchor === anchor && entry.actionCode === 'disable' && !entry.hidden,
+            )
+          ) &&
           pageActionEntryVisible(
             placement,
             props.mode === 'edit' ? (props.actionFormMode ?? 'edit') : 'view',
@@ -229,17 +236,22 @@ const pageActionRoot = ref<HTMLElement>();
 const detailActionRoot = ref<HTMLElement>();
 const formActionRoot = ref<HTMLElement>();
 const actionDropEnabled = computed(() => !!props.acceptExternalDrop && !props.placementDisabled);
-const actionCanOccupyAnchor = (actionCode: string, anchor: PageCompositionActionPlacement['anchor']) =>
-  canPlaceActionInAnchor(
-    props.moduleActions?.find((action) => action.actionCode === actionCode),
-    anchor,
+const actionCanOccupyAnchor = (
+  source: { actionCode: string; sourceAnchor?: string },
+  anchor: PageCompositionActionPlacement['anchor'],
+) => {
+  const action = props.moduleActions?.find((action) => action.actionCode === source.actionCode);
+  return (
+    (!source.sourceAnchor || source.sourceAnchor === anchor || action?.category === 'CUSTOM') &&
+    canPlaceActionInAnchor(action, anchor)
   );
+};
 const pageActionDrag = usePageCompositionActionPreviewDrag(
   pageActionRoot,
   'page',
   pageActions,
   actionDropEnabled,
-  (source) => actionCanOccupyAnchor(source.actionCode, 'page'),
+  (source) => actionCanOccupyAnchor(source, 'page'),
   (source, target) => emit('action-drop', source, target),
 );
 const detailActionDrag = usePageCompositionActionPreviewDrag(
@@ -247,7 +259,7 @@ const detailActionDrag = usePageCompositionActionPreviewDrag(
   'detail',
   detailActions,
   actionDropEnabled,
-  (source) => actionCanOccupyAnchor(source.actionCode, 'detail'),
+  (source) => actionCanOccupyAnchor(source, 'detail'),
   (source, target) => emit('action-drop', source, target),
 );
 const formActionDrag = usePageCompositionActionPreviewDrag(
@@ -255,16 +267,20 @@ const formActionDrag = usePageCompositionActionPreviewDrag(
   'form',
   formActions,
   actionDropEnabled,
-  (source) => actionCanOccupyAnchor(source.actionCode, 'form'),
+  (source) => actionCanOccupyAnchor(source, 'form'),
   (source, target) => emit('action-drop', source, target),
 );
 function actionItems(actionCodes: readonly string[], anchor: PageCompositionActionPlacement['anchor']) {
   return actionCodes.map((actionCode) => ({
     actionCode,
+    bindingPending: props.moduleActions?.find((action) => action.actionCode === actionCode)?.bindingPending,
     title: pageActionEntryTitle(
       props.actionPlacements?.find((entry) => entry.anchor === anchor && entry.actionCode === actionCode) ?? {
         actionCode,
         anchor,
+        title: props.moduleActions?.find(
+          (action) => action.actionCode === actionCode && action.category === 'CUSTOM',
+        )?.title,
       },
     ),
   }));
@@ -289,16 +305,6 @@ function actionDropItemClass(
     'page-composition-action-preview__button--drop-after':
       feedback?.key === actionCode && feedback.position === 'after' && !feedback.rejected,
   };
-}
-function actionDropHint(
-  feedback: { key?: string; position: 'before' | 'inside' | 'after'; rejected: boolean } | undefined,
-  actions: { actionCode: string; title?: string }[],
-) {
-  if (!feedback) return undefined;
-  if (feedback.rejected) return '不能放置在此处';
-  if (!feedback.key) return '放置到动作末尾';
-  const title = actions.find((action) => action.actionCode === feedback.key)?.title ?? feedback.key;
-  return `放置：${title}${feedback.position === 'before' ? '之前' : feedback.position === 'after' ? '之后' : '内部'}`;
 }
 const structure = computed<PageCompositionStructure>(() => {
   if (props.structure) return props.structure;
@@ -837,12 +843,6 @@ function animateLayoutElement(element: HTMLElement, x: number, y: number) {
       tabindex="0"
     >
       <small>页面动作</small>
-      <span
-        v-if="pageActionDrag.feedback.value"
-        class="page-composition-action-preview__drop-hint"
-        role="status"
-        >{{ actionDropHint(pageActionDrag.feedback.value, pageActions) }}</span
-      >
       <TransitionGroup name="page-composer-action-layout" tag="span" class="page-composer-action-layout">
         <span
           v-for="action in actionItems(pageActionDrag.stagedActionCodes.value, 'page')"
@@ -862,9 +862,13 @@ function animateLayoutElement(element: HTMLElement, x: number, y: number) {
           <span v-bind="pageActionDrag.dragHandleProps(action.actionCode, action.title ?? action.actionCode)"
             >⠿</span
           >
-          <UiButton size="small" :danger="action.actionCode === 'delete'">{{
-            action.title ?? action.actionCode
-          }}</UiButton>
+          <UiButton
+            size="small"
+            :disabled="action.bindingPending"
+            :title="action.bindingPending ? '待绑定执行能力' : undefined"
+            :danger="action.actionCode === 'delete'"
+            >{{ action.title ?? action.actionCode }}</UiButton
+          >
         </span>
       </TransitionGroup>
       <span v-if="!pageActionDrag.stagedActionCodes.value.length">拖入模块动作</span>
@@ -1078,12 +1082,6 @@ function animateLayoutElement(element: HTMLElement, x: number, y: number) {
       tabindex="0"
     >
       <small>详情动作</small>
-      <span
-        v-if="detailActionDrag.feedback.value"
-        class="page-composition-action-preview__drop-hint"
-        role="status"
-        >{{ actionDropHint(detailActionDrag.feedback.value, detailActions) }}</span
-      >
       <TransitionGroup name="page-composer-action-layout" tag="span" class="page-composer-action-layout">
         <span
           v-for="action in actionItems(detailActionDrag.stagedActionCodes.value, 'detail')"
@@ -1104,9 +1102,13 @@ function animateLayoutElement(element: HTMLElement, x: number, y: number) {
             v-bind="detailActionDrag.dragHandleProps(action.actionCode, action.title ?? action.actionCode)"
             >⠿</span
           >
-          <UiButton size="small" :danger="action.actionCode === 'delete'">{{
-            action.title ?? action.actionCode
-          }}</UiButton>
+          <UiButton
+            size="small"
+            :disabled="action.bindingPending"
+            :title="action.bindingPending ? '待绑定执行能力' : undefined"
+            :danger="action.actionCode === 'delete'"
+            >{{ action.title ?? action.actionCode }}</UiButton
+          >
         </span>
       </TransitionGroup>
       <span v-if="!detailActionDrag.stagedActionCodes.value.length">拖入模块动作</span>
@@ -1312,12 +1314,6 @@ function animateLayoutElement(element: HTMLElement, x: number, y: number) {
     >
       <small>表单操作区</small
       ><UiButton size="small" disabled title="模板固定入口：放弃编辑并退出表单">取消</UiButton>
-      <span
-        v-if="formActionDrag.feedback.value"
-        class="page-composition-action-preview__drop-hint"
-        role="status"
-        >{{ actionDropHint(formActionDrag.feedback.value, formActions) }}</span
-      >
       <TransitionGroup name="page-composer-action-layout" tag="span" class="page-composer-action-layout">
         <span
           v-for="action in actionItems(formActionDrag.stagedActionCodes.value, 'form')"
@@ -1337,9 +1333,13 @@ function animateLayoutElement(element: HTMLElement, x: number, y: number) {
           <span v-bind="formActionDrag.dragHandleProps(action.actionCode, action.title ?? action.actionCode)"
             >⠿</span
           >
-          <UiButton size="small" type="primary" :danger="action.actionCode === 'delete'">{{
-            action.title ?? action.actionCode
-          }}</UiButton>
+          <UiButton
+            size="small"
+            type="primary"
+            :disabled="action.bindingPending"
+            :danger="action.actionCode === 'delete'"
+            >{{ action.title ?? action.actionCode }}</UiButton
+          >
         </span>
       </TransitionGroup>
       <span v-if="!formActionDrag.stagedActionCodes.value.length">拖入模块动作</span>
@@ -1627,17 +1627,6 @@ function animateLayoutElement(element: HTMLElement, x: number, y: number) {
 .page-composition-action-preview small {
   margin-right: auto;
   font-weight: 600;
-}
-
-.page-composition-action-preview__drop-hint {
-  color: var(--ant-color-primary);
-  font-size: 12px;
-  font-weight: 500;
-  white-space: nowrap;
-}
-
-.page-composition-action-preview--drop-rejected .page-composition-action-preview__drop-hint {
-  color: var(--ant-color-error);
 }
 
 .page-composition-action-preview--page {

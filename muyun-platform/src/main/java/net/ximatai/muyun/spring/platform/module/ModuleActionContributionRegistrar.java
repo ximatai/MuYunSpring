@@ -170,7 +170,7 @@ public class ModuleActionContributionRegistrar {
                 action.getDefaultGrantPolicy(), action.getAvailableExpression(), action.getUnavailableMessage(),
                 action.getExecutorType(), action.getExecutorKey(), action.getSourceType(), action.getSourceId(),
                 action.getSourceVersionId(), action.getBindingType(), action.getBindingId(), action.getBindingAlias(),
-                Boolean.TRUE.equals(action.getEnabled()));
+                Boolean.TRUE.equals(action.getEnabled()), Boolean.TRUE.equals(action.getFormSupported()));
     }
 
     private boolean sameContribution(PlatformModuleAction action, ModuleActionContribution contribution) {
@@ -195,6 +195,7 @@ public class ModuleActionContributionRegistrar {
         action.setUnavailableMessage(contribution.unavailableMessage());
         action.setExecutorType(contribution.executorType());
         action.setExecutorKey(contribution.executorKey());
+        action.setFormSupported(contribution.formSupported());
         action.setSourceType(contribution.sourceType());
         action.setSourceId(contribution.sourceId());
         action.setSourceVersionId(contribution.sourceVersionId());

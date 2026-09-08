@@ -80,6 +80,19 @@ public class ActionEndpointContextResolver {
         if (moduleAlias == null || moduleAlias.isBlank()) {
             return Optional.empty();
         }
+        if (!endpoint.actionCodePathVariable().isBlank()) {
+            if (!endpoint.value().isBlank() || contribution != null) {
+                throw new IllegalStateException("path-bound action cannot also declare a fixed action");
+            }
+            String actionCode = PlatformNameRules.requireActionCode(
+                    pathVariable(request, endpoint.actionCodePathVariable()), "actionCode");
+            PlatformModuleAction action = registeredAction(moduleAlias, actionCode)
+                    .filter(value -> !endpoint.formContext() || Boolean.TRUE.equals(value.getFormSupported()))
+                    .orElseThrow(() -> new PlatformException(PlatformErrorCodes.RESOURCE_NOT_FOUND, 404,
+                            "module action is not published for this transport: " + moduleAlias + "." + actionCode));
+            return Optional.of(ActionExecutionContext.ofPolicy(moduleAlias, toPolicy(action),
+                    customRecordIds(request, endpoint), CurrentUserContext.currentUser()));
+        }
         String actionCode = contribution == null
                 ? PlatformNameRules.requireActionCode(endpoint.value(), "actionCode")
                 : PlatformStaticActionContributionSupport.actionCode(contribution, endpoint.value());

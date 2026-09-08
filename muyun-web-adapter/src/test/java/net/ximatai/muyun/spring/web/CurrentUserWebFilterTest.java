@@ -28,6 +28,92 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 class CurrentUserWebFilterTest {
     @Test
+    void shouldBindOnlyVerifiedBusinessTenantAndRestoreIdentityAfterEveryDispatch() throws Exception {
+        CurrentUser system = CurrentUser.systemUser("admin", "admin");
+        CurrentUserWebFilter filter = new CurrentUserWebFilter(() -> Optional.of(system), tenant -> {
+            assertThat(CurrentUserContext.currentUser()).contains(system);
+            if (!tenant.equals("a") && !tenant.equals("b")) throw new IllegalArgumentException("denied");
+        });
+        for (String tenant : java.util.List.of("a", "b")) {
+            MockHttpServletRequest request = new MockHttpServletRequest("POST", "/business/action");
+            request.addHeader(CurrentUserWebFilter.TENANT_HEADER, tenant);
+            filter.doFilter(request, new MockHttpServletResponse(), (req, res) -> {
+                assertThat(TenantContext.currentTenantId()).contains(tenant);
+                assertThat(CurrentUserContext.currentUser()).contains(system);
+            });
+            assertThat(TenantContext.hasContext()).isFalse();
+            assertThat(CurrentUserContext.currentUser()).isEmpty();
+        }
+        MockHttpServletRequest denied = new MockHttpServletRequest("GET", "/business");
+        denied.addHeader(CurrentUserWebFilter.TENANT_HEADER, "disabled");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        filter.doFilter(denied, response, (req, res) -> { throw new AssertionError("must not reach business"); });
+        assertThat(response.getStatus()).isEqualTo(403);
+        assertThat(TenantContext.hasContext()).isFalse();
+    }
+
+    @Test
+    void shouldRejectForgedTenantBeforeVerifierAndAllowAuthenticatedTenantWithoutHeader() throws Exception {
+        CurrentUser tenantUser = CurrentUser.tenantUser("user", "user", "a");
+        CurrentUserWebFilter filter = new CurrentUserWebFilter(() -> Optional.of(tenantUser), tenant -> {
+            assertThat(tenant).isEqualTo("a");
+        });
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/business");
+        request.addHeader(CurrentUserWebFilter.TENANT_HEADER, "b");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        filter.doFilter(request, response, (req, res) -> { throw new AssertionError("must not reach business"); });
+        assertThat(response.getStatus()).isEqualTo(403);
+        filter.doFilter(new MockHttpServletRequest("GET", "/business"), new MockHttpServletResponse(),
+                (req, res) -> assertThat(TenantContext.currentTenantId()).contains("a"));
+        assertThat(TenantContext.hasContext()).isFalse();
+    }
+
+    @Test
+    void shouldRejectBlankAndDuplicateTenantHeadersBeforeVerification() throws Exception {
+        CurrentUserWebFilter filter = new CurrentUserWebFilter(
+                () -> Optional.of(CurrentUser.systemUser("admin", "admin")),
+                tenant -> { throw new AssertionError("invalid header must not reach verifier"); });
+        for (String[] headers : java.util.List.of(new String[]{" "}, new String[]{"a", "a"}, new String[]{"a", "b"})) {
+            MockHttpServletRequest request = new MockHttpServletRequest("GET", "/business");
+            for (String value : headers) request.addHeader(CurrentUserWebFilter.TENANT_HEADER, value);
+            MockHttpServletResponse response = new MockHttpServletResponse();
+            filter.doFilter(request, response, (req, res) -> { throw new AssertionError("must not reach business"); });
+            assertThat(response.getStatus()).isEqualTo(403);
+            assertThat(response.getContentAsString()).contains("TENANT_ACCESS_DENIED");
+            assertThat(CurrentUserContext.currentUser()).isEmpty();
+            assertThat(TenantContext.hasContext()).isFalse();
+        }
+    }
+
+    @Test
+    void shouldRejectExplicitTenantWhenVerifierIsUnavailable() throws Exception {
+        CurrentUserWebFilter filter = new CurrentUserWebFilter(
+                () -> Optional.of(CurrentUser.systemUser("admin", "admin")));
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/business");
+        request.addHeader(CurrentUserWebFilter.TENANT_HEADER, "a");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        filter.doFilter(request, response, (req, res) -> { throw new AssertionError("must not reach business"); });
+        assertThat(response.getStatus()).isEqualTo(403);
+        assertThat(response.getContentAsString()).contains("TENANT_ACCESS_DENIED");
+        assertThat(CurrentUserContext.currentUser()).isEmpty();
+        assertThat(TenantContext.hasContext()).isFalse();
+    }
+
+    @Test
+    void shouldRequireAuthenticationForExplicitTenantBeforeVerification() throws Exception {
+        CurrentUserWebFilter filter = new CurrentUserWebFilter(Optional::empty,
+                tenant -> { throw new AssertionError("anonymous request must not reach verifier"); });
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/business");
+        request.addHeader(CurrentUserWebFilter.TENANT_HEADER, "a");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        filter.doFilter(request, response, (req, res) -> { throw new AssertionError("must not reach business"); });
+        assertThat(response.getStatus()).isEqualTo(401);
+        assertThat(response.getContentAsString()).contains("AUTH_REQUIRED");
+        assertThat(CurrentUserContext.currentUser()).isEmpty();
+        assertThat(TenantContext.hasContext()).isFalse();
+    }
+
+    @Test
     void shouldRebindUserAndTenantContextForAsyncDispatch() throws Exception {
         CurrentUser currentUser = CurrentUser.tenantUser("user-1", "alice", "tenant-a", "org-1", false);
         CurrentUserWebFilter filter = new CurrentUserWebFilter(() -> Optional.of(currentUser));

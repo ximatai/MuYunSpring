@@ -1,4 +1,4 @@
-import { computed, defineComponent, inject, provide, type InjectionKey } from 'vue';
+import { computed, defineComponent, inject, provide, type InjectionKey, type PropType } from 'vue';
 import type { HttpClient } from '../http';
 import { createModuleAbilities, type ModuleAbilities } from './abilities';
 import {
@@ -112,6 +112,20 @@ export function useModuleTreeContext<TRecord>(
   const http = resolveModuleHttpClient(options, config);
   return moduleTreeContextOf<TRecord>(http, moduleAlias);
 }
+
+/** An immutable transport boundary; remount it to begin a separate business data session. */
+export const ModuleHttpProvider = defineComponent({
+  name: 'ModuleHttpProvider',
+  props: { http: { type: Object as PropType<HttpClient>, required: true } },
+  setup(props, { slots }) {
+    provideModuleContextConfig({ http: props.http });
+    provide(
+      moduleContextKey,
+      computed(() => undefined),
+    );
+    return () => slots.default?.();
+  },
+});
 
 export const ModuleContextProvider = defineComponent({
   name: 'ModuleContextProvider',

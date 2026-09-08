@@ -14,10 +14,18 @@ import java.io.IOException;
 import java.util.Optional;
 
 public class CurrentUserWebFilter extends OncePerRequestFilter {
+    public static final String TENANT_HEADER = "X-MuYun-Tenant-Id";
     private final CurrentUserProvider currentUserProvider;
+    private final RequestTenantVerifier requestTenantVerifier;
 
+    @org.springframework.beans.factory.annotation.Autowired
     public CurrentUserWebFilter(CurrentUserProvider currentUserProvider) {
+        this(currentUserProvider, null);
+    }
+
+    public CurrentUserWebFilter(CurrentUserProvider currentUserProvider, RequestTenantVerifier requestTenantVerifier) {
         this.currentUserProvider = currentUserProvider;
+        this.requestTenantVerifier = requestTenantVerifier;
     }
 
     /**
@@ -37,6 +45,10 @@ public class CurrentUserWebFilter extends OncePerRequestFilter {
                                     FilterChain filterChain) throws ServletException, IOException {
         Optional<CurrentUser> currentUser = currentUserProvider.currentUser();
         if (currentUser.isEmpty()) {
+            if (request.getHeader(TENANT_HEADER) != null) {
+                rejectAuthenticationRequired(response);
+                return;
+            }
             if (hasBearerToken(request)) {
                 rejectAuthenticationRequired(response);
                 return;
@@ -57,6 +69,27 @@ public class CurrentUserWebFilter extends OncePerRequestFilter {
                                          HttpServletRequest request,
                                          HttpServletResponse response,
                                          FilterChain filterChain) throws ServletException, IOException {
+        String requestedTenant = request.getHeader(TENANT_HEADER);
+        if (requestedTenant != null) {
+            try {
+                if (requestedTenant.isBlank() || java.util.Collections.list(request.getHeaders(TENANT_HEADER)).size() != 1
+                        || requestTenantVerifier == null
+                        || (!currentUser.system() && !requestedTenant.equals(currentUser.tenantId()))) {
+                    throw new IllegalArgumentException("invalid business tenant");
+                }
+                requestTenantVerifier.verify(requestedTenant);
+            } catch (net.ximatai.muyun.spring.common.exception.PlatformException | IllegalArgumentException denied) {
+                response.setStatus(HttpServletResponse.SC_FORBIDDEN);
+                response.setContentType("application/json");
+                response.setCharacterEncoding("UTF-8");
+                response.getWriter().write("{\"code\":\"TENANT_ACCESS_DENIED\",\"status\":403,\"message\":\"业务租户不可用或无权访问\"}");
+                return;
+            }
+            try (TenantContext.Scope ignored = TenantContext.use(requestedTenant)) {
+                filterChain.doFilter(request, response);
+            }
+            return;
+        }
         if (currentUser.system()) {
             try (TenantContext.Scope ignored = TenantContext.system("system user web request")) {
                 filterChain.doFilter(request, response);

@@ -11,6 +11,7 @@ dependencies {
     implementation(libs.spring.boot.starter.web)
 
     testImplementation(project(":muyun-boot"))
+    testImplementation(project(":muyun-iam"))
     testImplementation(libs.spring.boot.starter.test)
     testImplementation(libs.testcontainers.junit.jupiter)
     testImplementation(libs.testcontainers.postgresql)

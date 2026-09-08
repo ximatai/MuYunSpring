@@ -76,10 +76,18 @@ public final class TenantContext {
     }
 
     public static void applyToNewEntity(EntityContract entity) {
-        if (entity == null || (entity.getTenantId() != null && !entity.getTenantId().isBlank())) {
-            return;
-        }
-        currentTenantId().ifPresent(entity::setTenantId);
+        if (entity == null) return;
+        currentTenantId().ifPresent(tenantId -> {
+            String requested = entity.getTenantId();
+            if (requested != null && !requested.isBlank() && !tenantId.equals(requested)) {
+                if (!tenantFilterBypassed()) {
+                    throw new net.ximatai.muyun.spring.common.exception.PlatformAccessDeniedException(
+                            "new record tenant does not match current tenant context");
+                }
+                return;
+            }
+            entity.setTenantId(tenantId);
+        });
     }
 
     public static boolean matchesCurrentTenant(EntityContract entity) {

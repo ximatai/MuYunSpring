@@ -21,6 +21,11 @@ import org.springframework.web.bind.annotation.RequestBody;
 public interface CurrentTenantNavigatorReferenceWeb<T extends EntityContract, S extends CrudAbility<T>>
         extends NavigatorReferenceWeb<T, S> {
     @Override
+    default Criteria navigatorReferenceCriteria(WebQueryRequest request) {
+        return NavigatorReferenceWeb.super.navigatorReferenceCriteria(request).eq("enabled", true);
+    }
+
+    @Override
     @PostMapping("/navigator/reference/query")
     @ActionEndpoint(PlatformAction.REFERENCE)
     default WebPageResponse<T> navigatorReferenceQuery(@RequestBody(required = false) WebQueryRequest request) {
@@ -32,7 +37,7 @@ public interface CurrentTenantNavigatorReferenceWeb<T extends EntityContract, S 
                     .orElseThrow(() -> new IllegalStateException("tenant reference requires tenant context"));
             WebPageRequest page = request == null ? WebPageRequest.DEFAULT : request.pageOrDefault();
             return WebPageResponse.from(WebOutputSupport.page(service(),
-                    service().pageQuery(Criteria.of().eq("id", tenantId),
+                    service().pageQuery(Criteria.of().eq("id", tenantId).eq("enabled", true),
                             PageRequest.of(page.pageNum(), page.pageSize()), querySorts(request)),
                     FieldOutputContext.LIST));
         });

@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { formActionResult } from './formActionResult';
+import { invokePageAction } from './pageActionInvocation';
 import { resolvePlacedPageActions } from './pageActionPlacement';
 import { computed, nextTick, onMounted, onUnmounted, ref, shallowRef, toRaw, watch } from 'vue';
 import { useCurrentUserContext } from '../platform-admin-runtime/currentUserContext';
@@ -2488,9 +2490,13 @@ function handleListAction(action: { key?: string }) {
 }
 
 function placedOperation(key: string | undefined) {
+  return placedAction(key)?.operation;
+}
+
+function placedAction(key: string | undefined) {
   return runtimePage.value?.actions?.find(
     (entry) => `page-placement:${entry.anchor}:${entry.actionCode}` === key,
-  )?.operation;
+  );
 }
 
 function handlePlacedPageAction(action: { key?: string; actionCode?: string }) {
@@ -2500,6 +2506,7 @@ function handlePlacedPageAction(action: { key?: string; actionCode?: string }) {
     const operation = placedOperation(action.key);
     if (operation === 'OPEN_CREATE') createRecord();
     else if (operation === 'REFRESH') refreshList();
+    else if (operation === 'INVOKE') void invokePlacedAction(action.key);
     return;
   }
   if (action.actionCode === 'create') {
@@ -2563,14 +2570,15 @@ function handleDetailAction(action: { key?: string }) {
 async function runPlacedRecordAction(action: { key?: string; actionCode?: string }) {
   const record = selectedRecord.value;
   const recordId = record?.id == null ? undefined : String(record.id);
-  const actionCode = managedPageActions.value
-    ? (
-        { OPEN_EDIT: 'update', DELETE: 'delete', ENABLE: 'enable', DISABLE: 'disable' } as Record<
-          string,
-          string
-        >
-      )[placedOperation(action.key) ?? '']
-    : action.actionCode;
+  const actionCode =
+    managedPageActions.value && placedOperation(action.key) !== 'INVOKE'
+      ? (
+          { OPEN_EDIT: 'update', DELETE: 'delete', ENABLE: 'enable', DISABLE: 'disable' } as Record<
+            string,
+            string
+          >
+        )[placedOperation(action.key) ?? '']
+      : action.actionCode;
   if (
     !record ||
     !recordId ||
@@ -2591,20 +2599,54 @@ async function runPlacedRecordAction(action: { key?: string; actionCode?: string
     if ((actionCode === 'enable') === (record.enabled === false)) await toggleEnabled();
     return;
   }
-  const configured = detailPageActions.value.find((item) => item.actionCode === actionCode);
-  if (configured) handleConfiguredAction(configured);
+  if (placedOperation(action.key) === 'INVOKE') await invokePlacedAction(action.key, recordId);
+  else {
+    const configured = detailPageActions.value.find((item) => item.actionCode === actionCode);
+    if (configured) handleConfiguredAction(configured);
+  }
+}
+
+async function invokePlacedAction(key: string | undefined, recordId?: string) {
+  if (saving.value) return;
+  saving.value = true;
+  try {
+    const placement = placedAction(key);
+    const formContext = placement?.anchor === 'FORM';
+    const draft = formContext && !recordId && editingRecord.value ? toRaw(editingRecord.value) : undefined;
+    const result = await invokePageAction(context.http, placement?.invocation, { recordId, record: draft });
+    if (recordId) {
+      detail.resolveLoad(await context.crud.view(recordId));
+    } else if (formContext && editingRecord.value) {
+      const { recordPatch } = formActionResult(result);
+      editingRecord.value = { ...editingRecord.value, ...recordPatch };
+    }
+    if (!formContext) refreshList();
+    await presentModuleActionSuccess(result, '操作成功');
+  } catch (cause) {
+    presentPlatformError(cause, { source: 'module-page-action', phase: 'action' });
+  } finally {
+    saving.value = false;
+  }
 }
 
 function handlePlacedFormAction(action: { key?: string; actionCode?: string }) {
   if (saving.value || !placedFormActions.value.some((item) => item.key === action.key && !item.disabled))
     return;
+  const operation = placedOperation(action.key);
+  const customFormInvoke =
+    operation === 'INVOKE' && action.actionCode !== 'create' && action.actionCode !== 'update';
   if (
     managedPageActions.value &&
-    placedOperation(action.key) !== (editorMode.value === 'create' ? 'SUBMIT_CREATE' : 'SUBMIT_UPDATE')
+    !customFormInvoke &&
+    operation !== (editorMode.value === 'create' ? 'SUBMIT_CREATE' : 'SUBMIT_UPDATE')
   )
     return;
   if (action.actionCode === 'create' || action.actionCode === 'update') {
     void saveRecord();
+    return;
+  }
+  if (customFormInvoke && action.actionCode) {
+    void invokePlacedAction(action.key);
     return;
   }
   void runPlacedRecordAction(action);

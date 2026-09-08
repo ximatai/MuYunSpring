@@ -30,8 +30,36 @@ public record ModuleActionContribution(
         ModuleActionBindingType bindingType,
         String bindingId,
         String bindingAlias,
-        boolean enabled
+        boolean enabled,
+        boolean formSupported
 ) {
+    public ModuleActionContribution(
+        String moduleAlias,
+        String entityAlias,
+        String actionCode,
+        String permissionActionCode,
+        String title,
+        EntityActionCategory category,
+        EntityActionLevel actionLevel,
+        EntityActionAccessMode accessMode,
+        boolean actionAuth,
+        boolean dataAuth,
+        ActionDefaultGrantPolicy defaultGrantPolicy,
+        String availableExpression,
+        String unavailableMessage,
+        EntityActionExecutorType executorType,
+        String executorKey,
+        ModuleActionSourceType sourceType,
+        String sourceId,
+        String sourceVersionId,
+        ModuleActionBindingType bindingType,
+        String bindingId,
+        String bindingAlias,
+        boolean enabled
+    ) {
+        this(moduleAlias, entityAlias, actionCode, permissionActionCode, title, category, actionLevel, accessMode, actionAuth, dataAuth, defaultGrantPolicy, availableExpression, unavailableMessage, executorType, executorKey, sourceType, sourceId, sourceVersionId, bindingType, bindingId, bindingAlias, enabled, false);
+    }
+
     public ModuleActionContribution {
         moduleAlias = PlatformNameRules.requireModuleAlias(moduleAlias);
         if (entityAlias != null && entityAlias.isBlank()) {

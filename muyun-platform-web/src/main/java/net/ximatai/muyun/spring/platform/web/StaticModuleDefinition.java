@@ -29,6 +29,7 @@ public final class StaticModuleDefinition implements StaticModuleRegistration {
     private final String entryExternalUrl;
     private final Set<EntityCapability> capabilities;
     private final List<StaticModuleActionDefinition> actions;
+    private final Map<String, Map<PageActionAnchor, PageActionInvocation>> actionInvocations;
     private final List<EntityDefinition> entities;
     private final ModuleUiDefinition uiDefinition;
     private final List<PageContextBindingDefinition> pageContextBindings;
@@ -40,6 +41,7 @@ public final class StaticModuleDefinition implements StaticModuleRegistration {
     private final List<RelationProjectionJoinDefinition> projectionJoins;
     private final QueryDescriptor queryDescriptor;
     private final boolean openApiAvailable;
+    private final boolean tenantRequired;
 
     private StaticModuleDefinition(String applicationAlias,
                                    String moduleAlias,
@@ -50,6 +52,7 @@ public final class StaticModuleDefinition implements StaticModuleRegistration {
                                    String entryExternalUrl,
                                    Set<EntityCapability> capabilities,
                                    List<StaticModuleActionDefinition> actions,
+                                   Map<String, Map<PageActionAnchor, PageActionInvocation>> actionInvocations,
                                    List<EntityDefinition> entities,
                                    ModuleUiDefinition uiDefinition,
                                    List<PageContextBindingDefinition> pageContextBindings,
@@ -60,7 +63,8 @@ public final class StaticModuleDefinition implements StaticModuleRegistration {
                                    Map<String, Class<?>> entityModelClasses,
                                    List<RelationProjectionJoinDefinition> projectionJoins,
                                    QueryDescriptor queryDescriptor,
-                                   boolean openApiAvailable) {
+                                   boolean openApiAvailable,
+                                   boolean tenantRequired) {
         applicationAlias = PlatformNameRules.requireApplicationAlias(applicationAlias);
         moduleAlias = PlatformNameRules.requireModuleAliasInApplication(moduleAlias, applicationAlias);
         title = title == null || title.isBlank() ? moduleAlias : title.trim();
@@ -102,6 +106,8 @@ public final class StaticModuleDefinition implements StaticModuleRegistration {
         this.entryExternalUrl = entryExternalUrl;
         this.capabilities = capabilities;
         this.actions = actions;
+        this.actionInvocations = actionInvocations.entrySet().stream()
+                .collect(java.util.stream.Collectors.toUnmodifiableMap(Map.Entry::getKey, entry -> Map.copyOf(entry.getValue())));
         this.entities = entities;
         this.uiDefinition = uiDefinition;
         this.pageContextBindings = pageContextBindings;
@@ -113,6 +119,7 @@ public final class StaticModuleDefinition implements StaticModuleRegistration {
         this.projectionJoins = projectionJoins;
         this.queryDescriptor = queryDescriptor;
         this.openApiAvailable = openApiAvailable;
+        this.tenantRequired = tenantRequired;
     }
 
     public String applicationAlias() { return applicationAlias; }
@@ -124,6 +131,7 @@ public final class StaticModuleDefinition implements StaticModuleRegistration {
     public String entryExternalUrl() { return entryExternalUrl; }
     public Set<EntityCapability> capabilities() { return capabilities; }
     public List<StaticModuleActionDefinition> actions() { return actions; }
+    public Map<String, Map<PageActionAnchor, PageActionInvocation>> actionInvocations() { return actionInvocations; }
     public List<EntityDefinition> entities() { return entities; }
     public ModuleUiDefinition uiDefinition() { return uiDefinition; }
     public List<PageContextBindingDefinition> pageContextBindings() { return pageContextBindings; }
@@ -134,6 +142,8 @@ public final class StaticModuleDefinition implements StaticModuleRegistration {
     public Map<String, Class<?>> entityModelClasses() { return entityModelClasses; }
     public List<RelationProjectionJoinDefinition> projectionJoins() { return projectionJoins; }
     public QueryDescriptor queryDescriptor() { return queryDescriptor; }
+    public boolean tenantRequired() { return tenantRequired; }
+
     public boolean openApiAvailable() { return openApiAvailable; }
 
     public String getApplicationAlias() { return applicationAlias; }
@@ -145,6 +155,7 @@ public final class StaticModuleDefinition implements StaticModuleRegistration {
     public String getEntryExternalUrl() { return entryExternalUrl; }
     public Set<EntityCapability> getCapabilities() { return capabilities; }
     public List<StaticModuleActionDefinition> getActions() { return actions; }
+    public Map<String, Map<PageActionAnchor, PageActionInvocation>> getActionInvocations() { return actionInvocations; }
     public List<EntityDefinition> getEntities() { return entities; }
     public ModuleUiDefinition getUiDefinition() { return uiDefinition; }
     public List<PageContextBindingDefinition> getPageContextBindings() { return pageContextBindings; }
@@ -155,6 +166,7 @@ public final class StaticModuleDefinition implements StaticModuleRegistration {
     public Map<String, Class<?>> getEntityModelClasses() { return entityModelClasses; }
     public List<RelationProjectionJoinDefinition> getProjectionJoins() { return projectionJoins; }
     public QueryDescriptor getQueryDescriptor() { return queryDescriptor; }
+    public boolean isTenantRequired() { return tenantRequired; }
     public boolean isOpenApiAvailable() { return openApiAvailable; }
 
     @Override
@@ -170,6 +182,7 @@ public final class StaticModuleDefinition implements StaticModuleRegistration {
                 && Objects.equals(entryExternalUrl, that.entryExternalUrl)
                 && Objects.equals(capabilities, that.capabilities)
                 && Objects.equals(actions, that.actions)
+                && Objects.equals(actionInvocations, that.actionInvocations)
                 && Objects.equals(entities, that.entities)
                 && Objects.equals(uiDefinition, that.uiDefinition)
                 && Objects.equals(pageContextBindings, that.pageContextBindings)
@@ -180,14 +193,15 @@ public final class StaticModuleDefinition implements StaticModuleRegistration {
                 && Objects.equals(entityModelClasses, that.entityModelClasses)
                 && Objects.equals(projectionJoins, that.projectionJoins)
                 && Objects.equals(queryDescriptor, that.queryDescriptor)
+                && tenantRequired == that.tenantRequired
                 && openApiAvailable == that.openApiAvailable;
     }
 
     @Override
     public int hashCode() {
         return Objects.hash(applicationAlias, moduleAlias, title, parentModuleAlias, entryType, entryRoute,
-                entryExternalUrl, capabilities, actions, entities, uiDefinition, pageContextBindings, references, readProjections,
-                modelClass, sortPartitionFields, entityModelClasses, projectionJoins, queryDescriptor, openApiAvailable);
+                entryExternalUrl, capabilities, actions, actionInvocations, entities, uiDefinition, pageContextBindings, references, readProjections,
+                modelClass, sortPartitionFields, entityModelClasses, projectionJoins, queryDescriptor, openApiAvailable, tenantRequired);
     }
 
     @Override
@@ -201,6 +215,7 @@ public final class StaticModuleDefinition implements StaticModuleRegistration {
                 + ", entryExternalUrl=" + entryExternalUrl
                 + ", capabilities=" + capabilities
                 + ", actions=" + actions
+                + ", actionInvocations=" + actionInvocations
                 + ", entities=" + entities
                 + ", uiDefinition=" + uiDefinition
                 + ", pageContextBindings=" + pageContextBindings
@@ -211,7 +226,7 @@ public final class StaticModuleDefinition implements StaticModuleRegistration {
                 + ", entityModelClasses=" + entityModelClasses
                 + ", projectionJoins=" + projectionJoins
                 + ", queryDescriptor=" + queryDescriptor
-                + ", openApiAvailable=" + openApiAvailable + "]";
+                + ", openApiAvailable=" + openApiAvailable + ", tenantRequired=" + tenantRequired + "]";
     }
 
     public boolean supports(EntityCapability capability) {
@@ -228,6 +243,7 @@ public final class StaticModuleDefinition implements StaticModuleRegistration {
                 .entry(entryType, entryRoute, entryExternalUrl)
                 .capabilities(capabilities)
                 .actions(actions)
+                .actionInvocations(actionInvocations)
                 .entities(entities)
                 .uiDefinition(uiDefinition)
                 .pageContextBindings(pageContextBindings)
@@ -238,7 +254,8 @@ public final class StaticModuleDefinition implements StaticModuleRegistration {
                 .entityModelClasses(entityModelClasses)
                 .projectionJoins(projectionJoins)
                 .queryDescriptor(queryDescriptor)
-                .openApiAvailable(openApiAvailable);
+                .openApiAvailable(openApiAvailable)
+                .tenantRequired(tenantRequired);
     }
 
     public static final class Builder {
@@ -251,6 +268,7 @@ public final class StaticModuleDefinition implements StaticModuleRegistration {
         private String entryExternalUrl;
         private Set<EntityCapability> capabilities = Set.of();
         private List<StaticModuleActionDefinition> actions = List.of();
+        private Map<String, Map<PageActionAnchor, PageActionInvocation>> actionInvocations = Map.of();
         private List<EntityDefinition> entities = List.of();
         private ModuleUiDefinition uiDefinition;
         private List<PageContextBindingDefinition> pageContextBindings = List.of();
@@ -262,6 +280,7 @@ public final class StaticModuleDefinition implements StaticModuleRegistration {
         private List<RelationProjectionJoinDefinition> projectionJoins = List.of();
         private QueryDescriptor queryDescriptor;
         private boolean openApiAvailable;
+        private boolean tenantRequired;
 
         private Builder(String applicationAlias, String moduleAlias, String title) {
             this.applicationAlias = applicationAlias;
@@ -289,6 +308,11 @@ public final class StaticModuleDefinition implements StaticModuleRegistration {
 
         public Builder actions(List<StaticModuleActionDefinition> actions) {
             this.actions = actions;
+            return this;
+        }
+
+        public Builder actionInvocations(Map<String, Map<PageActionAnchor, PageActionInvocation>> value) {
+            this.actionInvocations = value == null ? Map.of() : value;
             return this;
         }
 
@@ -342,6 +366,11 @@ public final class StaticModuleDefinition implements StaticModuleRegistration {
             return this;
         }
 
+        public Builder tenantRequired(boolean value) {
+            this.tenantRequired = value;
+            return this;
+        }
+
         public Builder openApiAvailable(boolean value) {
             this.openApiAvailable = value;
             return this;
@@ -349,8 +378,8 @@ public final class StaticModuleDefinition implements StaticModuleRegistration {
 
         public StaticModuleDefinition build() {
             return new StaticModuleDefinition(applicationAlias, moduleAlias, title, parentModuleAlias, entryType,
-                    entryRoute, entryExternalUrl, capabilities, actions, entities, uiDefinition, pageContextBindings, references,
-                    readProjections, modelClass, sortPartitionFields, entityModelClasses, projectionJoins, queryDescriptor, openApiAvailable);
+                    entryRoute, entryExternalUrl, capabilities, actions, actionInvocations, entities, uiDefinition, pageContextBindings, references,
+                    readProjections, modelClass, sortPartitionFields, entityModelClasses, projectionJoins, queryDescriptor, openApiAvailable, tenantRequired);
         }
     }
 

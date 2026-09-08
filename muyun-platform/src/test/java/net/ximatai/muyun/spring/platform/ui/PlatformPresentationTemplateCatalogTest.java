@@ -19,6 +19,7 @@ class PlatformPresentationTemplateCatalogTest {
                 + "\",\"quickSearchFields\":[\"title\",\"code\"],\"nodes\":[" + navigation
                 + ",{\"slot\":\"form\",\"title\":\"详情\",\"fields\":[\"title\"]}]}";
         catalog.validateUiTree(tree, template);
+
         assertThatThrownBy(() -> catalog.validateUiTree(tree.replace("[\"title\",\"code\"]", "[\"title\",\"title\"]"), template))
                 .isInstanceOf(BusinessException.class);
         if (!mode.equals("LIST_CARD")) {
@@ -57,6 +58,8 @@ class PlatformPresentationTemplateCatalogTest {
                  "nodes":[{"slot":"list","title":"列表","fields":[]},{"slot":"form","title":"表单","fields":[]}]}
                 """;
         catalog.validateUiTree(tree, template);
+        catalog.validateUiTree(tree.replace("\"title\":\"登记\"", "\"title\":\"登记\",\"hidden\":true"), template);
+        assertThatThrownBy(() -> catalog.validateUiTree(tree.replace("\"title\":\"登记\"", "\"hidden\":\"true\""), template)).isInstanceOf(RuntimeException.class);
         assertThatThrownBy(() -> catalog.validateUiTree(tree.replace("\"anchor\":\"form\"", "\"anchor\":\"page\""), template))
                 .isInstanceOf(RuntimeException.class);
     }

@@ -310,10 +310,10 @@ describe('PageCompositionTree', () => {
     const updateAction = findNode(nodes, 'ui:action:detail:update')!;
     const formAnchor = findNode(nodes, 'ui:action-anchor:form')!;
 
-    expect(deleteAction).toMatchObject({ title: '删除', secondary: 'delete' });
+    expect(deleteAction).toMatchObject({ title: '删除' });
     expect(canDrag(deleteAction)).toBe(true);
     expect(allowDrop(dropEvent(updateAction, deleteAction, -1))).toBe(true);
-    expect(allowDrop(dropEvent(updateAction, formAnchor, 0, false))).toBe(true);
+    expect(allowDrop(dropEvent(updateAction, formAnchor, 0, false))).toBe(false);
     expect(allowDrop(dropEvent(deleteAction, formAnchor, 0, false))).toBe(false);
 
     tree.vm.$emit('drop', dropEvent(updateAction, deleteAction, -1));
@@ -323,10 +323,6 @@ describe('PageCompositionTree', () => {
       [
         { actionCode: 'update', sourceAnchor: 'detail' },
         { anchor: 'detail', index: 0 },
-      ],
-      [
-        { actionCode: 'update', sourceAnchor: 'detail' },
-        { anchor: 'form', index: 0 },
       ],
     ]);
   });
@@ -548,4 +544,78 @@ it('renders mixed root siblings and interprets group edges as root insertions', 
   tree.vm.$emit('drop', event);
   expect(wrapper.emitted('source-drop')).toEqual([[{ kind: 'form', index: 2 }, event.source.payload]]);
   expect(wrapper.emitted('metadata-drop')).toBeUndefined();
+});
+
+it('presents one save and status button with reversible standard visibility', () => {
+  const wrapper = mountTree({
+    editorMode: 'actions',
+    moduleActions: [
+      { actionCode: 'create', actionLevel: 'LIST' },
+      { actionCode: 'update', actionLevel: 'RECORD' },
+      { actionCode: 'enable', actionLevel: 'RECORD' },
+      { actionCode: 'disable', actionLevel: 'RECORD' },
+    ],
+    actionPlacements: [
+      { actionCode: 'create', anchor: 'form' },
+      { actionCode: 'update', anchor: 'form' },
+      { actionCode: 'enable', anchor: 'detail', hidden: true },
+      { actionCode: 'disable', anchor: 'detail', hidden: true },
+    ],
+  });
+  const tree = uiTree(wrapper);
+  const nodes = tree.props('nodes');
+  expect(findNode(nodes, 'ui:action-anchor:form')?.children?.map((node) => node.title)).toEqual([
+    '取消',
+    '保存',
+  ]);
+  const status = findNode(nodes, 'ui:action:detail:enable')!;
+  expect(status.title).toBe('状态切换');
+  expect(status.secondary).toBe('已隐藏');
+  expect(status.actions?.map((action) => action.title)).toEqual(['显示']);
+  tree.vm.$emit('action', status.actions![0], status);
+  expect(wrapper.emitted('node-action')).toEqual([['toggle-visibility', status.key]]);
+});
+
+it.each([
+  ['ui:action:detail:update', 'before', 0],
+  ['ui:action:detail:update', 'after', 1],
+  ['ui:action:detail:delete', 'before', 1],
+  ['ui:action:detail:delete', 'after', 2],
+  ['ui:action-anchor:detail', 'inside', 2],
+] as const)('inserts a palette action at %s %s', (key, position, index) => {
+  const wrapper = mountTree({
+    editorMode: 'actions',
+    moduleActions: [
+      {
+        actionCode: 'pending',
+        title: '待绑定动作',
+        category: 'CUSTOM',
+        actionLevel: 'ANY',
+        bindingPending: true,
+      },
+    ],
+    actionPlacements: [
+      { actionCode: 'update', anchor: 'detail' },
+      { actionCode: 'delete', anchor: 'detail' },
+    ],
+  });
+  const tree = uiTree(wrapper);
+  const node = findNode(tree.props('nodes'), key)!;
+  const event = {
+    ...metadataEvent(node, position),
+    source: {
+      ...metadataEvent(node, position).source,
+      payload: { kind: 'action', actionCode: 'pending' },
+    },
+  };
+  expect(tree.props('allowDrop')(event)).toBe(true);
+  tree.vm.$emit('drop', event);
+  expect(wrapper.emitted('source-drop')).toEqual([
+    [{ kind: 'action-anchor', anchor: 'detail', index }, event.source.payload],
+  ]);
+  if (key.includes('ui:action:')) {
+    expect(tree.props('allowDrop')({ ...event, target: { ...event.target, position: 'inside' } })).toBe(
+      false,
+    );
+  }
 });

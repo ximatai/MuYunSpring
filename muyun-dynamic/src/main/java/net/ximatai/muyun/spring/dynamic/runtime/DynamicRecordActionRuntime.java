@@ -10,6 +10,7 @@ import net.ximatai.muyun.spring.common.platform.ActionExecutionPolicyService;
 import net.ximatai.muyun.spring.common.platform.DataScopeCriteriaResult;
 import net.ximatai.muyun.spring.common.platform.EntityCapability;
 import net.ximatai.muyun.spring.common.platform.PlatformAction;
+import net.ximatai.muyun.spring.ability.action.FormActionResult;
 import net.ximatai.muyun.spring.common.tenant.TenantContext;
 import net.ximatai.muyun.spring.common.web.RequestTraceContext;
 import net.ximatai.muyun.spring.dynamic.descriptor.DynamicActionDescriptor;
@@ -207,7 +208,11 @@ final class DynamicRecordActionRuntime {
         try {
             DynamicActionExecutor executor = runtime.actionExecutorRegistry().require(action.executorKey());
             Object value = executor.execute(context, request, operations(moduleAlias, entityAlias, traceId, policy));
-            return value instanceof DynamicActionResultBody body ? body : DynamicActionResultBody.of(value);
+            if (value instanceof DynamicActionResultBody body) return body;
+            if (value instanceof FormActionResult<?> form) {
+                return DynamicActionResultBody.of(form).message(form.message());
+            }
+            return DynamicActionResultBody.of(value);
         } catch (DynamicActionExecutionException e) {
             throw e;
         } catch (RuntimeException e) {

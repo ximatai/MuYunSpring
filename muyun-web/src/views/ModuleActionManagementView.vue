@@ -84,9 +84,7 @@ const hasUnsavedChanges = computed(() => {
   return JSON.stringify(draft.value) !== JSON.stringify(baseline);
 });
 useWorkspaceViewUnsavedState('模块动作', () => hasUnsavedChanges.value);
-const canCreateManualAction = computed(
-  () => props.moduleKind === 'dynamic' && canCreate.value && executorDefinitions.value.length > 0,
-);
+const canCreateManualAction = computed(() => canCreate.value);
 const executorOptions = computed(() =>
   executorDefinitions.value.map((executor) => ({
     value: executor.executorKey,
@@ -95,7 +93,7 @@ const executorOptions = computed(() =>
 );
 const actionLevelOptions = computed(() => {
   const executor = executorDefinitions.value.find((item) => item.executorKey === draft.value.executorKey);
-  const levels = executor?.supportedLevels ?? [];
+  const levels = executor?.supportedLevels ?? ['LIST', 'RECORD', 'BATCH', 'ANY'];
   return levels.map((value) => ({
     value,
     label: { LIST: '列表', RECORD: '单条记录', BATCH: '批量', ANY: '任意' }[value],
@@ -180,7 +178,7 @@ function actionItemOf(record: CrudRecordListBase): RecordExplorerItemDescriptor 
   return {
     title: actionTitleOf(action),
     secondary: action.actionCode,
-    tag: action.systemManaged === true ? '平台托管' : action.category,
+    tag: action.systemManaged === true ? '平台托管' : !action.executorKey ? '待绑定' : '已绑定',
     muted: action.enabled === false,
   };
 }
@@ -244,13 +242,6 @@ async function loadExecutorDefinitions() {
 
 function startCreate() {
   management.startCreate();
-  const executor = executorDefinitions.value[0];
-  if (!executor) return;
-  management.draft.value = {
-    ...management.draft.value,
-    executorKey: executor.executorKey,
-    actionLevel: executor.supportedLevels[0] ?? 'ANY',
-  };
 }
 
 function updateExecutor(executorKey: unknown) {
@@ -430,7 +421,11 @@ function actionDetailDisplayValue(fieldName: string, value: unknown) {
         }"
       />
     </template>
-    <form v-else-if="selected?.systemManaged" class="managed-action-editor" @submit.prevent="management.save">
+    <form
+      v-else-if="mode !== 'create' && selected?.systemManaged"
+      class="managed-action-editor"
+      @submit.prevent="management.save"
+    >
       <section class="action-declaration-section">
         <h3>动作声明</h3>
         <RecordDetailFields
@@ -596,7 +591,7 @@ function actionDetailDisplayValue(fieldName: string, value: unknown) {
     </form>
     <form v-else class="static-record-form" @submit.prevent="management.save">
       <p class="form-hint wide-field">
-        手工动作只能绑定已部署的二开执行器；平台会通过通用动作接口承接权限、审计和运行态刷新。
+        可以先保存动作，再绑定执行能力。待绑定动作不可执行，页面引用后需完成绑定才能发布。
       </p>
       <label>
         <span>动作编码</span>
@@ -632,15 +627,20 @@ function actionDetailDisplayValue(fieldName: string, value: unknown) {
           @update:value="updateDraft('accessMode', $event)"
         />
       </label>
-      <label>
-        <span>二开执行器</span>
+      <label v-if="moduleKind === 'dynamic'">
+        <span>执行能力（可稍后绑定）</span>
         <UiSelect
           :value="draft.executorKey"
+          allow-clear
+          placeholder="待绑定"
           :disabled="formDisabled"
           :options="executorOptions"
           @update:value="updateExecutor($event)"
         />
       </label>
+      <p v-if="moduleKind !== 'dynamic'" class="form-hint wide-field">
+        静态模块通过同编码的代码动作声明绑定执行能力。
+      </p>
       <label class="checkbox-field">
         <UiCheckbox
           :checked="draft.actionAuth !== false"

@@ -40,7 +40,8 @@ public interface NavigatorReferenceWeb<T extends EntityContract, S extends CrudA
         });
     }
 
-    private Criteria navigatorReferenceCriteria(WebQueryRequest request) {
+    /** Server-owned constraints may narrow candidates after client query validation. */
+    default Criteria navigatorReferenceCriteria(WebQueryRequest request) {
         NavigatorReferenceQueryContextResolver resolver = navigatorReferenceQueryContextResolver();
         return resolver == null ? queryCriteria(request)
                 : resolver.queryCriteria(webScopeName(), service(), request, () -> queryCriteria(request));

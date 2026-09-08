@@ -11,6 +11,8 @@ import {
   DownOutlined,
   EditOutlined,
   ExportOutlined,
+  EyeOutlined,
+  EyeInvisibleOutlined,
   FilterOutlined,
   LeftOutlined,
   LockOutlined,
@@ -40,6 +42,8 @@ export type UiIconName =
   | 'down'
   | 'edit'
   | 'export'
+  | 'eye'
+  | 'eye-off'
   | 'filter'
   | 'help'
   | 'left'
@@ -75,6 +79,8 @@ const icons = {
   down: DownOutlined,
   edit: EditOutlined,
   export: ExportOutlined,
+  eye: EyeOutlined,
+  'eye-off': EyeInvisibleOutlined,
   filter: FilterOutlined,
   help: QuestionCircleOutlined,
   left: LeftOutlined,

@@ -86,6 +86,32 @@ public class StaticModuleDefinitionScanner implements StaticModuleRegistrationSo
         addActionContributions(definitions);
         addActionDeclarations(definitions);
         addActionScopes(definitions);
+        for (String beanName : actionEndpointOriginBeanNames()) {
+            Class<?> beanClass = AopUtils.getTargetClass(applicationContext.getBean(beanName));
+            var module = AnnotationUtils.findAnnotation(beanClass, PlatformStaticModule.class);
+            var contribution = AnnotationUtils.findAnnotation(beanClass, PlatformStaticActionContribution.class);
+            var declaration = AnnotationUtils.findAnnotation(beanClass, PlatformStaticActionDeclaration.class);
+            var scope = AnnotationUtils.findAnnotation(beanClass, PlatformStaticActionScope.class);
+            var projection = AnnotationUtils.findAnnotation(beanClass, PlatformStaticWebProjection.class);
+            String alias = module != null ? module.alias() : contribution != null
+                    ? PlatformStaticActionContributionSupport.targetModule(contribution)
+                    : declaration != null ? declaration.module() : scope != null ? scope.module() : projection.module();
+            var definition = definitions.get(alias);
+            if (definition == null) continue;
+            var bindings = StaticPageActionInvocationCompiler.compile(beanClass, alias, definition.actions(),
+                    code -> contribution == null ? code : PlatformStaticActionContributionSupport.actionCode(contribution, code));
+            var merged = new LinkedHashMap<>(definition.actionInvocations());
+            bindings.forEach((code, invocations) -> {
+                var byAnchor = new LinkedHashMap<>(merged.getOrDefault(code, Map.of()));
+                invocations.forEach((anchor, invocation) -> {
+                    if (byAnchor.putIfAbsent(anchor, invocation) != null) {
+                        throw new IllegalStateException("multiple page action invocation bindings: " + alias + "." + code + " / " + anchor);
+                    }
+                });
+                merged.put(code, Map.copyOf(byAnchor));
+            });
+            definitions.put(alias, definition.toBuilder().actionInvocations(merged).build());
+        }
         validateUiCompilation(definitions.values());
         return List.copyOf(definitions.values());
     }
@@ -154,6 +180,9 @@ public class StaticModuleDefinitionScanner implements StaticModuleRegistrationSo
         Class<?> modelClass = modelClass(bean);
         List<EntityDefinition> entities = entities(bean, module, projectionJoins);
         return StaticModuleDefinition.builder(application.alias(), module.alias(), module.title())
+                .tenantRequired(service(bean) instanceof CrudAbility<?>
+                        && !(bean instanceof net.ximatai.muyun.spring.web.SystemScope<?>)
+                        && !(service(bean) instanceof net.ximatai.muyun.spring.ability.GlobalScopedAbility<?>))
                 .parentModuleAlias(module.parent().isBlank() ? null : module.parent())
                 .entry(entryType(module), module.route(), module.externalUrl())
                 .capabilities(capabilities)
@@ -864,7 +893,7 @@ public class StaticModuleDefinitionScanner implements StaticModuleRegistrationSo
             addPlatform(actions, standard.value());
         }
         CustomActionEndpoint custom = AnnotationUtils.findAnnotation(method, CustomActionEndpoint.class);
-        if (custom != null) {
+        if (custom != null && custom.actionCodePathVariable().isBlank()) {
             addAnnotatedCustomAction(actions, method, custom.value(), new StaticModuleActionDefinition(
                     custom.value(),
                     custom.value(),
@@ -888,7 +917,7 @@ public class StaticModuleDefinitionScanner implements StaticModuleRegistrationSo
             addContributionPlatform(actions, contribution, standard.value());
         }
         CustomActionEndpoint custom = AnnotationUtils.findAnnotation(method, CustomActionEndpoint.class);
-        if (custom != null) {
+        if (custom != null && custom.actionCodePathVariable().isBlank()) {
             String actionCode = PlatformStaticActionContributionSupport.actionCode(contribution, custom.value());
             addAnnotatedCustomAction(actions, method, actionCode, new StaticModuleActionDefinition(
                     actionCode,

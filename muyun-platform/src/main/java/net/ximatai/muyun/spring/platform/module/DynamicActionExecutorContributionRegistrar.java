@@ -22,7 +22,6 @@ public class DynamicActionExecutorContributionRegistrar implements PlatformBoots
     private final ApplicationContext applicationContext;
     private final ModuleActionContributionRegistrar contributionRegistrar;
     private final PlatformModuleService moduleService;
-
     public DynamicActionExecutorContributionRegistrar(ApplicationContext applicationContext,
                                                       ModuleActionContributionRegistrar contributionRegistrar,
                                                       PlatformModuleService moduleService) {
@@ -63,7 +62,7 @@ public class DynamicActionExecutorContributionRegistrar implements PlatformBoots
                     declaration.defaultGrantPolicy(), blankToNull(declaration.availableExpression()),
                     blankToNull(declaration.unavailableMessage()), EntityActionExecutorType.SERVICE, executorKey,
                     ModuleActionSourceType.CODE_EXTENSION, sourceId(executorKey, declaration.moduleAlias()), null,
-                    ModuleActionBindingType.DYNAMIC_ACTION_EXECUTOR, executorKey, executorKey, true
+                    ModuleActionBindingType.DYNAMIC_ACTION_EXECUTOR, executorKey, executorKey, true, executor.definition().formSupported()
             ));
         }
         contributionRegistrar.registerAll(contributions);
