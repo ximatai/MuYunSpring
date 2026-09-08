@@ -70,6 +70,36 @@ class WebRequestContextTest {
     }
 
     @Test
+    void shouldCarrySelectedTenantWithoutChangingSystemIdentityAndRestoreAfterFailure() {
+        WebRequestContext snapshot;
+        CurrentUser admin = CurrentUser.systemUser("admin", "Admin");
+        try (var user = CurrentUserContext.use(admin);
+             var tenant = TenantContext.use("selected-tenant")) {
+            snapshot = WebRequestContext.capture().orElseThrow();
+        }
+        try (var tenant = TenantContext.use("worker-tenant")) {
+            org.assertj.core.api.Assertions.assertThatThrownBy(() -> snapshot.call(() -> {
+                assertThat(CurrentUserContext.currentUser()).contains(admin);
+                assertThat(TenantContext.currentTenantId()).contains("selected-tenant");
+                assertThat(TenantContext.isSystem()).isFalse();
+                throw new IllegalStateException("worker failure");
+            })).hasMessage("worker failure");
+            assertThat(TenantContext.currentTenantId()).contains("worker-tenant");
+            assertThat(CurrentUserContext.currentUser()).isEmpty();
+        }
+    }
+
+    @Test
+    void shouldRetainAuthenticatedTenantWhenCapturedWithoutAnExplicitScope() throws Exception {
+        WebRequestContext snapshot;
+        try (var user = CurrentUserContext.use(CurrentUser.tenantUser("u", "U", "tenant-a"))) {
+            snapshot = WebRequestContext.capture().orElseThrow();
+        }
+        assertThat(snapshot.call(() -> TenantContext.currentTenantId().orElseThrow())).isEqualTo("tenant-a");
+        assertThat(TenantContext.hasContext()).isFalse();
+    }
+
+    @Test
     void shouldNotCaptureAnonymousOrActionAuthorizationContext() {
         assertThat(WebRequestContext.capture()).isEmpty();
     }

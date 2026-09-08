@@ -13,6 +13,41 @@ class TenantContextTest {
     }
 
     @Test
+    void shouldRejectForeignOwnershipWhenInitializingNewRecord() {
+        TestEntity entity = new TestEntity();
+        try (TenantContext.Scope ignored = TenantContext.use("tenant-a")) {
+            TenantContext.applyToNewEntity(entity);
+            assertThat(entity.getTenantId()).isEqualTo("tenant-a");
+            TenantContext.applyToNewEntity(entity);
+            entity.setTenantId("tenant-b");
+            assertThatThrownBy(() -> TenantContext.applyToNewEntity(entity))
+                    .isInstanceOf(net.ximatai.muyun.spring.common.exception.PlatformAccessDeniedException.class);
+        }
+        try (TenantContext.Scope ignored = TenantContext.system("trusted provisioning")) {
+            TenantContext.applyToNewEntity(entity);
+            assertThat(entity.getTenantId()).isEqualTo("tenant-b");
+        }
+    }
+
+    @Test
+    void shouldAllowForeignOwnershipOnlyWithinExplicitBypassScope() {
+        TestEntity entity = new TestEntity();
+        entity.setTenantId("tenant-b");
+        try (TenantContext.Scope ignored = TenantContext.use("tenant-a")) {
+            try (TenantContext.Scope bypass = TenantContext.bypassTenantFilter("trusted cross tenant provisioning")) {
+                TenantContext.applyToNewEntity(entity);
+                assertThat(entity.getTenantId()).isEqualTo("tenant-b");
+                assertThat(TenantContext.currentTenantId()).contains("tenant-a");
+            }
+            assertThat(TenantContext.tenantFilterBypassed()).isFalse();
+            assertThatThrownBy(() -> TenantContext.applyToNewEntity(entity))
+                    .isInstanceOf(net.ximatai.muyun.spring.common.exception.PlatformAccessDeniedException.class);
+            assertThat(entity.getTenantId()).isEqualTo("tenant-b");
+        }
+        assertThat(TenantContext.hasContext()).isFalse();
+    }
+
+    @Test
     void shouldExposeNoContextByDefault() {
         assertThat(TenantContext.hasContext()).isFalse();
         assertThat(TenantContext.isSystem()).isFalse();

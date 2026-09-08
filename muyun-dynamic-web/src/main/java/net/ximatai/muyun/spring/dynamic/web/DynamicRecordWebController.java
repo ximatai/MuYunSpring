@@ -1336,6 +1336,13 @@ public class DynamicRecordWebController implements
     }
 
     @Override
+    public void requireFormRecordScope(DynamicRecord record, ActionExecutionPolicy policy) {
+        String moduleAlias = DynamicWebRequest.moduleAlias();
+        recordService.requireRecordActionScope(moduleAlias, mainEntityAlias(moduleAlias), policy,
+                java.util.List.of(record.getId()), CurrentUserContext.currentUser());
+    }
+
+    @Override
     public DynamicWebActionExecutionResponse executeFormAction(String actionCode, net.ximatai.muyun.spring.web.FormActionRequest<DynamicRecord> request) {
         String moduleAlias = DynamicWebRequest.moduleAlias();
         DynamicActionDescriptor action = recordService.action(moduleAlias, actionCode);

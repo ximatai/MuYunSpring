@@ -98,3 +98,15 @@ preview/download 会先校验记录权限和附件归属。文件二进制、文
 | `/{moduleAlias}/generation/confirm`                                                      | 记录联动。 |
 | `/{moduleAlias}/code/preview`                                                            | 编码规则。 |
 | `/{moduleAlias}/exchange/template`、`/{moduleAlias}/import/*`、`/{moduleAlias}/export/*` | 数据交换。 |
+
+## 业务请求租户上下文
+
+模块 context 的 `tenantRequired` 表示业务预览需要明确租户。动态记录模块需要租户；静态模块由交付扫描器根据 CRUD 服务、`SystemScope` 和 `GlobalScopedAbility` 推导，手工构建的静态定义可通过 `tenantRequired` 声明。
+
+`X-MuYun-Tenant-Id` 为单次 HTTP 业务请求选择租户，不改变登录身份、会话或配置草稿。系统身份必须通过 `iam.tenant` 的 `REFERENCE` 授权并选择活跃租户；租户身份只能使用登录租户。IAM 在每次请求进入业务入口前重新校验，拒绝未知、停用或无权访问的租户。没有可用校验器时，显式租户头按拒绝处理。业务端点仍执行原有动作权限、数据权限和租户能力校验，系统配置端点仍保留原有 `SystemScope`。
+
+业务预览在已发布页面外层选择租户，通过独立 `ModuleHttpProvider` 向标准运行态传递客户端。查询、主子表保存、引用和动作继续使用原有接口；切换租户会重建页面会话，旧响应只属于旧会话。编辑或执行动作期间禁止切换，保存或取消后再切换。无租户模块直接加载，租户身份自动使用登录租户并隐藏选择入口。
+
+动态标准动作目录包含 `reference`，刷新后保持引用选择可调用；具体字段声明、来源租户与目标模块引用权限仍由原有引用能力校验。
+
+创建记录时，公共实体生命周期拒绝与当前租户不一致的显式 `tenantId`；静态和动态实体共享此约束，客户端不能通过实体字段改写请求归属。

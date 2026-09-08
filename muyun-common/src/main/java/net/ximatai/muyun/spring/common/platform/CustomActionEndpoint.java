@@ -8,7 +8,13 @@ import java.lang.annotation.Target;
 @Target(ElementType.METHOD)
 @Retention(RetentionPolicy.RUNTIME)
 public @interface CustomActionEndpoint {
-    String value();
+    String value() default "";
+
+    /** Resolves an already registered action; this transport does not declare a new action. */
+    String actionCodePathVariable() default "";
+
+    /** Requires the registered action to explicitly support an unsaved form record. */
+    boolean formContext() default false;
 
     String title() default "";
 

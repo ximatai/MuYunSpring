@@ -2897,13 +2897,14 @@ class DynamicRecordWebControllerTest {
                     assertThat(request.record().getChildren("lines")).singleElement()
                             .satisfies(line -> assertThat(line.getValue("lineNo")).isEqualTo("draft-line"));
                     return new DynamicActionExecutionResult(null, "trace", DynamicActionResultBody.of(
-                            new FormActionResult<>(Map.of("draftName", "已计算"), "已计算")));
+                            new FormActionResult<>(request.record(), "已计算")));
                 });
         mvc.perform(post("/{moduleAlias}/form-actions/{actionCode}", MODULE, "recalculate")
                         .contentType("application/json")
                 .content(json(Map.of("record", Map.of("code", "未保存", "lines", List.of(Map.of("lineNo", "draft-line")))))))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.body.value.recordPatch.draftName").value("已计算"))
+                .andExpect(jsonPath("$.body.value.recordPatch.values.code").value("未保存"))
+                .andExpect(jsonPath("$.body.value.recordPatch.children.lines[0].values.lineNo").value("draft-line"))
                 .andExpect(jsonPath("$.body.value.message").value("已计算"));
         verify(mainEntity, never()).insert(any(DynamicRecord.class));
         verify(mainEntity, never()).update(any(DynamicRecord.class));

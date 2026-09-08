@@ -38,7 +38,10 @@ public class DynamicModuleStandardActionRegistrar implements PlatformBootstrapTa
             PlatformAction.UPDATE,
             PlatformAction.DELETE,
             PlatformAction.BATCH_DELETE,
-            PlatformAction.QUERY
+            PlatformAction.QUERY,
+            // Field and child-reference resolution is a standard runtime transport. Its
+            // source field declaration and target REFERENCE policy remain authoritative.
+            PlatformAction.REFERENCE
     );
 
     private final PlatformModuleService moduleService;

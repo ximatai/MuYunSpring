@@ -154,6 +154,9 @@ public class StaticModuleDefinitionScanner implements StaticModuleRegistrationSo
         Class<?> modelClass = modelClass(bean);
         List<EntityDefinition> entities = entities(bean, module, projectionJoins);
         return StaticModuleDefinition.builder(application.alias(), module.alias(), module.title())
+                .tenantRequired(service(bean) instanceof CrudAbility<?>
+                        && !(bean instanceof net.ximatai.muyun.spring.web.SystemScope<?>)
+                        && !(service(bean) instanceof net.ximatai.muyun.spring.ability.GlobalScopedAbility<?>))
                 .parentModuleAlias(module.parent().isBlank() ? null : module.parent())
                 .entry(entryType(module), module.route(), module.externalUrl())
                 .capabilities(capabilities)
@@ -864,7 +867,7 @@ public class StaticModuleDefinitionScanner implements StaticModuleRegistrationSo
             addPlatform(actions, standard.value());
         }
         CustomActionEndpoint custom = AnnotationUtils.findAnnotation(method, CustomActionEndpoint.class);
-        if (custom != null) {
+        if (custom != null && custom.actionCodePathVariable().isBlank()) {
             addAnnotatedCustomAction(actions, method, custom.value(), new StaticModuleActionDefinition(
                     custom.value(),
                     custom.value(),
@@ -888,7 +891,7 @@ public class StaticModuleDefinitionScanner implements StaticModuleRegistrationSo
             addContributionPlatform(actions, contribution, standard.value());
         }
         CustomActionEndpoint custom = AnnotationUtils.findAnnotation(method, CustomActionEndpoint.class);
-        if (custom != null) {
+        if (custom != null && custom.actionCodePathVariable().isBlank()) {
             String actionCode = PlatformStaticActionContributionSupport.actionCode(contribution, custom.value());
             addAnnotatedCustomAction(actions, method, actionCode, new StaticModuleActionDefinition(
                     actionCode,

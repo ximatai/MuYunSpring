@@ -63,7 +63,7 @@ class DynamicModuleStandardActionRegistrarTest {
             modules.afterChanged(module);
             assertThat(TenantContext.currentTenantId()).contains("tenant-request");
         }
-        assertThat(actions.list(Criteria.of())).hasSize(7);
+        assertThat(actions.list(Criteria.of())).hasSize(8);
     }
 
     @Test
@@ -84,7 +84,7 @@ class DynamicModuleStandardActionRegistrarTest {
         registrar.register(module);
 
         assertThat(actionService.list(Criteria.of()).stream().map(PlatformModuleAction::getActionCode))
-                .containsExactlyInAnyOrder("menu", "create", "view", "update", "delete", "batchDelete", "query",
+                .containsExactlyInAnyOrder("menu", "create", "view", "update", "delete", "batchDelete", "query", "reference",
                         "tree", "sort", "enable", "disable");
         assertThat(actionService.list(Criteria.of())).allSatisfy(action -> {
             assertThat(action.getSourceType()).isEqualTo(ModuleActionSourceType.DYNAMIC_MODULE);

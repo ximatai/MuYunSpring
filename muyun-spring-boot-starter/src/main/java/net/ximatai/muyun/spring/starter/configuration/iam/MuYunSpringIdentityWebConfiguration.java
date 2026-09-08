@@ -29,8 +29,9 @@ public class MuYunSpringIdentityWebConfiguration {
     @Bean
     @ConditionalOnMissingBean(CurrentUserWebFilter.class)
     /** 在请求进入业务端点前绑定当前用户，离开请求后负责清理上下文。 */
-    CurrentUserWebFilter currentUserWebFilter(CurrentUserProvider currentUserProvider) {
-        return new CurrentUserWebFilter(currentUserProvider);
+    CurrentUserWebFilter currentUserWebFilter(CurrentUserProvider currentUserProvider,
+            ObjectProvider<net.ximatai.muyun.spring.web.RequestTenantVerifier> verifier) {
+        return new CurrentUserWebFilter(currentUserProvider, verifier.getIfAvailable());
     }
 
     @Bean

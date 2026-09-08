@@ -250,6 +250,7 @@ const pageNum = ref(1);
 const pageSize = ref(props.pageSize);
 const runtimeListView = ref<ResolvedViewDescriptor>();
 const descriptorLoadError = ref(false);
+const recordsLoadError = ref<string>();
 const quickSearchKeyword = ref('');
 const appliedQuickSearch = ref('');
 const conditionsExpanded = ref(false);
@@ -454,6 +455,7 @@ async function loadSchemaAndRecords() {
   const requestSeq = ++schemaRequestSeq;
   loading.value = true;
   descriptorLoadError.value = false;
+  recordsLoadError.value = undefined;
   try {
     runtimeListView.value = await loadRuntimeListView();
     const nextSchema =
@@ -507,6 +509,7 @@ async function loadSchemaAndRecords() {
     total.value = 0;
     querySummaryValues.value = [];
     emit('loaded', []);
+    recordsLoadError.value = normalizeError(cause).message;
     presentPlatformError(cause, { source: 'record-query-list-panel', phase: 'load' });
   } finally {
     if (requestSeq === schemaRequestSeq) {
@@ -566,6 +569,7 @@ async function loadRecords(updateLoading = true) {
     loading.value = true;
   }
   try {
+    recordsLoadError.value = undefined;
     const response = await props.context.crud.query(buildQueryRequest());
     if (requestSeq !== recordsRequestSeq) {
       return;
@@ -590,6 +594,7 @@ async function loadRecords(updateLoading = true) {
     total.value = 0;
     querySummaryValues.value = [];
     emit('loaded', []);
+    recordsLoadError.value = normalizeError(cause).message;
     presentPlatformError(cause, { source: 'record-query-list-panel', phase: 'load' });
   } finally {
     if (updateLoading && requestSeq === recordsRequestSeq) {
@@ -1242,7 +1247,10 @@ defineExpose({ clearSelection, refresh });
     <section class="record-query-list-body">
       <UiSpin v-if="loading" tip="加载列表" />
       <UiEmpty v-else-if="!queryReady" :description="waitingDescription" />
-      <UiEmpty v-else-if="descriptorLoadError" description="列表声明加载失败，请稍后重试" />
+      <div v-else-if="descriptorLoadError || recordsLoadError" role="alert">
+        {{ descriptorLoadError ? '列表声明加载失败，请稍后重试' : recordsLoadError }}
+        <UiButton @click="loadSchemaAndRecords()">重试</UiButton>
+      </div>
       <UiEmpty v-else-if="records.length === 0" :description="emptyDescription" />
       <UiDataTable
         v-else

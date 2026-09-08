@@ -40,6 +40,7 @@ public final class StaticModuleDefinition implements StaticModuleRegistration {
     private final List<RelationProjectionJoinDefinition> projectionJoins;
     private final QueryDescriptor queryDescriptor;
     private final boolean openApiAvailable;
+    private final boolean tenantRequired;
 
     private StaticModuleDefinition(String applicationAlias,
                                    String moduleAlias,
@@ -60,7 +61,8 @@ public final class StaticModuleDefinition implements StaticModuleRegistration {
                                    Map<String, Class<?>> entityModelClasses,
                                    List<RelationProjectionJoinDefinition> projectionJoins,
                                    QueryDescriptor queryDescriptor,
-                                   boolean openApiAvailable) {
+                                   boolean openApiAvailable,
+                                   boolean tenantRequired) {
         applicationAlias = PlatformNameRules.requireApplicationAlias(applicationAlias);
         moduleAlias = PlatformNameRules.requireModuleAliasInApplication(moduleAlias, applicationAlias);
         title = title == null || title.isBlank() ? moduleAlias : title.trim();
@@ -113,6 +115,7 @@ public final class StaticModuleDefinition implements StaticModuleRegistration {
         this.projectionJoins = projectionJoins;
         this.queryDescriptor = queryDescriptor;
         this.openApiAvailable = openApiAvailable;
+        this.tenantRequired = tenantRequired;
     }
 
     public String applicationAlias() { return applicationAlias; }
@@ -134,6 +137,8 @@ public final class StaticModuleDefinition implements StaticModuleRegistration {
     public Map<String, Class<?>> entityModelClasses() { return entityModelClasses; }
     public List<RelationProjectionJoinDefinition> projectionJoins() { return projectionJoins; }
     public QueryDescriptor queryDescriptor() { return queryDescriptor; }
+    public boolean tenantRequired() { return tenantRequired; }
+
     public boolean openApiAvailable() { return openApiAvailable; }
 
     public String getApplicationAlias() { return applicationAlias; }
@@ -155,6 +160,7 @@ public final class StaticModuleDefinition implements StaticModuleRegistration {
     public Map<String, Class<?>> getEntityModelClasses() { return entityModelClasses; }
     public List<RelationProjectionJoinDefinition> getProjectionJoins() { return projectionJoins; }
     public QueryDescriptor getQueryDescriptor() { return queryDescriptor; }
+    public boolean isTenantRequired() { return tenantRequired; }
     public boolean isOpenApiAvailable() { return openApiAvailable; }
 
     @Override
@@ -180,6 +186,7 @@ public final class StaticModuleDefinition implements StaticModuleRegistration {
                 && Objects.equals(entityModelClasses, that.entityModelClasses)
                 && Objects.equals(projectionJoins, that.projectionJoins)
                 && Objects.equals(queryDescriptor, that.queryDescriptor)
+                && tenantRequired == that.tenantRequired
                 && openApiAvailable == that.openApiAvailable;
     }
 
@@ -187,7 +194,7 @@ public final class StaticModuleDefinition implements StaticModuleRegistration {
     public int hashCode() {
         return Objects.hash(applicationAlias, moduleAlias, title, parentModuleAlias, entryType, entryRoute,
                 entryExternalUrl, capabilities, actions, entities, uiDefinition, pageContextBindings, references, readProjections,
-                modelClass, sortPartitionFields, entityModelClasses, projectionJoins, queryDescriptor, openApiAvailable);
+                modelClass, sortPartitionFields, entityModelClasses, projectionJoins, queryDescriptor, openApiAvailable, tenantRequired);
     }
 
     @Override
@@ -211,7 +218,7 @@ public final class StaticModuleDefinition implements StaticModuleRegistration {
                 + ", entityModelClasses=" + entityModelClasses
                 + ", projectionJoins=" + projectionJoins
                 + ", queryDescriptor=" + queryDescriptor
-                + ", openApiAvailable=" + openApiAvailable + "]";
+                + ", openApiAvailable=" + openApiAvailable + ", tenantRequired=" + tenantRequired + "]";
     }
 
     public boolean supports(EntityCapability capability) {
@@ -238,7 +245,8 @@ public final class StaticModuleDefinition implements StaticModuleRegistration {
                 .entityModelClasses(entityModelClasses)
                 .projectionJoins(projectionJoins)
                 .queryDescriptor(queryDescriptor)
-                .openApiAvailable(openApiAvailable);
+                .openApiAvailable(openApiAvailable)
+                .tenantRequired(tenantRequired);
     }
 
     public static final class Builder {
@@ -262,6 +270,7 @@ public final class StaticModuleDefinition implements StaticModuleRegistration {
         private List<RelationProjectionJoinDefinition> projectionJoins = List.of();
         private QueryDescriptor queryDescriptor;
         private boolean openApiAvailable;
+        private boolean tenantRequired;
 
         private Builder(String applicationAlias, String moduleAlias, String title) {
             this.applicationAlias = applicationAlias;
@@ -342,6 +351,11 @@ public final class StaticModuleDefinition implements StaticModuleRegistration {
             return this;
         }
 
+        public Builder tenantRequired(boolean value) {
+            this.tenantRequired = value;
+            return this;
+        }
+
         public Builder openApiAvailable(boolean value) {
             this.openApiAvailable = value;
             return this;
@@ -350,7 +364,7 @@ public final class StaticModuleDefinition implements StaticModuleRegistration {
         public StaticModuleDefinition build() {
             return new StaticModuleDefinition(applicationAlias, moduleAlias, title, parentModuleAlias, entryType,
                     entryRoute, entryExternalUrl, capabilities, actions, entities, uiDefinition, pageContextBindings, references,
-                    readProjections, modelClass, sortPartitionFields, entityModelClasses, projectionJoins, queryDescriptor, openApiAvailable);
+                    readProjections, modelClass, sortPartitionFields, entityModelClasses, projectionJoins, queryDescriptor, openApiAvailable, tenantRequired);
         }
     }
 

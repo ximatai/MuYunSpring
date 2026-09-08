@@ -374,7 +374,7 @@ function normalizeRecordMutationResponse<TRecord>(
  * contract, including aggregate children, and submits that same accepted shape back to the
  * dynamic deserializer.
  */
-function normalizeModuleRecord<TRecord>(record: TRecord): TRecord {
+export function normalizeModuleRecord<TRecord>(record: TRecord): TRecord {
   if (!isDynamicRecordWire(record)) return record;
   return {
     ...record.values,
@@ -437,7 +437,7 @@ function normalizeModuleTreeNode<TRecord>(node: WebTreeNode<TRecord>): WebTreeNo
 }
 
 function isDynamicRecordWire(value: unknown): value is {
-  id: string;
+  id: string | null | undefined;
   version: number | undefined;
   values: Record<string, unknown>;
   children: Record<string, unknown>;
@@ -445,7 +445,7 @@ function isDynamicRecordWire(value: unknown): value is {
   if (!value || typeof value !== 'object') return false;
   const record = value as Record<string, unknown>;
   return (
-    typeof record.id === 'string' &&
+    (record.id == null || typeof record.id === 'string') &&
     typeof record.values === 'object' &&
     record.values !== null &&
     !Array.isArray(record.values) &&

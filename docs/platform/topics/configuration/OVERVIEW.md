@@ -157,3 +157,5 @@ Web 维护面按“独立配置根 + 模块聚合子资源”组织：应用、�
 动作的执行范围与表单能力分别声明。动态执行器通过 `DynamicActionExecutorDefinition.formSupported` 提供能力事实，静态动作通过 `StaticModuleActionDefinition.formSupported` 声明；模块绑定、运行态目录与发布校验消费该事实。待绑定动作允许先放入页面、详情或表单区域，但引用未绑定动作的页面不能发布。
 
 表单入口为 `POST /{moduleAlias}/form-actions/{actionCode}`，请求携带 `record`，使用与标准保存相同的记录格式（包含子表）。它不自动保存，也不复用列表动作作为默认实现；静态模块通过 `FormActionWeb` 显式接入表单入口。执行器负责所需业务校验，并返回 `FormActionResult(recordPatch, message)`；客户端仅回填明确的 patch，保留记录身份、版本和未保存状态。需要持久化的业务应在服务层明确编排事务，当前不提供隐式“保存并执行”选项。
+
+表单入口使用已注册动作的权限策略，拒绝未知、停用或未声明表单能力的动作；编辑已有记录时按持久化记录校验数据范围，不以可编辑草稿字段决定访问权限。动态记录与子表的回填复用标准记录转换，未出现在 patch 中的字段和子表保持原草稿值。

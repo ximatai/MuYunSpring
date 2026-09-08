@@ -19,6 +19,14 @@ public record PlatformModuleRuntimeContext(
         List<String> sortPartitionFields,
         Set<String> abilities,
         List<PlatformModuleRuntimeAction> actions,
-        ResolvedModuleUiDescriptor uiDescriptor
+        ResolvedModuleUiDescriptor uiDescriptor,
+        boolean tenantRequired
 ) {
+    public PlatformModuleRuntimeContext(String moduleAlias, String title, ModuleKind moduleKind,
+            ModuleEntryType entryType, String entryRoute, String entryExternalUrl, String mainEntityAlias,
+            Set<EntityCapability> capabilities, List<String> sortPartitionFields, Set<String> abilities,
+            List<PlatformModuleRuntimeAction> actions, ResolvedModuleUiDescriptor uiDescriptor) {
+        this(moduleAlias, title, moduleKind, entryType, entryRoute, entryExternalUrl, mainEntityAlias,
+                capabilities, sortPartitionFields, abilities, actions, uiDescriptor, moduleKind == ModuleKind.DYNAMIC);
+    }
 }

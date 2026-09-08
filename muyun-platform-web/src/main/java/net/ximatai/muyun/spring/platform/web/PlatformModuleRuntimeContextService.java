@@ -254,7 +254,8 @@ public class PlatformModuleRuntimeContextService {
                 sortPartitionFields(staticDefinition, dynamicDescriptor),
                 abilityCodes(capabilities),
                 actions,
-                uiDescriptor
+                uiDescriptor,
+                moduleKind == ModuleKind.DYNAMIC || staticDefinition.map(StaticModuleDefinition::tenantRequired).orElse(false)
         );
     }
 

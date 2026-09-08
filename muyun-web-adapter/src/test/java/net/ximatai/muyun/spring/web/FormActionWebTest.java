@@ -13,6 +13,15 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 class FormActionWebTest {
     @Test
+    void shouldFailClosedWhenRecordDataScopeHasNoServiceSupport() {
+        Draft record = new Draft();
+        record.setId("existing");
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> new FormController().requireFormRecordScope(
+                record, net.ximatai.muyun.spring.common.platform.PlatformAction.UPDATE.executionPolicy()))
+                .isInstanceOf(net.ximatai.muyun.spring.common.exception.PlatformAccessDeniedException.class);
+    }
+
+    @Test
     void existingListActionDoesNotBecomeAFormAction() throws Exception {
         var mvc = MockMvcBuilders.standaloneSetup(new ExistingController()).build();
         try (var ignored = TenantContext.use("tenant-test")) {
@@ -45,9 +54,18 @@ class FormActionWebTest {
     }
     @RestController
     @RequestMapping("/fixture")
-    public static class FormController extends ExistingController implements FormActionWeb<Object, Map<String,Object>, Object> {
-        @Override public Object executeFormAction(String code, FormActionRequest<Map<String,Object>> request) {
+    public static class FormController extends ExistingController implements FormActionWeb<Object, Draft, Object> {
+        @Override public Object executeFormAction(String code, FormActionRequest<Draft> request) {
             return new FormActionResult<>(request.record(), "calculated");
         }
+    }
+
+    public static class Draft extends net.ximatai.muyun.spring.common.model.standard.StandardEntity {
+        private String title;
+        private List<Map<String, Object>> rows;
+        public String getTitle() { return title; }
+        public void setTitle(String title) { this.title = title; }
+        public List<Map<String, Object>> getRows() { return rows; }
+        public void setRows(List<Map<String, Object>> rows) { this.rows = rows; }
     }
 }

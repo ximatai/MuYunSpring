@@ -1,14 +1,20 @@
 import { flushPromises, mount, shallowMount } from '@vue/test-utils';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { defineComponent, ref } from 'vue';
-import { confirmAction } from '@muyun/vue-ui-antdv';
+import { confirmAction, UiSelect } from '@muyun/vue-ui-antdv';
 
 vi.mock('@muyun/vue-ui-antdv', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@muyun/vue-ui-antdv')>()),
   confirmAction: vi.fn(),
 }));
-import { configureModuleContext, createHttpClient } from '@muyun/web-core';
+import {
+  configureModuleContext,
+  createHttpClient,
+  createManagedDetailRelationClient,
+  createReferenceResolveClient,
+} from '@muyun/web-core';
 import { provideWorkspaceViewHost } from '@/platform-workbench/workspaceViewHost';
+import { provideCurrentUserContext } from '@/platform-admin-runtime/currentUserContext';
 import ModuleBusinessPreview from '@/views/ModuleBusinessPreview.vue';
 import ModulePageHost from '@/dynamic-page-runtime/ModulePageHost.vue';
 import { moduleGovernanceWorkspaceView } from '@/views/moduleGovernanceWorkspaceView';
@@ -33,7 +39,7 @@ const runtime = (published = true) => ({
   },
 });
 const wrappers: Array<{ unmount: () => void }> = [];
-function setup(handler: (url: string) => unknown | Promise<unknown>) {
+function setup(handler: (url: string, options?: RequestInit) => unknown | Promise<unknown>) {
   vi.stubGlobal(
     'matchMedia',
     vi.fn(() => ({
@@ -46,7 +52,7 @@ function setup(handler: (url: string) => unknown | Promise<unknown>) {
   );
   vi.stubGlobal(
     'fetch',
-    vi.fn(async (input) => {
+    vi.fn(async (input, options) => {
       const url = new Request(input).url;
       if (url.endsWith('/query/schema'))
         return Response.json({
@@ -56,7 +62,7 @@ function setup(handler: (url: string) => unknown | Promise<unknown>) {
           externalCriteria: [],
           defaultSorts: [],
         });
-      return Response.json(await handler(url));
+      return Response.json(await handler(url, options));
     }),
   );
   configureModuleContext({ httpFactory: () => createHttpClient({ baseUrl: 'http://api.local' }) });
@@ -64,6 +70,7 @@ function setup(handler: (url: string) => unknown | Promise<unknown>) {
 function render(shallow = true) {
   const wrapper = (shallow ? shallowMount : mount)(ModuleBusinessPreview, {
     props: { moduleAlias: 'education.exam' },
+    global: { stubs: { ModuleHttpProvider: false } },
   });
   wrappers.push(wrapper);
   return wrapper;
@@ -74,6 +81,213 @@ afterEach(() => {
 });
 
 describe('ModuleBusinessPreview', () => {
+  it('searches tenant candidates remotely and ignores older search responses', async () => {
+    let finishOld!: (value: unknown) => void;
+    const searches: string[] = [];
+    setup((url, options) => {
+      if (url.endsWith('/context')) return { ...runtime(), tenantRequired: true };
+      if (url.endsWith('/iam.tenant/navigator/reference/query')) {
+        const body = JSON.parse(String(options?.body));
+        searches.push(body.quickSearch ?? '');
+        if (body.quickSearch === 'old')
+          return new Promise((resolve) => {
+            finishOld = resolve;
+          });
+        return { records: [{ id: body.quickSearch || 'initial', title: '租户' }], total: 1000 };
+      }
+      return {};
+    });
+    const wrapper = render();
+    await flushPromises();
+    const selector = wrapper.findComponent(UiSelect);
+    selector.vm.$emit('search', 'old');
+    await flushPromises();
+    selector.vm.$emit('search', 'new');
+    await flushPromises();
+    finishOld({ records: [{ id: 'old' }] });
+    await flushPromises();
+    expect(selector.props('options')).toEqual([{ value: 'new', label: '租户' }]);
+    expect(searches).toEqual(['', 'old', 'new']);
+  });
+
+  it('waits for tenant selection, carries it on real queries and isolates late responses', async () => {
+    const calls: Array<{ url: string; tenant: string | null }> = [];
+    let finishOld!: (value: unknown) => void;
+    setup((url, options) => {
+      const tenant = new Headers(options?.headers).get('X-MuYun-Tenant-Id');
+      calls.push({ url, tenant });
+      if (url.endsWith('/context')) return { ...runtime(), tenantRequired: true };
+      if (url.endsWith('/iam.tenant/navigator/reference/query'))
+        return {
+          records: [
+            { id: 'a', title: '甲' },
+            { id: 'b', title: '乙' },
+            { id: 'off', enabled: false },
+          ],
+          total: 3,
+        };
+      if (url.endsWith('/education.exam/query')) {
+        if (tenant === 'a')
+          return new Promise((resolve) => {
+            finishOld = resolve;
+          });
+        return { records: [{ id: 'b-record', title: '乙记录' }], total: 1, pageNum: 1, pageSize: 20 };
+      }
+      throw new Error(`Unexpected ${url}`);
+    });
+    const wrapper = render(false);
+    await flushPromises();
+    expect(wrapper.findComponent(ModulePageHost).exists()).toBe(false);
+    expect(wrapper.text()).toContain('请选择业务租户后');
+    expect(calls.some((call) => call.url.endsWith('/education.exam/query'))).toBe(false);
+    expect(wrapper.find('option[value="off"]').exists()).toBe(false);
+    wrapper.findComponent(UiSelect).vm.$emit('update:value', 'a');
+    await flushPromises();
+    const oldHost = wrapper.findComponent(ModulePageHost).vm;
+    wrapper.findComponent(UiSelect).vm.$emit('update:value', 'b');
+    await flushPromises();
+    expect(wrapper.findComponent(ModulePageHost).vm).not.toBe(oldHost);
+    finishOld({ records: [{ id: 'a-record', title: '甲旧记录' }], total: 1, pageNum: 1, pageSize: 20 });
+    await flushPromises();
+    const records = wrapper.findComponent({ name: 'RecordQueryListPanel' }).findAll('tbody tr');
+    expect(records.map((row) => row.text()).join('')).not.toContain('甲旧记录');
+    expect(
+      calls.filter((call) => call.url.endsWith('/education.exam/query')).map((call) => call.tenant),
+    ).toEqual(['a', 'b']);
+    expect(
+      calls
+        .filter((call) => call.url.endsWith('/iam.tenant/navigator/reference/query'))
+        .every((call) => call.tenant === null),
+    ).toBe(true);
+  });
+
+  it('blocks tenant changes during editing and carries the tenant through create and detail reload', async () => {
+    const calls: Array<{ url: string; tenant: string | null }> = [];
+    const record = { id: 'saved', title: '新记录' };
+    setup((url, options) => {
+      calls.push({ url, tenant: new Headers(options?.headers).get('X-MuYun-Tenant-Id') });
+      if (url.endsWith('/context'))
+        return {
+          ...runtime(),
+          tenantRequired: true,
+          actions: [
+            { actionCode: 'create', authorized: true },
+            { actionCode: 'detail', authorized: true },
+          ],
+        };
+      if (url.endsWith('/iam.tenant/navigator/reference/query'))
+        return { records: [{ id: 'a' }, { id: 'b' }], total: 2 };
+      if (url.endsWith('/query')) return { records: [], total: 0, pageNum: 1, pageSize: 20 };
+      if (url.endsWith('/insert') || url.endsWith('/view/saved')) return record;
+      if (url.endsWith('/actions/saved')) return { recordId: 'saved', actions: [] };
+      throw new Error(`Unexpected ${url}`);
+    });
+    const wrapper = render(false);
+    await flushPromises();
+    wrapper.findComponent(UiSelect).vm.$emit('update:value', 'a');
+    await flushPromises();
+    const host = wrapper.findComponent(ModulePageHost).vm.$;
+    wrapper
+      .findComponent({ name: 'RecordQueryListPanel' })
+      .vm.$emit('action', { key: 'create', actionCode: 'create' });
+    await flushPromises();
+    expect(wrapper.findComponent(UiSelect).props('disabled')).toBe(true);
+    wrapper.findComponent(UiSelect).vm.$emit('update:value', 'b');
+    await flushPromises();
+    expect(wrapper.findComponent(ModulePageHost).vm.$).toBe(host);
+    wrapper.findComponent({ name: 'ModuleRecordDetailActions' }).vm.$emit('save');
+    await flushPromises();
+    expect(
+      calls
+        .filter((call) => call.url.includes('/education.exam/') && !call.url.endsWith('/context'))
+        .every((call) => call.tenant === 'a'),
+    ).toBe(true);
+    expect(calls.some((call) => call.url.endsWith('/insert'))).toBe(true);
+  });
+
+  it('passes one tenant through the standard update, delete, child, reference and action transports', async () => {
+    const calls: Array<{ url: string; tenant: string | null }> = [];
+    setup((url, options) => {
+      calls.push({ url, tenant: new Headers(options?.headers).get('X-MuYun-Tenant-Id') });
+      if (url.endsWith('/context')) return { ...runtime(), tenantRequired: true };
+      if (url.endsWith('/iam.tenant/navigator/reference/query')) return { records: [{ id: 'a' }], total: 1 };
+      if (url.endsWith('/query')) return { records: [], total: 0, pageNum: 1, pageSize: 20 };
+      if (url.includes('/delete/')) return 1;
+      return { id: 'r', version: 1 };
+    });
+    const wrapper = render(false);
+    await flushPromises();
+    wrapper.findComponent(UiSelect).vm.$emit('update:value', 'a');
+    await flushPromises();
+    const context = wrapper.findComponent({ name: 'RecordQueryListPanel' }).props('context');
+    await context.crud.update('r', { id: 'r', version: 1 });
+    await context.crud.delete('r', { version: 1 });
+    const child = createManagedDetailRelationClient(context.http, {
+      parentModuleAlias: 'education.exam',
+      parentId: 'r',
+      relationCode: 'participants',
+    });
+    await child.query();
+    await child.insert({ title: 'child' });
+    await child.update('child', { version: 1 });
+    await child.delete('child', { version: 1 });
+    await createReferenceResolveClient(context.http, 'education.exam').resolve('classroomId');
+    await context.http.request({ method: 'POST', path: '/education.exam/approve/r', body: {} });
+    await context.http.request({
+      method: 'POST',
+      path: '/education.exam/form-actions/compute',
+      body: { record: {} },
+    });
+    const businessCalls = calls.filter(
+      (call) => call.url.includes('/education.exam/') && !call.url.endsWith('/context'),
+    );
+    expect(businessCalls).toHaveLength(10);
+    expect(businessCalls.every((call) => call.tenant === 'a')).toBe(true);
+  });
+
+  it('automatically uses the login tenant and hides the selector', async () => {
+    const calls: Array<{ url: string; tenant: string | null }> = [];
+    setup((url, options) => {
+      calls.push({ url, tenant: new Headers(options?.headers).get('X-MuYun-Tenant-Id') });
+      if (url.endsWith('/context')) return { ...runtime(), tenantRequired: true };
+      if (url.endsWith('/query')) return { records: [], total: 0, pageNum: 1, pageSize: 20 };
+      throw new Error(`Unexpected ${url}`);
+    });
+    const wrapper = mount(
+      defineComponent({
+        components: { ModuleBusinessPreview },
+        setup() {
+          provideCurrentUserContext(ref({ userId: 'u', username: 'u', system: false, tenantId: 'a' }));
+        },
+        template: '<ModuleBusinessPreview module-alias="education.exam" />',
+      }),
+    );
+    wrappers.push(wrapper);
+    await flushPromises();
+    expect(wrapper.find('[aria-label="业务租户"]').exists()).toBe(false);
+    expect(calls.find((call) => call.url.endsWith('/education.exam/query'))?.tenant).toBe('a');
+    expect(calls.some((call) => call.url.includes('/iam.tenant/'))).toBe(false);
+  });
+
+  it('shows query failure separately from empty success and retries in the selected scope', async () => {
+    let fail = true;
+    setup((url) => {
+      if (url.endsWith('/context')) return runtime();
+      if (url.endsWith('/query')) {
+        if (fail) throw new Error('business read failed');
+        return { records: [], total: 0, pageNum: 1, pageSize: 20 };
+      }
+      throw new Error(`Unexpected ${url}`);
+    });
+    const wrapper = render(false);
+    await flushPromises();
+    expect(wrapper.find('[role="alert"]').exists()).toBe(true);
+    fail = false;
+    await wrapper.find('[role="alert"] button').trigger('click');
+    await flushPromises();
+    expect(wrapper.find('[role="alert"]').exists()).toBe(false);
+  });
+
   it('preserves old diagnostics links as business preview', () => {
     expect(
       moduleGovernanceWorkspaceView.parse?.({ moduleAlias: 'education.exam', governanceTab: 'diagnostics' }),

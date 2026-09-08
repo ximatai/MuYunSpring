@@ -1,3 +1,5 @@
+import { normalizeModuleRecord } from '@muyun/web-core';
+
 /** Only an explicit form result may update an unsaved draft. Ordinary action data is not a patch. */
 export function formActionResult(response: unknown): {
   recordPatch: Record<string, unknown>;
@@ -10,7 +12,7 @@ export function formActionResult(response: unknown): {
   if (!object(value) || !('recordPatch' in value)) throw new Error('表单动作未返回字段回填协议');
   if (value.recordPatch != null && !object(value.recordPatch)) throw new Error('表单动作回填格式无效');
   const patch = Object.fromEntries(
-    Object.entries(value.recordPatch ?? {}).filter(
+    Object.entries(normalizeModuleRecord(value.recordPatch ?? {})).filter(
       ([key]) => !['id', 'version', '__proto__', 'constructor', 'prototype'].includes(key),
     ),
   );

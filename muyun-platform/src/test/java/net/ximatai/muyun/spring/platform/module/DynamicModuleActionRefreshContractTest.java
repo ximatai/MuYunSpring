@@ -95,7 +95,7 @@ class DynamicModuleActionRefreshContractTest {
                 .thenReturn(List.of(new ModuleMetadataRelation()));
         when(runtime.activateNow(module.getAlias())).thenAnswer(invocation -> {
             assertThat(TenantContext.isSystem()).isTrue();
-            assertThat(actions.list(Criteria.of())).hasSize(7);
+            assertThat(actions.list(Criteria.of())).hasSize(8);
             return null;
         });
 
@@ -125,7 +125,7 @@ class DynamicModuleActionRefreshContractTest {
     void shouldKeepCatalogueBeforeMainMetadataExists() {
         PlatformModule module = module();
         transactions.executeWithoutResult(status -> registrar.register(module));
-        assertThat(actions.list(Criteria.of())).hasSize(7);
+        assertThat(actions.list(Criteria.of())).hasSize(8);
         verifyNoInteractions(runtime);
     }
 
@@ -143,7 +143,7 @@ class DynamicModuleActionRefreshContractTest {
     void shouldRegisterStartupCatalogueWithoutActivatingBeforeMetadataRestoration() {
         module();
         registrar.run();
-        assertThat(actions.list(Criteria.of())).hasSize(7);
+        assertThat(actions.list(Criteria.of())).hasSize(8);
         verifyNoInteractions(runtime, relations);
     }
 

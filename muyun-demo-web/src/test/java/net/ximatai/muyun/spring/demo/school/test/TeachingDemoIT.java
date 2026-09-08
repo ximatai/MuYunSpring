@@ -164,6 +164,116 @@ public class TeachingDemoIT {
         RequestContextHolder.resetRequestAttributes();
     }
 
+    @Autowired
+    private net.ximatai.muyun.spring.iam.tenant.TenantService tenantService;
+    @Autowired
+    private net.ximatai.muyun.spring.web.RequestTenantVerifier requestTenantVerifier;
+
+    @Test
+    void shouldIsolateStaticAndDynamicBusinessRequestsUsingVerifiedTenantHeader() throws Exception {
+        String otherTenant = "preview_" + serial();
+        try (TenantContext.Scope ignored = TenantContext.system("preview fixture")) {
+            var tenant = new net.ximatai.muyun.spring.iam.tenant.Tenant();
+            tenant.setAlias(otherTenant);
+            tenant.setTitle("Preview tenant");
+            tenant.setEnabled(true);
+            tenantService.insert(tenant);
+        }
+        var identity = new java.util.concurrent.atomic.AtomicReference<>(CurrentUser.systemUser("preview-admin", "admin"));
+        MockMvc mvc = webAppContextSetup(webApplicationContext)
+                .addFilters(new net.ximatai.muyun.spring.web.CurrentUserWebFilter(
+                        () -> java.util.Optional.of(identity.get()), requestTenantVerifier)).build();
+        String header = net.ximatai.muyun.spring.web.CurrentUserWebFilter.TENANT_HEADER;
+        String title = "Preview HTTP " + serial();
+        MvcResult created = mvc.perform(post("/education.exam/insert").header(header, DemoBootstrapTask.TENANT_ALIAS)
+                .contentType("application/json").content("""
+                {"values":{"title":"%s","classroomId":"demo_classroom_g1a",
+                "subjectCategoryId":"demo_subject_mathematics","examDate":"2026-09-07"},
+                "children":{"participants":[{"values":{"studentId":"demo_student_1001",
+                "score":81,"attendanceStatus":"ATTENDED"}}]}}
+                """.formatted(title))).andReturn();
+        assertThat(created.getResponse().getStatus()).as(created.getResponse().getContentAsString()).isEqualTo(201);
+        String recordId;
+        Integer recordVersion;
+        try (var user = CurrentUserContext.use(CurrentUser.systemUser("preview-fixture", "fixture"));
+             TenantContext.Scope ignored = TenantContext.use(DemoBootstrapTask.TENANT_ALIAS)) {
+            var saved = dynamicRecords.mainEntity(ExamDemoBootstrapTask.MODULE_ALIAS)
+                    .list(Criteria.of().eq("title", title), PageRequest.of(1, 10)).getFirst();
+            recordId = saved.getId();
+            recordVersion = saved.getVersion();
+            assertThat(saved.getTenantId()).isEqualTo(DemoBootstrapTask.TENANT_ALIAS);
+            assertThat(dynamicRecords.listSystem(ExamDemoBootstrapTask.MODULE_ALIAS, "exam_participant",
+                    Criteria.of().eq("examId", recordId))).singleElement()
+                    .satisfies(child -> assertThat(child.getTenantId()).isEqualTo(DemoBootstrapTask.TENANT_ALIAS));
+        }
+        var visible = mvc.perform(get("/education.exam/view/{id}", recordId)
+                .header(header, DemoBootstrapTask.TENANT_ALIAS)).andReturn();
+        assertThat(visible.getResponse().getStatus()).isEqualTo(200);
+        assertThat(visible.getResponse().getContentAsString()).contains(title);
+        var hidden = mvc.perform(get("/education.exam/view/{id}", recordId).header(header, otherTenant)).andReturn();
+        assertThat(hidden.getResponse().getContentAsString()).doesNotContain(title);
+        var query = mvc.perform(post("/education.exam/query").header(header, otherTenant)
+                .contentType("application/json").content("{}")).andReturn();
+        assertThat(query.getResponse().getStatus()).isEqualTo(200);
+        assertThat(query.getResponse().getContentAsString()).doesNotContain(title);
+        var denied = mvc.perform(post("/education.exam/update/{id}", recordId).header(header, otherTenant)
+                .contentType("application/json").content("{\"values\":{\"title\":\"forged\"}}" )).andReturn();
+        assertThat(denied.getResponse().getStatus()).isGreaterThanOrEqualTo(400);
+        var deniedDelete = mvc.perform(post("/education.exam/delete/{id}", recordId).header(header, otherTenant)
+                .contentType("application/json").content("{\"version\":%d}".formatted(recordVersion))).andReturn();
+        assertThat(deniedDelete.getResponse().getStatus()).isEqualTo(200);
+        var deletedCount = new com.fasterxml.jackson.databind.ObjectMapper()
+                .readTree(deniedDelete.getResponse().getContentAsString());
+        if (deletedCount.isObject()) deletedCount = deletedCount.required("data");
+        assertThat(deletedCount.isIntegralNumber()).isTrue();
+        assertThat(deletedCount.intValue()).isZero();
+        var references = mvc.perform(post("/education.exam/references/classroomId/resolve")
+                .header(header, DemoBootstrapTask.TENANT_ALIAS).contentType("application/json").content("{}"))
+                .andReturn();
+        assertThat(references.getResponse().getStatus()).as(references.getResponse().getContentAsString()).isEqualTo(200);
+        var changed = mvc.perform(post("/education.exam/update/{id}", recordId)
+                .header(header, DemoBootstrapTask.TENANT_ALIAS).contentType("application/json").content("""
+                {"version":%d,"values":{"title":"%s-updated","classroomId":"demo_classroom_g1a",
+                 "subjectCategoryId":"demo_subject_mathematics","examDate":"2026-09-07"}}
+                """.formatted(recordVersion, title))).andReturn();
+        assertThat(changed.getResponse().getStatus()).as(changed.getResponse().getContentAsString()).isEqualTo(200);
+        String studentId;
+        try (var user = CurrentUserContext.use(CurrentUser.systemUser("preview-fixture", "fixture"));
+             TenantContext.Scope ignored = TenantContext.use(DemoBootstrapTask.TENANT_ALIAS)) {
+            studentId = students.insert(student("P-" + serial(), title, "一年级"));
+        }
+        var staticVisible = mvc.perform(get("/education.student/view/{id}", studentId)
+                .header(header, DemoBootstrapTask.TENANT_ALIAS)).andReturn();
+        assertThat(staticVisible.getResponse().getContentAsString()).contains(title);
+        var staticHidden = mvc.perform(get("/education.student/view/{id}", studentId).header(header, otherTenant)).andReturn();
+        assertThat(staticHidden.getResponse().getContentAsString()).doesNotContain(title);
+        String forgedNumber = "F-" + serial();
+        mvc.perform(post("/education.student/insert").header(header, DemoBootstrapTask.TENANT_ALIAS)
+                .contentType("application/json").content("""
+                {"studentNo":"%s","title":"Forged tenant","grade":"一年级","tenantId":"%s"}
+                """.formatted(forgedNumber, otherTenant))).andReturn();
+        try (var user = CurrentUserContext.use(CurrentUser.systemUser("preview-fixture", "fixture"));
+             TenantContext.Scope ignored = TenantContext.use(otherTenant)) {
+            assertThat(students.count(Criteria.of().eq("studentNo", forgedNumber))).isZero();
+        }
+        try (TenantContext.Scope ignored = TenantContext.system("disable preview fixture")) {
+            tenantService.disable(otherTenant);
+        }
+        assertThat(mvc.perform(post("/education.exam/query").header(header, otherTenant)
+                .contentType("application/json").content("{}")).andReturn().getResponse().getStatus()).isEqualTo(403);
+        var candidates = mvc.perform(post("/iam.tenant/navigator/reference/query")
+                .contentType("application/json").content("{}")).andReturn().getResponse();
+        assertThat(candidates.getStatus()).isEqualTo(200);
+        assertThat(candidates.getContentAsString()).doesNotContain(otherTenant);
+        identity.set(CurrentUser.tenantUser("preview-user", "user", DemoBootstrapTask.TENANT_ALIAS));
+        assertThat(mvc.perform(post("/education.exam/query").header(header, otherTenant)
+                .contentType("application/json").content("{}")).andReturn().getResponse().getStatus()).isEqualTo(403);
+        assertThat(TenantContext.hasContext()).isFalse();
+        assertThat(CurrentUserContext.currentUser()).isEmpty();
+        assertThat(runtimeContexts.context("education.student").tenantRequired()).isTrue();
+        assertThat(runtimeContexts.context("iam.tenant").tenantRequired()).isFalse();
+    }
+
     @Test
     void shouldRegisterDeliveredSchoolApplicationModulesAndTheirAbilityEndpoints() {
         assertThat(applicationService.select("education")).satisfies(application -> {

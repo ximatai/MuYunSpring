@@ -46,6 +46,7 @@ export interface ModuleRecordActionDecision {
 
 export interface ModuleRuntimeContext {
   moduleAlias: string;
+  tenantRequired?: boolean;
   title?: string;
   moduleKind?: 'STATIC' | 'DYNAMIC';
   entryType?: 'module' | 'route' | 'link';

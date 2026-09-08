@@ -12,17 +12,20 @@ import java.util.concurrent.Callable;
 /**
  * Explicit, short-lived request context snapshot for work dispatched from an authenticated Web request.
  *
- * <p>This type deliberately carries only the authenticated user, the corresponding tenant scope, and
+ * <p>This type deliberately carries only the authenticated user, the verified effective tenant scope, and
  * the request trace. It does not carry action authorization or acting-delegation scopes: background
  * work must not silently extend a request's authorization decision or delegation relationship.</p>
  */
 public final class WebRequestContext {
     private final CurrentUser currentUser;
     private final String traceId;
+    private final String tenantId;
 
     private WebRequestContext(CurrentUser currentUser, String traceId) {
         this.currentUser = Objects.requireNonNull(currentUser, "currentUser must not be null");
         this.traceId = traceId;
+        this.tenantId = TenantContext.hasContext() ? TenantContext.currentTenantId().orElse(null)
+                : currentUser.tenantId();
     }
 
     /** Captures the authenticated request identity when one is currently bound. */
@@ -68,10 +71,10 @@ public final class WebRequestContext {
     }
 
     private TenantContext.Scope tenantScope() {
-        if (currentUser.system()) {
+        if (tenantId == null) {
             return TenantContext.system("authenticated web request async work");
         }
-        return TenantContext.use(currentUser.tenantId());
+        return TenantContext.use(tenantId);
     }
 
     private RequestTraceContext.Scope traceScope() {

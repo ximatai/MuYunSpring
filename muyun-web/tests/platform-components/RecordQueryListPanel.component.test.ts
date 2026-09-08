@@ -10,6 +10,30 @@ import type { ModuleContext } from '@muyun/web-core';
 import type { WebQueryRequest } from '@muyun/web-contracts';
 
 describe('RecordQueryListPanel', () => {
+  it('reloads the query schema before querying records after a schema failure', async () => {
+    const context = createContext({ id: '1' });
+    const schema = await context.crud.querySchema();
+    const querySchema = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('schema unavailable'))
+      .mockResolvedValue(schema);
+    const query = vi.spyOn(context.crud, 'query');
+    context.crud.querySchema = querySchema;
+    const wrapper = shallowMount(RecordQueryListPanel, {
+      props: { context, title: '记录', columns: [] },
+    });
+    await flushPromises();
+    expect(wrapper.find('[role="alert"]').text()).toContain('schema unavailable');
+    expect(query).not.toHaveBeenCalled();
+    wrapper.find('[role="alert"]').findComponent({ name: 'UiButton' }).vm.$emit('click');
+    await flushPromises();
+    expect(querySchema).toHaveBeenCalledTimes(2);
+    expect(query).toHaveBeenCalledOnce();
+    expect(wrapper.find('[role="alert"]').exists()).toBe(false);
+    expect(wrapper.findComponent({ name: 'UiDataTable' }).exists()).toBe(true);
+    wrapper.unmount();
+  });
+
   it('disables the complete list surface while its workspace is editing', async () => {
     const editing = ref(true);
     const wrapper = shallowMount(RecordQueryListPanel, {
