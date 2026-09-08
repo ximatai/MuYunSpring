@@ -12,7 +12,15 @@ const actions = [
   { actionCode: 'update', actionLevel: 'RECORD' as const },
   { actionCode: 'enable', actionLevel: 'RECORD' as const },
   { actionCode: 'disable', actionLevel: 'RECORD' as const },
-  { actionCode: 'approve', actionLevel: 'RECORD' as const, category: 'CUSTOM', executorType: 'SERVICE' },
+  {
+    actionCode: 'approve',
+    actionLevel: 'RECORD' as const,
+    category: 'CUSTOM',
+    executorType: 'SERVICE',
+    invocations: {
+      DETAIL: { method: 'POST' as const, path: '/demo.order/{recordId}/approve', input: 'NONE' as const },
+    },
+  },
 ];
 it('binds standard buttons once while retaining their context-specific operations', () => {
   const entries = defaultPageActionEntries(actions);
@@ -35,7 +43,7 @@ it('keeps custom service actions in their declared scope', () => {
   expect(canPlaceActionInAnchor(actions[4], 'detail')).toBe(true);
   expect(canPlaceActionInAnchor(actions[4], 'page')).toBe(false);
   expect(canPlaceActionInAnchor(actions[4], 'form')).toBe(false);
-  expect(canPlaceActionInAnchor({ ...actions[4]!, executorType: 'DIALOG' }, 'detail')).toBe(false);
+  expect(canPlaceActionInAnchor({ ...actions[4]!, invocations: {} }, 'detail')).toBe(false);
 });
 
 it('allows pending layout before binding and requires explicit form capability afterwards', () => {
@@ -46,9 +54,19 @@ it('allows pending layout before binding and requires explicit form capability a
   expect(canPlaceActionInAnchor({ ...pending, bindingPending: false, actionLevel: 'ANY' }, 'form')).toBe(
     false,
   );
-  expect(canPlaceActionInAnchor({ ...pending, bindingPending: false, formSupported: true }, 'form')).toBe(
-    true,
-  );
+  expect(
+    canPlaceActionInAnchor(
+      {
+        ...pending,
+        bindingPending: false,
+        formSupported: true,
+        invocations: {
+          FORM: { method: 'POST', path: '/demo.order/form-actions/calculate', input: 'FORM_RECORD' },
+        },
+      },
+      'form',
+    ),
+  ).toBe(true);
 });
 
 it('previews custom form placements before an execution operation has been compiled', () => {
@@ -56,4 +74,25 @@ it('previews custom form placements before an execution operation has been compi
   expect(pageActionEntryVisible(entry, 'create')).toBe(true);
   expect(pageActionEntryVisible(entry, 'edit')).toBe(true);
   expect(pageActionEntryVisible(entry, 'view')).toBe(false);
+});
+
+it('requires an issued surface binding even for a classified custom action', () => {
+  const action = {
+    actionCode: 'sessionStatuses',
+    actionLevel: 'LIST' as const,
+    category: 'CUSTOM',
+    executorType: 'SERVICE',
+  };
+  expect(canPlaceActionInAnchor(action, 'page')).toBe(false);
+  expect(
+    canPlaceActionInAnchor(
+      {
+        ...action,
+        invocations: {
+          PAGE: { method: 'GET', path: '/demo.order/status', input: 'NONE' },
+        },
+      },
+      'page',
+    ),
+  ).toBe(true);
 });

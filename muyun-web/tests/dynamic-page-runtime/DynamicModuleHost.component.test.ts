@@ -9,6 +9,62 @@ import { refreshModulePageList } from '@/dynamic-page-runtime/modulePageListRefr
 describe('ModulePageHost', () => {
   const originalFetch = globalThis.fetch;
 
+  it.each([true, false])('executes a placed action only through its issued binding (%s)', async (bound) => {
+    const calls: Array<{ path: string; method: string; body: unknown }> = [];
+    globalThis.fetch = async (input, options) => {
+      const path = new Request(input).url;
+      if (path.endsWith('/context'))
+        return Response.json({
+          moduleAlias: 'crm.customer',
+          capabilities: [],
+          actions: [{ actionCode: 'status', actionLevel: 'LIST', category: 'CUSTOM', authorized: true }],
+          uiDescriptor: {
+            moduleAlias: 'crm.customer',
+            page: page({
+              managedActions: true,
+              actions: [
+                {
+                  actionCode: 'status',
+                  anchor: 'PAGE',
+                  operation: 'INVOKE',
+                  ...(bound
+                    ? { invocation: { method: 'GET', path: '/crm.customer/sessions/status', input: 'NONE' } }
+                    : {}),
+                },
+              ],
+            }),
+          },
+        });
+      calls.push({ path, method: options?.method ?? 'GET', body: options?.body });
+      return Response.json({ message: 'done' });
+    };
+    configureModuleContext({ httpFactory: () => createHttpClient({ baseUrl: 'http://api.local' }) });
+    const wrapper = shallowMount(ModulePageHost, {
+      global: { stubs: { ManagementWorkspace: { template: '<section><slot /></section>' } } },
+      props: {
+        descriptor: {
+          pageType: 'dynamic-module',
+          openMode: 'dynamic-runner',
+          hostType: 'module-page-host',
+          tabPolicy: { identity: 'by-menu' },
+          target: { moduleAlias: 'crm.customer', pageMode: 'LIST' },
+        },
+      },
+    });
+    await flushPromises();
+    const panel = wrapper.findComponent({ name: 'RecordQueryListPanel' });
+    const action = panel.props('extraActions')[0];
+    expect(action.disabled).toBe(!bound);
+    panel.vm.$emit('action', action);
+    await flushPromises();
+    expect(calls).toEqual(
+      bound
+        ? [{ path: 'http://api.local/crm.customer/sessions/status', method: 'GET', body: undefined }]
+        : [],
+    );
+    wrapper.unmount();
+  });
+
   afterEach(() => {
     globalThis.fetch = originalFetch;
     configureModulePageEnhancements([]);

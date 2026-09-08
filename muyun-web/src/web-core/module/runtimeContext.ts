@@ -1,5 +1,5 @@
 import { shallowRef } from 'vue';
-import type { ResolvedModuleUiDescriptor } from '@muyun/web-contracts';
+import type { PageActionInvocation, ResolvedModuleUiDescriptor } from '@muyun/web-contracts';
 import { normalizeError, type AppError } from '../errors';
 import type { HttpClient } from '../http';
 import type { ModuleAbilityCode } from './abilityCodes';
@@ -7,6 +7,7 @@ import type { ModuleAbilityCode } from './abilityCodes';
 export interface ModuleRuntimeAction {
   bindingPending?: boolean;
   formSupported?: boolean;
+  invocations?: Partial<Record<'PAGE' | 'DETAIL' | 'FORM', PageActionInvocation>>;
   actionCode: string;
   permissionActionCode?: string;
   title?: string;

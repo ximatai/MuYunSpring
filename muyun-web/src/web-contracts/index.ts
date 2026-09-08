@@ -1243,11 +1243,19 @@ export interface ResolvedModulePageDescriptor {
   traits: ('STANDARD_CRUD' | 'ENABLED_STATUS' | 'RECYCLE_BIN' | 'RESPONSIVE_DETAIL_SURFACE')[];
 }
 
+/** Compiled transport for an action that explicitly supports a standard page surface. */
+export interface PageActionInvocation {
+  method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
+  path: string;
+  input: 'NONE' | 'FORM_RECORD';
+}
+
 export interface ResolvedPageActionDescriptor {
   title?: string;
   operation?: string;
   actionCode: string;
   anchor: 'PAGE' | 'DETAIL' | 'FORM';
+  invocation?: PageActionInvocation;
 }
 
 export interface ResolvedPageTreeResourceDescriptor {

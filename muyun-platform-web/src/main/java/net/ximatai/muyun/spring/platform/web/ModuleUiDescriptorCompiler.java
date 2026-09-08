@@ -105,6 +105,7 @@ public final class ModuleUiDescriptorCompiler {
                         staticOptionFields(definition.modelClass()), referenceFields, referenceSummaryFields,
                         staticRecordLabelField(definition), Map.copyOf(fieldTypes), FieldControlDescriptorCatalog.standard(),
                         false, Map.of(), Map.of(), sortPartitionFieldsByEntity(definition.entities()));
+        descriptor = PageActionInvocationCompiler.bind(descriptor, definition.actionInvocations());
         descriptor = withPageContextBindings(descriptor, definition.pageContextBindings());
         List<ResolvedPageDetailEditorContribution> resolvedContributions = uiDefinition.editorContributions().stream()
                 .map(contribution -> {

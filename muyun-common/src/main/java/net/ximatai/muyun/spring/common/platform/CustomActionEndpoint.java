@@ -16,6 +16,9 @@ public @interface CustomActionEndpoint {
     /** Requires the registered action to explicitly support an unsaved form record. */
     boolean formContext() default false;
 
+    /** Publishes this simple HTTP endpoint as a platform page button. */
+    boolean pageInvocable() default false;
+
     String title() default "";
 
     PlatformActionLevel level() default PlatformActionLevel.DEFAULT;

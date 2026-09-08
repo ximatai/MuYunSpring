@@ -519,6 +519,8 @@ public class PlatformModuleRuntimeContextService {
                 optionFields, referenceFields,
                 dynamicRecordLabelField(dynamicDescriptor), fieldTypes, FieldControlDescriptorCatalog.standard(),
                 relationOptionFields, relationReferenceFields, dynamicSortPartitionFields(dynamicDescriptor));
+        descriptor = PageActionInvocationCompiler.bind(descriptor, actions(moduleAlias, ModuleKind.DYNAMIC, Optional.empty(), dynamicDescriptor).stream()
+                .collect(java.util.stream.Collectors.toMap(PlatformModuleRuntimeAction::actionCode, PlatformModuleRuntimeAction::invocations)));
         return descriptor.withPage(resolvePage(moduleAlias, ModuleKind.DYNAMIC, descriptor.page()))
                 .withDetailRelations(dynamicDetailRelations(moduleAlias, relationTargets));
     }
@@ -1045,7 +1047,8 @@ public class PlatformModuleRuntimeContextService {
                         return null;
                     }
                     return runtimeAction(moduleAlias, declared,
-                            configured == null ? policy(declared) : policy(declared, configured));
+                            configured == null ? policy(declared) : policy(declared, configured))
+                            .withInvocations(staticDefinition.get().actionInvocations().getOrDefault(declared.actionCode(), Map.of()));
                 })
                 .filter(java.util.Objects::nonNull)
                 .toList();
@@ -1072,7 +1075,7 @@ public class PlatformModuleRuntimeContextService {
             }
             actions.put(action.getActionCode(), runtimeAction(action, policy(action)));
         }
-        return List.copyOf(actions.values());
+        return actions.values().stream().map(action -> action.withInvocations(PageActionInvocationCompiler.dynamic(moduleAlias, action))).toList();
     }
 
     private PlatformModuleRuntimeAction runtimeAction(PlatformModuleAction action, ActionExecutionPolicy policy) {

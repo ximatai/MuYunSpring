@@ -154,6 +154,10 @@ Web 维护面按“独立配置根 + 模块聚合子资源”组织：应用、�
 
 ### 自定义表单动作
 
+静态动作的分类和执行器默认值在声明编译时统一归一，动作目录与运行态使用同一语义。权限动作不自动成为页面按钮：普通静态 `@CustomActionEndpoint` 可通过 `pageInvocable = true` 声明标准页面调用意图，平台从真实 HTTP 映射编译方法、路径及输入契约。页面级动作不接收业务参数，记录级动作只接收当前记录的路径参数；额外业务载荷、查询参数或无法唯一绑定的路径不进入此契约，显式声明时在启动期拒绝。需要额外交互输入的动作继续通过已有动作区块或受控页面扩展交付。
+
+静态绑定和动态标准动作均输出来源无关的 `PageActionInvocation`。动作运行态的 `invocations` 用于编排准入，已发布页面动作的 `invocation` 在编译时冻结，包含 HTTP method、模块内路径以及 `NONE` / `FORM_RECORD` 输入模式；记录路径统一以 `{recordId}` 绑定。标准页面按该契约调用，不从动作码推断 URL。缺少当前页面区域执行绑定的动作不能发布为 `INVOKE`；只有权限声明或执行器分类不足以证明动作可交付。
+
 动作的执行范围与表单能力分别声明。动态执行器通过 `DynamicActionExecutorDefinition.formSupported` 提供能力事实，静态动作通过 `StaticModuleActionDefinition.formSupported` 声明；模块绑定、运行态目录与发布校验消费该事实。待绑定动作允许先放入页面、详情或表单区域，但引用未绑定动作的页面不能发布。
 
 表单入口为 `POST /{moduleAlias}/form-actions/{actionCode}`，请求携带 `record`，使用与标准保存相同的记录格式（包含子表）。它不自动保存，也不复用列表动作作为默认实现；静态模块通过 `FormActionWeb` 显式接入表单入口。执行器负责所需业务校验，并返回 `FormActionResult(recordPatch, message)`；客户端仅回填明确的 patch，保留记录身份、版本和未保存状态。需要持久化的业务应在服务层明确编排事务，当前不提供隐式“保存并执行”选项。

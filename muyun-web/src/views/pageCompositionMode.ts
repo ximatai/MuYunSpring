@@ -1,4 +1,5 @@
 import { pageActionIntent } from '@muyun/web-core';
+import type { PageActionInvocation } from '@muyun/web-contracts';
 import type { ManagementUiTree } from './pageCompositionDraftState';
 
 export type CompositionMode = 'TREE_CARD' | 'LIST_CARD' | 'MICRO_LIST_CARD';
@@ -31,6 +32,7 @@ export interface PageCompositionActionCandidate {
   actionLevel?: 'LIST' | 'RECORD' | 'BATCH' | 'ANY' | 'DEFAULT';
   formSupported?: boolean;
   bindingPending?: boolean;
+  invocations?: Partial<Record<'PAGE' | 'DETAIL' | 'FORM', PageActionInvocation>>;
 }
 
 export function canPlaceActionInAnchor(
@@ -41,11 +43,7 @@ export function canPlaceActionInAnchor(
   if (action.category === 'CUSTOM' && action.bindingPending) return true;
   if (
     !pageActionIntent(action.actionCode, anchor) &&
-    !(
-      (anchor !== 'form' || action.formSupported === true) &&
-      action.category === 'CUSTOM' &&
-      (!action.executorType || action.executorType === 'SERVICE')
-    )
+    !action.invocations?.[anchor.toUpperCase() as 'PAGE' | 'DETAIL' | 'FORM']
   )
     return false;
   if (anchor === 'page') return action.actionLevel === 'LIST' || action.actionLevel === 'ANY';
@@ -53,7 +51,7 @@ export function canPlaceActionInAnchor(
   return (
     action.actionLevel === (action.actionCode === 'create' ? 'LIST' : 'RECORD') ||
     action.actionLevel === 'ANY' ||
-    (action.category === 'CUSTOM' && action.formSupported === true)
+    Boolean(action.invocations?.FORM)
   );
 }
 

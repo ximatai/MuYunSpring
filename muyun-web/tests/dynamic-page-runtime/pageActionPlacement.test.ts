@@ -83,7 +83,14 @@ it.each([true, false])('explains status operations that have already been applie
 });
 
 it('exposes an issued custom service action without borrowing a form submission', () => {
-  const placements = [{ actionCode: 'approve', anchor: 'DETAIL' as const, operation: 'INVOKE' }];
+  const placements = [
+    {
+      actionCode: 'approve',
+      anchor: 'DETAIL' as const,
+      operation: 'INVOKE',
+      invocation: { method: 'POST' as const, path: '/demo.order/{recordId}/approve', input: 'NONE' as const },
+    },
+  ];
   const actionOf = (actionCode: string) => ({
     actionCode,
     actionLevel: 'RECORD',
@@ -103,7 +110,18 @@ it('exposes an ANY custom service action in the unsaved form context', () => {
     executorType: 'SERVICE',
     formSupported: true,
   };
-  const placement = [{ actionCode: 'recalculate', anchor: 'FORM' as const, operation: 'INVOKE' }];
+  const placement = [
+    {
+      actionCode: 'recalculate',
+      anchor: 'FORM' as const,
+      operation: 'INVOKE',
+      invocation: {
+        method: 'POST' as const,
+        path: '/demo.order/form-actions/recalculate',
+        input: 'FORM_RECORD' as const,
+      },
+    },
+  ];
   const resolved = resolvePlacedPageActions(placement, 'FORM', () => action, [], 'edit', true);
   expect(resolved).toMatchObject([{ actionCode: 'recalculate', disabled: false }]);
   expect(resolvePlacedPageActions(placement, 'FORM', () => action, [], 'view', true)).toEqual([]);
@@ -120,4 +138,16 @@ it('does not expose an unbound action as executable even when authorized', () =>
       true,
     ),
   ).toEqual([]);
+});
+
+it('does not enable a custom action merely because a service executor is declared', () => {
+  const actions = resolvePlacedPageActions(
+    [{ actionCode: 'approve', anchor: 'DETAIL', operation: 'INVOKE' }],
+    'DETAIL',
+    () => ({ actionCode: 'approve', actionLevel: 'RECORD', category: 'CUSTOM', executorType: 'SERVICE' }),
+    [{ key: 'legacy', actionCode: 'approve', title: 'approve' }],
+    'view',
+    true,
+  );
+  expect(actions).toMatchObject([{ disabled: true }]);
 });

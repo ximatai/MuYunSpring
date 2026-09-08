@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { formActionResult } from './formActionResult';
+import { invokePageAction } from './pageActionInvocation';
 import { resolvePlacedPageActions } from './pageActionPlacement';
 import { computed, nextTick, onMounted, onUnmounted, ref, shallowRef, toRaw, watch } from 'vue';
 import { useCurrentUserContext } from '../platform-admin-runtime/currentUserContext';
@@ -2489,9 +2490,13 @@ function handleListAction(action: { key?: string }) {
 }
 
 function placedOperation(key: string | undefined) {
+  return placedAction(key)?.operation;
+}
+
+function placedAction(key: string | undefined) {
   return runtimePage.value?.actions?.find(
     (entry) => `page-placement:${entry.anchor}:${entry.actionCode}` === key,
-  )?.operation;
+  );
 }
 
 function handlePlacedPageAction(action: { key?: string; actionCode?: string }) {
@@ -2501,7 +2506,7 @@ function handlePlacedPageAction(action: { key?: string; actionCode?: string }) {
     const operation = placedOperation(action.key);
     if (operation === 'OPEN_CREATE') createRecord();
     else if (operation === 'REFRESH') refreshList();
-    else if (operation === 'INVOKE' && action.actionCode) void invokePlacedAction(action.actionCode);
+    else if (operation === 'INVOKE') void invokePlacedAction(action.key);
     return;
   }
   if (action.actionCode === 'create') {
@@ -2594,21 +2599,21 @@ async function runPlacedRecordAction(action: { key?: string; actionCode?: string
     if ((actionCode === 'enable') === (record.enabled === false)) await toggleEnabled();
     return;
   }
-  const configured = detailPageActions.value.find((item) => item.actionCode === actionCode);
-  if (configured) handleConfiguredAction(configured);
-  else if (placedOperation(action.key) === 'INVOKE') await invokePlacedAction(actionCode, recordId);
+  if (placedOperation(action.key) === 'INVOKE') await invokePlacedAction(action.key, recordId);
+  else {
+    const configured = detailPageActions.value.find((item) => item.actionCode === actionCode);
+    if (configured) handleConfiguredAction(configured);
+  }
 }
 
-async function invokePlacedAction(actionCode: string, recordId?: string, formContext = false) {
+async function invokePlacedAction(key: string | undefined, recordId?: string) {
   if (saving.value) return;
   saving.value = true;
   try {
+    const placement = placedAction(key);
+    const formContext = placement?.anchor === 'FORM';
     const draft = formContext && !recordId && editingRecord.value ? toRaw(editingRecord.value) : undefined;
-    const result = await context.http.request<unknown>({
-      method: 'POST',
-      path: `/${encodeURIComponent(context.moduleAlias)}/${formContext ? 'form-actions/' : ''}${encodeURIComponent(actionCode)}${recordId ? `/${encodeURIComponent(recordId)}` : ''}`,
-      body: draft ? { record: draft } : {},
-    });
+    const result = await invokePageAction(context.http, placement?.invocation, { recordId, record: draft });
     if (recordId) {
       detail.resolveLoad(await context.crud.view(recordId));
     } else if (formContext && editingRecord.value) {
@@ -2641,7 +2646,7 @@ function handlePlacedFormAction(action: { key?: string; actionCode?: string }) {
     return;
   }
   if (customFormInvoke && action.actionCode) {
-    void invokePlacedAction(action.actionCode, undefined, true);
+    void invokePlacedAction(action.key);
     return;
   }
   void runPlacedRecordAction(action);

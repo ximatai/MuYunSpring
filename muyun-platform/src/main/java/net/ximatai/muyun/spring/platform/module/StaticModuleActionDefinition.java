@@ -44,6 +44,8 @@ public record StaticModuleActionDefinition(
                 : PlatformNameRules.requireActionCode(permissionActionCode, "permissionActionCode");
         title = title == null || title.isBlank() ? actionCode : title.trim();
         actionLevel = actionLevel == null ? EntityActionLevel.ANY : actionLevel;
+        category = category == null ? net.ximatai.muyun.spring.dynamic.metadata.EntityActionDefinition.defaultCategory(actionCode) : category;
+        executorType = executorType == null ? net.ximatai.muyun.spring.dynamic.metadata.EntityActionDefinition.defaultExecutorType(category) : executorType;
         accessMode = accessMode == null ? EntityActionAccessMode.AUTH_REQUIRED : accessMode;
         defaultGrantPolicy = defaultGrantPolicy == null ? ActionDefaultGrantPolicy.NONE : defaultGrantPolicy;
         if (executorKey != null && executorKey.isBlank()) {

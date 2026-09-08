@@ -86,6 +86,32 @@ public class StaticModuleDefinitionScanner implements StaticModuleRegistrationSo
         addActionContributions(definitions);
         addActionDeclarations(definitions);
         addActionScopes(definitions);
+        for (String beanName : actionEndpointOriginBeanNames()) {
+            Class<?> beanClass = AopUtils.getTargetClass(applicationContext.getBean(beanName));
+            var module = AnnotationUtils.findAnnotation(beanClass, PlatformStaticModule.class);
+            var contribution = AnnotationUtils.findAnnotation(beanClass, PlatformStaticActionContribution.class);
+            var declaration = AnnotationUtils.findAnnotation(beanClass, PlatformStaticActionDeclaration.class);
+            var scope = AnnotationUtils.findAnnotation(beanClass, PlatformStaticActionScope.class);
+            var projection = AnnotationUtils.findAnnotation(beanClass, PlatformStaticWebProjection.class);
+            String alias = module != null ? module.alias() : contribution != null
+                    ? PlatformStaticActionContributionSupport.targetModule(contribution)
+                    : declaration != null ? declaration.module() : scope != null ? scope.module() : projection.module();
+            var definition = definitions.get(alias);
+            if (definition == null) continue;
+            var bindings = StaticPageActionInvocationCompiler.compile(beanClass, alias, definition.actions(),
+                    code -> contribution == null ? code : PlatformStaticActionContributionSupport.actionCode(contribution, code));
+            var merged = new LinkedHashMap<>(definition.actionInvocations());
+            bindings.forEach((code, invocations) -> {
+                var byAnchor = new LinkedHashMap<>(merged.getOrDefault(code, Map.of()));
+                invocations.forEach((anchor, invocation) -> {
+                    if (byAnchor.putIfAbsent(anchor, invocation) != null) {
+                        throw new IllegalStateException("multiple page action invocation bindings: " + alias + "." + code + " / " + anchor);
+                    }
+                });
+                merged.put(code, Map.copyOf(byAnchor));
+            });
+            definitions.put(alias, definition.toBuilder().actionInvocations(merged).build());
+        }
         validateUiCompilation(definitions.values());
         return List.copyOf(definitions.values());
     }
