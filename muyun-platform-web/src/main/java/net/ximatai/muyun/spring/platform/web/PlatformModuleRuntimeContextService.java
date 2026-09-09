@@ -39,6 +39,7 @@ import net.ximatai.muyun.spring.dynamic.metadata.FieldDefinition;
 import net.ximatai.muyun.spring.dynamic.metadata.ModuleDefinitionException;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecordService;
 import net.ximatai.muyun.spring.platform.module.ModuleEntryType;
+import net.ximatai.muyun.spring.platform.module.DynamicModuleOverviewMode;
 import net.ximatai.muyun.spring.platform.module.ModuleKind;
 import net.ximatai.muyun.spring.platform.module.PlatformModule;
 import net.ximatai.muyun.spring.platform.module.PlatformModuleAction;
@@ -299,7 +300,7 @@ public class PlatformModuleRuntimeContextService {
                     "dynamic module runtime context not found: " + validModuleAlias);
         }
         ModuleUiDefinition definition = PageRevisionModuleUiDefinitionAdapter.fromPreviewRevision(page, revision,
-                uiTreeJson, DynamicPageCompilationContext.from(dynamicDescriptor, module.getOverviewMode()));
+                uiTreeJson, pageCompilationContext(dynamicDescriptor, module.getOverviewMode()));
         return compileDynamicPageDescriptor(validModuleAlias, title(module, Optional.empty(), dynamicDescriptor,
                 validModuleAlias), dynamicDescriptor, definition);
     }
@@ -507,6 +508,7 @@ public class PlatformModuleRuntimeContextService {
                 definition.detailRelations());
         java.util.Map<ViewFieldRef, FieldValueType> fieldTypes = new java.util.LinkedHashMap<>(
                 dynamicMainFieldTypes(dynamicDescriptor));
+        validatePageReferenceFields(moduleAlias, definition, fieldTypes);
         java.util.Map<String, ResolvedOptionFieldDescriptor> optionFields = new java.util.LinkedHashMap<>(
                 dynamicOptionFields(dynamicDescriptor));
         java.util.Map<String, ResolvedReferenceFieldDescriptor> referenceFields = new java.util.LinkedHashMap<>(
@@ -524,6 +526,41 @@ public class PlatformModuleRuntimeContextService {
                 .collect(java.util.stream.Collectors.toMap(PlatformModuleRuntimeAction::actionCode, PlatformModuleRuntimeAction::invocations)));
         return descriptor.withPage(resolvePage(moduleAlias, ModuleKind.DYNAMIC, descriptor.page()))
                 .withDetailRelations(dynamicDetailRelations(moduleAlias, relationTargets));
+    }
+
+    private DynamicPageCompilationContext pageCompilationContext(DynamicModuleDescriptor descriptor,
+                                                                  DynamicModuleOverviewMode mode) {
+        DynamicPageCompilationContext context = DynamicPageCompilationContext.from(descriptor, mode);
+        if (dynamicRecordService == null) return context;
+        PageReferenceFieldCatalogService catalog = new PageReferenceFieldCatalogService(dynamicRecordService, staticModuleCatalog);
+        return context.withReferenceFieldTitleResolver(path -> catalog.title(descriptor.moduleAlias(), path));
+    }
+
+    private void validatePageReferenceFields(String moduleAlias, ModuleUiDefinition definition,
+                                             Map<ViewFieldRef, FieldValueType> fieldTypes) {
+        if (definition.page() == null || dynamicRecordService == null) return;
+        PageReferenceFieldCatalogService catalog = new PageReferenceFieldCatalogService(dynamicRecordService, staticModuleCatalog);
+        java.util.stream.Stream<ViewDefinition> views;
+        if (definition.page() instanceof ListDetailCardPageDefinition page) {
+            views = java.util.stream.Stream.of(page.list().list(), page.detail().editor());
+        } else if (definition.page() instanceof FlatManagementPageDefinition page) {
+            views = java.util.stream.Stream.of(page.detail().editor());
+        } else if (definition.page() instanceof TreeManagementPageDefinition page) {
+            views = java.util.stream.Stream.of(page.detail().editor());
+        } else {
+            views = java.util.stream.Stream.empty();
+        }
+        views.filter(java.util.Objects::nonNull).flatMap(view -> view.fields().stream()).map(ViewFieldDefinition::fieldRef)
+                .filter(field -> field.relationCode() == null && field.fieldName().contains("."))
+                .forEach(field -> {
+                    PageReferencePathCompiler.compile(catalog.rootTarget(moduleAlias), field.fieldName());
+                    String parent = field.fieldName().substring(0, field.fieldName().lastIndexOf('.'));
+                    PageReferenceFieldCatalog.Field terminal = catalog.list(moduleAlias, parent).fields().stream()
+                            .filter(candidate -> field.fieldName().equals(candidate.name())).findFirst()
+                            .orElseThrow(() -> new IllegalArgumentException(
+                                    "page reference terminal field does not exist or is protected: " + field.fieldName()));
+                    fieldTypes.put(field, terminal.valueType() == null ? FieldValueType.STRING : terminal.valueType());
+                });
     }
 
     private Map<String, List<String>> dynamicSortPartitionFields(DynamicModuleDescriptor descriptor) {

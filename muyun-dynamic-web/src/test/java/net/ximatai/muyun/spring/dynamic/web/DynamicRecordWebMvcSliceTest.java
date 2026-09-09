@@ -13,6 +13,12 @@ import net.ximatai.muyun.spring.dynamic.runtime.DynamicEntityOperations;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecord;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecordService;
 import net.ximatai.muyun.spring.ability.permission.RecordPermissionAccess;
+import net.ximatai.muyun.spring.ability.PlatformAbilityRuntime;
+import net.ximatai.muyun.spring.ability.reference.ReferenceAbility;
+import net.ximatai.muyun.spring.ability.reference.ReferenceCardinality;
+import net.ximatai.muyun.spring.ability.reference.ReferencePlan;
+import net.ximatai.muyun.spring.ability.reference.ReferenceTarget;
+import net.ximatai.muyun.database.core.orm.PageResult;
 import net.ximatai.muyun.spring.platform.web.PlatformModuleRuntimeActionWebController;
 import net.ximatai.muyun.spring.platform.web.DynamicRelationProjectionReadService;
 import net.ximatai.muyun.spring.platform.web.ModuleExecutionPlanCatalog;
@@ -32,6 +38,7 @@ import net.ximatai.muyun.spring.common.identity.CurrentUser;
 import net.ximatai.muyun.spring.common.identity.CurrentUserProvider;
 import net.ximatai.muyun.spring.common.tenant.ActiveTenantVerifier;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
@@ -119,6 +126,11 @@ class DynamicRecordWebMvcSliceTest {
                 .thenAnswer(invocation -> DynamicActionAvailability.available(invocation.getArgument(1)));
         when(recordService.actionAuthorizationAvailability(eq(MODULE), eq(ENTITY), anyString(), any()))
                 .thenAnswer(invocation -> DynamicActionAvailability.available(invocation.getArgument(2)));
+    }
+
+    @AfterEach
+    void resetReferenceResolver() {
+        PlatformAbilityRuntime.resetReferenceTargetResolver();
     }
 
     @Test
@@ -291,6 +303,78 @@ class DynamicRecordWebMvcSliceTest {
         assertThat(update.getValue().getValue("deliveryDate")).isEqualTo(LocalDate.of(2026, 8, 22));
         assertThat(update.getValue().getValue("scheduledAt")).isEqualTo(Instant.parse("2026-08-22T04:05:00Z"));
         assertThat(update.getValue().getValue("payload")).isEqualTo(List.of("renewed"));
+    }
+
+    @Test
+    void shouldKeepReadOnlyReferenceProjectionThroughPagedUnpagedAndDetailMvcOutput() throws Exception {
+        String pageModule = "purchase.order";
+        String pageEntity = "purchase_root";
+        EntityDefinition orderEntity = new EntityDefinition(pageEntity, "purchase_order", "采购单", List.of(
+                FieldDefinition.string("supplierId", "供应商").column("supplier_id"), FieldDefinition.string("code", "单号")));
+        ResolvedModuleUiDescriptor descriptor = ModuleUiDescriptorCompiler.compile(
+                ModuleUiDefinition.builder(pageModule).build(), ModuleKind.DYNAMIC, "采购单");
+        ModuleExecutionPlan plan = new ModuleExecutionPlan(pageModule, "page-reference", descriptor,
+                new ResolvedModuleReadModel(pageModule, pageEntity,
+                        List.of(new net.ximatai.muyun.spring.platform.web.ResolvedModuleReadField(
+                                pageEntity, null, "supplierId.title", false))), List.of());
+        when(executionPlanCatalog.find(pageModule)).thenReturn(Optional.of(plan));
+        when(recordService.mainEntityAlias(pageModule)).thenReturn(pageEntity);
+        when(recordService.actionAuthorizationAvailability(eq(pageModule), anyString(), any()))
+                .thenAnswer(invocation -> DynamicActionAvailability.available(invocation.getArgument(1)));
+        DynamicEntityOperations mainEntity = mock(DynamicEntityOperations.class);
+        DynamicRecord order = new DynamicRecord(orderEntity).setValue("supplierId", "supplier-1").setValue("code", "PO-1");
+        order.setId("order-1");
+        when(recordService.mainEntity(pageModule)).thenReturn(mainEntity);
+        when(mainEntity.pageQuery(any(net.ximatai.muyun.database.core.orm.Criteria.class),
+                any(net.ximatai.muyun.database.core.orm.PageRequest.class),
+                org.mockito.ArgumentMatchers.any(net.ximatai.muyun.database.core.orm.Sort[].class))).thenReturn(PageResult.of(List.of(order), 1,
+                net.ximatai.muyun.database.core.orm.PageRequest.of(1, 20)));
+        when(mainEntity.list(any(net.ximatai.muyun.database.core.orm.Criteria.class),
+                org.mockito.ArgumentMatchers.any(net.ximatai.muyun.database.core.orm.Sort[].class))).thenReturn(List.of(order));
+        when(mainEntity.select("order-1")).thenReturn(order);
+        ReferenceTarget source = ReferenceTarget.of(pageModule, pageEntity);
+        ReferenceTarget supplier = ReferenceTarget.of("supply.supplier", "supplier_root");
+        @SuppressWarnings("unchecked") ReferenceAbility<?> supplierAbility = mock(ReferenceAbility.class);
+        when(supplierAbility.projections(any(), any())).thenReturn(Map.of("supplier-1", Map.of("title", "华东供应商")));
+        PlatformAbilityRuntime.configureReferenceTargetResolver(new net.ximatai.muyun.spring.ability.reference.ReferenceTargetResolver() {
+            @Override public Optional<ReferenceAbility<?>> resolve(ReferenceTarget target) {
+                return supplier.equals(target) ? Optional.of(supplierAbility) : Optional.empty();
+            }
+            @Override public Optional<ReferencePlan> referencePlan(ReferenceTarget target, String field) {
+                return source.equals(target) && "supplierId".equals(field)
+                        ? Optional.of(ReferencePlan.of("supplierId", supplier, ReferenceCardinality.ONE)) : Optional.empty();
+            }
+        });
+
+        mvc.perform(post("/{moduleAlias}/query", pageModule).contentType("application/json").content("{}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.records[0].values['supplierId.title']").value("华东供应商"));
+        mvc.perform(post("/{moduleAlias}/query", pageModule).contentType("application/json").content("{\"unpaged\":true}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.records[0].values['supplierId.title']").value("华东供应商"));
+        mvc.perform(get("/{moduleAlias}/view/{recordId}", pageModule, "order-1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.values['supplierId.title']").value("华东供应商"));
+    }
+
+    @Test
+    void shouldRejectDottedReferenceProjectionOnUpdateAndAcceptOrdinaryField() throws Exception {
+        DynamicEntityOperations mainEntity = mock(DynamicEntityOperations.class);
+        DynamicRecord existing = new DynamicRecord(entity()).setValue("code", "C-001");
+        existing.setId("contract-1");
+        when(recordService.mainEntityAlias(MODULE)).thenReturn(ENTITY);
+        when(recordService.mainEntity(MODULE)).thenReturn(mainEntity);
+        when(mainEntity.newRecord()).thenAnswer(invocation -> new DynamicRecord(entity()));
+        when(mainEntity.select("contract-1")).thenReturn(existing);
+        when(mainEntity.update(any(DynamicRecord.class))).thenReturn(1);
+
+        mvc.perform(post("/{moduleAlias}/update/{id}", MODULE, "contract-1")
+                        .contentType("application/json").content("{\"supplierId.title\":\"越界\"}"))
+                .andExpect(status().isBadRequest());
+        mvc.perform(post("/{moduleAlias}/update/{id}", MODULE, "contract-1")
+                        .contentType("application/json").content("{\"code\":\"C-002\"}"))
+                .andExpect(status().isOk());
+        verify(mainEntity).update(any(DynamicRecord.class));
     }
 
     private EntityDefinition entity() {

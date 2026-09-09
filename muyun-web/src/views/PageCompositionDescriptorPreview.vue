@@ -114,6 +114,7 @@ const transientExternalFieldDescriptor = computed<RecordFormFieldDescriptor | un
     fieldRef: { fieldId: field.fieldId, fieldName: field.fieldName },
     label: field.title ?? field.fieldName,
     required: field.required == null ? undefined : { constant: field.required },
+    readOnly: field.readOnly ? { constant: true } : undefined,
     valueType,
     fieldControl: { alias: rendererType.toLowerCase(), rendererType, valueShape: 'SCALAR' },
   };
@@ -719,6 +720,14 @@ function isSelected(slot: PreviewSlot, fieldName: string) {
 
 function updateFormField(fieldName: string, value: RecordFormFieldValue) {
   formRecord.value = { ...formRecord.value, [fieldName]: value };
+}
+
+function updateReferenceProjections(fieldName: string, projections: Record<string, unknown>) {
+  const prefix = `${fieldName}.`;
+  formRecord.value = {
+    ...Object.fromEntries(Object.entries(formRecord.value).filter(([name]) => !name.startsWith(prefix))),
+    ...projections,
+  };
 }
 
 function layoutKeyOf(element: HTMLElement) {
@@ -1361,6 +1370,7 @@ function animateLayoutElement(element: HTMLElement, x: number, y: number) {
         :form-session-key="`page-composer:${moduleAlias}`"
         layout-transition-prefix="edit"
         @update:field="updateFormField"
+        @reference-projections-change="updateReferenceProjections"
       >
         <template #before-field="{ field }">
           <template v-for="group in emptyGroupsBefore(field.fieldName)" :key="group.id">

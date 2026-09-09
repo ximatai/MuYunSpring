@@ -66,6 +66,148 @@ describe('PageCompositionWorkspace publication flow', () => {
     },
   );
 
+  it('loads ONE reference directories recursively and restores a read-only path from the saved draft', async () => {
+    const requests: HttpRequestOptions[] = [];
+    const delegate = publicationFlowHttp(
+      requests,
+      JSON.stringify({
+        template: 'management',
+        templateVersion: 1,
+        nodes: [
+          { slot: 'list', fields: ['supplierId.organizationId.title'] },
+          { slot: 'form', fields: ['supplierId.organizationId.title'] },
+        ],
+      }),
+      [
+        {
+          id: 'supplierId',
+          fieldName: 'supplierId',
+          title: '供应商',
+          fieldOwnership: 'BUSINESS',
+          fieldForm: 'PHYSICAL',
+        },
+      ],
+    );
+    configureModuleContext({
+      http: {
+        request: <T>(options: HttpRequestOptions) => {
+          if (options.path === '/platform.module/education.exam/page-reference-fields')
+            return Promise.resolve({
+              moduleAlias: 'education.exam',
+              path: '',
+              fields: [
+                {
+                  id: 'supplierId',
+                  name: 'supplierId',
+                  label: '供应商',
+                  referenceModuleAlias: 'education.supplier',
+                  referenceCardinality: 'ONE',
+                  expandable: true,
+                },
+              ],
+            } as T);
+          if (options.path.endsWith('page-reference-fields?path=supplierId'))
+            return Promise.resolve({
+              moduleAlias: 'education.exam',
+              path: 'supplierId',
+              fields: [
+                {
+                  id: 'supplierId.organizationId',
+                  name: 'supplierId.organizationId',
+                  label: '所属组织',
+                  referenceModuleAlias: 'iam.organization',
+                  referenceCardinality: 'ONE',
+                  expandable: true,
+                  readOnly: true,
+                },
+              ],
+            } as T);
+          if (options.path.endsWith('page-reference-fields?path=supplierId.organizationId'))
+            return Promise.resolve({
+              moduleAlias: 'education.exam',
+              path: 'supplierId.organizationId',
+              fields: [
+                {
+                  id: 'supplierId.organizationId.title',
+                  name: 'supplierId.organizationId.title',
+                  label: '组织名称',
+                  readOnly: true,
+                  systemManaged: true,
+                },
+              ],
+            } as T);
+          return delegate.request<T>(options);
+        },
+      },
+    });
+    const wrapper = mount(PageCompositionWorkspace, {
+      props: { moduleAlias: 'education.exam' },
+      global: { stubs: workspaceStubs() },
+    });
+    try {
+      await flushPromises();
+      await flushPromises();
+      const palette = wrapper
+        .findAllComponents({ name: 'UiTree' })
+        .find((candidate) => typeof candidate.props('loadChildren') === 'function')!;
+      const root = palette.props('nodes')[0];
+      const supplier = root.children.find(
+        (node: { key: string }) => node.key === 'metadata:field:supplierId',
+      );
+      const request = {
+        reason: 'expand' as const,
+        cursor: undefined,
+        requestId: 'test',
+        signal: new AbortController().signal,
+        node: supplier,
+      };
+      const first = await palette.props('loadChildren')(supplier, request);
+      expect(first.nodes).toMatchObject([{ key: 'metadata:field:supplierId.organizationId', isLeaf: false }]);
+      const second = await palette.props('loadChildren')(first.nodes[0], {
+        ...request,
+        node: first.nodes[0],
+      });
+      expect(second.nodes).toEqual([]);
+      const reloadKey = palette.props('reloadKey');
+      await wrapper.get('[aria-label="显示系统字段"]').trigger('click');
+      await flushPromises();
+      expect(palette.props('reloadKey')).toBe(reloadKey + 1);
+      const withSystemFields = await palette.props('loadChildren')(first.nodes[0], {
+        ...request,
+        node: first.nodes[0],
+      });
+      expect(withSystemFields.nodes).toMatchObject([
+        { key: 'metadata:field:supplierId.organizationId.title', secondary: expect.stringContaining('只读') },
+      ]);
+      const tree = wrapper.findComponent(PageCompositionTree);
+      expect(tree.props('listFields')).toMatchObject([
+        {
+          fieldName: 'supplierId.organizationId.title',
+          platformReadOnly: true,
+        },
+      ]);
+      expect(tree.props('listFields')[0].properties?.readOnly).toBeUndefined();
+      expect(tree.props('formFields')).toMatchObject([
+        {
+          fieldName: 'supplierId.organizationId.title',
+          platformReadOnly: true,
+          properties: { readOnly: true },
+        },
+      ]);
+      await wrapper
+        .findAll('[data-testid="publish-button"]')
+        .find((button) => button.text() === '保存草稿')!
+        .trigger('click');
+      await flushPromises();
+      const saved = requests.find((entry) => entry.path.endsWith('/revisions/update/revision-1'))!;
+      expect(JSON.parse((saved.body as { uiTreeJson: string }).uiTreeJson).nodes[0].fields).toEqual([
+        'supplierId.organizationId.title',
+      ]);
+    } finally {
+      wrapper.unmount();
+    }
+  });
+
   it('saves the same local tree before publishing and creates the next draft from that snapshot', async () => {
     const requests: HttpRequestOptions[] = [];
     const http = publicationFlowHttp(requests);
@@ -317,6 +459,8 @@ describe('PageCompositionWorkspace publication flow', () => {
           if (options.path === '/platform.module/platform.module/context')
             return Promise.resolve({ moduleAlias: 'platform.module', capabilities: [], actions: [] } as T);
           if (options.path.endsWith('/overview-mode')) return Promise.resolve(compositionProfile() as T);
+          if (options.path.endsWith('/page-reference-fields'))
+            return Promise.resolve({ moduleAlias: 'education.new', path: '', fields: [] } as T);
           if (options.path === '/platform.module/education.old/metadata-relations/query')
             return oldRelations.promise as Promise<T>;
           if (options.path === '/platform.module/education.new/metadata-relations/query')
@@ -1405,6 +1549,13 @@ function responseFor(
   if (options.path === '/platform.module/education.exam/context') {
     return { moduleAlias: 'education.exam', capabilities: [], actions: [] };
   }
+  if (options.path === '/platform.module/education.exam/page-reference-fields') {
+    return {
+      moduleAlias: 'education.exam',
+      path: '',
+      fields: mainFields.map((field) => ({ id: field.id, name: field.fieldName, label: field.title })),
+    };
+  }
   if (options.path === '/platform.module/education.exam/metadata-relations/query') {
     return {
       records: [
@@ -1544,12 +1695,12 @@ function workspaceStubs() {
       props: ['checked'],
       emits: ['update:checked'],
       template:
-        '<button role="switch" :aria-checked="checked" @click="$emit(\'update:checked\', !checked)" />',
+        '<button role="switch" :aria-checked="checked" v-bind="$attrs" @click="$emit(\'update:checked\', !checked)" />',
     },
     UiTabs: { template: '<div><slot /></div>' },
     UiTree: {
       name: 'UiTree',
-      props: { nodes: Array, dragOperations: Array },
+      props: { nodes: Array, dragOperations: Array, loadChildren: Function, reloadKey: Number },
       emits: ['drag-start', 'external-drop'],
       template: '<div>{{ JSON.stringify(nodes) }}</div>',
     },

@@ -19,6 +19,23 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class PageRevisionModuleUiDefinitionAdapterTest {
     @Test
+    void keepsReferencePathsAsReadOnlyPageFields() {
+        var definition = PageRevisionModuleUiDefinitionAdapter.fromPublishedRevision(page(), revision("""
+                {"template":"management","templateVersion":1,"nodes":[
+                  {"slot":"list","title":"列表","fields":["supplierId.organizationId.title"]},
+                  {"slot":"form","title":"详情","fields":[{"field":"supplierId.organizationId.title","props":{"readOnly":false}}]}]}
+                """), new DynamicPageCompilationContext(DynamicModuleOverviewMode.LIST_CARD,
+                Map.of("supplierId", "供应商"), java.util.Set.of(), Map.of())
+                .withReferenceFieldTitleResolver(path -> "所属机构"));
+
+        ListDetailCardPageDefinition page = (ListDetailCardPageDefinition) definition.page();
+        assertThat(page.list().list().fields()).extracting(field -> field.fieldRef().fieldName())
+                .containsExactly("supplierId.organizationId.title");
+        assertThat(page.list().list().fields().getFirst().label()).isEqualTo("所属机构");
+        assertThat(page.detail().editor().fields().getFirst().readOnly().constant()).isTrue();
+    }
+
+    @Test
     void compilesCustomFormEntryWithoutRequiringAnExecutableBinding() {
         var revision = revision("""
                 {"template":"management","templateVersion":4,"mode":"LIST_CARD","quickSearchFields":[],

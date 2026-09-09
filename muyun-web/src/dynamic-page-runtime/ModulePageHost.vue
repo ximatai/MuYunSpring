@@ -76,6 +76,7 @@ import {
   type ModuleTreeClient,
 } from '@muyun/web-core';
 import { canMutateModuleDetail } from './moduleDetailStateModel';
+import { recordMutationPayload } from './recordMutationPayload';
 import {
   createReadonlyCardRecordSnapshot,
   resolveModulePageEnhancement,
@@ -2171,8 +2172,8 @@ async function handleNavigatorInlineAction(
 
 async function saveNavigatorRecord() {
   const level = navigatorManagementLevel.value;
-  const record = navigatorManagementDetail.draft.value;
-  if (!level || !navigatorManagementAvailable(level) || !record || navigatorManagementDetail.saving.value)
+  const draft = navigatorManagementDetail.draft.value;
+  if (!level || !navigatorManagementAvailable(level) || !draft || navigatorManagementDetail.saving.value)
     return;
   if (!navigatorManagementFormValid.value) {
     navigatorManagementFormValidationRequestKey.value += 1;
@@ -2182,6 +2183,7 @@ async function saveNavigatorRecord() {
   if (level.context.can(creating ? 'create' : 'update') !== true) return;
   navigatorManagementDetail.saving.value = true;
   try {
+    const record = recordMutationPayload(draft);
     const id = record.id == null ? undefined : String(record.id);
     const result =
       !creating && id ? await level.context.crud.update(id, record) : await level.context.crud.insert(record);
@@ -2383,8 +2385,8 @@ async function editRecord(record: QueryListRecord, cancelDestination: 'close' | 
 }
 
 async function saveRecord() {
-  const record = editingRecord.value;
-  if (!record) return;
+  const draft = editingRecord.value;
+  if (!draft) return;
   if (!mainFormValid.value || !relationDraftValid.value) {
     formValidationRequestKey.value += 1;
     return;
@@ -2404,6 +2406,7 @@ async function saveRecord() {
   }
   saving.value = true;
   try {
+    const record = recordMutationPayload(draft);
     const id = record.id == null ? undefined : String(record.id);
     const result =
       editorMode.value === 'edit' && id

@@ -50,6 +50,31 @@ it('clears declared dependent references from the full form catalog', () => {
   ).toEqual({ organizationId: 'organization-b', departmentId: undefined });
 });
 
+it('clears stale derived display paths when a ONE reference changes', () => {
+  const fields = new Map<string, RecordFormFieldDescriptor>([
+    [
+      'supplierId',
+      {
+        ...descriptorField('supplierId', '供应商'),
+        reference: { targetModuleAlias: 'education.supplier', cardinality: 'ONE' },
+      },
+    ],
+    [
+      'supplierId.title',
+      { ...descriptorField('supplierId.title', '供应商名称'), readOnly: { constant: true } },
+    ],
+  ]);
+
+  expect(
+    applyReferenceDependencyClears(
+      { supplierId: 'supplier-a', 'supplierId.title': '旧供应商' },
+      'supplierId',
+      'supplier-b',
+      fields,
+    ),
+  ).toEqual({ supplierId: 'supplier-b' });
+});
+
 it('clears transitive and branching reference dependencies after an ancestor changes', () => {
   const fields = new Map<string, RecordFormFieldDescriptor>([
     ['tenantId', descriptorField('tenantId', '所属租户')],

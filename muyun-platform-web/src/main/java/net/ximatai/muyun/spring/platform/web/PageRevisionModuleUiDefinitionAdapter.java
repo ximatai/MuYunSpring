@@ -102,7 +102,7 @@ public final class PageRevisionModuleUiDefinitionAdapter {
                                                            DynamicPageCompilationContext context) {
         return fromRevision(page, revision, revision == null ? null : revision.getUiTreeJson(),
                 context.mainFieldTitles(), context.associations(), true, context.overviewMode(),
-                context.requiredMainFields());
+                context.requiredMainFields(), true, context.referenceFieldTitleResolver());
     }
 
     public static ModuleUiDefinition fromPreviewRevision(PlatformPageDefinition page,
@@ -110,7 +110,7 @@ public final class PageRevisionModuleUiDefinitionAdapter {
                                                          String uiTreeJson,
                                                          DynamicPageCompilationContext context) {
         return fromRevision(page, revision, uiTreeJson, context.mainFieldTitles(), context.associations(), false,
-                context.overviewMode(), context.requiredMainFields());
+                context.overviewMode(), context.requiredMainFields(), true, context.referenceFieldTitleResolver());
     }
 
     private static ModuleUiDefinition fromRevision(PlatformPageDefinition page,
@@ -120,7 +120,7 @@ public final class PageRevisionModuleUiDefinitionAdapter {
                                                    Map<String, DynamicAssociationViewDescriptor> associations,
                                                    boolean requirePublished) {
         return fromRevision(page, revision, uiTreeJson, mainEntityFieldTitles, associations, requirePublished,
-                DynamicModuleOverviewMode.LIST_CARD, Set.of());
+                DynamicModuleOverviewMode.LIST_CARD, Set.of(), false, null);
     }
 
     private static ModuleUiDefinition fromRevision(PlatformPageDefinition page,
@@ -130,7 +130,9 @@ public final class PageRevisionModuleUiDefinitionAdapter {
                                                    Map<String, DynamicAssociationViewDescriptor> associations,
                                                    boolean requirePublished,
                                                    DynamicModuleOverviewMode overviewMode,
-                                                   Set<String> requiredMainFieldNames) {
+                                                   Set<String> requiredMainFieldNames,
+                                                   boolean allowReferencePaths,
+                                                   java.util.function.Function<String, String> referenceFieldTitleResolver) {
         if (page == null) {
             throw new IllegalArgumentException("page definition must not be null");
         }
@@ -157,9 +159,10 @@ public final class PageRevisionModuleUiDefinitionAdapter {
         Slot list = requireSlot(composition.slots(), "list", revision.getId());
         Slot form = requireSlot(composition.slots(), "form", revision.getId());
         ViewDefinition listView = view(ModuleUiViewCodes.DEFAULT_LIST, ModuleViewKind.LIST,
-                list, knownFields, fieldTitles, requiredFields);
+                list, knownFields, fieldTitles, requiredFields, allowReferencePaths, referenceFieldTitleResolver);
         PageDetailDefinition detail = new PageDetailDefinition(null, form.title(), null,
-                view(ModuleUiViewCodes.DEFAULT_FORM, ModuleViewKind.FORM, form, knownFields, fieldTitles, requiredFields));
+                view(ModuleUiViewCodes.DEFAULT_FORM, ModuleViewKind.FORM, form, knownFields, fieldTitles, requiredFields,
+                        allowReferencePaths, referenceFieldTitleResolver));
         if (composition.quickSearchFields() != null && !knownFields.containsAll(composition.quickSearchFields()))
             throw new IllegalArgumentException("Unknown quick search field");
         PageExplorerDefinition explorer = composition.explorer();
@@ -207,14 +210,18 @@ public final class PageRevisionModuleUiDefinitionAdapter {
     }
 
     private static ViewDefinition view(String viewCode, ModuleViewKind viewKind, Slot slot, Set<String> knownFields,
-                                       Map<String, String> fieldTitles, Set<String> requiredFields) {
+                                       Map<String, String> fieldTitles, Set<String> requiredFields,
+                                       boolean allowReferencePaths,
+                                       java.util.function.Function<String, String> referenceFieldTitleResolver) {
         List<ViewFieldDefinition> fields = slot.fields().stream()
-                .map(field -> field(field, slot.slot(), knownFields, fieldTitles, requiredFields))
+                .map(field -> field(field, slot.slot(), knownFields, fieldTitles, requiredFields, allowReferencePaths,
+                        referenceFieldTitleResolver))
                 .collect(java.util.stream.Collectors.toCollection(java.util.ArrayList::new));
         List<FormGroupDefinition> groups = "form".equals(slot.slot())
                 ? slot.groups().stream().map(group -> {
                     List<ViewFieldDefinition> groupFields = group.fields().stream()
-                            .map(field -> field(field, slot.slot(), knownFields, fieldTitles, requiredFields)).toList();
+                            .map(field -> field(field, slot.slot(), knownFields, fieldTitles, requiredFields,
+                                    allowReferencePaths, referenceFieldTitleResolver)).toList();
 
                     return new FormGroupDefinition(group.code(), group.title(), group.subtitle(), groupFields);
                 }).toList()
@@ -235,18 +242,23 @@ public final class PageRevisionModuleUiDefinitionAdapter {
     }
 
     private static ViewFieldDefinition field(FieldNode field, String slot, Set<String> knownFields,
-                                             Map<String, String> fieldTitles, Set<String> requiredFields) {
+                                             Map<String, String> fieldTitles, Set<String> requiredFields,
+                                             boolean allowReferencePaths,
+                                             java.util.function.Function<String, String> referenceFieldTitleResolver) {
         if (field.name() == null || field.name().isBlank()) {
             throw new IllegalArgumentException("management " + slot + " slot contains a blank field");
         }
         String normalized = field.name().trim();
-        if (!knownFields.contains(normalized)) {
+        boolean referencePath = normalized.contains(".");
+        if ((!referencePath || !allowReferencePaths) && !knownFields.contains(normalized)) {
             throw new IllegalArgumentException("management " + slot + " slot references an unknown main entity field: "
                     + normalized);
         }
         ViewFieldDefinition.Builder builder = ViewFieldDefinition.field(normalized);
         if (requiredFields.contains(normalized)) builder.required();
-        String label = field.label() == null ? fieldTitles.get(normalized) : field.label();
+        String label = field.label() == null ? (referencePath && referenceFieldTitleResolver != null
+                ? referenceFieldTitleResolver.apply(normalized)
+                : referencePath ? normalized.substring(normalized.lastIndexOf('.') + 1) : fieldTitles.get(normalized)) : field.label();
         if (label != null) {
             builder.label(label);
         }
@@ -261,12 +273,13 @@ public final class PageRevisionModuleUiDefinitionAdapter {
             if (field.columnSpan() != null) {
                 builder.columnSpan(field.columnSpan());
             }
-            if (Boolean.TRUE.equals(field.readOnly())) {
+            if (referencePath || Boolean.TRUE.equals(field.readOnly())) {
                 builder.readOnly();
             }
         }
         return builder.build();
     }
+
 
     private static Set<String> knownMainFields(Collection<String> fields) {
         if (fields == null) {

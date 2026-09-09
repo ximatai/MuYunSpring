@@ -54,6 +54,8 @@ import net.ximatai.muyun.spring.platform.web.DynamicRelationProjectionReadServic
 import net.ximatai.muyun.spring.web.TenantRequestScope;
 import net.ximatai.muyun.spring.platform.web.ProjectionQueryDescriptor;
 import net.ximatai.muyun.spring.platform.web.ProjectionQueryFallbackReason;
+import net.ximatai.muyun.spring.platform.web.PageReferenceProjectionReader;
+import net.ximatai.muyun.spring.ability.reference.PlatformAuditReferences;
 import net.ximatai.muyun.spring.common.exception.ErrorScope;
 import net.ximatai.muyun.spring.common.exception.ErrorTarget;
 import net.ximatai.muyun.spring.common.exception.PlatformErrorCodes;
@@ -599,19 +601,22 @@ public class DynamicRecordWebController implements
         Set<String> projectionFields = dynamicRelationProjectionReadService.resolveListOutputFields(
                 DynamicWebRequest.moduleAlias(), recordService,
                 projectionFields(DynamicWebRequest.moduleAlias()));
-        ProjectionQueryDescriptor projectionDescriptor = projectionListQueryDescriptor(projectionFields);
+        Set<String> storageProjectionFields = pageReferenceStorageFields(projectionFields);
+        ProjectionQueryDescriptor projectionDescriptor = projectionListQueryDescriptor(storageProjectionFields);
         Sort[] sorts = querySorts(request, projectionDescriptor.sortableFields());
         PageResult<DynamicRecord> projectedPage = projectionDescriptor.supported()
-                ? queryProjectionRecords(projectionFields, criteria, pageRequest, sorts)
+                ? queryProjectionRecords(storageProjectionFields, criteria, pageRequest, sorts)
                 : null;
         if (projectedPage != null) {
+            populatePageReferencePaths(projectedPage.getRecords(), projectionFields);
             return projectedPage;
         }
         PageResult<DynamicRecord> page = service().pageQuery(criteria, pageRequest, sorts);
-        Set<String> fields = projectionFields;
+        Set<String> fields = storageProjectionFields;
         List<DynamicRecord> records = page.getRecords().stream()
                 .map(record -> project(record, fields))
                 .toList();
+        populatePageReferencePaths(records, projectionFields);
         return PageResult.of(records, page.getTotal(), PageRequest.of(page.getPageNum(), page.getPageSize()));
     }
 
@@ -670,9 +675,17 @@ public class DynamicRecordWebController implements
         Set<String> projectionFields = dynamicRelationProjectionReadService.resolveListOutputFields(
                 DynamicWebRequest.moduleAlias(), recordService,
                 projectionFields(DynamicWebRequest.moduleAlias()));
-        return records.stream()
-                .map(record -> project(record, projectionFields))
+        Set<String> storageProjectionFields = pageReferenceStorageFields(projectionFields);
+        List<DynamicRecord> projected = records.stream()
+                .map(record -> project(record, storageProjectionFields))
                 .toList();
+        populatePageReferencePaths(projected, projectionFields);
+        return projected;
+    }
+
+    @Override
+    public boolean supportsUnpagedQuery() {
+        return true;
     }
 
     @Override
@@ -775,6 +788,7 @@ public class DynamicRecordWebController implements
         if (output == null) return output;
         var plan = requireExecutionPlan(DynamicWebRequest.moduleAlias());
         DynamicRecord enriched = output.copy();
+        populatePageReferencePaths(List.of(enriched), projectionFields(DynamicWebRequest.moduleAlias()));
         plan.uiDescriptor().detailRelations().stream()
                 .filter(relation -> relation.embeddedField() != null)
                 .forEach(relation -> enrichEmbeddedRelation(enriched, relation.code()));
@@ -1217,6 +1231,30 @@ public class DynamicRecordWebController implements
             }
         }
         return projected;
+    }
+
+    /** Dotted management-page fields are compiled read projections and never accepted by mutation paths. */
+    private void populatePageReferencePaths(List<DynamicRecord> records, Set<String> fields) {
+        if (fields == null || fields.stream().noneMatch(field -> field != null && field.contains("."))) {
+            return;
+        }
+        PageReferenceProjectionReader.populate(new net.ximatai.muyun.spring.ability.reference.ReferenceTarget(
+                        DynamicWebRequest.moduleAlias(), mainEntityAlias(DynamicWebRequest.moduleAlias())), records,
+                fields == null ? List.of() : List.copyOf(fields), record -> {
+                    Map<String, Object> values = new LinkedHashMap<>(record.getValues());
+                    values.putAll(PlatformAuditReferences.values(record));
+                    return values;
+                }, (record, projections) -> projections.forEach(record::putReadProjectionValue));
+    }
+
+    private static Set<String> pageReferenceStorageFields(Set<String> fields) {
+        LinkedHashSet<String> storage = new LinkedHashSet<>(fields == null ? Set.of() : fields);
+        storage.removeIf(field -> field != null && field.contains("."));
+        if (fields != null) {
+            fields.stream().filter(field -> field != null && field.contains("."))
+                    .map(field -> field.substring(0, field.indexOf('.'))).forEach(storage::add);
+        }
+        return java.util.Collections.unmodifiableSet(storage);
     }
 
     private void requireLowCodePageServices() {
