@@ -100,7 +100,7 @@ public class RecordPermissionService {
         RecordPermissionAccess<T> access = requireRecord(service, id);
         T record = access.record();
         Map<String, Object> before = relations(record);
-        validateTargetUsers(record, command, access);
+        validateTargetUsers(record, command);
         RecordPermissionChanges.apply(record, command);
         try (var context = ActionExecutionContextHolder.use(ActionExecutionContext.ofPlatformAction(service.getModuleAlias(),
                 PlatformAction.MANAGE_PERMISSIONS, Set.of(id), CurrentUserContext.currentUser()))) {
@@ -121,9 +121,7 @@ public class RecordPermissionService {
         MutationContextHolder.current().ifPresent(context -> context.record(DataChange.recordUpdated(service.getModuleAlias(), id)));
     }
 
-    private void validateTargetUsers(EntityContract record,
-                                     RecordPermissionChange command,
-                                     RecordPermissionAccess<?> access) {
+    private void validateTargetUsers(EntityContract record, RecordPermissionChange command) {
         if (command == null || command.operation() == RecordPermissionChange.Operation.REMOVE) {
             return;
         }

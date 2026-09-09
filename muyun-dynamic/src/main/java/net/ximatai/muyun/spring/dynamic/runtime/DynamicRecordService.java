@@ -475,6 +475,21 @@ public class DynamicRecordService {
         return childService.enrichAggregateViewChildren((List<DynamicRecord>) relation.selectChildren(parent.getId()));
     }
 
+    /**
+     * Reads persisted aggregate children while validating a parent UPDATE.  This deliberately
+     * follows the update action and tenant scope instead of the VIEW-only aggregate expansion
+     * path, because the rows are a mutation baseline rather than response data.
+     */
+    @SuppressWarnings({"rawtypes", "unchecked"})
+    public List<DynamicRecord> aggregateChildrenForUpdate(String moduleAlias, String parentId,
+                                                          String relationCode) {
+        String mainEntityAlias = mainEntityAlias(moduleAlias);
+        DataScopeCriteriaResult scope = requireBusinessRecordMutation(moduleAlias, mainEntityAlias,
+                PlatformAction.UPDATE, Set.of(parentId));
+        ChildRelation relation = requireAggregateChildRelation(moduleAlias, relationCode);
+        return withTenantScope(scope, () -> (List<DynamicRecord>) relation.selectChildren(parentId));
+    }
+
     /** Presentation companions (for example, reference titles) travel with an aggregate expansion column. */
     public List<String> aggregateExpansionOutputFields(String moduleAlias, String relationCode,
                                                         List<String> requestedFields) {

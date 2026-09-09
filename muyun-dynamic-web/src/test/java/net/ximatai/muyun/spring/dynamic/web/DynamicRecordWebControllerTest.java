@@ -430,6 +430,53 @@ class DynamicRecordWebControllerTest {
     }
 
     @Test
+    void shouldUseUpdateScopedPersistedChildrenAsAuditMutationBaseline() throws Exception {
+        DynamicRecord parent = new DynamicRecord(entity()).setValue("code", "C-001");
+        parent.setId("contract-1");
+        DynamicRecord persistedLine = new DynamicRecord(lineEntity()).setValue("lineNo", "L-001");
+        persistedLine.setId("line-1");
+        persistedLine.setCreatedBy("owner");
+        when(service.relations(MODULE)).thenReturn(List.of(
+                new DynamicRelationDescriptor("lines", ENTITY, "contract_line", "contractId", false, false)
+        ));
+        when(service.newRecord(MODULE, "contract_line")).thenAnswer(invocation -> new DynamicRecord(lineEntity()));
+        when(service.aggregateChildrenForUpdate(MODULE, "contract-1", "lines"))
+                .thenReturn(List.of(persistedLine));
+        when(mainEntity.select("contract-1")).thenReturn(parent);
+        when(mainEntity.update(any(DynamicRecord.class))).thenReturn(1);
+
+        mvc.perform(post("/{moduleAlias}/update/{recordId}", MODULE, "contract-1")
+                        .contentType("application/json")
+                        .content("""
+                                {"values":{"code":"C-002"},"children":{"lines":[
+                                  {"id":"line-1","values":{"lineNo":"L-001","createdBy":"owner"}}
+                                ]}}
+                                """))
+                .andExpect(status().isOk());
+
+        mvc.perform(post("/{moduleAlias}/update/{recordId}", MODULE, "contract-1")
+                        .contentType("application/json")
+                        .content("""
+                                {"values":{"code":"C-002"},"children":{"lines":[
+                                  {"id":"line-1","values":{"lineNo":"L-001","createdBy":"attacker"}}
+                                ]}}
+                                """))
+                .andExpect(status().isBadRequest());
+
+        mvc.perform(post("/{moduleAlias}/update/{recordId}", MODULE, "contract-1")
+                        .contentType("application/json")
+                        .content("""
+                                {"values":{"code":"C-002"},"children":{"lines":[
+                                  {"values":{"lineNo":"new","createdBy":"attacker"}}
+                                ]}}
+                                """))
+                .andExpect(status().isBadRequest());
+
+        verify(mainEntity, times(1)).update(any(DynamicRecord.class));
+        verify(service, times(3)).aggregateChildrenForUpdate(MODULE, "contract-1", "lines");
+    }
+
+    @Test
     void shouldRoundTripFlatPageFormWithDeclaredChildRelations() throws Exception {
         when(service.relations(MODULE)).thenReturn(List.of(
                 new DynamicRelationDescriptor("lines", ENTITY, "contract_line", "contractId", false, false)));

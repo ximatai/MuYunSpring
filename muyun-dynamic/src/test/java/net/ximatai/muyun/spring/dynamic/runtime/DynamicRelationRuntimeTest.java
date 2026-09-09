@@ -953,6 +953,39 @@ class DynamicRelationRuntimeTest {
     }
 
     @Test
+    void shouldReadAggregateMutationBaselineThroughUpdateRatherThanViewScope() {
+        IDatabaseOperations<Object> operations = operations();
+        stubInvoiceRows(operations);
+        List<String> scopedActions = new ArrayList<>();
+        DataScopeCriteriaService scopes = new DataScopeCriteriaService() {
+            @Override
+            public DataScopeCriteriaResult resolveReadScope(String moduleAlias, String actionCode,
+                                                            net.ximatai.muyun.database.core.orm.Criteria criteria,
+                                                            java.util.Optional<net.ximatai.muyun.spring.common.identity.CurrentUser> currentUser) {
+                scopedActions.add(actionCode);
+                if (PlatformAction.VIEW.code().equals(actionCode)) {
+                    throw new AssertionError("aggregate mutation baseline must not require VIEW");
+                }
+                return DataScopeCriteriaResult.unrestricted(criteria);
+            }
+
+            @Override
+            public DataScopeCriteriaResult resolveReadScope(String moduleAlias, ActionExecutionPolicy policy,
+                                                            net.ximatai.muyun.database.core.orm.Criteria criteria,
+                                                            java.util.Optional<net.ximatai.muyun.spring.common.identity.CurrentUser> currentUser) {
+                return resolveReadScope(moduleAlias, policy.permissionActionCode(), criteria, currentUser);
+            }
+        };
+        DynamicRecordService service = new DynamicRecordService(
+                new DynamicRecordRuntime(operations).register(dataScopedInvoiceModule()),
+                new net.ximatai.muyun.spring.common.platform.AllowAllActionExecutionPolicyService(), scopes);
+
+        assertThat(service.aggregateChildrenForUpdate(MODULE, "invoice-1", "lines"))
+                .singleElement().extracting(DynamicRecord::getId).isEqualTo("line-1");
+        assertThat(scopedActions).contains(PlatformAction.UPDATE.code()).doesNotContain(PlatformAction.VIEW.code());
+    }
+
+    @Test
     void shouldEnrichAggregateChildrenAfterParentViewEvenWhenChildQueryScopeExcludesThem() {
         IDatabaseOperations<Object> operations = operations();
         stubInvoiceRows(operations);
@@ -1242,6 +1275,15 @@ class DynamicRelationRuntimeTest {
                         .withProjection("title", "invoiceDisplayTitle")
                         .withIntegrity(new ReferenceIntegrityPolicy(
                                 ReferenceTargetUnavailablePolicy.CASCADE_DELETE))))
+                .build();
+    }
+
+    private ModuleDefinition dataScopedInvoiceModule() {
+        return ModuleDefinition.builder(MODULE, "Invoice")
+                .entities(List.of(invoiceEntity().withCapabilities(EntityCapability.REFERENCE, EntityCapability.DATA_SCOPE),
+                        invoiceLineEntity()))
+                .relations(List.of(EntityRelationDefinition.child("lines", "invoice", "invoice_line", "invoiceId")
+                        .withAutoPopulate()))
                 .build();
     }
 

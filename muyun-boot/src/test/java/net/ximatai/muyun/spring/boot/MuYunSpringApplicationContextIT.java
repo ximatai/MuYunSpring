@@ -625,7 +625,7 @@ class MuYunSpringApplicationContextIT {
 
     @Test
     void shouldManageRecordPermissionsThroughStandardHttpEndpoints() {
-        String tenantId = "tenant_permission_http";
+        String tenantId = insertSummaryTenant("tenant_permission_http");
         seedUserEmployeeProjectionRecords(tenantId);
         jdbcTemplate.update("update iam_user set password_status = ? where tenant_id = ?", "NORMAL", tenantId);
         String id = projectionUserId(tenantId, "alice");

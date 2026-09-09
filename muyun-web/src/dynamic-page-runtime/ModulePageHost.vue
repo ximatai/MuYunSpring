@@ -2584,6 +2584,14 @@ async function openRecordView(record: QueryListRecord) {
 const permissionsOpen = ref(false);
 async function permissionsChanged() {
   const record = selectedRecord.value;
+  if (record?.id) {
+    const recordId = String(record.id);
+    // A permission mutation changes the record-scoped action contract even when the
+    // current user still has VIEW. Refresh it eagerly so the detail and list do
+    // not keep offering mutations granted by the previous assignment.
+    context.invalidateRecordActions?.([recordId]);
+    void context.recordActions(recordId).catch(() => undefined);
+  }
   refreshList();
   if (!record?.id) return;
   await loadRecord(record, 'view', {}, false, (cause) => {

@@ -185,24 +185,28 @@ public class DynamicRecordWebController implements
             throw new PlatformException("数据权限能力未启用");
     }
 
+    private void requirePermissionRecordScope(String id) {
+        requireRecordScope(service().readForPermissionAction(id).record());
+    }
+
     @org.springframework.web.bind.annotation.GetMapping("/permissions/{id}")
     @net.ximatai.muyun.spring.common.platform.ActionEndpoint(PlatformAction.MANAGE_PERMISSIONS)
     public net.ximatai.muyun.spring.ability.permission.RecordPermissionState permissions(@PathVariable String id) {
-        return webScope(() -> { requirePermissionsCapability(); return recordPermissions.read(service(), id); });
+        return webScope(() -> { requirePermissionsCapability(); requirePermissionRecordScope(id); return recordPermissions.read(service(), id); });
     }
 
     @org.springframework.web.bind.annotation.GetMapping("/permissions/{id}/candidates")
     @net.ximatai.muyun.spring.common.platform.ActionEndpoint(PlatformAction.MANAGE_PERMISSIONS)
     public java.util.List<net.ximatai.muyun.spring.ability.reference.ReferenceOption> permissionCandidates(
             @PathVariable String id, @org.springframework.web.bind.annotation.RequestParam(required = false) String keyword) {
-        return webScope(() -> { requirePermissionsCapability(); return recordPermissions.candidates(service(), id, keyword); });
+        return webScope(() -> { requirePermissionsCapability(); requirePermissionRecordScope(id); return recordPermissions.candidates(service(), id, keyword); });
     }
 
     @org.springframework.web.bind.annotation.PostMapping("/permissions/{id}")
     @net.ximatai.muyun.spring.common.platform.ActionEndpoint(PlatformAction.MANAGE_PERMISSIONS)
     public java.util.Map<String, Boolean> managePermissions(@PathVariable String id,
             @RequestBody net.ximatai.muyun.spring.ability.permission.RecordPermissionChange command) {
-        return webScope(() -> { requirePermissionsCapability(); recordPermissions.change(service(), id, command); return java.util.Map.of("changed", true); });
+        return webScope(() -> { requirePermissionsCapability(); requirePermissionRecordScope(id); recordPermissions.change(service(), id, command); return java.util.Map.of("changed", true); });
     }
 
     @Autowired
@@ -1766,14 +1770,30 @@ public class DynamicRecordWebController implements
     }
 
     private void validateAuditInputs(DynamicRecord record, DynamicRecord existing) {
+        validateAuditInputs(record, existing, existing == null ? Map.of() : persistedChildrenForUpdate(record, existing));
+    }
+
+    private Map<String, Map<String, DynamicRecord>> persistedChildrenForUpdate(DynamicRecord record,
+                                                                                 DynamicRecord existing) {
+        Map<String, Map<String, DynamicRecord>> persisted = new java.util.LinkedHashMap<>();
+        record.getChildren().forEach((relation, rows) -> persisted.put(relation,
+                recordService.aggregateChildrenForUpdate(DynamicWebRequest.moduleAlias(), existing.getId(), relation)
+                        .stream().filter(child -> child.getId() != null)
+                        .collect(java.util.stream.Collectors.toMap(DynamicRecord::getId, child -> child,
+                                (left, right) -> left, java.util.LinkedHashMap::new))));
+        return persisted;
+    }
+
+    private void validateAuditInputs(DynamicRecord record, DynamicRecord existing,
+                                     Map<String, Map<String, DynamicRecord>> persistedChildren) {
         Map<String, Object> supplied = new java.util.LinkedHashMap<>();
         PlatformFieldPolicy.auditFields().forEach(field ->
                 supplied.put(field.fieldName(), record.mutationMetadata().get("auditInput:" + field.fieldName())));
         PlatformAuditMutationGuard.validate(supplied, existing);
         record.getChildren().forEach((relation, rows) -> rows.forEach(row -> {
-            DynamicRecord persisted = existing == null ? null : existing.getChildren().getOrDefault(relation, List.of()).stream()
-                    .filter(candidate -> row.getId() != null && row.getId().equals(candidate.getId())).findFirst().orElse(null);
-            validateAuditInputs(row, persisted);
+            DynamicRecord persisted = row.getId() == null ? null : persistedChildren
+                    .getOrDefault(relation, Map.of()).get(row.getId());
+            validateAuditInputs(row, persisted, Map.of());
         }));
     }
 

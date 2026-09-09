@@ -594,14 +594,15 @@ public final class StaticAbilityOperationRuntime {
         @Override
         @SuppressWarnings({"rawtypes", "unchecked"})
         public Object executePermissions() {
-            return scope.webScope(() -> {
+            return MutationTenantScopeExecutor.forExistingRecord(scope, id, () -> scope.webScope(() -> {
+                requireProjectionRecord(scope, request, PlatformAction.MANAGE_PERMISSIONS, id);
                 var manager = permissions.getObject();
                 CrudAbility service = requireService(scope, CrudAbility.class);
                 if ("permissions".equals(operationCode)) return manager.read(service, id);
                 if ("permissionCandidates".equals(operationCode)) return manager.candidates(service, id, request.getParameter("keyword"));
                 manager.change(service, id, (net.ximatai.muyun.spring.ability.permission.RecordPermissionChange) body);
                 return Map.of("changed", true);
-            });
+            }));
         }
 
         @Override

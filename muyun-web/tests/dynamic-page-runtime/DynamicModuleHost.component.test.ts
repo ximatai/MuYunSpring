@@ -297,6 +297,189 @@ describe('ModulePageHost', () => {
     expect(wrapper.findComponent({ name: 'RecordDetailDrawer' }).props('title')).toBe('配置扩展');
   });
 
+  it('refreshes record actions after permission changes when the user retains record view access', async () => {
+    let permissionsChanged = false;
+    globalThis.fetch = async (input) => {
+      const request = new Request(input);
+      if (request.url.endsWith('/platform.module/crm.customer/context')) {
+        return Response.json({
+          moduleAlias: 'crm.customer',
+          capabilities: [],
+          actions: [
+            { actionCode: 'view', actionLevel: 'RECORD', authorized: true },
+            { actionCode: 'update', actionLevel: 'RECORD', authorized: true },
+            { actionCode: 'managePermissions', actionLevel: 'RECORD', authorized: true },
+          ],
+          uiDescriptor: {
+            schemaVersion: '1',
+            moduleAlias: 'crm.customer',
+            page: page({
+              template: 'FLAT_MANAGEMENT',
+              managedActions: true,
+              actions: [
+                { actionCode: 'update', anchor: 'DETAIL' },
+                { actionCode: 'managePermissions', anchor: 'DETAIL', operation: 'MANAGE_PERMISSIONS' },
+              ],
+            }),
+          },
+        });
+      }
+      if (request.url.endsWith('/crm.customer/actions/customer-1')) {
+        return Response.json({
+          recordId: 'customer-1',
+          actions: permissionsChanged
+            ? [
+                { actionCode: 'view', available: true },
+                { actionCode: 'update', available: false, reason: '已移除编辑权限' },
+                { actionCode: 'managePermissions', available: false, reason: '已移除授权权限' },
+              ]
+            : [
+                { actionCode: 'view', available: true },
+                { actionCode: 'update', available: true },
+                { actionCode: 'managePermissions', available: true },
+              ],
+        });
+      }
+      if (request.url.endsWith('/crm.customer/view/customer-1')) {
+        return Response.json({ id: 'customer-1', title: '客户一', version: 1 });
+      }
+      throw new Error(`Unexpected request: ${request.url}`);
+    };
+    configureModuleContext({ httpFactory: () => createHttpClient({ baseUrl: 'http://api.local' }) });
+    const wrapper = shallowMount(ModulePageHost, {
+      props: {
+        descriptor: {
+          pageType: 'dynamic-module',
+          openMode: 'dynamic-runner',
+          hostType: 'dynamic-module-host',
+          tabPolicy: { identity: 'by-menu' },
+          target: { moduleAlias: 'crm.customer', pageMode: 'LIST' },
+        },
+      },
+      global: {
+        stubs: {
+          ManagementWorkspace: { template: '<section><slot /></section>' },
+          StaticManagementLayout: {
+            template: '<section><slot name="explorer" /><slot name="detail-actions" /><slot /></section>',
+          },
+          RecordDetailPanel: { template: '<section><slot name="actions" /><slot /></section>' },
+          ModuleRecordDetailActions: false,
+          RecordActionBar: false,
+        },
+      },
+    });
+    await flushPromises();
+    wrapper.findComponent({ name: 'CrudRecordListExplorer' }).vm.$emit('select', { id: 'customer-1' });
+    await flushPromises();
+
+    wrapper.findComponent({ name: 'RecordActionBar' }).vm.$emit('action', {
+      key: 'page-placement:DETAIL:managePermissions',
+      actionCode: 'managePermissions',
+    });
+    await flushPromises();
+    expect(wrapper.findComponent({ name: 'RecordPermissionDialog' }).exists()).toBe(true);
+
+    permissionsChanged = true;
+    wrapper.findComponent({ name: 'RecordPermissionDialog' }).vm.$emit('changed');
+    await flushPromises();
+
+    const actions = wrapper.findComponent({ name: 'AdaptiveHeaderActionBar' }).props('actions') as Array<{
+      actionCode?: string;
+      disabled?: boolean;
+    }>;
+    expect(actions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ actionCode: 'update', disabled: true }),
+        expect.objectContaining({ actionCode: 'managePermissions', disabled: true }),
+      ]),
+    );
+    wrapper.unmount();
+  });
+
+  it('clears the detail after permission changes revoke record view access', async () => {
+    let permissionsChanged = false;
+    globalThis.fetch = async (input) => {
+      const request = new Request(input);
+      if (request.url.endsWith('/platform.module/crm.customer/context')) {
+        return Response.json({
+          moduleAlias: 'crm.customer',
+          capabilities: [],
+          actions: [
+            { actionCode: 'view', actionLevel: 'RECORD', authorized: true },
+            { actionCode: 'managePermissions', actionLevel: 'RECORD', authorized: true },
+          ],
+          uiDescriptor: {
+            schemaVersion: '1',
+            moduleAlias: 'crm.customer',
+            page: page({
+              template: 'FLAT_MANAGEMENT',
+              managedActions: true,
+              actions: [
+                { actionCode: 'managePermissions', anchor: 'DETAIL', operation: 'MANAGE_PERMISSIONS' },
+              ],
+            }),
+          },
+        });
+      }
+      if (request.url.endsWith('/crm.customer/actions/customer-1')) {
+        return Response.json({
+          recordId: 'customer-1',
+          actions: permissionsChanged
+            ? [{ actionCode: 'view', available: false, reason: '已失去查看权限' }]
+            : [
+                { actionCode: 'view', available: true },
+                { actionCode: 'managePermissions', available: true },
+              ],
+        });
+      }
+      if (request.url.endsWith('/crm.customer/view/customer-1')) {
+        return permissionsChanged
+          ? Response.json({ code: 'ACCESS_DENIED', message: '已失去查看权限' }, { status: 403 })
+          : Response.json({ id: 'customer-1', title: '客户一', version: 1 });
+      }
+      throw new Error(`Unexpected request: ${request.url}`);
+    };
+    configureModuleContext({ httpFactory: () => createHttpClient({ baseUrl: 'http://api.local' }) });
+    const wrapper = shallowMount(ModulePageHost, {
+      props: {
+        descriptor: {
+          pageType: 'dynamic-module',
+          openMode: 'dynamic-runner',
+          hostType: 'dynamic-module-host',
+          tabPolicy: { identity: 'by-menu' },
+          target: { moduleAlias: 'crm.customer', pageMode: 'LIST' },
+        },
+      },
+      global: {
+        stubs: {
+          ManagementWorkspace: { template: '<section><slot /></section>' },
+          StaticManagementLayout: {
+            template: '<section><slot name="explorer" /><slot name="detail-actions" /><slot /></section>',
+          },
+          RecordDetailPanel: { template: '<section><slot name="actions" /><slot /></section>' },
+          ModuleRecordDetailActions: false,
+          RecordActionBar: false,
+        },
+      },
+    });
+    await flushPromises();
+    wrapper.findComponent({ name: 'CrudRecordListExplorer' }).vm.$emit('select', { id: 'customer-1' });
+    await flushPromises();
+    wrapper.findComponent({ name: 'RecordActionBar' }).vm.$emit('action', {
+      key: 'page-placement:DETAIL:managePermissions',
+      actionCode: 'managePermissions',
+    });
+    await flushPromises();
+
+    permissionsChanged = true;
+    wrapper.findComponent({ name: 'RecordPermissionDialog' }).vm.$emit('changed');
+    await flushPromises();
+
+    expect(wrapper.findComponent({ name: 'RecordPermissionDialog' }).exists()).toBe(false);
+    expect(wrapper.findComponent({ name: 'ModulePageRecordContent' }).exists()).toBe(false);
+    wrapper.unmount();
+  });
+
   it('limits flat detail contributions to an active normal record-view lifecycle', async () => {
     const ExtensionDrawer = defineComponent({
       name: 'LifecycleExtensionDrawer',

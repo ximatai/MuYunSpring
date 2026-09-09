@@ -12,6 +12,7 @@ import net.ximatai.muyun.spring.dynamic.runtime.DynamicActionAvailability;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicEntityOperations;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecord;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecordService;
+import net.ximatai.muyun.spring.ability.permission.RecordPermissionAccess;
 import net.ximatai.muyun.spring.platform.web.PlatformModuleRuntimeActionWebController;
 import net.ximatai.muyun.spring.platform.web.DynamicRelationProjectionReadService;
 import net.ximatai.muyun.spring.platform.web.ModuleExecutionPlanCatalog;
@@ -20,6 +21,8 @@ import net.ximatai.muyun.spring.platform.web.ResolvedModuleUiDescriptor;
 import net.ximatai.muyun.spring.platform.web.ResolvedModuleReadModel;
 import net.ximatai.muyun.spring.platform.web.ModuleUiDescriptorCompiler;
 import net.ximatai.muyun.spring.platform.web.ModuleUiDefinition;
+import net.ximatai.muyun.spring.platform.web.PageContextBindingDefinition;
+import net.ximatai.muyun.spring.platform.web.NavigatorListQueryMode;
 import net.ximatai.muyun.spring.platform.module.ModuleKind;
 import net.ximatai.muyun.spring.platform.web.PlatformRecordActionAvailability;
 import net.ximatai.muyun.spring.platform.web.PlatformRecordActionAvailabilityService;
@@ -163,6 +166,42 @@ class DynamicRecordWebMvcSliceTest {
                 .andExpect(jsonPath("$.children.lines[0].values.description").value("Persisted child"));
         assertThat(parent.getChildren()).isEmpty();
         verify(recordService).aggregateChildrenForView(MODULE, "contract-1", "lines");
+    }
+
+    @Test
+    void shouldRejectAllDynamicPermissionOperationsOutsideRequiredNavigatorScope() throws Exception {
+        EntityDefinition scopedEntity = new EntityDefinition(ENTITY, "sales_contract", "Contract", List.of(
+                FieldDefinition.string("code", "Code"))).withCapabilities(
+                net.ximatai.muyun.spring.common.platform.EntityCapability.DATA_SCOPE);
+        ResolvedModuleUiDescriptor descriptor = ModuleUiDescriptorCompiler.compile(
+                ModuleUiDefinition.builder(MODULE).build(), ModuleKind.DYNAMIC, "Contract");
+        when(executionPlanCatalog.find(MODULE)).thenReturn(Optional.of(new ModuleExecutionPlan(MODULE, "scoped", descriptor,
+                new ResolvedModuleReadModel(MODULE, ENTITY, List.of()), List.of(
+                PageContextBindingDefinition.navigatorList("contract", "code", NavigatorListQueryMode.REQUIRED_SCOPE)))));
+        DynamicEntityOperations mainEntity = mock(DynamicEntityOperations.class);
+        DynamicRecord foreign = new DynamicRecord(scopedEntity).setValue("code", "C-OTHER");
+        foreign.setId("contract-1");
+        when(recordService.mainEntity(MODULE)).thenReturn(mainEntity);
+        when(mainEntity.describe()).thenReturn(net.ximatai.muyun.spring.dynamic.descriptor.DynamicEntityDescriptor.from(scopedEntity));
+        when(mainEntity.readForPermissionAction("contract-1"))
+                .thenReturn(new RecordPermissionAccess<>(foreign, false));
+
+        mvc.perform(get("/{moduleAlias}/permissions/{recordId}", MODULE, "contract-1")
+                        .header("X-MuYun-Page-Context", "{\"contract\":\"C-EXPECTED\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("Record does not belong to the current page scope: code"));
+        mvc.perform(get("/{moduleAlias}/permissions/{recordId}/candidates", MODULE, "contract-1")
+                        .header("X-MuYun-Page-Context", "{\"contract\":\"C-EXPECTED\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("Record does not belong to the current page scope: code"));
+        mvc.perform(post("/{moduleAlias}/permissions/{recordId}", MODULE, "contract-1")
+                        .header("X-MuYun-Page-Context", "{\"contract\":\"C-EXPECTED\"}")
+                        .contentType("application/json")
+                        .content("{\"operation\":\"ADD\",\"relation\":\"ASSIGNEE\",\"userIds\":[\"user-2\"]}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("Record does not belong to the current page scope: code"));
+
+        verifyNoInteractions(recordPermissions);
     }
 
     @Test

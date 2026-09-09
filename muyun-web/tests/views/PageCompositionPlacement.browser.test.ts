@@ -1,6 +1,6 @@
 import { defineComponent, h } from 'vue';
 import { mount } from '@vue/test-utils';
-import { expect, it } from 'vitest';
+import { expect, it, vi } from 'vitest';
 import { page, commands, userEvent } from 'vitest/browser';
 import { configureModuleContext, type HttpClient, type HttpRequestOptions } from '@/web-core';
 import { providePageLayout } from '@/platform-components/pageLayoutContext';
@@ -166,6 +166,28 @@ it('uses the table cells as the held list-column boundary and has no trailing dr
         const target = animation.effect instanceof KeyframeEffect ? animation.effect.target : undefined;
         return target instanceof HTMLElement && target.matches('th, td');
       });
+  // Capture the actual FLIP animation before the browser gesture RPC returns. A busy CI
+  // worker may otherwise finish its 160 ms lifetime before this test can pause it.
+  let holdColumnAnimationMidpoint = false;
+  const animate = Element.prototype.animate;
+  const animateSpy = vi.spyOn(Element.prototype, 'animate').mockImplementation(function (
+    this: Element,
+    keyframes,
+    options,
+  ) {
+    const animation = animate.call(this, keyframes, options);
+    if (
+      holdColumnAnimationMidpoint &&
+      this instanceof HTMLElement &&
+      this.matches('th, td') &&
+      typeof options === 'object' &&
+      options?.duration === 160
+    ) {
+      animation.pause();
+      animation.currentTime = 80;
+    }
+    return animation;
+  });
   const assertOutlineAtColumnAnimationMidpoint = async (name: string) => {
     await expect.poll(() => columnAnimations().length).toBeGreaterThan(0);
     const animations = columnAnimations();
@@ -185,6 +207,7 @@ it('uses the table cells as the held list-column boundary and has no trailing dr
         }
       })
       .toBe(true);
+    holdColumnAnimationMidpoint = false;
     animations.forEach((animation) => animation.play());
   };
   const listColumnOrder = () =>
@@ -217,6 +240,7 @@ it('uses the table cells as the held list-column boundary and has no trailing dr
       .element(page.elementLocator(wrapper.get(handle('b')).element))
       .toHaveAttribute('aria-disabled', 'false');
     await settled();
+    holdColumnAnimationMidpoint = true;
     await commands.treeGesture(handle('b'), field('a'), 0.5, 'hold', 0.99);
     await expect.poll(() => wrapper.find('.page-composer-column-drag-outline').exists()).toBe(true);
     await assertOutlineAtColumnAnimationMidpoint('b');
@@ -253,6 +277,7 @@ it('uses the table cells as the held list-column boundary and has no trailing dr
       )
       .toEqual(['a', 'b']);
   } finally {
+    animateSpy.mockRestore();
     await userEvent.keyboard('{Escape}');
     await commands.treeRelease();
     wrapper.unmount();

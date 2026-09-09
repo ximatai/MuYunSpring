@@ -5,9 +5,12 @@ import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.database.core.orm.PageResult;
 import net.ximatai.muyun.spring.ability.RecycleBinAbility;
 import net.ximatai.muyun.spring.ability.SortAbility;
+import net.ximatai.muyun.spring.ability.DataScopeAbility;
+import net.ximatai.muyun.spring.ability.permission.RecordPermissionChange;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.identity.CurrentUser;
 import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
+import net.ximatai.muyun.spring.common.model.standard.StandardDataScopedEntity;
 import net.ximatai.muyun.spring.common.platform.PlatformAction;
 import net.ximatai.muyun.spring.platform.deletion.DeletionLogService;
 import net.ximatai.muyun.spring.platform.deletion.DeletionOperation;
@@ -99,6 +102,67 @@ class StaticAbilityOperationRuntimeTest {
         verify(service, never()).enable("action-b", 1);
         verify(service, never()).disable("action-b", 1);
         verify(service, never()).moveAfter("action-b", "action-a");
+    }
+
+    @Test
+    void shouldApplyRequiredNavigatorScopeToAllGeneratedPermissionOperations() throws Exception {
+        @SuppressWarnings("unchecked")
+        DataScopeAbility<StandardDataScopedEntity> service = mock(DataScopeAbility.class);
+        org.mockito.Mockito.doReturn(StandardDataScopedEntity.class).when(service).modelClass();
+        StandardDataScopedEntity foreign = new StandardDataScopedEntity() { };
+        foreign.setId("record-b");
+        foreign.setCreatedBy("other");
+        when(service.select("record-b")).thenReturn(foreign);
+        net.ximatai.muyun.spring.platform.permission.RecordPermissionService manager = mock(
+                net.ximatai.muyun.spring.platform.permission.RecordPermissionService.class);
+        ObjectProvider<net.ximatai.muyun.spring.platform.permission.RecordPermissionService> managerProvider = mock(ObjectProvider.class);
+        when(managerProvider.getObject()).thenReturn(manager);
+        StaticAbilityOperationRuntime runtime = new StaticAbilityOperationRuntime(mock(ObjectProvider.class))
+                .withPermissions(managerProvider);
+        CrudWeb<StandardDataScopedEntity, DataScopeAbility<StandardDataScopedEntity>> anchor = permissionAnchor(service);
+
+        for (String operation : List.of("permissions", "permissionCandidates", "managePermissions")) {
+            RegisteredWebEndpoint endpoint = permissionEndpoint(operation, anchor, service);
+            MockHttpServletRequest request = permissionRequest("record-b", "expected");
+            assertThatThrownBy(() -> executeWithRequest(request, () -> runtime.execute(endpoint, request,
+                    new RecordPermissionChange(null, RecordPermissionChange.Operation.ADD,
+                            RecordPermissionChange.Relation.ASSIGNEE, List.of("user-1"), null, null))))
+                    .hasMessageContaining("Record does not belong to the current page scope: createdBy");
+        }
+
+        verify(manager, never()).read(any(), any());
+        verify(manager, never()).candidates(any(), any(), any());
+        verify(manager, never()).change(any(), any(), any());
+    }
+
+    @Test
+    void shouldDispatchGeneratedPermissionOperationsInsideRequiredNavigatorScope() throws Exception {
+        @SuppressWarnings("unchecked")
+        DataScopeAbility<StandardDataScopedEntity> service = mock(DataScopeAbility.class);
+        org.mockito.Mockito.doReturn(StandardDataScopedEntity.class).when(service).modelClass();
+        StandardDataScopedEntity record = new StandardDataScopedEntity() { };
+        record.setId("record-a");
+        record.setCreatedBy("expected");
+        when(service.select("record-a")).thenReturn(record);
+        net.ximatai.muyun.spring.platform.permission.RecordPermissionService manager = mock(
+                net.ximatai.muyun.spring.platform.permission.RecordPermissionService.class);
+        ObjectProvider<net.ximatai.muyun.spring.platform.permission.RecordPermissionService> managerProvider = mock(ObjectProvider.class);
+        when(managerProvider.getObject()).thenReturn(manager);
+        StaticAbilityOperationRuntime runtime = new StaticAbilityOperationRuntime(mock(ObjectProvider.class))
+                .withPermissions(managerProvider);
+        CrudWeb<StandardDataScopedEntity, DataScopeAbility<StandardDataScopedEntity>> anchor = permissionAnchor(service);
+        RecordPermissionChange command = new RecordPermissionChange(null, RecordPermissionChange.Operation.ADD,
+                RecordPermissionChange.Relation.ASSIGNEE, List.of("user-1"), null, null);
+
+        for (String operation : List.of("permissions", "permissionCandidates", "managePermissions")) {
+            RegisteredWebEndpoint endpoint = permissionEndpoint(operation, anchor, service);
+            MockHttpServletRequest request = permissionRequest("record-a", "expected");
+            executeWithRequest(request, () -> runtime.execute(endpoint, request, command));
+        }
+
+        verify(manager).read(service, "record-a");
+        verify(manager).candidates(service, "record-a", null);
+        verify(manager).change(service, "record-a", command);
     }
 
     @Test
@@ -236,6 +300,18 @@ class StaticAbilityOperationRuntimeTest {
                 new StaticWebOperationTarget("platform.module_action", anchor, service));
     }
 
+    private RegisteredWebEndpoint permissionEndpoint(String operation,
+                                                      CrudWeb<StandardDataScopedEntity, DataScopeAbility<StandardDataScopedEntity>> anchor,
+                                                      DataScopeAbility<StandardDataScopedEntity> service) throws Exception {
+        ResolvedWebEndpoint definition = new ResolvedWebEndpoint("demo.permission." + operation,
+                "demo.permission", operation, operation, PlatformAction.MANAGE_PERMISSIONS, RequestMethod.POST,
+                "/demo.permission/permissions/{id}", ResolvedWebEndpoint.Source.STATIC_ABILITY);
+        Method marker = StaticAbilityOperationRuntimeTest.class.getDeclaredMethod("marker");
+        return new RegisteredWebEndpoint(definition,
+                RequestMappingInfo.paths(definition.path()).methods(RequestMethod.POST).build(), this, marker,
+                new StaticWebOperationTarget("demo.permission", anchor, service));
+    }
+
     private RegisteredWebEndpoint recycleBinEndpoint(PlatformAction action,
                                                       String operation,
                                                       CrudWeb<PlatformModuleAction, RecycleBinAbility<PlatformModuleAction>> anchor,
@@ -258,6 +334,32 @@ class StaticAbilityOperationRuntimeTest {
     private CrudWeb<PlatformModuleAction, PlatformModuleActionService> scopedActionAnchor(
             PlatformModuleActionService service) {
         return actionAnchor(service, NavigatorListQueryMode.REQUIRED_SCOPE, true);
+    }
+
+    private CrudWeb<StandardDataScopedEntity, DataScopeAbility<StandardDataScopedEntity>> permissionAnchor(
+            DataScopeAbility<StandardDataScopedEntity> service) {
+        return new CrudWeb<>() {
+            @Override
+            public DataScopeAbility<StandardDataScopedEntity> service() {
+                return service;
+            }
+
+            @Override
+            public <T> T webScope(java.util.function.Supplier<T> action) {
+                return action.get();
+            }
+
+            @Override
+            public boolean requiresModuleExecutionPlan() {
+                return true;
+            }
+
+            @Override
+            public java.util.List<PageContextBindingDefinition> recordScopeBindings() {
+                return java.util.List.of(PageContextBindingDefinition.navigatorList("scope", "createdBy",
+                        NavigatorListQueryMode.REQUIRED_SCOPE));
+            }
+        };
     }
 
     private CrudWeb<PlatformModuleAction, PlatformModuleActionService> actionAnchor(
@@ -379,6 +481,12 @@ class StaticAbilityOperationRuntimeTest {
     private MockHttpServletRequest scopedRequest(String id) {
         MockHttpServletRequest request = request(id);
         request.addHeader(PageContextScopePolicy.CONTEXT_HEADER, "{\"module\":\"platform.module-a\"}");
+        return request;
+    }
+
+    private MockHttpServletRequest permissionRequest(String id, String scope) {
+        MockHttpServletRequest request = request(id);
+        request.addHeader(PageContextScopePolicy.CONTEXT_HEADER, "{\"scope\":\"" + scope + "\"}");
         return request;
     }
 
