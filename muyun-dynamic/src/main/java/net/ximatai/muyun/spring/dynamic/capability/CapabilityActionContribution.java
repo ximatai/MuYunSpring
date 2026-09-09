@@ -49,6 +49,11 @@ public interface CapabilityActionContribution {
         return false;
     }
 
+    /** Some dedicated HTTP workflows still participate in record availability and page composition. */
+    default boolean includesRecordActionDescriptor(PlatformAction action) {
+        return !isHttpOnlyDynamicAction(action);
+    }
+
     /** Complete source-neutral HTTP facts for endpoints that do not fit generic record action payloads. */
     default List<CapabilityHttpEndpointContract> dynamicHttpEndpoints() {
         return List.of();
@@ -70,6 +75,7 @@ public interface CapabilityActionContribution {
 
     enum CapabilityWebRequestBody {
         RECORD_ACTION,
+        PERMISSIONS,
         SORT,
         TREE_SORT,
         WEB_QUERY,

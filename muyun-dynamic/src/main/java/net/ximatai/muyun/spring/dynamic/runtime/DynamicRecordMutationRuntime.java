@@ -2,7 +2,9 @@ package net.ximatai.muyun.spring.dynamic.runtime;
 
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
+import net.ximatai.muyun.spring.ability.OptimisticLockException;
 import net.ximatai.muyun.spring.ability.event.RuntimeMutationSource;
+import net.ximatai.muyun.spring.ability.permission.RecordPermissionWrite;
 import net.ximatai.muyun.spring.ability.reference.ReferenceTarget;
 import net.ximatai.muyun.spring.ability.TreeAbility;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
@@ -331,6 +333,32 @@ final class DynamicRecordMutationRuntime {
     private void prepareChild(DynamicRecord parent, DynamicRelationDescriptor relation, DynamicRecord child) {
         ensureId(child); child.putPlatformValue(relation.childForeignKeyField(), parent.getId());
         if (child.getTenantId() == null && parent.getTenantId() != null) child.setTenantId(parent.getTenantId());
+    }
+
+    int updatePermissions(String module, String entity, RecordPermissionWrite write) {
+        if (!supportsCapability(module, entity, EntityCapability.DATA_SCOPE)) {
+            throw new PlatformException("数据权限能力未启用");
+        }
+        if (write == null || write.id() == null || write.id().isBlank()) {
+            throw new IllegalArgumentException("permission write requires record id");
+        }
+        DataScopeCriteriaResult scope = requireBusinessMutation(module, entity,
+                PlatformAction.MANAGE_PERMISSIONS, ids(write.id()));
+        DynamicRecord permissionRecord = withTenantScope(scope, () -> {
+            DynamicRecord persisted = entityService(module, entity).selectActiveRaw(write.id());
+            if (persisted == null) {
+                throw new PlatformException("记录不存在或无权限管理");
+            }
+            if (write.version() == null || !write.version().equals(persisted.getVersion())) {
+                throw new OptimisticLockException("记录已变更，请重新打开权限管理");
+            }
+            persisted.setAuthUserId(write.ownerId());
+            persisted.setAuthAssigneeIds(write.assigneeIds());
+            persisted.setAuthMemberIds(write.memberIds());
+            return persisted;
+        });
+        return withTenantScope(scope, () -> update(module, entity, permissionRecord,
+                RuntimeMutationSource.ACTION, null, Map.of()));
     }
 
     private DataScopeCriteriaResult requireBusinessMutation(String module, String entity, PlatformAction action, Set<String> recordIds) {

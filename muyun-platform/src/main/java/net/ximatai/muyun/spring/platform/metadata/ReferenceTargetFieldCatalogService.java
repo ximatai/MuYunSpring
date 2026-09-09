@@ -42,13 +42,34 @@ public class ReferenceTargetFieldCatalogService {
         this.protectionService = protectionService;
     }
 
-    public ReferenceTargetFieldCatalog list(String sourceModuleAlias, String sourceRelationId,
-                                            String targetModuleAlias, String targetMetadataId) {
+    /** Configuration candidates share the same source scope and target capability as field lookup. */
+    public List<TargetModule> modules(String sourceModuleAlias, String sourceRelationId) {
+        requireSourceRelation(sourceModuleAlias, sourceRelationId);
+        var dynamicTargets = relationService.list(Criteria.of().eq("relationRole", RelationRole.MAIN), ALL)
+                .stream().map(ModuleMetadataRelation::getModuleAlias).collect(java.util.stream.Collectors.toSet());
+        return moduleService.list(Criteria.of(), ALL).stream()
+                .filter(module -> module.getModuleKind() == ModuleKind.DYNAMIC
+                        ? dynamicTargets.contains(module.getAlias())
+                        : PlatformAbilityRuntime.referenceTargetResolver()
+                            .resolve(ReferenceTargets.fromModuleAlias(module.getAlias())).isPresent())
+                .map(module -> new TargetModule(module.getAlias(), module.getTitle()))
+                .sorted(Comparator.comparing(TargetModule::alias))
+                .toList();
+    }
+
+    public record TargetModule(String alias, String title) {}
+
+    private void requireSourceRelation(String sourceModuleAlias, String sourceRelationId) {
         String source = PlatformNameRules.requireModuleAlias(sourceModuleAlias);
         ModuleMetadataRelation relation = relationService.select(sourceRelationId);
         if (relation == null || !source.equals(relation.getModuleAlias())) {
             throw new PlatformException("metadata relation does not belong to module: " + source + "." + sourceRelationId);
         }
+    }
+
+    public ReferenceTargetFieldCatalog list(String sourceModuleAlias, String sourceRelationId,
+                                            String targetModuleAlias, String targetMetadataId) {
+        requireSourceRelation(sourceModuleAlias, sourceRelationId);
         String targetAlias = PlatformNameRules.requireModuleAlias(targetModuleAlias);
         PlatformModule targetModule = moduleService.select(targetAlias);
         if (targetModule == null) {

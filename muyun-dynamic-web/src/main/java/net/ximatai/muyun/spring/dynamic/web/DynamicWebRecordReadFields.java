@@ -1,5 +1,6 @@
 package net.ximatai.muyun.spring.dynamic.web;
 
+import net.ximatai.muyun.spring.ability.reference.PlatformAuditReferences;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecord;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecordService;
 import net.ximatai.muyun.spring.common.schema.StandardEntitySchema;
@@ -18,6 +19,8 @@ final class DynamicWebRecordReadFields {
                 StandardEntitySchema.DELETED_BY_FIELD, StandardEntitySchema.CREATED_AT_FIELD,
                 StandardEntitySchema.CREATED_BY_FIELD, StandardEntitySchema.UPDATED_AT_FIELD,
                 StandardEntitySchema.UPDATED_BY_FIELD));
+        PlatformAuditReferences.plans().forEach(plan ->
+                plan.projections().forEach(projection -> outputs.add(projection.outputField())));
         service.references(moduleAlias, record.getEntity().alias()).forEach(reference ->
                 reference.projections().forEach(projection -> outputs.add(projection.outputField())));
         // A declared field remains subject to normal type and write validation, even when a

@@ -14,6 +14,8 @@ export interface PageComposerField {
   required?: boolean;
   /** Source visibility only; never serialized into the page declaration. */
   systemManaged?: boolean;
+  platformReadOnly?: boolean;
+  referenceModuleAlias?: string;
   /** Page-node presentation only; metadata field facts are never copied or edited here. */
   properties?: PageComposerFieldProperties;
 }

@@ -1,5 +1,6 @@
 package net.ximatai.muyun.spring.platform.web;
 
+import net.ximatai.muyun.spring.common.schema.PlatformFieldPolicy;
 import net.ximatai.muyun.spring.common.exception.AuthenticationRequiredException;
 import net.ximatai.muyun.spring.common.exception.PlatformAccessDeniedException;
 import net.ximatai.muyun.spring.common.exception.PlatformErrorCodes;
@@ -854,7 +855,8 @@ public class PlatformModuleRuntimeContextService {
                                         field -> new ResolvedReferenceFieldDescriptor(
                                                 deliveryReferenceModuleAlias(field.reference()), field.reference().cardinality(),
                                                 dynamicReferenceTitleField(field.reference()),
-                                                referencePickerMode(deliveryReferenceModuleAlias(field.reference())),
+                                                PlatformFieldPolicy.isAudit(field.fieldName())
+                                                        ? ReferencePickerMode.LIST : referencePickerMode(deliveryReferenceModuleAlias(field.reference())),
                                                 ReferenceCandidateDelivery.SOURCE_FIELD,
                                                 "/" + dynamicDescriptor.moduleAlias() + "/references/"
                                                         + field.fieldName() + "/resolve",
@@ -1069,6 +1071,9 @@ public class PlatformModuleRuntimeContextService {
                 .filter(DynamicActionDescriptor::enabled)
                 .forEach(action -> actions.put(action.code(), runtimeAction(moduleAlias, action)));
         for (PlatformModuleAction action : persisted) {
+            if (PlatformAction.MANAGE_PERMISSIONS.matches(action.getActionCode())
+                    && dynamicDescriptor.entities().stream().filter(entity -> entity.entityAlias().equals(dynamicDescriptor.mainEntityAlias()))
+                    .noneMatch(entity -> entity.capabilities().contains(EntityCapability.DATA_SCOPE.name()))) continue;
             if (Boolean.FALSE.equals(action.getEnabled())) {
                 actions.remove(action.getActionCode());
                 continue;

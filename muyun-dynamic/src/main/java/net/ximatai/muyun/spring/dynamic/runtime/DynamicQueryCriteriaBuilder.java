@@ -31,7 +31,8 @@ public final class DynamicQueryCriteriaBuilder {
                                        PlatformTimeService timeService,
                                        BusinessTimeContext timeContext) {
         this.entity = entity;
-        this.fields = entity.fields().stream()
+        this.fields = java.util.stream.Stream.concat(entity.fields().stream(),
+                net.ximatai.muyun.spring.dynamic.descriptor.DynamicAuditFields.definitions().stream())
                 .collect(Collectors.toUnmodifiableMap(FieldDefinition::fieldName, Function.identity()));
         this.timeService = timeService == null ? new PlatformTimeService() : timeService;
         this.timeContext = timeContext == null ? BusinessTimeContext.empty() : timeContext;

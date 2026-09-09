@@ -1,5 +1,6 @@
 package net.ximatai.muyun.spring.platform.metadata;
 
+import net.ximatai.muyun.spring.common.schema.PlatformFieldPolicy;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
@@ -46,6 +47,15 @@ public class ModuleMetadataFieldPropertySummaryService {
 
     private ModuleMetadataFieldPropertySummary summary(MetadataField field, ModuleMetadataRelation relation,
                                                         ModuleMetadataField legacy) {
+        var policy = PlatformFieldPolicy.find(field.getFieldName());
+        if (policy != null && policy.composable() && policy.referenceModuleAlias() != null) {
+            return new ModuleMetadataFieldPropertySummary(field.getId(), field.getFieldName(), field.getFieldSpecAlias(),
+                    MetadataFieldPropertyKind.MODULE_REFERENCE, null,
+                    new ModuleMetadataFieldPropertySummary.Reference(policy.referenceModuleAlias(), null, "id", "title",
+                            net.ximatai.muyun.spring.ability.reference.ReferenceCardinality.ONE,
+                            net.ximatai.muyun.spring.ability.reference.ReferenceTargetUnavailablePolicy.PRESERVE_HISTORY,
+                            List.of()), null);
+        }
         if (legacy != null && legacyBinding(legacy)) {
             return legacySummary(field, legacy);
         }

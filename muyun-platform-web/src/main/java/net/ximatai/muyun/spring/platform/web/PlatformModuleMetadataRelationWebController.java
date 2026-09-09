@@ -118,6 +118,15 @@ public class PlatformModuleMetadataRelationWebController
         return webScope(() -> propertySummaryService.list(moduleAlias(request), relationId));
     }
 
+    @GetMapping("/{relationId}/reference-target-modules")
+    @CustomActionEndpoint(value = "viewReferenceTargetModules", title = "查看可引用模块",
+            level = PlatformActionLevel.RECORD, dataAuth = false)
+    public java.util.List<ReferenceTargetFieldCatalogService.TargetModule> referenceTargetModules(
+            HttpServletRequest request,
+            @org.springframework.web.bind.annotation.PathVariable String relationId) {
+        return webScope(() -> referenceTargetFieldCatalogService.modules(moduleAlias(request), relationId));
+    }
+
     @GetMapping("/{relationId}/reference-target-field-catalog")
     @CustomActionEndpoint(value = "viewReferenceTargetFieldCatalog", title = "查看引用目标字段目录",
             level = PlatformActionLevel.RECORD, dataAuth = false)

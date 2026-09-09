@@ -77,7 +77,8 @@ public class StaticAbilityWebEndpointRegistrar implements SmartInitializingSingl
         this.staticModuleOpenApiEndpoint = staticModuleOpenApiEndpoint;
         this.dispatcher = new PlatformWebOperationDispatcher(endpointCatalog, objectMapper,
                 new StaticAbilityOperationRuntime(recycleBinFacade,
-                        applicationContext.getBeanProvider(DeletionLogService.class)));
+                        applicationContext.getBeanProvider(DeletionLogService.class))
+                        .withPermissions(applicationContext.getBeanProvider(net.ximatai.muyun.spring.platform.permission.RecordPermissionService.class)));
     }
 
     @Override

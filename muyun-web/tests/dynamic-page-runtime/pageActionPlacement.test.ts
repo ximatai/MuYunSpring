@@ -151,3 +151,26 @@ it('does not enable a custom action merely because a service executor is declare
   );
   expect(actions).toMatchObject([{ disabled: true }]);
 });
+
+it.each([
+  { enabled: true, hidden: false, expected: ['disable'] },
+  { enabled: false, hidden: false, expected: ['enable'] },
+  { enabled: true, hidden: true, expected: [] },
+  { enabled: false, hidden: true, expected: [] },
+])('resolves the status switch entry for $enabled with hidden=$hidden', ({ enabled, hidden, expected }) => {
+  const actions = resolvePlacedPageActions(
+    hidden
+      ? []
+      : [
+          { actionCode: 'enable', anchor: 'DETAIL', operation: 'ENABLE' },
+          { actionCode: 'disable', anchor: 'DETAIL', operation: 'DISABLE' },
+        ],
+    'DETAIL',
+    (actionCode) => ({ actionCode, actionLevel: 'RECORD' }),
+    [],
+    'view',
+    true,
+    { enabled },
+  );
+  expect(actions.map((action) => action.actionCode)).toEqual(expected);
+});

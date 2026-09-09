@@ -1,5 +1,6 @@
 package net.ximatai.muyun.spring.platform.web;
 
+import net.ximatai.muyun.spring.common.schema.PlatformFieldPolicy;
 import net.ximatai.muyun.spring.common.schema.PlatformAbilityFields;
 import net.ximatai.muyun.spring.common.schema.StandardEntitySchema;
 import net.ximatai.muyun.spring.platform.module.StaticModuleReadProjectionDefinition;
@@ -1085,6 +1086,12 @@ public final class ModuleUiDescriptorCompiler {
                 ? optionFields.get(field.fieldRef().fieldName()) : null;
         ResolvedReferenceFieldDescriptor reference = field.fieldRef().relationCode() == null || relationFacts
                 ? referenceFields.get(field.fieldRef().fieldName()) : null;
+        var platformPolicy = PlatformFieldPolicy.find(field.fieldRef().fieldName());
+        if (platformPolicy != null && platformPolicy.composable() && platformPolicy.referenceModuleAlias() != null) {
+            reference = new ResolvedReferenceFieldDescriptor(platformPolicy.referenceModuleAlias(),
+                    net.ximatai.muyun.spring.ability.reference.ReferenceCardinality.ONE,
+                    platformPolicy.fieldName() + "Title", ReferencePickerMode.LIST);
+        }
         FieldValueType resolvedValueType = valueType(field.fieldRef(), fieldTypes);
         validateBooleanStatus(viewKind, field);
         validateTagList(viewKind, field, referenceSummary);
@@ -1096,7 +1103,8 @@ public final class ModuleUiDescriptorCompiler {
                 field.label(),
                 field.visible(),
                 field.required(),
-                field.readOnly(),
+                PlatformFieldPolicy.isAudit(field.fieldRef().fieldName())
+                        ? UiRule.constant(true) : field.readOnly(),
                 resolvedUiType,
                 resolveFieldControl(viewKind, resolvedUiType, resolvedValueType, field.valuePresentation(), fieldControls),
                 resolvedValueType,

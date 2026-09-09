@@ -103,6 +103,65 @@ class DynamicSchemaServiceIT {
     }
 
     @Test
+    void permissionOperationsPersistStandardRelationsAndRejectStaleWrites() {
+        EntityDefinition entity = new EntityDefinition("permission_entry", "app_permissions_it", "权限测试",
+                List.of(FieldDefinition.string("title", "标题")), Set.of(EntityCapability.DATA_SCOPE));
+        schemaService.ensureTable(entity);
+        DynamicRecordRuntime runtime = new DynamicRecordRuntime(operations);
+        runtime.register(new ModuleDefinition("demo.permissions", "权限测试", List.of(entity)));
+        DynamicRecordService service = new DynamicRecordService(runtime);
+        try (var ignored = TenantContext.use("permissions-" + java.util.UUID.randomUUID())) {
+            DynamicRecord input = service.newRecord("demo.permissions", "permission_entry").setValue("title", "记录");
+            input.setAuthUserId("owner"); input.setAuthMemberIds("old");
+            String id = service.create("demo.permissions", "permission_entry", input);
+            var gateway = service.entity("demo.permissions", "permission_entry");
+            DynamicRecord loaded = gateway.select(id);
+            Integer initialVersion = loaded.getVersion();
+            net.ximatai.muyun.spring.ability.permission.RecordPermissionChanges.apply(loaded,
+                    new net.ximatai.muyun.spring.ability.permission.RecordPermissionChange(initialVersion,
+                            net.ximatai.muyun.spring.ability.permission.RecordPermissionChange.Operation.TRANSFER,
+                            null, List.of("next"), null, true));
+            loaded.setValue("title", "不应随权限写入变更");
+            assertThat(gateway.updatePermissions(
+                    net.ximatai.muyun.spring.ability.permission.RecordPermissionWrite.from(loaded))).isEqualTo(1);
+            DynamicRecord saved = gateway.select(id);
+            assertThat(saved.getValue("title")).isEqualTo("记录");
+            assertThat(saved.getAuthUserId()).isEqualTo("next");
+            assertThat(saved.getAuthMemberIds()).isEqualTo("old,owner");
+            saved.setVersion(initialVersion);
+            assertThatThrownBy(() -> gateway.updatePermissions(
+                    net.ximatai.muyun.spring.ability.permission.RecordPermissionWrite.from(saved)))
+                    .isInstanceOf(OptimisticLockException.class);
+            assertThat(gateway.select(id).getAuthUserId()).isEqualTo("next");
+        }
+    }
+
+    @Test
+    void readsAndFiltersAuditFieldsFromExistingStandardColumns() {
+        EntityDefinition entity = new EntityDefinition("audit_entry", "app_audit_fields_it", "审计测试",
+                List.of(FieldDefinition.string("title", "标题")));
+        schemaService.ensureTable(entity);
+        DynamicRecordRuntime runtime = new DynamicRecordRuntime(operations);
+        runtime.register(new ModuleDefinition("demo.audit_fields", "审计测试", List.of(entity)));
+        DynamicRecordService service = new DynamicRecordService(runtime);
+        try (var ignored = TenantContext.use("audit-" + java.util.UUID.randomUUID())) {
+            DynamicRecord input = service.newRecord("demo.audit_fields", "audit_entry").setValue("title", "记录");
+            input.setCreatedBy("audit-user");
+            String id = service.create("demo.audit_fields", "audit_entry", input);
+            Criteria criteria = new net.ximatai.muyun.spring.dynamic.runtime.DynamicQueryCriteriaBuilder(entity)
+                    .build(List.of(new DynamicQueryCondition("createdBy", DynamicQueryOperator.EQ, List.of("audit-user"))));
+            DynamicRecordDao dao = new DynamicRecordDao(operations, entity);
+            var rows = dao.query(criteria, PageRequest.of(1, 20), Sort.desc("createdAt"));
+            assertThat(rows).singleElement().satisfies(row -> {
+                assertThat(row.getId()).isEqualTo(id);
+                assertThat(row.getValue("createdBy")).isEqualTo("audit-user");
+                assertThat(row.getValue("createdAt")).isInstanceOf(Instant.class);
+            });
+            schemaService.ensureTable(entity);
+        }
+    }
+
+    @Test
     void shouldCreateDynamicTableAndKeepSecondEnsureSchemaStable() throws Exception {
         EntityDefinition entity = new EntityDefinition(
                 "contract",

@@ -28,6 +28,7 @@ final class StaticModuleOpenApiSchemaFactory {
             schemas.put("WebQueryCriteria", webQueryCriteriaSchema());
             schemas.put("WebSort", webSortSchema());
             schemas.put("RecordActionWebRequest", recordActionWebRequestSchema());
+        schemas.put("RecordPermissionChange", recordPermissionChangeSchema());
             schemas.put("TreeSortWebRequest", treeSortRequestSchema());
             schemas.put("TreeSortScopeRequest", treeSortScopeRequestSchema());
             schemas.put(entitySchemaName + "PageResponse", pageResponseSchema(entitySchemaName));
@@ -38,6 +39,17 @@ final class StaticModuleOpenApiSchemaFactory {
 
     String mainSchemaName(StaticModuleDefinition module) {
         return module.entities().isEmpty() ? null : schemaName(module.entities().getFirst());
+    }
+
+    private PlatformApiDocument.Schema recordPermissionChangeSchema() {
+        Map<String, PlatformApiDocument.Property> fields = new LinkedHashMap<>();
+        fields.put("version", new PlatformApiDocument.Property("integer", null, true, false, false, null, null, null, null, null, List.of()));
+        fields.put("operation", new PlatformApiDocument.Property("string", null, true, false, false, null, null, null, null, null, List.of()));
+        fields.put("relation", new PlatformApiDocument.Property("string", null, false, true, false, null, null, null, null, null, List.of()));
+        fields.put("userIds", new PlatformApiDocument.Property("array", null, true, false, true, null, null, "iam.user", "user", "string", List.of()));
+        fields.put("previousUserId", new PlatformApiDocument.Property("string", null, false, true, false, null, null, null, null, null, List.of()));
+        fields.put("retainPreviousOwner", new PlatformApiDocument.Property("boolean", null, false, true, false, null, null, null, null, null, List.of()));
+        return new PlatformApiDocument.Schema("RecordPermissionChange", "object", null, List.of("version", "operation", "userIds"), fields, null);
     }
 
     private PlatformApiDocument.Schema entitySchema(EntityDefinition entity) {

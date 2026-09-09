@@ -1,5 +1,6 @@
 package net.ximatai.muyun.spring.platform.web;
 
+import net.ximatai.muyun.spring.web.PlatformAuditMutationGuard;
 import net.ximatai.muyun.spring.web.*;
 
 import net.ximatai.muyun.database.core.orm.Criteria;
@@ -7,6 +8,7 @@ import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.database.core.orm.Sort;
 import net.ximatai.muyun.spring.ability.CrudAbility;
 import net.ximatai.muyun.spring.ability.DataScopeAbility;
+import net.ximatai.muyun.spring.ability.child.ChildrenAbility;
 import net.ximatai.muyun.spring.ability.form.FormSchema;
 import net.ximatai.muyun.spring.ability.query.QuerySchema;
 import net.ximatai.muyun.spring.web.query.WebQueryRequests;
@@ -301,6 +303,8 @@ public interface CrudWeb<T extends EntityContract, S extends CrudAbility<T>>
                 PageContextMutationConstraints.applyForCreate(record, mutationConstraints, webScopeName(),
                         PlatformAction.CREATE, pageSelectionContextResolvers());
             }
+            PlatformAuditMutationGuard.validate(record, null);
+            validateAggregateChildMutations(record, null);
             String id = service().insert(record);
             T saved = WebOutputSupport.record(service(), service().select(id), FieldOutputContext.VIEW);
             StandardMutationResultSupport.created(this, id, recordLabel(saved));
@@ -336,6 +340,8 @@ public interface CrudWeb<T extends EntityContract, S extends CrudAbility<T>>
                 PageContextMutationConstraints.applyForUpdate(record, existing, mutationConstraints, webScopeName(),
                         PlatformAction.UPDATE, pageSelectionContextResolvers());
             }
+            PlatformAuditMutationGuard.validate(record, existing);
+            validateAggregateChildMutations(record, existing);
             service().update(record);
             T saved = WebOutputSupport.record(service(),
                     StaticStandardMutationSupport.selectForAction(this, PlatformAction.VIEW, id),
@@ -343,6 +349,12 @@ public interface CrudWeb<T extends EntityContract, S extends CrudAbility<T>>
             StandardMutationResultSupport.updated(this, id, recordLabel(saved));
             return standardWireRecord(saved);
         }));
+    }
+
+    private void validateAggregateChildMutations(T record, T existing) {
+        if (service() instanceof ChildrenAbility<?> childrenAbility) {
+            PlatformAuditMutationGuard.validateAggregateChildren(record, existing, childrenAbility.childRelations());
+        }
     }
 
     @PostMapping("/delete/{id}")

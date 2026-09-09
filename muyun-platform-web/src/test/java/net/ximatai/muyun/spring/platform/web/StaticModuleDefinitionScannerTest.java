@@ -484,7 +484,7 @@ class StaticModuleDefinitionScannerTest {
                         });
                 assertThat(definition.actions()).extracting(StaticModuleActionDefinition::actionCode)
                         .containsExactlyInAnyOrder("menu", "create", "view", "update", "delete", "query",
-                                "enable", "disable", "userSelector", "changePassword", "resetPassword",
+                                "enable", "disable", "managePermissions", "userSelector", "changePassword", "resetPassword",
                                 "forceLogout", "sessions", "sessionStatuses", "revokeSession", "revokeSessions",
                                 "employeeBinding", "selfProfile", "loginContext");
                 assertThat(definition.actions()).filteredOn(action -> action.actionCode().equals("selfProfile"))
@@ -1284,7 +1284,7 @@ class StaticModuleDefinitionScannerTest {
 
             assertThat(definition.moduleAlias()).isEqualTo("platform.low_code_governance");
             assertThat(definition.actions()).extracting(StaticModuleActionDefinition::actionCode)
-                    .containsExactlyInAnyOrder("menu",
+                    .containsExactlyInAnyOrder(
                             "checkPackageHealth", "archivePackage", "switchCurrentPackageVersion",
                             "exportCurrentPackage", "exportVersionPackage", "dryRunImportPackage",
                             "prepareImportDraft", "archiveImportDraft",

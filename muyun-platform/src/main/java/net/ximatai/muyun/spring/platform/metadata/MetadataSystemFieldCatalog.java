@@ -1,5 +1,6 @@
 package net.ximatai.muyun.spring.platform.metadata;
 
+import net.ximatai.muyun.spring.common.schema.PlatformFieldPolicy;
 import net.ximatai.muyun.spring.common.schema.PlatformAbilityFields;
 import net.ximatai.muyun.spring.common.schema.StandardEntitySchema;
 
@@ -35,8 +36,7 @@ public final class MetadataSystemFieldCatalog {
 
     public static boolean isRuntimeReserved(MetadataField field) {
         if (field == null || !Boolean.TRUE.equals(field.getSystemManaged())) return false;
-        return BASELINE.stream().anyMatch(item -> item.fieldName().equals(field.getFieldName()))
-                || DATA_SCOPE.stream().anyMatch(item -> item.fieldName().equals(field.getFieldName()));
+        return PlatformFieldPolicy.find(field.getFieldName()) != null;
     }
 
     private static MetadataSystemFieldDescriptor field(String fieldName, String columnName,

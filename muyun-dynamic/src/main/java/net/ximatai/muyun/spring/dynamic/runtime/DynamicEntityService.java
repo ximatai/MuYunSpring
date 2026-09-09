@@ -1,5 +1,6 @@
 package net.ximatai.muyun.spring.dynamic.runtime;
 
+import net.ximatai.muyun.spring.ability.reference.PlatformAuditReferences;
 import net.ximatai.muyun.spring.ability.BaseDao;
 import net.ximatai.muyun.spring.ability.PlatformAbilityRuntime;
 import net.ximatai.muyun.spring.ability.child.ChildPlan;
@@ -791,8 +792,13 @@ public class DynamicEntityService implements
         List<ReferenceLoadPath> paths = referenceLoadDefinitions().stream()
                 .map(definition -> definition.path(referenceDefinition(definition.sourceField()).target()))
                 .toList();
-        new ReferenceReadPipeline<DynamicRecord>(referencePlans(), paths,
-                DynamicRecord::getValues,
+        new ReferenceReadPipeline<DynamicRecord>(java.util.stream.Stream.concat(referencePlans().stream(),
+                PlatformAuditReferences.availablePlans().stream()).toList(), paths,
+                record -> {
+                    Map<String, Object> values = new LinkedHashMap<>(record.getValues());
+                    values.putAll(PlatformAuditReferences.values(record));
+                    return values;
+                },
                 (record, output) -> output.forEach(record::putVirtualValue),
                 this::referenceAbility,
                 net.ximatai.muyun.spring.ability.PlatformAbilityRuntime.referenceReadObserver())
@@ -838,7 +844,8 @@ public class DynamicEntityService implements
             requestedFields.stream().filter(name -> name != null && !name.isBlank()).map(String::trim)
                     .forEach(fields::add);
         }
-        referencePlans().forEach(plan -> {
+        java.util.stream.Stream.concat(referencePlans().stream(),
+                PlatformAuditReferences.plans().stream()).forEach(plan -> {
             if (fields.contains(plan.sourceField())) {
                 plan.projections().forEach(projection -> fields.add(projection.outputField()));
             }

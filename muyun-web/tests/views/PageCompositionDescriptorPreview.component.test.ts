@@ -12,6 +12,9 @@ beforeEach(() => {
     RecordFormGrid: false,
     RecordDetailExtensionSection: false,
     RecordRelationTable: false,
+    RecordQueryListSurface: false,
+    ManagementPanelHeader: false,
+    UiSearchInput: false,
   };
 });
 afterEach(() => {
@@ -40,10 +43,19 @@ it('uses the standard list cell semantic component for descriptor list previews'
   });
 
   expect(list.findAllComponents({ name: 'RecordQueryListCell' })).toHaveLength(2);
-  expect(list.findComponent({ name: 'UiInput' }).props()).toMatchObject({
+  expect(list.findComponent({ name: 'UiSearchInput' }).props()).toMatchObject({
     value: '',
     placeholder: '搜索验收记录',
     disabled: true,
+  });
+  expect(list.findComponent({ name: 'RecordQueryListSurface' }).props()).toMatchObject({
+    pageable: true,
+    total: 1,
+    pageNum: 1,
+    pages: 1,
+    pageSize: 20,
+    pageSizeOptions: [10, 20, 50],
+    paginationDisabled: true,
   });
 });
 
@@ -53,15 +65,17 @@ it('supports list keyboard actions for field inspection and configuration', asyn
     props: { descriptor: descriptor(), moduleAlias: 'platform.module', mode: 'list' },
     global: { stubs: { UiDataTable: tableStub } },
   });
-  await list.get('button').trigger('keydown', { key: ' ' });
+  await list.get('.page-composition-descriptor-preview__field').trigger('keydown', { key: ' ' });
   expect(list.emitted('configureField')).toEqual([['list', 'enabled']]);
 });
 
 it('exposes the active preview mode as an external metadata drop target', async () => {
+  const emptyList = descriptor();
+  emptyList.page!.list!.fields = { ...emptyList.page!.list!.fields, fields: [] };
   const wrapper = mount(PageCompositionDescriptorPreview, {
     attachTo: document.body,
     props: {
-      descriptor: descriptor(),
+      descriptor: emptyList,
       moduleAlias: 'platform.module',
       mode: 'list',
       acceptExternalDrop: true,
@@ -79,15 +93,21 @@ it('exposes the active preview mode as an external metadata drop target', async 
       dragPayloadOf: () => ({ kind: 'field', fieldId: 'field' }),
     },
   });
-  const preview = wrapper.get('[data-composer-target="list:end"]');
-  await source.get('[data-ui-tree-key]').trigger('mousedown', { button: 0 });
-  await preview.trigger('mousemove', { buttons: 1, clientX: 30, clientY: 30 });
-  await preview.trigger('mouseup', { clientX: 30, clientY: 30 });
-  expect(wrapper.emitted('placement-drop')).toHaveLength(1);
-  expect(wrapper.emitted('placement-drop')?.[0]?.[1]).toEqual({
-    container: { kind: 'list' },
-    position: 'inside',
-  });
+  try {
+    await source.get('[data-ui-tree-key]').trigger('mousedown', { button: 0 });
+    await wrapper.vm.$nextTick();
+    const preview = wrapper.get('[data-composer-target="list:empty"]');
+    await preview.trigger('mousemove', { buttons: 1, clientX: 30, clientY: 30 });
+    await preview.trigger('mouseup', { clientX: 30, clientY: 30 });
+    expect(wrapper.emitted('placement-drop')).toHaveLength(1);
+    expect(wrapper.emitted('placement-drop')?.[0]?.[1]).toEqual({
+      container: { kind: 'list' },
+      position: 'inside',
+    });
+  } finally {
+    source.unmount();
+    wrapper.unmount();
+  }
 });
 
 it('renders an external metadata field inline before it is dropped into an existing form grid', async () => {
@@ -183,13 +203,11 @@ it('ignores unrelated external drags', async () => {
       dragPayloadOf: () => ({ text: 'not metadata' }),
     },
   });
-  const preview = wrapper.get('[data-composer-target="list:end"]');
   await source.get('[data-ui-tree-key]').trigger('mousedown', { button: 0 });
-  await preview.trigger('mousemove', { buttons: 1, clientX: 30, clientY: 30 });
-  await preview.trigger('mouseup', { clientX: 30, clientY: 30 });
+  await wrapper.vm.$nextTick();
 
   expect(wrapper.emitted('placement-drop')).toBeUndefined();
-  expect(preview.classes()).not.toContain('page-composition-descriptor-preview--drag-over');
+  expect(wrapper.find('[data-composer-target="list:end"]').exists()).toBe(false);
 });
 
 it('uses each action item as a before-or-after drop target instead of treating the whole detail bar as one target', async () => {
@@ -385,7 +403,7 @@ it('renders the descriptor-owned quick-search placeholder as a disabled template
     props: { descriptor: descriptor(), moduleAlias: 'platform.module', mode: 'list' },
   });
 
-  const quickSearch = wrapper.getComponent({ name: 'UiInput' });
+  const quickSearch = wrapper.getComponent({ name: 'UiSearchInput' });
   expect(quickSearch.props('placeholder')).toBe('搜索验收记录');
   expect(quickSearch.props('disabled')).toBe(true);
 });
@@ -404,7 +422,7 @@ it.each(['TREE_MANAGEMENT', 'FLAT_MANAGEMENT', 'LIST_DETAIL_CARD'] as const)(
     const value = descriptorWithTwoGroups();
     value.page!.template = template;
     const wrapper = mount(PageCompositionDescriptorPreview, {
-      props: { descriptor: value, moduleAlias: 'platform.module', mode: 'detail', wholePage: true },
+      props: { descriptor: value, moduleAlias: 'platform.module', mode: 'detail' },
       global: { stubs: { UiDataTable: tableStub } },
     });
     try {
@@ -870,13 +888,17 @@ it.each(['tree', 'flat'] as const)(
       },
       global: { stubs: { UiDataTable: tableStub } },
     });
-    const target = preview.get('[data-composer-target="list:end"]');
     const original = document.elementFromPoint;
-    Object.defineProperty(document, 'elementFromPoint', { configurable: true, value: () => target.element });
     try {
       const node = source.get('[data-ui-tree-key="field"]');
       for (const cancel of [true, false]) {
         await node.trigger('mousedown', { button: 0, clientX: 0, clientY: 0 });
+        await preview.vm.$nextTick();
+        const target = preview.get('[data-page-composition-layout-key="list:header:tags"]');
+        Object.defineProperty(document, 'elementFromPoint', {
+          configurable: true,
+          value: () => target.element,
+        });
         await target.trigger('mousemove', { buttons: 1, clientX: 200, clientY: 100 });
         expect(preview.find('.page-composer-drop-indicator').exists()).toBe(false);
         if (cancel) {
@@ -921,13 +943,14 @@ it('cancels a staged preview placement when the pointer leaves its canvas or the
     },
     global: { stubs: { UiDataTable: tableStub } },
   });
-  const target = preview.get('[data-composer-target="list:end"]');
   const original = document.elementFromPoint;
   try {
-    Object.defineProperty(document, 'elementFromPoint', { configurable: true, value: () => target.element });
     await source
       .get('[data-ui-tree-key="field"]')
       .trigger('mousedown', { button: 0, clientX: 0, clientY: 0 });
+    await preview.vm.$nextTick();
+    const target = preview.get('[data-page-composition-layout-key="list:header:tags"]');
+    Object.defineProperty(document, 'elementFromPoint', { configurable: true, value: () => target.element });
     await target.trigger('mousemove', { buttons: 1, clientX: 200, clientY: 100 });
     expect(preview.find('.page-composer-drop-indicator').exists()).toBe(false);
 
@@ -942,15 +965,20 @@ it('cancels a staged preview placement when the pointer leaves its canvas or the
     );
     expect(preview.emitted('placement-drop')).toBeUndefined();
 
-    Object.defineProperty(document, 'elementFromPoint', { configurable: true, value: () => target.element });
     await source
       .get('[data-ui-tree-key="field"]')
       .trigger('mousedown', { button: 0, clientX: 0, clientY: 0 });
-    await target.trigger('mousemove', { buttons: 1, clientX: 200, clientY: 100 });
-    await target.trigger('contextmenu', { button: 2, clientX: 200, clientY: 100 });
+    await preview.vm.$nextTick();
+    const renewedTarget = preview.get('[data-page-composition-layout-key="list:header:tags"]');
+    Object.defineProperty(document, 'elementFromPoint', {
+      configurable: true,
+      value: () => renewedTarget.element,
+    });
+    await renewedTarget.trigger('mousemove', { buttons: 1, clientX: 200, clientY: 100 });
+    await renewedTarget.trigger('contextmenu', { button: 2, clientX: 200, clientY: 100 });
     await preview.vm.$nextTick();
     expect(preview.find('.page-composer-drop-indicator').exists()).toBe(false);
-    await target.trigger('mouseup', { button: 0, clientX: 200, clientY: 100 });
+    await renewedTarget.trigger('mouseup', { button: 0, clientX: 200, clientY: 100 });
     expect(preview.emitted('placement-drop')).toBeUndefined();
   } finally {
     Object.defineProperty(document, 'elementFromPoint', { configurable: true, value: original });
@@ -1114,10 +1142,8 @@ it.each(['TREE_MANAGEMENT', 'FLAT_MANAGEMENT'] as const)(
         descriptor: definition,
         moduleAlias: 'platform.module',
         mode: 'detail',
-        wholePage: true,
       },
     });
-    expect(wrapper.find('.page-composition-mode-preview__navigation').exists()).toBe(false);
     expect(wrapper.find('[data-testid="page-composer-detail-preview"]').exists()).toBe(true);
     wrapper.unmount();
   },

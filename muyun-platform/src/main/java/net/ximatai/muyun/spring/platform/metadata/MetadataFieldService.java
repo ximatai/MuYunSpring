@@ -1,5 +1,6 @@
 package net.ximatai.muyun.spring.platform.metadata;
 
+import net.ximatai.muyun.spring.common.schema.PlatformFieldPolicy;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.spring.ability.AbstractAbilityService;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
@@ -183,6 +184,9 @@ public class MetadataFieldService extends AbstractAbilityService<MetadataField> 
         }
         if (field.getTitleField() == null) {
             field.setTitleField(Boolean.FALSE);
+        }
+        if (PlatformFieldPolicy.isAuditLabel(field.getFieldName())) {
+            throw new PlatformException("字段名称与平台审计展示字段冲突：" + field.getFieldName());
         }
         validateFieldFormBoundary(field);
         validateChildMetadataBoundary(field);

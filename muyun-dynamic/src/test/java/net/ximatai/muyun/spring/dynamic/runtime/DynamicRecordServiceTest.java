@@ -745,6 +745,49 @@ class DynamicRecordServiceTest {
     }
 
     @Test
+    void shouldReadPermissionRecordsThroughManageScopeWhenViewIsDeniedAcrossTenants() {
+        IDatabaseOperations<Object> operations = operations();
+        AtomicReference<Boolean> queryUsedCrossTenantScope = new AtomicReference<>(false);
+        when(operations.query(anyString(), anyMap())).thenAnswer(invocation -> {
+            queryUsedCrossTenantScope.set(TenantContext.tenantFilterBypassed());
+            @SuppressWarnings("unchecked")
+            Map<String, Object> parameters = invocation.getArgument(1);
+            return parameters.containsValue("view-denied") || parameters.containsValue("permission-denied")
+                    ? List.of()
+                    : List.of(actionRow("permission-record", "C-001", "draft"));
+        });
+        DataScopeCriteriaService dataScope = mock(DataScopeCriteriaService.class);
+        when(dataScope.resolveReadScope(eq(MODULE), any(ActionExecutionPolicy.class), any(Criteria.class), any()))
+                .thenAnswer(invocation -> {
+                    ActionExecutionPolicy policy = invocation.getArgument(1);
+                    Criteria input = invocation.getArgument(2);
+                    if (PlatformAction.VIEW.code().equals(policy.actionCode())) {
+                        return DataScopeCriteriaResult.restricted(input.eq("id", "view-denied"));
+                    }
+                    return DataScopeCriteriaResult.crossTenantRestricted(input.eq("id", "permission-record"));
+                });
+        DynamicRecordService service = service(operations, dataScopedActionEntity(), RuntimeEventPublisher.noop(), dataScope);
+
+        try (TenantContext.Scope ignored = TenantContext.use("tenant-a")) {
+            assertThat(service.select(MODULE, "contract", "permission-record")).isNull();
+            assertThat(service.entity(MODULE, "contract").readForPermissionAction("permission-record").record())
+                    .extracting(DynamicRecord::getId)
+                    .isEqualTo("permission-record");
+            assertThat(service.entity(MODULE, "contract").readForPermissionAction("permission-denied").record())
+                    .isNull();
+            assertThat(queryUsedCrossTenantScope).hasValue(true);
+            assertThat(TenantContext.currentTenantId()).contains("tenant-a");
+            assertThat(TenantContext.tenantFilterBypassed()).isFalse();
+        }
+
+        ArgumentCaptor<ActionExecutionPolicy> policies = ArgumentCaptor.forClass(ActionExecutionPolicy.class);
+        verify(dataScope, times(3)).resolveReadScope(eq(MODULE), policies.capture(), any(Criteria.class), any());
+        assertThat(policies.getAllValues()).extracting(ActionExecutionPolicy::actionCode)
+                .containsExactly(PlatformAction.VIEW.code(), PlatformAction.MANAGE_PERMISSIONS.code(),
+                        PlatformAction.MANAGE_PERMISSIONS.code());
+    }
+
+    @Test
     void shouldNotHideUnexpectedFailureWhenCheckingDynamicActionAuthorizationAvailability() {
         DynamicRecordService service = actionService(operations(), RuntimeEventPublisher.noop(),
                 new TestActionExecutor("contractSubmit"), dataAuthSubmitAction("contractSubmit"),

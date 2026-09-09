@@ -26,6 +26,7 @@ final class DynamicOpenApiSchemaFactory {
         schemas.put("WebQueryCriteria", queryCriteriaSchema());
         schemas.put("WebPageRequest", pageRequestSchema("WebPageRequest"));
         schemas.put("RecordActionWebRequest", recordActionWebRequestSchema());
+        schemas.put("RecordPermissionChange", recordPermissionChangeSchema());
         schemas.put("WebSort", sortSchema("WebSort"));
         schemas.put("SortWebRequest", sortRequestSchema());
         schemas.put("TreeSortWebRequest", treeSortRequestSchema());
@@ -96,6 +97,17 @@ final class DynamicOpenApiSchemaFactory {
         schemas.put("DynamicReferenceResolveItem", referenceResolveItemSchema());
         schemas.put("DynamicReferenceResolveResult", referenceResolveResultSchema());
         return Map.copyOf(schemas);
+    }
+
+    private DynamicOpenApiDocument.Schema recordPermissionChangeSchema() {
+        Map<String, DynamicOpenApiDocument.Property> fields = new LinkedHashMap<>();
+        fields.put("version", new DynamicOpenApiDocument.Property("integer", null, true, false, false, null, null, null, null, null, List.of()));
+        fields.put("operation", new DynamicOpenApiDocument.Property("string", null, true, false, false, null, null, null, null, null, List.of()));
+        fields.put("relation", new DynamicOpenApiDocument.Property("string", null, false, true, false, null, null, null, null, null, List.of()));
+        fields.put("userIds", new DynamicOpenApiDocument.Property("array", null, true, false, true, null, null, "iam.user", "user", "string", List.of()));
+        fields.put("previousUserId", new DynamicOpenApiDocument.Property("string", null, false, true, false, null, null, null, null, null, List.of()));
+        fields.put("retainPreviousOwner", new DynamicOpenApiDocument.Property("boolean", null, false, true, false, null, null, null, null, null, List.of()));
+        return new DynamicOpenApiDocument.Schema("RecordPermissionChange", "object", null, List.of("version", "operation", "userIds"), fields, null);
     }
 
     private DynamicOpenApiDocument.Schema recordSchema(DynamicEntityDescriptor entity) {

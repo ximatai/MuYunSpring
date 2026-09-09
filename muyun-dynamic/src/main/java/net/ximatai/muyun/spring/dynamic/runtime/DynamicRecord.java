@@ -1,5 +1,7 @@
 package net.ximatai.muyun.spring.dynamic.runtime;
 
+import net.ximatai.muyun.spring.common.schema.PlatformFieldPolicy;
+import net.ximatai.muyun.spring.ability.reference.PlatformAuditReferences;
 import net.ximatai.muyun.spring.common.model.contract.EntityContract;
 import net.ximatai.muyun.spring.ability.security.FieldOutputRenderer;
 import net.ximatai.muyun.spring.common.formula.FormulaRuntimeReport;
@@ -99,6 +101,9 @@ public class DynamicRecord implements EntityContract, TreeCapable, EnabledCapabl
     }
 
     public Object getValue(String fieldCode) {
+        if (PlatformFieldPolicy.isAudit(fieldCode)) {
+            return PlatformAuditReferences.values(this).get(fieldCode);
+        }
         if (isInternalGeneratedField(fieldCode)) {
             throw new IllegalArgumentException("dynamic field is platform managed: " + fieldCode);
         }

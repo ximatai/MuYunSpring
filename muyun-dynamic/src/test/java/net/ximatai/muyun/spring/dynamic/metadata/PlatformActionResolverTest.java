@@ -22,7 +22,7 @@ class PlatformActionResolverTest {
                 FieldDefinition.sortOrder(),
                 FieldDefinition.enabled()
         ), Set.of(EntityCapability.TREE, EntityCapability.REFERENCE, EntityCapability.ENABLE,
-                EntityCapability.EXCHANGE, EntityCapability.RECYCLE_BIN));
+                EntityCapability.EXCHANGE, EntityCapability.RECYCLE_BIN, EntityCapability.DATA_SCOPE));
 
         assertThat(EntityStandardActionCatalog.from(entity))
                 .extracting(EntityActionDefinition::actionCode)

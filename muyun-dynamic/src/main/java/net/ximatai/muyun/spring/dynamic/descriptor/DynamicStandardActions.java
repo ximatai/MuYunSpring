@@ -19,11 +19,11 @@ final class DynamicStandardActions {
                                               List<EntityActionDefinition> configuredActions) {
         Map<String, DynamicActionDescriptor> actions = new LinkedHashMap<>();
         for (EntityActionDefinition standard : EntityStandardActionCatalog.from(entity)) {
-            if (isHttpOnly(standard.actionCode())) continue;
+            if (excludedFromRecordDescriptor(standard.actionCode())) continue;
             put(actions, action(moduleAlias, entity.alias(), standard, null));
         }
         for (EntityActionDefinition configured : configuredActions) {
-            if (entity.alias().equals(configured.entityAlias()) && !isHttpOnly(configured.actionCode())) {
+            if (entity.alias().equals(configured.entityAlias()) && !excludedFromRecordDescriptor(configured.actionCode())) {
                 actions.put(configured.actionCode(), action(moduleAlias, entity.alias(), configured,
                         actions.get(configured.actionCode())));
             }
@@ -62,10 +62,10 @@ final class DynamicStandardActions {
         actions.put(action.code(), action);
     }
 
-    private static boolean isHttpOnly(String actionCode) {
+    private static boolean excludedFromRecordDescriptor(String actionCode) {
         return PlatformAction.fromCode(actionCode)
                 .flatMap(action -> CapabilityModuleRegistry.defaultRegistry().actionOwner(action)
-                        .map(contribution -> contribution.isHttpOnlyDynamicAction(action)))
+                        .map(contribution -> !contribution.includesRecordActionDescriptor(action)))
                 .orElse(false);
     }
 

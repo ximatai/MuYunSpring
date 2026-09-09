@@ -58,6 +58,10 @@ public enum PlatformAction {
             "彻底清理回收站数据", "Recycle Bin Purge", PlatformActionLevel.LIST, 30,
             ActionAccessMode.AUTH_REQUIRED, true, false, ActionDefaultGrantPolicy.NONE, null),
 
+    MANAGE_PERMISSIONS(PlatformActionGroup.DATA_SCOPE, "managePermissions", "platform.action.manage-permissions",
+            "授权", "Manage Record Permissions", PlatformActionLevel.RECORD, 10,
+            ActionAccessMode.AUTH_REQUIRED, true, true, ActionDefaultGrantPolicy.NONE, null),
+
     IMPORT(PlatformActionGroup.EXCHANGE, "import", "platform.action.import", "导入", "Import",
             PlatformActionLevel.LIST, 10,
             ActionAccessMode.AUTH_REQUIRED, true, false, ActionDefaultGrantPolicy.NONE, null),

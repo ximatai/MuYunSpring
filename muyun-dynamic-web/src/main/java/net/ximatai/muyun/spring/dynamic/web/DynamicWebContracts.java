@@ -1,5 +1,6 @@
 package net.ximatai.muyun.spring.dynamic.web;
 
+import net.ximatai.muyun.spring.ability.reference.PlatformAuditReferences;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageResult;
 import net.ximatai.muyun.spring.web.WebPageRequest;
@@ -136,6 +137,8 @@ record DynamicRecordResponse(String id,
                 ));
         @SuppressWarnings("unchecked")
         Map<String, Object> values = (Map<String, Object>) DynamicWebValues.webValue(record.outputValues(FieldOutputContext.VIEW));
+        values = new java.util.LinkedHashMap<>(values);
+        values.putAll(PlatformAuditReferences.values(record));
         values = DynamicWebValues.losslessNumericWireValues(record, values);
         return new DynamicRecordResponse(record.getId(), record.getVersion(), values, childResponses);
     }

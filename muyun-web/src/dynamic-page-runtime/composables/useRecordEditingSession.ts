@@ -31,6 +31,7 @@ export function useRecordEditingSession<TRecord extends { id?: unknown }>(
     mode: 'edit' | 'view',
     options: RecordDetailTransitionOptions = {},
     skipLoad = false,
+    onLoadError?: (cause: unknown) => void,
   ) {
     const id = record.id == null ? undefined : String(record.id);
     if (!id) return;
@@ -46,9 +47,10 @@ export function useRecordEditingSession<TRecord extends { id?: unknown }>(
       if (sequence !== requestSequence) return;
       detail.resolveLoad(loaded);
       onLoaded();
-    } catch {
+    } catch (cause) {
       if (sequence !== requestSequence) return;
       detail.failLoad();
+      onLoadError?.(cause);
     } finally {
       if (sequence === requestSequence) detail.finishLoad();
     }

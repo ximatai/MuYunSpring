@@ -50,6 +50,7 @@ public final class PlatformWebOperationDispatcher {
                 .flatMap(contribution -> contribution.webActionContract(endpoint.definition().action(),
                         endpoint.staticTarget() != null && endpoint.staticTarget().service() instanceof TreeAbility<?>))
                 .<Class<?>>map(contract -> switch (contract.requestBody()) {
+                    case PERMISSIONS -> net.ximatai.muyun.spring.ability.permission.RecordPermissionChange.class;
                     case RECORD_ACTION -> RecordActionWebRequest.class;
                     case SORT -> SortWebRequest.class;
                     case TREE_SORT -> TreeSortWebRequest.class;

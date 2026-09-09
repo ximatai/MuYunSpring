@@ -94,9 +94,10 @@ function actionIsConfirmedMissing(context: RecordActionContext, actionCode: stri
   return availability != null && !availability.actions.some((action) => action.actionCode === actionCode);
 }
 
-function defaultActionIcon(action: RecordActionItem): UiIconName | undefined {
+export function defaultActionIcon(action: RecordActionItem): UiIconName | undefined {
   const code = action.actionCode ?? action.key;
   const operation = code?.split('_').at(-1);
+  if (operation === 'managePermissions') return 'user';
   if (operation === 'create') {
     return 'plus';
   }

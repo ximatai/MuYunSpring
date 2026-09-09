@@ -33,6 +33,12 @@ public class MuYunSpringRecordOutputConfiguration {
     }
 
     @Bean
+    @Order(10)
+    RecordOutputTransformer auditReferenceRecordOutputTransformer() {
+        return new net.ximatai.muyun.spring.ability.output.AuditReferenceRecordOutputTransformer();
+    }
+
+    @Bean
     @Order(100)
     /** 标题补齐后再执行字段保护，避免受保护字段以派生标题形式泄露。 */
     RecordOutputTransformer fieldProtectionRecordOutputTransformer() {

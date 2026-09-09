@@ -8,6 +8,8 @@ public interface StaticCapabilityActionExecution {
 
     Object executeSort();
 
+    default Object executePermissions() { throw new UnsupportedOperationException("permissions runtime is not configured"); }
+
     Object executeTree(PlatformAction action);
 
     Object executeRecycleBin(PlatformAction action);

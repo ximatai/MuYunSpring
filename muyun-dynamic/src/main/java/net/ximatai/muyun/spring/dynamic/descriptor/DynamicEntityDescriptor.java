@@ -94,9 +94,9 @@ public record DynamicEntityDescriptor(
                         .map(EntityCapability::name)
                         .collect(Collectors.toUnmodifiableSet()),
                 entity.sortPartitionFields(),
-                entity.fields().stream()
-                        .map(field -> DynamicFieldDescriptor.from(field, referencesByField.get(field.fieldName())))
-                        .toList(),
+                java.util.stream.Stream.concat(entity.fields().stream()
+                        .map(field -> DynamicFieldDescriptor.from(field, referencesByField.get(field.fieldName()))),
+                        DynamicAuditFields.descriptors(entity.alias()).stream()).toList(),
                 entity.orderedFormulaRules().stream()
                         .map(DynamicFormulaRuleDescriptor::from)
                         .toList(),

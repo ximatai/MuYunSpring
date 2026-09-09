@@ -147,30 +147,13 @@ const previewDescriptor = ref<ResolvedModuleUiDescriptor>();
 const previewStructure = ref<PageCompositionStructure>();
 const previewLoading = ref(false);
 const previewError = ref<string>();
-/**
- * These fields are materialized for metadata governance but are intentionally omitted from the
- * dynamic main-entity runtime namespace. Keep this list aligned with
- * MetadataSystemFieldCatalog.isRuntimeReserved on the server; capability fields such as
- * `enabled` and `sortOrder` remain valid page fields and must not be filtered here.
- */
-const runtimeReservedMetadataFieldNames = new Set([
-  'id',
-  'tenantId',
-  'version',
-  'deleted',
-  'deletedAt',
-  'deletedBy',
-  'createdBy',
-  'createdAt',
-  'updatedBy',
-  'updatedAt',
-  'authUserId',
-  'authAssigneeIds',
-  'authMemberIds',
-  'authOrganizationId',
-  'authDepartmentId',
-  'authModuleAlias',
-]);
+interface PlatformFieldPolicy {
+  fieldName: string;
+  composable: boolean;
+  readOnly: boolean;
+  referenceModuleAlias?: string;
+}
+const platformFieldPolicies = ref(new Map<string, PlatformFieldPolicy>());
 let previewRequestSequence = 0;
 let previewDebounceTimer: ReturnType<typeof setTimeout> | undefined;
 let workspaceLoadSequence = 0;
@@ -180,10 +163,17 @@ const draftConflict = ref(false);
 const compositionLoading = ref(false);
 let compositionLoadSequence = 0;
 
-const previewModes: UiRadioOption[] = [
+const hasListPreview = computed(() => previewDescriptor.value?.page?.template === 'LIST_DETAIL_CARD');
+const effectivePreviewMode = computed(() => {
+  const mode = state.previewMode.value;
+  if (mode === 'detail' || mode === 'edit') return mode;
+  return hasListPreview.value ? 'list' : 'detail';
+});
+const previewModes = computed<UiRadioOption[]>(() => [
+  ...(hasListPreview.value ? [{ value: 'list', label: '列表' }] : []),
   { value: 'detail', label: '页面' },
   { value: 'edit', label: '表单' },
-];
+]);
 const removedDraft = ref<{ before: string; after: string }>();
 function validRelationColumnWidth(width: string) {
   return /^[1-9]\d*px$/.test(width) && Number.parseInt(width, 10) <= 2_147_483_647;
@@ -328,7 +318,13 @@ const metadataTreeNodes = computed<UiTreeNode[]>(() => [
               (field): UiTreeNode => ({
                 key: `metadata:field:${field.id}`,
                 title: field.title,
-                secondary: field.fieldName,
+                secondary: [
+                  field.fieldName,
+                  field.platformReadOnly ? '只读' : '',
+                  field.referenceModuleAlias ? '模块引用' : '',
+                ]
+                  .filter(Boolean)
+                  .join(' · '),
                 actions: [
                   {
                     key: 'add',
@@ -517,6 +513,7 @@ async function loadMetadataTree(requestSequence = workspaceLoadSequence, moduleA
         overviewMode: CompositionMode;
         compositionSkeletons: CompositionSkeleton[];
         searchableFields?: string[];
+        platformFieldPolicies: PlatformFieldPolicy[];
       }>({ method: 'GET', path: `/platform.module/${encodeURIComponent(moduleAlias)}/overview-mode` }),
       Promise.resolve()
         .then(() =>
@@ -535,6 +532,10 @@ async function loadMetadataTree(requestSequence = workspaceLoadSequence, moduleA
     );
     if (!current()) return;
     const main = relations.find((item) => item.relationRole === 'main' || item.relationRole === 'MAIN');
+    if (!profile.platformFieldPolicies) throw new Error('服务端尚未提供平台字段策略，请重启后端后重新加载');
+    platformFieldPolicies.value = new Map(
+      profile.platformFieldPolicies.map((policy) => [policy.fieldName, policy]),
+    );
     const toFields = (fields: MetadataField[]) =>
       fields
         .filter((field) => field.enabled !== false && !isRuntimeReservedMetadataField(field))
@@ -612,7 +613,13 @@ function childRelationNodes(parentMetadataId?: string): UiTreeNode[] {
         children: fields.map((field) => ({
           key: `metadata:relation-field:${relationId}:${field.id}`,
           title: field.title,
-          secondary: field.fieldName,
+          secondary: [
+            field.fieldName,
+            field.platformReadOnly ? '只读' : '',
+            field.referenceModuleAlias ? '模块引用' : '',
+          ]
+            .filter(Boolean)
+            .join(' · '),
           actions: [
             { key: 'add-form', title: '添加到子表', iconName: 'plus' as const, disabled: isMutating.value },
           ],
@@ -1159,11 +1166,13 @@ function toComposerField(field: MetadataField): PageComposerField | undefined {
     fieldSpecAlias: field.fieldSpecAlias,
     systemManaged: field.systemManaged,
     required: field.required,
+    platformReadOnly: platformFieldPolicies.value.get(field.fieldName)?.readOnly,
+    referenceModuleAlias: platformFieldPolicies.value.get(field.fieldName)?.referenceModuleAlias,
   };
 }
 
 function isRuntimeReservedMetadataField(field: MetadataField) {
-  return field.systemManaged === true && runtimeReservedMetadataFieldNames.has(field.fieldName ?? '');
+  return platformFieldPolicies.value.get(field.fieldName ?? '')?.composable === false;
 }
 
 function slotTitle(slot: PageComposerSlot) {
@@ -1196,6 +1205,9 @@ function selectUiTreeKey(key: string) {
   selectedActionKey.value = key.startsWith('ui:action:') ? key : undefined;
   if (selectedActionKey.value) {
     state.selectedNodeId.value = undefined;
+    const [, , anchor] = key.split(':');
+    state.previewMode.value =
+      anchor === 'form' ? 'edit' : anchor === 'detail' ? 'detail' : hasListPreview.value ? 'list' : 'detail';
     return;
   }
 
@@ -1393,8 +1405,15 @@ function handleCompositionSourceDrop(target: ComposerDropTarget, payload: unknow
   if (!action || !actionCanOccupyAnchor(action, target.anchor)) return;
   if (target.anchor === 'form') {
     actionFormMode.value = source.actionCode === 'create' ? 'create' : 'edit';
-    state.previewMode.value = 'edit';
   }
+  state.previewMode.value =
+    target.anchor === 'form'
+      ? 'edit'
+      : target.anchor === 'detail'
+        ? 'detail'
+        : hasListPreview.value
+          ? 'list'
+          : 'detail';
   handlePreviewActionDrop(source, {
     anchor: target.anchor,
     index:
@@ -1640,7 +1659,12 @@ function configurePreviewRelationField(relationCode: string, fieldName: string) 
 }
 
 function selectPreviewMode(key: string) {
-  if (isMutating.value || !['list', 'query', 'detail', 'edit'].includes(key)) return;
+  if (
+    !previewDescriptor.value ||
+    isMutating.value ||
+    (!['detail', 'edit'].includes(key) && !(key === 'list' && hasListPreview.value))
+  )
+    return;
   state.previewMode.value = key as typeof state.previewMode.value;
 }
 
@@ -1904,9 +1928,9 @@ function openPropertyDrawer() {
       <RecordDetailPanel title="预览">
         <template #actions>
           <UiRadioGroup
-            :value="state.previewMode.value === 'edit' ? 'edit' : 'detail'"
+            :value="effectivePreviewMode"
             :options="previewModes"
-            :disabled="isMutating"
+            :disabled="!previewDescriptor || isMutating"
             @update:value="selectPreviewMode"
           />
         </template>
@@ -1961,11 +1985,10 @@ function openPropertyDrawer() {
           </UiButton>
         </div>
         <PageCompositionDescriptorPreview
-          whole-page
           v-if="previewDescriptor"
           :descriptor="previewDescriptor"
           :module-alias="props.moduleAlias"
-          :mode="state.previewMode.value === 'query' ? 'list' : state.previewMode.value"
+          :mode="effectivePreviewMode"
           :selected-field-name="selectedPreviewFieldName"
           :accept-external-drop="true"
           :placement-disabled="isMutating || previewLoading || Boolean(previewError)"
@@ -2109,8 +2132,8 @@ function openPropertyDrawer() {
             <label class="component-property-drawer__switch">
               <span>只读展示</span>
               <UiSwitch
-                :checked="propertyDraft.readOnly"
-                :disabled="isMutating"
+                :checked="selectedField.platformReadOnly || propertyDraft.readOnly"
+                :disabled="isMutating || selectedField.platformReadOnly"
                 @update:checked="updateFieldProperty('readOnly', $event)"
               />
             </label>

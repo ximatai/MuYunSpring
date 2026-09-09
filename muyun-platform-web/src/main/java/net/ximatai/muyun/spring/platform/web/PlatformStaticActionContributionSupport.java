@@ -42,7 +42,7 @@ public final class PlatformStaticActionContributionSupport {
             case SORT -> "调整" + resourceTitle + "排序";
             case IMPORT -> "导入" + resourceTitle;
             case EXPORT -> "导出" + resourceTitle;
-            case MENU, REFERENCE -> action.title() + " " + resourceTitle;
+            case MENU, REFERENCE, MANAGE_PERMISSIONS -> action.title() + " " + resourceTitle;
         };
     }
 

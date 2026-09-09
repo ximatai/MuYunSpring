@@ -5,6 +5,7 @@ import { resolvePlacedPageActions } from './pageActionPlacement';
 import { computed, nextTick, onMounted, onUnmounted, ref, shallowRef, toRaw, watch } from 'vue';
 import { useCurrentUserContext } from '../platform-admin-runtime/currentUserContext';
 import {
+  RecordPermissionDialog,
   createQueryScopedTreeModuleContext,
   ManagementExplorerColumn,
   ManagementWorkspace,
@@ -63,6 +64,7 @@ import type {
 import { hasExecutableDetailRelationQueryContract } from '@muyun/web-contracts';
 import { FormulaRuntime } from '../formula/FormulaRuntime';
 import {
+  AppError,
   createModuleContext,
   createReferenceResolveClient,
   createStaticResourceTreeClient,
@@ -1021,8 +1023,31 @@ const enhancementBatchActions = computed<ModulePageBatchActionContribution[]>(
 );
 const managedPageActions = computed(() => runtimePage.value?.managedActions === true);
 const placedPageActions = computed<RecordActionItem[]>(() => placedActionsAt('PAGE'));
+const explorerRefreshAction = computed(() =>
+  placedPageActions.value.find((action) => placedOperation(action.key) === 'REFRESH'),
+);
+const explorerCreateAction = computed(() =>
+  placedPageActions.value.find((action) => placedOperation(action.key) === 'OPEN_CREATE'),
+);
+const explorerExtraActions = computed(() =>
+  placedPageActions.value.filter(
+    (action) => action !== explorerRefreshAction.value && action !== explorerCreateAction.value,
+  ),
+);
 const placedDetailActions = computed<RecordActionItem[]>(() => placedActionsAt('DETAIL'));
 const placedFormActions = computed<RecordActionItem[]>(() => placedActionsAt('FORM'));
+const statusSwitchAction = computed(() => {
+  const operation = selectedRecord.value?.enabled === false ? 'ENABLE' : 'DISABLE';
+  return placedDetailActions.value.find((action) => placedOperation(action.key) === operation);
+});
+const placedDetailButtons = computed(() =>
+  managedPageActions.value && !enhancementDetailDrawer.value
+    ? placedDetailActions.value.filter(
+        (action) => !['ENABLE', 'DISABLE'].includes(placedOperation(action.key) ?? ''),
+      )
+    : placedDetailActions.value,
+);
+
 function placedActionsAt(anchor: 'PAGE' | 'DETAIL' | 'FORM') {
   return resolvePlacedPageActions(
     runtimePage.value?.actions ?? [],
@@ -1218,11 +1243,14 @@ const canToggleEnabled = computed(() => {
   ) {
     return false;
   }
+  if (managedPageActions.value && (!statusSwitchAction.value || statusSwitchAction.value.disabled))
+    return false;
   return selectedRecordActionAvailable(record.enabled === false ? 'enable' : 'disable');
 });
 const toggleEnabledDisabledReason = computed(() => {
   const record = selectedRecord.value;
   if (!record?.id || canToggleEnabled.value) return undefined;
+  if (managedPageActions.value && !statusSwitchAction.value) return '页面未配置当前状态切换操作';
   const actionCode = record.enabled === false ? 'enable' : 'disable';
   return context
     .recordActionsSnapshot(String(record.id))
@@ -1293,7 +1321,7 @@ const flatManagementDetailActions = computed<RecordActionItem[]>(() => [
   ...flatManagementActions.value,
   ...flatManagementEnhancementActions.value,
   ...detailPageActions.value,
-  ...(flatManagementAllowsDetailEnhancement() ? placedDetailActions.value : []),
+  ...(flatManagementAllowsDetailEnhancement() ? placedDetailButtons.value : []),
   ...(!flatManagementRecycleBin.active.value && editorMode.value !== 'view'
     ? placedFormActions.value.map((action) => ({
         ...action,
@@ -2553,6 +2581,34 @@ async function openRecordView(record: QueryListRecord) {
   await openRecord(record, 'view');
 }
 
+const permissionsOpen = ref(false);
+async function permissionsChanged() {
+  const record = selectedRecord.value;
+  if (record?.id) {
+    const recordId = String(record.id);
+    // A permission mutation changes the record-scoped action contract even when the
+    // current user still has VIEW. Refresh it eagerly so the detail and list do
+    // not keep offering mutations granted by the previous assignment.
+    context.invalidateRecordActions?.([recordId]);
+    void context.recordActions(recordId).catch(() => undefined);
+  }
+  refreshList();
+  if (!record?.id) return;
+  await loadRecord(record, 'view', {}, false, (cause) => {
+    if (
+      cause instanceof AppError &&
+      (cause.status === 403 ||
+        cause.status === 404 ||
+        cause.code === 'ACCESS_DENIED' ||
+        cause.code === 'RESOURCE_NOT_FOUND')
+    ) {
+      clearSelectionForScopeChange();
+    } else {
+      presentPlatformError(cause, { source: 'record-permissions', phase: 'load' });
+    }
+  });
+}
+
 function handleDetailAction(action: { key?: string }) {
   if (detailPageActions.value.some((item) => item.key === action.key)) {
     handleConfiguredAction(action);
@@ -2573,10 +2629,13 @@ async function runPlacedRecordAction(action: { key?: string; actionCode?: string
   const actionCode =
     managedPageActions.value && placedOperation(action.key) !== 'INVOKE'
       ? (
-          { OPEN_EDIT: 'update', DELETE: 'delete', ENABLE: 'enable', DISABLE: 'disable' } as Record<
-            string,
-            string
-          >
+          {
+            OPEN_EDIT: 'update',
+            DELETE: 'delete',
+            ENABLE: 'enable',
+            DISABLE: 'disable',
+            MANAGE_PERMISSIONS: 'managePermissions',
+          } as Record<string, string>
         )[placedOperation(action.key) ?? '']
       : action.actionCode;
   if (
@@ -2587,6 +2646,10 @@ async function runPlacedRecordAction(action: { key?: string; actionCode?: string
     !placedDetailActions.value.some((item) => item.key === action.key && !item.disabled)
   )
     return;
+  if (actionCode === 'managePermissions') {
+    permissionsOpen.value = true;
+    return;
+  }
   if (actionCode === 'update') {
     void editRecord(record, 'restore-view');
     return;
@@ -2990,8 +3053,8 @@ function recordTitle(record: QueryListRecord | undefined) {
         <RecordStatusSwitch
           v-else-if="!flatManagementRecycleBin.active.value && selectedRecord"
           :enabled="selectedRecord.enabled !== false"
-          :disabled="managedPageActions || !canToggleEnabled"
-          :disabled-reason="managedPageActions ? undefined : toggleEnabledDisabledReason"
+          :disabled="!canToggleEnabled"
+          :disabled-reason="toggleEnabledDisabledReason"
           :loading="togglingEnabled"
           :show-label="false"
           @change="toggleEnabled"
@@ -3207,7 +3270,7 @@ function recordTitle(record: QueryListRecord | undefined) {
             :detail-load-failed="detailLoadFailed"
             :recycle-bin-active="recycleBinDetailActive"
             :actions="enhancementDetailActions"
-            :configured-actions="[...detailPageActions, ...placedDetailActions]"
+            :configured-actions="[...detailPageActions, ...placedDetailButtons]"
             :form-actions="placedFormActions"
             :managed-actions="managedPageActions"
             :workspace-available="detailWorkspaceAvailable"
@@ -3225,8 +3288,8 @@ function recordTitle(record: QueryListRecord | undefined) {
           <RecordStatusSwitch
             v-if="!recycleBinDetailActive && editorMode === 'view' && selectedRecord"
             :enabled="selectedRecord.enabled !== false"
-            :disabled="managedPageActions || !canToggleEnabled"
-            :disabled-reason="managedPageActions ? undefined : toggleEnabledDisabledReason"
+            :disabled="!canToggleEnabled"
+            :disabled-reason="toggleEnabledDisabledReason"
             :loading="togglingEnabled"
             :show-label="false"
             @change="toggleEnabled"
@@ -3358,20 +3421,29 @@ function recordTitle(record: QueryListRecord | undefined) {
       <ManagementExplorerColumn>
         <RecordExplorerPanel
           :title="treePanelTitle"
-          :refreshable="!managedPageActions"
+          :refreshable="!managedPageActions || Boolean(explorerRefreshAction)"
+          :refresh-disabled="
+            managedPageActions &&
+            (saving ||
+              !explorerRefreshAction ||
+              explorerRefreshAction.disabled ||
+              context.can('query') !== true)
+          "
           :subtitle="mainTreeScopeContext"
           :refresh-title="`刷新${treePanelTitle}`"
           :searchable="runtimePage?.quickSearchFields?.length !== 0"
           :search-keyword="treeSearchKeyword"
           :search-placeholder="listSearchPlaceholder"
           @update:search-keyword="treeSearchKeyword = $event"
-          @refresh="treeReloadKey += 1"
+          @refresh="
+            explorerRefreshAction ? handlePlacedPageAction(explorerRefreshAction) : (treeReloadKey += 1)
+          "
         >
           <template #actions>
             <RecordActionBar
-              v-if="placedPageActions.length"
+              v-if="explorerExtraActions.length"
               :context="context"
-              :actions="placedPageActions"
+              :actions="explorerExtraActions"
               @action="handlePlacedPageAction"
             />
             <RecordPanelButton
@@ -3387,6 +3459,15 @@ function recordTitle(record: QueryListRecord | undefined) {
               "
               :aria-label="mainTreeSorting ? '结束排序' : '调整排序'"
               @click="mainTreeSorting = !mainTreeSorting"
+            />
+            <ModuleActionButton
+              v-if="mainTreeScopeReady && explorerCreateAction"
+              :context="context"
+              action-code="create"
+              icon-only
+              :title="explorerCreateAction.title"
+              :disabled="saving || explorerCreateAction.disabled"
+              @click="handlePlacedPageAction(explorerCreateAction)"
             />
             <ModuleActionButton
               v-if="mainTreeScopeReady && !managedPageActions"
@@ -3450,7 +3531,7 @@ function recordTitle(record: QueryListRecord | undefined) {
             :detail-loading="detailLoading"
             :detail-load-failed="detailLoadFailed"
             :actions="enhancementDetailActions"
-            :configured-actions="[...detailPageActions, ...placedDetailActions]"
+            :configured-actions="[...detailPageActions, ...placedDetailButtons]"
             :form-actions="placedFormActions"
             :managed-actions="managedPageActions"
             :workspace-available="detailWorkspaceAvailable"
@@ -3471,8 +3552,8 @@ function recordTitle(record: QueryListRecord | undefined) {
           <RecordStatusSwitch
             v-if="editorMode === 'view' && selectedRecord"
             :enabled="selectedRecord.enabled !== false"
-            :disabled="managedPageActions || !canToggleEnabled"
-            :disabled-reason="managedPageActions ? undefined : toggleEnabledDisabledReason"
+            :disabled="!canToggleEnabled"
+            :disabled-reason="toggleEnabledDisabledReason"
             :loading="togglingEnabled"
             :show-label="false"
             @change="toggleEnabled"
@@ -3642,8 +3723,8 @@ function recordTitle(record: QueryListRecord | undefined) {
             !recycleBinDetailActive && !enhancementDetailDrawer && editorMode === 'view' && selectedRecord
           "
           :enabled="selectedRecord.enabled !== false"
-          :disabled="managedPageActions || !canToggleEnabled"
-          :disabled-reason="managedPageActions ? undefined : toggleEnabledDisabledReason"
+          :disabled="!canToggleEnabled"
+          :disabled-reason="toggleEnabledDisabledReason"
           :loading="togglingEnabled"
           :show-label="false"
           @change="toggleEnabled"
@@ -3659,7 +3740,7 @@ function recordTitle(record: QueryListRecord | undefined) {
           :detail-load-failed="detailLoadFailed"
           :recycle-bin-active="recycleBinDetailActive"
           :actions="enhancementDetailActions"
-          :configured-actions="[...detailPageActions, ...placedDetailActions]"
+          :configured-actions="[...detailPageActions, ...placedDetailButtons]"
           :form-actions="placedFormActions"
           :managed-actions="managedPageActions"
           :show-standard-view-actions="!enhancementDetailDrawer"
@@ -3763,6 +3844,14 @@ function recordTitle(record: QueryListRecord | undefined) {
     <h2>{{ title }}</h2>
     <p>{{ unsupportedPageModeText }}</p>
   </section>
+  <RecordPermissionDialog
+    v-if="permissionsOpen && selectedRecord?.id != null"
+    :open="permissionsOpen"
+    :context="context"
+    :record-id="String(selectedRecord.id)"
+    @close="permissionsOpen = false"
+    @changed="permissionsChanged"
+  />
   <UiModal
     :open="localEditOpen"
     :title="localEditBlock?.title ?? '局部编辑'"

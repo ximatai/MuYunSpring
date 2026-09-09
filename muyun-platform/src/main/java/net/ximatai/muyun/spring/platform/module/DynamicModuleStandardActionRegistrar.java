@@ -150,6 +150,7 @@ public class DynamicModuleStandardActionRegistrar implements PlatformBootstrapTa
             actions.add(PlatformAction.ENABLE);
             actions.add(PlatformAction.DISABLE);
         }
+        if (capabilities.contains(EntityCapability.DATA_SCOPE.name())) actions.add(PlatformAction.MANAGE_PERMISSIONS);
         List<ModuleActionContribution> contributions = actions.stream()
                 .map(action -> contribution(module, action))
                 .toList();
@@ -182,6 +183,7 @@ public class DynamicModuleStandardActionRegistrar implements PlatformBootstrapTa
                                 ? fields.getObject().list(Criteria.of().eq("metadataId", definition.getId()).isNull("tenantId"),
                                         new PageRequest(0, Integer.MAX_VALUE)) : List.of())
                         .capabilities().stream().map(Enum::name).collect(java.util.stream.Collectors.toSet());
+                if (Boolean.TRUE.equals(definition.getDataScopeEnabled())) capabilities.add(EntityCapability.DATA_SCOPE.name());
                 ModuleMetadataRelation relation = main.getFirst();
                 return new CapabilitySnapshot(capabilities, relation.getId(), relation.getVersion(),
                         definition.getId(), definition.getVersion(), null);
@@ -204,7 +206,7 @@ public class DynamicModuleStandardActionRegistrar implements PlatformBootstrapTa
     private static ModuleActionContribution contribution(PlatformModule module, PlatformAction action) {
         return new ModuleActionContribution(
                 module.getAlias(), null, action.code(), action.permissionActionCode(), action.title(),
-                null, null, null, action.actionAuth(), false, action.defaultGrantPolicy(),
+                null, null, null, action.actionAuth(), action == PlatformAction.MANAGE_PERMISSIONS, action.defaultGrantPolicy(),
                 null, null, null, null,
                 ModuleActionSourceType.DYNAMIC_MODULE, module.getAlias(), null,
                 null, null, null, true

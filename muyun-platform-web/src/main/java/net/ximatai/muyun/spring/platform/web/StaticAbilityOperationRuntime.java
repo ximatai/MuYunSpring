@@ -45,6 +45,7 @@ import java.util.Set;
 
 /** Executes standard static ability operations independently from Spring MVC handler methods. */
 public final class StaticAbilityOperationRuntime {
+    private ObjectProvider<net.ximatai.muyun.spring.platform.permission.RecordPermissionService> permissions;
     private final ObjectProvider<RecycleBinFacade> recycleBinFacade;
     private final ObjectProvider<DeletionLogService> deletionLogService;
 
@@ -56,6 +57,11 @@ public final class StaticAbilityOperationRuntime {
                                          ObjectProvider<DeletionLogService> deletionLogService) {
         this.recycleBinFacade = recycleBinFacade;
         this.deletionLogService = deletionLogService;
+    }
+
+    public StaticAbilityOperationRuntime withPermissions(ObjectProvider<net.ximatai.muyun.spring.platform.permission.RecordPermissionService> permissions) {
+        this.permissions = permissions;
+        return this;
     }
 
     public Object execute(RegisteredWebEndpoint endpoint, HttpServletRequest request, Object body) {
@@ -79,7 +85,7 @@ public final class StaticAbilityOperationRuntime {
 
     private String recordIdForAction(HttpServletRequest request, PlatformAction action, String operationCode) {
         return switch (action) {
-            case ENABLE, DISABLE, SORT -> pathVariable(request, "id");
+            case ENABLE, DISABLE, SORT, MANAGE_PERMISSIONS -> pathVariable(request, "id");
             case RECYCLE_BIN_QUERY -> "view".equals(operationCode) ? pathVariable(request, "id") : null;
             default -> null;
         };
@@ -587,6 +593,19 @@ public final class StaticAbilityOperationRuntime {
 
         @Override
         @SuppressWarnings({"rawtypes", "unchecked"})
+        public Object executePermissions() {
+            return MutationTenantScopeExecutor.forExistingRecord(scope, id, () -> scope.webScope(() -> {
+                requireProjectionRecord(scope, request, PlatformAction.MANAGE_PERMISSIONS, id);
+                var manager = permissions.getObject();
+                CrudAbility service = requireService(scope, CrudAbility.class);
+                if ("permissions".equals(operationCode)) return manager.read(service, id);
+                if ("permissionCandidates".equals(operationCode)) return manager.candidates(service, id, request.getParameter("keyword"));
+                manager.change(service, id, (net.ximatai.muyun.spring.ability.permission.RecordPermissionChange) body);
+                return Map.of("changed", true);
+            }));
+        }
+
+        @Override
         public Object executeEnable(PlatformAction action) {
             EnableAbility ability = requireService(scope, EnableAbility.class);
             RecordActionWebRequest normalized = body instanceof RecordActionWebRequest actionRequest

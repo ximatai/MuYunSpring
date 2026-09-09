@@ -3,13 +3,15 @@ package net.ximatai.muyun.spring.dynamic.runtime;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.database.core.orm.PageResult;
-import net.ximatai.muyun.database.core.orm.PageResult;
 import net.ximatai.muyun.database.core.orm.Sort;
 import net.ximatai.muyun.spring.ability.BaseDao;
 import net.ximatai.muyun.spring.ability.EnableAbility;
 import net.ximatai.muyun.spring.ability.SoftDeleteAbility;
 import net.ximatai.muyun.spring.ability.RecycleBinAbility;
 import net.ximatai.muyun.spring.ability.TreeAbility;
+import net.ximatai.muyun.spring.ability.permission.RecordPermissionAccess;
+import net.ximatai.muyun.spring.ability.permission.RecordPermissionPersistence;
+import net.ximatai.muyun.spring.ability.permission.RecordPermissionWrite;
 import net.ximatai.muyun.spring.ability.reference.ReferenceOption;
 import net.ximatai.muyun.spring.ability.reference.ReferenceTarget;
 import net.ximatai.muyun.spring.ability.reference.ReferenceTargetProvider;
@@ -27,6 +29,7 @@ import java.util.List;
 import java.util.Map;
 
 public final class DynamicEntityOperations implements
+        RecordPermissionPersistence<DynamicRecord>,
         TreeAbility<DynamicRecord>,
         EnableAbility<DynamicRecord>,
         SoftDeleteAbility<DynamicRecord>,
@@ -175,7 +178,20 @@ public final class DynamicEntityOperations implements
         return service.selectIgnoreSoftDelete(moduleAlias, entityAlias, id);
     }
 
+    public boolean supportsRecordPermissions() {
+        return describe().capabilities().contains(EntityCapability.DATA_SCOPE.name());
+    }
+
     @Override
+    public RecordPermissionAccess<DynamicRecord> readForPermissionAction(String id) {
+        return service.readForPermissionAction(moduleAlias, entityAlias, id);
+    }
+
+    @Override
+    public int updatePermissions(RecordPermissionWrite write) {
+        return service.updatePermissions(moduleAlias, entityAlias, write);
+    }
+
     public int update(DynamicRecord record) {
         return service.update(moduleAlias, entityAlias, record);
     }

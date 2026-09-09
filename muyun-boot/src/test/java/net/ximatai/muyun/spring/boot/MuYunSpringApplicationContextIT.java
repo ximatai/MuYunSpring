@@ -414,6 +414,12 @@ class MuYunSpringApplicationContextIT {
         } else if (service instanceof SortAbility<?> && enabled(service, PlatformAction.SORT, locallyDisabled)) {
             add(expected, moduleAlias, PlatformAction.SORT, RequestMethod.POST, basePaths, "/sort/{id}");
         }
+        if (new net.ximatai.muyun.spring.dynamic.capability.DataScopeCapabilityModule().staticFacet().orElseThrow().supports(service)
+                && enabled(service, PlatformAction.MANAGE_PERMISSIONS, locallyDisabled)) {
+            add(expected, moduleAlias, PlatformAction.MANAGE_PERMISSIONS, RequestMethod.GET, basePaths, "/permissions/{id}");
+            add(expected, moduleAlias, PlatformAction.MANAGE_PERMISSIONS, RequestMethod.POST, basePaths, "/permissions/{id}");
+            add(expected, moduleAlias, PlatformAction.MANAGE_PERMISSIONS, RequestMethod.GET, basePaths, "/permissions/{id}/candidates");
+        }
         if (service instanceof RecycleBinAbility<?> recycleBinAbility) {
             if (enabled(service, PlatformAction.RECYCLE_BIN_QUERY, locallyDisabled)) {
                 add(expected, moduleAlias, PlatformAction.RECYCLE_BIN_QUERY, RequestMethod.POST,
@@ -615,6 +621,29 @@ class MuYunSpringApplicationContextIT {
         ResponseEntity<Void> logout = restTemplate.exchange(
                 "/iam.auth/logout", HttpMethod.POST, bearerRequest, Void.class);
         assertThat(logout.getStatusCode()).isEqualTo(HttpStatus.OK);
+    }
+
+    @Test
+    void shouldManageRecordPermissionsThroughStandardHttpEndpoints() {
+        String tenantId = insertSummaryTenant("tenant_permission_http");
+        seedUserEmployeeProjectionRecords(tenantId);
+        jdbcTemplate.update("update iam_user set password_status = ? where tenant_id = ?", "NORMAL", tenantId);
+        String id = projectionUserId(tenantId, "alice");
+        String targetId = projectionUserId(tenantId, "bob");
+        HttpHeaders headers = bearerHeaders(issueSuperAdminSessionToken());
+        ResponseEntity<JsonNode> snapshot = restTemplate.exchange("/iam.user/permissions/" + id,
+                HttpMethod.GET, new HttpEntity<>(headers), JsonNode.class);
+        assertThat(snapshot.getStatusCode()).withFailMessage("snapshot: %s", snapshot.getBody()).isEqualTo(HttpStatus.OK);
+        int version = snapshot.getBody().path("version").asInt();
+        String command = "{\"version\":" + version + ",\"operation\":\"ADD\",\"relation\":\"MEMBER\",\"userIds\":[\"" + targetId + "\"]}";
+        headers.setContentType(org.springframework.http.MediaType.APPLICATION_JSON);
+        ResponseEntity<JsonNode> changed = restTemplate.exchange("/iam.user/permissions/" + id,
+                HttpMethod.POST, new HttpEntity<>(command, headers), JsonNode.class);
+        assertThat(changed.getStatusCode()).withFailMessage("change: %s", changed.getBody()).isEqualTo(HttpStatus.OK);
+        assertThat(jdbcTemplate.queryForObject("select auth_member_ids from iam_user where id = ?", String.class, id)).isEqualTo(targetId);
+        ResponseEntity<JsonNode> stale = restTemplate.exchange("/iam.user/permissions/" + id,
+                HttpMethod.POST, new HttpEntity<>(command, headers), JsonNode.class);
+        assertThat(stale.getStatusCode().is4xxClientError()).isTrue();
     }
 
     @Test

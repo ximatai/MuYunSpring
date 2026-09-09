@@ -173,7 +173,7 @@ it('keeps actions available in sorting mode and pauses dragging in the editor', 
   expect(wrapper.text()).toContain('删除');
   await wrapper
     .findAll('[data-testid="action-button"]')
-    .find((button) => button.text() === '＋ 字段')!
+    .find((button) => button.text() === '普通字段')!
     .trigger('click');
   expect(wrapper.findComponent({ name: 'ManagementWorkspace' }).props('editing')).toBe(true);
   expect(wrapper.findComponent({ name: 'UiTree' }).attributes('draggable')).toBe('false');
@@ -386,7 +386,48 @@ it('preserves an explicitly edited child alias across title and mode changes', a
   expect(wrapper.text()).toContain('exam_students');
 });
 
-it('preserves the field draft and advanced editor when changing its business property', async () => {
+it('creates a module reference in simple mode and preserves advanced settings across mode switches', async () => {
+  const http = fakeHttp();
+  const request = vi.spyOn(http, 'request');
+  vi.mocked(confirmAction).mockResolvedValue(false);
+  configureModuleContext({ http });
+  const wrapper = shallowMount(MetadataGovernanceSurface, {
+    props: { moduleAlias: 'education.exam' },
+    global: { stubs: governanceStubs() },
+  });
+  mounted.add(wrapper);
+  await flushPromises();
+  await wrapper
+    .findAll('button')
+    .find((button) => button.text() === '模块引用')!
+    .trigger('click');
+  await flushPromises();
+  const field = (label: string) => wrapper.findAll('label').find((item) => item.text().startsWith(label))!;
+  expect(wrapper.text()).not.toContain('存储字段规格');
+  expect(wrapper.text()).not.toContain('匹配键字段');
+  field('目标模块').findComponent({ name: 'UiSelect' }).vm.$emit('update:value', 'iam.user');
+  await flushPromises();
+  expect(field('显示名称').findComponent({ name: 'UiInput' }).props('value')).toBe('用户');
+  field('显示名称').findComponent({ name: 'UiInput' }).vm.$emit('update:value', '负责人');
+  wrapper.findComponent({ name: 'UiRadioGroup' }).vm.$emit('update:value', 'ADVANCED');
+  await flushPromises();
+  field('被引用记录删除时').findComponent({ name: 'UiSelect' }).vm.$emit('update:value', 'RESTRICT');
+  wrapper.findComponent({ name: 'UiRadioGroup' }).vm.$emit('update:value', 'SIMPLE');
+  await flushPromises();
+  expect(field('目标模块').findComponent({ name: 'UiSelect' }).props('value')).toBe('iam.user');
+  await wrapper
+    .findAll('button')
+    .find((button) => button.text() === '保存')!
+    .trigger('click');
+  await flushPromises();
+  const preview = request.mock.calls.find(([options]) => options.path.endsWith('change-set-preview'));
+  expect(JSON.stringify(preview?.[0].body)).toContain('refFuZeRenId');
+  expect(JSON.stringify(preview?.[0].body)).toContain('RESTRICT');
+  expect(JSON.stringify(preview?.[0].body)).toContain('displayName');
+  expect(request.mock.calls.some(([options]) => options.path.endsWith('change-set-apply'))).toBe(false);
+});
+
+it('selects a dictionary in simple mode without requiring application aliases', async () => {
   configureModuleContext({ http: fakeHttp() });
   const wrapper = shallowMount(MetadataGovernanceSurface, {
     props: { moduleAlias: 'education.exam' },
@@ -395,30 +436,167 @@ it('preserves the field draft and advanced editor when changing its business pro
   mounted.add(wrapper);
   await flushPromises();
   await wrapper
-    .findAll('[data-testid="action-button"]')
-    .find((button) => button.text() === '＋ 字段')!
+    .findAll('button')
+    .find((button) => button.text() === '数据字典')!
     .trigger('click');
+  await flushPromises();
+  const select = wrapper.findComponent({ name: 'UiSelect' });
+  expect(select.props('options')).toEqual([{ value: 'education.status', label: '状态 · education.status' }]);
+  select.vm.$emit('update:value', 'education.status');
+  await flushPromises();
+  expect(wrapper.findComponent({ name: 'UiInput' }).props('value')).toBe('状态');
+  expect(wrapper.text()).not.toContain('存储字段规格');
+  wrapper.findComponent({ name: 'UiRadioGroup' }).vm.$emit('update:value', 'ADVANCED');
+  await flushPromises();
+  expect(wrapper.findAllComponents({ name: 'UiSelect' })[0]!.props('value')).toBe('education.status');
+});
+
+it.each(['MODULE_REFERENCE', 'DICTIONARY'])(
+  'links suggested names to changing targets while preserving custom names (%s)',
+  async (kind) => {
+    const http = fakeHttp();
+    const original = http.request;
+    vi.spyOn(http, 'request').mockImplementation((options) => {
+      if (options.path.endsWith('/reference-target-modules'))
+        return Promise.resolve([
+          { alias: 'iam.user', title: '用户' },
+          { alias: 'iam.employee', title: '职员' },
+        ]) as never;
+      if (options.path === '/platform.dictionary_category/query')
+        return Promise.resolve({
+          records: [
+            { alias: 'zone', applicationAlias: 'platform', title: '时区', categoryKind: 'DICTIONARY' },
+            { alias: 'gender', applicationAlias: 'iam', title: '性别', categoryKind: 'DICTIONARY' },
+          ],
+          pages: 1,
+          totalKnown: true,
+        }) as never;
+      return original(options);
+    });
+    configureModuleContext({ http });
+    const wrapper = shallowMount(MetadataGovernanceSurface, {
+      props: { moduleAlias: 'education.exam' },
+      global: { stubs: governanceStubs() },
+    });
+    mounted.add(wrapper);
+    await flushPromises();
+    await wrapper
+      .findAll('button')
+      .find((button) => button.text() === (kind === 'DICTIONARY' ? '数据字典' : '模块引用'))!
+      .trigger('click');
+    await flushPromises();
+    const target = () => wrapper.findComponent({ name: 'UiSelect' });
+    const title = () =>
+      wrapper
+        .findAll('label')
+        .find((item) => item.text() === '显示名称')!
+        .findComponent({ name: 'UiInput' });
+    const first = kind === 'DICTIONARY' ? 'platform.zone' : 'iam.user';
+    const second = kind === 'DICTIONARY' ? 'iam.gender' : 'iam.employee';
+    target().vm.$emit('update:value', first);
+    await flushPromises();
+    expect(title().props('value')).toBe(kind === 'DICTIONARY' ? '时区' : '用户');
+    target().vm.$emit('update:value', second);
+    await flushPromises();
+    expect(title().props('value')).toBe(kind === 'DICTIONARY' ? '性别' : '职员');
+    target().vm.$emit('update:value', null);
+    await flushPromises();
+    expect(title().props('value')).toBe('');
+    target().vm.$emit('update:value', first);
+    await flushPromises();
+    title().vm.$emit('update:value', '负责人');
+    target().vm.$emit('update:value', second);
+    await flushPromises();
+    expect(title().props('value')).toBe('负责人');
+    wrapper.findComponent({ name: 'UiRadioGroup' }).vm.$emit('update:value', 'ADVANCED');
+    await flushPromises();
+    expect(
+      wrapper
+        .findAll('label')
+        .find((item) => item.text().startsWith('字段名称'))!
+        .findComponent({ name: 'UiInput' })
+        .props('value'),
+    ).toBe(kind === 'DICTIONARY' ? 'dictFuZeRen' : 'refFuZeRenId');
+    title().vm.$emit('update:value', '');
+    await flushPromises();
+    target().vm.$emit('update:value', first);
+    await flushPromises();
+    expect(title().props('value')).toBe(kind === 'DICTIONARY' ? '时区' : '用户');
+    const technical = (label: string) =>
+      wrapper
+        .findAll('label')
+        .find((item) => item.text().startsWith(label))!
+        .findComponent({ name: 'UiInput' });
+    technical('字段名称').vm.$emit('update:value', 'customRole');
+    technical('物理列名').vm.$emit('update:value', 'custom_column');
+    title().vm.$emit('update:value', '新的名称');
+    await flushPromises();
+    expect(technical('字段名称').props('value')).toBe('customRole');
+    expect(technical('物理列名').props('value')).toBe('custom_column');
+  },
+);
+
+it('keeps an existing reference visible in simple mode and blocks invalid target settings without rewriting them', async () => {
+  const http = fakeHttp();
+  const original = http.request;
+  const request = vi.spyOn(http, 'request').mockImplementation((options) => {
+    if (options.path.endsWith('/field-properties'))
+      return Promise.resolve([
+        {
+          fieldId: 'title',
+          fieldName: 'title',
+          kind: 'MODULE_REFERENCE',
+          bindingVersion: 4,
+          reference: {
+            targetModuleAlias: 'iam.user',
+            targetKeyField: 'id',
+            targetLabelField: 'retiredLabel',
+            cardinality: 'ONE',
+            targetUnavailablePolicy: 'RESTRICT',
+            projectionMappings: ['displayName:userName'],
+          },
+        },
+      ]) as never;
+    return original(options);
+  });
+  configureModuleContext({ http });
+  const wrapper = shallowMount(MetadataGovernanceSurface, {
+    props: { moduleAlias: 'education.exam' },
+    global: { stubs: governanceStubs() },
+  });
+  mounted.add(wrapper);
+  await flushPromises();
+  await wrapper.get('[data-testid="model-tree"]').trigger('click');
+  await flushPromises();
+  await wrapper
+    .findAll('button')
+    .find((button) => button.text() === '编辑')!
+    .trigger('click');
+  await flushPromises();
+  expect(wrapper.findComponent({ name: 'UiSelect' }).props('value')).toBe('iam.user');
+  expect(wrapper.text()).toContain('retiredLabel');
+  await wrapper
+    .findAll('button')
+    .find((button) => button.text() === '保存')!
+    .trigger('click');
+  await flushPromises();
+  expect(request.mock.calls.some(([options]) => options.path.endsWith('change-set-preview'))).toBe(false);
   wrapper.findComponent({ name: 'UiRadioGroup' }).vm.$emit('update:value', 'ADVANCED');
   await flushPromises();
   const field = (label: string) => wrapper.findAll('label').find((item) => item.text().startsWith(label))!;
-  field('字段名称').findComponent({ name: 'UiInput' }).vm.$emit('update:value', 'supplierId');
-  field('物理列名').findComponent({ name: 'UiInput' }).vm.$emit('update:value', 'supplier_id');
-  field('显示名称').findComponent({ name: 'UiInput' }).vm.$emit('update:value', '供应商');
-  await flushPromises();
-  for (const kind of ['MODULE_REFERENCE', 'DICTIONARY', 'BASIC']) {
-    field('数据属性').findComponent({ name: 'UiSelect' }).vm.$emit('update:value', kind);
-    await flushPromises();
-    expect(field('字段名称').findComponent({ name: 'UiInput' }).props('value')).toBe('supplierId');
-    expect(field('物理列名').findComponent({ name: 'UiInput' }).props('value')).toBe('supplier_id');
-    expect(field('显示名称').findComponent({ name: 'UiInput' }).props('value')).toBe('供应商');
-    expect(wrapper.findComponent({ name: 'UiRadioGroup' }).props('value')).toBe('ADVANCED');
-    if (kind === 'MODULE_REFERENCE') expect(wrapper.text()).toContain('目标模块');
-  }
+  expect(field('目标展示字段').findComponent({ name: 'UiSelect' }).props('value')).toBe('retiredLabel');
+  expect(field('被引用记录删除时').findComponent({ name: 'UiSelect' }).props('value')).toBe('RESTRICT');
+  expect(wrapper.findComponent({ name: 'UiTextArea' }).props('value')).toBe('displayName:userName');
 });
 
 function governanceStubs() {
   return {
     RecordFieldLabel: false,
+    UiDropdown: {
+      props: ['items'],
+      emits: ['select'],
+      template: `<div><slot :toggle="() => {}" /><button v-for="item in items" :key="item.key" data-testid="action-button" @click="$emit('select', item.key)">{{ item.title }}</button></div>`,
+    },
     ManagementWorkspace: {
       name: 'ManagementWorkspace',
       props: ['editing'],
@@ -503,6 +681,35 @@ function responseFor(options: HttpRequestOptions) {
           title: '学生',
           fieldOwnership: 'BUSINESS',
           fieldForm: 'PHYSICAL',
+        },
+      ],
+      pages: 1,
+      totalKnown: true,
+    };
+  if (options.path.endsWith('/reference-target-modules')) return [{ alias: 'iam.user', title: '用户' }];
+  if (options.path.includes('/reference-target-field-catalog?'))
+    return {
+      targetModuleAlias: 'iam.user',
+      keyFields: [{ fieldName: 'id', defaultField: true, selectable: true }],
+      labelFields: [{ fieldName: 'displayName', defaultField: true, selectable: true }],
+    };
+  if (options.path === '/platform.dictionary_category/query')
+    return {
+      records: [
+        { id: 'folder', categoryKind: 'FOLDER', title: '目录' },
+        {
+          id: 'tenant-status',
+          categoryKind: 'DICTIONARY',
+          applicationAlias: 'education',
+          alias: 'status',
+          title: '状态',
+        },
+        {
+          id: 'status',
+          categoryKind: 'DICTIONARY',
+          applicationAlias: 'education',
+          alias: 'status',
+          title: '状态',
         },
       ],
       pages: 1,

@@ -119,6 +119,39 @@ class ReferenceTargetFieldCatalogServiceTest {
                 .containsExactly("displayName", "title");
     }
 
+    @Test
+    void shouldOfferOnlyModulesWithMainMetadataOrRegisteredReferenceAbilityAndCheckSourceScope() {
+        ModuleMetadataRelationService relations = mock(ModuleMetadataRelationService.class);
+        PlatformModuleService modules = mock(PlatformModuleService.class);
+        when(relations.select("source-main")).thenReturn(relation("source-main", "education.exam", "exam-meta"));
+        when(relations.list(any(Criteria.class), any(PageRequest.class)))
+                .thenReturn(List.of(relation("target-main", "education.student", "student-meta")));
+        PlatformModule student = new PlatformModule();
+        student.setAlias("education.student");
+        student.setTitle("学生");
+        student.setModuleKind(ModuleKind.DYNAMIC);
+        PlatformModule draft = new PlatformModule();
+        draft.setAlias("education.draft");
+        draft.setModuleKind(ModuleKind.DYNAMIC);
+        PlatformModule user = new PlatformModule();
+        user.setAlias("iam.user");
+        user.setModuleKind(ModuleKind.STATIC);
+        PlatformModule apiOnly = new PlatformModule();
+        apiOnly.setAlias("platform.governance");
+        apiOnly.setModuleKind(ModuleKind.STATIC);
+        when(modules.list(any(Criteria.class), any(PageRequest.class)))
+                .thenReturn(List.of(draft, apiOnly, user, student));
+        ReferenceAbility<?> ability = mock(ReferenceAbility.class);
+        PlatformAbilityRuntime.configureReferenceTargetResolver(target -> ReferenceTarget.of("iam", "user").equals(target)
+                ? java.util.Optional.of(ability) : java.util.Optional.empty());
+        var service = new ReferenceTargetFieldCatalogService(relations, modules, mock(MetadataFieldService.class), null);
+        assertThat(service.modules("education.exam", "source-main"))
+                .extracting(ReferenceTargetFieldCatalogService.TargetModule::alias)
+                .containsExactly("education.student", "iam.user");
+        assertThatThrownBy(() -> service.modules("education.other", "source-main"))
+                .hasMessageContaining("does not belong to module");
+    }
+
     private ModuleMetadataRelation relation(String id, String moduleAlias, String metadataId) {
         ModuleMetadataRelation relation = new ModuleMetadataRelation();
         relation.setId(id);
