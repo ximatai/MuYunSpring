@@ -61,7 +61,11 @@ it.each([1440, 980])(
       await page.getByRole('textbox', { name: '搜索占位提示', exact: true }).fill('布局验收');
       await page.getByRole('button', { name: '关闭', exact: true }).click();
       await expect.element(page.getByRole('button', { name: '保存草稿', exact: true })).toBeEnabled();
-      await page.getByText('页面', { exact: true }).click();
+      await expect.poll(() => wrapper.find('[data-testid="page-composer-list-preview"]').exists()).toBe(true);
+      await expect
+        .poll(() => !(wrapper.get('input[value="detail"]').element as HTMLInputElement).disabled)
+        .toBe(true);
+      await page.elementLocator(wrapper.get('input[value="detail"]').element.closest('label')!).click();
       await expect
         .poll(() => wrapper.find('[data-page-composition-layout-key="detail:field:field0"]').exists())
         .toBe(true);
@@ -70,7 +74,10 @@ it.each([1440, 980])(
       await expect.element(page.getByRole('radio', { name: '页面', exact: true })).toBeChecked();
       await expect.element(page.getByRole('textbox', { name: '展示标题', exact: true })).toBeVisible();
       await page.getByRole('button', { name: '关闭', exact: true }).click();
-      await page.getByText('表单', { exact: true }).click();
+      await expect
+        .poll(() => !(wrapper.get('input[value="edit"]').element as HTMLInputElement).disabled)
+        .toBe(true);
+      await page.elementLocator(wrapper.get('input[value="edit"]').element.closest('label')!).click();
       await expect.element(page.getByRole('radio', { name: '表单', exact: true })).toBeChecked();
       await expect.element(page.getByRole('textbox', { name: '字段59', exact: true })).toBeInTheDocument();
       const content = wrapper.get('.record-detail-panel-region .record-detail-layout-content')
@@ -122,6 +129,13 @@ function layoutHttp(): HttpClient {
       if (path.endsWith('/overview-mode'))
         return {
           overviewMode: 'LIST_CARD',
+          platformFieldPolicies: [
+            { fieldName: 'id', composable: false, readOnly: true },
+            { fieldName: 'tenantId', composable: false, readOnly: true },
+            { fieldName: 'authUserId', composable: false, readOnly: true },
+            { fieldName: 'createdAt', composable: true, readOnly: true },
+            { fieldName: 'createdBy', composable: true, readOnly: true, referenceModuleAlias: 'iam.user' },
+          ],
           compositionSkeletons: [
             {
               mode: 'LIST_CARD',

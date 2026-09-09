@@ -81,13 +81,25 @@ export function modeAwareTree(
 export function defaultPageActionEntries(
   actions: PageCompositionActionCandidate[],
 ): PageCompositionActionPlacement[] {
-  return (['page', 'detail', 'form'] as const).flatMap((anchor) =>
-    actions
+  return (['page', 'detail', 'form'] as const).flatMap((anchor) => {
+    const entries = actions
       .filter(
         (action) => !!pageActionIntent(action.actionCode, anchor) && canPlaceActionInAnchor(action, anchor),
       )
-      .map((action) => ({ actionCode: action.actionCode, anchor })),
-  );
+      .map((action) => ({ actionCode: action.actionCode, anchor }));
+    if (anchor === 'detail') {
+      const authorization = entries.find((entry) => entry.actionCode === 'managePermissions');
+      if (authorization && entries.some((entry) => entry.actionCode === 'update')) {
+        entries.splice(entries.indexOf(authorization), 1);
+        entries.splice(
+          entries.findIndex((entry) => entry.actionCode === 'update'),
+          0,
+          authorization,
+        );
+      }
+    }
+    return entries;
+  });
 }
 
 /** A single button can dispatch different module operations according to the business context. */

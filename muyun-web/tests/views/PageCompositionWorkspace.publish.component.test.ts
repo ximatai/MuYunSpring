@@ -382,6 +382,20 @@ describe('PageCompositionWorkspace publication flow', () => {
     const requests: HttpRequestOptions[] = [];
     const http = publicationFlowHttp(requests, initialTree(), [
       {
+        id: 'field-audit',
+        fieldOwnership: 'STANDARD',
+        fieldName: 'createdBy',
+        title: '创建人',
+        systemManaged: true,
+      },
+      {
+        id: 'field-permission',
+        fieldOwnership: 'STANDARD',
+        fieldName: 'authUserId',
+        title: '权限归属',
+        systemManaged: true,
+      },
+      {
         id: 'field-id',
         fieldName: 'id',
         title: 'ID',
@@ -440,6 +454,8 @@ describe('PageCompositionWorkspace publication flow', () => {
     await toggle.trigger('click');
     const nodes = metadataTree.props('nodes');
     expect(treeNode(nodes, 'metadata:relation-field:relation-participant:child-sort')).toBeDefined();
+    expect(treeNode(nodes, 'metadata:field:field-audit')?.secondary).toContain('只读 · 模块引用');
+    expect(treeNode(nodes, 'metadata:field:field-permission')).toBeUndefined();
     expect(treeNode(nodes, 'metadata:field:field-id')).toBeUndefined();
     expect(treeNode(nodes, 'metadata:field:field-tenant')).toBeUndefined();
     expect(treeNode(nodes, 'metadata:field:field-enabled')).toBeDefined();
@@ -592,7 +608,7 @@ describe('PageCompositionWorkspace publication flow', () => {
     expect(wrapper.findComponent(PageCompositionTree).props('listFields')).toMatchObject([
       { id: 'field-title', title: '考试名称' },
     ]);
-    expect(wrapper.findComponent(PageCompositionDescriptorPreview).props('mode')).toBe('list');
+    expect(wrapper.findComponent(PageCompositionDescriptorPreview).props('mode')).toBe('detail');
   });
 
   it('repositions an already placed form field when dropped onto another group', async () => {
@@ -1304,13 +1320,16 @@ function canDiscardChanges(wrapper: VueWrapper) {
   return wrapper.findAll('button').some((button) => button.text() === '放弃本次更改');
 }
 
-function treeNode(nodes: unknown, key: string): { key: string; title: string } | undefined {
+function treeNode(
+  nodes: unknown,
+  key: string,
+): { key: string; title: string; secondary?: unknown } | undefined {
   if (!Array.isArray(nodes)) return undefined;
   for (const node of nodes) {
     if (!node || typeof node !== 'object') continue;
-    const candidate = node as { key?: unknown; title?: unknown; children?: unknown };
+    const candidate = node as { key?: unknown; title?: unknown; secondary?: unknown; children?: unknown };
     if (candidate.key === key && typeof candidate.title === 'string') {
-      return { key: candidate.key, title: candidate.title };
+      return { key: candidate.key, title: candidate.title, secondary: candidate.secondary };
     }
     const child = treeNode(candidate.children, key);
     if (child) return child;
@@ -1546,6 +1565,13 @@ function compositionProfile() {
   return {
     overviewMode: 'LIST_CARD',
     searchableFields: ['title'],
+    platformFieldPolicies: [
+      { fieldName: 'id', composable: false, readOnly: true },
+      { fieldName: 'tenantId', composable: false, readOnly: true },
+      { fieldName: 'authUserId', composable: false, readOnly: true },
+      { fieldName: 'createdAt', composable: true, readOnly: true },
+      { fieldName: 'createdBy', composable: true, readOnly: true, referenceModuleAlias: 'iam.user' },
+    ],
     compositionSkeletons: [
       {
         mode: 'LIST_CARD',

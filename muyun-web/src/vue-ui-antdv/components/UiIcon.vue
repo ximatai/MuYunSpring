@@ -29,6 +29,7 @@ import {
   SettingOutlined,
   SkinOutlined,
   SwapOutlined,
+  UserOutlined,
 } from '@ant-design/icons-vue';
 
 defineOptions({ name: 'UiIcon', inheritAttrs: false });
@@ -64,13 +65,15 @@ export type UiIconName =
   | 'skin'
   | 'settings'
   | 'swap'
-  | 'swap-vertical';
+  | 'swap-vertical'
+  | 'user';
 
 const props = defineProps<{
   name: UiIconName;
 }>();
 
 const icons = {
+  user: UserOutlined,
   app: AppstoreOutlined,
   check: CheckOutlined,
   close: CloseOutlined,

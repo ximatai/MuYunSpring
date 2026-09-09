@@ -2,7 +2,7 @@ package net.ximatai.muyun.spring.platform.web;
 
 /** Platform interaction intent; business action authorization remains independent. */
 public enum PageActionOperation {
-    OPEN_CREATE, OPEN_EDIT, SUBMIT_CREATE, SUBMIT_UPDATE, REFRESH, DELETE, ENABLE, DISABLE, INVOKE;
+    OPEN_CREATE, OPEN_EDIT, SUBMIT_CREATE, SUBMIT_UPDATE, REFRESH, DELETE, ENABLE, DISABLE, MANAGE_PERMISSIONS, INVOKE;
 
     public static PageActionOperation resolve(String code, PageActionAnchor anchor) {
         if (anchor == PageActionAnchor.PAGE) return switch (code) {
@@ -20,6 +20,7 @@ public enum PageActionOperation {
             case "delete" -> DELETE;
             case "enable" -> ENABLE;
             case "disable" -> DISABLE;
+            case "managePermissions" -> MANAGE_PERMISSIONS;
             default -> customOperation(code, anchor);
         };
     }

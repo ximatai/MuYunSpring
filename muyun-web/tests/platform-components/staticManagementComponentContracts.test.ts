@@ -1367,6 +1367,7 @@ it('platform account-role binding selects a target tenant before loading or savi
 
 it('record lists reuse their existing region for recycle-bin data and lifecycle actions', () => {
   const panelSource = readSource('src/platform-components/RecordQueryListPanel.vue');
+  const listSurfaceSource = readSource('src/platform-components/RecordQueryListSurface.vue');
   const listColumnModelSource = readSource('src/platform-components/recordQueryListColumnModel.ts');
   const explorerSource = readSource('src/platform-components/CrudRecordListExplorer.vue');
   const recycleBinButtonSource = readSource('src/platform-components/RecycleBinModeButton.vue');
@@ -1388,8 +1389,9 @@ it('record lists reuse their existing region for recycle-bin data and lifecycle 
   );
   assert.match(panelSource, /refreshRecycleBinSummary\(\)/);
   assert.match(panelSource, /if \(canQueryRecycleBinAvailable\.value\)/);
-  assert.match(panelSource, /<footer[\s\S]*class="record-query-list-pagination"[\s\S]*recycleBinEnabled/);
-  assert.match(panelSource, /record-query-list-pagination-controls/);
+  assert.match(panelSource, /<RecordQueryListSurface[\s\S]*:table-visible="!loading/);
+  assert.match(listSurfaceSource, /<footer[\s\S]*class="record-query-list-pagination"/);
+  assert.match(listSurfaceSource, /record-query-list-pagination-controls/);
   assert.match(panelSource, /RecycleBinModeButton/);
   assert.match(recycleBinButtonSource, /props\.hasRecords === true/);
   assert.match(recycleBinButtonSource, /count\?: number/);

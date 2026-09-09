@@ -96,3 +96,33 @@ it('requires an issued surface binding even for a classified custom action', () 
     ),
   ).toBe(true);
 });
+
+it('offers permissions as a detail preset and preserves hidden defaults in existing pages', () => {
+  const actions = [{ actionCode: 'managePermissions', actionLevel: 'RECORD' as const }];
+  expect(defaultPageActionEntries(actions)).toEqual([{ actionCode: 'managePermissions', anchor: 'detail' }]);
+  expect(withStandardActionEntries([], actions)).toEqual([
+    { actionCode: 'managePermissions', anchor: 'detail', hidden: true },
+  ]);
+  expect(canPlaceActionInAnchor(actions[0], 'page')).toBe(false);
+  expect(canPlaceActionInAnchor(actions[0], 'form')).toBe(false);
+});
+
+it('defaults authorization immediately before edit without reordering saved placements', () => {
+  const actions = ['update', 'delete', 'managePermissions'].map((actionCode) => ({
+    actionCode,
+    actionLevel: 'RECORD' as const,
+  }));
+  expect(
+    defaultPageActionEntries(actions)
+      .filter((entry) => entry.anchor === 'detail')
+      .map((entry) => entry.actionCode),
+  ).toEqual(['managePermissions', 'update', 'delete']);
+  const saved = [
+    { actionCode: 'update', anchor: 'detail' as const },
+    { actionCode: 'delete', anchor: 'detail' as const },
+    { actionCode: 'managePermissions', anchor: 'detail' as const },
+  ];
+  expect(withStandardActionEntries(saved, actions).filter((entry) => entry.anchor === 'detail')).toEqual(
+    saved,
+  );
+});

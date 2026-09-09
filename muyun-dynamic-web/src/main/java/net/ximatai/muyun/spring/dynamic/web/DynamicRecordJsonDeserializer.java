@@ -1,5 +1,6 @@
 package net.ximatai.muyun.spring.dynamic.web;
 
+import net.ximatai.muyun.spring.common.schema.PlatformFieldPolicy;
 import com.fasterxml.jackson.core.JsonParser;
 import com.fasterxml.jackson.databind.DeserializationContext;
 import com.fasterxml.jackson.databind.JsonDeserializer;
@@ -82,6 +83,12 @@ final class DynamicRecordJsonDeserializer extends JsonDeserializer<DynamicRecord
         Iterator<Map.Entry<String, JsonNode>> fields = values.properties().iterator();
         while (fields.hasNext()) {
             Map.Entry<String, JsonNode> field = fields.next();
+            if (net.ximatai.muyun.spring.common.schema.PlatformDataScopeSchema.fieldNames().contains(field.getKey()))
+                throw new IllegalArgumentException("请通过授权动作变更权限");
+            if (PlatformFieldPolicy.isAudit(field.getKey())
+                    && !field.getValue().isNull()) {
+                record.putMutationMetadata("auditInput:" + field.getKey(), field.getValue().asText());
+            }
             if (isEnvelopeField(field.getKey()) || flatRelations.contains(field.getKey())
                     || readFields.contains(field.getKey())) {
                 continue;

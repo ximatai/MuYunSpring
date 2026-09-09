@@ -33,6 +33,8 @@ function submit(event: SubmitEvent) {
 
 .record-form-grid :slotted(label) {
   display: grid;
+  /* Long control values must shrink within the field rather than size its implicit grid track. */
+  grid-template-columns: minmax(0, 1fr);
   min-width: 0;
   gap: var(--muyun-record-form-label-gap);
   color: var(--muyun-text-body);

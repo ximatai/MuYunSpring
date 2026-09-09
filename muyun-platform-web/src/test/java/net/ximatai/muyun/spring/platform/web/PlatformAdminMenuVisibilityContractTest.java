@@ -126,9 +126,9 @@ class PlatformAdminMenuVisibilityContractTest {
             Set<String> menuModuleAliases = menuModuleAliases(context);
             assertThat(menuModuleAliases).contains(
                     "platform.application",
-                    "platform.low_code_governance",
                     WorkflowActionPolicyService.MANAGEMENT_MODULE_ALIAS
             );
+            assertThat(menuModuleAliases).doesNotContain("platform.low_code_governance");
 
             assertThat(menuModuleAliases)
                     .allSatisfy(moduleAlias -> assertThat(moduleActionService.findByModuleAliasAndActionCode(
@@ -139,6 +139,7 @@ class PlatformAdminMenuVisibilityContractTest {
             try (TenantContext.Scope ignoredTenant = TenantContext.system("system admin menu test");
                  CurrentUserContext.Scope ignoredUser = CurrentUserContext.use(platformSuperAdmin())) {
                 assertThat(visibleModuleAliases()).containsAll(menuModuleAliases);
+                assertThat(visibleModuleAliases()).doesNotContain("platform.low_code_governance");
             }
         }
     }

@@ -78,6 +78,9 @@ class DynamicRecordWebMvcSliceTest {
     private final MockMvc mvc;
 
     @MockitoBean
+    private net.ximatai.muyun.spring.platform.permission.RecordPermissionService recordPermissions;
+
+    @MockitoBean
     private DynamicRecordService recordService;
 
     @MockitoBean

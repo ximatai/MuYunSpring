@@ -4,17 +4,23 @@ import { expect, it } from 'vitest';
 import { page, commands, userEvent } from 'vitest/browser';
 import { configureModuleContext, type HttpClient, type HttpRequestOptions } from '@/web-core';
 import { providePageLayout } from '@/platform-components/pageLayoutContext';
+import { cssVariablesOf, defaultUiTheme } from '@/vue-ui-antdv/theme';
 import PageCompositionWorkspace from '@/views/PageCompositionWorkspace.vue';
 import PageCompositionTree from '@/views/PageCompositionTree.vue';
+import PageCompositionDescriptorPreview from '@/views/PageCompositionDescriptorPreview.vue';
 import '@/styles.css';
 import 'ant-design-vue/dist/reset.css';
+
+const themeStyle = Object.entries(cssVariablesOf(defaultUiTheme))
+  .map(([name, value]) => `${name}:${value}`)
+  .join(';');
 
 const PlacementHost = defineComponent({
   props: { height: { type: Number, required: true } },
   setup(props) {
     providePageLayout('workspace');
     return () =>
-      h('div', { style: `height:${props.height}px;margin:10px` }, [
+      h('div', { style: `height:${props.height}px;margin:10px;${themeStyle}` }, [
         h(PageCompositionWorkspace, { moduleAlias: 'education.placement' }),
       ]);
   },
@@ -25,6 +31,12 @@ it('renders full-width groups and empty group titles in the page preview', async
   configureModuleContext({ http: placementHttp([]) });
   const wrapper = mount(PlacementHost, { attachTo: document.body, props: { height: 760 } });
   try {
+    await expect.element(page.getByRole('button', { name: '发布草稿', exact: true })).toBeEnabled();
+    await expect
+      .poll(() => !(wrapper.get('input[value="detail"]').element as HTMLInputElement).disabled)
+      .toBe(true);
+    await expect.poll(() => wrapper.find('[data-testid="page-composer-list-preview"]').exists()).toBe(true);
+    await page.elementLocator(wrapper.get('input[value="detail"]').element.closest('label')!).click();
     const selector = '[data-composer-target="detail:group:basic"]';
     await expect.poll(() => wrapper.find(selector).exists()).toBe(true);
     const grid = wrapper.get('.record-detail-fields').element.getBoundingClientRect();
@@ -83,6 +95,273 @@ it.each([760, 480])('uses one tree scrollport and reaches both ends at %ipx heig
   }
 });
 
+it('uses the table cells as the held list-column boundary and has no trailing drop strip', async () => {
+  await page.viewport(1087, 814);
+  configureModuleContext({ http: placementHttp([]) });
+  const wrapper = mount(PlacementHost, { attachTo: document.body, props: { height: 774 } });
+  const model = () => wrapper.findComponent(PageCompositionTree);
+  const header = (name: string) => `[data-page-composition-layout-key="list:header:${name}"]`;
+  const field = (name: string) => `[data-page-composition-layout-key="list:field:${name}"]`;
+  const headerCell = (name: string) => `th:has(${header(name)})`;
+  const handle = (name: string) => `[data-composer-drag="list:header:${name}"]`;
+  const columnPartBounds = (name: string, part: 'header' | 'field') => {
+    const root = wrapper.get('[data-testid="page-composer-list-preview"]').element;
+    const cells = [
+      ...root.querySelectorAll<HTMLElement>(`[data-page-composition-layout-key="list:${part}:${name}"]`),
+    ].map((element) => element.closest<HTMLElement>('th, td')!.getBoundingClientRect());
+    return {
+      left: Math.min(...cells.map((rect) => rect.left)),
+      right: Math.max(...cells.map((rect) => rect.right)),
+    };
+  };
+  const actualColumnBounds = (name: string) => {
+    const root = wrapper.get('[data-testid="page-composer-list-preview"]').element;
+    const cells = ['header', 'field'].flatMap((part) =>
+      [
+        ...root.querySelectorAll<HTMLElement>(`[data-page-composition-layout-key="list:${part}:${name}"]`),
+      ].map((element) => element.closest<HTMLElement>('th, td')!.getBoundingClientRect()),
+    );
+    return {
+      left: Math.min(...cells.map((rect) => rect.left)),
+      top: Math.min(...cells.map((rect) => rect.top)),
+      right: Math.max(...cells.map((rect) => rect.right)),
+      bottom: Math.max(...cells.map((rect) => rect.bottom)),
+    };
+  };
+  const expectColumnCellsAligned = (name: string) => {
+    const headerBounds = columnPartBounds(name, 'header');
+    const fieldBounds = columnPartBounds(name, 'field');
+    expect(Math.abs(headerBounds.left - fieldBounds.left)).toBeLessThan(2);
+    expect(Math.abs(headerBounds.right - fieldBounds.right)).toBeLessThan(2);
+  };
+  const expectColumnOutline = (name: string) => {
+    const expected = actualColumnBounds(name);
+    const outline = wrapper.get('.page-composer-column-drag-outline').element;
+    const actual = outline.getBoundingClientRect();
+    const detail = JSON.stringify({ expected, actual });
+    expect(Math.abs(actual.left - (expected.left - 2)), detail).toBeLessThan(2);
+    expect(Math.abs(actual.top - (expected.top - 2)), detail).toBeLessThan(2);
+    expect(Math.abs(actual.right - (expected.right + 2)), detail).toBeLessThan(2);
+    expect(Math.abs(actual.bottom - (expected.bottom + 2)), detail).toBeLessThan(2);
+    const style = getComputedStyle(outline);
+    expect(style.borderTopWidth).toBe('2px');
+    expect(style.borderTopStyle).toBe('solid');
+    expect(style.borderTopColor).toBe('rgb(245, 190, 44)');
+    expect(wrapper.text()).not.toContain('拖到此处添加末列');
+  };
+  const settled = async () =>
+    expect
+      .poll(
+        () =>
+          wrapper.element
+            .getAnimations({ subtree: true })
+            .filter((animation: Animation) => animation.playState === 'running').length,
+      )
+      .toBe(0);
+  const columnAnimations = () =>
+    wrapper
+      .get('[data-testid="page-composer-list-preview"]')
+      .element.getAnimations({ subtree: true })
+      .filter((animation: Animation) => {
+        const target = animation.effect instanceof KeyframeEffect ? animation.effect.target : undefined;
+        return target instanceof HTMLElement && target.matches('th, td');
+      });
+  const assertOutlineAtColumnAnimationMidpoint = async (name: string) => {
+    await expect.poll(() => columnAnimations().length).toBeGreaterThan(0);
+    const animations = columnAnimations();
+    expect(animations.some((animation) => animation.effect?.getTiming().duration === 160)).toBe(true);
+    animations.forEach((animation) => {
+      animation.pause();
+      animation.currentTime = 80;
+    });
+    await expect
+      .poll(() => {
+        try {
+          expectColumnOutline(name);
+          expectColumnCellsAligned(name);
+          return true;
+        } catch {
+          return false;
+        }
+      })
+      .toBe(true);
+    animations.forEach((animation) => animation.play());
+  };
+  const listColumnOrder = () =>
+    wrapper
+      .findAll('[data-page-composition-layout-key^="list:header:"]')
+      .map((element) => element.attributes('data-page-composition-layout-key')?.split(':').at(-1) ?? '');
+  try {
+    await expect.element(page.getByRole('button', { name: '发布草稿', exact: true })).toBeEnabled();
+    await expect.poll(() => wrapper.find(header('a')).exists()).toBe(true);
+    expect(wrapper.text()).not.toContain('拖到此处添加末列');
+    expect(wrapper.find('[data-composer-target="list:end"]').exists()).toBe(false);
+
+    // A palette field gets a real temporary column, bounded by both its header and preview cell.
+    await commands.treeGesture('[data-ui-tree-key="metadata:field:b"]', headerCell('a'), 0.5, 'hold', 0.1);
+    await expect.poll(() => wrapper.find('.page-composer-column-drag-outline').exists()).toBe(true);
+    await expect.poll(() => actualColumnBounds('b').bottom).toBeGreaterThan(actualColumnBounds('b').top);
+    await settled();
+    expectColumnOutline('b');
+    await commands.treeRelease();
+    await expect
+      .poll(() =>
+        model()
+          .props('listFields')
+          .map((field: { id: string }) => field.id),
+      )
+      .toEqual(['b', 'a']);
+
+    // An existing column uses the exact same full-column boundary, then Escape restores the draft.
+    await expect
+      .element(page.elementLocator(wrapper.get(handle('b')).element))
+      .toHaveAttribute('aria-disabled', 'false');
+    await settled();
+    await commands.treeGesture(handle('b'), field('a'), 0.5, 'hold', 0.99);
+    await expect.poll(() => wrapper.find('.page-composer-column-drag-outline').exists()).toBe(true);
+    await assertOutlineAtColumnAnimationMidpoint('b');
+    expect(listColumnOrder()).toEqual(['a', 'b']);
+    // Crossing the same slot repeatedly exercises moving table-cell hit boxes while FLIP is active.
+    await commands.treeMove(field('a'), 0.5, 0.01);
+    await expect.poll(() => wrapper.find('.page-composer-column-drag-outline').exists()).toBe(true);
+    await expect.poll(listColumnOrder).toEqual(['b', 'a']);
+    await settled();
+    await commands.treeMove(headerCell('a'), 0.5, 0.99);
+    await expect.poll(listColumnOrder).toEqual(['a', 'b']);
+    await settled();
+    expectColumnOutline('b');
+    await userEvent.keyboard('{Escape}');
+    await commands.treeRelease();
+    await expect.poll(() => wrapper.find('.page-composer-column-drag-outline').exists()).toBe(false);
+    expect(
+      model()
+        .props('listFields')
+        .map((field: { id: string }) => field.id),
+    ).toEqual(['b', 'a']);
+
+    await settled();
+    await expect
+      .element(page.elementLocator(wrapper.get(handle('b')).element))
+      .toHaveAttribute('aria-disabled', 'false');
+    await commands.treeGesture(handle('b'), headerCell('a'), 0.5, 'hold', 0.9);
+    await commands.treeRelease();
+    await expect
+      .poll(() =>
+        model()
+          .props('listFields')
+          .map((field: { id: string }) => field.id),
+      )
+      .toEqual(['a', 'b']);
+  } finally {
+    await userEvent.keyboard('{Escape}');
+    await commands.treeRelease();
+    wrapper.unmount();
+  }
+});
+
+it('keeps an external field under the current two-column list receiver while its temporary third column reflows', async () => {
+  await page.viewport(1087, 814);
+  configureModuleContext({
+    http: placementHttp([], false, 'LIST_CARD', false, 4, undefined, false, ['a', 'b']),
+  });
+  const wrapper = mount(PlacementHost, { attachTo: document.body, props: { height: 774 } });
+  const invalidDrop = document.createElement('span');
+  invalidDrop.id = 'list-external-invalid-drop';
+  invalidDrop.style.cssText = 'position:fixed;left:1px;top:1px;width:1px;height:1px;pointer-events:none';
+  document.body.append(invalidDrop);
+  const header = (name: string) => `[data-page-composition-layout-key="list:header:${name}"]`;
+  const headerCell = (name: string) => `th:has(${header(name)})`;
+  const field = (name: string) => `[data-page-composition-layout-key="list:field:${name}"]`;
+  const previewOrder = () =>
+    wrapper
+      .findAll('[data-page-composition-layout-key^="list:header:"]')
+      .map((element) => element.attributes('data-page-composition-layout-key')?.split(':').at(-1) ?? '');
+  const draftOrder = () =>
+    wrapper
+      .findComponent(PageCompositionTree)
+      .props('listFields')
+      .map((entry: { id: string }) => entry.id);
+  const settled = async () =>
+    expect
+      .poll(
+        () =>
+          wrapper.element
+            .getAnimations({ subtree: true })
+            .filter((animation: Animation) => animation.playState === 'running').length,
+      )
+      .toBe(0);
+  try {
+    await expect.element(page.getByRole('button', { name: '发布草稿', exact: true })).toBeEnabled();
+    // The customer's two visible columns are already rendered; this hold adds the third.
+    await expect.poll(previewOrder).toEqual(['a', 'b']);
+    await expect.poll(() => wrapper.find(header('b')).exists()).toBe(true);
+
+    await commands.treeGesture('[data-ui-tree-key="metadata:field:e"]', headerCell('b'), 0.5, 'hold', 0.5);
+    await expect.poll(previewOrder).toEqual(['a', 'e', 'b']);
+    await settled();
+
+    // Follow the visible table cells, without releasing: first, middle, end, then back to middle.
+    await commands.treeMove(header('a'), 0.5, 0.01);
+    await expect.poll(previewOrder).toEqual(['e', 'a', 'b']);
+    await settled();
+    await commands.treeMove(field('a'), 0.5, 0.99);
+    await expect.poll(previewOrder).toEqual(['a', 'e', 'b']);
+    await settled();
+    await commands.treeMove(field('b'), 0.5, 0.99);
+    await expect.poll(previewOrder).toEqual(['a', 'b', 'e']);
+    await settled();
+    await commands.treeMove(field('a'), 0.5, 0.99);
+    await expect.poll(previewOrder).toEqual(['a', 'e', 'b']);
+    expect(draftOrder()).toEqual(['a', 'b']);
+
+    await userEvent.keyboard('{Escape}');
+    await commands.treeRelease();
+    await expect.poll(previewOrder).toEqual(['a', 'b']);
+    expect(draftOrder()).toEqual(['a', 'b']);
+    await settled();
+
+    // Leaving the actual table receiver clears the candidate; the hand-off cache must not append.
+    await commands.treeGesture('[data-ui-tree-key="metadata:field:e"]', headerCell('b'), 0.5, 'hold', 0.5);
+    await expect.poll(previewOrder).toEqual(['a', 'e', 'b']);
+    await commands.treeMove('#list-external-invalid-drop');
+    await expect.poll(previewOrder).toEqual(['a', 'b']);
+    await commands.treeRelease();
+    expect(draftOrder()).toEqual(['a', 'b']);
+    await settled();
+
+    await commands.treeGesture('[data-ui-tree-key="metadata:field:e"]', headerCell('b'), 0.5, 'hold', 0.5);
+    await expect.poll(previewOrder).toEqual(['a', 'e', 'b']);
+    await settled();
+    await commands.treeMove(field('b'), 0.5, 0.99);
+    await expect.poll(previewOrder).toEqual(['a', 'b', 'e']);
+    await settled();
+    const columnWidths = () =>
+      ['a', 'b', 'e'].flatMap((name) =>
+        [headerCell(name), `td:has(${field(name)})`].map(
+          (selector) => wrapper.get(selector).element.getBoundingClientRect().width,
+        ),
+      );
+    const heldWidths = columnWidths();
+    await commands.treeRelease();
+    await expect.poll(draftOrder).toEqual(['a', 'b', 'e']);
+    await expect
+      .poll(() =>
+        wrapper
+          .findComponent(PageCompositionDescriptorPreview)
+          .props('descriptor')
+          .page?.list?.fields.fields?.some((entry) => entry.fieldRef.fieldName === 'e'),
+      )
+      .toBe(true);
+    await settled();
+    columnWidths().forEach((width, index) => expect(Math.abs(width - heldWidths[index]!)).toBeLessThan(1));
+  } finally {
+    await userEvent.keyboard('{Escape}');
+    await commands.treeRelease();
+    invalidDrop.remove();
+    wrapper.unmount();
+  }
+});
+
 it.each([1440, 980])(
   'places A into B/C precisely and reorders C without changing field facts at %ipx',
   async (width) => {
@@ -91,7 +370,7 @@ it.each([1440, 980])(
     configureModuleContext({ http: placementHttp(requests) });
     const wrapper = mount(PlacementHost, { attachTo: document.body, props: { height: 900 } });
     const source = (name: string) => `[data-ui-tree-key="metadata:field:${name}"]`;
-    const header = (name: string) => `[data-page-composition-layout-key="list:header:${name}"]`;
+    const header = (name: string) => `th:has([data-page-composition-layout-key="list:header:${name}"])`;
     const handle = (key: string) => `[data-composer-drag="${key}"]`;
     const target = (key: string) => `[data-composer-target="${key}"][tabindex]`;
     const model = () => wrapper.findComponent(PageCompositionTree);
@@ -570,7 +849,18 @@ it.each(['edit', 'detail'] as const)(
     const markers: HTMLElement[] = [];
     try {
       await expect.element(page.getByRole('button', { name: '发布草稿', exact: true })).toBeEnabled();
-      if (mode === 'edit') await page.getByText('表单', { exact: true }).click();
+      await expect.poll(() => wrapper.find('[data-testid="page-composer-list-preview"]').exists()).toBe(true);
+      if (mode === 'edit') {
+        await expect
+          .poll(() => !(wrapper.get('input[value="edit"]').element as HTMLInputElement).disabled)
+          .toBe(true);
+        await page.elementLocator(wrapper.get('input[value="edit"]').element.closest('label')!).click();
+      } else {
+        await expect
+          .poll(() => !(wrapper.get('input[value="detail"]').element as HTMLInputElement).disabled)
+          .toBe(true);
+        await page.elementLocator(wrapper.get('input[value="detail"]').element.closest('label')!).click();
+      }
       await expect.poll(() => wrapper.find(grip('group:empty')).exists()).toBe(true);
       await expect
         .element(page.elementLocator(wrapper.get(grip('group:empty')).element))
@@ -933,6 +1223,7 @@ function placementHttp(
   formFieldCount = 4,
   rootFields?: string[],
   moreGroups = false,
+  listFields = ['a'],
 ): HttpClient {
   const fields = Array.from({ length: Math.max(5, formFieldCount + 1) }, (_, index) =>
     String.fromCharCode(97 + index),
@@ -954,7 +1245,7 @@ function placementHttp(
     template: 'management',
     templateVersion: 1,
     nodes: [
-      { slot: 'list', fields: ['a'] },
+      { slot: 'list', fields: listFields },
       {
         slot: 'form',
         fields: rootFields ?? (flatForm ? fields.slice(0, formFieldCount).map((field) => field.id) : ['a']),
@@ -999,6 +1290,13 @@ function placementHttp(
         return {
           overviewMode: mode,
           searchableFields: ['a', 'b', 'c'],
+          platformFieldPolicies: [
+            { fieldName: 'id', composable: false, readOnly: true },
+            { fieldName: 'tenantId', composable: false, readOnly: true },
+            { fieldName: 'authUserId', composable: false, readOnly: true },
+            { fieldName: 'createdAt', composable: true, readOnly: true },
+            { fieldName: 'createdBy', composable: true, readOnly: true, referenceModuleAlias: 'iam.user' },
+          ],
           compositionSkeletons: [
             {
               mode,

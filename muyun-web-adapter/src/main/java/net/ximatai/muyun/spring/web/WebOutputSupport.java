@@ -46,6 +46,7 @@ public final class WebOutputSupport {
 
     private static PlatformRecordOutput defaultOutput() {
         return new DefaultPlatformRecordOutput(List.of(
+                new net.ximatai.muyun.spring.ability.output.AuditReferenceRecordOutputTransformer(),
                 new OptionLoadRecordOutputTransformer(StaticOptionLoadPopulator.NONE),
                 new FieldProtectionRecordOutputTransformer()
         ));

@@ -53,6 +53,18 @@ class PlatformModuleMetadataRelationWebControllerTest {
         verify(catalogService).list("crm.customer", "main", "education.student", "student-meta");
     }
 
+    @Test
+    void shouldRouteReferenceTargetModulesThroughSourceRelationScope() {
+        ReferenceTargetFieldCatalogService catalogService = mock(ReferenceTargetFieldCatalogService.class);
+        var expected = List.of(new ReferenceTargetFieldCatalogService.TargetModule("iam.user", "用户"));
+        when(catalogService.modules("crm.customer", "main")).thenReturn(expected);
+        PlatformModuleMetadataRelationWebController controller = new PlatformModuleMetadataRelationWebController(
+                mock(ModuleMetadataOrchestrationService.class), mock(ModuleMetadataCapabilitySnapshotService.class),
+                mock(ModuleMetadataFieldPropertySummaryService.class), catalogService, mock(MetadataModelDeletionService.class),
+                mock(ModuleMetadataRelationRecordCountService.class));
+        assertThat(controller.referenceTargetModules(request("crm.customer"), "main")).isSameAs(expected);
+    }
+
     private MockHttpServletRequest request(String moduleAlias) {
         MockHttpServletRequest request = new MockHttpServletRequest();
         request.setAttribute(HandlerMapping.URI_TEMPLATE_VARIABLES_ATTRIBUTE, Map.of("moduleAlias", moduleAlias));

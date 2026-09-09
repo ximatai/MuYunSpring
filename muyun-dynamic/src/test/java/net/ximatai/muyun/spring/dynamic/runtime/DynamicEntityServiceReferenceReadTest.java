@@ -53,6 +53,31 @@ class DynamicEntityServiceReferenceReadTest {
     }
 
     @Test
+    void resolvesPlatformAuditReferencesWithoutBusinessReferenceDeclarations() {
+        EntityDefinition entity = new EntityDefinition("task", "test_task", "任务", List.of(FieldDefinition.string("title", "标题")));
+        ModuleDefinition module = ModuleDefinition.builder("demo.task", "任务").entities(List.of(entity)).build();
+        DynamicRecord record = new DynamicRecord(entity);
+        record.setCreatedBy("user-1");
+        record.setUpdatedBy("user-1");
+        DynamicRecordDao dao = mock(DynamicRecordDao.class);
+        when(dao.getEntity()).thenReturn(entity);
+        when(dao.query(any(Criteria.class), any(PageRequest.class), any(Sort[].class))).thenReturn(List.of(record));
+        ReferenceAbility<?> target = mock(ReferenceAbility.class);
+        when(target.projections(List.of("user-1"), List.of("title")))
+                .thenReturn(Map.of("user-1", Map.of("title", "管理员")));
+        PlatformAbilityRuntime.configureReferenceTargetResolver(key -> ReferenceTarget.of("iam", "user").equals(key)
+                ? java.util.Optional.of(target) : java.util.Optional.empty());
+        DynamicEntityService service = new DynamicEntityService(dao, "demo.task", DynamicRecordLifecycle.NONE,
+                module, ignored -> null, ignored -> null, null, DynamicFieldValueValidator.NONE,
+                FieldCryptoProvider.UNAVAILABLE, FieldSigner.UNAVAILABLE, new PlatformTimeService());
+        var result = service.list(Criteria.of(), PageRequest.of(1, 20)).getFirst();
+        assertThat(result.getValue("createdByTitle")).isEqualTo("管理员");
+        assertThat(result.getValue("updatedByTitle")).isEqualTo("管理员");
+        assertThat(result.getValue("createdBy")).isEqualTo("user-1");
+        verify(target, times(1)).projections(List.of("user-1"), List.of("title"));
+    }
+
+    @Test
     void shouldBatchDynamicListReferenceReadsFromAStaticTarget() {
         EntityDefinition contract = new EntityDefinition("contract", "sales_contract", "合同",
                 List.of(FieldDefinition.string("title", "标题")), java.util.Set.of(EntityCapability.REFERENCE));

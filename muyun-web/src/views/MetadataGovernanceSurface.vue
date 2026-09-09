@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue';
-import { generatedFieldName, generatedMetadataAlias, physicalNameOf } from './metadataNaming';
+import { generatedBusinessFieldName, generatedMetadataAlias, physicalNameOf } from './metadataNaming';
 import {
   ManagementExplorerColumn,
   ManagementWorkspace,
@@ -18,6 +18,7 @@ import {
 import { useWorkspaceViewUnsavedState } from '@muyun/platform-workbench';
 import type {
   Metadata,
+  DictionaryCategory,
   MetadataField,
   ModuleMetadataRelation,
   Option,
@@ -29,6 +30,7 @@ import {
   UiButton,
   UiCheckbox,
   UiEmpty,
+  UiDropdown,
   UiInput,
   UiRadioGroup,
   UiSelect,
@@ -259,15 +261,6 @@ const metadataTreeNodes = computed(() =>
 );
 const selectedRelationIsMain = computed(() => isMainRelation(state.selectedRelation.value?.relationRole));
 const fieldPropertyEditorKind = computed(() => state.fieldPropertyDraft.value.kind);
-const fieldStorageSpecAlias = computed(() =>
-  storageFieldSpecAliasOf(
-    fieldPropertyEditorKind.value,
-    fieldPropertyDraft.value.dictionaryConfig?.selectionMode,
-  ),
-);
-const fieldStorageSpecLabel = computed(() =>
-  fieldSpecDisplayLabel(fieldStorageSpecAlias.value, state.fieldSpecs.value),
-);
 const selectedRelationHasBusinessRecords = computed(
   () => (recordCountsByRelation.value[selectedRelationId.value ?? ''] ?? 0) > 0,
 );
@@ -276,19 +269,118 @@ const editableFieldSpecOptions = computed(() =>
     ? dataSafeFieldSpecOptions(state.fieldSpecs.value, fieldDraft.value.fieldSpecAlias)
     : state.fieldSpecOptions.value,
 );
-const fieldPropertyKindOptions: Option[] = [
-  { value: 'BASIC', label: '普通字段' },
-  { value: 'MODULE_REFERENCE', label: '模块引用' },
-  { value: 'DICTIONARY', label: '数据字典' },
+const fieldCreationItems = [
+  { key: 'BASIC', title: '普通字段' },
+  { key: 'MODULE_REFERENCE', title: '模块引用' },
+  { key: 'DICTIONARY', title: '数据字典' },
 ];
-
-function selectNewFieldPropertyKind(kind: unknown) {
-  if (state.fieldDraft.value.id || !['BASIC', 'MODULE_REFERENCE', 'DICTIONARY'].includes(String(kind)))
-    return;
-  const draft = { ...state.fieldDraft.value };
-  state.startCreateField(kind as MetadataFieldPropertyDraft['kind']);
-  state.fieldDraft.value = { ...draft, fieldSpecAlias: state.fieldDraft.value.fieldSpecAlias };
+const referenceSearch = ref('');
+const dictionarySearch = ref('');
+const targetModules = ref<Array<{ alias: string; title?: string }>>([]);
+const dictionaries = ref<DictionaryCategory[]>([]);
+const choicesLoading = ref(false);
+const choicesError = ref<string>();
+let choicesToken = 0;
+const referenceModuleOptions = computed(() => {
+  const options: Option[] = targetModules.value.map((item) => ({
+    value: item.alias,
+    label: `${item.title || item.alias} · ${item.alias}`,
+  }));
+  const alias = fieldPropertyDraft.value.referenceConfig?.targetModuleAlias;
+  if (alias && !options.some((item) => item.value === alias))
+    options.push({ value: alias, label: `${alias}（当前绑定）` });
+  return options.filter((item) => item.label.toLowerCase().includes(referenceSearch.value.toLowerCase()));
+});
+const dictionaryValue = computed(() => {
+  const config = fieldPropertyDraft.value.dictionaryConfig;
+  return config?.dictionaryApplicationAlias && config.dictionaryCategoryAlias
+    ? `${config.dictionaryApplicationAlias}.${config.dictionaryCategoryAlias}`
+    : undefined;
+});
+const dictionaryOptions = computed(() => {
+  // Dictionary bindings use application/category aliases; tenant variants share that identity.
+  const options: Option[] = [
+    ...new Map(
+      dictionaries.value.map((item) => {
+        const value = `${item.applicationAlias}.${item.alias}`;
+        return [value, { value, label: `${item.title || item.alias} · ${value}` }];
+      }),
+    ).values(),
+  ];
+  if (dictionaryValue.value && !options.some((item) => item.value === dictionaryValue.value))
+    options.push({ value: dictionaryValue.value, label: `${dictionaryValue.value}（当前绑定）` });
+  return options.filter((item) => item.label.toLowerCase().includes(dictionarySearch.value.toLowerCase()));
+});
+const fieldTitleManuallyEdited = ref(false);
+function updateFieldTitle(title: string) {
+  fieldTitleManuallyEdited.value = Boolean(title.trim());
+  fieldDraft.value.title = title;
 }
+function suggestFieldTitle(title: string) {
+  if (!fieldTitleManuallyEdited.value) fieldDraft.value.title = title;
+}
+function updateDictionary(value: unknown) {
+  const selected = dictionaries.value.find((item) => `${item.applicationAlias}.${item.alias}` === value);
+  const config = fieldPropertyDraft.value.dictionaryConfig;
+  if (!config) return;
+  config.dictionaryApplicationAlias = selected?.applicationAlias;
+  config.dictionaryCategoryAlias = selected?.alias;
+  suggestFieldTitle(selected?.title || selected?.alias || '');
+}
+watch(
+  () => [state.fieldEditorOpen.value, fieldPropertyEditorKind.value, selectedRelationId.value],
+  async () => {
+    const token = ++choicesToken;
+    choicesError.value = undefined;
+    choicesLoading.value = false;
+    if (!state.fieldEditorOpen.value || fieldPropertyEditorKind.value === 'BASIC') return;
+    choicesLoading.value = true;
+    try {
+      if (fieldPropertyEditorKind.value === 'MODULE_REFERENCE') {
+        const records = await moduleContext.http.request<Array<{ alias: string; title?: string }>>({
+          method: 'GET',
+          path: relationPath(`/${encodeURIComponent(selectedRelationId.value!)}/reference-target-modules`),
+        });
+        if (token === choicesToken) targetModules.value = records;
+      } else {
+        const records = await loadAllRecords<DictionaryCategory>('/platform.dictionary_category/query');
+        if (token === choicesToken)
+          dictionaries.value = records.filter(
+            (item) =>
+              item.categoryKind?.toUpperCase() === 'DICTIONARY' && item.applicationAlias && item.alias,
+          );
+      }
+    } catch (cause) {
+      if (token === choicesToken) {
+        choicesError.value = '选项目录加载失败，请取消后重试。';
+        presentPlatformError(cause, { source: 'metadata-orchestration', phase: 'load' });
+      }
+    } finally {
+      if (token === choicesToken) choicesLoading.value = false;
+    }
+  },
+);
+const fieldNameManuallyEdited = ref(false);
+const columnNameManuallyEdited = ref(false);
+function updateFieldName(name: string) {
+  fieldNameManuallyEdited.value = Boolean(name.trim());
+  fieldDraft.value.fieldName = name;
+  if (!columnNameManuallyEdited.value) fieldDraft.value.columnName = physicalNameOf(name);
+}
+function updateColumnName(name: string) {
+  columnNameManuallyEdited.value = Boolean(name.trim());
+  fieldDraft.value.columnName = name;
+}
+watch(
+  () => fieldDraft.value.title,
+  (title) => {
+    if (fieldDraft.value.id) return;
+    if (!fieldNameManuallyEdited.value)
+      fieldDraft.value.fieldName = generatedBusinessFieldName(title, fieldPropertyEditorKind.value);
+    if (!columnNameManuallyEdited.value)
+      fieldDraft.value.columnName = physicalNameOf(fieldDraft.value.fieldName);
+  },
+);
 const projectionMappingsText = computed({
   get: () => state.fieldPropertyDraft.value.referenceConfig?.projectionMappings?.join('\n') ?? '',
   set: (value: string) => {
@@ -331,17 +423,21 @@ const referenceTargetFieldCatalogProblem = computed(() => {
   return undefined;
 });
 
-function updateReferenceTargetModuleAlias(targetModuleAlias: string) {
+function updateReferenceTargetModuleAlias(value: unknown) {
+  const targetModuleAlias = typeof value === 'string' ? value : '';
   const reference = fieldPropertyDraft.value.referenceConfig;
   if (!reference) return;
   if (reference.targetModuleAlias?.trim() !== targetModuleAlias.trim()) {
     referenceTargetFieldCatalogRequestToken += 1;
     reference.targetMetadataId = undefined;
+    reference.targetKeyField = 'id';
+    reference.targetLabelField = undefined;
     referenceTargetFieldCatalog.value = undefined;
     referenceTargetFieldCatalogError.value = undefined;
     referenceTargetFieldCatalogLoading.value = false;
   }
   reference.targetModuleAlias = targetModuleAlias;
+  suggestFieldTitle(targetModules.value.find((item) => item.alias === targetModuleAlias)?.title || '');
 }
 
 watch(
@@ -533,7 +629,12 @@ function startNodeEditSession() {
 }
 
 function startCreateField(kind: MetadataFieldPropertyDraft['kind'] = 'BASIC') {
+  fieldTitleManuallyEdited.value = false;
+  fieldNameManuallyEdited.value = false;
+  columnNameManuallyEdited.value = false;
   editorMode.value = 'SIMPLE';
+  referenceSearch.value = '';
+  dictionarySearch.value = '';
   stagedNewFieldKey.value = undefined;
   startNodeEditSession();
   state.startCreateField(kind);
@@ -546,12 +647,13 @@ function startCreateMainMetadata() {
   mainMetadataDraft.value.title = props.moduleTitle?.trim() || props.title?.trim() || props.moduleAlias;
 }
 
-function startCreateChildNode() {
+function startCreateChildNode(kind = 'BASIC') {
+  if (saving.value || loading.value || !fieldCreationItems.some((item) => item.key === kind)) return;
   childNodeType.value = 'FIELD';
   childAliasManuallyEdited.value = false;
   childValidationAttempted.value = false;
   childMetadataDraft.value = { alias: '', title: '' };
-  startCreateField();
+  startCreateField(kind as MetadataFieldPropertyDraft['kind']);
 }
 
 function startCreateChildMetadataNode() {
@@ -563,7 +665,12 @@ function startCreateChildMetadataNode() {
 }
 
 function startEditField(field: MetadataField, property: MetadataFieldPropertyDraft) {
+  fieldTitleManuallyEdited.value = Boolean(field.title?.trim());
+  fieldNameManuallyEdited.value = true;
+  columnNameManuallyEdited.value = true;
   editorMode.value = 'SIMPLE';
+  referenceSearch.value = '';
+  dictionarySearch.value = '';
   stagedNewFieldKey.value = undefined;
   startNodeEditSession();
   state.startEditField(field, property);
@@ -722,13 +829,18 @@ function stageFieldDraft() {
     void createChildMetadata();
     return;
   }
-  if (editorMode.value === 'SIMPLE') {
-    if (!state.fieldDraft.value.fieldName?.trim()) {
-      state.fieldDraft.value.fieldName = generatedFieldName(state.fieldDraft.value.title);
-    }
-    if (!state.fieldDraft.value.columnName?.trim()) {
-      state.fieldDraft.value.columnName = physicalNameOf(state.fieldDraft.value.fieldName);
-    }
+  if (!fieldDraft.value.title?.trim() && !fieldDraft.value.fieldName?.trim()) {
+    presentPlatformMessage('请填写显示名称', { source: 'metadata-orchestration', phase: 'validation' });
+    return;
+  }
+  if (!state.fieldDraft.value.fieldName?.trim()) {
+    state.fieldDraft.value.fieldName = generatedBusinessFieldName(
+      state.fieldDraft.value.title,
+      fieldPropertyEditorKind.value,
+    );
+  }
+  if (!state.fieldDraft.value.columnName?.trim()) {
+    state.fieldDraft.value.columnName = physicalNameOf(state.fieldDraft.value.fieldName);
   }
   const draft = normalizeFieldDraft(state.fieldDraft.value);
   const property = normalizeFieldPropertyDraft(state.fieldPropertyDraft.value);
@@ -1224,9 +1336,11 @@ function capabilityTitleOf(capability: string): string {
       :title="
         creatingChildMetadata
           ? '新增子元数据'
-          : selectedNodeIsField
-            ? (selectedField?.title ?? '字段')
-            : (state.selectedMetadata.value.title ?? '元数据')
+          : state.fieldEditorOpen.value && !fieldDraft.id
+            ? `新增${metadataFieldPropertyLabel(fieldPropertyEditorKind)}`
+            : selectedNodeIsField
+              ? (selectedField?.title ?? '字段')
+              : (state.selectedMetadata.value.title ?? '元数据')
       "
       :subtitle="
         creatingChildMetadata
@@ -1247,7 +1361,9 @@ function capabilityTitleOf(capability: string): string {
           </UiActionButton>
         </template>
         <template v-else-if="!selectedNodeIsField">
-          <UiActionButton :disabled="saving || loading" @click="startCreateChildNode">＋ 字段</UiActionButton>
+          <UiDropdown v-slot="{ toggle }" :items="fieldCreationItems" @select="startCreateChildNode">
+            <UiActionButton :disabled="saving || loading" @click.stop="toggle">＋ 字段</UiActionButton>
+          </UiDropdown>
           <UiActionButton :disabled="saving || loading" @click="startCreateChildMetadataNode"
             >＋ 子元数据</UiActionButton
           >
@@ -1311,10 +1427,56 @@ function capabilityTitleOf(capability: string): string {
             </label>
           </template>
           <template v-else>
+            <template v-if="fieldPropertyEditorKind === 'MODULE_REFERENCE'">
+              <label>
+                <RecordFieldLabel required>目标模块</RecordFieldLabel>
+                <UiSelect
+                  :value="fieldPropertyDraft.referenceConfig!.targetModuleAlias"
+                  :options="referenceModuleOptions"
+                  show-search
+                  :filter-option="false"
+                  :loading="choicesLoading"
+                  style="width: 100%"
+                  placeholder="选择目标模块"
+                  @search="referenceSearch = $event"
+                  @update:value="updateReferenceTargetModuleAlias"
+                />
+              </label>
+            </template>
+            <label v-else-if="fieldPropertyEditorKind === 'DICTIONARY'">
+              <RecordFieldLabel required>目标字典</RecordFieldLabel>
+              <UiSelect
+                :value="dictionaryValue"
+                :options="dictionaryOptions"
+                show-search
+                :filter-option="false"
+                :loading="choicesLoading"
+                style="width: 100%"
+                placeholder="选择目标字典"
+                @search="dictionarySearch = $event"
+                @update:value="updateDictionary"
+              />
+            </label>
+            <label>
+              <span>显示名称</span>
+              <UiInput
+                :value="fieldDraft.title"
+                placeholder="例如 客户名称"
+                @update:value="updateFieldTitle"
+              />
+            </label>
+            <p
+              v-if="referenceTargetFieldCatalogProblem || choicesError"
+              role="alert"
+              class="field-property-error record-form-full-row"
+            >
+              {{ referenceTargetFieldCatalogProblem || choicesError }}
+            </p>
             <label v-if="editorMode === 'ADVANCED' || Boolean(fieldDraft.id)">
               <RecordFieldLabel required>字段名称</RecordFieldLabel>
               <UiInput
-                v-model:value="fieldDraft.fieldName"
+                :value="fieldDraft.fieldName"
+                @update:value="updateFieldName"
                 :disabled="Boolean(fieldDraft.id)"
                 placeholder="例如 customerName"
               />
@@ -1322,57 +1484,25 @@ function capabilityTitleOf(capability: string): string {
             <label v-if="editorMode === 'ADVANCED'">
               <RecordFieldLabel required>物理列名</RecordFieldLabel>
               <UiInput
-                v-model:value="fieldDraft.columnName"
+                :value="fieldDraft.columnName"
+                @update:value="updateColumnName"
                 :disabled="Boolean(fieldDraft.id)"
                 placeholder="例如 customer_name"
               />
             </label>
-            <label>
-              <span>显示名称</span>
-              <UiInput v-model:value="fieldDraft.title" placeholder="例如 客户名称" />
-            </label>
-            <label v-if="editorMode === 'ADVANCED' && !fieldDraft.id">
-              <span>数据属性</span>
-              <UiSelect
-                :value="fieldPropertyEditorKind"
-                :options="fieldPropertyKindOptions"
-                style="width: 100%"
-                @update:value="selectNewFieldPropertyKind"
-              />
-            </label>
-            <label>
+            <label v-if="fieldPropertyEditorKind === 'BASIC'">
               <RecordFieldLabel required>存储字段规格</RecordFieldLabel>
               <UiSelect
-                v-if="fieldPropertyEditorKind === 'BASIC'"
                 v-model:value="fieldDraft.fieldSpecAlias"
                 :options="editableFieldSpecOptions"
                 placeholder="选择字段规格"
                 style="width: 100%"
               />
-              <UiInput v-else :value="fieldStorageSpecLabel" disabled :title="fieldStorageSpecAlias" />
             </label>
             <template v-if="editorMode === 'ADVANCED' && fieldPropertyEditorKind === 'MODULE_REFERENCE'">
-              <div class="field-property-heading record-form-full-row">
-                <strong>模块引用</strong
-                ><span>源字段存储目标键；默认读取目标记录的 id，并以 title 展示。</span>
-              </div>
-              <label
-                ><span>目标模块</span
-                ><UiInput
-                  :value="fieldPropertyDraft.referenceConfig!.targetModuleAlias"
-                  placeholder="例如 education.subject_category"
-                  @update:value="updateReferenceTargetModuleAlias"
-              /></label>
-              <div
-                v-if="fieldPropertyDraft.referenceConfig!.targetMetadataId"
-                class="field-property-binding record-form-full-row"
-              >
-                <strong>目标元数据绑定</strong
-                ><span>{{ fieldPropertyDraft.referenceConfig!.targetMetadataId }}</span>
-              </div>
               <div class="orchestration-form-grid record-form-full-row">
                 <label
-                  ><span>目标键字段</span
+                  ><span>匹配键字段</span
                   ><UiSelect
                     v-model:value="fieldPropertyDraft.referenceConfig!.targetKeyField"
                     :options="referenceKeyFieldOptions"
@@ -1392,33 +1522,21 @@ function capabilityTitleOf(capability: string): string {
                     style="width: 100%"
                 /></label>
               </div>
-              <p
-                v-if="referenceTargetFieldCatalogProblem"
-                class="field-property-error record-form-full-row"
-                role="alert"
-              >
-                {{ referenceTargetFieldCatalogProblem }}
-              </p>
               <div class="orchestration-form-grid record-form-full-row">
                 <label
-                  ><span>基数</span><UiInput value="单选" disabled /><small class="field-property-note"
-                    >本期模块引用仅支持单选。</small
-                  ></label
-                >
-                <label
-                  ><span>目标不可用策略</span
+                  ><span>被引用记录删除时</span
                   ><UiSelect
                     v-model:value="fieldPropertyDraft.referenceConfig!.targetUnavailablePolicy"
                     :options="[
-                      { value: 'PRESERVE_HISTORY', label: '保留历史' },
-                      { value: 'RESTRICT', label: '限制删除' },
-                      { value: 'CASCADE_DELETE', label: '级联删除' },
+                      { value: 'PRESERVE_HISTORY', label: '保留当前记录及原引用' },
+                      { value: 'RESTRICT', label: '有引用时阻止删除目标' },
+                      { value: 'CASCADE_DELETE', label: '同时删除引用它的当前记录' },
                     ]"
                     style="width: 100%"
                 /></label>
               </div>
               <label class="record-form-full-row"
-                ><span>展示投影与自动带出字段</span
+                ><span title="读取时带出，不写入业务字段">关联展示字段</span
                 ><UiTextArea
                   v-model:value="projectionMappingsText"
                   :rows="3"
@@ -1426,21 +1544,6 @@ function capabilityTitleOf(capability: string): string {
               /></label>
             </template>
             <template v-else-if="editorMode === 'ADVANCED' && fieldPropertyEditorKind === 'DICTIONARY'">
-              <div class="field-property-heading record-form-full-row">
-                <strong>数据字典</strong><span>固定以字典 code 存储、title 展示。</span>
-              </div>
-              <label
-                ><span>字典应用</span
-                ><UiInput
-                  v-model:value="fieldPropertyDraft.dictionaryConfig!.dictionaryApplicationAlias"
-                  placeholder="例如 education"
-              /></label>
-              <label
-                ><span>字典类别</span
-                ><UiInput
-                  v-model:value="fieldPropertyDraft.dictionaryConfig!.dictionaryCategoryAlias"
-                  placeholder="例如 exam_attendance_status"
-              /></label>
               <label
                 ><span>选择方式</span
                 ><UiSelect
@@ -1563,6 +1666,18 @@ function capabilityTitleOf(capability: string): string {
 </template>
 
 <style scoped>
+/* The metadata editor is a form, so it does not need the workspace table minimum width. */
+.metadata-model-workspace :deep(.management-workspace__grid) {
+  grid-template-columns:
+    repeat(var(--muyun-management-explorer-count), var(--muyun-management-explorer-width))
+    minmax(0, 1fr);
+}
+@media (max-width: 760px) {
+  .metadata-model-workspace :deep(.management-workspace__grid) {
+    grid-template-columns: 1fr;
+  }
+}
+
 .metadata-field-error {
   color: var(--muyun-danger-base);
 }

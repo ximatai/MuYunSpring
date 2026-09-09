@@ -11,18 +11,13 @@ import {
   resolveRecordFormFieldState,
   RecordDetailFields,
   RecordQueryListCell,
+  RecordQueryListSurface,
+  defaultActionIcon,
   resolveRecordDetailFields,
   resolveRecordFormFields,
   resolveRecordQueryListColumns,
 } from '@muyun/platform-components';
-import {
-  UiDataTable,
-  UiButton,
-  UiEmpty,
-  UiInput,
-  type UiDataTableColumn,
-  type UiDataTableRecord,
-} from '@muyun/vue-ui-antdv';
+import { UiActionButton, UiEmpty, type UiDataTableColumn, type UiDataTableRecord } from '@muyun/vue-ui-antdv';
 import type { ModuleRuntimeAction } from '@muyun/web-core';
 import type {
   ResolvedDetailRelationDescriptor,
@@ -54,8 +49,6 @@ type PreviewSlot = 'list' | 'form';
 
 const props = defineProps<{
   descriptor: ResolvedModuleUiDescriptor;
-  surfaceOnly?: boolean;
-  wholePage?: boolean;
   moduleAlias: string;
   mode: PreviewMode;
   selectedFieldName?: string;
@@ -134,7 +127,7 @@ const dataTableColumns = computed<UiDataTableColumn[]>(() =>
     if (column) return [{ key: column.key, title: column.title, width: column.width, align: column.align }];
     const external = transientExternalField.value;
     return external?.fieldName === fieldName
-      ? [{ key: fieldName, title: external.title ?? fieldName, width: '140px', align: undefined }]
+      ? [{ key: fieldName, title: external.title ?? fieldName, width: undefined, align: undefined }]
       : [];
   }),
 );
@@ -274,6 +267,7 @@ function actionItems(actionCodes: readonly string[], anchor: PageCompositionActi
   return actionCodes.map((actionCode) => ({
     actionCode,
     bindingPending: props.moduleActions?.find((action) => action.actionCode === actionCode)?.bindingPending,
+    iconName: defaultActionIcon({ key: actionCode, actionCode, title: actionCode }),
     title: pageActionEntryTitle(
       props.actionPlacements?.find((entry) => entry.anchor === anchor && entry.actionCode === actionCode) ?? {
         actionCode,
@@ -373,7 +367,8 @@ const placementEntries = computed(() => {
     entries.set(`list:header:${field.fieldName}`, entry);
     entries.set(`list:field:${field.fieldName}`, entry);
   }
-  entries.set('list:end', { title: '列表末尾', container: { kind: 'list' } });
+  entries.set('list:empty', { title: '空列表', container: { kind: 'list' } });
+  if (mode === 'list') return entries;
   for (const section of formSections.value) {
     entries.set(`${mode}:container:${section.key}`, { title: section.title, container: section.container });
     for (const field of section.fields)
@@ -417,7 +412,7 @@ const placementEntries = computed(() => {
   entries.set('relations:end', { title: '子表区域末尾', container: { kind: 'relations' } });
   return entries;
 });
-const { handleProps, groupOutline, feedback, transientPlacement, abandonPendingPlacement } =
+const { handleProps, groupOutline, columnOutline, feedback, transientPlacement, abandonPendingPlacement } =
   usePageCompositionPreviewDrag(
     previewRoot,
     placementEntries,
@@ -730,6 +725,34 @@ function layoutKeyOf(element: HTMLElement) {
   return element.dataset.pageCompositionLayoutKey;
 }
 
+/**
+ * The data table renders header and row cells in separate tables. Animate those physical cells,
+ * while retaining the descriptor marker as the stable identity, so the column outline and table
+ * content share one moving rectangle throughout a held placement.
+ */
+function layoutElements() {
+  const elements: Array<readonly [string, HTMLElement]> = [];
+  const listElements = new Map<string, HTMLElement>();
+  previewRoot.value?.querySelectorAll<HTMLElement>('[data-page-composition-layout-key]').forEach((marker) => {
+    const key = layoutKeyOf(marker);
+    if (!key) return;
+    if (!key.startsWith('list:')) {
+      // Non-list layouts retain their marker-level FLIP behavior.
+      elements.push([key, marker]);
+      return;
+    }
+    const element = marker.closest<HTMLElement>('th, td') ?? marker;
+    const previous = listElements.get(key);
+    if (
+      !previous ||
+      element.getBoundingClientRect().width * element.getBoundingClientRect().height >
+        previous.getBoundingClientRect().width * previous.getBoundingClientRect().height
+    )
+      listElements.set(key, element);
+  });
+  return [...elements, ...listElements];
+}
+
 // Hover feedback and sample input update the component too, but do not change its composition.
 const layoutInputs = computed(() => [
   props.mode,
@@ -757,12 +780,7 @@ onBeforeUpdate(() => {
   renderedLayout = layoutInputs.value;
   if (!layoutChanged) return;
   previousLayout.clear();
-  previewRoot.value
-    ?.querySelectorAll<HTMLElement>('[data-page-composition-layout-key]')
-    .forEach((element) => {
-      const key = layoutKeyOf(element);
-      if (key) previousLayout.set(key, element.getBoundingClientRect());
-    });
+  layoutElements().forEach(([key, element]) => previousLayout.set(key, element.getBoundingClientRect()));
   // Capture the current visual position before removing a superseded composition animation.
   cancelLayoutAnimations();
 });
@@ -774,28 +792,26 @@ onUpdated(() => {
     return;
   // Vue has patched the children here. Start FLIP in this same update, so a new tree order is never
   // exposed as stationary for a frame before its delayed animation starts underneath a second drag.
-  previewRoot.value
-    ?.querySelectorAll<HTMLElement>('[data-page-composition-layout-key]')
-    .forEach((element) => {
-      const key = layoutKeyOf(element);
-      const previous = key ? previousLayout.get(key) : undefined;
-      if (!previous) return;
-      const current = element.getBoundingClientRect();
-      const x = previous.left - current.left;
-      const y = previous.top - current.top;
-      if (Math.abs(x) < 1 && Math.abs(y) < 1) return;
-      animateLayoutElement(element, x, y);
-    });
+  layoutElements().forEach(([key, element]) => {
+    const previous = previousLayout.get(key);
+    if (!previous) return;
+    const current = element.getBoundingClientRect();
+    const x = previous.left - current.left;
+    const y = previous.top - current.top;
+    if (Math.abs(x) < 1 && Math.abs(y) < 1) return;
+    animateLayoutElement(element, x, y);
+  });
 });
 
 function animateLayoutElement(element: HTMLElement, x: number, y: number) {
+  const duration = element.matches('th, td') ? 160 : 300;
   if (typeof element.animate === 'function') {
     const animation = element.animate(
       [
         { transform: `translate(${x}px, ${y}px)`, opacity: 0.72 },
         { transform: 'translate(0, 0)', opacity: 1 },
       ],
-      { duration: 300, easing: 'cubic-bezier(0.2, 0, 0, 1)' },
+      { duration, easing: 'cubic-bezier(0.2, 0, 0, 1)' },
     );
     if (animation) {
       layoutAnimations.set(element, animation);
@@ -812,8 +828,7 @@ function animateLayoutElement(element: HTMLElement, x: number, y: number) {
   element.style.transform = `translate(${x}px, ${y}px)`;
   element.style.opacity = '0.72';
   void element.offsetWidth;
-  element.style.transition =
-    'transform 300ms cubic-bezier(0.2, 0, 0, 1), opacity 300ms cubic-bezier(0.2, 0, 0, 1)';
+  element.style.transition = `transform ${duration}ms cubic-bezier(0.2, 0, 0, 1), opacity ${duration}ms cubic-bezier(0.2, 0, 0, 1)`;
   element.style.transform = 'translate(0, 0)';
   element.style.opacity = '1';
   const timer = window.setTimeout(() => {
@@ -821,113 +836,26 @@ function animateLayoutElement(element: HTMLElement, x: number, y: number) {
     element.style.transform = '';
     element.style.opacity = '';
     layoutAnimationTimers.delete(element);
-  }, 320);
+  }, duration + 20);
   layoutAnimationTimers.set(element, timer);
 }
 </script>
 
 <template>
-  <div
-    v-if="wholePage && mode !== 'edit' && descriptor.page && !surfaceOnly"
-    class="page-composition-mode-preview"
-    :class="{
-      'page-composition-mode-preview--list': descriptor.page.template === 'LIST_DETAIL_CARD',
-      'page-composition-mode-preview--card-only': descriptor.page.template !== 'LIST_DETAIL_CARD',
-    }"
-  >
-    <div
-      ref="pageActionRoot"
-      class="page-composition-action-preview page-composition-action-preview--page"
-      :class="actionDropClass(pageActionDrag.feedback.value)"
-      data-ui-drop-root
-      tabindex="0"
-    >
-      <small>页面动作</small>
-      <TransitionGroup name="page-composer-action-layout" tag="span" class="page-composer-action-layout">
-        <span
-          v-for="action in actionItems(pageActionDrag.stagedActionCodes.value, 'page')"
-          @dblclick.stop="emit('configureAction', 'page', action.actionCode)"
-          :key="action.actionCode"
-          :data-page-action-key="action.actionCode"
-          :class="[
-            actionDropItemClass(pageActionDrag.feedback.value, action.actionCode),
-            {
-              'page-composition-action-preview__button--transient': isTransientAction(
-                pageActionDrag,
-                action.actionCode,
-              ),
-            },
-          ]"
-        >
-          <span v-bind="pageActionDrag.dragHandleProps(action.actionCode, action.title ?? action.actionCode)"
-            >⠿</span
-          >
-          <UiButton
-            size="small"
-            :disabled="action.bindingPending"
-            :title="action.bindingPending ? '待绑定执行能力' : undefined"
-            :danger="action.actionCode === 'delete'"
-            >{{ action.title ?? action.actionCode }}</UiButton
-          >
-        </span>
-      </TransitionGroup>
-      <span v-if="!pageActionDrag.stagedActionCodes.value.length">拖入模块动作</span>
-    </div>
-    <section
-      v-if="descriptor.page.template === 'LIST_DETAIL_CARD'"
-      class="page-composition-mode-preview__navigation"
-    >
-      <PageCompositionDescriptorPreview
-        v-if="descriptor.page.template === 'LIST_DETAIL_CARD'"
-        :descriptor="descriptor"
-        :module-alias="moduleAlias"
-        mode="list"
-        surface-only
-        :structure="structure"
-        :selected-field-name="selectedFieldName"
-        :placement-disabled="placementDisabled"
-        :accept-external-drop="acceptExternalDrop"
-        :action-form-mode="actionFormMode"
-        :action-placements="actionPlacements"
-        :module-actions="moduleActions"
-        @select-field="(slot, field) => emit('selectField', slot, field)"
-        @configure-field="(slot, field) => emit('configureField', slot, field)"
-        @configure-relation-field="(relation, field) => emit('configureRelationField', relation, field)"
-        @placement-drop="(source, target) => emit('placement-drop', source, target)"
-        @configure-action="(anchor, code) => emit('configureAction', anchor, code)"
-        @action-drop="(source, target) => emit('action-drop', source, target)"
-      />
-    </section>
-    <section class="page-composition-mode-preview__detail">
-      <PageCompositionDescriptorPreview
-        :descriptor="descriptor"
-        :module-alias="moduleAlias"
-        mode="detail"
-        surface-only
-        :structure="structure"
-        :selected-field-name="selectedFieldName"
-        :placement-disabled="placementDisabled"
-        :accept-external-drop="acceptExternalDrop"
-        :action-form-mode="actionFormMode"
-        :action-placements="actionPlacements"
-        :module-actions="moduleActions"
-        @select-field="(slot, field) => emit('selectField', slot, field)"
-        @configure-field="(slot, field) => emit('configureField', slot, field)"
-        @configure-relation-field="(relation, field) => emit('configureRelationField', relation, field)"
-        @placement-drop="(source, target) => emit('placement-drop', source, target)"
-        @configure-action="(anchor, code) => emit('configureAction', anchor, code)"
-        @action-drop="(source, target) => emit('action-drop', source, target)"
-      />
-    </section>
-  </div>
   <section
-    v-else-if="mode === 'list'"
+    v-if="mode === 'list'"
     ref="previewRoot"
     class="page-composition-descriptor-preview"
     data-testid="page-composer-list-preview"
     tabindex="0"
     data-composer-drop-target="list"
   >
+    <div
+      v-if="columnOutline"
+      class="page-composer-column-drag-outline"
+      :style="columnOutline"
+      aria-hidden="true"
+    />
     <div
       v-if="feedback && !transientPlacement"
       class="page-composer-drop-indicator"
@@ -945,26 +873,62 @@ function animateLayoutElement(element: HTMLElement, x: number, y: number) {
     >
       <span>{{ feedback.title }}</span>
     </div>
-    <label class="page-composition-descriptor-preview__quick-search">
-      <span>快速查询</span>
-      <UiInput
-        type="search"
-        :value="''"
-        :placeholder="listSearchPlaceholder"
-        disabled
-        aria-label="快速查询（模板内置）"
-      />
-    </label>
-    <UiEmpty v-if="isListEmpty" description="当前草稿尚未配置列表字段" />
-    <UiDataTable
-      v-else
-      class="page-composition-descriptor-preview__table"
+    <RecordQueryListSurface
+      class="page-composition-descriptor-preview__list-surface"
+      :header-visible="true"
+      :show-title="false"
+      quick-search-visible
+      quick-search-value=""
+      :quick-search-placeholder="listSearchPlaceholder"
+      quick-search-disabled
       :columns="dataTableColumns"
       :rows="[listRecord]"
       row-key="id"
-      :pagination="false"
-      horizontal-scroll
+      :table-visible="!isListEmpty"
+      pageable
+      :total="1"
+      pagination-disabled
+      embedded
     >
+      <template #operations>
+        <div
+          ref="pageActionRoot"
+          class="page-composition-action-preview page-composition-action-preview--list"
+          :class="actionDropClass(pageActionDrag.feedback.value)"
+          data-ui-drop-root
+          tabindex="0"
+        >
+          <TransitionGroup name="page-composer-action-layout" tag="span" class="page-composer-action-layout">
+            <span
+              v-for="action in actionItems(pageActionDrag.stagedActionCodes.value, 'page')"
+              @dblclick.stop="emit('configureAction', 'page', action.actionCode)"
+              :key="action.actionCode"
+              :data-page-action-key="action.actionCode"
+              :class="[
+                actionDropItemClass(pageActionDrag.feedback.value, action.actionCode),
+                {
+                  'page-composition-action-preview__button--transient': isTransientAction(
+                    pageActionDrag,
+                    action.actionCode,
+                  ),
+                },
+              ]"
+            >
+              <span
+                v-bind="pageActionDrag.dragHandleProps(action.actionCode, action.title ?? action.actionCode)"
+                >⠿</span
+              >
+              <UiActionButton
+                :disabled="action.bindingPending"
+                :title="action.bindingPending ? '待绑定执行能力' : undefined"
+                :intent="action.actionCode === 'delete' ? 'danger' : 'normal'"
+                :icon-name="action.iconName"
+                >{{ action.title ?? action.actionCode }}</UiActionButton
+              >
+            </span>
+          </TransitionGroup>
+        </div>
+      </template>
       <template #header="{ column }">
         <span
           class="page-composer-column-heading"
@@ -1000,16 +964,17 @@ function animateLayoutElement(element: HTMLElement, x: number, y: number) {
           <span v-else class="page-composer-external-field-preview">示例内容</span>
         </button>
       </template>
-    </UiDataTable>
-    <div
-      v-if="acceptExternalDrop"
-      class="page-composer-drop-zone"
-      data-composer-target="list:end"
-      data-ui-drop-key="list:end"
-      tabindex="0"
-    >
-      拖到此处添加末列
-    </div>
+      <template #beforeTable>
+        <div
+          v-if="isListEmpty"
+          data-composer-target="list:empty"
+          data-ui-drop-key="list:empty"
+          :tabindex="acceptExternalDrop ? 0 : -1"
+        >
+          <UiEmpty description="当前草稿尚未配置列表字段" />
+        </div>
+      </template>
+    </RecordQueryListSurface>
   </section>
 
   <section
@@ -1037,10 +1002,18 @@ function animateLayoutElement(element: HTMLElement, x: number, y: number) {
     >
       <span>{{ feedback.title }}</span>
     </div>
-    <label class="page-composition-descriptor-preview__quick-search">
-      <span>快速查询</span>
-      <UiInput type="search" :value="''" :placeholder="listSearchPlaceholder" aria-label="快速查询" />
-    </label>
+    <RecordQueryListSurface
+      class="page-composition-descriptor-preview__query-surface"
+      :show-title="false"
+      quick-search-visible
+      quick-search-value=""
+      :quick-search-placeholder="listSearchPlaceholder"
+      quick-search-disabled
+      :columns="[]"
+      :rows="[]"
+      :table-visible="false"
+      embedded
+    />
   </section>
 
   <section
@@ -1051,6 +1024,43 @@ function animateLayoutElement(element: HTMLElement, x: number, y: number) {
     tabindex="0"
     data-composer-drop-target="form"
   >
+    <div
+      v-if="descriptor.page?.template !== 'LIST_DETAIL_CARD'"
+      ref="pageActionRoot"
+      class="page-composition-action-preview page-composition-action-preview--page"
+      :class="actionDropClass(pageActionDrag.feedback.value)"
+      data-ui-drop-root
+      tabindex="0"
+    >
+      <TransitionGroup name="page-composer-action-layout" tag="span" class="page-composer-action-layout">
+        <span
+          v-for="action in actionItems(pageActionDrag.stagedActionCodes.value, 'page')"
+          @dblclick.stop="emit('configureAction', 'page', action.actionCode)"
+          :key="action.actionCode"
+          :data-page-action-key="action.actionCode"
+          :class="[
+            actionDropItemClass(pageActionDrag.feedback.value, action.actionCode),
+            {
+              'page-composition-action-preview__button--transient': isTransientAction(
+                pageActionDrag,
+                action.actionCode,
+              ),
+            },
+          ]"
+        >
+          <span v-bind="pageActionDrag.dragHandleProps(action.actionCode, action.title ?? action.actionCode)"
+            >⠿</span
+          >
+          <UiActionButton
+            :disabled="action.bindingPending"
+            :title="action.bindingPending ? '待绑定执行能力' : undefined"
+            :intent="action.actionCode === 'delete' ? 'danger' : 'normal'"
+            :icon-name="action.iconName"
+            >{{ action.title ?? action.actionCode }}</UiActionButton
+          >
+        </span>
+      </TransitionGroup>
+    </div>
     <div
       v-if="groupOutline"
       class="page-composer-group-drag-outline"
@@ -1081,7 +1091,6 @@ function animateLayoutElement(element: HTMLElement, x: number, y: number) {
       data-ui-drop-root
       tabindex="0"
     >
-      <small>详情动作</small>
       <TransitionGroup name="page-composer-action-layout" tag="span" class="page-composer-action-layout">
         <span
           v-for="action in actionItems(detailActionDrag.stagedActionCodes.value, 'detail')"
@@ -1102,16 +1111,15 @@ function animateLayoutElement(element: HTMLElement, x: number, y: number) {
             v-bind="detailActionDrag.dragHandleProps(action.actionCode, action.title ?? action.actionCode)"
             >⠿</span
           >
-          <UiButton
-            size="small"
+          <UiActionButton
             :disabled="action.bindingPending"
             :title="action.bindingPending ? '待绑定执行能力' : undefined"
-            :danger="action.actionCode === 'delete'"
-            >{{ action.title ?? action.actionCode }}</UiButton
+            :intent="action.actionCode === 'delete' ? 'danger' : 'normal'"
+            :icon-name="action.iconName"
+            >{{ action.title ?? action.actionCode }}</UiActionButton
           >
         </span>
       </TransitionGroup>
-      <span v-if="!detailActionDrag.stagedActionCodes.value.length">拖入模块动作</span>
     </div>
     <UiEmpty v-if="isDetailEmpty" description="当前草稿尚未配置详情字段或关联子表" />
     <RecordDetailFields
@@ -1312,8 +1320,9 @@ function animateLayoutElement(element: HTMLElement, x: number, y: number) {
       data-ui-drop-root
       tabindex="0"
     >
-      <small>表单操作区</small
-      ><UiButton size="small" disabled title="模板固定入口：放弃编辑并退出表单">取消</UiButton>
+      <UiActionButton disabled icon-name="close" title="模板固定入口：放弃编辑并退出表单"
+        >取消</UiActionButton
+      >
       <TransitionGroup name="page-composer-action-layout" tag="span" class="page-composer-action-layout">
         <span
           v-for="action in actionItems(formActionDrag.stagedActionCodes.value, 'form')"
@@ -1333,16 +1342,15 @@ function animateLayoutElement(element: HTMLElement, x: number, y: number) {
           <span v-bind="formActionDrag.dragHandleProps(action.actionCode, action.title ?? action.actionCode)"
             >⠿</span
           >
-          <UiButton
-            size="small"
-            type="primary"
+          <UiActionButton
+            emphasis="primary"
             :disabled="action.bindingPending"
-            :danger="action.actionCode === 'delete'"
-            >{{ action.title ?? action.actionCode }}</UiButton
+            :intent="action.actionCode === 'delete' ? 'danger' : 'normal'"
+            :icon-name="action.iconName"
+            >{{ action.title ?? action.actionCode }}</UiActionButton
           >
         </span>
       </TransitionGroup>
-      <span v-if="!formActionDrag.stagedActionCodes.value.length">拖入模块动作</span>
     </div>
     <UiEmpty v-if="isEditEmpty" description="当前草稿尚未配置编辑字段或关联子表" />
     <RecordFormGrid as="div" surface="record">
@@ -1540,40 +1548,6 @@ function animateLayoutElement(element: HTMLElement, x: number, y: number) {
 .page-composer-empty-group {
   grid-column: 1 / -1;
 }
-.page-composition-mode-preview {
-  display: grid;
-  grid-template-columns: minmax(120px, 1fr) minmax(220px, 2fr);
-  gap: 12px;
-  margin-top: 12px;
-}
-.page-composition-mode-preview--card-only {
-  grid-template-columns: minmax(0, 1fr);
-}
-.page-composition-mode-preview--list {
-  display: flex;
-  flex-wrap: wrap;
-}
-.page-composition-mode-preview--list > .page-composition-action-preview--page {
-  flex: 0 0 100%;
-  box-sizing: border-box;
-}
-.page-composition-mode-preview--list > .page-composition-mode-preview__navigation {
-  flex: 2 1 340px;
-}
-.page-composition-mode-preview--list > .page-composition-mode-preview__detail {
-  flex: 1 1 220px;
-}
-.page-composition-mode-preview__navigation,
-.page-composition-mode-preview__detail {
-  min-width: 0;
-  overflow: auto;
-}
-.page-composition-mode-preview__navigation {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
 .page-composition-action-preview {
   display: flex;
   justify-content: flex-end;
@@ -1581,20 +1555,26 @@ function animateLayoutElement(element: HTMLElement, x: number, y: number) {
   gap: 8px;
   margin-bottom: 12px;
   min-height: 32px;
-  padding: 6px 8px;
-  border: 1px dashed var(--muyun-border);
-  border-radius: 4px;
-  color: var(--muyun-text-muted);
-  font-size: 12px;
+  position: relative;
 }
 
 .page-composition-action-preview__drag-handle {
+  position: absolute;
+  z-index: 1;
+  top: -5px;
+  right: -5px;
+  padding: 1px 4px;
   cursor: grab;
   color: var(--ant-color-text-secondary);
+  opacity: 0;
+  background: var(--ant-color-bg-container);
+  border-radius: 3px;
+  transition: opacity 120ms ease-out;
   user-select: none;
 }
 
-.page-composition-action-preview > [data-page-action-key] {
+.page-composition-action-preview [data-page-action-key] {
+  position: relative;
   display: inline-flex;
   align-items: center;
   gap: 4px;
@@ -1602,7 +1582,7 @@ function animateLayoutElement(element: HTMLElement, x: number, y: number) {
 
 /* Match field dragging: the item being carried has a thin, outward yellow boundary without
    painting over its label or button surface. */
-.page-composition-action-preview > [data-page-action-key].page-composer-action-drag-source {
+.page-composition-action-preview [data-page-action-key].page-composer-action-drag-source {
   outline: 2px solid var(--ant-color-warning);
   outline-offset: 3px;
   border-radius: 3px;
@@ -1616,17 +1596,18 @@ function animateLayoutElement(element: HTMLElement, x: number, y: number) {
 }
 
 .page-composition-action-preview__drag-handle:focus-visible {
+  opacity: 1;
   outline: 2px solid var(--ant-color-primary);
   outline-offset: 2px;
 }
 
+.page-composition-action-preview [data-page-action-key]:hover .page-composition-action-preview__drag-handle,
 .page-composition-action-preview__drag-handle.is-dragging {
-  cursor: grabbing;
+  opacity: 1;
 }
 
-.page-composition-action-preview small {
-  margin-right: auto;
-  font-weight: 600;
+.page-composition-action-preview__drag-handle.is-dragging {
+  cursor: grabbing;
 }
 
 .page-composition-action-preview--page {
@@ -1634,16 +1615,23 @@ function animateLayoutElement(element: HTMLElement, x: number, y: number) {
   margin-bottom: 0;
 }
 
+.page-composition-action-preview--list {
+  align-items: center;
+  min-height: auto;
+  margin-bottom: 0;
+}
+
 .page-composition-action-preview--drop-active {
-  border-color: var(--ant-color-primary);
+  border-radius: 4px;
+  outline: 1px dashed var(--ant-color-primary);
+  outline-offset: 3px;
   background: var(--muyun-primary-surface, color-mix(in srgb, var(--ant-color-primary) 7%, transparent));
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ant-color-primary) 35%, transparent);
 }
 
 .page-composition-action-preview--drop-rejected {
-  border-color: var(--ant-color-error);
+  outline: 1px dashed var(--ant-color-error);
+  outline-offset: 3px;
   background: color-mix(in srgb, var(--ant-color-error) 7%, transparent);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ant-color-error) 35%, transparent);
 }
 
 .page-composition-action-preview [data-page-action-key].page-composition-action-preview__button--drop-before,
@@ -1701,30 +1689,16 @@ function animateLayoutElement(element: HTMLElement, x: number, y: number) {
   border-radius: 8px;
 }
 
-.page-composition-descriptor-preview__quick-search {
-  display: grid;
-  grid-template-columns: auto minmax(180px, 320px);
-  gap: 10px;
-  align-items: center;
-  color: var(--muyun-text-muted);
-  font-size: 12px;
-}
-
 .page-composition-descriptor-preview__runtime-note {
   margin: 0;
   color: var(--muyun-text-muted);
   font-size: 12px;
 }
 
-.page-composition-descriptor-preview__table :deep(.ant-table-cell) {
-  padding: 0;
-}
-
 .page-composition-descriptor-preview__field {
   display: block;
   width: 100%;
-  min-height: 42px;
-  padding: 10px 12px;
+  padding: 0;
   overflow: hidden;
   color: inherit;
   font: inherit;
@@ -1754,20 +1728,10 @@ function animateLayoutElement(element: HTMLElement, x: number, y: number) {
   font-size: 12px;
   border-radius: 4px;
 }
-.page-composer-drop-zone--suppressed {
-  min-height: 0;
-  height: 0;
-  padding: 0;
-  overflow: hidden;
-  border: 0;
-  color: transparent;
-  pointer-events: none;
-}
 .page-composer-column-heading {
-  display: block;
-  min-height: 30px;
-  padding: 6px;
+  display: inline;
 }
+
 :deep(.page-composer-drag-handle) {
   display: inline-block;
   float: right;
@@ -1790,9 +1754,28 @@ function animateLayoutElement(element: HTMLElement, x: number, y: number) {
   border-radius: 6px;
   pointer-events: none;
 }
+.page-composer-column-drag-outline {
+  position: absolute;
+  z-index: 10;
+  box-sizing: border-box;
+  border: 2px solid var(--muyun-brand-accent-base);
+  border-radius: 2px;
+  pointer-events: none;
+}
 .page-composition-descriptor-preview:has(> .page-composer-group-drag-outline)
   :deep(.page-composer-drag-source::after) {
   display: none;
+}
+.page-composition-descriptor-preview:has(> .page-composer-column-drag-outline)
+  :deep(.page-composer-drag-source::after),
+.page-composition-descriptor-preview:has(> .page-composer-column-drag-outline)
+  :deep(.page-composer-external-field-preview--dragging::after) {
+  display: none;
+}
+.page-composition-descriptor-preview:has(> .page-composer-column-drag-outline)
+  :deep(.page-composition-descriptor-preview__field--selected) {
+  outline: none;
+  background: transparent;
 }
 :deep(.page-composer-drag-source) {
   position: relative !important;

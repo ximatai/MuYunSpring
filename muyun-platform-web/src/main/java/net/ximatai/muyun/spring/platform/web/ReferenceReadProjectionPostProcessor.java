@@ -1,5 +1,6 @@
 package net.ximatai.muyun.spring.platform.web;
 
+import net.ximatai.muyun.spring.ability.reference.PlatformAuditReferences;
 import net.ximatai.muyun.spring.ability.PlatformAbilityRuntime;
 import net.ximatai.muyun.spring.ability.reference.ReferenceAbility;
 import net.ximatai.muyun.spring.ability.reference.ReferenceCardinality;
@@ -50,7 +51,7 @@ final class ReferenceReadProjectionPostProcessor {
                     .map(Collections::unmodifiableMap)
                     .toList();
         }
-        List<ReferencePlan> plans = StaticReferenceResolver.plans(modelClass).stream()
+        List<ReferencePlan> plans = PlatformAuditReferences.withStaticPlans(modelClass).stream()
                 .map(plan -> forOutputFields(plan, outputFields))
                 .filter(plan -> plan != null)
                 .toList();
@@ -147,7 +148,7 @@ final class ReferenceReadProjectionPostProcessor {
     }
 
     private static ReferencePlan sourcePlan(Class<?> modelClass, String sourceField) {
-        return StaticReferenceResolver.plans(modelClass).stream()
+        return PlatformAuditReferences.withStaticPlans(modelClass).stream()
                 .filter(plan -> plan.sourceField().equals(sourceField))
                 .findFirst()
                 .orElseThrow(() -> new PlatformException("reference summary source is unavailable: "
@@ -241,7 +242,7 @@ final class ReferenceReadProjectionPostProcessor {
         if (paths.isEmpty()) {
             return;
         }
-        Map<String, ReferencePlan> sourcePlans = StaticReferenceResolver.plans(modelClass).stream()
+        Map<String, ReferencePlan> sourcePlans = PlatformAuditReferences.withStaticPlans(modelClass).stream()
                 .collect(java.util.stream.Collectors.toMap(ReferencePlan::sourceField, plan -> plan,
                         (first, ignored) -> first));
         for (ReferenceLoadPath path : paths) {

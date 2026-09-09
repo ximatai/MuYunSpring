@@ -1,5 +1,6 @@
 package net.ximatai.muyun.spring.platform.exchange.template;
 
+import net.ximatai.muyun.spring.common.schema.PlatformFieldPolicy;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.option.OptionItem;
 import net.ximatai.muyun.spring.common.option.OptionSourceRegistry;
@@ -144,7 +145,8 @@ public class DynamicExchangeTemplatePlanBuilder {
                 List.of()
         ));
         for (DynamicFieldDescriptor field : entity.fields()) {
-            if (field == null || isBlank(field.fieldName()) || hiddenCompanionFieldNames.contains(field.fieldName())) {
+            if (field == null || isBlank(field.fieldName()) || hiddenCompanionFieldNames.contains(field.fieldName())
+                    || PlatformFieldPolicy.isAudit(field.fieldName())) {
                 continue;
             }
             columns.add(new ExcelColumnPlan(

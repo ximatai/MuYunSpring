@@ -17,6 +17,10 @@ import java.time.Instant;
 @Getter
 @Setter
 public abstract class StandardEntity implements EntityContract {
+    /** Read-only reference labels; never stored or accepted as mutation facts. */
+    private transient String createdByTitle;
+    private transient String updatedByTitle;
+
     @Id
     @Column(name = "id", type = ColumnType.VARCHAR, length = 32, nullable = false, comment = "ID")
     private String id;

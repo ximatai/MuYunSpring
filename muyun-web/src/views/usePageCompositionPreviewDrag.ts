@@ -245,6 +245,47 @@ export function usePageCompositionPreviewDrag(
     }
     return largest;
   }
+  /**
+   * A list header and its content live in separate tables. Their cells are the actual receiver
+   * slots, while the marker inside each cell is only the stable placement identity. Undo a
+   * running FLIP translation here so the slot boundary reflects the reflowed table layout rather
+   * than whichever column is visually passing under the pointer this frame.
+   */
+  function listSlotRect(key: string, fallback: HTMLElement | null | undefined) {
+    const cells = new Set<HTMLElement>();
+    const addCell = (element: HTMLElement | null | undefined) => {
+      if (element) cells.add(element.closest<HTMLElement>('th, td') ?? element);
+    };
+    addCell(fallback);
+    root.value
+      ?.querySelectorAll<HTMLElement>(`[data-page-composition-layout-key="${CSS.escape(key)}"]`)
+      .forEach(addCell);
+    let largest: DOMRect | undefined;
+    for (const cell of cells) {
+      const bounds = cell.getBoundingClientRect();
+      const transform = getComputedStyle(cell).transform;
+      const translation = !transform || transform === 'none' ? undefined : new DOMMatrixReadOnly(transform);
+      const rect = new DOMRect(
+        bounds.left - (translation?.m41 ?? 0),
+        bounds.top - (translation?.m42 ?? 0),
+        bounds.width,
+        bounds.height,
+      );
+      if (!largest || rect.width * rect.height > largest.width * largest.height) largest = rect;
+    }
+    return largest;
+  }
+  function listSlotAt(x: number | undefined, y: number) {
+    if (x === undefined) return;
+    const slots = [...entries.value].flatMap(([key, entry]) => {
+      if (entry.container.kind !== 'list' || entry.axis !== 'x' || !entry.nodeId) return [];
+      const rect = listSlotRect(key, undefined);
+      return rect?.width && rect.height ? [{ key, rect }] : [];
+    });
+    const distance = ({ rect }: (typeof slots)[number]) =>
+      Math.max(rect.left - x, 0, x - rect.right) ** 2 + Math.max(rect.top - y, 0, y - rect.bottom) ** 2;
+    return slots.sort((left, right) => distance(left) - distance(right))[0];
+  }
   function groupSlotAt(source: CompositionPlacementSource | undefined, x: number | undefined, y: number) {
     if (source?.kind !== 'node' || source.container.kind !== 'groups' || x === undefined) return;
     const items = compositionItems(structure.value, { kind: 'form' }) ?? [];
@@ -457,9 +498,17 @@ export function usePageCompositionPreviewDrag(
   const { hovered, rejected, clear, draggingSource } = useUiDropTarget(root, {
     cancelWhenPointerLeaves: true,
     resolve(origin, y, position, source, x) {
-      const nearestElement = origin.closest<HTMLElement>(
+      const markedElement = origin.closest<HTMLElement>(
         '[data-composer-target], [data-page-composition-layout-key]',
       );
+      // A table cell's padding is part of the visible list column but sits outside the heading or
+      // field marker. Resolve it through the marker it contains, without making the surrounding
+      // preview surface an implicit append receiver.
+      const cellMarker = origin
+        .closest<HTMLElement>('th, td')
+        ?.querySelector<HTMLElement>('[data-page-composition-layout-key^="list:"]');
+      const nearestElement = markedElement ?? cellMarker;
+      const listTable = origin.closest('table')?.querySelector('[data-page-composition-layout-key^="list:"]');
       if (!source) return;
       const parsed = sourceOf(source);
       if (
@@ -474,6 +523,15 @@ export function usePageCompositionPreviewDrag(
       let element = nearestElement;
       let liveKey = element?.dataset.composerTarget ?? element?.dataset.pageCompositionLayoutKey;
       const nearestEntry = liveKey ? entries.value.get(liveKey) : undefined;
+      const sourceIsListField =
+        (parsed?.kind === 'node' && parsed.container.kind === 'list') ||
+        (parsed?.kind === 'metadata' && parsed.metadata.kind === 'field');
+      const listSlot =
+        position === undefined &&
+        sourceIsListField &&
+        (nearestEntry?.container.kind === 'list' || liveKey?.startsWith('list:') || listTable)
+          ? listSlotAt(x, y)
+          : undefined;
       const nearestIsSource =
         (parsed?.kind === 'node' &&
           nearestEntry?.nodeId === parsed.nodeId &&
@@ -514,20 +572,24 @@ export function usePageCompositionPreviewDrag(
           parsed.metadata.kind === 'field' &&
           liveKey?.endsWith(`:field:${parsed.metadata.fieldName ?? ''}`));
       // Form fields and groups share stable receivers throughout a held gesture, including
-      // cross-group moves. Reading reflowed headings/cells here feeds the staged layout back
-      // into placement and can eject a field from the group on the next pointer move.
+      // cross-group moves. Their receiver geometry does not change in the same axis as a list.
       const preferLiveTarget =
         parsed?.kind === 'node' &&
         !['form', 'group', 'groups'].includes(parsed.container.kind) &&
         Boolean(liveEntry) &&
         !liveIsSource;
-      const frozen = preferLiveTarget ? undefined : frozenTargetAt(x, y);
-      const key = gridSlot?.key ?? (preferLiveTarget ? liveKey : (frozen?.[0] ?? liveKey));
+      const frozen = listSlot || preferLiveTarget ? undefined : frozenTargetAt(x, y);
+      const key = gridSlot?.key ?? listSlot?.key ?? (preferLiveTarget ? liveKey : (frozen?.[0] ?? liveKey));
       const entry = key && entries.value.get(key);
       if (!key || !entry) return;
       // Field renderer internals may repeat the same layout key on a label or control. Use the
       // largest live shell so a pointer crossing the input cannot turn a centre drop into “after”.
-      const rect = gridSlot?.rect ?? frozen?.[1] ?? largestLiveRect(key, element);
+      const rect =
+        gridSlot?.rect ??
+        listSlot?.rect ??
+        (entry.container.kind === 'list' ? listSlotRect(key, element) : undefined) ??
+        frozen?.[1] ??
+        largestLiveRect(key, element);
       if (!rect) return;
       // A grid cell's left/right halves are stable receiver zones. Cross-row ordering is selected
       // by the target cell itself, not by turning each cell into diagonal hit triangles.
@@ -542,8 +604,25 @@ export function usePageCompositionPreviewDrag(
         parsed?.kind === 'node' &&
         entry.nodeId === parsed.nodeId &&
         containerKey(entry.container) === containerKey(parsed.container)
-      )
+      ) {
+        // Reordering can move the dragged column under the pointer before mouseup. It is
+        // still the displayed placement, not a cancellation or a new insertion into itself.
+        const staged = transientPlacement.value;
+        if (entry.container.kind === 'list' && staged && sameSource(staged.source, parsed)) {
+          const anchor = [...entries.value].find(
+            ([, candidate]) =>
+              candidate.container.kind === 'list' && candidate.nodeId === staged.target.anchorId,
+          );
+          if (anchor)
+            return {
+              instanceId,
+              kind: 'node',
+              node: { key: anchor[0], title: anchor[1].title },
+              position: staged.target.position,
+            };
+        }
         return;
+      }
       // Edges explicitly mean before/after. The centre belongs to the field itself and uses the
       // movement direction, so entering B no longer feels like only B's latter half is a target.
       const positionFromPointer =
@@ -667,7 +746,9 @@ export function usePageCompositionPreviewDrag(
     },
   );
   const groupOutline = shallowRef<Record<string, string>>();
+  const columnOutline = shallowRef<Record<string, string>>();
   let outlineFrame = 0;
+  let columnOutlineFrame = 0;
   function updateGroupOutline() {
     const entry = draggingKey.value && entries.value.get(draggingKey.value);
     if (!root.value || !entry || entry.container.kind !== 'groups') return;
@@ -703,7 +784,86 @@ export function usePageCompositionPreviewDrag(
     },
     { flush: 'post' },
   );
-  onBeforeUnmount(() => cancelAnimationFrame(outlineFrame));
+  /**
+   * A list column is rendered by two independent tables in the adapter: one for the header and
+   * one for its rows.  The handle lives inside a header label, so a CSS outline on the source
+   * only describes that label.  Draw one preview-owned outline from the real table cells instead.
+   */
+  function listColumnName(source: CompositionPlacementSource | undefined) {
+    if (source?.kind === 'metadata' && source.metadata.kind === 'field') return source.metadata.fieldName;
+    if (source?.kind !== 'node') return undefined;
+    return [...entries.value]
+      .find(
+        ([, entry]) =>
+          entry.axis === 'x' && entry.container.kind === 'list' && entry.nodeId === source.nodeId,
+      )?.[0]
+      ?.split(':')
+      .at(-1);
+  }
+  function updateColumnOutline() {
+    const source = draggingSource.value && sourceOf(draggingSource.value);
+    const fieldName = listColumnName(source);
+    if (!root.value || !fieldName) {
+      columnOutline.value = undefined;
+      return;
+    }
+    const keys = [`list:header:${fieldName}`, `list:field:${fieldName}`];
+    const cells = new Set<HTMLElement>();
+    for (const key of keys)
+      for (const element of root.value.querySelectorAll<HTMLElement>(
+        `[data-page-composition-layout-key="${CSS.escape(key)}"]`,
+      )) {
+        const cell = element.closest<HTMLElement>('th, td') ?? element;
+        if (cell.getBoundingClientRect().width && cell.getBoundingClientRect().height) cells.add(cell);
+      }
+    const rectangles = [...cells]
+      .map((cell) => visibleTableCellRect(cell, root.value!))
+      .filter((rect): rect is DOMRect => rect != null);
+    if (rectangles.length) {
+      const rootRect = root.value.getBoundingClientRect();
+      const left = Math.min(...rectangles.map((rect) => rect.left));
+      const top = Math.min(...rectangles.map((rect) => rect.top));
+      const right = Math.max(...rectangles.map((rect) => rect.right));
+      const bottom = Math.max(...rectangles.map((rect) => rect.bottom));
+      const next = {
+        left: `${left - rootRect.left + root.value.scrollLeft - 2}px`,
+        top: `${top - rootRect.top + root.value.scrollTop - 2}px`,
+        width: `${right - left + 4}px`,
+        height: `${bottom - top + 4}px`,
+      };
+      if (Object.entries(next).some(([key, value]) => columnOutline.value?.[key] !== value))
+        columnOutline.value = next;
+    } else columnOutline.value = undefined;
+    columnOutlineFrame = requestAnimationFrame(updateColumnOutline);
+  }
+  /** Keep a scrolled-out table cell from extending the outline over nearby preview controls. */
+  function visibleTableCellRect(cell: HTMLElement, boundary: HTMLElement) {
+    let { left, top, right, bottom } = cell.getBoundingClientRect();
+    for (let parent = cell.parentElement; parent && parent !== boundary; parent = parent.parentElement) {
+      const style = getComputedStyle(parent);
+      if (!/(auto|scroll|hidden|clip)/.test(`${style.overflowX} ${style.overflowY}`)) continue;
+      const clip = parent.getBoundingClientRect();
+      left = Math.max(left, clip.left);
+      top = Math.max(top, clip.top);
+      right = Math.min(right, clip.right);
+      bottom = Math.min(bottom, clip.bottom);
+      if (right <= left || bottom <= top) return undefined;
+    }
+    return new DOMRect(left, top, right - left, bottom - top);
+  }
+  watch(
+    [draggingKey, draggingSource],
+    () => {
+      cancelAnimationFrame(columnOutlineFrame);
+      columnOutline.value = undefined;
+      updateColumnOutline();
+    },
+    { flush: 'post' },
+  );
+  onBeforeUnmount(() => {
+    cancelAnimationFrame(outlineFrame);
+    cancelAnimationFrame(columnOutlineFrame);
+  });
   let dragSourceElement: HTMLElement | undefined;
   watch([enabled, hovered, draggingSource], ([isEnabled, target, activeSource]) => {
     const parsed = activeSource && sourceOf(activeSource);
@@ -769,6 +929,7 @@ export function usePageCompositionPreviewDrag(
   return {
     handleProps,
     groupOutline,
+    columnOutline,
     draggingKey,
     feedback: computed(() =>
       hovered.value && indicator.value

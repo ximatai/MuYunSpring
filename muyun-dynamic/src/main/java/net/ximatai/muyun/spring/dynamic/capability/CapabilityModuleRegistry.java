@@ -24,7 +24,7 @@ public final class CapabilityModuleRegistry implements StaticCapabilityRegistry 
             // Stable declaration order also preserves the long-standing static action order:
             // tree/sort operations precede enablement operations in generated module contracts.
             new SortCapabilityModule(), new TreeCapabilityModule(), new EnableCapabilityModule(),
-            new RecycleBinCapabilityModule()));
+            new RecycleBinCapabilityModule(), new DataScopeCapabilityModule()));
 
     private final Map<EntityCapability, CapabilityModule> modules;
     private final List<CapabilityModule> registeredModules;

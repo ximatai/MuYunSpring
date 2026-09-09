@@ -3710,9 +3710,15 @@ class DynamicRecordWebControllerTest {
 
         mvc.perform(post("/{moduleAlias}/update/{recordId}", MODULE, "contract-1")
                         .contentType("application/json")
+                        .content("{\"code\":\"C-002\",\"createdBy\":\"forged actor\"}"))
+                .andExpect(status().isBadRequest());
+        verify(mainEntity, never()).update(any(DynamicRecord.class));
+
+        mvc.perform(post("/{moduleAlias}/update/{recordId}", MODULE, "contract-1")
+                        .contentType("application/json")
                         .content("""
                                 {"version":3,"code":"C-002","customerTitle":"forged label",
-                                 "deletedAt":null,"createdBy":"forged actor","deleted":true}
+                                 "deletedAt":null,"createdBy":null,"deleted":true}
                                 """))
                 .andExpect(status().isOk());
         ArgumentCaptor<DynamicRecord> updated = ArgumentCaptor.forClass(DynamicRecord.class);

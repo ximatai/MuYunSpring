@@ -13,6 +13,8 @@ import net.ximatai.muyun.spring.ability.reference.ReferenceAbility;
 import net.ximatai.muyun.spring.ability.reference.ReferenceOption;
 import net.ximatai.muyun.spring.ability.reference.ReferencePlan;
 import net.ximatai.muyun.spring.ability.reference.ReferenceTarget;
+import net.ximatai.muyun.spring.ability.permission.RecordPermissionAccess;
+import net.ximatai.muyun.spring.ability.permission.RecordPermissionWrite;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.identity.CurrentUser;
 import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
@@ -438,6 +440,20 @@ public class DynamicRecordService {
         });
     }
 
+    RecordPermissionAccess<DynamicRecord> readForPermissionAction(String moduleAlias, String entityAlias, String id) {
+        if (id == null || id.isBlank()) {
+            return new RecordPermissionAccess<>(null, false);
+        }
+        DataScopeCriteriaResult scope = readScope(moduleAlias, PlatformAction.MANAGE_PERMISSIONS,
+                Criteria.of().eq("id", id));
+        DynamicRecord record = withTenantScope(scope, () -> {
+            boolean visible = !entityService(moduleAlias, entityAlias)
+                    .list(scope.criteria(), new PageRequest(0, 1)).isEmpty();
+            return visible ? entityService(moduleAlias, entityAlias).select(id) : null;
+        });
+        return new RecordPermissionAccess<>(record, scope.crossTenant());
+    }
+
     /**
      * Reads one declared aggregate relation only after the parent has passed the normal VIEW
      * scope.  It is the dynamic counterpart of the shared {@code ChildRelation} read path used
@@ -619,6 +635,11 @@ public class DynamicRecordService {
                                DynamicWriteBackContext writeBackContext,
                                Map<String, Object> mutationMetadata) {
         return mutationRuntime.updateWriteBack(moduleAlias, entityAlias, record, writeBackContext, mutationMetadata);
+    }
+
+    @Transactional
+    public int updatePermissions(String moduleAlias, String entityAlias, RecordPermissionWrite write) {
+        return mutationRuntime.updatePermissions(moduleAlias, entityAlias, write);
     }
 
     int updateFromAction(String moduleAlias, String entityAlias, DynamicRecord record, String traceId) {

@@ -1,4 +1,5 @@
 import { pinyin } from 'pinyin-pro';
+import type { MetadataFieldPropertyKind } from './metadataOrchestrationState';
 
 export function physicalNameOf(fieldName?: string): string {
   return (fieldName ?? '')
@@ -29,6 +30,19 @@ export function generatedFieldName(title?: string): string {
   for (const character of normalized) hash = ((hash << 5) - hash + character.codePointAt(0)!) | 0;
   const suffix = Math.abs(hash).toString(36);
   return `field${suffix.charAt(0).toUpperCase()}${suffix.slice(1)}`;
+}
+
+/** Default names for newly created business fields; runtime semantics remain metadata-driven. */
+export function generatedBusinessFieldName(
+  title: string | undefined,
+  kind: MetadataFieldPropertyKind,
+): string {
+  if (!title?.trim()) return '';
+  const name = generatedFieldName(title);
+  const role = name.charAt(0).toUpperCase() + name.slice(1);
+  if (kind === 'DICTIONARY') return `dict${role}`;
+  if (kind === 'MODULE_REFERENCE') return `ref${role}Id`;
+  return name;
 }
 
 /** Metadata identifiers use lower snake case; they are stable after explicit editing. */

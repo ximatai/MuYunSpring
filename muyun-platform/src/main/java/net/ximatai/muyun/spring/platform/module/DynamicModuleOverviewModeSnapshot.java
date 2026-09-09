@@ -1,5 +1,6 @@
 package net.ximatai.muyun.spring.platform.module;
 
+import net.ximatai.muyun.spring.common.schema.PlatformFieldPolicy;
 import java.util.List;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import net.ximatai.muyun.spring.platform.ui.PlatformPresentationTemplateCatalog;
@@ -14,6 +15,11 @@ public record DynamicModuleOverviewModeSnapshot(
         String mainMetadataId,
         Integer mainMetadataVersion,
         Set<String> mainCapabilities, List<String> searchableFields, Set<String> publishedRequiredCapabilities) {
+    @JsonProperty
+    public List<PlatformFieldPolicy> platformFieldPolicies() {
+        return PlatformFieldPolicy.all();
+    }
+
     @JsonProperty
     public List<PlatformPresentationTemplateCatalog.ManagementSkeleton> compositionSkeletons() {
         return PlatformPresentationTemplateCatalog.managementSkeletons();

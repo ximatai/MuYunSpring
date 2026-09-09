@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
-import type { AuthClient, LoginContextClient } from '@muyun/web-core';
+import { AppError, platformErrorCodes, type AuthClient, type LoginContextClient } from '@muyun/web-core';
 import type { LoginResult, TenantBranding } from '@muyun/web-contracts';
 import { UiButton, UiInput } from '@muyun/vue-ui-antdv';
 import { normalizeInitialValue, resolveLoginTenantDefaults } from './loginTenant';
@@ -77,10 +77,27 @@ async function submit() {
     }
     emit('authenticated', result);
   } catch (cause) {
-    formError.value = cause instanceof Error ? cause.message : 'Login failed';
+    formError.value = loginErrorMessage(cause);
   } finally {
     submitting.value = false;
   }
+}
+
+function loginErrorMessage(cause: unknown) {
+  if (cause instanceof AppError) {
+    if (
+      cause.code === platformErrorCodes.networkError ||
+      cause.code === platformErrorCodes.httpError ||
+      (cause.status ?? 0) >= 500
+    ) {
+      return '无法连接后端服务，请确认服务已启动后重试';
+    }
+    if (cause.code === platformErrorCodes.loginBadCredentials) {
+      return '用户名或密码错误';
+    }
+    return cause.message;
+  }
+  return cause instanceof Error ? cause.message : '登录失败，请稍后重试';
 }
 
 async function submitPasswordChange() {

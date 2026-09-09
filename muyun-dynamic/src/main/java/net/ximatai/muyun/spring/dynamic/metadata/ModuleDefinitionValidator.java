@@ -1,5 +1,6 @@
 package net.ximatai.muyun.spring.dynamic.metadata;
 
+import net.ximatai.muyun.spring.common.schema.PlatformFieldPolicy;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.ability.reference.ReferencePlan;
 import net.ximatai.muyun.spring.ability.reference.ReferenceProjection;
@@ -313,7 +314,8 @@ public class ModuleDefinitionValidator {
             throw new ModuleDefinitionException("field must not be null");
         }
         requireFieldName(field.fieldName(), "field name");
-        if (STANDARD_FIELDS.contains(field.fieldName())) {
+        if (STANDARD_FIELDS.contains(field.fieldName())
+                || PlatformFieldPolicy.isAuditLabel(field.fieldName())) {
             throw new ModuleDefinitionException("field name conflicts with standard field: " + field.fieldName());
         }
         if (DATA_SCOPE_FIELDS.contains(field.fieldName())) {

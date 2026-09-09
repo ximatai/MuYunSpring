@@ -12,6 +12,18 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 class DynamicStandardActionsTest {
     @Test
+    void permissionCapabilityContributesAnIndependentlyAuthorizedRecordAction() {
+        EntityDefinition entity = new EntityDefinition("contract", "contract", "Contract",
+                List.of(FieldDefinition.string("code", "Code"))).withCapabilities(EntityCapability.DATA_SCOPE);
+        assertThat(DynamicEntityDescriptor.from(entity).actions()).filteredOn(action -> action.code().equals("managePermissions"))
+                .singleElement().satisfies(action -> {
+                    assertThat(action.actionLevel()).isEqualTo(net.ximatai.muyun.spring.dynamic.metadata.EntityActionLevel.RECORD);
+                    assertThat(action.dataAuth()).isTrue();
+                    assertThat(action.actionAuth()).isTrue();
+                });
+    }
+
+    @Test
     void shouldKeepRecycleBinLifecycleOutOfGenericDynamicActionDirectory() {
         EntityDefinition entity = new EntityDefinition("contract", "contract", "Contract",
                 List.of(FieldDefinition.string("code", "Code")))

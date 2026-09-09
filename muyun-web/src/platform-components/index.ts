@@ -26,6 +26,7 @@ export { reconcileSelectedKey, reconcileSelectedKeys } from './selectionRefresh'
 export { MANAGEMENT_WORKSPACE_LAYOUT, listDetailWorkspaceMinWidth } from './managementWorkspaceLayout';
 export { providePageLayout, usePageLayout } from './pageLayoutContext';
 export { default as RecordActionBar } from './RecordActionBar.vue';
+export { default as RecordQueryListSurface } from './RecordQueryListSurface.vue';
 export { default as AdaptiveHeaderActionBar } from './AdaptiveHeaderActionBar.vue';
 export type { HeaderActionItem } from './AdaptiveHeaderActionBar.vue';
 export type { HeaderActionLevel } from './adaptiveHeaderActionLayout';
@@ -136,7 +137,7 @@ export {
   defaultCrudRecordListSubtitle,
   defaultCrudRecordListTitle,
 } from './crudRecordListModel';
-export { mergeRecordActions, resolveRecordActions } from './recordActionBarModel';
+export { defaultActionIcon, mergeRecordActions, resolveRecordActions } from './recordActionBarModel';
 export { normalizeRecordDraft } from './recordDraftNormalizer';
 export {
   acceptedMediaTypes,
@@ -227,3 +228,5 @@ export type { StaticTreeResourceModuleContextOptions } from './staticTreeResourc
 
 export { default as RecordRelationTable } from './RecordRelationTable.vue';
 export { default as RecordRelationValue } from './RecordRelationValue.vue';
+
+export { default as RecordPermissionDialog } from './RecordPermissionDialog.vue';

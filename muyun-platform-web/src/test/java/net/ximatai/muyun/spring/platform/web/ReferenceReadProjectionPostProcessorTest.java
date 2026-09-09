@@ -34,6 +34,18 @@ class ReferenceReadProjectionPostProcessorTest {
     }
 
     @Test
+    void resolvesAuditReferenceLabelsForAnExplicitStaticListProjection() {
+        ReferenceAbility<?> target = mock(ReferenceAbility.class);
+        when(target.projections(List.of("user-1"), List.of("title")))
+                .thenReturn(Map.of("user-1", Map.of("title", "管理员")));
+        PlatformAbilityRuntime.configureReferenceTargetResolver(key -> ReferenceTarget.of("iam", "user").equals(key)
+                ? java.util.Optional.of(target) : java.util.Optional.empty());
+        var result = ReferenceReadProjectionPostProcessor.apply(StandardEntity.class,
+                List.of(Map.of("id", "task-1", "createdBy", "user-1")), List.of("createdBy", "createdByTitle"));
+        assertThat(result.getFirst()).containsEntry("createdBy", "user-1").containsEntry("createdByTitle", "管理员");
+    }
+
+    @Test
     void shouldBatchEnrichStaticRecordsFromADynamicReferenceTarget() {
         @SuppressWarnings("unchecked")
         ReferenceAbility<?> target = mock(ReferenceAbility.class);

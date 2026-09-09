@@ -14,11 +14,9 @@ import {
   confirmAction,
   UiButton,
   UiCheckbox,
-  UiDataTable,
   UiDropdown,
   UiEmpty,
   UiInput,
-  UiSearchInput,
   UiSelect,
   UiSpin,
 } from '@muyun/vue-ui-antdv';
@@ -52,9 +50,9 @@ import {
 } from '@muyun/web-core';
 import { presentPlatformError, presentPlatformMessage } from './platformErrorFeedback';
 import { WORKSPACE_NAVIGATION_DISABLED } from './managementWorkspaceContext';
-import ManagementPanelHeader from './ManagementPanelHeader.vue';
 import RecordActionBar from './RecordActionBar.vue';
 import RecordQueryListCell from './RecordQueryListCell.vue';
+import RecordQueryListSurface from './RecordQueryListSurface.vue';
 import RecycleBinModeButton from './RecycleBinModeButton.vue';
 import {
   mergeRecordActions,
@@ -360,9 +358,6 @@ const dataTableColumns = computed<UiDataTableColumn[]>(() =>
     width: column.width,
     align: column.align,
   })),
-);
-const pageSizeOptions = computed<Option[]>(() =>
-  props.pageSizeOptions.map((value) => ({ label: `${value} 条/页`, value })),
 );
 const booleanOptions: Option[] = [
   { label: '是', value: 'true' },
@@ -1102,10 +1097,7 @@ function goPage(nextPage: number) {
   void loadRecords();
 }
 
-function handlePageSizeChange(value: OptionValue | OptionValueList | null) {
-  const pageSizeValue = singleOptionValue(value);
-  const nextPageSize =
-    typeof pageSizeValue === 'number' ? pageSizeValue : Number(pageSizeValue ?? props.pageSize);
+function handlePageSizeChange(nextPageSize: number) {
   pageSize.value = nextPageSize;
   emit('pageSizeChange', nextPageSize);
   pageNum.value = 1;
@@ -1120,131 +1112,149 @@ defineExpose({ clearSelection, refresh });
 </script>
 
 <template>
-  <main
+  <RecordQueryListSurface
     class="record-query-list-panel"
     :inert="navigationDisabled || undefined"
     :aria-disabled="navigationDisabled || undefined"
-    :class="{
-      'is-embedded': embedded,
-      'is-chrome-free': !headerVisible && !pageable && !showRecycleBin,
-    }"
+    :embedded="embedded"
+    :chrome-free="!headerVisible && !pageable && !showRecycleBin"
+    :header-visible="headerVisible"
+    :show-title="showTitle"
+    :title="title"
+    :subtitle="subtitle"
+    :title-action-icon="showTitle && refreshable ? 'reload' : undefined"
+    :title-action-title="showTitle ? (refreshTitle ?? `刷新${title}`) : undefined"
+    :title-action-disabled="queryActionsDisabled"
+    :quick-search-visible="queryable"
+    :quick-search-value="quickSearchKeyword"
+    :quick-search-placeholder="quickSearchPlaceholder"
+    :quick-search-disabled="quickSearchDisabled"
+    :columns="dataTableColumns"
+    :rows="rows"
+    :row-key="(row) => String((row as QueryListRow).key ?? '')"
+    :selection="selection"
+    :selected-row-key="selectedKey"
+    :expanded-row-keys="expandedRowKeys"
+    clickable-rows
+    fill-height
+    horizontal-scroll
+    :row-muted="(row) => (row as QueryListRow).record.enabled === false"
+    :show-action-column="hasRowActions"
+    :action-column-title="rowActionsTitle"
+    :action-column-width="actionColumnWidth"
+    :table-visible="!loading && queryReady && !descriptorLoadError && !recordsLoadError && records.length > 0"
+    :pageable="pageable"
+    :total="total"
+    :page-num="pageNum"
+    :pages="pages"
+    :page-size="pageSize"
+    :page-size-options="pageSizeOptions"
+    :pagination-disabled="queryActionsDisabled"
+    @title-action="refresh"
+    @update:quick-search-value="handleQuickSearchInput"
+    @quick-search="submitQuickSearch"
+    @row-click="handleTableRowClick($event as QueryListRow)"
+    @row-dblclick="(row, event) => handleTableRowDblclick(row as QueryListRow, event)"
+    @row-expand="(row, expanded) => handleTableRowExpand(row as QueryListRow, expanded)"
+    @page-change="goPage"
+    @page-size-change="handlePageSizeChange"
   >
-    <ManagementPanelHeader
-      v-if="headerVisible"
-      class="record-query-list-header"
-      :title="showTitle ? title : ''"
-      :subtitle="showTitle ? subtitle : undefined"
-      :title-action-icon="showTitle && refreshable ? 'reload' : undefined"
-      :title-action-title="showTitle ? (refreshTitle ?? `刷新${title}`) : undefined"
-      :title-action-disabled="queryActionsDisabled"
-      @title-action="refresh"
-    >
-      <template #actions>
-        <div class="record-query-list-actions">
-          <div class="record-query-list-operation-actions">
-            <UiButton
-              v-if="!showTitle"
-              type="text"
-              icon-name="reload"
-              :disabled="queryActionsDisabled"
-              :aria-label="refreshTitle ?? `刷新${title}`"
-              :title="refreshTitle ?? `刷新${title}`"
-              @click="refresh"
-            />
-            <RecordActionBar
-              v-if="panelActions.length > 0"
-              :context="context"
-              :actions="panelActions"
-              @action="handleAction"
-            />
-            <RecordActionBar
-              v-if="batchActionItems.length > 0"
-              :context="context"
-              :actions="batchActionItems"
-              size="compact"
-              @action="(action, event) => handleBatchAction(action, event)"
-            />
-            <slot name="toolbarActions" :refresh="refresh" />
-          </div>
-          <div class="record-query-list-query-actions">
-            <UiSearchInput
-              v-if="queryable"
-              :value="quickSearchKeyword"
-              class="record-query-list-search"
-              :disabled="quickSearchDisabled"
-              :placeholder="quickSearchPlaceholder"
-              @update:value="handleQuickSearchInput"
-              @search="submitQuickSearch"
-            />
-            <UiCheckbox
-              v-for="control in persistentQueryControls"
-              :key="control.externalCriteriaKey"
-              class="record-query-list-persistent-query-control"
-              :checked="persistentQueryValue(control)"
-              :disabled="queryActionsDisabled"
-              @change="updatePersistentQueryValue(control, $event)"
-            >
-              {{ control.title }}
-            </UiCheckbox>
-            <UiButton
-              v-if="queryable"
-              class="record-query-list-advanced"
-              :class="{ 'is-selected': conditionsExpanded }"
-              type="text"
-              icon-name="filter"
-              :disabled="conditionsDisabled"
-              @click="toggleConditions"
-            >
-              高级<span v-if="conditionCount"> {{ conditionCount }}</span>
-            </UiButton>
-          </div>
+    <template #operations>
+      <UiButton
+        v-if="!showTitle"
+        type="text"
+        icon-name="reload"
+        :disabled="queryActionsDisabled"
+        :aria-label="refreshTitle ?? `刷新${title}`"
+        :title="refreshTitle ?? `刷新${title}`"
+        @click="refresh"
+      />
+      <RecordActionBar
+        v-if="panelActions.length > 0"
+        :context="context"
+        :actions="panelActions"
+        @action="handleAction"
+      />
+      <RecordActionBar
+        v-if="batchActionItems.length > 0"
+        :context="context"
+        :actions="batchActionItems"
+        size="compact"
+        @action="(action, event) => handleBatchAction(action, event)"
+      />
+      <slot name="toolbarActions" :refresh="refresh" />
+    </template>
+    <template #queryControls>
+      <UiCheckbox
+        v-for="control in persistentQueryControls"
+        :key="control.externalCriteriaKey"
+        class="record-query-list-persistent-query-control"
+        :checked="persistentQueryValue(control)"
+        :disabled="queryActionsDisabled"
+        @change="updatePersistentQueryValue(control, $event)"
+      >
+        {{ control.title }}
+      </UiCheckbox>
+      <UiButton
+        v-if="queryable"
+        class="record-query-list-advanced"
+        :class="{ 'is-selected': conditionsExpanded }"
+        type="text"
+        icon-name="filter"
+        :disabled="conditionsDisabled"
+        @click="toggleConditions"
+      >
+        高级<span v-if="conditionCount"> {{ conditionCount }}</span>
+      </UiButton>
+    </template>
+
+    <template #conditions>
+      <section v-if="conditionsExpanded" class="record-query-conditions">
+        <div v-for="draft in conditionDrafts" :key="draft.key" class="record-query-condition-row">
+          <UiSelect
+            class="record-query-condition-field"
+            :value="draft.fieldName"
+            :options="fieldOptions"
+            placeholder="字段"
+            @update:value="handleFieldChange(draft, $event)"
+          />
+          <UiSelect
+            class="record-query-condition-operator"
+            :value="draft.operator"
+            :options="operatorOptions(draft)"
+            placeholder="关系"
+            @update:value="handleOperatorChange(draft, $event)"
+          />
+          <UiSelect
+            v-if="
+              fieldByName(draft.fieldName)?.valueType === 'BOOLEAN' && !valueLessOperator(draft.operator!)
+            "
+            class="record-query-condition-value"
+            :value="draft.booleanValue"
+            :options="booleanOptions"
+            placeholder="选择"
+            @update:value="handleBooleanValueChange(draft, $event)"
+          />
+          <UiInput
+            v-else-if="!valueLessOperator(draft.operator!)"
+            v-model:value="draft.rawValue"
+            class="record-query-condition-value"
+            :placeholder="conditionPlaceholder(draft)"
+          />
+          <div v-else class="record-query-condition-value muted">无需输入值</div>
+          <UiButton type="text" icon-name="delete" danger @click="removeCondition(draft.key)" />
         </div>
-      </template>
-    </ManagementPanelHeader>
+        <div class="record-query-condition-actions">
+          <UiButton type="dashed" icon-name="plus" :disabled="conditionsDisabled" @click="addCondition">
+            添加条件
+          </UiButton>
+          <UiButton type="primary" :disabled="conditionsDisabled" @click="applyConditions">应用条件</UiButton>
+          <UiButton type="text" :disabled="conditionsDisabled" @click="clearConditions">重置</UiButton>
+        </div>
+      </section>
+    </template>
 
-    <section v-if="conditionsExpanded" class="record-query-conditions">
-      <div v-for="draft in conditionDrafts" :key="draft.key" class="record-query-condition-row">
-        <UiSelect
-          class="record-query-condition-field"
-          :value="draft.fieldName"
-          :options="fieldOptions"
-          placeholder="字段"
-          @update:value="handleFieldChange(draft, $event)"
-        />
-        <UiSelect
-          class="record-query-condition-operator"
-          :value="draft.operator"
-          :options="operatorOptions(draft)"
-          placeholder="关系"
-          @update:value="handleOperatorChange(draft, $event)"
-        />
-        <UiSelect
-          v-if="fieldByName(draft.fieldName)?.valueType === 'BOOLEAN' && !valueLessOperator(draft.operator!)"
-          class="record-query-condition-value"
-          :value="draft.booleanValue"
-          :options="booleanOptions"
-          placeholder="选择"
-          @update:value="handleBooleanValueChange(draft, $event)"
-        />
-        <UiInput
-          v-else-if="!valueLessOperator(draft.operator!)"
-          v-model:value="draft.rawValue"
-          class="record-query-condition-value"
-          :placeholder="conditionPlaceholder(draft)"
-        />
-        <div v-else class="record-query-condition-value muted">无需输入值</div>
-        <UiButton type="text" icon-name="delete" danger @click="removeCondition(draft.key)" />
-      </div>
-      <div class="record-query-condition-actions">
-        <UiButton type="dashed" icon-name="plus" :disabled="conditionsDisabled" @click="addCondition">
-          添加条件
-        </UiButton>
-        <UiButton type="primary" :disabled="conditionsDisabled" @click="applyConditions">应用条件</UiButton>
-        <UiButton type="text" :disabled="conditionsDisabled" @click="clearConditions">重置</UiButton>
-      </div>
-    </section>
-
-    <section class="record-query-list-body">
+    <template #beforeTable>
       <UiSpin v-if="loading" tip="加载列表" />
       <UiEmpty v-else-if="!queryReady" :description="waitingDescription" />
       <div v-else-if="descriptorLoadError || recordsLoadError" role="alert">
@@ -1252,100 +1262,79 @@ defineExpose({ clearSelection, refresh });
         <UiButton @click="loadSchemaAndRecords()">重试</UiButton>
       </div>
       <UiEmpty v-else-if="records.length === 0" :description="emptyDescription" />
-      <UiDataTable
+    </template>
+    <template #cell="{ column, record }">
+      <component
+        :is="cellComponentFor(column.key)"
+        v-if="cellComponentFor(column.key)"
+        :record="(record as QueryListRow).record"
+        :column="tableColumns.find((item) => item.key === column.key)"
+      />
+      <slot
+        v-else-if="$slots.cell"
+        name="cell"
+        :column="tableColumns.find((item) => item.key === column.key)!"
+        :record="(record as QueryListRow).record"
+      />
+      <RecordQueryListCell
         v-else
-        class="record-query-list-table"
-        :columns="dataTableColumns"
-        :rows="rows"
-        :row-key="(row) => String(row.key ?? '')"
-        :pagination="false"
-        :selection="selection"
-        :selected-row-key="selectedKey"
-        :expanded-row-keys="expandedRowKeys"
-        clickable-rows
-        fill-height
-        horizontal-scroll
-        :row-muted="(row) => (row as QueryListRow).record.enabled === false"
-        :show-action-column="hasRowActions"
-        :action-column-title="rowActionsTitle"
-        :action-column-width="actionColumnWidth"
-        @row-click="handleTableRowClick($event as QueryListRow)"
-        @row-dblclick="(row, event) => handleTableRowDblclick(row as QueryListRow, event)"
-        @row-expand="(row, expanded) => handleTableRowExpand(row as QueryListRow, expanded)"
+        :record="(record as QueryListRow).record"
+        :column="tableColumns.find((item) => item.key === column.key)!"
+        :cell-renderers="cellRenderers"
+      />
+    </template>
+    <template #rowActions="{ record }">
+      <div
+        class="record-query-list-row-actions"
+        :style="{
+          width: typeof actionColumnWidth === 'number' ? `${actionColumnWidth}px` : actionColumnWidth,
+        }"
+        @click.stop
+        @dblclick.stop
       >
-        <template #cell="{ column, record }">
-          <component
-            :is="cellComponentFor(column.key)"
-            v-if="cellComponentFor(column.key)"
-            :record="(record as QueryListRow).record"
-            :column="tableColumns.find((item) => item.key === column.key)"
-          />
-          <slot
-            v-else-if="$slots.cell"
-            name="cell"
-            :column="tableColumns.find((item) => item.key === column.key)!"
-            :record="(record as QueryListRow).record"
-          />
-          <RecordQueryListCell
-            v-else
-            :record="(record as QueryListRow).record"
-            :column="tableColumns.find((item) => item.key === column.key)!"
-            :cell-renderers="cellRenderers"
-          />
-        </template>
-        <template #rowActions="{ record }">
-          <div
-            class="record-query-list-row-actions"
-            :style="{
-              width: typeof actionColumnWidth === 'number' ? `${actionColumnWidth}px` : actionColumnWidth,
-            }"
-            @click.stop
-            @dblclick.stop
+        <slot name="rowActions" :record="(record as QueryListRow).record" />
+        <div class="record-query-list-primary-actions">
+          <UiButton
+            v-for="action in (record as QueryListRow).primaryActions"
+            :key="action.key"
+            class="record-query-list-primary-action"
+            type="text"
+            :disabled="action.disabled"
+            :icon-name="action.iconName"
+            :title="action.disabled ? (action.disabledReason ?? action.reason ?? action.title) : action.title"
+            @click="handlePrimaryRowAction(record as QueryListRow, action, $event)"
           >
-            <slot name="rowActions" :record="(record as QueryListRow).record" />
-            <div class="record-query-list-primary-actions">
-              <UiButton
-                v-for="action in (record as QueryListRow).primaryActions"
-                :key="action.key"
-                class="record-query-list-primary-action"
-                type="text"
-                :disabled="action.disabled"
-                :icon-name="action.iconName"
-                :title="
-                  action.disabled ? (action.disabledReason ?? action.reason ?? action.title) : action.title
-                "
-                @click="handlePrimaryRowAction(record as QueryListRow, action, $event)"
-              >
-                {{ action.title }}
-              </UiButton>
-            </div>
-            <UiDropdown
-              v-if="(record as QueryListRow).secondaryActions.length > 0"
-              :items="(record as QueryListRow).dropdownItems"
-              trigger="hover"
-              @select="handleSecondaryRowAction(record as QueryListRow, $event)"
-            >
-              <UiButton
-                class="record-query-list-more-action"
-                type="text"
-                icon-name="down"
-                title="更多"
-                aria-label="更多"
-              />
-            </UiDropdown>
-          </div>
-        </template>
-        <template v-if="hasExpandedRow" #expandedRow="{ record }">
-          <slot
-            name="expandedRow"
-            :record="(record as QueryListRow).record"
-            :row-key="String(record.key ?? '')"
+            {{ action.title }}
+          </UiButton>
+        </div>
+        <UiDropdown
+          v-if="(record as QueryListRow).secondaryActions.length > 0"
+          :items="(record as QueryListRow).dropdownItems"
+          trigger="hover"
+          @select="handleSecondaryRowAction(record as QueryListRow, $event)"
+        >
+          <UiButton
+            class="record-query-list-more-action"
+            type="text"
+            icon-name="down"
+            title="更多"
+            aria-label="更多"
           />
-        </template>
-      </UiDataTable>
-    </section>
+        </UiDropdown>
+      </div>
+    </template>
+    <template v-if="hasExpandedRow" #expandedRow="{ record }">
+      <slot
+        name="expandedRow"
+        :record="(record as QueryListRow).record"
+        :row-key="String(record.key ?? '')"
+      />
+    </template>
 
-    <footer v-if="pageable || (showRecycleBin && recycleBinEnabled)" class="record-query-list-pagination">
+    <template
+      v-if="(showRecycleBin && recycleBinEnabled) || (mode !== 'recycleBin' && querySummaries.length > 0)"
+      #footer
+    >
       <RecycleBinModeButton
         v-if="showRecycleBin && recycleBinEnabled && (mode === 'recycleBin' || canQueryRecycleBinAvailable)"
         :active="mode === 'recycleBin'"
@@ -1359,34 +1348,8 @@ defineExpose({ clearSelection, refresh });
           <span class="record-query-list-summary-value">{{ summaryValue(summary.key) }}</span>
         </span>
       </div>
-      <div v-if="pageable" class="record-query-list-pagination-controls">
-        <span>共 {{ total }} 条</span>
-        <UiSelect
-          class="record-query-list-page-size"
-          :value="pageSize"
-          :options="pageSizeOptions"
-          :allow-clear="false"
-          :disabled="queryActionsDisabled"
-          @update:value="handlePageSizeChange"
-        />
-        <UiButton
-          aria-label="上一页"
-          title="上一页"
-          icon-name="left"
-          :disabled="queryActionsDisabled || pageNum <= 1"
-          @click="goPage(pageNum - 1)"
-        />
-        <span>第 {{ pageNum }} / {{ pages }} 页</span>
-        <UiButton
-          aria-label="下一页"
-          title="下一页"
-          icon-name="right"
-          :disabled="queryActionsDisabled || pageNum >= pages"
-          @click="goPage(pageNum + 1)"
-        />
-      </div>
-    </footer>
-  </main>
+    </template>
+  </RecordQueryListSurface>
 </template>
 
 <style scoped>
@@ -1394,53 +1357,7 @@ defineExpose({ clearSelection, refresh });
   opacity: 0.55;
 }
 
-.record-query-list-panel {
-  display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr) auto;
-  grid-template-areas:
-    'header'
-    'conditions'
-    'body'
-    'pagination';
-  align-content: stretch;
-  gap: var(--muyun-management-panel-content-gap, 8px);
-  min-width: 0;
-  min-height: 0;
-  height: 100%;
-  padding: var(--muyun-management-panel-padding-block, 10px)
-    var(--muyun-management-panel-padding-inline, 12px);
-  border: 1px solid var(--muyun-border);
-  border-radius: 8px;
-  background: var(--muyun-surface);
-}
-
-.record-query-list-panel.is-embedded {
-  padding: 0;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-}
-
-.record-query-list-panel.is-chrome-free {
-  grid-template-rows: minmax(0, 1fr);
-  grid-template-areas: 'body';
-  gap: 0;
-}
-
-.record-query-list-panel.is-embedded .record-query-list-table {
-  border-radius: 0;
-}
-
-.record-query-list-header {
-  grid-area: header;
-}
-
-.record-query-list-actions,
-.record-query-list-operation-actions,
-.record-query-list-query-actions,
-.record-query-condition-actions,
-.record-query-list-pagination,
-.record-query-list-pagination-controls {
+.record-query-condition-actions {
   display: inline-flex;
   align-items: center;
   gap: 8px;
@@ -1470,28 +1387,6 @@ defineExpose({ clearSelection, refresh });
   font-weight: 400;
 }
 
-.record-query-list-actions {
-  flex: 0 1 auto;
-  margin-left: auto;
-  justify-content: flex-end;
-  gap: var(--muyun-management-panel-header-gap, 8px);
-}
-
-.record-query-list-operation-actions {
-  flex: 0 0 auto;
-}
-
-.record-query-list-query-actions {
-  flex: 1 1 auto;
-  justify-content: flex-end;
-  flex-wrap: wrap;
-}
-
-.record-query-list-search {
-  flex: 0 1 clamp(150px, 20vw, 220px);
-  width: clamp(150px, 20vw, 220px);
-}
-
 :deep(.record-query-list-persistent-query-control.ant-checkbox-wrapper) {
   display: inline-flex;
   align-items: center;
@@ -1515,7 +1410,6 @@ defineExpose({ clearSelection, refresh });
 }
 
 .record-query-conditions {
-  grid-area: conditions;
   display: grid;
   gap: 8px;
   padding: 10px;
@@ -1534,8 +1428,7 @@ defineExpose({ clearSelection, refresh });
 
 .record-query-condition-field,
 .record-query-condition-operator,
-.record-query-condition-value,
-.record-query-list-page-size {
+.record-query-condition-value {
   min-width: 0;
 }
 
@@ -1547,20 +1440,6 @@ defineExpose({ clearSelection, refresh });
   background: var(--muyun-support-surface);
   color: var(--muyun-text-muted);
   font-size: 14px;
-}
-
-.record-query-list-body {
-  grid-area: body;
-  display: grid;
-  min-height: 0;
-}
-
-.record-query-list-table {
-  min-height: 0;
-  height: 100%;
-  border: 1px solid var(--muyun-border-subtle);
-  border-radius: 8px;
-  overflow: hidden;
 }
 
 .record-query-list-row-actions {
@@ -1606,56 +1485,12 @@ defineExpose({ clearSelection, refresh });
   transition: opacity 0.14s ease;
 }
 
-.record-query-list-table :deep(.ant-table-tbody > tr:hover) .record-query-list-more-action,
+.record-query-list-panel :deep(.ant-table-tbody > tr:hover .record-query-list-more-action),
 .record-query-list-row-actions:focus-within .record-query-list-more-action {
   opacity: 1;
 }
 
-.record-query-list-pagination {
-  grid-area: pagination;
-  color: var(--muyun-text-muted);
-  font-size: 13px;
-}
-
-.record-query-list-pagination-controls {
-  margin-left: auto;
-}
-
-.record-query-list-page-size {
-  width: 112px;
-}
-
 @media (max-width: 680px) {
-  .record-query-list-header {
-    flex-direction: column;
-    align-items: stretch;
-  }
-
-  .record-query-list-actions {
-    width: 100%;
-    flex-wrap: wrap;
-    justify-content: flex-start;
-  }
-
-  .record-query-list-query-actions {
-    flex: 1 1 100%;
-    justify-content: flex-start;
-  }
-
-  .record-query-list-search {
-    flex: 0 1 220px;
-    width: min(220px, 100%);
-  }
-
-  .record-query-list-pagination,
-  .record-query-list-pagination-controls {
-    flex-wrap: wrap;
-  }
-
-  .record-query-list-pagination-controls {
-    margin-left: auto;
-  }
-
   .record-query-condition-row {
     grid-template-columns: 1fr;
   }

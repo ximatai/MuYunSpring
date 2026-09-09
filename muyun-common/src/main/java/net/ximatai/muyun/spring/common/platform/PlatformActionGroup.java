@@ -8,6 +8,7 @@ public enum PlatformActionGroup {
     REFERENCE(EntityCapability.REFERENCE),
     ENABLE(EntityCapability.ENABLE),
     RECYCLE_BIN(EntityCapability.RECYCLE_BIN),
+    DATA_SCOPE(EntityCapability.DATA_SCOPE),
     EXCHANGE(EntityCapability.EXCHANGE);
 
     private final EntityCapability capability;

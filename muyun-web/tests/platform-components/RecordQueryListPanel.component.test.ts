@@ -1,13 +1,21 @@
 import { computed, ref } from 'vue';
 import { WORKSPACE_NAVIGATION_DISABLED } from '@/platform-components/managementWorkspaceContext';
-import { flushPromises, shallowMount } from '@vue/test-utils';
-import { describe, expect, it, vi } from 'vitest';
+import { config, flushPromises, shallowMount } from '@vue/test-utils';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import RecordQueryListPanel, {
   type QueryListRecord,
   type RecordQueryListColumn,
 } from '@/platform-components/RecordQueryListPanel.vue';
 import type { ModuleContext } from '@muyun/web-core';
 import type { WebQueryRequest } from '@muyun/web-contracts';
+
+const originalStubs = config.global.stubs;
+beforeEach(() => {
+  config.global.stubs = { ...originalStubs, RecordQueryListSurface: false };
+});
+afterEach(() => {
+  config.global.stubs = originalStubs;
+});
 
 describe('RecordQueryListPanel', () => {
   it('reloads the query schema before querying records after a schema failure', async () => {
@@ -217,6 +225,54 @@ describe('RecordQueryListPanel', () => {
 
     expect(wrapper.find('[aria-label="上一页"]').exists()).toBe(true);
     expect(wrapper.find('[aria-label="下一页"]').exists()).toBe(true);
+  });
+
+  it('keeps pagination requests in the panel lifecycle when the shared surface changes page or size', async () => {
+    const requests: WebQueryRequest[] = [];
+    const context = createContext({ id: 'note-1' }, requests);
+    context.crud.query = async (request?: WebQueryRequest) => {
+      requests.push(request ?? {});
+      return {
+        records: [{ id: 'note-1' }],
+        total: 41,
+        pages: 3,
+        totalKnown: true,
+        pageNum: request?.page?.pageNum ?? 1,
+        pageSize: request?.page?.pageSize ?? 20,
+      };
+    };
+    const wrapper = shallowMount(RecordQueryListPanel, {
+      props: { context, title: '备注' },
+    });
+
+    await vi.waitFor(() => expect(requests).toHaveLength(1));
+    const surface = wrapper.findComponent({ name: 'RecordQueryListSurface' });
+    expect(surface.props()).toMatchObject({ total: 41, pageNum: 1, pages: 3, pageSize: 20 });
+
+    surface.vm.$emit('pageChange', 2);
+    await vi.waitFor(() => expect(requests).toHaveLength(2));
+    expect(requests[1]?.page).toEqual({ pageNum: 2, pageSize: 20 });
+
+    surface.vm.$emit('pageSizeChange', 50);
+    await vi.waitFor(() => expect(requests).toHaveLength(3));
+    expect(requests[2]?.page).toEqual({ pageNum: 1, pageSize: 50 });
+    wrapper.unmount();
+  });
+
+  it('keeps shared pagination visible but disabled while the list awaits its query scope', async () => {
+    const wrapper = shallowMount(RecordQueryListPanel, {
+      props: { context: createContext({ id: 'note-1' }), title: '备注', ready: false },
+    });
+
+    await flushPromises();
+
+    expect(wrapper.findComponent({ name: 'RecordQueryListSurface' }).props()).toMatchObject({
+      pageable: true,
+      total: 0,
+      tableVisible: false,
+      paginationDisabled: true,
+    });
+    wrapper.unmount();
   });
 
   it('lets an embedding section own the visible title while preserving refresh access', async () => {

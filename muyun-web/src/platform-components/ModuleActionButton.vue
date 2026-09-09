@@ -87,6 +87,7 @@ function handleClick(event: MouseEvent) {
 
 function defaultIconName(actionCode: string): UiIconName | undefined {
   const operation = actionCode.split('_').at(-1) ?? actionCode;
+  if (operation === 'managePermissions') return 'user';
   if (operation === 'create') {
     return 'plus';
   }

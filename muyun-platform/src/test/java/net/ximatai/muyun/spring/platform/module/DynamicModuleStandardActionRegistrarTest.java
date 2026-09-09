@@ -95,7 +95,7 @@ class DynamicModuleStandardActionRegistrarTest {
     }
 
     @Test
-    void shouldKeepDataAuthorizationOutOfTheStandardActionCatalogue() {
+    void shouldAddIndependentPermissionManagementWithoutChangingCrudAuthorizationDefaults() {
         PlatformModuleService moduleService = new PlatformModuleService(new TestMemoryDao<>());
         PlatformModuleActionService actionService = new PlatformModuleActionService(new TestMemoryDao<>(), moduleService);
         DynamicModuleStandardActionRegistrar registrar = new DynamicModuleStandardActionRegistrar(moduleService,
@@ -110,6 +110,10 @@ class DynamicModuleStandardActionRegistrarTest {
 
         registrar.register(module);
 
+        var manage = actionService.findByModuleAliasAndActionCode("education.scoped_project", "managePermissions");
+        assertThat(manage).isNotNull();
+        assertThat(manage.getDataAuth()).isTrue();
+        assertThat(manage.getPermissionActionCode()).isEqualTo("managePermissions");
         assertThat(actionService.findByModuleAliasAndActionCode("education.scoped_project", "view").getDataAuth()).isFalse();
         assertThat(actionService.findByModuleAliasAndActionCode("education.scoped_project", "create").getDataAuth()).isFalse();
     }

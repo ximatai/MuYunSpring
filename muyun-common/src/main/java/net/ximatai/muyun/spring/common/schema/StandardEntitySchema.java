@@ -40,6 +40,7 @@ public final class StandardEntitySchema {
 
     public static List<Column> auditColumns() {
         return Arrays.stream(StandardEntity.class.getDeclaredFields())
+                .filter(field -> field.isAnnotationPresent(net.ximatai.muyun.database.core.annotation.Column.class))
                 .filter(field -> field.getAnnotation(Id.class) == null)
                 .map(StandardEntitySchema::columnFrom)
                 .toList();
@@ -47,14 +48,20 @@ public final class StandardEntitySchema {
 
     public static List<String> columnNames() {
         return Arrays.stream(StandardEntity.class.getDeclaredFields())
+                .filter(field -> field.isAnnotationPresent(net.ximatai.muyun.database.core.annotation.Column.class))
                 .map(StandardEntitySchema::columnName)
                 .toList();
     }
 
     public static List<String> fieldNames() {
         return Arrays.stream(StandardEntity.class.getDeclaredFields())
+                .filter(field -> field.isAnnotationPresent(net.ximatai.muyun.database.core.annotation.Column.class))
                 .map(Field::getName)
                 .toList();
+    }
+
+    public static String columnName(String fieldName) {
+        return columnName(field(fieldName));
     }
 
     private static Field field(String name) {

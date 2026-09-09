@@ -6,6 +6,7 @@ export function pageActionIntent(code: string, anchor: string) {
     'DETAIL:update': { operation: 'OPEN_EDIT', title: '编辑' },
     'DETAIL:delete': { operation: 'DELETE', title: '删除' },
     'DETAIL:enable': { operation: 'ENABLE', title: '启用' },
+    'DETAIL:managePermissions': { operation: 'MANAGE_PERMISSIONS', title: '授权' },
     'DETAIL:disable': { operation: 'DISABLE', title: '停用' },
     'FORM:create': { operation: 'SUBMIT_CREATE', title: '保存', mode: 'create' },
     'FORM:update': { operation: 'SUBMIT_UPDATE', title: '保存', mode: 'edit' },
@@ -47,6 +48,7 @@ export function pageActionEntryDescription(entry: { actionCode: string; anchor: 
         DELETE: '确认后删除当前记录',
         ENABLE: '启用当前记录',
         DISABLE: '停用当前记录',
+        MANAGE_PERMISSIONS: '移交归属，维护负责人和相关人',
       } as Record<string, string>
     )[operation ?? ''] ?? '暂不支持页面按钮'
   );

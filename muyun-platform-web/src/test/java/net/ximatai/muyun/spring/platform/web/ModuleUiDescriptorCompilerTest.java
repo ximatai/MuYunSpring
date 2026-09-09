@@ -35,6 +35,22 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class ModuleUiDescriptorCompilerTest {
     @Test
+    void auditFieldsRemainReadOnlyEvenWhenThePageRequestsAnEditableField() {
+        var ui = ModuleUiDefinition.builder("demo.task")
+                .page(PageTemplates.listDetailCard(page -> page
+                        .list(list -> list.fields(fields -> fields.field("createdBy")))
+                        .detail(detail -> detail.editor(editor -> editor.field("createdBy").field("createdAt")))))
+                .build();
+        var definition = StaticModuleDefinition.builder("demo", "demo.task", "任务")
+                .uiDefinition(ui).build();
+        var descriptor = ModuleUiDescriptorCompiler.compile(definition);
+        assertThat(descriptor.page().detail().editor().fields()).allSatisfy(field ->
+                assertThat(field.readOnly().constant()).isTrue());
+        assertThat(descriptor.page().detail().editor().fields().getFirst().reference().targetModuleAlias())
+                .isEqualTo("iam.user");
+    }
+
+    @Test
     void staticManagedEntriesValidateTheExecutableActionCatalog() {
         var ui = ModuleUiDefinition.builder("demo.entry").managedActions().pageAction("create", PageActionAnchor.PAGE).build();
         var missing = StaticModuleDefinition.builder("demo", "demo.entry", "入口").uiDefinition(ui).build();
