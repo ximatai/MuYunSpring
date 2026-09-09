@@ -26,13 +26,31 @@ public class DynamicPublishedPageDefinitionResolver {
     private final PlatformPageDefinitionService pageService;
     private final PlatformPresentationRevisionResolver revisionResolver;
     private final PlatformModuleService moduleService;
+    private final PageReferenceFieldCatalogService referenceFields;
 
     public DynamicPublishedPageDefinitionResolver(PlatformPageDefinitionService pageService,
                                                   PlatformPresentationRevisionResolver revisionResolver,
                                                   PlatformModuleService moduleService) {
+        this(pageService, revisionResolver, moduleService, (PageReferenceFieldCatalogService) null);
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public DynamicPublishedPageDefinitionResolver(PlatformPageDefinitionService pageService,
+                                                  PlatformPresentationRevisionResolver revisionResolver,
+                                                  PlatformModuleService moduleService,
+                                                  org.springframework.beans.factory.ObjectProvider<PageReferenceFieldCatalogService> referenceFields) {
+        this(pageService, revisionResolver, moduleService,
+                referenceFields == null ? null : referenceFields.getIfAvailable());
+    }
+
+    private DynamicPublishedPageDefinitionResolver(PlatformPageDefinitionService pageService,
+                                                   PlatformPresentationRevisionResolver revisionResolver,
+                                                   PlatformModuleService moduleService,
+                                                   PageReferenceFieldCatalogService referenceFields) {
         this.pageService = pageService;
         this.revisionResolver = revisionResolver;
         this.moduleService = moduleService;
+        this.referenceFields = referenceFields;
     }
 
     public Optional<ResolvedPublishedPage> resolveWebGlobal(DynamicModuleDescriptor module) {
@@ -49,7 +67,13 @@ public class DynamicPublishedPageDefinitionResolver {
         DynamicModuleOverviewMode overviewMode = platformModule == null
                 ? DynamicModuleOverviewMode.LIST_CARD : platformModule.getOverviewMode();
         return PageRevisionModuleUiDefinitionAdapter.fromPublishedRevision(page, revision,
-                DynamicPageCompilationContext.from(module, overviewMode));
+                context(module, overviewMode));
+    }
+
+    private DynamicPageCompilationContext context(DynamicModuleDescriptor module, DynamicModuleOverviewMode mode) {
+        DynamicPageCompilationContext context = DynamicPageCompilationContext.from(module, mode);
+        return referenceFields == null ? context : context.withReferenceFieldTitleResolver(path ->
+                referenceFields.title(module.moduleAlias(), path));
     }
 
     /** The exact page revision used to compile a global Web runtime surface. */

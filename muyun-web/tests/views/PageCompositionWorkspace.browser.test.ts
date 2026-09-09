@@ -148,6 +148,12 @@ function layoutHttp(): HttpClient {
           ],
         } as T;
       if (path.endsWith('/context')) return { capabilities: [], actions: [] } as T;
+      if (path.endsWith('/page-reference-fields'))
+        return {
+          moduleAlias: 'education.layout',
+          path: '',
+          fields: fields.map((field) => ({ id: field.id, name: field.fieldName, label: field.title })),
+        } as T;
       if (path.endsWith('/metadata-relations/query'))
         return list([{ id: 'main', metadataId: 'main', relationAlias: '主实体', relationRole: 'main' }]) as T;
       if (path.endsWith('/fields/query')) return list(fields) as T;

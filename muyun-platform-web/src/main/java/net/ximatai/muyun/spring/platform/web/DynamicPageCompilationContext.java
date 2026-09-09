@@ -15,13 +15,25 @@ public record DynamicPageCompilationContext(
         DynamicModuleOverviewMode overviewMode,
         Map<String, String> mainFieldTitles,
         Set<String> requiredMainFields,
-        Map<String, DynamicAssociationViewDescriptor> associations
+        Map<String, DynamicAssociationViewDescriptor> associations,
+        java.util.function.Function<String, String> referenceFieldTitleResolver
 ) {
     public DynamicPageCompilationContext {
         overviewMode = overviewMode == null ? DynamicModuleOverviewMode.LIST_CARD : overviewMode;
         mainFieldTitles = Map.copyOf(mainFieldTitles);
         requiredMainFields = Set.copyOf(requiredMainFields);
         associations = Map.copyOf(associations);
+    }
+
+    public DynamicPageCompilationContext(DynamicModuleOverviewMode overviewMode,
+                                         Map<String, String> mainFieldTitles,
+                                         Set<String> requiredMainFields,
+                                         Map<String, DynamicAssociationViewDescriptor> associations) {
+        this(overviewMode, mainFieldTitles, requiredMainFields, associations, null);
+    }
+
+    DynamicPageCompilationContext withReferenceFieldTitleResolver(java.util.function.Function<String, String> resolver) {
+        return new DynamicPageCompilationContext(overviewMode, mainFieldTitles, requiredMainFields, associations, resolver);
     }
 
     static DynamicPageCompilationContext from(DynamicModuleDescriptor module, DynamicModuleOverviewMode mode) {
@@ -34,6 +46,6 @@ public record DynamicPageCompilationContext(
                         DynamicFieldDescriptor::title, (left, right) -> left, LinkedHashMap::new)),
                 main.fields().stream().filter(DynamicFieldDescriptor::required)
                         .map(DynamicFieldDescriptor::fieldName).collect(Collectors.toUnmodifiableSet()),
-                DynamicPageAssociationCatalog.mainEntityChildAssociations(module));
+                DynamicPageAssociationCatalog.mainEntityChildAssociations(module), null);
     }
 }

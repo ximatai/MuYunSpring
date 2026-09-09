@@ -10,7 +10,9 @@ import net.ximatai.muyun.spring.platform.metadata.ConfigurationReference;
 import net.ximatai.muyun.spring.platform.metadata.ConfigurationReferenceContributor;
 import net.ximatai.muyun.spring.platform.metadata.ConfigurationReferenceTarget;
 import net.ximatai.muyun.spring.platform.metadata.MetadataField;
+import net.ximatai.muyun.spring.platform.metadata.MetadataFieldReferenceConfigService;
 import net.ximatai.muyun.spring.platform.metadata.MetadataFieldService;
+import net.ximatai.muyun.spring.platform.metadata.MetadataService;
 import net.ximatai.muyun.spring.platform.metadata.ModuleMetadataField;
 import net.ximatai.muyun.spring.platform.metadata.ModuleMetadataFieldService;
 import net.ximatai.muyun.spring.platform.metadata.ModuleMetadataRelation;
@@ -31,19 +33,24 @@ public class PresentationConfigurationReferences {
     private final ObjectProvider<MetadataFieldService> fields;
     private final ObjectProvider<ModuleMetadataFieldService> moduleFields;
     private final ObjectProvider<ModuleMetadataRelationService> relations;
+    private final PresentationFieldPathReferenceResolver pathReferences;
     private final ObjectProvider<PlatformPageDefinitionService> pages;
     private final ObjectProvider<PlatformPresentationVariantService> variants;
     private final ObjectProvider<PlatformPresentationRevisionService> revisions;
 
-    public PresentationConfigurationReferences(ObjectProvider<MetadataFieldService> fields,
+    public PresentationConfigurationReferences(ObjectProvider<MetadataService> metadata,
+            ObjectProvider<MetadataFieldService> fields,
             ObjectProvider<ModuleMetadataFieldService> moduleFields,
             ObjectProvider<ModuleMetadataRelationService> relations,
+            ObjectProvider<MetadataFieldReferenceConfigService> referenceConfigs,
             ObjectProvider<PlatformPageDefinitionService> pages,
             ObjectProvider<PlatformPresentationVariantService> variants,
             ObjectProvider<PlatformPresentationRevisionService> revisions) {
         this.fields = fields;
         this.moduleFields = moduleFields;
         this.relations = relations;
+        this.pathReferences = new PresentationFieldPathReferenceResolver(metadata, fields, moduleFields, relations,
+                referenceConfigs);
         this.pages = pages;
         this.variants = variants;
         this.revisions = revisions;
@@ -101,39 +108,32 @@ public class PresentationConfigurationReferences {
 
     private Optional<String> find(ConfigurationReferenceTarget target, String id) {
         MetadataField field = null;
-        List<ModuleMetadataRelation> scopes;
+        List<ModuleMetadataRelation> targetRelations = List.of();
         if (target == ConfigurationReferenceTarget.MODULE_METADATA_RELATION) {
-            ModuleMetadataRelation relation = relations.getObject().select(id);
-            scopes = relation == null ? List.of() : List.of(relation);
+            ModuleMetadataRelation targetRelation = relations.getObject().select(id);
+            if (targetRelation == null) return Optional.empty();
+            targetRelations = List.of(targetRelation);
         } else if (target == ConfigurationReferenceTarget.MODULE_METADATA_FIELD) {
             ModuleMetadataField moduleField = moduleFields.getObject().select(id);
             if (moduleField == null) return Optional.empty();
             field = fields.getObject().select(moduleField.getMetadataFieldId());
-            ModuleMetadataRelation relation = relations.getObject().select(moduleField.getRelationId());
-            scopes = relation == null ? List.of() : List.of(relation);
+            ModuleMetadataRelation targetRelation = relations.getObject().select(moduleField.getRelationId());
+            if (targetRelation == null) return Optional.empty();
+            targetRelations = List.of(targetRelation);
         } else {
-            if (target == ConfigurationReferenceTarget.METADATA_FIELD) {
-                field = fields.getObject().select(id);
-                if (field == null) return Optional.empty();
-            }
-            scopes = relations.getObject().list(Criteria.of().eq("metadataId",
-                    field == null ? id : field.getMetadataId()), ALL);
+            field = fields.getObject().select(id);
+            if (field == null) return Optional.empty();
+            targetRelations = relations.getObject().list(Criteria.of().eq("metadataId", field.getMetadataId()), ALL);
         }
-        if (target == ConfigurationReferenceTarget.MODULE_METADATA_FIELD && field == null) return Optional.empty();
-        for (ModuleMetadataRelation scope : scopes) {
-            for (PlatformPageDefinition page : pages.getObject().list(
-                    Criteria.of().eq("moduleAlias", scope.getModuleAlias()), ALL)) {
-                boolean main = Objects.equals(page.getMainRelationId(), scope.getId());
-                if (field == null && main) continue;
-                ModuleMetadataRelation pageMain = main ? scope : relations.getObject().select(page.getMainRelationId());
-                if (!main && (pageMain == null || !Objects.equals(scope.getParentMetadataId(), pageMain.getMetadataId()))) continue;
-                for (PlatformPresentationVariant variant : variants.getObject().list(Criteria.of().eq("pageId", page.getId()), ALL)) {
-                    for (PlatformPresentationRevision revision : revisions.getObject().list(Criteria.of().eq("variantId", variant.getId()), ALL)) {
-                        if (revision.getStatus() != PlatformPresentationRevisionStatus.DRAFT
-                                && revision.getStatus() != PlatformPresentationRevisionStatus.PUBLISHED) continue;
-                        if (uses(revision, main, scope.getRelationAlias(), field == null ? null : field.getFieldName())) {
-                            return Optional.of(revision.getId());
-                        }
+        for (PlatformPageDefinition page : pages.getObject().list(Criteria.of(), ALL)) {
+            ModuleMetadataRelation pageMain = relations.getObject().select(page.getMainRelationId());
+            if (pageMain == null) continue;
+            for (PlatformPresentationVariant variant : variants.getObject().list(Criteria.of().eq("pageId", page.getId()), ALL)) {
+                for (PlatformPresentationRevision revision : revisions.getObject().list(Criteria.of().eq("variantId", variant.getId()), ALL)) {
+                    if (revision.getStatus() != PlatformPresentationRevisionStatus.DRAFT
+                            && revision.getStatus() != PlatformPresentationRevisionStatus.PUBLISHED) continue;
+                    if (uses(revision, pageMain, target, id, field, targetRelations)) {
+                        return Optional.of(revision.getId());
                     }
                 }
             }
@@ -141,30 +141,60 @@ public class PresentationConfigurationReferences {
         return Optional.empty();
     }
 
-    private boolean uses(PlatformPresentationRevision revision, boolean main, String relation, String field) {
+    private boolean uses(PlatformPresentationRevision revision, ModuleMetadataRelation pageMain,
+                         ConfigurationReferenceTarget target, String targetId, MetadataField targetField,
+                         List<ModuleMetadataRelation> targetRelations) {
         try {
             JsonNode root = JSON.readTree(revision.getUiTreeJson());
             if (root == null) throw new IllegalArgumentException("empty tree");
-            if (main && containsField(root.path("quickSearchFields"), field)) return true;
+            if (containsReference(root.path("quickSearchFields"), pageMain, target, targetId)) return true;
             for (JsonNode slot : root.path("nodes")) {
-                if (main) {
-                    if (Objects.equals(field, slot.path("titleField").asText(null))
-                            || Objects.equals(field, slot.path("secondaryField").asText(null))) return true;
-                    if (containsField(slot.path("fields"), field)) return true;
-                    for (JsonNode group : slot.path("groups")) {
-                        if (containsField(group.path("fields"), field)) return true;
-                    }
-                } else {
-                    for (JsonNode child : slot.path("relations")) {
-                        if (Objects.equals(relation, child.path("relation").asText())
-                                && (field == null || containsField(child.path("fields"), field))) return true;
-                    }
+                if (usesPath(slot.path("titleField").asText(null), pageMain, target, targetId)
+                        || usesPath(slot.path("secondaryField").asText(null), pageMain, target, targetId)
+                        || containsReference(slot.path("fields"), pageMain, target, targetId)) return true;
+                for (JsonNode group : slot.path("groups")) {
+                    if (containsReference(group.path("fields"), pageMain, target, targetId)) return true;
+                }
+                if (usesLegacyChild(slot.path("relations"), pageMain, target, targetField, targetRelations)) {
+                    return true;
                 }
             }
             return false;
         } catch (JsonProcessingException | IllegalArgumentException exception) {
             throw new PlatformException("页面修订“" + revision.getTitle() + "”结构无法解析，请修复页面配置后再删除元数据。", exception);
         }
+    }
+
+    private boolean containsReference(JsonNode entries, ModuleMetadataRelation pageMain,
+                                      ConfigurationReferenceTarget target, String targetId) {
+        for (JsonNode entry : entries) {
+            String path = entry.isTextual() ? entry.asText() : entry.path("field").asText();
+            if (usesPath(path, pageMain, target, targetId)) return true;
+        }
+        return false;
+    }
+
+    private boolean usesPath(String path, ModuleMetadataRelation pageMain,
+                             ConfigurationReferenceTarget target, String targetId) {
+        return pathReferences.uses(pageMain, path,
+                target == ConfigurationReferenceTarget.METADATA_FIELD ? targetId : null,
+                target == ConfigurationReferenceTarget.MODULE_METADATA_FIELD ? targetId : null,
+                target == ConfigurationReferenceTarget.MODULE_METADATA_RELATION ? targetId : null);
+    }
+
+    private boolean usesLegacyChild(JsonNode entries, ModuleMetadataRelation pageMain,
+                                    ConfigurationReferenceTarget target, MetadataField targetField,
+                                    List<ModuleMetadataRelation> targetRelations) {
+        for (ModuleMetadataRelation targetRelation : targetRelations) {
+            if (!Objects.equals(targetRelation.getModuleAlias(), pageMain.getModuleAlias())
+                    || !Objects.equals(targetRelation.getParentMetadataId(), pageMain.getMetadataId())) continue;
+            for (JsonNode child : entries) {
+                if (!Objects.equals(targetRelation.getRelationAlias(), child.path("relation").asText())) continue;
+                if (target == ConfigurationReferenceTarget.MODULE_METADATA_RELATION) return true;
+                if (targetField != null && containsField(child.path("fields"), targetField.getFieldName())) return true;
+            }
+        }
+        return false;
     }
 
     private boolean containsField(JsonNode entries, String field) {

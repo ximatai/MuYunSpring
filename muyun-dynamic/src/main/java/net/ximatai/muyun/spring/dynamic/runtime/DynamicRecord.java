@@ -100,6 +100,18 @@ public class DynamicRecord implements EntityContract, TreeCapable, EnabledCapabl
         return this;
     }
 
+    /**
+     * Adds a server-compiled read projection. It is intentionally separate from {@link #setValue}
+     * so page-only reference paths can never become persistence or mutation input.
+     */
+    public DynamicRecord putReadProjectionValue(String fieldCode, Object value) {
+        if (fieldCode == null || fieldCode.isBlank()) {
+            throw new IllegalArgumentException("dynamic read projection field must not be blank");
+        }
+        loadedValues.put(fieldCode, value);
+        return this;
+    }
+
     public Object getValue(String fieldCode) {
         if (PlatformFieldPolicy.isAudit(fieldCode)) {
             return PlatformAuditReferences.values(this).get(fieldCode);

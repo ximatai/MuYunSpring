@@ -52,6 +52,13 @@ export function applyReferenceDependencyClears(
   const next = { ...record, [fieldName]: value };
   if (record[fieldName] === value || !fields) return next;
 
+  // Read-only paths under a changed ONE reference are display projections, never draft inputs.
+  // Drop their previous values before the picker selection can supply descriptor-authorized fresh ones.
+  const projectionPrefix = `${fieldName}.`;
+  for (const projectedFieldName of Object.keys(next)) {
+    if (projectedFieldName.startsWith(projectionPrefix)) delete next[projectedFieldName];
+  }
+
   // Candidate dependencies form a directed graph. Traverse the whole graph,
   // including an already-empty intermediary, because a lower-level picker can
   // still hold a value invalidated by an ancestor change.

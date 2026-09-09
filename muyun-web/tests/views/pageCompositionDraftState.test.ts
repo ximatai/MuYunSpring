@@ -258,6 +258,21 @@ describe('pageCompositionDraftState', () => {
     expect(state.selectedNodeId.value).toBe('form:date');
   });
 
+  it('removes read-only projection properties when moving a derived field to the list', () => {
+    const state = createPageCompositionDraftState();
+    const derived = {
+      id: 'supplier-title',
+      title: '供应商名称',
+      fieldName: 'supplierId.title',
+      platformReadOnly: true,
+    };
+    state.addField(derived, 'form');
+    state.moveField(derived.id, 'form', 'list');
+
+    expect(state.listFields.value[0].properties?.readOnly).toBeUndefined();
+    expect(state.toManagementUiTree().nodes[0].fields).toEqual(['supplierId.title']);
+  });
+
   it('inserts an external metadata field at the explicit UI tree drop position', () => {
     const state = createPageCompositionDraftState();
     state.addField(title, 'list');

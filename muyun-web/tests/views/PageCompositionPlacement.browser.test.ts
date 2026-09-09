@@ -26,6 +26,135 @@ const PlacementHost = defineComponent({
   },
 });
 
+it('drags a recursively loaded reference path into list and form, then restores it after saving', async () => {
+  await page.viewport(1082, 814);
+  const requests: HttpRequestOptions[] = [];
+  const referenceRequests: string[] = [];
+  const base = placementHttp(requests);
+  const records = (items: unknown[]) => ({ records: items, pages: 1, totalKnown: true });
+  configureModuleContext({
+    http: {
+      request: async <T>(request: HttpRequestOptions) => {
+        if (request.path.includes('/page-reference-fields')) referenceRequests.push(request.path);
+        if (request.path === '/platform.metadata/main/fields/query')
+          return records([
+            { id: 'a', fieldName: 'a', title: '字段甲', fieldOwnership: 'BUSINESS', fieldForm: 'PHYSICAL' },
+            { id: 'b', fieldName: 'b', title: '字段乙', fieldOwnership: 'BUSINESS', fieldForm: 'PHYSICAL' },
+            {
+              id: 'supplierId',
+              fieldName: 'supplierId',
+              title: '供应商',
+              fieldOwnership: 'BUSINESS',
+              fieldForm: 'PHYSICAL',
+            },
+          ]) as T;
+        if (request.path === '/platform.module/education.placement/page-reference-fields')
+          return {
+            moduleAlias: 'education.placement',
+            path: '',
+            fields: [
+              { id: 'a', name: 'a', label: '字段甲' },
+              { id: 'b', name: 'b', label: '字段乙' },
+              {
+                id: 'supplierId',
+                name: 'supplierId',
+                label: '供应商',
+                referenceModuleAlias: 'education.supplier',
+                referenceCardinality: 'ONE',
+                expandable: true,
+              },
+            ],
+          } as T;
+        if (request.path.endsWith('page-reference-fields?path=supplierId'))
+          return {
+            moduleAlias: 'education.placement',
+            path: 'supplierId',
+            fields: [
+              {
+                id: 'supplierId.organizationId',
+                name: 'supplierId.organizationId',
+                label: '所属组织',
+                referenceModuleAlias: 'iam.organization',
+                referenceCardinality: 'ONE',
+                expandable: true,
+                readOnly: true,
+              },
+            ],
+          } as T;
+        if (request.path.endsWith('page-reference-fields?path=supplierId.organizationId'))
+          return {
+            moduleAlias: 'education.placement',
+            path: 'supplierId.organizationId',
+            fields: [
+              {
+                id: 'supplierId.organizationId.title',
+                name: 'supplierId.organizationId.title',
+                label: '组织名称',
+                readOnly: true,
+              },
+            ],
+          } as T;
+        return base.request<T>(request);
+      },
+    },
+  });
+  const wrapper = mount(PlacementHost, { attachTo: document.body, props: { height: 760 } });
+  const source = '[data-ui-tree-key="metadata:field:supplierId.organizationId.title"]';
+  try {
+    await expect.element(page.getByRole('button', { name: '发布草稿', exact: true })).toBeEnabled();
+    await page.elementLocator(wrapper.get('[data-ui-tree-key="metadata:field:supplierId"]').element).click();
+    await userEvent.keyboard('{ArrowRight}');
+    await expect
+      .poll(() => wrapper.find('[data-ui-tree-key="metadata:field:supplierId.organizationId"]').exists())
+      .toBe(true);
+    await page
+      .elementLocator(wrapper.get('[data-ui-tree-key="metadata:field:supplierId.organizationId"]').element)
+      .click();
+    await userEvent.keyboard('{ArrowRight}');
+    await expect.poll(() => wrapper.find(source).exists()).toBe(true);
+    await commands.treeGesture(source, 'th:has([data-page-composition-layout-key="list:header:a"])', 0.5);
+    await expect
+      .poll(() =>
+        wrapper
+          .findComponent(PageCompositionTree)
+          .props('listFields')
+          .some((field: { fieldName: string }) => field.fieldName === 'supplierId.organizationId.title'),
+      )
+      .toBe(true);
+    await page.getByText('表单', { exact: true }).click();
+    await expect.poll(() => wrapper.find('[data-ui-drop-key="edit:field:a"]').exists()).toBe(true);
+    await commands.treeGesture(source, '[data-ui-drop-key="edit:field:a"]', 0.5);
+    await expect
+      .poll(() =>
+        wrapper
+          .findComponent(PageCompositionTree)
+          .props('formFields')
+          .some(
+            (field: { fieldName: string; properties?: { readOnly?: boolean } }) =>
+              field.fieldName === 'supplierId.organizationId.title' && field.properties?.readOnly === true,
+          ),
+      )
+      .toBe(true);
+    await page.getByRole('button', { name: '保存草稿', exact: true }).click();
+    await expect.element(page.getByRole('button', { name: '保存草稿', exact: true })).toBeDisabled();
+    await page.getByRole('button', { name: '刷新：页面结构', exact: true }).click();
+    await expect
+      .poll(() =>
+        wrapper
+          .findComponent(PageCompositionTree)
+          .props('formFields')
+          .some((field: { fieldName: string }) => field.fieldName === 'supplierId.organizationId.title'),
+      )
+      .toBe(true);
+    expect(referenceRequests).toContain(
+      '/platform.module/education.placement/page-reference-fields?path=supplierId.organizationId',
+    );
+  } finally {
+    await commands.treeRelease();
+    wrapper.unmount();
+  }
+});
+
 it('renders full-width groups and empty group titles in the page preview', async () => {
   await page.viewport(1082, 814);
   configureModuleContext({ http: placementHttp([]) });
@@ -1334,6 +1463,12 @@ function placementHttp(
           ],
         } as T;
       if (path.endsWith('/context')) return { capabilities: [], actions: [] } as T;
+      if (path.endsWith('/page-reference-fields'))
+        return {
+          moduleAlias: 'education.placement',
+          path: '',
+          fields: fields.map((field) => ({ id: field.id, name: field.fieldName, label: field.title })),
+        } as T;
       if (path.endsWith('/metadata-relations/query'))
         return list([
           { id: 'main', metadataId: 'main', relationAlias: '主实体', relationRole: 'main' },

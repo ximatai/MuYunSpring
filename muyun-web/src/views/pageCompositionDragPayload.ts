@@ -9,6 +9,7 @@ export type MetadataDragPayload =
       title?: string;
       fieldSpecAlias?: string;
       required?: boolean;
+      readOnly?: boolean;
     }
   | { kind: 'relation'; relationId: string }
   | { kind: 'relationField'; relationId: string; fieldId: string };
@@ -28,6 +29,7 @@ export function parseMetadataDragPayload(payload: unknown): MetadataDragPayload 
       ...(nonEmptyString(candidate.title) ? { title: candidate.title } : {}),
       ...(nonEmptyString(candidate.fieldSpecAlias) ? { fieldSpecAlias: candidate.fieldSpecAlias } : {}),
       ...(typeof candidate.required === 'boolean' ? { required: candidate.required } : {}),
+      ...(typeof candidate.readOnly === 'boolean' ? { readOnly: candidate.readOnly } : {}),
     };
   }
   if (candidate.kind === 'relation' && nonEmptyString(candidate.relationId)) {

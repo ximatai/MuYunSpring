@@ -16,6 +16,9 @@ export interface PageComposerField {
   systemManaged?: boolean;
   platformReadOnly?: boolean;
   referenceModuleAlias?: string;
+  /** A derived path through a ONE reference is display-only by platform contract. */
+  referenceCardinality?: 'ONE' | 'MANY';
+  expandable?: boolean;
   /** Page-node presentation only; metadata field facts are never copied or edited here. */
   properties?: PageComposerFieldProperties;
 }
@@ -205,7 +208,11 @@ export function createPageCompositionDraftState() {
       !(slot === 'form' && formFieldPlaced(field.id))
     ) {
       const next = [...target.value];
-      next.splice(Math.max(0, Math.min(targetIndex ?? next.length, next.length)), 0, placedField(field));
+      next.splice(
+        Math.max(0, Math.min(targetIndex ?? next.length, next.length)),
+        0,
+        placedField(field, slot === 'form'),
+      );
       target.value = next;
       if (slot === 'form') placeFormItem('field', field.id, targetIndex);
     }
@@ -346,11 +353,11 @@ export function createPageCompositionDraftState() {
       (candidate) => candidate.relationCode === relation.relationCode,
     );
     if (!existing) {
-      formRelations.value = [...formRelations.value, { ...relation, fields: [placedField(field)] }];
+      formRelations.value = [...formRelations.value, { ...relation, fields: [placedField(field, true)] }];
     } else if (!existing.fields.some((candidate) => candidate.id === field.id)) {
       formRelations.value = formRelations.value.map((candidate) =>
         candidate.relationCode === relation.relationCode
-          ? { ...candidate, fields: [...candidate.fields, placedField(field)] }
+          ? { ...candidate, fields: [...candidate.fields, placedField(field, true)] }
           : candidate,
       );
     }
@@ -449,7 +456,7 @@ export function createPageCompositionDraftState() {
     const nextSource = source.value.filter((candidate) => candidate.id !== fieldId);
     const nextDestination = from === to ? nextSource : [...destination.value];
     const index = Math.max(0, Math.min(targetIndex ?? nextDestination.length, nextDestination.length));
-    nextDestination.splice(index, 0, field);
+    nextDestination.splice(index, 0, placedField(field, to === 'form'));
     if (from === to) source.value = nextDestination;
     else {
       source.value = nextSource;
@@ -566,7 +573,7 @@ export function createPageCompositionDraftState() {
         {
           slot: 'list',
           title: titles?.list ?? '列表',
-          fields: listFields.value.map(toPersistedField),
+          fields: listFields.value.map((field) => toPersistedField(field, false)),
         },
         {
           slot: 'form',
@@ -588,7 +595,9 @@ export function createPageCompositionDraftState() {
                 relations: formRelations.value.map((relation) => ({
                   relation: relation.relationCode,
                   title: relation.title,
-                  ...(relation.fields.length ? { fields: relation.fields.map(toPersistedField) } : {}),
+                  ...(relation.fields.length
+                    ? { fields: relation.fields.map((field) => toPersistedField(field, false)) }
+                    : {}),
                 })),
               }
             : {}),
@@ -598,7 +607,7 @@ export function createPageCompositionDraftState() {
                   group: group.groupCode,
                   title: group.title,
                   ...(group.subtitle ? { subtitle: group.subtitle } : {}),
-                  fields: group.fields.map(toPersistedField),
+                  fields: group.fields.map((field) => toPersistedField(field, true)),
                 })),
               }
             : {}),
@@ -660,8 +669,18 @@ function previewModeFor(node: PageComposerNode): PageComposerPreviewMode {
   return node.kind === 'field' || node.kind === 'groupField' ? 'edit' : 'detail';
 }
 
-function placedField(field: PageComposerField): PageComposerField {
-  return { ...field, properties: field.properties ? { ...field.properties } : undefined };
+function placedField(field: PageComposerField, includeReadOnly = false): PageComposerField {
+  const source = { ...field };
+  delete source.properties;
+  const properties = {
+    ...(field.properties ?? {}),
+    ...(includeReadOnly && field.platformReadOnly ? { readOnly: true } : {}),
+  };
+  if (!includeReadOnly) delete properties.readOnly;
+  return {
+    ...source,
+    ...(Object.keys(properties).length ? { properties } : {}),
+  };
 }
 
 function compactProperties(properties: PageComposerFieldProperties): PageComposerFieldProperties | undefined {
@@ -673,7 +692,10 @@ function compactProperties(properties: PageComposerFieldProperties): PageCompose
 
 function toPersistedField(
   field: PageComposerField,
+  includeReadOnly = true,
 ): string | { field: string; props: PageComposerFieldProperties } {
-  const properties = compactProperties(field.properties ?? {});
-  return properties ? { field: field.fieldName, props: properties } : field.fieldName;
+  const properties = { ...(field.properties ?? {}) };
+  if (!includeReadOnly) delete properties.readOnly;
+  const compact = compactProperties(properties);
+  return compact ? { field: field.fieldName, props: compact } : field.fieldName;
 }

@@ -32,6 +32,8 @@ import {
   UiTree,
   type UiRadioOption,
   type UiRecordInlineAction,
+  type UiTreeLoadRequest,
+  type UiTreeLoadResult,
   type UiTreeNode,
 } from '@muyun/vue-ui-antdv';
 import type {
@@ -95,6 +97,11 @@ const publishing = ref(false);
 const relation = ref<ModuleMetadataRelation>();
 const metadataRelations = ref<ModuleMetadataRelation[]>([]);
 const metadataFields = ref<PageComposerField[]>([]);
+const referenceFieldDirectories = ref(new Map<string, PageComposerField[]>());
+const referenceDirectoryRequests = new Map<string, Promise<PageComposerField[]>>();
+const metadataTreeReloadKey = ref(0);
+let referenceDirectoryEpoch = 0;
+let hydrateSequence = 0;
 const childMetadataFields = ref(new Map<string, PageComposerField[]>());
 const page = ref<PageDefinition>();
 const variant = ref<PresentationVariant>();
@@ -153,6 +160,17 @@ interface PlatformFieldPolicy {
   readOnly: boolean;
   referenceModuleAlias?: string;
 }
+interface PageReferenceField {
+  id: string;
+  name: string;
+  label: string;
+  valueType?: string;
+  referenceModuleAlias?: string;
+  referenceCardinality?: 'ONE' | 'MANY';
+  expandable?: boolean;
+  readOnly?: boolean;
+  systemManaged?: boolean;
+}
 const platformFieldPolicies = ref(new Map<string, PlatformFieldPolicy>());
 let previewRequestSequence = 0;
 let previewDebounceTimer: ReturnType<typeof setTimeout> | undefined;
@@ -195,9 +213,25 @@ const visibleFields = computed(() => {
   const fields = filterSystemFields(metadataFields.value);
   if (!keyword) return fields;
   return fields.filter(
-    (field) => field.title.toLowerCase().includes(keyword) || field.fieldName.toLowerCase().includes(keyword),
+    (field) =>
+      field.title.toLowerCase().includes(keyword) ||
+      field.fieldName.toLowerCase().includes(keyword) ||
+      // Keep an already loaded matching descendant reachable; search never expands unloaded directories.
+      [...referenceFieldDirectories.value.entries()]
+        .filter(([key]) => key.startsWith(`${props.moduleAlias}:${field.fieldName}`))
+        .flatMap(([, children]) => children)
+        .some(
+          (child) =>
+            child.title.toLowerCase().includes(keyword) || child.fieldName.toLowerCase().includes(keyword),
+        ),
   );
 });
+const allMetadataFields = computed(() => [
+  ...metadataFields.value,
+  ...[...referenceFieldDirectories.value.entries()]
+    .filter(([key]) => key.startsWith(`${props.moduleAlias}:`) && key !== `${props.moduleAlias}:`)
+    .flatMap(([, fields]) => fields),
+]);
 const selectedField = computed(
   () => state.selectedNode.value?.field ?? state.selectedNode.value?.relationField,
 );
@@ -314,37 +348,7 @@ const metadataTreeNodes = computed<UiTreeNode[]>(() => [
           title: mainEntityTitle.value,
           secondary: '主元数据',
           children: [
-            ...visibleFields.value.map(
-              (field): UiTreeNode => ({
-                key: `metadata:field:${field.id}`,
-                title: field.title,
-                secondary: [
-                  field.fieldName,
-                  field.platformReadOnly ? '只读' : '',
-                  field.referenceModuleAlias ? '模块引用' : '',
-                ]
-                  .filter(Boolean)
-                  .join(' · '),
-                actions: [
-                  {
-                    key: 'add',
-                    title: `添加 ${field.title} 到…`,
-                    iconName: 'plus',
-                    disabled: isMutating.value,
-                    items: [
-                      ...(skeleton.value?.columns === false
-                        ? [
-                            { key: 'explorer-title', title: '用作导航标题' },
-                            { key: 'explorer-secondary', title: '用作辅助信息' },
-                          ]
-                        : [{ key: 'add-list', title: '添加到列表' }]),
-                      { key: 'add-form', title: '添加到表单' },
-                    ],
-                  },
-                ],
-                isLeaf: true,
-              }),
-            ),
+            ...visibleFields.value.map(metadataFieldNode),
             ...childRelationNodes(relation.value?.metadataId),
           ],
         },
@@ -364,6 +368,10 @@ watch(editorMode, () => {
   selectedActionKey.value = undefined;
   propertyDrawerOpen.value = false;
   selectedMetadataTreeKey.value = undefined;
+});
+watch(showSystemFields, () => {
+  // Managed UiTree caches rendered children. Rebuild those branches with the current visibility rule.
+  metadataTreeReloadKey.value += 1;
 });
 watch(state.selectedNodeId, () => {
   propertyDraft.value = { ...(selectedField.value?.properties ?? {}) };
@@ -386,6 +394,9 @@ watch(
     relation.value = undefined;
     metadataRelations.value = [];
     metadataFields.value = [];
+    referenceFieldDirectories.value = new Map();
+    referenceDirectoryRequests.clear();
+    metadataTreeReloadKey.value += 1;
     childMetadataFields.value = new Map();
     revision.value = undefined;
     variant.value = undefined;
@@ -504,6 +515,10 @@ async function loadWorkspace() {
 
 async function loadMetadataTree(requestSequence = workspaceLoadSequence, moduleAlias = props.moduleAlias) {
   const metadataSequence = ++metadataLoadSequence;
+  referenceDirectoryEpoch += 1;
+  referenceDirectoryRequests.clear();
+  referenceFieldDirectories.value = new Map();
+  metadataTreeReloadKey.value += 1;
   const current = () =>
     requestSequence === workspaceLoadSequence && metadataSequence === metadataLoadSequence;
   loading.value = true;
@@ -572,10 +587,26 @@ async function loadMetadataTree(requestSequence = workspaceLoadSequence, moduleA
     if (runtime) moduleActions.value = runtime.actions ?? [];
     relation.value = main;
     metadataRelations.value = relations;
-    metadataFields.value = toFields(fields);
+    const fallbackFields = toFields(fields);
+    // Preserve metadata identities and field policies while adding the directory's reference facts.
+    const referenceRoot = await loadReferenceDirectory(moduleAlias, '');
+    if (!current()) return;
+    const referenceByName = new Map(referenceRoot.map((field) => [field.fieldName, field]));
+    metadataFields.value = fallbackFields.map((field) => {
+      const reference = referenceByName.get(field.fieldName);
+      return reference
+        ? {
+            ...field,
+            referenceModuleAlias: reference.referenceModuleAlias ?? field.referenceModuleAlias,
+            referenceCardinality: reference.referenceCardinality ?? field.referenceCardinality,
+            expandable: reference.expandable ?? field.expandable,
+            platformReadOnly: field.platformReadOnly || reference.platformReadOnly,
+          }
+        : field;
+    });
     childMetadataFields.value = new Map(childFieldEntries);
     if (revision.value && !draftParseError.value) {
-      hydrateDraft({ ...revision.value, uiTreeJson: treeJson }, false);
+      await hydrateDraft({ ...revision.value, uiTreeJson: treeJson }, false);
       if (state.nodes.value.some((node) => node.id === selected)) state.selectedNodeId.value = selected;
     }
     return true;
@@ -583,6 +614,131 @@ async function loadMetadataTree(requestSequence = workspaceLoadSequence, moduleA
     if (current()) presentPlatformError(cause, { source: 'page-composition', phase: 'load' });
   } finally {
     if (current()) loading.value = false;
+  }
+}
+
+function referenceDirectoryKey(moduleAlias: string, path: string) {
+  return `${moduleAlias}:${path}`;
+}
+
+function toReferenceComposerField(field: PageReferenceField): PageComposerField | undefined {
+  if (!field.id || !field.name) return undefined;
+  return {
+    id: field.id,
+    title: field.label || field.name.split('.').at(-1) || field.name,
+    fieldName: field.name,
+    fieldSpecAlias: field.valueType,
+    referenceModuleAlias: field.referenceModuleAlias,
+    referenceCardinality: field.referenceCardinality,
+    expandable: field.expandable === true && field.referenceCardinality === 'ONE',
+    systemManaged: field.systemManaged,
+    // Every non-root projection is server-derived.  The server also marks protected root fields.
+    platformReadOnly: field.readOnly === true || field.name.includes('.'),
+  };
+}
+
+async function loadReferenceDirectory(moduleAlias: string, path: string): Promise<PageComposerField[]> {
+  const key = referenceDirectoryKey(moduleAlias, path);
+  const cached = referenceFieldDirectories.value.get(key);
+  if (cached) return cached;
+  const pending = referenceDirectoryRequests.get(key);
+  if (pending) return pending;
+  const epoch = referenceDirectoryEpoch;
+  let request!: Promise<PageComposerField[]>;
+  request = moduleContext.http
+    .request<{ moduleAlias: string; path?: string; fields?: PageReferenceField[] }>({
+      method: 'GET',
+      path: `/platform.module/${encodeURIComponent(moduleAlias)}/page-reference-fields${
+        path ? `?path=${encodeURIComponent(path)}` : ''
+      }`,
+    })
+    .then((response) => {
+      const fields = (response.fields ?? [])
+        .map(toReferenceComposerField)
+        .filter((field): field is PageComposerField => field != null);
+      if (epoch === referenceDirectoryEpoch && moduleAlias === props.moduleAlias) {
+        const next = new Map(referenceFieldDirectories.value);
+        next.set(key, fields);
+        referenceFieldDirectories.value = next;
+      }
+      return fields;
+    })
+    .finally(() => {
+      if (referenceDirectoryRequests.get(key) === request) referenceDirectoryRequests.delete(key);
+    });
+  referenceDirectoryRequests.set(key, request);
+  return request;
+}
+
+async function loadReferenceChildren(
+  node: UiTreeNode,
+  request: UiTreeLoadRequest,
+): Promise<UiTreeLoadResult> {
+  const field = fieldOfMetadataNode(node);
+  if (!field?.expandable || !field.referenceModuleAlias)
+    return { mode: 'replace', nodes: [], hasMore: false };
+  const moduleAlias = props.moduleAlias;
+  const sequence = workspaceLoadSequence;
+  try {
+    const fields = await loadReferenceDirectory(moduleAlias, field.fieldName);
+    if (request.signal.aborted || sequence !== workspaceLoadSequence || moduleAlias !== props.moduleAlias)
+      return { mode: 'replace', nodes: [], hasMore: false };
+    return {
+      mode: 'replace',
+      hasMore: false,
+      nodes: filterSystemFields(fields).map(metadataFieldNode),
+    };
+  } catch (cause) {
+    if (request.signal.aborted) return { mode: 'replace', nodes: [], hasMore: false };
+    throw cause;
+  }
+}
+
+function metadataFieldNode(field: PageComposerField): UiTreeNode {
+  return {
+    key: `metadata:field:${field.id}`,
+    title: field.title,
+    secondary: [
+      field.fieldName,
+      field.platformReadOnly ? '只读' : '',
+      field.referenceModuleAlias ? '模块引用' : '',
+    ]
+      .filter(Boolean)
+      .join(' · '),
+    actions: [
+      {
+        key: 'add',
+        title: `添加 ${field.title} 到…`,
+        iconName: 'plus',
+        disabled: isMutating.value,
+        items: [
+          ...(skeleton.value?.columns === false && !field.fieldName.includes('.')
+            ? [
+                { key: 'explorer-title', title: '用作导航标题' },
+                { key: 'explorer-secondary', title: '用作辅助信息' },
+              ]
+            : [{ key: 'add-list', title: '添加到列表' }]),
+          { key: 'add-form', title: '添加到表单' },
+        ],
+      },
+    ],
+    isLeaf: field.expandable ? false : true,
+  };
+}
+
+async function ensureReferencePaths(fieldNames: readonly string[]) {
+  const moduleAlias = props.moduleAlias;
+  for (const fieldName of fieldNames) {
+    const parts = fieldName.split('.');
+    for (let index = 1; index < parts.length; index += 1) {
+      const path = parts.slice(0, index).join('.');
+      if (referenceFieldDirectories.value.has(referenceDirectoryKey(moduleAlias, path))) continue;
+      try {
+        await loadReferenceDirectory(moduleAlias, path);
+      } catch {
+        // Keep the saved path until the server has a resolvable directory for it.
+      }
+    }
   }
 }
 
@@ -671,7 +827,7 @@ async function loadComposition(requestSequence = workspaceLoadSequence, moduleAl
     state.replaceFields({ list: [], form: [] });
     state.updateQuickSearchPlaceholder(undefined);
     savedUiTreeJson.value = undefined;
-    hydrateDraft(revision.value);
+    await hydrateDraft(revision.value);
     propertyDrawerOpen.value = false;
   } catch (cause) {
     if (current()) presentPlatformError(cause, { source: 'page-composition', phase: 'load' });
@@ -777,8 +933,12 @@ async function loadAllFromClient<T>(
   return response.records;
 }
 
-function hydrateDraft(current: PresentationRevision | undefined, markSaved = true) {
+async function hydrateDraft(current: PresentationRevision | undefined, markSaved = true) {
   if (!current?.uiTreeJson) return;
+  const sequence = ++hydrateSequence;
+  const workspaceSequence = workspaceLoadSequence;
+  const moduleAlias = props.moduleAlias;
+  const referenceEpoch = referenceDirectoryEpoch;
   try {
     const tree = JSON.parse(current.uiTreeJson) as {
       props?: { list?: { searchPlaceholder?: unknown } };
@@ -806,14 +966,30 @@ function hydrateDraft(current: PresentationRevision | undefined, markSaved = tru
       actions?: PageCompositionActionPlacement[];
       nodes?: Array<{ slot: string; titleField?: string; secondaryField?: string }>;
     };
+    const persistedFieldNames = (tree.nodes ?? [])
+      .flatMap((node) => [
+        ...(node.fields ?? []),
+        ...(node.groups ?? []).flatMap((group) => group.fields ?? []),
+      ])
+      .map((entry) => (typeof entry === 'string' ? entry : entry.field))
+      .filter((name): name is string => typeof name === 'string' && name.includes('.'));
+    if (persistedFieldNames.length) await ensureReferencePaths(persistedFieldNames);
+    if (
+      sequence !== hydrateSequence ||
+      workspaceSequence !== workspaceLoadSequence ||
+      moduleAlias !== props.moduleAlias ||
+      referenceEpoch !== referenceDirectoryEpoch
+    )
+      return;
     compositionMode.value = modeTree.mode ?? configuredMode.value;
     const explorer = modeTree.nodes?.find((node) => node.slot === 'explorer');
     explorerTitleField.value = explorer?.titleField ?? 'title';
     explorerSecondaryField.value = explorer?.secondaryField;
     const resolve = (slot: PageComposerSlot) => tree.nodes?.find((node) => node.slot === slot)?.fields ?? [];
-    const fieldsByName = new Map(metadataFields.value.map((field) => [field.fieldName, field]));
+    const fieldsByName = new Map(allMetadataFields.value.map((field) => [field.fieldName, field]));
     const resolveField = (
       entry: string | { field?: string; props?: PageComposerFieldProperties },
+      includeReadOnly = false,
     ): PageComposerField | undefined => {
       const fieldName = typeof entry === 'string' ? entry : entry.field;
       const source = fieldName ? fieldsByName.get(fieldName) : undefined;
@@ -826,13 +1002,18 @@ function hydrateDraft(current: PresentationRevision | undefined, markSaved = tru
           unavailable: true,
           properties: typeof entry === 'string' ? undefined : entry.props,
         };
-      return typeof entry === 'string' || !entry.props
-        ? { ...source }
-        : { ...source, properties: entry.props };
+      const properties = {
+        ...(typeof entry === 'string' ? {} : (entry.props ?? {})),
+        ...(includeReadOnly && source.platformReadOnly ? { readOnly: true } : {}),
+      };
+      return {
+        ...source,
+        ...(Object.keys(properties).length ? { properties } : {}),
+      };
     };
     state.replaceFields({
       list: resolve('list')
-        .map(resolveField)
+        .map((entry) => resolveField(entry, false))
         .filter((field): field is PageComposerField => Boolean(field)),
       order: tree.nodes
         ?.find((node) => node.slot === 'form')
@@ -844,7 +1025,7 @@ function hydrateDraft(current: PresentationRevision | undefined, markSaved = tru
               : [],
         ),
       form: resolve('form')
-        .map(resolveField)
+        .map((entry) => resolveField(entry, true))
         .filter((field): field is PageComposerField => Boolean(field)),
       relations: (tree.nodes?.find((node) => node.slot === 'form')?.relations ?? []).flatMap((entry) => {
         const relation = metadataRelations.value.find(
@@ -890,7 +1071,7 @@ function hydrateDraft(current: PresentationRevision | undefined, markSaved = tru
             title: entry.title,
             subtitle: entry.subtitle,
             fields: (entry.fields ?? [])
-              .map(resolveField)
+              .map((entryField) => resolveField(entryField, true))
               .filter((field): field is PageComposerField => Boolean(field)),
           },
         ];
@@ -970,7 +1151,7 @@ async function initializeComposition() {
     const latestPublished = latestRevision(
       revisions.filter((item) => item.status === pageCompositionTransport.publishedRevision),
     );
-    if (latestPublished) hydrateDraft(latestPublished, false);
+    if (latestPublished) await hydrateDraft(latestPublished, false);
     else actionPlacements.value = defaultPageActionEntries(moduleActions.value);
     const treeJsonToPersist = currentUiTreeJson.value;
     const createdRevision = (
@@ -987,7 +1168,7 @@ async function initializeComposition() {
     if (!current()) return;
     revision.value = createdRevision;
     if (latestPublished) publishedRevision.value = latestPublished;
-    hydrateDraft(revision.value);
+    await hydrateDraft(revision.value);
   } catch (cause) {
     if (!current()) return;
     presentPlatformError(cause, { source: 'page-composition', phase: 'action' });
@@ -1083,7 +1264,7 @@ async function publishDraft() {
       const nextDraft = await createFollowUpDraft(variantId, publicationCandidate, treeJsonToPublish);
       if (current()) {
         revision.value = nextDraft;
-        hydrateDraft(nextDraft);
+        await hydrateDraft(nextDraft);
       }
     } catch {
       if (!current()) return;
@@ -1115,7 +1296,7 @@ async function discardUnsavedChanges() {
     okText: '放弃更改',
   });
   if (!confirmed || sequence !== workspaceLoadSequence || isMutating.value) return;
-  hydrateDraft(revision.value);
+  await hydrateDraft(revision.value);
   removedDraft.value = undefined;
   propertyDrawerOpen.value = false;
 }
@@ -1347,7 +1528,7 @@ function handleCompositionMetadataDrop(target: ComposerDropTarget, payload: unkn
   if (!metadata) return;
   if (target.kind === 'quick-search') {
     if (metadata.kind !== 'field') return;
-    const field = metadataFields.value.find((item) => item.id === metadata.fieldId);
+    const field = allMetadataFields.value.find((item) => item.id === metadata.fieldId);
     if (
       field &&
       searchableFields.value.includes(field.fieldName) &&
@@ -1358,15 +1539,15 @@ function handleCompositionMetadataDrop(target: ComposerDropTarget, payload: unkn
   }
   if (target.kind === 'explorer-title' || target.kind === 'explorer-secondary') {
     if (metadata.kind !== 'field') return;
-    const field = metadataFields.value.find((item) => item.id === metadata.fieldId);
-    if (!field || skeleton.value?.columns) return;
+    const field = allMetadataFields.value.find((item) => item.id === metadata.fieldId);
+    if (!field || skeleton.value?.columns || field.fieldName.includes('.')) return;
     if (target.kind === 'explorer-title') explorerTitleField.value = field.fieldName;
     else explorerSecondaryField.value = field.fieldName;
     return;
   }
   if (metadata.kind === 'field') {
     if (target.kind === 'action-anchor') return;
-    const field = metadataFields.value.find((candidate) => candidate.id === metadata.fieldId);
+    const field = allMetadataFields.value.find((candidate) => candidate.id === metadata.fieldId);
     if (!field || target.kind === 'relation') return;
     if (target.kind === 'group') placeMetadataFieldInGroup(field, target.groupId, target.index);
     else {
@@ -1548,6 +1729,7 @@ function metadataDragPayload(node: UiTreeNode): PageCompositionDragPayload | und
       title: mainField.title,
       fieldSpecAlias: mainField.fieldSpecAlias,
       required: mainField.required,
+      readOnly: mainField.platformReadOnly,
     };
   const relationMatch = /^metadata:relation:(.+)$/.exec(node.key);
   if (relationMatch) return { kind: 'relation', relationId: relationMatch[1] };
@@ -1590,7 +1772,7 @@ function addRelationFieldById(relationId: string, fieldId: string) {
 function fieldOfMetadataNode(node: UiTreeNode) {
   const prefix = 'metadata:field:';
   if (!node.key.startsWith(prefix)) return undefined;
-  return metadataFields.value.find((field) => field.id === node.key.slice(prefix.length));
+  return allMetadataFields.value.find((field) => field.id === node.key.slice(prefix.length));
 }
 
 function parseUiNode(
@@ -1718,7 +1900,7 @@ function undoRemoval() {
   if (isMutating.value || !removedDraft.value) return;
   const before = removedDraft.value.before;
   removedDraft.value = undefined;
-  hydrateDraft({ uiTreeJson: before }, false);
+  void hydrateDraft({ uiTreeJson: before }, false);
 }
 function updateFieldProperty<K extends keyof PageComposerFieldProperties>(
   key: K,
@@ -1852,6 +2034,8 @@ function openPropertyDrawer() {
             <UiTree
               v-model:expanded-keys="metadataExpandedKeys"
               :nodes="metadataTreeNodes"
+              :load-children="loadReferenceChildren"
+              :reload-key="metadataTreeReloadKey"
               :selected-key="selectedMetadataTreeKey"
               :draggable="!isMutating"
               :drag-operations="['copy']"
