@@ -1,5 +1,7 @@
 package net.ximatai.muyun.spring.platform.web;
 
+import net.ximatai.muyun.spring.common.formula.FormulaRule;
+
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Consumer;
@@ -79,6 +81,7 @@ public record ViewDefinition(String viewCode,
         private final List<ViewFieldDefinition> fields = new ArrayList<>();
         private final List<FormGroupDefinition> formGroups = new ArrayList<>();
         private final List<FormComputeRuleDefinition> formComputeRules = new ArrayList<>();
+        private final List<FormulaRule> businessRules = new ArrayList<>();
 
         private Builder(String viewCode, ModuleViewKind viewKind) {
             this.viewCode = viewCode;
@@ -152,9 +155,27 @@ public record ViewDefinition(String viewCode,
             return this;
         }
 
+        /** Reuses server business rules to issue portable browser form calculations for this form. */
+        public Builder businessRules(List<FormulaRule> rules) {
+            if (viewKind != ModuleViewKind.FORM) {
+                throw new IllegalStateException("business formula rules are only supported by form views");
+            }
+            if (rules != null) {
+                businessRules.addAll(rules);
+            }
+            return this;
+        }
+
         public ViewDefinition build() {
+            List<FormComputeRuleDefinition> automaticRules = BusinessRuleFormProjection.compileDslRules(
+                    viewCode, fields, businessRules);
+            java.util.Set<String> automaticTargets = automaticRules.stream()
+                    .map(FormComputeRuleDefinition::targetField).collect(java.util.stream.Collectors.toSet());
+            List<FormComputeRuleDefinition> mergedRules = new ArrayList<>(automaticRules);
+            mergedRules.addAll(formComputeRules.stream()
+                    .filter(rule -> !automaticTargets.contains(rule.targetField())).toList());
             return new ViewDefinition(viewCode, viewKind, clientType, title, fields, sourceUiConfigId, formGroups,
-                    formComputeRules);
+                    mergedRules);
         }
     }
 }

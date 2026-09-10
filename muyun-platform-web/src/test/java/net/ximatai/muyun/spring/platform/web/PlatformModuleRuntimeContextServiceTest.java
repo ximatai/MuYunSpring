@@ -117,6 +117,9 @@ class PlatformModuleRuntimeContextServiceTest {
                 """);
         when(modules.resolveVisibleModule("sales.contract")).thenReturn(module);
         when(records.describe("sales.contract")).thenReturn(descriptor);
+        when(records.moduleDefinitions()).thenReturn(List.of(new ModuleDefinition("sales.contract", "合同", List.of(
+                new EntityDefinition("contract", "合同", "contract", List.of(FieldDefinition.titleField().required()),
+                        Set.of(EntityCapability.CRUD, EntityCapability.TREE, EntityCapability.SORT))))));
         when(actions.listByModuleAliases(List.of("sales.contract"))).thenReturn(List.of());
         when(pages.resolveGlobalPage("sales.contract", "management")).thenReturn(Optional.of(page));
         when(revisions.resolve("page-contract", net.ximatai.muyun.spring.platform.ui.PlatformPresentationClientType.WEB,
@@ -137,6 +140,7 @@ class PlatformModuleRuntimeContextServiceTest {
             assertThat(preview.page().list().searchPlaceholder()).isEqualTo("搜索合同");
         }
         verify(records).describe("sales.contract");
+        verify(records).moduleDefinitions();
         org.mockito.Mockito.verifyNoMoreInteractions(records);
         org.mockito.Mockito.verifyNoInteractions(pages, revisions);
     }
@@ -528,6 +532,87 @@ class PlatformModuleRuntimeContextServiceTest {
 
         assertThat(field.reference().targetModuleAlias()).isEqualTo("education.classroom");
         assertThat(field.reference().pickerMode()).isEqualTo(ReferencePickerMode.LIST);
+    }
+
+    @Test
+    void shouldProjectPortableDynamicMainRulesAndKeepServerOnlyDependenciesOutOfTheForm() {
+        PlatformModuleService modules = mock(PlatformModuleService.class);
+        PlatformModuleActionService actions = mock(PlatformModuleActionService.class);
+        DynamicRecordService records = mock(DynamicRecordService.class);
+        DynamicPublishedPageDefinitionResolver resolver = mock(DynamicPublishedPageDefinitionResolver.class);
+        EntityDefinition contract = new EntityDefinition("contract", "contract", "合同", List.of(
+                FieldDefinition.decimal("quantity", "数量"), FieldDefinition.decimal("unitPrice", "单价"),
+                FieldDefinition.decimal("taxRate", "税率"), FieldDefinition.decimal("subtotal", "小计"),
+                FieldDefinition.decimal("net", "净额"),
+                FieldDefinition.decimal("tax", "税额"), FieldDefinition.decimal("total", "总额"),
+                FieldDefinition.decimal("manualDownstream", "手工下游"),
+                FieldDefinition.decimal("manualStandalone", "手工独立"),
+                FieldDefinition.decimal("manualCollision", "手工冲突"),
+                FieldDefinition.decimal("secret", "内部金额")), Set.of(EntityCapability.CRUD, EntityCapability.SORT))
+                .withFormulaRules(
+                        new net.ximatai.muyun.spring.dynamic.metadata.EntityFormulaRuleDefinition(
+                                "defaultSubtotal", "{subtotal} = 0",
+                                net.ximatai.muyun.spring.common.formula.FormulaRuleKind.CALCULATION,
+                                net.ximatai.muyun.spring.common.formula.FormulaRulePhase.DEFAULT_VALUE, "subtotal").sortOrder(0),
+                        new net.ximatai.muyun.spring.dynamic.metadata.EntityFormulaRuleDefinition(
+                                "total", "{total} = {net} + {tax}",
+                                net.ximatai.muyun.spring.common.formula.FormulaRuleKind.CALCULATION,
+                                net.ximatai.muyun.spring.common.formula.FormulaRulePhase.BEFORE_SAVE, "total").sortOrder(1),
+                        new net.ximatai.muyun.spring.dynamic.metadata.EntityFormulaRuleDefinition(
+                                "tax", "{tax} = {subtotal} * {taxRate}",
+                                net.ximatai.muyun.spring.common.formula.FormulaRuleKind.CALCULATION,
+                                net.ximatai.muyun.spring.common.formula.FormulaRulePhase.BEFORE_SAVE, "tax").sortOrder(2),
+                        new net.ximatai.muyun.spring.dynamic.metadata.EntityFormulaRuleDefinition(
+                                "net", "{net} = {quantity} * {secret}",
+                                net.ximatai.muyun.spring.common.formula.FormulaRuleKind.CALCULATION,
+                                net.ximatai.muyun.spring.common.formula.FormulaRulePhase.BEFORE_SAVE, "net").sortOrder(3),
+                        new net.ximatai.muyun.spring.dynamic.metadata.EntityFormulaRuleDefinition(
+                                "subtotal", "{subtotal} = {quantity} * {unitPrice}",
+                                net.ximatai.muyun.spring.common.formula.FormulaRuleKind.CALCULATION,
+                                net.ximatai.muyun.spring.common.formula.FormulaRulePhase.BEFORE_SAVE, "subtotal").sortOrder(4)
+                );
+        DynamicModuleDescriptor descriptor = new DynamicModuleDescriptor("sales.contract", "合同", "contract", List.of(),
+                List.of(DynamicEntityDescriptor.from(contract)), List.of(), List.of(), List.of());
+        ModuleUiDefinition definition = ModuleUiDefinition.builder("sales.contract")
+                .page(PageTemplates.flatManagement(page -> page.explorer(explorer -> explorer.title("合同"))
+                        .detail(detail -> detail.editor(editor -> editor.field("quantity").field("unitPrice")
+                                .field("taxRate").field("subtotal", field -> field.readOnly()).field("net").field("tax")
+                                .field("total").field("manualDownstream").field("manualStandalone")
+                                .field("manualCollision")
+                                .formCompute("authoredTotal", "total", List.of("quantity"), "{total} = {quantity}")
+                                .formCompute("authoredDownstream", "manualDownstream", List.of("quantity"),
+                                        "{manualDownstream} = {net}")
+                                .formCompute("authoredStandalone", "manualStandalone", List.of("subtotal"),
+                                        "{manualStandalone} = {subtotal}")
+                                .formCompute("tax", "manualCollision", List.of("quantity"),
+                                        "{manualCollision} = {quantity}")))))
+                .build();
+        PlatformPageDefinition page = new PlatformPageDefinition();
+        page.setId("page-contract");
+        PlatformPresentationRevision revision = new PlatformPresentationRevision();
+        revision.setId("revision-contract");
+        revision.setRevisionNo(1);
+        when(modules.resolveVisibleModule("sales.contract"))
+                .thenReturn(module("sales.contract", "合同", ModuleKind.DYNAMIC));
+        when(actions.listByModuleAliases(List.of("sales.contract"))).thenReturn(List.of());
+        when(records.describe("sales.contract")).thenReturn(descriptor);
+        when(records.actions("sales.contract")).thenReturn(List.of());
+        when(records.runtimeRevision("sales.contract")).thenReturn(1L);
+        when(records.moduleDefinitions()).thenReturn(List.of(new ModuleDefinition("sales.contract", "合同", List.of(contract))));
+        when(resolver.resolveWebGlobal(descriptor)).thenReturn(Optional.of(
+                new DynamicPublishedPageDefinitionResolver.ResolvedPublishedPage(page, revision, definition)));
+        PlatformModuleRuntimeContextService service = new PlatformModuleRuntimeContextService(
+                modules, actions, new StaticModuleDefinitionCatalog(List.of()), records, null, null, allowAllPolicy(),
+                List.of(), new DeclaredPageNavigatorResolver(), null, null, null, null, null, resolver);
+
+        ResolvedViewDescriptor editor = service.context("sales.contract").uiDescriptor().page().detail().editor();
+
+        assertThat(editor.formComputeRules()).extracting(ResolvedFormComputeRuleDescriptor::code)
+                .containsExactly("subtotal", "tax", "authoredStandalone");
+        assertThat(editor.formComputeRules().getFirst().triggerFields()).containsExactlyInAnyOrder("quantity", "unitPrice");
+        assertThat(editor.fields().stream().filter(field -> Set.of("subtotal", "tax").contains(field.fieldRef().fieldName()))
+                .map(field -> field.readOnly().constant())).containsOnly(true);
+        assertThat(editor.fields()).extracting(field -> field.fieldRef().fieldName()).doesNotContain("secret");
     }
 
     @Test

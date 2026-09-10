@@ -11,6 +11,13 @@ public record PageReferenceFieldCatalog(String moduleAlias, String path, List<Fi
 
     public record Field(String id, String name, String label, FieldValueType valueType,
                         String referenceModuleAlias, String referenceCardinality,
-                        boolean expandable, boolean readOnly, boolean systemManaged) {
+                        boolean expandable, boolean readOnly, boolean systemManaged,
+                        boolean formulaReadable, String formulaDisabledReason) {
+        public Field(String id, String name, String label, FieldValueType valueType,
+                     String referenceModuleAlias, String referenceCardinality,
+                     boolean expandable, boolean readOnly, boolean systemManaged) {
+            this(id, name, label, valueType, referenceModuleAlias, referenceCardinality, expandable, readOnly,
+                    systemManaged, false, null);
+        }
     }
 }

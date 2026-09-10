@@ -104,6 +104,23 @@ final class FormulaExpressionSupport {
         return Set.copyOf(fields);
     }
 
+    /**
+     * Fields consumed by an expression value. Assignment targets are intentionally excluded, so
+     * a calculation dependency graph does not mistake its left-hand side for an input.
+     */
+    static Set<String> valueSideReferencedFields(AstNode node) {
+        LinkedHashSet<String> fields = new LinkedHashSet<>();
+        collectValueSideReferencedFields(node, fields);
+        return Set.copyOf(fields);
+    }
+
+    static String rootAssignedField(AstNode node) {
+        if (!(node instanceof AssignNode assignment) || !(assignment.left instanceof FieldNode field)) {
+            return null;
+        }
+        return FormulaFieldPath.parse(field.dataIndex).dataIndex();
+    }
+
     private static void collectAssignedFields(AstNode node, Set<String> fields) {
         if (node == null) {
             return;
@@ -162,6 +179,38 @@ final class FormulaExpressionSupport {
         }
         if (node instanceof FuncNode funcNode) {
             funcNode.args.stream().filter(Objects::nonNull).forEach(arg -> collectReferencedFields(arg, fields));
+        }
+    }
+
+    private static void collectValueSideReferencedFields(AstNode node, Set<String> fields) {
+        if (node == null) {
+            return;
+        }
+        if (node instanceof FieldNode fieldNode) {
+            fields.add(FormulaFieldPath.parse(fieldNode.dataIndex).dataIndex());
+            return;
+        }
+        if (node instanceof OthersNode othersNode) {
+            fields.add(FormulaFieldPath.parse(othersNode.dataIndex).dataIndex());
+            return;
+        }
+        if (node instanceof AssignNode assignment) {
+            collectValueSideReferencedFields(assignment.right, fields);
+            collectValueSideReferencedFields(assignment.condition, fields);
+            return;
+        }
+        if (node instanceof UnaryNode unaryNode) {
+            collectValueSideReferencedFields(unaryNode.arg, fields);
+            return;
+        }
+        if (node instanceof BinaryNode binaryNode) {
+            collectValueSideReferencedFields(binaryNode.left, fields);
+            collectValueSideReferencedFields(binaryNode.right, fields);
+            return;
+        }
+        if (node instanceof FuncNode funcNode) {
+            funcNode.args.stream().filter(Objects::nonNull)
+                    .forEach(arg -> collectValueSideReferencedFields(arg, fields));
         }
     }
 

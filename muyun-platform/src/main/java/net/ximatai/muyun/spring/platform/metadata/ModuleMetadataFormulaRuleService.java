@@ -8,6 +8,7 @@ import net.ximatai.muyun.spring.ability.BaseDao;
 import net.ximatai.muyun.spring.ability.EnableAbility;
 import net.ximatai.muyun.spring.ability.SoftDeleteAbility;
 import net.ximatai.muyun.spring.ability.SortAbility;
+import net.ximatai.muyun.spring.ability.deletion.DeletionContext;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.formula.FormulaEngine;
 import net.ximatai.muyun.spring.common.formula.FormulaEvaluationException;
@@ -18,7 +19,9 @@ import net.ximatai.muyun.spring.dynamic.metadata.EntityFormulaRuleDefinition;
 import net.ximatai.muyun.spring.platform.runtime.PlatformDynamicRuntimeRefreshCoordinator;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -44,17 +47,27 @@ public class ModuleMetadataFormulaRuleService extends AbstractAbilityService<Mod
     public ModuleMetadataFormulaRuleService(BaseDao<ModuleMetadataFormulaRule, String> formulaRuleDao,
                                             ModuleMetadataRelationService relationService,
                                             MetadataFieldService fieldService) {
-        this(formulaRuleDao, relationService, fieldService, Optional.empty());
+        this(formulaRuleDao, relationService, fieldService, Optional.empty(), Optional.empty());
+    }
+
+    /** Compatibility constructor for callers that only configure the refresh hook. */
+    public ModuleMetadataFormulaRuleService(BaseDao<ModuleMetadataFormulaRule, String> formulaRuleDao,
+                                            ModuleMetadataRelationService relationService,
+                                            MetadataFieldService fieldService,
+                                            Optional<PlatformDynamicRuntimeRefreshCoordinator> runtimeRefreshCoordinator) {
+        this(formulaRuleDao, relationService, fieldService, runtimeRefreshCoordinator, Optional.empty());
     }
 
     @Autowired
     public ModuleMetadataFormulaRuleService(BaseDao<ModuleMetadataFormulaRule, String> formulaRuleDao,
                                             ModuleMetadataRelationService relationService,
                                             MetadataFieldService fieldService,
-                                            Optional<PlatformDynamicRuntimeRefreshCoordinator> runtimeRefreshCoordinator) {
+                                            Optional<PlatformDynamicRuntimeRefreshCoordinator> runtimeRefreshCoordinator,
+                                            Optional<MetadataFieldReferenceConfigService> referenceConfigService) {
         super(MODULE_ALIAS, ModuleMetadataFormulaRule.class, formulaRuleDao);
         this.relationService = relationService;
-        this.fieldValidator = new MetadataFormulaFieldValidator(relationService, fieldService);
+        this.fieldValidator = new MetadataFormulaFieldValidator(relationService, fieldService,
+                referenceConfigService.orElse(null));
         this.runtimeRefreshCoordinator = runtimeRefreshCoordinator.orElse(null);
     }
 
@@ -65,18 +78,170 @@ public class ModuleMetadataFormulaRuleService extends AbstractAbilityService<Mod
     }
 
     @Override
+    @Transactional
+    public String insert(ModuleMetadataFormulaRule rule) {
+        return SoftDeleteAbility.super.insert(rule);
+    }
+
+    @Override
+    @Transactional
+    public List<String> insertBatch(Collection<ModuleMetadataFormulaRule> rules) {
+        return SoftDeleteAbility.super.insertBatch(rules);
+    }
+
+    @Override
+    @Transactional
+    public int update(ModuleMetadataFormulaRule rule) {
+        return SoftDeleteAbility.super.update(rule);
+    }
+
+    @Override
+    @Transactional
+    public int updateWithExisting(ModuleMetadataFormulaRule rule, ModuleMetadataFormulaRule existing) {
+        return SoftDeleteAbility.super.updateWithExisting(rule, existing);
+    }
+
+    @Override
+    @Transactional
+    public int enable(String id) {
+        return EnableAbility.super.enable(id);
+    }
+
+    @Override
+    @Transactional
+    public int enable(String id, Integer expectedVersion) {
+        return EnableAbility.super.enable(id, expectedVersion);
+    }
+
+    @Override
+    @Transactional
+    public int disable(String id) {
+        return EnableAbility.super.disable(id);
+    }
+
+    @Override
+    @Transactional
+    public int disable(String id, Integer expectedVersion) {
+        return EnableAbility.super.disable(id, expectedVersion);
+    }
+
+    @Override
+    @Transactional
+    public int delete(String id) {
+        return SoftDeleteAbility.super.delete(id);
+    }
+
+    @Override
+    @Transactional
+    public int delete(ModuleMetadataFormulaRule rule) {
+        return SoftDeleteAbility.super.delete(rule);
+    }
+
+    @Override
+    @Transactional
+    public int delete(String id, Integer expectedVersion) {
+        return SoftDeleteAbility.super.delete(id, expectedVersion);
+    }
+
+    @Override
+    @Transactional
+    public int delete(String id, Integer expectedVersion, DeletionContext deletionContext) {
+        return SoftDeleteAbility.super.delete(id, expectedVersion, deletionContext);
+    }
+
+    @Override
+    @Transactional
+    public int deleteBatch(Collection<String> ids) {
+        return SoftDeleteAbility.super.deleteBatch(ids);
+    }
+
+    @Override
+    @Transactional
+    public int deleteBatch(Collection<String> ids, DeletionContext deletionContext) {
+        return SoftDeleteAbility.super.deleteBatch(ids, deletionContext);
+    }
+
+    @Override
+    @Transactional
+    public int restore(String id) {
+        return SoftDeleteAbility.super.restore(id);
+    }
+
+    @Override
+    @Transactional
+    public int restore(String id, Integer expectedVersion) {
+        return SoftDeleteAbility.super.restore(id, expectedVersion);
+    }
+
+    @Override
+    @Transactional
+    public void reorder(List<String> orderedIds) {
+        SortAbility.super.reorder(orderedIds);
+    }
+
+    @Override
+    @Transactional
+    public void reorder(Criteria additionalScope, List<String> orderedIds) {
+        SortAbility.super.reorder(additionalScope, orderedIds);
+    }
+
+    @Override
+    @Transactional
+    public void moveBefore(String id, String beforeId) {
+        SortAbility.super.moveBefore(id, beforeId);
+    }
+
+    @Override
+    @Transactional
+    public void moveAfter(String id, String afterId) {
+        SortAbility.super.moveAfter(id, afterId);
+    }
+
+    @Override
+    @Transactional
+    public boolean moveBetween(ModuleMetadataFormulaRule moving, ModuleMetadataFormulaRule previous,
+                               ModuleMetadataFormulaRule next) {
+        return SortAbility.super.moveBetween(moving, previous, next);
+    }
+
+    @Override
     public void beforeInsert(ModuleMetadataFormulaRule rule) {
+        touchOwningRelation(rule == null ? null : rule.getRelationId());
         normalizeAndValidate(rule);
     }
 
     @Override
-    public void beforeUpdate(ModuleMetadataFormulaRule rule) {
+    public void beforeUpdate(ModuleMetadataFormulaRule rule, ModuleMetadataFormulaRule existing) {
+        if (existing != null && !Objects.equals(existing.getRelationId(), rule.getRelationId())) {
+            throw new PlatformException("Metadata formula rule relation cannot be changed: " + rule.getId());
+        }
+        String relationId = existing == null ? null : existing.getRelationId();
+        if (relationId == null && rule != null) {
+            relationId = rule.getRelationId();
+        }
+        touchOwningRelation(relationId);
         normalizeAndValidate(rule);
+    }
+
+    @Override
+    public void beforeDelete(String id) {
+        ModuleMetadataFormulaRule existing = selectIgnoreSoftDelete(id);
+        if (existing != null && !Boolean.TRUE.equals(existing.getDeleted())) {
+            touchOwningRelation(existing.getRelationId());
+        }
+    }
+
+    @Override
+    public void beforeRestore(String id) {
+        ModuleMetadataFormulaRule existing = selectIgnoreSoftDelete(id);
+        if (existing != null && Boolean.TRUE.equals(existing.getDeleted())) {
+            touchOwningRelation(existing.getRelationId());
+        }
     }
 
     @Override
     public void afterChanged(ModuleMetadataFormulaRule rule) {
-        if (runtimeRefreshCoordinator != null) {
+        if (runtimeRefreshCoordinator != null && !MetadataCapabilityGovernanceMutationContext.isActive()) {
             runtimeRefreshCoordinator.refreshByFormulaRule(rule);
         }
     }
@@ -101,6 +266,24 @@ public class ModuleMetadataFormulaRuleService extends AbstractAbilityService<Mod
                 Boolean.TRUE.equals(rule.getEnabled()),
                 rule.getSortOrder() == null ? 0 : rule.getSortOrder()
         );
+    }
+
+    /**
+     * Formula rules and governance apply share their owning relation's optimistic version.
+     * Governance already claims that version before it persists its own rule batch.
+     */
+    private void touchOwningRelation(String relationId) {
+        if (MetadataCapabilityGovernanceMutationContext.isActive()) {
+            return;
+        }
+        ModuleMetadataRelation relation = relationId == null || relationId.isBlank() ? null : relationService.select(relationId);
+        if (relation == null) {
+            throw new PlatformException("Metadata formula rule requires existing relation: " + relationId);
+        }
+        MetadataCapabilityGovernanceMutationContext.run(() -> {
+            relationService.update(relation);
+            return null;
+        });
     }
 
     private void normalizeAndValidate(ModuleMetadataFormulaRule rule) {

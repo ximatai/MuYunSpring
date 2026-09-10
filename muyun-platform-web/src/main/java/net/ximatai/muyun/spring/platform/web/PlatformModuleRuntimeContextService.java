@@ -523,6 +523,8 @@ public class PlatformModuleRuntimeContextService {
                 optionFields, referenceFields,
                 dynamicRecordLabelField(dynamicDescriptor), fieldTypes, FieldControlDescriptorCatalog.standard(),
                 relationOptionFields, relationReferenceFields, dynamicSortPartitionFields(dynamicDescriptor));
+        descriptor = BusinessRuleFormProjection.projectLenient(descriptor,
+                dynamicMainFormulaRules(moduleAlias, dynamicDescriptor.mainEntityAlias()));
         if (definition.page() instanceof ListDetailCardPageDefinition listPage && listPage.list().querySummaries().stream()
                 .anyMatch(summary -> summary.source() == PageListQuerySummaryDefinition.Source.GROUPED)) {
             descriptor = ModuleUiDescriptorCompiler.withListQuerySummaryTitles(descriptor,
@@ -532,6 +534,19 @@ public class PlatformModuleRuntimeContextService {
                 .collect(java.util.stream.Collectors.toMap(PlatformModuleRuntimeAction::actionCode, PlatformModuleRuntimeAction::invocations)));
         return descriptor.withPage(resolvePage(moduleAlias, ModuleKind.DYNAMIC, descriptor.page()))
                 .withDetailRelations(dynamicDetailRelations(moduleAlias, relationTargets));
+    }
+
+    private List<net.ximatai.muyun.spring.common.formula.FormulaRule> dynamicMainFormulaRules(
+            String moduleAlias, String mainEntityAlias) {
+        if (dynamicRecordService == null) return List.of();
+        return dynamicRecordService.moduleDefinitions().stream()
+                .filter(module -> moduleAlias.equals(module.moduleAlias())).findFirst()
+                .flatMap(module -> module.entities().stream()
+                        .filter(entity -> mainEntityAlias.equals(entity.alias())).findFirst())
+                .map(net.ximatai.muyun.spring.dynamic.metadata.EntityDefinition::orderedFormulaRules)
+                .orElse(List.of()).stream()
+                .map(net.ximatai.muyun.spring.dynamic.metadata.EntityFormulaRuleDefinition::toRuntimeRule)
+                .toList();
     }
 
     private void validateDynamicListQuerySummaryFields(String moduleAlias, ModuleUiDefinition definition,

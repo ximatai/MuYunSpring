@@ -404,6 +404,42 @@ class DynamicRecordDaoTest {
     }
 
     @Test
+    void shouldOrderBeforeSaveMainCalculationsAndValidateTheAuthoritativeResult() {
+        IDatabaseOperations<Object> operations = operations();
+        when(operations.insertItem(eq(SCHEMA), eq(TABLE), anyMap(), eq("id")))
+                .thenAnswer(invocation -> invocation.<Map<String, Object>>getArgument(2).get("id"));
+        EntityDefinition entity = new EntityDefinition(
+                "contract",
+                TABLE,
+                "Contract",
+                List.of(
+                        FieldDefinition.decimal("quantity", "Quantity").precision(18, 2),
+                        FieldDefinition.decimal("price", "Price").precision(18, 2),
+                        FieldDefinition.decimal("subtotal", "Subtotal").precision(18, 2),
+                        FieldDefinition.decimal("amount", "Amount").precision(18, 2)
+                )
+        ).withFormulaRules(
+                EntityFormulaRuleDefinition.calculation("amountCalc", "amount", "{subtotal} + 1").sortOrder(0),
+                EntityFormulaRuleDefinition.validation("amountFinal", "amount", "{amount} == 7", "amount is stale")
+                        .sortOrder(1),
+                EntityFormulaRuleDefinition.calculation("subtotalCalc", "subtotal", "{quantity} * {price}").sortOrder(20)
+        );
+        DynamicRecord record = new DynamicRecord(entity)
+                .setValue("quantity", BigDecimal.valueOf(2))
+                .setValue("price", BigDecimal.valueOf(3))
+                .setValue("amount", BigDecimal.valueOf(999));
+
+        new DynamicEntityService(new DynamicRecordDao(operations, entity), "sales.contract").insert(record);
+
+        assertThat((BigDecimal) record.getValue("subtotal")).isEqualByComparingTo("6");
+        assertThat((BigDecimal) record.getValue("amount")).isEqualByComparingTo("7");
+        assertThat(record.formulaReport().errors()).isEmpty();
+        ArgumentCaptor<Map<String, Object>> body = mapCaptor();
+        verify(operations).insertItem(eq(SCHEMA), eq(TABLE), body.capture(), eq("id"));
+        assertThat((BigDecimal) body.getValue().get("amount")).isEqualByComparingTo("7");
+    }
+
+    @Test
     void shouldCalculateVirtualFieldBeforeInsertWithoutPersistingIt() {
         IDatabaseOperations<Object> operations = operations();
         EntityDefinition entity = new EntityDefinition(
@@ -486,7 +522,8 @@ class DynamicRecordDaoTest {
                 "version", 3
         )));
         DynamicRecord record = new DynamicRecord(entity)
-                .setValue("price", BigDecimal.valueOf(15));
+                .setValue("price", BigDecimal.valueOf(15))
+                .setValue("amount", BigDecimal.valueOf(999));
         record.setId("contract-1");
 
         new DynamicEntityService(new DynamicRecordDao(operations, entity), "sales.contract").update(record);

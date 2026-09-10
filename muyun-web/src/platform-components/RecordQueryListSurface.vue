@@ -38,6 +38,7 @@ const props = withDefaults(
     showActionColumn?: boolean;
     actionColumnTitle?: string;
     actionColumnWidth?: string | number;
+    actionColumnFixed?: boolean;
     tableVisible?: boolean;
     embedded?: boolean;
     chromeFree?: boolean;
@@ -73,6 +74,7 @@ const props = withDefaults(
     showActionColumn: false,
     actionColumnTitle: undefined,
     actionColumnWidth: undefined,
+    actionColumnFixed: true,
     tableVisible: true,
     embedded: false,
     chromeFree: false,
@@ -180,6 +182,7 @@ defineSlots<{
         :show-action-column="showActionColumn"
         :action-column-title="actionColumnTitle"
         :action-column-width="actionColumnWidth"
+        :action-column-fixed="actionColumnFixed"
         @row-click="(record, event) => emit('rowClick', record, event)"
         @row-dblclick="(record, event) => emit('rowDblclick', record, event)"
         @row-expand="(record, expanded) => emit('rowExpand', record, expanded)"

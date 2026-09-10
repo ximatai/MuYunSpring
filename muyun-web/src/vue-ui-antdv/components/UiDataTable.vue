@@ -32,6 +32,8 @@ const props = withDefaults(
     showActionColumn?: boolean;
     actionColumnTitle?: string;
     actionColumnWidth?: string | number;
+    /** Compact embedded lists can keep actions in flow instead of forcing horizontal scrolling. */
+    actionColumnFixed?: boolean;
     emptyDescription?: string;
   }>(),
   {
@@ -49,6 +51,7 @@ const props = withDefaults(
     showActionColumn: false,
     actionColumnTitle: '操作',
     actionColumnWidth: 92,
+    actionColumnFixed: true,
     emptyDescription: '暂无记录',
   },
 );
@@ -87,7 +90,7 @@ const tableColumns = computed(() => {
       key: '__actions',
       width: props.actionColumnWidth,
       align: 'right' as const,
-      fixed: 'right' as const,
+      fixed: props.actionColumnFixed ? ('right' as const) : undefined,
       className: 'ui-data-table-action-cell',
       customRender: ({ record }: { record: UiDataTableRecord }) =>
         slots.rowActions?.({ record, rowKey: resolveRowKey(record) }),

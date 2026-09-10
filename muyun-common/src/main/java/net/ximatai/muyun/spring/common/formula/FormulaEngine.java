@@ -118,6 +118,15 @@ public class FormulaEngine {
         return FormulaExpressionSupport.assignedFields(parsed.ast());
     }
 
+    /** Returns fields read from expression values, excluding assignment left-hand sides. */
+    public Set<String> valueSideReferencedFields(String expression) {
+        FormulaExpressionSupport.ParsedExpression parsed = parse("expression", expression);
+        if (parsed == null) {
+            return Set.of();
+        }
+        return FormulaExpressionSupport.valueSideReferencedFields(parsed.ast());
+    }
+
     /**
      * Compiles a FormulaEngine expression to the only profile that may execute in a Web form.
      * The returned AST is signed by the server descriptor; Web clients must not parse {@code expression} again.

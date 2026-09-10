@@ -356,6 +356,96 @@ class ModuleUiDescriptorCompilerTest {
     }
 
     @Test
+    void shouldProjectStaticBusinessRulesFromTheSameServerRuleListInDependencyOrder() {
+        List<net.ximatai.muyun.spring.common.formula.FormulaRule> rules = List.of(
+                new net.ximatai.muyun.spring.common.formula.FormulaRule("total", "{total} = {net} + {tax}",
+                        net.ximatai.muyun.spring.common.formula.FormulaRuleKind.CALCULATION,
+                        net.ximatai.muyun.spring.common.formula.FormulaRulePhase.BEFORE_SAVE, "total"),
+                new net.ximatai.muyun.spring.common.formula.FormulaRule("tax", "{tax} = {net} * {taxRate}",
+                        net.ximatai.muyun.spring.common.formula.FormulaRuleKind.CALCULATION,
+                        net.ximatai.muyun.spring.common.formula.FormulaRulePhase.BEFORE_SAVE, "tax"),
+                new net.ximatai.muyun.spring.common.formula.FormulaRule("net", "{net} = {quantity} * {unitPrice}",
+                        net.ximatai.muyun.spring.common.formula.FormulaRuleKind.CALCULATION,
+                        net.ximatai.muyun.spring.common.formula.FormulaRulePhase.BEFORE_SAVE, "net"),
+                new net.ximatai.muyun.spring.common.formula.FormulaRule("totalLimit", "{total} <= 1000",
+                        net.ximatai.muyun.spring.common.formula.FormulaRuleKind.VALIDATION,
+                        net.ximatai.muyun.spring.common.formula.FormulaRulePhase.BEFORE_SAVE, "total")
+        );
+        ModuleUiDefinition definition = ModuleUiDefinition.builder("sales.order")
+                .page(PageTemplates.flatManagement(page -> page.explorer(explorer -> explorer.title("订单"))
+                        .detail(detail -> detail.editor(editor -> editor.field("quantity").field("unitPrice")
+                                .field("taxRate").field("net").field("tax").field("total")
+                                .businessRules(rules)))))
+                .build();
+
+        ResolvedViewDescriptor editor = compileFormCompute(definition, Map.of(
+                "quantity", FieldValueType.DECIMAL, "unitPrice", FieldValueType.DECIMAL,
+                "taxRate", FieldValueType.DECIMAL, "net", FieldValueType.DECIMAL,
+                "tax", FieldValueType.DECIMAL, "total", FieldValueType.DECIMAL))
+                .page().detail().editor();
+
+        assertThat(editor.formComputeRules()).extracting(ResolvedFormComputeRuleDescriptor::code)
+                .containsExactly("net", "tax", "total");
+        assertThat(editor.formComputeRules().getFirst().triggerFields()).containsExactlyInAnyOrder("quantity", "unitPrice");
+    }
+
+    @Test
+    void shouldKeepStaticBusinessValidationInTheSameRuleListServerAuthoritative() {
+        ModuleUiDefinition definition = ModuleUiDefinition.builder("sales.order")
+                .page(PageTemplates.flatManagement(page -> page.explorer(explorer -> explorer.title("订单"))
+                        .detail(detail -> detail.editor(editor -> editor.field("quantity").field("amount").businessRules(List.of(
+                                new net.ximatai.muyun.spring.common.formula.FormulaRule("amount", "{quantity}",
+                                        net.ximatai.muyun.spring.common.formula.FormulaRuleKind.CALCULATION,
+                                        net.ximatai.muyun.spring.common.formula.FormulaRulePhase.BEFORE_SAVE, "amount"),
+                                new net.ximatai.muyun.spring.common.formula.FormulaRule("amountLimit", "{amount} <= 10",
+                                        net.ximatai.muyun.spring.common.formula.FormulaRuleKind.VALIDATION,
+                                        net.ximatai.muyun.spring.common.formula.FormulaRulePhase.BEFORE_SAVE, "amount")))))))
+                .build();
+
+        ResolvedViewDescriptor editor = compileFormCompute(definition, Map.of(
+                "quantity", FieldValueType.DECIMAL, "amount", FieldValueType.DECIMAL))
+                .page().detail().editor();
+
+        assertThat(editor.formComputeRules()).extracting(ResolvedFormComputeRuleDescriptor::code)
+                .containsExactly("amount");
+        assertThat(editor.formComputeRules().getFirst().program().root().arguments().getFirst().field())
+                .isEqualTo("amount");
+    }
+
+    @Test
+    void shouldLetDynamicBusinessRulesReplaceConflictingAuthoredPreviewForTheSameTarget() {
+        ModuleUiDefinition definition = ModuleUiDefinition.builder("sales.order")
+                .page(PageTemplates.flatManagement(page -> page.explorer(explorer -> explorer.title("订单"))
+                        .detail(detail -> detail.editor(editor -> editor.field("quantity").field("unitPrice")
+                                .field("taxRate").field("net").field("tax").field("total")
+                                .formCompute("authoredTotal", "total", List.of("quantity"), "{total} = {quantity}")))))
+                .build();
+        ResolvedModuleUiDescriptor descriptor = compileFormCompute(definition, Map.of(
+                "quantity", FieldValueType.DECIMAL, "unitPrice", FieldValueType.DECIMAL,
+                "taxRate", FieldValueType.DECIMAL, "net", FieldValueType.DECIMAL,
+                "tax", FieldValueType.DECIMAL, "total", FieldValueType.DECIMAL));
+        List<net.ximatai.muyun.spring.common.formula.FormulaRule> rules = List.of(
+                new net.ximatai.muyun.spring.common.formula.FormulaRule("total", "{total} = {net} + {tax}",
+                        net.ximatai.muyun.spring.common.formula.FormulaRuleKind.CALCULATION,
+                        net.ximatai.muyun.spring.common.formula.FormulaRulePhase.BEFORE_SAVE, "total"),
+                new net.ximatai.muyun.spring.common.formula.FormulaRule("tax", "{tax} = {net} * {taxRate}",
+                        net.ximatai.muyun.spring.common.formula.FormulaRuleKind.CALCULATION,
+                        net.ximatai.muyun.spring.common.formula.FormulaRulePhase.BEFORE_SAVE, "tax"),
+                new net.ximatai.muyun.spring.common.formula.FormulaRule("net", "{net} = {quantity} * {unitPrice}",
+                        net.ximatai.muyun.spring.common.formula.FormulaRuleKind.CALCULATION,
+                        net.ximatai.muyun.spring.common.formula.FormulaRulePhase.BEFORE_SAVE, "net")
+        );
+
+        ResolvedViewDescriptor editor = BusinessRuleFormProjection.projectLenient(descriptor, rules)
+                .page().detail().editor();
+
+        assertThat(editor.formComputeRules()).extracting(ResolvedFormComputeRuleDescriptor::code)
+                .containsExactly("net", "tax", "total");
+        assertThat(editor.fields().stream().filter(field -> Set.of("net", "tax", "total")
+                .contains(field.fieldRef().fieldName())).map(field -> field.readOnly().constant())).containsOnly(true);
+    }
+
+    @Test
     void shouldRejectFormComputeRulesOutsideTheirWritableMainFormFields() {
         assertThatThrownBy(() -> compileFormCompute(ModuleUiDefinition.builder("sales.order")
                 .page(PageTemplates.flatManagement(page -> page

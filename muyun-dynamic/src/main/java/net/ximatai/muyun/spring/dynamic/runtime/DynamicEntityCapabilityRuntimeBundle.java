@@ -34,7 +34,7 @@ final class DynamicEntityCapabilityRuntimeBundle {
         this.tree = new DynamicTreeRuntime(owner);
         this.sort = new DynamicSortRuntime(owner);
         this.reference = new DynamicReferenceRuntime(owner);
-        this.formula = new DynamicFormulaRuntime(moduleAlias, entity, module);
+        this.formula = new DynamicFormulaRuntime(moduleAlias, entity, module, owner.referenceTargetResolver());
     }
 
     DynamicTreeRuntime tree() { require(EntityCapability.TREE); return tree; }

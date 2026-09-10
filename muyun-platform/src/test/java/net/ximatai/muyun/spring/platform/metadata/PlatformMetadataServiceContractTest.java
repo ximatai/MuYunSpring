@@ -16,6 +16,7 @@ import net.ximatai.muyun.spring.ability.reference.ReferenceTargets;
 import net.ximatai.muyun.spring.ability.reference.ReferenceAbility;
 import net.ximatai.muyun.spring.ability.reference.ReferenceCandidateKey;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
+import net.ximatai.muyun.spring.common.formula.FormulaRuleKind;
 import net.ximatai.muyun.spring.common.model.constraint.TenantUniqueConstraint;
 import net.ximatai.muyun.spring.common.model.standard.StandardTitledEntity;
 import net.ximatai.muyun.spring.common.model.capability.SortCapable;
@@ -29,6 +30,7 @@ import net.ximatai.muyun.spring.common.security.FieldMaskingPolicy;
 import net.ximatai.muyun.spring.common.security.FieldSignatureMode;
 import net.ximatai.muyun.spring.dynamic.metadata.DynamicQueryOperator;
 import net.ximatai.muyun.spring.dynamic.metadata.EntityDefinition;
+import net.ximatai.muyun.spring.dynamic.metadata.EntityFormulaRuleDefinition;
 import net.ximatai.muyun.spring.dynamic.metadata.EntityViewFieldDefinition;
 import net.ximatai.muyun.spring.dynamic.metadata.EntityViewType;
 import net.ximatai.muyun.spring.dynamic.metadata.FieldDefinition;
@@ -2535,6 +2537,78 @@ class PlatformMetadataServiceContractTest {
         assertThatThrownBy(() -> moduleFieldService.insert(duplicate))
                 .isInstanceOf(PlatformException.class)
                 .hasMessageContaining("must be unique");
+    }
+
+    @Test
+    void shouldGovernPortableBusinessRulesWithoutWritingOnTrialAndRunAppliedDefinitionOnSave() {
+        PlatformModuleActionService actionService = new PlatformModuleActionService(new MemoryDao<>(), moduleService);
+        ModuleMetadataFormulaRuleService formulaRules = new ModuleMetadataFormulaRuleService(new MemoryDao<>(), relationService,
+                fieldService, Optional.of(runtimeRefreshCoordinator));
+        PlatformModuleDefinitionCompiler compiler = new PlatformModuleDefinitionCompiler(moduleService, metadataService,
+                fieldService, fieldDefinitionCompiler, referenceConfigService, relationService, viewService, viewFieldService,
+                actionService, formulaRules, moduleFieldService, moduleFieldFilterService, moduleFieldAffectService,
+                new ModuleDefinitionValidator());
+        BusinessRuleGovernanceService governance = new BusinessRuleGovernanceService(moduleService, relationService,
+                fieldService, fieldConfigService, formulaRules, fieldDefinitionCompiler, compiler,
+                new ModuleDefinitionValidator(), runtimeRefreshCoordinator);
+        moduleService.insert(module("crm.quote", "crm", ModuleKind.DYNAMIC));
+        String metadataId = metadataService.insert(metadata("crm", "quote"));
+        MetadataField quantity = field(metadataId, "quantity", "quantity", FieldType.INTEGER);
+        MetadataField total = field(metadataId, "total", "total", FieldType.DECIMAL);
+        fieldService.insert(quantity);
+        fieldService.insert(total);
+        String relationId = relationService.insert(mainRelation("crm.quote", metadataId));
+        ModuleMetadataFormulaRule preserved = new ModuleMetadataFormulaRule();
+        preserved.setRelationId(relationId);
+        preserved.setAlias("legacyRule");
+        preserved.setRuleKind(FormulaRuleKind.VALIDATION);
+        preserved.setRulePhase(net.ximatai.muyun.spring.common.formula.FormulaRulePhase.ACTION_BEFORE_EXECUTE);
+        preserved.setExpression("{quantity} > 0");
+        formulaRules.insert(preserved);
+
+        BusinessRuleProposal calculation = new BusinessRuleProposal("deriveTotal", FormulaRuleKind.CALCULATION,
+                "total", "{quantity} * 3", true, null);
+        BusinessRuleProposal validation = new BusinessRuleProposal("positiveTotal", FormulaRuleKind.VALIDATION,
+                null, "{total} > 0", true, "total must be positive");
+        BusinessRuleGovernanceSnapshot baseline = governance.snapshot("crm.quote");
+        assertThat(baseline.rules()).filteredOn(BusinessRuleSnapshotRule::code, "legacyRule")
+                .allMatch(rule -> !rule.editable());
+        BusinessRuleTrialResult trial = governance.trial("crm.quote", new BusinessRuleTrialCommand(
+                List.of(calculation, validation), Map.of("quantity", "2")));
+        assertThat(trial.errors()).isEmpty();
+        assertThat((BigDecimal) trial.values().get("total")).isEqualByComparingTo("6");
+        assertThat(formulaRules.listByRelationIds(List.of(relationService.list(Criteria.of().eq("moduleAlias", "crm.quote"),
+                new PageRequest(0, 1)).getFirst().getId()))).extracting(ModuleMetadataFormulaRule::getAlias)
+                .containsExactly("legacyRule");
+
+        BusinessRulePreview preview = governance.preview("crm.quote", new BusinessRulePreviewCommand(List.of(calculation, validation)));
+        assertThat(preview.valid()).isTrue();
+        governance.apply("crm.quote", new BusinessRuleApplyCommand(List.of(calculation, validation),
+                baseline.baselineFingerprint(), preview.proposalFingerprint()));
+        ModuleDefinition applied = compiler.compile("crm.quote");
+        assertThat(applied.entities().getFirst().formulaRules()).extracting(EntityFormulaRuleDefinition::expression)
+                .contains("{total} = ({quantity} * 3)", "{total} > 0");
+        assertThat(governance.snapshot("crm.quote").rules()).filteredOn(BusinessRuleSnapshotRule::code, "deriveTotal")
+                .extracting(BusinessRuleSnapshotRule::expression).containsExactly("{quantity} * 3");
+
+        IDatabaseOperations<Object> operations = mock(IDatabaseOperations.class);
+        when(operations.insertItem(eq("public"), eq("crm_quote"), anyMap(), eq("id"))).thenReturn("quote-1");
+        EntityDefinition entity = applied.entities().getFirst();
+        DynamicRecordService service = dynamicRecordService(operations, applied, DynamicRecordMutationCoordinator.NONE);
+        DynamicRecord saved = new DynamicRecord(entity).setValue("quantity", 2);
+        service.create("crm.quote", "quote", saved);
+        assertThat((BigDecimal) saved.getValue("total")).isEqualByComparingTo("6");
+        assertThat(saved.formulaReport().errors()).isEmpty();
+        assertThatThrownBy(() -> service.create("crm.quote", "quote", new DynamicRecord(entity).setValue("quantity", 0)))
+                .hasMessageContaining("total must be positive");
+
+        BusinessRulePreview malformed = governance.preview("crm.quote", new BusinessRulePreviewCommand(List.of(
+                new BusinessRuleProposal("badRule", FormulaRuleKind.CALCULATION, "total", "{quantity} +", false, null))));
+        assertThat(malformed.valid()).isFalse();
+        assertThat(malformed.errors()).extracting(BusinessRuleIssue::code).contains("FORMULA_FORM_COMPUTE_UNSUPPORTED");
+        assertThatThrownBy(() -> governance.apply("crm.quote", new BusinessRuleApplyCommand(List.of(calculation),
+                baseline.baselineFingerprint(), preview.proposalFingerprint()))).isInstanceOf(PlatformException.class)
+                .hasMessageContaining("stale");
     }
 
     private ModuleMetadataField moduleField(List<ModuleMetadataField> fields, String metadataFieldId) {

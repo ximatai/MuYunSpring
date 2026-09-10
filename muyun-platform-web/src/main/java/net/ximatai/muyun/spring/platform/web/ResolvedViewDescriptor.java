@@ -44,4 +44,10 @@ public record ResolvedViewDescriptor(String viewCode,
         this(viewCode, viewKind, clientType, title, fields, null, null, List.of());
     }
 
+    public ResolvedViewDescriptor withFormulaProjection(List<ResolvedViewFieldDescriptor> projectedFields,
+                                                        List<ResolvedFormComputeRuleDescriptor> projectedRules) {
+        return new ResolvedViewDescriptor(viewCode, viewKind, clientType, title, projectedFields, sourceUiConfigId,
+                formGroups, projectedRules);
+    }
+
 }

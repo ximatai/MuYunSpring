@@ -9,10 +9,18 @@ import java.util.Set;
 final class MetadataFormulaFieldValidator {
     private final ModuleMetadataRelationService relationService;
     private final MetadataFieldService fieldService;
+    private final MetadataFieldReferenceConfigService referenceConfigService;
 
     MetadataFormulaFieldValidator(ModuleMetadataRelationService relationService, MetadataFieldService fieldService) {
+        this(relationService, fieldService, null);
+    }
+
+    MetadataFormulaFieldValidator(ModuleMetadataRelationService relationService,
+                                  MetadataFieldService fieldService,
+                                  MetadataFieldReferenceConfigService referenceConfigService) {
         this.relationService = relationService;
         this.fieldService = fieldService;
+        this.referenceConfigService = referenceConfigService;
     }
 
     void validateExpressionFields(Set<String> fieldPaths, ModuleMetadataRelation relation, String context) {
@@ -34,6 +42,12 @@ final class MetadataFormulaFieldValidator {
             return;
         }
         String[] parts = fieldPath.split("\\.");
+        // A declared reference may continue through further declared reference hops.  The
+        // source-neutral compiler validates every hop and terminal field before governance
+        // accepts the definition; this metadata guard only distinguishes it from child syntax.
+        if (parts.length >= 2 && declaredReferenceRoot(relation, parts[0])) {
+            return;
+        }
         if (parts.length != 2) {
             throw new PlatformException(context + " is invalid: " + fieldPath);
         }
@@ -47,6 +61,16 @@ final class MetadataFormulaFieldValidator {
             throw new PlatformException(context + " relation does not exist: " + parts[0]);
         }
         requireMetadataField(childRelation.getMetadataId(), parts[1], context);
+    }
+
+    private boolean declaredReferenceRoot(ModuleMetadataRelation relation, String fieldName) {
+        if (referenceConfigService == null) {
+            return false;
+        }
+        MetadataField source = fieldService.list(Criteria.of()
+                        .eq("metadataId", relation.getMetadataId()).eq("fieldName", fieldName),
+                new PageRequest(0, 1)).stream().findFirst().orElse(null);
+        return source != null && referenceConfigService.findForRelation(source.getId(), relation.getId()) != null;
     }
 
     private void requireMetadataField(String metadataId, String fieldName, String context) {
