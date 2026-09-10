@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { createPageCompositionDraftState } from '@/views/pageCompositionDraftState';
+import {
+  createPageCompositionDraftState,
+  defaultPageQuerySummaryLabel,
+  hasDefaultPageQuerySummaryLabel,
+  pageQuerySummaryDescription,
+} from '@/views/pageCompositionDraftState';
 
 const title = { id: 'title', title: '考试名称', fieldName: 'title' };
 const date = { id: 'date', title: '考试日期', fieldName: 'examDate' };
@@ -43,6 +48,71 @@ describe('pageCompositionDraftState', () => {
         { slot: 'form', title: '详情 / 表单', fields: ['title', 'examDate'] },
       ],
     });
+  });
+
+  it('preserves incomplete list summaries so the editor can repair them', () => {
+    const state = createPageCompositionDraftState();
+    state.replaceQuerySummaries([
+      { key: 'count', label: '记录数', source: 'MATCHED_COUNT', fieldName: 'ignored' },
+      { key: 'amount', label: '采购金额', source: 'SUM', fieldName: 'purchaseAmount' },
+      { key: 'business', label: '待删除', source: 'CONTRIBUTOR' },
+    ]);
+
+    expect(state.toManagementUiTree().querySummaries).toEqual([
+      { key: 'count', label: '记录数', source: 'MATCHED_COUNT' },
+      { key: 'amount', label: '采购金额', source: 'SUM', fieldName: 'purchaseAmount' },
+      { key: 'business', label: '待删除', source: 'CONTRIBUTOR' },
+    ]);
+  });
+
+  it('persists a grouped summary with its grouping field and optional numeric sum', () => {
+    const state = createPageCompositionDraftState();
+    state.replaceQuerySummaries([
+      {
+        key: 'supplier',
+        label: '按供应商统计',
+        source: 'GROUPED',
+        groupByField: 'supplierId',
+        fieldName: 'amount',
+      },
+    ]);
+    expect(state.toManagementUiTree().querySummaries).toEqual([
+      {
+        key: 'supplier',
+        label: '按供应商统计',
+        source: 'GROUPED',
+        groupByField: 'supplierId',
+        fieldName: 'amount',
+      },
+    ]);
+  });
+
+  it('uses business titles for grouped explanations and only treats generated names as replaceable', () => {
+    const catalog = {
+      groupFields: [{ fieldName: 'supplierId', title: '供应商' }],
+      fields: [{ fieldName: 'purchaseAmount', title: '采购金额' }],
+    };
+    const grouped = {
+      key: 'supplier',
+      label: '按供应商分组采购金额合计',
+      source: 'GROUPED' as const,
+      groupByField: 'supplierId',
+      fieldName: 'purchaseAmount',
+    };
+
+    expect(pageQuerySummaryDescription(grouped, catalog)).toBe('按供应商分组 · 记录数 · 采购金额合计');
+    expect(defaultPageQuerySummaryLabel(grouped, catalog)).toBe('按供应商分组采购金额合计');
+    expect(hasDefaultPageQuerySummaryLabel(grouped, catalog)).toBe(true);
+    expect(hasDefaultPageQuerySummaryLabel({ ...grouped, label: '供应商金额概览' }, catalog)).toBe(false);
+    expect(
+      hasDefaultPageQuerySummaryLabel(
+        { key: 'count', label: '匹配记录数', source: 'MATCHED_COUNT' },
+        catalog,
+      ),
+    ).toBe(true);
+    expect(
+      pageQuerySummaryDescription({ ...grouped, fieldName: undefined, label: '按供应商分组统计' }, catalog),
+    ).toBe('按供应商分组 · 记录数');
   });
 
   it('serializes only the dedicated quick-search placeholder in root props and supports discard restoration', () => {

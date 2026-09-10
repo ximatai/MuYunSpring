@@ -27,6 +27,7 @@ export { MANAGEMENT_WORKSPACE_LAYOUT, listDetailWorkspaceMinWidth } from './mana
 export { providePageLayout, usePageLayout } from './pageLayoutContext';
 export { default as RecordActionBar } from './RecordActionBar.vue';
 export { default as RecordQueryListSurface } from './RecordQueryListSurface.vue';
+export { default as QueryGroupedSummary } from './QueryGroupedSummary.vue';
 export { default as AdaptiveHeaderActionBar } from './AdaptiveHeaderActionBar.vue';
 export type { HeaderActionItem } from './AdaptiveHeaderActionBar.vue';
 export type { HeaderActionLevel } from './adaptiveHeaderActionLayout';

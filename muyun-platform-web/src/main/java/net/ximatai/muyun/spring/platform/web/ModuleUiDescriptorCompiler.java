@@ -89,6 +89,7 @@ public final class ModuleUiDescriptorCompiler {
         Map<String, FieldValueType> writeOnlyInputs = StaticWriteOnlyInputFields.resolve(definition.modelClass());
         validateFields(uiDefinition, definition.entities(), definition.moduleAlias(), readOutputFields(definition),
                 writeOnlyInputs.keySet());
+        validateStaticGroupedListQuerySummaryFields(definition, uiDefinition);
         Function<String, ReferencePickerMode> pickerModeResolver = referencePickerModeResolver == null
                 ? ignored -> ReferencePickerMode.AUTO
                 : referencePickerModeResolver;
@@ -106,6 +107,8 @@ public final class ModuleUiDescriptorCompiler {
                         staticOptionFields(definition.modelClass()), referenceFields, referenceSummaryFields,
                         staticRecordLabelField(definition), Map.copyOf(fieldTypes), FieldControlDescriptorCatalog.standard(),
                         false, Map.of(), Map.of(), sortPartitionFieldsByEntity(definition.entities()));
+        descriptor = withListQuerySummaryTitles(descriptor, definition.entities().isEmpty()
+                ? List.of() : definition.entities().getFirst().fields());
         descriptor = PageActionInvocationCompiler.bind(descriptor, definition.actionInvocations());
         descriptor = withPageContextBindings(descriptor, definition.pageContextBindings());
         List<ResolvedPageDetailEditorContribution> resolvedContributions = uiDefinition.editorContributions().stream()
@@ -1494,6 +1497,64 @@ public final class ModuleUiDescriptorCompiler {
             throw new IllegalArgumentException("page explorer field is not declared by model facts: "
                     + moduleAlias + ".explorer." + field.fieldName());
         }
+        validateListQuerySummaryFields(definition.page(), mainEntity, moduleAlias);
+    }
+
+    private static void validateListQuerySummaryFields(ModulePageDefinition page, EntityDefinition mainEntity,
+                                                       String moduleAlias) {
+        if (!(page instanceof ListDetailCardPageDefinition card)) return;
+        card.list().querySummaries().stream()
+                .filter(summary -> summary.source() == PageListQuerySummaryDefinition.Source.SUM)
+                .forEach(summary -> ListQuerySummaryFieldCatalog.requireEligible(summary.fieldName(), mainEntity.fields(),
+                        moduleAlias + ".querySummaries"));
+    }
+
+    private static void validateStaticGroupedListQuerySummaryFields(StaticModuleDefinition definition,
+                                                                     ModuleUiDefinition uiDefinition) {
+        if (!(uiDefinition.page() instanceof ListDetailCardPageDefinition page) || definition.entities().isEmpty()) return;
+        java.util.Map<String, net.ximatai.muyun.spring.common.option.OptionFieldDefinition> options =
+                (definition.modelClass() == null ? List.<net.ximatai.muyun.spring.common.option.OptionFieldDefinition>of()
+                        : OptionFieldResolver.resolve(definition.modelClass())).stream().collect(java.util.stream.Collectors.toMap(
+                        net.ximatai.muyun.spring.common.option.OptionFieldDefinition::fieldName,
+                        java.util.function.Function.identity()));
+        java.util.Map<String, ReferencePlan> references = (definition.modelClass() == null ? List.<ReferencePlan>of()
+                : StaticReferenceResolver.plans(definition.modelClass())).stream()
+                .collect(java.util.stream.Collectors.toMap(ReferencePlan::sourceField, java.util.function.Function.identity(),
+                        (left, ignored) -> left));
+        page.list().querySummaries().stream()
+                .filter(summary -> summary.source() == PageListQuerySummaryDefinition.Source.GROUPED)
+                .forEach(summary -> {
+                    ListQuerySummaryGroupFieldCatalog.requireEligible(summary.groupByField(),
+                            definition.entities().getFirst().fields(), options, references,
+                            definition.moduleAlias() + ".querySummaries");
+                    if (summary.fieldName() != null) ListQuerySummaryFieldCatalog.requireEligible(summary.fieldName(),
+                            definition.entities().getFirst().fields(), definition.moduleAlias() + ".querySummaries");
+                });
+    }
+
+    static ResolvedModuleUiDescriptor withListQuerySummaryTitles(ResolvedModuleUiDescriptor descriptor,
+                                                                  List<net.ximatai.muyun.spring.dynamic.metadata.FieldDefinition> fields) {
+        if (descriptor == null || descriptor.page() == null || descriptor.page().list() == null) return descriptor;
+        java.util.Map<String, String> titles = (fields == null ? List.<net.ximatai.muyun.spring.dynamic.metadata.FieldDefinition>of() : fields)
+                .stream().collect(java.util.stream.Collectors.toMap(
+                        net.ximatai.muyun.spring.dynamic.metadata.FieldDefinition::fieldName,
+                        net.ximatai.muyun.spring.dynamic.metadata.FieldDefinition::name, (left, ignoredTitle) -> left));
+        ResolvedPageListDescriptor list = descriptor.page().list();
+        List<ResolvedPageListQuerySummaryDescriptor> summaries = list.querySummaries().stream().map(summary ->
+                new ResolvedPageListQuerySummaryDescriptor(summary.key(), summary.title(), summary.source(),
+                        summary.fieldName(), summary.contributorKey(), summary.groupByField(),
+                        title(titles, summary.groupByField()), title(titles, summary.fieldName()))).toList();
+        ResolvedPageListDescriptor resolvedList = new ResolvedPageListDescriptor(list.searchPlaceholder(), list.fields(),
+                list.title(), list.subtitle(), list.relationExpansions(), list.persistentQueryControls(), summaries);
+        ResolvedModulePageDescriptor page = descriptor.page();
+        return descriptor.withPage(new ResolvedModulePageDescriptor(page.template(), page.explorer(), page.navigator(),
+                resolvedList, page.treeResource(), page.detail(), page.traits(), page.quickSearchFields(), page.actions(),
+                page.managedActions()));
+    }
+
+    private static String title(java.util.Map<String, String> titles, String fieldName) {
+        if (fieldName == null) return null;
+        return titles.getOrDefault(fieldName, fieldName);
     }
 
     private static Map<String, EntityDefinition> entitiesByAlias(StaticModuleDefinition definition) {

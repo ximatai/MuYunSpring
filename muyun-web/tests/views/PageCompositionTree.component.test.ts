@@ -176,6 +176,32 @@ describe('PageCompositionTree', () => {
     });
   });
 
+  it('shows business-facing summary details, source problems, and a direct configure action', () => {
+    const wrapper = mountTree({
+      summariesSupported: true,
+      querySummaries: [
+        {
+          key: 'supplier',
+          label: '供应商统计',
+          source: 'GROUPED',
+          groupByField: 'supplierId',
+          fieldName: 'purchaseAmount',
+        },
+      ],
+      summaryDescriptions: { supplier: '按供应商分组 · 采购金额合计' },
+      summaryIssues: { supplier: '配置未完成或来源失效' },
+    });
+    const tree = uiTree(wrapper);
+    const summary = findNode(tree.props('nodes') as TestNode[], 'ui:summary:supplier')!;
+
+    expect(summary).toMatchObject({
+      title: '供应商统计',
+      secondary: '按供应商分组 · 采购金额合计',
+      tag: '需修正',
+    });
+    expect(summary.actions?.map((action) => action.key)).toEqual(['configure']);
+  });
+
   it('keeps expansion state in the shared tree instead of owning nested sortable lists', async () => {
     const wrapper = mountTree({ listFields: [subject] });
     const tree = uiTree(wrapper);
@@ -203,6 +229,77 @@ describe('PageCompositionTree', () => {
 
     expect(wrapper.emitted('reorder-list-field')).toEqual([['exam-date', 0]]);
     expect(wrapper.emitted('reorder-form-field')).toEqual([['subject', 1]]);
+  });
+
+  it('only reorders existing summary siblings with before and after insertion positions', async () => {
+    const wrapper = mountTree({
+      summariesSupported: true,
+      querySummaries: [
+        { key: 'count', label: '匹配记录数', source: 'MATCHED_COUNT' },
+        { key: 'amount', label: '采购金额合计', source: 'SUM', fieldName: 'purchaseAmount' },
+        { key: 'supplier', label: '供应商统计', source: 'GROUPED', groupByField: 'supplierId' },
+      ],
+    });
+    const tree = uiTree(wrapper);
+    const count = findNode(tree.props('nodes') as TestNode[], 'ui:summary:count')!;
+    const amount = findNode(tree.props('nodes') as TestNode[], 'ui:summary:amount')!;
+    const supplier = findNode(tree.props('nodes') as TestNode[], 'ui:summary:supplier')!;
+    const summaryContainer = findNode(tree.props('nodes') as TestNode[], 'ui:template:list:query-summaries')!;
+    const listFieldContainer = findNode(tree.props('nodes') as TestNode[], 'ui:slot:list:fields')!;
+
+    expect(tree.props('canDrag')(count)).toBe(true);
+    expect(tree.props('allowDrop')(dropEvent(supplier, count, -1))).toBe(true);
+    expect(tree.props('allowDrop')(dropEvent(count, amount, 1))).toBe(true);
+    expect(tree.props('allowDrop')(dropEvent(count, amount, 0, false))).toBe(false);
+    expect(tree.props('allowDrop')(dropEvent(count, summaryContainer, 0, false))).toBe(false);
+    expect(tree.props('allowDrop')(dropEvent(count, listFieldContainer, -1))).toBe(false);
+    expect(tree.props('allowDrop')(dropEvent(count, count, -1))).toBe(false);
+    expect(
+      tree.props('allowDrop')(dropEvent({ key: 'ui:summary:missing', title: '缺失项' }, count, -1)),
+    ).toBe(false);
+    expect(tree.props('allowDrop')({ ...dropEvent(supplier, count, -1), operation: 'copy' })).toBe(false);
+    expect(
+      tree.props('allowDrop')({
+        ...dropEvent(supplier, count, -1),
+        source: { instanceId: 'another-tree', node: supplier, operations: ['move'] },
+      }),
+    ).toBe(false);
+    expect(
+      tree.props('allowDrop')({
+        ...dropEvent(supplier, count, -1),
+        source: {
+          instanceId: 'another-tree',
+          node: { key: 'metadata:field:amount', title: '采购金额' },
+          operations: ['copy'],
+          payloadType: PAGE_COMPOSITION_DRAG_PAYLOAD_TYPE,
+          payload: { kind: 'field', fieldId: 'amount' },
+        },
+        operation: 'copy',
+      }),
+    ).toBe(false);
+
+    const disabled = mountTree({
+      disabled: true,
+      summariesSupported: true,
+      querySummaries: [
+        { key: 'count', label: '匹配记录数', source: 'MATCHED_COUNT' },
+        { key: 'amount', label: '采购金额合计', source: 'SUM', fieldName: 'purchaseAmount' },
+      ],
+    });
+    const disabledTree = uiTree(disabled);
+    const disabledCount = findNode(disabledTree.props('nodes') as TestNode[], 'ui:summary:count')!;
+    const disabledAmount = findNode(disabledTree.props('nodes') as TestNode[], 'ui:summary:amount')!;
+    expect(disabledTree.props('canDrag')(disabledCount)).toBe(false);
+    expect(disabledTree.props('allowDrop')(dropEvent(disabledCount, disabledAmount, -1))).toBe(false);
+
+    tree.vm.$emit('drop', dropEvent(supplier, count, -1));
+    tree.vm.$emit('drop', dropEvent(count, amount, 1));
+    await wrapper.vm.$nextTick();
+
+    expect(wrapper.emitted('reorder-query-summary')).toEqual([
+      ['supplier', 0],
+      ['count', 1],
+    ]);
   });
 
   it('maps form/group drops, group sorting, and relation sorting to semantic commands', async () => {

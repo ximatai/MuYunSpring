@@ -174,14 +174,19 @@ public final class PageRevisionModuleUiDefinitionAdapter {
         }
         String searchPlaceholder = composition.listSearchPlaceholder() == null ? list.title()
                 : composition.listSearchPlaceholder();
-        ModulePageDefinition pageDefinition = switch (composition.mode() != null ? composition.mode() : overviewMode == null
-                ? DynamicModuleOverviewMode.LIST_CARD : overviewMode) {
+        DynamicModuleOverviewMode effectiveMode = composition.mode() != null ? composition.mode() : overviewMode == null
+                ? DynamicModuleOverviewMode.LIST_CARD : overviewMode;
+        if (!composition.querySummaries().isEmpty() && effectiveMode != DynamicModuleOverviewMode.LIST_CARD) {
+            throw new IllegalArgumentException("management query summaries require LIST_CARD mode");
+        }
+        ModulePageDefinition pageDefinition = switch (effectiveMode) {
             case TREE_CARD -> new TreeManagementPageDefinition(null, null, detail, new PageTraitsDefinition(null), explorer, composition.quickSearchFields());
             case MICRO_LIST_CARD -> new FlatManagementPageDefinition(null,
                     explorer != null ? explorer : new PageExplorerDefinition(list.title(), searchPlaceholder, null, null, null, "title", null, false),
                     detail, new PageTraitsDefinition(null), composition.quickSearchFields());
             case LIST_CARD -> new ListDetailCardPageDefinition(null,
-                    new PageListDefinition(searchPlaceholder, listView), detail, new PageTraitsDefinition(null), composition.quickSearchFields());
+                    new PageListDefinition(searchPlaceholder, listView, null, null, List.of(), List.of(),
+                            composition.querySummaries()), detail, new PageTraitsDefinition(null), composition.quickSearchFields());
         };
         return new ModuleUiDefinition(page.getModuleAlias(), List.of(), pageDefinition,
                 null, List.of(), List.of(), detailRelations(form, associations), composition.pageActions(), composition.managedActions());
@@ -334,6 +339,7 @@ public final class PageRevisionModuleUiDefinitionAdapter {
         PageExplorerDefinition explorer = null;
         List<String> quickSearchFields = null;
         List<PageActionDefinition> pageActions = List.of();
+        List<PageListQuerySummaryDefinition> querySummaries = List.of();
         boolean managedActions = root != null && root.path("templateVersion").asInt() == PlatformPresentationTemplateCatalog.MANAGED_ACTION_VERSION;
         if (root != null && Set.of(PlatformPresentationTemplateCatalog.MODE_AWARE_VERSION,
                 PlatformPresentationTemplateCatalog.MODE_AWARE_ACTION_VERSION, PlatformPresentationTemplateCatalog.MANAGED_ACTION_VERSION).contains(root.path("templateVersion").asInt())) {
@@ -403,7 +409,36 @@ public final class PageRevisionModuleUiDefinitionAdapter {
                 searchPlaceholder = null;
             }
         }
-        return new Composition(Map.copyOf(slots), searchPlaceholder, mode, explorer, quickSearchFields, pageActions, managedActions);
+        JsonNode summaries = root.path("querySummaries");
+        if (!summaries.isMissingNode()) {
+            if (mode != null && mode != DynamicModuleOverviewMode.LIST_CARD) {
+                throw new IllegalArgumentException("management query summaries require LIST_CARD mode");
+            }
+            querySummaries = querySummaries(summaries);
+        }
+        return new Composition(Map.copyOf(slots), searchPlaceholder, mode, explorer, quickSearchFields, pageActions,
+                managedActions, querySummaries);
+    }
+
+    private static List<PageListQuerySummaryDefinition> querySummaries(JsonNode entries) {
+        if (!entries.isArray()) throw new IllegalArgumentException("management querySummaries must be array");
+        List<PageListQuerySummaryDefinition> summaries = new java.util.ArrayList<>();
+        for (JsonNode entry : entries) {
+            if (!entry.isObject()) throw new IllegalArgumentException("management query summary must be object");
+            PageListQuerySummaryDefinition.Source source;
+            try {
+                source = PageListQuerySummaryDefinition.Source.valueOf(entry.path("source").asText());
+            } catch (IllegalArgumentException exception) {
+                throw new IllegalArgumentException("management query summary source is unsupported", exception);
+            }
+            summaries.add(new PageListQuerySummaryDefinition(entry.path("key").asText(null),
+                    entry.path("label").asText(null), source, entry.path("fieldName").asText(null),
+                    entry.path("contributorKey").asText(null), entry.path("groupByField").asText(null)));
+        }
+        if (summaries.stream().map(PageListQuerySummaryDefinition::key).distinct().count() != summaries.size()) {
+            throw new IllegalArgumentException("management query summaries contain duplicate keys");
+        }
+        return List.copyOf(summaries);
     }
 
     private static List<RelationNode> relationNodes(JsonNode nodes) {
@@ -477,7 +512,8 @@ public final class PageRevisionModuleUiDefinitionAdapter {
 
     private record Composition(Map<String, Slot> slots, String listSearchPlaceholder,
                                DynamicModuleOverviewMode mode, PageExplorerDefinition explorer, List<String> quickSearchFields,
-                               List<PageActionDefinition> pageActions, boolean managedActions) {
+                               List<PageActionDefinition> pageActions, boolean managedActions,
+                               List<PageListQuerySummaryDefinition> querySummaries) {
     }
 
     private record FieldNode(String name, String label, String width, String align, Integer columnSpan,

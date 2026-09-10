@@ -21,6 +21,7 @@ import {
   type PageComposerField,
   type PageComposerGroup,
   type PageComposerRelation,
+  type PageQuerySummary,
 } from './pageCompositionDraftState';
 import {
   PAGE_COMPOSITION_DRAG_PAYLOAD_TYPE,
@@ -42,6 +43,10 @@ const props = withDefaults(
     explorerTitle?: string;
     searchableFieldIds?: string[];
     quickSearchFields?: { fieldName: string; title: string }[];
+    querySummaries?: PageQuerySummary[];
+    summariesSupported?: boolean;
+    summaryDescriptions?: Record<string, string>;
+    summaryIssues?: Record<string, string>;
     explorerSecondary?: string;
     actionPlacements?: PageCompositionActionPlacement[];
     moduleActions?: {
@@ -81,6 +86,7 @@ const emit = defineEmits<{
   ];
   'reorder-group': [groupId: string, targetIndex: number];
   'reorder-relation-field': [relationId: string, fieldId: string, targetIndex: number];
+  'reorder-query-summary': [summaryKey: string, targetIndex: number];
   'source-drop': [target: ComposerDropTarget, payload: PageCompositionDragPayload];
   'action-drop': [
     source: { actionCode: string; sourceAnchor?: PageCompositionActionPlacement['anchor'] },
@@ -105,6 +111,7 @@ type ComposerNodeRef =
   | { kind: 'binding'; role: 'explorer-title' | 'explorer-secondary' | 'quick-search'; fieldName: string }
   | { kind: 'slot'; slot: 'list' | 'form' }
   | { kind: 'template' }
+  | { kind: 'summary'; summaryKey: string }
   | { kind: 'fieldGroup'; slot: 'list' | 'form' }
   | { kind: 'field'; slot: 'list' | 'form'; fieldId: string }
   | { kind: 'group'; groupId: string }
@@ -158,6 +165,35 @@ const treeNodes = computed<UiTreeNode[]>(() => {
             actions: nodeActions('remove'),
           })),
         },
+        ...(props.summariesSupported
+          ? [
+              {
+                key: 'ui:template:list:query-summaries',
+                title: '汇总统计',
+                secondary: props.querySummaries?.length
+                  ? `${props.querySummaries.length} 项 · 完整筛选结果`
+                  : '配置记录数、数值合计或按字段分组统计',
+                actions: nodeActions('configure'),
+                isLeaf: !props.querySummaries?.length,
+                children: (props.querySummaries ?? []).map((summary) => ({
+                  key: `ui:summary:${summary.key}`,
+                  title: summary.label,
+                  secondary:
+                    props.summaryDescriptions?.[summary.key] ??
+                    (summary.source === 'MATCHED_COUNT'
+                      ? '记录数'
+                      : summary.source === 'SUM'
+                        ? `合计 · ${summary.fieldName ?? '未选择数值字段'}`
+                        : summary.source === 'GROUPED'
+                          ? `按${summary.groupByField ?? '未选择分组字段'}分组${summary.fieldName ? ` · ${summary.fieldName}合计` : ' · 记录数'}`
+                          : `业务指标 · ${summary.contributorKey ?? '未选择'}`),
+                  tag: props.summaryIssues?.[summary.key] ? '需修正' : undefined,
+                  actions: nodeActions('configure'),
+                  isLeaf: true,
+                })),
+              },
+            ]
+          : []),
         {
           key: 'ui:slot:list:fields',
           title: props.skeleton?.fieldGroupTitle ?? '列表展示字段',
@@ -296,6 +332,7 @@ watch(
       'ui:slot:list',
       'ui:slot:list:fields',
       'ui:template:list:quick-search',
+      'ui:template:list:query-summaries',
       'ui:explorer-title',
       'ui:explorer-secondary',
       'ui:slot:form',
@@ -380,6 +417,8 @@ function parseNode(key: string): ComposerNodeRef | undefined {
   if (key === 'ui:slot:list') return { kind: 'slot', slot: 'list' };
   if (key === 'ui:slot:form') return { kind: 'slot', slot: 'form' };
   if (key === 'ui:template:list:quick-search') return { kind: 'template' };
+  const summary = /^ui:summary:(.+)$/.exec(key);
+  if (summary) return { kind: 'summary', summaryKey: summary[1] };
   if (key === 'ui:slot:list:fields') return { kind: 'fieldGroup', slot: 'list' };
   const action = /^ui:action:(page|detail|form):(.+)$/.exec(key);
   if (action)
@@ -418,7 +457,12 @@ function doubleClick(event: { node: UiTreeNode }) {
 function canDragNode(node: UiTreeNode) {
   if (props.disabled) return false;
   const parsed = parseNode(node.key);
-  return Boolean(parsed && ['field', 'groupField', 'group', 'relationField', 'action'].includes(parsed.kind));
+  return Boolean(
+    parsed &&
+    (['field', 'groupField', 'group', 'relationField', 'action'].includes(parsed.kind) ||
+      (parsed.kind === 'summary' &&
+        props.querySummaries?.some((summary) => summary.key === parsed.summaryKey))),
+  );
 }
 
 function formPlacement(event: UiTreeDropEvent) {
@@ -510,6 +554,15 @@ function allowDrop(event: UiTreeDropEvent) {
   const source = parseNode(event.source.node.key);
   const target = parseNode(event.target.node.key);
   if (!source || !target || source.kind === 'template') return false;
+  if (source.kind === 'summary') {
+    return (
+      target.kind === 'summary' &&
+      event.target.position !== 'inside' &&
+      source.summaryKey !== target.summaryKey &&
+      props.querySummaries?.some((summary) => summary.key === source.summaryKey) === true &&
+      props.querySummaries?.some((summary) => summary.key === target.summaryKey) === true
+    );
+  }
   if (source.kind === 'action') {
     if (event.source.node.key === event.target.node.key) return false;
     if (
@@ -558,6 +611,17 @@ function handleDrop(event: UiTreeDropEvent) {
   const source = parseNode(event.source.node.key);
   const target = parseNode(event.target.node.key);
   if (!source || !target) return;
+
+  if (source.kind === 'summary' && target.kind === 'summary') {
+    const targetIndex = insertionIndex(
+      (props.querySummaries ?? []).map((summary) => summary.key),
+      source.summaryKey,
+      target.summaryKey,
+      event,
+    );
+    if (targetIndex !== undefined) emit('reorder-query-summary', source.summaryKey, targetIndex);
+    return;
+  }
 
   if (source.kind === 'action') {
     const anchor = target.kind === 'action' || target.kind === 'action-anchor' ? target.anchor : undefined;

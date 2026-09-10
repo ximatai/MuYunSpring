@@ -92,6 +92,18 @@ class PresentationConfigurationReferencesTest {
     }
 
     @Test
+    void protectsSumSourceFieldAcrossDraftAndPublishedRevisions() {
+        Fixture fixture = new Fixture("supplierId.organizationId.title");
+        fixture.revision.setUiTreeJson("""
+                {"querySummaries":[{"key":"supplierTotal","label":"供应商汇总","source":"SUM","fieldName":"supplierId"}],"nodes":[]}
+                """);
+
+        assertReferenced(fixture.fieldReferences(), "field-supplier");
+        fixture.revision.setStatus(PlatformPresentationRevisionStatus.PUBLISHED);
+        assertReferenced(fixture.moduleFieldReferences(), "module-field-supplier");
+    }
+
+    @Test
     void preservesMetadataFieldProtectionForLegacyDirectChildRegions() {
         Fixture fixture = new Fixture("supplierId.organizationId.title");
         fixture.metadata("metadata-line", "line");

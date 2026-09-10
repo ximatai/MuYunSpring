@@ -49,6 +49,11 @@ import {
   type PageComposerFormItem,
   type PageComposerFieldProperties,
   type PageComposerSlot,
+  type PageQuerySummary,
+  type PageQuerySummarySource,
+  defaultPageQuerySummaryLabel,
+  hasDefaultPageQuerySummaryLabel,
+  pageQuerySummaryDescription,
 } from './pageCompositionDraftState';
 import {
   canPlaceActionInAnchor,
@@ -63,6 +68,7 @@ import {
 } from './pageCompositionMode';
 import { pageCompositionTransport } from './pageCompositionTransport';
 import PageCompositionDescriptorPreview from './PageCompositionDescriptorPreview.vue';
+import PageQuerySummaryEditor, { type PageQuerySummaryEditorIssues } from './PageQuerySummaryEditor.vue';
 import PageCompositionTree, { type ComposerDropTarget } from './PageCompositionTree.vue';
 import {
   PAGE_COMPOSITION_DRAG_PAYLOAD_TYPE,
@@ -171,7 +177,21 @@ interface PageReferenceField {
   readOnly?: boolean;
   systemManaged?: boolean;
 }
+interface PageQuerySummaryCatalog {
+  moduleAlias: string;
+  fields?: Array<{ fieldName: string; title: string }>;
+  contributors?: Array<{ contributorKey: string; title: string }>;
+  groupFields?: Array<{ fieldName: string; title: string; kind: 'OPTION' | 'REFERENCE' }>;
+}
 const platformFieldPolicies = ref(new Map<string, PlatformFieldPolicy>());
+const summaryCatalog = ref<PageQuerySummaryCatalog>();
+const summaryCatalogLoading = ref(false);
+const summaryCatalogError = ref<string>();
+const summaryDrawerOpen = ref(false);
+const selectedSummaryKey = ref<string>();
+const summaryFocusRequest = ref(0);
+const customSummaryKeys = new Set<string>();
+let summaryCatalogSequence = 0;
 let previewRequestSequence = 0;
 let previewDebounceTimer: ReturnType<typeof setTimeout> | undefined;
 let workspaceLoadSequence = 0;
@@ -182,6 +202,71 @@ const compositionLoading = ref(false);
 let compositionLoadSequence = 0;
 
 const hasListPreview = computed(() => previewDescriptor.value?.page?.template === 'LIST_DETAIL_CARD');
+const supportsQuerySummaries = computed(() => skeleton.value?.mode === 'LIST_CARD');
+const summarySources = computed(() => state.querySummaries.value);
+const querySummaryIssuesByKey = computed<Record<string, PageQuerySummaryEditorIssues>>(() => {
+  const issues: Record<string, PageQuerySummaryEditorIssues> = {};
+  for (const summary of summarySources.value) {
+    const item: PageQuerySummaryEditorIssues = {};
+    if (!['MATCHED_COUNT', 'SUM', 'CONTRIBUTOR', 'GROUPED'].includes(summary.source))
+      item.source = '请选择有效的统计方式。';
+    if (!summary.label.trim()) item.label = '请填写展示名称。';
+    if (summary.source === 'SUM' && !summary.fieldName) item.fieldName = '请选择数值字段。';
+    if (summary.source === 'CONTRIBUTOR' && !summary.contributorKey) item.contributorKey = '请选择业务指标。';
+    // GROUPED always includes each group's record count; its numeric sum remains optional.
+    if (summary.source === 'GROUPED' && !summary.groupByField) item.groupByField = '请选择分组字段。';
+    if (Object.keys(item).length) issues[summary.key] = item;
+  }
+  return issues;
+});
+const summaryEditorIssues = computed<Record<string, PageQuerySummaryEditorIssues>>(() => {
+  const issues = { ...querySummaryIssuesByKey.value };
+  const fields = new Set(summaryCatalog.value?.fields?.map((field) => field.fieldName) ?? []);
+  const contributors = new Set(summaryCatalog.value?.contributors?.map((item) => item.contributorKey) ?? []);
+  const groupFields = new Set(summaryCatalog.value?.groupFields?.map((field) => field.fieldName) ?? []);
+  if (!summaryCatalog.value || summaryCatalogLoading.value || summaryCatalogError.value) return issues;
+  for (const summary of summarySources.value) {
+    const item = { ...(issues[summary.key] ?? {}) };
+    if (
+      (summary.source === 'SUM' || summary.source === 'GROUPED') &&
+      summary.fieldName &&
+      !fields.has(summary.fieldName)
+    )
+      item.fieldName = '该数值字段已不可用，请重新选择。';
+    if (
+      summary.source === 'CONTRIBUTOR' &&
+      summary.contributorKey &&
+      !contributors.has(summary.contributorKey)
+    )
+      item.contributorKey = '该业务指标已不可用，请重新选择。';
+    if (summary.source === 'GROUPED' && summary.groupByField && !groupFields.has(summary.groupByField))
+      item.groupByField = '该分组字段已不可用，请重新选择。';
+    if (Object.keys(item).length) issues[summary.key] = item;
+  }
+  return issues;
+});
+const summaryIssueEntries = computed(() =>
+  summarySources.value.flatMap((summary) => {
+    const messages = Object.values(summaryEditorIssues.value[summary.key] ?? {});
+    return messages.length ? [{ key: summary.key, title: summary.label || summary.key, messages }] : [];
+  }),
+);
+const hasSummaryIssues = computed(() => summaryIssueEntries.value.length > 0);
+const summaryDescriptions = computed(() =>
+  Object.fromEntries(
+    summarySources.value.map((summary) => [
+      summary.key,
+      pageQuerySummaryDescription(summary, summaryCatalog.value),
+    ]),
+  ),
+);
+const summaryTreeIssues = computed(() =>
+  Object.fromEntries(
+    summarySources.value
+      .filter((summary) => Object.keys(summaryEditorIssues.value[summary.key] ?? {}).length)
+      .map((summary) => [summary.key, '配置未完成或来源失效']),
+  ),
+);
 const effectivePreviewMode = computed(() => {
   const mode = state.previewMode.value;
   if (mode === 'detail' || mode === 'edit') return mode;
@@ -315,6 +400,7 @@ const propertyValidationMessage = computed(() => {
   return '列宽需使用数字加 px 或 %，例如 160px、25%。';
 });
 const selectedUiTreeKey = computed(() => {
+  if (selectedSummaryKey.value) return `ui:summary:${selectedSummaryKey.value}`;
   if (selectedActionKey.value) return selectedActionKey.value;
   const node = state.selectedNode.value;
   if (!node) return undefined;
@@ -396,6 +482,14 @@ watch(
     metadataFields.value = [];
     referenceFieldDirectories.value = new Map();
     referenceDirectoryRequests.clear();
+    summaryCatalogSequence += 1;
+    summaryCatalog.value = undefined;
+    summaryCatalogError.value = undefined;
+    summaryCatalogLoading.value = false;
+    summaryDrawerOpen.value = false;
+    selectedSummaryKey.value = undefined;
+    customSummaryKeys.clear();
+    state.replaceQuerySummaries([]);
     metadataTreeReloadKey.value += 1;
     childMetadataFields.value = new Map();
     revision.value = undefined;
@@ -619,6 +713,155 @@ async function loadMetadataTree(requestSequence = workspaceLoadSequence, moduleA
 
 function referenceDirectoryKey(moduleAlias: string, path: string) {
   return `${moduleAlias}:${path}`;
+}
+
+async function loadSummaryCatalog(retry = false) {
+  if (summaryCatalogLoading.value) return;
+  if (summaryCatalog.value && !retry) return;
+  const sequence = ++summaryCatalogSequence;
+  const moduleAlias = props.moduleAlias;
+  summaryCatalogLoading.value = true;
+  summaryCatalogError.value = undefined;
+  try {
+    const catalog = await moduleContext.http.request<PageQuerySummaryCatalog>({
+      method: 'GET',
+      path: `/platform.module/${encodeURIComponent(moduleAlias)}/page-query-summary-catalog`,
+    });
+    if (sequence !== summaryCatalogSequence || moduleAlias !== props.moduleAlias) return;
+    summaryCatalog.value = {
+      moduleAlias,
+      fields: catalog.fields ?? [],
+      contributors: catalog.contributors ?? [],
+      groupFields: catalog.groupFields ?? [],
+    };
+  } catch (cause) {
+    if (sequence !== summaryCatalogSequence || moduleAlias !== props.moduleAlias) return;
+    summaryCatalogError.value = cause instanceof Error ? cause.message : '汇总目录加载失败。';
+  } finally {
+    if (sequence === summaryCatalogSequence) summaryCatalogLoading.value = false;
+  }
+}
+
+function openSummaryEditor(summaryKey?: string) {
+  if (!supportsQuerySummaries.value || isMutating.value) return;
+  if (summaryKey && !state.querySummaries.value.some((summary) => summary.key === summaryKey)) return;
+  // The two inline drawers share one workspace edge. A summary never opens behind a field editor.
+  propertyDrawerOpen.value = false;
+  selectedActionKey.value = undefined;
+  state.selectedNodeId.value = undefined;
+  selectedSummaryKey.value = summaryKey;
+  summaryFocusRequest.value += 1;
+  summaryDrawerOpen.value = true;
+  void loadSummaryCatalog();
+}
+
+function closeSummaryEditor() {
+  summaryDrawerOpen.value = false;
+  selectedSummaryKey.value = undefined;
+}
+
+function nextSummaryKey() {
+  const keys = new Set(state.querySummaries.value.map((summary) => summary.key));
+  let index = 1;
+  while (keys.has(`summary_${index}`)) index += 1;
+  return `summary_${index}`;
+}
+
+function addQuerySummary(source: PageQuerySummarySource) {
+  const firstField = summaryCatalog.value?.fields?.[0];
+  const firstContributor = summaryCatalog.value?.contributors?.[0];
+  const nextSummary: PageQuerySummary = {
+    key: nextSummaryKey(),
+    label: '',
+    source,
+    ...(source === 'SUM' && firstField ? { fieldName: firstField.fieldName } : {}),
+    ...(source === 'CONTRIBUTOR' && firstContributor
+      ? { contributorKey: firstContributor.contributorKey }
+      : {}),
+    ...(source === 'GROUPED' && summaryCatalog.value?.groupFields?.[0]
+      ? { groupByField: summaryCatalog.value.groupFields[0].fieldName }
+      : {}),
+  };
+  state.replaceQuerySummaries([
+    ...state.querySummaries.value,
+    {
+      ...nextSummary,
+      label: defaultPageQuerySummaryLabel(nextSummary, summaryCatalog.value),
+    },
+  ]);
+  selectedSummaryKey.value = nextSummary.key;
+  summaryFocusRequest.value += 1;
+}
+
+function updateQuerySummary(index: number, patch: Partial<PageQuerySummary>) {
+  const current = state.querySummaries.value[index];
+  if (!current) return;
+  const source = (patch.source ?? current.source) as PageQuerySummarySource;
+  const sourceOrFieldChanged =
+    'source' in patch || 'fieldName' in patch || 'contributorKey' in patch || 'groupByField' in patch;
+  if ('label' in patch) customSummaryKeys.add(current.key);
+  const keepsDefaultLabel =
+    !customSummaryKeys.has(current.key) && hasDefaultPageQuerySummaryLabel(current, summaryCatalog.value);
+  state.replaceQuerySummaries(
+    state.querySummaries.value.map((summary, candidateIndex) =>
+      candidateIndex !== index
+        ? summary
+        : normalizeSummaryUpdate(summary, patch, source, keepsDefaultLabel, sourceOrFieldChanged),
+    ),
+  );
+}
+
+function normalizeSummaryUpdate(
+  summary: PageQuerySummary,
+  patch: Partial<PageQuerySummary>,
+  source: PageQuerySummarySource,
+  keepsDefaultLabel: boolean,
+  sourceOrFieldChanged: boolean,
+) {
+  const next: PageQuerySummary = {
+    ...summary,
+    ...patch,
+    source,
+    ...(['SUM', 'GROUPED'].includes(source) ? {} : { fieldName: undefined }),
+    ...(source === 'CONTRIBUTOR' ? {} : { contributorKey: undefined }),
+    ...(source === 'GROUPED' ? {} : { groupByField: undefined }),
+  };
+  return {
+    ...next,
+    // A catalogue refresh must never rewrite a draft. Only a deliberate source/field action updates a default.
+    label:
+      sourceOrFieldChanged && keepsDefaultLabel && !('label' in patch)
+        ? defaultPageQuerySummaryLabel(next, summaryCatalog.value)
+        : next.label,
+  };
+}
+
+function removeQuerySummary(index: number) {
+  const removed = state.querySummaries.value[index];
+  if (removed) customSummaryKeys.delete(removed.key);
+  if (removed?.key === selectedSummaryKey.value) selectedSummaryKey.value = undefined;
+  state.replaceQuerySummaries(
+    state.querySummaries.value.filter((_, candidateIndex) => candidateIndex !== index),
+  );
+}
+
+function moveQuerySummary(index: number, offset: number) {
+  const summary = state.querySummaries.value[index];
+  const targetIndex = index + offset;
+  if (!summary || targetIndex < 0 || targetIndex >= state.querySummaries.value.length) return;
+  reorderQuerySummary(summary.key, targetIndex);
+}
+
+function reorderQuerySummary(summaryKey: string, targetIndex: number) {
+  if (isMutating.value) return;
+  const sourceIndex = state.querySummaries.value.findIndex((summary) => summary.key === summaryKey);
+  if (sourceIndex < 0 || targetIndex < 0 || targetIndex >= state.querySummaries.value.length) return;
+  const next = [...state.querySummaries.value];
+  const [summary] = next.splice(sourceIndex, 1);
+  next.splice(targetIndex, 0, summary);
+  state.replaceQuerySummaries(next);
+  selectedSummaryKey.value = summary.key;
+  summaryFocusRequest.value += 1;
 }
 
 function toReferenceComposerField(field: PageReferenceField): PageComposerField | undefined {
@@ -934,7 +1177,10 @@ async function loadAllFromClient<T>(
 }
 
 async function hydrateDraft(current: PresentationRevision | undefined, markSaved = true) {
-  if (!current?.uiTreeJson) return;
+  if (!current?.uiTreeJson) {
+    state.replaceQuerySummaries([]);
+    return;
+  }
   const sequence = ++hydrateSequence;
   const workspaceSequence = workspaceLoadSequence;
   const moduleAlias = props.moduleAlias;
@@ -942,6 +1188,7 @@ async function hydrateDraft(current: PresentationRevision | undefined, markSaved
   try {
     const tree = JSON.parse(current.uiTreeJson) as {
       props?: { list?: { searchPlaceholder?: unknown } };
+      querySummaries?: PageQuerySummary[];
       nodes?: Array<{
         slot?: PageComposerSlot;
         fields?: Array<string | { field?: string; props?: PageComposerFieldProperties }>;
@@ -1077,6 +1324,9 @@ async function hydrateDraft(current: PresentationRevision | undefined, markSaved
         ];
       }),
     });
+    customSummaryKeys.clear();
+    state.replaceQuerySummaries(Array.isArray(tree.querySummaries) ? tree.querySummaries : []);
+    if (state.querySummaries.value.length) void loadSummaryCatalog();
     quickSearchFields.value =
       modeTree.quickSearchFields ??
       state.listFields.value
@@ -1181,10 +1431,16 @@ async function saveDraft(
   allowDuringPublish = false,
   treeJsonToPersist = currentUiTreeJson.value,
 ): Promise<boolean> {
+  if (state.querySummaries.value.length && !summaryCatalog.value && !summaryCatalogLoading.value)
+    await loadSummaryCatalog();
   if (
     draftParseError.value ||
     propertyIssues.value.length > 0 ||
     actionIssues.value.length > 0 ||
+    hasSummaryIssues.value ||
+    (summarySources.value.length > 0 && summaryCatalogLoading.value) ||
+    (summarySources.value.length > 0 && !supportsQuerySummaries.value) ||
+    (summarySources.value.length > 0 && Boolean(summaryCatalogError.value)) ||
     draftConflict.value ||
     compositionLoading.value ||
     loading.value ||
@@ -1221,12 +1477,18 @@ async function saveDraft(
 }
 
 async function publishDraft() {
+  if (state.querySummaries.value.length && !summaryCatalog.value && !summaryCatalogLoading.value)
+    await loadSummaryCatalog();
   if (
     isMutating.value ||
     propertyIssues.value.length > 0 ||
     actionIssues.value.length > 0 ||
     draftConflict.value ||
     unavailableSources.value.length ||
+    hasSummaryIssues.value ||
+    (summarySources.value.length > 0 && summaryCatalogLoading.value) ||
+    (summarySources.value.length > 0 && !supportsQuerySummaries.value) ||
+    (summarySources.value.length > 0 && Boolean(summaryCatalogError.value)) ||
     draftParseError.value ||
     !revision.value?.id
   )
@@ -1383,6 +1645,12 @@ function addMetadataNode(action: UiRecordInlineAction, node: UiTreeNode) {
 }
 
 function selectUiTreeKey(key: string) {
+  const summaryMatch = /^ui:summary:(.+)$/.exec(key);
+  if (summaryMatch) {
+    openSummaryEditor(summaryMatch[1]);
+    return;
+  }
+  selectedSummaryKey.value = undefined;
   selectedActionKey.value = key.startsWith('ui:action:') ? key : undefined;
   if (selectedActionKey.value) {
     state.selectedNodeId.value = undefined;
@@ -1477,6 +1745,15 @@ function canDragMetadataNode(node: UiTreeNode) {
 }
 
 function handleUiTreeDoubleClick(key: string) {
+  if (key === 'ui:template:list:query-summaries') {
+    openSummaryEditor();
+    return;
+  }
+  const summaryMatch = /^ui:summary:(.+)$/.exec(key);
+  if (summaryMatch) {
+    openSummaryEditor(summaryMatch[1]);
+    return;
+  }
   selectUiTreeKey(key);
   if (
     selectedActionEntry.value ||
@@ -1852,6 +2129,15 @@ function selectPreviewMode(key: string) {
 
 function handleNodeAction(action: 'configure' | 'remove' | 'add-group' | 'toggle-visibility', key: string) {
   if (isMutating.value) return;
+  if (key === 'ui:template:list:query-summaries' && action === 'configure') {
+    openSummaryEditor();
+    return;
+  }
+  const summaryMatch = /^ui:summary:(.+)$/.exec(key);
+  if (summaryMatch && action === 'configure') {
+    openSummaryEditor(summaryMatch[1]);
+    return;
+  }
   if (action === 'add-group') {
     state.addFormGroup();
     openPropertyDrawer();
@@ -1938,6 +2224,8 @@ function openPropertyDrawer() {
     groupTitleDraft.value = selectedGroup.value.title;
     groupSubtitleDraft.value = selectedGroup.value.subtitle ?? '';
   }
+  summaryDrawerOpen.value = false;
+  selectedSummaryKey.value = undefined;
   propertyDrawerOpen.value = true;
 }
 </script>
@@ -1973,6 +2261,9 @@ function openPropertyDrawer() {
                 draftConflict ||
                 propertyIssues.length > 0 ||
                 actionIssues.length > 0 ||
+                hasSummaryIssues ||
+                (summarySources.length > 0 && (summaryCatalogLoading || !supportsQuerySummaries)) ||
+                (summarySources.length > 0 && Boolean(summaryCatalogError)) ||
                 (!hasUnsavedChanges && revision?.templateVersion === 4)
               "
               @click="() => void saveDraft()"
@@ -1991,6 +2282,9 @@ function openPropertyDrawer() {
                 propertyIssues.length > 0 ||
                 actionIssues.length > 0 ||
                 unavailableSources.length > 0 ||
+                hasSummaryIssues ||
+                (summarySources.length > 0 && (summaryCatalogLoading || !supportsQuerySummaries)) ||
+                (summarySources.length > 0 && Boolean(summaryCatalogError)) ||
                 Boolean(draftParseError)
               "
               @click="publishDraft"
@@ -2073,6 +2367,10 @@ function openPropertyDrawer() {
                   title: metadataFields.find((field) => field.fieldName === fieldName)?.title ?? fieldName,
                 }))
               "
+              :query-summaries="summarySources"
+              :summaries-supported="supportsQuerySummaries"
+              :summary-descriptions="summaryDescriptions"
+              :summary-issues="summaryTreeIssues"
               :explorer-title="
                 metadataFields.find((field) => field.fieldName === explorerTitleField)?.title ??
                 explorerTitleField
@@ -2102,6 +2400,7 @@ function openPropertyDrawer() {
               :action-placements="actionPlacements"
               :module-actions="moduleActions"
               :editor-mode="editorMode"
+              @reorder-query-summary="reorderQuerySummary"
               @source-drop="handleCompositionSourceDrop"
               @action-drop="handlePreviewActionDrop"
             />
@@ -2147,13 +2446,41 @@ function openPropertyDrawer() {
           <span>草稿已被其他会话更新，本地修改已保留。请加载最新草稿后继续编辑。</span>
           <UiButton :disabled="isMutating" @click="reloadComposition">加载最新草稿</UiButton>
         </div>
+        <div
+          v-if="summarySources.length && !supportsQuerySummaries"
+          class="page-composition-source-error"
+          role="alert"
+        >
+          汇总统计仅支持列表卡片布局；当前配置已保留，切回列表卡片后可继续编辑。
+          <UiButton size="small" :disabled="isMutating" @click="compositionMode = 'LIST_CARD'"
+            >切回列表卡片</UiButton
+          >
+          <UiButton size="small" :disabled="isMutating" @click="state.replaceQuerySummaries([])"
+            >清空汇总</UiButton
+          >
+        </div>
+        <div v-if="hasSummaryIssues" class="page-composition-source-error" role="alert">
+          <span>汇总配置需修正：</span>
+          <UiButton
+            v-for="entry in summaryIssueEntries"
+            :key="entry.key"
+            type="link"
+            :disabled="isMutating"
+            @click="openSummaryEditor(entry.key)"
+          >
+            {{ entry.title }}：{{ entry.messages.join('、') }}
+          </UiButton>
+        </div>
         <p
-          v-if="unavailableSources.length || draftParseError"
+          v-if="
+            unavailableSources.length || draftParseError || (summarySources.length && summaryCatalogError)
+          "
           class="page-composition-source-error"
           role="alert"
         >
           {{
             draftParseError ??
+            (summarySources.length ? summaryCatalogError : undefined) ??
             `来源失效：${[...new Set(unavailableSources)].join('、')}。配置已保留，请在编排树中移除标记节点并重新选择；修正后才能发布。`
           }}
         </p>
@@ -2181,10 +2508,12 @@ function openPropertyDrawer() {
           :action-form-mode="actionFormMode"
           :action-placements="actionPlacements"
           :module-actions="moduleActions"
+          :query-summaries="supportsQuerySummaries ? summarySources : []"
           @select-field="(slot, fieldName) => selectDescriptorPreviewField(slot, fieldName)"
           @configure-field="(slot, fieldName) => selectDescriptorPreviewField(slot, fieldName, true)"
           @configure-relation-field="configurePreviewRelationField"
           @configure-action="(anchor, code) => handleUiTreeDoubleClick(`ui:action:${anchor}:${code}`)"
+          @configure-summaries="openSummaryEditor"
           @placement-drop="handlePreviewPlacement"
           @action-drop="(source, target) => handlePreviewActionDrop(source, target, true)"
         />
@@ -2346,6 +2675,30 @@ function openPropertyDrawer() {
             />
           </label>
         </div>
+      </RecordDetailDrawer>
+      <RecordDetailDrawer
+        :open="summaryDrawerOpen"
+        render-mode="inline"
+        title="汇总统计"
+        :width="480"
+        @close="closeSummaryEditor"
+      >
+        <PageQuerySummaryEditor
+          :summaries="summarySources"
+          :catalog="summaryCatalog"
+          :loading="summaryCatalogLoading"
+          :error="summaryCatalogError"
+          :disabled="isMutating"
+          :selected-key="selectedSummaryKey"
+          :focus-request="summaryFocusRequest"
+          :issues="summaryEditorIssues"
+          :descriptions="summaryDescriptions"
+          @add="addQuerySummary"
+          @update="updateQuerySummary"
+          @remove="removeQuerySummary"
+          @move="moveQuerySummary"
+          @retry="loadSummaryCatalog(true)"
+        />
       </RecordDetailDrawer>
     </ManagementWorkspace>
   </section>

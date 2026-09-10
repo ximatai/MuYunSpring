@@ -33,6 +33,34 @@ import static org.mockito.Mockito.*;
 
 class StandardModuleWebRuntimeTest {
     @Test
+    void shouldCalculateBuiltInSumThroughTheSameScopedAggregateAsThePagedList() {
+        String module = "sales.contract";
+        StaticRecordReadProjectionService projections = mock(StaticRecordReadProjectionService.class);
+        CrudAbility<?> service = mock(CrudAbility.class);
+        ActionExecutionPolicy policy = ActionExecutionPolicy.standard(
+                net.ximatai.muyun.spring.common.platform.PlatformAction.QUERY);
+        when(projections.aggregateDefaultList(any(), any(), any(), any(), any(), any(), any()))
+                .thenReturn(Optional.of(List.of(Map.of("amountTotal", new java.math.BigDecimal("42.50")))));
+        StandardModuleWebRuntime runtime = new StandardModuleWebRuntime(dynamicCatalog(module, sumPlan(module)), projections,
+                new ListQuerySummaryRuntime(List.of()));
+        WebQueryRequest request = new WebQueryRequest(null, false,
+                List.of(new WebQueryCondition("code", "EQ", List.of("C-001"))), null, Map.of(), List.of(),
+                null, null, Map.of("tenantId", "tenant-a"), false, null, List.of(), null);
+
+        assertThat(runtime.listQuerySummaries(module, request, 1, service, Criteria.of().eq("tenantId", "tenant-a"), policy))
+                .containsExactly(new WebListQuerySummaryItem("amountTotal", new java.math.BigDecimal("42.50")));
+        ArgumentCaptor<Criteria> criteria = ArgumentCaptor.forClass(Criteria.class);
+        ArgumentCaptor<net.ximatai.muyun.database.core.orm.AggregateQuery> aggregate = ArgumentCaptor.forClass(
+                net.ximatai.muyun.database.core.orm.AggregateQuery.class);
+        verify(projections).aggregateDefaultList(eq(module), any(), criteria.capture(), eq(service), eq(policy),
+                eq(RecordReadVisibility.ACTIVE), aggregate.capture());
+        assertClause(criteria.getValue(), "tenantId", "tenant-a");
+        assertThat(aggregate.getValue().selections()).singleElement().satisfies(selection -> {
+            assertThat(selection.field()).isEqualTo("amount");
+        });
+    }
+
+    @Test
     void shouldUseNormalizedRequestAndSameScopeForProjectedCountAndAggregate() {
         String module = "sales.contract";
         WebQueryRequest request = new WebQueryRequest(null, false,
@@ -188,6 +216,22 @@ class StandardModuleWebRuntimeTest {
         return new ModuleExecutionPlan(module, "test", compiled, new ResolvedModuleReadModel(module, "contract", List.of()),
                 List.of(PageContextBindingDefinition.navigator("tenant", PageContextTarget.LIST_QUERY, "tenantId"),
                         PageContextBindingDefinition.resolvedSelection("owner", PageContextTarget.MUTATION_CONSTRAINT, "owner")),
+                query, QuerySchema.from(query), List.of(), List.of(), false);
+    }
+
+    private static ModuleExecutionPlan sumPlan(String module) {
+        ModuleUiDefinition definition = ModuleUiDefinition.builder(module)
+                .page(PageTemplates.listDetailCard(page -> page.detail(detail -> detail.editor(editor -> editor.field("code")))
+                        .list(list -> list.fields(fields -> fields.field("code"))
+                                .querySummaries(summary -> summary.item("amountTotal", item -> item
+                                        .label("金额合计").sum("amount")))))).build();
+        ResolvedModuleUiDescriptor compiled = ModuleUiDescriptorCompiler.compile(definition,
+                net.ximatai.muyun.spring.platform.module.ModuleKind.DYNAMIC, "Contract");
+        QueryDescriptor query = QueryDescriptor.builder(module)
+                .field(QueryField.of("code", QueryValueType.STRING, QueryOperator.EQ, QueryOperator.CONTAINS).withQuickSearch())
+                .build();
+        return new ModuleExecutionPlan(module, "sum", compiled, new ResolvedModuleReadModel(module, "contract", List.of()),
+                List.of(PageContextBindingDefinition.navigator("tenant", PageContextTarget.LIST_QUERY, "tenantId")),
                 query, QuerySchema.from(query), List.of(), List.of(), false);
     }
 
