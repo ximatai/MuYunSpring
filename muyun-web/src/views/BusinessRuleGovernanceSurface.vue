@@ -642,6 +642,7 @@ async function loadReferenceDirectory(
 
 async function loadReferenceRoot(retry = false) {
   const moduleAlias = props.moduleAlias;
+  const epoch = referenceDirectoryEpoch;
   if (referenceRootLoading.value) return;
   if (!retry && referenceDirectories.value.has(referenceDirectoryKey(moduleAlias, ''))) return;
   referenceRootLoading.value = true;
@@ -649,11 +650,12 @@ async function loadReferenceRoot(retry = false) {
   try {
     await loadReferenceDirectory(moduleAlias, '');
   } catch (cause) {
-    if (moduleAlias !== props.moduleAlias) return;
+    if (epoch !== referenceDirectoryEpoch || moduleAlias !== props.moduleAlias) return;
     referenceRootFailed.value = true;
     presentPlatformError(cause, { source: 'business-rule-governance', phase: 'load' });
   } finally {
-    if (moduleAlias === props.moduleAlias) referenceRootLoading.value = false;
+    if (epoch === referenceDirectoryEpoch && moduleAlias === props.moduleAlias)
+      referenceRootLoading.value = false;
   }
 }
 
@@ -745,6 +747,7 @@ async function loadSnapshot(force = false) {
   referenceDirectories.value = new Map();
   referenceDirectoryRequests.clear();
   selectedFieldNodeKey.value = undefined;
+  referenceRootLoading.value = false;
   referenceRootFailed.value = false;
   trialTenantRequest += 1;
   trialTenantId.value = '';

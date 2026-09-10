@@ -251,6 +251,79 @@ class BusinessRuleGovernanceRepositoryIT extends PlatformPostgresIntegrationTest
     }
 
     @Test
+    void shouldMakeGovernanceBaselineStaleAfterDirectFormulaRuleUpdate() {
+        formulas.insert(formulaRule("deriveTotal", FormulaRuleKind.CALCULATION, FormulaRulePhase.BEFORE_SAVE,
+                "total", "{total} = ({quantity} * 2)", true));
+        BusinessRuleGovernanceSnapshot baseline = governance.snapshot(moduleAlias);
+        ModuleMetadataFormulaRule direct = formulas.listByRelationIds(List.of(mainRelationId())).getFirst();
+        direct.setExpression("{total} = ({quantity} * 4)");
+        formulas.update(direct);
+
+        BusinessRuleProposal governanceRule = new BusinessRuleProposal("deriveTotal", FormulaRuleKind.CALCULATION,
+                "total", "{quantity} * 3", true, null);
+        BusinessRulePreview preview = governance.preview(moduleAlias,
+                new BusinessRulePreviewCommand(List.of(governanceRule)));
+
+        assertThat(preview.valid()).isTrue();
+        assertThatThrownBy(() -> governance.apply(moduleAlias, new BusinessRuleApplyCommand(List.of(governanceRule),
+                baseline.baselineFingerprint(), preview.proposalFingerprint())))
+                .isInstanceOf(PlatformException.class)
+                .hasMessageContaining("baseline is stale");
+        assertThat(formulas.listByRelationIds(List.of(mainRelationId()))).singleElement()
+                .extracting(ModuleMetadataFormulaRule::getExpression)
+                .isEqualTo("{total} = ({quantity} * 4)");
+    }
+
+    @Test
+    void shouldAdvanceOwningRelationVersionForDirectFormulaRuleLifecycleMutations() {
+        int version = mainRelationVersion();
+        ModuleMetadataFormulaRule first = formulaRule("firstRule", FormulaRuleKind.CALCULATION,
+                FormulaRulePhase.BEFORE_SAVE, "total", "{total} = ({quantity} * 2)", true);
+        formulas.insert(first);
+        assertThat(mainRelationVersion()).isGreaterThan(version);
+
+        version = mainRelationVersion();
+        formulas.disable(first.getId());
+        assertThat(mainRelationVersion()).isGreaterThan(version);
+
+        version = mainRelationVersion();
+        formulas.enable(first.getId());
+        assertThat(mainRelationVersion()).isGreaterThan(version);
+
+        ModuleMetadataFormulaRule second = formulaRule("secondRule", FormulaRuleKind.VALIDATION,
+                FormulaRulePhase.BEFORE_SAVE, null, "{quantity} > 0", true);
+        formulas.insert(second);
+        version = mainRelationVersion();
+        formulas.reorder(List.of(second.getId(), first.getId()));
+        assertThat(mainRelationVersion()).isGreaterThan(version);
+
+        version = mainRelationVersion();
+        formulas.delete(first.getId());
+        assertThat(mainRelationVersion()).isGreaterThan(version);
+
+        version = mainRelationVersion();
+        formulas.restore(first.getId());
+        assertThat(mainRelationVersion()).isGreaterThan(version);
+    }
+
+    @Test
+    void shouldRollbackOwningRelationVersionWhenDirectFormulaRuleUpdateIsRejected() {
+        ModuleMetadataFormulaRule stored = formulaRule("deriveTotal", FormulaRuleKind.CALCULATION,
+                FormulaRulePhase.BEFORE_SAVE, "total", "{total} = ({quantity} * 2)", true);
+        formulas.insert(stored);
+        int relationVersion = mainRelationVersion();
+        ModuleMetadataFormulaRule invalid = formulas.select(stored.getId());
+        invalid.setExpression("{total} = ({quantity} +)");
+
+        assertThatThrownBy(() -> formulas.update(invalid))
+                .isInstanceOf(PlatformException.class)
+                .hasMessageContaining("formula expression is invalid");
+
+        assertThat(mainRelationVersion()).isEqualTo(relationVersion);
+        assertThat(formulas.select(stored.getId()).getExpression()).isEqualTo("{total} = ({quantity} * 2)");
+    }
+
+    @Test
     void shouldRollbackFailedApplyAndAcceptOnlyOneSameBaseline() throws Exception {
         BusinessRuleProposal valid = new BusinessRuleProposal("deriveTotal", FormulaRuleKind.CALCULATION,
                 "total", "{quantity} * 3", true, null);
@@ -305,6 +378,7 @@ class BusinessRuleGovernanceRepositoryIT extends PlatformPostgresIntegrationTest
 
     private String mainMetadataId() { return relations.select(mainRelationId()).getMetadataId(); }
     private String mainRelationId() { return relations.list(Criteria.of().eq("moduleAlias", moduleAlias), new PageRequest(0, 1)).getFirst().getId(); }
+    private int mainRelationVersion() { return relations.select(mainRelationId()).getVersion(); }
     private void ensureSpec(String alias, FieldType type) {
         if (!specs.list(Criteria.of().eq("alias", alias)).isEmpty()) return;
         FieldSpec spec = new FieldSpec(); spec.setAlias(alias); spec.setTitle(alias); spec.setFieldType(type); specs.insert(spec);

@@ -539,6 +539,27 @@ describe('BusinessRuleGovernanceSurface', () => {
     expect(expression().props('value')).toBe('{quantity}{quantity} > 0');
   });
 
+  it('loads the new module directory while a previous module directory is still pending', async () => {
+    const pendingDirectory = deferred<unknown>();
+    const http = fakeHttp();
+    vi.mocked(http.request).mockImplementation((options) =>
+      options.path === '/platform.module/education.exam/page-reference-fields'
+        ? (pendingDirectory.promise as never)
+        : fakeHttp().request(options),
+    );
+    const wrapper = mountSurface(http);
+    await flushPromises();
+    await wrapper.setProps({ moduleAlias: 'education.other' });
+    await flushPromises();
+    expect(vi.mocked(http.request)).toHaveBeenCalledWith(
+      expect.objectContaining({ path: '/platform.module/education.other/page-reference-fields' }),
+    );
+    pendingDirectory.resolve({ fields: [] });
+    await flushPromises();
+    const tree = wrapper.findComponent({ name: 'UiTree' });
+    expect(tree.props('nodes')).toContainEqual(expect.objectContaining({ key: 'formula-field:supplierId' }));
+  });
+
   it('loads ONE reference descendants once and exposes MANY as unavailable', async () => {
     const http = fakeHttp();
     const wrapper = mountSurface(http);
