@@ -6,8 +6,13 @@ import net.ximatai.muyun.spring.ability.reference.ReferencePlan;
 import net.ximatai.muyun.spring.ability.reference.ReferenceProjection;
 import net.ximatai.muyun.spring.ability.reference.ReferenceSelectionProjection;
 import net.ximatai.muyun.spring.ability.reference.ReferenceTarget;
+import net.ximatai.muyun.spring.ability.reference.FormulaReferenceContext;
+import net.ximatai.muyun.spring.ability.PlatformAbilityRuntime;
 import net.ximatai.muyun.spring.common.formula.FormulaEngine;
 import net.ximatai.muyun.spring.common.formula.FormulaEvaluationException;
+import net.ximatai.muyun.spring.common.formula.FormulaFieldDefinition;
+import net.ximatai.muyun.spring.common.formula.FormulaRule;
+import net.ximatai.muyun.spring.common.formula.FormulaRuleExecutionPlan;
 import net.ximatai.muyun.spring.common.formula.FormulaRuleKind;
 import net.ximatai.muyun.spring.common.formula.FormulaRulePhase;
 import net.ximatai.muyun.spring.common.option.OptionSelectionMode;
@@ -63,6 +68,7 @@ public class ModuleDefinitionValidator {
             requireUnique(relationCodes, relation.parentEntityAlias() + "." + relation.code(), "relation code");
         }
         validateFormulaRuleTargets(module, entities);
+        validateMainBeforeSaveFormulaPlans(module, entities);
         for (EntityReferenceDefinition reference : module.references()) {
             validateReference(reference, entities, module.moduleAlias(), module.references());
         }
@@ -296,6 +302,91 @@ public class ModuleDefinitionValidator {
                 }
             }
         }
+    }
+
+    private void validateMainBeforeSaveFormulaPlans(ModuleDefinition module,
+                                                    Map<String, EntityDefinition> entities) {
+        for (EntityDefinition entity : module.entities()) {
+            List<FormulaRule> candidates = entity.orderedFormulaRules().stream()
+                    .filter(EntityFormulaRuleDefinition::enabled)
+                    .filter(rule -> rule.phase() == FormulaRulePhase.BEFORE_SAVE)
+                    .map(EntityFormulaRuleDefinition::toRuntimeRule)
+                    .filter(this::isMainRecordPlanCandidate)
+                    .toList();
+            if (candidates.isEmpty()) {
+                continue;
+            }
+            try {
+                List<FormulaFieldDefinition> fields = new java.util.ArrayList<>(declaredFormulaFields(module, entity, entities));
+                Set<String> childRelations = module.relations().stream()
+                        .filter(relation -> entity.alias().equals(relation.parentEntityAlias()))
+                        .map(EntityRelationDefinition::code).collect(Collectors.toSet());
+                FormulaReferenceContext references = FormulaReferenceContext.compile(
+                        ReferenceTarget.of(module.moduleAlias(), entity.alias()), candidates,
+                        PlatformAbilityRuntime.referenceTargetResolver(), childRelations);
+                fields.addAll(references.fields());
+                FormulaRuleExecutionPlan plan = FormulaRuleExecutionPlan.forMainRecord(candidates, fields);
+                rejectChildCalculationDependingOnMainPlan(entity, candidates, plan);
+            } catch (FormulaEvaluationException | IllegalArgumentException exception) {
+                throw new ModuleDefinitionException("invalid main formula rule plan: " + entity.alias()
+                        + ", " + exception.getMessage());
+            }
+        }
+    }
+
+    private boolean isMainRecordPlanCandidate(FormulaRule rule) {
+        if (rule.kind() == FormulaRuleKind.VALIDATION) {
+            return rule.targetField() == null || !rule.targetField().contains(".");
+        }
+        if (rule.kind() != FormulaRuleKind.CALCULATION) {
+            return false;
+        }
+        if (rule.targetField() != null) {
+            return !rule.targetField().contains(".");
+        }
+        return formulaEngine.assignedFields(rule.expression()).stream().noneMatch(field -> field.contains("."));
+    }
+
+    private void rejectChildCalculationDependingOnMainPlan(EntityDefinition entity,
+                                                            List<FormulaRule> candidates,
+                                                            FormulaRuleExecutionPlan plan) {
+        Set<FormulaRule> planned = Set.copyOf(candidates);
+        Set<String> mainCalculationTargets = Set.copyOf(plan.calculationTargetFieldsByRule().values());
+        for (EntityFormulaRuleDefinition definition : entity.orderedFormulaRules()) {
+            if (!definition.enabled() || definition.phase() != FormulaRulePhase.BEFORE_SAVE) {
+                continue;
+            }
+            FormulaRule rule = definition.toRuntimeRule();
+            if (rule.kind() != FormulaRuleKind.CALCULATION || planned.contains(rule)) {
+                continue;
+            }
+            String dependency = formulaEngine.valueSideReferencedFields(rule.expression()).stream()
+                    .filter(mainCalculationTargets::contains)
+                    .findFirst()
+                    .orElse(null);
+            if (dependency != null) {
+                throw new FormulaEvaluationException("FORMULA_PLAN_CHILD_DEPENDS_ON_MAIN_CALCULATION", dependency,
+                        "child calculation depends on planned main-record calculation field " + dependency
+                                + ": " + rule.id());
+            }
+        }
+    }
+
+    private List<FormulaFieldDefinition> declaredFormulaFields(ModuleDefinition module,
+                                                               EntityDefinition entity,
+                                                               Map<String, EntityDefinition> entities) {
+        List<FormulaFieldDefinition> fields = new java.util.ArrayList<>(DynamicFormulaFieldDefinitions.mainFields(entity));
+        for (EntityRelationDefinition relation : module.relations()) {
+            if (!entity.alias().equals(relation.parentEntityAlias())) {
+                continue;
+            }
+            EntityDefinition child = entities.get(relation.childEntityAlias());
+            if (child != null) {
+                DynamicFormulaFieldDefinitions.childFields(relation.code(), child).stream()
+                        .forEach(fields::add);
+            }
+        }
+        return List.copyOf(fields);
     }
 
     private void requireFormulaExpression(EntityFormulaRuleDefinition rule) {

@@ -44,17 +44,27 @@ public class ModuleMetadataFormulaRuleService extends AbstractAbilityService<Mod
     public ModuleMetadataFormulaRuleService(BaseDao<ModuleMetadataFormulaRule, String> formulaRuleDao,
                                             ModuleMetadataRelationService relationService,
                                             MetadataFieldService fieldService) {
-        this(formulaRuleDao, relationService, fieldService, Optional.empty());
+        this(formulaRuleDao, relationService, fieldService, Optional.empty(), Optional.empty());
+    }
+
+    /** Compatibility constructor for callers that only configure the refresh hook. */
+    public ModuleMetadataFormulaRuleService(BaseDao<ModuleMetadataFormulaRule, String> formulaRuleDao,
+                                            ModuleMetadataRelationService relationService,
+                                            MetadataFieldService fieldService,
+                                            Optional<PlatformDynamicRuntimeRefreshCoordinator> runtimeRefreshCoordinator) {
+        this(formulaRuleDao, relationService, fieldService, runtimeRefreshCoordinator, Optional.empty());
     }
 
     @Autowired
     public ModuleMetadataFormulaRuleService(BaseDao<ModuleMetadataFormulaRule, String> formulaRuleDao,
                                             ModuleMetadataRelationService relationService,
                                             MetadataFieldService fieldService,
-                                            Optional<PlatformDynamicRuntimeRefreshCoordinator> runtimeRefreshCoordinator) {
+                                            Optional<PlatformDynamicRuntimeRefreshCoordinator> runtimeRefreshCoordinator,
+                                            Optional<MetadataFieldReferenceConfigService> referenceConfigService) {
         super(MODULE_ALIAS, ModuleMetadataFormulaRule.class, formulaRuleDao);
         this.relationService = relationService;
-        this.fieldValidator = new MetadataFormulaFieldValidator(relationService, fieldService);
+        this.fieldValidator = new MetadataFormulaFieldValidator(relationService, fieldService,
+                referenceConfigService.orElse(null));
         this.runtimeRefreshCoordinator = runtimeRefreshCoordinator.orElse(null);
     }
 
@@ -76,7 +86,7 @@ public class ModuleMetadataFormulaRuleService extends AbstractAbilityService<Mod
 
     @Override
     public void afterChanged(ModuleMetadataFormulaRule rule) {
-        if (runtimeRefreshCoordinator != null) {
+        if (runtimeRefreshCoordinator != null && !MetadataCapabilityGovernanceMutationContext.isActive()) {
             runtimeRefreshCoordinator.refreshByFormulaRule(rule);
         }
     }

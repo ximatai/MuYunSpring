@@ -25,6 +25,7 @@ import java.util.List;
 import java.util.Map;
 
 final class PlatformAbilityDispatcher {
+    private static final MainRecordFormulaExecutor mainRecordFormulaExecutor = new MainRecordFormulaExecutor();
     private static volatile StaticOptionFieldValueValidator staticOptionFieldValueValidator =
             StaticOptionFieldValueValidator.NONE;
     private static volatile DeletionLifecycleListener deletionLifecycleListener = DeletionLifecycleListener.NONE;
@@ -210,10 +211,18 @@ final class PlatformAbilityDispatcher {
         // coherent record, regardless of whether the declaration is static or dynamic.
         Class<?> modelClass = ability.modelClass() == null ? entity.getClass() : ability.modelClass();
         DiscriminatedValueValidator.normalizeAndValidate(modelClass, entity);
+        runMainRecordFormulas(ability, entity);
         runStaticOptionFieldValidation(ability, entity);
         runReferenceIntegrityValidation(ability, existing, entity, update);
         TenantUniqueConstraintSupport.validate(ability, entity);
         entitySaveLifecycleListener.beforeSave(ability, existing, entity);
+    }
+
+    @SuppressWarnings({"rawtypes", "unchecked"})
+    private static <T extends EntityContract> void runMainRecordFormulas(CrudAbility<T> ability, T entity) {
+        if (ability instanceof MainRecordFormulaAbility formulaAbility) {
+            mainRecordFormulaExecutor.execute(formulaAbility, entity);
+        }
     }
 
     static <T extends EntityContract> void persisted(CrudAbility<T> ability, T entity) {

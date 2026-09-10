@@ -50,4 +50,9 @@ public record ResolvedModulePageDescriptor(ModulePageTemplate template,
     public ResolvedModulePageDescriptor withNavigator(ResolvedPageNavigatorDescriptor resolvedNavigator) {
         return new ResolvedModulePageDescriptor(template, explorer, resolvedNavigator, list, treeResource, detail, traits, quickSearchFields, actions, managedActions);
     }
+
+    public ResolvedModulePageDescriptor withDetail(ResolvedPageDetailDescriptor resolvedDetail) {
+        return new ResolvedModulePageDescriptor(template, explorer, navigator, list, treeResource, resolvedDetail,
+                traits, quickSearchFields, actions, managedActions);
+    }
 }

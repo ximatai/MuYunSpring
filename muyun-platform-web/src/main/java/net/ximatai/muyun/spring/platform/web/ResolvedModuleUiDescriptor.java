@@ -57,4 +57,12 @@ public record ResolvedModuleUiDescriptor(String schemaVersion,
                 recordLabelField, fileReferences, page, defaultEditor, editorSurfaces, values, detailRelations);
     }
 
+    public ResolvedModuleUiDescriptor withEditors(ResolvedModulePageDescriptor resolvedPage,
+                                                   ResolvedViewDescriptor resolvedDefaultEditor,
+                                                   List<ResolvedEditorSurfaceDescriptor> resolvedEditorSurfaces) {
+        return new ResolvedModuleUiDescriptor(schemaVersion, moduleAlias, moduleKind, title, actions,
+                recordLabelField, fileReferences, resolvedPage, resolvedDefaultEditor, resolvedEditorSurfaces,
+                editorContributions, detailRelations);
+    }
+
 }

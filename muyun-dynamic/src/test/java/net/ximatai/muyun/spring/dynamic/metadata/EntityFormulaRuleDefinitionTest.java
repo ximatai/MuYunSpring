@@ -86,6 +86,53 @@ class EntityFormulaRuleDefinitionTest {
     }
 
     @Test
+    void shouldRejectDuplicateMainFormulaWritersWhenPublishingModule() {
+        ModuleDefinition module = ModuleDefinition.builder("sales.invoice", "Invoice")
+                .entities(List.of(invoiceEntity().withFormulaRules(
+                        EntityFormulaRuleDefinition.calculation("amountByQuantity", "amount", "{quantity} * 2"),
+                        EntityFormulaRuleDefinition.calculation("amountByPrice", "amount", "{price} * 2")
+                )))
+                .build();
+
+        assertThatThrownBy(() -> validator.validate(module))
+                .isInstanceOf(ModuleDefinitionException.class)
+                .hasMessageContaining("multiple calculation rules write field amount");
+    }
+
+    @Test
+    void shouldRejectCyclicMainFormulaDependenciesWhenPublishingModule() {
+        ModuleDefinition module = ModuleDefinition.builder("sales.invoice", "Invoice")
+                .entities(List.of(invoiceEntity().withFormulaRules(
+                        EntityFormulaRuleDefinition.calculation("amountFromQuantity", "amount", "{quantity} + 1"),
+                        EntityFormulaRuleDefinition.calculation("quantityFromAmount", "quantity", "{amount} + 1")
+                )))
+                .build();
+
+        assertThatThrownBy(() -> validator.validate(module))
+                .isInstanceOf(ModuleDefinitionException.class)
+                .hasMessageContaining("formula calculation dependency cycle");
+    }
+
+    @Test
+    void shouldRejectChildCalculationThatDependsOnPlannedMainCalculation() {
+        ModuleDefinition module = ModuleDefinition.builder("sales.invoice", "Invoice")
+                .entities(List.of(
+                        invoiceEntity().withFormulaRules(
+                                EntityFormulaRuleDefinition.calculation("amountCalc", "amount", "{quantity} * {price}"),
+                                EntityFormulaRuleDefinition.calculation("lineAmountCalc", "items.lineAmount",
+                                        "{amount} * {items.quantity}")
+                        ),
+                        invoiceLineEntity()
+                ))
+                .relations(List.of(EntityRelationDefinition.child("items", "invoice", "invoice_line", "invoiceId")))
+                .build();
+
+        assertThatThrownBy(() -> validator.validate(module))
+                .isInstanceOf(ModuleDefinitionException.class)
+                .hasMessageContaining("child calculation depends on planned main-record calculation field amount");
+    }
+
+    @Test
     void shouldRejectUnknownMainTargetField() {
         EntityDefinition entity = invoiceEntity()
                 .withFormulaRules(EntityFormulaRuleDefinition.calculation("amountCalc", "totalAmount", "{quantity} * {price}"));

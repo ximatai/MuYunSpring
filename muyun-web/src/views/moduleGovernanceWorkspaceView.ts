@@ -1,7 +1,7 @@
 import { defineAsyncComponent } from 'vue';
 import { defineWorkspaceView } from '../platform-admin-runtime/workspaceViewContract';
 
-export const moduleGovernanceTabs = ['overview', 'metadata', 'actions', 'ui', 'preview'] as const;
+export const moduleGovernanceTabs = ['overview', 'metadata', 'actions', 'rules', 'ui', 'preview'] as const;
 export type ModuleGovernanceTab = (typeof moduleGovernanceTabs)[number];
 
 export interface ModuleGovernanceWorkspaceViewInput {

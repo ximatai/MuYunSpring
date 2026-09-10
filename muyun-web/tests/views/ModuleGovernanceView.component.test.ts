@@ -4,6 +4,7 @@ import { defineComponent } from 'vue';
 import ModuleGovernanceView from '@/views/ModuleGovernanceView.vue';
 import MetadataOrchestrationView from '@/views/MetadataOrchestrationView.vue';
 import ModuleExperienceProfileOverview from '@/views/ModuleExperienceProfileOverview.vue';
+import BusinessRuleGovernanceSurface from '@/views/BusinessRuleGovernanceSurface.vue';
 import ModuleBusinessPreview from '@/views/ModuleBusinessPreview.vue';
 import PageCompositionWorkspace from '@/views/PageCompositionWorkspace.vue';
 import { RecordDetailPanel } from '@/platform-components';
@@ -27,6 +28,15 @@ describe('ModuleGovernanceView', () => {
     expect(wrapper.findComponent({ name: 'RecordRelationTabs' }).props('tabs')).toContainEqual({
       key: 'preview',
       title: '业务预览',
+    });
+  });
+
+  it('opens business-rule governance in the same module-scoped workbench', () => {
+    const wrapper = mountGovernanceView({ moduleAlias: 'education.exam', governanceTab: 'rules' });
+    expect(wrapper.findComponent(BusinessRuleGovernanceSurface).props('moduleAlias')).toBe('education.exam');
+    expect(wrapper.findComponent({ name: 'RecordRelationTabs' }).props('tabs')).toContainEqual({
+      key: 'rules',
+      title: '业务规则',
     });
   });
   it('starts with the existing overview surface and keeps its module scope', () => {

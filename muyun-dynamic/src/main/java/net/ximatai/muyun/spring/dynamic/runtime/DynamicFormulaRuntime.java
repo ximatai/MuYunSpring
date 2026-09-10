@@ -2,6 +2,7 @@ package net.ximatai.muyun.spring.dynamic.runtime;
 
 import net.ximatai.muyun.spring.common.formula.FormulaEngine;
 import net.ximatai.muyun.spring.common.formula.FormulaExecutionResult;
+import net.ximatai.muyun.spring.common.formula.FormulaRuleExecutionPlan;
 import net.ximatai.muyun.spring.common.formula.FormulaRule;
 import net.ximatai.muyun.spring.common.formula.FormulaRulePhase;
 import net.ximatai.muyun.spring.common.formula.FormulaRuntimeData;
@@ -10,7 +11,12 @@ import net.ximatai.muyun.spring.dynamic.metadata.EntityDefinition;
 import net.ximatai.muyun.spring.dynamic.metadata.EntityFormulaRuleDefinition;
 import net.ximatai.muyun.spring.dynamic.metadata.EntityRelationDefinition;
 import net.ximatai.muyun.spring.dynamic.metadata.ModuleDefinition;
+import net.ximatai.muyun.spring.ability.PlatformAbilityRuntime;
+import net.ximatai.muyun.spring.ability.reference.FormulaReferenceContext;
+import net.ximatai.muyun.spring.ability.reference.ReferenceTarget;
+import net.ximatai.muyun.spring.ability.reference.ReferenceTargetResolver;
 
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -21,11 +27,18 @@ final class DynamicFormulaRuntime {
     private final String moduleAlias;
     private final EntityDefinition entity;
     private final ModuleDefinition module;
+    private final ReferenceTargetResolver referenceResolver;
 
     DynamicFormulaRuntime(String moduleAlias, EntityDefinition entity, ModuleDefinition module) {
+        this(moduleAlias, entity, module, PlatformAbilityRuntime.referenceTargetResolver());
+    }
+
+    DynamicFormulaRuntime(String moduleAlias, EntityDefinition entity, ModuleDefinition module,
+                          ReferenceTargetResolver referenceResolver) {
         this.moduleAlias = moduleAlias;
         this.entity = entity;
         this.module = module;
+        this.referenceResolver = referenceResolver == null ? PlatformAbilityRuntime.referenceTargetResolver() : referenceResolver;
     }
 
     FormulaRuntimeReport beforeInsert(DynamicRecord record) {
@@ -100,14 +113,18 @@ final class DynamicFormulaRuntime {
                                            boolean includeChildDependentRules,
                                            boolean failOnErrors,
                                            boolean applyChanges) {
-        List<FormulaRule> rules = runtimeRules(phases, includeChildDependentRules);
+        List<FormulaRule> rules = orderedRuntimeRules(runtimeRules(phases, includeChildDependentRules));
         if (rules.isEmpty()) {
             return new FormulaExecutionResult();
         }
         Map<String, Object> main = DynamicFormulaDataSupport.mainValues(record, existing);
         Map<String, List<Map<String, Object>>> tables = DynamicFormulaDataSupport.childValues(record);
-        FormulaExecutionResult result = engine.execute(rules, FormulaRuntimeData.typed(
-                main, tables, DynamicFormulaDataSupport.fieldDefinitions(entity, module)));
+        FormulaReferenceContext references = referenceContext(rules);
+        List<net.ximatai.muyun.spring.common.formula.FormulaFieldDefinition> fields = new ArrayList<>(
+                DynamicFormulaDataSupport.fieldDefinitions(entity, module));
+        fields.addAll(references.fields());
+        FormulaExecutionResult result = engine.execute(rules, FormulaRuntimeData.typed(main, tables, fields,
+                references.paths(), references::resolve));
         if (failOnErrors && result.report().hasErrors()) {
             throw new DynamicFormulaException(moduleAlias, entity.alias(), result.report());
         }
@@ -130,7 +147,7 @@ final class DynamicFormulaRuntime {
                                            List<FormulaRulePhase> phases,
                                            boolean failOnErrors,
                                            boolean applyChanges) {
-        List<FormulaRule> rules = runtimeRulesForUpdate(phases);
+        List<FormulaRule> rules = orderedRuntimeRules(runtimeRulesForUpdate(phases));
         if (rules.isEmpty()) {
             return new FormulaExecutionResult();
         }
@@ -143,8 +160,12 @@ final class DynamicFormulaRuntime {
         }
         Map<String, Object> main = DynamicFormulaDataSupport.mainValues(record, existing);
         Map<String, List<Map<String, Object>>> tables = DynamicFormulaDataSupport.childValues(record, existingChildren);
-        FormulaExecutionResult result = engine.execute(rules, FormulaRuntimeData.typed(
-                main, tables, DynamicFormulaDataSupport.fieldDefinitions(entity, module)));
+        FormulaReferenceContext references = referenceContext(rules);
+        List<net.ximatai.muyun.spring.common.formula.FormulaFieldDefinition> fields = new ArrayList<>(
+                DynamicFormulaDataSupport.fieldDefinitions(entity, module));
+        fields.addAll(references.fields());
+        FormulaExecutionResult result = engine.execute(rules, FormulaRuntimeData.typed(main, tables, fields,
+                references.paths(), references::resolve));
         if (failOnErrors && result.report().hasErrors()) {
             throw new DynamicFormulaException(moduleAlias, entity.alias(), result.report());
         }
@@ -229,6 +250,103 @@ final class DynamicFormulaRuntime {
                 .filter(rule -> phases.contains(rule.phase()))
                 .map(EntityFormulaRuleDefinition::toRuntimeRule)
                 .toList();
+    }
+
+    /**
+     * Keep default-value initialization and child-table rules on their established execution path.
+     * Only BEFORE_SAVE main-record calculations and validations enter the shared dependency plan.
+     */
+    private List<FormulaRule> orderedRuntimeRules(List<FormulaRule> rules) {
+        if (rules.isEmpty() || rules.stream().noneMatch(rule -> rule.phase() == FormulaRulePhase.BEFORE_SAVE)) {
+            return rules;
+        }
+        List<FormulaRule> preBeforeSave = rules.stream()
+                .filter(rule -> rule.phase() != FormulaRulePhase.BEFORE_SAVE)
+                .toList();
+        List<FormulaRule> beforeSave = rules.stream()
+                .filter(rule -> rule.phase() == FormulaRulePhase.BEFORE_SAVE)
+                .toList();
+        List<FormulaRule> planCandidates = beforeSave.stream()
+                .filter(this::isMainRecordPlanCandidate)
+                .toList();
+        if (planCandidates.isEmpty()) {
+            return rules;
+        }
+        FormulaReferenceContext references = referenceContext(planCandidates);
+        List<net.ximatai.muyun.spring.common.formula.FormulaFieldDefinition> fields = new ArrayList<>(
+                DynamicFormulaDataSupport.fieldDefinitions(entity, module));
+        fields.addAll(references.fields());
+        FormulaRuleExecutionPlan plan = FormulaRuleExecutionPlan.forMainRecord(planCandidates, fields);
+        Set<FormulaRule> planned = new HashSet<>(planCandidates);
+        rejectChildCalculationDependingOnMainPlan(beforeSave, planned, plan);
+        List<FormulaRule> ordered = new ArrayList<>(preBeforeSave);
+        // Existing child writes settle before main-record aggregate calculations consume them.
+        beforeSave.stream()
+                .filter(rule -> rule.kind() == net.ximatai.muyun.spring.common.formula.FormulaRuleKind.CALCULATION)
+                .filter(rule -> !planned.contains(rule))
+                .forEach(ordered::add);
+        ordered.addAll(plan.orderedRules());
+        beforeSave.stream()
+                .filter(rule -> rule.kind() != net.ximatai.muyun.spring.common.formula.FormulaRuleKind.CALCULATION)
+                .filter(rule -> !planned.contains(rule))
+                .forEach(ordered::add);
+        return List.copyOf(ordered);
+    }
+
+    private void rejectChildCalculationDependingOnMainPlan(List<FormulaRule> beforeSave,
+                                                            Set<FormulaRule> planned,
+                                                            FormulaRuleExecutionPlan plan) {
+        Set<String> mainCalculationTargets = Set.copyOf(plan.calculationTargetFieldsByRule().values());
+        for (FormulaRule rule : beforeSave) {
+            if (rule.kind() != net.ximatai.muyun.spring.common.formula.FormulaRuleKind.CALCULATION
+                    || planned.contains(rule)) {
+                continue;
+            }
+            String dependency = engine.valueSideReferencedFields(rule.expression()).stream()
+                    .filter(mainCalculationTargets::contains)
+                    .findFirst()
+                    .orElse(null);
+            if (dependency != null) {
+                throw new net.ximatai.muyun.spring.common.formula.FormulaEvaluationException(
+                        "FORMULA_PLAN_CHILD_DEPENDS_ON_MAIN_CALCULATION", dependency,
+                        "child calculation depends on planned main-record calculation field " + dependency
+                                + ": " + rule.id());
+            }
+        }
+    }
+
+    private boolean isMainRecordPlanCandidate(FormulaRule rule) {
+        if (rule.kind() == net.ximatai.muyun.spring.common.formula.FormulaRuleKind.VALIDATION) {
+            return rule.targetField() == null || !rule.targetField().contains(".");
+        }
+        if (rule.kind() != net.ximatai.muyun.spring.common.formula.FormulaRuleKind.CALCULATION) {
+            return false;
+        }
+        if (rule.targetField() != null) {
+            return !rule.targetField().contains(".");
+        }
+        return engine.assignedFields(rule.expression()).stream().noneMatch(field -> field.contains("."));
+    }
+
+    private FormulaReferenceContext referenceContext(List<FormulaRule> rules) {
+        Set<String> childRelations = module == null ? Set.of() : module.relations().stream()
+                .filter(relation -> entity.alias().equals(relation.parentEntityAlias()))
+                .map(EntityRelationDefinition::code).collect(java.util.stream.Collectors.toSet());
+        try {
+            return FormulaReferenceContext.compile(ReferenceTarget.of(moduleAlias, entity.alias()), rules,
+                    referenceResolver, childRelations);
+        } catch (IllegalArgumentException exception) {
+            throw new DynamicFormulaException(moduleAlias, entity.alias(), referenceFailure(exception));
+        }
+    }
+
+    private net.ximatai.muyun.spring.common.formula.FormulaRuntimeReport referenceFailure(IllegalArgumentException exception) {
+        net.ximatai.muyun.spring.common.formula.FormulaRuntimeReport report =
+                new net.ximatai.muyun.spring.common.formula.FormulaRuntimeReport();
+        report.error(new FormulaRule("reference", "", net.ximatai.muyun.spring.common.formula.FormulaRuleKind.VALIDATION,
+                        FormulaRulePhase.BEFORE_SAVE, null), "FORMULA_REFERENCE_PATH_INVALID", null, null, null,
+                exception.getMessage());
+        return report;
     }
 
     private boolean dependsOnChildRows(EntityFormulaRuleDefinition rule) {

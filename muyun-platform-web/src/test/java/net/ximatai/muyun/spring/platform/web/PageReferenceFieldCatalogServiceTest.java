@@ -70,6 +70,8 @@ class PageReferenceFieldCatalogServiceTest {
                     assertThat(field.referenceModuleAlias()).isEqualTo("supply.supplier");
                     assertThat(field.expandable()).isTrue();
                     assertThat(field.readOnly()).isFalse();
+                    assertThat(field.formulaReadable()).isTrue();
+                    assertThat(field.formulaDisabledReason()).isNull();
                 });
         assertThat(catalog.list("education.e2e_purchase", "supplierId").fields())
                 .extracting(PageReferenceFieldCatalog.Field::name)
@@ -99,7 +101,10 @@ class PageReferenceFieldCatalogServiceTest {
                 new StaticModuleDefinitionCatalog(List.of()));
 
         assertThat(catalog.list("sales.order", null).fields()).filteredOn(field -> field.name().equals("tagIds"))
-                .singleElement().satisfies(field -> assertThat(field.expandable()).isFalse());
+                .singleElement().satisfies(field -> {
+                    assertThat(field.expandable()).isFalse();
+                    assertThat(field.formulaReadable()).isFalse();
+                });
         assertThatThrownBy(() -> catalog.list("sales.order", "tagIds")).hasMessageContaining("ONE");
         assertThatThrownBy(() -> catalog.list("sales.order", "a.b.c.d.e.f.g"))
                 .hasMessageContaining("exceeds");

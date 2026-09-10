@@ -3,6 +3,7 @@ import { computed, ref, watch, type Component } from 'vue';
 import { RecordRelationTabs } from '@muyun/platform-components';
 import { useWorkspaceViewNavigation } from '@muyun/platform-workbench';
 import ModuleActionManagementView from './ModuleActionManagementView.vue';
+import BusinessRuleGovernanceSurface from './BusinessRuleGovernanceSurface.vue';
 import ModuleExperienceProfileOverview from './ModuleExperienceProfileOverview.vue';
 import MetadataOrchestrationView from './MetadataOrchestrationView.vue';
 import PageCompositionWorkspace from './PageCompositionWorkspace.vue';
@@ -23,6 +24,7 @@ const tabs: Array<{ key: ModuleGovernanceTab; title: string }> = [
   { key: 'overview', title: '概览' },
   { key: 'metadata', title: '元数据' },
   { key: 'actions', title: '动作' },
+  { key: 'rules', title: '业务规则' },
   { key: 'ui', title: '页面配置' },
   { key: 'preview', title: '业务预览' },
 ];
@@ -41,6 +43,8 @@ const activePanel = computed<{ component: Component; props: Record<string, unkno
       return { component: MetadataOrchestrationView, props: moduleProps };
     case 'actions':
       return { component: ModuleActionManagementView, props: { ...moduleProps, moduleKind: 'dynamic' } };
+    case 'rules':
+      return { component: BusinessRuleGovernanceSurface, props: moduleProps };
     case 'ui':
       return { component: PageCompositionWorkspace, props: moduleProps };
     case 'preview':
@@ -79,6 +83,7 @@ function selectTab(key: string) {
 <style scoped>
 .module-governance {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   grid-template-rows: auto minmax(0, 1fr);
   gap: 10px;
   height: 100%;

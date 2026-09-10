@@ -2013,11 +2013,7 @@ function createNavigatorRecord(level: NavigatorLevelRuntime, parentId?: string) 
         level.context.runtime.snapshot()?.uiDescriptor,
         level.descriptor.management?.editorSurface,
       ) ?? [];
-    navigatorManagementDetail.draft.value = applyFormComputeAfterChanges(
-      draft,
-      Object.keys(defaults),
-      computeRules,
-    );
+    navigatorManagementDetail.draft.value = new FormComputeCoordinator(computeRules).applyOnCreate(draft);
   }
 }
 
@@ -2315,7 +2311,7 @@ function updateDraftField(
  * Rules are attached to the resolved FORM view, not to a page/template. This
  * keeps the same calculation semantics for main details and managed
  * navigators while local-edit action forms remain isolated until they publish
- * their own signed FORM descriptor.
+ * their own server-issued FORM descriptor.
  */
 function formComputeRulesOf(
   uiDescriptor: ResolvedModuleUiDescriptor | undefined,
@@ -2361,11 +2357,9 @@ async function createRecord(parentId?: string) {
   // drawer rather than reopen the row that happened to be selected.
   detail.beginCreate(defaults, { cancelDestination: persistentTreeDetail.value ? 'restore-view' : 'close' });
   if (editingRecord.value) {
-    editingRecord.value = applyFormComputeAfterChanges(
-      editingRecord.value,
-      Object.keys(defaults),
+    editingRecord.value = new FormComputeCoordinator(
       formComputeRulesOf(context.runtime.snapshot()?.uiDescriptor),
-    );
+    ).applyOnCreate(editingRecord.value);
   }
 }
 

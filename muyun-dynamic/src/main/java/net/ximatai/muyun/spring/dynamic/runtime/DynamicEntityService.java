@@ -929,6 +929,31 @@ public class DynamicEntityService implements
                             .referencePlan(sourceTarget, sourceField);
                 }
             }
+
+            @Override
+            public java.util.Optional<net.ximatai.muyun.spring.common.formula.FormulaValueType> formulaFieldType(
+                    ReferenceTarget target, String fieldName) {
+                try {
+                    return referenceService(target).dao.getEntity().fields().stream()
+                            .filter(field -> fieldName.equals(field.fieldName()))
+                            .filter(field -> !field.protection().hasStorageProtection()
+                                    && field.type() != net.ximatai.muyun.spring.dynamic.metadata.FieldType.JSON)
+                            .map(field -> switch (field.type()) {
+                                case STRING -> net.ximatai.muyun.spring.common.formula.FormulaValueType.STRING;
+                                case TEXT -> net.ximatai.muyun.spring.common.formula.FormulaValueType.TEXT;
+                                case INTEGER -> net.ximatai.muyun.spring.common.formula.FormulaValueType.INTEGER;
+                                case LONG -> net.ximatai.muyun.spring.common.formula.FormulaValueType.LONG;
+                                case BOOLEAN -> net.ximatai.muyun.spring.common.formula.FormulaValueType.BOOLEAN;
+                                case TIMESTAMP, ZONED_TIMESTAMP -> net.ximatai.muyun.spring.common.formula.FormulaValueType.TIMESTAMP;
+                                case DATE -> net.ximatai.muyun.spring.common.formula.FormulaValueType.DATE;
+                                case DECIMAL -> net.ximatai.muyun.spring.common.formula.FormulaValueType.DECIMAL;
+                                case JSON -> net.ximatai.muyun.spring.common.formula.FormulaValueType.JSON;
+                            }).findFirst();
+                } catch (RuntimeException ignored) {
+                    return net.ximatai.muyun.spring.ability.PlatformAbilityRuntime.referenceTargetResolver()
+                            .formulaFieldType(target, fieldName);
+                }
+            }
         };
     }
 

@@ -4,6 +4,8 @@ import net.ximatai.muyun.spring.ability.reference.ReferenceCardinality;
 import net.ximatai.muyun.spring.ability.reference.ReferencePlan;
 import net.ximatai.muyun.spring.ability.reference.ReferenceTarget;
 import net.ximatai.muyun.spring.ability.reference.ReferenceTargets;
+import net.ximatai.muyun.spring.ability.PlatformAbilityRuntime;
+import net.ximatai.muyun.spring.ability.reference.FormulaReferencePathCompiler;
 import net.ximatai.muyun.spring.dynamic.descriptor.DynamicEntityDescriptor;
 import net.ximatai.muyun.spring.dynamic.descriptor.DynamicFieldDescriptor;
 import net.ximatai.muyun.spring.dynamic.descriptor.DynamicModuleDescriptor;
@@ -34,7 +36,7 @@ public class PageReferenceFieldCatalogService {
         String prefix = normalizedPath == null ? "" : normalizedPath + ".";
         int hopDepth = normalizedPath == null ? 0 : normalizedPath.split("\\.", -1).length;
         return new PageReferenceFieldCatalog(moduleAlias, normalizedPath, fields(target).stream()
-                .map(field -> descriptor(prefix + field.name(), field, normalizedPath != null, hopDepth)).toList());
+                .map(field -> descriptor(moduleAlias, prefix + field.name(), field, normalizedPath != null, hopDepth)).toList());
     }
 
     /** Validates a dotted terminal field against the same protected directory used by composition. */
@@ -129,15 +131,37 @@ public class PageReferenceFieldCatalogService {
         return policy == null || policy.composable();
     }
 
-    private PageReferenceFieldCatalog.Field descriptor(String name, DirectoryField field, boolean nested,
+    private PageReferenceFieldCatalog.Field descriptor(String moduleAlias, String name, DirectoryField field, boolean nested,
                                                        int hopDepth) {
         ReferencePlan reference = field.reference();
+        FormulaEligibility formula = formulaEligibility(moduleAlias, name, nested, field);
         return new PageReferenceFieldCatalog.Field(name, name, field.label(), field.type(),
                 reference == null ? null : referenceModuleAlias(reference.target()),
                 reference == null ? null : reference.cardinality().name(),
                 reference != null && reference.cardinality() == ReferenceCardinality.ONE
                         && hopDepth < PageReferencePathCompiler.MAX_HOPS,
-                nested || field.readOnly(), PlatformFieldPolicy.find(field.name()) != null);
+                nested || field.readOnly(), PlatformFieldPolicy.find(field.name()) != null,
+                formula.readable(), formula.disabledReason());
+    }
+
+    private FormulaEligibility formulaEligibility(String moduleAlias, String path, boolean nested, DirectoryField field) {
+        if (!nested) {
+            if (PlatformFieldPolicy.find(field.name()) != null)
+                return new FormulaEligibility(false, "系统管理字段不能用于业务规则");
+            if (field.readOnly()) return new FormulaEligibility(false, "当前字段不属于可配置业务字段");
+            if (field.reference() != null && field.reference().cardinality() == ReferenceCardinality.MANY)
+                return new FormulaEligibility(false, "集合引用不能作为标量公式字段");
+            if (field.type() == FieldValueType.JSON)
+                return new FormulaEligibility(false, "对象字段不能作为标量公式字段");
+            return new FormulaEligibility(true, null);
+        }
+        try {
+            FormulaReferencePathCompiler.compile(rootTarget(moduleAlias), path,
+                    PlatformAbilityRuntime.referenceTargetResolver());
+            return new FormulaEligibility(true, null);
+        } catch (IllegalArgumentException exception) {
+            return new FormulaEligibility(false, exception.getMessage());
+        }
     }
 
     private String referenceModuleAlias(ReferenceTarget target) {
@@ -147,5 +171,8 @@ public class PageReferenceFieldCatalogService {
 
     private record DirectoryField(String name, String label, FieldValueType type, ReferencePlan reference,
                                   boolean readOnly) {
+    }
+
+    private record FormulaEligibility(boolean readable, String disabledReason) {
     }
 }

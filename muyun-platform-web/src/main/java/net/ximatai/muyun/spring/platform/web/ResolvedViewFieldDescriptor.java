@@ -167,4 +167,10 @@ public record ResolvedViewFieldDescriptor(ViewFieldRef fieldRef,
         }
         return value;
     }
+
+    public ResolvedViewFieldDescriptor withReadOnly(UiRule<Boolean> value) {
+        return new ResolvedViewFieldDescriptor(fieldRef, label, visible, required, value, uiType, fieldControl,
+                valueType, valuePresentation, width, columnSpan, align, fixed, booleanStatus, option, reference,
+                referenceSummary, maxDisplayLines, treeRootTitle, overrideOf);
+    }
 }
