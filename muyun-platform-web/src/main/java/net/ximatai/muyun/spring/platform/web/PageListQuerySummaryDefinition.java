@@ -57,7 +57,7 @@ public record PageListQuerySummaryDefinition(String key, String title, Source so
         public Builder sum(String value) { source = Source.SUM; fieldName = value; contributorKey = null; groupByField = null; return this; }
         /** Delegates a domain-specific aggregate to a registered, scope-safe contributor. */
         public Builder contributor(String value) { source = Source.CONTRIBUTOR; fieldName = null; contributorKey = value; groupByField = null; return this; }
-        /** Counts every current-query group; {@link #sum(String)} optionally adds one safe numeric aggregate. */
+        /** Counts every current-query group; {@link #groupedSum(String)} optionally adds one safe numeric aggregate. */
         public Builder grouped(String value) { source = Source.GROUPED; groupByField = value; fieldName = null; contributorKey = null; return this; }
         /** Adds the one allowed SUM column to a grouped declaration. */
         public Builder groupedSum(String value) {

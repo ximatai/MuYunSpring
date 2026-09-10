@@ -204,6 +204,13 @@ let compositionLoadSequence = 0;
 const hasListPreview = computed(() => previewDescriptor.value?.page?.template === 'LIST_DETAIL_CARD');
 const supportsQuerySummaries = computed(() => skeleton.value?.mode === 'LIST_CARD');
 const summarySources = computed(() => state.querySummaries.value);
+const hasCatalogDependentSummary = computed(() =>
+  summarySources.value.some((summary) => ['SUM', 'CONTRIBUTOR', 'GROUPED'].includes(summary.source)),
+);
+const summaryCatalogBlocksMutation = computed(
+  () =>
+    hasCatalogDependentSummary.value && (summaryCatalogLoading.value || Boolean(summaryCatalogError.value)),
+);
 const querySummaryIssuesByKey = computed<Record<string, PageQuerySummaryEditorIssues>>(() => {
   const issues: Record<string, PageQuerySummaryEditorIssues> = {};
   for (const summary of summarySources.value) {
@@ -1326,7 +1333,7 @@ async function hydrateDraft(current: PresentationRevision | undefined, markSaved
     });
     customSummaryKeys.clear();
     state.replaceQuerySummaries(Array.isArray(tree.querySummaries) ? tree.querySummaries : []);
-    if (state.querySummaries.value.length) void loadSummaryCatalog();
+    if (hasCatalogDependentSummary.value) void loadSummaryCatalog();
     quickSearchFields.value =
       modeTree.quickSearchFields ??
       state.listFields.value
@@ -1431,16 +1438,15 @@ async function saveDraft(
   allowDuringPublish = false,
   treeJsonToPersist = currentUiTreeJson.value,
 ): Promise<boolean> {
-  if (state.querySummaries.value.length && !summaryCatalog.value && !summaryCatalogLoading.value)
+  if (hasCatalogDependentSummary.value && !summaryCatalog.value && !summaryCatalogLoading.value)
     await loadSummaryCatalog();
   if (
     draftParseError.value ||
     propertyIssues.value.length > 0 ||
     actionIssues.value.length > 0 ||
     hasSummaryIssues.value ||
-    (summarySources.value.length > 0 && summaryCatalogLoading.value) ||
+    summaryCatalogBlocksMutation.value ||
     (summarySources.value.length > 0 && !supportsQuerySummaries.value) ||
-    (summarySources.value.length > 0 && Boolean(summaryCatalogError.value)) ||
     draftConflict.value ||
     compositionLoading.value ||
     loading.value ||
@@ -1477,7 +1483,7 @@ async function saveDraft(
 }
 
 async function publishDraft() {
-  if (state.querySummaries.value.length && !summaryCatalog.value && !summaryCatalogLoading.value)
+  if (hasCatalogDependentSummary.value && !summaryCatalog.value && !summaryCatalogLoading.value)
     await loadSummaryCatalog();
   if (
     isMutating.value ||
@@ -1486,9 +1492,8 @@ async function publishDraft() {
     draftConflict.value ||
     unavailableSources.value.length ||
     hasSummaryIssues.value ||
-    (summarySources.value.length > 0 && summaryCatalogLoading.value) ||
+    summaryCatalogBlocksMutation.value ||
     (summarySources.value.length > 0 && !supportsQuerySummaries.value) ||
-    (summarySources.value.length > 0 && Boolean(summaryCatalogError.value)) ||
     draftParseError.value ||
     !revision.value?.id
   )
@@ -2262,8 +2267,8 @@ function openPropertyDrawer() {
                 propertyIssues.length > 0 ||
                 actionIssues.length > 0 ||
                 hasSummaryIssues ||
-                (summarySources.length > 0 && (summaryCatalogLoading || !supportsQuerySummaries)) ||
-                (summarySources.length > 0 && Boolean(summaryCatalogError)) ||
+                summaryCatalogBlocksMutation ||
+                (summarySources.length > 0 && !supportsQuerySummaries) ||
                 (!hasUnsavedChanges && revision?.templateVersion === 4)
               "
               @click="() => void saveDraft()"
@@ -2283,8 +2288,8 @@ function openPropertyDrawer() {
                 actionIssues.length > 0 ||
                 unavailableSources.length > 0 ||
                 hasSummaryIssues ||
-                (summarySources.length > 0 && (summaryCatalogLoading || !supportsQuerySummaries)) ||
-                (summarySources.length > 0 && Boolean(summaryCatalogError)) ||
+                summaryCatalogBlocksMutation ||
+                (summarySources.length > 0 && !supportsQuerySummaries) ||
                 Boolean(draftParseError)
               "
               @click="publishDraft"
@@ -2473,14 +2478,16 @@ function openPropertyDrawer() {
         </div>
         <p
           v-if="
-            unavailableSources.length || draftParseError || (summarySources.length && summaryCatalogError)
+            unavailableSources.length ||
+            draftParseError ||
+            (hasCatalogDependentSummary && summaryCatalogError)
           "
           class="page-composition-source-error"
           role="alert"
         >
           {{
             draftParseError ??
-            (summarySources.length ? summaryCatalogError : undefined) ??
+            (hasCatalogDependentSummary ? summaryCatalogError : undefined) ??
             `来源失效：${[...new Set(unavailableSources)].join('、')}。配置已保留，请在编排树中移除标记节点并重新选择；修正后才能发布。`
           }}
         </p>

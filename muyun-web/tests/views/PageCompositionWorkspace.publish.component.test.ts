@@ -360,6 +360,161 @@ describe('PageCompositionWorkspace publication flow', () => {
     }
   });
 
+  it('saves and publishes a count-only summary while its catalog is loading', async () => {
+    const requests: HttpRequestOptions[] = [];
+    const catalog = deferred<unknown>();
+    const delegate = publicationFlowHttp(
+      requests,
+      JSON.stringify({
+        template: 'management',
+        templateVersion: 1,
+        mode: 'LIST_CARD',
+        querySummaries: [{ key: 'count', label: '记录数', source: 'MATCHED_COUNT' }],
+        nodes: [],
+      }),
+    );
+    configureModuleContext({
+      http: {
+        request: <T>(options: HttpRequestOptions) =>
+          options.path === '/platform.module/education.exam/page-query-summary-catalog'
+            ? (catalog.promise as Promise<T>)
+            : delegate.request<T>(options),
+      },
+    });
+    vi.mocked(confirmAction).mockResolvedValue(true);
+    const wrapper = mount(PageCompositionWorkspace, {
+      props: { moduleAlias: 'education.exam' },
+      global: { stubs: workspaceStubs() },
+    });
+    try {
+      await flushPromises();
+      const tree = wrapper.findComponent(PageCompositionTree);
+      tree.vm.$emit('node-action', 'configure', 'ui:template:list:query-summaries');
+      await flushPromises();
+      expect(wrapper.findComponent({ name: 'PageQuerySummaryEditor' }).props('loading')).toBe(true);
+      const button = (title: string) =>
+        wrapper.findAll('[data-testid="publish-button"]').find((item) => item.text() === title)!;
+      expect(button('保存草稿').attributes('disabled')).toBeUndefined();
+      expect(button('发布草稿').attributes('disabled')).toBeUndefined();
+      await button('保存草稿').trigger('click');
+      await vi.waitFor(() =>
+        expect(requests.some((request) => request.path.endsWith('/revisions/update/revision-1'))).toBe(true),
+      );
+      await button('发布草稿').trigger('click');
+      await vi.waitFor(() =>
+        expect(
+          requests.some(
+            (request) => request.path === '/platform.presentation_publish/revisions/revision-1/publish',
+          ),
+        ).toBe(true),
+      );
+    } finally {
+      wrapper.unmount();
+    }
+  });
+
+  it('keeps count-only editing, saving and publishing available after catalog failure', async () => {
+    const requests: HttpRequestOptions[] = [];
+    const delegate = publicationFlowHttp(
+      requests,
+      JSON.stringify({
+        template: 'management',
+        templateVersion: 1,
+        mode: 'LIST_CARD',
+        querySummaries: [{ key: 'count', label: '记录数', source: 'MATCHED_COUNT' }],
+        nodes: [],
+      }),
+    );
+    configureModuleContext({
+      http: {
+        request: <T>(options: HttpRequestOptions) =>
+          options.path === '/platform.module/education.exam/page-query-summary-catalog'
+            ? Promise.reject(new Error('目录不可用'))
+            : delegate.request<T>(options),
+      },
+    });
+    vi.mocked(confirmAction).mockResolvedValue(true);
+    const wrapper = mount(PageCompositionWorkspace, {
+      props: { moduleAlias: 'education.exam' },
+      global: { stubs: workspaceStubs() },
+    });
+    try {
+      await flushPromises();
+      const tree = wrapper.findComponent(PageCompositionTree);
+      tree.vm.$emit('node-action', 'configure', 'ui:template:list:query-summaries');
+      await flushPromises();
+      const editor = wrapper.findComponent({ name: 'PageQuerySummaryEditor' });
+      expect(editor.props('error')).toBe('目录不可用');
+      editor.vm.$emit('update', 0, { label: '筛选记录数' });
+      await flushPromises();
+      expect(editor.props('summaries')).toMatchObject([{ label: '筛选记录数', source: 'MATCHED_COUNT' }]);
+      const button = (title: string) =>
+        wrapper.findAll('[data-testid="publish-button"]').find((item) => item.text() === title)!;
+      expect(button('保存草稿').attributes('disabled')).toBeUndefined();
+      expect(button('发布草稿').attributes('disabled')).toBeUndefined();
+      await button('保存草稿').trigger('click');
+      await vi.waitFor(() =>
+        expect(requests.some((request) => request.path.endsWith('/revisions/update/revision-1'))).toBe(true),
+      );
+      await button('发布草稿').trigger('click');
+      await vi.waitFor(() =>
+        expect(
+          requests.some(
+            (request) => request.path === '/platform.presentation_publish/revisions/revision-1/publish',
+          ),
+        ).toBe(true),
+      );
+    } finally {
+      wrapper.unmount();
+    }
+  });
+
+  it('keeps SUM summaries blocked when their catalog cannot load', async () => {
+    const requests: HttpRequestOptions[] = [];
+    const delegate = publicationFlowHttp(
+      requests,
+      JSON.stringify({
+        template: 'management',
+        templateVersion: 1,
+        mode: 'LIST_CARD',
+        querySummaries: [{ key: 'sum', label: '金额', source: 'SUM', fieldName: 'amount' }],
+        nodes: [],
+      }),
+    );
+    configureModuleContext({
+      http: {
+        request: <T>(options: HttpRequestOptions) =>
+          options.path === '/platform.module/education.exam/page-query-summary-catalog'
+            ? Promise.reject(new Error('目录不可用'))
+            : delegate.request<T>(options),
+      },
+    });
+    const wrapper = mount(PageCompositionWorkspace, {
+      props: { moduleAlias: 'education.exam' },
+      global: { stubs: workspaceStubs() },
+    });
+    try {
+      await flushPromises();
+      await flushPromises();
+      const button = (title: string) =>
+        wrapper.findAll('[data-testid="publish-button"]').find((item) => item.text() === title)!;
+      expect(button('保存草稿').attributes('disabled')).toBeDefined();
+      expect(button('发布草稿').attributes('disabled')).toBeDefined();
+      await button('保存草稿').trigger('click');
+      await button('发布草稿').trigger('click');
+      await flushPromises();
+      expect(
+        requests.some(
+          (request) =>
+            request.path.endsWith('/revisions/update/revision-1') ||
+            request.path === '/platform.presentation_publish/revisions/revision-1/publish',
+        ),
+      ).toBe(false);
+    } finally {
+      wrapper.unmount();
+    }
+  });
+
   it('discards a delayed prior-module summary catalog and loads the new module catalog', async () => {
     let resolveFirstCatalog!: (value: unknown) => void;
     const firstCatalog = new Promise((resolve) => {
