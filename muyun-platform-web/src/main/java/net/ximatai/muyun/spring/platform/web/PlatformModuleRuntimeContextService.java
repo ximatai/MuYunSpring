@@ -504,6 +504,7 @@ public class PlatformModuleRuntimeContextService {
                 if (!isSearchableText(main, field)) throw new IllegalArgumentException("快速查询仅支持文本字段：" + field);
             }
         }
+        validateDynamicListQuerySummaryFields(moduleAlias, definition, dynamicDescriptor);
         List<DynamicDetailRelationTarget> relationTargets = dynamicDetailRelationTargets(moduleAlias, dynamicDescriptor,
                 definition.detailRelations());
         java.util.Map<ViewFieldRef, FieldValueType> fieldTypes = new java.util.LinkedHashMap<>(
@@ -522,10 +523,58 @@ public class PlatformModuleRuntimeContextService {
                 optionFields, referenceFields,
                 dynamicRecordLabelField(dynamicDescriptor), fieldTypes, FieldControlDescriptorCatalog.standard(),
                 relationOptionFields, relationReferenceFields, dynamicSortPartitionFields(dynamicDescriptor));
+        if (definition.page() instanceof ListDetailCardPageDefinition listPage && listPage.list().querySummaries().stream()
+                .anyMatch(summary -> summary.source() == PageListQuerySummaryDefinition.Source.GROUPED)) {
+            descriptor = ModuleUiDescriptorCompiler.withListQuerySummaryTitles(descriptor,
+                    dynamicMainSummaryFields(moduleAlias, dynamicDescriptor.mainEntityAlias()));
+        }
         descriptor = PageActionInvocationCompiler.bind(descriptor, actions(moduleAlias, ModuleKind.DYNAMIC, Optional.empty(), dynamicDescriptor).stream()
                 .collect(java.util.stream.Collectors.toMap(PlatformModuleRuntimeAction::actionCode, PlatformModuleRuntimeAction::invocations)));
         return descriptor.withPage(resolvePage(moduleAlias, ModuleKind.DYNAMIC, descriptor.page()))
                 .withDetailRelations(dynamicDetailRelations(moduleAlias, relationTargets));
+    }
+
+    private void validateDynamicListQuerySummaryFields(String moduleAlias, ModuleUiDefinition definition,
+                                                       DynamicModuleDescriptor descriptor) {
+        if (!(definition.page() instanceof ListDetailCardPageDefinition page)) return;
+        if (page.list().querySummaries().stream().noneMatch(summary -> summary.source() == PageListQuerySummaryDefinition.Source.SUM
+                || summary.source() == PageListQuerySummaryDefinition.Source.GROUPED)) return;
+        var module = dynamicRecordService.moduleDefinitions().stream()
+                .filter(candidate -> moduleAlias.equals(candidate.moduleAlias())).findFirst()
+                .orElseThrow(() -> new IllegalArgumentException("dynamic module has no main entity field facts: " + moduleAlias));
+        List<net.ximatai.muyun.spring.dynamic.metadata.FieldDefinition> fields = module.entities().stream()
+                .filter(entity -> descriptor.mainEntityAlias().equals(entity.alias())).findFirst()
+                .map(net.ximatai.muyun.spring.dynamic.metadata.EntityDefinition::fields).orElseThrow(() ->
+                        new IllegalArgumentException("dynamic module has no main entity field facts: " + moduleAlias));
+        page.list().querySummaries().stream()
+                .filter(summary -> summary.source() == PageListQuerySummaryDefinition.Source.SUM)
+                .forEach(summary -> ListQuerySummaryFieldCatalog.requireEligible(summary.fieldName(), fields,
+                        moduleAlias + ".querySummaries"));
+        java.util.Map<String, net.ximatai.muyun.spring.common.option.OptionFieldDefinition> options = fields.stream()
+                .filter(field -> field.dictionaryBinding() != null).collect(java.util.stream.Collectors.toMap(
+                        net.ximatai.muyun.spring.dynamic.metadata.FieldDefinition::fieldName,
+                        field -> new net.ximatai.muyun.spring.common.option.OptionFieldDefinition(field.fieldName(),
+                                field.dictionaryBinding().toOptionBinding(), field.dictionaryBinding().selectionMode())));
+        java.util.Map<String, net.ximatai.muyun.spring.ability.reference.ReferencePlan> references = module.references().stream()
+                .filter(reference -> descriptor.mainEntityAlias().equals(reference.sourceEntityAlias()))
+                .collect(java.util.stream.Collectors.toMap(reference -> reference.sourceField(), reference -> reference.plan(),
+                        (left, ignored) -> left));
+        page.list().querySummaries().stream()
+                .filter(summary -> summary.source() == PageListQuerySummaryDefinition.Source.GROUPED)
+                .forEach(summary -> {
+                    ListQuerySummaryGroupFieldCatalog.requireEligible(summary.groupByField(), fields, options, references,
+                            moduleAlias + ".querySummaries");
+                    if (summary.fieldName() != null) ListQuerySummaryFieldCatalog.requireEligible(summary.fieldName(), fields,
+                            moduleAlias + ".querySummaries");
+                });
+    }
+
+    private List<net.ximatai.muyun.spring.dynamic.metadata.FieldDefinition> dynamicMainSummaryFields(
+            String moduleAlias, String mainEntityAlias) {
+        return dynamicRecordService.moduleDefinitions().stream().filter(module -> moduleAlias.equals(module.moduleAlias()))
+                .findFirst().flatMap(module -> module.entities().stream()
+                        .filter(entity -> mainEntityAlias.equals(entity.alias())).findFirst())
+                .map(net.ximatai.muyun.spring.dynamic.metadata.EntityDefinition::fields).orElse(List.of());
     }
 
     private DynamicPageCompilationContext pageCompilationContext(DynamicModuleDescriptor descriptor,

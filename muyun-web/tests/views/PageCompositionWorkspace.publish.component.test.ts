@@ -208,6 +208,368 @@ describe('PageCompositionWorkspace publication flow', () => {
     }
   });
 
+  it('configures list query summaries from the catalog and persists their stable keys', async () => {
+    const requests: HttpRequestOptions[] = [];
+    const delegate = publicationFlowHttp(requests);
+    configureModuleContext({
+      http: {
+        request: <T>(options: HttpRequestOptions) => {
+          if (options.path === '/platform.module/education.exam/page-query-summary-catalog')
+            return Promise.resolve({
+              moduleAlias: 'education.exam',
+              fields: [{ fieldName: 'purchaseAmount', title: '采购金额' }],
+              contributors: [{ contributorKey: 'supplier-count', title: '供应商数' }],
+              groupFields: [{ fieldName: 'supplierId', title: '供应商', kind: 'REFERENCE' }],
+            } as T);
+          return delegate.request<T>(options);
+        },
+      },
+    });
+    const wrapper = mount(PageCompositionWorkspace, {
+      props: { moduleAlias: 'education.exam' },
+      global: { stubs: workspaceStubs() },
+    });
+    try {
+      await flushPromises();
+      await flushPromises();
+      const tree = wrapper.findComponent(PageCompositionTree);
+      tree.vm.$emit('node-action', 'configure', 'ui:template:list:query-summaries');
+      await flushPromises();
+      expect(wrapper.text()).toContain('当前筛选的完整结果');
+      wrapper.findComponent({ name: 'PageQuerySummaryEditor' }).vm.$emit('add', 'SUM');
+      await flushPromises();
+      const editor = wrapper.findComponent({ name: 'PageQuerySummaryEditor' });
+      editor.vm.$emit('update', 0, { source: 'MATCHED_COUNT' });
+      await flushPromises();
+      expect(editor.props('summaries')).toMatchObject([{ key: 'summary_1', source: 'MATCHED_COUNT' }]);
+      expect(editor.props('summaries')[0].fieldName).toBeUndefined();
+      editor.vm.$emit('update', 0, { source: 'SUM' });
+      await flushPromises();
+      expect(editor.props('summaries')).toMatchObject([{ key: 'summary_1', source: 'SUM' }]);
+      expect(editor.props('summaries')[0].fieldName).toBeUndefined();
+      editor.vm.$emit('update', 0, { fieldName: 'purchaseAmount' });
+      editor.vm.$emit('update', 0, { label: '' });
+      await flushPromises();
+      expect(editor.props('summaries')).toMatchObject([{ key: 'summary_1', label: '', source: 'SUM' }]);
+      expect(
+        wrapper
+          .findAll('[data-testid="publish-button"]')
+          .find((button) => button.text() === '保存草稿')!
+          .attributes('disabled'),
+      ).toBeDefined();
+      editor.vm.$emit('update', 0, { label: '采购金额合计' });
+      await flushPromises();
+      await wrapper
+        .findAll('[data-testid="publish-button"]')
+        .find((button) => button.text() === '保存草稿')!
+        .trigger('click');
+      await flushPromises();
+      const saved = requests.find((request) => request.path.endsWith('/revisions/update/revision-1'))!;
+      expect(JSON.parse((saved.body as { uiTreeJson: string }).uiTreeJson).querySummaries).toEqual([
+        { key: 'summary_1', label: '采购金额合计', source: 'SUM', fieldName: 'purchaseAmount' },
+      ]);
+      editor.vm.$emit('add', 'MATCHED_COUNT');
+      await flushPromises();
+      tree.vm.$emit('select', 'ui:summary:summary_2');
+      await flushPromises();
+      expect(editor.props('selectedKey')).toBe('summary_2');
+      editor.vm.$emit('update', 1, { source: 'GROUPED' });
+      await flushPromises();
+      expect(editor.props('summaries')[1]).toMatchObject({
+        source: 'GROUPED',
+        label: '按字段分组统计',
+      });
+      expect(editor.props('summaries')[1].groupByField).toBeUndefined();
+      editor.vm.$emit('update', 1, { groupByField: 'supplierId' });
+      editor.vm.$emit('update', 1, { fieldName: 'purchaseAmount' });
+      await flushPromises();
+      expect(editor.props('summaries')[1]).toMatchObject({
+        source: 'GROUPED',
+        groupByField: 'supplierId',
+        label: '按供应商分组采购金额合计',
+      });
+      editor.vm.$emit('update', 1, { label: '测试 1' });
+      editor.vm.$emit('update', 1, { fieldName: undefined });
+      await flushPromises();
+      expect(editor.props('summaries')[1]).toMatchObject({ label: '测试 1' });
+      editor.vm.$emit('update', 1, { label: '按供应商分组统计' });
+      editor.vm.$emit('update', 1, { fieldName: 'purchaseAmount' });
+      await flushPromises();
+      expect(editor.props('summaries')[1].label).toBe('按供应商分组统计');
+      tree.vm.$emit('reorder-query-summary', 'summary_2', 0);
+      await flushPromises();
+      expect(editor.props('summaries').map((summary: { key: string }) => summary.key)).toEqual([
+        'summary_2',
+        'summary_1',
+      ]);
+      await wrapper
+        .findAll('[data-testid="publish-button"]')
+        .find((button) => button.text() === '保存草稿')!
+        .trigger('click');
+      await flushPromises();
+      const reordered = requests.at(-1)!;
+      expect(
+        JSON.parse((reordered.body as { uiTreeJson: string }).uiTreeJson).querySummaries.map(
+          (summary: { key: string }) => summary.key,
+        ),
+      ).toEqual(['summary_2', 'summary_1']);
+      const focusRequest = editor.props('focusRequest');
+      editor.vm.$emit('move', 1, -1);
+      await flushPromises();
+      expect(editor.props('summaries')[0].key).toBe('summary_1');
+      expect(editor.props('selectedKey')).toBe('summary_1');
+      expect(editor.props('focusRequest')).toBeGreaterThan(focusRequest);
+      editor.vm.$emit('remove', 0);
+      await flushPromises();
+      expect(editor.props('selectedKey')).toBeUndefined();
+    } finally {
+      wrapper.unmount();
+    }
+  });
+
+  it('keeps summaries visible as a repairable warning outside LIST_CARD', async () => {
+    configureModuleContext({
+      http: publicationFlowHttp(
+        [],
+        JSON.stringify({
+          template: 'management',
+          templateVersion: 4,
+          mode: 'TREE_CARD',
+          querySummaries: [{ key: 'count', label: '记录数', source: 'MATCHED_COUNT' }],
+          nodes: [],
+        }),
+      ),
+    });
+    const wrapper = mount(PageCompositionWorkspace, {
+      props: { moduleAlias: 'education.exam' },
+      global: { stubs: workspaceStubs() },
+    });
+    try {
+      await flushPromises();
+      await flushPromises();
+      expect(wrapper.text()).toContain('汇总统计仅支持列表卡片布局');
+      await wrapper
+        .findAll('button')
+        .find((button) => button.text() === '切回列表卡片')!
+        .trigger('click');
+      await flushPromises();
+      expect(wrapper.text()).not.toContain('汇总统计仅支持列表卡片布局');
+      expect(wrapper.findComponent(PageCompositionTree).props('summariesSupported')).toBe(true);
+    } finally {
+      wrapper.unmount();
+    }
+  });
+
+  it('saves and publishes a count-only summary while its catalog is loading', async () => {
+    const requests: HttpRequestOptions[] = [];
+    const catalog = deferred<unknown>();
+    const delegate = publicationFlowHttp(
+      requests,
+      JSON.stringify({
+        template: 'management',
+        templateVersion: 1,
+        mode: 'LIST_CARD',
+        querySummaries: [{ key: 'count', label: '记录数', source: 'MATCHED_COUNT' }],
+        nodes: [],
+      }),
+    );
+    configureModuleContext({
+      http: {
+        request: <T>(options: HttpRequestOptions) =>
+          options.path === '/platform.module/education.exam/page-query-summary-catalog'
+            ? (catalog.promise as Promise<T>)
+            : delegate.request<T>(options),
+      },
+    });
+    vi.mocked(confirmAction).mockResolvedValue(true);
+    const wrapper = mount(PageCompositionWorkspace, {
+      props: { moduleAlias: 'education.exam' },
+      global: { stubs: workspaceStubs() },
+    });
+    try {
+      await flushPromises();
+      const tree = wrapper.findComponent(PageCompositionTree);
+      tree.vm.$emit('node-action', 'configure', 'ui:template:list:query-summaries');
+      await flushPromises();
+      expect(wrapper.findComponent({ name: 'PageQuerySummaryEditor' }).props('loading')).toBe(true);
+      const button = (title: string) =>
+        wrapper.findAll('[data-testid="publish-button"]').find((item) => item.text() === title)!;
+      expect(button('保存草稿').attributes('disabled')).toBeUndefined();
+      expect(button('发布草稿').attributes('disabled')).toBeUndefined();
+      await button('保存草稿').trigger('click');
+      await vi.waitFor(() =>
+        expect(requests.some((request) => request.path.endsWith('/revisions/update/revision-1'))).toBe(true),
+      );
+      await button('发布草稿').trigger('click');
+      await vi.waitFor(() =>
+        expect(
+          requests.some(
+            (request) => request.path === '/platform.presentation_publish/revisions/revision-1/publish',
+          ),
+        ).toBe(true),
+      );
+    } finally {
+      wrapper.unmount();
+    }
+  });
+
+  it('keeps count-only editing, saving and publishing available after catalog failure', async () => {
+    const requests: HttpRequestOptions[] = [];
+    const delegate = publicationFlowHttp(
+      requests,
+      JSON.stringify({
+        template: 'management',
+        templateVersion: 1,
+        mode: 'LIST_CARD',
+        querySummaries: [{ key: 'count', label: '记录数', source: 'MATCHED_COUNT' }],
+        nodes: [],
+      }),
+    );
+    configureModuleContext({
+      http: {
+        request: <T>(options: HttpRequestOptions) =>
+          options.path === '/platform.module/education.exam/page-query-summary-catalog'
+            ? Promise.reject(new Error('目录不可用'))
+            : delegate.request<T>(options),
+      },
+    });
+    vi.mocked(confirmAction).mockResolvedValue(true);
+    const wrapper = mount(PageCompositionWorkspace, {
+      props: { moduleAlias: 'education.exam' },
+      global: { stubs: workspaceStubs() },
+    });
+    try {
+      await flushPromises();
+      const tree = wrapper.findComponent(PageCompositionTree);
+      tree.vm.$emit('node-action', 'configure', 'ui:template:list:query-summaries');
+      await flushPromises();
+      const editor = wrapper.findComponent({ name: 'PageQuerySummaryEditor' });
+      expect(editor.props('error')).toBe('目录不可用');
+      editor.vm.$emit('update', 0, { label: '筛选记录数' });
+      await flushPromises();
+      expect(editor.props('summaries')).toMatchObject([{ label: '筛选记录数', source: 'MATCHED_COUNT' }]);
+      const button = (title: string) =>
+        wrapper.findAll('[data-testid="publish-button"]').find((item) => item.text() === title)!;
+      expect(button('保存草稿').attributes('disabled')).toBeUndefined();
+      expect(button('发布草稿').attributes('disabled')).toBeUndefined();
+      await button('保存草稿').trigger('click');
+      await vi.waitFor(() =>
+        expect(requests.some((request) => request.path.endsWith('/revisions/update/revision-1'))).toBe(true),
+      );
+      await button('发布草稿').trigger('click');
+      await vi.waitFor(() =>
+        expect(
+          requests.some(
+            (request) => request.path === '/platform.presentation_publish/revisions/revision-1/publish',
+          ),
+        ).toBe(true),
+      );
+    } finally {
+      wrapper.unmount();
+    }
+  });
+
+  it('keeps SUM summaries blocked when their catalog cannot load', async () => {
+    const requests: HttpRequestOptions[] = [];
+    const delegate = publicationFlowHttp(
+      requests,
+      JSON.stringify({
+        template: 'management',
+        templateVersion: 1,
+        mode: 'LIST_CARD',
+        querySummaries: [{ key: 'sum', label: '金额', source: 'SUM', fieldName: 'amount' }],
+        nodes: [],
+      }),
+    );
+    configureModuleContext({
+      http: {
+        request: <T>(options: HttpRequestOptions) =>
+          options.path === '/platform.module/education.exam/page-query-summary-catalog'
+            ? Promise.reject(new Error('目录不可用'))
+            : delegate.request<T>(options),
+      },
+    });
+    const wrapper = mount(PageCompositionWorkspace, {
+      props: { moduleAlias: 'education.exam' },
+      global: { stubs: workspaceStubs() },
+    });
+    try {
+      await flushPromises();
+      await flushPromises();
+      const button = (title: string) =>
+        wrapper.findAll('[data-testid="publish-button"]').find((item) => item.text() === title)!;
+      expect(button('保存草稿').attributes('disabled')).toBeDefined();
+      expect(button('发布草稿').attributes('disabled')).toBeDefined();
+      await button('保存草稿').trigger('click');
+      await button('发布草稿').trigger('click');
+      await flushPromises();
+      expect(
+        requests.some(
+          (request) =>
+            request.path.endsWith('/revisions/update/revision-1') ||
+            request.path === '/platform.presentation_publish/revisions/revision-1/publish',
+        ),
+      ).toBe(false);
+    } finally {
+      wrapper.unmount();
+    }
+  });
+
+  it('discards a delayed prior-module summary catalog and loads the new module catalog', async () => {
+    let resolveFirstCatalog!: (value: unknown) => void;
+    const firstCatalog = new Promise((resolve) => {
+      resolveFirstCatalog = resolve;
+    });
+    const draft = JSON.stringify({
+      template: 'management',
+      templateVersion: 4,
+      mode: 'LIST_CARD',
+      querySummaries: [{ key: 'sum', label: '金额', source: 'SUM', fieldName: 'amount' }],
+      nodes: [],
+    });
+    const delegate = publicationFlowHttp([], draft);
+    configureModuleContext({
+      http: {
+        request: <T>(options: HttpRequestOptions) => {
+          if (options.path === '/platform.module/education.exam/page-query-summary-catalog')
+            return firstCatalog as Promise<T>;
+          if (options.path === '/platform.module/education.other/page-query-summary-catalog')
+            return Promise.resolve({
+              moduleAlias: 'education.other',
+              fields: [{ fieldName: 'amount', title: '新模块金额' }],
+            } as T);
+          return delegate.request<T>({
+            ...options,
+            path: options.path.replaceAll('education.other', 'education.exam'),
+          });
+        },
+      },
+    });
+    const wrapper = mount(PageCompositionWorkspace, {
+      props: { moduleAlias: 'education.exam' },
+      global: { stubs: workspaceStubs() },
+    });
+    try {
+      await flushPromises();
+      await wrapper.setProps({ moduleAlias: 'education.other' });
+      await flushPromises();
+      resolveFirstCatalog({
+        moduleAlias: 'education.exam',
+        fields: [{ fieldName: 'amount', title: '旧模块金额' }],
+      });
+      await flushPromises();
+      const tree = wrapper.findComponent(PageCompositionTree);
+      tree.vm.$emit('node-action', 'configure', 'ui:template:list:query-summaries');
+      await flushPromises();
+      expect(wrapper.findComponent({ name: 'PageQuerySummaryEditor' }).props('catalog')).toMatchObject({
+        moduleAlias: 'education.other',
+        fields: [{ title: '新模块金额' }],
+      });
+    } finally {
+      wrapper.unmount();
+    }
+  });
+
   it('saves the same local tree before publishing and creates the next draft from that snapshot', async () => {
     const requests: HttpRequestOptions[] = [];
     const http = publicationFlowHttp(requests);

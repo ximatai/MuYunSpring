@@ -4,6 +4,9 @@ import net.ximatai.muyun.database.core.IDatabaseOperations;
 import net.ximatai.muyun.database.core.orm.MigrationOptions;
 import net.ximatai.muyun.database.core.orm.OrmException;
 import net.ximatai.muyun.database.core.orm.Criteria;
+import net.ximatai.muyun.database.core.orm.AggregateOperation;
+import net.ximatai.muyun.database.core.orm.AggregateQuery;
+import net.ximatai.muyun.database.core.orm.AggregateSelection;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.database.core.orm.Sort;
 import net.ximatai.muyun.database.core.orm.SqlRawCondition;
@@ -100,6 +103,85 @@ class DynamicSchemaServiceIT {
         this.operations = operations;
         this.dataSource = dataSource;
         this.transactionProbe = transactionProbe;
+    }
+
+    @Test
+    void shouldAggregateOnlyTheFilteredTenantRowsOnRealDatabase() {
+        String suffix = java.util.UUID.randomUUID().toString().replace("-", "").substring(0, 8);
+        EntityDefinition entity = new EntityDefinition("summary_entry", "app_summary_it_" + suffix, "汇总测试",
+                List.of(FieldDefinition.string("code", "编码"), FieldDefinition.decimal("amount", "金额")));
+        schemaService.ensureTable(entity);
+        DynamicRecordRuntime runtime = new DynamicRecordRuntime(operations);
+        runtime.register(new ModuleDefinition("demo.summary_" + suffix, "汇总测试", List.of(entity)));
+        DynamicRecordService service = new DynamicRecordService(runtime);
+        String module = "demo.summary_" + suffix;
+        try (TenantContext.Scope ignored = TenantContext.use("summary-a-" + suffix)) {
+            service.create(module, "summary_entry", service.newRecord(module, "summary_entry")
+                    .setValue("code", "included").setValue("amount", new BigDecimal("10.25")));
+            service.create(module, "summary_entry", service.newRecord(module, "summary_entry")
+                    .setValue("code", "included").setValue("amount", new BigDecimal("20.75")));
+            service.create(module, "summary_entry", service.newRecord(module, "summary_entry")
+                    .setValue("code", "excluded").setValue("amount", new BigDecimal("99.99")));
+            assertAggregateAmount(service, module, new BigDecimal("31.00"));
+        }
+        try (TenantContext.Scope ignored = TenantContext.use("summary-b-" + suffix)) {
+            service.create(module, "summary_entry", service.newRecord(module, "summary_entry")
+                    .setValue("code", "included").setValue("amount", new BigDecimal("100.00")));
+            assertAggregateAmount(service, module, new BigDecimal("100.00"));
+        }
+    }
+
+    private static void assertAggregateAmount(DynamicRecordService service, String module, BigDecimal expected) {
+        List<Map<String, Object>> result = service.aggregate(module, "summary_entry", Criteria.of().eq("code", "included"),
+                AggregateQuery.of(List.of(AggregateSelection.of("amountTotal", AggregateOperation.SUM, "amount"))));
+        assertThat(result).singleElement().satisfies(row -> assertThat((BigDecimal) row.get("amountTotal"))
+                .isEqualByComparingTo(expected));
+    }
+
+    @Test
+    void shouldGroupCountAndSumOnlyCurrentTenantFilteredRowsIncludingNullGroup() {
+        String suffix = java.util.UUID.randomUUID().toString().replace("-", "").substring(0, 8);
+        EntityDefinition entity = new EntityDefinition("group_entry", "app_group_summary_it_" + suffix, "分组汇总测试",
+                List.of(FieldDefinition.string("code", "编码"), FieldDefinition.string("status", "状态"),
+                        FieldDefinition.decimal("amount", "金额")));
+        schemaService.ensureTable(entity);
+        DynamicRecordRuntime runtime = new DynamicRecordRuntime(operations);
+        runtime.register(new ModuleDefinition("demo.group_summary_" + suffix, "分组汇总测试", List.of(entity)));
+        DynamicRecordService service = new DynamicRecordService(runtime);
+        String module = "demo.group_summary_" + suffix;
+        try (TenantContext.Scope ignored = TenantContext.use("group-a-" + suffix)) {
+            service.create(module, "group_entry", service.newRecord(module, "group_entry")
+                    .setValue("code", "included").setValue("status", "draft").setValue("amount", new BigDecimal("10")));
+            service.create(module, "group_entry", service.newRecord(module, "group_entry")
+                    .setValue("code", "included").setValue("status", "draft").setValue("amount", new BigDecimal("20")));
+            service.create(module, "group_entry", service.newRecord(module, "group_entry")
+                    .setValue("code", "included").setValue("status", "approved").setValue("amount", new BigDecimal("7.5")));
+            service.create(module, "group_entry", service.newRecord(module, "group_entry")
+                    .setValue("code", "included").setValue("amount", new BigDecimal("3")));
+            service.create(module, "group_entry", service.newRecord(module, "group_entry")
+                    .setValue("code", "excluded").setValue("status", "draft").setValue("amount", new BigDecimal("99")));
+            List<Map<String, Object>> rows = service.aggregate(module, "group_entry", Criteria.of().eq("code", "included"),
+                    AggregateQuery.groupBy(List.of("status"), List.of(AggregateSelection.count("count"),
+                            AggregateSelection.of("sum", AggregateOperation.SUM, "amount"))));
+            assertThat(rows).extracting(row -> row.get("status"), row -> row.get("count"),
+                            row -> ((BigDecimal) row.get("sum")).stripTrailingZeros().toPlainString())
+                    .containsExactlyInAnyOrder(
+                            org.assertj.core.groups.Tuple.tuple("draft", 2L, "30"),
+                            org.assertj.core.groups.Tuple.tuple("approved", 1L, "7.5"),
+                            org.assertj.core.groups.Tuple.tuple(null, 1L, "3"));
+        }
+        try (TenantContext.Scope ignored = TenantContext.use("group-b-" + suffix)) {
+            service.create(module, "group_entry", service.newRecord(module, "group_entry")
+                    .setValue("code", "included").setValue("status", "draft").setValue("amount", new BigDecimal("100")));
+            List<Map<String, Object>> rows = service.aggregate(module, "group_entry", Criteria.of().eq("code", "included"),
+                    AggregateQuery.groupBy(List.of("status"), List.of(AggregateSelection.count("count"),
+                            AggregateSelection.of("sum", AggregateOperation.SUM, "amount"))));
+            assertThat(rows).singleElement().satisfies(row -> {
+                assertThat(row.get("status")).isEqualTo("draft");
+                assertThat(row.get("count")).isEqualTo(1L);
+                assertThat((BigDecimal) row.get("sum")).isEqualByComparingTo("100");
+            });
+        }
     }
 
     @Test

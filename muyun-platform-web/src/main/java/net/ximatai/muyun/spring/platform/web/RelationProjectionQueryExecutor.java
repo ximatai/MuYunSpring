@@ -65,12 +65,10 @@ public class RelationProjectionQueryExecutor {
         return PageResult.of(records, total == null ? 0 : total, page);
     }
 
-    /** Aggregates the same projection sub-query used for list data and count. */
+    /** Aggregates a prepared static list source after its effective list scope has been applied. */
     public List<Map<String, Object>> aggregate(RelationProjectionSqlPlan plan, Criteria criteria,
                                                AggregateQuery aggregateQuery) {
-        if (plan == null || !plan.hasRelationProjection()) {
-            throw new IllegalArgumentException("projection SQL plan must contain relation projections");
-        }
+        if (plan == null) throw new IllegalArgumentException("projection SQL plan must not be null");
         if (aggregateQuery == null) throw new IllegalArgumentException("aggregate query must not be null");
         CompiledCriteria compiled = compileCriteria(plan, criteria);
         LinkedHashMap<String, Object> params = new LinkedHashMap<>(plan.baseParams());

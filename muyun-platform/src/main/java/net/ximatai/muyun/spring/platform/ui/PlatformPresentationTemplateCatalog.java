@@ -122,6 +122,7 @@ public class PlatformPresentationTemplateCatalog {
         }
         String mode = root.path("mode").asText();
         if (!Set.of("TREE_CARD", "LIST_CARD", "MICRO_LIST_CARD").contains(mode)) throw invalidManagementTree();
+        if (!"LIST_CARD".equals(mode) && root.has("querySummaries")) throw invalidManagementTree();
         if (version >= MODE_AWARE_ACTION_VERSION) validateManagementActions(root.path("actions"), version == MANAGED_ACTION_VERSION);
         else if (root.has("actions")) throw invalidManagementTree();
         var normalized = ((com.fasterxml.jackson.databind.node.ObjectNode) root).deepCopy();
@@ -321,10 +322,11 @@ public class PlatformPresentationTemplateCatalog {
     private static void validateManagementRootProperties(JsonNode root) {
         java.util.Iterator<String> rootNames = root.fieldNames();
         while (rootNames.hasNext()) {
-            if (!Set.of("template", "templateVersion", "nodes", "props").contains(rootNames.next())) {
+            if (!Set.of("template", "templateVersion", "nodes", "props", "querySummaries").contains(rootNames.next())) {
                 throw invalidManagementTree();
             }
         }
+        validateQuerySummaries(root.path("querySummaries"));
         JsonNode properties = root.path("props");
         if (properties.isMissingNode()) {
             return;
@@ -346,6 +348,41 @@ public class PlatformPresentationTemplateCatalog {
                 || !list.path("searchPlaceholder").isTextual()
                 || list.path("searchPlaceholder").asText().isBlank()) {
             throw invalidManagementTree();
+        }
+    }
+
+    private static void validateQuerySummaries(JsonNode summaries) {
+        if (summaries.isMissingNode()) return;
+        if (!summaries.isArray()) throw invalidManagementTree();
+        Set<String> keys = new java.util.LinkedHashSet<>();
+        for (JsonNode summary : summaries) {
+            if (!summary.isObject() || !summary.path("key").isTextual() || summary.path("key").asText().isBlank()
+                    || !keys.add(summary.path("key").asText()) || !summary.path("label").isTextual()
+                    || summary.path("label").asText().isBlank() || !summary.path("source").isTextual()) {
+                throw invalidManagementTree();
+            }
+            String source = summary.path("source").asText();
+            if (!Set.of("MATCHED_COUNT", "SUM", "CONTRIBUTOR", "GROUPED").contains(source)) throw invalidManagementTree();
+            java.util.Iterator<String> names = summary.fieldNames();
+            while (names.hasNext()) {
+                if (!Set.of("key", "label", "source", "fieldName", "contributorKey", "groupByField").contains(names.next())) {
+                    throw invalidManagementTree();
+                }
+            }
+            boolean hasField = summary.has("fieldName") && !summary.path("fieldName").isNull();
+            boolean hasContributor = summary.has("contributorKey") && !summary.path("contributorKey").isNull();
+            boolean hasGroup = summary.has("groupByField") && !summary.path("groupByField").isNull();
+            if ((hasField && (!summary.path("fieldName").isTextual() || summary.path("fieldName").asText().isBlank()
+                    || summary.path("fieldName").asText().contains(".")))
+                    || (hasContributor && (!summary.path("contributorKey").isTextual() || summary.path("contributorKey").asText().isBlank()))
+                    || (hasGroup && (!summary.path("groupByField").isTextual() || summary.path("groupByField").asText().isBlank()
+                    || summary.path("groupByField").asText().contains(".")))
+                    || ("SUM".equals(source) && !hasField)
+                    || (!"SUM".equals(source) && !"GROUPED".equals(source) && hasField)
+                    || ("CONTRIBUTOR".equals(source) != hasContributor)
+                    || ("GROUPED".equals(source) != hasGroup)) {
+                throw invalidManagementTree();
+            }
         }
     }
 

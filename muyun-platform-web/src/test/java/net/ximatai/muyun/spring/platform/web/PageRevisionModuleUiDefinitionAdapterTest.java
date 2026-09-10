@@ -19,6 +19,22 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class PageRevisionModuleUiDefinitionAdapterTest {
     @Test
+    void compilesRootListQuerySummariesWithoutRequiringTheFieldToBeAListColumn() {
+        var definition = PageRevisionModuleUiDefinitionAdapter.fromPublishedRevision(page(), revision("""
+                {"template":"management","templateVersion":4,"mode":"LIST_CARD","quickSearchFields":[],"actions":[],
+                 "querySummaries":[{"key":"amountTotal","label":"金额合计","source":"SUM","fieldName":"amount"},
+                                   {"key":"count","label":"匹配数","source":"MATCHED_COUNT"}],
+                 "nodes":[{"slot":"list","title":"列表","fields":["title"]},{"slot":"form","title":"详情","fields":["title"]}]}
+                """), new DynamicPageCompilationContext(DynamicModuleOverviewMode.LIST_CARD,
+                Map.of("title", "名称", "amount", "金额"), java.util.Set.of(), Map.of()));
+
+        assertThat(((ListDetailCardPageDefinition) definition.page()).list().querySummaries())
+                .extracting(PageListQuerySummaryDefinition::source)
+                .containsExactly(PageListQuerySummaryDefinition.Source.SUM,
+                        PageListQuerySummaryDefinition.Source.MATCHED_COUNT);
+    }
+
+    @Test
     void keepsReferencePathsAsReadOnlyPageFields() {
         var definition = PageRevisionModuleUiDefinitionAdapter.fromPublishedRevision(page(), revision("""
                 {"template":"management","templateVersion":1,"nodes":[

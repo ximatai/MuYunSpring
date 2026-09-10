@@ -492,17 +492,36 @@ public class PlatformPageConfigPublishService {
                 throw layoutException(uiConfigId, path + ".label is required");
             }
             if (source == null || !source.isTextual()
-                    || !("MATCHED_COUNT".equals(source.asText()) || "CONTRIBUTOR".equals(source.asText()))) {
+                    || !("MATCHED_COUNT".equals(source.asText()) || "SUM".equals(source.asText())
+                    || "CONTRIBUTOR".equals(source.asText()) || "GROUPED".equals(source.asText()))) {
                 throw layoutException(uiConfigId, path + ".source is unsupported");
             }
+            JsonNode fieldName = item.get("fieldName");
             JsonNode contributorKey = item.get("contributorKey");
+            JsonNode groupByField = item.get("groupByField");
+            boolean sum = "SUM".equals(source.asText());
             boolean contributor = "CONTRIBUTOR".equals(source.asText());
+            boolean grouped = "GROUPED".equals(source.asText());
+            if (sum && (fieldName == null || !fieldName.isTextual() || fieldName.asText().isBlank()
+                    || fieldName.asText().contains("."))) {
+                throw layoutException(uiConfigId, path + ".fieldName is required for SUM");
+            }
+            if (!sum && !grouped && fieldName != null && !fieldName.isNull()) {
+                throw layoutException(uiConfigId, path + ".fieldName is only valid for SUM or GROUPED");
+            }
             if (contributor && (contributorKey == null || !contributorKey.isTextual()
                     || contributorKey.asText().isBlank())) {
                 throw layoutException(uiConfigId, path + ".contributorKey is required for CONTRIBUTOR");
             }
             if (!contributor && contributorKey != null && !contributorKey.isNull()) {
                 throw layoutException(uiConfigId, path + ".contributorKey is only valid for CONTRIBUTOR");
+            }
+            if (grouped && (groupByField == null || !groupByField.isTextual() || groupByField.asText().isBlank()
+                    || groupByField.asText().contains("."))) {
+                throw layoutException(uiConfigId, path + ".groupByField is required for GROUPED");
+            }
+            if (!grouped && groupByField != null && !groupByField.isNull()) {
+                throw layoutException(uiConfigId, path + ".groupByField is only valid for GROUPED");
             }
         }
     }

@@ -28,6 +28,11 @@ final class UserOnlineQuerySummaryContributor implements ListQuerySummaryContrib
     }
 
     @Override
+    public String title() {
+        return "在线用户";
+    }
+
+    @Override
     public WebListQuerySummaryItem summarize(ListQuerySummaryContext context) {
         return new WebListQuerySummaryItem(context.summaryKey(),
                 context.count(Criteria.copyOf(presenceService.activeAccountCriteria())));

@@ -196,7 +196,7 @@ public class StaticRecordReadProjectionService {
                                                                      RecordReadVisibility visibility,
                                                                      net.ximatai.muyun.database.core.orm.AggregateQuery aggregateQuery) {
         if (moduleAlias == null || recordService == null || actionPolicy == null || visibility == null
-                || !supportsDefaultListQuery(moduleAlias, recordService)) return Optional.empty();
+                || aggregateQuery == null) return Optional.empty();
         ModuleExecutionPlan plan = executionPlan(moduleAlias).orElseThrow();
         Criteria criteria = andCriteria(new QueryCompiler(plan.queryDescriptor()).criteria(request), additionalCriteria);
         if (recordService instanceof DataScopeAbility<?> dataScopeAbility) {
@@ -218,8 +218,11 @@ public class StaticRecordReadProjectionService {
         RecordReadProjection projection = withReferenceSourceFields(moduleAlias, recordService,
                 RecordReadProjectionPlanner.defaultList(plan.uiDescriptor(), plan.readModel(), recordService,
                         ActionExecutionContextHolder.current().orElse(null)));
-        return relationProjectionReadService.aggregateList(staticModuleDefinitionCatalog.definitions(), definition,
-                projection, criteria, aggregateQuery);
+        if (supportsDefaultListQuery(moduleAlias, recordService)) {
+            return relationProjectionReadService.aggregateList(staticModuleDefinitionCatalog.definitions(), definition,
+                    projection, criteria, aggregateQuery);
+        }
+        return relationProjectionReadService.aggregateMainList(definition, criteria, aggregateQuery);
     }
 
     private static Criteria andCriteria(Criteria first, Criteria second) {

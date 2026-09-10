@@ -12,12 +12,19 @@ import {
   RecordDetailFields,
   RecordQueryListCell,
   RecordQueryListSurface,
+  QueryGroupedSummary,
   defaultActionIcon,
   resolveRecordDetailFields,
   resolveRecordFormFields,
   resolveRecordQueryListColumns,
 } from '@muyun/platform-components';
-import { UiActionButton, UiEmpty, type UiDataTableColumn, type UiDataTableRecord } from '@muyun/vue-ui-antdv';
+import {
+  UiActionButton,
+  UiButton,
+  UiEmpty,
+  type UiDataTableColumn,
+  type UiDataTableRecord,
+} from '@muyun/vue-ui-antdv';
 import type { ModuleRuntimeAction } from '@muyun/web-core';
 import type {
   ResolvedDetailRelationDescriptor,
@@ -37,7 +44,11 @@ import {
   type PageCompositionStructure,
   type CompositionContainer,
 } from './pageCompositionPlacement';
-import { orderedFormItems, type PageComposerFormItem } from './pageCompositionDraftState';
+import {
+  orderedFormItems,
+  type PageComposerFormItem,
+  type PageQuerySummary,
+} from './pageCompositionDraftState';
 import { canPlaceActionInAnchor, type PageCompositionActionPlacement } from './pageCompositionMode';
 import { usePageCompositionPreviewDrag, type PreviewPlacementEntry } from './usePageCompositionPreviewDrag';
 import { usePageCompositionActionPreviewDrag } from './usePageCompositionActionPreviewDrag';
@@ -61,6 +72,7 @@ const props = defineProps<{
   actionPlacements?: PageCompositionActionPlacement[];
   actionFormMode?: 'create' | 'edit';
   moduleActions?: ModuleRuntimeAction[];
+  querySummaries?: PageQuerySummary[];
 }>();
 
 const emit = defineEmits<{
@@ -68,6 +80,7 @@ const emit = defineEmits<{
   configureField: [slot: PreviewSlot, fieldName: string];
   configureRelationField: [relationCode: string, fieldName: string];
   configureAction: [anchor: 'page' | 'detail' | 'form', actionCode: string];
+  configureSummaries: [];
   'placement-drop': [source: CompositionPlacementSource, target: CompositionPlacementTarget];
   'action-drop': [
     source: { actionCode: string; sourceAnchor?: 'page' | 'detail' | 'form' },
@@ -76,6 +89,23 @@ const emit = defineEmits<{
 }>();
 
 const listColumns = computed(() => resolveRecordQueryListColumns(props.descriptor.page?.list?.fields));
+const previewSummaryText = computed(() =>
+  (props.querySummaries ?? []).map((summary) => ({
+    ...summary,
+    title: summary.label,
+    value: summary.source === 'MATCHED_COUNT' ? '12' : summary.source === 'SUM' ? '1,280.00' : '示例值',
+  })),
+);
+function summaryFieldTitle(key: string, fieldName: string | undefined, kind: 'group' | 'sum') {
+  const summary = props.descriptor.page?.list?.querySummaries?.find((item) => item.key === key);
+  const compiledTitle = kind === 'group' ? summary?.groupByTitle : summary?.sumFieldTitle;
+  return (
+    compiledTitle ??
+    props.descriptor.page?.list?.fields?.fields?.find((field) => field.fieldRef.fieldName === fieldName)
+      ?.label ??
+    fieldName
+  );
+}
 const transientExternalField = computed(() => {
   const source = transientPlacement.value?.source;
   return source?.kind === 'metadata' && source.metadata.kind === 'field' && source.metadata.fieldName
@@ -851,140 +881,172 @@ function animateLayoutElement(element: HTMLElement, x: number, y: number) {
 </script>
 
 <template>
-  <section
-    v-if="mode === 'list'"
-    ref="previewRoot"
-    class="page-composition-descriptor-preview"
-    data-testid="page-composer-list-preview"
-    tabindex="0"
-    data-composer-drop-target="list"
-  >
-    <div
-      v-if="columnOutline"
-      class="page-composer-column-drag-outline"
-      :style="columnOutline"
-      aria-hidden="true"
-    />
-    <div
-      v-if="feedback && !transientPlacement"
-      class="page-composer-drop-indicator"
-      :class="{
-        'page-composer-drop-indicator--rejected': feedback.rejected,
-        'page-composer-drop-indicator--transient': transientPlacement,
-      }"
-      :style="{
-        left: `${feedback.left}px`,
-        top: `${feedback.top}px`,
-        width: `${feedback.width}px`,
-        height: `${feedback.height}px`,
-      }"
-      role="status"
+  <template v-if="mode === 'list'">
+    <section
+      ref="previewRoot"
+      class="page-composition-descriptor-preview page-composition-descriptor-preview--list"
+      data-testid="page-composer-list-preview"
+      tabindex="0"
+      data-composer-drop-target="list"
     >
-      <span>{{ feedback.title }}</span>
-    </div>
-    <RecordQueryListSurface
-      class="page-composition-descriptor-preview__list-surface"
-      :header-visible="true"
-      :show-title="false"
-      quick-search-visible
-      quick-search-value=""
-      :quick-search-placeholder="listSearchPlaceholder"
-      quick-search-disabled
-      :columns="dataTableColumns"
-      :rows="[listRecord]"
-      row-key="id"
-      :table-visible="!isListEmpty"
-      pageable
-      :total="1"
-      pagination-disabled
-      embedded
-    >
-      <template #operations>
-        <div
-          ref="pageActionRoot"
-          class="page-composition-action-preview page-composition-action-preview--list"
-          :class="actionDropClass(pageActionDrag.feedback.value)"
-          data-ui-drop-root
-          tabindex="0"
-        >
-          <TransitionGroup name="page-composer-action-layout" tag="span" class="page-composer-action-layout">
-            <span
-              v-for="action in actionItems(pageActionDrag.stagedActionCodes.value, 'page')"
-              @dblclick.stop="emit('configureAction', 'page', action.actionCode)"
-              :key="action.actionCode"
-              :data-page-action-key="action.actionCode"
-              :class="[
-                actionDropItemClass(pageActionDrag.feedback.value, action.actionCode),
-                {
-                  'page-composition-action-preview__button--transient': isTransientAction(
-                    pageActionDrag,
-                    action.actionCode,
-                  ),
-                },
-              ]"
+      <div
+        v-if="columnOutline"
+        class="page-composer-column-drag-outline"
+        :style="columnOutline"
+        aria-hidden="true"
+      />
+      <div
+        v-if="feedback && !transientPlacement"
+        class="page-composer-drop-indicator"
+        :class="{
+          'page-composer-drop-indicator--rejected': feedback.rejected,
+          'page-composer-drop-indicator--transient': transientPlacement,
+        }"
+        :style="{
+          left: `${feedback.left}px`,
+          top: `${feedback.top}px`,
+          width: `${feedback.width}px`,
+          height: `${feedback.height}px`,
+        }"
+        role="status"
+      >
+        <span>{{ feedback.title }}</span>
+      </div>
+      <RecordQueryListSurface
+        class="page-composition-descriptor-preview__list-surface"
+        :header-visible="true"
+        :show-title="false"
+        quick-search-visible
+        quick-search-value=""
+        :quick-search-placeholder="listSearchPlaceholder"
+        quick-search-disabled
+        :columns="dataTableColumns"
+        :rows="[listRecord]"
+        row-key="id"
+        :table-visible="!isListEmpty"
+        pageable
+        :total="1"
+        pagination-disabled
+        embedded
+      >
+        <template #operations>
+          <div
+            ref="pageActionRoot"
+            class="page-composition-action-preview page-composition-action-preview--list"
+            :class="actionDropClass(pageActionDrag.feedback.value)"
+            data-ui-drop-root
+            tabindex="0"
+          >
+            <TransitionGroup
+              name="page-composer-action-layout"
+              tag="span"
+              class="page-composer-action-layout"
             >
               <span
-                v-bind="pageActionDrag.dragHandleProps(action.actionCode, action.title ?? action.actionCode)"
-                >⠿</span
+                v-for="action in actionItems(pageActionDrag.stagedActionCodes.value, 'page')"
+                @dblclick.stop="emit('configureAction', 'page', action.actionCode)"
+                :key="action.actionCode"
+                :data-page-action-key="action.actionCode"
+                :class="[
+                  actionDropItemClass(pageActionDrag.feedback.value, action.actionCode),
+                  {
+                    'page-composition-action-preview__button--transient': isTransientAction(
+                      pageActionDrag,
+                      action.actionCode,
+                    ),
+                  },
+                ]"
               >
-              <UiActionButton
-                :disabled="action.bindingPending"
-                :title="action.bindingPending ? '待绑定执行能力' : undefined"
-                :intent="action.actionCode === 'delete' ? 'danger' : 'normal'"
-                :icon-name="action.iconName"
-                >{{ action.title ?? action.actionCode }}</UiActionButton
-              >
-            </span>
-          </TransitionGroup>
-        </div>
-      </template>
-      <template #header="{ column }">
-        <span
-          class="page-composer-column-heading"
-          :data-page-composition-layout-key="`list:header:${column.key}`"
-          :data-ui-drop-key="`list:header:${column.key}`"
-          tabindex="0"
-        >
-          <span v-if="acceptExternalDrop" v-bind="handleProps(`list:header:${column.key}`, column.title)"
-            >⠿</span
-          >{{ column.title }}
-        </span>
-      </template>
-      <template #cell="{ column }">
-        <button
-          class="page-composition-descriptor-preview__field"
-          :class="{
-            'page-composition-descriptor-preview__field--selected': isSelected('list', column.key),
-            'page-composer-external-field-preview--dragging':
-              transientExternalField?.fieldName === column.key,
-          }"
-          type="button"
-          :title="`配置${column.title}`"
-          :data-page-composition-layout-key="`list:field:${column.key}`"
-          @click="emit('selectField', 'list', column.key)"
-          @dblclick="emit('configureField', 'list', column.key)"
-          @keydown.space.prevent="emit('configureField', 'list', column.key)"
-        >
-          <RecordQueryListCell
-            v-if="listColumns.find((item) => item.key === column.key)"
-            :record="listRecord"
-            :column="listColumns.find((item) => item.key === column.key)!"
-          />
-          <span v-else class="page-composer-external-field-preview">示例内容</span>
-        </button>
-      </template>
-      <template #beforeTable>
-        <div
-          v-if="isListEmpty"
-          data-composer-target="list:empty"
-          data-ui-drop-key="list:empty"
-          :tabindex="acceptExternalDrop ? 0 : -1"
-        >
-          <UiEmpty description="当前草稿尚未配置列表字段" />
-        </div>
-      </template>
-    </RecordQueryListSurface>
-  </section>
+                <span
+                  v-bind="
+                    pageActionDrag.dragHandleProps(action.actionCode, action.title ?? action.actionCode)
+                  "
+                  >⠿</span
+                >
+                <UiActionButton
+                  :disabled="action.bindingPending"
+                  :title="action.bindingPending ? '待绑定执行能力' : undefined"
+                  :intent="action.actionCode === 'delete' ? 'danger' : 'normal'"
+                  :icon-name="action.iconName"
+                  >{{ action.title ?? action.actionCode }}</UiActionButton
+                >
+              </span>
+            </TransitionGroup>
+          </div>
+        </template>
+        <template #header="{ column }">
+          <span
+            class="page-composer-column-heading"
+            :data-page-composition-layout-key="`list:header:${column.key}`"
+            :data-ui-drop-key="`list:header:${column.key}`"
+            tabindex="0"
+          >
+            <span v-if="acceptExternalDrop" v-bind="handleProps(`list:header:${column.key}`, column.title)"
+              >⠿</span
+            >{{ column.title }}
+          </span>
+        </template>
+        <template #cell="{ column }">
+          <button
+            class="page-composition-descriptor-preview__field"
+            :class="{
+              'page-composition-descriptor-preview__field--selected': isSelected('list', column.key),
+              'page-composer-external-field-preview--dragging':
+                transientExternalField?.fieldName === column.key,
+            }"
+            type="button"
+            :title="`配置${column.title}`"
+            :data-page-composition-layout-key="`list:field:${column.key}`"
+            @click="emit('selectField', 'list', column.key)"
+            @dblclick="emit('configureField', 'list', column.key)"
+            @keydown.space.prevent="emit('configureField', 'list', column.key)"
+          >
+            <RecordQueryListCell
+              v-if="listColumns.find((item) => item.key === column.key)"
+              :record="listRecord"
+              :column="listColumns.find((item) => item.key === column.key)!"
+            />
+            <span v-else class="page-composer-external-field-preview">示例内容</span>
+          </button>
+        </template>
+        <template #beforeTable>
+          <div
+            v-if="isListEmpty"
+            data-composer-target="list:empty"
+            data-ui-drop-key="list:empty"
+            :tabindex="acceptExternalDrop ? 0 : -1"
+          >
+            <UiEmpty description="当前草稿尚未配置列表字段" />
+          </div>
+        </template>
+        <template #footer>
+          <div class="page-composer-summary-preview">
+            <template v-for="summary in previewSummaryText" :key="summary.key">
+              <QueryGroupedSummary
+                v-if="summary.source === 'GROUPED'"
+                :title="summary.title"
+                :group-by-title="summaryFieldTitle(summary.key, summary.groupByField, 'group')"
+                :sum-field-title="
+                  summary.fieldName ? summaryFieldTitle(summary.key, summary.fieldName, 'sum') : undefined
+                "
+                :example-rows="[
+                  { value: 'supplier-a', label: '示例分组 A', count: 2, sum: 120 },
+                  { value: 'supplier-b', label: '示例分组 B', count: 1, sum: 80 },
+                ]"
+              />
+              <span v-else>
+                <span>{{ summary.title }}</span
+                ><strong>示例 {{ summary.value }}</strong>
+              </span>
+            </template>
+          </div>
+        </template>
+      </RecordQueryListSurface>
+    </section>
+    <UiButton class="page-composer-summary-configure" size="small" @click="emit('configureSummaries')">
+      {{ previewSummaryText.length ? `汇总统计 · ${previewSummaryText.length} 项` : '配置汇总统计' }}
+    </UiButton>
+  </template>
 
   <section
     v-else-if="mode === 'query'"
@@ -1698,6 +1760,19 @@ function animateLayoutElement(element: HTMLElement, x: number, y: number) {
   border: 1px solid var(--muyun-border);
   border-radius: 8px;
 }
+.page-composition-descriptor-preview--list {
+  align-content: stretch;
+  grid-template-rows: minmax(280px, 1fr);
+  min-height: 0;
+}
+.page-composition-descriptor-preview--list :deep(.page-composition-descriptor-preview__list-surface) {
+  min-height: 0;
+  height: 100%;
+}
+.page-composer-summary-configure {
+  justify-self: start;
+  margin-top: 8px;
+}
 
 .page-composition-descriptor-preview__runtime-note {
   margin: 0;
@@ -1884,5 +1959,24 @@ function animateLayoutElement(element: HTMLElement, x: number, y: number) {
 }
 .page-composer-drop-indicator--rejected > span {
   background: var(--muyun-danger-base);
+}
+.page-composer-summary-preview {
+  display: flex;
+  flex: 1 1 auto;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  min-width: 0;
+  padding: 0;
+  color: inherit;
+  background: transparent;
+  text-align: left;
+}
+.page-composer-summary-preview > span {
+  display: inline-flex;
+  gap: 4px;
+  white-space: nowrap;
+}
+.page-composer-summary-preview strong {
+  font-weight: 600;
 }
 </style>

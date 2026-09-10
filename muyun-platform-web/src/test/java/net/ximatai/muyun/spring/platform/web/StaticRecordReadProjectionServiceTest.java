@@ -17,6 +17,9 @@ import net.ximatai.muyun.spring.ability.reference.ReferencePath;
 import net.ximatai.muyun.spring.web.WebPageResponse;
 import net.ximatai.muyun.spring.common.option.CodeTitleEnumOptionSourceProvider;
 import net.ximatai.muyun.spring.common.option.OptionSourceRegistry;
+import net.ximatai.muyun.spring.common.option.OptionField;
+import net.ximatai.muyun.spring.common.option.OptionSourceType;
+import net.ximatai.muyun.spring.common.model.contract.CodeTitleEnum;
 import net.ximatai.muyun.spring.common.platform.EntityCapability;
 import net.ximatai.muyun.spring.common.platform.ActionExecutionPolicy;
 import net.ximatai.muyun.spring.common.platform.DataScopeCriteriaResult;
@@ -41,6 +44,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.Optional;
+import java.math.BigDecimal;
 import java.util.function.Supplier;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -54,6 +58,62 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class StaticRecordReadProjectionServiceTest {
+    @Test
+    @SuppressWarnings({"rawtypes", "unchecked"})
+    void shouldAggregateOrdinaryStaticListAcrossFilterTenantDataScopeWithoutPagination() {
+        StaticModuleDefinition definition = summaryDefinition();
+        NamedParameterJdbcOperations jdbcOperations = mock(NamedParameterJdbcOperations.class);
+        when(jdbcOperations.queryForList(any(String.class), any(Map.class))).thenReturn(
+                List.of(Map.of("a0", new BigDecimal("12.50"))),
+                List.of(Map.of("g0", "OPEN", "a0", 2L, "a1", new BigDecimal("12.50"))));
+        StaticRecordReadProjectionService service = new StaticRecordReadProjectionService(
+                new StaticModuleDefinitionCatalog(List.of(definition)),
+                new RelationProjectionQueryExecutor(jdbcOperations), new RelationProjectionDatabaseTypeProvider());
+        ScopedSummaryAbility recordService = mock(ScopedSummaryAbility.class);
+        ActionExecutionPolicy policy = ActionExecutionPolicy.standard(PlatformAction.QUERY);
+        when(recordService.readScopeByPolicy(eq(policy), any(Criteria.class))).thenAnswer(invocation ->
+                DataScopeCriteriaResult.restricted(Criteria.copyOf(invocation.getArgument(1, Criteria.class))
+                        .eq("ownerId", "user-a")));
+        when(recordService.withDataScopeTenant(any(DataScopeCriteriaResult.class), any(Supplier.class)))
+                .thenAnswer(invocation -> invocation.<Supplier<?>>getArgument(1).get());
+        when(recordService.activeCriteria(any(Criteria.class))).thenAnswer(invocation ->
+                Criteria.copyOf(invocation.getArgument(0, Criteria.class)).eq("deleted", false));
+
+        QueryRequest request = new QueryRequest(List.of(new net.ximatai.muyun.spring.ability.query.QueryCondition(
+                "code", net.ximatai.muyun.spring.ability.query.QueryOperator.EQ, List.of("included"), null)),
+                null, Map.of(), List.of(), null, null, Map.of(), null, List.of(), false, null);
+
+        assertThat(service.aggregateDefaultList("demo.summary", request, Criteria.of().eq("tenantId", "tenant-a"),
+                recordService, policy, RecordReadVisibility.ACTIVE,
+                net.ximatai.muyun.database.core.orm.AggregateQuery.of(List.of(
+                        net.ximatai.muyun.database.core.orm.AggregateSelection.of("amountTotal",
+                                net.ximatai.muyun.database.core.orm.AggregateOperation.SUM, "amount")))))
+                .contains(List.of(Map.of("amountTotal", new BigDecimal("12.50"))));
+        assertThat(service.aggregateDefaultList("demo.summary", request, Criteria.of().eq("tenantId", "tenant-a"),
+                recordService, policy, RecordReadVisibility.ACTIVE,
+                net.ximatai.muyun.database.core.orm.AggregateQuery.groupBy(List.of("status"), List.of(
+                        net.ximatai.muyun.database.core.orm.AggregateSelection.count("statusCount"),
+                        net.ximatai.muyun.database.core.orm.AggregateSelection.of("statusAmount",
+                                net.ximatai.muyun.database.core.orm.AggregateOperation.SUM, "amount")))))
+                .contains(List.of(Map.of("status", "OPEN", "statusCount", 2L,
+                        "statusAmount", new BigDecimal("12.50"))));
+
+        var sql = org.mockito.ArgumentCaptor.forClass(String.class);
+        var params = org.mockito.ArgumentCaptor.forClass(Map.class);
+        verify(jdbcOperations, org.mockito.Mockito.times(2)).queryForList(sql.capture(), params.capture());
+        assertThat(sql.getAllValues()).allSatisfy(value -> {
+            assertThat(value).contains("\"code\"", "\"tenantId\"", "\"ownerId\"", "\"deleted\"")
+                    .doesNotContain(" limit ", " offset ");
+        });
+        assertThat(sql.getAllValues().getFirst()).contains("SUM(\"amount\")");
+        assertThat(sql.getAllValues().get(1)).contains("group by \"status\"");
+        assertThat(params.getAllValues()).allSatisfy(value ->
+                assertThat(value.values()).contains("included", "tenant-a", "user-a", false));
+        verify(recordService, org.mockito.Mockito.times(2)).readScopeByPolicy(eq(policy), any(Criteria.class));
+        verify(recordService, org.mockito.Mockito.times(2)).withDataScopeTenant(any(DataScopeCriteriaResult.class),
+                any(Supplier.class));
+    }
+
     @Test
     void shouldRejectRequestTimeDslCompilationWhenMigratedModulePlanIsMissing() {
         StaticModuleDefinition definition = staticDefinition();
@@ -431,6 +491,51 @@ class StaticRecordReadProjectionServiceTest {
                                 .field("title"))
                         )
                        .build();
+    }
+
+    private static StaticModuleDefinition summaryDefinition() {
+        ModuleUiDefinition ui = ModuleUiDefinition.builder("demo.summary")
+                .page(PageTemplates.listDetailCard(page -> page
+                        .list(list -> list.fields(fields -> fields.field("code").field("amount").field("status"))
+                                .querySummaries(summaries -> summaries
+                                        .item("amountTotal", item -> item.label("金额合计").sum("amount"))
+                                        .item("statusSummary", item -> item.label("状态汇总")
+                                                .grouped("status").groupedSum("amount"))))
+                        .detail(detail -> detail.editor(editor -> editor.field("code")))))
+                .build();
+        return StaticModuleDefinition.builder("demo", "demo.summary", "普通汇总")
+                .modelClass(SummaryRecord.class)
+                .capabilities(Set.of(EntityCapability.CRUD, EntityCapability.DATA_SCOPE))
+                .entities(List.of(new EntityDefinition("summary", "demo_summary", "普通汇总", List.of(
+                        FieldDefinition.string("code", "编码"), FieldDefinition.decimal("amount", "金额"),
+                        FieldDefinition.string("status", "状态"),
+                        FieldDefinition.string("ownerId", "归属人").column("owner_id")))))
+                .uiDefinition(ui)
+                .queryDescriptor(net.ximatai.muyun.spring.ability.query.QueryDescriptor.builder("demo.summary")
+                        .field(net.ximatai.muyun.spring.ability.query.QueryField.of("code",
+                                net.ximatai.muyun.spring.ability.query.QueryValueType.STRING,
+                                net.ximatai.muyun.spring.ability.query.QueryOperator.EQ)).build())
+                .build();
+    }
+
+    private interface ScopedSummaryAbility extends DataScopeAbility<StandardEntity> {
+    }
+
+    static final class SummaryRecord extends StandardEntity {
+        String code;
+        BigDecimal amount;
+        @OptionField(type = OptionSourceType.ENUM, enumType = SummaryStatus.class)
+        SummaryStatus status;
+        String ownerId;
+    }
+
+    enum SummaryStatus implements CodeTitleEnum {
+        OPEN("OPEN", "开启");
+        private final String code;
+        private final String title;
+        SummaryStatus(String code, String title) { this.code = code; this.title = title; }
+        @Override public String getCode() { return code; }
+        @Override public String getTitle() { return title; }
     }
 
     private static StaticModuleDefinition userRelationDefinition() {

@@ -123,6 +123,10 @@ it('drags a recursively loaded reference path into list and form, then restores 
       .toBe(true);
     await page.getByText('表单', { exact: true }).click();
     await expect.poll(() => wrapper.find('[data-ui-drop-key="edit:field:a"]').exists()).toBe(true);
+    // The first placement reparses the descriptor asynchronously; wait for the next drop to be enabled.
+    await expect
+      .poll(() => wrapper.findComponent(PageCompositionDescriptorPreview).props('placementDisabled'))
+      .toBe(false);
     await commands.treeGesture(source, '[data-ui-drop-key="edit:field:a"]', 0.5);
     await expect
       .poll(() =>
@@ -1369,6 +1373,63 @@ it('moves a group field after its group through the structure tree and persists 
   }
 });
 
+it('reorders query summaries with a real tree insertion target without opening their editor', async () => {
+  await page.viewport(1082, 814);
+  const requests: HttpRequestOptions[] = [];
+  configureModuleContext({
+    http: placementHttp(
+      requests,
+      false,
+      'LIST_CARD',
+      false,
+      4,
+      undefined,
+      false,
+      ['a'],
+      [
+        { key: 'count', label: '匹配记录数', source: 'MATCHED_COUNT' },
+        { key: 'amount', label: '采购金额合计', source: 'SUM', fieldName: 'a' },
+        { key: 'supplier', label: '供应商统计', source: 'GROUPED', groupByField: 'b' },
+      ],
+    ),
+  });
+  const wrapper = mount(PlacementHost, { attachTo: document.body, props: { height: 760 } });
+  const tree = () => wrapper.findComponent(PageCompositionTree);
+  const count = '[data-ui-tree-key="ui:summary:count"]';
+  const supplier = '[data-ui-tree-key="ui:summary:supplier"]';
+  try {
+    await expect.poll(() => wrapper.find(count).exists() && wrapper.find(supplier).exists()).toBe(true);
+    await commands.treeGesture(supplier, count, 0.1, 'hold');
+    expect(wrapper.get(count).classes()).toContain('ui-tree-node--drop-before');
+    expect(wrapper.get(`${count} .ui-tree-node__drop-indicator--before`).isVisible()).toBe(true);
+    await commands.treeRelease();
+    await expect
+      .poll(() =>
+        tree()
+          .props('querySummaries')
+          ?.map((summary: { key: string }) => summary.key),
+      )
+      .toEqual(['supplier', 'count', 'amount']);
+    expect(
+      wrapper
+        .findAllComponents({ name: 'RecordDetailDrawer' })
+        .find((drawer) => drawer.props('title') === '汇总统计')
+        ?.props('open'),
+    ).toBe(false);
+    await page.getByRole('button', { name: '保存草稿', exact: true }).click();
+    await expect.poll(() => requests.some((request) => request.path.endsWith('/update/draft'))).toBe(true);
+    const saved = requests.find((request) => request.path.endsWith('/update/draft'))!;
+    expect(
+      JSON.parse((saved.body as { uiTreeJson: string }).uiTreeJson).querySummaries.map(
+        (summary: { key: string }) => summary.key,
+      ),
+    ).toEqual(['supplier', 'count', 'amount']);
+  } finally {
+    await commands.treeRelease();
+    wrapper.unmount();
+  }
+});
+
 function placementHttp(
   requests: HttpRequestOptions[],
   withRelations = false,
@@ -1378,6 +1439,7 @@ function placementHttp(
   rootFields?: string[],
   moreGroups = false,
   listFields = ['a'],
+  querySummaries: unknown[] = [],
 ): HttpClient {
   const fields = Array.from({ length: Math.max(5, formFieldCount + 1) }, (_, index) =>
     String.fromCharCode(97 + index),
@@ -1434,6 +1496,7 @@ function placementHttp(
             ],
       },
     ],
+    ...(querySummaries.length ? { querySummaries } : {}),
   };
   const list = (records: unknown[]) => ({ records, pages: 1, totalKnown: true });
   return {
@@ -1463,6 +1526,13 @@ function placementHttp(
           ],
         } as T;
       if (path.endsWith('/context')) return { capabilities: [], actions: [] } as T;
+      if (path.endsWith('/page-query-summary-catalog'))
+        return {
+          moduleAlias: 'education.placement',
+          fields: [{ fieldName: 'a', title: '字段甲' }],
+          contributors: [],
+          groupFields: [{ fieldName: 'b', title: '字段乙', kind: 'REFERENCE' }],
+        } as T;
       if (path.endsWith('/page-reference-fields'))
         return {
           moduleAlias: 'education.placement',

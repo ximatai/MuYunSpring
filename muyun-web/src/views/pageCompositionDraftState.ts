@@ -31,6 +31,96 @@ export interface PageComposerFieldProperties {
   readOnly?: boolean;
 }
 
+export type PageQuerySummarySource = 'MATCHED_COUNT' | 'SUM' | 'CONTRIBUTOR' | 'GROUPED';
+
+/** A list footer aggregate. Keys are editor-generated and stable across title changes. */
+export interface PageQuerySummary {
+  key: string;
+  label: string;
+  source: PageQuerySummarySource;
+  fieldName?: string;
+  contributorKey?: string;
+  groupByField?: string;
+}
+
+/** The catalogue is presentation-only source data; it is never persisted into the page draft. */
+export interface PageQuerySummaryCatalogTitles {
+  fields?: ReadonlyArray<{ fieldName: string; title: string }>;
+  contributors?: ReadonlyArray<{ contributorKey: string; title: string }>;
+  groupFields?: ReadonlyArray<{ fieldName: string; title: string }>;
+}
+
+function summaryCatalogTitle(
+  entries: ReadonlyArray<{ fieldName: string; title: string }> | undefined,
+  fieldName: string | undefined,
+  fallback: string,
+) {
+  if (!fieldName) return fallback;
+  return entries?.find((entry) => entry.fieldName === fieldName)?.title ?? fieldName;
+}
+
+/** A concise, business-facing explanation for the tree and the summary editor. */
+export function pageQuerySummaryDescription(
+  summary: PageQuerySummary,
+  catalog: PageQuerySummaryCatalogTitles = {},
+) {
+  if (summary.source === 'MATCHED_COUNT') return '记录数';
+  if (summary.source === 'SUM')
+    return `合计 · ${summaryCatalogTitle(catalog.fields, summary.fieldName, '未选择数值字段')}`;
+  if (summary.source === 'GROUPED') {
+    const groupTitle = summaryCatalogTitle(catalog.groupFields, summary.groupByField, '未选择分组字段');
+    const sumTitle = summary.fieldName
+      ? ` · 记录数 · ${summaryCatalogTitle(catalog.fields, summary.fieldName, '数值字段')}合计`
+      : ' · 记录数';
+    return `按${groupTitle}分组${sumTitle}`;
+  }
+  const title = catalog.contributors?.find((entry) => entry.contributorKey === summary.contributorKey)?.title;
+  return `业务指标 · ${title ?? summary.contributorKey ?? '未选择'}`;
+}
+
+/** Default titles follow a user-selected source while a custom title remains the user's intent. */
+export function defaultPageQuerySummaryLabel(
+  summary: PageQuerySummary,
+  catalog: PageQuerySummaryCatalogTitles = {},
+) {
+  if (summary.source === 'MATCHED_COUNT') return '记录数';
+  if (summary.source === 'SUM')
+    return `${summaryCatalogTitle(catalog.fields, summary.fieldName, '数值字段')}合计`;
+  if (summary.source === 'GROUPED') {
+    const groupTitle = summaryCatalogTitle(catalog.groupFields, summary.groupByField, '字段');
+    return summary.fieldName
+      ? `按${groupTitle}分组${summaryCatalogTitle(catalog.fields, summary.fieldName, '数值字段')}合计`
+      : `按${groupTitle}分组统计`;
+  }
+  return (
+    catalog.contributors?.find((entry) => entry.contributorKey === summary.contributorKey)?.title ??
+    '业务指标'
+  );
+}
+
+export function hasDefaultPageQuerySummaryLabel(
+  summary: PageQuerySummary,
+  catalog: PageQuerySummaryCatalogTitles = {},
+) {
+  const label = summary.label.trim();
+  if (label === defaultPageQuerySummaryLabel(summary, catalog)) return true;
+  // Drafts created before the terminology consolidation remain generated titles until users edit them.
+  if (summary.source === 'MATCHED_COUNT') return label === '匹配记录数';
+  if (summary.source === 'SUM') {
+    const fieldTitle = summaryCatalogTitle(catalog.fields, summary.fieldName, '数值字段');
+    return label === `${fieldTitle}求和` || label === `${fieldTitle}合计`;
+  }
+  if (summary.source === 'GROUPED') {
+    const groupTitle = summaryCatalogTitle(catalog.groupFields, summary.groupByField, '字段');
+    const fieldTitle = summaryCatalogTitle(catalog.fields, summary.fieldName, '数值字段');
+    return (
+      label === `按${groupTitle}统计` ||
+      (summary.fieldName != null && label === `按${groupTitle}统计${fieldTitle}合计`)
+    );
+  }
+  return false;
+}
+
 /** A direct child relation placed as an association-list component in the detail slot. */
 export interface PageComposerRelation {
   id: string;
@@ -92,6 +182,7 @@ export interface ManagementUiTree {
       searchPlaceholder: string;
     };
   };
+  querySummaries?: PageQuerySummary[];
   nodes: Array<{
     slot: PageComposerSlot;
     title: string;
@@ -122,6 +213,7 @@ export function createPageCompositionDraftState() {
   const formRelations = ref<PageComposerRelation[]>([]);
   const formGroups = ref<PageComposerGroup[]>([]);
   const formOrder = ref<PageComposerFormItem[]>([]);
+  const querySummaries = ref<PageQuerySummary[]>([]);
   const orderedForm = computed(() => orderedFormItems(formFields.value, formGroups.value, formOrder.value));
   function placeFormItem(kind: PageComposerFormItem['kind'], id: string, index?: number) {
     const next = orderedForm.value.filter((item) => item.kind !== kind || item.id !== id);
@@ -516,6 +608,29 @@ export function createPageCompositionDraftState() {
     quickSearchPlaceholder.value = value?.trim() || undefined;
   }
 
+  function replaceQuerySummaries(summaries: readonly PageQuerySummary[]) {
+    const keys = new Set<string>();
+    querySummaries.value = summaries.map((summary, index) => {
+      const key = summary.key.trim();
+      const stableKey = key && !keys.has(key) ? key : `invalid_summary_${index + 1}`;
+      keys.add(stableKey);
+      return {
+        key: stableKey,
+        label: summary.label.trim(),
+        source: summary.source,
+        ...((summary.source === 'SUM' || summary.source === 'GROUPED') && summary.fieldName?.trim()
+          ? { fieldName: summary.fieldName.trim() }
+          : {}),
+        ...(summary.source === 'CONTRIBUTOR' && summary.contributorKey?.trim()
+          ? { contributorKey: summary.contributorKey.trim() }
+          : {}),
+        ...(summary.source === 'GROUPED' && summary.groupByField?.trim()
+          ? { groupByField: summary.groupByField.trim() }
+          : {}),
+      };
+    });
+  }
+
   /** Rehydrates the editor from the persisted template contract, not the legacy UI-set aggregate. */
   function replaceFields(next: {
     list: PageComposerField[];
@@ -569,6 +684,7 @@ export function createPageCompositionDraftState() {
       template: 'management',
       templateVersion: 1,
       ...(props ? { props } : {}),
+      ...(querySummaries.value.length ? { querySummaries: querySummaries.value } : {}),
       nodes: [
         {
           slot: 'list',
@@ -622,6 +738,7 @@ export function createPageCompositionDraftState() {
     formRelations,
     formGroups,
     formOrder,
+    querySummaries,
     orderedForm,
     quickSearchPlaceholder,
     nodes,
@@ -646,6 +763,7 @@ export function createPageCompositionDraftState() {
     selectNode,
     updateSelectedFieldProperties,
     updateQuickSearchPlaceholder,
+    replaceQuerySummaries,
     replaceFields,
     normalizeFormFieldPlacements,
     toManagementUiTree,

@@ -32,6 +32,7 @@ import net.ximatai.muyun.spring.dynamic.metadata.EntityActionLevel;
 import net.ximatai.muyun.spring.dynamic.metadata.EntityDefinition;
 import net.ximatai.muyun.spring.dynamic.metadata.FieldDefinition;
 import net.ximatai.muyun.spring.dynamic.metadata.ModuleDefinitionException;
+import net.ximatai.muyun.spring.dynamic.metadata.ModuleDefinition;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicActionAvailability;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecord;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecordService;
@@ -373,6 +374,66 @@ class PlatformModuleRuntimeContextServiceTest {
         assertThat(formField.label()).isEqualTo("合同主题");
         assertThat(formField.columnSpan()).isEqualTo(2);
         assertThat(formField.readOnly().constant()).isTrue();
+    }
+
+    @Test
+    void shouldCompilePublishedManagementGroupedSummaryForHiddenPhysicalSumFieldAndRejectIneligibleGroup() {
+        PlatformModuleService moduleService = mock(PlatformModuleService.class);
+        PlatformModuleActionService actionService = mock(PlatformModuleActionService.class);
+        DynamicRecordService records = mock(DynamicRecordService.class);
+        DynamicPublishedPageDefinitionResolver resolver = mock(DynamicPublishedPageDefinitionResolver.class);
+        EntityDefinition entity = new EntityDefinition("contract", "contract", "合同", List.of(
+                FieldDefinition.string("title", "合同名称"), FieldDefinition.string("status", "状态").dictionary("sales", "contract_status"),
+                FieldDefinition.decimal("amount", "金额")),
+                Set.of(EntityCapability.CRUD));
+        DynamicModuleDescriptor descriptor = new DynamicModuleDescriptor("sales.contract", "合同", "contract", List.of(),
+                List.of(DynamicEntityDescriptor.from(entity)), List.of(), List.of(), List.of());
+        PlatformPageDefinition page = new PlatformPageDefinition();
+        page.setId("page-contract"); page.setModuleAlias("sales.contract");
+        page.setContractType(net.ximatai.muyun.spring.platform.ui.PlatformPageContractType.MANAGEMENT);
+        PlatformPresentationRevision revision = new PlatformPresentationRevision();
+        revision.setId("revision-contract"); revision.setRevisionNo(4);
+        revision.setTemplateAlias("management"); revision.setTemplateVersion(4);
+        revision.setStatus(net.ximatai.muyun.spring.platform.ui.PlatformPresentationRevisionStatus.PUBLISHED);
+        revision.setUiTreeJson("""
+                {"template":"management","templateVersion":4,"mode":"LIST_CARD","quickSearchFields":[],"actions":[],
+                 "querySummaries":[{"key":"statusBreakdown","label":"状态汇总","source":"GROUPED","groupByField":"status","fieldName":"amount"}],
+                 "nodes":[{"slot":"list","title":"列表","fields":["title"]},{"slot":"form","title":"详情","fields":["title"]}]}
+                """);
+        ModuleUiDefinition definition = PageRevisionModuleUiDefinitionAdapter.fromPublishedRevision(page, revision,
+                new DynamicPageCompilationContext(net.ximatai.muyun.spring.platform.module.DynamicModuleOverviewMode.LIST_CARD,
+                        java.util.Map.of("title", "合同名称", "status", "状态", "amount", "金额"), Set.of(), java.util.Map.of()));
+        when(moduleService.resolveVisibleModule("sales.contract")).thenReturn(module("sales.contract", "合同", ModuleKind.DYNAMIC));
+        when(actionService.listByModuleAliases(List.of("sales.contract"))).thenReturn(List.of());
+        when(records.describe("sales.contract")).thenReturn(descriptor);
+        when(records.moduleDefinitions()).thenReturn(List.of(new ModuleDefinition("sales.contract", "合同", List.of(entity))));
+        when(records.runtimeRevision("sales.contract")).thenReturn(1L);
+        when(resolver.resolveWebGlobal(descriptor)).thenReturn(Optional.of(
+                new DynamicPublishedPageDefinitionResolver.ResolvedPublishedPage(page, revision, definition)));
+        PlatformModuleRuntimeContextService service = new PlatformModuleRuntimeContextService(moduleService, actionService,
+                new StaticModuleDefinitionCatalog(List.of()), records, null, null, allowAllPolicy(), List.of(),
+                new DeclaredPageNavigatorResolver(), null, null, null, null, null, resolver);
+
+        ModuleExecutionPlan plan = service.dynamicExecutionPlan("sales.contract").orElseThrow();
+        assertThat(plan.uiDescriptor().page().list().fields().fields()).extracting(field -> field.fieldRef().fieldName())
+                .containsExactly("title");
+        assertThat(plan.uiDescriptor().page().list().querySummaries()).singleElement().satisfies(summary -> {
+            assertThat(summary.source()).isEqualTo(PageListQuerySummaryDefinition.Source.GROUPED);
+            assertThat(summary.fieldName()).isEqualTo("amount");
+            assertThat(summary.groupByField()).isEqualTo("status");
+            assertThat(summary.groupByTitle()).isEqualTo("状态");
+            assertThat(summary.sumFieldTitle()).isEqualTo("金额");
+        });
+
+        ModuleUiDefinition invalid = ModuleUiDefinition.builder("sales.contract")
+                .page(PageTemplates.listDetailCard(candidate -> candidate
+                        .list(list -> list.fields(fields -> fields.field("title"))
+                                .querySummaries(summaries -> summaries.item("bad", item -> item.label("错误").grouped("title"))))
+                        .detail(detail -> detail.editor(editor -> editor.field("title"))))).build();
+        when(resolver.resolveWebGlobal(descriptor)).thenReturn(Optional.of(
+                new DynamicPublishedPageDefinitionResolver.ResolvedPublishedPage(page, revision, invalid)));
+        assertThatThrownBy(() -> service.dynamicExecutionPlan("sales.contract"))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("not eligible");
     }
 
     @org.junit.jupiter.params.ParameterizedTest

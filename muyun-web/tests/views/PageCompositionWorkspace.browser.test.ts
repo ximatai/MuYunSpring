@@ -109,6 +109,104 @@ it.each([1440, 980])(
   },
 );
 
+it('configures and previews list summaries in the real Chromium footer', async () => {
+  await page.viewport(980, 814);
+  configureModuleContext({ http: layoutHttp() });
+  const wrapper = mount(PageCompositionWorkspace, {
+    attachTo: document.body,
+    props: { moduleAlias: 'education.layout', moduleTitle: '布局验收' },
+  });
+  try {
+    await expect.element(page.getByRole('button', { name: '发布草稿', exact: true })).toBeEnabled();
+    const summaryNode = wrapper.get('[data-ui-tree-key="ui:template:list:query-summaries"]').element;
+    await page.elementLocator(summaryNode).dblClick();
+    await expect.element(page.getByRole('heading', { name: '汇总统计', exact: true })).toBeVisible();
+    await page.getByRole('button', { name: '添加统计', exact: true }).click();
+    await page.getByRole('menuitem', { name: '记录数', exact: true }).click();
+    await page.getByRole('button', { name: '添加统计', exact: true }).click();
+    await page.getByRole('menuitem', { name: '数值合计', exact: true }).click();
+    await expect
+      .element(page.getByTestId('page-composer-list-preview').getByText('采购金额合计', { exact: true }))
+      .toBeVisible();
+    await page.getByRole('button', { name: '关闭', exact: true }).click();
+    await expect.element(page.getByText('示例 1,280.00', { exact: true })).toBeVisible();
+    const amountSummary = wrapper.get('[data-ui-tree-key="ui:summary:summary_2"]').element;
+    await page.elementLocator(amountSummary).click();
+    await expect.element(page.getByRole('heading', { name: '汇总统计', exact: true })).toBeVisible();
+    expect(wrapper.get('[data-summary-key="summary_2"]').classes()).toContain(
+      'page-query-summary-editor__item--selected',
+    );
+    const footer = wrapper.get('.record-query-list-pagination').element as HTMLElement;
+    const surface = wrapper.get('.page-composition-descriptor-preview__list-surface').element as HTMLElement;
+    const card = wrapper.get('[data-testid="page-composer-list-preview"]').element as HTMLElement;
+    const configure = wrapper.get('.page-composer-summary-configure').element as HTMLElement;
+    expect(footer.scrollWidth).toBeLessThanOrEqual(footer.clientWidth + 1);
+    expect(footer.getBoundingClientRect().bottom).toBeCloseTo(surface.getBoundingClientRect().bottom, 0);
+    const cardStyle = getComputedStyle(card);
+    expect(footer.getBoundingClientRect().bottom).toBeCloseTo(
+      card.getBoundingClientRect().bottom -
+        parseFloat(cardStyle.paddingBottom) -
+        parseFloat(cardStyle.borderBottomWidth),
+      0,
+    );
+    expect(configure.getBoundingClientRect().top).toBeGreaterThanOrEqual(card.getBoundingClientRect().bottom);
+  } finally {
+    wrapper.unmount();
+  }
+});
+
+it('scrolls a tree-targeted statistic into the drawer and keeps it visible after moving', async () => {
+  await page.viewport(980, 814);
+  configureModuleContext({ http: layoutHttp() });
+  const wrapper = mount(
+    defineComponent({
+      setup() {
+        providePageLayout('workspace');
+        return () =>
+          h('div', { style: 'height: 760px; margin: 10px;' }, [
+            h(PageCompositionWorkspace, { moduleAlias: 'education.layout', moduleTitle: '布局验收' }),
+          ]);
+      },
+    }),
+    { attachTo: document.body },
+  );
+  try {
+    await expect.element(page.getByRole('button', { name: '发布草稿', exact: true })).toBeEnabled();
+    await page
+      .elementLocator(wrapper.get('[data-ui-tree-key="ui:template:list:query-summaries"]').element)
+      .dblClick();
+    for (let index = 0; index < 6; index += 1) {
+      await page.getByRole('button', { name: '添加统计', exact: true }).click();
+      await page.getByRole('menuitem', { name: '记录数', exact: true }).click();
+    }
+    await page.getByRole('button', { name: '关闭', exact: true }).click();
+    await page.elementLocator(wrapper.get('[data-ui-tree-key="ui:summary:summary_1"]').element).click();
+    await page.getByRole('button', { name: '关闭', exact: true }).click();
+    await page.elementLocator(wrapper.get('[data-ui-tree-key="ui:summary:summary_6"]').element).click();
+    const visible = () => {
+      const item = wrapper.get('[data-summary-key="summary_6"]').element as HTMLElement;
+      const body = item.closest('.ant-drawer-body') as HTMLElement;
+      const box = item.getBoundingClientRect();
+      const viewport = body.getBoundingClientRect();
+      return (
+        box.top >= Math.max(0, viewport.top) - 1 &&
+        box.bottom <= Math.min(window.innerHeight, viewport.bottom) + 1
+      );
+    };
+    await expect.poll(visible).toBe(true);
+    await page
+      .elementLocator(wrapper.get('[data-summary-key="summary_6"]').element)
+      .getByRole('button', { name: '上 移', exact: true })
+      .click();
+    await expect.poll(visible).toBe(true);
+    expect(wrapper.get('[data-summary-key="summary_6"]').classes()).toContain(
+      'page-query-summary-editor__item--selected',
+    );
+  } finally {
+    wrapper.unmount();
+  }
+});
+
 function layoutHttp(): HttpClient {
   const fields = Array.from({ length: 60 }, (_, index) => ({
     id: `field-${index}`,
@@ -126,6 +224,12 @@ function layoutHttp(): HttpClient {
   return {
     request: async <T>(request: { path: string; body?: unknown }) => {
       const path = request.path;
+      if (path.endsWith('/page-query-summary-catalog'))
+        return {
+          moduleAlias: 'education.layout',
+          fields: [{ fieldName: 'purchaseAmount', title: '采购金额' }],
+          contributors: [],
+        } as T;
       if (path.endsWith('/overview-mode'))
         return {
           overviewMode: 'LIST_CARD',

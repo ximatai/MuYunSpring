@@ -42,6 +42,17 @@ public class ListQuerySummaryContributorCatalog {
         return contributor;
     }
 
+    /** Read-only composer directory, limited to one module's registered domain metrics. */
+    public List<Contributor> list(String moduleAlias) {
+        String validModuleAlias = PlatformNameRules.requireModuleAlias(moduleAlias);
+        return contributors.entrySet().stream()
+                .filter(entry -> validModuleAlias.equals(entry.getKey().moduleAlias()))
+                .map(entry -> new Contributor(entry.getKey().contributorKey(), entry.getValue().title()))
+                .toList();
+    }
+
+    public record Contributor(String contributorKey, String title) {}
+
     /** Verifies every domain-owned metric referenced by one already-compiled page plan. */
     public void validate(ModuleExecutionPlan plan) {
         if (plan == null || plan.uiDescriptor().page() == null || plan.uiDescriptor().page().list() == null) {

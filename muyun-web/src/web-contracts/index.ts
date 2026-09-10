@@ -1194,8 +1194,12 @@ export interface ResolvedPageTextDescriptor {
 export interface ResolvedPageListQuerySummaryDescriptor {
   key: string;
   title: string;
-  source: 'MATCHED_COUNT' | 'CONTRIBUTOR';
+  source: 'MATCHED_COUNT' | 'SUM' | 'CONTRIBUTOR' | 'GROUPED';
+  fieldName?: string;
   contributorKey?: string;
+  groupByField?: string;
+  groupByTitle?: string;
+  sumFieldTitle?: string;
 }
 
 /** A persistent boolean query control rendered after search and before advanced filtering. */

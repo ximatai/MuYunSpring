@@ -172,6 +172,39 @@ public final class RelationProjectionQueryPlanner {
         return plan(definition, projection, databaseType, java.util.Set.of());
     }
 
+    /**
+     * Plans a physical main-table source for aggregate reads when a standard module has no
+     * relation projection. The caller is still responsible for applying the list action's
+     * query, data-range, tenant and visibility criteria before executing this plan.
+     */
+    public static RelationProjectionSqlPlan mainTableAggregatePlan(StaticModuleDefinition definition,
+                                                                    DBInfo.Type databaseType,
+                                                                    java.util.Set<String> requiredMainFields) {
+        if (definition == null || definition.entities().isEmpty()) {
+            throw new IllegalArgumentException("static aggregate requires a main entity definition");
+        }
+        DBInfo.Type dbType = databaseType == null ? DBInfo.Type.POSTGRESQL : databaseType;
+        EntityDefinition mainEntity = definition.entities().getFirst();
+        LinkedHashMap<String, SelectField> selectFields = new LinkedHashMap<>();
+        Map<String, FieldDefinition> fieldsByName = fieldsByName(mainEntity);
+        for (String fieldName : requiredMainFields == null ? java.util.Set.<String>of() : requiredMainFields) {
+            FieldDefinition field = fieldsByName.get(fieldName);
+            if (field != null) {
+                addSelectField(selectFields, new SelectField(RelationProjectionSqlNames.MAIN_ALIAS,
+                        field.columnName(), field.fieldName()));
+            }
+        }
+        addStandardMainFields(selectFields);
+        String sql = "select " + selectFields.values().stream()
+                .map(field -> selectExpression(field, dbType) + " as " + quote(field.outputName(), dbType))
+                .collect(java.util.stream.Collectors.joining(", "))
+                + " from " + qualifiedTable(mainEntity, dbType) + " "
+                + quote(RelationProjectionSqlNames.MAIN_ALIAS, dbType);
+        java.util.Set<String> fields = java.util.Set.copyOf(selectFields.keySet());
+        return new RelationProjectionSqlPlan(sql, Map.of(), fields, fields, java.util.Set.of(), List.of(), dbType,
+                null);
+    }
+
     private static RelationProjectionSqlPlan referencePlan(List<StaticModuleDefinition> definitions,
                                                            StaticModuleDefinition definition,
                                                            RecordReadProjection projection,

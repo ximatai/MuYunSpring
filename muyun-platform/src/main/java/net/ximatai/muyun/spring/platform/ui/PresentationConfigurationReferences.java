@@ -148,6 +148,7 @@ public class PresentationConfigurationReferences {
             JsonNode root = JSON.readTree(revision.getUiTreeJson());
             if (root == null) throw new IllegalArgumentException("empty tree");
             if (containsReference(root.path("quickSearchFields"), pageMain, target, targetId)) return true;
+            if (containsSummaryReference(root.path("querySummaries"), pageMain, target, targetId)) return true;
             for (JsonNode slot : root.path("nodes")) {
                 if (usesPath(slot.path("titleField").asText(null), pageMain, target, targetId)
                         || usesPath(slot.path("secondaryField").asText(null), pageMain, target, targetId)
@@ -163,6 +164,15 @@ public class PresentationConfigurationReferences {
         } catch (JsonProcessingException | IllegalArgumentException exception) {
             throw new PlatformException("页面修订“" + revision.getTitle() + "”结构无法解析，请修复页面配置后再删除元数据。", exception);
         }
+    }
+
+    private boolean containsSummaryReference(JsonNode entries, ModuleMetadataRelation pageMain,
+                                             ConfigurationReferenceTarget target, String targetId) {
+        for (JsonNode entry : entries) {
+            if (usesPath(entry.path("fieldName").asText(null), pageMain, target, targetId)) return true;
+            if (usesPath(entry.path("groupByField").asText(null), pageMain, target, targetId)) return true;
+        }
+        return false;
     }
 
     private boolean containsReference(JsonNode entries, ModuleMetadataRelation pageMain,

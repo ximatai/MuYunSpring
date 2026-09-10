@@ -224,21 +224,31 @@ list.querySummaries(summaries -> summaries.item("onlineUsers", summary -> summar
 
 `querySummaries` 位于列表分页栏左侧。摘要针对本次有效查询命中的完整记录集合计算，忽略分页；关键字、常驻条件、高级条件、查询模板、导航范围或数据权限变化时，摘要必须同步变化。每个摘要 key 在同一列表内唯一，响应只返回稳定的 `{ key, value }`，展示标题仍由页面 descriptor 持有。
 
-摘要有两类来源：
+摘要有四类来源：
 
 | source          | DSL                             | 适用范围                         |
 | --------------- | ------------------------------- | -------------------------------- |
 | `MATCHED_COUNT` | `.matchedCount()`               | 直接复用当前查询命中的总数。     |
+| `SUM`           | `.sum("amount")`               | 同一有效查询内一个合法物理数值字段的合计。 |
 | `CONTRIBUTOR`   | `.contributor("domain.metric")` | 金额、分组、在线状态等业务指标。 |
+| `GROUPED`       | `.grouped("status").groupedSum("amount")` | 单一 option 或 ONE 引用字段的分组计数，可选一个安全数值合计。 |
+
+`SUM` 不要求字段已展示为列表列，但只接受当前主实体的直接物理 `INTEGER`、`LONG` 或 `DECIMAL` 字段。受保护、虚拟、引用路径和可变币种/单位的原始值会被拒绝；固定币种/单位值及明确的基准金额/数量字段可以声明。空结果统一返回 `0`。计算复用标准查询的筛选、入口条件、租户和数据权限范围，忽略分页。
+
+`GROUPED` 只接受主实体直接、物理、未保护的单选 enum/dictionary 字段或已声明的 ONE 引用字段；`fieldName` 可省略，存在时复用 `SUM` 的字段资格。响应 value 为 `{kind:"GROUPED",rows:[{value,label,count,sum?}]}`：`value` 是原始 option code 或引用记录 ID，绝不按显示标题合并；空值标签为“未填写”，无权读取或标题不可用的引用为“记录不可用”。引用标题通过 REFERENCE 范围一次批量读取，结果稳定排序且忽略列表分页。
 
 业务指标实现 `ListQuerySummaryContributor`，显式声明唯一的 `moduleAlias()` 与 `contributorKey()`，并只通过 `ListQuerySummaryContext.count(...)` 或 `aggregate(...)` 计算。平台在启动时建立 contributor catalog：重复的 `(moduleAlias, contributorKey)` 会阻止装配；静态页面在执行计划编译时、动态页面在发布候选计划阶段都会验证声明的 contributor 已注册。因此错误配置不会等到首次列表查询才暴露。上下文自动叠加当前查询、已提供的页面入口表达、租户及数据范围；菜单入口本身不是授权或数据范围凭据。contributor 不得自行绕过该上下文查询记录，也不应将某个业务模块的指标固化为平台内置 source。
 
-动态页面的已发布 layout 可在 `LIST_DETAIL_CARD` 根节点声明查询摘要：
+管理页面的已发布 `management` composition 可在 `LIST_CARD` 根节点声明查询摘要：
 
 ```json
 {
-  "template": "LIST_DETAIL_CARD",
+  "template": "management",
+  "templateVersion": 4,
+  "mode": "LIST_CARD",
   "querySummaries": [
+    {"key":"amountTotal","label":"金额合计","source":"SUM","fieldName":"amount"},
+    {"key":"statusBreakdown","label":"状态汇总","source":"GROUPED","groupByField":"status","fieldName":"amount"},
     {
       "key": "onlineUsers",
       "label": "在线",
@@ -249,7 +259,7 @@ list.querySummaries(summaries -> summaries.item("onlineUsers", summary -> summar
 }
 ```
 
-动态 `persistentQueries` 尚未开放：动态查询配置目前只能表达查询模板项，尚未具备“声明一个来源无关、可由标准查询执行器直接消费的外部条件”的服务端事实。发布时出现该字段会被拒绝，不能以 UI JSON 绕过这一缺口。动态 `querySummaries` 仅由 `LIST_DETAIL_CARD` 支持；`MATCHED_COUNT` 不得携带 `contributorKey`，`CONTRIBUTOR` 必须携带已注册的 `contributorKey`；其他模板声明摘要会在发布时被拒绝，不会静默降级。
+动态 `persistentQueries` 尚未开放：动态查询配置目前只能表达查询模板项，尚未具备“声明一个来源无关、可由标准查询执行器直接消费的外部条件”的服务端事实。发布时出现该字段会被拒绝，不能以 UI JSON 绕过这一缺口。`querySummaries` 仅由 `LIST_CARD` 支持；`MATCHED_COUNT` 不得携带字段参数，`SUM` 必须携带 `fieldName`，`CONTRIBUTOR` 必须携带已注册的 `contributorKey`，`GROUPED` 必须携带 `groupByField`，并且只可选携带一个 `fieldName`。编排器应先读取 `GET /platform.module/{moduleAlias}/page-query-summary-catalog`，其响应为 `{moduleAlias,fields:[{fieldName,title}],groupFields:[{fieldName,title,kind:"OPTION"|"REFERENCE"}],contributors:[{contributorKey,title}]}`，而不是让用户填写内部字段或指标 key。
 
 ## 受控前端扩展：给特性业务留路，不改写标准页面
 

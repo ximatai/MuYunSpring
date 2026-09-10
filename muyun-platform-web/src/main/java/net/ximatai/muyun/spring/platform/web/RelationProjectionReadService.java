@@ -204,6 +204,23 @@ public class RelationProjectionReadService {
         return Optional.of(executor.aggregate(plan, criteria, query));
     }
 
+    /** Executes an aggregate on an ordinary static module's physical main table. */
+    public Optional<List<Map<String, Object>>> aggregateMainList(StaticModuleDefinition definition,
+                                                                  Criteria criteria,
+                                                                  net.ximatai.muyun.database.core.orm.AggregateQuery query) {
+        RelationProjectionQueryExecutor executor = projectionQueryExecutor();
+        if (executor == null || definition == null || definition.entities().isEmpty() || query == null) {
+            return Optional.empty();
+        }
+        java.util.LinkedHashSet<String> requiredFields = new java.util.LinkedHashSet<>(requiredMainFields(criteria));
+        requiredFields.addAll(query.groupByFields());
+        query.selections().stream().map(net.ximatai.muyun.database.core.orm.AggregateSelection::field)
+                .filter(java.util.Objects::nonNull).forEach(requiredFields::add);
+        RelationProjectionSqlPlan plan = RelationProjectionQueryPlanner.mainTableAggregatePlan(definition,
+                databaseTypeProvider.databaseType(), java.util.Set.copyOf(requiredFields));
+        return Optional.of(executor.aggregate(plan, criteria, query));
+    }
+
     private RelationProjectionQueryExecutor projectionQueryExecutor() {
         return projectionQueryExecutor.get();
     }

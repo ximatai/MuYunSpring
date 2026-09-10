@@ -259,6 +259,93 @@ describe('RecordQueryListPanel', () => {
     wrapper.unmount();
   });
 
+  it('refreshes footer summaries from each complete-result query response', async () => {
+    const context = createContext({ id: 'note-1' });
+    let requestCount = 0;
+    context.crud.query = async () => ({
+      records: [{ id: 'note-1' }],
+      total: 1,
+      pages: 1,
+      totalKnown: true,
+      pageNum: 1,
+      pageSize: 20,
+      summaries: [{ key: 'amount', value: ++requestCount * 100 }],
+    });
+    const wrapper = shallowMount(RecordQueryListPanel, {
+      props: {
+        context,
+        title: '备注',
+        querySummaries: [{ key: 'amount', title: '金额合计', source: 'SUM', fieldName: 'amount' }],
+      },
+    });
+
+    await vi.waitFor(() => expect(wrapper.text()).toContain('100'));
+    await wrapper.vm.refresh();
+    await vi.waitFor(() => expect(wrapper.text()).toContain('200'));
+    wrapper.unmount();
+  });
+
+  it('replaces grouped results after refresh without merging same labels or null values', async () => {
+    const context = createContext({ id: 'note-1' });
+    let revision = 0;
+    context.crud.query = async () => ({
+      records: [{ id: 'note-1' }],
+      total: 1,
+      pages: 1,
+      totalKnown: true,
+      pageNum: 1,
+      pageSize: 20,
+      summaries: [
+        {
+          key: 'supplier',
+          value: {
+            kind: 'GROUPED',
+            rows: revision++
+              ? [{ value: null, label: '未填写', count: 3 }]
+              : [
+                  { value: 'a', label: '同名', count: 1 },
+                  { value: 'b', label: '同名', count: 2 },
+                  { value: null, label: '未填写', count: 1 },
+                ],
+          },
+        },
+      ],
+    });
+    const wrapper = shallowMount(RecordQueryListPanel, {
+      props: {
+        context,
+        title: '备注',
+        querySummaries: [
+          {
+            key: 'supplier',
+            title: '供应商',
+            source: 'GROUPED',
+            groupByField: 'supplierId',
+            groupByTitle: '供应商',
+          },
+        ],
+      },
+      global: {
+        stubs: {
+          QueryGroupedSummary: false,
+          UiButton: { name: 'UiButton', template: '<button><slot /></button>' },
+        },
+      },
+    });
+    await flushPromises();
+    await vi.waitFor(() => expect(wrapper.text()).toContain('查看分组'));
+    await wrapper
+      .findComponent({ name: 'QueryGroupedSummary' })
+      .findComponent({ name: 'UiButton' })
+      .vm.$emit('click');
+    expect(wrapper.findAll('tbody tr').filter((row) => row.text().includes('同名'))).toHaveLength(2);
+    expect(wrapper.text()).toContain('未填写');
+    await wrapper.vm.refresh();
+    await vi.waitFor(() => expect(wrapper.text()).toContain('3'));
+    expect(wrapper.text()).not.toContain('同名');
+    wrapper.unmount();
+  });
+
   it('keeps shared pagination visible but disabled while the list awaits its query scope', async () => {
     const wrapper = shallowMount(RecordQueryListPanel, {
       props: { context: createContext({ id: 'note-1' }), title: '备注', ready: false },

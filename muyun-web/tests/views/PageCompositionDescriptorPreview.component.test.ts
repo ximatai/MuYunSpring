@@ -59,6 +59,77 @@ it('uses the standard list cell semantic component for descriptor list previews'
   });
 });
 
+it('shows configured list summaries as footer examples and opens their editor', async () => {
+  const list = mount(PageCompositionDescriptorPreview, {
+    props: {
+      descriptor: descriptor(),
+      moduleAlias: 'platform.module',
+      mode: 'list',
+      querySummaries: [
+        { key: 'count', label: '记录数', source: 'MATCHED_COUNT' },
+        { key: 'amount', label: '采购金额', source: 'SUM', fieldName: 'amount' },
+      ],
+    },
+    global: { stubs: { UiDataTable: tableStub } },
+  });
+
+  expect(list.get('.page-composer-summary-preview').text()).toContain('记录数');
+  expect(list.get('.page-composer-summary-preview').text()).toContain('示例 1,280.00');
+  await list.get('.page-composer-summary-configure').trigger('click');
+  expect(list.emitted('configureSummaries')).toHaveLength(1);
+});
+
+it('keeps mixed summaries in the configured order when reordered', async () => {
+  const count = { key: 'count', label: '记录数', source: 'MATCHED_COUNT' as const };
+  const group = {
+    key: 'group',
+    label: '按供应商分组',
+    source: 'GROUPED' as const,
+    groupByField: 'supplierId',
+  };
+  const sum = { key: 'sum', label: '金额合计', source: 'SUM' as const, fieldName: 'amount' };
+  const list = mount(PageCompositionDescriptorPreview, {
+    props: {
+      descriptor: descriptor(),
+      moduleAlias: 'platform.module',
+      mode: 'list',
+      querySummaries: [count, group, sum],
+    },
+    global: { stubs: { UiDataTable: tableStub } },
+  });
+  const labels = () =>
+    Array.from(list.get('.page-composer-summary-preview').element.children).map(
+      (element) => element.textContent,
+    );
+  expect(labels()).toEqual(['记录数示例 12', '按供应商分组 · 查看分组', '金额合计示例 1,280.00']);
+  await list.setProps({ querySummaries: [sum, count, group] });
+  expect(labels()).toEqual(['金额合计示例 1,280.00', '记录数示例 12', '按供应商分组 · 查看分组']);
+});
+
+it('opens the grouped preview example with two independently keyed supplier rows', async () => {
+  const list = mount(PageCompositionDescriptorPreview, {
+    props: {
+      descriptor: descriptor(),
+      moduleAlias: 'platform.module',
+      mode: 'list',
+      querySummaries: [
+        {
+          key: 'supplier',
+          label: '供应商统计',
+          source: 'GROUPED',
+          groupByField: 'supplierId',
+          fieldName: 'amount',
+        },
+      ],
+    },
+    global: { stubs: { UiDataTable: tableStub } },
+  });
+  const grouped = list.findComponent({ name: 'QueryGroupedSummary' });
+  await grouped.findComponent({ name: 'UiButton' }).vm.$emit('click');
+  expect(grouped.text()).toContain('示例分组 A');
+  expect(grouped.text()).toContain('示例分组 B');
+});
+
 it('supports list keyboard actions for field inspection and configuration', async () => {
   const list = mount(PageCompositionDescriptorPreview, {
     attachTo: document.body,

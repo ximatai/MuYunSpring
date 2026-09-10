@@ -19,6 +19,9 @@ public interface ListQuerySummaryContributor {
     /** Stable domain metric key within {@link #moduleAlias()}. */
     String contributorKey();
 
+    /** Human-facing title for composer directories. */
+    default String title() { return contributorKey(); }
+
     WebListQuerySummaryItem summarize(ListQuerySummaryContext context);
 
     interface ListQuerySummaryContext {

@@ -53,6 +53,7 @@ import { WORKSPACE_NAVIGATION_DISABLED } from './managementWorkspaceContext';
 import RecordActionBar from './RecordActionBar.vue';
 import RecordQueryListCell from './RecordQueryListCell.vue';
 import RecordQueryListSurface from './RecordQueryListSurface.vue';
+import QueryGroupedSummary from './QueryGroupedSummary.vue';
 import RecycleBinModeButton from './RecycleBinModeButton.vue';
 import {
   mergeRecordActions,
@@ -1344,8 +1345,21 @@ defineExpose({ clearSelection, refresh });
       />
       <div v-if="mode !== 'recycleBin' && querySummaries.length > 0" class="record-query-list-summaries">
         <span v-for="summary in querySummaries" :key="summary.key" class="record-query-list-summary">
-          <span class="record-query-list-summary-title">{{ summary.title }}</span>
-          <span class="record-query-list-summary-value">{{ summaryValue(summary.key) }}</span>
+          <span v-if="summary.source !== 'GROUPED'" class="record-query-list-summary-title">{{
+            summary.title
+          }}</span>
+          <QueryGroupedSummary
+            v-if="summary.source === 'GROUPED'"
+            :key="`${context.moduleAlias}:${summary.key}`"
+            :loading="loading"
+            :error="Boolean(descriptorLoadError || recordsLoadError)"
+            :ready="queryReady"
+            :title="summary.title"
+            :group-by-title="summary.groupByTitle"
+            :sum-field-title="summary.sumFieldTitle"
+            :value="querySummaryValues.find((item) => item.key === summary.key)?.value"
+          />
+          <span v-else class="record-query-list-summary-value">{{ summaryValue(summary.key) }}</span>
         </span>
       </div>
     </template>
@@ -1369,7 +1383,8 @@ defineExpose({ clearSelection, refresh });
   align-items: center;
   gap: 14px;
   min-width: 0;
-  overflow: hidden;
+  max-width: 100%;
+  flex-wrap: wrap;
 }
 
 .record-query-list-summary {
