@@ -1,10 +1,12 @@
-export type BusinessRuleKind = 'CALCULATION' | 'VALIDATION';
+export type BusinessRuleKind = 'CALCULATION' | 'VALIDATION' | 'UI_CONTROL';
 
 export interface BusinessRuleEditableField {
   fieldName: string;
   title: string;
   fieldSpecAlias: string;
   valueType: string;
+  /** Direct child fields declare the aggregate functions that can consume them. */
+  aggregateFunctions?: string[];
 }
 
 /**
@@ -25,6 +27,8 @@ export interface BusinessRuleReferenceField {
   /** Additive catalogue metadata; absent means use the stable conservative fallback below. */
   formulaReadable?: boolean;
   formulaDisabledReason?: string;
+  /** Direct child fields declare the aggregate functions that can consume them. */
+  aggregateFunctions?: string[];
 }
 
 export interface BusinessRuleFormulaParameter {
@@ -37,6 +41,8 @@ export interface BusinessRuleFormulaCapability {
   id: string;
   label: string;
   purpose: string;
+  /** Explains the business problem the formula solves before showing its example. */
+  description: string;
   category: string;
   signature: string;
   parameters: BusinessRuleFormulaParameter[];
@@ -57,11 +63,248 @@ export interface BusinessRuleFormulaCatalogEntry {
   example?: string;
 }
 
+function formulaHelp(id: string, fallback: string): string {
+  const descriptions: Record<string, string> = {
+    PRESENT: '判断字段是否已经填写，可用于必填校验或决定后续计算是否执行。',
+    ISNULL: '判断字段是否为空，可用于为空时给出提示或补默认处理。',
+    IN: '判断字段是否匹配给定候选项，可用于状态、类型等有限枚举的判断。',
+    TODAY: '取得当前日期，适合计算当天生效、截止日期等规则。',
+    NOW: '取得当前 UTC 时间，适合记录当前时刻或比较时效。',
+    YEAR: '从日期或时间中提取年份，适合按年度计算或校验。',
+    MONTH: '从日期或时间中提取月份，适合按月判断或分组计算。',
+    DAY: '从日期或时间中提取日，适合按具体日期触发规则。',
+    DATE_ADD: '在日期基础上增加天数，适合推算到期日、提醒日。',
+    DATE_SUB: '在日期基础上减少天数，适合推算提前提醒日、最早日期。',
+    DATETIME_ADD: '在时间基础上增加指定间隔，适合计算精确的截止时间。',
+    DATETIME_SUB: '在时间基础上减少指定间隔，适合计算提前触发时间。',
+    DATE_DIFF_DAYS: '计算两个日期或时间相差的天数，适合期限与逾期判断。',
+    DATE_DIFF_HOURS: '计算两个时间相差的小时数，适合时效与工时判断。',
+    COUNT: '统计子表字段中已填写的记录数，适合检查明细是否达到最低数量。',
+    SUM: '汇总子表中的数值，适合计算明细总金额、总数量。',
+    AVG: '计算子表数值的平均值，适合得到平均单价、平均分等指标。',
+    MAX: '取得子表数值中的最大值，适合识别最高金额、最大数量。',
+    MIN: '取得子表数值中的最小值，适合识别最低金额、最小数量。',
+    ROUND: '对数值四舍五入，适合把计算结果收敛到指定的小数位。',
+    FORMAT_DECIMAL: '把数值格式化为固定小数位文本，适合展示或拼接时保留末尾零。',
+  };
+  return descriptions[id] || fallback;
+}
+
+function portableFormulaCapability(
+  id: string,
+  purpose: string,
+  category: string,
+  signature: string,
+  parameters: BusinessRuleFormulaParameter[],
+  returnType: string,
+  example: string,
+  insertion = `${id}()`,
+): BusinessRuleFormulaCapability {
+  const cursor = insertion.indexOf('(') + 1;
+  return {
+    id,
+    label: id,
+    purpose,
+    description: formulaHelp(id, purpose),
+    category,
+    signature,
+    parameters,
+    returnType,
+    example,
+    insertion,
+    firstParameterSelection: { start: cursor, end: cursor },
+  };
+}
+
+const extendedPortableFormulaCapabilities: readonly BusinessRuleFormulaCapability[] = [
+  portableFormulaCapability('TODAY', '今天', '日期时间', 'TODAY()', [], '日期', 'TODAY()'),
+  portableFormulaCapability('NOW', '当前时间', '日期时间', 'NOW()', [], '时间', 'NOW()'),
+  portableFormulaCapability(
+    'YEAR',
+    '年份',
+    '日期时间',
+    'YEAR(value)',
+    [{ name: 'value', description: '日期或时间字段' }],
+    '整数',
+    'YEAR({signedAt})',
+  ),
+  portableFormulaCapability(
+    'MONTH',
+    '月份',
+    '日期时间',
+    'MONTH(value)',
+    [{ name: 'value', description: '日期或时间字段' }],
+    '整数',
+    'MONTH({signedAt})',
+  ),
+  portableFormulaCapability(
+    'DAY',
+    '日',
+    '日期时间',
+    'DAY(value)',
+    [{ name: 'value', description: '日期或时间字段' }],
+    '整数',
+    'DAY({signedAt})',
+  ),
+  portableFormulaCapability(
+    'DATE_ADD',
+    '日期加天数',
+    '日期时间',
+    'DATE_ADD(date, days)',
+    [
+      { name: 'date', description: 'yyyy-MM-dd 日期' },
+      { name: 'days', description: '整数天数' },
+    ],
+    '日期',
+    'DATE_ADD({signedDate}, 7)',
+    'DATE_ADD(, 0)',
+  ),
+  portableFormulaCapability(
+    'DATE_SUB',
+    '日期减天数',
+    '日期时间',
+    'DATE_SUB(date, days)',
+    [
+      { name: 'date', description: 'yyyy-MM-dd 日期' },
+      { name: 'days', description: '整数天数' },
+    ],
+    '日期',
+    'DATE_SUB({signedDate}, 7)',
+    'DATE_SUB(, 0)',
+  ),
+  portableFormulaCapability(
+    'DATETIME_ADD',
+    '时间加间隔',
+    '日期时间',
+    'DATETIME_ADD(dateTime, amount, unit)',
+    [
+      { name: 'dateTime', description: 'UTC 时间' },
+      { name: 'amount', description: '整数间隔' },
+      { name: 'unit', description: 'DAY/HOUR/MINUTE/SECOND' },
+    ],
+    '时间',
+    "DATETIME_ADD({signedAt}, 2, 'HOUR')",
+    "DATETIME_ADD(, 0, 'DAY')",
+  ),
+  portableFormulaCapability(
+    'DATETIME_SUB',
+    '时间减间隔',
+    '日期时间',
+    'DATETIME_SUB(dateTime, amount, unit)',
+    [
+      { name: 'dateTime', description: 'UTC 时间' },
+      { name: 'amount', description: '整数间隔' },
+      { name: 'unit', description: 'DAY/HOUR/MINUTE/SECOND' },
+    ],
+    '时间',
+    "DATETIME_SUB({signedAt}, 2, 'HOUR')",
+    "DATETIME_SUB(, 0, 'DAY')",
+  ),
+  portableFormulaCapability(
+    'DATE_DIFF_DAYS',
+    '相差天数',
+    '日期时间',
+    'DATE_DIFF_DAYS(start, end)',
+    [
+      { name: 'start', description: '开始日期或时间' },
+      { name: 'end', description: '结束日期或时间' },
+    ],
+    '小数',
+    'DATE_DIFF_DAYS({startDate}, {endDate})',
+    'DATE_DIFF_DAYS(, )',
+  ),
+  portableFormulaCapability(
+    'DATE_DIFF_HOURS',
+    '相差小时',
+    '日期时间',
+    'DATE_DIFF_HOURS(start, end)',
+    [
+      { name: 'start', description: '开始时间' },
+      { name: 'end', description: '结束时间' },
+    ],
+    '小数',
+    'DATE_DIFF_HOURS({startAt}, {endAt})',
+    'DATE_DIFF_HOURS(, )',
+  ),
+  portableFormulaCapability(
+    'COUNT',
+    '计数',
+    '子表汇总',
+    'COUNT(childField)',
+    [{ name: 'field', description: '子表字段，例如 {lines.amount}' }],
+    '整数',
+    'COUNT({lines.amount})',
+  ),
+  portableFormulaCapability(
+    'SUM',
+    '求和',
+    '子表汇总',
+    'SUM(childField)',
+    [{ name: 'field', description: '子表数值字段，例如 {lines.amount}' }],
+    '小数',
+    'SUM({lines.amount})',
+  ),
+  portableFormulaCapability(
+    'AVG',
+    '平均值',
+    '子表汇总',
+    'AVG(childField)',
+    [{ name: 'field', description: '子表数值字段，例如 {lines.amount}' }],
+    '小数',
+    'AVG({lines.amount})',
+  ),
+  portableFormulaCapability(
+    'MAX',
+    '最大值',
+    '子表汇总',
+    'MAX(childField)',
+    [{ name: 'field', description: '子表数值字段，例如 {lines.amount}' }],
+    '小数',
+    'MAX({lines.amount})',
+  ),
+  portableFormulaCapability(
+    'MIN',
+    '最小值',
+    '子表汇总',
+    'MIN(childField)',
+    [{ name: 'field', description: '子表数值字段，例如 {lines.amount}' }],
+    '小数',
+    'MIN({lines.amount})',
+  ),
+  portableFormulaCapability(
+    'ROUND',
+    '四舍五入',
+    '数值',
+    'ROUND(value, scale)',
+    [
+      { name: 'value', description: '数值或表达式' },
+      { name: 'scale', description: '保留 0–12 位小数' },
+    ],
+    '小数',
+    'ROUND({amount}, 2)',
+    'ROUND(, 2)',
+  ),
+  portableFormulaCapability(
+    'FORMAT_DECIMAL',
+    '格式化小数',
+    '数值',
+    'FORMAT_DECIMAL(value, scale)',
+    [
+      { name: 'value', description: '数值或表达式' },
+      { name: 'scale', description: '保留 0–12 位小数' },
+    ],
+    '文本',
+    'FORMAT_DECIMAL({amount}, 2)',
+    'FORMAT_DECIMAL(, 2)',
+  ),
+];
+
 export const portableFormulaCapabilities: readonly BusinessRuleFormulaCapability[] = [
   {
     id: 'PRESENT',
     label: 'PRESENT',
-    purpose: '字段有值',
+    purpose: '判断字段有值',
+    description: formulaHelp('PRESENT', ''),
     category: '空值判断',
     signature: 'PRESENT(value)',
     parameters: [{ name: 'value', description: '需要判断的字段或表达式' }],
@@ -73,7 +316,8 @@ export const portableFormulaCapabilities: readonly BusinessRuleFormulaCapability
   {
     id: 'ISNULL',
     label: 'ISNULL',
-    purpose: '字段为空',
+    purpose: '判断字段为空',
+    description: formulaHelp('ISNULL', ''),
     category: '空值判断',
     signature: 'ISNULL(value)',
     parameters: [{ name: 'value', description: '需要判断的字段或表达式' }],
@@ -85,7 +329,8 @@ export const portableFormulaCapabilities: readonly BusinessRuleFormulaCapability
   {
     id: 'IN',
     label: 'IN',
-    purpose: '匹配候选值',
+    purpose: '匹配候选项',
+    description: formulaHelp('IN', ''),
     category: '集合判断',
     signature: "IN(value, 'candidate', ...)",
     parameters: [
@@ -97,6 +342,7 @@ export const portableFormulaCapabilities: readonly BusinessRuleFormulaCapability
     insertion: "IN(, '候选值')",
     firstParameterSelection: { start: 3, end: 3 },
   },
+  ...extendedPortableFormulaCapabilities,
 ];
 
 export function normalizeFormulaCapabilities(
@@ -113,21 +359,26 @@ export function normalizeFormulaCapabilities(
         {
           id,
           label: id,
-          purpose: entry.title || entry.description || id,
+          purpose: entry.title || id,
+          description: entry.description || formulaHelp(id, entry.title || id),
           category: entry.category || '其他',
           signature: `${id}(${entry.parameters?.map((parameter) => parameter.name).join(', ') ?? ''})`,
           parameters: entry.parameters ?? [],
           returnType: entry.returnType || '由服务端定义',
           example: entry.example || `${id}()`,
-          insertion: `${id}()`,
-          firstParameterSelection: { start: id.length + 1, end: id.length + 1 },
+          insertion: portableFormulaCapability(id, '', '', '', [], '', '').insertion,
+          firstParameterSelection: {
+            start: portableFormulaCapability(id, '', '', '', [], '', '').firstParameterSelection.start,
+            end: portableFormulaCapability(id, '', '', '', [], '', '').firstParameterSelection.end,
+          },
         },
       ];
     return [
       {
         ...base,
         category: entry.category || base.category,
-        purpose: entry.title || entry.description || base.purpose,
+        purpose: entry.title || base.purpose,
+        description: entry.description || base.description,
         parameters: entry.parameters?.length ? entry.parameters : base.parameters,
         returnType: entry.returnType || base.returnType,
         example: entry.example || base.example,
@@ -143,9 +394,13 @@ export function searchableFormulaCapabilities(
   const normalized = keyword.trim().toLocaleLowerCase();
   if (!normalized) return [...capabilities];
   return capabilities.filter((capability) =>
-    [capability.label, capability.purpose, capability.category, capability.signature].some((value) =>
-      value.toLocaleLowerCase().includes(normalized),
-    ),
+    [
+      capability.label,
+      capability.purpose,
+      capability.description,
+      capability.category,
+      capability.signature,
+    ].some((value) => value.toLocaleLowerCase().includes(normalized)),
   );
 }
 
@@ -162,7 +417,81 @@ export function formulaFieldUnusableReason(field: BusinessRuleReferenceField): s
   return undefined;
 }
 
+const aggregateFunctionNames = new Set(['COUNT', 'SUM', 'AVG', 'MAX', 'MIN']);
+
+/**
+ * Prevents a child field from being inserted as a scalar or into an aggregate whose value type
+ * cannot consume it. The server remains authoritative; this only keeps authoring feedback close
+ * to the attempted insertion.
+ */
+export function aggregateFieldInsertionReason(
+  field: BusinessRuleReferenceField,
+  expression: string,
+  selectionStart: number,
+): string | undefined {
+  const allowed = field.aggregateFunctions;
+  if (!allowed?.length) return undefined;
+  const aggregate = enclosingAggregateFunction(expression, selectionStart);
+  if (!aggregate) return '子表字段只能作为 COUNT、SUM、AVG、MAX 或 MIN 的汇总参数。';
+  if (allowed.includes(aggregate)) return undefined;
+  return `${field.label || field.name}不能用于 ${aggregate}；该字段仅支持 ${allowed.join('、')}。`;
+}
+
+function enclosingAggregateFunction(expression: string, selectionStart: number): string | undefined {
+  const stack: Array<string | undefined> = [];
+  const limit = Math.max(0, Math.min(selectionStart, expression.length));
+  let quote: string | undefined;
+  for (let index = 0; index < limit; index += 1) {
+    const char = expression[index];
+    if (quote) {
+      if (char === '\\') index += 1;
+      else if (char === quote) quote = undefined;
+      continue;
+    }
+    if (char === "'" || char === '"') {
+      quote = char;
+      continue;
+    }
+    if (char === '(') {
+      const name = expression
+        .slice(0, index)
+        .match(/([A-Za-z][A-Za-z0-9_]*)\s*$/)?.[1]
+        ?.toUpperCase();
+      stack.push(name);
+    } else if (char === ')') {
+      stack.pop();
+    }
+  }
+  return [...stack]
+    .reverse()
+    .find((name): name is string => name != null && aggregateFunctionNames.has(name));
+}
+
+export interface UiControlTarget {
+  elementKey: string;
+  hide: boolean;
+  readOnly: boolean;
+}
+export interface UiControlForm {
+  key: string;
+  title: string;
+  elements: Array<{ key: string; label: string }>;
+}
+export interface UiControlSnapshot {
+  baselineFingerprint: string;
+  rules: Array<{
+    code: string;
+    formKey: string;
+    expression: string;
+    enabled: boolean;
+    targets: UiControlTarget[];
+  }>;
+  forms: UiControlForm[];
+}
+
 export interface BusinessRuleSnapshotRule {
+  formKey?: string;
+  targets?: UiControlTarget[];
   code: string;
   kind: BusinessRuleKind | string;
   phase: string;
@@ -182,12 +511,16 @@ export interface BusinessRuleSnapshot {
   editableFields: BusinessRuleEditableField[];
   /** Already authorised referenced paths used by the persisted snapshot. These are read-only trial facts. */
   referenceFields?: Array<{ path: string; title: string; valueType: string }>;
+  /** Direct child fields, which may only appear within a child aggregation function. */
+  aggregateFields?: BusinessRuleEditableField[];
   /** Additive portable function directory emitted by the server. */
   functions?: BusinessRuleFormulaCatalogEntry[];
   rules: BusinessRuleSnapshotRule[];
 }
 
 export interface BusinessRuleProposal {
+  formKey?: string;
+  targets?: UiControlTarget[];
   code: string;
   kind: BusinessRuleKind;
   targetField?: string;
@@ -254,6 +587,9 @@ export function toProposal(
   rule: Pick<BusinessRuleSnapshotRule, keyof BusinessRuleProposal>,
 ): BusinessRuleProposal {
   return {
+    ...(rule.kind === 'UI_CONTROL'
+      ? { formKey: rule.formKey, targets: rule.targets?.map((target) => ({ ...target })) ?? [] }
+      : {}),
     code: rule.code,
     kind: rule.kind as BusinessRuleKind,
     ...(rule.targetField?.trim() ? { targetField: rule.targetField } : {}),
@@ -267,7 +603,7 @@ export function newBusinessRule(
   kind: BusinessRuleKind,
   existingRules: readonly Pick<BusinessRuleProposal, 'code'>[],
 ): BusinessRuleProposal {
-  const prefix = kind === 'CALCULATION' ? 'calculation' : 'validation';
+  const prefix = kind === 'CALCULATION' ? 'calculation' : kind === 'UI_CONTROL' ? 'uiControl' : 'validation';
   const occupied = new Set(existingRules.map((rule) => rule.code));
   let suffix = 1;
   while (occupied.has(`${prefix}${suffix}`)) suffix += 1;
@@ -281,7 +617,7 @@ export function newBusinessRule(
 }
 
 export function isBusinessRuleKind(value: string): value is BusinessRuleKind {
-  return value === 'CALCULATION' || value === 'VALIDATION';
+  return value === 'CALCULATION' || value === 'VALIDATION' || value === 'UI_CONTROL';
 }
 
 export function proposalFingerprintOf(proposals: readonly BusinessRuleProposal[]): string {

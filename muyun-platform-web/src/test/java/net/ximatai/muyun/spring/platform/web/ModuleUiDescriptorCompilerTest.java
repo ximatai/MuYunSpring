@@ -390,6 +390,53 @@ class ModuleUiDescriptorCompilerTest {
     }
 
     @Test
+    void shouldProjectPortableBlockingBusinessValidationWithItsConfiguredMessageAndTarget() {
+        var validation = new net.ximatai.muyun.spring.common.formula.FormulaRule(
+                "contractAmountPositive", "{contractAmount} > 0",
+                net.ximatai.muyun.spring.common.formula.FormulaRuleKind.VALIDATION,
+                net.ximatai.muyun.spring.common.formula.FormulaRulePhase.BEFORE_SAVE,
+                "contractAmount", net.ximatai.muyun.spring.common.formula.FormulaIssueLevel.ERROR,
+                "合同金额必须大于 0", true, true);
+        ModuleUiDefinition definition = ModuleUiDefinition.builder("sales.contract")
+                .page(PageTemplates.flatManagement(page -> page.explorer(explorer -> explorer.title("合同"))
+                        .detail(detail -> detail.editor(editor -> editor
+                                .field("contractName").field("contractAmount").businessRules(List.of(validation))))))
+                .build();
+
+        ResolvedViewDescriptor editor = compileFormCompute(definition, Map.of(
+                "contractName", FieldValueType.STRING, "contractAmount", FieldValueType.DECIMAL))
+                .page().detail().editor();
+
+        assertThat(editor.formValidationRules()).singleElement().satisfies(rule -> {
+            assertThat(rule.code()).isEqualTo("contractAmountPositive");
+            assertThat(rule.program().profile().name()).isEqualTo("FORM_VALIDATION");
+            assertThat(rule.inputFields()).containsExactly("contractAmount");
+            assertThat(rule.targetField()).isEqualTo("contractAmount");
+            assertThat(rule.message()).isEqualTo("合同金额必须大于 0");
+        });
+    }
+
+    @Test
+    void shouldLeaveChildAggregateValidationServerAuthoritative() {
+        var validation = new net.ximatai.muyun.spring.common.formula.FormulaRule(
+                "contractAmountPositive", "SUM({lines.amount}) > 0",
+                net.ximatai.muyun.spring.common.formula.FormulaRuleKind.VALIDATION,
+                net.ximatai.muyun.spring.common.formula.FormulaRulePhase.BEFORE_SAVE,
+                "contractAmount", net.ximatai.muyun.spring.common.formula.FormulaIssueLevel.ERROR,
+                "合同金额必须大于 0", true, true);
+        ModuleUiDefinition definition = ModuleUiDefinition.builder("sales.contract")
+                .page(PageTemplates.flatManagement(page -> page.explorer(explorer -> explorer.title("合同"))
+                        .detail(detail -> detail.editor(editor -> editor
+                                .field("contractAmount").businessRules(List.of(validation))))))
+                .build();
+
+        ResolvedViewDescriptor editor = compileFormCompute(definition, Map.of("contractAmount", FieldValueType.DECIMAL))
+                .page().detail().editor();
+
+        assertThat(editor.formValidationRules()).isEmpty();
+    }
+
+    @Test
     void shouldKeepStaticBusinessValidationInTheSameRuleListServerAuthoritative() {
         ModuleUiDefinition definition = ModuleUiDefinition.builder("sales.order")
                 .page(PageTemplates.flatManagement(page -> page.explorer(explorer -> explorer.title("订单"))

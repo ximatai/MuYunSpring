@@ -67,41 +67,63 @@ final class BusinessRuleFormProjection {
 
     static ResolvedModuleUiDescriptor projectLenient(ResolvedModuleUiDescriptor descriptor, List<FormulaRule> rules) {
         if (descriptor == null || rules == null || rules.isEmpty()) return descriptor;
+        Map<String, FormulaFieldDefinition> childFields = directChildFields(descriptor);
         ResolvedModulePageDescriptor page = descriptor.page();
         if (page != null && page.detail() != null && page.detail().editor() != null) {
-            ResolvedViewDescriptor editor = project(page.detail().editor(), rules);
+            ResolvedViewDescriptor editor = project(page.detail().editor(), rules, childFields);
             page = page.withDetail(new ResolvedPageDetailDescriptor(page.detail().emptyDescription(),
                     page.detail().createTitle(), page.detail().display(), editor, page.detail().workspaceView(),
                     page.detail().showSystemInfo()));
         }
         ResolvedViewDescriptor defaultEditor = descriptor.defaultEditor() == null ? null
-                : project(descriptor.defaultEditor(), rules);
+                : project(descriptor.defaultEditor(), rules, childFields);
         List<ResolvedEditorSurfaceDescriptor> surfaces = descriptor.editorSurfaces().stream()
-                .map(surface -> new ResolvedEditorSurfaceDescriptor(surface.key(), project(surface.editor(), rules)))
+                .map(surface -> new ResolvedEditorSurfaceDescriptor(surface.key(), project(surface.editor(), rules, childFields)))
                 .toList();
         return descriptor.withEditors(page, defaultEditor, surfaces);
     }
 
-    private static ResolvedViewDescriptor project(ResolvedViewDescriptor view, List<FormulaRule> rules) {
+    /** Compiles portable static DSL validation rules after the concrete form fields have been resolved. */
+    static List<ResolvedFormValidationRuleDescriptor> compileDslValidationRules(
+            String viewCode,
+            List<ResolvedViewFieldDescriptor> viewFields,
+            List<FormulaRule> rules) {
+        if (rules == null || rules.isEmpty()) return List.of();
+        Map<String, ResolvedViewFieldDescriptor> fields = viewFields == null ? Map.of() : viewFields.stream()
+                .filter(field -> field.fieldRef().relationCode() == null)
+                .filter(field -> Boolean.TRUE.equals(field.visible().constant()))
+                .filter(field -> PlatformFieldPolicy.find(field.fieldRef().fieldName()) == null)
+                .collect(Collectors.toMap(field -> field.fieldRef().fieldName(), Function.identity(),
+                        (left, right) -> left, LinkedHashMap::new));
+        if (fields.isEmpty()) return List.of();
+        return validationDescriptors(rules.stream().filter(rule -> rule != null && rule.enabled()).toList(),
+                fieldDefinitions(fields.values()), fields);
+    }
+
+    private static ResolvedViewDescriptor project(ResolvedViewDescriptor view,
+                                                  List<FormulaRule> rules,
+                                                  Map<String, FormulaFieldDefinition> childFields) {
         if (view == null || view.viewKind() != ModuleViewKind.FORM || rules == null || rules.isEmpty()) return view;
         Map<String, ResolvedViewFieldDescriptor> fields = visibleMainFields(view);
-        List<FormulaFieldDefinition> definitions = fieldDefinitions(fields.values());
+        List<FormulaFieldDefinition> definitions = new ArrayList<>(fieldDefinitions(fields.values()));
+        definitions.addAll(childFields.values());
         List<FormulaRule> enabled = rules.stream().filter(rule -> rule != null && rule.enabled()).toList();
         if (enabled.isEmpty()) return view;
         Map<String, List<FormulaRule>> allWriters = writers(enabled);
         Set<String> serverCalculationTargets = allWriters.keySet();
+        List<ResolvedFormValidationRuleDescriptor> validations = validationDescriptors(enabled, definitions, fields);
         List<Candidate> candidates = new ArrayList<>();
         Set<String> codes = new LinkedHashSet<>();
         for (FormulaRule rule : enabled) {
             if (rule.kind() != FormulaRuleKind.CALCULATION || rule.phase() != FormulaRulePhase.BEFORE_SAVE) continue;
-            Candidate candidate = candidate(rule, definitions, fields, view);
+            Candidate candidate = candidate(rule, definitions, fields, childFields, view);
             if (candidate == null || !codes.add(candidate.rule().id())) {
                 continue;
             }
             candidates.add(candidate);
         }
         if (candidates.isEmpty()) {
-            return withAuthoritativeRules(view, List.of(), serverCalculationTargets);
+            return withAuthoritativeRules(view, List.of(), validations, serverCalculationTargets);
         }
 
         Map<String, Candidate> candidatesByTarget = uniqueCandidatesByTarget(candidates);
@@ -109,13 +131,13 @@ final class BusinessRuleFormProjection {
         List<Candidate> portable = candidates.stream()
                 .filter(candidate -> portableTargets.contains(candidate.targetField()))
                 .toList();
-        if (portable.isEmpty()) return withAuthoritativeRules(view, List.of(), serverCalculationTargets);
+        if (portable.isEmpty()) return withAuthoritativeRules(view, List.of(), validations, serverCalculationTargets);
 
         FormulaRuleExecutionPlan plan;
         try {
             plan = FormulaRuleExecutionPlan.forMainRecord(portable.stream().map(Candidate::rule).toList(), definitions);
         } catch (FormulaEvaluationException exception) {
-            return withAuthoritativeRules(view, List.of(), serverCalculationTargets);
+            return withAuthoritativeRules(view, List.of(), validations, serverCalculationTargets);
         }
         Map<String, Candidate> byCode = portable.stream()
                 .collect(Collectors.toMap(candidate -> candidate.rule().id(), Function.identity(), (left, right) -> left,
@@ -123,11 +145,12 @@ final class BusinessRuleFormProjection {
         List<ResolvedFormComputeRuleDescriptor> automatic = plan.orderedRules().stream()
                 .map(rule -> descriptor(byCode.get(rule.id())))
                 .toList();
-        return withAuthoritativeRules(view, automatic, serverCalculationTargets);
+        return withAuthoritativeRules(view, automatic, validations, serverCalculationTargets);
     }
 
     private static ResolvedViewDescriptor withAuthoritativeRules(ResolvedViewDescriptor view,
                                                                   List<ResolvedFormComputeRuleDescriptor> automatic,
+                                                                  List<ResolvedFormValidationRuleDescriptor> validations,
                                                                   Set<String> serverCalculationTargets) {
         Set<String> automaticTargets = automatic.stream().map(ResolvedFormComputeRuleDescriptor::targetField)
                 .collect(Collectors.toSet());
@@ -141,7 +164,45 @@ final class BusinessRuleFormProjection {
                 view.formComputeRules(), serverCalculationTargets, automaticTargets, automaticCodes);
         List<ResolvedFormComputeRuleDescriptor> rulesForView = new ArrayList<>(automatic);
         rulesForView.addAll(remainingAuthored);
-        return view.withFormulaProjection(projectedFields, rulesForView);
+        return view.withFormulaProjection(projectedFields, rulesForView, validations);
+    }
+
+    /**
+     * A browser validation is issued only when it has the same directly visible, primitive inputs
+     * as the form. Rejection here intentionally leaves the rule server-authoritative instead of
+     * giving the browser a misleading promise.
+     */
+    private static List<ResolvedFormValidationRuleDescriptor> validationDescriptors(
+            List<FormulaRule> rules,
+            List<FormulaFieldDefinition> definitions,
+            Map<String, ResolvedViewFieldDescriptor> fields) {
+        List<ResolvedFormValidationRuleDescriptor> result = new ArrayList<>();
+        Set<String> codes = new LinkedHashSet<>();
+        for (FormulaRule rule : rules) {
+            if (rule.kind() != FormulaRuleKind.VALIDATION || rule.phase() != FormulaRulePhase.BEFORE_SAVE
+                    || rule.severity() != net.ximatai.muyun.spring.common.formula.FormulaIssueLevel.ERROR
+                    || !rule.stopOnError() || !codes.add(rule.id())) {
+                continue;
+            }
+            try {
+                FormulaRuleExecutionPlan plan = FormulaRuleExecutionPlan.forMainRecord(List.of(rule), definitions);
+                var program = ENGINE.compileFormValidationProgram(rule.expression());
+                Set<String> inputs = plan.inputFieldsByRule().getOrDefault(rule.id(), Set.of());
+                if (!program.referencedFields().equals(inputs)
+                        || inputs.stream().anyMatch(input -> !fields.containsKey(input) || !portable(fields.get(input)))) {
+                    continue;
+                }
+                String target = rule.targetField();
+                if (target != null && (!fields.containsKey(target) || !portable(fields.get(target)))) {
+                    continue;
+                }
+                result.add(new ResolvedFormValidationRuleDescriptor(rule.id(), program, List.copyOf(inputs), target,
+                        rule.messageTemplate() == null ? "formula condition is not matched" : rule.messageTemplate()));
+            } catch (FormulaEvaluationException | IllegalArgumentException ignored) {
+                // The server still executes every governance rule. Only the portable subset gets a form promise.
+            }
+        }
+        return List.copyOf(result);
     }
 
     private static List<ResolvedFormComputeRuleDescriptor> serverAuthoritativeAuthoredRules(
@@ -195,6 +256,7 @@ final class BusinessRuleFormProjection {
     private static Candidate candidate(FormulaRule rule,
                                        List<FormulaFieldDefinition> definitions,
                                        Map<String, ResolvedViewFieldDescriptor> fields,
+                                       Map<String, FormulaFieldDefinition> childFields,
                                        ResolvedViewDescriptor view) {
         try {
             FormulaRuleExecutionPlan plan = FormulaRuleExecutionPlan.forMainRecord(List.of(rule), definitions);
@@ -204,11 +266,15 @@ final class BusinessRuleFormProjection {
             var program = ENGINE.compileFormComputeProgram(rule.expression());
             if (!target.equals(assignedTarget(program))) throw failure(view, rule, "formula target must match root assignment");
             Set<String> inputs = plan.inputFieldsByRule().getOrDefault(rule.id(), Set.of());
-            if (inputs.stream().anyMatch(input -> !fields.containsKey(input))) {
+            if (inputs.stream().anyMatch(input -> !fields.containsKey(input) && !childFields.containsKey(input))) {
                 throw failure(view, rule, "formula input is not an exposed form field");
             }
-            if (inputs.stream().anyMatch(input -> !portable(fields.get(input)))) {
+            if (inputs.stream().anyMatch(input -> fields.containsKey(input) && !portable(fields.get(input)))) {
                 throw failure(view, rule, "formula input requires a portable non-JSON type");
+            }
+            if (inputs.stream().anyMatch(input -> childFields.containsKey(input)
+                    && childFields.get(input).type() == FormulaValueType.JSON)) {
+                throw failure(view, rule, "formula child input requires a portable non-JSON type");
             }
             return new Candidate(rule, target, inputs, program, fields.get(target).valueType());
         } catch (FormulaEvaluationException | IllegalArgumentException exception) {
@@ -299,6 +365,35 @@ final class BusinessRuleFormProjection {
     private static List<FormulaFieldDefinition> fieldDefinitions(Collection<ResolvedViewFieldDescriptor> fields) {
         return fields.stream().map(field -> new FormulaFieldDefinition(FormulaFieldPath.parse(field.fieldRef().fieldName()),
                 formulaType(field.valueType()), false, true)).toList();
+    }
+
+    /**
+     * The parent draft stores an aggregate child's rows under its embedded relation field, whereas
+     * FormulaEngine addresses the rows by the metadata relation code ({@code parentBinding}).
+     * Preserve that relation-code path here so the form program and the save-time rule use the
+     * same field references without exposing child fields as ordinary main-form controls.
+     */
+    private static Map<String, FormulaFieldDefinition> directChildFields(ResolvedModuleUiDescriptor descriptor) {
+        if (descriptor.detailRelations().isEmpty() || descriptor.editorContributions().isEmpty()) return Map.of();
+        Map<String, ResolvedPageDetailEditorContribution> editors = descriptor.editorContributions().stream()
+                .collect(Collectors.toMap(ResolvedPageDetailEditorContribution::resource, Function.identity(),
+                        (left, right) -> left, LinkedHashMap::new));
+        Map<String, FormulaFieldDefinition> result = new LinkedHashMap<>();
+        descriptor.detailRelations().stream()
+                .filter(relation -> relation.embeddedField() != null)
+                .forEach(relation -> {
+                    ResolvedPageDetailEditorContribution editor = editors.get(relation.targetEntityAlias());
+                    if (editor == null) return;
+                    editor.editor().fields().stream()
+                            .filter(field -> field.fieldRef().relationCode() != null)
+                            .filter(field -> field.valueType() != null)
+                            .forEach(field -> {
+                                String path = relation.parentBinding() + "." + field.fieldRef().fieldName();
+                                result.putIfAbsent(path, new FormulaFieldDefinition(FormulaFieldPath.parse(path),
+                                        formulaType(field.valueType()), false, false));
+                            });
+                });
+        return Map.copyOf(result);
     }
 
     private static FormulaValueType formulaType(FieldValueType valueType) {

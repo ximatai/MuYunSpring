@@ -1,27 +1,32 @@
 <script setup lang="ts">
-import { computed, nextTick, ref, watch, type ComponentPublicInstance } from 'vue';
+import { computed, nextTick, ref, watch, useId, type ComponentPublicInstance } from 'vue';
 import {
+  FormulaExpressionEditor,
   RecordDetailDrawer,
+  RecordQueryEnumFilter,
   RecordQueryListCell,
   RecordQueryListSurface,
   presentPlatformError,
   presentPlatformMessage,
   type RecordQueryListColumn,
 } from '@muyun/platform-components';
-import RecordDetailLayout from '../platform-components/RecordDetailLayout.vue';
 import { useWorkspaceViewUnsavedState } from '@muyun/platform-workbench';
 import { useModuleContext, withHttpHeaders } from '@muyun/web-core';
 import { useCurrentUserContext } from '../platform-admin-runtime/currentUserContext';
 import {
+  UiActionButton,
   UiButton,
+  UiCheckbox,
   UiEmpty,
+  UiIcon,
   UiInput,
   UiModal,
+  UiPopover,
   UiSelect,
   UiSpin,
   UiSwitch,
   UiTextArea,
-  UiTree,
+  useUiDragSource,
   type UiDataTableColumn,
   type UiDataTableRecord,
   type UiDragSource,
@@ -42,9 +47,11 @@ import {
   readonlyRules,
   typedSampleValue,
   formulaFieldUnusableReason,
+  aggregateFieldInsertionReason,
   normalizeFormulaCapabilities,
   portableFormulaCapabilities,
-  searchableFormulaCapabilities,
+  type UiControlSnapshot,
+  type UiControlTarget,
   type BusinessRuleApplyResult,
   type BusinessRuleEditableField,
   type BusinessRuleFormulaCapability,
@@ -58,6 +65,9 @@ import {
   type BusinessRuleReferenceField,
 } from './businessRuleGovernance';
 
+import MetadataSourceTree from './MetadataSourceTree.vue';
+import { metadataSourceFieldNode, metadataSourceRoot } from './metadataSourceTree';
+
 defineOptions({ name: 'BusinessRuleGovernanceSurface' });
 
 const props = defineProps<{
@@ -70,8 +80,52 @@ const moduleContext = useModuleContext({ moduleAlias: 'platform.module' });
 const currentUser = useCurrentUserContext();
 const snapshot = ref<BusinessRuleSnapshot>();
 const rules = ref<BusinessRuleProposal[]>([]);
+const uiControlSnapshot = ref<UiControlSnapshot>();
+const selectedControlForm = computed(() =>
+  uiControlSnapshot.value?.forms.find((form) => form.key === selectedRule.value?.formKey),
+);
+function setControlForm(value: unknown) {
+  updateRule('formKey', value);
+  updateRule('targets', []);
+}
+function setControlEffect(elementKey: string, effect: 'hide' | 'readOnly', checked: boolean) {
+  const targets = (selectedRule.value?.targets ?? []).map((target) => ({ ...target }));
+  let target = targets.find((item) => item.elementKey === elementKey);
+  if (!target) {
+    target = { elementKey, hide: false, readOnly: false };
+    targets.push(target);
+  }
+  target[effect] = checked;
+  updateRule(
+    'targets',
+    targets.filter((item) => item.hide || item.readOnly),
+  );
+}
+function controlEffect(elementKey: string, effect: keyof Pick<UiControlTarget, 'hide' | 'readOnly'>) {
+  return selectedRule.value?.targets?.find((target) => target.elementKey === elementKey)?.[effect] ?? false;
+}
+async function mergeUiRules(loaded: BusinessRuleSnapshot) {
+  const ui = await moduleContext.http.request<UiControlSnapshot>({
+    path: `/platform.module/${encodeURIComponent(loaded.moduleAlias)}/business-rules/ui-controls`,
+  });
+  return {
+    ui,
+    snapshot: {
+      ...loaded,
+      rules: [
+        ...loaded.rules,
+        ...(ui.rules ?? []).map((rule) => ({ ...rule, kind: 'UI_CONTROL', phase: 'UI', editable: true })),
+      ],
+    },
+  };
+}
+function ruleKindLabel(kind: BusinessRuleKind) {
+  return { CALCULATION: '字段计算', VALIDATION: '保存校验', UI_CONTROL: '界面控制' }[kind];
+}
 const selectedCode = ref<string>();
 const ruleDrawerOpen = ref(false);
+const newRuleDraft = ref<BusinessRuleProposal>();
+const draftIssues = ref<BusinessRuleIssue[]>([]);
 const ruleSearch = ref('');
 const rulePageNum = ref(1);
 const rulePageSize = ref(10);
@@ -91,9 +145,8 @@ const referenceDirectories = ref(new Map<string, BusinessRuleReferenceField[]>()
 const referenceDirectoryRequests = new Map<string, Promise<BusinessRuleReferenceField[]>>();
 const referenceRootLoading = ref(false);
 const referenceRootFailed = ref(false);
-const functionPanelOpen = ref(false);
-const functionSearch = ref('');
-const inspectedFunctionId = ref<BusinessRuleFormulaCapability['id']>('PRESENT');
+const formulaInputs = ref<Record<string, string>>({});
+const selectedFormula = computed(() => (selectedRule.value ? formulaText(selectedRule.value) : ''));
 const expressionSelections = new Map<string, { start: number; end: number }>();
 const trialTenantId = ref('');
 const trialTenants = ref<Array<{ id: string; title?: string; enabled?: boolean }>>([]);
@@ -104,6 +157,29 @@ type FormulaTextAreaEditor = ComponentPublicInstance & {
   focusSelection: (start: number, end?: number) => void;
 };
 const expressionEditor = ref<FormulaTextAreaEditor>();
+const visualExpressionEditor = ref<FormulaTextAreaEditor>();
+const formulaMode = ref<'visual' | 'code'>('visual');
+const activeExpressionEditor = computed(() =>
+  formulaMode.value === 'visual' ? visualExpressionEditor.value : expressionEditor.value,
+);
+const functionPalette = ref<HTMLElement>();
+const functionDragInstanceId = `formula-functions:${useId()}`;
+const { begin: beginFunctionDrag, draggingKey: draggingFunctionId } = useUiDragSource(
+  functionPalette,
+  functionDragInstanceId,
+  (key) => {
+    const capability = formulaCapabilities.value.find((item) => item.id === key);
+    if (!capability || applying.value || !selectedRule.value) return undefined;
+    return {
+      instanceId: functionDragInstanceId,
+      operations: ['copy'],
+      node: { key, title: functionPurpose(capability) },
+      payloadType: 'formula-function',
+      payload: { kind: 'formula-function', moduleAlias: props.moduleAlias, functionId: key },
+    };
+  },
+  { start: () => undefined, end: () => undefined },
+);
 let baselineProposalFingerprint: string | undefined;
 let loadRequest = 0;
 let trialRequest = 0;
@@ -114,11 +190,7 @@ let referenceDirectoryEpoch = 0;
 let trialTenantRequest = 0;
 
 const editableFields = computed(() => snapshot.value?.editableFields ?? []);
-const calculationRules = computed(() => rules.value.filter((rule) => rule.kind === 'CALCULATION'));
-const validationRules = computed(() => rules.value.filter((rule) => rule.kind === 'VALIDATION'));
-const activeRules = computed(() =>
-  activeKind.value === 'CALCULATION' ? calculationRules.value : validationRules.value,
-);
+const activeRules = computed(() => rules.value.filter((rule) => rule.kind === activeKind.value));
 const filteredActiveRules = computed(() => {
   const keyword = ruleSearch.value.trim().toLocaleLowerCase();
   if (!keyword) return activeRules.value;
@@ -155,7 +227,9 @@ const ruleTableRows = computed<UiDataTableRecord[]>(() =>
   })),
 );
 const readonlyRuleList = computed(() => (snapshot.value ? readonlyRules(snapshot.value) : []));
-const selectedRule = computed(() => rules.value.find((rule) => rule.code === selectedCode.value));
+const selectedRule = computed(
+  () => newRuleDraft.value ?? rules.value.find((rule) => rule.code === selectedCode.value),
+);
 const referenceRootFields = computed(
   () => referenceDirectories.value.get(referenceDirectoryKey(props.moduleAlias, '')) ?? [],
 );
@@ -167,6 +241,7 @@ const catalogFields = computed(() => {
       name: field.fieldName,
       label: field.title,
       valueType: field.valueType,
+      aggregateFunctions: field.aggregateFunctions,
     }),
   );
   snapshot.value?.referenceFields?.forEach((field) =>
@@ -178,37 +253,65 @@ const catalogFields = computed(() => {
       readOnly: true,
     }),
   );
+  snapshot.value?.aggregateFields?.forEach((field) =>
+    fields.set(field.fieldName, {
+      id: field.fieldName,
+      name: field.fieldName,
+      label: field.title,
+      valueType: field.valueType,
+    }),
+  );
   referenceDirectories.value.forEach((directory) =>
     directory.forEach((field) => fields.set(field.name, field)),
   );
   return fields;
 });
-const fieldTreeNodes = computed(() => referenceRootFields.value.map(referenceFieldNode));
-const selectedCatalogField = computed(() =>
-  selectedFieldNodeKey.value ? fieldOfTreeKey(selectedFieldNodeKey.value) : undefined,
-);
+const fieldKeyword = ref('');
+const showSystemFields = ref(false);
+const metadataExpandedKeys = ref(['metadata:root']);
+const metadataTreeReloadKey = ref(0);
+watch(showSystemFields, () => {
+  metadataTreeReloadKey.value += 1;
+});
+const fieldTreeNodes = computed(() => [
+  metadataSourceRoot(
+    props.moduleTitle || props.moduleAlias,
+    [
+      ...referenceRootFields.value,
+      ...(snapshot.value?.aggregateFields ?? []).map((field) => ({
+        id: field.fieldName,
+        name: field.fieldName,
+        label: field.title,
+        valueType: field.valueType,
+        aggregateFunctions: field.aggregateFunctions,
+        systemManaged: false,
+      })),
+    ]
+      .filter((field) => showSystemFields.value || !field.systemManaged)
+      .filter(
+        (field) =>
+          !fieldKeyword.value.trim() ||
+          `${field.label || ''} ${field.name}`
+            .toLowerCase()
+            .includes(fieldKeyword.value.trim().toLowerCase()),
+      )
+      .map(referenceFieldNode),
+  ),
+]);
 const formulaCapabilities = computed(() =>
   normalizeFormulaCapabilities(
     props.formulaCapabilities ?? snapshot.value?.functions ?? portableFormulaCapabilities,
   ),
 );
-const filteredFormulaCapabilities = computed(() =>
-  searchableFormulaCapabilities(formulaCapabilities.value, functionSearch.value),
-);
 const functionCapabilityGroups = computed(() => {
   const groups = new Map<string, BusinessRuleFormulaCapability[]>();
-  filteredFormulaCapabilities.value.forEach((capability) => {
+  formulaCapabilities.value.forEach((capability) => {
     const current = groups.get(capability.category) ?? [];
     current.push(capability);
     groups.set(capability.category, current);
   });
   return [...groups.entries()].map(([category, capabilities]) => ({ category, capabilities }));
 });
-const inspectedFunction = computed(
-  () =>
-    formulaCapabilities.value.find((capability) => capability.id === inspectedFunctionId.value) ??
-    filteredFormulaCapabilities.value[0],
-);
 const hasUnsavedChanges = computed(
   () =>
     snapshot.value != null &&
@@ -221,7 +324,12 @@ const calculatorUnavailableReason = computed(() =>
 const fieldOptions = computed(() =>
   editableFields.value.map((field) => ({ value: field.fieldName, label: fieldLabel(field) })),
 );
-const externalInputFields = computed(() => externalTrialInputFields(editableFields.value, rules.value));
+const externalInputFields = computed(() =>
+  externalTrialInputFields(
+    editableFields.value,
+    rules.value.filter((rule) => rule.kind !== 'UI_CONTROL'),
+  ),
+);
 const referencedFormulaPaths = computed(() =>
   rules.value
     .filter((rule) => rule.enabled)
@@ -272,7 +380,9 @@ const otherTrialFields = computed(() =>
 );
 const selectedRuleTemplates = computed(() =>
   selectedRule.value
-    ? formulaTemplates(selectedRule.value.kind, editableFields.value, selectedRule.value.targetField)
+    ? formulaTemplates(selectedRule.value.kind, editableFields.value, selectedRule.value.targetField).filter(
+        (template) => selectedRule.value?.kind !== 'UI_CONTROL' || template.id === 'present-field',
+      )
     : [],
 );
 const hasEnabledValidationRules = computed(() =>
@@ -323,7 +433,6 @@ watch([filteredActiveRules, rulePageSize], () => {
 });
 
 watch(activeKind, () => {
-  ruleSearch.value = '';
   rulePageNum.value = 1;
 });
 
@@ -352,6 +461,8 @@ function fieldTitle(fieldName: string): string {
 }
 
 function ruleChoiceLabel(rule: BusinessRuleProposal): string {
+  if (rule.kind === 'UI_CONTROL')
+    return `界面控制 · ${uiControlSnapshot.value?.forms.find((form) => form.key === rule.formKey)?.title ?? '未选择表单'} · ${rule.enabled ? '启用' : '停用'}`;
   const target = editableFields.value.find((field) => field.fieldName === rule.targetField);
   const purpose =
     rule.kind === 'CALCULATION'
@@ -370,6 +481,7 @@ function issueText(issue: BusinessRuleIssue): string {
 }
 
 function ruleSummary(rule: BusinessRuleProposal): string {
+  if (rule.kind === 'UI_CONTROL') return `公式为真时，控制所选表单中的 ${rule.targets?.length ?? 0} 个元素。`;
   const target = editableFields.value.find((field) => field.fieldName === rule.targetField);
   const targetText = target ? fieldLabel(target) : rule.targetField || '未定位字段';
   const dependencies = referencedFormulaFields(rule.expression).map((name) => {
@@ -396,9 +508,18 @@ function replaceRules(nextRules: BusinessRuleProposal[]) {
   resetExecutionResults();
 }
 
+function formulaText(rule: BusinessRuleProposal): string {
+  return (
+    formulaInputs.value[rule.code] ??
+    (rule.kind === 'CALCULATION' && rule.targetField
+      ? `{${rule.targetField}} = ${rule.expression}`
+      : rule.expression)
+  );
+}
+
 function updateRule(field: keyof BusinessRuleProposal, value: unknown) {
   if (applying.value) return;
-  const code = selectedCode.value;
+  const code = selectedRule.value?.code;
   if (!code) return;
   const normalized =
     field === 'expression'
@@ -410,16 +531,49 @@ function updateRule(field: keyof BusinessRuleProposal, value: unknown) {
         : value === '__none__' || value == null || value === ''
           ? undefined
           : value;
+  let changes: Partial<BusinessRuleProposal> = { [field]: normalized };
+  if (field === 'expression' && selectedRule.value?.kind === 'CALCULATION') {
+    const input = typeof normalized === 'string' ? normalized : '';
+    formulaInputs.value[code] = input;
+    const assignment = /^\s*\{([^{}]+)\}\s*=(?!=)\s*([\s\S]*)$/.exec(input);
+    changes = { targetField: assignment?.[1]?.trim(), expression: assignment ? assignment[2]! : input };
+  }
+  if (newRuleDraft.value) {
+    newRuleDraft.value = { ...newRuleDraft.value, ...changes };
+    draftIssues.value = [];
+    return;
+  }
   replaceRules(
     rules.value.map((rule) =>
       rule.code === code
         ? {
             ...rule,
-            [field]: normalized,
+            ...changes,
           }
         : rule,
     ),
   );
+}
+
+function changeDraftKind(kind: unknown) {
+  if (
+    !newRuleDraft.value ||
+    applying.value ||
+    (kind !== 'CALCULATION' && kind !== 'VALIDATION' && kind !== 'UI_CONTROL')
+  )
+    return;
+  if (kind === newRuleDraft.value.kind || (kind === 'CALCULATION' && calculatorUnavailableReason.value))
+    return;
+  delete formulaInputs.value[newRuleDraft.value.code];
+  newRuleDraft.value = {
+    ...newRuleDraft.value,
+    kind,
+    targetField: undefined,
+    messageTemplate: undefined,
+    formKey: undefined,
+    targets: undefined,
+  };
+  draftIssues.value = [];
 }
 
 function addRule(kind: BusinessRuleKind) {
@@ -431,15 +585,10 @@ function addRule(kind: BusinessRuleKind) {
     });
     return;
   }
-  const rule = newBusinessRule(kind, [...rules.value, ...readonlyRuleList.value]);
-  replaceRules([...rules.value, rule]);
-  activeKind.value = kind;
-  ruleSearch.value = '';
-  rulePageNum.value = Math.max(
-    1,
-    Math.ceil(rules.value.filter((candidate) => candidate.kind === kind).length / rulePageSize.value),
-  );
-  selectedCode.value = rule.code;
+  formulaMode.value = 'visual';
+  newRuleDraft.value = newBusinessRule(kind, [...rules.value, ...readonlyRuleList.value]);
+  draftIssues.value = [];
+  expressionSelectionOwner = undefined;
   ruleDrawerOpen.value = true;
 }
 
@@ -447,6 +596,8 @@ function removeSelectedRule() {
   if (applying.value) return;
   const code = selectedCode.value;
   if (!code) return;
+  delete formulaInputs.value[code];
+  expressionSelections.delete(code);
   const remaining = rules.value.filter((rule) => rule.code !== code);
   replaceRules(remaining);
   selectedCode.value = remaining.find((rule) => rule.kind === activeKind.value)?.code;
@@ -466,19 +617,15 @@ function insertExpressionText(
   if (!rule) return;
   const selection =
     expressionSelectionOwner === rule.code
-      ? expressionEditor.value?.selection?.()
+      ? activeExpressionEditor.value?.selection?.()
       : expressionSelections.get(rule.code);
   const insertion = insertFormulaText(
-    rule.expression,
+    formulaText(rule),
     selectedStart ?? selection?.start,
     selectedEnd ?? selection?.end,
     text,
   );
-  replaceRules(
-    rules.value.map((candidate) =>
-      candidate.code === rule.code ? { ...candidate, expression: insertion.value } : candidate,
-    ),
-  );
+  updateRule('expression', insertion.value);
   expressionSelectionOwner = rule.code;
   const insertionStart = insertion.selectionStart - text.length;
   const nextSelection = {
@@ -507,18 +654,36 @@ function insertFunction(
 }
 
 function rememberExpressionSelection(selection: { start: number; end: number }) {
-  expressionSelectionOwner = selectedCode.value;
-  if (selectedCode.value) expressionSelections.set(selectedCode.value, selection);
+  expressionSelectionOwner = selectedRule.value?.code;
+  if (expressionSelectionOwner) expressionSelections.set(expressionSelectionOwner, selection);
+}
+
+function switchFormulaMode(codeMode: boolean) {
+  const mode = codeMode ? 'code' : 'visual';
+  if (applying.value || formulaMode.value === mode) return;
+  const selection = activeExpressionEditor.value?.selection?.() ?? { start: 0, end: 0 };
+  rememberExpressionSelection(selection);
+  formulaMode.value = mode;
+  void nextTick(() => focusExpression(selection.start, selection.end));
 }
 
 function applyTemplate(expression: string) {
   if (applying.value || !selectedRule.value || selectedRule.value.expression.trim()) return;
-  updateRule('expression', expression);
-  void nextTick(() => focusExpression(expression.length));
+  const formula =
+    selectedRule.value.kind === 'CALCULATION'
+      ? `{${selectedRule.value.targetField || ''}} = ${expression}`
+      : expression;
+  updateRule('expression', formula);
+  const needsTarget = selectedRule.value.kind === 'CALCULATION' && !selectedRule.value.targetField;
+  void nextTick(() => (needsTarget ? focusExpression(0, 2) : focusExpression(formula.length)));
+}
+
+function functionPurpose(capability: BusinessRuleFormulaCapability): string {
+  return capability.purpose;
 }
 
 function focusExpression(start: number, end = start) {
-  expressionEditor.value?.focusSelection?.(start, end);
+  activeExpressionEditor.value?.focusSelection?.(start, end);
 }
 
 function referenceDirectoryKey(moduleAlias: string, path: string) {
@@ -527,14 +692,21 @@ function referenceDirectoryKey(moduleAlias: string, path: string) {
 
 function referenceFieldNode(field: BusinessRuleReferenceField): UiTreeNode {
   const reason = formulaFieldUnusableReason(field);
-  return {
-    key: `formula-field:${field.name}`,
-    title: field.label || field.name.split('.').at(-1) || field.name,
-    secondary: [field.name, fieldTypeLabel(field), reason].filter(Boolean).join(' · '),
-    disabled: Boolean(reason),
-    muted: Boolean(reason),
-    isLeaf: !(field.expandable === true && field.referenceCardinality === 'ONE' && !reason),
-  };
+  const expandable = field.expandable === true && field.referenceCardinality === 'ONE';
+  return metadataSourceFieldNode(
+    {
+      title: field.label || field.name.split('.').at(-1) || field.name,
+      fieldName: field.name,
+      platformReadOnly: field.readOnly,
+      referenceModuleAlias: field.referenceModuleAlias,
+      expandable,
+    },
+    {
+      key: `formula-field:${field.name}`,
+      disabled: Boolean(reason) && !expandable,
+      muted: Boolean(reason),
+    },
+  );
 }
 
 function fieldOfTreeKey(key: string): BusinessRuleReferenceField | undefined {
@@ -584,10 +756,52 @@ function insertFieldNode(node: UiTreeNode) {
     return;
   }
   if (!field || formulaFieldUnusableReason(field)) return;
+  const selection =
+    expressionSelectionOwner === selectedRule.value.code
+      ? activeExpressionEditor.value?.selection?.()
+      : expressionSelections.get(selectedRule.value.code);
+  const aggregateReason = aggregateFieldInsertionReason(
+    field,
+    selectedFormula.value,
+    selection?.start ?? selectedFormula.value.length,
+  );
+  if (aggregateReason) {
+    presentPlatformMessage(aggregateReason, { source: 'business-rule-governance', phase: 'validation' });
+    return;
+  }
   insertExpressionText(`{${field.name}}`);
 }
 
+function acceptsFormulaItem(source: UiDragSource) {
+  if (acceptsFormulaField(source)) return true;
+  const payload = source.payload as
+    | { kind?: unknown; moduleAlias?: unknown; functionId?: unknown }
+    | undefined;
+  return Boolean(
+    selectedRule.value &&
+    !applying.value &&
+    source.payloadType === 'formula-function' &&
+    payload?.kind === 'formula-function' &&
+    payload.moduleAlias === props.moduleAlias &&
+    formulaCapabilities.value.some((item) => item.id === payload.functionId),
+  );
+}
+
 function handleFormulaDrop(event: { source: UiDragSource; selection: { start: number; end: number } }) {
+  if (!acceptsFormulaItem(event.source)) return;
+  const functionPayload = event.source.payload as { functionId?: string } | undefined;
+  if (event.source.payloadType === 'formula-function') {
+    const capability = formulaCapabilities.value.find((item) => item.id === functionPayload?.functionId);
+    if (capability)
+      insertExpressionText(
+        capability.insertion,
+        event.selection.start,
+        event.selection.end,
+        capability.firstParameterSelection.start,
+        capability.firstParameterSelection.end,
+      );
+    return;
+  }
   const payload = event.source.payload as
     | { kind?: unknown; moduleAlias?: unknown; fieldName?: unknown }
     | undefined;
@@ -597,6 +811,14 @@ function handleFormulaDrop(event: { source: UiDragSource; selection: { start: nu
     typeof payload.fieldName !== 'string'
   )
     return;
+  const field = catalogFields.value.get(payload.fieldName);
+  const aggregateReason = field
+    ? aggregateFieldInsertionReason(field, selectedFormula.value, event.selection.start)
+    : undefined;
+  if (aggregateReason) {
+    presentPlatformMessage(aggregateReason, { source: 'business-rule-governance', phase: 'validation' });
+    return;
+  }
   insertExpressionText(`{${payload.fieldName}}`, event.selection.start, event.selection.end);
 }
 
@@ -664,19 +886,18 @@ async function loadReferenceChildren(
   request: UiTreeLoadRequest,
 ): Promise<UiTreeLoadResult> {
   const field = fieldOfTreeKey(node.key);
-  if (
-    !field ||
-    field.expandable !== true ||
-    field.referenceCardinality !== 'ONE' ||
-    formulaFieldUnusableReason(field)
-  )
+  if (!field || field.expandable !== true || field.referenceCardinality !== 'ONE')
     return { mode: 'replace', nodes: [], hasMore: false };
   const moduleAlias = props.moduleAlias;
   const epoch = referenceDirectoryEpoch;
   const fields = await loadReferenceDirectory(moduleAlias, field.name);
   if (request.signal.aborted || epoch !== referenceDirectoryEpoch || moduleAlias !== props.moduleAlias)
     return { mode: 'replace', nodes: [], hasMore: false };
-  return { mode: 'replace', nodes: fields.map(referenceFieldNode), hasMore: false };
+  return {
+    mode: 'replace',
+    nodes: fields.filter((field) => showSystemFields.value || !field.systemManaged).map(referenceFieldNode),
+    hasMore: false,
+  };
 }
 
 async function ensureReferencePaths(fieldNames: readonly string[]) {
@@ -684,6 +905,7 @@ async function ensureReferencePaths(fieldNames: readonly string[]) {
   for (const fieldName of fieldNames) {
     const parts = fieldName.split('.');
     for (let index = 1; index < parts.length; index += 1) {
+      if (moduleAlias !== props.moduleAlias) return;
       const path = parts.slice(0, index).join('.');
       if (referenceDirectories.value.has(referenceDirectoryKey(moduleAlias, path))) continue;
       try {
@@ -695,9 +917,14 @@ async function ensureReferencePaths(fieldNames: readonly string[]) {
   }
 }
 
-function selectMode(kind: BusinessRuleKind) {
+watch([selectedFormula, ruleDrawerOpen], ([source, open]) => {
+  if (open) void ensureReferencePaths(referencedFormulaFields(source));
+});
+
+function selectRuleKind(kind: unknown) {
+  if (kind !== 'CALCULATION' && kind !== 'VALIDATION' && kind !== 'UI_CONTROL') return;
+  closeRuleDrawer();
   activeKind.value = kind;
-  ruleDrawerOpen.value = false;
   if (!selectedRule.value || selectedRule.value.kind !== kind)
     selectedCode.value = activeRules.value.at(0)?.code;
 }
@@ -718,6 +945,7 @@ function editRuleRow(record: unknown) {
 
 function openRule(code: string) {
   if (applying.value) return;
+  closeRuleDrawer();
   selectedCode.value = code;
   ruleDrawerOpen.value = true;
 }
@@ -731,18 +959,42 @@ function removeRuleRow(record: unknown) {
 }
 
 function closeRuleDrawer() {
+  if (newRuleDraft.value) {
+    expressionSelections.delete(newRuleDraft.value.code);
+    delete formulaInputs.value[newRuleDraft.value.code];
+  }
+  newRuleDraft.value = undefined;
+  draftIssues.value = [];
   ruleDrawerOpen.value = false;
+}
+
+function saveNewRule() {
+  const draft = newRuleDraft.value;
+  if (!draft || applying.value) return;
+  draftIssues.value = incompleteRuleIssues([draft]);
+  if (draftIssues.value.length) return;
+  replaceRules([...rules.value, { ...draft }]);
+  activeKind.value = draft.kind;
+  ruleSearch.value = '';
+  rulePageNum.value = Math.max(1, Math.ceil(activeRules.value.length / rulePageSize.value));
+  newRuleDraft.value = undefined;
+  closeRuleDrawer();
+  selectedCode.value = draft.code;
 }
 
 async function loadSnapshot(force = false) {
   if (applying.value && !force) return;
   const request = ++loadRequest;
   resetExecutionResults();
+  closeRuleDrawer();
   snapshot.value = undefined;
+  uiControlSnapshot.value = undefined;
   baselineProposalFingerprint = undefined;
   rules.value = [];
   selectedCode.value = undefined;
   expressionSelections.clear();
+  formulaInputs.value = {};
+  formulaMode.value = 'visual';
   referenceDirectoryEpoch += 1;
   referenceDirectories.value = new Map();
   referenceDirectoryRequests.clear();
@@ -761,8 +1013,12 @@ async function loadSnapshot(force = false) {
       path: `/platform.module/${encodeURIComponent(props.moduleAlias)}/business-rules`,
     });
     if (request !== loadRequest || loaded.moduleAlias !== props.moduleAlias) return;
-    snapshot.value = loaded;
-    const editable = editableProposals(loaded);
+    const merged = await mergeUiRules(loaded);
+    if (request !== loadRequest) return;
+    uiControlSnapshot.value = merged.ui;
+    snapshot.value = merged.snapshot;
+    formulaInputs.value = {};
+    const editable = editableProposals(merged.snapshot);
     rules.value = editable;
     baselineProposalFingerprint = proposalFingerprintOf(editable);
     selectedCode.value =
@@ -782,6 +1038,7 @@ async function loadSnapshot(force = false) {
 function discardChanges() {
   if (applying.value) return;
   if (!snapshot.value) return;
+  formulaInputs.value = {};
   const editable = editableProposals(snapshot.value);
   rules.value = editable;
   baselineProposalFingerprint = proposalFingerprintOf(editable);
@@ -802,16 +1059,29 @@ function selectTrialIssue(issue: BusinessRuleIssue) {
 
 function incompleteRuleIssues(proposals: readonly BusinessRuleProposal[]): BusinessRuleIssue[] {
   return proposals.flatMap((rule) => {
+    if (rule.kind === 'UI_CONTROL' && (!rule.formKey || !rule.targets?.length))
+      return [
+        {
+          code: 'INCOMPLETE_RULE',
+          ruleCode: rule.code,
+          message: '请选择表单，并为需要控制的元素勾选隐藏或只读',
+        },
+      ];
     const missingTarget = rule.kind === 'CALCULATION' && !rule.targetField?.trim();
     const missingExpression = !rule.expression.trim();
-    if (!missingTarget && !missingExpression) return [];
+    const invalidTarget =
+      rule.kind === 'CALCULATION' &&
+      !missingTarget &&
+      !editableFields.value.some((field) => field.fieldName === rule.targetField);
+    if (!missingTarget && !missingExpression && !invalidTarget) return [];
     return [
       {
         code: 'INCOMPLETE_RULE',
         ruleCode: rule.code,
         message: [
-          missingTarget ? '请选择计算目标字段' : undefined,
+          missingTarget ? '请在公式中指定结果字段，例如：{amount} = {quantity} * {unitPrice}' : undefined,
           missingExpression ? '请补充表达式' : undefined,
+          invalidTarget ? '等号左侧必须是当前记录的可写字段标识，请从字段目录选择' : undefined,
         ]
           .filter(Boolean)
           .join('；'),
@@ -847,7 +1117,7 @@ async function applyRules() {
     const checked = await moduleContext.http.request<BusinessRulePreview>({
       method: 'POST',
       path: `/platform.module/${encodeURIComponent(moduleAlias)}/business-rules/preview`,
-      body: { rules: proposedRules },
+      body: { rules: proposedRules.filter((rule) => rule.kind !== 'UI_CONTROL') },
     });
     if (!isCurrent()) return;
     if (checked.errors.length) {
@@ -862,14 +1132,28 @@ async function applyRules() {
       method: 'POST',
       path: `/platform.module/${encodeURIComponent(moduleAlias)}/business-rules/apply`,
       body: {
-        rules: proposedRules,
+        rules: proposedRules.filter((rule) => rule.kind !== 'UI_CONTROL'),
+        uiRules: proposedRules
+          .filter((rule) => rule.kind === 'UI_CONTROL')
+          .map(({ code, formKey, expression, enabled, targets }) => ({
+            code,
+            formKey,
+            expression,
+            enabled,
+            targets,
+          })),
+        uiBaselineFingerprint: uiControlSnapshot.value?.baselineFingerprint,
         baselineFingerprint,
         proposalFingerprint: checked.proposalFingerprint,
       },
     });
     if (!isCurrent()) return;
-    snapshot.value = result.snapshot;
-    const editable = editableProposals(result.snapshot);
+    const merged = await mergeUiRules(result.snapshot);
+    if (!isCurrent()) return;
+    uiControlSnapshot.value = merged.ui;
+    snapshot.value = merged.snapshot;
+    formulaInputs.value = {};
+    const editable = editableProposals(merged.snapshot);
     rules.value = editable;
     baselineProposalFingerprint = proposalFingerprintOf(editable);
     selectedCode.value =
@@ -965,7 +1249,7 @@ async function runTrial() {
     const result = await trialHttp.request<BusinessRuleTrialResult>({
       method: 'POST',
       path: `/platform.module/${encodeURIComponent(props.moduleAlias)}/business-rules/trial`,
-      body: { rules: rules.value, sampleValues: values },
+      body: { rules: rules.value.filter((rule) => rule.kind !== 'UI_CONTROL'), sampleValues: values },
     });
     if (request !== trialRequest || revision !== editRevision) return;
     trial.value = result;
@@ -987,41 +1271,10 @@ async function runTrial() {
       <UiButton @click="() => loadSnapshot()">重试</UiButton>
     </div>
     <div v-else>
-      <RecordDetailLayout :title="moduleTitle ? `${moduleTitle} · 业务规则` : '业务规则'" scrollable-content>
-        <template v-if="hasUnsavedChanges" #actions>
-          <div class="business-rule-governance__actions">
-            <span class="business-rule-governance__change-state"
-              >未应用 {{ unappliedChangeCount }} 项更改</span
-            >
-            <UiButton :disabled="applying" @click="discardChanges">放弃更改</UiButton>
-            <UiButton type="primary" :loading="applying" @click="applyRules">应用更改</UiButton>
-          </div>
-        </template>
-
-        <div class="business-rule-governance__mode-tabs" role="tablist" aria-label="规则类型">
-          <button
-            type="button"
-            role="tab"
-            :aria-selected="activeKind === 'CALCULATION'"
-            :class="{ 'business-rule-governance__mode-tab--active': activeKind === 'CALCULATION' }"
-            @click="selectMode('CALCULATION')"
-          >
-            字段计算
-          </button>
-          <button
-            type="button"
-            role="tab"
-            :aria-selected="activeKind === 'VALIDATION'"
-            :class="{ 'business-rule-governance__mode-tab--active': activeKind === 'VALIDATION' }"
-            @click="selectMode('VALIDATION')"
-          >
-            业务校验
-          </button>
-        </div>
-
+      <div class="business-rule-governance__content">
         <RecordQueryListSurface
           class="business-rule-governance__rule-list-surface"
-          :title="activeKind === 'CALCULATION' ? '字段计算规则' : '业务校验规则'"
+          :title="ruleKindLabel(activeKind) + '规则'"
           :show-title="false"
           quick-search-visible
           :quick-search-value="ruleSearch"
@@ -1030,7 +1283,7 @@ async function runTrial() {
           :columns="ruleTableColumns"
           :rows="ruleTableRows"
           :table-visible="filteredActiveRules.length > 0"
-          :fill-height="false"
+          fill-height
           :horizontal-scroll="false"
           row-key="id"
           :selected-row-key="selectedCode"
@@ -1058,20 +1311,42 @@ async function runTrial() {
           @row-dblclick="editRuleRow($event)"
         >
           <template #operations>
-            <UiButton
-              size="small"
+            <div v-if="hasUnsavedChanges" class="business-rule-governance__actions">
+              <span class="business-rule-governance__change-state"
+                >未应用 {{ unappliedChangeCount }} 项更改</span
+              >
+              <UiActionButton :disabled="applying" @click="discardChanges">放弃更改</UiActionButton>
+              <UiActionButton emphasis="primary" :loading="applying" @click="applyRules"
+                >应用更改</UiActionButton
+              >
+            </div>
+
+            <UiActionButton
+              emphasis="primary"
               :disabled="applying || (activeKind === 'CALCULATION' && Boolean(calculatorUnavailableReason))"
               :title="activeKind === 'CALCULATION' ? calculatorUnavailableReason : undefined"
               @click="addRule(activeKind)"
-              >新增规则</UiButton
+              >新增规则</UiActionButton
             >
-            <UiButton
+            <UiActionButton
               v-if="rules.some((rule) => rule.enabled && !isRuleIncomplete(rule))"
-              size="small"
               :disabled="!snapshot || applying"
               @click="openTrial"
-              >试算整组规则</UiButton
+              >试算整组规则</UiActionButton
             >
+          </template>
+          <template #persistentQueries>
+            <RecordQueryEnumFilter
+              title="规则类型"
+              :value="activeKind"
+              :options="[
+                { value: 'CALCULATION', label: '字段计算' },
+                { value: 'VALIDATION', label: '保存校验' },
+                { value: 'UI_CONTROL', label: '界面控制' },
+              ]"
+              :disabled="applying"
+              @update:value="selectRuleKind"
+            />
           </template>
           <template #cell="{ column, record }">
             <RecordQueryListCell
@@ -1080,18 +1355,22 @@ async function runTrial() {
             />
           </template>
           <template #rowActions="{ record }">
-            <UiButton size="small" :disabled="applying" @click.stop="editRuleRow(record)">编辑</UiButton>
-            <UiButton size="small" danger :disabled="applying" @click.stop="removeRuleRow(record)"
-              >删除</UiButton
+            <UiActionButton density="compact" :disabled="applying" @click.stop="editRuleRow(record)"
+              >编辑</UiActionButton
+            >
+            <UiActionButton
+              density="compact"
+              intent="danger"
+              :disabled="applying"
+              @click.stop="removeRuleRow(record)"
+              >删除</UiActionButton
             >
           </template>
           <template #beforeTable>
             <UiEmpty
               v-if="filteredActiveRules.length === 0"
               :description="
-                ruleSearch
-                  ? '没有匹配的规则。'
-                  : `暂无${activeKind === 'CALCULATION' ? '字段计算' : '业务校验'}，可新增一条规则。`
+                ruleSearch ? '没有匹配的规则。' : `暂无${ruleKindLabel(activeKind)}，可新增一条规则。`
               "
             />
           </template>
@@ -1101,190 +1380,248 @@ async function runTrial() {
           :open="ruleDrawerOpen"
           render-mode="inline"
           :width="980"
-          :title="selectedRule ? ruleChoiceLabel(selectedRule) : '规则编辑'"
-          subtitle="关闭抽屉仅返回列表；未应用更改会保留在本次会话中。"
+          :title="newRuleDraft ? '新增规则' : selectedRule ? ruleChoiceLabel(selectedRule) : '规则编辑'"
           close-title="返回规则列表"
           @close="closeRuleDrawer"
         >
+          <template v-if="selectedRule" #title-actions>
+            <UiSelect
+              aria-label="新建规则类型"
+              class="business-rule-governance__type-select"
+              :value="selectedRule.kind"
+              :allow-clear="false"
+              :disabled="applying || !newRuleDraft"
+              :options="[
+                {
+                  value: 'CALCULATION',
+                  label: '字段计算',
+                  disabled: Boolean(calculatorUnavailableReason),
+                },
+                { value: 'VALIDATION', label: '保存校验' },
+                { value: 'UI_CONTROL', label: '界面控制' },
+              ]"
+              @update:value="changeDraftKind"
+            />
+          </template>
+          <template v-if="selectedRule" #header-actions>
+            <label class="business-rule-governance__enabled-setting">
+              启用
+              <UiSwitch
+                :checked="selectedRule.enabled"
+                :disabled="applying"
+                @update:checked="updateRule('enabled', $event)"
+              />
+            </label>
+          </template>
           <template #operation>
-            <UiButton type="primary" :disabled="applying" @click="closeRuleDrawer">完成编辑</UiButton>
+            <template v-if="newRuleDraft">
+              <UiActionButton :disabled="applying" @click="closeRuleDrawer">取消</UiActionButton>
+              <UiActionButton emphasis="primary" :disabled="applying" @click="saveNewRule"
+                >保存</UiActionButton
+              >
+            </template>
+            <UiButton v-else type="primary" :disabled="applying" @click="closeRuleDrawer">完成编辑</UiButton>
           </template>
           <div v-if="selectedRule" class="business-rule-governance__drawer-body">
             <aside class="business-rule-governance__field-directory">
-              <h3>字段目录</h3>
-              <p class="business-rule-governance__tree-help">
-                双击字段或拖到表达式中插入。引用路径只展开 ONE 关系；集合、JSON、系统和受保护字段会说明原因。
-              </p>
-              <UiSpin v-if="referenceRootLoading" tip="加载字段目录" />
-              <template v-else-if="referenceRootFailed">
-                <UiEmpty description="字段目录加载失败" />
-                <UiButton size="small" @click="loadReferenceRoot(true)">重试</UiButton>
-              </template>
-              <UiTree
-                v-else
-                class="business-rule-governance__field-tree"
+              <MetadataSourceTree
+                embedded
+                v-model:search-keyword="fieldKeyword"
+                v-model:show-system-fields="showSystemFields"
+                v-model:expanded-keys="metadataExpandedKeys"
+                :reload-key="metadataTreeReloadKey"
                 :nodes="fieldTreeNodes"
                 :selected-key="selectedFieldNodeKey"
+                :loading="referenceRootLoading"
+                :unavailable="referenceRootFailed"
+                unavailable-description="字段目录加载失败，请刷新重试"
+                :refresh-disabled="referenceRootLoading || applying"
                 :load-children="loadReferenceChildren"
-                :draggable="true"
+                :draggable="!applying"
                 drag-payload-type="formula-field"
                 :drag-payload-of="dragFormulaFieldPayload"
                 :can-drag="canDragFormulaField"
-                empty-description="暂无可展示字段"
+                @refresh="loadReferenceRoot(true)"
                 @select="selectFieldNode"
                 @double-click="insertFieldNode($event.node)"
               />
-              <section v-if="selectedCatalogField" class="business-rule-governance__field-inspector">
-                <strong>{{ selectedCatalogField.label || selectedCatalogField.name }}</strong>
-                <span>路径：{{ selectedCatalogField.name }}</span>
-                <span>类型：{{ fieldTypeLabel(selectedCatalogField) }}</span>
-                <span v-if="formulaFieldUnusableReason(selectedCatalogField)" role="status">
-                  {{ formulaFieldUnusableReason(selectedCatalogField) }}
-                </span>
-                <UiButton
-                  v-else
-                  size="small"
-                  :disabled="applying"
-                  @click="insertFieldNode({ key: selectedFieldNodeKey!, title: '' })"
-                  >插入字段</UiButton
-                >
-              </section>
             </aside>
             <div class="business-rule-governance__editor business-rule-governance__drawer-editor">
-              <section class="business-rule-governance__flow-section business-rule-governance__purpose">
-                <div>
-                  <h2>业务目的</h2>
-                  <p v-if="selectedRule.kind === 'CALCULATION'">先选择要由表达式计算并写入的目标字段。</p>
-                  <p v-else>满足以下条件才允许保存；不满足时显示失败提示，并可定位到字段。</p>
-                </div>
-                <div class="business-rule-governance__rule-basics">
-                  <label>
-                    启用
-                    <UiSwitch
-                      :checked="selectedRule.enabled"
-                      :disabled="applying"
-                      @update:checked="updateRule('enabled', $event)"
-                    />
-                  </label>
-                  <label v-if="selectedRule.kind === 'CALCULATION'">
-                    目标字段
-                    <UiSelect
-                      :value="selectedRule.targetField"
-                      :options="fieldOptions"
-                      placeholder="选择可写字段"
-                      :disabled="applying"
-                      @update:value="updateRule('targetField', $event)"
-                    />
-                  </label>
-                  <template v-else>
-                    <label>
-                      定位字段（可选）
-                      <UiSelect
-                        :value="selectedRule.targetField || '__none__'"
-                        :options="locatorFieldOptions"
-                        :disabled="applying"
-                        @update:value="updateRule('targetField', $event)"
-                      />
-                    </label>
-                    <label>
-                      失败提示
-                      <UiInput
-                        :value="selectedRule.messageTemplate"
-                        :disabled="applying"
-                        @update:value="updateRule('messageTemplate', $event)"
-                      />
-                    </label>
-                  </template>
-                </div>
-              </section>
-
               <section
-                v-if="selectedRule.kind !== 'CALCULATION' || selectedRule.targetField"
+                v-if="selectedRule.kind === 'UI_CONTROL'"
+                class="business-rule-governance__flow-section"
+              >
+                <label
+                  >表单
+                  <UiSelect
+                    aria-label="控制表单"
+                    :value="selectedRule.formKey"
+                    placeholder="选择表单"
+                    :options="
+                      (uiControlSnapshot?.forms ?? []).map((form) => ({ value: form.key, label: form.title }))
+                    "
+                    :disabled="applying"
+                    @update:value="setControlForm"
+                  />
+                </label>
+                <p v-if="!uiControlSnapshot?.forms?.length">当前模块还没有可用表单，请先配置并发布表单。</p>
+              </section>
+              <section
                 class="business-rule-governance__flow-section business-rule-governance__expression-step"
               >
-                <div>
-                  <h2>表达式</h2>
-                  <p>字段和函数会插入到此规则保留的光标位置。</p>
+                <div class="business-rule-governance__formula-heading">
+                  <h2>公式</h2>
                 </div>
-                <div
-                  :class="[
-                    'business-rule-governance__expression-layout',
-                    { 'business-rule-governance__expression-layout--functions-open': functionPanelOpen },
-                  ]"
-                >
+                <section ref="functionPalette" class="business-rule-governance__function-panel">
+                  <section v-for="group in functionCapabilityGroups" :key="group.category">
+                    <h3>{{ group.category }}</h3>
+                    <div class="business-rule-governance__function-list">
+                      <div
+                        v-for="capability in group.capabilities"
+                        :key="capability.id"
+                        class="business-rule-governance__function-option"
+                      >
+                        <div
+                          :class="[
+                            'business-rule-governance__function-chip',
+                            {
+                              'business-rule-governance__function-chip--dragging':
+                                draggingFunctionId === capability.id,
+                            },
+                          ]"
+                        >
+                          <div
+                            role="button"
+                            :tabindex="applying ? -1 : 0"
+                            :aria-disabled="applying"
+                            :data-formula-function="capability.id"
+                            :title="capability.signature"
+                            class="business-rule-governance__function-token"
+                            @mousedown="beginFunctionDrag(capability.id, $event)"
+                            @keydown.space="beginFunctionDrag(capability.id, $event)"
+                            @keydown.enter.prevent="insertFunction(capability)"
+                            @click="insertFunction(capability)"
+                          >
+                            {{ functionPurpose(capability) }}
+                          </div>
+                          <UiPopover placement="bottomLeft">
+                            <template #content>
+                              <div class="business-rule-governance__function-help-popover">
+                                <strong>{{ functionPurpose(capability) }}</strong>
+                                <span class="business-rule-governance__function-help-purpose">{{
+                                  capability.description
+                                }}</span>
+                                <span class="business-rule-governance__function-help-label">使用示例</span>
+                                <code>{{ capability.example }}</code>
+                                <span class="business-rule-governance__function-help-label">语法</span>
+                                <code>{{ capability.signature }}</code>
+                                <span v-for="parameter in capability.parameters" :key="parameter.name"
+                                  >{{ parameter.name }}：{{ parameter.description }}</span
+                                >
+                              </div>
+                            </template>
+                            <UiButton
+                              size="small"
+                              type="text"
+                              class="business-rule-governance__function-help-trigger"
+                              :aria-label="`${functionPurpose(capability)}的帮助`"
+                              :title="`${functionPurpose(capability)}的帮助`"
+                            >
+                              <UiIcon name="help" />
+                            </UiButton>
+                          </UiPopover>
+                        </div>
+                      </div>
+                    </div>
+                  </section>
+                  <p v-if="functionCapabilityGroups.length === 0" class="business-rule-governance__empty">
+                    未找到函数
+                  </p>
+                </section>
+
+                <div class="business-rule-governance__expression-layout">
                   <section class="business-rule-governance__expression">
-                    <label>
-                      {{ selectedRule.kind === 'CALCULATION' ? '取值表达式' : '校验条件' }}
-                      <UiTextArea
-                        ref="expressionEditor"
-                        :value="selectedRule.expression"
-                        :placeholder="
+                    <div class="business-rule-governance__expression-input-shell">
+                      <label class="business-rule-governance__formula-input-label">
+                        {{
                           selectedRule.kind === 'CALCULATION'
-                            ? '例如：{quantity} * {unitPrice}'
-                            : '例如：PRESENT({title})'
-                        "
-                        :disabled="applying"
-                        :accept-drop="acceptsFormulaField"
-                        @selection="rememberExpressionSelection"
-                        @drop="handleFormulaDrop"
-                        @update:value="updateRule('expression', $event)"
-                      />
-                    </label>
-                    <p class="business-rule-governance__cursor-help">
+                            ? '填写计算方式'
+                            : selectedRule.kind === 'UI_CONTROL'
+                              ? '填写触发界面控制的公式'
+                              : '填写允许保存的条件'
+                        }}
+                        <FormulaExpressionEditor
+                          v-show="formulaMode === 'visual'"
+                          class="business-rule-governance__formula-visual-input"
+                          :key="`${moduleAlias}:${selectedRule.code}:${selectedRule.kind}`"
+                          ref="visualExpressionEditor"
+                          :value="selectedFormula"
+                          :fields="
+                            [...catalogFields.values()].map((field) => ({
+                              name: field.name,
+                              label: field.label || field.name,
+                              valueType: field.valueType,
+                              available: !formulaFieldUnusableReason(field),
+                              unavailableReason: formulaFieldUnusableReason(field),
+                            }))
+                          "
+                          :functions="
+                            formulaCapabilities.map((item) => ({
+                              name: item.id,
+                              title: functionPurpose(item),
+                            }))
+                          "
+                          placeholder="拖入字段，或直接开始输入公式…"
+                          :disabled="applying"
+                          :accept-drop="acceptsFormulaItem"
+                          @selection="rememberExpressionSelection"
+                          @drop="handleFormulaDrop"
+                          @update:value="updateRule('expression', $event)"
+                        />
+                        <UiTextArea
+                          v-show="formulaMode === 'code'"
+                          class="business-rule-governance__formula-code-input"
+                          ref="expressionEditor"
+                          :value="selectedFormula"
+                          :placeholder="
+                            selectedRule.kind === 'CALCULATION'
+                              ? '例如：{amount} = {quantity} * {unitPrice}'
+                              : '从左侧插入字段，或点击上方常用函数'
+                          "
+                          :disabled="applying"
+                          :accept-drop="acceptsFormulaItem"
+                          @selection="rememberExpressionSelection"
+                          @drop="handleFormulaDrop"
+                          @update:value="updateRule('expression', $event)"
+                        />
+                      </label>
+                      <div class="business-rule-governance__code-mode-toggle">
+                        <span>代码模式</span>
+                        <UiSwitch
+                          aria-label="代码模式"
+                          size="small"
+                          :checked="formulaMode === 'code'"
+                          :disabled="applying"
+                          @update:checked="switchFormulaMode"
+                        />
+                      </div>
+                    </div>
+                    <p class="business-rule-governance__formula-hint">
+                      拖入字段或函数，直接输入 =、*、括号等符号。也可以双击左侧字段插入光标位置。
+                    </p>
+                    <p
+                      v-if="
+                        referencedFormulaFields(selectedRule.expression).some((field) => field.includes('.'))
+                      "
+                      class="business-rule-governance__cursor-help"
+                    >
                       引用字段由服务端读取，保存时计算；可先试算。
                     </p>
-                    <p class="business-rule-governance__summary">{{ ruleSummary(selectedRule) }}</p>
                   </section>
-
-                  <aside class="business-rule-governance__function-panel">
-                    <button
-                      type="button"
-                      class="business-rule-governance__function-toggle"
-                      :aria-expanded="functionPanelOpen"
-                      @click="functionPanelOpen = !functionPanelOpen"
-                    >
-                      函数与运算符
-                    </button>
-                    <template v-if="functionPanelOpen">
-                      <UiInput v-model:value="functionSearch" type="search" placeholder="搜索函数或用途" />
-                      <section v-for="group in functionCapabilityGroups" :key="group.category">
-                        <h3>{{ group.category }}</h3>
-                        <div class="business-rule-governance__function-list">
-                          <button
-                            v-for="capability in group.capabilities"
-                            :key="capability.id"
-                            type="button"
-                            :class="{
-                              'business-rule-governance__function--selected':
-                                inspectedFunction?.id === capability.id,
-                            }"
-                            @click="inspectedFunctionId = capability.id"
-                            @dblclick="insertFunction(capability)"
-                          >
-                            {{ capability.label }}（{{ capability.purpose }}）
-                          </button>
-                        </div>
-                      </section>
-                      <p v-if="functionCapabilityGroups.length === 0" class="business-rule-governance__empty">
-                        未找到函数
-                      </p>
-                      <section v-if="inspectedFunction" class="business-rule-governance__function-detail">
-                        <strong>{{ inspectedFunction.signature }}</strong>
-                        <span>{{ inspectedFunction.purpose }}，返回{{ inspectedFunction.returnType }}</span>
-                        <span v-for="parameter in inspectedFunction.parameters" :key="parameter.name"
-                          >{{ parameter.name }}：{{ parameter.description }}</span
-                        >
-                        <code>{{ inspectedFunction.example }}</code>
-                        <UiButton size="small" :disabled="applying" @click="insertFunction(inspectedFunction)"
-                          >插入函数</UiButton
-                        >
-                      </section>
-                    </template>
-                  </aside>
                 </div>
 
-                <section class="business-rule-governance__templates">
-                  <h3>模板起步</h3>
+                <section v-if="selectedRuleTemplates.length" class="business-rule-governance__templates">
+                  <h3>从示例开始</h3>
                   <p v-if="selectedRule.expression.trim()" class="business-rule-governance__empty">
                     已有表达式不会被模板覆盖；清空后可使用模板。
                   </p>
@@ -1296,18 +1633,82 @@ async function runTrial() {
                     :disabled="applying || Boolean(selectedRule.expression.trim())"
                     @click="applyTemplate(template.expression)"
                   >
-                    {{ template.label }}：{{ template.expression }}
+                    {{ template.label }}
                   </UiButton>
                 </section>
               </section>
               <section
-                v-else
-                class="business-rule-governance__flow-section business-rule-governance__expression-guidance"
+                v-if="selectedRule.kind === 'UI_CONTROL'"
+                class="business-rule-governance__flow-section"
               >
-                <h2>表达式</h2>
-                <p>请先在“业务目的”中选择计算目标字段，再编辑表达式和函数。</p>
+                <h2>控制界面</h2>
+                <template v-if="selectedControlForm">
+                  <p>公式为真时，对勾选的元素执行以下控制。</p>
+                  <div
+                    v-for="element in selectedControlForm.elements"
+                    :key="element.key"
+                    class="business-rule-governance__control-target"
+                  >
+                    <span>{{ element.label }}</span>
+                    <UiCheckbox
+                      :aria-label="element.label + '隐藏'"
+                      :checked="controlEffect(element.key, 'hide')"
+                      :disabled="applying"
+                      @update:checked="setControlEffect(element.key, 'hide', $event)"
+                      >隐藏</UiCheckbox
+                    >
+                    <UiCheckbox
+                      :aria-label="element.label + '只读'"
+                      :checked="controlEffect(element.key, 'readOnly')"
+                      :disabled="applying"
+                      @update:checked="setControlEffect(element.key, 'readOnly', $event)"
+                      >只读</UiCheckbox
+                    >
+                  </div>
+                </template>
               </section>
+              <section
+                v-if="selectedRule.kind === 'VALIDATION'"
+                class="business-rule-governance__flow-section business-rule-governance__purpose"
+              >
+                <div>
+                  <h2>未通过时的提示</h2>
+                  <p v-if="selectedRule.kind === 'VALIDATION'">公式为真时允许保存，为假时显示失败提示。</p>
+                </div>
+                <div class="business-rule-governance__rule-basics">
+                  <details class="business-rule-governance__validation-location">
+                    <summary>提示位置（可选）</summary>
+                    <label>
+                      定位字段（可选）
+                      <UiSelect
+                        :value="selectedRule.targetField || '__none__'"
+                        :options="locatorFieldOptions"
+                        :disabled="applying"
+                        @update:value="updateRule('targetField', $event)"
+                      />
+                    </label>
+                  </details>
+                  <label>
+                    失败提示
+                    <UiInput
+                      :value="selectedRule.messageTemplate"
+                      :disabled="applying"
+                      @update:value="updateRule('messageTemplate', $event)"
+                    />
+                  </label>
+                </div>
+              </section>
+
+              <p
+                v-for="issue in draftIssues"
+                :key="issue.code + ':' + issue.field"
+                role="alert"
+                class="business-rule-governance__error"
+              >
+                {{ issueText(issue) }}
+              </p>
               <UiButton
+                v-if="!newRuleDraft"
                 class="business-rule-governance__delete-rule"
                 size="small"
                 danger
@@ -1347,7 +1748,7 @@ async function runTrial() {
           </ul>
         </section>
         <p v-if="applicationError" class="business-rule-governance__error">{{ applicationError }}</p>
-      </RecordDetailLayout>
+      </div>
     </div>
 
     <UiModal
@@ -1487,6 +1888,16 @@ async function runTrial() {
 </template>
 
 <style scoped>
+.business-rule-governance__control-target {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 8px 0;
+}
+.business-rule-governance__control-target > span {
+  flex: 1;
+}
+
 .business-rule-governance,
 .business-rule-governance > :not(.business-rule-governance__state) {
   min-height: 0;
@@ -1525,7 +1936,6 @@ async function runTrial() {
 }
 
 .business-rule-governance__empty,
-.business-rule-governance__summary,
 .business-rule-governance__other-inputs {
   color: var(--muyun-text-muted);
   font-size: 12px;
@@ -1539,7 +1949,6 @@ async function runTrial() {
   font-size: 13px;
 }
 
-.business-rule-governance__summary,
 .business-rule-governance__error,
 .business-rule-governance__result p {
   margin: 0;
@@ -1574,25 +1983,33 @@ async function runTrial() {
   min-width: 0;
 }
 
+.business-rule-governance__content {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  height: 100%;
+  min-height: 0;
+}
+
 .business-rule-governance__rule-list-surface {
-  height: auto;
+  flex: 1;
   min-height: 0;
 }
 
 .business-rule-governance__drawer-body {
   display: grid;
-  grid-template-columns: minmax(220px, 0.32fr) minmax(0, 1fr);
+  grid-template-columns: minmax(280px, 0.4fr) minmax(0, 1fr);
   height: 100%;
   min-height: 0;
 }
 
 .business-rule-governance__field-directory {
   display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  grid-template-rows: minmax(0, 1fr);
   align-content: start;
   gap: 8px;
   min-height: 0;
-  padding: 14px;
+  padding: 14px 14px 14px 0;
   border-right: 1px solid var(--muyun-border-subtle);
   overflow: hidden;
 }
@@ -1608,6 +2025,80 @@ async function runTrial() {
   overflow: auto;
 }
 
+.business-rule-governance__formula-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+.business-rule-governance__function-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  gap: 6px;
+  padding: 1px 5px 1px 10px;
+  border: 1px solid color-mix(in srgb, var(--muyun-primary) 24%, transparent);
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--muyun-primary) 7%, var(--muyun-surface));
+  color: var(--muyun-primary);
+  transition:
+    border-color 120ms ease,
+    background 120ms ease,
+    box-shadow 120ms ease;
+}
+.business-rule-governance__function-chip:hover:not(
+    :has(.business-rule-governance__function-token[aria-disabled='true'])
+  ) {
+  border-color: color-mix(in srgb, var(--muyun-primary) 44%, transparent);
+  background: color-mix(in srgb, var(--muyun-primary) 12%, var(--muyun-surface));
+  box-shadow: 0 1px 2px rgb(15 23 42 / 8%);
+}
+.business-rule-governance__function-token {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 0 1px;
+  cursor: grab;
+  user-select: none;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 20px;
+}
+.business-rule-governance__function-token:focus-visible {
+  outline: 2px solid var(--muyun-primary);
+}
+.business-rule-governance__function-chip:has(
+  .business-rule-governance__function-token[aria-disabled='true']
+) {
+  opacity: 0.5;
+  cursor: default;
+}
+.business-rule-governance__function-chip--dragging {
+  opacity: 0.55;
+  cursor: grabbing;
+}
+.business-rule-governance__function-help-trigger {
+  width: 22px;
+  min-width: 22px;
+  height: 22px;
+  padding: 0;
+  border-radius: 50%;
+  color: var(--muyun-primary);
+  font-size: 13px;
+  line-height: 20px;
+}
+.business-rule-governance__function-help-trigger:hover {
+  color: color-mix(in srgb, var(--muyun-primary) 88%, var(--muyun-text-primary));
+}
+.business-rule-governance__function-help-trigger :deep(svg) {
+  width: 13px;
+  height: 13px;
+}
+.business-rule-governance__formula-hint {
+  color: var(--muyun-text-secondary);
+  font-size: 12px;
+}
+
 .business-rule-governance__delete-rule {
   justify-self: start;
 }
@@ -1621,10 +2112,17 @@ async function runTrial() {
   display: grid;
   gap: 10px;
   min-width: 0;
-  margin: 0 0 14px;
-  padding: 12px;
-  border: 1px solid var(--muyun-border-subtle);
-  border-radius: 8px;
+  margin: 0;
+  padding: 16px 0;
+  border-top: 1px solid var(--muyun-border-subtle);
+}
+
+/* The formula starts beside the field directory for calculation and validation
+ * rules. It is the first editor section in those cases, so it shares the
+ * directory's top baseline instead of looking like a following section. */
+.business-rule-governance__drawer-editor > .business-rule-governance__expression-step:first-child {
+  padding-top: 0;
+  border-top: 0;
 }
 
 .business-rule-governance__flow-section h2,
@@ -1666,10 +2164,8 @@ async function runTrial() {
 }
 
 .business-rule-governance__tree-help,
-.business-rule-governance__field-inspector,
 .business-rule-governance__cursor-help,
-.business-rule-governance__readonly-summary,
-.business-rule-governance__function-detail {
+.business-rule-governance__readonly-summary {
   color: var(--muyun-text-muted);
   font-size: 12px;
 }
@@ -1685,9 +2181,8 @@ async function runTrial() {
   height: 100%;
 }
 
-.business-rule-governance__field-inspector,
 .business-rule-governance__readonly-summary,
-.business-rule-governance__function-detail {
+.business-rule-governance__function-help-popover {
   display: grid;
   gap: 5px;
   min-width: 0;
@@ -1696,50 +2191,30 @@ async function runTrial() {
   border-radius: 6px;
 }
 
-.business-rule-governance__mode-tabs {
+.business-rule-governance__enabled-setting {
   display: flex;
-  gap: 4px;
-  margin-bottom: 10px;
-  border-bottom: 1px solid var(--muyun-border-subtle);
-}
-
-.business-rule-governance__mode-tabs button,
-.business-rule-governance__function-toggle,
-.business-rule-governance__function-list button {
-  border: 0;
-  background: transparent;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
   color: var(--muyun-text-secondary);
-  cursor: pointer;
-  font: inherit;
 }
 
-.business-rule-governance__mode-tabs button {
-  padding: 7px 10px;
-  border-bottom: 2px solid transparent;
-}
-
-.business-rule-governance__mode-tab--active {
-  border-bottom-color: var(--muyun-primary) !important;
-  color: var(--muyun-primary) !important;
-  font-weight: 600;
+.business-rule-governance__type-select {
+  min-width: 140px;
 }
 
 .business-rule-governance__rule-basics {
   display: grid;
-  grid-template-columns: minmax(140px, 0.75fr) minmax(0, 1.25fr) minmax(0, 1.25fr);
+  grid-template-columns: minmax(0, 1fr);
   gap: 10px;
 }
 
 .business-rule-governance__expression-layout {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr);
   gap: 12px;
   align-items: start;
   min-width: 0;
-}
-
-.business-rule-governance__expression-layout--functions-open {
-  grid-template-columns: minmax(0, 1fr) minmax(220px, 0.44fr);
 }
 
 .business-rule-governance__expression,
@@ -1749,25 +2224,48 @@ async function runTrial() {
   min-width: 0;
 }
 
+.business-rule-governance__expression-input-shell {
+  position: relative;
+  min-width: 0;
+  --formula-editor-height: 120px;
+}
+
+.business-rule-governance__formula-input-label {
+  display: grid;
+  gap: 4px;
+}
+
+.business-rule-governance__code-mode-toggle {
+  position: absolute;
+  z-index: 1;
+  top: 34px;
+  right: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 28px;
+  padding: 2px 5px 2px 9px;
+  border: 1px solid color-mix(in srgb, var(--muyun-primary) 12%, var(--muyun-border-subtle));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--muyun-primary) 4%, var(--muyun-surface));
+  color: var(--muyun-text-secondary);
+  font-size: 12px;
+  line-height: 20px;
+}
+
+.business-rule-governance__formula-visual-input :deep(.ui-token-input__editor),
+.business-rule-governance__formula-code-input :deep(textarea) {
+  box-sizing: border-box;
+  height: var(--formula-editor-height);
+  min-height: var(--formula-editor-height);
+  max-height: var(--formula-editor-height);
+  overflow-y: auto;
+  resize: none;
+}
+
 .business-rule-governance__function-panel {
   align-content: start;
-  padding: 9px;
-  border: 1px solid var(--muyun-border-subtle);
-  border-radius: 7px;
-}
-
-.business-rule-governance__expression-layout:not(.business-rule-governance__expression-layout--functions-open)
-  .business-rule-governance__function-panel {
-  align-self: start;
-  padding: 6px 8px;
-}
-
-.business-rule-governance__function-toggle {
-  padding: 0;
-  color: var(--muyun-text-primary);
-  font-size: 13px;
-  font-weight: 600;
-  text-align: left;
+  padding: 8px 0;
 }
 
 .business-rule-governance__function-panel h3 {
@@ -1783,22 +2281,36 @@ async function runTrial() {
   gap: 4px;
 }
 
-.business-rule-governance__function-list button {
-  padding: 4px 6px;
-  border: 1px solid var(--muyun-border-subtle);
-  border-radius: 5px;
+.business-rule-governance__function-option {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.business-rule-governance__validation-location {
+  order: 1;
+}
+
+.business-rule-governance__drawer-editor details {
+  color: var(--muyun-text-secondary);
   font-size: 12px;
 }
 
-.business-rule-governance__function-list button:hover,
-.business-rule-governance__function--selected {
-  border-color: var(--muyun-primary) !important;
-  background: var(--muyun-primary-soft) !important;
-  color: var(--muyun-primary) !important;
+.business-rule-governance__drawer-body summary {
+  cursor: pointer;
 }
 
-.business-rule-governance__function-detail code {
+.business-rule-governance__function-help-popover code {
   overflow-wrap: anywhere;
+}
+.business-rule-governance__function-help-purpose {
+  color: var(--muyun-text-secondary);
+  line-height: 1.55;
+}
+.business-rule-governance__function-help-label {
+  margin-top: 3px;
+  color: var(--muyun-text-secondary);
+  font-size: 12px;
 }
 
 .business-rule-governance__readonly-summary {
@@ -1826,7 +2338,7 @@ async function runTrial() {
   }
 
   .business-rule-governance__field-directory {
-    grid-template-rows: auto auto minmax(120px, 1fr) auto;
+    grid-template-rows: minmax(120px, 1fr);
     max-height: 300px;
     border-right: 0;
     border-bottom: 1px solid var(--muyun-border-subtle);

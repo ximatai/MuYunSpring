@@ -324,6 +324,43 @@ class BusinessRuleGovernanceRepositoryIT extends PlatformPostgresIntegrationTest
     }
 
     @Test
+    void shouldRestrictChildAggregationsToFieldTypeAndHideRelationKey() {
+        configureLineItems();
+        BusinessRuleGovernanceSnapshot baseline = governance.snapshot(moduleAlias);
+
+        assertThat(baseline.aggregateFields()).extracting(BusinessRuleField::fieldName)
+                .containsExactlyInAnyOrder("lines.productName", "lines.lineAmount")
+                .doesNotContain("lines.contractId");
+        assertThat(baseline.aggregateFields()).filteredOn(field -> field.fieldName().equals("lines.productName"))
+                .extracting(BusinessRuleField::aggregateFunctions).containsExactly(List.of("COUNT"));
+        assertThat(baseline.aggregateFields()).filteredOn(field -> field.fieldName().equals("lines.lineAmount"))
+                .extracting(BusinessRuleField::aggregateFunctions)
+                .containsExactly(List.of("COUNT", "SUM", "AVG", "MAX", "MIN"));
+
+        BusinessRuleProposal countNames = new BusinessRuleProposal("countNames", FormulaRuleKind.CALCULATION,
+                "total", "COUNT({lines.productName})", true, null);
+        BusinessRuleProposal sumAmount = new BusinessRuleProposal("sumAmount", FormulaRuleKind.CALCULATION,
+                "total", "SUM({lines.lineAmount})", true, null);
+        assertThat(governance.preview(moduleAlias, new BusinessRulePreviewCommand(List.of(countNames))).valid()).isTrue();
+        assertThat(governance.preview(moduleAlias, new BusinessRulePreviewCommand(List.of(sumAmount))).valid()).isTrue();
+
+        List<BusinessRuleProposal> invalid = List.of("SUM", "AVG", "MAX", "MIN").stream()
+                .map(function -> new BusinessRuleProposal("invalid" + function, FormulaRuleKind.CALCULATION,
+                        "total", function + "({lines.productName})", true, null))
+                .toList();
+        BusinessRulePreview preview = governance.preview(moduleAlias, new BusinessRulePreviewCommand(invalid));
+        assertThat(preview.valid()).isFalse();
+        assertThat(preview.errors()).extracting(BusinessRuleIssue::code)
+                .containsOnly("AGGREGATE_FIELD_TYPE_UNSUPPORTED");
+        assertThat(preview.errors()).extracting(BusinessRuleIssue::field).containsOnly("lines.productName");
+        assertThatThrownBy(() -> governance.apply(moduleAlias, new BusinessRuleApplyCommand(invalid,
+                baseline.baselineFingerprint(), preview.proposalFingerprint())))
+                .isInstanceOf(PlatformException.class)
+                .hasMessageContaining("business-rule proposal is invalid");
+        assertThat(formulas.listByRelationIds(List.of(mainRelationId()))).isEmpty();
+    }
+
+    @Test
     void shouldRollbackFailedApplyAndAcceptOnlyOneSameBaseline() throws Exception {
         BusinessRuleProposal valid = new BusinessRuleProposal("deriveTotal", FormulaRuleKind.CALCULATION,
                 "total", "{quantity} * 3", true, null);
@@ -387,6 +424,22 @@ class BusinessRuleGovernanceRepositoryIT extends PlatformPostgresIntegrationTest
         MetadataField field = new MetadataField(); field.setMetadataId(metadataId); field.setFieldName(name); field.setColumnName(column);
         field.setFieldSpecAlias(spec); field.setTitle(name); return field;
     }
+    private void configureLineItems() {
+        String suffix = UUID.randomUUID().toString().replace("-", "").substring(0, 8);
+        Metadata lines = new Metadata();
+        lines.setApplicationAlias("crm"); lines.setAlias("rule_line_" + suffix); lines.setTitle("lines");
+        lines.setSchemaName("public"); lines.setTableName("rule_line_" + suffix);
+        metadata.insert(lines);
+        fields.insert(field(lines.getId(), "contractId", "contract_id", "string"));
+        fields.insert(field(lines.getId(), "productName", "product_name", "string"));
+        fields.insert(field(lines.getId(), "lineAmount", "line_amount", "decimal"));
+        ModuleMetadataRelation child = new ModuleMetadataRelation();
+        child.setModuleAlias(moduleAlias); child.setMetadataId(lines.getId()); child.setParentMetadataId(mainMetadataId());
+        child.setRelationRole(RelationRole.CHILD); child.setForeignKey("contractId"); child.setRelationAlias("lines");
+        child.setTitle("lines");
+        relations.insert(child);
+    }
+
     private void configureSelfReference() {
         Metadata item = metadata.select(mainMetadataId());
         MetadataField title = field(item.getId(), "title", "title", "string");

@@ -71,6 +71,61 @@ describe('FormulaRuntime FORM_COMPUTE', () => {
     ).toEqual({ patch: { amount: true }, changedFields: ['amount'] });
   });
 
+  it('evaluates dates, fixed decimal text and child aggregates from a server-issued program', () => {
+    expect(
+      runtime.evaluateFormCompute(
+        program(assign(field('dueDate'), functionNode('DATE_ADD', value('2026-06-01'), value(3)))),
+        {},
+        'DATE',
+      ),
+    ).toEqual({ patch: { dueDate: '2026-06-04' }, changedFields: ['dueDate'] });
+    expect(
+      runtime.evaluateFormCompute(
+        program(assign(field('displayAmount'), functionNode('FORMAT_DECIMAL', value(12.3), value(2)))),
+        {},
+        'STRING',
+      ),
+    ).toEqual({ patch: { displayAmount: '12.30' }, changedFields: ['displayAmount'] });
+    expect(
+      runtime.evaluateFormCompute(
+        program(assign(field('total'), functionNode('SUM', field('lines.amount')))),
+        { lines: [{ amount: 2.5 }, { amount: '3.5' }, { amount: null }] },
+        'DECIMAL',
+      ),
+    ).toEqual({ patch: { total: 6 }, changedFields: ['total'] });
+    expect(
+      runtime.evaluateFormCompute(
+        program(assign(field('lineCount'), functionNode('COUNT', field('lines.amount')))),
+        { lines: [{ amount: 2.5 }, { amount: '' }, { amount: null }] },
+        'INTEGER',
+      ),
+    ).toEqual({ patch: { lineCount: 1 }, changedFields: ['lineCount'] });
+  });
+
+  it('mirrors server half-up rounding for decimal boundaries', () => {
+    for (const [input, expected] of [
+      [1.005, '1.01'],
+      [2.675, '2.68'],
+      [-1.005, '-1.01'],
+      [0.0005, '0.00'],
+    ] as const) {
+      expect(
+        runtime.evaluateFormCompute(
+          program(assign(field('formatted'), functionNode('FORMAT_DECIMAL', value(input), value(2)))),
+          {},
+          'STRING',
+        ),
+      ).toEqual({ patch: { formatted: expected }, changedFields: ['formatted'] });
+      expect(
+        runtime.evaluateFormCompute(
+          program(assign(field('rounded'), functionNode('ROUND', value(input), value(2)))),
+          {},
+          'DECIMAL',
+        ),
+      ).toEqual({ patch: { rounded: Number(expected) }, changedFields: ['rounded'] });
+    }
+  });
+
   it('fails closed for malformed, unsupported and unchanged programs', () => {
     expect(evaluateCompute(program(assign(field('amount'), value(1))), { amount: 1 })).toEqual({
       patch: {},
@@ -113,6 +168,29 @@ describe('FormulaRuntime FORM_COMPUTE', () => {
     expect(
       runtime.evaluateFormCompute(program(assign(field('payload'), value('value'))), {}, 'JSON'),
     ).toEqual({ patch: {}, changedFields: [] });
+  });
+});
+
+describe('FormulaRuntime FORM_VALIDATION', () => {
+  it('evaluates only a server-issued main-record predicate', () => {
+    const validation: FormulaProgram = {
+      schemaVersion: 1,
+      profile: 'FORM_VALIDATION',
+      referencedFields: ['contractAmount'],
+      root: binary('>', field('contractAmount'), value(0)),
+    };
+
+    expect(runtime.evaluateFormValidation(validation, { contractAmount: 1 })).toBe(true);
+    expect(runtime.evaluateFormValidation(validation, { contractAmount: 0 })).toBe(false);
+    expect(
+      runtime.evaluateFormValidation({ ...validation, profile: 'FORM_COMPUTE' }, { contractAmount: 0 }),
+    ).toBeUndefined();
+    expect(
+      runtime.evaluateFormValidation({ ...validation, root: field('contractAmount') }, { contractAmount: 0 }),
+    ).toBe(false);
+    expect(
+      runtime.evaluateFormValidation({ ...validation, root: field('lines.amount') }, { 'lines.amount': 1 }),
+    ).toBeUndefined();
   });
 });
 

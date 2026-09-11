@@ -47,6 +47,32 @@ final class FormulaFormComputeProfile {
                 assign(target, value, condition), fields);
     }
 
+    /**
+     * Reuses the same scalar expression contract as FORM_COMPUTE, but issues a root predicate
+     * with no assignment target. Validation descriptors are deliberately limited to direct
+     * main-record fields so they cannot promise browser support for child aggregates.
+     */
+    static FormulaProgram compileValidation(FormulaExpressionSupport.ParsedExpression parsed) {
+        if (parsed == null || parsed.expression() == null || parsed.expression().isBlank()
+                || parsed.expression().length() > MAX_EXPRESSION_LENGTH
+                || parsed.ast() instanceof AssignNode) {
+            throw validationUnsupported(parsed == null ? null : parsed.expression());
+        }
+        try {
+            LinkedHashSet<String> fields = new LinkedHashSet<>();
+            CompileBudget budget = new CompileBudget();
+            FormulaNode root = compileScalar(parsed.ast(), fields, budget, 1);
+            if (fields.stream().anyMatch(field -> field.contains("."))) {
+                throw validationUnsupported(parsed.expression());
+            }
+            return new FormulaProgram(FormulaProgram.CURRENT_SCHEMA_VERSION, FormulaExecutionProfile.FORM_VALIDATION,
+                    root, fields);
+        } catch (FormulaEvaluationException exception) {
+            if ("FORMULA_FORM_VALIDATION_UNSUPPORTED".equals(exception.code())) throw exception;
+            throw validationUnsupported(parsed.expression());
+        }
+    }
+
     private static FormulaNode compileScalar(AstNode node, Set<String> fields, CompileBudget budget, int depth) {
         budget.visit(depth);
         if (node instanceof ValueNode) {
@@ -66,8 +92,25 @@ final class FormulaFormComputeProfile {
         }
         if (node instanceof FuncNode function) {
             String name = FormulaFunctions.normalize(function.name);
-            if (("PRESENT".equals(name) || "ISNULL".equals(name)) && function.args.size() == 1) {
+            if (("PRESENT".equals(name) || "ISNULL".equals(name)
+                    || "YEAR".equals(name) || "MONTH".equals(name) || "DAY".equals(name))
+                    && function.args.size() == 1) {
                 return function(name, List.of(compileScalar(function.args.getFirst(), fields, budget, depth + 1)));
+            }
+            if (("ROUND".equals(name) || "FORMAT_DECIMAL".equals(name)
+                    || "DATE_ADD".equals(name) || "DATE_SUB".equals(name)
+                    || "DATE_DIFF_DAYS".equals(name) || "DATE_DIFF_HOURS".equals(name))
+                    && function.args.size() == 2) {
+                if ("ROUND".equals(name) || "FORMAT_DECIMAL".equals(name)) {
+                    requireLiteralDecimalScale(function.args.get(1));
+                }
+                return function(name, compileScalarArguments(function.args, fields, budget, depth + 1));
+            }
+            if (("DATETIME_ADD".equals(name) || "DATETIME_SUB".equals(name)) && function.args.size() == 3) {
+                return function(name, compileScalarArguments(function.args, fields, budget, depth + 1));
+            }
+            if (("NOW".equals(name) || "TODAY".equals(name)) && function.args.isEmpty()) {
+                return function(name, List.of());
             }
             if ("IN".equals(name) && function.args.size() >= 2 && function.args.size() <= MAX_IN_LITERALS + 1) {
                 List<FormulaNode> args = new ArrayList<>();
@@ -77,8 +120,31 @@ final class FormulaFormComputeProfile {
                 }
                 return function("IN", args);
             }
+            if (FormulaFunctions.isAggregate(name) && function.args.size() == 1) {
+                FormulaNode field = compileField(function.args.getFirst(), fields, budget, depth + 1);
+                if (field.field() == null || !field.field().contains(".")) {
+                    throw unsupportedNode(function.args.getFirst());
+                }
+                return function(name, List.of(field));
+            }
         }
         throw unsupportedNode(node);
+    }
+
+    private static void requireLiteralDecimalScale(AstNode node) {
+        if (!(node instanceof ValueNode value) || !(value.value instanceof Double number)
+                || number < 0 || number > 12 || number != Math.rint(number)) {
+            throw unsupportedNode(node);
+        }
+    }
+
+    private static List<FormulaNode> compileScalarArguments(List<AstNode> nodes, Set<String> fields,
+                                                            CompileBudget budget, int depth) {
+        List<FormulaNode> arguments = new ArrayList<>();
+        for (AstNode node : nodes) {
+            arguments.add(compileScalar(node, fields, budget, depth + 1));
+        }
+        return List.copyOf(arguments);
     }
 
     private static FormulaNode compileField(AstNode node, Set<String> fields, CompileBudget budget, int depth) {
@@ -138,6 +204,11 @@ final class FormulaFormComputeProfile {
     private static FormulaEvaluationException unsupported(String expression) {
         return new FormulaEvaluationException("FORMULA_FORM_COMPUTE_UNSUPPORTED",
                 "formula is not supported by FORM_COMPUTE profile: " + expression);
+    }
+
+    private static FormulaEvaluationException validationUnsupported(String expression) {
+        return new FormulaEvaluationException("FORMULA_FORM_VALIDATION_UNSUPPORTED",
+                "formula is not supported by FORM_VALIDATION profile: " + expression);
     }
 
     private static FormulaEvaluationException unsupportedNode(AstNode node) {

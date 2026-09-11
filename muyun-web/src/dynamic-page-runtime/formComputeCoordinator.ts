@@ -22,24 +22,29 @@ export class FormComputeCoordinator {
     this.propagationOrder = resolvePropagationOrder(this.rules);
   }
 
-  applyAfterChange<TDraft extends FormulaRecord>(draft: TDraft, changedFields: readonly string[]): TDraft {
+  applyAfterChange<TDraft extends FormulaRecord>(
+    draft: TDraft,
+    changedFields: readonly string[],
+    childAggregateRows?: FormulaRecord,
+  ): TDraft {
     if (this.rules.length === 0 || changedFields.length === 0 || !this.propagationOrder) return draft;
     if (!this.rules.some((rule) => changedFields.some((field) => rule.triggerFields.includes(field)))) {
       return draft;
     }
 
-    return this.evaluate(draft, changedFields, false);
+    return this.evaluate(draft, changedFields, false, childAggregateRows);
   }
 
   /** Evaluate computed fields once when a new form opens, including constant expressions. */
-  applyOnCreate<TDraft extends FormulaRecord>(draft: TDraft): TDraft {
-    return this.evaluate(draft, [], true);
+  applyOnCreate<TDraft extends FormulaRecord>(draft: TDraft, childAggregateRows?: FormulaRecord): TDraft {
+    return this.evaluate(draft, [], true, childAggregateRows);
   }
 
   private evaluate<TDraft extends FormulaRecord>(
     draft: TDraft,
     changedFields: readonly string[],
     allRules: boolean,
+    childAggregateRows?: FormulaRecord,
   ): TDraft {
     if (!this.propagationOrder || this.propagationOrder.length === 0) return draft;
     let next: FormulaRecord = { ...draft };
@@ -48,7 +53,14 @@ export class FormComputeCoordinator {
     for (const rule of this.propagationOrder) {
       if (!allRules && !rule.triggerFields.some((field) => propagatedFields.has(field))) continue;
       try {
-        const result = this.runtime.evaluateFormCompute(rule.program, next, rule.targetValueType);
+        // Child rows are stored under page relation field names in the save draft. Formula programs
+        // retain metadata relation codes, so use a transient overlay solely for evaluation.
+        const evaluationContext = childAggregateRows ? { ...next, ...childAggregateRows } : next;
+        const result = this.runtime.evaluateFormCompute(
+          rule.program,
+          evaluationContext,
+          rule.targetValueType,
+        );
         if (result.changedFields.length === 0) continue;
         if (!isExpectedWrite(result, rule.targetField)) return draft;
         next = { ...next, ...result.patch };

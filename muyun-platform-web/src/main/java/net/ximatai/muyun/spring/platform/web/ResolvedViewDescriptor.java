@@ -9,7 +9,8 @@ public record ResolvedViewDescriptor(String viewCode,
                                      List<ResolvedViewFieldDescriptor> fields,
                                      String sourceUiConfigId,
                                      List<ResolvedFormGroupDescriptor> formGroups,
-                                     List<ResolvedFormComputeRuleDescriptor> formComputeRules) {
+                                     List<ResolvedFormComputeRuleDescriptor> formComputeRules,
+                                     List<ResolvedFormValidationRuleDescriptor> formValidationRules) {
     public ResolvedViewDescriptor {
         if (viewCode == null || viewCode.isBlank()) {
             throw new IllegalArgumentException("view code must not be blank");
@@ -30,24 +31,34 @@ public record ResolvedViewDescriptor(String viewCode,
         if (!formComputeRules.isEmpty() && viewKind != ModuleViewKind.FORM) {
             throw new IllegalArgumentException("form compute rules are only supported by form views: " + viewCode);
         }
+        formValidationRules = formValidationRules == null ? List.of() : List.copyOf(formValidationRules);
+        if (!formValidationRules.isEmpty() && viewKind != ModuleViewKind.FORM) {
+            throw new IllegalArgumentException("form validation rules are only supported by form views: " + viewCode);
+        }
     }
 
     /** Source-compatible constructor for descriptors issued before form computations were introduced. */
     public ResolvedViewDescriptor(String viewCode, ModuleViewKind viewKind, ModuleUiClientType clientType, String title,
                                   List<ResolvedViewFieldDescriptor> fields, String sourceUiConfigId,
                                   List<ResolvedFormGroupDescriptor> formGroups) {
-        this(viewCode, viewKind, clientType, title, fields, sourceUiConfigId, formGroups, List.of());
+        this(viewCode, viewKind, clientType, title, fields, sourceUiConfigId, formGroups, List.of(), List.of());
     }
 
     public ResolvedViewDescriptor(String viewCode, ModuleViewKind viewKind, ModuleUiClientType clientType, String title,
                                   List<ResolvedViewFieldDescriptor> fields) {
-        this(viewCode, viewKind, clientType, title, fields, null, null, List.of());
+        this(viewCode, viewKind, clientType, title, fields, null, null, List.of(), List.of());
     }
 
     public ResolvedViewDescriptor withFormulaProjection(List<ResolvedViewFieldDescriptor> projectedFields,
                                                         List<ResolvedFormComputeRuleDescriptor> projectedRules) {
+        return withFormulaProjection(projectedFields, projectedRules, formValidationRules);
+    }
+
+    public ResolvedViewDescriptor withFormulaProjection(List<ResolvedViewFieldDescriptor> projectedFields,
+                                                        List<ResolvedFormComputeRuleDescriptor> projectedComputeRules,
+                                                        List<ResolvedFormValidationRuleDescriptor> projectedValidationRules) {
         return new ResolvedViewDescriptor(viewCode, viewKind, clientType, title, projectedFields, sourceUiConfigId,
-                formGroups, projectedRules);
+                formGroups, projectedComputeRules, projectedValidationRules);
     }
 
 }

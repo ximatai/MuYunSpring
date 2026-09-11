@@ -60,6 +60,27 @@ describe('FormComputeCoordinator', () => {
     });
   });
 
+  it('refreshes a parent aggregate from complete child draft rows and leaves partial child data authoritative', () => {
+    const coordinator = new FormComputeCoordinator([
+      rule('contractAmount', ['lines.lineAmount'], functionNode('SUM', field('lines.lineAmount'))),
+    ]);
+    const draft = { contractAmount: 0, lineRows: [{ lineAmount: 399 }, { lineAmount: 3897 }] };
+
+    expect(coordinator.applyAfterChange(draft, ['lines.lineAmount'])).toEqual(draft);
+    expect(
+      coordinator.applyAfterChange(draft, ['lines.lineAmount'], {
+        lines: draft.lineRows,
+      }),
+    ).toEqual({ ...draft, contractAmount: 4296 });
+    expect(
+      coordinator.applyAfterChange(
+        { contractAmount: 0, lineRows: [{ id: 'line-1' }] },
+        ['lines.lineAmount'],
+        { lines: [{ id: 'line-1' }] },
+      ),
+    ).toEqual({ contractAmount: 0, lineRows: [{ id: 'line-1' }] });
+  });
+
   it('does nothing for a form without rules or a change outside every trigger', () => {
     const draft = { source: 2, target: 0 };
     expect(new FormComputeCoordinator(undefined).applyAfterChange(draft, ['source'])).toBe(draft);
@@ -149,6 +170,10 @@ function assign(fieldName: string, expression: FormulaNode): FormulaNode {
 
 function binary(operator: string, left: FormulaNode, right: FormulaNode): FormulaNode {
   return { kind: 'BINARY', operator, arguments: [left, right] };
+}
+
+function functionNode(operator: string, ...arguments_: FormulaNode[]): FormulaNode {
+  return { kind: 'FUNCTION', operator, arguments: arguments_ };
 }
 
 function field(fieldName: string): FormulaNode {

@@ -36,6 +36,16 @@ public class PlatformBusinessRuleGovernanceWebController extends WebSupport<Busi
         this.service = service;
     }
 
+    private UiControlGovernanceService uiControls;
+    @org.springframework.beans.factory.annotation.Autowired
+    void setUiControls(UiControlGovernanceService uiControls) { this.uiControls = uiControls; }
+
+    @GetMapping("/ui-controls")
+    @CustomActionEndpoint(value = "viewUiControlRules", title = "查看界面规则", level = PlatformActionLevel.LIST, dataAuth = false)
+    public UiControlGovernanceService.Snapshot uiControls(HttpServletRequest request) {
+        return webScope(() -> uiControls.snapshot(moduleAlias(request)));
+    }
+
     @GetMapping
     @CustomActionEndpoint(value = "viewBusinessRules", title = "查看业务规则", level = PlatformActionLevel.LIST, dataAuth = false)
     public BusinessRuleGovernanceSnapshot snapshot(HttpServletRequest request) {
@@ -58,7 +68,7 @@ public class PlatformBusinessRuleGovernanceWebController extends WebSupport<Busi
     @PostMapping("/apply")
     @CustomActionEndpoint(value = "applyBusinessRules", title = "应用业务规则", level = PlatformActionLevel.LIST, dataAuth = false)
     public BusinessRuleApplyResult apply(HttpServletRequest request, @RequestBody BusinessRuleApplyCommand command) {
-        return webScope(() -> service().apply(moduleAlias(request), command));
+        return webScope(() -> (uiControls == null ? service().apply(moduleAlias(request), command) : uiControls.apply(moduleAlias(request), command)));
     }
 
     @SuppressWarnings("unchecked")

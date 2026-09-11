@@ -105,7 +105,13 @@ export interface WebBusinessNotification {
   content: string;
   dismissible: boolean;
   actions: WebBusinessNotificationAction[];
+  /** Optional standard card accent. Omit it to use the neutral platform presentation. */
+  tone?: WebBusinessNotificationTone;
+  /** The business fact's occurrence time, displayed in the workbench time zone when supplied. */
+  occurredAt?: string;
 }
+
+export type WebBusinessNotificationTone = 'default' | 'success' | 'danger';
 
 export type WebBusinessNotificationAction =
   | WebBusinessNotificationNavigateAction
@@ -896,7 +902,7 @@ export interface UiFormula {
 /** Versioned program compiled by FormulaEngine. The browser executes it locally and never parses expression. */
 export interface FormulaProgram {
   schemaVersion: number;
-  profile: 'WEB_UI' | 'PAGE_TEXT' | 'FORM_COMPUTE';
+  profile: 'WEB_UI' | 'PAGE_TEXT' | 'FORM_COMPUTE' | 'FORM_VALIDATION';
   root: FormulaNode;
   referencedFields: string[];
 }
@@ -1102,6 +1108,15 @@ export interface ResolvedFormComputeRuleDescriptor {
   writePolicy: 'ALWAYS';
 }
 
+/** Server-issued browser pre-save validation; the server enforces the same rule on mutation. */
+export interface ResolvedFormValidationRuleDescriptor {
+  code: string;
+  program: FormulaProgram;
+  inputFields: string[];
+  targetField?: string;
+  message: string;
+}
+
 export interface ResolvedViewDescriptor {
   viewCode: string;
   viewKind: ModuleViewKind;
@@ -1112,6 +1127,7 @@ export interface ResolvedViewDescriptor {
   sourceUiConfigId?: string;
   formGroups?: FormGroupDescriptor[];
   formComputeRules?: ResolvedFormComputeRuleDescriptor[];
+  formValidationRules?: ResolvedFormValidationRuleDescriptor[];
 }
 
 export type ModulePageTemplate = 'FLAT_MANAGEMENT' | 'LIST_DETAIL_CARD' | 'TREE_MANAGEMENT';
@@ -1202,7 +1218,7 @@ export interface ResolvedPageListQuerySummaryDescriptor {
   sumFieldTitle?: string;
 }
 
-/** A persistent boolean query control rendered after search and before advanced filtering. */
+/** A persistent boolean query control rendered before search; advanced filtering follows search. */
 export interface ResolvedPageListPersistentQueryControlDescriptor {
   externalCriteriaKey: string;
   title: string;

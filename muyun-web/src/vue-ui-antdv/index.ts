@@ -15,6 +15,7 @@ export type { UiRadioOption } from './components/UiRadioGroup.vue';
 export { default as UiTreeSelect } from './components/UiTreeSelect.vue';
 export type { UiTreeSelectNode } from './components/UiTreeSelect.vue';
 export { default as UiTooltip } from './components/UiTooltip.vue';
+export { default as UiPopover } from './components/UiPopover.vue';
 export { default as UiThemeProvider } from './components/UiThemeProvider.vue';
 export { default as UiSwitch } from './components/UiSwitch.vue';
 export { default as UiMenu } from './components/UiMenu.vue';
@@ -88,3 +89,5 @@ export type {
 export { useUiDropTarget, useUiDragSource } from './useUiTreeDrag';
 
 export { useTreeLoader as useTreeData } from './useTreeLoader';
+export { default as UiTokenInput } from './components/UiTokenInput.vue';
+export type { UiTokenInputToken } from './components/UiTokenInput.vue';

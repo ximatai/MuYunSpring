@@ -13,7 +13,8 @@ public record ViewDefinition(String viewCode,
                              List<ViewFieldDefinition> fields,
                              String sourceUiConfigId,
                              List<FormGroupDefinition> formGroups,
-                             List<FormComputeRuleDefinition> formComputeRules) {
+                             List<FormComputeRuleDefinition> formComputeRules,
+                             List<FormulaRule> businessRules) {
     public ViewDefinition {
         if (viewCode == null || viewCode.isBlank()) {
             throw new IllegalArgumentException("view code must not be blank");
@@ -34,18 +35,29 @@ public record ViewDefinition(String viewCode,
         if (!formComputeRules.isEmpty() && viewKind != ModuleViewKind.FORM) {
             throw new IllegalArgumentException("form compute rules are only supported by form views: " + viewCode);
         }
+        businessRules = businessRules == null ? List.of() : List.copyOf(businessRules);
+        if (!businessRules.isEmpty() && viewKind != ModuleViewKind.FORM) {
+            throw new IllegalArgumentException("business formula rules are only supported by form views: " + viewCode);
+        }
     }
 
     /** Source-compatible constructor for views declared before form computations were introduced. */
     public ViewDefinition(String viewCode, ModuleViewKind viewKind, ModuleUiClientType clientType, String title,
                           List<ViewFieldDefinition> fields, String sourceUiConfigId,
                           List<FormGroupDefinition> formGroups) {
-        this(viewCode, viewKind, clientType, title, fields, sourceUiConfigId, formGroups, List.of());
+        this(viewCode, viewKind, clientType, title, fields, sourceUiConfigId, formGroups, List.of(), List.of());
+    }
+
+    /** Source-compatible constructor for views issued before business-rule form projection. */
+    public ViewDefinition(String viewCode, ModuleViewKind viewKind, ModuleUiClientType clientType, String title,
+                          List<ViewFieldDefinition> fields, String sourceUiConfigId,
+                          List<FormGroupDefinition> formGroups, List<FormComputeRuleDefinition> formComputeRules) {
+        this(viewCode, viewKind, clientType, title, fields, sourceUiConfigId, formGroups, formComputeRules, List.of());
     }
 
     public ViewDefinition(String viewCode, ModuleViewKind viewKind, ModuleUiClientType clientType, String title,
                           List<ViewFieldDefinition> fields) {
-        this(viewCode, viewKind, clientType, title, fields, null, null, List.of());
+        this(viewCode, viewKind, clientType, title, fields, null, null, List.of(), List.of());
     }
 
     public static Builder list() {
@@ -175,7 +187,7 @@ public record ViewDefinition(String viewCode,
             mergedRules.addAll(formComputeRules.stream()
                     .filter(rule -> !automaticTargets.contains(rule.targetField())).toList());
             return new ViewDefinition(viewCode, viewKind, clientType, title, fields, sourceUiConfigId, formGroups,
-                    mergedRules);
+                    mergedRules, businessRules);
         }
     }
 }

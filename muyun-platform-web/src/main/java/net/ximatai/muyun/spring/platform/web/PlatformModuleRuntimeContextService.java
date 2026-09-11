@@ -228,7 +228,22 @@ public class PlatformModuleRuntimeContextService {
         this.publishedPageDefinitionResolver = publishedPageDefinitionResolver;
     }
 
+    private net.ximatai.muyun.spring.platform.ui.PlatformUiControlRulesService uiControlRulesService;
+
+    @org.springframework.beans.factory.annotation.Autowired
+    void setUiControlRulesService(net.ximatai.muyun.spring.platform.ui.PlatformUiControlRulesService service) {
+        this.uiControlRulesService = service;
+    }
+
     public PlatformModuleRuntimeContext context(String moduleAlias) {
+        return context(moduleAlias, true);
+    }
+
+    PlatformModuleRuntimeContext contextWithoutUiControls(String moduleAlias) {
+        return context(moduleAlias, false);
+    }
+
+    private PlatformModuleRuntimeContext context(String moduleAlias, boolean projectUiControls) {
         String validModuleAlias = PlatformNameRules.requireModuleAlias(moduleAlias);
         PlatformModule module = moduleService.resolveVisibleModule(validModuleAlias);
         Optional<StaticModuleDefinition> staticDefinition = staticModuleCatalog.find(validModuleAlias);
@@ -244,6 +259,9 @@ public class PlatformModuleRuntimeContextService {
         String title = title(module, staticDefinition, dynamicDescriptor, validModuleAlias);
         ResolvedModuleUiDescriptor uiDescriptor = uiDescriptor(validModuleAlias, moduleKind, title, staticDefinition,
                 dynamicDescriptor);
+        if (projectUiControls && uiControlRulesService != null) {
+            uiDescriptor = UiControlFormProjection.project(uiDescriptor, uiControlRulesService.snapshot(validModuleAlias).rules());
+        }
         return new PlatformModuleRuntimeContext(
                 validModuleAlias,
                 title,
@@ -301,8 +319,10 @@ public class PlatformModuleRuntimeContextService {
         }
         ModuleUiDefinition definition = PageRevisionModuleUiDefinitionAdapter.fromPreviewRevision(page, revision,
                 uiTreeJson, pageCompilationContext(dynamicDescriptor, module.getOverviewMode()));
-        return compileDynamicPageDescriptor(validModuleAlias, title(module, Optional.empty(), dynamicDescriptor,
+        var descriptor = compileDynamicPageDescriptor(validModuleAlias, title(module, Optional.empty(), dynamicDescriptor,
                 validModuleAlias), dynamicDescriptor, definition);
+        return uiControlRulesService == null ? descriptor : UiControlFormProjection.project(descriptor,
+                uiControlRulesService.snapshot(validModuleAlias).rules());
     }
 
     /**
@@ -523,6 +543,9 @@ public class PlatformModuleRuntimeContextService {
                 optionFields, referenceFields,
                 dynamicRecordLabelField(dynamicDescriptor), fieldTypes, FieldControlDescriptorCatalog.standard(),
                 relationOptionFields, relationReferenceFields, dynamicSortPartitionFields(dynamicDescriptor));
+        // Formula projection needs the resolved aggregate-child relation code and its child editor
+        // fields. Attach them before compiling browser-visible business rules.
+        descriptor = descriptor.withDetailRelations(dynamicDetailRelations(moduleAlias, relationTargets));
         descriptor = BusinessRuleFormProjection.projectLenient(descriptor,
                 dynamicMainFormulaRules(moduleAlias, dynamicDescriptor.mainEntityAlias()));
         if (definition.page() instanceof ListDetailCardPageDefinition listPage && listPage.list().querySummaries().stream()
@@ -532,8 +555,7 @@ public class PlatformModuleRuntimeContextService {
         }
         descriptor = PageActionInvocationCompiler.bind(descriptor, actions(moduleAlias, ModuleKind.DYNAMIC, Optional.empty(), dynamicDescriptor).stream()
                 .collect(java.util.stream.Collectors.toMap(PlatformModuleRuntimeAction::actionCode, PlatformModuleRuntimeAction::invocations)));
-        return descriptor.withPage(resolvePage(moduleAlias, ModuleKind.DYNAMIC, descriptor.page()))
-                .withDetailRelations(dynamicDetailRelations(moduleAlias, relationTargets));
+        return descriptor.withPage(resolvePage(moduleAlias, ModuleKind.DYNAMIC, descriptor.page()));
     }
 
     private List<net.ximatai.muyun.spring.common.formula.FormulaRule> dynamicMainFormulaRules(

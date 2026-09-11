@@ -10,6 +10,8 @@ import net.ximatai.muyun.spring.common.formula.FormulaAst.UnaryNode;
 import net.ximatai.muyun.spring.common.formula.FormulaAst.ValueNode;
 import net.ximatai.muyun.spring.common.formula.FormulaRuntimeData.RowValue;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -22,8 +24,10 @@ import java.time.format.DateTimeParseException;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Locale;
 import java.util.Objects;
 import java.util.Optional;
@@ -128,6 +132,33 @@ public class FormulaEngine {
     }
 
     /**
+     * Returns dotted child paths used as ordinary scalar inputs. Paths inside an aggregate are
+     * excluded, allowing callers that know their module relations to enforce aggregate-only
+     * child access without misclassifying declared scalar references.
+     */
+    public Set<String> nonAggregateChildFieldReferences(String expression) {
+        FormulaExpressionSupport.ParsedExpression parsed = parse("expression", expression);
+        return parsed == null ? Set.of() : directChildFieldReferences(parsed.ast(), false);
+    }
+
+    /**
+     * Returns direct child fields used as aggregate value inputs, grouped by field path and
+     * normalized aggregate name. WHERE/FILTER predicate fields are deliberately excluded: they
+     * control row inclusion instead of providing the value being aggregated.
+     */
+    public Map<String, Set<String>> aggregateValueFieldReferences(String expression) {
+        FormulaExpressionSupport.ParsedExpression parsed = parse("expression", expression);
+        if (parsed == null) {
+            return Map.of();
+        }
+        Map<String, Set<String>> fields = new LinkedHashMap<>();
+        collectAggregateValueFieldReferences(parsed.ast(), fields);
+        Map<String, Set<String>> result = new LinkedHashMap<>();
+        fields.forEach((field, functions) -> result.put(field, Set.copyOf(functions)));
+        return Map.copyOf(result);
+    }
+
+    /**
      * Compiles a FormulaEngine expression to the only profile that may execute in a Web form.
      * The returned AST is signed by the server descriptor; Web clients must not parse {@code expression} again.
      */
@@ -171,6 +202,23 @@ public class FormulaEngine {
             }
             throw new FormulaEvaluationException("FORMULA_FORM_COMPUTE_UNSUPPORTED",
                     "formula is not supported by FORM_COMPUTE profile: " + expression);
+        }
+    }
+
+    /**
+     * Compiles a read-only main-record predicate for a browser pre-save check. This does not
+     * replace server validation: callers may only use a successfully issued program for feedback
+     * before sending the mutation, while the server remains authoritative.
+     */
+    public FormulaProgram compileFormValidationProgram(String expression) {
+        try {
+            return FormulaFormComputeProfile.compileValidation(parse("form-validation", expression));
+        } catch (FormulaEvaluationException exception) {
+            if ("FORMULA_FORM_VALIDATION_UNSUPPORTED".equals(exception.code())) {
+                throw exception;
+            }
+            throw new FormulaEvaluationException("FORMULA_FORM_VALIDATION_UNSUPPORTED",
+                    "formula is not supported by FORM_VALIDATION profile: " + expression);
         }
     }
 
@@ -620,10 +668,44 @@ public class FormulaEngine {
         }
     }
 
+    private void collectAggregateValueFieldReferences(AstNode node, Map<String, Set<String>> fields) {
+        if (node == null) {
+            return;
+        }
+        if (node instanceof AssignNode assignment) {
+            collectAggregateValueFieldReferences(assignment.left, fields);
+            collectAggregateValueFieldReferences(assignment.right, fields);
+            collectAggregateValueFieldReferences(assignment.condition, fields);
+            return;
+        }
+        if (node instanceof UnaryNode unary) {
+            collectAggregateValueFieldReferences(unary.arg, fields);
+            return;
+        }
+        if (node instanceof BinaryNode binary) {
+            collectAggregateValueFieldReferences(binary.left, fields);
+            collectAggregateValueFieldReferences(binary.right, fields);
+            return;
+        }
+        if (!(node instanceof FuncNode function)) {
+            return;
+        }
+        String name = FormulaFunctions.normalize(function.name);
+        if (FormulaFunctions.isAggregate(name)) {
+            AggregateArgs args = parseAggregateArgs(function.args);
+            for (AstNode valueArg : args.valueArgs()) {
+                Set<String> childFields = directChildFieldReferences(valueArg, false);
+                childFields.forEach(field -> fields.computeIfAbsent(field, ignored -> new LinkedHashSet<>()).add(name));
+            }
+        }
+        function.args.forEach(argument -> collectAggregateValueFieldReferences(argument, fields));
+    }
+
     private Object evalScalar(String name, List<Object> args) {
         return switch (name) {
             case "ABS" -> Math.abs(toNumber(arg(args, 0)));
-            case "ROUND" -> round(toNumber(arg(args, 0)), (int) Math.max(0, toNumber(arg(args, 1))));
+            case "ROUND" -> round(toNumber(arg(args, 0)), requireDecimalScale(arg(args, 1), "ROUND.scale"));
+            case "FORMAT_DECIMAL" -> formatDecimal(arg(args, 0), requireDecimalScale(arg(args, 1), "FORMAT_DECIMAL.scale"));
             case "LEN" -> String.valueOf(argNullable(args, 0)).length();
             case "CONCAT" -> args.stream().map(value -> String.valueOf(value == null ? "" : value)).reduce("", String::concat);
             case "SUBSTR" -> substr(argNullable(args, 0), toNumber(arg(args, 1)), toNumber(arg(args, 2)));
@@ -701,8 +783,31 @@ public class FormulaEngine {
     }
 
     private double round(double value, int precision) {
-        double factor = Math.pow(10, precision);
-        return Math.round(value * factor) / factor;
+        return BigDecimal.valueOf(value).setScale(precision, RoundingMode.HALF_UP).doubleValue();
+    }
+
+    /**
+     * Formats a numeric value with exactly {@code scale} fraction digits. This is deliberately
+     * separate from ROUND: it returns text and therefore preserves trailing zeroes for display,
+     * export and code composition.
+     */
+    private String formatDecimal(Object value, int scale) {
+        if (isBlank(value)) {
+            return "";
+        }
+        return BigDecimal.valueOf(toNumber(value)).setScale(scale, RoundingMode.HALF_UP).toPlainString();
+    }
+
+    private int requireDecimalScale(Object value, String fieldName) {
+        long scale = requireInteger(value, fieldName);
+        if (scale < 0 || scale > 12) {
+            throw new FormulaEvaluationException(
+                    "FORMULA_TYPE_MISMATCH",
+                    fieldName,
+                    fieldName + " must be an integer between 0 and 12"
+            );
+        }
+        return (int) scale;
     }
 
     private String substr(Object value, double startValue, double lengthValue) {
