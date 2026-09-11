@@ -82,7 +82,7 @@ private String supplierId;
 
 `FORM_COMPUTE` 的可用表达式以编译器契约为准，支持基本算术、比较、逻辑、`PRESENT`、`ISNULL`、`IN`，日期时间函数（`TODAY`、`NOW`、日期增减、时间增减与差值），以及 `ROUND` 和 `FORMAT_DECIMAL`。`FORMAT_DECIMAL(value, scale)` 返回固定小数位的文本，会保留末尾的零；`scale` 为 0–12 的整数。
 
-`FORM_VALIDATION` 复用受控的标量表达式，要求根节点为布尔判断，禁止赋值、引用路径和子表聚合；仅 `BEFORE_SAVE`、`ERROR`、`stopOnError` 的规则可以下发。浏览器的阻断只改善输入反馈，不能替代服务端校验。
+`FORM_VALIDATION` 复用受控的标量表达式，按服务端一致的 truthiness 解释结果，禁止赋值、引用路径和子表聚合；仅 `BEFORE_SAVE`、`ERROR`、`stopOnError` 的规则可以下发。浏览器的阻断只改善输入反馈，不能替代服务端校验。
 
 主记录公式可使用 `COUNT`、`SUM`、`AVG`、`MAX`、`MIN` 汇总一个直接子表字段，例如 `SUM({lines.amount})`。聚合参数必须属于同一个子表；子表字段不能作为普通标量输入或计算目标。浏览器仅在表单草稿包含相应子表行时即时预览，保存前服务端始终按完整子表数据复算。不提供任意脚本或外部调用，数值计算也不作为高精度结算引擎承诺。
 
