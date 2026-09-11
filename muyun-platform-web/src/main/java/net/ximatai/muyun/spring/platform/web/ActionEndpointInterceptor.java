@@ -34,26 +34,36 @@ public class ActionEndpointInterceptor implements AsyncHandlerInterceptor {
     private final ActionEndpointContextResolver contextResolver;
     private final ActingRequestResolver actingRequestResolver;
     private final RegisteredWebEndpointCatalog endpointCatalog;
+    private final StaticCrudActionLogRecorder staticCrudActionLogRecorder;
 
     public ActionEndpointInterceptor(ActionExecutionPolicyService policyService,
                                      ActionEndpointContextResolver contextResolver) {
-        this(policyService, contextResolver, null, null);
+        this(policyService, contextResolver, null, null, null);
     }
 
     public ActionEndpointInterceptor(ActionExecutionPolicyService policyService,
                                      ActionEndpointContextResolver contextResolver,
                                      ActingRequestResolver actingRequestResolver) {
-        this(policyService, contextResolver, actingRequestResolver, null);
+        this(policyService, contextResolver, actingRequestResolver, null, null);
     }
 
     public ActionEndpointInterceptor(ActionExecutionPolicyService policyService,
                                      ActionEndpointContextResolver contextResolver,
                                      ActingRequestResolver actingRequestResolver,
                                      RegisteredWebEndpointCatalog endpointCatalog) {
+        this(policyService, contextResolver, actingRequestResolver, endpointCatalog, null);
+    }
+
+    public ActionEndpointInterceptor(ActionExecutionPolicyService policyService,
+                                     ActionEndpointContextResolver contextResolver,
+                                     ActingRequestResolver actingRequestResolver,
+                                     RegisteredWebEndpointCatalog endpointCatalog,
+                                     StaticCrudActionLogRecorder staticCrudActionLogRecorder) {
         this.policyService = policyService;
         this.contextResolver = contextResolver;
         this.actingRequestResolver = actingRequestResolver;
         this.endpointCatalog = endpointCatalog;
+        this.staticCrudActionLogRecorder = staticCrudActionLogRecorder == null ? new StaticCrudActionLogRecorder(null) : staticCrudActionLogRecorder;
     }
 
     @Override
@@ -82,25 +92,25 @@ public class ActionEndpointInterceptor implements AsyncHandlerInterceptor {
         if (registered.isEmpty() && endpoint == null && customEndpoint == null) {
             return true;
         }
-        registered.ifPresent(value -> {
-            request.setAttribute(ENDPOINT_ID_ATTRIBUTE, value.definition().endpointId());
-            MDC.put("endpointId", value.definition().endpointId());
-        });
-        Optional<ActionExecutionContext> context;
-        if (registered.isPresent()) {
-            context = Optional.of(contextResolver.resolve(request, registered.get().definition()));
-        } else if (endpoint != null) {
-            context = contextResolver.resolve(request, handlerMethod, endpoint);
-        } else {
-            context = contextResolver.resolve(request, handlerMethod, customEndpoint);
-        }
-        if (context.isEmpty()) {
-            throw new IllegalStateException("action endpoint requires module alias: "
-                    + handlerMethod.getBeanType().getName() + "#" + handlerMethod.getMethod().getName());
-        }
-        ActionExecutionContext resolved = context.get();
         ActingContextHolder.Scope actingScope = null;
         try {
+            Optional<ActionExecutionContext> context;
+            if (registered.isPresent()) {
+                context = Optional.of(contextResolver.resolve(request, registered.get().definition()));
+            } else if (endpoint != null) {
+                context = contextResolver.resolve(request, handlerMethod, endpoint);
+            } else {
+                context = contextResolver.resolve(request, handlerMethod, customEndpoint);
+            }
+            if (context.isEmpty()) {
+                throw new IllegalStateException("action endpoint requires module alias: "
+                        + handlerMethod.getBeanType().getName() + "#" + handlerMethod.getMethod().getName());
+            }
+            ActionExecutionContext resolved = context.get();
+            registered.ifPresent(value -> {
+                request.setAttribute(ENDPOINT_ID_ATTRIBUTE, value.definition().endpointId());
+                MDC.put("endpointId", value.definition().endpointId());
+            });
             MenuEntryRequestContext.requireModuleAlias(resolved.moduleAlias(), pageEntryParentModuleAlias(handlerMethod));
             putActionLogContext(resolved);
             if (actingRequestResolver != null) {
@@ -111,8 +121,11 @@ public class ActionEndpointInterceptor implements AsyncHandlerInterceptor {
                 }
             }
             ActionAuthorizationResult authorization = policyService.authorize(resolved);
-            request.setAttribute(ACTION_CONTEXT_SCOPE_ATTRIBUTE,
-                    ActionExecutionContextHolder.use(resolved.withAuthorizationResult(authorization)));
+            ActionExecutionContext authorized = resolved.withAuthorizationResult(authorization);
+            request.setAttribute(ACTION_CONTEXT_SCOPE_ATTRIBUTE, ActionExecutionContextHolder.use(authorized));
+            if (handlerMethod.getBean() instanceof CrudWeb<?, ?> && isStaticCrudMutation(authorized)) {
+                staticCrudActionLogRecorder.begin(request);
+            }
             return true;
         } catch (RuntimeException ex) {
             clearLogContext(request);
@@ -134,6 +147,11 @@ public class ActionEndpointInterceptor implements AsyncHandlerInterceptor {
                                 @NonNull HttpServletResponse response,
                                 @NonNull Object handler,
                                 Exception ex) {
+        if (handler instanceof HandlerMethod handlerMethod
+                && handlerMethod.getBean() instanceof CrudWeb<?, ?>
+                && ActionExecutionContextHolder.current().filter(this::isStaticCrudMutation).isPresent()) {
+            staticCrudActionLogRecorder.record(request, ActionExecutionContextHolder.current().orElseThrow(), ex);
+        }
         closeActionContext(request);
         closeActingContext(request);
         clearLogContext(request);
@@ -167,6 +185,12 @@ public class ActionEndpointInterceptor implements AsyncHandlerInterceptor {
     private void putActionLogContext(ActionExecutionContext context) {
         MDC.put("moduleAlias", context.moduleAlias());
         MDC.put("actionCode", context.actionCode());
+    }
+
+    private boolean isStaticCrudMutation(ActionExecutionContext context) {
+        return context.platformAction() == net.ximatai.muyun.spring.common.platform.PlatformAction.CREATE
+                || context.platformAction() == net.ximatai.muyun.spring.common.platform.PlatformAction.UPDATE
+                || context.platformAction() == net.ximatai.muyun.spring.common.platform.PlatformAction.DELETE;
     }
 
     private void clearLogContext(HttpServletRequest request) {

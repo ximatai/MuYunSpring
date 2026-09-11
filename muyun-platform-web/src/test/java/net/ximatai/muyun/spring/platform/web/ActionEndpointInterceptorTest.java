@@ -18,6 +18,7 @@ import net.ximatai.muyun.spring.common.platform.ActionExecutionContext;
 import net.ximatai.muyun.spring.common.platform.ActionExecutionContextHolder;
 import net.ximatai.muyun.spring.common.platform.ActionExecutionPolicyService;
 import net.ximatai.muyun.spring.common.platform.PlatformAction;
+import net.ximatai.muyun.spring.ability.logging.*;
 import net.ximatai.muyun.spring.iam.web.RoleWebController;
 import net.ximatai.muyun.spring.iam.web.UserAccountWebController;
 import net.ximatai.muyun.spring.iam.web.IamActingRequestResolver;
@@ -47,6 +48,9 @@ import org.springframework.web.context.request.ServletRequestAttributes;
 
 import java.lang.reflect.Method;
 import java.util.Map;
+import java.util.List;
+import java.util.ArrayList;
+import java.util.Collection;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -161,6 +165,42 @@ class ActionEndpointInterceptorTest {
     }
 
     @Test
+    void shouldNotLeakCompiledEndpointLogContextWhenResolutionFails() throws Exception {
+        StaticScopedWeb endpointHandler = new StaticScopedWeb();
+        Method method = CrudWeb.class.getMethod("query", WebQueryRequest.class);
+        RegisteredWebEndpointCatalog catalog = new RegisteredWebEndpointCatalog();
+        ResolvedWebEndpoint definition = new ResolvedWebEndpoint(
+                "platform.application.query.query", "platform.application", "query", "query",
+                PlatformAction.QUERY, RequestMethod.POST, "/platform.application/query",
+                ResolvedWebEndpoint.Source.STATIC_ABILITY);
+        catalog.register(new RegisteredWebEndpoint(definition,
+                RequestMappingInfo.paths(definition.path()).methods(definition.method()).build(), endpointHandler, method));
+        ActionEndpointContextResolver failingResolver = new ActionEndpointContextResolver() {
+            @Override
+            public ActionExecutionContext resolve(HttpServletRequest request, ResolvedWebEndpoint endpoint) {
+                throw new IllegalStateException("compiled endpoint is unavailable");
+            }
+        };
+        ActionEndpointInterceptor failingInterceptor = new ActionEndpointInterceptor(
+                policyService, failingResolver, null, catalog);
+        MockHttpServletRequest request = new MockHttpServletRequest("POST", "/platform.application/query");
+        HandlerMethod handler = handler(endpointHandler, method);
+
+        assertThatThrownBy(() -> failingInterceptor.preHandle(request, new MockHttpServletResponse(), handler))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("compiled endpoint is unavailable");
+        assertThat(MDC.get("endpointId")).isNull();
+        assertThat(MDC.get("moduleAlias")).isNull();
+        assertThat(MDC.get("actionCode")).isNull();
+
+        ActionEndpointInterceptor healthyInterceptor = new ActionEndpointInterceptor(
+                policyService, new ActionEndpointContextResolver(), null, catalog);
+        healthyInterceptor.preHandle(request, new MockHttpServletResponse(), handler);
+        assertThat(MDC.get("endpointId")).isEqualTo(definition.endpointId());
+        healthyInterceptor.afterCompletion(request, new MockHttpServletResponse(), handler, null);
+    }
+
+    @Test
     void shouldRejectStaticEndpointBeforeRolePermissionWhenApplicationIsNotOpened() throws Exception {
         RoleService roleService = mock(RoleService.class);
         TenantApplicationService tenantApplicationService = mock(TenantApplicationService.class);
@@ -242,6 +282,78 @@ class ActionEndpointInterceptorTest {
         assertThat(MDC.get("endpointId")).isNull();
         assertThat(MDC.get("moduleAlias")).isNull();
         assertThat(MDC.get("actionCode")).isNull();
+    }
+
+    @Test
+    void shouldPublishStaticCrudMutationFactsAndFailOpenOnPublicationFailure() throws Exception {
+        RecordingBusinessLogPublisher publisher = new RecordingBusinessLogPublisher();
+        StaticCrudActionLogRecorder recorder = new StaticCrudActionLogRecorder(publisher);
+        for (PlatformAction action : List.of(PlatformAction.CREATE, PlatformAction.UPDATE, PlatformAction.DELETE)) {
+            StaticCrudFixture fixture = staticCrudFixture(action, recorder);
+            HandlerMethod handler = handler(fixture.crud(), fixture.method());
+            MockHttpServletRequest request = new MockHttpServletRequest("POST", "/sales.contract/" + action.code());
+            fixture.interceptor().preHandle(request, new MockHttpServletResponse(), handler);
+            fixture.interceptor().afterCompletion(request, new MockHttpServletResponse(), handler, null);
+        }
+        assertThat(publisher.events).hasSize(3).allSatisfy(event -> {
+            ActionLogEvent action = (ActionLogEvent) event;
+            assertThat(action.context().moduleAlias()).isEqualTo("sales.contract");
+            assertThat(action.details().executorType()).isEqualTo("STATIC_CRUD");
+            assertThat(action.details().outcome()).isEqualTo(ActionLogDetails.ActionOutcome.SUCCESS);
+            assertThat(action.details().durationMillis()).isNotNull();
+            assertThat(action.details().affectedRecordCount()).isNull();
+        });
+
+        StaticCrudFixture failedFixture = staticCrudFixture(PlatformAction.UPDATE, recorder);
+        HandlerMethod failedHandler = handler(failedFixture.crud(), failedFixture.method());
+        MockHttpServletRequest failedRequest = new MockHttpServletRequest("POST", "/sales.contract/update");
+        failedFixture.interceptor().preHandle(failedRequest, new MockHttpServletResponse(), failedHandler);
+        failedFixture.interceptor().afterCompletion(failedRequest, new MockHttpServletResponse(), failedHandler,
+                new IllegalStateException("failed"));
+        assertThat(((ActionLogEvent) publisher.events.getLast()).details().outcome())
+                .isEqualTo(ActionLogDetails.ActionOutcome.FAILURE);
+        assertThat(((ActionLogEvent) publisher.events.getLast()).details().failureStage()).isEqualTo("CONTROLLER");
+
+        StaticCrudFixture queryFixture = staticCrudFixture(PlatformAction.QUERY, recorder);
+        HandlerMethod queryHandler = handler(queryFixture.crud(), CrudWeb.class.getMethod("query", WebQueryRequest.class));
+        MockHttpServletRequest queryRequest = new MockHttpServletRequest("POST", "/sales.contract/query");
+        queryFixture.interceptor().preHandle(queryRequest, new MockHttpServletResponse(), queryHandler);
+        queryFixture.interceptor().afterCompletion(queryRequest, new MockHttpServletResponse(), queryHandler, null);
+        assertThat(publisher.events).hasSize(4);
+
+        StaticCrudFixture failureFixture = staticCrudFixture(PlatformAction.UPDATE,
+                new StaticCrudActionLogRecorder(new FailingBusinessLogPublisher()));
+        HandlerMethod handler = handler(failureFixture.crud(), failureFixture.method());
+        MockHttpServletRequest request = new MockHttpServletRequest("POST", "/sales.contract/update");
+        failureFixture.interceptor().preHandle(request, new MockHttpServletResponse(), handler);
+        failureFixture.interceptor().afterCompletion(request, new MockHttpServletResponse(), handler, new IllegalStateException("failed"));
+    }
+
+    private StaticCrudFixture staticCrudFixture(PlatformAction action, StaticCrudActionLogRecorder recorder) throws Exception {
+        RegisteredWebEndpointCatalog catalog = new RegisteredWebEndpointCatalog();
+        CrudWeb<?, ?> crud = mock(CrudWeb.class);
+        Method method = action == PlatformAction.QUERY ? CrudWeb.class.getMethod("query", WebQueryRequest.class)
+                : action == PlatformAction.CREATE ? CrudWeb.class.getMethod("insert", EntityContract.class)
+                : action == PlatformAction.UPDATE ? CrudWeb.class.getMethod("update", String.class, EntityContract.class)
+                : CrudWeb.class.getMethod("delete", String.class, net.ximatai.muyun.spring.web.RecordActionWebRequest.class);
+        ResolvedWebEndpoint definition = new ResolvedWebEndpoint("sales.contract." + action.code(), "sales.contract",
+                "crud", action.code(), action, RequestMethod.POST, "/sales.contract/" + action.code(),
+                ResolvedWebEndpoint.Source.STATIC_ABILITY);
+        catalog.register(new RegisteredWebEndpoint(definition,
+                RequestMappingInfo.paths(definition.path()).methods(definition.method()).build(), crud, method));
+        return new StaticCrudFixture(new ActionEndpointInterceptor(policyService, new ActionEndpointContextResolver(), null, catalog, recorder), crud, method);
+    }
+
+    private record StaticCrudFixture(ActionEndpointInterceptor interceptor, CrudWeb<?, ?> crud, Method method) { }
+
+    private static final class RecordingBusinessLogPublisher implements BusinessLogPublisher {
+        private final List<BusinessLogEvent> events = new ArrayList<>();
+        @Override public BusinessLogWriteResult publish(BusinessLogEvent event) { events.add(event); return new BusinessLogWriteResult(event.eventId(), BusinessLogWriteResult.Status.APPENDED); }
+        @Override public List<BusinessLogWriteResult> publishAll(Collection<? extends BusinessLogEvent> events) { return events.stream().map(this::publish).toList(); }
+    }
+    private static final class FailingBusinessLogPublisher implements BusinessLogPublisher {
+        @Override public BusinessLogWriteResult publish(BusinessLogEvent event) { throw new IllegalStateException("down"); }
+        @Override public List<BusinessLogWriteResult> publishAll(Collection<? extends BusinessLogEvent> events) { throw new IllegalStateException("down"); }
     }
 
     @Test

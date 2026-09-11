@@ -12,6 +12,7 @@ import net.ximatai.muyun.spring.platform.logging.RuntimeActionBusinessLogEventLi
 import net.ximatai.muyun.spring.platform.logging.StoreBackedBusinessLogStatisticsReader;
 import net.ximatai.muyun.spring.ability.logging.BusinessLogStatisticsReader;
 import net.ximatai.muyun.spring.platform.web.BusinessLogPageAccessRecorder;
+import net.ximatai.muyun.spring.platform.web.StaticCrudActionLogRecorder;
 import net.ximatai.muyun.spring.web.RequestErrorLogRecorder;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
@@ -78,6 +79,12 @@ public class MuYunSpringBusinessLoggingConfiguration {
     @ConditionalOnMissingBean(BusinessLogPageAccessRecorder.class)
     BusinessLogPageAccessRecorder businessLogPageAccessRecorder(ObjectProvider<BusinessLogPublisher> publisher) {
         return new BusinessLogPageAccessRecorder(publisher.getIfAvailable());
+    }
+
+    @Bean
+    @ConditionalOnMissingBean(StaticCrudActionLogRecorder.class)
+    StaticCrudActionLogRecorder staticCrudActionLogRecorder(ObjectProvider<BusinessLogPublisher> publisher) {
+        return new StaticCrudActionLogRecorder(publisher.getIfAvailable());
     }
 
     @Bean

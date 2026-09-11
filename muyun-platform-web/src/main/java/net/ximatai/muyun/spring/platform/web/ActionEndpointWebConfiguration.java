@@ -74,10 +74,11 @@ public class ActionEndpointWebConfiguration {
                                                               ActionEndpointContextResolver contextResolver,
                                                               ObjectProvider<ActingRequestResolver> actingRequestResolver,
                                                               ObjectProvider<RegisteredWebEndpointCatalog>
-                                                                      endpointCatalog) {
+                                                                      endpointCatalog,
+                                                              ObjectProvider<StaticCrudActionLogRecorder> staticCrudActionLogRecorder) {
         return new ActionEndpointInterceptor(policyService, contextResolver,
                 actingRequestResolver.getIfAvailable(),
-                endpointCatalog.getIfAvailable());
+                endpointCatalog.getIfAvailable(), staticCrudActionLogRecorder.getIfAvailable());
     }
 
     @Bean

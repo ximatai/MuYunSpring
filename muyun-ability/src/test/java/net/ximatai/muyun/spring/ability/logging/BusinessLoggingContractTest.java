@@ -44,6 +44,18 @@ class BusinessLoggingContractTest {
     }
 
     @Test
+    void shouldRedactQuotedAndNestedJsonCredentialsAndWholeCredentialHeaders() {
+        String raw = "{\"password\":\"p@ss\",\"nested\":{\"token\":'nested-token'},"
+                + "'cookie':'session-cookie',Authorization: \"Bearer bearer-token\",Cookie: session=header-cookie; theme=dark}";
+
+        LogText redacted = LogText.of(raw);
+
+        assertThat(redacted.value()).doesNotContain("p@ss", "nested-token", "session-cookie", "bearer-token", "header-cookie")
+                .contains("[REDACTED]");
+        assertThat(redacted.redacted()).isTrue();
+    }
+
+    @Test
     void shouldKeepActionMetricsUnknownWhenNoExecutionSourceProvidesThem() {
         ActionLogDetails details = new ActionLogDetails(ActionLogDetails.ActionOutcome.SUCCESS,
                 "SERVICE", null, null, null, null);

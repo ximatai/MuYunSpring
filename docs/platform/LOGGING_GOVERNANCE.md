@@ -18,6 +18,8 @@
 
 `RuntimeActionBusinessLogEventListener` 只观察 `ACTION_EXECUTED` 与 `ACTION_FAILED`，保留原运行事件的 event ID，并转换为动作成功或失败事实。它不改变既有 `RuntimeAuditEventListener` 或运行事件多播语义；发布失败只输出固定诊断。动作耗时和影响数量在没有真实来源时为 `null`，不会用 `0` 伪造统计值。
 
+静态标准 `CrudWeb` 的 insert、update、delete 由 `ActionEndpointInterceptor` 在控制器正常完成或抛出异常后记录一次动作事实；动态动作仍只消费运行事件，避免双计数。静态记录的成功表示控制器事务范围已正常返回，失败表示控制器异常，均不从 HTTP 状态推断提交结果。
+
 `GET /platform.menu/{menuId}/entry` 在租户校验、菜单可见性校验和权限范围内的页面 bootstrap 都成功后，记录一次页面访问。失败的页面入口不记录为访问。页面访问以稳定的 `pageKey`（`moduleAlias:pageMode`）统计，`pageId` 可选；UI config ID 不被当作页面 ID。菜单 ID 只用于归因。写入失败不会影响页面响应。
 
 ### 请求错误与程序日志
