@@ -146,10 +146,7 @@ public class LoginWebController {
     }
 
     private String clientIp(HttpServletRequest request) {
-        String forwardedFor = request.getHeader("X-Forwarded-For");
-        if (forwardedFor != null && !forwardedFor.isBlank()) {
-            return forwardedFor.split(",", 2)[0].trim();
-        }
+        // Proxy forwarding is not trusted until a dedicated trusted-proxy policy is configured.
         return request.getRemoteAddr();
     }
 

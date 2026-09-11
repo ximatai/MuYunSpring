@@ -11,7 +11,8 @@ public record UserSessionCollaborators(
         Supplier<UserSessionLifecycleEventPublisher> lifecycleEventPublisher,
         CurrentUserTimeZoneResolver timeZoneResolver,
         CurrentUserOrganizationResolver organizationResolver,
-        Supplier<UserSessionPresenceLookup> presenceLookup
+        Supplier<UserSessionPresenceLookup> presenceLookup,
+        Supplier<LoginAuditLogger> loginAuditLogger
 ) {
     public UserSessionCollaborators {
         revocationService = revocationService == null ? () -> null : revocationService;
@@ -24,9 +25,20 @@ public record UserSessionCollaborators(
         timeZoneResolver = timeZoneResolver == null ? CurrentUserTimeZoneResolver.NONE : timeZoneResolver;
         organizationResolver = organizationResolver == null ? CurrentUserOrganizationResolver.NONE : organizationResolver;
         presenceLookup = presenceLookup == null ? () -> UserSessionPresenceLookup.NONE : presenceLookup;
+        loginAuditLogger = loginAuditLogger == null ? () -> LoginAuditLogger.NOOP : loginAuditLogger;
+    }
+
+    public UserSessionCollaborators(Supplier<UserSessionRevocationService> revocationService,
+                                   Supplier<UserSecurityEventPublisher> securityEventPublisher,
+                                   Supplier<UserSessionLifecycleEventPublisher> lifecycleEventPublisher,
+                                   CurrentUserTimeZoneResolver timeZoneResolver,
+                                   CurrentUserOrganizationResolver organizationResolver,
+                                   Supplier<UserSessionPresenceLookup> presenceLookup) {
+        this(revocationService, securityEventPublisher, lifecycleEventPublisher, timeZoneResolver,
+                organizationResolver, presenceLookup, null);
     }
 
     public static UserSessionCollaborators empty() {
-        return new UserSessionCollaborators(null, null, null, null, null, null);
+        return new UserSessionCollaborators(null, null, null, null, null, null, null);
     }
 }

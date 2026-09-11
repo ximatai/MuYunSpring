@@ -1,8 +1,15 @@
 package net.ximatai.muyun.spring.platform.web;
 
 import net.ximatai.muyun.spring.common.platform.EntityCapability;
+import net.ximatai.muyun.spring.common.identity.CurrentUser;
+import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
 import net.ximatai.muyun.spring.common.tenant.ActiveTenantVerifier;
 import net.ximatai.muyun.spring.common.tenant.TenantContext;
+import net.ximatai.muyun.spring.common.web.RequestTraceContext;
+import net.ximatai.muyun.spring.ability.logging.BusinessLogEvent;
+import net.ximatai.muyun.spring.ability.logging.BusinessLogPublisher;
+import net.ximatai.muyun.spring.ability.logging.BusinessLogWriteResult;
+import net.ximatai.muyun.spring.ability.logging.PageAccessLogEvent;
 import net.ximatai.muyun.spring.platform.menu.MenuPageMode;
 import net.ximatai.muyun.spring.platform.module.ModuleEntryType;
 import net.ximatai.muyun.spring.platform.module.ModuleKind;
@@ -19,11 +26,14 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
 import java.util.List;
 import java.util.Set;
+import java.util.ArrayList;
+import java.util.Collection;
 
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -96,6 +106,52 @@ class PlatformPageBootstrapWebControllerTest {
         }
 
         verify(activeTenantVerifier, never()).verifyActiveTenant(org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
+    void shouldRecordOnlySuccessfulMenuBootstrapWithStablePageKey() throws Exception {
+        PlatformPageBootstrapService bootstrapService = mock(PlatformPageBootstrapService.class);
+        PlatformModuleRuntimeContextService runtimeContextService = mock(PlatformModuleRuntimeContextService.class);
+        ActiveTenantVerifier activeTenantVerifier = mock(ActiveTenantVerifier.class);
+        RecordingPublisher publisher = new RecordingPublisher();
+        MockMvc mvc = MockMvcBuilders.standaloneSetup(new PlatformPageBootstrapWebController(
+                bootstrapService, runtimeContextService, activeTenantVerifier,
+                new BusinessLogPageAccessRecorder(publisher))).build();
+        PlatformPageBootstrap bootstrap = new PlatformPageBootstrap(
+                new PlatformPageEntryContext("menu-1", "iam.organization", MenuPageMode.LIST,
+                        "ui-config-1", null, null), PlatformUiClientType.WEB,
+                new PlatformResolvedPageConfig(List.of(), List.of(), List.of(), List.of(), List.of(), List.of()));
+        when(bootstrapService.bootstrapByMenu("menu-1", PlatformUiClientType.WEB)).thenReturn(bootstrap);
+        when(runtimeContextService.context("iam.organization")).thenReturn(new PlatformModuleRuntimeContext(
+                "iam.organization", "组织管理", ModuleKind.STATIC, ModuleEntryType.ROUTE, null, null,
+                "organization", Set.of(EntityCapability.CRUD), List.of(), Set.of("crud"), List.of(), null));
+
+        try (TenantContext.Scope tenant = TenantContext.use("tenant-a");
+             CurrentUserContext.Scope user = CurrentUserContext.use(CurrentUser.tenantUser("user-1", "alice", "tenant-a"));
+             RequestTraceContext.Scope trace = RequestTraceContext.use("trace-page")) {
+            mvc.perform(get("/platform.menu/menu-1/entry")).andExpect(status().isOk());
+        }
+
+        assertThat(publisher.events).singleElement().isInstanceOfSatisfying(PageAccessLogEvent.class, logged -> {
+            assertThat(logged.context().traceId()).isEqualTo("trace-page");
+            assertThat(logged.context().tenantId()).isEqualTo("tenant-a");
+            assertThat(logged.context().operatorId()).isEqualTo("user-1");
+            assertThat(logged.context().moduleAlias()).isEqualTo("iam.organization");
+            assertThat(logged.details().pageKey()).isEqualTo("iam.organization:LIST");
+            assertThat(logged.details().pageId()).isNull();
+            assertThat(logged.details().menuId()).isEqualTo("menu-1");
+        });
+    }
+
+    private static final class RecordingPublisher implements BusinessLogPublisher {
+        private final java.util.List<BusinessLogEvent> events = new ArrayList<>();
+        @Override public BusinessLogWriteResult publish(BusinessLogEvent event) {
+            events.add(event);
+            return new BusinessLogWriteResult(event.eventId(), BusinessLogWriteResult.Status.APPENDED);
+        }
+        @Override public java.util.List<BusinessLogWriteResult> publishAll(Collection<? extends BusinessLogEvent> events) {
+            return events.stream().map(this::publish).toList();
+        }
     }
 
     private PlatformModuleRuntimeAction action(String actionCode, boolean authorized) {

@@ -28,6 +28,7 @@ import net.ximatai.muyun.spring.web.endpoint.ResolvedWebEndpoint;
 import net.ximatai.muyun.spring.dynamic.metadata.EntityActionLevel;
 import net.ximatai.muyun.spring.platform.module.PlatformModuleAction;
 import net.ximatai.muyun.spring.platform.module.PlatformModuleActionService;
+import net.ximatai.muyun.spring.platform.menu.Menu;
 import net.ximatai.muyun.spring.iam.employee.EmployeeDelegationService;
 import net.ximatai.muyun.spring.iam.role.RoleActionExecutionPolicyService;
 import net.ximatai.muyun.spring.iam.role.RoleService;
@@ -41,6 +42,8 @@ import org.springframework.web.method.HandlerMethod;
 import org.springframework.web.servlet.HandlerMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.servlet.mvc.method.RequestMappingInfo;
+import org.springframework.web.context.request.RequestContextHolder;
+import org.springframework.web.context.request.ServletRequestAttributes;
 
 import java.lang.reflect.Method;
 import java.util.Map;
@@ -64,6 +67,7 @@ class ActionEndpointInterceptorTest {
         CurrentUserContext.clear();
         ActingContextHolder.clear();
         ActionExecutionContextHolder.clear();
+        RequestContextHolder.resetRequestAttributes();
         MDC.clear();
     }
 
@@ -147,9 +151,13 @@ class ActionEndpointInterceptorTest {
 
         compiledInterceptor.preHandle(request, new MockHttpServletResponse(), handler(endpointHandler, method));
         assertThat(MDC.get("endpointId")).isEqualTo(definition.endpointId());
+        assertThat(MDC.get("moduleAlias")).isEqualTo("platform.application");
+        assertThat(MDC.get("actionCode")).isEqualTo("enable");
 
         compiledInterceptor.afterCompletion(request, new MockHttpServletResponse(), handler(endpointHandler, method), null);
         assertThat(MDC.get("endpointId")).isNull();
+        assertThat(MDC.get("moduleAlias")).isNull();
+        assertThat(MDC.get("actionCode")).isNull();
     }
 
     @Test
@@ -205,6 +213,35 @@ class ActionEndpointInterceptorTest {
         interceptor.afterConcurrentHandlingStarted(request, new MockHttpServletResponse(), handler);
 
         assertThat(ActionExecutionContextHolder.current()).isEmpty();
+        assertThat(MDC.get("moduleAlias")).isNull();
+        assertThat(MDC.get("actionCode")).isNull();
+    }
+
+    @Test
+    void shouldClearMdcWhenPageEntryCompatibilityCheckRejectsTheAction() throws Exception {
+        MockHttpServletRequest request = new MockHttpServletRequest("POST", "/iam.organization/query");
+        Menu menu = mock(Menu.class);
+        when(menu.getId()).thenReturn("menu-1");
+        when(menu.getModuleAlias()).thenReturn("crm.customer");
+        MenuEntryRequestContext.bind(request, menu);
+        RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(request));
+        WrongPageEntryChildWeb handlerBean = new WrongPageEntryChildWeb();
+        Method method = CrudWeb.class.getMethod("query", WebQueryRequest.class);
+        RegisteredWebEndpointCatalog catalog = new RegisteredWebEndpointCatalog();
+        ResolvedWebEndpoint definition = new ResolvedWebEndpoint("iam.organization.query.post",
+                "iam.organization", "query", "query", PlatformAction.QUERY, RequestMethod.POST,
+                "/iam.organization/query", ResolvedWebEndpoint.Source.STATIC_ABILITY);
+        catalog.register(new RegisteredWebEndpoint(definition,
+                RequestMappingInfo.paths(definition.path()).methods(definition.method()).build(), handlerBean, method));
+        ActionEndpointInterceptor compiled = new ActionEndpointInterceptor(policyService,
+                new ActionEndpointContextResolver(), null, catalog);
+
+        assertThatThrownBy(() -> compiled.preHandle(request, new MockHttpServletResponse(), handler(handlerBean, method)))
+                .isInstanceOf(PlatformException.class);
+
+        assertThat(MDC.get("endpointId")).isNull();
+        assertThat(MDC.get("moduleAlias")).isNull();
+        assertThat(MDC.get("actionCode")).isNull();
     }
 
     @Test
@@ -622,6 +659,19 @@ class ActionEndpointInterceptorTest {
         public void invalid() {
         }
 
+        @Override
+        public String webScopeName() {
+            return "iam.organization";
+        }
+
+        @Override
+        public Object service() {
+            return new Object();
+        }
+    }
+
+    @PlatformPageEntryChild(parentModuleAlias = "platform.other")
+    private static final class WrongPageEntryChildWeb implements ScopedWeb<Object> {
         @Override
         public String webScopeName() {
             return "iam.organization";

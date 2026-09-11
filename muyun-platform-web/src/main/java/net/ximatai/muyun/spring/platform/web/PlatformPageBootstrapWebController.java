@@ -24,13 +24,23 @@ public class PlatformPageBootstrapWebController {
     private final PlatformPageBootstrapService bootstrapService;
     private final PlatformModuleRuntimeContextService runtimeContextService;
     private final ActiveTenantVerifier activeTenantVerifier;
+    private final BusinessLogPageAccessRecorder pageAccessRecorder;
 
     public PlatformPageBootstrapWebController(PlatformPageBootstrapService bootstrapService,
                                               PlatformModuleRuntimeContextService runtimeContextService,
                                               ActiveTenantVerifier activeTenantVerifier) {
+        this(bootstrapService, runtimeContextService, activeTenantVerifier, BusinessLogPageAccessRecorder.noop());
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public PlatformPageBootstrapWebController(PlatformPageBootstrapService bootstrapService,
+                                              PlatformModuleRuntimeContextService runtimeContextService,
+                                              ActiveTenantVerifier activeTenantVerifier,
+                                              BusinessLogPageAccessRecorder pageAccessRecorder) {
         this.bootstrapService = bootstrapService;
         this.runtimeContextService = runtimeContextService;
         this.activeTenantVerifier = activeTenantVerifier;
+        this.pageAccessRecorder = pageAccessRecorder == null ? BusinessLogPageAccessRecorder.noop() : pageAccessRecorder;
     }
 
     @GetMapping("/{menuId}/entry")
@@ -39,13 +49,15 @@ public class PlatformPageBootstrapWebController {
         requireTenantContext();
         PlatformPageBootstrap bootstrap = bootstrapService.bootstrapByMenu(menuId, clientType);
         PlatformModuleRuntimeContext runtimeContext = runtimeContextService.context(bootstrap.entry().moduleAlias());
-        return new PlatformPageBootstrapResponse(
+        PlatformPageBootstrapResponse response = new PlatformPageBootstrapResponse(
                 bootstrap.entry(),
                 bootstrap.clientType(),
                 runtimeContext.mainEntityAlias(),
                 permissionScopedResolvedConfig(bootstrap.resolvedConfig(), runtimeContext),
                 "/" + bootstrap.entry().moduleAlias() + "/openapi"
         );
+        pageAccessRecorder.recordSuccessfulMenuEntry(bootstrap);
+        return response;
     }
 
     private PlatformResolvedPageConfig permissionScopedResolvedConfig(PlatformResolvedPageConfig config,

@@ -16,6 +16,7 @@ public class UserSessionCollaboratorConfiguration {
             ObjectProvider<CurrentUserTimeZoneResolver> timeZoneResolver,
             ObjectProvider<CurrentUserOrganizationResolver> organizationResolver,
             ObjectProvider<UserSessionPresenceLookup> presenceLookup,
+            ObjectProvider<LoginAuditLogger> loginAuditLogger,
             ApplicationEventPublisher applicationEventPublisher) {
         return new UserSessionCollaborators(
                 revocationService::getIfAvailable,
@@ -23,6 +24,7 @@ public class UserSessionCollaboratorConfiguration {
                 () -> event -> applicationEventPublisher.publishEvent(event),
                 timeZoneResolver.getIfAvailable(() -> CurrentUserTimeZoneResolver.NONE),
                 organizationResolver.getIfAvailable(() -> CurrentUserOrganizationResolver.NONE),
-                () -> presenceLookup.getIfAvailable(() -> UserSessionPresenceLookup.NONE));
+                () -> presenceLookup.getIfAvailable(() -> UserSessionPresenceLookup.NONE),
+                () -> loginAuditLogger.getIfAvailable(() -> LoginAuditLogger.NOOP));
     }
 }

@@ -99,9 +99,10 @@ public class ActionEndpointInterceptor implements AsyncHandlerInterceptor {
                     + handlerMethod.getBeanType().getName() + "#" + handlerMethod.getMethod().getName());
         }
         ActionExecutionContext resolved = context.get();
-        MenuEntryRequestContext.requireModuleAlias(resolved.moduleAlias(), pageEntryParentModuleAlias(handlerMethod));
         ActingContextHolder.Scope actingScope = null;
         try {
+            MenuEntryRequestContext.requireModuleAlias(resolved.moduleAlias(), pageEntryParentModuleAlias(handlerMethod));
+            putActionLogContext(resolved);
             if (actingRequestResolver != null) {
                 Optional<ActingContext> actingContext = actingRequestResolver.resolve(request, resolved);
                 if (actingContext.isPresent()) {
@@ -114,7 +115,7 @@ public class ActionEndpointInterceptor implements AsyncHandlerInterceptor {
                     ActionExecutionContextHolder.use(resolved.withAuthorizationResult(authorization)));
             return true;
         } catch (RuntimeException ex) {
-            clearEndpointId(request);
+            clearLogContext(request);
             if (actingScope != null) {
                 request.removeAttribute(ACTING_CONTEXT_SCOPE_ATTRIBUTE);
                 actingScope.close();
@@ -135,7 +136,7 @@ public class ActionEndpointInterceptor implements AsyncHandlerInterceptor {
                                 Exception ex) {
         closeActionContext(request);
         closeActingContext(request);
-        clearEndpointId(request);
+        clearLogContext(request);
     }
 
     @Override
@@ -144,7 +145,7 @@ public class ActionEndpointInterceptor implements AsyncHandlerInterceptor {
                                                @NonNull Object handler) {
         closeActionContext(request);
         closeActingContext(request);
-        clearEndpointId(request);
+        clearLogContext(request);
     }
 
     private void closeActionContext(HttpServletRequest request) {
@@ -163,8 +164,15 @@ public class ActionEndpointInterceptor implements AsyncHandlerInterceptor {
         }
     }
 
-    private void clearEndpointId(HttpServletRequest request) {
+    private void putActionLogContext(ActionExecutionContext context) {
+        MDC.put("moduleAlias", context.moduleAlias());
+        MDC.put("actionCode", context.actionCode());
+    }
+
+    private void clearLogContext(HttpServletRequest request) {
         request.removeAttribute(ENDPOINT_ID_ATTRIBUTE);
         MDC.remove("endpointId");
+        MDC.remove("moduleAlias");
+        MDC.remove("actionCode");
     }
 }

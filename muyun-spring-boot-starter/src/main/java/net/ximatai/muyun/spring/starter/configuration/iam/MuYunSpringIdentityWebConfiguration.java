@@ -5,6 +5,7 @@ import net.ximatai.muyun.spring.iam.user.UserSessionService;
 import net.ximatai.muyun.spring.iam.web.security.BearerTokenCurrentUserProvider;
 import net.ximatai.muyun.spring.web.CurrentUserWebFilter;
 import net.ximatai.muyun.spring.web.RequestTraceWebFilter;
+import net.ximatai.muyun.spring.web.RequestErrorLogRecorder;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.context.annotation.Bean;
@@ -37,7 +38,7 @@ public class MuYunSpringIdentityWebConfiguration {
     @Bean
     @ConditionalOnMissingBean(RequestTraceWebFilter.class)
     /** 为每个请求建立可贯穿日志、异常与审计的追踪标识。 */
-    RequestTraceWebFilter requestTraceWebFilter() {
-        return new RequestTraceWebFilter();
+    RequestTraceWebFilter requestTraceWebFilter(ObjectProvider<RequestErrorLogRecorder> recorder) {
+        return new RequestTraceWebFilter(recorder.getIfAvailable(RequestErrorLogRecorder::noop));
     }
 }
