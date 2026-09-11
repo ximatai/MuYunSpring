@@ -90,7 +90,7 @@ public class PurchaseApprovalService {
 
 ## 标准展示信息
 
-`BusinessNotification` 可在原有构造参数之后提供可选的 `tone` 和 `occurredAt`，让 Workbench 使用统一的卡片强调色、状态点和标题右侧时间。它们只描述展示，不改变投递范围、动作权限或处理语义；不传时保持普通提醒的默认外观。
+`BusinessNotification` 可在原有构造参数之后提供可选的 `tone` 和 `occurredAt`，让 Workbench 使用统一的卡片强调色、状态点和标题右侧时间。`SUCCESS` 沿用平台主色，`DANGER` 使用告警色；它们只描述展示，不改变投递范围、动作权限或处理语义；不传时保持普通提醒的默认外观。通知卡片还提供由前端消费者选择性启用的右侧附属区，用于地图、缩略预览等受控展示内容，不向后端通知协议传递任意组件或脚本。
 
 ```java
 notificationService.publish(new BusinessNotification(

@@ -8,6 +8,8 @@ defineOptions({ name: 'BusinessNotificationPanel' });
 
 const props = defineProps<{
   notifications: WebBusinessNotification[];
+  /** Allows a consumer to opt an individual card into the optional right-hand attachment area. */
+  hasAccessory?: (notification: WebBusinessNotification) => boolean;
   executeAction: (
     notification: WebBusinessNotification,
     action: WebBusinessNotificationAction,
@@ -34,7 +36,13 @@ function actionsFor(notification: WebBusinessNotification, placement: 'leading' 
 }
 
 function toneFor(notification: WebBusinessNotification) {
-  return notification.tone === 'success' || notification.tone === 'danger' ? notification.tone : 'default';
+  // Success describes the business outcome. It is not an alarm severity, so keep it on the
+  // workbench primary colour rather than competing with the success-green feedback vocabulary.
+  return notification.tone === 'danger' ? 'danger' : 'default';
+}
+
+function shouldShowAccessory(notification: WebBusinessNotification) {
+  return props.hasAccessory?.(notification) ?? false;
 }
 
 async function run(notification: WebBusinessNotification, action: WebBusinessNotificationAction) {
@@ -61,7 +69,10 @@ async function run(notification: WebBusinessNotification, action: WebBusinessNot
       v-for="notification in visible"
       :key="notification.id"
       class="business-notification-card"
-      :class="`business-notification-card--${toneFor(notification)}`"
+      :class="[
+        `business-notification-card--${toneFor(notification)}`,
+        { 'business-notification-card--with-accessory': shouldShowAccessory(notification) },
+      ]"
     >
       <button
         v-if="notification.dismissible"
@@ -116,6 +127,9 @@ async function run(notification: WebBusinessNotification, action: WebBusinessNot
           </div>
         </div>
       </div>
+      <div v-if="shouldShowAccessory(notification)" class="business-notification-accessory">
+        <slot name="accessory" :notification="notification" />
+      </div>
     </article>
     <button
       v-if="hiddenCount || expanded"
@@ -147,6 +161,8 @@ async function run(notification: WebBusinessNotification, action: WebBusinessNot
 }
 .business-notification-card {
   --business-notification-accent: var(--muyun-theme-base);
+  --business-notification-header-indent: 17px;
+  --business-notification-header-right-gutter: 0px;
   position: relative;
   display: grid;
   gap: 9px;
@@ -159,21 +175,36 @@ async function run(notification: WebBusinessNotification, action: WebBusinessNot
   pointer-events: auto;
   animation: notification-arrive 0.2s ease-out;
 }
-.business-notification-card--success {
-  --business-notification-accent: var(--muyun-success-text);
-}
 .business-notification-card--danger {
   --business-notification-accent: var(--muyun-danger-text);
 }
+.business-notification-card--with-accessory {
+  --business-notification-accessory-width: 112px;
+  grid-template-columns: minmax(0, 1fr);
+  min-height: 168px;
+}
 .business-notification-copy {
+  display: flex;
+  flex-direction: column;
   min-width: 0;
+}
+.business-notification-accessory {
+  position: absolute;
+  right: calc(18px + var(--business-notification-header-right-gutter));
+  bottom: 18px;
+  width: var(--business-notification-accessory-width);
+  height: 96px;
+  min-width: 0;
+}
+.business-notification-card--with-accessory .business-notification-copy {
+  min-height: 132px;
 }
 .business-notification-header {
   display: flex;
   align-items: center;
   gap: 8px;
   min-width: 0;
-  padding-right: 24px;
+  padding-right: var(--business-notification-header-right-gutter);
 }
 h2,
 p {
@@ -201,12 +232,19 @@ h2 {
   white-space: nowrap;
 }
 .business-notification-subtitle {
+  margin-left: var(--business-notification-header-indent);
   color: var(--muyun-text-muted);
   font-size: 12px;
   font-variant-numeric: tabular-nums;
 }
+.business-notification-card--with-accessory .business-notification-subtitle,
+.business-notification-card--with-accessory .business-notification-content,
+.business-notification-card--with-accessory .business-notification-actions {
+  margin-right: calc(var(--business-notification-accessory-width) + 10px);
+}
 .business-notification-content {
   margin-top: 8px;
+  margin-left: var(--business-notification-header-indent);
   max-height: 100px;
   padding-right: 4px;
   overflow-y: auto;
@@ -220,7 +258,9 @@ h2 {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  margin-top: 2px;
+  margin-top: auto;
+  margin-left: var(--business-notification-header-indent);
+  padding-top: 16px;
 }
 .business-notification-action-region {
   display: flex;
@@ -232,22 +272,35 @@ h2 {
 }
 .business-notification-close {
   position: absolute;
-  top: 10px;
-  right: 10px;
+  z-index: 1;
+  top: -8px;
+  right: -8px;
   display: grid;
   place-items: center;
   width: 24px;
   height: 24px;
   padding: 0;
-  border: 0;
-  border-radius: 7px;
-  color: var(--muyun-text-muted);
-  background: transparent;
+  border: 1px solid var(--muyun-danger-border);
+  border-radius: 50%;
+  color: var(--muyun-danger-text);
+  background: var(--muyun-danger-bg);
+  box-shadow: 0 2px 6px rgb(15 23 42 / 16%);
   cursor: pointer;
+  font-size: 15px;
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(2px, -2px);
+  transition: opacity 0.16s ease, transform 0.16s ease;
+}
+.business-notification-card:hover .business-notification-close,
+.business-notification-card:focus-within .business-notification-close {
+  opacity: 1;
+  pointer-events: auto;
+  transform: none;
 }
 .business-notification-close:hover {
-  background: var(--muyun-hover);
-  color: var(--muyun-primary);
+  background: color-mix(in srgb, var(--muyun-danger-text) 16%, var(--muyun-danger-bg));
+  color: var(--muyun-danger-text);
 }
 .business-notification-more {
   justify-self: end;
