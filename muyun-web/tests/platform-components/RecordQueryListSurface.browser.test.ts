@@ -1,5 +1,5 @@
 import { mount } from '@vue/test-utils';
-import { h } from 'vue';
+import { h, ref } from 'vue';
 import RecordQueryListCell from '@/platform-components/RecordQueryListCell.vue';
 import { expect, it } from 'vitest';
 import { page } from 'vitest/browser';
@@ -115,6 +115,79 @@ it('keeps shared pagination muted, compact, interactive, and inside a narrow lis
 
     await page.elementLocator(wrapper.get('[aria-label="下一页"]').element).click();
     expect(wrapper.emitted('pageChange')).toEqual([[3]]);
+  } finally {
+    wrapper.unmount();
+  }
+});
+
+it('separates untitled list operations from queries and wraps within a narrow host', async () => {
+  await page.viewport(992, 814);
+  const { default: UiActionButton } = await import('@/vue-ui-antdv/components/UiActionButton.vue');
+  const { default: RecordQueryEnumFilter } = await import('@/platform-components/RecordQueryEnumFilter.vue');
+  const dirty = ref(false);
+  const wrapper = mount(RecordQueryListSurface, {
+    attachTo: document.body,
+    attrs: { style: 'width: 900px; height: 620px' },
+    props: {
+      showTitle: false,
+      quickSearchVisible: true,
+      columns: [],
+      rows: [],
+      tableVisible: false,
+      pageable: true,
+    },
+    slots: {
+      operations: () => [
+        h(UiActionButton, {}, () => '新增规则'),
+        h(UiActionButton, {}, () => '试算整组规则'),
+        ...(dirty.value
+          ? [
+              h('span', {}, '未应用 3 项更改'),
+              h(UiActionButton, {}, () => '放弃更改'),
+              h(UiActionButton, { emphasis: 'primary' }, () => '应用更改'),
+            ]
+          : []),
+      ],
+      persistentQueries: () =>
+        h(RecordQueryEnumFilter, {
+          title: '规则类型',
+          value: 'CALCULATION',
+          options: [
+            { value: 'CALCULATION', label: '字段计算' },
+            { value: 'VALIDATION', label: '业务校验' },
+          ],
+        }),
+    },
+  });
+  try {
+    const operations = wrapper.get('.record-query-list-operation-actions').element;
+    const queries = wrapper.get('.record-query-list-query-actions').element;
+    const header = wrapper.get('.record-query-list-header').element;
+    expect(operations.getBoundingClientRect().left).toBeCloseTo(header.getBoundingClientRect().left, 0);
+    expect(queries.getBoundingClientRect().right).toBeCloseTo(header.getBoundingClientRect().right, 0);
+    expect(operations.getBoundingClientRect().right).toBeLessThan(queries.getBoundingClientRect().left);
+    const action = operations.querySelector('button')!;
+    const input = queries.querySelector('.record-query-list-search')!;
+    const filter = queries.querySelector('.record-query-enum-filter')!;
+    expect(filter.getBoundingClientRect().right).toBeLessThanOrEqual(input.getBoundingClientRect().left);
+    expect(getComputedStyle(filter.querySelector('label')!).fontSize).toBe('13px');
+    expect(input.getBoundingClientRect().top).toBeCloseTo(filter.getBoundingClientRect().top, 0);
+    expect(action.getBoundingClientRect().height).toBeCloseTo(input.getBoundingClientRect().height, 0);
+    dirty.value = true;
+    await wrapper.vm.$nextTick();
+    for (const width of [560, 360]) {
+      wrapper.element.style.width = `${width}px`;
+      await wrapper.vm.$nextTick();
+      expect(header.scrollWidth).toBeLessThanOrEqual(header.clientWidth + 1);
+      expect(wrapper.element.scrollWidth).toBeLessThanOrEqual(wrapper.element.clientWidth + 1);
+      await expect
+        .poll(() => queries.getBoundingClientRect().top - operations.getBoundingClientRect().bottom)
+        .toBeGreaterThanOrEqual(0);
+    }
+    const footer = wrapper.get('.record-query-list-pagination').element;
+    expect(footer.getBoundingClientRect().bottom).toBeGreaterThan(
+      wrapper.element.getBoundingClientRect().bottom - 20,
+    );
   } finally {
     wrapper.unmount();
   }

@@ -9,6 +9,8 @@ defineOptions({ name: 'RecordExplorerPanel' });
 const props = withDefaults(
   defineProps<{
     title: string;
+    /** Embedded in a drawer or an existing surface; spacing belongs to the host. */
+    embedded?: boolean;
     subtitle?: string;
     refreshTitle?: string;
     refreshable?: boolean;
@@ -19,6 +21,7 @@ const props = withDefaults(
     collapseAction?: boolean;
   }>(),
   {
+    embedded: false,
     refreshTitle: undefined,
     refreshable: true,
     refreshDisabled: false,
@@ -69,7 +72,7 @@ async function focusSearchInput() {
 </script>
 
 <template>
-  <section class="record-explorer-panel">
+  <section class="record-explorer-panel" :class="{ 'record-explorer-panel--embedded': embedded }">
     <ManagementPanelHeader
       class="record-explorer-panel-header"
       :title="title"
@@ -150,6 +153,13 @@ async function focusSearchInput() {
   border-radius: 8px;
   background: var(--muyun-surface);
   overflow: hidden;
+}
+
+.record-explorer-panel--embedded {
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
 }
 
 .record-explorer-panel-header {

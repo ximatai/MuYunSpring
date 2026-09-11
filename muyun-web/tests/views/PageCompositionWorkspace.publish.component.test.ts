@@ -2030,6 +2030,7 @@ function initialTree() {
 
 function workspaceStubs() {
   return {
+    MetadataSourceTree: false,
     ManagementWorkspace: { template: '<div><slot /></div>' },
     ManagementExplorerColumn: { template: '<div><slot /></div>' },
     RecordExplorerPanel: {

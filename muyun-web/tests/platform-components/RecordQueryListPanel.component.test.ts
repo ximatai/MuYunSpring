@@ -454,7 +454,7 @@ describe('RecordQueryListPanel', () => {
     const search = wrapper.find('.record-query-list-search').element;
     const control = wrapper.find('.record-query-list-persistent-query-control').element;
     const advanced = wrapper.find('.record-query-list-advanced').element;
-    expect(search.compareDocumentPosition(control) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
+    expect(control.compareDocumentPosition(search) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
     expect(control.compareDocumentPosition(advanced) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
 
     wrapper.findComponent({ name: 'UiCheckbox' }).vm.$emit('change', true);

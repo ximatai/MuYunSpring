@@ -1185,7 +1185,7 @@ defineExpose({ clearSelection, refresh });
       />
       <slot name="toolbarActions" :refresh="refresh" />
     </template>
-    <template #queryControls>
+    <template #persistentQueries>
       <UiCheckbox
         v-for="control in persistentQueryControls"
         :key="control.externalCriteriaKey"
@@ -1196,6 +1196,8 @@ defineExpose({ clearSelection, refresh });
       >
         {{ control.title }}
       </UiCheckbox>
+    </template>
+    <template #queryControls>
       <UiButton
         v-if="queryable"
         class="record-query-list-advanced"

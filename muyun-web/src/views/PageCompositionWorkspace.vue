@@ -26,10 +26,8 @@ import {
   UiEmpty,
   UiInput,
   UiSelect,
-  UiSpin,
   UiSwitch,
   UiRadioGroup,
-  UiTree,
   type UiRadioOption,
   type UiRecordInlineAction,
   type UiTreeLoadRequest,
@@ -69,6 +67,8 @@ import {
 import { pageCompositionTransport } from './pageCompositionTransport';
 import PageCompositionDescriptorPreview from './PageCompositionDescriptorPreview.vue';
 import PageQuerySummaryEditor, { type PageQuerySummaryEditorIssues } from './PageQuerySummaryEditor.vue';
+import MetadataSourceTree from './MetadataSourceTree.vue';
+import { metadataSourceFieldNode, metadataSourceRoot } from './metadataSourceTree';
 import PageCompositionTree, { type ComposerDropTarget } from './PageCompositionTree.vue';
 import {
   PAGE_COMPOSITION_DRAG_PAYLOAD_TYPE,
@@ -436,15 +436,10 @@ const compositionSubtitle = computed(() => {
 const metadataTreeNodes = computed<UiTreeNode[]>(() => [
   ...(editorMode.value === 'fields'
     ? [
-        {
-          key: 'metadata:root',
-          title: mainEntityTitle.value,
-          secondary: '主元数据',
-          children: [
-            ...visibleFields.value.map(metadataFieldNode),
-            ...childRelationNodes(relation.value?.metadataId),
-          ],
-        },
+        metadataSourceRoot(mainEntityTitle.value, [
+          ...visibleFields.value.map(metadataFieldNode),
+          ...childRelationNodes(relation.value?.metadataId),
+        ]),
       ]
     : []),
   ...(editorMode.value === 'actions'
@@ -945,16 +940,8 @@ async function loadReferenceChildren(
 }
 
 function metadataFieldNode(field: PageComposerField): UiTreeNode {
-  return {
+  return metadataSourceFieldNode(field, {
     key: `metadata:field:${field.id}`,
-    title: field.title,
-    secondary: [
-      field.fieldName,
-      field.platformReadOnly ? '只读' : '',
-      field.referenceModuleAlias ? '模块引用' : '',
-    ]
-      .filter(Boolean)
-      .join(' · '),
     actions: [
       {
         key: 'add',
@@ -972,8 +959,7 @@ function metadataFieldNode(field: PageComposerField): UiTreeNode {
         ],
       },
     ],
-    isLeaf: field.expandable ? false : true,
-  };
+  });
 }
 
 async function ensureReferencePaths(fieldNames: readonly string[]) {
@@ -2305,50 +2291,32 @@ function openPropertyDrawer() {
     </div>
     <ManagementWorkspace class="page-composition-workspace__body" layout="composer" :explorer-count="2">
       <ManagementExplorerColumn collapsible :title="paletteTitle">
-        <RecordExplorerPanel
+        <MetadataSourceTree
           v-model:search-keyword="fieldKeyword"
+          v-model:show-system-fields="showSystemFields"
           :title="paletteTitle"
-          search-placeholder="搜索字段"
           :searchable="editorMode === 'fields'"
           :refresh-disabled="isMutating"
+          :loading="loading && !relation"
+          :unavailable="!relation"
+          unavailable-description="页面编排仅面向已发布主元数据；当前模块暂无可编排主实体"
+          v-model:expanded-keys="metadataExpandedKeys"
+          :nodes="metadataTreeNodes"
+          :load-children="loadReferenceChildren"
+          :reload-key="metadataTreeReloadKey"
+          :selected-key="selectedMetadataTreeKey"
+          :draggable="!isMutating"
+          :drag-payload-type="PAGE_COMPOSITION_DRAG_PAYLOAD_TYPE"
+          :drag-payload-of="metadataDragPayload"
+          :can-drag="canDragMetadataNode"
+          data-testid="page-composer-metadata-tree"
           @refresh="loadMetadataTree"
+          @select="selectMetadataNode"
+          @action="addMetadataNode"
         >
-          <template v-if="editorMode === 'fields'" #utility-actions>
-            <label class="page-composition-system-fields-toggle">
-              <span>系统字段</span>
-              <UiSwitch
-                v-model:checked="showSystemFields"
-                size="small"
-                :title="showSystemFields ? '隐藏系统字段' : '显示系统字段'"
-                :aria-label="showSystemFields ? '隐藏系统字段' : '显示系统字段'"
-              />
-            </label>
-          </template>
-          <UiSpin v-if="loading && !relation" tip="加载主实体字段" />
-          <UiEmpty
-            v-else-if="!relation"
-            description="页面编排仅面向已发布主元数据；当前模块暂无可编排主实体"
-          />
-          <div v-else class="metadata-tree" data-testid="page-composer-metadata-tree">
-            <UiTree
-              v-model:expanded-keys="metadataExpandedKeys"
-              :nodes="metadataTreeNodes"
-              :load-children="loadReferenceChildren"
-              :reload-key="metadataTreeReloadKey"
-              :selected-key="selectedMetadataTreeKey"
-              :draggable="!isMutating"
-              :drag-operations="['copy']"
-              :drag-payload-type="PAGE_COMPOSITION_DRAG_PAYLOAD_TYPE"
-              :drag-payload-of="metadataDragPayload"
-              :can-drag="canDragMetadataNode"
-              :allow-drop="() => false"
-              @select="selectMetadataNode"
-              @action="addMetadataNode"
-            />
-            <UiEmpty v-if="editorMode === 'actions' && !moduleActions.length" description="暂无模块动作" />
-            <UiEmpty v-if="editorMode === 'fields' && !visibleFields.length" description="暂无可编排字段" />
-          </div>
-        </RecordExplorerPanel>
+          <UiEmpty v-if="editorMode === 'actions' && !moduleActions.length" description="暂无模块动作" />
+          <UiEmpty v-if="editorMode === 'fields' && !visibleFields.length" description="暂无可编排字段" />
+        </MetadataSourceTree>
       </ManagementExplorerColumn>
 
       <ManagementExplorerColumn collapsible :title="structureTitle">
@@ -2724,16 +2692,6 @@ function openPropertyDrawer() {
   min-width: 140px;
 }
 
-.page-composition-system-fields-toggle {
-  display: inline-flex;
-  flex: 0 0 auto;
-  align-items: center;
-  gap: 6px;
-  color: var(--muyun-text-muted);
-  font-size: 12px;
-  white-space: nowrap;
-}
-
 .page-composition-conflict {
   display: flex;
   flex-wrap: wrap;
@@ -2760,7 +2718,6 @@ function openPropertyDrawer() {
   flex: 0 0 auto;
 }
 
-.metadata-tree,
 .page-composition-structure {
   display: flex;
   flex-direction: column;
@@ -2768,25 +2725,18 @@ function openPropertyDrawer() {
   min-height: 0;
   overflow: hidden;
 }
-.metadata-tree > :deep(.ui-tree) {
-  flex: 1 1 auto;
-}
-.metadata-tree :deep(.ant-tree),
 .page-composition-structure :deep(.ant-tree) {
   flex: 0 0 auto;
   min-height: 0;
   overflow: visible;
 }
 /* Keep node names legible beside stable inline action slots in the compact composer. */
-.metadata-tree :deep(.ant-tree-indent-unit),
 .page-composition-structure :deep(.ant-tree-indent-unit) {
   width: 16px;
 }
-.metadata-tree :deep(.ui-record-explorer-item-title),
 .page-composition-structure :deep(.ui-record-explorer-item-title) {
   flex-shrink: 0;
 }
-.metadata-tree :deep(.ui-record-explorer-item-secondary),
 .page-composition-structure :deep(.ui-record-explorer-item-secondary) {
   flex-shrink: 4;
 }
