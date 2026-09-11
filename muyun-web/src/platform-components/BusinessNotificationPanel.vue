@@ -83,52 +83,59 @@ async function run(notification: WebBusinessNotification, action: WebBusinessNot
       >
         <UiIcon name="close" />
       </button>
-      <div class="business-notification-copy">
-        <header class="business-notification-header">
-          <span class="business-notification-status-dot" aria-hidden="true" />
-          <h2>{{ notification.title }}</h2>
-          <DateTimeText
-            v-if="notification.occurredAt"
-            class="business-notification-time"
-            :value="notification.occurredAt"
-          />
-        </header>
-        <p v-if="notification.subtitle" class="business-notification-subtitle">{{ notification.subtitle }}</p>
-        <p class="business-notification-content">{{ notification.content }}</p>
-        <div v-if="notification.actions.length" class="business-notification-actions">
-          <div v-if="actionsFor(notification, 'leading').length" class="business-notification-action-region">
-            <UiActionButton
-              v-for="action in actionsFor(notification, 'leading')"
-              :key="action.key"
-              density="compact"
-              :emphasis="action === notification.actions[0] ? 'primary' : 'secondary'"
-              :intent="action.kind !== 'navigate' && action.danger ? 'danger' : 'normal'"
-              :loading="executing === `${notification.id}:${action.key}`"
-              @click="run(notification, action)"
+      <div class="business-notification-card-surface">
+        <div class="business-notification-copy">
+          <header class="business-notification-header">
+            <span class="business-notification-status-dot" aria-hidden="true" />
+            <h2>{{ notification.title }}</h2>
+            <DateTimeText
+              v-if="notification.occurredAt"
+              class="business-notification-time"
+              :value="notification.occurredAt"
+            />
+          </header>
+          <p v-if="notification.subtitle" class="business-notification-subtitle">
+            {{ notification.subtitle }}
+          </p>
+          <p class="business-notification-content">{{ notification.content }}</p>
+          <div v-if="notification.actions.length" class="business-notification-actions">
+            <div
+              v-if="actionsFor(notification, 'leading').length"
+              class="business-notification-action-region"
             >
-              {{ action.label }}
-            </UiActionButton>
-          </div>
-          <div
-            v-if="actionsFor(notification, 'trailing').length"
-            class="business-notification-action-region business-notification-action-region--trailing"
-          >
-            <UiActionButton
-              v-for="action in actionsFor(notification, 'trailing')"
-              :key="action.key"
-              density="compact"
-              emphasis="secondary"
-              :intent="action.kind !== 'navigate' && action.danger ? 'danger' : 'normal'"
-              :loading="executing === `${notification.id}:${action.key}`"
-              @click="run(notification, action)"
+              <UiActionButton
+                v-for="action in actionsFor(notification, 'leading')"
+                :key="action.key"
+                density="compact"
+                :emphasis="action === notification.actions[0] ? 'primary' : 'secondary'"
+                :intent="action.kind !== 'navigate' && action.danger ? 'danger' : 'normal'"
+                :loading="executing === `${notification.id}:${action.key}`"
+                @click="run(notification, action)"
+              >
+                {{ action.label }}
+              </UiActionButton>
+            </div>
+            <div
+              v-if="actionsFor(notification, 'trailing').length"
+              class="business-notification-action-region business-notification-action-region--trailing"
             >
-              {{ action.label }}
-            </UiActionButton>
+              <UiActionButton
+                v-for="action in actionsFor(notification, 'trailing')"
+                :key="action.key"
+                density="compact"
+                emphasis="secondary"
+                :intent="action.kind !== 'navigate' && action.danger ? 'danger' : 'normal'"
+                :loading="executing === `${notification.id}:${action.key}`"
+                @click="run(notification, action)"
+              >
+                {{ action.label }}
+              </UiActionButton>
+            </div>
           </div>
         </div>
-      </div>
-      <div v-if="shouldShowAccessory(notification)" class="business-notification-accessory">
-        <slot name="accessory" :notification="notification" />
+        <div v-if="shouldShowAccessory(notification)" class="business-notification-accessory">
+          <slot name="accessory" :notification="notification" />
+        </div>
       </div>
     </article>
     <button
@@ -161,24 +168,43 @@ async function run(notification: WebBusinessNotification, action: WebBusinessNot
 }
 .business-notification-card {
   --business-notification-accent: var(--muyun-theme-base);
+  --business-notification-axis-width: 3px;
   --business-notification-header-indent: 17px;
   --business-notification-header-right-gutter: 0px;
+  position: relative;
+  border-radius: 12px;
+  box-shadow: 0 16px 40px rgb(15 23 42 / 16%);
+  pointer-events: auto;
+  animation: notification-shadow-arrive 0.16s ease-out 0.6864s both;
+}
+.business-notification-card-surface {
   position: relative;
   display: grid;
   gap: 9px;
   padding: 18px;
   border: 1px solid color-mix(in srgb, var(--business-notification-accent) 40%, var(--muyun-border));
-  border-left: 4px solid var(--business-notification-accent);
+  border-left: var(--business-notification-axis-width) solid var(--business-notification-accent);
   border-radius: 12px;
   background: var(--muyun-surface);
-  box-shadow: 0 16px 40px rgb(15 23 42 / 16%);
-  pointer-events: auto;
-  animation: notification-arrive 0.2s ease-out;
+  animation: notification-unfold 0.6864s cubic-bezier(0.22, 0.8, 0.2, 1) both;
+}
+.business-notification-card::before {
+  position: absolute;
+  z-index: 2;
+  top: 0;
+  bottom: 0;
+  right: 0;
+  width: var(--business-notification-axis-width);
+  border-radius: 8px 0 0 8px;
+  background: var(--business-notification-accent);
+  content: '';
+  pointer-events: none;
+  animation: notification-axis-unfold 0.6864s cubic-bezier(0.22, 0.8, 0.2, 1) both;
 }
 .business-notification-card--danger {
   --business-notification-accent: var(--muyun-danger-text);
 }
-.business-notification-card--with-accessory {
+.business-notification-card--with-accessory .business-notification-card-surface {
   --business-notification-accessory-width: 112px;
   grid-template-columns: minmax(0, 1fr);
   min-height: 168px;
@@ -290,7 +316,9 @@ h2 {
   opacity: 0;
   pointer-events: none;
   transform: translate(2px, -2px);
-  transition: opacity 0.16s ease, transform 0.16s ease;
+  transition:
+    opacity 0.16s ease,
+    transform 0.16s ease;
 }
 .business-notification-card:hover .business-notification-close,
 .business-notification-card:focus-within .business-notification-close {
@@ -301,6 +329,13 @@ h2 {
 .business-notification-close:hover {
   background: color-mix(in srgb, var(--muyun-danger-text) 16%, var(--muyun-danger-bg));
   color: var(--muyun-danger-text);
+}
+@media (hover: none) {
+  .business-notification-close {
+    opacity: 1;
+    pointer-events: auto;
+    transform: none;
+  }
 }
 .business-notification-more {
   justify-self: end;
@@ -316,14 +351,61 @@ h2 {
 .business-notification-more:hover {
   color: var(--muyun-primary);
 }
-@keyframes notification-arrive {
+@keyframes notification-unfold {
+  0% {
+    clip-path: inset(100% 0 0 100%);
+  }
+  48.5% {
+    clip-path: inset(0 0 0 100%);
+  }
+  100% {
+    clip-path: inset(0);
+  }
+}
+@keyframes notification-shadow-arrive {
   from {
-    opacity: 0;
-    transform: translateY(12px) scale(0.98);
+    box-shadow: 0 16px 40px rgb(15 23 42 / 0%);
   }
   to {
+    box-shadow: 0 16px 40px rgb(15 23 42 / 16%);
+  }
+}
+@keyframes notification-axis-unfold {
+  0% {
+    top: 100%;
+    bottom: 0;
+    right: 0;
+  }
+  48.5% {
+    top: 0;
+    bottom: 0;
+    right: 0;
     opacity: 1;
-    transform: none;
+  }
+  99% {
+    top: 0;
+    bottom: 0;
+    right: calc(100% - var(--business-notification-axis-width));
+    opacity: 1;
+  }
+  100% {
+    top: 0;
+    bottom: 0;
+    right: calc(100% - var(--business-notification-axis-width));
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .business-notification-card,
+  .business-notification-card-surface,
+  .business-notification-card::before {
+    animation-duration: 0.01ms;
+  }
+  .business-notification-card {
+    animation-delay: 0s;
+  }
+  .business-notification-close {
+    transition: none;
   }
 }
 </style>
