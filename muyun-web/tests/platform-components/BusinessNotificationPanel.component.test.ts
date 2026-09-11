@@ -62,7 +62,7 @@ describe('BusinessNotificationPanel', () => {
     });
 
     const cards = wrapper.findAll('.business-notification-card');
-    expect(cards[0].classes()).toContain('business-notification-card--success');
+    expect(cards[0].classes()).toContain('business-notification-card--default');
     expect(cards[1].classes()).toContain('business-notification-card--danger');
     expect(cards[2].classes()).toContain('business-notification-card--default');
     expect(cards[0].get('.business-notification-time').attributes('datetime')).toBe(
@@ -70,5 +70,23 @@ describe('BusinessNotificationPanel', () => {
     );
     expect(cards[1].find('.business-notification-time').exists()).toBe(false);
     expect(cards[0].find('.business-notification-status-dot').exists()).toBe(true);
+  });
+
+  it('renders a consumer-provided accessory only for opted-in notifications', () => {
+    const wrapper = mount(BusinessNotificationPanel, {
+      props: {
+        notifications: [notification('helmet-online', true), notification('ordinary', true)],
+        hasAccessory: (item: WebBusinessNotification) => item.id === 'helmet-online',
+        executeAction: () => undefined,
+      },
+      slots: {
+        accessory: '<div class="notification-test-accessory">小地图</div>',
+      },
+    });
+
+    const cards = wrapper.findAll('.business-notification-card');
+    expect(cards[0].classes()).toContain('business-notification-card--with-accessory');
+    expect(cards[0].get('.notification-test-accessory').text()).toBe('小地图');
+    expect(cards[1].find('.business-notification-accessory').exists()).toBe(false);
   });
 });
