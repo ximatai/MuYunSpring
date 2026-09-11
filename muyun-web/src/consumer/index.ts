@@ -88,6 +88,7 @@ export {
 export { defaultUiThemeSkinId, UiThemeProvider, uiThemeSkinById, uiThemeSkins } from '../vue-ui-antdv/index';
 export type { UiThemeSkin, UiThemeSkinId } from '../vue-ui-antdv/index';
 export { default as DateTimeText } from '../platform-components/DateTimeText.vue';
+export { default as BusinessNotificationPanel } from '../platform-components/BusinessNotificationPanel.vue';
 export { default as FileSizeText } from '../platform-components/FileSizeText.vue';
 export { default as DrawerOperationBar } from '../platform-components/DrawerOperationBar.vue';
 export { default as RecordDetailDrawer } from '../platform-components/RecordDetailDrawer.vue';

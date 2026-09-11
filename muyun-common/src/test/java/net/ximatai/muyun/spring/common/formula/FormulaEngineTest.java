@@ -32,6 +32,8 @@ class FormulaEngineTest {
         assertThat(engine.evaluateBoolean("{amount} >= 100 && {discount} == 20", data)).isTrue();
         assertThat(engine.evaluateValue("CONCAT(UPPER({name}), '-', ROUND(12.345, 2))", data))
                 .isEqualTo("CONTRACT-12.35");
+        assertThat(engine.evaluateValue("FORMAT_DECIMAL(12.3, 2)", data)).isEqualTo("12.30");
+        assertThat(engine.evaluateValue("FORMAT_DECIMAL('', 2)", data)).isEqualTo("");
         assertThat(engine.evaluateValue("IF(ISNULL({missing}), 'empty', 'filled')", data)).isEqualTo("empty");
     }
 
@@ -56,12 +58,44 @@ class FormulaEngineTest {
         assertThat(result.changedFields()).containsExactly("netAmount", "totalQty");
         assertThat(main).containsEntry("netAmount", 85d);
         assertThat(main).containsEntry("totalQty", 5d);
+        assertThat(engine.evaluateValue("COUNT({items.qty})", data)).isEqualTo(2L);
+        assertThat(engine.evaluateValue("AVG({items.price})", data)).isEqualTo(15d);
+        assertThat(engine.evaluateValue("MAX({items.price})", data)).isEqualTo(20d);
+        assertThat(engine.evaluateValue("MIN({items.price})", data)).isEqualTo(10d);
+    }
+
+    @Test
+    void shouldRoundAndFormatDecimalsWithHalfUpSemantics() {
+        FormulaRuntimeData data = FormulaRuntimeData.of(Map.of());
+        assertThat(engine.evaluateValue("ROUND(1.005, 2)", data)).isEqualTo(1.01d);
+        assertThat(engine.evaluateValue("ROUND(2.675, 2)", data)).isEqualTo(2.68d);
+        assertThat(engine.evaluateValue("ROUND(-1.005, 2)", data)).isEqualTo(-1.01d);
+        assertThat(engine.evaluateValue("FORMAT_DECIMAL(1.005, 2)", data)).isEqualTo("1.01");
+        assertThat(engine.evaluateValue("FORMAT_DECIMAL(2.675, 2)", data)).isEqualTo("2.68");
+        assertThat(engine.evaluateValue("FORMAT_DECIMAL(-1.005, 2)", data)).isEqualTo("-1.01");
+    }
+
+    @Test
+    void shouldExposeAggregateValueInputsWithoutIncludingAggregatePredicates() {
+        assertThat(engine.aggregateValueFieldReferences(
+                "SUM({lines.amount}, WHERE({lines.enabled} == true)) + COUNT({lines.name})"))
+                .containsEntry("lines.amount", Set.of("SUM"))
+                .containsEntry("lines.name", Set.of("COUNT"))
+                .doesNotContainKey("lines.enabled");
     }
 
     @Test
     void shouldExposeReferencedFormulaFieldsFromParsedExpression() {
         assertThat(engine.referencedFields("{ total } = SUM({ items.lineAmount } = { items.qty } * {items.price})"))
                 .containsExactlyInAnyOrder("total", "items.lineAmount", "items.qty", "items.price");
+    }
+
+    @Test
+    void shouldDistinguishAggregateChildFieldsFromScalarDottedInputs() {
+        assertThat(engine.nonAggregateChildFieldReferences("SUM({lines.amount}) + {supplierId.creditLimit}"))
+                .containsExactly("supplierId.creditLimit");
+        assertThat(engine.nonAggregateChildFieldReferences("{lines.amount} + 1"))
+                .containsExactly("lines.amount");
     }
 
     @Test

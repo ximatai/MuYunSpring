@@ -60,6 +60,19 @@ export class FormulaRuntime {
     });
   }
 
+  /**
+   * Evaluates one server-issued, read-only form predicate. An invalid descriptor fails open so a
+   * client cannot claim that an unverified rule was enforced; persistence still reaches the
+   * authoritative server validator.
+   */
+  evaluateFormValidation(program: FormulaProgram | undefined, draft: FormulaRecord): boolean | undefined {
+    if (!program || program.schemaVersion !== 1 || program.profile !== 'FORM_VALIDATION' || !program.root)
+      return undefined;
+    if (!isValidFormValidationNode(program.root, 1, { count: 0 })) return undefined;
+    const value = this.evaluateComputeNode(program.root, draft, 1, { count: 0 });
+    return value === INVALID_FORMULA_VALUE ? undefined : this.toBoolean(value);
+  }
+
   /** Evaluates a row-to-row assignment in the changed row's scope without mutating any drafts. */
   evaluateRelationFormCompute(
     program: FormulaProgram | undefined,
@@ -236,6 +249,18 @@ export class FormulaRuntime {
       }
     }
     if (node.kind === 'FUNCTION') {
+      if (['SUM', 'AVG', 'COUNT', 'MAX', 'MIN'].includes(node.operator ?? '')) {
+        if (node.arguments.length !== 1) return INVALID_FORMULA_VALUE;
+        const bucket = childAggregateValues(node.arguments[0], record);
+        if (bucket === undefined) return INVALID_FORMULA_VALUE;
+        if (node.operator === 'COUNT') return bucket.filter((value) => value != null && value !== '').length;
+        const numbers = bucket.map(toFormulaNumber);
+        if (node.operator === 'SUM') return numbers.reduce((total, value) => total + value, 0);
+        if (node.operator === 'AVG')
+          return numbers.length ? numbers.reduce((total, value) => total + value, 0) / numbers.length : 0;
+        if (node.operator === 'MAX') return numbers.length ? Math.max(...numbers) : 0;
+        return numbers.length ? Math.min(...numbers) : 0;
+      }
       if ((node.operator === 'PRESENT' || node.operator === 'ISNULL') && node.arguments.length === 1) {
         const value = this.evaluateComputeNode(node.arguments[0], record, depth + 1, budget);
         if (value === INVALID_FORMULA_VALUE) return value;
@@ -252,6 +277,66 @@ export class FormulaRuntime {
           if (equalsFormulaLoose(value, candidate)) return true;
         }
         return false;
+      }
+      const args = node.arguments.map((argument) =>
+        this.evaluateComputeNode(argument, record, depth + 1, budget),
+      );
+      if (args.some((argument) => argument === INVALID_FORMULA_VALUE)) return INVALID_FORMULA_VALUE;
+      const values = args as FormulaValue[];
+      switch (node.operator) {
+        case 'ROUND':
+          return decimalRound(values[0], decimalScale(values[1]));
+        case 'FORMAT_DECIMAL': {
+          if (values[0] == null || values[0] === '') return '';
+          const scale = decimalScale(values[1]);
+          return scale === undefined
+            ? INVALID_FORMULA_VALUE
+            : decimalFixedHalfUp(toFormulaNumber(values[0]), scale);
+        }
+        case 'TODAY':
+          return values.length === 0 ? utcDateString(Date.now()) : INVALID_FORMULA_VALUE;
+        case 'NOW':
+          return values.length === 0 ? utcSecondString(Date.now()) : INVALID_FORMULA_VALUE;
+        case 'YEAR':
+        case 'MONTH':
+        case 'DAY': {
+          if (values.length !== 1) return INVALID_FORMULA_VALUE;
+          const date = formulaDateTime(values[0]);
+          if (date == null) return 0;
+          const parsed = new Date(date);
+          return node.operator === 'YEAR'
+            ? parsed.getUTCFullYear()
+            : node.operator === 'MONTH'
+              ? parsed.getUTCMonth() + 1
+              : parsed.getUTCDate();
+        }
+        case 'DATE_ADD':
+        case 'DATE_SUB': {
+          if (values.length !== 2) return INVALID_FORMULA_VALUE;
+          const days = integerFormulaValue(values[1]);
+          if (days === undefined) return INVALID_FORMULA_VALUE;
+          const base = dateOnlyMillis(values[0]);
+          if (base == null) return values[0] == null || values[0] === '' ? '' : INVALID_FORMULA_VALUE;
+          return utcDateString(base + (node.operator === 'DATE_ADD' ? days : -days) * 86_400_000);
+        }
+        case 'DATETIME_ADD':
+        case 'DATETIME_SUB': {
+          if (values.length !== 3) return INVALID_FORMULA_VALUE;
+          const amount = integerFormulaValue(values[1]);
+          const base = utcSecondMillis(values[0]);
+          const unit = typeof values[2] === 'string' ? values[2].trim().toUpperCase() : '';
+          const millis = unitMillis(unit);
+          if (amount === undefined || base == null || millis == null) return INVALID_FORMULA_VALUE;
+          return utcSecondString(base + (node.operator === 'DATETIME_ADD' ? amount : -amount) * millis);
+        }
+        case 'DATE_DIFF_DAYS':
+        case 'DATE_DIFF_HOURS': {
+          if (values.length !== 2) return INVALID_FORMULA_VALUE;
+          const start = formulaDateTime(values[0]);
+          const end = formulaDateTime(values[1]);
+          if (start == null || end == null) return 0;
+          return (end - start) / (node.operator === 'DATE_DIFF_DAYS' ? 86_400_000 : 3_600_000);
+        }
       }
     }
     return INVALID_FORMULA_VALUE;
@@ -307,6 +392,76 @@ const EMPTY_COMPUTE_RESULT: FormulaComputeResult = Object.freeze({
 
 function isValidWebUiRoot(node: FormulaNode): boolean {
   return node.kind !== 'VALUE' && node.kind !== 'FIELD' && isValidWebUiNode(node, 1, { count: 0 });
+}
+
+function isValidFormValidationNode(node: FormulaNode, depth: number, budget: FormulaBudget): boolean {
+  if (++budget.count > 128 || depth > 16 || !Array.isArray(node.arguments)) return false;
+  if (node.kind === 'VALUE') {
+    return (
+      node.operator == null &&
+      node.field == null &&
+      node.arguments.length === 0 &&
+      (node.value === null ||
+        typeof node.value === 'boolean' ||
+        (typeof node.value === 'number' && Number.isFinite(node.value)) ||
+        (typeof node.value === 'string' && node.value.length <= 256))
+    );
+  }
+  if (node.kind === 'FIELD') {
+    return node.operator == null && node.value == null && node.arguments.length === 0 && isDirectField(node);
+  }
+  if (node.kind === 'UNARY') {
+    return (
+      node.field == null &&
+      node.value == null &&
+      node.arguments.length === 1 &&
+      ['!', '+', '-'].includes(node.operator ?? '') &&
+      isValidFormValidationNode(node.arguments[0], depth + 1, budget)
+    );
+  }
+  if (node.kind === 'BINARY') {
+    return (
+      node.field == null &&
+      node.value == null &&
+      node.arguments.length === 2 &&
+      isComputeBinaryOperator(node.operator) &&
+      isValidFormValidationNode(node.arguments[0], depth + 1, budget) &&
+      isValidFormValidationNode(node.arguments[1], depth + 1, budget)
+    );
+  }
+  if (node.kind !== 'FUNCTION' || node.field != null || node.value != null) return false;
+  const args = node.arguments;
+  if (['PRESENT', 'ISNULL', 'YEAR', 'MONTH', 'DAY'].includes(node.operator ?? '')) {
+    return args.length === 1 && isValidFormValidationNode(args[0], depth + 1, budget);
+  }
+  if (
+    ['ROUND', 'FORMAT_DECIMAL', 'DATE_ADD', 'DATE_SUB', 'DATE_DIFF_DAYS', 'DATE_DIFF_HOURS'].includes(
+      node.operator ?? '',
+    )
+  ) {
+    return (
+      args.length === 2 && args.every((argument) => isValidFormValidationNode(argument, depth + 1, budget))
+    );
+  }
+  if (['DATETIME_ADD', 'DATETIME_SUB'].includes(node.operator ?? '')) {
+    return (
+      args.length === 3 && args.every((argument) => isValidFormValidationNode(argument, depth + 1, budget))
+    );
+  }
+  if (['NOW', 'TODAY'].includes(node.operator ?? '')) return args.length === 0;
+  if (node.operator === 'IN') {
+    return (
+      args.length >= 2 &&
+      args.length <= 21 &&
+      isValidFormValidationNode(args[0], depth + 1, budget) &&
+      args
+        .slice(1)
+        .every(
+          (argument) => argument.kind === 'VALUE' && isValidFormValidationNode(argument, depth + 1, budget),
+        )
+    );
+  }
+  return false;
 }
 
 function isValidPageTextNode(node: FormulaNode, depth: number, budget: FormulaBudget): boolean {
@@ -400,6 +555,112 @@ function isWebUiField(node: FormulaNode, depth: number, budget: FormulaBudget): 
 
 function isWebUiLiteral(node: FormulaNode, depth: number, budget: FormulaBudget): boolean {
   return isValidWebUiNode(node, depth, budget) && node.kind === 'VALUE';
+}
+
+function decimalScale(value: FormulaValue): number | undefined {
+  const scale = integerFormulaValue(value);
+  return scale !== undefined && scale >= 0 && scale <= 12 ? scale : undefined;
+}
+
+function decimalRound(
+  value: FormulaValue,
+  scale: number | undefined,
+): FormulaValue | typeof INVALID_FORMULA_VALUE {
+  if (scale === undefined) return INVALID_FORMULA_VALUE;
+  return Number(decimalFixedHalfUp(toFormulaNumber(value), scale));
+}
+
+/** Mirrors BigDecimal.valueOf(double).setScale(scale, HALF_UP) without floating-point scaling. */
+function decimalFixedHalfUp(value: number, scale: number): string {
+  const { negative, integer, fraction } = decimalParts(value);
+  const keptFraction = fraction.slice(0, scale).padEnd(scale, '0');
+  const discarded = fraction.slice(scale);
+  let digits = `${integer}${keptFraction}`.replace(/^0+(?=\d)/, '') || '0';
+  if (discarded[0] != null && discarded[0] >= '5') digits = (BigInt(digits) + 1n).toString();
+  const width = Math.max(1, scale + 1);
+  digits = digits.padStart(width, '0');
+  const whole = scale === 0 ? digits : digits.slice(0, -scale);
+  const decimal = scale === 0 ? whole : `${whole}.${digits.slice(-scale)}`;
+  return negative && digits !== '0'.repeat(digits.length) ? `-${decimal}` : decimal;
+}
+
+function decimalParts(value: number): { negative: boolean; integer: string; fraction: string } {
+  const negative = value < 0;
+  const source = String(Math.abs(value));
+  const [coefficient, exponentText] = source.toLowerCase().split('e');
+  const exponent = exponentText == null ? 0 : Number(exponentText);
+  const [whole = '', fraction = ''] = coefficient.split('.');
+  const digits = `${whole}${fraction}` || '0';
+  const point = whole.length + exponent;
+  if (point <= 0) return { negative, integer: '0', fraction: `${'0'.repeat(-point)}${digits}` };
+  if (point >= digits.length)
+    return { negative, integer: `${digits}${'0'.repeat(point - digits.length)}`, fraction: '' };
+  return { negative, integer: digits.slice(0, point), fraction: digits.slice(point) };
+}
+
+function integerFormulaValue(value: FormulaValue): number | undefined {
+  const numeric = toFormulaNumber(value);
+  return Number.isSafeInteger(numeric) ? numeric : undefined;
+}
+
+function dateOnlyMillis(value: FormulaValue): number | undefined {
+  if (typeof value !== 'string' || !isIsoDate(value.trim())) return undefined;
+  const [year, month, day] = value.trim().split('-').map(Number);
+  return Date.UTC(year, month - 1, day);
+}
+
+function formulaDateTime(value: FormulaValue): number | undefined {
+  const date = dateOnlyMillis(value);
+  if (date != null) return date;
+  return utcSecondMillis(value);
+}
+
+function utcDateString(value: number): string {
+  return new Date(value).toISOString().slice(0, 10);
+}
+
+function utcSecondString(value: number): string {
+  return new Date(value).toISOString().replace(/\.\d{3}Z$/, 'Z');
+}
+
+function unitMillis(unit: string): number | undefined {
+  switch (unit) {
+    case 'DAY':
+      return 86_400_000;
+    case 'HOUR':
+      return 3_600_000;
+    case 'MINUTE':
+      return 60_000;
+    case 'SECOND':
+      return 1_000;
+    default:
+      return undefined;
+  }
+}
+
+function childAggregateValues(node: FormulaNode, record: FormulaRecord): FormulaValue[] | undefined {
+  if (
+    node.kind !== 'FIELD' ||
+    node.arguments.length !== 0 ||
+    typeof node.field !== 'string' ||
+    !/^[A-Za-z][A-Za-z0-9_]*\.[A-Za-z][A-Za-z0-9_]*$/.test(node.field)
+  )
+    return undefined;
+  const [tableKey, field] = node.field.split('.');
+  const rows = record[tableKey];
+  if (
+    !Array.isArray(rows) ||
+    !rows.every((row) => row != null && typeof row === 'object' && !Array.isArray(row))
+  )
+    return undefined;
+  const values: FormulaValue[] = [];
+  for (const row of rows) {
+    if (!Object.hasOwn(row, field)) return undefined;
+    const value = asFormulaValue((row as FormulaRecord)[field]);
+    if (value === undefined && (row as FormulaRecord)[field] !== undefined) return undefined;
+    values.push(value);
+  }
+  return values;
 }
 
 function normalizeComputeWriteValue(

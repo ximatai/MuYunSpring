@@ -4,6 +4,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.transaction.support.TransactionSynchronizationUtils;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 
@@ -42,6 +43,22 @@ class BusinessNotificationContractTest {
                 "reject", "拒绝", "mr.remote_support", "support-1", "knowledge/reject",
                 Map.of(), true, "确认拒绝？", true))
                 .withMessage("invalid business notification action code: knowledge/reject");
+    }
+
+    @Test
+    void shouldKeepPresentationMetadataOptionalForExistingCallers() {
+        BusinessNotification existingNotification = new BusinessNotification(
+                "notice-1", "demo.notice", "标题", null, "正文", true,
+                BusinessNotificationRecipients.none(), List.of());
+        Instant occurredAt = Instant.parse("2026-09-11T06:57:39Z");
+        BusinessNotification presenceNotification = new BusinessNotification(
+                "notice-2", "helmet.presence.online", "安全帽已上线", "设备：HELMET-LOCAL-001", "已连接到设备接入服务。",
+                true, BusinessNotificationRecipients.none(), List.of(), BusinessNotificationTone.SUCCESS, occurredAt);
+
+        assertThat(existingNotification.tone()).isNull();
+        assertThat(existingNotification.occurredAt()).isNull();
+        assertThat(presenceNotification.tone()).isEqualTo(BusinessNotificationTone.SUCCESS);
+        assertThat(presenceNotification.occurredAt()).isEqualTo(occurredAt);
     }
 
     @Test

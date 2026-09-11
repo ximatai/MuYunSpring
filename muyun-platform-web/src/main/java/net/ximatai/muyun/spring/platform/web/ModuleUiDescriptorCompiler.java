@@ -895,7 +895,8 @@ public final class ModuleUiDescriptorCompiler {
                 view.formGroups().stream().map(group -> new ResolvedFormGroupDescriptor(
                         group.groupCode(), group.title(), group.subtitle(),
                         group.fields().stream().map(ViewFieldDefinition::fieldRef).toList())).toList(),
-                compileFormComputeRules(view, fields)
+                compileFormComputeRules(view, fields),
+                BusinessRuleFormProjection.compileDslValidationRules(view.viewCode(), fields, view.businessRules())
         );
     }
 

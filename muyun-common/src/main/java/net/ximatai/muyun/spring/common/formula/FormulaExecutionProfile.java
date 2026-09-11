@@ -12,5 +12,7 @@ public enum FormulaExecutionProfile {
      * A deterministic, browser-local main-record calculation. The program itself only describes
      * a patch; trigger ordering, dirty-value ownership and persistence remain the caller's job.
      */
-    FORM_COMPUTE
+    FORM_COMPUTE,
+    /** A deterministic, browser-local predicate used only as a pre-save form check. */
+    FORM_VALIDATION
 }

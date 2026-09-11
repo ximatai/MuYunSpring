@@ -1,4 +1,6 @@
 export {};
+export { default as FormulaExpressionEditor } from './FormulaExpressionEditor.vue';
+export type { FormulaExpressionField, FormulaExpressionFunction } from './formulaExpressionTokens';
 export { default as ApplicationScopeSwitcher } from './ApplicationScopeSwitcher.vue';
 export { default as BusinessNotificationPanel } from './BusinessNotificationPanel.vue';
 export { confirmAction } from '@muyun/vue-ui-antdv';
@@ -27,6 +29,7 @@ export { MANAGEMENT_WORKSPACE_LAYOUT, listDetailWorkspaceMinWidth } from './mana
 export { providePageLayout, usePageLayout } from './pageLayoutContext';
 export { default as RecordActionBar } from './RecordActionBar.vue';
 export { default as RecordQueryListSurface } from './RecordQueryListSurface.vue';
+export { default as RecordQueryEnumFilter } from './RecordQueryEnumFilter.vue';
 export { default as QueryGroupedSummary } from './QueryGroupedSummary.vue';
 export { default as AdaptiveHeaderActionBar } from './AdaptiveHeaderActionBar.vue';
 export type { HeaderActionItem } from './AdaptiveHeaderActionBar.vue';

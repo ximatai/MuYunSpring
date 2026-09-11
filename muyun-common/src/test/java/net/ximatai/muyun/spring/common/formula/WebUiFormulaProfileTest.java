@@ -75,14 +75,33 @@ class WebUiFormulaProfileTest {
     }
 
     @Test
+    void compilesDateNumericFormatAndSingleTableAggregateProgramsForFormCompute() {
+        FormulaProgram dateProgram = engine.compileFormComputeProgram(
+                "{remindDate} = DATE_ADD({signedDate}, 7)");
+        FormulaProgram timeProgram = engine.compileFormComputeProgram(
+                "{remindAt} = DATETIME_ADD({signedAt}, 2, 'HOUR')");
+        FormulaProgram formatProgram = engine.compileFormComputeProgram(
+                "{displayAmount} = FORMAT_DECIMAL({amount}, 2)");
+        FormulaProgram aggregateProgram = engine.compileFormComputeProgram(
+                "{totalAmount} = SUM({lines.amount})");
+
+        assertThat(dateProgram.referencedFields()).containsExactlyInAnyOrder("remindDate", "signedDate");
+        assertThat(timeProgram.referencedFields()).containsExactlyInAnyOrder("remindAt", "signedAt");
+        assertThat(formatProgram.referencedFields()).containsExactlyInAnyOrder("displayAmount", "amount");
+        assertThat(aggregateProgram.referencedFields()).containsExactlyInAnyOrder("totalAmount", "lines.amount");
+    }
+
+    @Test
     void rejectsUnsafeFormComputeProgramsBeforeTheyReachAClient() {
         assertThatThrownBy(() -> engine.compileFormComputeProgram("{items.amount} = 1"))
                 .hasMessageContaining("FORM_COMPUTE profile");
-        assertThatThrownBy(() -> engine.compileFormComputeProgram("{amount} = NOW()"))
-                .hasMessageContaining("FORM_COMPUTE profile");
         assertThatThrownBy(() -> engine.compileFormComputeProgram("{amount} = ({other} = 1)"))
                 .hasMessageContaining("FORM_COMPUTE profile");
-        assertThatThrownBy(() -> engine.compileFormComputeProgram("{amount} = SUM({items.price})"))
+        assertThatThrownBy(() -> engine.compileFormComputeProgram("{amount} = SUM({amount})"))
+                .hasMessageContaining("FORM_COMPUTE profile");
+        assertThatThrownBy(() -> engine.compileFormComputeProgram("{amount} = SUM({items.amount}, {items.tax})"))
+                .hasMessageContaining("FORM_COMPUTE profile");
+        assertThatThrownBy(() -> engine.compileFormComputeProgram("{amount} = FORMAT_DECIMAL({amount}, 13)"))
                 .hasMessageContaining("FORM_COMPUTE profile");
         assertThatThrownBy(() -> engine.compileFormComputeProgram("{amount} = NaN"))
                 .hasMessageContaining("FORM_COMPUTE profile");
@@ -96,6 +115,18 @@ class WebUiFormulaProfileTest {
 
         assertThat(program.root().arguments().get(1).arguments().getFirst().value()).isEqualTo(0.001d);
         assertThat(engine.evaluateValue("-1e-3", FormulaRuntimeData.of(Map.of()))).isEqualTo(-0.001d);
+    }
+
+    @Test
+    void compilesPortableMainRecordPredicateForBrowserPreSaveValidation() {
+        FormulaProgram program = engine.compileFormValidationProgram("{contractAmount} > 0 && PRESENT({contractName})");
+
+        assertThat(program.profile()).isEqualTo(FormulaExecutionProfile.FORM_VALIDATION);
+        assertThat(program.referencedFields()).containsExactlyInAnyOrder("contractAmount", "contractName");
+        assertThatThrownBy(() -> engine.compileFormValidationProgram("{contractAmount} = 1"))
+                .hasMessageContaining("FORM_VALIDATION profile");
+        assertThatThrownBy(() -> engine.compileFormValidationProgram("SUM({lines.amount}) > 0"))
+                .hasMessageContaining("FORM_VALIDATION profile");
     }
 
     @Test

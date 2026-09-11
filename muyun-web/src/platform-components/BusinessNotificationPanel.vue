@@ -2,6 +2,7 @@
 import { computed, ref } from 'vue';
 import { UiActionButton, UiIcon } from '@muyun/vue-ui-antdv';
 import type { WebBusinessNotification, WebBusinessNotificationAction } from '@muyun/web-contracts';
+import DateTimeText from './DateTimeText.vue';
 
 defineOptions({ name: 'BusinessNotificationPanel' });
 
@@ -32,6 +33,10 @@ function actionsFor(notification: WebBusinessNotification, placement: 'leading' 
   return notification.actions.filter((action) => (action.placement ?? 'leading') === placement);
 }
 
+function toneFor(notification: WebBusinessNotification) {
+  return notification.tone === 'success' || notification.tone === 'danger' ? notification.tone : 'default';
+}
+
 async function run(notification: WebBusinessNotification, action: WebBusinessNotificationAction) {
   const key = `${notification.id}:${action.key}`;
   if (executing.value) return;
@@ -52,7 +57,12 @@ async function run(notification: WebBusinessNotification, action: WebBusinessNot
     aria-live="polite"
     aria-label="业务提醒"
   >
-    <article v-for="notification in visible" :key="notification.id" class="business-notification-card">
+    <article
+      v-for="notification in visible"
+      :key="notification.id"
+      class="business-notification-card"
+      :class="`business-notification-card--${toneFor(notification)}`"
+    >
       <button
         v-if="notification.dismissible"
         class="business-notification-close"
@@ -62,9 +72,16 @@ async function run(notification: WebBusinessNotification, action: WebBusinessNot
       >
         <UiIcon name="close" />
       </button>
-      <div class="business-notification-mark"><UiIcon name="notification" /></div>
       <div class="business-notification-copy">
-        <h2>{{ notification.title }}</h2>
+        <header class="business-notification-header">
+          <span class="business-notification-status-dot" aria-hidden="true" />
+          <h2>{{ notification.title }}</h2>
+          <DateTimeText
+            v-if="notification.occurredAt"
+            class="business-notification-time"
+            :value="notification.occurredAt"
+          />
+        </header>
         <p v-if="notification.subtitle" class="business-notification-subtitle">{{ notification.subtitle }}</p>
         <p class="business-notification-content">{{ notification.content }}</p>
         <div v-if="notification.actions.length" class="business-notification-actions">
@@ -119,8 +136,8 @@ async function run(notification: WebBusinessNotification, action: WebBusinessNot
   bottom: 24px;
   z-index: 1200;
   display: grid;
-  width: min(388px, calc(100vw - 32px));
-  gap: 10px;
+  width: min(480px, calc(100vw - 32px));
+  gap: 12px;
   pointer-events: none;
 }
 .business-notification-panel--expanded {
@@ -129,48 +146,64 @@ async function run(notification: WebBusinessNotification, action: WebBusinessNot
   pointer-events: auto;
 }
 .business-notification-card {
+  --business-notification-accent: var(--muyun-theme-base);
   position: relative;
   display: grid;
-  grid-template-columns: 34px minmax(0, 1fr);
-  gap: 12px;
-  padding: 20px 18px;
-  border: 1px solid var(--muyun-border);
-  border-radius: 14px;
+  gap: 9px;
+  padding: 18px;
+  border: 1px solid color-mix(in srgb, var(--business-notification-accent) 40%, var(--muyun-border));
+  border-left: 4px solid var(--business-notification-accent);
+  border-radius: 12px;
   background: var(--muyun-surface);
-  box-shadow: 0 18px 44px color-mix(in srgb, var(--muyun-text) 14%, transparent);
+  box-shadow: 0 16px 40px rgb(15 23 42 / 16%);
   pointer-events: auto;
   animation: notification-arrive 0.2s ease-out;
 }
-.business-notification-mark {
-  display: grid;
-  place-items: center;
-  width: 34px;
-  height: 34px;
-  border-radius: 10px;
-  color: var(--muyun-primary);
-  background: color-mix(in srgb, var(--muyun-primary) 12%, var(--muyun-surface));
+.business-notification-card--success {
+  --business-notification-accent: var(--muyun-success-text);
 }
-.business-notification-mark :deep(.anticon) {
-  font-size: 18px;
+.business-notification-card--danger {
+  --business-notification-accent: var(--muyun-danger-text);
 }
 .business-notification-copy {
   min-width: 0;
+}
+.business-notification-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding-right: 24px;
 }
 h2,
 p {
   margin: 0;
 }
 h2 {
-  margin-top: -2px;
-  padding-right: 20px;
   color: var(--muyun-text);
-  font-size: 14px;
-  line-height: 21px;
+  font-size: 16px;
+  line-height: 22px;
 }
-.business-notification-subtitle {
-  margin-top: 2px;
+.business-notification-status-dot {
+  width: 9px;
+  height: 9px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--business-notification-accent);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--business-notification-accent) 14%, transparent);
+}
+.business-notification-time {
+  margin-left: auto;
   color: var(--muyun-text-muted);
   font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  line-height: 20px;
+  white-space: nowrap;
+}
+.business-notification-subtitle {
+  color: var(--muyun-text-muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
 }
 .business-notification-content {
   margin-top: 8px;
@@ -186,9 +219,8 @@ h2 {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-top: 16px;
-  padding-top: 12px;
-  border-top: 1px solid var(--muyun-border);
+  gap: 8px;
+  margin-top: 2px;
 }
 .business-notification-action-region {
   display: flex;
@@ -224,6 +256,7 @@ h2 {
   color: var(--muyun-text-muted);
   background: transparent;
   cursor: pointer;
+  pointer-events: auto;
   font-size: 12px;
   text-align: right;
 }

@@ -111,6 +111,7 @@ function handlePageSizeChange(value: OptionValue | OptionValueList | null) {
 
 defineSlots<{
   operations?: () => unknown;
+  persistentQueries?: () => unknown;
   queryControls?: () => unknown;
   conditions?: () => unknown;
   beforeTable?: () => unknown;
@@ -131,12 +132,12 @@ defineSlots<{
     }"
   >
     <ManagementPanelHeader
-      v-if="headerVisible"
+      v-if="headerVisible && showTitle"
       class="record-query-list-header"
-      :title="showTitle ? title : ''"
-      :subtitle="showTitle ? subtitle : undefined"
-      :title-action-icon="showTitle ? titleActionIcon : undefined"
-      :title-action-title="showTitle ? titleActionTitle : undefined"
+      :title="title"
+      :subtitle="subtitle"
+      :title-action-icon="titleActionIcon"
+      :title-action-title="titleActionTitle"
       :title-action-disabled="titleActionDisabled"
       @title-action="emit('titleAction')"
     >
@@ -144,6 +145,7 @@ defineSlots<{
         <div class="record-query-list-actions">
           <div class="record-query-list-operation-actions"><slot name="operations" /></div>
           <div class="record-query-list-query-actions">
+            <slot name="persistentQueries" />
             <UiSearchInput
               v-if="quickSearchVisible"
               :value="quickSearchValue"
@@ -158,6 +160,24 @@ defineSlots<{
         </div>
       </template>
     </ManagementPanelHeader>
+    <header v-else-if="headerVisible" class="record-query-list-header record-query-list-header--untitled">
+      <div class="record-query-list-actions">
+        <div class="record-query-list-operation-actions"><slot name="operations" /></div>
+        <div class="record-query-list-query-actions">
+          <slot name="persistentQueries" />
+          <UiSearchInput
+            v-if="quickSearchVisible"
+            :value="quickSearchValue"
+            class="record-query-list-search"
+            :disabled="quickSearchDisabled"
+            :placeholder="quickSearchPlaceholder"
+            @update:value="emit('update:quickSearchValue', $event)"
+            @search="emit('quickSearch', $event)"
+          />
+          <slot name="queryControls" />
+        </div>
+      </div>
+    </header>
 
     <section v-if="$slots.conditions" class="record-query-list-conditions">
       <slot name="conditions" />
@@ -253,6 +273,7 @@ defineSlots<{
   border: 1px solid var(--muyun-border);
   border-radius: 8px;
   background: var(--muyun-surface);
+  container-type: inline-size;
 }
 
 .record-query-list-surface.is-embedded {
@@ -310,6 +331,18 @@ defineSlots<{
   width: clamp(150px, 20vw, 220px);
 }
 
+.record-query-list-header--untitled .record-query-list-actions {
+  flex: 1 1 auto;
+  width: 100%;
+  margin-left: 0;
+  justify-content: space-between;
+}
+
+.record-query-list-header--untitled .record-query-list-query-actions {
+  flex: 1 1 0;
+  margin-left: auto;
+}
+
 .record-query-list-conditions {
   grid-area: conditions;
 }
@@ -361,6 +394,24 @@ defineSlots<{
   width: 112px;
   max-width: 100%;
   min-width: 0;
+}
+
+@container (max-width: 600px) {
+  .record-query-list-header--untitled .record-query-list-actions {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .record-query-list-header--untitled .record-query-list-operation-actions {
+    flex: 1 1 100%;
+    flex-wrap: wrap;
+    max-width: 100%;
+  }
+
+  .record-query-list-header--untitled .record-query-list-query-actions {
+    flex: 1 1 100%;
+    margin-left: 0;
+  }
 }
 
 @media (max-width: 680px) {

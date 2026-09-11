@@ -33,6 +33,7 @@ import {
   parentRecordConstraints,
   applyReferenceDependencyClears,
   presentPlatformError,
+  presentPlatformMessage,
   recordPickerModeOf,
   providePageLayout,
   resolveRecordFormFields,
@@ -53,6 +54,7 @@ import type {
   MenuPageMode,
   ResolvedDetailRelationDescriptor,
   ResolvedFormComputeRuleDescriptor,
+  ResolvedFormValidationRuleDescriptor,
   ResolvedModuleUiDescriptor,
   ResolvedPageTreeResourceDescriptor,
   ResolvedPageTextDescriptor,
@@ -123,6 +125,12 @@ import {
   reuseEquivalentQueryValues,
 } from './pageContextRuntime';
 import { FormComputeCoordinator } from './formComputeCoordinator';
+import {
+  aggregateChildRelationCodes,
+  aggregateChildTriggers,
+  childAggregateRows as resolveChildAggregateRows,
+} from './childAggregateContext';
+import { FormValidationCoordinator } from './formValidationCoordinator';
 import { useModulePageBootstrap } from './composables/useModulePageBootstrap';
 import {
   useNavigatorRuntime,
@@ -326,6 +334,7 @@ const {
 const deleting = ref(false);
 const mainFormValid = ref(true);
 const relationDraftValid = ref(true);
+const incompleteAggregateChildRelations = ref(new Set<string>());
 const formValidationRequestKey = ref(0);
 const localEditFormValid = ref(true);
 function updateMainFormValidity(validity: { valid: boolean }) {
@@ -334,7 +343,20 @@ function updateMainFormValidity(validity: { valid: boolean }) {
 function updateEmbeddedChildren(relationField: string, records: QueryListRecord[]) {
   if (!editingRecord.value) return;
   if (JSON.stringify(editingRecord.value[relationField] ?? []) === JSON.stringify(records)) return;
-  editingRecord.value = { ...editingRecord.value, [relationField]: records };
+  const next = { ...editingRecord.value, [relationField]: records };
+  const descriptor = context.runtime.snapshot()?.uiDescriptor;
+  if (editingRecord.value.id != null && !Object.hasOwn(editingRecord.value, relationField)) {
+    incompleteAggregateChildRelations.value = new Set([
+      ...incompleteAggregateChildRelations.value,
+      ...aggregateChildRelationCodes(relationField, descriptor),
+    ]);
+  }
+  const rules = formComputeRulesOf(descriptor);
+  editingRecord.value = applyFormComputeAfterChanges(
+    next,
+    aggregateChildTriggers(relationField, descriptor, rules),
+    rules,
+  );
 }
 function updateRelationDraftValidity(valid: boolean) {
   relationDraftValid.value = valid;
@@ -345,6 +367,7 @@ function updateLocalEditFormValidity(validity: { valid: boolean }) {
 watch([() => editingRecord.value?.id, formSessionKey], () => {
   mainFormValid.value = true;
   relationDraftValid.value = true;
+  incompleteAggregateChildRelations.value = new Set();
 });
 watch(editorMode, (mode) => {
   if (mode !== 'edit') {
@@ -2175,6 +2198,16 @@ async function saveNavigatorRecord() {
     navigatorManagementFormValidationRequestKey.value += 1;
     return;
   }
+  if (
+    !passesFormValidation(
+      draft,
+      formValidationRulesOf(
+        level.context.runtime.snapshot()?.uiDescriptor,
+        level.descriptor.management?.editorSurface,
+      ),
+    )
+  )
+    return;
   const creating = navigatorManagementDetail.mode.value === 'create';
   if (level.context.can(creating ? 'create' : 'update') !== true) return;
   navigatorManagementDetail.saving.value = true;
@@ -2331,6 +2364,23 @@ function formViewOf(
   return uiDescriptor?.page?.detail.editor ?? uiDescriptor?.defaultEditor;
 }
 
+function formValidationRulesOf(
+  uiDescriptor: ResolvedModuleUiDescriptor | undefined,
+  editorSurface?: string,
+): readonly ResolvedFormValidationRuleDescriptor[] | undefined {
+  return formViewOf(uiDescriptor, editorSurface)?.formValidationRules ?? [];
+}
+
+function passesFormValidation(
+  draft: RecordFormRecord,
+  rules: readonly ResolvedFormValidationRuleDescriptor[] | undefined,
+): boolean {
+  const failure = new FormValidationCoordinator(rules).validate(draft);
+  if (!failure) return true;
+  presentPlatformMessage(failure.message, { source: 'module-formula-validation', phase: 'validation' });
+  return false;
+}
+
 function applyFormComputeAfterChange(
   draft: RecordFormRecord,
   fieldName: string,
@@ -2344,7 +2394,15 @@ function applyFormComputeAfterChanges(
   changedFields: readonly string[],
   rules: readonly ResolvedFormComputeRuleDescriptor[] | undefined,
 ): RecordFormRecord {
-  return new FormComputeCoordinator(rules).applyAfterChange(draft, changedFields);
+  return new FormComputeCoordinator(rules).applyAfterChange(
+    draft,
+    changedFields,
+    resolveChildAggregateRows(
+      draft,
+      context.runtime.snapshot()?.uiDescriptor,
+      incompleteAggregateChildRelations.value,
+    ),
+  );
 }
 
 async function createRecord(parentId?: string) {
@@ -2359,7 +2417,14 @@ async function createRecord(parentId?: string) {
   if (editingRecord.value) {
     editingRecord.value = new FormComputeCoordinator(
       formComputeRulesOf(context.runtime.snapshot()?.uiDescriptor),
-    ).applyOnCreate(editingRecord.value);
+    ).applyOnCreate(
+      editingRecord.value,
+      resolveChildAggregateRows(
+        editingRecord.value,
+        context.runtime.snapshot()?.uiDescriptor,
+        incompleteAggregateChildRelations.value,
+      ),
+    );
   }
 }
 
@@ -2385,6 +2450,7 @@ async function saveRecord() {
     formValidationRequestKey.value += 1;
     return;
   }
+  if (!passesFormValidation(draft, formValidationRulesOf(context.runtime.snapshot()?.uiDescriptor))) return;
   if (editorMode.value === 'create' ? context.can('create') !== true : context.can('update') !== true) {
     return;
   }

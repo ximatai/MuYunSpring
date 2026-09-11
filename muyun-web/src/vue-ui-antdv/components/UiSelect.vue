@@ -16,6 +16,8 @@ const props = withDefaults(
     showSearch?: boolean;
     filterOption?: boolean;
     loading?: boolean;
+    id?: string;
+    ariaLabel?: string;
   }>(),
   {
     value: undefined,
@@ -26,6 +28,8 @@ const props = withDefaults(
     showSearch: false,
     filterOption: true,
     loading: false,
+    id: undefined,
+    ariaLabel: undefined,
   },
 );
 
@@ -61,6 +65,8 @@ const searchListeners = computed(() =>
     :show-search="showSearch"
     :filter-option="filterOption"
     :loading="loading"
+    :id="id"
+    :aria-label="ariaLabel"
     :class="$attrs.class"
     :style="$attrs.style"
     v-on="searchListeners"

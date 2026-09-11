@@ -38,6 +38,7 @@ withDefaults(
 }
 
 .drawer-operation-bar-actions {
+  margin-inline-start: auto;
   display: inline-flex;
   flex: 0 0 auto;
   align-items: center;

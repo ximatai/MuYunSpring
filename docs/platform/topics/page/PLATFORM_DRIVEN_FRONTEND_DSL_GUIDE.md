@@ -224,7 +224,7 @@ list.querySummaries(summaries -> summaries.item("onlineUsers", summary -> summar
         .contributor("iam.active-user-count")));
 ```
 
-`persistentQueries` 是搜索框之后、高级过滤之前的常驻 UI 区域。当前标准控件是布尔 `SWITCH`；其 `externalCriteriaKey` 必须由模块的服务端查询描述符接收。控件改变后，前端立即以 `externalQueryValues` 重查标准 `POST /{moduleAlias}/query`，不新增专用查询接口，也不在浏览器内过滤数据。嵌入页面已拥有同名 `externalQueryValues` 时，嵌入值优先，页面 DSL 不得覆盖上游导航范围。
+`persistentQueries` 是搜索框左侧的常驻 UI 区域，高级过滤位于搜索框右侧。当前标准控件是布尔 `SWITCH`；其 `externalCriteriaKey` 必须由模块的服务端查询描述符接收。控件改变后，前端立即以 `externalQueryValues` 重查标准 `POST /{moduleAlias}/query`，不新增专用查询接口，也不在浏览器内过滤数据。嵌入页面已拥有同名 `externalQueryValues` 时，嵌入值优先，页面 DSL 不得覆盖上游导航范围。
 
 `querySummaries` 位于列表分页栏左侧。摘要针对本次有效查询命中的完整记录集合计算，忽略分页；关键字、常驻条件、高级条件、查询模板、导航范围或数据权限变化时，摘要必须同步变化。每个摘要 key 在同一列表内唯一，响应只返回稳定的 `{ key, value }`，展示标题仍由页面 descriptor 持有。
 

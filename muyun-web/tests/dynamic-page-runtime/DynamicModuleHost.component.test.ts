@@ -2616,6 +2616,91 @@ describe('ModulePageHost', () => {
     expect(content.props('record')).toMatchObject({ quantity: 4, amount: 40 });
   });
 
+  it('blocks a failing server-issued save validation before it sends a mutation', async () => {
+    const requests: Array<{ url: string; method: string }> = [];
+    globalThis.fetch = async (input, init) => {
+      const request = new Request(input, init);
+      requests.push({ url: request.url, method: request.method });
+      if (request.url.endsWith('/platform.module/demo.contract/context')) {
+        return Response.json({
+          moduleAlias: 'demo.contract',
+          capabilities: [],
+          actions: [{ actionCode: 'create', authorized: true }],
+          uiDescriptor: {
+            schemaVersion: '1',
+            moduleAlias: 'demo.contract',
+            page: page({
+              detail: {
+                emptyDescription: '请选择合同',
+                createTitle: '新建合同',
+                editor: {
+                  viewCode: 'default_form',
+                  viewKind: 'FORM',
+                  fields: [{ fieldRef: { fieldName: 'contractAmount' } }],
+                  formValidationRules: [
+                    {
+                      code: 'contractAmountPositive',
+                      message: '合同金额必须大于 0',
+                      targetField: 'contractAmount',
+                      inputFields: ['contractAmount'],
+                      program: {
+                        schemaVersion: 1,
+                        profile: 'FORM_VALIDATION',
+                        referencedFields: ['contractAmount'],
+                        root: {
+                          kind: 'BINARY',
+                          operator: '>',
+                          arguments: [
+                            { kind: 'FIELD', field: 'contractAmount', arguments: [] },
+                            { kind: 'VALUE', value: 0, arguments: [] },
+                          ],
+                        },
+                      },
+                    },
+                  ],
+                },
+              },
+            }),
+          },
+        });
+      }
+      throw new Error(`Unexpected mutation: ${request.url}`);
+    };
+    configureModuleContext({ httpFactory: () => createHttpClient({ baseUrl: 'http://api.local' }) });
+    const wrapper = shallowMount(ModulePageHost, {
+      props: {
+        descriptor: {
+          pageType: 'dynamic-module',
+          openMode: 'dynamic-runner',
+          hostType: 'dynamic-module-host',
+          tabPolicy: { identity: 'by-menu' },
+          target: { moduleAlias: 'demo.contract', pageMode: 'LIST' },
+        },
+      },
+      global: {
+        stubs: {
+          ManagementWorkspace: { template: '<section><slot /><slot name="detail" /></section>' },
+          RecordDetailPanel: { template: '<section><slot name="actions" /><slot /></section>' },
+          ModulePageRecordContent: false,
+        },
+      },
+    });
+    await flushPromises();
+
+    wrapper.findComponent({ name: 'RecordQueryListPanel' }).vm.$emit('action', { key: 'create' });
+    await flushPromises();
+    const actions = wrapper.findComponent({ name: 'ModuleRecordDetailActions' });
+    expect(actions.exists()).toBe(true);
+    actions.vm.$emit('save');
+    await flushPromises();
+
+    expect(requests.some((request) => request.url.endsWith('/platform.module/demo.contract/context'))).toBe(
+      true,
+    );
+    expect(requests.filter((request) => request.method !== 'GET')).toEqual([]);
+    wrapper.unmount();
+  });
+
   it('renders a source-owned card assistant with a reactive read-only record snapshot', async () => {
     const Assistant = defineComponent({
       name: 'TestCardAssistant',

@@ -11,6 +11,24 @@ const UiButton = defineComponent({
   emits: ['click'],
   template: '<button @click="$emit(\'click\')"><slot /></button>',
 });
+const UiCheckbox = defineComponent({
+  name: 'UiCheckbox',
+  props: { checked: Boolean, disabled: Boolean, ariaLabel: String },
+  emits: ['update:checked'],
+  template:
+    '<label><input type="checkbox" :checked="checked" :disabled="disabled" :aria-label="ariaLabel" /><slot /></label>',
+});
+const UiPopover = defineComponent({
+  name: 'UiPopover',
+  template: '<div class="a-popover-stub"><slot /><slot name="content" /></div>',
+});
+const UiIcon = defineComponent({ name: 'UiIcon', template: '<svg />' });
+const RuleKindFilter = defineComponent({
+  name: 'RecordQueryEnumFilter',
+  props: { title: String, value: String, options: Array, disabled: Boolean },
+  emits: ['update:value'],
+  template: '<select :aria-label="title" :disabled="disabled" />',
+});
 const UiModal = defineComponent({
   name: 'UiModal',
   emits: ['confirm', 'cancel'],
@@ -32,6 +50,21 @@ const UiTextArea = defineComponent({
   template:
     '<textarea :value="value" :disabled="disabled" @input="$emit(\'update:value\', $event.target.value)" />',
 });
+const VisualFormulaEditor = defineComponent({
+  name: 'FormulaExpressionEditor',
+  props: { value: String, disabled: Boolean, fields: Array, functions: Array, acceptDrop: Function },
+  emits: ['update:value', 'selection', 'drop'],
+  setup(_, { expose }) {
+    let selection = { start: 0, end: 0 };
+    expose({
+      selection: () => selection,
+      focusSelection: (start: number, end = start) => {
+        selection = { start, end };
+      },
+    });
+  },
+  template: '<div><input :value="value" :disabled="disabled" /></div>',
+});
 const SlotPassthrough = defineComponent({ template: '<section><slot /><slot name="actions" /></section>' });
 const DetailLayout = defineComponent({
   name: 'RecordDetailLayout',
@@ -43,7 +76,8 @@ const RuleDrawer = defineComponent({
   name: 'RecordDetailDrawer',
   props: { open: Boolean },
   emits: ['close'],
-  template: '<section><slot /><slot name="operation" /></section>',
+  template:
+    '<section><header class="rule-drawer-header"><slot name="title-actions" /><slot name="header-actions" /></header><slot /><slot name="operation" /></section>',
 });
 const RuleListCell = defineComponent({
   name: 'RecordQueryListCell',
@@ -68,7 +102,7 @@ const RuleListSurface = defineComponent({
   emits: ['update:quickSearchValue', 'rowClick', 'rowDblclick', 'pageChange', 'pageSizeChange'],
   template: `
     <section class="record-query-list-surface">
-      <slot name="operations" />
+      <slot name="operations" /><slot name="persistentQueries" /><slot name="queryControls" />
       <input
         class="record-query-list-search"
         :value="quickSearchValue"
@@ -152,6 +186,8 @@ function snapshot(moduleAlias = 'education.exam', fields = true) {
 function fakeHttp(): HttpClient {
   return {
     request: vi.fn(async (options: HttpRequestOptions) => {
+      if (options.path.endsWith('/ui-controls'))
+        return { baselineFingerprint: 'ui-baseline', rules: [], forms: [] } as never;
       if (options.path.endsWith('/page-reference-fields'))
         return {
           moduleAlias: 'education.exam',
@@ -219,15 +255,36 @@ function fakeHttp(): HttpClient {
   };
 }
 
-function mountSurface(http: HttpClient, moduleAlias = 'education.exam') {
-  configureModuleContext({ http });
+function mountSurface(
+  http: HttpClient,
+  moduleAlias = 'education.exam',
+  uiRules = {
+    baselineFingerprint: 'ui-baseline',
+    rules: [],
+    forms: [{ key: 'default', title: '考试表单', elements: [{ key: 'quantity', label: '数量' }] }],
+  },
+) {
+  configureModuleContext({
+    http: {
+      ...http,
+      request: (options) =>
+        options.path.endsWith('/ui-controls') ? (Promise.resolve(uiRules) as never) : http.request(options),
+    },
+  });
   const wrapper = shallowMount(BusinessRuleGovernanceSurface, {
+    attachTo: document.body,
     props: { moduleAlias },
     global: {
       stubs: {
+        MetadataSourceTree: false,
         UiButton,
+        UiActionButton: UiButton,
+        UiCheckbox,
+        UiIcon,
+        UiPopover,
         UiModal,
         UiTextArea,
+        FormulaExpressionEditor: VisualFormulaEditor,
         ManagementWorkspace: Workspace,
         ManagementExplorerColumn: SlotPassthrough,
         RecordExplorerPanel: ExplorerPanel,
@@ -235,6 +292,7 @@ function mountSurface(http: HttpClient, moduleAlias = 'education.exam') {
         RecordDetailDrawer: RuleDrawer,
         RecordQueryListCell: RuleListCell,
         RecordQueryListSurface: RuleListSurface,
+        RecordQueryEnumFilter: RuleKindFilter,
       },
     },
   });
@@ -253,9 +311,15 @@ function mountSurfaceAsSystemUser(http: HttpClient, currentUser: { system: boole
   const wrapper = mount(Host, {
     global: {
       stubs: {
+        MetadataSourceTree: false,
         UiButton,
+        UiActionButton: UiButton,
+        UiCheckbox,
+        UiIcon,
+        UiPopover,
         UiModal,
         UiTextArea,
+        FormulaExpressionEditor: VisualFormulaEditor,
         ManagementWorkspace: Workspace,
         ManagementExplorerColumn: SlotPassthrough,
         RecordExplorerPanel: ExplorerPanel,
@@ -263,6 +327,7 @@ function mountSurfaceAsSystemUser(http: HttpClient, currentUser: { system: boole
         RecordDetailDrawer: RuleDrawer,
         RecordQueryListCell: RuleListCell,
         RecordQueryListSurface: RuleListSurface,
+        RecordQueryEnumFilter: RuleKindFilter,
       },
     },
   });
@@ -271,7 +336,11 @@ function mountSurfaceAsSystemUser(http: HttpClient, currentUser: { system: boole
 }
 
 function action(wrapper: ReturnType<typeof shallowMount>, title: string) {
-  return wrapper.findAll('button').find((button) => button.text() === title)!;
+  return wrapper.findAll('button,[role="button"]').find((button) => button.text() === title)!;
+}
+
+function ruleKindFilter(wrapper: ReturnType<typeof shallowMount>) {
+  return wrapper.findComponent(RuleKindFilter);
 }
 
 function deferred<T>() {
@@ -281,12 +350,140 @@ function deferred<T>() {
 }
 
 describe('BusinessRuleGovernanceSurface', () => {
+  it('edits inline and code views as the same source, preserving incomplete input and caret', async () => {
+    const http = fakeHttp();
+    const wrapper = mountSurface(http);
+    await flushPromises();
+    await action(wrapper, '新增规则').trigger('click');
+    const visual = wrapper.findComponent(VisualFormulaEditor);
+    const code = wrapper.findComponent(UiTextArea);
+    expect(visual.isVisible()).toBe(true);
+    expect(code.isVisible()).toBe(false);
+    visual.vm.$emit('update:value', '{amount} = {quantity} * ');
+    await flushPromises();
+    expect(code.props('value')).toBe('{amount} = {quantity} * ');
+    (visual.vm.$.exposed as { focusSelection(start: number): void }).focusSelection(11);
+    const codeMode = wrapper
+      .find('.business-rule-governance__code-mode-toggle')
+      .findComponent({ name: 'UiSwitch' });
+    codeMode.vm.$emit('update:checked', true);
+    await flushPromises();
+    expect(code.isVisible()).toBe(true);
+    expect(visual.isVisible()).toBe(false);
+    expect((code.vm.$.exposed as { selection(): { start: number } }).selection().start).toBe(11);
+    code.vm.$emit('update:value', '{amount} = ({quantity} * 2)');
+    await flushPromises();
+    codeMode.vm.$emit('update:checked', false);
+    await flushPromises();
+    expect(visual.props('value')).toBe('{amount} = ({quantity} * 2)');
+    expect(vi.mocked(http.request).mock.calls.some(([options]) => options.method === 'POST')).toBe(false);
+  });
+
+  it('retains the exact inline source when a new formula joins the local editing session', async () => {
+    const wrapper = mountSurface(fakeHttp());
+    await flushPromises();
+    await action(wrapper, '新增规则').trigger('click');
+    const original = '  {amount}=({quantity} * 2)';
+    wrapper.findComponent(VisualFormulaEditor).vm.$emit('update:value', original);
+    await flushPromises();
+    await action(wrapper, '保存').trigger('click');
+    await flushPromises();
+    expect(wrapper.findComponent(VisualFormulaEditor).props('value')).toBe(original);
+    expect(action(wrapper, '应用更改')).toBeDefined();
+  });
+
+  it('inserts functions at the inline drop caret and rejects foreign drag payloads', async () => {
+    const wrapper = mountSurface(fakeHttp());
+    await flushPromises();
+    await action(wrapper, '新增规则').trigger('click');
+    const visual = wrapper.findComponent(VisualFormulaEditor);
+    visual.vm.$emit('update:value', '{amount} = ');
+    await flushPromises();
+    visual.vm.$emit('drop', {
+      source: {
+        payloadType: 'formula-function',
+        payload: {
+          kind: 'formula-function',
+          moduleAlias: 'education.exam',
+          functionId: 'PRESENT',
+        },
+      },
+      selection: { start: 11, end: 11 },
+    });
+    await flushPromises();
+    expect(visual.props('value')).toBe('{amount} = PRESENT()');
+    visual.vm.$emit('drop', {
+      source: {
+        payloadType: 'formula-function',
+        payload: {
+          kind: 'formula-function',
+          moduleAlias: 'education.other',
+          functionId: 'IN',
+        },
+      },
+      selection: { start: 0, end: 0 },
+    });
+    await flushPromises();
+    expect(visual.props('value')).toBe('{amount} = PRESENT()');
+  });
+
+  it('offers all three kinds and saves UI effects only after drawer save', async () => {
+    const http = fakeHttp();
+    const wrapper = mountSurface(http);
+    await flushPromises();
+    await action(wrapper, '新增规则')!.trigger('click');
+    const type = wrapper
+      .findAllComponents({ name: 'UiSelect' })
+      .find((item) => item.classes().includes('business-rule-governance__type-select'))!;
+    expect(type.props('options')).toEqual(
+      expect.arrayContaining([{ value: 'UI_CONTROL', label: '界面控制' }]),
+    );
+    type.vm.$emit('update:value', 'UI_CONTROL');
+    await flushPromises();
+    const form = wrapper
+      .findAllComponents({ name: 'UiSelect' })
+      .find((item) => item.attributes('aria-label') === '控制表单')!;
+    form.vm.$emit('update:value', 'default');
+    await flushPromises();
+    const checkbox = wrapper
+      .findAllComponents({ name: 'UiCheckbox' })
+      .find((item) => item.props('ariaLabel') === '数量隐藏')!;
+    checkbox.vm.$emit('update:checked', true);
+    wrapper.findComponent(UiTextArea).vm.$emit('update:value', 'PRESENT({quantity})');
+    await flushPromises();
+    expect(wrapper.findAll('.record-query-list-row')).toHaveLength(1);
+    await action(wrapper, '保存')!.trigger('click');
+    await flushPromises();
+    expect(wrapper.text()).toContain('界面控制');
+    await action(wrapper, '应用更改')!.trigger('click');
+    await flushPromises();
+    const applied = vi
+      .mocked(http.request)
+      .mock.calls.find(([options]) => options.path.endsWith('/apply'))![0];
+    expect(applied.body).toMatchObject({
+      uiRules: [
+        {
+          formKey: 'default',
+          expression: 'PRESENT({quantity})',
+          targets: [{ elementKey: 'quantity', hide: true, readOnly: false }],
+        },
+      ],
+      uiBaselineFingerprint: 'ui-baseline',
+    });
+    expect(
+      (applied.body as { rules: Array<{ kind: string }> }).rules.every((rule) => rule.kind !== 'UI_CONTROL'),
+    ).toBe(true);
+  });
+
   it('loads RHS rules and retains unsupported rules as read-only', async () => {
     const http = fakeHttp();
     const wrapper = mountSurface(http);
     await flushPromises();
-    expect(wrapper.text()).toContain('字段计算');
-    expect(wrapper.text()).toContain('业务校验');
+    expect(ruleKindFilter(wrapper).props()).toMatchObject({
+      title: '规则类型',
+      value: 'CALCULATION',
+      disabled: false,
+    });
     expect(wrapper.text()).toContain('默认值在首期不提供治理入口。');
     expect(http.request).toHaveBeenCalledWith({ path: '/platform.module/education.exam/business-rules' });
   });
@@ -306,12 +503,29 @@ describe('BusinessRuleGovernanceSurface', () => {
     expect(wrapper.find('.record-query-list-row').text()).toContain('计算金额');
     expect(list.props('actionColumnWidth')).toBe(120);
     expect(list.props('actionColumnFixed')).toBe(false);
-    expect(list.props('fillHeight')).toBe(false);
+    expect(list.props('fillHeight')).toBe(true);
     expect(list.props('showTitle')).toBe(false);
-    expect(wrapper.findComponent({ name: 'RecordDetailLayout' }).props('subtitle')).toBeUndefined();
+    expect(wrapper.findComponent({ name: 'RecordDetailLayout' }).exists()).toBe(false);
+    expect(wrapper.find('[role=tablist]').exists()).toBe(false);
     expect(action(wrapper, '应用更改')).toBeUndefined();
     expect(action(wrapper, '试算整组规则').exists()).toBe(true);
     expect(wrapper.text()).toContain('默认值在首期不提供治理入口。');
+  });
+
+  it('combines the persistent kind filter with search without changing the rule session', async () => {
+    const http = fakeHttp();
+    const wrapper = mountSurface(http);
+    await flushPromises();
+    const list = wrapper.findComponent({ name: 'RecordQueryListSurface' });
+    await wrapper.find('.record-query-list-search').setValue('quantity');
+    const calls = vi.mocked(http.request).mock.calls.length;
+    ruleKindFilter(wrapper).vm.$emit('update:value', 'VALIDATION');
+    await flushPromises();
+    expect(list.props('quickSearchValue')).toBe('quantity');
+    expect(list.props('pageNum')).toBe(1);
+    expect(list.props('rows')).toEqual([expect.objectContaining({ code: 'validation_quantity' })]);
+    expect(vi.mocked(http.request).mock.calls.length).toBe(calls);
+    expect(action(wrapper, '应用更改')).toBeUndefined();
   });
 
   it('keeps automatic checking and application scoped to all local rules after search and pagination', async () => {
@@ -360,7 +574,9 @@ describe('BusinessRuleGovernanceSurface', () => {
       'calculation_quantity',
     ]);
 
-    wrapper.findAllComponents({ name: 'UiTextArea' })[0]!.vm.$emit('update:value', '{quantity} * 12');
+    wrapper
+      .findAllComponents({ name: 'UiTextArea' })[0]!
+      .vm.$emit('update:value', '{amount} = {quantity} * 12');
     await flushPromises();
     await action(wrapper, '应用更改').trigger('click');
     await flushPromises();
@@ -416,37 +632,145 @@ describe('BusinessRuleGovernanceSurface', () => {
   it('keeps rule navigation and creation available while local changes await application', async () => {
     const wrapper = mountSurface(fakeHttp());
     await flushPromises();
-    wrapper.findAllComponents({ name: 'UiTextArea' })[0]!.vm.$emit('update:value', '{quantity} * 12');
+    wrapper
+      .findAllComponents({ name: 'UiTextArea' })[0]!
+      .vm.$emit('update:value', '{amount} = {quantity} * 12');
     await flushPromises();
     expect(wrapper.text()).toContain('未应用 1 项');
-    await action(wrapper, '业务校验').trigger('click');
-    await action(wrapper, '新增规则').trigger('click');
-    await flushPromises();
-    expect(wrapper.text()).toContain('保存校验通用条件');
-  });
-
-  it('guides a new calculation to select its target before exposing the expression editor', async () => {
-    const wrapper = mountSurface(fakeHttp());
+    ruleKindFilter(wrapper).vm.$emit('update:value', 'VALIDATION');
     await flushPromises();
     await action(wrapper, '新增规则').trigger('click');
     await flushPromises();
     expect(wrapper.findComponent({ name: 'RecordDetailDrawer' }).props('open')).toBe(true);
-    expect(wrapper.text()).toContain('请先在“业务目的”中选择计算目标字段');
-    expect(wrapper.findAllComponents({ name: 'UiTextArea' })).toHaveLength(0);
-    const target = wrapper
-      .findAllComponents({ name: 'UiSelect' })
-      .find((select) => select.props('placeholder') === '选择可写字段')!;
-    target.vm.$emit('update:value', 'amount');
+    expect(action(wrapper, '保存')).toBeDefined();
+    expect(wrapper.findAll('.record-query-list-row')).toHaveLength(1);
+  });
+
+  it('adds a new rule only on drawer save and discards it on close', async () => {
+    const http = fakeHttp();
+    const wrapper = mountSurface(http);
     await flushPromises();
-    expect(wrapper.findAllComponents({ name: 'UiTextArea' })).toHaveLength(1);
+    const list = wrapper.findComponent({ name: 'RecordQueryListSurface' });
+    const originalRows = list.props('rows');
+    await action(wrapper, '新增规则').trigger('click');
+    await flushPromises();
+    expect(list.props('rows')).toEqual(originalRows);
+    expect(action(wrapper, '应用更改')).toBeUndefined();
+    wrapper.findComponent({ name: 'RecordDetailDrawer' }).vm.$emit('close');
+    await flushPromises();
+    expect(list.props('rows')).toEqual(originalRows);
+    expect(action(wrapper, '应用更改')).toBeUndefined();
+    await action(wrapper, '新增规则').trigger('click');
+    await flushPromises();
+    wrapper.findComponent({ name: 'UiTextArea' }).vm.$emit('update:value', '{enabled} = true');
+    await flushPromises();
+    expect(list.props('rows')).toEqual(originalRows);
+    expect(action(wrapper, '应用更改')).toBeUndefined();
+    await action(wrapper, '保存').trigger('click');
+    await flushPromises();
+    expect(list.props('rows')).toHaveLength(originalRows.length + 1);
+    expect(wrapper.findComponent({ name: 'RecordDetailDrawer' }).props('open')).toBe(false);
+    expect(action(wrapper, '应用更改')).toBeDefined();
+    expect(vi.mocked(http.request).mock.calls.some(([options]) => options.method === 'POST')).toBe(false);
+  });
+
+  it('edits the assignment as one formula without a separate target selector', async () => {
+    const wrapper = mountSurface(fakeHttp());
+    await flushPromises();
+    expect(wrapper.findComponent({ name: 'UiTextArea' }).props('value')).toBe('{amount} = {quantity} * 10');
+    await action(wrapper, '新增规则').trigger('click');
+    await flushPromises();
+    expect(wrapper.find('.business-rule-governance__purpose').exists()).toBe(false);
+    const formula = wrapper.findComponent({ name: 'UiTextArea' });
+    formula.vm.$emit('update:value', '{amount} = {quantity} * 3');
+    await flushPromises();
+    expect(formula.props('value')).toBe('{amount} = {quantity} * 3');
+    await action(wrapper, '保存').trigger('click');
+    await flushPromises();
+    expect(wrapper.findComponent({ name: 'RecordDetailDrawer' }).props('open')).toBe(false);
+  });
+
+  it.each([
+    ['{quantity} * 2', '请在公式中指定结果字段'],
+    ['{amount} == 2', '请在公式中指定结果字段'],
+    ['{amount} = ', '请补充表达式'],
+    ['{supplierId.title} = 2', '等号左侧必须是当前记录的可写字段标识'],
+  ])('keeps invalid assignment %s in the draft without adding a row', async (input, message) => {
+    const http = fakeHttp();
+    const wrapper = mountSurface(http);
+    await flushPromises();
+    const list = wrapper.findComponent({ name: 'RecordQueryListSurface' });
+    const rows = list.props('rows');
+    await action(wrapper, '新增规则').trigger('click');
+    await flushPromises();
+    const formula = wrapper.findComponent({ name: 'UiTextArea' });
+    formula.vm.$emit('update:value', input);
+    await flushPromises();
+    await action(wrapper, '保存').trigger('click');
+    await flushPromises();
+    expect(formula.props('value')).toBe(input);
+    expect(wrapper.text()).toContain(message);
+    expect(list.props('rows')).toEqual(rows);
+    expect(wrapper.findComponent({ name: 'RecordDetailDrawer' }).props('open')).toBe(true);
+  });
+
+  it('inserts the output field into the assignment at the current selection', async () => {
+    const wrapper = mountSurface(fakeHttp());
+    await flushPromises();
+    await action(wrapper, '新增规则').trigger('click');
+    await flushPromises();
+    const formula = wrapper.findComponent({ name: 'UiTextArea' });
+    formula.vm.$emit('update:value', '{} = {quantity} * 2');
+    await flushPromises();
+    formula.vm.$emit('drop', {
+      source: {
+        payloadType: 'formula-field',
+        payload: { kind: 'formula-field', moduleAlias: 'education.exam', fieldName: 'amount' },
+      },
+      selection: { start: 0, end: 2 },
+    });
+    await flushPromises();
+    expect(formula.props('value')).toBe('{amount} = {quantity} * 2');
+    await action(wrapper, '保存').trigger('click');
+    await flushPromises();
+    expect(wrapper.findComponent({ name: 'RecordDetailDrawer' }).props('open')).toBe(false);
+  });
+
+  it('changes the new draft kind without mutating the list and saves validation without a target', async () => {
+    const http = fakeHttp();
+    const wrapper = mountSurface(http);
+    await flushPromises();
+    const list = wrapper.findComponent({ name: 'RecordQueryListSurface' });
+    const originalRows = list.props('rows');
+    await action(wrapper, '新增规则').trigger('click');
+    await flushPromises();
+    wrapper.findComponent({ name: 'UiTextArea' }).vm.$emit('update:value', '{amount} = PRESENT({quantity})');
+    await flushPromises();
+    wrapper
+      .findAllComponents({ name: 'UiSelect' })
+      .find((select) => select.classes().includes('business-rule-governance__type-select'))!
+      .vm.$emit('update:value', 'VALIDATION');
+    await flushPromises();
+    expect(list.props('rows')).toEqual(originalRows);
+    expect(wrapper.findComponent({ name: 'UiTextArea' }).props('value')).toBe('PRESENT({quantity})');
+    expect(
+      wrapper
+        .findAllComponents({ name: 'UiSelect' })
+        .some((select) => select.props('placeholder') === '选择可写字段'),
+    ).toBe(false);
+    await action(wrapper, '保存').trigger('click');
+    await flushPromises();
+    expect(list.props('rows')).toHaveLength(2);
+    expect(wrapper.findComponent({ name: 'RecordDetailDrawer' }).props('open')).toBe(false);
+    expect(vi.mocked(http.request).mock.calls.some(([options]) => options.method === 'POST')).toBe(false);
   });
 
   it('explains the save condition while editing a validation rule', async () => {
     const wrapper = mountSurface(fakeHttp());
     await flushPromises();
-    await action(wrapper, '业务校验').trigger('click');
+    ruleKindFilter(wrapper).vm.$emit('update:value', 'VALIDATION');
     await flushPromises();
-    expect(wrapper.text()).toContain('满足以下条件才允许保存；不满足时显示失败提示，并可定位到字段。');
+    expect(wrapper.text()).toContain('公式为真时允许保存，为假时显示失败提示。');
     const message = wrapper
       .findAllComponents({ name: 'UiInput' })
       .find((input) => input.props('value') === '数量必须大于零')!;
@@ -462,7 +786,8 @@ describe('BusinessRuleGovernanceSurface', () => {
   it('opens a rule in the wide drawer and keeps local validation input after closing it', async () => {
     const wrapper = mountSurface(fakeHttp());
     await flushPromises();
-    await action(wrapper, '业务校验').trigger('click');
+    ruleKindFilter(wrapper).vm.$emit('update:value', 'VALIDATION');
+    await flushPromises();
     await wrapper.find('.record-query-list-row').trigger('dblclick');
     const drawer = wrapper.findComponent({ name: 'RecordDetailDrawer' });
     expect(drawer.props('open')).toBe(true);
@@ -474,36 +799,61 @@ describe('BusinessRuleGovernanceSurface', () => {
     expect(wrapper.find('.record-query-list-row').text()).toContain('PRESENT');
   });
 
-  it('keeps field insertion in the left directory and never overwrites a nonempty expression with a template', async () => {
+  it('keeps the field directory visible and omits unavailable templates', async () => {
     const wrapper = mountSurface(fakeHttp());
     await flushPromises();
     expect(wrapper.findComponent({ name: 'UiTree' }).exists()).toBe(true);
-    expect(wrapper.text()).toContain('已有表达式不会被模板覆盖');
+    expect(wrapper.find('.business-rule-governance__templates').exists()).toBe(false);
   });
 
   it('applies a template only to an empty new rule', async () => {
     const wrapper = mountSurface(fakeHttp());
     await flushPromises();
-    await action(wrapper, '业务校验').trigger('click');
+    ruleKindFilter(wrapper).vm.$emit('update:value', 'VALIDATION');
+    await flushPromises();
     await action(wrapper, '新增规则').trigger('click');
     await flushPromises();
-    const template = wrapper.findAll('button').find((button) => button.text().startsWith('字段有值：'))!;
+    const template = wrapper
+      .find('.business-rule-governance__templates')
+      .findAll('button')
+      .find((button) => button.text() === '字段有值')!;
     await template.trigger('click');
     await flushPromises();
 
     expect(wrapper.findAllComponents({ name: 'UiTextArea' })[0]!.props('value')).toBe('PRESENT({quantity})');
   });
 
+  it('keeps function help in its compact popover trigger without inserting text', async () => {
+    const wrapper = mountSurface(fakeHttp());
+    await flushPromises();
+    const formula = wrapper.findComponent({ name: 'UiTextArea' });
+    const original = formula.props('value');
+    expect(wrapper.find('.business-rule-governance__field-inspector').exists()).toBe(false);
+    expect(wrapper.find('.business-rule-governance__function-detail').exists()).toBe(false);
+    expect(wrapper.html().indexOf('business-rule-governance__function-panel')).toBeLessThan(
+      wrapper.html().indexOf('business-rule-governance__expression-layout'),
+    );
+    const help = wrapper.find('button[aria-label="判断字段有值的帮助"]');
+    expect(help.find('svg').exists()).toBe(true);
+    expect(help.element.closest('.business-rule-governance__function-chip')).not.toBeNull();
+    expect(
+      wrapper
+        .find('.business-rule-governance__code-mode-toggle')
+        .findComponent({ name: 'UiSwitch' })
+        .props('checked'),
+    ).toBe(false);
+    expect(formula.props('value')).toBe(original);
+    expect(action(wrapper, '判断字段有值')).toBeDefined();
+  });
+
   it('inserts a supported function then places a field inside its parameter', async () => {
     const wrapper = mountSurface(fakeHttp());
     await flushPromises();
-    await action(wrapper, '业务校验').trigger('click');
+    ruleKindFilter(wrapper).vm.$emit('update:value', 'VALIDATION');
+    await flushPromises();
     await action(wrapper, '新增规则').trigger('click');
     await flushPromises();
-    await action(wrapper, '函数与运算符').trigger('click');
-    await action(wrapper, 'PRESENT（字段有值）').trigger('click');
-    await flushPromises();
-    await action(wrapper, '插入函数').trigger('click');
+    await action(wrapper, '判断字段有值').trigger('click');
     await flushPromises();
     expect(wrapper.findAllComponents({ name: 'UiTextArea' })[0]!.props('value')).toBe('PRESENT()');
     wrapper.findAllComponents({ name: 'UiTextArea' })[0]!.vm.$emit('drop', {
@@ -521,12 +871,13 @@ describe('BusinessRuleGovernanceSurface', () => {
   it('keeps each rule caret when switching modes and inserts a tree field at that caret', async () => {
     const wrapper = mountSurface(fakeHttp());
     await flushPromises();
-    await action(wrapper, '业务校验').trigger('click');
+    ruleKindFilter(wrapper).vm.$emit('update:value', 'VALIDATION');
     await flushPromises();
     const expression = () => wrapper.findAllComponents({ name: 'UiTextArea' })[0]!;
     expression().vm.$emit('selection', { start: 0, end: 0 });
-    await action(wrapper, '字段计算').trigger('click');
-    await action(wrapper, '业务校验').trigger('click');
+    ruleKindFilter(wrapper).vm.$emit('update:value', 'CALCULATION');
+    await flushPromises();
+    ruleKindFilter(wrapper).vm.$emit('update:value', 'VALIDATION');
     await flushPromises();
     expression().vm.$emit('drop', {
       source: {
@@ -557,7 +908,56 @@ describe('BusinessRuleGovernanceSurface', () => {
     pendingDirectory.resolve({ fields: [] });
     await flushPromises();
     const tree = wrapper.findComponent({ name: 'UiTree' });
-    expect(tree.props('nodes')).toContainEqual(expect.objectContaining({ key: 'formula-field:supplierId' }));
+    expect(tree.props('nodes')[0].children).toContainEqual(
+      expect.objectContaining({ key: 'formula-field:supplierId' }),
+    );
+  });
+
+  it('expands a reference that cannot itself be inserted and allows a readable descendant', async () => {
+    const base = fakeHttp();
+    const http: HttpClient = {
+      request: vi.fn(async (options: HttpRequestOptions) => {
+        const result = await base.request(options);
+        if (options.path.endsWith('/page-reference-fields')) {
+          const catalog = result as { fields: Array<Record<string, unknown>> };
+          return {
+            ...catalog,
+            fields: catalog.fields.map((field) =>
+              field.name === 'supplierId'
+                ? {
+                    ...field,
+                    readOnly: true,
+                    formulaReadable: false,
+                    formulaDisabledReason: '引用本身不可用于公式',
+                  }
+                : field,
+            ),
+          } as never;
+        }
+        return result as never;
+      }),
+    };
+    const wrapper = mountSurface(http);
+    await flushPromises();
+    const tree = wrapper.findComponent({ name: 'UiTree' });
+    const reference = tree
+      .props('nodes')[0]
+      .children.find((node: { key: string }) => node.key === 'formula-field:supplierId');
+    expect(reference).toMatchObject({ isLeaf: false, disabled: false });
+    expect(tree.props('canDrag')(reference)).toBe(false);
+    const loaded = await tree.props('loadChildren')(reference, { signal: new AbortController().signal });
+    const title = loaded.nodes.find((node: { key: string }) => node.key === 'formula-field:supplierId.title');
+    expect(title.disabled).toBe(false);
+    expect(tree.props('canDrag')(title)).toBe(true);
+    const formula = wrapper.findComponent({ name: 'UiTextArea' });
+    formula.vm.$emit('update:value', '{amount} = ');
+    await flushPromises();
+    tree.vm.$emit('double-click', { node: title });
+    await flushPromises();
+    expect(formula.props('value')).toBe('{amount} = {supplierId.title}');
+    expect(
+      loaded.nodes.find((node: { key: string }) => node.key === 'formula-field:supplierId.secret').disabled,
+    ).toBe(true);
   });
 
   it('loads ONE reference descendants once and exposes MANY as unavailable', async () => {
@@ -565,8 +965,8 @@ describe('BusinessRuleGovernanceSurface', () => {
     const wrapper = mountSurface(http);
     await flushPromises();
     const tree = wrapper.findComponent({ name: 'UiTree' });
-    const many = (tree.props('nodes') as Array<{ key: string; disabled?: boolean }>).find((node) =>
-      node.key.endsWith(':lines'),
+    const many = (tree.props('nodes')[0].children as Array<{ key: string; disabled?: boolean }>).find(
+      (node) => node.key.endsWith(':lines'),
     );
     expect(many?.disabled).toBe(true);
     const loader = tree.props('loadChildren') as (
@@ -607,14 +1007,16 @@ describe('BusinessRuleGovernanceSurface', () => {
     });
     await flushPromises();
 
-    expect(expression.props('value')).toBe('{quantity} * 10');
+    expect(expression.props('value')).toBe('{amount} = {quantity} * 10');
   });
 
   it('automatically checks before applying and sends the captured baseline and proposal tokens', async () => {
     const http = fakeHttp();
     const wrapper = mountSurface(http);
     await flushPromises();
-    wrapper.findAllComponents({ name: 'UiTextArea' })[0]!.vm.$emit('update:value', '{quantity} * 12');
+    wrapper
+      .findAllComponents({ name: 'UiTextArea' })[0]!
+      .vm.$emit('update:value', '{amount} = {quantity} * 12');
     await flushPromises();
     expect(action(wrapper, '检查规则')).toBeUndefined();
     expect(wrapper.find('[data-testid="business-rule-preview"]').exists()).toBe(false);
@@ -624,7 +1026,7 @@ describe('BusinessRuleGovernanceSurface', () => {
       .mocked(http.request)
       .mock.calls.find(([options]) => options.path.endsWith('/preview'))![0];
     expect((previewCall.body as { rules: unknown[] }).rules).toContainEqual(
-      expect.objectContaining({ expression: '{quantity} * 12' }),
+      expect.objectContaining({ targetField: 'amount', expression: '{quantity} * 12' }),
     );
     const applyCall = vi
       .mocked(http.request)
@@ -651,7 +1053,9 @@ describe('BusinessRuleGovernanceSurface', () => {
     });
     const wrapper = mountSurface(http);
     await flushPromises();
-    wrapper.findAllComponents({ name: 'UiTextArea' })[0]!.vm.$emit('update:value', '{quantity} * 12');
+    wrapper
+      .findAllComponents({ name: 'UiTextArea' })[0]!
+      .vm.$emit('update:value', '{amount} = {quantity} * 12');
     await flushPromises();
     await action(wrapper, '应用更改').trigger('click');
     await flushPromises();
@@ -664,16 +1068,16 @@ describe('BusinessRuleGovernanceSurface', () => {
     );
   });
 
-  it('locates incomplete local rules and does not send them for checking', async () => {
+  it('keeps incomplete new rules in the drawer without changing the list', async () => {
     const http = fakeHttp();
     const wrapper = mountSurface(http);
     await flushPromises();
     await action(wrapper, '新增规则').trigger('click');
     await flushPromises();
-    await action(wrapper, '应用更改').trigger('click');
+    await action(wrapper, '保存').trigger('click');
     await flushPromises();
 
-    expect(wrapper.get('[data-testid="business-rule-issues"]').text()).toContain('请选择计算目标字段');
+    expect(wrapper.text()).toContain('请在公式中指定结果字段');
     expect(vi.mocked(http.request).mock.calls.some(([options]) => options.path.endsWith('/preview'))).toBe(
       false,
     );
@@ -690,7 +1094,9 @@ describe('BusinessRuleGovernanceSurface', () => {
     );
     const wrapper = mountSurface(http);
     await flushPromises();
-    wrapper.findAllComponents({ name: 'UiTextArea' })[0]!.vm.$emit('update:value', '{quantity} * 12');
+    wrapper
+      .findAllComponents({ name: 'UiTextArea' })[0]!
+      .vm.$emit('update:value', '{amount} = {quantity} * 12');
     await flushPromises();
     await action(wrapper, '应用更改').trigger('click');
     await action(wrapper, '应用更改').trigger('click');
@@ -904,7 +1310,9 @@ describe('BusinessRuleGovernanceSurface', () => {
     );
     const wrapper = mountSurface(http);
     await flushPromises();
-    wrapper.findAllComponents({ name: 'UiTextArea' })[0]!.vm.$emit('update:value', '{quantity} * 12');
+    wrapper
+      .findAllComponents({ name: 'UiTextArea' })[0]!
+      .vm.$emit('update:value', '{amount} = {quantity} * 12');
     await flushPromises();
     await action(wrapper, '应用更改').trigger('click');
     await wrapper.setProps({ moduleAlias: 'education.other' });
@@ -932,14 +1340,14 @@ describe('BusinessRuleGovernanceSurface', () => {
     expression().vm.$emit('update:value', '');
     await flushPromises();
     expect(expression().props('value')).toBe('');
-    expression().vm.$emit('update:value', '{quantity} * 12');
+    expression().vm.$emit('update:value', '{amount} = {quantity} * 12');
     await flushPromises();
     await action(wrapper, '应用更改').trigger('click');
     await flushPromises();
-    expression().vm.$emit('update:value', '{quantity} * 13');
+    expression().vm.$emit('update:value', '{amount} = {quantity} * 13');
     await action(wrapper, '新增规则').trigger('click');
     await flushPromises();
-    expect(expression().props('value')).toBe('{quantity} * 12');
+    expect(expression().props('value')).toBe('{amount} = {quantity} * 12');
     expect(wrapper.text()).not.toContain('validation1');
     pendingApply.resolve({ snapshot: snapshot(), preview: {}, activatedModules: [] });
     await flushPromises();
@@ -953,13 +1361,17 @@ describe('BusinessRuleGovernanceSurface', () => {
     });
     const wrapper = mountSurface(http);
     await flushPromises();
-    wrapper.findAllComponents({ name: 'UiTextArea' })[0]!.vm.$emit('update:value', '{quantity} * 12');
+    wrapper
+      .findAllComponents({ name: 'UiTextArea' })[0]!
+      .vm.$emit('update:value', '{amount} = {quantity} * 12');
     await flushPromises();
     await action(wrapper, '应用更改').trigger('click');
     await flushPromises();
 
     expect(wrapper.text()).toContain('请重新加载后再应用');
-    expect(wrapper.findAllComponents({ name: 'UiTextArea' })[0]!.props('value')).toBe('{quantity} * 12');
+    expect(wrapper.findAllComponents({ name: 'UiTextArea' })[0]!.props('value')).toBe(
+      '{amount} = {quantity} * 12',
+    );
   });
 
   it('disables calculation creation when no writable main field exists', async () => {

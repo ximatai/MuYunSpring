@@ -12,6 +12,7 @@ import {
   readonlyRules,
   typedSampleValue,
   formulaFieldUnusableReason,
+  aggregateFieldInsertionReason,
   normalizeFormulaCapabilities,
   searchableFormulaCapabilities,
   type BusinessRuleSnapshot,
@@ -94,6 +95,19 @@ describe('business-rule governance proposal mapping', () => {
     });
   });
 
+  it('only permits child fields in compatible aggregate arguments', () => {
+    const productName = {
+      id: 'lines.productName',
+      name: 'lines.productName',
+      label: '产品名称',
+      valueType: 'STRING',
+      aggregateFunctions: ['COUNT'],
+    };
+    expect(aggregateFieldInsertionReason(productName, 'SUM(', 4)).toContain('不能用于 SUM');
+    expect(aggregateFieldInsertionReason(productName, 'COUNT(', 6)).toBeUndefined();
+    expect(aggregateFieldInsertionReason(productName, '{amount} + ', 11)).toContain('只能作为');
+  });
+
   it('does not treat field-shaped text in a quoted literal as a dependency', () => {
     expect(
       referencedFormulaFields("PRESENT({supplier.organization.regionCode}) && '{amount}' == '{ignored}'"),
@@ -171,7 +185,12 @@ describe('business-rule governance proposal mapping', () => {
       { name: 'UNSUPPORTED', title: '不应显示' },
     ]);
     expect(capabilities).toEqual([
-      expect.objectContaining({ id: 'PRESENT', category: '条件', purpose: '已填写' }),
+      expect.objectContaining({
+        id: 'PRESENT',
+        category: '条件',
+        purpose: '已填写',
+        description: '判断字段是否有值',
+      }),
       expect.objectContaining({ id: 'UNSUPPORTED', insertion: 'UNSUPPORTED()' }),
     ]);
     expect(searchableFormulaCapabilities(capabilities, '填写')).toHaveLength(1);

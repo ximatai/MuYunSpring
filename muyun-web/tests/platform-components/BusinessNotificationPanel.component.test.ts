@@ -3,7 +3,11 @@ import { describe, expect, it } from 'vitest';
 import type { WebBusinessNotification } from '@muyun/web-contracts';
 import BusinessNotificationPanel from '@/platform-components/BusinessNotificationPanel.vue';
 
-function notification(id: string, dismissible: boolean): WebBusinessNotification {
+function notification(
+  id: string,
+  dismissible: boolean,
+  presentation: Pick<WebBusinessNotification, 'tone' | 'occurredAt'> = {},
+): WebBusinessNotification {
   return {
     id,
     code: `demo.${id}`,
@@ -11,6 +15,7 @@ function notification(id: string, dismissible: boolean): WebBusinessNotification
     content: '提醒正文',
     dismissible,
     actions: [],
+    ...presentation,
   };
 }
 
@@ -39,5 +44,31 @@ describe('BusinessNotificationPanel', () => {
 
     expect(wrapper.findAll('.business-notification-card')).toHaveLength(4);
     expect(wrapper.get('.business-notification-more').text()).toBe('收起提醒');
+  });
+
+  it('renders an optional presentation tone and occurrence time in the standard card header', () => {
+    const wrapper = mount(BusinessNotificationPanel, {
+      props: {
+        notifications: [
+          notification('helmet-online', true, {
+            tone: 'success',
+            occurredAt: '2026-09-11T06:57:39Z',
+          }),
+          notification('helmet-offline', true, { tone: 'danger' }),
+          notification('ordinary', true),
+        ],
+        executeAction: () => undefined,
+      },
+    });
+
+    const cards = wrapper.findAll('.business-notification-card');
+    expect(cards[0].classes()).toContain('business-notification-card--success');
+    expect(cards[1].classes()).toContain('business-notification-card--danger');
+    expect(cards[2].classes()).toContain('business-notification-card--default');
+    expect(cards[0].get('.business-notification-time').attributes('datetime')).toBe(
+      '2026-09-11T06:57:39.000Z',
+    );
+    expect(cards[1].find('.business-notification-time').exists()).toBe(false);
+    expect(cards[0].find('.business-notification-status-dot').exists()).toBe(true);
   });
 });
