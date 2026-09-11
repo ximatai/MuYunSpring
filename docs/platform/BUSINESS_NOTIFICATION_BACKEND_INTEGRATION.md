@@ -88,6 +88,27 @@ public class PurchaseApprovalService {
 
 `id` 是本次实时提醒的稳定标识。首期只用于前端队列关联；它不是已读、处理或补发记录的主键。
 
+## 标准展示信息
+
+`BusinessNotification` 可在原有构造参数之后提供可选的 `tone` 和 `occurredAt`，让 Workbench 使用统一的卡片强调色、状态点和标题右侧时间。它们只描述展示，不改变投递范围、动作权限或处理语义；不传时保持普通提醒的默认外观。
+
+```java
+notificationService.publish(new BusinessNotification(
+        Ids.newId(),
+        "helmet.presence.online",
+        "安全帽已上线",
+        "设备：HELMET-LOCAL-001",
+        "已连接到设备接入服务。",
+        true,
+        new BusinessNotificationRecipients(false, List.of(), List.of(), List.of(), List.of(), List.of(userId)),
+        List.of(new BusinessNotificationNavigateAction(
+                "view", "查看设备", "mr.device", deviceId, "DETAIL", Map.of(), false)),
+        BusinessNotificationTone.SUCCESS,
+        Instant.now()));
+```
+
+可用色调为 `DEFAULT`、`SUCCESS` 和 `DANGER`；浏览器协议对应 `default`、`success`、`danger`。`occurredAt` 使用 `Instant`，由 Workbench 按当前用户时区显示。既有八参数构造方式继续有效，普通业务不需要为此改造。
+
 ## 接收范围
 
 `BusinessNotificationRecipients` 的所有维度按并集处理，并按 `userId` 去重：
