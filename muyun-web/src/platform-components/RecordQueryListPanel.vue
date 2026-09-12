@@ -307,6 +307,7 @@ const queryReferenceContexts = computed(() =>
               createModuleContext<RecordPickerRecord>({
                 moduleAlias: targetModuleAlias,
                 http: props.context.http,
+                runtimeAccess: 'REFERENCE',
               }),
             ],
           ]
@@ -324,7 +325,20 @@ const quickSearchEnabled = computed(() => props.queryable && schema.value?.quick
 const quickSearchDisabled = computed(() => !queryReady.value || !quickSearchEnabled.value);
 const queryActionsDisabled = computed(() => !queryReady.value);
 const criteriaComposition = computed(() => schema.value?.criteriaComposition ?? 'TREE');
-const advancedCriteriaVisible = computed(() => props.queryable && criteriaComposition.value !== 'NONE');
+const advancedCriteriaExcludedFieldNames = computed(() =>
+  criteriaComposition.value === 'FLAT_AND'
+    ? persistentFieldQueryControls.value.map((control) => control.fieldName)
+    : [],
+);
+const advancedCriteriaFields = computed(() =>
+  queryFields.value.filter((field) => !advancedCriteriaExcludedFieldNames.value.includes(field.name)),
+);
+const advancedCriteriaVisible = computed(
+  () =>
+    props.queryable &&
+    criteriaComposition.value !== 'NONE' &&
+    (criteriaComposition.value !== 'FLAT_AND' || advancedCriteriaFields.value.length > 0),
+);
 const conditionsDisabled = computed(
   () =>
     !props.queryable ||
@@ -1297,6 +1311,7 @@ defineExpose({ clearSelection, refresh });
         <QueryCriteriaComposer
           :key="criteriaComposerResetKey"
           :fields="queryFields"
+          :excluded-field-names="advancedCriteriaExcludedFieldNames"
           :option-items-by-field="queryOptionOptions"
           :reference-contexts="queryReferenceContexts"
           :disabled="conditionsDisabled"

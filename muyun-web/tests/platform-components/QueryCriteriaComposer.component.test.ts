@@ -109,4 +109,24 @@ describe('QueryCriteriaComposer', () => {
 
     expect(wrapper.findAllComponents({ name: 'UiSelect' }).at(1)?.props('disabled')).toBe(false);
   });
+
+  it('does not offer fields already owned by a flat persistent control', () => {
+    const wrapper = shallowMount(QueryCriteriaComposer, {
+      props: {
+        fields: [
+          ...fields,
+          { name: 'operatorId', title: '操作用户', valueType: 'STRING', operators: ['EQ'] },
+        ],
+        excludedFieldNames: ['status'],
+        optionItemsByField: {},
+        referenceContexts: {},
+        disabled: false,
+        composition: 'FLAT_AND',
+      },
+    });
+
+    expect(wrapper.findComponent({ name: 'QueryCriteriaGroupEditor' }).props('fields')).toEqual([
+      { name: 'operatorId', title: '操作用户', valueType: 'STRING', operators: ['EQ'] },
+    ]);
+  });
 });

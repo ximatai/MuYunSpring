@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue';
+import { computed, ref } from 'vue';
 import { UiButton } from '@muyun/vue-ui-antdv';
 import type {
   Option,
@@ -26,6 +26,8 @@ const props = defineProps<{
   referenceContexts: Record<string, ModuleContext<RecordPickerRecord>>;
   disabled: boolean;
   composition: 'FLAT_AND' | 'TREE';
+  /** Fields already owned by a persistent control on a flat query surface. */
+  excludedFieldNames?: string[];
 }>();
 
 const emit = defineEmits<{
@@ -36,6 +38,9 @@ const emit = defineEmits<{
 }>();
 
 let sequence = 0;
+const selectableFields = computed(() =>
+  props.fields.filter((field) => !props.excludedFieldNames?.includes(field.name)),
+);
 const root = ref<QueryCriteriaGroupDraft>(createRoot());
 const validationErrors = ref<Record<number, string>>({});
 
@@ -75,7 +80,7 @@ function createRoot(): QueryCriteriaGroupDraft {
 }
 
 function createCondition(): QueryCriteriaConditionDraft {
-  const field = props.fields[0];
+  const field = selectableFields.value[0];
   return {
     kind: 'CONDITION',
     id: nextId(),
@@ -160,7 +165,7 @@ function resolveNode(
   <section class="query-criteria-composer">
     <QueryCriteriaGroupEditor
       :group="root"
-      :fields="fields"
+      :fields="selectableFields"
       :option-items-by-field="optionItemsByField"
       :reference-contexts="referenceContexts"
       :next-id="nextId"

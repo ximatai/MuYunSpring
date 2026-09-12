@@ -6,7 +6,7 @@ import RecordQueryListPanel, {
   type QueryListRecord,
   type RecordQueryListColumn,
 } from '@/platform-components/RecordQueryListPanel.vue';
-import type { ModuleContext } from '@muyun/web-core';
+import type { HttpClient, ModuleContext } from '@muyun/web-core';
 import type { WebQueryRequest } from '@muyun/web-contracts';
 
 const originalStubs = config.global.stubs;
@@ -547,6 +547,51 @@ describe('RecordQueryListPanel', () => {
     });
   });
 
+  it('uses the reference read surface for a persistent reference query instead of target CRUD', async () => {
+    const request = vi.fn(async () => ({ records: [], total: 0, pageNum: 1, pageSize: 20 }));
+    const context = createContext({ id: 'log-1' });
+    Object.assign(context, { http: { request } as unknown as HttpClient });
+    const wrapper = shallowMount(RecordQueryListPanel, {
+      props: {
+        context,
+        title: '登录日志',
+        querySchema: {
+          scopeName: 'platform.login-log',
+          quickSearch: { enabled: false, fields: [], fieldSchemas: [] },
+          fields: [
+            {
+              name: 'operatorId',
+              title: '操作用户',
+              valueType: 'STRING',
+              operators: ['EQ'],
+              reference: { targetModuleAlias: 'iam.user', cardinality: 'ONE', labelField: 'username' },
+              persistentControl: { id: 'operatorId', title: '操作用户', operator: 'EQ', defaultValues: [] },
+            },
+          ],
+          externalCriteria: [],
+          defaultSorts: [],
+          criteriaComposition: 'FLAT_AND',
+        },
+      },
+    });
+
+    await flushPromises();
+    const referenceContext = (
+      wrapper.vm as unknown as {
+        persistentReferenceContext: (control: { fieldName: string }) => {
+          crud: { query: (request?: WebQueryRequest) => Promise<unknown> };
+        };
+      }
+    ).persistentReferenceContext({ fieldName: 'operatorId' });
+    await referenceContext.crud.query();
+
+    expect(request).toHaveBeenCalledWith(
+      expect.objectContaining({ path: '/iam.user/navigator/reference/query' }),
+    );
+    expect(request).not.toHaveBeenCalledWith(expect.objectContaining({ path: '/iam.user/query' }));
+    wrapper.unmount();
+  });
+
   it('sends an advanced nested OR group inside the standard root AND criteria', async () => {
     const requests: WebQueryRequest[] = [];
     const wrapper = shallowMount(RecordQueryListPanel, {
@@ -653,6 +698,47 @@ describe('RecordQueryListPanel', () => {
         { kind: 'CONDITION', fieldName: 'account', operator: 'LIKE', values: ['demo'] },
       ],
     });
+  });
+
+  it('keeps flat persistent fields out of more filters so the log contract receives each field once', async () => {
+    const requests: WebQueryRequest[] = [];
+    const wrapper = shallowMount(RecordQueryListPanel, {
+      props: {
+        context: createContext({ id: 'log-1', status: 'FAILED' }, requests),
+        title: '登录日志',
+        querySchema: {
+          scopeName: 'platform.login-log',
+          quickSearch: { enabled: false, fields: [], fieldSchemas: [] },
+          fields: [
+            {
+              name: 'occurredAt',
+              title: '发生时间',
+              valueType: 'INSTANT',
+              operators: ['BETWEEN'],
+              persistentControl: {
+                id: 'occurredAt',
+                title: '发生时间',
+                operator: 'BETWEEN',
+                defaultValues: [],
+              },
+            },
+            { name: 'loginOutcome', title: '登录结果', valueType: 'STRING', operators: ['EQ'] },
+          ],
+          externalCriteria: [],
+          defaultSorts: [],
+          criteriaComposition: 'FLAT_AND',
+        },
+      },
+    });
+
+    await vi.waitFor(() => expect(requests).toHaveLength(1));
+    (wrapper.vm as unknown as { toggleConditions: () => void }).toggleConditions();
+    await flushPromises();
+
+    expect(wrapper.findComponent({ name: 'QueryCriteriaComposer' }).props('excludedFieldNames')).toEqual([
+      'occurredAt',
+    ]);
+    wrapper.unmount();
   });
 
   it('hides quick search and explicit criteria controls when the schema disables them', async () => {
