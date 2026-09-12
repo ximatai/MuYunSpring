@@ -23,7 +23,15 @@ public class PostgresBusinessLogSchemaInitializer {
     }
 
     public void ensure() {
-        try (Connection connection = dataSource.getConnection(); Statement statement = connection.createStatement()) {
+        try (Connection connection = dataSource.getConnection()) {
+            ensure(connection);
+        } catch (SQLException exception) {
+            throw new BusinessLogStorageException("Could not initialize business log schema", exception);
+        }
+    }
+
+    static void ensure(Connection connection) throws SQLException {
+        try (Statement statement = connection.createStatement()) {
             statement.execute("create schema if not exists muyun_log");
             statement.execute("""
                     create table if not exists muyun_log.business_log_event (
@@ -39,6 +47,7 @@ public class PostgresBusinessLogSchemaInitializer {
                         action_code varchar(128),
                         error_code varchar(128),
                         login_outcome varchar(32),
+                        login_account varchar(256),
                         http_status integer,
                         details_json jsonb not null
                     )
@@ -47,6 +56,8 @@ public class PostgresBusinessLogSchemaInitializer {
                     + "add column if not exists operator_organization_id varchar(128)");
             statement.execute("alter table muyun_log.business_log_event "
                     + "add column if not exists login_outcome varchar(32)");
+            statement.execute("alter table muyun_log.business_log_event "
+                    + "add column if not exists login_account varchar(256)");
             statement.execute("alter table muyun_log.business_log_event "
                     + "add column if not exists http_status integer");
             statement.execute("create index if not exists business_log_event_occurred_idx "
@@ -62,10 +73,10 @@ public class PostgresBusinessLogSchemaInitializer {
                     + "on muyun_log.business_log_event (error_code, occurred_at desc, event_id desc)");
             statement.execute("create index if not exists business_log_event_login_outcome_occurred_idx "
                     + "on muyun_log.business_log_event (login_outcome, occurred_at desc, event_id desc)");
+            statement.execute("create index if not exists business_log_event_login_account_occurred_idx "
+                    + "on muyun_log.business_log_event (login_account, occurred_at desc, event_id desc)");
             statement.execute("create index if not exists business_log_event_http_status_occurred_idx "
                     + "on muyun_log.business_log_event (http_status, occurred_at desc, event_id desc)");
-        } catch (SQLException exception) {
-            throw new BusinessLogStorageException("Could not initialize business log schema", exception);
         }
     }
 }

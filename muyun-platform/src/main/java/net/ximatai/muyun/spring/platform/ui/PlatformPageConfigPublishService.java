@@ -2,6 +2,7 @@ package net.ximatai.muyun.spring.platform.ui;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import net.ximatai.muyun.spring.ability.action.BusinessExceptions;
+import net.ximatai.muyun.spring.ability.query.QueryOperator;
 import net.ximatai.muyun.spring.ability.event.RuntimeEvent;
 import net.ximatai.muyun.spring.ability.event.RuntimeEventPublisher;
 import net.ximatai.muyun.spring.ability.event.RuntimeEventType;
@@ -399,7 +400,7 @@ public class PlatformPageConfigPublishService {
         validatePageRootContract(root, uiConfigId);
         validateListDetailCardMember(root, "querySummaries", uiConfigId);
         validateListHeader(root, uiConfigId);
-        rejectDynamicPersistentQueries(root.get("persistentQueries"), uiConfigId);
+        validatePersistentQueries(root, uiConfigId);
         validateQuerySummaries(root.get("querySummaries"), uiConfigId);
         validateReferenceCandidate(root.get("referenceCandidate"), "referenceCandidate", uiConfigId);
         validateReferenceCandidateArray(root.get("referenceCandidates"), "referenceCandidates", uiConfigId);
@@ -526,11 +527,51 @@ public class PlatformPageConfigPublishService {
         }
     }
 
-    private void rejectDynamicPersistentQueries(JsonNode controls, String uiConfigId) {
-        if (controls != null && !controls.isNull()) {
-            throw layoutException(uiConfigId,
-                    "dynamic persistentQueries is not supported until dynamic query criteria are executable");
+    private void validatePersistentQueries(JsonNode root, String uiConfigId) {
+        JsonNode controls = root.get("persistentQueries");
+        if (controls == null || controls.isNull()) {
+            return;
         }
+        validateListDetailCardMember(root, "persistentQueries", uiConfigId);
+        if (!controls.isArray()) {
+            throw layoutException(uiConfigId, "persistentQueries must be array");
+        }
+        Set<String> ids = new java.util.HashSet<>();
+        for (int index = 0; index < controls.size(); index++) {
+            JsonNode control = controls.get(index);
+            String path = "persistentQueries[" + index + "]";
+            if (!control.isObject()) {
+                throw layoutException(uiConfigId, path + " must be object");
+            }
+            String id = requiredText(control, "id", path, uiConfigId);
+            if (!ids.add(id)) {
+                throw layoutException(uiConfigId, path + ".id is duplicated");
+            }
+            requiredText(control, "label", path, uiConfigId);
+            String source = requiredText(control, "source", path, uiConfigId);
+            if (!"FIELD".equals(source)) {
+                throw layoutException(uiConfigId, path + ".source is unsupported");
+            }
+            requiredText(control, "fieldName", path, uiConfigId);
+            String operator = requiredText(control, "operator", path, uiConfigId);
+            try {
+                QueryOperator.from(operator);
+            } catch (IllegalArgumentException exception) {
+                throw layoutException(uiConfigId, path + ".operator is unsupported");
+            }
+            JsonNode defaultValues = control.get("defaultValues");
+            if (defaultValues != null && !defaultValues.isArray()) {
+                throw layoutException(uiConfigId, path + ".defaultValues must be array");
+            }
+        }
+    }
+
+    private String requiredText(JsonNode value, String member, String path, String uiConfigId) {
+        JsonNode text = value.get(member);
+        if (text == null || !text.isTextual() || text.asText().isBlank()) {
+            throw layoutException(uiConfigId, path + "." + member + " is required");
+        }
+        return text.asText().trim();
     }
 
     private void validateReferenceCandidateArray(JsonNode candidates, String path, String uiConfigId) {

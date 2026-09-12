@@ -13,6 +13,9 @@ import net.ximatai.muyun.database.core.orm.SortDirection;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcOperations;
 import org.springframework.stereotype.Component;
 
+import java.sql.Timestamp;
+import java.time.Instant;
+import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -43,8 +46,8 @@ public class RelationProjectionQueryExecutor {
         }
         PageRequest page = pageRequest == null ? PageRequest.of(1, 20) : pageRequest;
         CompiledCriteria compiled = compileCriteria(plan, criteria);
-        LinkedHashMap<String, Object> params = new LinkedHashMap<>(plan.baseParams());
-        params.putAll(compiled.getParams());
+        LinkedHashMap<String, Object> params = jdbcParameters(plan.baseParams());
+        params.putAll(jdbcParameters(compiled.getParams()));
         String where = where(compiled);
         String orderBy = orderBy(plan, sorts);
         String dataSql = "select " + responseSelect(plan, additionalResponseFields) + " from (" + plan.baseSql() + ") q"
@@ -55,8 +58,8 @@ public class RelationProjectionQueryExecutor {
         params.put("__offset", page.getOffset());
         List<Map<String, Object>> records = jdbcOperations.queryForList(dataSql, params);
 
-        LinkedHashMap<String, Object> countParams = new LinkedHashMap<>(plan.baseParams());
-        countParams.putAll(compiled.getParams());
+        LinkedHashMap<String, Object> countParams = jdbcParameters(plan.baseParams());
+        countParams.putAll(jdbcParameters(compiled.getParams()));
         Long total = jdbcOperations.queryForObject(
                 "select count(*) from (" + plan.baseSql() + ") q" + where,
                 countParams,
@@ -71,8 +74,8 @@ public class RelationProjectionQueryExecutor {
         if (plan == null) throw new IllegalArgumentException("projection SQL plan must not be null");
         if (aggregateQuery == null) throw new IllegalArgumentException("aggregate query must not be null");
         CompiledCriteria compiled = compileCriteria(plan, criteria);
-        LinkedHashMap<String, Object> params = new LinkedHashMap<>(plan.baseParams());
-        params.putAll(compiled.getParams());
+        LinkedHashMap<String, Object> params = jdbcParameters(plan.baseParams());
+        params.putAll(jdbcParameters(compiled.getParams()));
         List<String> groups = aggregateQuery.groupByFields();
         List<String> select = new java.util.ArrayList<>();
         for (int i = 0; i < groups.size(); i++) {
@@ -157,5 +160,26 @@ public class RelationProjectionQueryExecutor {
         return fields.stream()
                 .map(field -> RelationProjectionQueryPlanner.quote(field, plan.databaseType()))
                 .collect(java.util.stream.Collectors.joining(", "));
+    }
+
+    /**
+     * Spring's named-parameter binder delegates an {@link Instant} to PostgreSQL via
+     * {@code PreparedStatement#setObject}, which the driver cannot type for a timestamp column.
+     * Projection reads use this executor instead of the ORM's typed binder, so adapt values at
+     * that boundary while preserving collection expansion for IN-style criteria.
+     */
+    private static LinkedHashMap<String, Object> jdbcParameters(Map<String, Object> source) {
+        LinkedHashMap<String, Object> normalized = new LinkedHashMap<>();
+        if (source == null || source.isEmpty()) return normalized;
+        source.forEach((key, value) -> normalized.put(key, jdbcValue(value)));
+        return normalized;
+    }
+
+    private static Object jdbcValue(Object value) {
+        if (value instanceof Instant instant) return Timestamp.from(instant);
+        if (value instanceof Collection<?> values) return values.stream()
+                .map(RelationProjectionQueryExecutor::jdbcValue)
+                .toList();
+        return value;
     }
 }

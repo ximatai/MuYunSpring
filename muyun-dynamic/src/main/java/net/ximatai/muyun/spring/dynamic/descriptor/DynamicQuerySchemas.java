@@ -64,7 +64,8 @@ public final class DynamicQuerySchemas {
                 field.sortable(),
                 field.optionBinding(),
                 field.selectionMode(),
-                optionTitleField(field, fields)
+                optionTitleField(field, fields),
+                reference(field)
         );
     }
 
@@ -79,8 +80,15 @@ public final class DynamicQuerySchemas {
                 field.sortable(),
                 field.optionBinding(),
                 field.selectionMode(),
-                null
-        );
+                null,
+                reference(field)
+            );
+    }
+
+    private static QuerySchema.Reference reference(DynamicFieldDescriptor field) {
+        DynamicReferenceDescriptor reference = field.reference();
+        return reference == null ? null : new QuerySchema.Reference(reference.targetModuleAlias(),
+                reference.cardinality(), reference.labelField());
     }
 
     private static String optionTitleField(DynamicFieldDescriptor source, List<DynamicFieldDescriptor> fields) {

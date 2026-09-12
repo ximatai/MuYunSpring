@@ -259,7 +259,15 @@ final class CrudWebRuntimeSupport {
     }
 
     private static QuerySchema withNavigatorCriteria(CrudWeb<?, ?> controller, QuerySchema schema, String uiConfigId) {
-        List<PageContextBindingDefinition> bindings = pageContextBindings(controller, uiConfigId, PageContextTarget.LIST_QUERY);
+        return withNavigatorCriteria(schema, pageContextBindings(controller, uiConfigId, PageContextTarget.LIST_QUERY));
+    }
+
+    /** Keeps query capability facts intact while navigator bindings add their external values. */
+    static QuerySchema withNavigatorCriteria(QuerySchema schema, List<PageContextBindingDefinition> bindings) {
+        if (schema == null) {
+            throw new IllegalArgumentException("query schema must not be null");
+        }
+        bindings = bindings == null ? List.of() : bindings;
         if (bindings.isEmpty()) return schema;
         List<QuerySchema.ExternalCriteria> external = new ArrayList<>(schema.externalCriteria());
         for (PageContextBindingDefinition binding : bindings) {
@@ -267,7 +275,8 @@ final class CrudWebRuntimeSupport {
                 external.add(new QuerySchema.ExternalCriteria(binding.targetKey(), "OBJECT", "PAGE_CONTEXT"));
             }
         }
-        return new QuerySchema(schema.scopeName(), schema.entityAlias(), schema.quickSearch(), schema.fields(), external, schema.defaultSorts());
+        return new QuerySchema(schema.scopeName(), schema.entityAlias(), schema.quickSearch(), schema.fields(), external,
+                schema.defaultSorts(), schema.criteriaComposition());
     }
 
     private static boolean isCurrentModuleUiDefinition(CrudWeb<?, ?> controller, StaticModuleUiContributor contributor) {

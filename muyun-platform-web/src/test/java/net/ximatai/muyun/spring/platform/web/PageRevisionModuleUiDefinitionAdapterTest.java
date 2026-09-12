@@ -19,6 +19,53 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class PageRevisionModuleUiDefinitionAdapterTest {
     @Test
+    void shouldCompileFieldPersistentQueriesIntoTheSourceNeutralListDescriptor() {
+        ModuleUiDefinition definition = PageRevisionModuleUiDefinitionAdapter.fromPublishedRevision(page(), revision("""
+                {"template":"management","templateVersion":4,"mode":"LIST_CARD","quickSearchFields":[],"actions":[],
+                 "persistentQueries":[{"source":"FIELD","id":"examDate","label":"考试日期",
+                                       "fieldName":"examDate","operator":"GTE","defaultValues":["2026-01-01"]}],
+                 "nodes":[{"slot":"list","title":"列表","fields":["title","examDate"]},
+                          {"slot":"form","title":"详情","fields":["title","examDate"]}]}
+                """), new DynamicPageCompilationContext(DynamicModuleOverviewMode.LIST_CARD,
+                Map.of("title", "名称", "examDate", "考试日期"), java.util.Set.of(), Map.of()));
+
+        PageListPersistentQueryControlDefinition control = ((ListDetailCardPageDefinition) definition.page())
+                .list().persistentQueryControls().getFirst();
+        assertThat(control).isEqualTo(new PageListFieldPersistentQueryControlDefinition("examDate", "考试日期",
+                "examDate", net.ximatai.muyun.spring.ability.query.QueryOperator.GTE, List.of("2026-01-01")));
+        assertThat(ModuleUiDescriptorCompiler.compile(definition).page().list().persistentQueryControls().getFirst())
+                .isEqualTo(new ResolvedPageListFieldPersistentQueryControlDescriptor("examDate", "考试日期",
+                        "examDate", net.ximatai.muyun.spring.ability.query.QueryOperator.GTE, List.of("2026-01-01")));
+    }
+
+    @Test
+    void shouldRejectPersistentQueriesOutsideListCardAndUnsupportedSources() {
+        assertThatThrownBy(() -> PageRevisionModuleUiDefinitionAdapter.fromPublishedRevision(page(), revision("""
+                {"template":"management","templateVersion":1,"persistentQueries":[],
+                 "nodes":[{"slot":"list","title":"列表","fields":["title"]},
+                 {"slot":"form","title":"详情","fields":["title"]}]}
+                """), new DynamicPageCompilationContext(DynamicModuleOverviewMode.TREE_CARD,
+                Map.of("title", "名称"), java.util.Set.of(), Map.of())))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("persistent queries require LIST_CARD");
+
+        assertThatThrownBy(() -> PageRevisionModuleUiDefinitionAdapter.fromPublishedRevision(page(), revision("""
+                {"template":"management","templateVersion":1,
+                 "persistentQueries":[{"source":"EXTERNAL","id":"active","label":"仅启用","fieldName":"title","operator":"EQ"}],
+                 "nodes":[{"slot":"list","title":"列表","fields":["title"]},{"slot":"form","title":"详情","fields":["title"]}]}
+                """), new DynamicPageCompilationContext(DynamicModuleOverviewMode.LIST_CARD,
+                Map.of("title", "名称"), java.util.Set.of(), Map.of())))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("source is unsupported");
+
+        assertThatThrownBy(() -> PageRevisionModuleUiDefinitionAdapter.fromPublishedRevision(page(), revision("""
+                {"template":"management","templateVersion":1,
+                 "persistentQueries":[{"source":"FIELD","id":"missing","label":"缺失字段","fieldName":"missing","operator":"EQ"}],
+                 "nodes":[{"slot":"list","title":"列表","fields":["title"]},{"slot":"form","title":"详情","fields":["title"]}]}
+                """), new DynamicPageCompilationContext(DynamicModuleOverviewMode.LIST_CARD,
+                Map.of("title", "名称"), java.util.Set.of(), Map.of())))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("unknown main entity field");
+    }
+
+    @Test
     void compilesRootListQuerySummariesWithoutRequiringTheFieldToBeAListColumn() {
         var definition = PageRevisionModuleUiDefinitionAdapter.fromPublishedRevision(page(), revision("""
                 {"template":"management","templateVersion":4,"mode":"LIST_CARD","quickSearchFields":[],"actions":[],

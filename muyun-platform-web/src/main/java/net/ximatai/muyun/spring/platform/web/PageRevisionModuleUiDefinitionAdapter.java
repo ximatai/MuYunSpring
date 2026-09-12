@@ -3,6 +3,7 @@ package net.ximatai.muyun.spring.platform.web;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import net.ximatai.muyun.spring.ability.query.QueryOperator;
 import net.ximatai.muyun.spring.dynamic.descriptor.DynamicAssociationViewDescriptor;
 import net.ximatai.muyun.spring.platform.ui.PlatformPageContractType;
 import net.ximatai.muyun.spring.platform.ui.PlatformPageDefinition;
@@ -156,6 +157,15 @@ public final class PageRevisionModuleUiDefinitionAdapter {
         Set<String> knownFields = knownMainFields(fieldTitles.keySet());
         Set<String> requiredFields = requiredMainFieldNames == null ? Set.of() : Set.copyOf(requiredMainFieldNames);
         Composition composition = composition(revision.getId(), uiTreeJson);
+        composition.persistentQueryControls().forEach(control -> {
+            if (!(control instanceof PageListFieldPersistentQueryControlDefinition fieldControl)) {
+                throw new IllegalArgumentException("management persistent query source is unsupported");
+            }
+            if (!knownFields.contains(fieldControl.fieldName())) {
+                throw new IllegalArgumentException("management persistent query references an unknown main entity field: "
+                        + fieldControl.fieldName());
+            }
+        });
         Slot list = requireSlot(composition.slots(), "list", revision.getId());
         Slot form = requireSlot(composition.slots(), "form", revision.getId());
         ViewDefinition listView = view(ModuleUiViewCodes.DEFAULT_LIST, ModuleViewKind.LIST,
@@ -179,13 +189,16 @@ public final class PageRevisionModuleUiDefinitionAdapter {
         if (!composition.querySummaries().isEmpty() && effectiveMode != DynamicModuleOverviewMode.LIST_CARD) {
             throw new IllegalArgumentException("management query summaries require LIST_CARD mode");
         }
+        if (composition.persistentQueriesDeclared() && effectiveMode != DynamicModuleOverviewMode.LIST_CARD) {
+            throw new IllegalArgumentException("management persistent queries require LIST_CARD mode");
+        }
         ModulePageDefinition pageDefinition = switch (effectiveMode) {
             case TREE_CARD -> new TreeManagementPageDefinition(null, null, detail, new PageTraitsDefinition(null), explorer, composition.quickSearchFields());
             case MICRO_LIST_CARD -> new FlatManagementPageDefinition(null,
                     explorer != null ? explorer : new PageExplorerDefinition(list.title(), searchPlaceholder, null, null, null, "title", null, false),
                     detail, new PageTraitsDefinition(null), composition.quickSearchFields());
             case LIST_CARD -> new ListDetailCardPageDefinition(null,
-                    new PageListDefinition(searchPlaceholder, listView, null, null, List.of(), List.of(),
+                    new PageListDefinition(searchPlaceholder, listView, null, null, List.of(), composition.persistentQueryControls(),
                             composition.querySummaries()), detail, new PageTraitsDefinition(null), composition.quickSearchFields());
         };
         return new ModuleUiDefinition(page.getModuleAlias(), List.of(), pageDefinition,
@@ -340,6 +353,8 @@ public final class PageRevisionModuleUiDefinitionAdapter {
         List<String> quickSearchFields = null;
         List<PageActionDefinition> pageActions = List.of();
         List<PageListQuerySummaryDefinition> querySummaries = List.of();
+        List<PageListPersistentQueryControlDefinition> persistentQueryControls = List.of();
+        boolean persistentQueriesDeclared = false;
         boolean managedActions = root != null && root.path("templateVersion").asInt() == PlatformPresentationTemplateCatalog.MANAGED_ACTION_VERSION;
         if (root != null && Set.of(PlatformPresentationTemplateCatalog.MODE_AWARE_VERSION,
                 PlatformPresentationTemplateCatalog.MODE_AWARE_ACTION_VERSION, PlatformPresentationTemplateCatalog.MANAGED_ACTION_VERSION).contains(root.path("templateVersion").asInt())) {
@@ -416,8 +431,58 @@ public final class PageRevisionModuleUiDefinitionAdapter {
             }
             querySummaries = querySummaries(summaries);
         }
+        JsonNode persistentQueries = root.path("persistentQueries");
+        if (!persistentQueries.isMissingNode()) {
+            persistentQueriesDeclared = true;
+            if (mode != null && mode != DynamicModuleOverviewMode.LIST_CARD) {
+                throw new IllegalArgumentException("management persistent queries require LIST_CARD mode");
+            }
+            persistentQueryControls = persistentQueryControls(persistentQueries);
+        }
         return new Composition(Map.copyOf(slots), searchPlaceholder, mode, explorer, quickSearchFields, pageActions,
-                managedActions, querySummaries);
+                managedActions, querySummaries, persistentQueryControls, persistentQueriesDeclared);
+    }
+
+    private static List<PageListPersistentQueryControlDefinition> persistentQueryControls(JsonNode entries) {
+        if (!entries.isArray()) throw new IllegalArgumentException("management persistentQueries must be array");
+        List<PageListPersistentQueryControlDefinition> controls = new java.util.ArrayList<>();
+        Set<String> ids = new LinkedHashSet<>();
+        for (int index = 0; index < entries.size(); index++) {
+            JsonNode entry = entries.get(index);
+            String path = "management persistentQueries[" + index + "]";
+            if (!entry.isObject()) throw new IllegalArgumentException(path + " must be object");
+            String id = requiredText(entry, "id", path);
+            if (!ids.add(id)) throw new IllegalArgumentException(path + ".id is duplicated");
+            String source = requiredText(entry, "source", path);
+            if (!"FIELD".equals(source)) throw new IllegalArgumentException(path + ".source is unsupported");
+            String fieldName = requiredText(entry, "fieldName", path);
+            String operatorValue = requiredText(entry, "operator", path);
+            QueryOperator operator;
+            try {
+                operator = QueryOperator.from(operatorValue);
+            } catch (IllegalArgumentException exception) {
+                throw new IllegalArgumentException(path + ".operator is unsupported", exception);
+            }
+            JsonNode defaultValues = entry.get("defaultValues");
+            if (defaultValues != null && !defaultValues.isArray()) {
+                throw new IllegalArgumentException(path + ".defaultValues must be array");
+            }
+            List<Object> values = new java.util.ArrayList<>();
+            if (defaultValues != null) {
+                defaultValues.forEach(value -> values.add(OBJECT_MAPPER.convertValue(value, Object.class)));
+            }
+            controls.add(new PageListFieldPersistentQueryControlDefinition(id, requiredText(entry, "label", path),
+                    fieldName, operator, values));
+        }
+        return List.copyOf(controls);
+    }
+
+    private static String requiredText(JsonNode entry, String member, String path) {
+        JsonNode value = entry.get(member);
+        if (value == null || !value.isTextual() || value.asText().isBlank()) {
+            throw new IllegalArgumentException(path + "." + member + " is required");
+        }
+        return value.asText().trim();
     }
 
     private static List<PageListQuerySummaryDefinition> querySummaries(JsonNode entries) {
@@ -513,7 +578,9 @@ public final class PageRevisionModuleUiDefinitionAdapter {
     private record Composition(Map<String, Slot> slots, String listSearchPlaceholder,
                                DynamicModuleOverviewMode mode, PageExplorerDefinition explorer, List<String> quickSearchFields,
                                List<PageActionDefinition> pageActions, boolean managedActions,
-                               List<PageListQuerySummaryDefinition> querySummaries) {
+                               List<PageListQuerySummaryDefinition> querySummaries,
+                               List<PageListPersistentQueryControlDefinition> persistentQueryControls,
+                               boolean persistentQueriesDeclared) {
     }
 
     private record FieldNode(String name, String label, String width, String align, Integer columnSpan,

@@ -18,45 +18,45 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.beans.factory.ObjectProvider;
+import org.jdbi.v3.core.Jdbi;
 
-import javax.sql.DataSource;
 
-/** Assembles the neutral business-log publisher with the default PostgreSQL store. */
+/** Assembles the neutral business-log publisher with the platform-owned Jdbi connection runtime. */
 @AutoConfiguration(afterName = {
         "org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration",
         "net.ximatai.muyun.database.spring.boot.MuYunDatabaseAutoConfiguration"
 }, beforeName = "net.ximatai.muyun.spring.starter.MuYunSpringAutoConfiguration")
 public class MuYunSpringBusinessLoggingConfiguration {
     @Bean
-    @ConditionalOnBean(DataSource.class)
+    @ConditionalOnBean(Jdbi.class)
     @ConditionalOnMissingBean(BusinessLogStore.class)
-    PostgresBusinessLogStore postgresBusinessLogStore(DataSource dataSource) {
-        return new PostgresBusinessLogStore(dataSource);
+    PostgresBusinessLogStore postgresBusinessLogStore(Jdbi jdbi) {
+        return new PostgresBusinessLogStore(jdbi);
     }
 
     @Bean
-    @ConditionalOnBean(BusinessLogStore.class)
+    @ConditionalOnBean(Jdbi.class)
     @ConditionalOnMissingBean(BusinessLogPublisher.class)
     BusinessLogPublisher businessLogPublisher(BusinessLogStore store) {
         return new StoreBackedBusinessLogPublisher(store);
     }
 
     @Bean
-    @ConditionalOnBean(BusinessLogPublisher.class)
+    @ConditionalOnBean(Jdbi.class)
     @ConditionalOnMissingBean(LoginAuditLogger.class)
     LoginAuditLogger loginAuditLogger(BusinessLogPublisher publisher) {
         return new BusinessLogLoginAuditLogger(publisher);
     }
 
     @Bean
-    @ConditionalOnBean(BusinessLogPublisher.class)
+    @ConditionalOnBean(Jdbi.class)
     @ConditionalOnMissingBean(RuntimeActionBusinessLogEventListener.class)
     RuntimeActionBusinessLogEventListener runtimeActionBusinessLogEventListener(BusinessLogPublisher publisher) {
         return new RuntimeActionBusinessLogEventListener(publisher);
     }
 
     @Bean
-    @ConditionalOnBean(BusinessLogPublisher.class)
+    @ConditionalOnBean(Jdbi.class)
     @ConditionalOnMissingBean(RequestErrorLogRecorder.class)
     RequestErrorLogRecorder requestErrorLogRecorder(BusinessLogPublisher publisher) {
         return new RequestErrorLogRecorder(publisher);
@@ -75,14 +75,14 @@ public class MuYunSpringBusinessLoggingConfiguration {
     }
 
     @Bean
-    @ConditionalOnBean(BusinessLogStore.class)
+    @ConditionalOnBean(Jdbi.class)
     @ConditionalOnMissingBean(BusinessLogStatisticsReader.class)
     BusinessLogStatisticsReader businessLogStatisticsReader(BusinessLogStore store) {
         return new StoreBackedBusinessLogStatisticsReader(store);
     }
 
     @Bean
-    @ConditionalOnBean({BusinessLogStore.class, BusinessLogStatisticsReader.class})
+    @ConditionalOnBean(Jdbi.class)
     @ConditionalOnMissingBean(BusinessLogGovernanceService.class)
     BusinessLogGovernanceService businessLogGovernanceService(BusinessLogStore store,
                                                               BusinessLogStatisticsReader statisticsReader) {

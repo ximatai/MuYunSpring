@@ -251,10 +251,11 @@ class DynamicExportWebControllerTest {
                                   "quickSearch": "C-001",
                                   "quickSearchFields": ["code"],
                                   "criteria": {
+                                    "kind": "GROUP",
                                     "operator": "OR",
-                                    "conditions": [
-                                      {"fieldName": "status", "operator": "EQ", "values": ["ACTIVE"]},
-                                      {"fieldName": "status", "operator": "EQ", "values": ["PENDING"]}
+                                    "children": [
+                                      {"kind": "CONDITION", "fieldName": "status", "operator": "EQ", "values": ["ACTIVE"]},
+                                      {"kind": "CONDITION", "fieldName": "status", "operator": "EQ", "values": ["PENDING"]}
                                     ]
                                   }
                                 }

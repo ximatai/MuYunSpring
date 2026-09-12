@@ -74,11 +74,13 @@ public class StandardModuleWebRuntime {
     }
 
     public Optional<Criteria> queryCriteria(String moduleAlias, CrudAbility<?> service, QueryRequest request) {
-        return plan(moduleAlias).map(plan -> new QueryCompiler(plan.queryDescriptor()).criteria(request));
+        return plan(moduleAlias).map(plan -> new QueryCompiler(plan.queryDescriptor(),
+                plan.querySchema().criteriaComposition()).criteria(request));
     }
 
     public Optional<Sort[]> querySorts(String moduleAlias, CrudAbility<?> service, QueryRequest request) {
-        return plan(moduleAlias).map(plan -> new QueryCompiler(plan.queryDescriptor()).sorts(request));
+        return plan(moduleAlias).map(plan -> new QueryCompiler(plan.queryDescriptor(),
+                plan.querySchema().criteriaComposition()).sorts(request));
     }
 
     public Optional<FormSchema> formSchema(String moduleAlias, Class<?> modelClass, String resource,
@@ -118,7 +120,8 @@ public class StandardModuleWebRuntime {
                 moduleAlias, WebQueryRequests.from(request), criteria, PageRequest.of(1, 1), service,
                 actionPolicy, RecordReadVisibility.ACTIVE);
         if (projected.isPresent()) return projected.get().total();
-        Criteria queryCriteria = new QueryCompiler(requirePlan(moduleAlias).queryDescriptor())
+        ModuleExecutionPlan plan = requirePlan(moduleAlias);
+        Criteria queryCriteria = new QueryCompiler(plan.queryDescriptor(), plan.querySchema().criteriaComposition())
                 .criteria(WebQueryRequests.from(request));
         criteria = Criteria.copyOf(queryCriteria).and(criteria);
         if (service instanceof DataScopeAbility<?> scoped) {

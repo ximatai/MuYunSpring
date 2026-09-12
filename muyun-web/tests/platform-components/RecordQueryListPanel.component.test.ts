@@ -432,6 +432,7 @@ describe('RecordQueryListPanel', () => {
         title: '备注',
         externalQueryValues: { tenantId: 'tenant-a' },
       },
+      global: { stubs: { ManagementPanelHeader: false } },
     });
 
     await vi.waitFor(() => expect(requests).toHaveLength(1));
@@ -449,7 +450,14 @@ describe('RecordQueryListPanel', () => {
         context: createContext({ id: 'note-1' }, requests),
         title: '备注',
         persistentQueryControls: [
-          { externalCriteriaKey: 'onlineOnly', title: '仅在线', uiType: 'SWITCH', defaultValue: false },
+          {
+            source: 'EXTERNAL',
+            id: 'onlineOnly',
+            externalCriteriaKey: 'onlineOnly',
+            title: '仅在线',
+            uiType: 'SWITCH',
+            defaultValue: false,
+          },
         ],
       },
       global: { stubs: { ManagementPanelHeader: false } },
@@ -457,10 +465,8 @@ describe('RecordQueryListPanel', () => {
 
     await vi.waitFor(() => expect(requests).toHaveLength(1));
     expect(requests[0]?.externalQueryValues).toEqual({ onlineOnly: false });
-    const search = wrapper.find('.record-query-list-search').element;
     const control = wrapper.find('.record-query-list-persistent-query-control').element;
     const advanced = wrapper.find('.record-query-list-advanced').element;
-    expect(control.compareDocumentPosition(search) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
     expect(control.compareDocumentPosition(advanced) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
 
     wrapper.findComponent({ name: 'UiCheckbox' }).vm.$emit('change', true);
@@ -476,13 +482,235 @@ describe('RecordQueryListPanel', () => {
         title: '备注',
         externalQueryValues: { tenantId: 'tenant-a' },
         persistentQueryControls: [
-          { externalCriteriaKey: 'tenantId', title: '无效配置', uiType: 'SWITCH', defaultValue: false },
+          {
+            source: 'EXTERNAL',
+            id: 'tenantId',
+            externalCriteriaKey: 'tenantId',
+            title: '无效配置',
+            uiType: 'SWITCH',
+            defaultValue: false,
+          },
         ],
       },
+      global: { stubs: { ManagementPanelHeader: false } },
     });
 
     await vi.waitFor(() => expect(requests).toHaveLength(1));
     expect(requests[0]?.externalQueryValues).toEqual({ tenantId: 'tenant-a' });
+  });
+
+  it('applies persistent field drafts as root AND criteria only after the user confirms them', async () => {
+    const requests: WebQueryRequest[] = [];
+    const wrapper = shallowMount(RecordQueryListPanel, {
+      props: {
+        context: createContext({ id: 'note-1', status: 'OPEN' }, requests),
+        title: '备注',
+        querySchema: {
+          scopeName: 'demo.note',
+          quickSearch: { enabled: false, fields: [], fieldSchemas: [] },
+          fields: [
+            {
+              name: 'status',
+              title: '状态',
+              valueType: 'STRING',
+              operators: ['EQ'],
+              defaultOperator: 'EQ',
+              persistentControl: {
+                id: 'status',
+                title: '状态',
+                operator: 'EQ',
+                defaultValues: [],
+              },
+            },
+          ],
+          externalCriteria: [],
+          defaultSorts: [],
+        },
+      },
+      global: { stubs: { ManagementPanelHeader: false, QueryValueEditor: false } },
+    });
+
+    await vi.waitFor(() => expect(requests).toHaveLength(1));
+    wrapper.findComponent({ name: 'QueryValueEditor' }).vm.$emit('update:values', ['OPEN']);
+    await flushPromises();
+    expect(requests).toHaveLength(1);
+
+    wrapper
+      .find('.record-query-list-persistent-field-actions')
+      .findComponent({ name: 'UiButton' })
+      .vm.$emit('click');
+    await vi.waitFor(() => expect(requests).toHaveLength(2));
+    expect(requests.at(-1)?.criteria).toEqual({
+      kind: 'GROUP',
+      operator: 'AND',
+      children: [{ kind: 'CONDITION', fieldName: 'status', operator: 'EQ', values: ['OPEN'] }],
+    });
+  });
+
+  it('sends an advanced nested OR group inside the standard root AND criteria', async () => {
+    const requests: WebQueryRequest[] = [];
+    const wrapper = shallowMount(RecordQueryListPanel, {
+      props: {
+        context: createContext({ id: 'note-1', status: 'OPEN' }, requests),
+        title: '备注',
+        querySchema: {
+          scopeName: 'demo.note',
+          quickSearch: { enabled: false, fields: [], fieldSchemas: [] },
+          fields: [
+            { name: 'status', title: '状态', valueType: 'STRING', operators: ['EQ'], defaultOperator: 'EQ' },
+            {
+              name: 'priority',
+              title: '优先级',
+              valueType: 'STRING',
+              operators: ['EQ'],
+              defaultOperator: 'EQ',
+            },
+          ],
+          externalCriteria: [],
+          defaultSorts: [],
+        },
+      },
+    });
+
+    await vi.waitFor(() => expect(requests).toHaveLength(1));
+    (wrapper.vm as unknown as { toggleConditions: () => void }).toggleConditions();
+    await flushPromises();
+    wrapper.findComponent({ name: 'QueryCriteriaComposer' }).vm.$emit('apply', {
+      kind: 'GROUP',
+      operator: 'OR',
+      children: [
+        { kind: 'CONDITION', fieldName: 'status', operator: 'EQ', values: ['OPEN'] },
+        {
+          kind: 'GROUP',
+          operator: 'AND',
+          children: [{ kind: 'CONDITION', fieldName: 'priority', operator: 'EQ', values: ['HIGH'] }],
+        },
+      ],
+    });
+
+    await vi.waitFor(() => expect(requests).toHaveLength(2));
+    expect(requests.at(-1)?.criteria).toEqual({
+      kind: 'GROUP',
+      operator: 'AND',
+      children: [
+        {
+          kind: 'GROUP',
+          operator: 'OR',
+          children: [
+            { kind: 'CONDITION', fieldName: 'status', operator: 'EQ', values: ['OPEN'] },
+            {
+              kind: 'GROUP',
+              operator: 'AND',
+              children: [{ kind: 'CONDITION', fieldName: 'priority', operator: 'EQ', values: ['HIGH'] }],
+            },
+          ],
+        },
+      ],
+    });
+  });
+
+  it('uses the flat AND query surface without emitting a nested criteria group', async () => {
+    const requests: WebQueryRequest[] = [];
+    const wrapper = shallowMount(RecordQueryListPanel, {
+      props: {
+        context: createContext({ id: 'log-1', status: 'FAILED' }, requests),
+        title: '登录日志',
+        querySchema: {
+          scopeName: 'platform.login-log',
+          quickSearch: { enabled: false, fields: [], fieldSchemas: [] },
+          fields: [
+            { name: 'status', title: '登录结果', valueType: 'STRING', operators: ['EQ'] },
+            { name: 'account', title: '登录账号', valueType: 'STRING', operators: ['LIKE'] },
+          ],
+          externalCriteria: [],
+          defaultSorts: [],
+          criteriaComposition: 'FLAT_AND',
+        },
+      },
+      global: { stubs: { ManagementPanelHeader: false } },
+    });
+
+    await vi.waitFor(() => expect(requests).toHaveLength(1));
+    (wrapper.vm as unknown as { toggleConditions: () => void }).toggleConditions();
+    await flushPromises();
+    expect(wrapper.findComponent({ name: 'QueryCriteriaComposer' }).props('composition')).toBe('FLAT_AND');
+
+    wrapper.findComponent({ name: 'QueryCriteriaComposer' }).vm.$emit('apply', {
+      kind: 'GROUP',
+      operator: 'AND',
+      children: [
+        { kind: 'CONDITION', fieldName: 'status', operator: 'EQ', values: ['FAILED'] },
+        { kind: 'CONDITION', fieldName: 'account', operator: 'LIKE', values: ['demo'] },
+      ],
+    });
+
+    await vi.waitFor(() => expect(requests).toHaveLength(2));
+    expect(requests.at(-1)?.criteria).toEqual({
+      kind: 'GROUP',
+      operator: 'AND',
+      children: [
+        { kind: 'CONDITION', fieldName: 'status', operator: 'EQ', values: ['FAILED'] },
+        { kind: 'CONDITION', fieldName: 'account', operator: 'LIKE', values: ['demo'] },
+      ],
+    });
+  });
+
+  it('hides quick search and explicit criteria controls when the schema disables them', async () => {
+    const wrapper = shallowMount(RecordQueryListPanel, {
+      props: {
+        context: createContext({ id: 'note-1' }),
+        title: '备注',
+        querySchema: {
+          scopeName: 'demo.note',
+          quickSearch: { enabled: false, fields: [], fieldSchemas: [] },
+          fields: [],
+          externalCriteria: [],
+          defaultSorts: [],
+          criteriaComposition: 'NONE',
+        },
+      },
+    });
+
+    await flushPromises();
+    expect(wrapper.find('.record-query-list-search').exists()).toBe(false);
+    expect(wrapper.find('.record-query-list-advanced').exists()).toBe(false);
+  });
+
+  it('submits persistent field drafts when the value editor receives Enter', async () => {
+    const requests: WebQueryRequest[] = [];
+    const wrapper = shallowMount(RecordQueryListPanel, {
+      props: {
+        context: createContext({ id: 'note-1', status: 'OPEN' }, requests),
+        title: '备注',
+        querySchema: {
+          scopeName: 'demo.note',
+          quickSearch: { enabled: false, fields: [], fieldSchemas: [] },
+          fields: [
+            {
+              name: 'status',
+              title: '状态',
+              valueType: 'STRING',
+              operators: ['EQ'],
+              persistentControl: { id: 'status', title: '状态', operator: 'EQ' },
+            },
+          ],
+          externalCriteria: [],
+          defaultSorts: [],
+        },
+      },
+      global: { stubs: { ManagementPanelHeader: false, QueryValueEditor: false } },
+    });
+
+    await vi.waitFor(() => expect(requests).toHaveLength(1));
+    const editor = wrapper.findComponent({ name: 'QueryValueEditor' });
+    editor.vm.$emit('update:values', ['OPEN']);
+    editor.vm.$emit('submit');
+    await vi.waitFor(() => expect(requests).toHaveLength(2));
+    expect(requests.at(-1)?.criteria).toEqual({
+      kind: 'GROUP',
+      operator: 'AND',
+      children: [{ kind: 'CONDITION', fieldName: 'status', operator: 'EQ', values: ['OPEN'] }],
+    });
   });
 
   it('loads the signed list projection when a required navigator scope becomes ready', async () => {

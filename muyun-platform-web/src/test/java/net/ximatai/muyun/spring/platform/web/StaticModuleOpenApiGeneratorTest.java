@@ -174,6 +174,12 @@ class StaticModuleOpenApiGeneratorTest {
 
         assertThat(document.schemas().get("WebQueryRequest").properties().get("page").type())
                 .isEqualTo("WebPageRequest");
+        assertThat(document.schemas().get("WebQueryCriteria").properties().get("children").itemType())
+                .isEqualTo("WebQueryCriteriaNode");
+        assertThat(document.schemas().get("WebQueryCriteria").required())
+                .containsExactly("kind", "operator", "children");
+        assertThat(document.schemas().get("WebQueryCriteriaNode").required())
+                .containsExactly("kind");
         assertThat(document.schemas().get("WebPageRequest").properties()).containsKeys("pageNum", "pageSize");
         assertThat(document.schemas().get("TeacherPageResponse").properties())
                 .containsKeys("records", "total", "pageNum", "pageSize", "pages", "totalKnown", "navigation");

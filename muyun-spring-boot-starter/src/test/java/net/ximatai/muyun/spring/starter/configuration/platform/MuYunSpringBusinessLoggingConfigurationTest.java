@@ -10,9 +10,8 @@ import net.ximatai.muyun.spring.web.RequestErrorLogRecorder;
 import net.ximatai.muyun.spring.ability.logging.BusinessLogStatisticsReader;
 import net.ximatai.muyun.spring.platform.web.BusinessLogPageAccessRecorder;
 import org.junit.jupiter.api.Test;
+import org.jdbi.v3.core.Jdbi;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
-
-import javax.sql.DataSource;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
@@ -20,7 +19,7 @@ import static org.mockito.Mockito.mock;
 class MuYunSpringBusinessLoggingConfigurationTest {
     private final ApplicationContextRunner contextRunner = new ApplicationContextRunner()
             .withUserConfiguration(MuYunSpringBusinessLoggingConfiguration.class)
-            .withBean(DataSource.class, () -> mock(DataSource.class));
+            .withBean(Jdbi.class, () -> mock(Jdbi.class));
 
     @Test
     void shouldExposeNeutralPublisherAndDefaultPostgresAdapter() {
@@ -38,7 +37,7 @@ class MuYunSpringBusinessLoggingConfigurationTest {
     }
 
     @Test
-    void shouldRemainOptionalWhenNoDataSourceOrCustomStoreIsConfigured() {
+    void shouldRemainOptionalWhenNoJdbiOrCustomStoreIsConfigured() {
         new ApplicationContextRunner()
                 .withUserConfiguration(MuYunSpringBusinessLoggingConfiguration.class)
                 .run(context -> {
@@ -57,7 +56,7 @@ class MuYunSpringBusinessLoggingConfigurationTest {
     void shouldRetainTheNeutralLoggingPathWhenAnApplicationSuppliesItsOwnStore() {
         new ApplicationContextRunner()
                 .withUserConfiguration(MuYunSpringBusinessLoggingConfiguration.class)
-                .withBean(DataSource.class, () -> mock(DataSource.class))
+                .withBean(Jdbi.class, () -> mock(Jdbi.class))
                 .withBean(BusinessLogStore.class, () -> mock(BusinessLogStore.class))
                 .run(context -> {
                     assertThat(context).hasSingleBean(BusinessLogPageAccessRecorder.class);

@@ -176,7 +176,7 @@ public final class BusinessLogGovernanceService {
     private static BusinessLogQuery withCursor(BusinessLogQuery query, BusinessLogCursor cursor, int limit) {
         return new BusinessLogQuery(query.occurredFrom(), query.occurredTo(), query.tenantId(), query.eventTypes(),
                 query.operatorId(), query.operatorOrganizationIds(), query.moduleAlias(), query.actionCode(),
-                query.errorCode(), query.loginOutcome(), query.httpStatus(), cursor, limit);
+                query.errorCode(), query.loginAccount(), query.loginOutcome(), query.httpStatus(), cursor, limit);
     }
 
     private Optional<BusinessLogEvent> findVisibleDetail(String eventId, BusinessLogReadScope scope,
@@ -195,7 +195,7 @@ public final class BusinessLogGovernanceService {
                 : intersection(query.eventTypes(), allowedTypes);
         BusinessLogQuery typeConstrained = new BusinessLogQuery(query.occurredFrom(), query.occurredTo(),
                 query.tenantId(), eventTypes, query.operatorId(), query.operatorOrganizationIds(),
-                query.moduleAlias(), query.actionCode(), query.errorCode(), query.loginOutcome(), query.httpStatus(),
+                query.moduleAlias(), query.actionCode(), query.errorCode(), query.loginAccount(), query.loginOutcome(), query.httpStatus(),
                 query.cursor(), query.limit());
         return requireScope(scope).constrain(typeConstrained);
     }

@@ -166,8 +166,9 @@ public class StaticRecordReadProjectionService {
         // The compiled plan owns the query allow-list.  Do not re-read a controller/service
         // declaration while executing a migrated standard module request.
         ModuleExecutionPlan plan = executionPlan(moduleAlias).orElseThrow();
-        Criteria criteria = andCriteria(new QueryCompiler(plan.queryDescriptor()).criteria(request), additionalCriteria);
-        Sort[] sorts = new QueryCompiler(plan.queryDescriptor()).sorts(request);
+        QueryCompiler compiler = new QueryCompiler(plan.queryDescriptor(), plan.querySchema().criteriaComposition());
+        Criteria criteria = andCriteria(compiler.criteria(request), additionalCriteria);
+        Sort[] sorts = compiler.sorts(request);
         if (recordService instanceof DataScopeAbility<?> dataScopeAbility) {
             DataScopeCriteriaResult scope = dataScopeAbility.readScopeByPolicy(actionPolicy, criteria);
             return dataScopeAbility.withDataScopeTenant(scope,
@@ -198,7 +199,8 @@ public class StaticRecordReadProjectionService {
         if (moduleAlias == null || recordService == null || actionPolicy == null || visibility == null
                 || aggregateQuery == null) return Optional.empty();
         ModuleExecutionPlan plan = executionPlan(moduleAlias).orElseThrow();
-        Criteria criteria = andCriteria(new QueryCompiler(plan.queryDescriptor()).criteria(request), additionalCriteria);
+        Criteria criteria = andCriteria(new QueryCompiler(plan.queryDescriptor(), plan.querySchema().criteriaComposition())
+                .criteria(request), additionalCriteria);
         if (recordService instanceof DataScopeAbility<?> dataScopeAbility) {
             DataScopeCriteriaResult scope = dataScopeAbility.readScopeByPolicy(actionPolicy, criteria);
             return dataScopeAbility.withDataScopeTenant(scope, () -> aggregateDefaultList(moduleAlias,

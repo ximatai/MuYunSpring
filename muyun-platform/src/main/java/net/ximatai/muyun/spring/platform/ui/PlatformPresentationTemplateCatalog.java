@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import net.ximatai.muyun.spring.ability.action.BusinessExceptions;
+import net.ximatai.muyun.spring.ability.query.QueryOperator;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
@@ -122,7 +123,9 @@ public class PlatformPresentationTemplateCatalog {
         }
         String mode = root.path("mode").asText();
         if (!Set.of("TREE_CARD", "LIST_CARD", "MICRO_LIST_CARD").contains(mode)) throw invalidManagementTree();
-        if (!"LIST_CARD".equals(mode) && root.has("querySummaries")) throw invalidManagementTree();
+        if (!"LIST_CARD".equals(mode) && (root.has("querySummaries") || root.has("persistentQueries"))) {
+            throw invalidManagementTree();
+        }
         if (version >= MODE_AWARE_ACTION_VERSION) validateManagementActions(root.path("actions"), version == MANAGED_ACTION_VERSION);
         else if (root.has("actions")) throw invalidManagementTree();
         var normalized = ((com.fasterxml.jackson.databind.node.ObjectNode) root).deepCopy();
@@ -322,11 +325,13 @@ public class PlatformPresentationTemplateCatalog {
     private static void validateManagementRootProperties(JsonNode root) {
         java.util.Iterator<String> rootNames = root.fieldNames();
         while (rootNames.hasNext()) {
-            if (!Set.of("template", "templateVersion", "nodes", "props", "querySummaries").contains(rootNames.next())) {
+            if (!Set.of("template", "templateVersion", "nodes", "props", "querySummaries", "persistentQueries")
+                    .contains(rootNames.next())) {
                 throw invalidManagementTree();
             }
         }
         validateQuerySummaries(root.path("querySummaries"));
+        validatePersistentQueries(root.path("persistentQueries"));
         JsonNode properties = root.path("props");
         if (properties.isMissingNode()) {
             return;
@@ -381,6 +386,35 @@ public class PlatformPresentationTemplateCatalog {
                     || (!"SUM".equals(source) && !"GROUPED".equals(source) && hasField)
                     || ("CONTRIBUTOR".equals(source) != hasContributor)
                     || ("GROUPED".equals(source) != hasGroup)) {
+                throw invalidManagementTree();
+            }
+        }
+    }
+
+    private static void validatePersistentQueries(JsonNode controls) {
+        if (controls.isMissingNode()) return;
+        if (!controls.isArray()) throw invalidManagementTree();
+        Set<String> ids = new java.util.LinkedHashSet<>();
+        for (JsonNode control : controls) {
+            if (!control.isObject() || !control.path("id").isTextual() || control.path("id").asText().isBlank()
+                    || !ids.add(control.path("id").asText().trim()) || !control.path("label").isTextual()
+                    || control.path("label").asText().isBlank() || !control.path("source").isTextual()
+                    || !"FIELD".equals(control.path("source").asText()) || !control.path("fieldName").isTextual()
+                    || control.path("fieldName").asText().isBlank() || !control.path("operator").isTextual()) {
+                throw invalidManagementTree();
+            }
+            java.util.Iterator<String> names = control.fieldNames();
+            while (names.hasNext()) {
+                if (!Set.of("id", "label", "source", "fieldName", "operator", "defaultValues").contains(names.next())) {
+                    throw invalidManagementTree();
+                }
+            }
+            try {
+                QueryOperator.from(control.path("operator").asText());
+            } catch (IllegalArgumentException exception) {
+                throw invalidManagementTree();
+            }
+            if (control.has("defaultValues") && !control.path("defaultValues").isArray()) {
                 throw invalidManagementTree();
             }
         }

@@ -31,6 +31,8 @@ import org.springframework.jdbc.core.namedparam.NamedParameterJdbcOperations;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.time.Instant;
+import java.sql.Timestamp;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -70,7 +72,8 @@ class RelationProjectionReadServiceTest {
         StaticModuleDefinition definition = userRelationDefinition();
         RecordReadProjection projection = defaultListProjection(definition);
         Criteria criteria = Criteria.of().eq("tenantId", "tenant_a")
-                .andGroup(group -> group.eq("passwordStatus", "ACTIVE"));
+                .andGroup(group -> group.eq("passwordStatus", "ACTIVE")
+                        .gte("lastLoginAt", Instant.parse("2026-01-01T00:00:00Z")));
         when(jdbcOperations.queryForList(any(String.class), any(Map.class)))
                 .thenReturn(List.of(Map.of(
                         "id", "user-1",
@@ -113,6 +116,10 @@ class RelationProjectionReadServiceTest {
         assertThat(paramsCaptor.getValue()).containsKeys("__limit", "__offset",
                 "__join_bound_employee_bound_employee_account_0",
                 "__join_bound_employee_bound_employee_0");
+        assertThat(paramsCaptor.getValue().values()).anySatisfy(value -> {
+            assertThat(value).isInstanceOf(Timestamp.class);
+            assertThat(((Timestamp) value).toInstant()).isEqualTo(Instant.parse("2026-01-01T00:00:00Z"));
+        });
     }
 
     @Test

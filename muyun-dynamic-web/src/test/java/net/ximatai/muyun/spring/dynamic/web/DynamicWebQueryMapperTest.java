@@ -68,21 +68,17 @@ class DynamicWebQueryMapperTest {
 
     @Test
     void shouldCompileArbitraryNestedQueryCriteriaTree() {
-        WebQueryCriteria nested = new WebQueryCriteria(
+        WebQueryCriteria nested = WebQueryCriteria.group(
                 WebQueryGroupOperator.OR,
                 List.of(
                         new WebQueryCondition("ownerId", "EQ", List.of("u-1")),
                         new WebQueryCondition("ownerId", "EQ", List.of("u-2"))
-                ),
-                List.of()
-        );
-        WebQueryCriteria root = new WebQueryCriteria(
+        ));
+        WebQueryCriteria root = WebQueryCriteria.group(
                 WebQueryGroupOperator.OR,
-                List.of(new WebQueryCondition("code", "EQ", List.of("C-001"))),
-                List.of(new WebQueryCriteria(
+                List.of(new WebQueryCondition("code", "EQ", List.of("C-001")), WebQueryCriteria.group(
                         WebQueryGroupOperator.AND,
-                        List.of(new WebQueryCondition("status", "EQ", List.of("active"))),
-                        List.of(nested)
+                        List.of(new WebQueryCondition("status", "EQ", List.of("active")), nested)
                 ))
         );
 

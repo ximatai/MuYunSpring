@@ -85,6 +85,12 @@ class PostgresBusinessLogStoreIT extends PlatformPostgresIntegrationTest {
         assertThat(conflictResponses.events()).extracting(BusinessLogEvent::eventId)
                 .containsExactly("business-log-error");
 
+        var loginsByAccount = store.read(new BusinessLogQuery(null, null, "tenant-a",
+                Set.of(BusinessLogEventType.LOGIN), null, null, null, null, null,
+                "rui", LoginLogDetails.LoginOutcome.SUCCESS, null, null, 10));
+        assertThat(loginsByAccount.events()).extracting(BusinessLogEvent::eventId)
+                .containsExactly("business-log-login");
+
         var firstPage = store.read(new BusinessLogQuery(null, null, null, "sales.contract", null, null, null, 1));
         assertThat(firstPage.events()).singleElement().extracting(BusinessLogEvent::eventId).isEqualTo("business-log-page");
         assertThat(firstPage.nextCursor()).isNotNull();
@@ -133,10 +139,33 @@ class PostgresBusinessLogStoreIT extends PlatformPostgresIntegrationTest {
     }
 
     @Test
+    void shouldIndexTheAuthenticationAccountWithoutConfusingItWithTheAuthenticatedOperator() {
+        LoginLogEvent rejected = new LoginLogEvent(context("business-log-claimed-account", "trace-claimed",
+                "tenant-a", "user-resolved-after-login", null, "iam.login", "login", "2026-09-11T04:00:00Z"),
+                new LoginLogDetails("password", LoginLogDetails.LoginOutcome.FAILURE, "BAD_CREDENTIALS", null,
+                        "attempted-account", null));
+        LoginLogEvent confirmed = new LoginLogEvent(context("business-log-confirmed-account", "trace-confirmed",
+                "tenant-a", "user-before-rename", null, "iam.login", "login", "2026-09-11T04:01:00Z"),
+                new LoginLogDetails("password", LoginLogDetails.LoginOutcome.SUCCESS, null, null,
+                        "submitted-alias", "canonical-account"));
+        store.appendAll(List.of(rejected, confirmed));
+
+        assertThat(loginEventsFor("attempted-account")).extracting(BusinessLogEvent::eventId)
+                .containsExactly("business-log-claimed-account");
+        assertThat(loginEventsFor("canonical-account")).extracting(BusinessLogEvent::eventId)
+                .containsExactly("business-log-confirmed-account");
+        assertThat(loginEventsFor("user-resolved-after-login")).isEmpty();
+        assertThat(store.read(new BusinessLogQuery(null, null, "tenant-a", Set.of(BusinessLogEventType.LOGIN),
+                "user-resolved-after-login", null, null, null, null, null, null, null, null, 10)).events())
+                .extracting(BusinessLogEvent::eventId).containsExactly("business-log-claimed-account");
+    }
+
+    @Test
     void shouldSafelyAddOrganizationAttributionToAnExistingLogTable() throws Exception {
         try (Connection connection = dataSource.getConnection(); var statement = connection.createStatement()) {
             statement.execute("alter table muyun_log.business_log_event drop column if exists operator_organization_id");
             statement.execute("alter table muyun_log.business_log_event drop column if exists login_outcome");
+            statement.execute("alter table muyun_log.business_log_event drop column if exists login_account");
             statement.execute("alter table muyun_log.business_log_event drop column if exists http_status");
         }
 
@@ -147,11 +176,11 @@ class PostgresBusinessLogStoreIT extends PlatformPostgresIntegrationTest {
                      select count(*) from information_schema.columns
                      where table_schema = 'muyun_log'
                        and table_name = 'business_log_event'
-                       and column_name in ('operator_organization_id', 'login_outcome', 'http_status')
+                       and column_name in ('operator_organization_id', 'login_outcome', 'login_account', 'http_status')
                      """);
              var resultSet = statement.executeQuery()) {
             assertThat(resultSet.next()).isTrue();
-            assertThat(resultSet.getInt(1)).isEqualTo(3);
+            assertThat(resultSet.getInt(1)).isEqualTo(4);
         }
     }
 
@@ -169,6 +198,11 @@ class PostgresBusinessLogStoreIT extends PlatformPostgresIntegrationTest {
         Instant occurred = Instant.parse(occurredAt);
         return new BusinessLogContext(eventId, occurred, occurred.plusSeconds(1), traceId, tenantId, operatorId,
                 operatorOrganizationId, moduleAlias, actionCode);
+    }
+
+    private List<BusinessLogEvent> loginEventsFor(String account) {
+        return store.read(new BusinessLogQuery(null, null, "tenant-a", Set.of(BusinessLogEventType.LOGIN),
+                null, null, null, null, null, account, null, null, null, 10)).events();
     }
 
     @SpringBootConfiguration

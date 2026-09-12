@@ -24,6 +24,7 @@ final class DynamicOpenApiSchemaFactory {
         schemas.put("WebQueryRequest", queryRequestSchema("WebQueryRequest", "WebQueryCondition", "WebPageRequest", "WebSort"));
         schemas.put("WebQueryCondition", queryConditionSchema("WebQueryCondition"));
         schemas.put("WebQueryCriteria", queryCriteriaSchema());
+        schemas.put("WebQueryCriteriaNode", queryCriteriaNodeSchema());
         schemas.put("WebPageRequest", pageRequestSchema("WebPageRequest"));
         schemas.put("RecordActionWebRequest", recordActionWebRequestSchema());
         schemas.put("RecordPermissionChange", recordPermissionChangeSchema());
@@ -275,7 +276,7 @@ final class DynamicOpenApiSchemaFactory {
     private DynamicOpenApiDocument.Schema fieldCompanionDescriptorSchema() {
         Map<String, DynamicOpenApiDocument.Property> properties = new LinkedHashMap<>();
         properties.put("fieldName", stringProperty(false));
-        properties.put("kind", stringProperty(false));
+        properties.put("kind", stringProperty(true));
         properties.put("role", stringProperty(false));
         properties.put("requiredWhenOwnerPresent", booleanProperty(false));
         properties.put("requiredWhenOwnerUpdated", booleanProperty(false));
@@ -516,19 +517,33 @@ final class DynamicOpenApiSchemaFactory {
 
     private DynamicOpenApiDocument.Schema queryConditionSchema(String name) {
         Map<String, DynamicOpenApiDocument.Property> properties = new LinkedHashMap<>();
+        properties.put("kind", stringProperty(false));
         properties.put("fieldName", stringProperty(false));
         properties.put("operator", stringProperty(true));
         properties.put("values", arrayProperty("object"));
         properties.put("timeZone", stringProperty(true));
-        return new DynamicOpenApiDocument.Schema(name, "object", null, List.of(), properties, null);
+        return new DynamicOpenApiDocument.Schema(name, "object", null, List.of("fieldName"), properties, null);
     }
 
     private DynamicOpenApiDocument.Schema queryCriteriaSchema() {
         Map<String, DynamicOpenApiDocument.Property> properties = new LinkedHashMap<>();
+        properties.put("kind", stringProperty(false));
+        properties.put("operator", stringProperty(false));
+        properties.put("children", arrayProperty("WebQueryCriteriaNode"));
+        return new DynamicOpenApiDocument.Schema("WebQueryCriteria", "object", null,
+                List.of("kind", "operator", "children"), properties, null);
+    }
+
+    private DynamicOpenApiDocument.Schema queryCriteriaNodeSchema() {
+        Map<String, DynamicOpenApiDocument.Property> properties = new LinkedHashMap<>();
+        properties.put("kind", stringProperty(false));
         properties.put("operator", stringProperty(true));
-        properties.put("conditions", arrayProperty("WebQueryCondition"));
-        properties.put("groups", arrayProperty("WebQueryCriteria"));
-        return new DynamicOpenApiDocument.Schema("WebQueryCriteria", "object", null, List.of(), properties, null);
+        properties.put("children", arrayProperty("WebQueryCriteriaNode"));
+        properties.put("fieldName", stringProperty(true));
+        properties.put("values", arrayProperty("object"));
+        properties.put("timeZone", stringProperty(true));
+        return new DynamicOpenApiDocument.Schema("WebQueryCriteriaNode", "object", null,
+                List.of("kind"), properties, null);
     }
 
     private DynamicOpenApiDocument.Schema pageRequestSchema(String name) {

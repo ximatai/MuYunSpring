@@ -206,21 +206,17 @@ class QueryCompilerTest {
 
     @Test
     void shouldCompileNestedCriteriaTreeWithSameJoinSemanticsAsDynamicQuery() {
-        QueryCriteria nested = new QueryCriteria(
+        QueryCriteria nested = QueryCriteria.group(
                 QueryGroupOperator.OR,
                 List.of(
                         new QueryCondition("ownerId", QueryOperator.EQ, List.of("u-1"), null),
                         new QueryCondition("ownerId", QueryOperator.EQ, List.of("u-2"), null)
-                ),
-                List.of()
-        );
-        QueryCriteria root = new QueryCriteria(
+        ));
+        QueryCriteria root = QueryCriteria.group(
                 QueryGroupOperator.OR,
-                List.of(new QueryCondition("code", QueryOperator.EQ, List.of("C-001"), null)),
-                List.of(new QueryCriteria(
+                List.of(new QueryCondition("code", QueryOperator.EQ, List.of("C-001"), null), QueryCriteria.group(
                         QueryGroupOperator.AND,
-                        List.of(new QueryCondition("status", QueryOperator.EQ, List.of("active"), null)),
-                        List.of(nested)
+                        List.of(new QueryCondition("status", QueryOperator.EQ, List.of("active"), null), nested)
                 ))
         );
 
@@ -238,6 +234,59 @@ class QueryCompilerTest {
         assertThat(nestedOr.getEntries()).hasSize(2);
         assertThat(join(nestedOr.getEntries().get(0))).isEqualTo("AND");
         assertThat(join(nestedOr.getEntries().get(1))).isEqualTo("OR");
+    }
+
+    @Test
+    void shouldRejectCriteriaOutsideTheDeclaredCompositionMode() {
+        QueryCriteria nested = QueryCriteria.group(QueryGroupOperator.AND, List.of(
+                QueryCriteria.group(QueryGroupOperator.OR, List.of(
+                        new QueryCondition("code", QueryOperator.EQ, List.of("C-001"), null)
+                ))
+        ));
+        QueryRequest request = new QueryRequest(List.of(), nested, Map.of(), List.of(), null, null,
+                Map.of(), null, List.of(), false, null);
+
+        assertThatThrownBy(() -> new QueryCompiler(descriptor(), QueryCriteriaComposition.FLAT_AND)
+                .criteria(request)).hasMessage("query criteria must contain only field conditions: $.children[0]");
+        assertThatThrownBy(() -> new QueryCompiler(descriptor(), QueryCriteriaComposition.NONE)
+                .criteria(request)).hasMessage("query criteria are not supported by this query surface");
+    }
+
+    @Test
+    void shouldRejectCriteriaBeyondSharedComplexityLimits() {
+        QueryCriteria tooDeep = nestedCriteria(QueryCriteria.MAXIMUM_DEPTH + 1);
+        QueryCriteria tooManyValues = QueryCriteria.group(QueryGroupOperator.AND, List.of(
+                new QueryCondition("tags", QueryOperator.CONTAINS_ANY,
+                        java.util.stream.IntStream.range(0, QueryCriteria.MAXIMUM_COLLECTION_VALUES + 1)
+                                .mapToObj(String::valueOf).map(value -> (Object) value).toList(), null)
+        ));
+        QueryCriteria tooManyNodes = QueryCriteria.group(QueryGroupOperator.AND,
+                java.util.stream.IntStream.range(0, QueryCriteria.MAXIMUM_NODES)
+                        .mapToObj(index -> new QueryCondition("code", QueryOperator.EQ,
+                                List.of("C-" + index), null))
+                        .map(node -> (QueryCriteriaNode) node).toList());
+
+        assertThatThrownBy(() -> QueryCriteria.validate(tooDeep)).hasMessageContaining("maximum depth");
+        assertThatThrownBy(() -> QueryCriteria.validate(tooManyValues)).hasMessageContaining("maximum collection values");
+        assertThatThrownBy(() -> QueryCriteria.validate(tooManyNodes)).hasMessageContaining("maximum nodes");
+        assertThatThrownBy(() -> QueryCompiler.compileCriteriaTree(tooDeep, QueryCompilerTest::compileSingle))
+                .hasMessageContaining("maximum depth");
+        assertThatThrownBy(() -> new QueryCompiler(descriptor()).criteria(new QueryRequest(
+                java.util.stream.IntStream.range(0, QueryCriteria.MAXIMUM_NODES)
+                        .mapToObj(index -> new QueryCondition("code", QueryOperator.EQ,
+                                List.of("C-" + index), null)).toList(),
+                null, Map.of(), List.of(), null, null, Map.of(), null, List.of(), false, null)))
+                .hasMessageContaining("maximum nodes");
+    }
+
+    private static QueryCriteria nestedCriteria(int depth) {
+        QueryCriteria result = QueryCriteria.group(QueryGroupOperator.AND, List.of(
+                new QueryCondition("code", QueryOperator.EQ, List.of("C-001"), null)
+        ));
+        for (int index = 1; index < depth; index++) {
+            result = QueryCriteria.group(QueryGroupOperator.AND, List.of(result));
+        }
+        return result;
     }
 
     private static QueryDescriptor descriptor() {

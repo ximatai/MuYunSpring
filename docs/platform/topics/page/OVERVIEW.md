@@ -17,6 +17,7 @@
 
 - [页面交付概览](delivery/OVERVIEW.md)
 - [页面交付 Web API](delivery/WEB_API.md)
+- [标准列表查询治理](QUERY_GOVERNANCE.md)：常驻字段查询、递归高级编排、统一执行契约与阶段规划。
 - [页面交互概览](interaction/OVERVIEW.md)
 - [页面交互 Web API](interaction/WEB_API.md)
 

@@ -2,12 +2,14 @@ package net.ximatai.muyun.spring.web.query;
 
 import net.ximatai.muyun.spring.ability.query.QueryCondition;
 import net.ximatai.muyun.spring.ability.query.QueryCriteria;
+import net.ximatai.muyun.spring.ability.query.QueryCriteriaNode;
 import net.ximatai.muyun.spring.ability.query.QueryGroupOperator;
 import net.ximatai.muyun.spring.ability.query.QueryOperator;
 import net.ximatai.muyun.spring.ability.query.QueryRequest;
 import net.ximatai.muyun.spring.ability.query.QuerySort;
 import net.ximatai.muyun.spring.web.WebQueryCondition;
 import net.ximatai.muyun.spring.web.WebQueryCriteria;
+import net.ximatai.muyun.spring.web.WebQueryCriteriaNode;
 import net.ximatai.muyun.spring.web.WebQueryGroupOperator;
 import net.ximatai.muyun.spring.web.WebQueryRequest;
 import net.ximatai.muyun.spring.web.WebSort;
@@ -40,11 +42,22 @@ public final class WebQueryRequests {
         if (criteria == null) {
             return null;
         }
-        return new QueryCriteria(
+        QueryCriteria mapped = new QueryCriteria(
                 groupOperator(criteria.operator()),
-                conditions(criteria.conditions()),
-                criteria.groups().stream().map(WebQueryRequests::criteria).toList()
+                criteria.children().stream().map(WebQueryRequests::criteriaNode).toList()
         );
+        QueryCriteria.validate(mapped);
+        return mapped;
+    }
+
+    private static QueryCriteriaNode criteriaNode(WebQueryCriteriaNode node) {
+        if (node == null) {
+            throw new IllegalArgumentException("query criteria child must not be null");
+        }
+        return switch (node) {
+            case WebQueryCondition condition -> condition(condition);
+            case WebQueryCriteria group -> criteria(group);
+        };
     }
 
     public static List<QueryCondition> conditions(List<WebQueryCondition> conditions) {

@@ -220,8 +220,10 @@ class DynamicOpenApiGeneratorTest {
                 .containsKey("criteria");
         assertThat(document.schemas().get("DynamicWebReferenceRequest").properties())
                 .containsKey("criteria");
-        assertThat(document.schemas().get("WebQueryCriteria").properties().get("groups").itemType())
-                .isEqualTo("WebQueryCriteria");
+        assertThat(document.schemas().get("WebQueryCriteria").properties().get("children").itemType())
+                .isEqualTo("WebQueryCriteriaNode");
+        assertThat(document.schemas().get("WebQueryCriteriaNode").required())
+                .containsExactly("kind");
     }
 
     @Test

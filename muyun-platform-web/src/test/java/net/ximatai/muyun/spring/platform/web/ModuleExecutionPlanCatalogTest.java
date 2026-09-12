@@ -16,6 +16,7 @@ import net.ximatai.muyun.spring.ability.event.RuntimeMutationSource;
 import net.ximatai.muyun.spring.ability.query.QueryDescriptor;
 import net.ximatai.muyun.spring.ability.query.ExternalQueryValueSource;
 import net.ximatai.muyun.spring.ability.query.QuerySchema;
+import net.ximatai.muyun.spring.ability.query.QueryCriteriaComposition;
 import net.ximatai.muyun.spring.ability.query.QueryField;
 import net.ximatai.muyun.spring.ability.query.QueryOperator;
 import net.ximatai.muyun.spring.ability.query.QueryValueType;
@@ -31,6 +32,21 @@ import net.ximatai.muyun.spring.common.platform.ActionDefaultGrantPolicy;
 import net.ximatai.muyun.spring.dynamic.metadata.ViewControlType;
 
 class ModuleExecutionPlanCatalogTest {
+    @Test
+    void shouldRetainQueryCriteriaCompositionWhenNavigatorAddsExternalCriteria() {
+        QuerySchema schema = QuerySchema.from(QueryDescriptor.builder("platform.request_error_log").build())
+                .withCriteriaComposition(QueryCriteriaComposition.FLAT_AND);
+
+        QuerySchema merged = CrudWebRuntimeSupport.withNavigatorCriteria(schema, List.of(
+                PageContextBindingDefinition.navigator("tenant", PageContextTarget.LIST_QUERY, "tenantId")
+        ));
+
+        assertThat(merged.criteriaComposition()).isEqualTo(QueryCriteriaComposition.FLAT_AND);
+        assertThat(merged.externalCriteria()).containsExactly(
+                new QuerySchema.ExternalCriteria("tenantId", "OBJECT", "PAGE_CONTEXT")
+        );
+    }
+
     @Test
     void shouldValidatePersistentQueryControlsAgainstSourceNeutralQuerySchema() {
         String alias = "iam.user";
@@ -67,6 +83,59 @@ class ModuleExecutionPlanCatalogTest {
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("must not override page context criteria");
     }
+
+    @Test
+    void shouldValidateFieldPersistentQueryControlsAgainstQuerySchema() {
+        String alias = "iam.user";
+        ResolvedModuleUiDescriptor uiDescriptor = fieldPersistentQueryUi(alias, "username", QueryOperator.LIKE);
+        QueryDescriptor descriptor = QueryDescriptor.builder(alias)
+                .field(QueryField.of("username", QueryValueType.STRING, QueryOperator.EQ, QueryOperator.LIKE))
+                .build();
+
+        assertThatCode(() -> new ModuleExecutionPlan(alias, "static-1", uiDescriptor,
+                new ResolvedModuleReadModel(alias, "user", List.of()), List.of(), descriptor,
+                QuerySchema.from(descriptor), List.of(), List.of(), false)).doesNotThrowAnyException();
+    }
+
+    @Test
+    void shouldRejectFieldPersistentQueryControlOutsideQuerySchema() {
+        String alias = "iam.user";
+        QueryDescriptor descriptor = QueryDescriptor.builder(alias)
+                .field(QueryField.of("username", QueryValueType.STRING, QueryOperator.EQ))
+                .build();
+
+        assertThatThrownBy(() -> new ModuleExecutionPlan(alias, "static-1",
+                fieldPersistentQueryUi(alias, "missing", QueryOperator.EQ),
+                new ResolvedModuleReadModel(alias, "user", List.of()), List.of(), descriptor,
+                QuerySchema.from(descriptor), List.of(), List.of(), false))
+                .hasMessageContaining("requires queryable field");
+        assertThatThrownBy(() -> new ModuleExecutionPlan(alias, "static-1",
+                fieldPersistentQueryUi(alias, "username", QueryOperator.LIKE),
+                new ResolvedModuleReadModel(alias, "user", List.of()), List.of(), descriptor,
+                QuerySchema.from(descriptor), List.of(), List.of(), false))
+                .hasMessageContaining("requires allowed query operator");
+    }
+
+    @Test
+    void shouldRejectInvalidFieldPersistentQueryControlDefaultValues() {
+        String alias = "iam.user";
+        QueryDescriptor descriptor = QueryDescriptor.builder(alias)
+                .field(QueryField.of("username", QueryValueType.STRING, QueryOperator.EQ))
+                .build();
+        ResolvedModuleUiDescriptor uiDescriptor = ModuleUiDescriptorCompiler.compile(ModuleUiDefinition.builder(alias)
+                .page(PageTemplates.listDetailCard(page -> page
+                        .list(list -> list.fields(fields -> fields.field("username", field -> { }))
+                                .persistentQueries(queries -> queries.field("username", "username", QueryOperator.EQ,
+                                        control -> control.label("账号").defaultValues("first", "second"))))
+                        .detail(detail -> detail.editor(editor -> editor.field("username", field -> { })))))
+                .build());
+
+        assertThatThrownBy(() -> new ModuleExecutionPlan(alias, "static-1", uiDescriptor,
+                new ResolvedModuleReadModel(alias, "user", List.of()), List.of(), descriptor,
+                QuerySchema.from(descriptor), List.of(), List.of(), false))
+                .hasMessageContaining("requires exactly one value");
+    }
+
     @Test
     void shouldCompileStaticDefinitionOnceIntoCachedExecutionFacts() {
         ModuleExecutionPlanCatalog catalog = new ModuleExecutionPlanCatalog(
@@ -280,6 +349,17 @@ class ModuleExecutionPlanCatalogTest {
                                 .persistentQueries(queries -> queries.control("onlineOnly", control -> control
                                         .label("仅在线").uiType(ViewControlType.SWITCH).defaultValue(false))))
                         .detail(detail -> detail.editor(editor -> editor.field("username", field -> { })))))
+                .build());
+    }
+
+    private static ResolvedModuleUiDescriptor fieldPersistentQueryUi(String moduleAlias, String fieldName,
+                                                                      QueryOperator operator) {
+        return ModuleUiDescriptorCompiler.compile(ModuleUiDefinition.builder(moduleAlias)
+                .page(PageTemplates.listDetailCard(page -> page
+                        .list(list -> list.fields(fields -> fields.field("username", field -> { }))
+                                .persistentQueries(queries -> queries.field("main-filter", fieldName, operator,
+                                        control -> control.label("主筛选"))))
+                        .detail(detail -> detail.editor(editor -> editor.field("username", field -> { })))) )
                 .build());
     }
 

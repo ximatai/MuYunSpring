@@ -728,7 +728,7 @@ class PlatformUiConfigurationServiceContractTest {
         uiConfigService.update(config);
         assertThatThrownBy(() -> publishService.publishUiConfig(uiConfigId))
                 .isInstanceOf(PlatformException.class)
-                .hasMessageContaining("dynamic persistentQueries is not supported");
+                .hasMessageContaining("persistentQueries must be array");
 
         config = uiConfigService.select(uiConfigId);
         config.setLayoutJson("""
@@ -820,6 +820,54 @@ class PlatformUiConfigurationServiceContractTest {
                     {"type":"taskPanel", "key":"completion"}
                   ]
                 }
+                """);
+        uiConfigService.update(config);
+        assertThatCode(() -> publishService.publishUiConfig(uiConfigId)).doesNotThrowAnyException();
+    }
+
+    @Test
+    void shouldPublishFieldPersistentQueriesAndRejectUnsupportedSources() {
+        seedFieldType("string", FieldType.STRING, DynamicQueryOperator.LIKE);
+        seedUiType("text", "string");
+        String customerNameField = seedModuleField("crm.customer", "customer", "customerName", "customer_name", "string");
+        String uiSetId = uiSetService.insert(uiSet("crm.customer", "list", PlatformUiSetType.LIST, true));
+        String uiConfigId = uiConfigService.insert(uiConfig(uiSetId, PlatformUiClientType.WEB, false));
+        uiConfigFieldService.insert(uiField(uiConfigId, customerNameField, "text"));
+
+        PlatformUiConfig config = uiConfigService.select(uiConfigId);
+        config.setLayoutJson("""
+                {"persistentQueries":[{"source":"EXTERNAL","id":"active","label":"仅启用",
+                  "fieldName":"customerName","operator":"EQ"}]}
+                """);
+        uiConfigService.update(config);
+        assertThatThrownBy(() -> publishService.publishUiConfig(uiConfigId))
+                .isInstanceOf(PlatformException.class)
+                .hasMessageContaining("persistentQueries[0].source is unsupported");
+
+        config = uiConfigService.select(uiConfigId);
+        config.setLayoutJson("""
+                {"persistentQueries":[{"source":"FIELD","id":"customerName","label":"客户名称","fieldName":"customerName","operator":"LIKE"},
+                                      {"source":"FIELD","id":"customerName","label":"客户名称","fieldName":"customerName","operator":"LIKE"}]}
+                """);
+        uiConfigService.update(config);
+        assertThatThrownBy(() -> publishService.publishUiConfig(uiConfigId))
+                .isInstanceOf(PlatformException.class)
+                .hasMessageContaining("persistentQueries[1].id is duplicated");
+
+        config = uiConfigService.select(uiConfigId);
+        config.setLayoutJson("""
+                {"persistentQueries":[{"source":"FIELD","id":"customerName","label":"客户名称",
+                  "fieldName":"customerName","operator":"LIKE","defaultValues":"示例"}]}
+                """);
+        uiConfigService.update(config);
+        assertThatThrownBy(() -> publishService.publishUiConfig(uiConfigId))
+                .isInstanceOf(PlatformException.class)
+                .hasMessageContaining("persistentQueries[0].defaultValues must be array");
+
+        config = uiConfigService.select(uiConfigId);
+        config.setLayoutJson("""
+                {"persistentQueries":[{"source":"FIELD","id":"customerName","label":"客户名称",
+                  "fieldName":"customerName","operator":"LIKE","defaultValues":["示例"]}]}
                 """);
         uiConfigService.update(config);
         assertThatCode(() -> publishService.publishUiConfig(uiConfigId)).doesNotThrowAnyException();

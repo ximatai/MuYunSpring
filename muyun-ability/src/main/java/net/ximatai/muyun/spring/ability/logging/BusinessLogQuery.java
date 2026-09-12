@@ -14,6 +14,7 @@ public record BusinessLogQuery(
         String moduleAlias,
         String actionCode,
         String errorCode,
+        String loginAccount,
         LoginLogDetails.LoginOutcome loginOutcome,
         Integer httpStatus,
         BusinessLogCursor cursor,
@@ -35,6 +36,7 @@ public record BusinessLogQuery(
         moduleAlias = BusinessLogContext.optional(moduleAlias, "moduleAlias", 192);
         actionCode = BusinessLogContext.optional(actionCode, "actionCode", 128);
         errorCode = BusinessLogContext.optional(errorCode, "errorCode", 128);
+        loginAccount = BusinessLogContext.optional(loginAccount, "loginAccount", 256);
         if (httpStatus != null && (httpStatus < 100 || httpStatus > 599)) {
             throw new IllegalArgumentException("httpStatus must be between 100 and 599");
         }
@@ -49,19 +51,29 @@ public record BusinessLogQuery(
                             Set<String> operatorOrganizationIds, String moduleAlias, String actionCode,
                             String errorCode, BusinessLogCursor cursor, int limit) {
         this(occurredFrom, occurredTo, tenantId, eventTypes, operatorId, operatorOrganizationIds,
-                moduleAlias, actionCode, errorCode, null, null, cursor, limit);
+                moduleAlias, actionCode, errorCode, null, null, null, cursor, limit);
+    }
+
+    /** Source-compatible query constructor without a login-account filter. */
+    public BusinessLogQuery(Instant occurredFrom, Instant occurredTo, String tenantId,
+                            Set<BusinessLogEventType> eventTypes, String operatorId,
+                            Set<String> operatorOrganizationIds, String moduleAlias, String actionCode,
+                            String errorCode, LoginLogDetails.LoginOutcome loginOutcome, Integer httpStatus,
+                            BusinessLogCursor cursor, int limit) {
+        this(occurredFrom, occurredTo, tenantId, eventTypes, operatorId, operatorOrganizationIds,
+                moduleAlias, actionCode, errorCode, null, loginOutcome, httpStatus, cursor, limit);
     }
 
     /** Source-compatible query constructor without event, operator or organization filters. */
     public BusinessLogQuery(Instant occurredFrom, Instant occurredTo, String tenantId, String moduleAlias,
                             String actionCode, String errorCode, BusinessLogCursor cursor, int limit) {
         this(occurredFrom, occurredTo, tenantId, null, null, null, moduleAlias, actionCode, errorCode,
-                null, null, cursor, limit);
+                null, null, null, cursor, limit);
     }
 
     public static BusinessLogQuery newest(int limit) {
         return new BusinessLogQuery(null, null, null, null, null, null, null, null, null,
-                null, null, null, limit);
+                null, null, null, null, limit);
     }
 
     static Set<String> normalizeIds(Set<String> values, String name) {

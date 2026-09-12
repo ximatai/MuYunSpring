@@ -14,14 +14,25 @@ import java.util.function.Function;
 public final class QueryCompiler {
     private final QueryDescriptor descriptor;
     private final PlatformTimeService timeService;
+    private final QueryCriteriaComposition criteriaComposition;
 
     public QueryCompiler(QueryDescriptor descriptor) {
-        this(descriptor, new PlatformTimeService());
+        this(descriptor, new PlatformTimeService(), QueryCriteriaComposition.TREE);
     }
 
     public QueryCompiler(QueryDescriptor descriptor, PlatformTimeService timeService) {
+        this(descriptor, timeService, QueryCriteriaComposition.TREE);
+    }
+
+    public QueryCompiler(QueryDescriptor descriptor, QueryCriteriaComposition criteriaComposition) {
+        this(descriptor, new PlatformTimeService(), criteriaComposition);
+    }
+
+    public QueryCompiler(QueryDescriptor descriptor, PlatformTimeService timeService,
+                         QueryCriteriaComposition criteriaComposition) {
         this.descriptor = descriptor;
         this.timeService = timeService == null ? new PlatformTimeService() : timeService;
+        this.criteriaComposition = criteriaComposition == null ? QueryCriteriaComposition.TREE : criteriaComposition;
     }
 
     public Criteria criteria(QueryRequest request) {
@@ -29,6 +40,8 @@ public final class QueryCompiler {
         if (request == null) {
             return criteria;
         }
+        QueryCriteria.validateConditions(request.conditions());
+        QueryCriteria.validate(request.criteria(), criteriaComposition);
         rejectUnsupportedSurfaces(request);
         appendConditions(criteria, request.conditions(), QueryGroupOperator.AND);
         appendCriteria(criteria, request.criteria(), QueryGroupOperator.AND);
@@ -46,15 +59,17 @@ public final class QueryCompiler {
 
     public static Criteria compileCriteriaTree(QueryCriteria criteria,
                                                Function<QueryCondition, Criteria> conditionCompiler) {
+        QueryCriteria.validate(criteria);
         if (criteria == null || criteria.isEmpty()) {
             return Criteria.of();
         }
         Criteria compiled = Criteria.of();
-        for (QueryCondition condition : criteria.conditions()) {
-            appendGroup(compiled, criteria.operator(), conditionCompiler.apply(condition));
-        }
-        for (QueryCriteria group : criteria.groups()) {
-            appendGroup(compiled, criteria.operator(), compileCriteriaTree(group, conditionCompiler));
+        for (QueryCriteriaNode child : criteria.children()) {
+            Criteria childCriteria = switch (child) {
+                case QueryCondition condition -> conditionCompiler.apply(condition);
+                case QueryCriteria group -> compileCriteriaTree(group, conditionCompiler);
+            };
+            appendGroup(compiled, criteria.operator(), childCriteria);
         }
         return compiled;
     }
