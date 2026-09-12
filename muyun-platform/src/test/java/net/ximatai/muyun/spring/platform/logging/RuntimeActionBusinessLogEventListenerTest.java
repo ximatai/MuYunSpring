@@ -10,6 +10,8 @@ import net.ximatai.muyun.spring.ability.logging.ActionLogEvent;
 import net.ximatai.muyun.spring.ability.logging.BusinessLogEvent;
 import net.ximatai.muyun.spring.ability.logging.BusinessLogPublisher;
 import net.ximatai.muyun.spring.ability.logging.BusinessLogWriteResult;
+import net.ximatai.muyun.spring.common.identity.CurrentUser;
+import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
@@ -45,6 +47,24 @@ class RuntimeActionBusinessLogEventListenerTest {
             assertThat(logged.details().affectedRecordCount()).isNull();
             assertThat(logged.details().message().value()).isEqualTo("submitted");
         });
+    }
+
+    @Test
+    void shouldCaptureCurrentUsersOrganizationOnlyWhenItMatchesRuntimeOperator() {
+        RecordingPublisher publisher = new RecordingPublisher();
+        RuntimeActionBusinessLogEventListener listener = new RuntimeActionBusinessLogEventListener(publisher);
+
+        try (CurrentUserContext.Scope ignored = CurrentUserContext.use(
+                CurrentUser.tenantUser("user-1", "User", "tenant-a", "organization-a"))) {
+            listener.onRuntimeEvent(event("event-matching", "trace", RuntimeEventType.ACTION_EXECUTED, Map.of()));
+        }
+        try (CurrentUserContext.Scope ignored = CurrentUserContext.use(
+                CurrentUser.tenantUser("other-user", "Other", "tenant-a", "organization-b"))) {
+            listener.onRuntimeEvent(event("event-mismatching", "trace", RuntimeEventType.ACTION_EXECUTED, Map.of()));
+        }
+
+        assertThat(publisher.events).extracting(event -> ((ActionLogEvent) event).context().operatorOrganizationId())
+                .containsExactly("organization-a", null);
     }
 
     @Test

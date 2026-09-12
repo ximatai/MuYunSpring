@@ -6,6 +6,7 @@ import net.ximatai.muyun.spring.common.exception.AuthenticationFailedException;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.identity.CurrentUser;
 import net.ximatai.muyun.spring.common.identity.CurrentUserTimeZoneResolver;
+import net.ximatai.muyun.spring.common.identity.CurrentUserOrganizationResolver;
 import net.ximatai.muyun.spring.common.tenant.TenantContext;
 import net.ximatai.muyun.spring.common.web.RequestTraceContext;
 import net.ximatai.muyun.spring.ability.logging.LoginLogDetails;
@@ -274,6 +275,24 @@ class UserSessionServiceTest {
     }
 
     @Test
+    void shouldSnapshotResolvedOrganizationOnLoginAudit() {
+        UserAccount user = activeUser();
+        UserAccountDao dao = mock(UserAccountDao.class);
+        when(dao.query(any(Criteria.class), any(PageRequest.class))).thenReturn(List.of(user));
+        UserAccountService userService = new UserAccountService(dao, tenantId -> { }, passwordHashingService);
+        UserSessionDao sessionDao = mock(UserSessionDao.class);
+        captureInsertedSession(sessionDao);
+        RecordingLoginAuditLogger auditLogger = new RecordingLoginAuditLogger();
+        UserSessionService sessionService = sessionServiceWithLoginAudit(userService, sessionDao, auditLogger, clock,
+                currentUser -> Optional.of("organization-a"));
+
+        sessionService.login("tenant-a", "alice", "secret1");
+
+        assertThat(auditLogger.events).singleElement().satisfies(event ->
+                assertThat(event.context().operatorOrganizationId()).isEqualTo("organization-a"));
+    }
+
+    @Test
     void shouldAuditLoginWhenCurrentTraceContextContainsInvalidInboundValue() {
         UserAccount user = activeUser();
         UserAccountDao dao = mock(UserAccountDao.class);
@@ -316,6 +335,26 @@ class UserSessionServiceTest {
         });
         assertThat(auditLogger.events.getFirst().toString()).doesNotContain("wrong-password");
         verify(sessionDao, never()).insert(any());
+    }
+
+    @Test
+    void shouldSnapshotResolvedOrganizationOnCredentialFailureAudit() {
+        UserAccount user = activeUser();
+        UserAccountDao dao = mock(UserAccountDao.class);
+        when(dao.query(any(Criteria.class), any(PageRequest.class))).thenReturn(List.of(user));
+        UserAccountService userService = new UserAccountService(dao, tenantId -> { }, passwordHashingService);
+        UserSessionDao sessionDao = mock(UserSessionDao.class);
+        RecordingLoginAuditLogger auditLogger = new RecordingLoginAuditLogger();
+        UserSessionService sessionService = sessionServiceWithLoginAudit(userService, sessionDao, auditLogger, clock,
+                currentUser -> Optional.of("organization-a"));
+
+        assertThatThrownBy(() -> sessionService.login("tenant-a", "alice", "wrong-password"))
+                .isInstanceOf(AuthenticationFailedException.class);
+
+        assertThat(auditLogger.events).singleElement().satisfies(event -> {
+            assertThat(event.details().outcome()).isEqualTo(LoginLogDetails.LoginOutcome.FAILURE);
+            assertThat(event.context().operatorOrganizationId()).isEqualTo("organization-a");
+        });
     }
 
     @Test
@@ -915,12 +954,20 @@ class UserSessionServiceTest {
                                                             UserSessionDao userSessionDao,
                                                             LoginAuditLogger loginAuditLogger,
                                                             Clock clock) {
+        return sessionServiceWithLoginAudit(userAccountService, userSessionDao, loginAuditLogger, clock, null);
+    }
+
+    private UserSessionService sessionServiceWithLoginAudit(UserAccountService userAccountService,
+                                                            UserSessionDao userSessionDao,
+                                                            LoginAuditLogger loginAuditLogger,
+                                                            Clock clock,
+                                                            CurrentUserOrganizationResolver organizationResolver) {
         UserSessionCollaborators collaborators = new UserSessionCollaborators(
                 () -> null,
                 () -> UserSecurityEventPublisher.NOOP,
                 () -> UserSessionLifecycleEventPublisher.NOOP,
                 null,
-                null,
+                organizationResolver,
                 () -> UserSessionPresenceLookup.NONE,
                 () -> loginAuditLogger);
         return new UserSessionService(userAccountService, new UserSessionRecordService(userSessionDao),

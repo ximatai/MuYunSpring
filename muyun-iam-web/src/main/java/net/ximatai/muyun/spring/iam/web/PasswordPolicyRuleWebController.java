@@ -25,7 +25,7 @@ import java.util.List;
 @PlatformStaticModule(application = net.ximatai.muyun.spring.iam.application.IamApplication.class,
         alias = PasswordPolicyRuleService.MODULE_ALIAS, title = "密码策略规则")
 @StaticModuleOpenApi
-@PlatformMenu(parent = PlatformMenuGroups.SECURITY_AUDIT, title = "密码管理", order = 10)
+@PlatformMenu(parent = PlatformMenuGroups.SETTINGS, title = "密码管理", order = 10)
 @RequestMapping("/iam.password_policy_rule")
 public class PasswordPolicyRuleWebController extends WebSupport<PasswordPolicyRuleService> implements
         CrudWeb<PasswordPolicyRule, PasswordPolicyRuleService>,

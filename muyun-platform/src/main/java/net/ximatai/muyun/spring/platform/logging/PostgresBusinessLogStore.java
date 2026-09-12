@@ -14,6 +14,7 @@ import net.ximatai.muyun.spring.ability.logging.BusinessLogReadPage;
 import net.ximatai.muyun.spring.ability.logging.BusinessLogStorageException;
 import net.ximatai.muyun.spring.ability.logging.BusinessLogStore;
 import net.ximatai.muyun.spring.ability.logging.BusinessLogWriteResult;
+import net.ximatai.muyun.spring.platform.runtime.PlatformBootstrapTask;
 import net.ximatai.muyun.spring.ability.logging.LoginLogDetails;
 import net.ximatai.muyun.spring.ability.logging.LoginLogEvent;
 import net.ximatai.muyun.spring.ability.logging.PageAccessLogDetails;
@@ -33,6 +34,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 
 /**
  * PostgreSQL append-only store for the first business logging phase.
@@ -41,14 +43,16 @@ import java.util.Objects;
  * entity DAO, mutation API or web endpoint. Failures are propagated as
  * {@link BusinessLogStorageException}; policy decisions remain with the collector.</p>
  */
-public class PostgresBusinessLogStore implements BusinessLogStore {
+public class PostgresBusinessLogStore implements BusinessLogStore, PlatformBootstrapTask {
     private static final String INSERT = """
             insert into muyun_log.business_log_event
                 (event_id, event_type, occurred_at, captured_at, trace_id, tenant_id, operator_id,
-                 module_alias, action_code, error_code, details_json)
-            values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, cast(? as jsonb))
+                 operator_organization_id, module_alias, action_code, error_code, login_outcome, http_status, details_json)
+            values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, cast(? as jsonb))
             on conflict (event_id) do nothing
             """;
+    private static final String EVENT_COLUMNS = "event_id, event_type, occurred_at, captured_at, trace_id, "
+            + "tenant_id, operator_id, operator_organization_id, module_alias, action_code, details_json";
 
     private final DataSource dataSource;
     private final ObjectMapper objectMapper;
@@ -60,6 +64,21 @@ public class PostgresBusinessLogStore implements BusinessLogStore {
     public PostgresBusinessLogStore(DataSource dataSource, ObjectMapper objectMapper) {
         this.dataSource = Objects.requireNonNull(dataSource, "dataSource must not be null");
         this.objectMapper = Objects.requireNonNull(objectMapper, "objectMapper must not be null");
+    }
+
+    @Override
+    public void run() {
+        new PostgresBusinessLogSchemaInitializer(dataSource).ensure();
+    }
+
+    @Override
+    public String name() {
+        return "platform.business-log-schema";
+    }
+
+    @Override
+    public int order() {
+        return -100;
     }
 
     @Override
@@ -109,15 +128,22 @@ public class PostgresBusinessLogStore implements BusinessLogStore {
     @Override
     public BusinessLogReadPage read(BusinessLogQuery query) {
         Objects.requireNonNull(query, "query must not be null");
-        StringBuilder sql = new StringBuilder("select event_id, event_type, occurred_at, captured_at, trace_id, "
-                + "tenant_id, operator_id, module_alias, action_code, details_json from muyun_log.business_log_event where 1=1");
+        StringBuilder sql = new StringBuilder("select ").append(EVENT_COLUMNS)
+                .append(" from muyun_log.business_log_event where 1=1");
         List<Object> parameters = new ArrayList<>();
         appendFilter(sql, parameters, "occurred_at >= ?", query.occurredFrom());
         appendFilter(sql, parameters, "occurred_at <= ?", query.occurredTo());
         appendFilter(sql, parameters, "tenant_id = ?", query.tenantId());
+        appendInFilter(sql, parameters, "event_type", query.eventTypes() == null ? null
+                : query.eventTypes().stream().map(Enum::name).toList());
+        appendFilter(sql, parameters, "operator_id = ?", query.operatorId());
+        appendInFilter(sql, parameters, "operator_organization_id", query.operatorOrganizationIds());
         appendFilter(sql, parameters, "module_alias = ?", query.moduleAlias());
         appendFilter(sql, parameters, "action_code = ?", query.actionCode());
         appendFilter(sql, parameters, "error_code = ?", query.errorCode());
+        appendFilter(sql, parameters, "login_outcome = ?", query.loginOutcome() == null ? null
+                : query.loginOutcome().name());
+        appendFilter(sql, parameters, "http_status = ?", query.httpStatus());
         if (query.cursor() != null) {
             sql.append(" and (occurred_at, event_id) < (?, ?)");
             parameters.add(query.cursor().occurredAt());
@@ -145,6 +171,24 @@ public class PostgresBusinessLogStore implements BusinessLogStore {
         }
     }
 
+    @Override
+    public Optional<BusinessLogEvent> findById(String eventId) {
+        String normalized = eventId == null ? null : eventId.trim();
+        if (normalized == null || normalized.isEmpty() || normalized.length() > 128) {
+            throw new IllegalArgumentException("eventId must be between 1 and 128 characters");
+        }
+        String sql = "select " + EVENT_COLUMNS + " from muyun_log.business_log_event where event_id = ?";
+        try (Connection connection = dataSource.getConnection();
+             PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setString(1, normalized);
+            try (ResultSet resultSet = statement.executeQuery()) {
+                return resultSet.next() ? Optional.of(readEvent(resultSet)) : Optional.empty();
+            }
+        } catch (SQLException exception) {
+            throw storageFailure("read business log event", exception);
+        }
+    }
+
     private BusinessLogWriteResult append(PreparedStatement statement, BusinessLogEvent event) throws SQLException {
         BusinessLogContext context = event.context();
         statement.setString(1, context.eventId());
@@ -154,10 +198,17 @@ public class PostgresBusinessLogStore implements BusinessLogStore {
         statement.setString(5, context.traceId());
         statement.setString(6, context.tenantId());
         statement.setString(7, context.operatorId());
-        statement.setString(8, context.moduleAlias());
-        statement.setString(9, context.actionCode());
-        statement.setString(10, errorCode(event));
-        statement.setString(11, serialize(event.details()));
+        statement.setString(8, context.operatorOrganizationId());
+        statement.setString(9, context.moduleAlias());
+        statement.setString(10, context.actionCode());
+        statement.setString(11, errorCode(event));
+        statement.setString(12, loginOutcome(event));
+        if (httpStatus(event) == null) {
+            statement.setNull(13, java.sql.Types.INTEGER);
+        } else {
+            statement.setInt(13, httpStatus(event));
+        }
+        statement.setString(14, serialize(event.details()));
         int updated = statement.executeUpdate();
         return new BusinessLogWriteResult(context.eventId(), updated == 1
                 ? BusinessLogWriteResult.Status.APPENDED : BusinessLogWriteResult.Status.DUPLICATE_IGNORED);
@@ -180,6 +231,7 @@ public class PostgresBusinessLogStore implements BusinessLogStore {
                 resultSet.getString("trace_id"),
                 resultSet.getString("tenant_id"),
                 resultSet.getString("operator_id"),
+                resultSet.getString("operator_organization_id"),
                 resultSet.getString("module_alias"),
                 resultSet.getString("action_code"));
         String detailsJson = resultSet.getString("details_json");
@@ -206,6 +258,21 @@ public class PostgresBusinessLogStore implements BusinessLogStore {
         }
     }
 
+    private static void appendInFilter(StringBuilder sql, List<Object> parameters, String column,
+                                       Collection<String> values) {
+        if (values == null) {
+            return;
+        }
+        if (values.isEmpty()) {
+            sql.append(" and 1=0");
+            return;
+        }
+        sql.append(" and ").append(column).append(" in (");
+        sql.append("?, ".repeat(values.size()).substring(0, values.size() * 3 - 2));
+        sql.append(')');
+        parameters.addAll(values);
+    }
+
     private static void bind(PreparedStatement statement, List<Object> values) throws SQLException {
         for (int index = 0; index < values.size(); index++) {
             Object value = values.get(index);
@@ -224,6 +291,14 @@ public class PostgresBusinessLogStore implements BusinessLogStore {
 
     private static String errorCode(BusinessLogEvent event) {
         return event instanceof RequestErrorLogEvent requestError ? requestError.details().errorCode() : null;
+    }
+
+    private static String loginOutcome(BusinessLogEvent event) {
+        return event instanceof LoginLogEvent login ? login.details().outcome().name() : null;
+    }
+
+    private static Integer httpStatus(BusinessLogEvent event) {
+        return event instanceof RequestErrorLogEvent requestError ? requestError.details().httpStatus() : null;
     }
 
     private static BusinessLogCursor cursorFor(BusinessLogEvent event) {

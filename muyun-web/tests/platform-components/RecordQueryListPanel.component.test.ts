@@ -247,7 +247,13 @@ describe('RecordQueryListPanel', () => {
 
     await vi.waitFor(() => expect(requests).toHaveLength(1));
     const surface = wrapper.findComponent({ name: 'RecordQueryListSurface' });
-    expect(surface.props()).toMatchObject({ total: 41, pageNum: 1, pages: 3, pageSize: 20 });
+    expect(surface.props()).toMatchObject({
+      total: 41,
+      totalKnown: true,
+      pageNum: 1,
+      pages: 3,
+      pageSize: 20,
+    });
 
     surface.vm.$emit('pageChange', 2);
     await vi.waitFor(() => expect(requests).toHaveLength(2));

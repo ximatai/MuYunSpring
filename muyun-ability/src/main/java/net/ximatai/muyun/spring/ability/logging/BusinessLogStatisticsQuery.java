@@ -1,12 +1,15 @@
 package net.ximatai.muyun.spring.ability.logging;
 
 import java.time.Instant;
+import java.util.Set;
 
 /** Bounded, service-side statistics request; it deliberately carries no authorization decision. */
 public record BusinessLogStatisticsQuery(
         Instant occurredFrom,
         Instant occurredTo,
         String tenantId,
+        String operatorId,
+        Set<String> operatorOrganizationIds,
         String moduleAlias,
         String actionCode,
         int maximumEvents
@@ -16,6 +19,8 @@ public record BusinessLogStatisticsQuery(
             throw new IllegalArgumentException("occurredFrom must not be after occurredTo");
         }
         tenantId = BusinessLogContext.optional(tenantId, "tenantId", 128);
+        operatorId = BusinessLogContext.optional(operatorId, "operatorId", 128);
+        operatorOrganizationIds = BusinessLogQuery.normalizeIds(operatorOrganizationIds, "operatorOrganizationIds");
         moduleAlias = BusinessLogContext.optional(moduleAlias, "moduleAlias", 192);
         actionCode = BusinessLogContext.optional(actionCode, "actionCode", 128);
         if (maximumEvents < 1 || maximumEvents > 10_000) {
@@ -23,7 +28,13 @@ public record BusinessLogStatisticsQuery(
         }
     }
 
+    /** Source-compatible statistics request without operator or organization filters. */
+    public BusinessLogStatisticsQuery(Instant occurredFrom, Instant occurredTo, String tenantId, String moduleAlias,
+                                      String actionCode, int maximumEvents) {
+        this(occurredFrom, occurredTo, tenantId, null, null, moduleAlias, actionCode, maximumEvents);
+    }
+
     public static BusinessLogStatisticsQuery recent(int maximumEvents) {
-        return new BusinessLogStatisticsQuery(null, null, null, null, null, maximumEvents);
+        return new BusinessLogStatisticsQuery(null, null, null, null, null, null, null, maximumEvents);
     }
 }

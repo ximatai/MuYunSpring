@@ -157,7 +157,8 @@ public class UserSessionService {
                 reasonCode = "ACCOUNT_LOGIN_STATE_WRITE_FAILED";
                 throw exception;
             }
-            recordLoginAudit(user, normalizedTenantId, username, ip, issuedAt, LoginLogDetails.LoginOutcome.SUCCESS, null);
+            recordLoginAudit(user, normalizedTenantId, username, ip, issuedAt, LoginLogDetails.LoginOutcome.SUCCESS,
+                    null, currentUser.organizationId());
             auditRecorded = true;
             userSessionLifecycleEventPublisher.get()
                     .publish(UserSessionLifecycleEvent.loggedIn(currentUser.userId(), session.getId()));
@@ -168,7 +169,7 @@ public class UserSessionService {
         } catch (RuntimeException exception) {
             if (!auditRecorded) {
                 recordLoginAudit(user, normalizedTenantId, username, ip, now(), LoginLogDetails.LoginOutcome.FAILURE,
-                        reasonCode);
+                        reasonCode, null);
             }
             throw exception;
         }
@@ -426,13 +427,17 @@ public class UserSessionService {
     }
 
     private void recordLoginAudit(UserAccount user, String tenantId, String username, String ip, Instant occurredAt,
-                                  LoginLogDetails.LoginOutcome outcome, String reasonCode) {
+                                  LoginLogDetails.LoginOutcome outcome, String reasonCode,
+                                  String operatorOrganizationId) {
         try {
             String confirmedAccount = user == null ? null : user.getUsername();
+            String organizationId = operatorOrganizationId == null && user != null
+                    ? currentUserOf(user, false).organizationId()
+                    : operatorOrganizationId;
             LoginLogEvent event = new LoginLogEvent(
                     new BusinessLogContext(Ids.newId(), occurredAt, now(),
                             logTraceId(), limit(tenantId, 128),
-                            user == null ? null : user.getId(), "iam.user", "login"),
+                            user == null ? null : user.getId(), organizationId, "iam.user", "login"),
                     new LoginLogDetails("password", outcome, reasonCode, limit(ip, 64),
                             limit(username, 256), limit(confirmedAccount, 256)));
             LoginAuditLogger logger = loginAuditLogger.get();

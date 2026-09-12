@@ -285,6 +285,24 @@ class ActionEndpointInterceptorTest {
     }
 
     @Test
+    void shouldSnapshotCurrentOperatorOrganizationOnStaticCrudAction() {
+        RecordingBusinessLogPublisher publisher = new RecordingBusinessLogPublisher();
+        StaticCrudActionLogRecorder recorder = new StaticCrudActionLogRecorder(publisher);
+        MockHttpServletRequest request = new MockHttpServletRequest("POST", "/sales.contract/update");
+        CurrentUser user = CurrentUser.tenantUser("user-1", "Alice", "tenant-a", "organization-a");
+        var context = ActionExecutionContext.ofPlatformAction("sales.contract", PlatformAction.UPDATE,
+                java.util.Set.of("contract-1"), java.util.Optional.of(user));
+
+        recorder.begin(request);
+        recorder.record(request, context, null);
+
+        assertThat(publisher.events).singleElement().isInstanceOfSatisfying(ActionLogEvent.class, event -> {
+            assertThat(event.context().operatorId()).isEqualTo("user-1");
+            assertThat(event.context().operatorOrganizationId()).isEqualTo("organization-a");
+        });
+    }
+
+    @Test
     void shouldPublishStaticCrudMutationFactsAndFailOpenOnPublicationFailure() throws Exception {
         RecordingBusinessLogPublisher publisher = new RecordingBusinessLogPublisher();
         StaticCrudActionLogRecorder recorder = new StaticCrudActionLogRecorder(publisher);

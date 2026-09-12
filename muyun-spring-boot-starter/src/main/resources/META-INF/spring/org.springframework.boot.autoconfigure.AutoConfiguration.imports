@@ -1,1 +1,2 @@
 net.ximatai.muyun.spring.starter.MuYunSpringAutoConfiguration
+net.ximatai.muyun.spring.starter.configuration.platform.MuYunSpringBusinessLoggingConfiguration

@@ -65,7 +65,8 @@ public final class StoreBackedBusinessLogStatisticsReader implements BusinessLog
         while (scanned < query.maximumEvents()) {
             int limit = Math.min(PAGE_SIZE, query.maximumEvents() - scanned);
             var page = store.read(new BusinessLogQuery(query.occurredFrom(), query.occurredTo(), query.tenantId(),
-                    query.moduleAlias(), query.actionCode(), null, cursor, limit));
+                    null, query.operatorId(), query.operatorOrganizationIds(), query.moduleAlias(),
+                    query.actionCode(), null, cursor, limit));
             page.events().forEach(consumer);
             scanned += page.events().size();
             cursor = page.nextCursor();

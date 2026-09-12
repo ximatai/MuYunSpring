@@ -8,7 +8,6 @@ import net.ximatai.muyun.spring.starter.configuration.filetransfer.MuYunFileServ
 import net.ximatai.muyun.spring.starter.configuration.iam.MuYunSpringIdentityConfiguration;
 import net.ximatai.muyun.spring.starter.configuration.iam.MuYunSpringIdentityWebConfiguration;
 import net.ximatai.muyun.spring.starter.configuration.platform.MuYunSpringDeletionConfiguration;
-import net.ximatai.muyun.spring.starter.configuration.platform.MuYunSpringBusinessLoggingConfiguration;
 import net.ximatai.muyun.spring.starter.configuration.platform.MuYunSpringFileReferenceConfiguration;
 import net.ximatai.muyun.spring.starter.configuration.platform.MuYunSpringOptionConfiguration;
 import net.ximatai.muyun.spring.starter.configuration.platform.MuYunSpringRecordOutputConfiguration;
@@ -52,7 +51,6 @@ import org.springframework.scheduling.annotation.EnableScheduling;
         MuYunFileServerTransferConfiguration.class,
         MuYunSpringIdentityConfiguration.class,
         MuYunSpringIdentityWebConfiguration.class,
-        MuYunSpringBusinessLoggingConfiguration.class,
         MuYunSpringDeletionConfiguration.class,
         MuYunSpringFileReferenceConfiguration.class,
         MuYunSpringOptionConfiguration.class,

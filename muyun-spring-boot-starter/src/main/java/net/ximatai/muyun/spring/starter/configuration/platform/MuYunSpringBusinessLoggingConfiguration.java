@@ -5,8 +5,7 @@ import net.ximatai.muyun.spring.ability.logging.BusinessLogStore;
 import net.ximatai.muyun.spring.ability.logging.StoreBackedBusinessLogPublisher;
 import net.ximatai.muyun.spring.iam.user.BusinessLogLoginAuditLogger;
 import net.ximatai.muyun.spring.iam.user.LoginAuditLogger;
-import net.ximatai.muyun.spring.platform.logging.BusinessLogSchemaBootstrapTask;
-import net.ximatai.muyun.spring.platform.logging.PostgresBusinessLogSchemaInitializer;
+import net.ximatai.muyun.spring.platform.logging.BusinessLogGovernanceService;
 import net.ximatai.muyun.spring.platform.logging.PostgresBusinessLogStore;
 import net.ximatai.muyun.spring.platform.logging.RuntimeActionBusinessLogEventListener;
 import net.ximatai.muyun.spring.platform.logging.StoreBackedBusinessLogStatisticsReader;
@@ -14,37 +13,25 @@ import net.ximatai.muyun.spring.ability.logging.BusinessLogStatisticsReader;
 import net.ximatai.muyun.spring.platform.web.BusinessLogPageAccessRecorder;
 import net.ximatai.muyun.spring.platform.web.StaticCrudActionLogRecorder;
 import net.ximatai.muyun.spring.web.RequestErrorLogRecorder;
+import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Configuration;
 import org.springframework.beans.factory.ObjectProvider;
 
 import javax.sql.DataSource;
 
 /** Assembles the neutral business-log publisher with the default PostgreSQL store. */
-@Configuration(proxyBeanMethods = false)
+@AutoConfiguration(afterName = {
+        "org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration",
+        "net.ximatai.muyun.database.spring.boot.MuYunDatabaseAutoConfiguration"
+}, beforeName = "net.ximatai.muyun.spring.starter.MuYunSpringAutoConfiguration")
 public class MuYunSpringBusinessLoggingConfiguration {
     @Bean
     @ConditionalOnBean(DataSource.class)
     @ConditionalOnMissingBean(BusinessLogStore.class)
     PostgresBusinessLogStore postgresBusinessLogStore(DataSource dataSource) {
         return new PostgresBusinessLogStore(dataSource);
-    }
-
-    @Bean
-    @ConditionalOnBean(PostgresBusinessLogStore.class)
-    @ConditionalOnMissingBean(PostgresBusinessLogSchemaInitializer.class)
-    PostgresBusinessLogSchemaInitializer postgresBusinessLogSchemaInitializer(DataSource dataSource) {
-        return new PostgresBusinessLogSchemaInitializer(dataSource);
-    }
-
-    @Bean
-    @ConditionalOnBean(PostgresBusinessLogSchemaInitializer.class)
-    @ConditionalOnMissingBean(BusinessLogSchemaBootstrapTask.class)
-    BusinessLogSchemaBootstrapTask businessLogSchemaBootstrapTask(
-            PostgresBusinessLogSchemaInitializer schemaInitializer) {
-        return new BusinessLogSchemaBootstrapTask(schemaInitializer);
     }
 
     @Bean
@@ -93,4 +80,13 @@ public class MuYunSpringBusinessLoggingConfiguration {
     BusinessLogStatisticsReader businessLogStatisticsReader(BusinessLogStore store) {
         return new StoreBackedBusinessLogStatisticsReader(store);
     }
+
+    @Bean
+    @ConditionalOnBean({BusinessLogStore.class, BusinessLogStatisticsReader.class})
+    @ConditionalOnMissingBean(BusinessLogGovernanceService.class)
+    BusinessLogGovernanceService businessLogGovernanceService(BusinessLogStore store,
+                                                              BusinessLogStatisticsReader statisticsReader) {
+        return new BusinessLogGovernanceService(store, statisticsReader);
+    }
+
 }

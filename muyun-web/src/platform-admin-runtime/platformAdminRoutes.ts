@@ -6,6 +6,9 @@ import type {
   RoutePageTarget,
 } from '@muyun/web-contracts';
 const RoleAuthorizationView = defineAsyncComponent(() => import('../views/RoleAuthorizationView.vue'));
+const BusinessActivityLogView = defineAsyncComponent(() => import('../views/BusinessActivityLogView.vue'));
+const RequestErrorLogView = defineAsyncComponent(() => import('../views/RequestErrorLogView.vue'));
+const LoginAuditLogView = defineAsyncComponent(() => import('../views/LoginAuditLogView.vue'));
 
 export interface PlatformAdminRoute {
   route: string;
@@ -18,6 +21,24 @@ export interface PlatformAdminRoute {
 }
 
 export const platformAdminRoutes: PlatformAdminRoute[] = [
+  {
+    route: '/platform/logs/activity',
+    moduleAlias: 'platform.business_activity_log',
+    component: BusinessActivityLogView,
+    layout: 'workspace',
+  },
+  {
+    route: '/platform/logs/errors',
+    moduleAlias: 'platform.request_error_log',
+    component: RequestErrorLogView,
+    layout: 'workspace',
+  },
+  {
+    route: '/iam/logs/login',
+    moduleAlias: 'iam.login_audit_log',
+    component: LoginAuditLogView,
+    layout: 'workspace',
+  },
   {
     route: '/iam/role/authorization',
     moduleAlias: 'iam.role',
