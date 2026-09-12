@@ -7,6 +7,9 @@ import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.identity.CurrentUser;
 import net.ximatai.muyun.spring.common.identity.CurrentUserTimeZoneResolver;
 import net.ximatai.muyun.spring.common.tenant.TenantContext;
+import net.ximatai.muyun.spring.common.web.RequestTraceContext;
+import net.ximatai.muyun.spring.ability.logging.LoginLogDetails;
+import net.ximatai.muyun.spring.ability.logging.LoginLogEvent;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
@@ -35,6 +38,7 @@ class UserSessionServiceTest {
     @AfterEach
     void tearDown() {
         TenantContext.clear();
+        RequestTraceContext.clear();
     }
 
     @Test
@@ -244,6 +248,137 @@ class UserSessionServiceTest {
     }
 
     @Test
+    void shouldAuditSuccessfulLoginOnlyAfterSessionAndAccountStateAreWritten() {
+        UserAccount user = activeUser();
+        UserAccountDao dao = mock(UserAccountDao.class);
+        when(dao.query(any(Criteria.class), any(PageRequest.class))).thenReturn(List.of(user));
+        UserAccountService userService = new UserAccountService(dao, tenantId -> { }, passwordHashingService);
+        UserSessionDao sessionDao = mock(UserSessionDao.class);
+        captureInsertedSession(sessionDao);
+        RecordingLoginAuditLogger auditLogger = new RecordingLoginAuditLogger();
+        UserSessionService sessionService = sessionServiceWithLoginAudit(userService, sessionDao, auditLogger, clock);
+
+        try (RequestTraceContext.Scope ignored = RequestTraceContext.use("login-trace-1")) {
+            sessionService.login("tenant-a", "alice", "secret1", "127.0.0.1", "Browser");
+        }
+
+        assertThat(auditLogger.events).singleElement().satisfies(event -> {
+            assertThat(event.details().outcome()).isEqualTo(LoginLogDetails.LoginOutcome.SUCCESS);
+            assertThat(event.details().reasonCode()).isNull();
+            assertThat(event.context().traceId()).isEqualTo("login-trace-1");
+            assertThat(event.context().operatorId()).isEqualTo("user-1");
+            assertThat(event.details().sourceIp()).isEqualTo("127.0.0.1");
+        });
+        verify(sessionDao).insert(any(UserSession.class));
+        verify(dao).updateByIdAndVersion(user, 0);
+    }
+
+    @Test
+    void shouldAuditLoginWhenCurrentTraceContextContainsInvalidInboundValue() {
+        UserAccount user = activeUser();
+        UserAccountDao dao = mock(UserAccountDao.class);
+        when(dao.query(any(Criteria.class), any(PageRequest.class))).thenReturn(List.of(user));
+        UserAccountService userService = new UserAccountService(dao, tenantId -> { }, passwordHashingService);
+        UserSessionDao sessionDao = mock(UserSessionDao.class);
+        captureInsertedSession(sessionDao);
+        RecordingLoginAuditLogger auditLogger = new RecordingLoginAuditLogger();
+        UserSessionService sessionService = sessionServiceWithLoginAudit(userService, sessionDao, auditLogger, clock);
+
+        try (RequestTraceContext.Scope ignored = RequestTraceContext.use("invalid trace id!")) {
+            sessionService.login("tenant-a", "alice", "secret1");
+        }
+
+        assertThat(auditLogger.events).singleElement().satisfies(event -> {
+            assertThat(event.details().outcome()).isEqualTo(LoginLogDetails.LoginOutcome.SUCCESS);
+            assertThat(event.context().traceId()).isEqualTo(event.eventId());
+        });
+    }
+
+    @Test
+    void shouldAuditCredentialFailureWithConfirmedUserButNotPassword() {
+        UserAccount user = activeUser();
+        UserAccountDao dao = mock(UserAccountDao.class);
+        when(dao.query(any(Criteria.class), any(PageRequest.class))).thenReturn(List.of(user));
+        UserAccountService userService = new UserAccountService(dao, tenantId -> { }, passwordHashingService);
+        UserSessionDao sessionDao = mock(UserSessionDao.class);
+        RecordingLoginAuditLogger auditLogger = new RecordingLoginAuditLogger();
+        UserSessionService sessionService = sessionServiceWithLoginAudit(userService, sessionDao, auditLogger, clock);
+
+        assertThatThrownBy(() -> sessionService.login("tenant-a", "alice", "wrong-password", "127.0.0.1", null))
+                .isInstanceOf(AuthenticationFailedException.class);
+
+        assertThat(auditLogger.events).singleElement().satisfies(event -> {
+            assertThat(event.details().outcome()).isEqualTo(LoginLogDetails.LoginOutcome.FAILURE);
+            assertThat(event.details().reasonCode()).isEqualTo("BAD_CREDENTIALS");
+            assertThat(event.context().operatorId()).isEqualTo("user-1");
+            assertThat(event.details().confirmedAccount()).isEqualTo("alice");
+            assertThat(event.details().claimedAccount()).isEqualTo("alice");
+        });
+        assertThat(auditLogger.events.getFirst().toString()).doesNotContain("wrong-password");
+        verify(sessionDao, never()).insert(any());
+    }
+
+    @Test
+    void shouldAuditSessionIssueFailureWithoutPublishingLoginSuccess() {
+        UserAccount user = activeUser();
+        UserAccountDao dao = mock(UserAccountDao.class);
+        when(dao.query(any(Criteria.class), any(PageRequest.class))).thenReturn(List.of(user));
+        UserAccountService userService = new UserAccountService(dao, tenantId -> { }, passwordHashingService);
+        UserSessionDao sessionDao = mock(UserSessionDao.class);
+        when(sessionDao.insert(any())).thenThrow(new IllegalStateException("session storage unavailable"));
+        RecordingLoginAuditLogger auditLogger = new RecordingLoginAuditLogger();
+        UserSessionService sessionService = sessionServiceWithLoginAudit(userService, sessionDao, auditLogger, clock);
+
+        assertThatThrownBy(() -> sessionService.login("tenant-a", "alice", "secret1"))
+                .isInstanceOf(IllegalStateException.class);
+
+        assertThat(auditLogger.events).singleElement().satisfies(event -> {
+            assertThat(event.details().outcome()).isEqualTo(LoginLogDetails.LoginOutcome.FAILURE);
+            assertThat(event.details().reasonCode()).isEqualTo("SESSION_ISSUE_FAILED");
+            assertThat(event.context().operatorId()).isEqualTo("user-1");
+        });
+    }
+
+    @Test
+    void shouldAuditAccountLoginStateWriteFailure() {
+        UserAccount user = activeUser();
+        UserAccountDao dao = mock(UserAccountDao.class);
+        when(dao.query(any(Criteria.class), any(PageRequest.class))).thenReturn(List.of(user));
+        when(dao.updateByIdAndVersion(any(UserAccount.class), any())).thenThrow(
+                new IllegalStateException("account storage unavailable"));
+        UserAccountService userService = new UserAccountService(dao, tenantId -> { }, passwordHashingService);
+        UserSessionDao sessionDao = mock(UserSessionDao.class);
+        captureInsertedSession(sessionDao);
+        RecordingLoginAuditLogger auditLogger = new RecordingLoginAuditLogger();
+        UserSessionService sessionService = sessionServiceWithLoginAudit(userService, sessionDao, auditLogger, clock);
+
+        assertThatThrownBy(() -> sessionService.login("tenant-a", "alice", "secret1"))
+                .isInstanceOf(IllegalStateException.class);
+
+        assertThat(auditLogger.events).singleElement().satisfies(event -> {
+            assertThat(event.details().outcome()).isEqualTo(LoginLogDetails.LoginOutcome.FAILURE);
+            assertThat(event.details().reasonCode()).isEqualTo("ACCOUNT_LOGIN_STATE_WRITE_FAILED");
+        });
+    }
+
+    @Test
+    void shouldAllowLoginWhenAuditPublicationFails() {
+        UserAccount user = activeUser();
+        UserAccountDao dao = mock(UserAccountDao.class);
+        when(dao.query(any(Criteria.class), any(PageRequest.class))).thenReturn(List.of(user));
+        UserAccountService userService = new UserAccountService(dao, tenantId -> { }, passwordHashingService);
+        UserSessionDao sessionDao = mock(UserSessionDao.class);
+        captureInsertedSession(sessionDao);
+        UserSessionService sessionService = sessionServiceWithLoginAudit(userService, sessionDao,
+                event -> { throw new IllegalStateException("log storage unavailable"); }, clock);
+
+        LoginResult login = sessionService.login("tenant-a", "alice", "secret1");
+
+        assertThat(login.token()).isNotBlank();
+        verify(sessionDao).insert(any(UserSession.class));
+    }
+
+    @Test
     void shouldReturnPasswordChangeRequiredForInitialPassword() {
         UserAccount user = activeUser();
         user.setPasswordStatus(PasswordStatus.INITIAL);
@@ -279,7 +414,7 @@ class UserSessionServiceTest {
 
         assertThatThrownBy(() -> sessionService.login("tenant-a", "alice", "secret1"))
                 .isInstanceOf(AuthenticationFailedException.class)
-                .hasMessageContaining("temporary password expired");
+                .hasMessageContaining("invalid username or password");
 
         assertThat(user.getLastFailedLoginAt()).isEqualTo(clock.instant());
         verify(sessionDao, never()).insert(any());
@@ -776,6 +911,22 @@ class UserSessionServiceTest {
                 collaborators, clock);
     }
 
+    private UserSessionService sessionServiceWithLoginAudit(UserAccountService userAccountService,
+                                                            UserSessionDao userSessionDao,
+                                                            LoginAuditLogger loginAuditLogger,
+                                                            Clock clock) {
+        UserSessionCollaborators collaborators = new UserSessionCollaborators(
+                () -> null,
+                () -> UserSecurityEventPublisher.NOOP,
+                () -> UserSessionLifecycleEventPublisher.NOOP,
+                null,
+                null,
+                () -> UserSessionPresenceLookup.NONE,
+                () -> loginAuditLogger);
+        return new UserSessionService(userAccountService, new UserSessionRecordService(userSessionDao),
+                userAccountService, collaborators, clock);
+    }
+
     private UserAccount activeUser() {
         UserAccount user = new UserAccount();
         user.setId("user-1");
@@ -812,6 +963,15 @@ class UserSessionServiceTest {
 
         @Override
         public void publish(UserSessionLifecycleEvent event) {
+            events.add(event);
+        }
+    }
+
+    private static final class RecordingLoginAuditLogger implements LoginAuditLogger {
+        private final List<LoginLogEvent> events = new ArrayList<>();
+
+        @Override
+        public void record(LoginLogEvent event) {
             events.add(event);
         }
     }

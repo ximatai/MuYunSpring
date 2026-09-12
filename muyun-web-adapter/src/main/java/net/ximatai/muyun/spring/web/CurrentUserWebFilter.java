@@ -46,18 +46,19 @@ public class CurrentUserWebFilter extends OncePerRequestFilter {
         Optional<CurrentUser> currentUser = currentUserProvider.currentUser();
         if (currentUser.isEmpty()) {
             if (request.getHeader(TENANT_HEADER) != null) {
-                rejectAuthenticationRequired(response);
+                rejectAuthenticationRequired(request, response);
                 return;
             }
             if (hasBearerToken(request)) {
-                rejectAuthenticationRequired(response);
+                rejectAuthenticationRequired(request, response);
                 return;
             }
             filterChain.doFilter(request, response);
             return;
         }
+        RequestErrorLogRecorder.snapshotCurrentUser(request, currentUser.get());
         if (currentUser.get().passwordChangeRequired() && !isPasswordChangeAllowed(request)) {
-            rejectPasswordChangeRequired(response);
+            rejectPasswordChangeRequired(request, response);
             return;
         }
         try (CurrentUserContext.Scope ignored = CurrentUserContext.use(currentUser.get())) {
@@ -83,8 +84,11 @@ public class CurrentUserWebFilter extends OncePerRequestFilter {
                 response.setContentType("application/json");
                 response.setCharacterEncoding("UTF-8");
                 response.getWriter().write("{\"code\":\"TENANT_ACCESS_DENIED\",\"status\":403,\"message\":\"业务租户不可用或无权访问\"}");
+                RequestErrorLogRecorder.markFilterResponse(request, "TENANT_ACCESS_DENIED", 403,
+                        "业务租户不可用或无权访问");
                 return;
             }
+            RequestErrorLogRecorder.snapshotTenant(request, requestedTenant);
             try (TenantContext.Scope ignored = TenantContext.use(requestedTenant)) {
                 filterChain.doFilter(request, response);
             }
@@ -131,21 +135,25 @@ public class CurrentUserWebFilter extends OncePerRequestFilter {
                 && !header.substring(prefix.length()).isBlank();
     }
 
-    private void rejectAuthenticationRequired(HttpServletResponse response) throws IOException {
+    private void rejectAuthenticationRequired(HttpServletRequest request, HttpServletResponse response) throws IOException {
         response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
         response.setContentType("application/json");
         response.setCharacterEncoding("UTF-8");
         response.getWriter().write("""
                 {"code":"AUTH_REQUIRED","status":401,"message":"current user context is not available"}
                 """);
+        RequestErrorLogRecorder.markFilterResponse(request, "AUTH_REQUIRED", 401,
+                "current user context is not available");
     }
 
-    private void rejectPasswordChangeRequired(HttpServletResponse response) throws IOException {
+    private void rejectPasswordChangeRequired(HttpServletRequest request, HttpServletResponse response) throws IOException {
         response.setStatus(HttpServletResponse.SC_FORBIDDEN);
         response.setContentType("application/json");
         response.setCharacterEncoding("UTF-8");
         response.getWriter().write("""
                 {"code":"PASSWORD_CHANGE_REQUIRED","status":403,"message":"password change required"}
                 """);
+        RequestErrorLogRecorder.markFilterResponse(request, "PASSWORD_CHANGE_REQUIRED", 403,
+                "password change required");
     }
 }

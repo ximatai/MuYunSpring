@@ -172,6 +172,28 @@ class LoginWebControllerTest {
     }
 
     @Test
+    void shouldUseDirectPeerAddressInsteadOfUntrustedForwardedForHeader() throws Exception {
+        UserSessionService userSessionService = mock(UserSessionService.class);
+        LoginWebController controller = new LoginWebController(userSessionService);
+        MockMvc mvc = MockMvcBuilders.standaloneSetup(controller).build();
+
+        mvc.perform(post("/iam.auth/login")
+                        .contentType(APPLICATION_JSON)
+                        .header("X-Forwarded-For", "203.0.113.66")
+                        .header("User-Agent", "Test Browser")
+                        .with(request -> {
+                            request.setRemoteAddr("192.0.2.10");
+                            return request;
+                        })
+                        .content("""
+                                {"tenantId":"tenant-a","username":"alice","password":"secret1"}
+                                """))
+                .andExpect(status().isOk());
+
+        verify(userSessionService).login("tenant-a", "alice", "secret1", "192.0.2.10", "Test Browser");
+    }
+
+    @Test
     void shouldReturnAuthenticationFailedWithoutLeakingInactiveTenantReason() throws Exception {
         UserSessionService userSessionService = mock(UserSessionService.class);
         when(userSessionService.login(anyString(), anyString(), anyString(), nullable(String.class), nullable(String.class)))

@@ -2,6 +2,10 @@ package net.ximatai.muyun.spring.web;
 
 import net.ximatai.muyun.spring.ability.OptimisticLockException;
 import net.ximatai.muyun.spring.ability.action.BusinessExceptions;
+import net.ximatai.muyun.spring.ability.logging.BusinessLogEvent;
+import net.ximatai.muyun.spring.ability.logging.BusinessLogPublisher;
+import net.ximatai.muyun.spring.ability.logging.BusinessLogWriteResult;
+import net.ximatai.muyun.spring.ability.logging.RequestErrorLogEvent;
 import net.ximatai.muyun.spring.common.exception.AuthenticationRequiredException;
 import net.ximatai.muyun.spring.common.exception.ErrorScope;
 import net.ximatai.muyun.spring.common.exception.ErrorTarget;
@@ -23,12 +27,15 @@ import org.springframework.web.bind.annotation.RestController;
 import java.sql.SQLException;
 import java.util.List;
 import java.util.Map;
+import java.util.ArrayList;
+import java.util.Collection;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.assertj.core.api.Assertions.assertThat;
 
 class PlatformWebExceptionHandlerTest {
     @AfterEach
@@ -212,6 +219,31 @@ class PlatformWebExceptionHandlerTest {
     }
 
     @Test
+    void shouldRecordTheFinalAdviceErrorOnceWithSafeResponseModelAndKeepResponseWhenPublisherFails() throws Exception {
+        RecordingPublisher publisher = new RecordingPublisher();
+        MockMvc mvc = mvc(new DemoController(), new RequestErrorLogRecorder(publisher));
+
+        mvc.perform(get("/demo/unexpected").header(RequestTraceContext.TRACE_ID_HEADER, "trace-error"))
+                .andExpect(status().isInternalServerError());
+
+        assertThat(publisher.events).singleElement().isInstanceOfSatisfying(RequestErrorLogEvent.class, logged -> {
+            assertThat(logged.context().traceId()).isEqualTo("trace-error");
+            assertThat(logged.details().method()).isEqualTo("GET");
+            assertThat(logged.details().path()).isEqualTo("/demo/unexpected");
+            assertThat(logged.details().httpStatus()).isEqualTo(500);
+            assertThat(logged.details().errorCode()).isEqualTo(PlatformErrorCodes.INTERNAL_ERROR);
+            assertThat(logged.details().responseSummary().value()).contains("code=INTERNAL_ERROR", "message=系统暂时不可用");
+            assertThat(logged.details().exceptionType()).isEqualTo(IllegalStateException.class.getName());
+            assertThat(logged.details().stackTrace().value()).contains("IllegalStateException");
+            assertThat(logged.details().failureStage()).isEqualTo("EXCEPTION_HANDLER");
+            assertThat(logged.details().responseCompleted()).isFalse();
+        });
+
+        MockMvc failingMvc = mvc(new DemoController(), new RequestErrorLogRecorder(new FailingPublisher()));
+        failingMvc.perform(get("/demo/unexpected")).andExpect(status().isInternalServerError());
+    }
+
+    @Test
     void shouldTranslateWrappedDatabaseNotNullViolationToUsableValidationError() throws Exception {
         MockMvc mvc = mvc(new DemoController());
 
@@ -225,10 +257,30 @@ class PlatformWebExceptionHandlerTest {
     }
 
     private MockMvc mvc(Object controller) {
+        return mvc(controller, RequestErrorLogRecorder.noop());
+    }
+
+    private MockMvc mvc(Object controller, RequestErrorLogRecorder recorder) {
         return MockMvcBuilders.standaloneSetup(controller)
-                .addFilters(new RequestTraceWebFilter())
-                .setControllerAdvice(new PlatformWebExceptionHandler())
+                .addFilters(new RequestTraceWebFilter(recorder))
+                .setControllerAdvice(new PlatformWebExceptionHandler(recorder))
                 .build();
+    }
+
+    private static final class RecordingPublisher implements BusinessLogPublisher {
+        private final List<BusinessLogEvent> events = new ArrayList<>();
+        @Override public BusinessLogWriteResult publish(BusinessLogEvent event) {
+            events.add(event);
+            return new BusinessLogWriteResult(event.eventId(), BusinessLogWriteResult.Status.APPENDED);
+        }
+        @Override public List<BusinessLogWriteResult> publishAll(Collection<? extends BusinessLogEvent> events) {
+            return events.stream().map(this::publish).toList();
+        }
+    }
+
+    private static final class FailingPublisher implements BusinessLogPublisher {
+        @Override public BusinessLogWriteResult publish(BusinessLogEvent event) { throw new IllegalStateException("unavailable"); }
+        @Override public List<BusinessLogWriteResult> publishAll(Collection<? extends BusinessLogEvent> events) { throw new IllegalStateException("unavailable"); }
     }
 
     @RestController
