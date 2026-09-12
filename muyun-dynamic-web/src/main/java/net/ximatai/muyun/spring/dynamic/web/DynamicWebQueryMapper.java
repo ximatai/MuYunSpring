@@ -5,6 +5,7 @@ import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.database.core.orm.Sort;
 import net.ximatai.muyun.spring.ability.query.QueryCompiler;
 import net.ximatai.muyun.spring.ability.query.QueryCondition;
+import net.ximatai.muyun.spring.ability.query.QueryCriteria;
 import net.ximatai.muyun.spring.web.WebPageRequest;
 import net.ximatai.muyun.spring.web.WebQueryCondition;
 import net.ximatai.muyun.spring.web.WebQueryCriteria;
@@ -25,7 +26,9 @@ final class DynamicWebQueryMapper {
         if (conditions == null || conditions.isEmpty()) {
             return List.of();
         }
-        return WebQueryRequests.conditions(List.copyOf(conditions)).stream()
+        List<QueryCondition> mapped = WebQueryRequests.conditions(List.copyOf(conditions));
+        QueryCriteria.validateConditions(mapped);
+        return mapped.stream()
                 .map(DynamicWebQueryMapper::queryConditionFromQuery)
                 .toList();
     }

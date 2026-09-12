@@ -14,8 +14,10 @@ import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Method;
 import java.util.List;
+import java.util.stream.IntStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class DynamicWebQueryMapperTest {
     @Test
@@ -49,6 +51,20 @@ class DynamicWebQueryMapperTest {
                 .containsExactly(DynamicQueryOperator.CONTAINS, DynamicQueryOperator.CONTAINS_ANY,
                         DynamicQueryOperator.CONTAINS_ALL, DynamicQueryOperator.EMPTY,
                         DynamicQueryOperator.NOT_EMPTY);
+    }
+
+    @Test
+    void shouldApplyCriteriaComplexityLimitsToCompatibilityConditions() {
+        assertThatThrownBy(() -> DynamicWebQueryMapper.queryConditions(
+                IntStream.range(0, 51)
+                        .mapToObj(index -> new WebQueryCondition("code" + index, "EQ", List.of("C-" + index)))
+                        .toList()
+        )).hasMessageContaining("maximum nodes of 50");
+
+        assertThatThrownBy(() -> DynamicWebQueryMapper.queryConditions(List.of(
+                new WebQueryCondition("tags", "IN", IntStream.range(0, 101)
+                        .mapToObj(value -> (Object) value).toList())
+        ))).hasMessageContaining("maximum collection values of 100");
     }
 
     @Test

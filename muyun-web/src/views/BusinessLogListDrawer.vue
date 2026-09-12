@@ -44,6 +44,7 @@ const lastQuery = ref<WebQueryRequest>();
 const surfaceConfig = computed(() => configBySurface[props.surface]);
 const isActivity = computed(() => props.surface === 'activity');
 const isRequestError = computed(() => props.surface === 'request-error');
+const canViewInternalDiagnostic = computed(() => moduleContext.can('viewInternalDiagnostic') === true);
 const tableColumns = computed<RecordQueryListColumn[]>(() => surfaceConfig.value.columns);
 const selectedDetailRows = computed(() => (selectedEvent.value ? detailRows(selectedEvent.value) : []));
 const diagnosticRows = computed(() => valueRows(diagnostic.value));
@@ -308,7 +309,10 @@ const configBySurface: Record<BusinessLogSurface, { columns: RecordQueryListColu
     </dl>
     <UiEmpty v-else description="未选择日志" />
 
-    <section v-if="isRequestError && selectedEvent" class="business-log-list__diagnostic">
+    <section
+      v-if="isRequestError && selectedEvent && canViewInternalDiagnostic"
+      class="business-log-list__diagnostic"
+    >
       <UiActionButton :loading="diagnosticLoading" @click="loadDiagnostic">查看内部诊断</UiActionButton>
       <small>仅具备平台范围的管理员可查看。</small>
       <UiError v-if="diagnosticError" title="内部诊断不可用" :message="diagnosticError" />

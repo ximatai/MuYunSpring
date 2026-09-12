@@ -35,28 +35,28 @@ public class MuYunSpringBusinessLoggingConfiguration {
     }
 
     @Bean
-    @ConditionalOnBean(Jdbi.class)
+    @ConditionalOnBean(BusinessLogStore.class)
     @ConditionalOnMissingBean(BusinessLogPublisher.class)
     BusinessLogPublisher businessLogPublisher(BusinessLogStore store) {
         return new StoreBackedBusinessLogPublisher(store);
     }
 
     @Bean
-    @ConditionalOnBean(Jdbi.class)
+    @ConditionalOnBean(BusinessLogPublisher.class)
     @ConditionalOnMissingBean(LoginAuditLogger.class)
     LoginAuditLogger loginAuditLogger(BusinessLogPublisher publisher) {
         return new BusinessLogLoginAuditLogger(publisher);
     }
 
     @Bean
-    @ConditionalOnBean(Jdbi.class)
+    @ConditionalOnBean(BusinessLogPublisher.class)
     @ConditionalOnMissingBean(RuntimeActionBusinessLogEventListener.class)
     RuntimeActionBusinessLogEventListener runtimeActionBusinessLogEventListener(BusinessLogPublisher publisher) {
         return new RuntimeActionBusinessLogEventListener(publisher);
     }
 
     @Bean
-    @ConditionalOnBean(Jdbi.class)
+    @ConditionalOnBean(BusinessLogPublisher.class)
     @ConditionalOnMissingBean(RequestErrorLogRecorder.class)
     RequestErrorLogRecorder requestErrorLogRecorder(BusinessLogPublisher publisher) {
         return new RequestErrorLogRecorder(publisher);
@@ -75,14 +75,14 @@ public class MuYunSpringBusinessLoggingConfiguration {
     }
 
     @Bean
-    @ConditionalOnBean(Jdbi.class)
+    @ConditionalOnBean(BusinessLogStore.class)
     @ConditionalOnMissingBean(BusinessLogStatisticsReader.class)
     BusinessLogStatisticsReader businessLogStatisticsReader(BusinessLogStore store) {
         return new StoreBackedBusinessLogStatisticsReader(store);
     }
 
     @Bean
-    @ConditionalOnBean(Jdbi.class)
+    @ConditionalOnBean({BusinessLogStore.class, BusinessLogStatisticsReader.class})
     @ConditionalOnMissingBean(BusinessLogGovernanceService.class)
     BusinessLogGovernanceService businessLogGovernanceService(BusinessLogStore store,
                                                               BusinessLogStatisticsReader statisticsReader) {

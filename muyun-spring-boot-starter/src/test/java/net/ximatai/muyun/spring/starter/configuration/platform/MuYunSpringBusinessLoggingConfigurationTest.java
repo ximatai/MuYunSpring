@@ -56,11 +56,15 @@ class MuYunSpringBusinessLoggingConfigurationTest {
     void shouldRetainTheNeutralLoggingPathWhenAnApplicationSuppliesItsOwnStore() {
         new ApplicationContextRunner()
                 .withUserConfiguration(MuYunSpringBusinessLoggingConfiguration.class)
-                .withBean(Jdbi.class, () -> mock(Jdbi.class))
                 .withBean(BusinessLogStore.class, () -> mock(BusinessLogStore.class))
                 .run(context -> {
                     assertThat(context).hasSingleBean(BusinessLogPageAccessRecorder.class);
                     assertThat(context).doesNotHaveBean(PostgresBusinessLogStore.class);
+                    assertThat(context).hasSingleBean(BusinessLogPublisher.class);
+                    assertThat(context).hasSingleBean(LoginAuditLogger.class);
+                    assertThat(context).hasSingleBean(RuntimeActionBusinessLogEventListener.class);
+                    assertThat(context).hasSingleBean(RequestErrorLogRecorder.class);
+                    assertThat(context).hasSingleBean(BusinessLogStatisticsReader.class);
                     assertThat(context).hasSingleBean(BusinessLogGovernanceService.class);
                 });
     }
