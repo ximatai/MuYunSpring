@@ -14,6 +14,7 @@ import net.ximatai.muyun.spring.ability.reference.ReferenceHop;
 import net.ximatai.muyun.spring.ability.reference.ReferenceLoad;
 import net.ximatai.muyun.spring.ability.reference.ReferenceSummary;
 import net.ximatai.muyun.spring.ability.reference.ReferenceTo;
+import net.ximatai.muyun.spring.ability.query.QueryOperator;
 import net.ximatai.muyun.spring.dynamic.metadata.EntityDefinition;
 import net.ximatai.muyun.spring.dynamic.metadata.FieldDefinition;
 import net.ximatai.muyun.spring.platform.module.ModuleEntryType;
@@ -220,8 +221,32 @@ class ModuleUiDescriptorCompilerTest {
                                 .detail(detail -> detail.editor(editor -> editor.field("code", field -> { })))))
                         .build()).page().list().persistentQueryControls().getFirst();
 
-        assertThat(persistentControl).isEqualTo(new ResolvedPageListPersistentQueryControlDescriptor(
-                "activeOnly", "仅启用", ViewControlType.SWITCH, true));
+        assertThat(persistentControl).isEqualTo(new ResolvedPageListExternalPersistentQueryControlDescriptor(
+                "activeOnly", "仅启用", "activeOnly", ViewControlType.SWITCH, true));
+    }
+
+    @Test
+    void shouldCompileFieldPersistentListQueryControlWithoutRepeatingFieldUiFacts() {
+        ResolvedPageListPersistentQueryControlDescriptor persistentControl = ModuleUiDescriptorCompiler.compile(
+                ModuleUiDefinition.builder("sales.order")
+                        .page(PageTemplates.listDetailCard(page -> page
+                                .list(list -> list.fields(fields -> fields.field("status", field -> { }))
+                                        .persistentQueries(queries -> queries.field("status", "status", QueryOperator.EQ,
+                                                queryControl -> queryControl.label("状态"))))
+                                .detail(detail -> detail.editor(editor -> editor.field("status", field -> { })))))
+                        .build()).page().list().persistentQueryControls().getFirst();
+
+        assertThat(persistentControl).isEqualTo(new ResolvedPageListFieldPersistentQueryControlDescriptor(
+                "status", "状态", "status", QueryOperator.EQ, List.of()));
+    }
+
+    @Test
+    void shouldExposePersistentQueryControlSourceOnTheWire() throws Exception {
+        ResolvedPageListPersistentQueryControlDescriptor control = new ResolvedPageListFieldPersistentQueryControlDescriptor(
+                "status", "状态", "status", QueryOperator.EQ, List.of());
+
+        assertThat(new ObjectMapper().readTree(new ObjectMapper().writeValueAsString(control))
+                .path("source").asText()).isEqualTo("FIELD");
     }
 
     @Test

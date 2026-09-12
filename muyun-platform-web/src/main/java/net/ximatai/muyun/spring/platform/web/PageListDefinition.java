@@ -22,9 +22,9 @@ public record PageListDefinition(String searchPlaceholder, ViewDefinition list,
             throw new IllegalArgumentException("duplicate list relation expansion");
         }
         persistentQueryControls = persistentQueryControls == null ? List.of() : List.copyOf(persistentQueryControls);
-        if (persistentQueryControls.stream().map(PageListPersistentQueryControlDefinition::externalCriteriaKey)
+        if (persistentQueryControls.stream().map(PageListPersistentQueryControlDefinition::id)
                 .distinct().count() != persistentQueryControls.size()) {
-            throw new IllegalArgumentException("duplicate persistent query control external criteria key");
+            throw new IllegalArgumentException("duplicate persistent query control id");
         }
         querySummaries = querySummaries == null ? List.of() : List.copyOf(querySummaries);
         if (querySummaries.stream().map(PageListQuerySummaryDefinition::key).distinct().count() != querySummaries.size()) {
@@ -133,9 +133,19 @@ public record PageListDefinition(String searchPlaceholder, ViewDefinition list,
         private final List<PageListPersistentQueryControlDefinition> controls = new ArrayList<>();
 
         public PersistentQueriesBuilder control(String externalCriteriaKey,
-                                                Consumer<PageListPersistentQueryControlDefinition.Builder> customizer) {
-            PageListPersistentQueryControlDefinition.Builder builder =
+                                                Consumer<PageListPersistentQueryControlDefinition.ExternalBuilder> customizer) {
+            PageListPersistentQueryControlDefinition.ExternalBuilder builder =
                     PageListPersistentQueryControlDefinition.builder(externalCriteriaKey);
+            if (customizer != null) customizer.accept(builder);
+            controls.add(builder.build());
+            return this;
+        }
+
+        /** Declares one field condition that the list sends as a root AND query criteria child. */
+        public PersistentQueriesBuilder field(String id, String fieldName, net.ximatai.muyun.spring.ability.query.QueryOperator operator,
+                                              Consumer<PageListPersistentQueryControlDefinition.FieldBuilder> customizer) {
+            PageListPersistentQueryControlDefinition.FieldBuilder builder =
+                    PageListPersistentQueryControlDefinition.field(id, fieldName, operator);
             if (customizer != null) customizer.accept(builder);
             controls.add(builder.build());
             return this;

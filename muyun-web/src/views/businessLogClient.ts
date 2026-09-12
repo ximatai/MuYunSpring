@@ -25,6 +25,8 @@ export interface BusinessLogEventView {
   moduleAlias?: string;
   actionCode?: string;
   outcome?: string;
+  /** The authentication account, independent from the event's authenticated operator identity. */
+  loginAccount?: string;
   summary?: string;
   details?: Record<string, unknown>;
   [key: string]: unknown;
@@ -113,9 +115,16 @@ function normalizeEvent(response: unknown): BusinessLogEventView {
     moduleAlias: stringOf(record.moduleAlias),
     actionCode: stringOf(record.actionCode),
     outcome: stringOf(record.outcome ?? record.result ?? recordOf(record.details).outcome),
+    loginAccount: loginAccountOf(record, recordOf(record.details)),
     summary: logSummary(record, recordOf(record.details)),
     details: recordOfOrUndefined(record.details),
   };
+}
+
+function loginAccountOf(record: Record<string, unknown>, details: Record<string, unknown>) {
+  return (
+    stringOf(record.loginAccount) ?? stringOf(details.confirmedAccount) ?? stringOf(details.claimedAccount)
+  );
 }
 
 function normalizeStatistics(response: unknown): BusinessLogStatistics {

@@ -38,7 +38,8 @@ public class CompiledNavigatorReferenceQueryContextResolver implements Navigator
                                   Supplier<Criteria> fallbackCriteria) {
         WebQueryRequest normalized = normalizeRequest(sourceModuleAlias, request);
         Criteria sourceCriteria = executionPlans.find(sourceModuleAlias)
-                .map(plan -> new QueryCompiler(plan.queryDescriptor()).criteria(WebQueryRequests.from(normalized)))
+                .map(plan -> new QueryCompiler(plan.queryDescriptor(), plan.querySchema().criteriaComposition())
+                        .criteria(WebQueryRequests.from(normalized)))
                 .orElseGet(() -> fallbackCriteria == null ? Criteria.of() : fallbackCriteria.get());
         return and(sourceCriteria, navigatorCriteria(sourceModuleAlias, normalized));
     }

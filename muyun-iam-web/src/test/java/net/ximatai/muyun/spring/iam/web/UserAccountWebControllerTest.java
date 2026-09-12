@@ -72,6 +72,22 @@ class UserAccountWebControllerTest {
     }
 
     @Test
+    void shouldExposeUsernameAsAFieldBackedPersistentQuery() {
+        var page = (net.ximatai.muyun.spring.platform.web.ListDetailCardPageDefinition) new UserAccountWebController()
+                .moduleUiDefinition().page();
+
+        assertThat(page.list().persistentQueryControls())
+                .filteredOn(control -> control.id().equals("username"))
+                .singleElement()
+                .isInstanceOf(net.ximatai.muyun.spring.platform.web.PageListFieldPersistentQueryControlDefinition.class)
+                .satisfies(control -> {
+                    var field = (net.ximatai.muyun.spring.platform.web.PageListFieldPersistentQueryControlDefinition) control;
+                    assertThat(field.fieldName()).isEqualTo("username");
+                    assertThat(field.operator()).isEqualTo(net.ximatai.muyun.spring.ability.query.QueryOperator.LIKE);
+                });
+    }
+
+    @Test
     void shouldScopeAnUnselectedSystemUserWorkspaceToSystemAccounts() {
         UserAccountWebController controller = new UserAccountWebController();
         WebQueryRequest request = new WebQueryRequest(null, List.of(), List.of());

@@ -6,6 +6,7 @@ import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.database.core.orm.PageResult;
 import net.ximatai.muyun.database.core.orm.Sort;
 import net.ximatai.muyun.spring.ability.DataScopeAbility;
+import net.ximatai.muyun.spring.ability.query.QueryOperator;
 import net.ximatai.muyun.spring.web.BusinessMutationChange;
 import net.ximatai.muyun.spring.web.BusinessMutationRecordIdSource;
 import net.ximatai.muyun.spring.web.BusinessMutationResult;
@@ -152,10 +153,14 @@ public class UserAccountWebController extends StaticModuleWebControllerAdapter<U
                         .field("employeeNo", field -> field.label("职员工号").width("150px"))
                         .field("employeeTitle", field -> field.label("职员姓名").width("150px"))
                         .field("lastLoginAt", field -> field.label("最后登录时间").width("180px")))
-                .persistentQueries(queries -> queries.control("onlineOnly", control -> control
-                        .label("仅在线")
-                        .uiType(ViewControlType.SWITCH)
-                        .defaultValue(false)))
+                .persistentQueries(queries -> {
+                    queries.field("username", "username", QueryOperator.LIKE,
+                            control -> control.label("账号"));
+                    queries.control("onlineOnly", control -> control
+                            .label("仅在线")
+                            .uiType(ViewControlType.SWITCH)
+                            .defaultValue(false));
+                })
                 .querySummaries(summaries -> summaries.item("onlineUsers", summary -> summary
                         .label("在线")
                         .contributor("iam.active-user-count"))))

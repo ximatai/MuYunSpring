@@ -130,7 +130,7 @@ public record BusinessLogReadScope(
     private static BusinessLogQuery copy(BusinessLogQuery query, String tenantId, Set<String> organizationIds) {
         return new BusinessLogQuery(query.occurredFrom(), query.occurredTo(), tenantId, query.eventTypes(),
                 query.operatorId(), organizationIds, query.moduleAlias(), query.actionCode(), query.errorCode(),
-                query.loginOutcome(), query.httpStatus(), query.cursor(), query.limit());
+                query.loginAccount(), query.loginOutcome(), query.httpStatus(), query.cursor(), query.limit());
     }
 
     private static BusinessLogStatisticsQuery copy(BusinessLogStatisticsQuery query, String tenantId,

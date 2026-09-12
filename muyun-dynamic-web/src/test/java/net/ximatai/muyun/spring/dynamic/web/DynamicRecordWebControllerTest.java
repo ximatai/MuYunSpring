@@ -1392,22 +1392,19 @@ class DynamicRecordWebControllerTest {
                         .content("""
                                 {
                                   "criteria": {
+                                    "kind": "GROUP",
                                     "operator": "OR",
-                                    "conditions": [
-                                      {"fieldName": "code", "operator": "EQ", "values": ["C-001"]}
-                                    ],
-                                    "groups": [
-                                      {
+                                    "children": [
+                                      {"kind": "CONDITION", "fieldName": "code", "operator": "EQ", "values": ["C-001"]},
+                                      {"kind": "GROUP",
                                         "operator": "AND",
-                                        "conditions": [
-                                          {"fieldName": "status", "operator": "EQ", "values": ["ACTIVE"]}
-                                        ],
-                                        "groups": [
-                                          {
+                                        "children": [
+                                          {"kind": "CONDITION", "fieldName": "status", "operator": "EQ", "values": ["ACTIVE"]},
+                                          {"kind": "GROUP",
                                             "operator": "OR",
-                                            "conditions": [
-                                              {"fieldName": "ownerId", "operator": "EQ", "values": ["u-1"]},
-                                              {"fieldName": "ownerId", "operator": "EQ", "values": ["u-2"]}
+                                            "children": [
+                                              {"kind": "CONDITION", "fieldName": "ownerId", "operator": "EQ", "values": ["u-1"]},
+                                              {"kind": "CONDITION", "fieldName": "ownerId", "operator": "EQ", "values": ["u-2"]}
                                             ]
                                           }
                                         ]
@@ -2123,7 +2120,7 @@ class DynamicRecordWebControllerTest {
                 {"conditions":[{"fieldName":"summary","operator":"LIKE","values":["Line"]}]}
                 """,
                 """
-                {"criteria":{"operator":"AND","conditions":[{"fieldName":"summary","operator":"LIKE","values":["Line"]}]}}
+                {"criteria":{"kind":"GROUP","operator":"AND","children":[{"kind":"CONDITION","fieldName":"summary","operator":"LIKE","values":["Line"]}]}}
                 """,
                 """
                 {"queryForm":{"summary":"", "unused":[]}}

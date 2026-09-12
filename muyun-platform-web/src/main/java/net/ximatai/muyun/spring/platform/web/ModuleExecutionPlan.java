@@ -1,8 +1,11 @@
 package net.ximatai.muyun.spring.platform.web;
 
 import net.ximatai.muyun.spring.common.util.PlatformNameRules;
+import net.ximatai.muyun.spring.ability.query.QueryCompiler;
+import net.ximatai.muyun.spring.ability.query.QueryCondition;
 import net.ximatai.muyun.spring.ability.query.QuerySchema;
 import net.ximatai.muyun.spring.ability.query.QueryDescriptor;
+import net.ximatai.muyun.spring.ability.query.QueryRequest;
 import net.ximatai.muyun.spring.platform.module.StaticModuleActionDefinition;
 
 import java.util.List;
@@ -124,7 +127,7 @@ public record ModuleExecutionPlan(String moduleAlias,
                 && !querySchema.quickSearch().fields().containsAll(uiDescriptor.page().quickSearchFields())) {
             throw new IllegalArgumentException("Page quick search fields must belong to the module query contract");
         }
-        validatePersistentQueryControls(moduleAlias, uiDescriptor, querySchema, pageContextBindings);
+        validatePersistentQueryControls(moduleAlias, uiDescriptor, queryDescriptor, querySchema, pageContextBindings);
         queryTemplateIds = queryTemplateIds == null ? List.of() : queryTemplateIds.stream()
                 .filter(id -> id != null && !id.isBlank()).map(String::trim).distinct().toList();
         queryTemplates = queryTemplates == null ? List.of() : List.copyOf(queryTemplates);
@@ -150,6 +153,7 @@ public record ModuleExecutionPlan(String moduleAlias,
 
     private static void validatePersistentQueryControls(String moduleAlias,
                                                         ResolvedModuleUiDescriptor uiDescriptor,
+                                                        QueryDescriptor queryDescriptor,
                                                         QuerySchema querySchema,
                                                         List<PageContextBindingDefinition> pageContextBindings) {
         if (uiDescriptor.page() == null || uiDescriptor.page().list() == null) {
@@ -157,21 +161,42 @@ public record ModuleExecutionPlan(String moduleAlias,
         }
         for (ResolvedPageListPersistentQueryControlDescriptor control
                 : uiDescriptor.page().list().persistentQueryControls()) {
+            if (control instanceof ResolvedPageListFieldPersistentQueryControlDescriptor fieldControl) {
+                QuerySchema.Field field = querySchema.fields().stream()
+                        .filter(item -> fieldControl.fieldName().equals(item.name()))
+                        .findFirst().orElseThrow(() -> new IllegalArgumentException(
+                                "persistent query control requires queryable field: "
+                                        + moduleAlias + "." + fieldControl.fieldName()));
+                if (!field.operators().contains(fieldControl.operator())) {
+                    throw new IllegalArgumentException("persistent query control requires allowed query operator: "
+                            + moduleAlias + "." + fieldControl.fieldName() + "." + fieldControl.operator());
+                }
+                if (!fieldControl.defaultValues().isEmpty()) {
+                    new QueryCompiler(queryDescriptor, querySchema.criteriaComposition()).criteria(new QueryRequest(
+                            List.of(new QueryCondition(fieldControl.fieldName(), fieldControl.operator(),
+                                    fieldControl.defaultValues(), null)),
+                            null, Map.of(), List.of(), null, null, Map.of(), null, List.of(), false, null
+                    ));
+                }
+                continue;
+            }
+            ResolvedPageListExternalPersistentQueryControlDescriptor externalControl =
+                    (ResolvedPageListExternalPersistentQueryControlDescriptor) control;
             QuerySchema.ExternalCriteria criterion = querySchema.externalCriteria().stream()
-                    .filter(item -> control.externalCriteriaKey().equals(item.key()))
+                    .filter(item -> externalControl.externalCriteriaKey().equals(item.key()))
                     .findFirst().orElseThrow(() -> new IllegalArgumentException(
                             "persistent query control requires declared external criteria: "
-                                    + moduleAlias + "." + control.externalCriteriaKey()));
+                                    + moduleAlias + "." + externalControl.externalCriteriaKey()));
             if (!"BOOLEAN".equals(criterion.valueType()) || !"USER_INPUT".equals(criterion.providedBy())) {
                 throw new IllegalArgumentException("persistent query control requires BOOLEAN USER_INPUT criteria: "
-                        + moduleAlias + "." + control.externalCriteriaKey());
+                        + moduleAlias + "." + externalControl.externalCriteriaKey());
             }
             boolean conflictsWithPageContext = pageContextBindings.stream()
                     .filter(binding -> binding.target() == PageContextTarget.LIST_QUERY)
-                    .anyMatch(binding -> control.externalCriteriaKey().equals(binding.targetKey()));
+                    .anyMatch(binding -> externalControl.externalCriteriaKey().equals(binding.targetKey()));
             if (conflictsWithPageContext) {
                 throw new IllegalArgumentException("persistent query control must not override page context criteria: "
-                        + moduleAlias + "." + control.externalCriteriaKey());
+                        + moduleAlias + "." + externalControl.externalCriteriaKey());
             }
         }
     }

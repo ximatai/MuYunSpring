@@ -735,6 +735,31 @@ export interface WebQueryCondition {
   timeZone?: string;
 }
 
+/**
+ * One executable condition in a recursively composed query expression.
+ *
+ * This is intentionally separate from {@link WebQueryCondition}: `conditions`
+ * remains the legacy top-level AND shorthand, while `criteria` preserves the
+ * authored order and nesting needed by the advanced query editor.
+ */
+export interface QueryCriteriaCondition {
+  kind: 'CONDITION';
+  fieldName: string;
+  operator?: QueryOperator;
+  values?: unknown[];
+  timeZone?: string;
+}
+
+/** A parenthesized, ordered group of query criteria. */
+export interface QueryCriteriaGroup {
+  kind: 'GROUP';
+  operator: 'AND' | 'OR';
+  children: QueryCriteriaNode[];
+}
+
+/** An ordered query-expression node, either a condition or a nested group. */
+export type QueryCriteriaNode = QueryCriteriaCondition | QueryCriteriaGroup;
+
 export interface WebSort {
   field: string;
   desc?: boolean;
@@ -744,7 +769,7 @@ export interface WebQueryRequest {
   page?: WebPageRequest;
   unpaged?: boolean;
   conditions?: WebQueryCondition[];
-  criteria?: unknown;
+  criteria?: QueryCriteriaGroup;
   queryForm?: Record<string, unknown>;
   sorts?: WebSort[];
   uiConfigId?: string;
@@ -773,7 +798,7 @@ export interface WebReferenceResolveRequest {
   fuzzy?: string;
   values?: unknown[];
   conditions?: WebQueryCondition[];
-  criteria?: unknown;
+  criteria?: QueryCriteriaGroup;
   page?: WebPageRequest;
   includeProjections?: boolean;
   formValues?: Record<string, unknown>;
@@ -842,7 +867,12 @@ export type QueryOperator =
   | 'LTE'
   | 'BETWEEN'
   | 'NULL'
-  | 'NOT_NULL';
+  | 'NOT_NULL'
+  | 'CONTAINS'
+  | 'CONTAINS_ANY'
+  | 'CONTAINS_ALL'
+  | 'EMPTY'
+  | 'NOT_EMPTY';
 
 export interface QuerySchemaField {
   name: string;
@@ -854,7 +884,26 @@ export interface QuerySchemaField {
   sortable?: boolean;
   /** Explicit field-domain binding; distinguishes options from reference title companions. */
   optionBinding?: OptionBindingDescriptor;
+  selectionMode?: 'SINGLE' | 'MULTIPLE';
   optionTitleField?: string;
+  /** A persisted record-id reference selectable through this source field's standard resolve contract. */
+  reference?: QuerySchemaReference;
+  /** A backend-owned default condition rendered by the standard list query surface. */
+  persistentControl?: QuerySchemaPersistentControl;
+}
+
+export interface QuerySchemaPersistentControl {
+  id: string;
+  title: string;
+  operator: QueryOperator;
+  defaultValues?: unknown[];
+}
+
+export interface QuerySchemaReference {
+  targetModuleAlias: string;
+  cardinality: 'ONE' | 'MANY';
+  /** Target candidate label field when the reference explicitly declares one. */
+  labelField?: string;
 }
 
 export interface QuerySchemaQuickSearch {
@@ -881,6 +930,8 @@ export interface QuerySchema {
   fields: QuerySchemaField[];
   externalCriteria: QuerySchemaExternalCriteria[];
   defaultSorts: QuerySchemaDefaultSort[];
+  /** Server-declared criteria structure supported by this query surface. */
+  criteriaComposition?: 'NONE' | 'FLAT_AND' | 'TREE';
 }
 
 export type ModuleViewKind = 'LIST' | 'FORM' | 'DETAIL';
@@ -1218,13 +1269,29 @@ export interface ResolvedPageListQuerySummaryDescriptor {
   sumFieldTitle?: string;
 }
 
-/** A persistent boolean query control rendered before search; advanced filtering follows search. */
-export interface ResolvedPageListPersistentQueryControlDescriptor {
+/** A module-owned boolean condition rendered before search. */
+export interface ResolvedPageListExternalPersistentQueryControlDescriptor {
+  source: 'EXTERNAL';
+  id: string;
   externalCriteriaKey: string;
   title: string;
   uiType: 'SWITCH';
   defaultValue: boolean;
 }
+
+/** A field condition rendered before search and composed into the root AND query group. */
+export interface ResolvedPageListFieldPersistentQueryControlDescriptor {
+  source: 'FIELD';
+  id: string;
+  title: string;
+  fieldName: string;
+  operator: QueryOperator;
+  defaultValues: unknown[];
+}
+
+export type ResolvedPageListPersistentQueryControlDescriptor =
+  | ResolvedPageListExternalPersistentQueryControlDescriptor
+  | ResolvedPageListFieldPersistentQueryControlDescriptor;
 
 export interface ResolvedPageListRelationExpansionDescriptor {
   relationCode: string;

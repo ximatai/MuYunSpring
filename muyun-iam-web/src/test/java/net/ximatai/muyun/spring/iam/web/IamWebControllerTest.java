@@ -448,8 +448,10 @@ class IamWebControllerTest {
                         .contentType("application/json")
                         .content(json(Map.of(
                                 "criteria", Map.of(
+                                        "kind", "GROUP",
                                         "operator", "OR",
-                                        "conditions", List.of(Map.of(
+                                        "children", List.of(Map.of(
+                                                "kind", "CONDITION",
                                                 "fieldName", "title",
                                                 "operator", "EQ",
                                                 "values", List.of("Tenant A")

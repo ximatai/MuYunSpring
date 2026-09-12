@@ -26,6 +26,7 @@ final class StaticModuleOpenApiSchemaFactory {
             schemas.put("WebPageRequest", webPageRequestSchema());
             schemas.put("WebQueryCondition", webQueryConditionSchema());
             schemas.put("WebQueryCriteria", webQueryCriteriaSchema());
+            schemas.put("WebQueryCriteriaNode", webQueryCriteriaNodeSchema());
             schemas.put("WebSort", webSortSchema());
             schemas.put("RecordActionWebRequest", recordActionWebRequestSchema());
         schemas.put("RecordPermissionChange", recordPermissionChangeSchema());
@@ -116,19 +117,31 @@ final class StaticModuleOpenApiSchemaFactory {
     }
 
     private PlatformApiDocument.Schema webQueryConditionSchema() {
-        return new PlatformApiDocument.Schema("WebQueryCondition", "object", null, List.of("fieldName", "operator"), Map.of(
+        return new PlatformApiDocument.Schema("WebQueryCondition", "object", null, List.of("fieldName"), Map.of(
+                "kind", stringProperty(),
                 "fieldName", requiredStringProperty(),
-                "operator", requiredStringProperty(),
+                "operator", stringProperty(),
                 "values", arrayProperty("object"),
                 "timeZone", stringProperty()
         ), null);
     }
 
     private PlatformApiDocument.Schema webQueryCriteriaSchema() {
-        return new PlatformApiDocument.Schema("WebQueryCriteria", "object", null, List.of(), Map.of(
+        return new PlatformApiDocument.Schema("WebQueryCriteria", "object", null, List.of("kind", "operator", "children"), Map.of(
+                "kind", requiredStringProperty(),
+                "operator", requiredStringProperty(),
+                "children", arrayProperty("WebQueryCriteriaNode")
+        ), null);
+    }
+
+    private PlatformApiDocument.Schema webQueryCriteriaNodeSchema() {
+        return new PlatformApiDocument.Schema("WebQueryCriteriaNode", "object", null, List.of("kind"), Map.of(
+                "kind", requiredStringProperty(),
                 "operator", stringProperty(),
-                "conditions", arrayProperty("WebQueryCondition"),
-                "groups", arrayProperty("WebQueryCriteria")
+                "children", arrayProperty("WebQueryCriteriaNode"),
+                "fieldName", stringProperty(),
+                "values", arrayProperty("object"),
+                "timeZone", stringProperty()
         ), null);
     }
 

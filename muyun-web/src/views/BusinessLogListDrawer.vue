@@ -16,6 +16,7 @@ import {
   type BusinessLogStatistics,
   type BusinessLogSurface,
 } from './businessLogClient';
+import type { RecordActionItem } from '@muyun/platform-components';
 
 defineOptions({ name: 'BusinessLogListDrawer' });
 
@@ -43,6 +44,7 @@ const lastQuery = ref<WebQueryRequest>();
 const surfaceConfig = computed(() => configBySurface[props.surface]);
 const isActivity = computed(() => props.surface === 'activity');
 const isRequestError = computed(() => props.surface === 'request-error');
+const canViewInternalDiagnostic = computed(() => moduleContext.can('viewInternalDiagnostic') === true);
 const tableColumns = computed<RecordQueryListColumn[]>(() => surfaceConfig.value.columns);
 const selectedDetailRows = computed(() => (selectedEvent.value ? detailRows(selectedEvent.value) : []));
 const diagnosticRows = computed(() => valueRows(diagnostic.value));
@@ -126,7 +128,9 @@ function displayValue(column: string, event: BusinessLogEventView) {
     case 'employeeName':
       return event.operatorIdentity?.employeeName ?? '—';
     case 'username':
-      return event.operatorIdentity?.username ?? loginUsername(event) ?? '—';
+      return event.operatorIdentity?.username ?? event.operatorId ?? '—';
+    case 'loginAccount':
+      return loginAccount(event) ?? '—';
     case 'organizationName':
       return event.operatorIdentity?.organizationName ?? '—';
     case 'departmentName':
@@ -158,7 +162,8 @@ function detailRows(event: BusinessLogEventView) {
     ['事件类型', event.eventType],
     ['结果', event.outcome],
     ['职员姓名', event.operatorIdentity?.employeeName],
-    ['用户名', event.operatorIdentity?.username ?? loginUsername(event)],
+    ['操作用户', event.operatorIdentity?.username ?? event.operatorId],
+    ['登录账号', loginAccount(event)],
     ['用户 ID', event.operatorId],
     ['机构', event.operatorIdentity?.organizationName],
     ['机构 ID', event.operatorIdentity?.organizationId ?? event.operatorOrganizationId],
@@ -182,9 +187,23 @@ function statisticRows(kind: string, statistics: BusinessLogStatistics | undefin
   }));
 }
 
-function loginUsername(event: BusinessLogEventView) {
+function loginAccount(event: BusinessLogEventView) {
   if (event.eventType !== 'LOGIN') return undefined;
-  return textValue(event.details?.confirmedAccount) ?? textValue(event.details?.claimedAccount);
+  return (
+    event.loginAccount ??
+    textValue(event.details?.confirmedAccount) ??
+    textValue(event.details?.claimedAccount)
+  );
+}
+
+function detailRowActions(): RecordActionItem[] {
+  return [{ key: 'detail', title: '详情', primary: true, iconName: 'eye' }];
+}
+
+function handleRowAction(action: RecordActionItem, record: Record<string, unknown>) {
+  if (action.key === 'detail') {
+    void openDetail(record);
+  }
 }
 
 function valueRows(value: Record<string, unknown> | undefined) {
@@ -204,33 +223,25 @@ function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : '请求未完成，请稍后重试。';
 }
 
-const commonColumns: RecordQueryListColumn[] = [
-  { key: 'occurredAt', title: '发生时间', width: '176px' },
-  { key: 'username', title: '用户名', width: '160px' },
-  { key: 'employeeName', title: '职员', width: '160px' },
-  { key: 'organizationName', title: '机构', width: '160px' },
-  { key: 'departmentName', title: '部门', width: '160px' },
-];
-
 const configBySurface: Record<BusinessLogSurface, { columns: RecordQueryListColumn[] }> = {
   login: {
     columns: [
       { key: 'outcome', title: '结果', width: '96px' },
-      ...commonColumns,
-      { key: 'summary', title: '登录信息' },
+      { key: 'occurredAt', title: '发生时间', width: '176px' },
+      { key: 'loginAccount', title: '登录账号', width: '200px' },
     ],
   },
   activity: {
     columns: [
-      ...commonColumns,
+      { key: 'occurredAt', title: '发生时间', width: '176px' },
+      { key: 'username', title: '操作用户', width: '160px' },
       { key: 'moduleAlias', title: '业务模块', width: '190px' },
       { key: 'actionCode', title: '动作', width: '150px' },
-      { key: 'summary', title: '内容' },
     ],
   },
   'request-error': {
     columns: [
-      ...commonColumns,
+      { key: 'occurredAt', title: '发生时间', width: '176px' },
       { key: 'moduleAlias', title: '业务模块', width: '190px' },
       { key: 'errorCode', title: '错误码', width: '150px' },
       { key: 'httpStatus', title: 'HTTP 状态', width: '112px' },
@@ -252,8 +263,11 @@ const configBySurface: Record<BusinessLogSurface, { columns: RecordQueryListColu
     :page-size="50"
     :page-size-options="[20, 50, 100]"
     empty-description="暂无符合条件的日志"
-    quick-search-placeholder="搜索日志"
+    :row-actions-of="detailRowActions"
+    row-actions-title="操作"
+    action-column-width="88px"
     @select="openDetail"
+    @row-action="handleRowAction"
     @queried="rememberQuery"
   >
     <template #toolbarActions>
@@ -295,7 +309,10 @@ const configBySurface: Record<BusinessLogSurface, { columns: RecordQueryListColu
     </dl>
     <UiEmpty v-else description="未选择日志" />
 
-    <section v-if="isRequestError && selectedEvent" class="business-log-list__diagnostic">
+    <section
+      v-if="isRequestError && selectedEvent && canViewInternalDiagnostic"
+      class="business-log-list__diagnostic"
+    >
       <UiActionButton :loading="diagnosticLoading" @click="loadDiagnostic">查看内部诊断</UiActionButton>
       <small>仅具备平台范围的管理员可查看。</small>
       <UiError v-if="diagnosticError" title="内部诊断不可用" :message="diagnosticError" />

@@ -5,6 +5,8 @@ import net.ximatai.muyun.spring.common.option.OptionBinding;
 import net.ximatai.muyun.spring.common.option.DictionaryField;
 import net.ximatai.muyun.spring.common.option.OptionLoad;
 import net.ximatai.muyun.spring.common.model.standard.StandardEnabledSortableEntity;
+import net.ximatai.muyun.spring.ability.reference.ReferenceCardinality;
+import net.ximatai.muyun.spring.ability.reference.ReferenceTo;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
@@ -31,6 +33,7 @@ class QuerySchemaTest {
 
         assertThat(schema.scopeName()).isEqualTo("iam.employee");
         assertThat(schema.entityAlias()).isNull();
+        assertThat(schema.criteriaComposition()).isEqualTo(QueryCriteriaComposition.TREE);
         assertThat(schema.quickSearch().enabled()).isTrue();
         assertThat(schema.quickSearch().fields()).containsExactly("employeeNo");
         assertThat(schema.quickSearch().fieldSchemas()).singleElement()
@@ -52,6 +55,16 @@ class QuerySchemaTest {
             assertThat(sort.field()).isEqualTo("employeeNo");
             assertThat(sort.desc()).isFalse();
         });
+    }
+
+    @Test
+    void shouldExposeExplicitCriteriaCompositionWithoutChangingOtherSchemaFacts() {
+        QuerySchema schema = QuerySchema.from(QueryDescriptor.builder("platform.log").build())
+                .withCriteriaComposition(QueryCriteriaComposition.FLAT_AND);
+
+        assertThat(schema.criteriaComposition()).isEqualTo(QueryCriteriaComposition.FLAT_AND);
+        assertThat(schema.withCriteriaComposition(QueryCriteriaComposition.NONE).criteriaComposition())
+                .isEqualTo(QueryCriteriaComposition.NONE);
     }
 
     @Test
@@ -195,12 +208,31 @@ class QuerySchemaTest {
         });
     }
 
+    @Test
+    void shouldExposeStaticReferenceFieldsAsControlledIdSelections() {
+        QueryDescriptor descriptor = QueryDescriptor.builder("sales.order")
+                .field(QueryField.of("customerId", QueryValueType.STRING, QueryOperator.EQ, QueryOperator.IN))
+                .build();
+
+        QuerySchema schema = QuerySchema.from(descriptor, ReferenceQueryRecord.class);
+
+        assertThat(schema.fields()).singleElement().satisfies(field -> {
+            assertThat(field.reference()).isEqualTo(new QuerySchema.Reference("crm.customer",
+                    ReferenceCardinality.ONE, null));
+        });
+    }
+
     private static class EmployeeOptionRecord {
         @DictionaryField(source = "iam.gender")
         private String gender;
 
         @OptionLoad(source = "gender")
         private String genderTitle;
+    }
+
+    private static class ReferenceQueryRecord {
+        @ReferenceTo(moduleAlias = "crm", entityAlias = "customer")
+        private String customerId;
     }
 
     private static class TypedQueryRecord extends StandardEnabledSortableEntity {

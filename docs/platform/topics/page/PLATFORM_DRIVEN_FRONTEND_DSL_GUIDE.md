@@ -224,7 +224,9 @@ list.querySummaries(summaries -> summaries.item("onlineUsers", summary -> summar
         .contributor("iam.active-user-count")));
 ```
 
-`persistentQueries` 是搜索框左侧的常驻 UI 区域，高级过滤位于搜索框右侧。当前标准控件是布尔 `SWITCH`；其 `externalCriteriaKey` 必须由模块的服务端查询描述符接收。控件改变后，前端立即以 `externalQueryValues` 重查标准 `POST /{moduleAlias}/query`，不新增专用查询接口，也不在浏览器内过滤数据。嵌入页面已拥有同名 `externalQueryValues` 时，嵌入值优先，页面 DSL 不得覆盖上游导航范围。
+`persistentQueries` 是搜索框左侧的常驻 UI 区域，高级过滤位于搜索框右侧。查询字段可通过 `QuerySchema.Field.persistentControl` 自行成为默认常驻控件；标准列表从字段的值类型、选项绑定和引用契约推导输入方式，并将已应用字段条件合并为根 `AND` 的 `criteria`。这类默认条件不需要页面 DSL 或业务前端配置。
+
+页面 DSL 仍可覆盖默认字段控件的顺序、标题和默认值，并可声明布尔 `SWITCH` 形式的外部业务条件；后者的 `externalCriteriaKey` 必须由模块的服务端查询描述符接收，并通过 `externalQueryValues` 重查标准 `POST /{moduleAlias}/query`。嵌入页面已拥有同名 `externalQueryValues` 时，嵌入值优先，页面 DSL 不得覆盖上游导航范围。所有常驻条件都在服务端执行，不在浏览器内过滤数据。
 
 `querySummaries` 位于列表分页栏左侧。摘要针对本次有效查询命中的完整记录集合计算，忽略分页；关键字、常驻条件、高级条件、查询模板、导航范围或数据权限变化时，摘要必须同步变化。每个摘要 key 在同一列表内唯一，响应只返回稳定的 `{ key, value }`，展示标题仍由页面 descriptor 持有。
 
@@ -263,7 +265,7 @@ list.querySummaries(summaries -> summaries.item("onlineUsers", summary -> summar
 }
 ```
 
-动态 `persistentQueries` 尚未开放：动态查询配置目前只能表达查询模板项，尚未具备“声明一个来源无关、可由标准查询执行器直接消费的外部条件”的服务端事实。发布时出现该字段会被拒绝，不能以 UI JSON 绕过这一缺口。`querySummaries` 仅由 `LIST_CARD` 支持；`MATCHED_COUNT` 不得携带字段参数，`SUM` 必须携带 `fieldName`，`CONTRIBUTOR` 必须携带已注册的 `contributorKey`，`GROUPED` 必须携带 `groupByField`，并且只可选携带一个 `fieldName`。编排器应先读取 `GET /platform.module/{moduleAlias}/page-query-summary-catalog`，其响应为 `{moduleAlias,fields:[{fieldName,title}],groupFields:[{fieldName,title,kind:"OPTION"|"REFERENCE"}],contributors:[{contributorKey,title}]}`，而不是让用户填写内部字段或指标 key。
+动态管理页的 `LIST_CARD` 可声明字段型 `persistentQueries`，发布时按已编译查询字段和操作符校验。控件只引用动态元数据已公开的查询字段，运行时进入标准 `criteria`；动态页面尚不能借 UI JSON 声明任意外部业务条件、绕过服务端过滤、授权或数据范围。`querySummaries` 仅由 `LIST_CARD` 支持；`MATCHED_COUNT` 不得携带字段参数，`SUM` 必须携带 `fieldName`，`CONTRIBUTOR` 必须携带已注册的 `contributorKey`，`GROUPED` 必须携带 `groupByField`，并且只可选携带一个 `fieldName`。编排器应先读取 `GET /platform.module/{moduleAlias}/page-query-summary-catalog`，其响应为 `{moduleAlias,fields:[{fieldName,title}],groupFields:[{fieldName,title,kind:"OPTION"|"REFERENCE"}],contributors:[{contributorKey,title}]}`，而不是让用户填写内部字段或指标 key。
 
 ## 受控前端扩展：给特性业务留路，不改写标准页面
 

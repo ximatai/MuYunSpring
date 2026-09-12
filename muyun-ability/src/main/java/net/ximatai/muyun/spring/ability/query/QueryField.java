@@ -16,7 +16,9 @@ public record QueryField(String fieldName,
                          boolean quickSearch,
                          OptionBinding optionBinding,
                          OptionSelectionMode selectionMode,
-                         String optionTitleField) {
+                         String optionTitleField,
+                         QueryReference reference,
+                         QueryPersistentControl persistentControl) {
     public QueryField {
         if (fieldName == null || fieldName.isBlank()) {
             throw new IllegalArgumentException("query field name must not be blank");
@@ -37,6 +39,34 @@ public record QueryField(String fieldName,
                 : selectionMode == null ? OptionSelectionMode.SINGLE : selectionMode;
         optionTitleField = optionBinding == null || optionTitleField == null || optionTitleField.isBlank()
                 ? null : optionTitleField.trim();
+        if (persistentControl != null && !operators.contains(persistentControl.operator())) {
+            throw new IllegalArgumentException("persistent query operator must be allowed: "
+                    + fieldName + "." + persistentControl.operator());
+        }
+    }
+
+    /** Compatibility constructor for fields without a record-selection contract. */
+    public QueryField(String fieldName,
+                      String title,
+                      QueryValueType valueType,
+                      Set<QueryOperator> operators,
+                      QueryOperator defaultOperator,
+                      boolean sortable,
+                      boolean quickSearch,
+                      OptionBinding optionBinding,
+                      OptionSelectionMode selectionMode,
+                      String optionTitleField) {
+        this(fieldName, title, valueType, operators, defaultOperator, sortable, quickSearch, optionBinding,
+                selectionMode, optionTitleField, null, null);
+    }
+
+    /** Compatibility constructor for fields with a record-selection contract but no persistent control. */
+    public QueryField(String fieldName, String title, QueryValueType valueType, Set<QueryOperator> operators,
+                      QueryOperator defaultOperator, boolean sortable, boolean quickSearch,
+                      OptionBinding optionBinding, OptionSelectionMode selectionMode, String optionTitleField,
+                      QueryReference reference) {
+        this(fieldName, title, valueType, operators, defaultOperator, sortable, quickSearch, optionBinding,
+                selectionMode, optionTitleField, reference, null);
     }
 
     public static QueryField of(String fieldName, QueryOperator first, QueryOperator... rest) {
@@ -46,27 +76,28 @@ public record QueryField(String fieldName,
     public static QueryField of(String fieldName, QueryValueType valueType, QueryOperator first,
                                 QueryOperator... rest) {
         EnumSet<QueryOperator> operators = EnumSet.of(first, rest);
-        return new QueryField(fieldName, null, valueType, operators, null, false, false, null, null, null);
+        return new QueryField(fieldName, null, valueType, operators, null, false, false, null, null, null,
+                null, null);
     }
 
     public QueryField withTitle(String title) {
         return new QueryField(fieldName, title, valueType, operators, defaultOperator, sortable, quickSearch,
-                optionBinding, selectionMode, optionTitleField);
+                optionBinding, selectionMode, optionTitleField, reference, persistentControl);
     }
 
     public QueryField withDefaultOperator(QueryOperator operator) {
         return new QueryField(fieldName, title, valueType, operators, operator, sortable, quickSearch,
-                optionBinding, selectionMode, optionTitleField);
+                optionBinding, selectionMode, optionTitleField, reference, persistentControl);
     }
 
     public QueryField withSortable() {
         return new QueryField(fieldName, title, valueType, operators, defaultOperator, true, quickSearch,
-                optionBinding, selectionMode, optionTitleField);
+                optionBinding, selectionMode, optionTitleField, reference, persistentControl);
     }
 
     public QueryField withQuickSearch() {
         return new QueryField(fieldName, title, valueType, operators, defaultOperator, sortable, true,
-                optionBinding, selectionMode, optionTitleField);
+                optionBinding, selectionMode, optionTitleField, reference, persistentControl);
     }
 
     public QueryField withOptionBinding(OptionBinding binding) {
@@ -75,7 +106,7 @@ public record QueryField(String fieldName,
 
     public QueryField withOptionBinding(OptionBinding binding, OptionSelectionMode selectionMode) {
         return new QueryField(fieldName, title, valueType, operators, defaultOperator, sortable, quickSearch,
-                binding, selectionMode, null);
+                binding, selectionMode, null, reference, persistentControl);
     }
 
     public QueryField withOptionField(OptionFieldDefinition definition) {
@@ -83,12 +114,27 @@ public record QueryField(String fieldName,
             throw new IllegalArgumentException("option field definition must not be null");
         }
         return new QueryField(fieldName, title, valueType, operators, defaultOperator, sortable, quickSearch,
-                definition.binding(), definition.selectionMode(), null);
+                definition.binding(), definition.selectionMode(), null, reference, persistentControl);
     }
 
     public QueryField withOptionTitleField(String optionTitleField) {
         return new QueryField(fieldName, title, valueType, operators, defaultOperator, sortable, quickSearch,
-                optionBinding, selectionMode, optionTitleField);
+                optionBinding, selectionMode, optionTitleField, reference, persistentControl);
+    }
+
+    public QueryField withReference(QueryReference reference) {
+        return new QueryField(fieldName, title, valueType, operators, defaultOperator, sortable, quickSearch,
+                optionBinding, selectionMode, optionTitleField, reference, persistentControl);
+    }
+
+    /** Makes this field a standard always-visible list condition. */
+    public QueryField withPersistentControl(QueryOperator operator) {
+        return withPersistentControl(QueryPersistentControl.of(fieldName, title, operator));
+    }
+
+    public QueryField withPersistentControl(QueryPersistentControl control) {
+        return new QueryField(fieldName, title, valueType, operators, defaultOperator, sortable, quickSearch,
+                optionBinding, selectionMode, optionTitleField, reference, control);
     }
 
     private static QueryOperator fallbackDefaultOperator(QueryValueType valueType, Set<QueryOperator> operators) {

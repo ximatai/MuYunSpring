@@ -14,8 +14,10 @@ import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Method;
 import java.util.List;
+import java.util.stream.IntStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class DynamicWebQueryMapperTest {
     @Test
@@ -52,6 +54,20 @@ class DynamicWebQueryMapperTest {
     }
 
     @Test
+    void shouldApplyCriteriaComplexityLimitsToCompatibilityConditions() {
+        assertThatThrownBy(() -> DynamicWebQueryMapper.queryConditions(
+                IntStream.range(0, 51)
+                        .mapToObj(index -> new WebQueryCondition("code" + index, "EQ", List.of("C-" + index)))
+                        .toList()
+        )).hasMessageContaining("maximum nodes of 50");
+
+        assertThatThrownBy(() -> DynamicWebQueryMapper.queryConditions(List.of(
+                new WebQueryCondition("tags", "IN", IntStream.range(0, 101)
+                        .mapToObj(value -> (Object) value).toList())
+        ))).hasMessageContaining("maximum collection values of 100");
+    }
+
+    @Test
     void shouldNormalizeDynamicPageAndSorts() {
         var page = DynamicWebQueryMapper.page(new WebPageRequest(0, 999));
         var sorts = DynamicWebQueryMapper.sorts(List.of(
@@ -68,21 +84,17 @@ class DynamicWebQueryMapperTest {
 
     @Test
     void shouldCompileArbitraryNestedQueryCriteriaTree() {
-        WebQueryCriteria nested = new WebQueryCriteria(
+        WebQueryCriteria nested = WebQueryCriteria.group(
                 WebQueryGroupOperator.OR,
                 List.of(
                         new WebQueryCondition("ownerId", "EQ", List.of("u-1")),
                         new WebQueryCondition("ownerId", "EQ", List.of("u-2"))
-                ),
-                List.of()
-        );
-        WebQueryCriteria root = new WebQueryCriteria(
+        ));
+        WebQueryCriteria root = WebQueryCriteria.group(
                 WebQueryGroupOperator.OR,
-                List.of(new WebQueryCondition("code", "EQ", List.of("C-001"))),
-                List.of(new WebQueryCriteria(
+                List.of(new WebQueryCondition("code", "EQ", List.of("C-001")), WebQueryCriteria.group(
                         WebQueryGroupOperator.AND,
-                        List.of(new WebQueryCondition("status", "EQ", List.of("active"))),
-                        List.of(nested)
+                        List.of(new WebQueryCondition("status", "EQ", List.of("active")), nested)
                 ))
         );
 

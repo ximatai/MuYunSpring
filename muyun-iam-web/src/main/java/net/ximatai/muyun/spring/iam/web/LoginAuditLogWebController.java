@@ -22,7 +22,6 @@ import net.ximatai.muyun.spring.web.WebQueryRequest;
 import net.ximatai.muyun.spring.web.query.WebQueryRequests;
 import org.springframework.http.ResponseEntity;
 import org.springframework.beans.factory.ObjectProvider;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -32,7 +31,6 @@ import org.springframework.web.bind.annotation.RestController;
 
 /** Administrative entry point for authentication attempts. */
 @RestController
-@ConditionalOnBean(BusinessLogGovernanceService.class)
 @PlatformStaticModule(application = net.ximatai.muyun.spring.iam.application.IamApplication.class,
         alias = LoginAuditGovernanceService.MODULE_ALIAS, title = "登录日志", route = "/iam/logs/login")
 @PlatformMenu(parent = PlatformMenuGroups.LOG_MANAGEMENT, title = "登录日志", order = 10)

@@ -26,12 +26,13 @@ class BusinessLogReadScopeTest {
     void shouldPreserveTypedDetailFiltersWhileItNarrowsTheReadScope() {
         BusinessLogQuery query = new BusinessLogQuery(null, null, null,
                 Set.of(BusinessLogEventType.REQUEST_ERROR), "operator", null, "sales.order", "submit",
-                "ORDER_CONFLICT", LoginLogDetails.LoginOutcome.FAILURE, 409, null, 20);
+                "ORDER_CONFLICT", "login-account", LoginLogDetails.LoginOutcome.FAILURE, 409, null, 20);
 
         BusinessLogQuery constrained = BusinessLogReadScope.tenant("tenant-a").constrain(query);
 
         assertThat(constrained.tenantId()).isEqualTo("tenant-a");
         assertThat(constrained.loginOutcome()).isEqualTo(LoginLogDetails.LoginOutcome.FAILURE);
+        assertThat(constrained.loginAccount()).isEqualTo("login-account");
         assertThat(constrained.httpStatus()).isEqualTo(409);
     }
 

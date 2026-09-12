@@ -3,6 +3,7 @@ package net.ximatai.muyun.spring.dynamic.descriptor;
 import net.ximatai.muyun.spring.ability.query.QueryOperator;
 import net.ximatai.muyun.spring.ability.query.QuerySchema;
 import net.ximatai.muyun.spring.ability.query.QueryValueType;
+import net.ximatai.muyun.spring.ability.reference.ReferenceCardinality;
 import net.ximatai.muyun.spring.dynamic.metadata.FieldStorageForm;
 import net.ximatai.muyun.spring.dynamic.metadata.FieldType;
 import org.junit.jupiter.api.Test;
@@ -72,6 +73,21 @@ class DynamicQuerySchemasTest {
         assertThat(remark.quickSearch()).isTrue();
     }
 
+    @Test
+    void shouldExposeDynamicReferenceFieldsAsControlledIdSelections() {
+        DynamicReferenceDescriptor reference = new DynamicReferenceDescriptor(
+                "order", "customerId", "crm", "customer", ReferenceCardinality.ONE, List.of(),
+                "id", "name", null, null, Set.of(), List.of(), List.of());
+        DynamicEntityDescriptor descriptor = new DynamicEntityDescriptor(
+                "order", "订单", Set.of(), List.of(field("customerId", "客户", FieldType.STRING,
+                false, true, "EQ", List.of("EQ"), reference)), List.of(), List.of(), List.of(), List.of());
+
+        QuerySchema schema = DynamicQuerySchemas.from("sales.order", descriptor, List.of());
+
+        assertThat(schema.fields()).singleElement().extracting(QuerySchema.Field::reference)
+                .isEqualTo(new QuerySchema.Reference("crm", ReferenceCardinality.ONE, "name"));
+    }
+
     private DynamicFieldDescriptor field(String fieldName,
                                          String title,
                                          FieldType type,
@@ -79,6 +95,17 @@ class DynamicQuerySchemasTest {
                                          boolean queryable,
                                          String defaultOperator,
                                          List<String> operators) {
+        return field(fieldName, title, type, sortable, queryable, defaultOperator, operators, null);
+    }
+
+    private DynamicFieldDescriptor field(String fieldName,
+                                         String title,
+                                         FieldType type,
+                                         boolean sortable,
+                                         boolean queryable,
+                                         String defaultOperator,
+                                         List<String> operators,
+                                         DynamicReferenceDescriptor reference) {
         return new DynamicFieldDescriptor(
                 fieldName,
                 type,
@@ -96,7 +123,7 @@ class DynamicQuerySchemasTest {
                 null,
                 null,
                 null,
-                null,
+                reference,
                 List.of(),
                 new DynamicFieldQueryDescriptor(queryable, defaultOperator, operators),
                 null,

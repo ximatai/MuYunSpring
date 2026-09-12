@@ -1,13 +1,24 @@
 package net.ximatai.muyun.spring.platform.web;
 
-import net.ximatai.muyun.spring.dynamic.metadata.ViewControlType;
+/** Source-neutral UI descriptor for one persistent list query control. */
+public sealed interface ResolvedPageListPersistentQueryControlDescriptor
+        permits ResolvedPageListFieldPersistentQueryControlDescriptor,
+        ResolvedPageListExternalPersistentQueryControlDescriptor {
+    String id();
 
-/** Source-neutral UI descriptor for one persistent boolean list query control. */
-public record ResolvedPageListPersistentQueryControlDescriptor(String externalCriteriaKey, String title,
-                                                               ViewControlType uiType, boolean defaultValue) {
-    public static ResolvedPageListPersistentQueryControlDescriptor from(
+    String title();
+
+    PageListPersistentQueryControlDefinition.Source source();
+
+    static ResolvedPageListPersistentQueryControlDescriptor from(
             PageListPersistentQueryControlDefinition definition) {
-        return new ResolvedPageListPersistentQueryControlDescriptor(definition.externalCriteriaKey(), definition.title(),
-                definition.uiType(), (Boolean) definition.defaultValue());
+        return switch (definition) {
+            case PageListFieldPersistentQueryControlDefinition field ->
+                    new ResolvedPageListFieldPersistentQueryControlDescriptor(field.id(), field.title(),
+                            field.fieldName(), field.operator(), field.defaultValues());
+            case PageListExternalPersistentQueryControlDefinition external ->
+                    new ResolvedPageListExternalPersistentQueryControlDescriptor(external.id(), external.title(),
+                            external.externalCriteriaKey(), external.uiType(), (Boolean) external.defaultValue());
+        };
     }
 }

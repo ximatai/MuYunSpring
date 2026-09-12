@@ -20,7 +20,6 @@ import net.ximatai.muyun.spring.web.WebQueryRequest;
 import net.ximatai.muyun.spring.web.query.WebQueryRequests;
 import org.springframework.http.ResponseEntity;
 import org.springframework.beans.factory.ObjectProvider;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -30,7 +29,6 @@ import org.springframework.web.bind.annotation.RestController;
 
 /** Administrative entry point for action and page-access facts. */
 @RestController
-@ConditionalOnBean(BusinessLogGovernanceService.class)
 @PlatformStaticModule(application = net.ximatai.muyun.spring.platform.application.PlatformApplication.class,
         alias = BusinessActivityLogWebController.MODULE_ALIAS, title = "操作日志", route = "/platform/logs/activity")
 @PlatformMenu(parent = PlatformMenuGroups.LOG_MANAGEMENT, title = "操作日志", order = 20)

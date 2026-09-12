@@ -10,16 +10,7 @@ export type {
 
 <script setup lang="ts">
 import { computed, inject, onMounted, ref, watch } from 'vue';
-import {
-  confirmAction,
-  UiButton,
-  UiCheckbox,
-  UiDropdown,
-  UiEmpty,
-  UiInput,
-  UiSelect,
-  UiSpin,
-} from '@muyun/vue-ui-antdv';
+import { confirmAction, UiButton, UiCheckbox, UiDropdown, UiEmpty, UiSpin } from '@muyun/vue-ui-antdv';
 import type {
   UiDataTableColumn,
   UiDataTableKey,
@@ -28,14 +19,14 @@ import type {
 } from '@muyun/vue-ui-antdv';
 import type {
   Option,
-  OptionValue,
-  OptionValueList,
+  QueryCriteriaGroup,
   QueryOperator,
+  QueryCriteriaCondition,
   QuerySchema,
-  QuerySchemaField,
+  ResolvedPageListExternalPersistentQueryControlDescriptor,
+  ResolvedPageListFieldPersistentQueryControlDescriptor,
   ResolvedPageListPersistentQueryControlDescriptor,
   ResolvedViewDescriptor,
-  WebQueryCondition,
   WebQueryRequest,
   WebSort,
   RecycleBinItem,
@@ -44,6 +35,7 @@ import type {
 } from '@muyun/web-contracts';
 import {
   canQueryRecycleBin,
+  createModuleContext,
   hasRecycleBinAbility,
   normalizeError,
   type ModuleContext,
@@ -54,6 +46,9 @@ import RecordActionBar from './RecordActionBar.vue';
 import RecordQueryListCell from './RecordQueryListCell.vue';
 import RecordQueryListSurface from './RecordQueryListSurface.vue';
 import QueryGroupedSummary from './QueryGroupedSummary.vue';
+import QueryCriteriaComposer from './QueryCriteriaComposer.vue';
+import QueryValueEditor from './QueryValueEditor.vue';
+import type { RecordPickerRecord } from './recordPickerConstraints';
 import RecycleBinModeButton from './RecycleBinModeButton.vue';
 import {
   mergeRecordActions,
@@ -79,14 +74,6 @@ const navigationDisabled = inject(
 );
 
 defineOptions({ name: 'RecordQueryListPanel' });
-
-interface ConditionDraft {
-  key: number;
-  fieldName?: string;
-  operator?: QueryOperator;
-  rawValue: string;
-  booleanValue?: OptionValue | null;
-}
 
 interface QueryListRow {
   [key: string]: unknown;
@@ -204,7 +191,6 @@ const props = withDefaults(
     pageable: true,
     ready: true,
     externalQueryValues: undefined,
-    persistentQueryControls: () => [],
     querySummaries: () => [],
     requiredExternalCriteriaKeys: () => [],
     quickSearchPlaceholder: '搜索',
@@ -256,26 +242,79 @@ const recordsLoadError = ref<string>();
 const quickSearchKeyword = ref('');
 const appliedQuickSearch = ref('');
 const conditionsExpanded = ref(false);
-const conditionSeq = ref(0);
-const conditionDrafts = ref<ConditionDraft[]>([]);
-const activeConditions = ref<WebQueryCondition[]>([]);
+const activeCriteria = ref<QueryCriteriaGroup>();
+const criteriaDraftPending = ref(false);
+const criteriaComposerResetKey = ref(0);
 const selectedRowKeys = ref<UiDataTableKey[]>([]);
-const persistentQueryValues = ref<Record<string, boolean>>({});
+const persistentExternalQueryValues = ref<Record<string, boolean>>({});
+const persistentFieldDraftValues = ref<Record<string, unknown[]>>({});
+const appliedPersistentFieldValues = ref<Record<string, unknown[]>>({});
 const querySummaryValues = ref<WebListQuerySummaryItem[]>([]);
 const optionItemsByField = ref<Record<string, import('@muyun/web-contracts').OptionItemDescriptor[]>>({});
+const queryOptionItemsByField = ref<Record<string, import('@muyun/web-contracts').OptionItemDescriptor[]>>(
+  {},
+);
 let schemaRequestSeq = 0;
 let recordsRequestSeq = 0;
 
 const pages = computed(() => Math.max(1, Math.ceil(total.value / pageSize.value)));
 const queryReady = computed(() => props.ready);
 const queryFields = computed(() => schema.value?.fields ?? []);
-const fieldOptions = computed<Option[]>(() =>
-  queryFields.value.map((field) => ({
-    label: field.title ?? field.name,
-    value: field.name,
-  })),
+const queryOptionOptions = computed<Record<string, Option[]>>(() =>
+  Object.fromEntries(
+    Object.entries(queryOptionItemsByField.value).map(([fieldName, items]) => [
+      fieldName,
+      items.map((item) => ({ label: item.title, value: item.code, disabled: !item.enabled })),
+    ]),
+  ),
 );
-const conditionCount = computed(() => activeConditions.value.length);
+const schemaPersistentQueryControls = computed<ResolvedPageListPersistentQueryControlDescriptor[]>(() =>
+  queryFields.value.flatMap((field) => {
+    const control = field.persistentControl;
+    return control
+      ? [
+          {
+            source: 'FIELD' as const,
+            id: control.id,
+            title: control.title,
+            fieldName: field.name,
+            operator: control.operator,
+            defaultValues: control.defaultValues ?? [],
+          },
+        ]
+      : [];
+  }),
+);
+/** Page descriptors may customize the control area; field contracts are the universal default. */
+const persistentQueryControls = computed(
+  () => props.persistentQueryControls ?? schemaPersistentQueryControls.value,
+);
+const conditionCount = computed(() => criteriaLeafCount(activeCriteria.value));
+const persistentExternalQueryControls = computed(() =>
+  persistentQueryControls.value.filter(isExternalPersistentQueryControl),
+);
+const persistentFieldQueryControls = computed(() =>
+  persistentQueryControls.value.filter(isFieldPersistentQueryControl),
+);
+const queryReferenceContexts = computed(() =>
+  Object.fromEntries(
+    queryFields.value.flatMap((field) => {
+      const targetModuleAlias = field.reference?.targetModuleAlias;
+      return targetModuleAlias
+        ? [
+            [
+              targetModuleAlias,
+              createModuleContext<RecordPickerRecord>({
+                moduleAlias: targetModuleAlias,
+                http: props.context.http,
+                runtimeAccess: 'REFERENCE',
+              }),
+            ],
+          ]
+        : [];
+    }),
+  ),
+);
 const recycleBinHasRecords = computed<boolean | undefined>(() => {
   const total = recycleBinState.summaryTotal.value;
   return total === undefined ? undefined : total > 0;
@@ -285,11 +324,45 @@ const canQueryRecycleBinAvailable = computed(() => canQueryRecycleBin(props.cont
 const quickSearchEnabled = computed(() => props.queryable && schema.value?.quickSearch.enabled === true);
 const quickSearchDisabled = computed(() => !queryReady.value || !quickSearchEnabled.value);
 const queryActionsDisabled = computed(() => !queryReady.value);
+const criteriaComposition = computed(() => schema.value?.criteriaComposition ?? 'TREE');
+const advancedCriteriaExcludedFieldNames = computed(() =>
+  criteriaComposition.value === 'FLAT_AND'
+    ? persistentFieldQueryControls.value.map((control) => control.fieldName)
+    : [],
+);
+const advancedCriteriaFields = computed(() =>
+  queryFields.value.filter((field) => !advancedCriteriaExcludedFieldNames.value.includes(field.name)),
+);
+const advancedCriteriaVisible = computed(
+  () =>
+    props.queryable &&
+    criteriaComposition.value !== 'NONE' &&
+    (criteriaComposition.value !== 'FLAT_AND' || advancedCriteriaFields.value.length > 0),
+);
 const conditionsDisabled = computed(
-  () => !props.queryable || !queryReady.value || queryFields.value.length === 0,
+  () =>
+    !props.queryable ||
+    !queryReady.value ||
+    queryFields.value.length === 0 ||
+    criteriaComposition.value === 'NONE',
+);
+const criteriaControlTitle = computed(() =>
+  criteriaComposition.value === 'FLAT_AND' ? '更多筛选' : '高级筛选',
+);
+const persistentFieldDraftPending = computed(() =>
+  persistentFieldQueryControls.value.some(
+    (control) =>
+      !sameQueryValues(
+        persistentFieldDraftValue(control),
+        appliedPersistentFieldValues.value[control.id] ?? [],
+      ),
+  ),
+);
+const hasUnappliedQueryDraft = computed(
+  () => criteriaDraftPending.value || persistentFieldDraftPending.value,
 );
 const effectiveExternalQueryValues = computed(() => ({
-  ...persistentQueryValues.value,
+  ...persistentExternalQueryValues.value,
   ...(props.externalQueryValues ?? {}),
 }));
 const panelActions = computed<RecordActionItem[]>(() => {
@@ -363,11 +436,6 @@ const dataTableColumns = computed<UiDataTableColumn[]>(() =>
     align: column.align,
   })),
 );
-const booleanOptions: Option[] = [
-  { label: '是', value: 'true' },
-  { label: '否', value: 'false' },
-];
-
 onMounted(() => {
   void loadSchemaAndRecords();
 });
@@ -382,6 +450,20 @@ async function loadListOptionItems() {
       };
     } catch {
       // Keep the persisted value visible while an optional title source is unavailable.
+    }
+  }
+}
+
+async function loadPersistentQueryOptionItems() {
+  for (const field of queryFields.value) {
+    if (!field.optionBinding || queryOptionItemsByField.value[field.name]) continue;
+    try {
+      queryOptionItemsByField.value = {
+        ...queryOptionItemsByField.value,
+        [field.name]: await loadOptionFieldItems(props.context, field.name),
+      };
+    } catch {
+      // A query remains executable when an optional catalog is temporarily unavailable.
     }
   }
 }
@@ -423,14 +505,38 @@ watch(
 );
 
 watch(
-  () => props.persistentQueryControls,
+  persistentQueryControls,
   (controls) => {
-    persistentQueryValues.value = Object.fromEntries(
-      controls.map((control) => [control.externalCriteriaKey, control.defaultValue]),
+    const externalDefaults = Object.fromEntries(
+      controls
+        .filter(isExternalPersistentQueryControl)
+        .map((control) => [control.externalCriteriaKey, control.defaultValue]),
     );
+    if (!sameBooleanRecord(persistentExternalQueryValues.value, externalDefaults)) {
+      persistentExternalQueryValues.value = externalDefaults;
+    }
+    const defaults = Object.fromEntries(
+      controls
+        .filter(isFieldPersistentQueryControl)
+        .map((control) => [control.id, [...control.defaultValues]]),
+    );
+    persistentFieldDraftValues.value = defaults;
+    appliedPersistentFieldValues.value = defaults;
   },
   { immediate: true },
 );
+
+function sameBooleanRecord(left: Record<string, boolean>, right: Record<string, boolean>) {
+  const leftEntries = Object.entries(left);
+  return (
+    leftEntries.length === Object.keys(right).length &&
+    leftEntries.every(([key, value]) => right[key] === value)
+  );
+}
+
+watch([queryFields, persistentFieldQueryControls], () => void loadPersistentQueryOptionItems(), {
+  immediate: true,
+});
 
 watch(
   effectiveExternalQueryValues,
@@ -481,9 +587,10 @@ async function loadSchemaAndRecords() {
       emit('loaded', []);
       return;
     }
-    activeConditions.value = [];
+    activeCriteria.value = undefined;
+    criteriaDraftPending.value = false;
     conditionsExpanded.value = false;
-    resetConditionDrafts();
+    criteriaComposerResetKey.value += 1;
     await loadRecords(false);
   } catch (cause) {
     if (requestSeq !== schemaRequestSeq) {
@@ -499,9 +606,10 @@ async function loadSchemaAndRecords() {
         emit('loaded', []);
         return;
       }
-      activeConditions.value = [];
+      activeCriteria.value = undefined;
+      criteriaDraftPending.value = false;
       conditionsExpanded.value = false;
-      resetConditionDrafts();
+      criteriaComposerResetKey.value += 1;
       await loadRecords(false);
       return;
     }
@@ -621,9 +729,12 @@ function buildQueryRequest(): WebQueryRequest {
   const quickSearch = appliedQuickSearch.value.trim();
   const request: WebQueryRequest = {
     page: { pageNum: pageNum.value, pageSize: pageSize.value },
-    conditions: activeConditions.value,
     sorts: defaultSorts(),
   };
+  const criteriaChildren = [...persistentFieldCriteria(), ...activeCriteriaChildren()];
+  if (criteriaChildren.length > 0) {
+    request.criteria = { kind: 'GROUP', operator: 'AND', children: criteriaChildren };
+  }
   if (!props.pageable) {
     delete request.page;
   }
@@ -643,8 +754,8 @@ function buildQueryRequest(): WebQueryRequest {
   return request;
 }
 
-function persistentQueryValue(control: ResolvedPageListPersistentQueryControlDescriptor) {
-  return persistentQueryValues.value[control.externalCriteriaKey] ?? control.defaultValue;
+function persistentQueryValue(control: ResolvedPageListExternalPersistentQueryControlDescriptor) {
+  return persistentExternalQueryValues.value[control.externalCriteriaKey] ?? control.defaultValue;
 }
 
 function summaryValue(key: string): string {
@@ -654,13 +765,89 @@ function summaryValue(key: string): string {
 }
 
 function updatePersistentQueryValue(
-  control: ResolvedPageListPersistentQueryControlDescriptor,
+  control: ResolvedPageListExternalPersistentQueryControlDescriptor,
   value: boolean,
 ) {
-  persistentQueryValues.value = {
-    ...persistentQueryValues.value,
+  persistentExternalQueryValues.value = {
+    ...persistentExternalQueryValues.value,
     [control.externalCriteriaKey]: value,
   };
+}
+
+function persistentFieldCriteria(): QueryCriteriaCondition[] {
+  return persistentFieldQueryControls.value.flatMap((control) => {
+    const values = appliedPersistentFieldValues.value[control.id] ?? [];
+    return values.length === 0 && !isValueLessQueryOperator(control.operator)
+      ? []
+      : [{ kind: 'CONDITION', fieldName: control.fieldName, operator: control.operator, values }];
+  });
+}
+
+function activeCriteriaChildren(): Array<QueryCriteriaCondition | QueryCriteriaGroup> {
+  if (!activeCriteria.value) return [];
+  return criteriaComposition.value === 'FLAT_AND' ? activeCriteria.value.children : [activeCriteria.value];
+}
+
+function isValueLessQueryOperator(operator: QueryOperator) {
+  return ['NULL', 'NOT_NULL', 'EMPTY', 'NOT_EMPTY'].includes(operator);
+}
+
+function persistentFieldDraftValue(control: ResolvedPageListFieldPersistentQueryControlDescriptor) {
+  return persistentFieldDraftValues.value[control.id] ?? [];
+}
+
+function persistentFieldOptions(control: ResolvedPageListFieldPersistentQueryControlDescriptor): Option[] {
+  return (queryOptionItemsByField.value[control.fieldName] ?? []).map((item) => ({
+    label: item.title,
+    value: item.code,
+    disabled: !item.enabled,
+  }));
+}
+
+function persistentReferenceContext(control: ResolvedPageListFieldPersistentQueryControlDescriptor) {
+  const targetModuleAlias = fieldByName(control.fieldName)?.reference?.targetModuleAlias;
+  return targetModuleAlias ? queryReferenceContexts.value[targetModuleAlias] : undefined;
+}
+
+function updatePersistentFieldDraftValue(
+  control: ResolvedPageListFieldPersistentQueryControlDescriptor,
+  values: unknown[],
+) {
+  persistentFieldDraftValues.value = { ...persistentFieldDraftValues.value, [control.id]: values };
+}
+
+function sameQueryValues(left: unknown[], right: unknown[]) {
+  return left.length === right.length && left.every((value, index) => Object.is(value, right[index]));
+}
+
+function applyPersistentFieldQueries() {
+  appliedPersistentFieldValues.value = Object.fromEntries(
+    persistentFieldQueryControls.value.map((control) => [control.id, persistentFieldDraftValue(control)]),
+  );
+  pageNum.value = 1;
+  void loadRecords();
+}
+
+function resetPersistentFieldQueries() {
+  const defaults = Object.fromEntries(
+    persistentFieldQueryControls.value.map((control) => [control.id, [...control.defaultValues]]),
+  );
+  persistentFieldDraftValues.value = defaults;
+  appliedPersistentFieldValues.value = defaults;
+  pageNum.value = 1;
+  void loadRecords();
+}
+
+function isExternalPersistentQueryControl(
+  control: ResolvedPageListPersistentQueryControlDescriptor,
+): control is ResolvedPageListExternalPersistentQueryControlDescriptor {
+  return control.source === 'EXTERNAL';
+}
+
+function isFieldPersistentQueryControl(
+  control: ResolvedPageListPersistentQueryControlDescriptor,
+): control is ResolvedPageListFieldPersistentQueryControlDescriptor {
+  return control.source === 'FIELD';
 }
 
 function defaultSorts(): WebSort[] {
@@ -941,164 +1128,30 @@ function toggleConditions() {
   conditionsExpanded.value = !conditionsExpanded.value;
 }
 
-function addCondition() {
-  if (conditionsDisabled.value) {
-    return;
-  }
-  conditionDrafts.value.push(createConditionDraft());
-}
-
-function removeCondition(key: number) {
-  conditionDrafts.value = conditionDrafts.value.filter((draft) => draft.key !== key);
-  if (conditionDrafts.value.length === 0) {
-    conditionDrafts.value.push(createConditionDraft());
-  }
-}
-
-function applyConditions() {
-  if (conditionsDisabled.value) {
-    return;
-  }
-  const validationMessage = validateConditionDrafts();
-  if (validationMessage) {
-    presentPlatformMessage(validationMessage, { phase: 'validation' });
-    return;
-  }
-  activeConditions.value = conditionDrafts.value.flatMap(conditionOfDraft);
+function applyCriteria(criteria: QueryCriteriaGroup | undefined) {
+  activeCriteria.value = criteria;
+  criteriaDraftPending.value = false;
   pageNum.value = 1;
   void loadRecords();
 }
 
-function clearConditions() {
-  activeConditions.value = [];
-  resetConditionDrafts();
+function clearCriteria() {
+  activeCriteria.value = undefined;
+  criteriaDraftPending.value = false;
   pageNum.value = 1;
   void loadRecords();
-}
-
-function resetConditionDrafts() {
-  conditionDrafts.value = [createConditionDraft()];
-}
-
-function createConditionDraft(): ConditionDraft {
-  conditionSeq.value += 1;
-  return {
-    key: conditionSeq.value,
-    fieldName: queryFields.value[0]?.name,
-    operator: queryFields.value[0]?.defaultOperator ?? queryFields.value[0]?.operators[0],
-    rawValue: '',
-    booleanValue: null,
-  };
-}
-
-function handleFieldChange(draft: ConditionDraft, fieldName: OptionValue | OptionValueList | null) {
-  const field = fieldByName(String(singleOptionValue(fieldName) ?? ''));
-  draft.fieldName = field?.name;
-  draft.operator = field?.defaultOperator ?? field?.operators[0];
-  draft.rawValue = '';
-  draft.booleanValue = null;
-}
-
-function handleOperatorChange(draft: ConditionDraft, operator: OptionValue | OptionValueList | null) {
-  draft.operator = String(singleOptionValue(operator) ?? '') as QueryOperator;
-}
-
-function handleBooleanValueChange(draft: ConditionDraft, value: OptionValue | OptionValueList | null) {
-  draft.booleanValue = singleOptionValue(value) ?? null;
-}
-
-function conditionOfDraft(draft: ConditionDraft): WebQueryCondition[] {
-  const field = fieldByName(draft.fieldName);
-  const operator = draft.operator ?? field?.defaultOperator;
-  if (!field || !operator) {
-    return [];
-  }
-  const values = valuesOfDraft(field, operator, draft);
-  if (!valueLessOperator(operator) && values.length === 0) {
-    return [];
-  }
-  return [{ fieldName: field.name, operator, values }];
-}
-
-function validateConditionDrafts() {
-  for (const draft of conditionDrafts.value) {
-    const field = fieldByName(draft.fieldName);
-    const operator = draft.operator ?? field?.defaultOperator;
-    if (!field || !operator || valueLessOperator(operator)) {
-      continue;
-    }
-    if (operator === 'BETWEEN' && valuesOfDraft(field, operator, draft).length !== 2) {
-      return `${field.title ?? field.name} 需要填写起始和结束两个值`;
-    }
-  }
-  return undefined;
-}
-
-function valuesOfDraft(field: QuerySchemaField, operator: QueryOperator, draft: ConditionDraft): unknown[] {
-  if (valueLessOperator(operator)) {
-    return [];
-  }
-  if (field.valueType === 'BOOLEAN') {
-    if (draft.booleanValue !== 'true' && draft.booleanValue !== 'false') {
-      return [];
-    }
-    return [draft.booleanValue === 'true'];
-  }
-  const raw = draft.rawValue.trim();
-  if (!raw) {
-    return [];
-  }
-  if (operator === 'IN' || operator === 'NOT_IN' || operator === 'BETWEEN') {
-    return raw
-      .split(',')
-      .map((item) => item.trim())
-      .filter(Boolean);
-  }
-  return [raw];
-}
-
-function valueLessOperator(operator: QueryOperator) {
-  return operator === 'NULL' || operator === 'NOT_NULL';
-}
-
-function operatorOptions(draft: ConditionDraft): Option[] {
-  const field = fieldByName(draft.fieldName);
-  return (field?.operators ?? []).map((operator) => ({
-    label: operatorLabel(operator),
-    value: operator,
-  }));
 }
 
 function fieldByName(fieldName?: string) {
   return queryFields.value.find((field) => field.name === fieldName);
 }
 
-function operatorLabel(operator: QueryOperator) {
-  const labels: Record<QueryOperator, string> = {
-    EQ: '等于',
-    NOT_EQUAL: '不等于',
-    LIKE: '包含',
-    IN: '属于',
-    NOT_IN: '不属于',
-    GT: '大于',
-    GTE: '大于等于',
-    LT: '小于',
-    LTE: '小于等于',
-    BETWEEN: '介于',
-    NULL: '为空',
-    NOT_NULL: '不为空',
-  };
-  return labels[operator] ?? operator;
-}
-
-function conditionPlaceholder(draft: ConditionDraft) {
-  if (draft.operator === 'BETWEEN') {
-    return '起始, 结束';
-  }
-  if (draft.operator === 'IN' || draft.operator === 'NOT_IN') {
-    return '多个值用逗号分隔';
-  }
-  return '请输入条件值';
+function criteriaLeafCount(criteria: QueryCriteriaGroup | undefined): number {
+  if (!criteria) return 0;
+  return criteria.children.reduce(
+    (count, child) => count + (child.kind === 'CONDITION' ? 1 : criteriaLeafCount(child)),
+    0,
+  );
 }
 
 function recordKey(record: QueryListRecord) {
@@ -1115,10 +1168,6 @@ function handlePageSizeChange(nextPageSize: number) {
   emit('pageSizeChange', nextPageSize);
   pageNum.value = 1;
   void loadRecords();
-}
-
-function singleOptionValue(value: OptionValue | OptionValueList | null) {
-  return Array.isArray(value) ? undefined : value;
 }
 
 defineExpose({ clearSelection, refresh });
@@ -1138,7 +1187,7 @@ defineExpose({ clearSelection, refresh });
     :title-action-icon="showTitle && refreshable ? 'reload' : undefined"
     :title-action-title="showTitle ? (refreshTitle ?? `刷新${title}`) : undefined"
     :title-action-disabled="queryActionsDisabled"
-    :quick-search-visible="queryable"
+    :quick-search-visible="quickSearchEnabled"
     :quick-search-value="quickSearchKeyword"
     :quick-search-placeholder="quickSearchPlaceholder"
     :quick-search-disabled="quickSearchDisabled"
@@ -1200,8 +1249,8 @@ defineExpose({ clearSelection, refresh });
     </template>
     <template #persistentQueries>
       <UiCheckbox
-        v-for="control in persistentQueryControls"
-        :key="control.externalCriteriaKey"
+        v-for="control in persistentExternalQueryControls"
+        :key="control.id"
         class="record-query-list-persistent-query-control"
         :checked="persistentQueryValue(control)"
         :disabled="queryActionsDisabled"
@@ -1209,10 +1258,37 @@ defineExpose({ clearSelection, refresh });
       >
         {{ control.title }}
       </UiCheckbox>
+      <div
+        v-for="control in persistentFieldQueryControls"
+        :key="control.id"
+        class="record-query-list-persistent-field-control"
+      >
+        <span class="record-query-list-persistent-field-label">{{ control.title }}</span>
+        <QueryValueEditor
+          v-if="fieldByName(control.fieldName)"
+          :field="fieldByName(control.fieldName)!"
+          :operator="control.operator"
+          :values="persistentFieldDraftValue(control)"
+          :options="persistentFieldOptions(control)"
+          :reference-context="persistentReferenceContext(control)"
+          :disabled="queryActionsDisabled"
+          @submit="applyPersistentFieldQueries"
+          @update:values="updatePersistentFieldDraftValue(control, $event)"
+        />
+        <span v-else class="record-query-list-persistent-field-error">字段不可用</span>
+      </div>
+      <div v-if="persistentFieldQueryControls.length > 0" class="record-query-list-persistent-field-actions">
+        <UiButton type="primary" :disabled="queryActionsDisabled" @click="applyPersistentFieldQueries">
+          查询
+        </UiButton>
+        <UiButton type="text" :disabled="queryActionsDisabled" @click="resetPersistentFieldQueries">
+          重置
+        </UiButton>
+      </div>
     </template>
     <template #queryControls>
       <UiButton
-        v-if="queryable"
+        v-if="advancedCriteriaVisible"
         class="record-query-list-advanced"
         :class="{ 'is-selected': conditionsExpanded }"
         type="text"
@@ -1220,53 +1296,31 @@ defineExpose({ clearSelection, refresh });
         :disabled="conditionsDisabled"
         @click="toggleConditions"
       >
-        高级<span v-if="conditionCount"> {{ conditionCount }}</span>
+        {{ criteriaControlTitle }}<span v-if="conditionCount"> {{ conditionCount }}</span>
       </UiButton>
+      <span v-if="conditionCount" class="record-query-list-query-state" role="status">
+        已应用 {{ conditionCount }} 条筛选
+      </span>
+      <span v-if="hasUnappliedQueryDraft" class="record-query-list-query-state is-pending" role="status">
+        筛选草稿尚未应用
+      </span>
     </template>
 
     <template #conditions>
       <section v-if="conditionsExpanded" class="record-query-conditions">
-        <div v-for="draft in conditionDrafts" :key="draft.key" class="record-query-condition-row">
-          <UiSelect
-            class="record-query-condition-field"
-            :value="draft.fieldName"
-            :options="fieldOptions"
-            placeholder="字段"
-            @update:value="handleFieldChange(draft, $event)"
-          />
-          <UiSelect
-            class="record-query-condition-operator"
-            :value="draft.operator"
-            :options="operatorOptions(draft)"
-            placeholder="关系"
-            @update:value="handleOperatorChange(draft, $event)"
-          />
-          <UiSelect
-            v-if="
-              fieldByName(draft.fieldName)?.valueType === 'BOOLEAN' && !valueLessOperator(draft.operator!)
-            "
-            class="record-query-condition-value"
-            :value="draft.booleanValue"
-            :options="booleanOptions"
-            placeholder="选择"
-            @update:value="handleBooleanValueChange(draft, $event)"
-          />
-          <UiInput
-            v-else-if="!valueLessOperator(draft.operator!)"
-            v-model:value="draft.rawValue"
-            class="record-query-condition-value"
-            :placeholder="conditionPlaceholder(draft)"
-          />
-          <div v-else class="record-query-condition-value muted">无需输入值</div>
-          <UiButton type="text" icon-name="delete" danger @click="removeCondition(draft.key)" />
-        </div>
-        <div class="record-query-condition-actions">
-          <UiButton type="dashed" icon-name="plus" :disabled="conditionsDisabled" @click="addCondition">
-            添加条件
-          </UiButton>
-          <UiButton type="primary" :disabled="conditionsDisabled" @click="applyConditions">应用条件</UiButton>
-          <UiButton type="text" :disabled="conditionsDisabled" @click="clearConditions">重置</UiButton>
-        </div>
+        <QueryCriteriaComposer
+          :key="criteriaComposerResetKey"
+          :fields="queryFields"
+          :excluded-field-names="advancedCriteriaExcludedFieldNames"
+          :option-items-by-field="queryOptionOptions"
+          :reference-contexts="queryReferenceContexts"
+          :disabled="conditionsDisabled"
+          :composition="criteriaComposition === 'FLAT_AND' ? 'FLAT_AND' : 'TREE'"
+          @apply="applyCriteria"
+          @clear="clearCriteria"
+          @draft-change="criteriaDraftPending = $event"
+          @validation="presentPlatformMessage($event, { phase: 'validation' })"
+        />
       </section>
     </template>
 
@@ -1427,6 +1481,41 @@ defineExpose({ clearSelection, refresh });
   white-space: nowrap;
 }
 
+.record-query-list-persistent-field-control {
+  display: inline-grid;
+  grid-template-columns: auto minmax(180px, 1fr);
+  align-items: center;
+  gap: 6px;
+  min-width: min(360px, 100%);
+}
+
+.record-query-list-persistent-field-label {
+  color: var(--muyun-text-muted);
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.record-query-list-persistent-field-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.record-query-list-persistent-field-error {
+  color: var(--muyun-danger);
+  font-size: 13px;
+}
+
+.record-query-list-query-state {
+  color: var(--muyun-text-muted);
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.record-query-list-query-state.is-pending {
+  color: var(--muyun-warning);
+}
+
 :deep(.record-query-list-advanced.is-selected.ant-btn) {
   border: 1px solid var(--muyun-theme-border);
   background: var(--muyun-selected);
@@ -1446,30 +1535,6 @@ defineExpose({ clearSelection, refresh });
   border: 1px solid var(--muyun-border-subtle);
   border-radius: 8px;
   background: var(--muyun-hover-subtle);
-}
-
-.record-query-condition-row {
-  display: grid;
-  grid-template-columns: minmax(140px, 0.8fr) minmax(120px, 0.6fr) minmax(180px, 1fr) 32px;
-  gap: 8px;
-  align-items: center;
-  min-width: 0;
-}
-
-.record-query-condition-field,
-.record-query-condition-operator,
-.record-query-condition-value {
-  min-width: 0;
-}
-
-.record-query-condition-value.muted {
-  height: 32px;
-  padding: 5px 11px;
-  border: 1px solid var(--muyun-border);
-  border-radius: 6px;
-  background: var(--muyun-support-surface);
-  color: var(--muyun-text-muted);
-  font-size: 14px;
 }
 
 .record-query-list-row-actions {
@@ -1521,7 +1586,7 @@ defineExpose({ clearSelection, refresh });
 }
 
 @media (max-width: 680px) {
-  .record-query-condition-row {
+  :deep(.query-criteria-condition-row) {
     grid-template-columns: 1fr;
   }
 }
