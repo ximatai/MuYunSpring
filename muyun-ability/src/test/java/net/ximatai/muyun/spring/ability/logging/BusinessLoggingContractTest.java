@@ -3,6 +3,7 @@ package net.ximatai.muyun.spring.ability.logging;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException;
@@ -29,6 +30,22 @@ class BusinessLoggingContractTest {
                 "event-1", Instant.now(), Instant.now(), null, null, null, null, null);
 
         assertThat(context.traceId()).isEqualTo("event-1");
+    }
+
+    @Test
+    void shouldKeepLegacyContextAndQueryConstructionCompatibleWithOrganizationFiltering() {
+        BusinessLogContext legacy = new BusinessLogContext(
+                "event-1", Instant.now(), Instant.now(), null, "tenant-1", "user-1", "sales.contract", "submit");
+        BusinessLogQuery legacyQuery = new BusinessLogQuery(null, null, "tenant-1", "sales.contract", "submit",
+                null, null, 20);
+        BusinessLogQuery restrictedQuery = new BusinessLogQuery(null, null, "tenant-1", Set.of(BusinessLogEventType.ACTION),
+                "user-1", Set.of("organization-1"), "sales.contract", "submit", null, null, 20);
+
+        assertThat(legacy.operatorOrganizationId()).isNull();
+        assertThat(legacyQuery.eventTypes()).isNull();
+        assertThat(legacyQuery.operatorId()).isNull();
+        assertThat(legacyQuery.operatorOrganizationIds()).isNull();
+        assertThat(restrictedQuery.operatorOrganizationIds()).containsExactly("organization-1");
     }
 
     @Test

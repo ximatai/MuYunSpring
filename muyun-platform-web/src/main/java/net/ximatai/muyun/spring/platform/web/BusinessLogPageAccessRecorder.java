@@ -41,7 +41,9 @@ public final class BusinessLogPageAccessRecorder {
             String pageKey = entry.moduleAlias() + ":" + pageMode;
             BusinessLogContext context = BusinessLogContext.capturedNow(Ids.newId(), Instant.now(),
                     RequestTraceContext.currentTraceId().orElse(null), tenantId,
-                    currentUser.map(user -> user.userId()).orElse(null), entry.moduleAlias(), "page-entry");
+                    currentUser.map(user -> user.userId()).orElse(null),
+                    currentUser.map(user -> user.organizationId()).orElse(null),
+                    entry.moduleAlias(), "page-entry");
             publisher.publish(new PageAccessLogEvent(context,
                     new PageAccessLogDetails(pageKey, null, entry.menuId(), "MENU_BOOTSTRAP")));
         } catch (RuntimeException ignored) {

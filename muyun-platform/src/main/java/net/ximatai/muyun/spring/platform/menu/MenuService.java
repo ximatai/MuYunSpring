@@ -56,10 +56,9 @@ public class MenuService extends AbstractAbilityService<Menu> implements
     public static final String ADMIN_CONFIG_GROUP_ID = ADMIN_MODELING_GROUP_ID;
     public static final String ADMIN_IDENTITY_GROUP_ID = "platform.menu.group.identity";
     public static final String ADMIN_BUSINESS_SUPPORT_GROUP_ID = "platform.menu.group.business";
-    public static final String ADMIN_SECURITY_AUDIT_GROUP_ID = "platform.menu.group.security";
+    public static final String ADMIN_LOG_MANAGEMENT_GROUP_ID = "platform.menu.group.logs";
     public static final String ADMIN_OPS_GROUP_ID = "platform.menu.group.ops";
     public static final String ADMIN_SETTINGS_GROUP_ID = "platform.menu.group.settings";
-    public static final String ADMIN_SECURITY_SETTINGS_GROUP_ID = ADMIN_SECURITY_AUDIT_GROUP_ID;
 
     private final MenuSchemeService schemeService;
     private final PlatformModuleService moduleService;
@@ -141,7 +140,7 @@ public class MenuService extends AbstractAbilityService<Menu> implements
 
     @Override
     public InitialDataOptions initialDataOptions() {
-        return InitialDataOptions.system("platform.admin-menu-groups", 11);
+        return InitialDataOptions.system("platform.admin-menu-groups", 13);
     }
 
     @Override
@@ -151,7 +150,7 @@ public class MenuService extends AbstractAbilityService<Menu> implements
                 group(ADMIN_MODELING_GROUP_ID, ADMIN_PLATFORM_GROUP_ID, "平台建模", 10),
                 group(ADMIN_IDENTITY_GROUP_ID, ADMIN_PLATFORM_GROUP_ID, "组织与权限", 20),
                 group(ADMIN_BUSINESS_SUPPORT_GROUP_ID, ADMIN_PLATFORM_GROUP_ID, "业务支撑", 30),
-                group(ADMIN_SECURITY_AUDIT_GROUP_ID, ADMIN_PLATFORM_GROUP_ID, "安全与审计", 40),
+                group(ADMIN_LOG_MANAGEMENT_GROUP_ID, ADMIN_PLATFORM_GROUP_ID, "日志管理", 40),
                 group(ADMIN_OPS_GROUP_ID, ADMIN_PLATFORM_GROUP_ID, "运行运维", 50),
                 group(ADMIN_SETTINGS_GROUP_ID, ADMIN_PLATFORM_GROUP_ID, "平台设置", 60)
         );

@@ -9,6 +9,8 @@ import net.ximatai.muyun.spring.ability.logging.ActionLogEvent;
 import net.ximatai.muyun.spring.ability.logging.BusinessLogContext;
 import net.ximatai.muyun.spring.ability.logging.BusinessLogPublisher;
 import net.ximatai.muyun.spring.ability.logging.LogText;
+import net.ximatai.muyun.spring.common.identity.CurrentUser;
+import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -46,7 +48,7 @@ public final class RuntimeActionBusinessLogEventListener implements RuntimeEvent
         boolean failed = event.eventType() == RuntimeEventType.ACTION_FAILED;
         BusinessLogContext context = BusinessLogContext.capturedNow(
                 event.eventId(), event.occurredAt(), safeTraceId(event.traceId()), event.tenantId(),
-                event.operatorId(), event.moduleAlias(), event.actionCode());
+                event.operatorId(), operatorOrganizationId(event), event.moduleAlias(), event.actionCode());
         ActionLogDetails details = new ActionLogDetails(
                 failed ? ActionLogDetails.ActionOutcome.FAILURE : ActionLogDetails.ActionOutcome.SUCCESS,
                 ActionEventPayload.text(event.payload(), ActionEventPayload.EXECUTOR_TYPE),
@@ -56,6 +58,13 @@ public final class RuntimeActionBusinessLogEventListener implements RuntimeEvent
                 LogText.of(ActionEventPayload.text(event.payload(),
                         failed ? ActionEventPayload.ERROR_MESSAGE : ActionEventPayload.MESSAGE)));
         return new ActionLogEvent(context, details);
+    }
+
+    private String operatorOrganizationId(RuntimeEvent event) {
+        return CurrentUserContext.currentUser()
+                .filter(user -> user.userId().equals(event.operatorId()))
+                .map(CurrentUser::organizationId)
+                .orElse(null);
     }
 
     private String safeTraceId(String traceId) {

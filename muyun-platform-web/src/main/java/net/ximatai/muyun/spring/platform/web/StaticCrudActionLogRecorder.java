@@ -33,7 +33,9 @@ public final class StaticCrudActionLogRecorder {
                     .orElseGet(() -> context.currentUser().map(user -> user.tenantId()).orElse(null));
             publisher.publish(new ActionLogEvent(BusinessLogContext.capturedNow(Ids.newId(), Instant.now(),
                     RequestTraceContext.currentTraceId().orElse(null), tenantId,
-                    context.currentUser().map(user -> user.userId()).orElse(null), context.moduleAlias(), context.actionCode()),
+                    context.currentUser().map(user -> user.userId()).orElse(null),
+                    context.currentUser().map(user -> user.organizationId()).orElse(null),
+                    context.moduleAlias(), context.actionCode()),
                     new ActionLogDetails(failure == null ? ActionLogDetails.ActionOutcome.SUCCESS : ActionLogDetails.ActionOutcome.FAILURE,
                             "STATIC_CRUD", duration, null, failure == null ? null : "CONTROLLER", null)));
         } catch (RuntimeException ignored) { log.warn("Static CRUD action log publication failed"); }

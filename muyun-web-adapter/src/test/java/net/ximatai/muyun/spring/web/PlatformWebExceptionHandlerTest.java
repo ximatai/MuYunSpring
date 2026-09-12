@@ -13,9 +13,11 @@ import net.ximatai.muyun.spring.common.exception.PlatformAccessDeniedException;
 import net.ximatai.muyun.spring.common.exception.PlatformErrorCodes;
 import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 import net.ximatai.muyun.spring.common.web.RequestTraceContext;
+import net.ximatai.muyun.spring.common.identity.CurrentUser;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
+import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -216,6 +218,21 @@ class PlatformWebExceptionHandlerTest {
                 .andExpect(jsonPath("$.code").value(PlatformErrorCodes.INTERNAL_ERROR))
                 .andExpect(jsonPath("$.message").value("系统暂时不可用，请稍后重试"))
                 .andExpect(jsonPath("$.traceId").isNotEmpty());
+    }
+
+    @Test
+    void shouldSnapshotOrganizationWhenRecordingRequestError() {
+        RecordingPublisher publisher = new RecordingPublisher();
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/demo/failure");
+        RequestErrorLogRecorder.snapshotCurrentUser(request,
+                CurrentUser.tenantUser("user-1", "Alice", "tenant-a", "organization-a"));
+
+        new RequestErrorLogRecorder(publisher).recordUnhandled(request, new IllegalStateException("failed"));
+
+        assertThat(publisher.events).singleElement().isInstanceOfSatisfying(RequestErrorLogEvent.class, logged -> {
+            assertThat(logged.context().operatorId()).isEqualTo("user-1");
+            assertThat(logged.context().operatorOrganizationId()).isEqualTo("organization-a");
+        });
     }
 
     @Test

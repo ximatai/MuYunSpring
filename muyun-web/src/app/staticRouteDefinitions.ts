@@ -29,6 +29,9 @@ export const routePageLoaders = import.meta.glob('/src/views/**/*View.vue', {
  * 每一项把浏览器地址、模块名、页面文件和展示样式放在一起，供菜单检查和页面打开共同使用。
  */
 const componentPathByRoute: Record<string, StaticRouteDefinition['componentPath']> = {
+  '/platform/logs/activity': '/src/views/BusinessActivityLogView.vue',
+  '/platform/logs/errors': '/src/views/RequestErrorLogView.vue',
+  '/iam/logs/login': '/src/views/LoginAuditLogView.vue',
   '/iam/role/authorization': '/src/views/RoleAuthorizationView.vue',
 };
 

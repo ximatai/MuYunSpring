@@ -17,6 +17,8 @@ import org.junit.jupiter.api.Test;
 import java.time.Instant;
 import java.util.Collection;
 import java.util.List;
+import java.util.Optional;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -57,8 +59,28 @@ class StoreBackedBusinessLogStatisticsReaderTest {
         assertThat(result.complete()).isFalse();
     }
 
+    @Test
+    void shouldForwardOrganizationScopeToTheBoundedStoreRead() {
+        StoreBackedBusinessLogStatisticsReader reader = new StoreBackedBusinessLogStatisticsReader(new FixedStore(List.of(
+                action("organization-one", "organization-1", ActionLogDetails.ActionOutcome.SUCCESS, 12L, 3L),
+                action("organization-two", "organization-2", ActionLogDetails.ActionOutcome.SUCCESS, 9L, 1L)
+        )));
+
+        var result = reader.actionStatistics(new BusinessLogStatisticsQuery(null, null, "tenant", null,
+                Set.of("organization-1"), null, null, 10));
+
+        assertThat(result.executionCount()).isEqualTo(1);
+        assertThat(result.totalDurationMillis()).isEqualTo(12);
+    }
+
     private ActionLogEvent action(String id, ActionLogDetails.ActionOutcome outcome, Long duration, Long affected) {
         return new ActionLogEvent(context(id), new ActionLogDetails(outcome, "SERVICE", duration, affected, null, null));
+    }
+
+    private ActionLogEvent action(String id, String organizationId, ActionLogDetails.ActionOutcome outcome,
+                                  Long duration, Long affected) {
+        return new ActionLogEvent(context(id, organizationId),
+                new ActionLogDetails(outcome, "SERVICE", duration, affected, null, null));
     }
 
     private PageAccessLogEvent page(String id, String pageKey) {
@@ -70,17 +92,29 @@ class StoreBackedBusinessLogStatisticsReaderTest {
                 "trace", "tenant", "user", "sales.contract", "submit");
     }
 
+    private BusinessLogContext context(String eventId, String organizationId) {
+        return new BusinessLogContext(eventId, Instant.parse("2026-09-11T00:00:00Z"), Instant.now(),
+                "trace", "tenant", "user", organizationId, "sales.contract", "submit");
+    }
+
     private static final class FixedStore implements BusinessLogStore {
         private final List<BusinessLogEvent> events;
         private FixedStore(List<BusinessLogEvent> events) { this.events = events; }
         @Override public BusinessLogWriteResult append(BusinessLogEvent event) { throw new UnsupportedOperationException(); }
         @Override public List<BusinessLogWriteResult> appendAll(Collection<? extends BusinessLogEvent> events) { throw new UnsupportedOperationException(); }
+        @Override public Optional<BusinessLogEvent> findById(String eventId) {
+            return events.stream().filter(event -> event.eventId().equals(eventId)).findFirst();
+        }
         @Override public BusinessLogReadPage read(BusinessLogQuery query) {
+            List<BusinessLogEvent> matching = events.stream()
+                    .filter(event -> query.operatorOrganizationIds() == null
+                            || query.operatorOrganizationIds().contains(event.context().operatorOrganizationId()))
+                    .toList();
             int start = query.cursor() == null ? 0 : Integer.parseInt(query.cursor().eventId());
-            int end = Math.min(events.size(), start + query.limit());
-            BusinessLogCursor next = end < events.size()
+            int end = Math.min(matching.size(), start + query.limit());
+            BusinessLogCursor next = end < matching.size()
                     ? new BusinessLogCursor(Instant.parse("2026-09-11T00:00:00Z"), String.valueOf(end)) : null;
-            return new BusinessLogReadPage(events.subList(start, end), next);
+            return new BusinessLogReadPage(matching.subList(start, end), next);
         }
     }
 }

@@ -10,9 +10,19 @@ import { routePageLoaders, staticRouteDefinitions } from '@/app/staticRouteDefin
 import { pageDescriptorFromUrl, pageDescriptorToUrl } from '@/platform-workbench/menuNavigation.ts';
 import type { BusinessRoutePageDescriptor } from '@/web-contracts/index.ts';
 
-it('keeps only role authorization as a static business route', () => {
-  assert.deepEqual(platformAdminRoutePrefixes, ['/_platform/workspace', '/iam/role/authorization']);
-  assert.deepEqual(platformAdminModuleRoutes, {});
+it('registers every static administration route and keeps role authorization internal', () => {
+  assert.deepEqual(platformAdminRoutePrefixes, [
+    '/_platform/workspace',
+    '/platform/logs/activity',
+    '/platform/logs/errors',
+    '/iam/logs/login',
+    '/iam/role/authorization',
+  ]);
+  assert.deepEqual(platformAdminModuleRoutes, {
+    'platform.business_activity_log': '/platform/logs/activity',
+    'platform.request_error_log': '/platform/logs/errors',
+    'iam.login_audit_log': '/iam/logs/login',
+  });
 });
 
 it('accepts every backend-published static menu route in the frontend registry', () => {

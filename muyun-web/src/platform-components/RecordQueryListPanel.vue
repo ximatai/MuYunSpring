@@ -231,6 +231,8 @@ const emit = defineEmits<{
   /** Lets a page runner persist this presentation preference without owning pagination state. */
   pageSizeChange: [pageSize: number];
   restored: [];
+  /** The exact standard request that produced the currently displayed records. */
+  queried: [request: WebQueryRequest];
 }>();
 const slots = defineSlots<{
   toolbarActions?: (props: { refresh: () => void }) => unknown;
@@ -245,6 +247,7 @@ const records = ref<QueryListRecord[]>([]);
 const recycleBinItems = new Map<string, RecycleBinItem<QueryListRecord>>();
 const recycleBinState = useRecycleBinState({ context: () => props.context });
 const total = ref(0);
+const totalKnown = ref(true);
 const pageNum = ref(1);
 const pageSize = ref(props.pageSize);
 const runtimeListView = ref<ResolvedViewDescriptor>();
@@ -405,6 +408,7 @@ watch(
     }
     records.value = [];
     total.value = 0;
+    totalKnown.value = true;
     querySummaryValues.value = [];
     emit('loaded', []);
   },
@@ -472,6 +476,7 @@ async function loadSchemaAndRecords() {
       descriptorLoadError.value = true;
       records.value = [];
       total.value = 0;
+      totalKnown.value = true;
       querySummaryValues.value = [];
       emit('loaded', []);
       return;
@@ -503,6 +508,7 @@ async function loadSchemaAndRecords() {
     schema.value = undefined;
     records.value = [];
     total.value = 0;
+    totalKnown.value = true;
     querySummaryValues.value = [];
     emit('loaded', []);
     recordsLoadError.value = normalizeError(cause).message;
@@ -532,6 +538,7 @@ async function loadRecords(updateLoading = true) {
   if (!queryReady.value) {
     records.value = [];
     total.value = 0;
+    totalKnown.value = true;
     querySummaryValues.value = [];
     emit('loaded', []);
     if (updateLoading) {
@@ -552,6 +559,7 @@ async function loadRecords(updateLoading = true) {
         return record;
       });
       total.value = recycleBinState.total.value;
+      totalKnown.value = true;
       querySummaryValues.value = [];
       pageNum.value = recycleBinState.pageNum.value;
       pageSize.value = recycleBinState.pageSize.value;
@@ -566,7 +574,8 @@ async function loadRecords(updateLoading = true) {
   }
   try {
     recordsLoadError.value = undefined;
-    const response = await props.context.crud.query(buildQueryRequest());
+    const request = buildQueryRequest();
+    const response = await props.context.crud.query(request);
     if (requestSeq !== recordsRequestSeq) {
       return;
     }
@@ -577,10 +586,12 @@ async function loadRecords(updateLoading = true) {
       response.records.map((record) => recordKey(record)),
     );
     total.value = response.total;
+    totalKnown.value = response.totalKnown;
     querySummaryValues.value = response.summaries ?? [];
     pageNum.value = response.pageNum;
     pageSize.value = response.pageSize;
     emit('loaded', response.records);
+    emit('queried', request);
     refreshRecycleBinSummary();
   } catch (cause) {
     if (requestSeq !== recordsRequestSeq) {
@@ -588,6 +599,7 @@ async function loadRecords(updateLoading = true) {
     }
     records.value = [];
     total.value = 0;
+    totalKnown.value = true;
     querySummaryValues.value = [];
     emit('loaded', []);
     recordsLoadError.value = normalizeError(cause).message;
@@ -1146,6 +1158,7 @@ defineExpose({ clearSelection, refresh });
     :table-visible="!loading && queryReady && !descriptorLoadError && !recordsLoadError && records.length > 0"
     :pageable="pageable"
     :total="total"
+    :total-known="totalKnown"
     :page-num="pageNum"
     :pages="pages"
     :page-size="pageSize"

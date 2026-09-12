@@ -45,6 +45,8 @@ const props = withDefaults(
     /** The surface renders pagination only; its owner keeps query state and data loading. */
     pageable?: boolean;
     total?: number;
+    /** False when the backend exposes only a lower bound for cursor-backed pagination. */
+    totalKnown?: boolean;
     pageNum?: number;
     pages?: number;
     pageSize?: number;
@@ -80,6 +82,7 @@ const props = withDefaults(
     chromeFree: false,
     pageable: false,
     total: 0,
+    totalKnown: true,
     pageNum: 1,
     pages: 1,
     pageSize: 20,
@@ -223,7 +226,7 @@ defineSlots<{
     <footer v-if="$slots.footer || pageable" class="record-query-list-pagination">
       <div v-if="$slots.footer" class="record-query-list-footer-extensions"><slot name="footer" /></div>
       <div v-if="pageable" class="record-query-list-pagination-controls">
-        <span>共 {{ total }} 条</span>
+        <span>{{ totalKnown ? '共' : '至少' }} {{ total }} 条</span>
         <UiSelect
           class="record-query-list-page-size"
           :value="pageSize"

@@ -17,6 +17,7 @@ public record BusinessLogContext(
         String traceId,
         String tenantId,
         String operatorId,
+        String operatorOrganizationId,
         String moduleAlias,
         String actionCode
 ) {
@@ -34,15 +35,31 @@ public record BusinessLogContext(
         }
         tenantId = optional(tenantId, "tenantId", 128);
         operatorId = optional(operatorId, "operatorId", 128);
+        operatorOrganizationId = optional(operatorOrganizationId, "operatorOrganizationId", 128);
         moduleAlias = optional(moduleAlias, "moduleAlias", 192);
         actionCode = optional(actionCode, "actionCode", 128);
+    }
+
+    /**
+     * Source-compatible context constructor for facts captured before organization attribution.
+     */
+    public BusinessLogContext(String eventId, Instant occurredAt, Instant capturedAt, String traceId,
+                              String tenantId, String operatorId, String moduleAlias, String actionCode) {
+        this(eventId, occurredAt, capturedAt, traceId, tenantId, operatorId, null, moduleAlias, actionCode);
     }
 
     public static BusinessLogContext capturedNow(String eventId, Instant occurredAt, String traceId,
                                                  String tenantId, String operatorId,
                                                  String moduleAlias, String actionCode) {
         return new BusinessLogContext(eventId, occurredAt, Instant.now(), traceId, tenantId, operatorId,
-                moduleAlias, actionCode);
+                null, moduleAlias, actionCode);
+    }
+
+    public static BusinessLogContext capturedNow(String eventId, Instant occurredAt, String traceId,
+                                                 String tenantId, String operatorId, String operatorOrganizationId,
+                                                 String moduleAlias, String actionCode) {
+        return new BusinessLogContext(eventId, occurredAt, Instant.now(), traceId, tenantId, operatorId,
+                operatorOrganizationId, moduleAlias, actionCode);
     }
 
     static String required(String value, String name, int maximumLength) {

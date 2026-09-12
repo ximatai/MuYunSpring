@@ -89,7 +89,7 @@ class PlatformMenuInitialDataDeclarationProviderTest {
                             PlatformMenuGroups.MODELING,
                             PlatformMenuGroups.IDENTITY,
                             PlatformMenuGroups.BUSINESS_SUPPORT,
-                            PlatformMenuGroups.SECURITY_AUDIT,
+                            PlatformMenuGroups.LOG_MANAGEMENT,
                             PlatformMenuGroups.OPS,
                             PlatformMenuGroups.SETTINGS
                     );
@@ -141,6 +141,45 @@ class PlatformMenuInitialDataDeclarationProviderTest {
     }
 
     @Test
+    void shouldMigrateLegacyBusinessLogTitlesWithoutOverwritingCustomizedTitles() {
+        try (GenericApplicationContext context = context(
+                LegacyLoginLogWeb.class, LegacyBusinessActivityLogWeb.class, LegacyRequestErrorLogWeb.class)) {
+            registerStaticModules(context);
+            initializePlatformMenus(context);
+
+            Menu login = moduleMenu("iam.login_audit_log");
+            Menu activity = moduleMenu("platform.business_activity_log");
+            Menu error = moduleMenu("platform.request_error_log");
+            Menu legacyGroup = menu("platform.menu.group.security", MenuSchemeService.ADMIN_SCHEME_ID,
+                    PlatformMenuGroups.PLATFORM);
+            legacyGroup.setTitle("安全与审计");
+            Menu preservedEntry = menu("platform.menu.module.legacy-security", MenuSchemeService.ADMIN_SCHEME_ID,
+                    legacyGroup.getId());
+            preservedEntry.setTitle("保留入口");
+            PlatformManagedMutationContext.runAsPlatformManaged(() -> {
+                menuService.insert(legacyGroup);
+                menuService.insert(preservedEntry);
+                login.setTitle("登录审计");
+                menuService.update(login);
+                activity.setTitle("业务活动日志");
+                menuService.update(activity);
+                error.setTitle("自定义异常记录");
+                menuService.update(error);
+            });
+
+            new PlatformMenuContributionReconciliationTask(
+                    menuService, new PlatformMenuInitialDataDeclarationProvider(menuService, context)).run();
+
+            assertThat(login.getTitle()).isEqualTo("登录日志");
+            assertThat(activity.getTitle()).isEqualTo("操作日志");
+            assertThat(error.getTitle()).isEqualTo("自定义异常记录");
+            assertThat(menuService.select(legacyGroup.getId())).isNull();
+            assertThat(menuService.select(preservedEntry.getId()).getParentId())
+                    .isEqualTo(PlatformMenuGroups.SETTINGS);
+        }
+    }
+
+    @Test
     void shouldRetireTheStandaloneMetadataManagementMenu() {
         try (GenericApplicationContext context = context(MetadataWebController.class)) {
             registerStaticModules(context);
@@ -168,18 +207,19 @@ class PlatformMenuInitialDataDeclarationProviderTest {
     }
 
     @Test
-    void shouldRegisterPasswordManagementUnderSecurityAndAudit() {
+    void shouldRegisterLogManagementAndPasswordManagementAsPlatformSecondaryMenus() {
         try (GenericApplicationContext context = context(PasswordPolicyRuleWebController.class)) {
             registerStaticModules(context);
             initializePlatformMenus(context);
 
-            assertThat(menuService.select(PlatformMenuGroups.SECURITY_AUDIT)).satisfies(menu -> {
-                assertThat(menu.getTitle()).isEqualTo("安全与审计");
+            assertThat(menuService.select("platform.menu.group.security")).isNull();
+            assertThat(menuService.select(PlatformMenuGroups.LOG_MANAGEMENT)).satisfies(menu -> {
+                assertThat(menu.getTitle()).isEqualTo("日志管理");
                 assertThat(menu.getParentId()).isEqualTo(PlatformMenuGroups.PLATFORM);
             });
             assertThat(moduleMenu("iam.password_policy_rule")).satisfies(menu -> {
                 assertThat(menu.getTitle()).isEqualTo("密码管理");
-                assertThat(menu.getParentId()).isEqualTo(PlatformMenuGroups.SECURITY_AUDIT);
+                assertThat(menu.getParentId()).isEqualTo(PlatformMenuGroups.SETTINGS);
                 assertThat(menu.getRoute()).isNull();
                 assertThat(menu.getPageMode()).isEqualTo(MenuPageMode.LIST);
             });
@@ -386,6 +426,16 @@ class PlatformMenuInitialDataDeclarationProviderTest {
     }
 
     @Test
+    void shouldDeclareThreeRouteMenusForAdministrativeLogging() {
+        assertRouteMenu(BusinessActivityLogWebController.class, "platform.business_activity_log",
+                PlatformMenuGroups.LOG_MANAGEMENT, "操作日志", 20, "/platform/logs/activity");
+        assertRouteMenu(RequestErrorLogWebController.class, "platform.request_error_log",
+                PlatformMenuGroups.LOG_MANAGEMENT, "异常日志", 30, "/platform/logs/errors");
+        assertRouteMenu(net.ximatai.muyun.spring.iam.web.LoginAuditLogWebController.class, "iam.login_audit_log",
+                PlatformMenuGroups.LOG_MANAGEMENT, "登录日志", 10, "/iam/logs/login");
+    }
+
+    @Test
     void shouldDeclareTheCanonicalPositionMenuIdentity() {
         try (GenericApplicationContext context = context(PositionWebController.class)) {
             PlatformMenuInitialDataDeclarationProvider provider =
@@ -504,6 +554,15 @@ class PlatformMenuInitialDataDeclarationProviderTest {
         assertThat(menu.order()).isEqualTo(order);
     }
 
+    private void assertRouteMenu(Class<?> controllerType, String moduleAlias, String parent, String title,
+                                 int order, String route) {
+        assertMenu(controllerType, parent, title, order);
+        PlatformStaticModule module = controllerType.getAnnotation(PlatformStaticModule.class);
+        assertThat(module).isNotNull();
+        assertThat(module.alias()).isEqualTo(moduleAlias);
+        assertThat(module.route()).isEqualTo(route);
+    }
+
     @RestController
     @PlatformStaticModule(application = net.ximatai.muyun.spring.platform.application.PlatformApplication.class, alias = "platform.module", title = "平台模块")
     @PlatformMenu(parent = PlatformMenuGroups.MODELING, title = "模块管理", order = 20)
@@ -516,6 +575,27 @@ class PlatformMenuInitialDataDeclarationProviderTest {
     @PlatformMenu(parent = PlatformMenuGroups.IDENTITY, order = 10)
     @RequestMapping("/iam.role")
     static class IamRoleWeb {
+    }
+
+    @RestController
+    @PlatformStaticModule(application = net.ximatai.muyun.spring.iam.application.IamApplication.class,
+            alias = "iam.login_audit_log", title = "登录日志", route = "/iam/logs/login")
+    @PlatformMenu(parent = PlatformMenuGroups.LOG_MANAGEMENT, title = "登录日志", order = 10)
+    static class LegacyLoginLogWeb {
+    }
+
+    @RestController
+    @PlatformStaticModule(application = net.ximatai.muyun.spring.platform.application.PlatformApplication.class,
+            alias = "platform.business_activity_log", title = "操作日志", route = "/platform/logs/activity")
+    @PlatformMenu(parent = PlatformMenuGroups.LOG_MANAGEMENT, title = "操作日志", order = 20)
+    static class LegacyBusinessActivityLogWeb {
+    }
+
+    @RestController
+    @PlatformStaticModule(application = net.ximatai.muyun.spring.platform.application.PlatformApplication.class,
+            alias = "platform.request_error_log", title = "异常日志", route = "/platform/logs/errors")
+    @PlatformMenu(parent = PlatformMenuGroups.LOG_MANAGEMENT, title = "异常日志", order = 30)
+    static class LegacyRequestErrorLogWeb {
     }
 
     @RestController

@@ -120,6 +120,24 @@ it('keeps shared pagination muted, compact, interactive, and inside a narrow lis
   }
 });
 
+it('labels a cursor-backed lower bound without presenting it as an exact total', () => {
+  const wrapper = mount(RecordQueryListSurface, {
+    props: {
+      columns: [],
+      rows: [],
+      tableVisible: false,
+      pageable: true,
+      total: 51,
+      totalKnown: false,
+    },
+  });
+  try {
+    expect(wrapper.get('.record-query-list-pagination-controls').text()).toContain('至少 51 条');
+  } finally {
+    wrapper.unmount();
+  }
+});
+
 it('separates untitled list operations from queries and wraps within a narrow host', async () => {
   await page.viewport(992, 814);
   const { default: UiActionButton } = await import('@/vue-ui-antdv/components/UiActionButton.vue');
