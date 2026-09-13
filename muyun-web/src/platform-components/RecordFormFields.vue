@@ -16,6 +16,7 @@ import RecordStatusSwitch from './RecordStatusSwitch.vue';
 import RecordStatusTag from './RecordStatusTag.vue';
 import RecordPicker from './RecordPicker.vue';
 import RecordMultiPicker from './RecordMultiPicker.vue';
+import ScopedTreePicker from './ScopedTreePicker.vue';
 import RecordFileReferenceTransfer from './RecordFileReferenceTransfer.vue';
 import SingleImageFileReferenceField from './SingleImageFileReferenceField.vue';
 import FileSizeText from './FileSizeText.vue';
@@ -123,6 +124,8 @@ const INHERIT_OPTION_VALUE = '__muyun_inherit__';
 const editorFieldErrors = ref<Record<string, string>>({});
 const referenceSelectionContext = ref<RecordFormSelectionContext>({});
 const referenceSelectionSourceIds = ref<Record<string, string | undefined>>({});
+type ScopedTreePickerHandle = { open: (keyword?: string) => void };
+const scopedTreePickers = new Map<string, ScopedTreePickerHandle>();
 const referenceSelectionValues = computed(() =>
   [...(props.fields ?? new Map<string, RecordFormFieldDescriptor>())]
     .filter(([, field]) => field.reference?.cardinality === 'ONE')
@@ -387,6 +390,17 @@ function updateField(fieldName: string, value: RecordFormFieldValue) {
   emit('update:field', fieldName, value);
 }
 
+function bindScopedTreePicker(fieldName: string, picker: ScopedTreePickerHandle | null) {
+  if (picker) scopedTreePickers.set(fieldName, picker);
+  else scopedTreePickers.delete(fieldName);
+}
+
+function openScopedTreePicker(field: RecordFormFieldState) {
+  const scopedTree = field.pickerConfig?.scopedTree;
+  if (!scopedTree || fieldDisabled(field) || scopedTree.disabled) return;
+  scopedTreePickers.get(field.fieldName)?.open();
+}
+
 function applyPickerSelection(
   fieldName: string,
   record: import('./recordPickerConstraints').RecordPickerRecord | undefined,
@@ -643,26 +657,51 @@ function groupEndsAt(field: RecordFormFieldState, index: number) {
             :disabled="fieldDisabled(field)"
             @change="updateField(field.fieldName, $event)"
           />
-          <RecordPicker
-            v-else-if="field.controlType === 'recordPicker' && field.pickerConfig"
-            :value="recordPickerFieldValue(field.fieldName)"
-            :context="field.pickerConfig.context"
-            :load-options="field.pickerConfig.loadOptions"
-            :load-tree="field.pickerConfig.loadTree"
-            :resolve-options="field.pickerConfig.resolveOptions"
-            :reload-key="field.pickerConfig.reloadKey"
-            :mode="field.pickerConfig.mode"
-            :placeholder="field.placeholder"
-            :disabled="fieldDisabled(field)"
-            :allow-clear="field.pickerConfig.allowClear"
-            :constraints="field.pickerConfig.constraints"
-            :title-of="field.pickerConfig.titleOf"
-            :description-of="field.pickerConfig.descriptionOf"
-            :filter-option="field.pickerConfig.filterOption"
-            @update:value="updateField(field.fieldName, $event)"
-            @select="applyPickerSelection(field.fieldName, $event)"
-            @selection-resolved="updateReferenceSelectionContext(field.fieldName, $event)"
-          />
+          <template v-else-if="field.controlType === 'recordPicker' && field.pickerConfig">
+            <RecordPicker
+              :value="recordPickerFieldValue(field.fieldName)"
+              :context="field.pickerConfig.context"
+              :load-options="field.pickerConfig.loadOptions"
+              :load-tree="field.pickerConfig.loadTree"
+              :resolve-options="field.pickerConfig.resolveOptions"
+              :reload-key="field.pickerConfig.reloadKey"
+              :mode="field.pickerConfig.mode"
+              :placeholder="field.placeholder"
+              :disabled="fieldDisabled(field)"
+              :allow-clear="field.pickerConfig.allowClear"
+              :constraints="field.pickerConfig.constraints"
+              :title-of="field.pickerConfig.titleOf"
+              :description-of="field.pickerConfig.descriptionOf"
+              :filter-option="field.pickerConfig.filterOption"
+              @update:value="updateField(field.fieldName, $event)"
+              @select="applyPickerSelection(field.fieldName, $event)"
+              @selection-resolved="updateReferenceSelectionContext(field.fieldName, $event)"
+            />
+            <div v-if="field.pickerConfig.scopedTree" class="record-form-scoped-tree-trigger">
+              <UiButton
+                size="small"
+                :disabled="fieldDisabled(field) || field.pickerConfig.scopedTree.disabled"
+                @click="openScopedTreePicker(field)"
+              >
+                展开选择
+              </UiButton>
+              <small v-if="field.pickerConfig.scopedTree.unavailableMessage">
+                {{ field.pickerConfig.scopedTree.unavailableMessage }}
+              </small>
+              <ScopedTreePicker
+                :ref="
+                  (picker) => bindScopedTreePicker(field.fieldName, picker as ScopedTreePickerHandle | null)
+                "
+                input-hidden
+                :value="recordPickerFieldValue(field.fieldName)"
+                :provider="field.pickerConfig.scopedTree.provider"
+                :title="field.pickerConfig.scopedTree.title ?? field.label"
+                :disabled="fieldDisabled(field) || field.pickerConfig.scopedTree.disabled"
+                @update:value="updateField(field.fieldName, $event)"
+                @select="applyPickerSelection(field.fieldName, $event)"
+              />
+            </div>
+          </template>
           <RecordMultiPicker
             v-else-if="field.controlType === 'recordMultiPicker' && field.pickerConfig"
             :value="stringArrayFieldValue(field.fieldName)"
@@ -870,6 +909,18 @@ function groupEndsAt(field: RecordFormFieldState, index: number) {
 .record-form-field-control {
   position: relative;
   min-width: 0;
+}
+
+.record-form-scoped-tree-trigger {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.record-form-scoped-tree-trigger small {
+  color: var(--muyun-text-secondary);
+  font-size: 12px;
 }
 
 .record-form-field-control :deep(.ant-select),

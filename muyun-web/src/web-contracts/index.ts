@@ -783,7 +783,7 @@ export interface WebQueryRequest {
 }
 
 /** Shared field-reference delivery contract for static and metadata-backed modules. */
-export type WebReferenceResolveMode = 'QUERY' | 'TREE' | 'TRANSLATE';
+export type WebReferenceResolveMode = 'QUERY' | 'TREE' | 'TREE_CHILDREN' | 'TRANSLATE';
 export type WebReferenceMatchMode = 'KEY' | 'LABEL' | 'AUTO';
 export type WebReferenceResolveStatus = 'OK' | 'RESOLVED' | 'NOT_FOUND' | 'AMBIGUOUS' | 'PARTIAL';
 
@@ -807,6 +807,8 @@ export interface WebReferenceResolveRequest {
   uiConfigId?: string;
   queryTemplateId?: string;
   externalQueryValues?: Record<string, unknown>;
+  /** Parent identity for one-level lazy tree delivery. Omit it to read the tree root. */
+  parentId?: string;
   /**
    * Host page that owns this navigator reference request.  Reference transports
    * use it only to resolve the declared NAVIGATOR_QUERY bindings; ordinary
@@ -823,6 +825,8 @@ export interface WebReferenceResolveItem {
   matchedBy?: WebReferenceMatchMode;
   projections?: Record<string, unknown>;
   affectPatch?: Record<string, unknown>;
+  /** Present for TREE_CHILDREN: whether the same authorized candidate scope exposes a child. */
+  hasChildren?: boolean;
 }
 
 export interface WebReferenceResolveResult {

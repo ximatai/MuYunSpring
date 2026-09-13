@@ -231,6 +231,7 @@ class PlatformWebExceptionHandlerTest {
 
         assertThat(publisher.events).singleElement().isInstanceOfSatisfying(RequestErrorLogEvent.class, logged -> {
             assertThat(logged.context().operatorId()).isEqualTo("user-1");
+            assertThat(logged.context().operatorAccount()).isEqualTo("Alice");
             assertThat(logged.context().operatorOrganizationId()).isEqualTo("organization-a");
         });
     }

@@ -26,7 +26,8 @@ public record WebReferenceResolveRequest(
         String sourceUiConfigId,
         String uiConfigId,
         String queryTemplateId,
-        Map<String, Object> externalQueryValues
+        Map<String, Object> externalQueryValues,
+        String parentId
 ) {
     public WebReferenceResolveRequest {
         values = values == null ? List.of() : List.copyOf(values);
@@ -38,7 +39,7 @@ public record WebReferenceResolveRequest(
 
     public static WebReferenceResolveRequest empty() {
         return new WebReferenceResolveRequest(null, null, null, List.of(), List.of(), null,
-                WebPageRequest.DEFAULT, true, Map.of(), null, null, null, null, Map.of());
+                WebPageRequest.DEFAULT, true, Map.of(), null, null, null, null, Map.of(), null);
     }
 
     /** Compatibility constructor for clients issued before source identity became explicit. */
@@ -56,7 +57,26 @@ public record WebReferenceResolveRequest(
                                       String queryTemplateId,
                                       Map<String, Object> externalQueryValues) {
         this(mode, matchMode, fuzzy, values, conditions, criteria, page, includeProjections, formValues,
-                null, sourceUiConfigId, uiConfigId, queryTemplateId, externalQueryValues);
+                null, sourceUiConfigId, uiConfigId, queryTemplateId, externalQueryValues, null);
+    }
+
+    /** Compatibility constructor for clients issued before paged tree-child delivery. */
+    public WebReferenceResolveRequest(WebReferenceResolveMode mode,
+                                      WebReferenceMatchMode matchMode,
+                                      String fuzzy,
+                                      List<Object> values,
+                                      List<WebQueryCondition> conditions,
+                                      WebQueryCriteria criteria,
+                                      WebPageRequest page,
+                                      Boolean includeProjections,
+                                      Map<String, Object> formValues,
+                                      WebReferenceSource source,
+                                      String sourceUiConfigId,
+                                      String uiConfigId,
+                                      String queryTemplateId,
+                                      Map<String, Object> externalQueryValues) {
+        this(mode, matchMode, fuzzy, values, conditions, criteria, page, includeProjections, formValues,
+                source, sourceUiConfigId, uiConfigId, queryTemplateId, externalQueryValues, null);
     }
 
     private static Map<String, Object> immutableMapAllowingNullValues(Map<String, Object> values) {

@@ -1200,6 +1200,35 @@ class IamWebControllerTest {
     }
 
     @Test
+    void shouldQueryEmployeeAccountCandidatesThroughTheEmployeeRecordScope() {
+        EmployeeService employeeService = mock(EmployeeService.class);
+        EmployeeAccountCandidateQueryService candidateQueryService = mock(EmployeeAccountCandidateQueryService.class);
+        EmployeeWebController controller = new EmployeeWebController(
+                mock(EmployeeAccountService.class), mock(EmployeeDelegationService.class));
+        ReflectionTestUtils.setField(controller, "service", employeeService);
+        controller.setEmployeeAccountCandidateQueryService(candidateQueryService);
+        Employee employee = employee("employee-1", "org-1", "dept-1", "E001", "Alice");
+        employee.setTenantId("tenant_a");
+        UserSelectorItem user = new UserSelectorItem(
+                "user-1", "alice", null, null, null, null, null, null, null);
+        when(employeeService.select("employee-1")).thenReturn(employee);
+        when(employeeService.requireEnabled("employee-1", "employee is not active: employee-1"))
+                .thenReturn(employee);
+        when(candidateQueryService.query("tenant_a", "alice", List.of("user-1"), WebPageRequest.DEFAULT))
+                .thenReturn(new WebPageResponse<>(List.of(user), 1, 0, 20, 1, true, null));
+
+        WebPageResponse<UserSelectorItem> response;
+        try (TenantContext.Scope ignored = TenantContext.use("tenant_a")) {
+            response = controller.accountCandidates(
+                    "employee-1", new EmployeeWebController.AccountCandidateRequest(
+                            "alice", List.of("user-1"), null));
+        }
+
+        assertThat(response.records()).containsExactly(user);
+        verify(candidateQueryService).query("tenant_a", "alice", List.of("user-1"), WebPageRequest.DEFAULT);
+    }
+
+    @Test
     void shouldReturnActionMessageWhenRoleGrantBusinessRuleFails() throws Exception {
         currentUser = CurrentUser.tenantUser("user-1", "User", "tenant_a");
         when(roleService.resolveAccountRoleBindingScope("role-1", "tenant_a"))

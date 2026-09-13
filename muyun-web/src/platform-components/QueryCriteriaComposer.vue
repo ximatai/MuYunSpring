@@ -15,7 +15,12 @@ import type {
   QueryCriteriaDraftNode,
   QueryCriteriaGroupDraft,
 } from './queryCriteriaDraft';
-import { isValueLessQueryOperator } from './queryCriteriaDraft';
+import {
+  isValueLessQueryOperator,
+  QUERY_CRITERIA_MAXIMUM_COLLECTION_VALUES,
+  QUERY_CRITERIA_MAXIMUM_DEPTH,
+  QUERY_CRITERIA_MAXIMUM_NODES,
+} from './queryCriteriaDraft';
 import type { RecordPickerRecord } from './recordPickerConstraints';
 
 defineOptions({ name: 'QueryCriteriaComposer' });
@@ -46,6 +51,7 @@ const validationErrors = ref<Record<number, string>>({});
 
 function apply() {
   const errors: Record<number, string> = {};
+  validateDraftComplexity(root.value, 1, errors, { count: 0 });
   const result = resolveGroup(root.value, true, errors);
   if (Object.keys(errors).length > 0 || !result) {
     validationErrors.value = errors;
@@ -55,6 +61,35 @@ function apply() {
   validationErrors.value = {};
   emit('draftChange', false);
   emit('apply', result);
+}
+
+function validateDraftComplexity(
+  group: QueryCriteriaGroupDraft,
+  depth: number,
+  errors: Record<number, string>,
+  state: { count: number },
+) {
+  state.count += 1;
+  if (depth > QUERY_CRITERIA_MAXIMUM_DEPTH) {
+    errors[group.id] = `最多支持 ${QUERY_CRITERIA_MAXIMUM_DEPTH} 层括号组`;
+  }
+  if (state.count > QUERY_CRITERIA_MAXIMUM_NODES) {
+    errors[group.id] = `最多支持 ${QUERY_CRITERIA_MAXIMUM_NODES} 个条件和括号组`;
+  }
+  for (const child of group.children) {
+    state.count += 1;
+    if (state.count > QUERY_CRITERIA_MAXIMUM_NODES) {
+      errors[child.id] = `最多支持 ${QUERY_CRITERIA_MAXIMUM_NODES} 个条件和括号组`;
+    }
+    if (child.kind === 'GROUP') {
+      // The recursive call accounts for the nested group itself, so undo the
+      // child increment above before continuing through that group.
+      state.count -= 1;
+      validateDraftComplexity(child, depth + 1, errors, state);
+    } else if (child.values.length > QUERY_CRITERIA_MAXIMUM_COLLECTION_VALUES) {
+      errors[child.id] = `一个条件最多支持 ${QUERY_CRITERIA_MAXIMUM_COLLECTION_VALUES} 个值`;
+    }
+  }
 }
 
 function clear() {
@@ -171,6 +206,7 @@ function resolveNode(
       :next-id="nextId"
       :disabled="disabled"
       :composition="composition"
+      :depth="1"
       :validation-errors="validationErrors"
       @update:group="updateRoot"
       @submit="apply"

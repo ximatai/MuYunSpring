@@ -27,6 +27,7 @@ public final class RequestErrorLogRecorder {
     static final String START_NANOS_ATTRIBUTE = RequestErrorLogRecorder.class.getName() + ".START_NANOS";
     private static final String RECORDED_ATTRIBUTE = RequestErrorLogRecorder.class.getName() + ".RECORDED";
     private static final String OPERATOR_ID_ATTRIBUTE = RequestErrorLogRecorder.class.getName() + ".OPERATOR_ID";
+    private static final String OPERATOR_ACCOUNT_ATTRIBUTE = RequestErrorLogRecorder.class.getName() + ".OPERATOR_ACCOUNT";
     private static final String TENANT_ID_ATTRIBUTE = RequestErrorLogRecorder.class.getName() + ".TENANT_ID";
     private static final String OPERATOR_ORGANIZATION_ID_ATTRIBUTE = RequestErrorLogRecorder.class.getName() + ".OPERATOR_ORGANIZATION_ID";
     private static final String FILTER_ERROR_CODE_ATTRIBUTE = RequestErrorLogRecorder.class.getName() + ".FILTER_ERROR_CODE";
@@ -50,6 +51,9 @@ public final class RequestErrorLogRecorder {
 
     static void snapshotCurrentUser(HttpServletRequest request, CurrentUser user) {
         request.setAttribute(OPERATOR_ID_ATTRIBUTE, user.userId());
+        if (user.username() != null) {
+            request.setAttribute(OPERATOR_ACCOUNT_ATTRIBUTE, user.username());
+        }
         if (user.tenantId() != null) {
             request.setAttribute(TENANT_ID_ATTRIBUTE, user.tenantId());
         }
@@ -106,6 +110,10 @@ public final class RequestErrorLogRecorder {
             if (operatorId == null) {
                 operatorId = currentUser.map(user -> user.userId()).orElse(null);
             }
+            String operatorAccount = attribute(request, OPERATOR_ACCOUNT_ATTRIBUTE);
+            if (operatorAccount == null) {
+                operatorAccount = currentUser.map(user -> user.username()).orElse(null);
+            }
             String operatorOrganizationId = attribute(request, OPERATOR_ORGANIZATION_ID_ATTRIBUTE);
             if (operatorOrganizationId == null) {
                 operatorOrganizationId = currentUser.map(user -> user.organizationId()).orElse(null);
@@ -120,7 +128,7 @@ public final class RequestErrorLogRecorder {
                     // Servlet processing cannot establish that a client received the response bytes.
                     false);
             BusinessLogContext context = BusinessLogContext.capturedNow(Ids.newId(), Instant.now(), traceId,
-                    tenantId, operatorId, operatorOrganizationId,
+                    tenantId, operatorId, operatorAccount, operatorOrganizationId,
                     action.map(value -> value.moduleAlias()).orElse(null),
                     action.map(value -> value.actionCode()).orElse(null));
             publisher.publish(new RequestErrorLogEvent(context, details));

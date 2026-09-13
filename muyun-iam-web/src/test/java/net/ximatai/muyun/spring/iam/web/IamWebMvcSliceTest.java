@@ -25,6 +25,8 @@ import net.ximatai.muyun.spring.ability.action.DataChangeIntent;
 import net.ximatai.muyun.spring.ability.action.DataChangeOperation;
 import net.ximatai.muyun.spring.ability.action.MutationContextHolder;
 import net.ximatai.muyun.spring.web.MuYunSpringJacksonConfiguration;
+import net.ximatai.muyun.spring.web.WebPageRequest;
+import net.ximatai.muyun.spring.web.WebPageResponse;
 import net.ximatai.muyun.spring.platform.web.StaticModuleDefinition;
 import net.ximatai.muyun.spring.platform.web.StaticModuleDefinitionCatalog;
 import net.ximatai.muyun.spring.platform.module.StaticModuleReadProjectionDefinition;
@@ -98,6 +100,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isA;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.doAnswer;
@@ -159,6 +162,9 @@ class IamWebMvcSliceTest {
 
     @MockitoBean
     private EmployeeDelegationService employeeDelegationService;
+
+    @MockitoBean
+    private EmployeeAccountCandidateQueryService employeeAccountCandidateQueryService;
 
     @MockitoBean
     private StaticModuleDefinitionCatalog staticModuleDefinitionCatalog;
@@ -644,8 +650,22 @@ class IamWebMvcSliceTest {
     @Test
     void shouldBindEmployeeAccountEndpointsInRealMvcContext() throws Exception {
         EmployeeAccount binding = employeeAccount("binding-1", "employee-1", "user-2");
+        Employee employee = new Employee();
+        employee.setId("employee-1");
+        employee.setOrganizationId("org-1");
+        employee.setDepartmentId("dept-1");
+        employee.setEmployeeNo("E001");
+        employee.setTitle("Alice");
+        employee.setTenantId("tenant_a");
+        UserSelectorItem candidate = new UserSelectorItem(
+                "user-3", "alice", null, null, null, null, null, null, null);
         when(currentUserProvider.currentUser())
                 .thenReturn(Optional.of(CurrentUser.tenantUser("user-1", "User", "tenant_a")));
+        when(employeeService.select("employee-1")).thenReturn(employee);
+        when(employeeService.requireEnabled("employee-1", "employee is not active: employee-1"))
+                .thenReturn(employee);
+        when(employeeAccountCandidateQueryService.query(eq("tenant_a"), eq("alice"), isNull(), any(WebPageRequest.class)))
+                .thenReturn(new WebPageResponse<>(List.of(candidate), 1, 0, 20, 1, true, null));
         when(employeeAccountService.accountOfEmployee("employee-1")).thenReturn(binding);
         when(employeeAccountService.bindAccount(eq("employee-1"), any(EmployeeAccount.class))).thenReturn("binding-1");
         when(employeeAccountService.select("binding-1")).thenReturn(binding);
@@ -699,6 +719,15 @@ class IamWebMvcSliceTest {
                 .andExpect(jsonPath("$.id").value("binding-1"))
                 .andExpect(jsonPath("$.userId").value("user-2"));
 
+        mvc.perform(post("/iam.employee/employee-1/account-candidates/query")
+                        .contentType("application/json")
+                        .content("""
+                                {"keyword":"alice"}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.records[0].id").value("user-3"))
+                .andExpect(jsonPath("$.records[0].username").value("alice"));
+
         mvc.perform(post("/iam.employee/employee-1/account/provision")
                         .contentType("application/json")
                         .content("""
@@ -733,6 +762,7 @@ class IamWebMvcSliceTest {
                         .exists());
 
         verify(employeeAccountService).accountOfEmployee("employee-1");
+        verify(employeeAccountCandidateQueryService).query(eq("tenant_a"), eq("alice"), isNull(), any(WebPageRequest.class));
         verify(employeeAccountService).bindAccount(eq("employee-1"), any(EmployeeAccount.class));
         verify(employeeAccountService).provisionAccount(eq("employee-1"), any(UserAccount.class));
         verify(employeeAccountService).removeAccount("employee-1");

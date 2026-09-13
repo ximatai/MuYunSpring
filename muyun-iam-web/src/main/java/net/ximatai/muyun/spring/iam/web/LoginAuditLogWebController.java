@@ -2,6 +2,7 @@ package net.ximatai.muyun.spring.iam.web;
 
 import net.ximatai.muyun.spring.ability.logging.BusinessLogQueryContract;
 import net.ximatai.muyun.spring.ability.logging.BusinessLogQueryProfile;
+import net.ximatai.muyun.spring.ability.logging.BusinessLogQuery;
 import net.ximatai.muyun.spring.ability.logging.BusinessLogPageRequest;
 import net.ximatai.muyun.spring.ability.query.QuerySchema;
 import net.ximatai.muyun.spring.ability.logging.BusinessLogOperatorIdentityLookup;
@@ -12,6 +13,9 @@ import net.ximatai.muyun.spring.platform.logging.BusinessLogGovernanceService;
 import net.ximatai.muyun.spring.platform.module.PlatformStaticModule;
 import net.ximatai.muyun.spring.platform.web.BusinessLogEventResponse;
 import net.ximatai.muyun.spring.platform.web.BusinessLogWebPageResponses;
+import net.ximatai.muyun.spring.platform.web.BusinessLogOperatorCandidatePageResponse;
+import net.ximatai.muyun.spring.platform.web.BusinessLogOperatorCandidateRequest;
+import net.ximatai.muyun.spring.platform.web.BusinessLogOperatorCandidateResponses;
 import net.ximatai.muyun.spring.platform.web.PlatformMenu;
 import net.ximatai.muyun.spring.platform.web.PlatformMenuGroups;
 import net.ximatai.muyun.spring.platform.web.PlatformStaticWebScope;
@@ -62,6 +66,22 @@ public class LoginAuditLogWebController extends WebSupport<LoginAuditGovernanceS
         return webScope(() -> BusinessLogWebPageResponses.from(service().queryPage(
                 QUERY_CONTRACT.toQuery(WebQueryRequests.from(request), 200), page(request)),
                 identityLookup.getIfAvailable()));
+    }
+
+    @PostMapping("/operator-candidates/query")
+    @CustomActionEndpoint(value = LoginAuditGovernanceService.QUERY_ACTION_CODE, title = "查询登录审计",
+            level = PlatformActionLevel.LIST, dataAuth = false)
+    public BusinessLogOperatorCandidatePageResponse operatorCandidates(
+            @RequestBody(required = false) BusinessLogOperatorCandidateRequest request) {
+        return webScope(() -> {
+            BusinessLogOperatorCandidateRequest normalized = request == null
+                    ? BusinessLogOperatorCandidateRequest.EMPTY : request;
+            BusinessLogOperatorIdentityLookup lookup = identityLookup.getIfAvailable();
+            var candidates = service().queryOperatorCandidates(BusinessLogQuery.newest(200), normalized.browseQuery());
+            var selected = normalized.hasSelectedIds()
+                    ? service().queryOperatorCandidates(BusinessLogQuery.newest(200), normalized.selectedQuery()) : null;
+            return BusinessLogOperatorCandidateResponses.from(candidates, selected, lookup);
+        });
     }
 
     private BusinessLogPageRequest page(WebQueryRequest request) {

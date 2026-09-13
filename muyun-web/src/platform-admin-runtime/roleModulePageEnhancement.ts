@@ -60,18 +60,6 @@ export const roleModulePageEnhancement: ModulePageEnhancement = {
       component: RoleScopeTree,
       selection: {
         kind: 'roleScope',
-        initialKey: (currentUser) =>
-          currentUser?.system === true
-            ? 'platform'
-            : currentUser?.tenantId
-              ? `tenant:${currentUser.tenantId}`
-              : undefined,
-        initialPresentation: (currentUser) =>
-          currentUser?.system === true
-            ? { label: '平台角色' }
-            : currentUser?.tenantId
-              ? { label: currentUser.tenantId }
-              : undefined,
       },
     },
   },

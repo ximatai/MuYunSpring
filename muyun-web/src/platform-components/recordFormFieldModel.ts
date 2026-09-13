@@ -19,6 +19,7 @@ import type { ModuleContext } from '@muyun/web-core';
 import type { PickerConstraint, RecordPickerRecord } from './recordPickerConstraints';
 import type { WebTreeNode } from '@muyun/web-contracts';
 import type { RecordPickerMode } from './recordPickerModel';
+import type { ScopedTreePickerProvider } from './scopedTreePickerModel';
 import { FormulaRuntime } from '../formula/FormulaRuntime';
 
 export type RecordFormFieldDescriptor = (ViewFieldDefinition | ResolvedViewFieldDescriptor) & {
@@ -207,6 +208,17 @@ export interface RecordFormFieldPickerConfig {
   titleOf?: (record: RecordPickerRecord) => string;
   descriptionOf?: (record: RecordPickerRecord) => string | undefined;
   filterOption?: (record: RecordPickerRecord, keyword: string) => boolean;
+  /**
+   * Optional expanded tree navigation for a reference that keeps its ordinary compact picker.
+   * The host owns whether its declared effective scope is ready; this generic form model does
+   * not infer tenant or organization rules from field names.
+   */
+  scopedTree?: {
+    title?: string;
+    disabled?: boolean;
+    unavailableMessage?: string;
+    provider: ScopedTreePickerProvider;
+  };
 }
 
 export interface RecordFormFieldState {

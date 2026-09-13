@@ -1,10 +1,91 @@
 import { flushPromises, mount } from '@vue/test-utils';
+import { defineComponent, h } from 'vue';
 import { describe, expect, it, vi } from 'vitest';
 import RecordFormFields from '@/platform-components/RecordFormFields.vue';
 import type { RecordFormFieldDescriptor } from '@/platform-components/recordFormFieldModel.ts';
 import type { ModuleContext } from '@muyun/web-core';
 
 describe('RecordFormFields', () => {
+  it('keeps the compact picker and exposes lazy-tree expansion as an additional reference action', async () => {
+    const open = vi.fn();
+    const ScopedTreePickerStub = defineComponent({
+      name: 'ScopedTreePicker',
+      emits: ['update:value', 'select'],
+      setup(_, { expose }) {
+        expose({ open });
+        return () => h('div', { class: 'scoped-tree-picker-stub' });
+      },
+    });
+    const fields = new Map<string, RecordFormFieldDescriptor>([
+      [
+        'departmentId',
+        {
+          fieldRef: { fieldName: 'departmentId' },
+          label: '所属部门',
+          reference: { targetModuleAlias: 'iam.department', cardinality: 'ONE' },
+        },
+      ],
+    ]);
+    const provider = {
+      loadRoot: vi.fn(),
+      loadChildren: vi.fn(),
+      resolve: vi.fn().mockResolvedValue([]),
+    };
+    const wrapper = mount(RecordFormFields, {
+      props: {
+        record: { departmentId: 'department-old' },
+        fields,
+        pickerConfigs: {
+          departmentId: {
+            context: {} as never,
+            scopedTree: { title: '选择所属部门', provider },
+          },
+        },
+      },
+      global: { stubs: { ScopedTreePicker: ScopedTreePickerStub } },
+    });
+
+    expect(wrapper.findComponent({ name: 'RecordPicker' }).exists()).toBe(true);
+    expect(wrapper.find('.record-form-scoped-tree-trigger').text()).toContain('展开选择');
+    await wrapper.get('.record-form-scoped-tree-trigger button').trigger('click');
+    expect(open).toHaveBeenCalledOnce();
+
+    wrapper.findComponent(ScopedTreePickerStub).vm.$emit('update:value', 'department-new');
+    expect(wrapper.emitted('update:field')).toContainEqual(['departmentId', 'department-new']);
+  });
+
+  it('disables expanded tree selection with a source-supplied scope guide', () => {
+    const fields = new Map<string, RecordFormFieldDescriptor>([
+      [
+        'departmentId',
+        {
+          fieldRef: { fieldName: 'departmentId' },
+          label: '所属部门',
+          reference: { targetModuleAlias: 'iam.department', cardinality: 'ONE' },
+        },
+      ],
+    ]);
+    const wrapper = mount(RecordFormFields, {
+      props: {
+        record: {},
+        fields,
+        pickerConfigs: {
+          departmentId: {
+            context: {} as never,
+            scopedTree: {
+              disabled: true,
+              unavailableMessage: '请先选择所属机构，再展开选择部门',
+              provider: { loadRoot: vi.fn(), loadChildren: vi.fn(), resolve: vi.fn() },
+            },
+          },
+        },
+      },
+    });
+
+    expect(wrapper.find('.record-form-scoped-tree-trigger').text()).toContain('请先选择所属机构');
+    expect(wrapper.get('.record-form-scoped-tree-trigger button').attributes('disabled')).toBeDefined();
+  });
+
   it('emits selected reference projections separately from mutation field changes', async () => {
     const fields = new Map<string, RecordFormFieldDescriptor>([
       [

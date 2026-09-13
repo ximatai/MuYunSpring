@@ -23,6 +23,7 @@ import type {
   QueryOperator,
   QueryCriteriaCondition,
   QuerySchema,
+  QuerySchemaField,
   ResolvedPageListExternalPersistentQueryControlDescriptor,
   ResolvedPageListFieldPersistentQueryControlDescriptor,
   ResolvedPageListPersistentQueryControlDescriptor,
@@ -49,6 +50,7 @@ import QueryGroupedSummary from './QueryGroupedSummary.vue';
 import QueryCriteriaComposer from './QueryCriteriaComposer.vue';
 import QueryValueEditor from './QueryValueEditor.vue';
 import type { RecordPickerRecord } from './recordPickerConstraints';
+import type { UserPickerConfig } from './userPickerModel';
 import RecycleBinModeButton from './RecycleBinModeButton.vue';
 import {
   mergeRecordActions,
@@ -136,6 +138,8 @@ const props = withDefaults(
     queryTemplateId?: string;
     /** A source-owned query schema avoids forcing embedded relation lists through target-module access. */
     querySchema?: QuerySchema;
+    /** Allows a source surface to supply semantic user candidates for a query field. */
+    userPickerOf?: (field: QuerySchemaField) => UserPickerConfig | undefined;
     /** Read-only relation runners may deliberately suppress ad-hoc query controls. */
     queryable?: boolean;
     /** A relation query can intentionally be a bounded, non-pageable result. */
@@ -187,6 +191,7 @@ const props = withDefaults(
     uiConfigId: undefined,
     queryTemplateId: undefined,
     querySchema: undefined,
+    userPickerOf: undefined,
     queryable: true,
     pageable: true,
     ready: true,
@@ -805,7 +810,11 @@ function persistentFieldOptions(control: ResolvedPageListFieldPersistentQueryCon
 }
 
 function persistentReferenceContext(control: ResolvedPageListFieldPersistentQueryControlDescriptor) {
-  const targetModuleAlias = fieldByName(control.fieldName)?.reference?.targetModuleAlias;
+  const field = fieldByName(control.fieldName);
+  if (field && props.userPickerOf?.(field)) {
+    return undefined;
+  }
+  const targetModuleAlias = field?.reference?.targetModuleAlias;
   return targetModuleAlias ? queryReferenceContexts.value[targetModuleAlias] : undefined;
 }
 
@@ -1271,6 +1280,7 @@ defineExpose({ clearSelection, refresh });
           :values="persistentFieldDraftValue(control)"
           :options="persistentFieldOptions(control)"
           :reference-context="persistentReferenceContext(control)"
+          :user-picker="userPickerOf?.(fieldByName(control.fieldName)!)"
           :disabled="queryActionsDisabled"
           @submit="applyPersistentFieldQueries"
           @update:values="updatePersistentFieldDraftValue(control, $event)"

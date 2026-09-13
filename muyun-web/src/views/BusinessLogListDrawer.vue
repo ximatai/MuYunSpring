@@ -6,6 +6,7 @@ import {
   RecordQueryListPanel,
   presentPlatformError,
   type RecordQueryListColumn,
+  type UserPickerConfig,
 } from '@muyun/platform-components';
 import { useModuleContext } from '@muyun/web-core';
 import type { WebQueryRequest } from '@muyun/web-contracts';
@@ -28,6 +29,15 @@ const props = defineProps<{
 
 const moduleContext = useModuleContext<BusinessLogEventView>({ moduleAlias: props.moduleAlias });
 const client = createBusinessLogClient(moduleContext.http, props.surface);
+const operatorUserPicker: UserPickerConfig = {
+  title: '选择操作用户',
+  placeholder: '按账号或用户 ID 搜索',
+  searchPage: async ({ keyword, pageNum, pageSize }) => {
+    const page = await client.operatorCandidates({ keyword, pageNum, pageSize });
+    return { records: page.records, total: page.total };
+  },
+  resolveUsers: async (ids) => (await client.operatorCandidates({ selectedIds: ids })).selectedRecords,
+};
 const selectedEvent = ref<BusinessLogEventView>();
 const detailLoading = ref(false);
 const detailError = ref<string>();
@@ -119,6 +129,10 @@ function rememberQuery(request: WebQueryRequest) {
 
 function defaultQueryRequest(): WebQueryRequest {
   return { page: { pageNum: 1, pageSize: 50 }, conditions: [] };
+}
+
+function userPickerOf(field: { name: string }) {
+  return field.name === 'operatorId' ? operatorUserPicker : undefined;
 }
 
 function displayValue(column: string, event: BusinessLogEventView) {
@@ -262,6 +276,7 @@ const configBySurface: Record<BusinessLogSurface, { columns: RecordQueryListColu
     :show-recycle-bin="false"
     :page-size="50"
     :page-size-options="[20, 50, 100]"
+    :user-picker-of="userPickerOf"
     empty-description="暂无符合条件的日志"
     :row-actions-of="detailRowActions"
     row-actions-title="操作"

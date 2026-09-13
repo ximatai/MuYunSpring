@@ -1,12 +1,18 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue';
 import { actionResultData } from '@muyun/web-core';
-import { presentPlatformError, presentPlatformMessage } from '@muyun/platform-components';
+import {
+  UserPicker,
+  presentPlatformError,
+  presentPlatformMessage,
+  type UserPickerCandidate,
+} from '@muyun/platform-components';
 import { UiButton, UiError, UiInput, UiSpin, confirmAction } from '@muyun/vue-ui-antdv';
 import type { ModulePageDrawerContext } from '@muyun/dynamic-page-runtime';
 import type {
   EmployeeAccount,
   UserAccount,
+  UserSelectorItem,
   WebActionResultEnvelope,
   WebPageResponse,
 } from '@muyun/web-contracts';
@@ -16,10 +22,9 @@ defineOptions({ name: 'EmployeeAccountDrawer' });
 const props = defineProps<{ context: ModulePageDrawerContext }>();
 
 type AccountProvisionResponse = { user: UserAccount; binding: EmployeeAccount };
-type UserSelectorItem = Pick<UserAccount, 'id' | 'username' | 'employeeId'>;
 
 const account = ref<EmployeeAccount>();
-const existingUsername = ref('');
+const selectedExistingUserId = ref<string>();
 const username = ref('');
 const password = ref('');
 const loading = ref(false);
@@ -69,50 +74,23 @@ async function provision() {
   }
 }
 
-async function bindExisting() {
+async function bindSelected(users: UserPickerCandidate[]) {
+  const user = users[0];
+  if (!user) return;
+  await bindExistingAccount(user.id);
+}
+
+async function bindExistingAccount(userId: string) {
   const employeeId = employeeIdOf();
-  const normalizedUsername = existingUsername.value.trim();
-  if (!employeeId || !normalizedUsername || saving.value) {
-    if (!normalizedUsername) {
-      presentPlatformMessage('请输入要绑定的已有账号。', {
-        source: 'employee-account',
-        phase: 'validation',
-      });
-    }
-    return;
-  }
+  if (!employeeId || !userId || saving.value) return;
   saving.value = true;
   try {
-    const candidates = await props.context.module.http.request<WebPageResponse<UserSelectorItem>>({
-      method: 'POST',
-      path: '/iam.user/selector/query',
-      body: {
-        keyword: normalizedUsername,
-        enabledOnly: true,
-        page: { pageNum: 1, pageSize: 20 },
-      },
-    });
-    const user = candidates.records.find((candidate) => candidate.username === normalizedUsername);
-    if (!user?.id) {
-      presentPlatformMessage('未找到启用中的同名用户账号。', {
-        source: 'employee-account',
-        phase: 'action',
-      });
-      return;
-    }
-    if (user.employeeId) {
-      presentPlatformMessage('该用户已绑定其他职员，不能重复绑定。', {
-        source: 'employee-account',
-        phase: 'action',
-      });
-      return;
-    }
     account.value = await props.context.module.http.request<EmployeeAccount>({
       method: 'POST',
       path: `/iam.employee/${encodeURIComponent(employeeId)}/account`,
-      body: { userId: user.id },
+      body: { userId },
     });
-    existingUsername.value = '';
+    selectedExistingUserId.value = undefined;
     props.context.refreshList();
     presentPlatformMessage('账号已绑定到当前职员。', { source: 'employee-account', phase: 'action' });
   } catch (error) {
@@ -120,6 +98,39 @@ async function bindExisting() {
   } finally {
     saving.value = false;
   }
+}
+
+async function searchExistingUsers(request: { keyword: string; pageNum: number; pageSize: number }) {
+  const employeeId = employeeIdOf();
+  if (!employeeId) return { records: [], total: 0 };
+  const response = await props.context.module.http.request<WebPageResponse<UserSelectorItem>>({
+    method: 'POST',
+    path: `/iam.employee/${encodeURIComponent(employeeId)}/account-candidates/query`,
+    body: {
+      keyword: request.keyword,
+      page: { pageNum: request.pageNum, pageSize: request.pageSize },
+    },
+  });
+  return { records: response.records.map(userPickerCandidate), total: response.total };
+}
+
+async function resolveExistingUsers(ids: string[]) {
+  const employeeId = employeeIdOf();
+  if (!employeeId || ids.length === 0) return [];
+  const response = await props.context.module.http.request<WebPageResponse<UserSelectorItem>>({
+    method: 'POST',
+    path: `/iam.employee/${encodeURIComponent(employeeId)}/account-candidates/query`,
+    body: { ids, page: { pageNum: 1, pageSize: ids.length } },
+  });
+  return response.records.map(userPickerCandidate);
+}
+
+function userPickerCandidate(user: UserSelectorItem): UserPickerCandidate {
+  return {
+    id: user.id,
+    title: user.username ?? user.id,
+    subtitle: user.organizationTitle ?? user.organizationId,
+  };
 }
 
 async function remove() {
@@ -162,14 +173,19 @@ function employeeIdOf() {
       <UiButton danger icon-name="delete" :loading="saving" @click="remove">移除账户</UiButton>
     </template>
     <template v-else>
-      <form @submit.prevent="bindExisting">
-        <p>绑定已有用户账号；账号必须启用且尚未绑定其他职员。</p>
-        <label>
-          <span>已有账号</span>
-          <UiInput v-model:value="existingUsername" :disabled="saving" placeholder="请输入已有登录账号" />
-        </label>
-        <UiButton html-type="submit" :loading="saving"> 绑定已有账号 </UiButton>
-      </form>
+      <section class="employee-account-existing-picker">
+        <p>绑定已有用户账号；仅显示当前租户内启用且尚未绑定其他职员的账号。</p>
+        <UserPicker
+          :value="selectedExistingUserId"
+          :disabled="saving"
+          placeholder="搜索并选择已有登录账号"
+          title="选择已有登录账号"
+          :search-page="searchExistingUsers"
+          :resolve-users="resolveExistingUsers"
+          @update:value="selectedExistingUserId = typeof $event === 'string' ? $event : undefined"
+          @select="bindSelected"
+        />
+      </section>
       <form @submit.prevent="provision">
         <p>也可直接创建登录账号并自动绑定到当前职员。</p>
         <label>
@@ -190,7 +206,8 @@ function employeeIdOf() {
 
 <style scoped>
 .employee-account-drawer,
-.employee-account-drawer form {
+.employee-account-drawer form,
+.employee-account-existing-picker {
   display: grid;
   gap: 14px;
 }

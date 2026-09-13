@@ -551,6 +551,7 @@ it('role management enters the standard runner while keeping IAM scope and actio
   const roleViewSource = readSource('src/views/RoleManagementView.vue');
   const routesSource = readSource('src/platform-admin-runtime/platformAdminRoutes.ts');
   const roleScopeTreeSource = readSource('src/platform-admin-runtime/role/RoleScopeTree.vue');
+  const roleScopeClientSource = readSource('src/platform-admin-runtime/role/roleScopeSelectionClient.ts');
   const roleEnumTitleCellSource = readSource('src/platform-admin-runtime/role/RoleEnumTitleCell.vue');
   const roleEnhancementSource = readSource('src/platform-admin-runtime/roleModulePageEnhancement.ts');
   const contractsSource = readSource('src/web-contracts/index.ts');
@@ -558,15 +559,19 @@ it('role management enters the standard runner while keeping IAM scope and actio
 
   assert.notMatch(routesSource, /route: '\/iam\/role',/);
   assert.match(roleScopeTreeSource, /defineOptions\(\{ name: 'RoleScopeTree' \}\)/);
-  assert.match(roleScopeTreeSource, /moduleAlias: 'iam\.tenant'/);
-  assert.match(roleScopeTreeSource, /moduleAlias: 'iam\.organization'/);
+  assert.match(roleScopeTreeSource, /createRoleScopeSelectionClient/);
+  assert.notMatch(roleScopeTreeSource, /moduleAlias: 'iam\.tenant'/);
+  assert.notMatch(roleScopeTreeSource, /moduleAlias: 'iam\.organization'/);
   assert.match(roleScopeTreeSource, /<UiTree/);
   assert.match(roleScopeTreeSource, /loadChildren/);
   assert.match(roleScopeTreeSource, /clearSelection/);
-  assert.notMatch(roleScopeTreeSource, /tenant-root:|租户本级角色/);
-  assert.match(roleScopeTreeSource, /key: `tenant:\$\{tenant\.id \?\? ''\}`/);
+  assert.match(roleScopeTreeSource, /selectSelectionKey/);
+  assert.match(roleScopeClientSource, /\/iam\.role\/scope-selection\/descriptor/);
+  assert.match(roleScopeClientSource, /\/iam\.role\/scope-selection\/candidates/);
+  assert.notMatch(roleScopeClientSource, /iam\.tenant|iam\.organization/);
   assert.match(roleEnhancementSource, /target: \{ moduleAlias: 'iam\.role' \}/);
   assert.match(roleEnhancementSource, /kind: 'roleScope'/);
+  assert.notMatch(roleEnhancementSource, /initialKey:|initialPresentation:/);
   assert.match(roleEnhancementSource, /RoleAccountGrantDrawerSurface/);
   assert.match(roleEnhancementSource, /RoleEmploymentGrantDrawerSurface/);
   assert.match(roleEnhancementSource, /RoleAuthorizationDrawerSurface/);

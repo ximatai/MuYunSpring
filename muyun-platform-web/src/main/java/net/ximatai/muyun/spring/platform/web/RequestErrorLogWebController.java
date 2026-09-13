@@ -2,6 +2,7 @@ package net.ximatai.muyun.spring.platform.web;
 
 import net.ximatai.muyun.spring.ability.logging.BusinessLogQueryContract;
 import net.ximatai.muyun.spring.ability.logging.BusinessLogQueryProfile;
+import net.ximatai.muyun.spring.ability.logging.BusinessLogQuery;
 import net.ximatai.muyun.spring.ability.logging.BusinessLogPageRequest;
 import net.ximatai.muyun.spring.ability.query.QuerySchema;
 import net.ximatai.muyun.spring.ability.logging.BusinessLogOperatorIdentityLookup;
@@ -66,6 +67,25 @@ public class RequestErrorLogWebController extends WebSupport<BusinessLogGovernan
         return webScope(() -> BusinessLogWebPageResponses.from(service().queryRequestErrorsPage(
                 QUERY_CONTRACT.toQuery(WebQueryRequests.from(request), 200), scope(QUERY_EVENTS), page(request)),
                 identityLookup.getIfAvailable()));
+    }
+
+    @PostMapping("/operator-candidates/query")
+    @CustomActionEndpoint(value = QUERY_EVENTS, title = "查询接口异常日志",
+            level = PlatformActionLevel.LIST, dataAuth = false)
+    public BusinessLogOperatorCandidatePageResponse operatorCandidates(
+            @RequestBody(required = false) BusinessLogOperatorCandidateRequest request) {
+        return webScope(() -> {
+            BusinessLogOperatorCandidateRequest normalized = request == null
+                    ? BusinessLogOperatorCandidateRequest.EMPTY : request;
+            BusinessLogReadScope scope = scope(QUERY_EVENTS);
+            BusinessLogOperatorIdentityLookup lookup = identityLookup.getIfAvailable();
+            var candidates = service().queryRequestErrorOperatorCandidates(BusinessLogQuery.newest(200), scope,
+                    normalized.browseQuery());
+            var selected = normalized.hasSelectedIds()
+                    ? service().queryRequestErrorOperatorCandidates(BusinessLogQuery.newest(200), scope,
+                    normalized.selectedQuery()) : null;
+            return BusinessLogOperatorCandidateResponses.from(candidates, selected, lookup);
+        });
     }
 
     @GetMapping("/{eventId}")

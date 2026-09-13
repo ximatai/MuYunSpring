@@ -41,6 +41,7 @@ import {
   UiModal,
   type RecordFormFieldPickerConfig,
   type RecordPickerRecord,
+  type ScopedTreePickerCandidate,
   type CrudRecordListBase,
   type RecordExplorerItemDescriptor,
   type RecordActionItem,
@@ -59,6 +60,7 @@ import type {
   ResolvedPageTreeResourceDescriptor,
   ResolvedPageTextDescriptor,
   ResolvedPageListRelationExpansionDescriptor,
+  ResolvedReferenceFieldDescriptor,
   ResolvedViewDescriptor,
   RecordInlineAction,
   RouteQueryValue,
@@ -76,6 +78,7 @@ import {
   type ModuleContext,
   type ModuleRecordActionAvailability,
   type ModuleTreeClient,
+  type ReferenceResolveClient,
 } from '@muyun/web-core';
 import { canMutateModuleDetail } from './moduleDetailStateModel';
 import { recordMutationPayload } from './recordMutationPayload';
@@ -543,6 +546,182 @@ let listPageSizePreferenceWrite = Promise.resolve();
 
 type NavigatorRecord = { id?: string; version?: number };
 
+type SourceReferencePickerConfigOptions = {
+  reference: ResolvedReferenceFieldDescriptor;
+  pickerFieldName: string;
+  referenceResolver: ReferenceResolveClient;
+  formValues: () => Record<string, unknown>;
+  source: () => { recordId: string } | undefined;
+};
+
+/**
+ * The compact picker remains the default for source-owned references.  Only the two IAM trees
+ * with an explicit form-field scope gain the optional expanded, lazy tree affordance here.
+ */
+function sourceReferencePickerConfigFor({
+  reference,
+  pickerFieldName,
+  referenceResolver,
+  formValues,
+  source,
+}: SourceReferencePickerConfigOptions): Pick<
+  RecordFormFieldPickerConfig,
+  'loadOptions' | 'loadTree' | 'resolveOptions' | 'scopedTree'
+> {
+  const pickerRecord = (item: {
+    id: string;
+    title?: string;
+    projections?: Record<string, unknown>;
+    affectPatch?: Record<string, unknown>;
+  }): RecordPickerRecord => ({
+    id: item.id,
+    title: item.title,
+    ...(item.projections ?? {}),
+    // Keep resolver projections distinct from the draft-shaped convenience fields above:
+    // RecordFormFields exposes only descriptor-declared paths to WEB_UI formulas.
+    projections: item.projections,
+    affectPatch: item.affectPatch,
+  });
+  const config: Pick<
+    RecordFormFieldPickerConfig,
+    'loadOptions' | 'loadTree' | 'resolveOptions' | 'scopedTree'
+  > = {
+    loadOptions: async (keyword) => {
+      const response = await referenceResolver.resolve(pickerFieldName, {
+        mode: 'QUERY',
+        fuzzy: keyword || undefined,
+        page: { pageNum: 1, pageSize: 50 },
+        formValues: formValues(),
+        source: source(),
+      });
+      return response.options.map(pickerRecord);
+    },
+    loadTree: async () => {
+      const response = await referenceResolver.resolve(pickerFieldName, {
+        mode: 'TREE',
+        formValues: formValues(),
+        source: source(),
+      });
+      return response.tree ?? [];
+    },
+    resolveOptions: async (values) => {
+      const response = await referenceResolver.resolve(pickerFieldName, {
+        mode: 'TRANSLATE',
+        values,
+        formValues: formValues(),
+        source: source(),
+      });
+      return response.results.flatMap((result) => (result.item ? [pickerRecord(result.item)] : []));
+    },
+  };
+  const scopedTree = scopedTreeScopeOf(reference);
+  if (!scopedTree) return config;
+
+  const scopeReady = () => {
+    const sourceValue = formValues()[scopedTree.sourceField];
+    return typeof sourceValue === 'string' && sourceValue.trim() !== '';
+  };
+  const candidate = (item: {
+    id: string;
+    title?: string;
+    hasChildren?: boolean;
+  }): ScopedTreePickerCandidate => ({
+    id: item.id,
+    title: item.title ?? item.id,
+    // Older source resolvers omit this field, so keep those items expandable until their first
+    // lazy load. Newer TREE_CHILDREN responses let the UI avoid a needless empty request.
+    isLeaf: item.hasChildren === false,
+  });
+  const page = (
+    response: { options: Array<{ id: string; title?: string }>; total: number; limit: number },
+    pageNum: number,
+  ) => {
+    const pageSize = response.limit || 50;
+    const nextPage = pageNum * pageSize < response.total ? String(pageNum + 1) : undefined;
+    return {
+      records: response.options.map(candidate),
+      hasMore: nextPage != null,
+      ...(nextPage ? { nextCursor: nextPage } : {}),
+    };
+  };
+  const pageNumber = (cursor: string | undefined) => {
+    const parsed = Number(cursor);
+    return Number.isInteger(parsed) && parsed > 0 ? parsed : 1;
+  };
+  config.scopedTree = {
+    title: scopedTree.title,
+    disabled: !scopeReady(),
+    unavailableMessage: scopeReady() ? undefined : scopedTree.unavailableMessage,
+    provider: {
+      loadRoot: async ({ keyword }) => {
+        if (!scopeReady()) return { records: [] };
+        if (keyword) {
+          const response = await referenceResolver.resolve(pickerFieldName, {
+            mode: 'QUERY',
+            fuzzy: keyword,
+            page: { pageNum: 1, pageSize: 50 },
+            formValues: formValues(),
+            source: source(),
+          });
+          return { records: response.options.map((item) => ({ ...candidate(item), isLeaf: true })) };
+        }
+        const response = await referenceResolver.resolve(pickerFieldName, {
+          mode: 'TREE_CHILDREN',
+          page: { pageNum: 1, pageSize: 50 },
+          formValues: formValues(),
+          source: source(),
+        });
+        return page(response, 1);
+      },
+      loadChildren: async ({ parent, cursor }) => {
+        if (!scopeReady()) return { records: [] };
+        const pageNum = pageNumber(cursor);
+        const response = await referenceResolver.resolve(pickerFieldName, {
+          mode: 'TREE_CHILDREN',
+          parentId: parent.id,
+          page: { pageNum, pageSize: 50 },
+          formValues: formValues(),
+          source: source(),
+        });
+        return page(response, pageNum);
+      },
+      resolve: async (ids) => {
+        if (!scopeReady()) return [];
+        const response = await referenceResolver.resolve(pickerFieldName, {
+          mode: 'TRANSLATE',
+          values: ids,
+          formValues: formValues(),
+          source: source(),
+        });
+        return response.results.flatMap((result) => (result.item ? [candidate(result.item)] : []));
+      },
+    },
+  };
+  return config;
+}
+
+function scopedTreeScopeOf(reference: ResolvedReferenceFieldDescriptor) {
+  const scopes = {
+    'iam.department': {
+      sourceField: 'organizationId',
+      title: '选择所属部门',
+      unavailableMessage: '请先选择所属机构，再展开选择部门',
+    },
+    'iam.organization': {
+      sourceField: 'tenantId',
+      title: '选择适用机构',
+      unavailableMessage: '请先选择适用租户，再展开选择机构',
+    },
+  } as const;
+  const scope = scopes[reference.targetModuleAlias as keyof typeof scopes];
+  if (!scope) return undefined;
+  const dependencies = reference.candidateDependencies ?? [];
+  return dependencies.length === 0 ||
+    dependencies.some((dependency) => dependency.sourceField === scope.sourceField)
+    ? scope
+    : undefined;
+}
+
 const navigatorManagementFormFields = computed(() => {
   const level = navigatorManagementLevel.value;
   if (!level) return resolveRecordFormFields(undefined);
@@ -569,10 +748,29 @@ const navigatorManagementPickerConfigs = computed<Record<string, RecordFormField
   for (const field of navigatorManagementFormFields.value.values()) {
     const reference = field.reference;
     if (!reference) continue;
-    configs[field.fieldRef.fieldName] = {
+    const pickerFieldName = field.fieldRef.fieldName;
+    const usesSourceReferenceResolver = reference.candidateDelivery === 'SOURCE_FIELD';
+    const sourceReferencePickerConfig = usesSourceReferenceResolver
+      ? sourceReferencePickerConfigFor({
+          reference,
+          pickerFieldName,
+          referenceResolver: createReferenceResolveClient(
+            level.context.http,
+            level.context.moduleAlias,
+            reference.resolvePath,
+          ),
+          formValues: () => ({ ...(navigatorManagementDetail.draft.value ?? {}) }),
+          source: () =>
+            navigatorManagementDetail.draft.value?.id == null
+              ? undefined
+              : { recordId: String(navigatorManagementDetail.draft.value.id) },
+        })
+      : {};
+    configs[pickerFieldName] = {
       context: createModuleContext({ http: baseContext.http, moduleAlias: reference.targetModuleAlias }),
       mode: recordPickerModeOf(reference.pickerMode),
       allowClear: !field.required?.constant,
+      ...sourceReferencePickerConfig,
     };
   }
   if (level.tree && navigatorManagementFormFields.value.has('parentId')) {
@@ -1413,7 +1611,7 @@ const referencePickerConfigs = computed<Record<string, RecordFormFieldPickerConf
     const usesSourceReferenceResolver = reference.candidateDelivery === 'SOURCE_FIELD';
     const sourceReferencePickerConfig: Pick<
       RecordFormFieldPickerConfig,
-      'loadOptions' | 'loadTree' | 'resolveOptions'
+      'loadOptions' | 'loadTree' | 'resolveOptions' | 'scopedTree'
     > = {};
     if (usesSourceReferenceResolver) {
       const referenceResolver = createReferenceResolveClient(
@@ -1421,47 +1619,17 @@ const referencePickerConfigs = computed<Record<string, RecordFormFieldPickerConf
         context.moduleAlias,
         reference.resolvePath,
       );
-      const pickerRecord = (item: {
-        id: string;
-        title?: string;
-        projections?: Record<string, unknown>;
-        affectPatch?: Record<string, unknown>;
-      }): RecordPickerRecord => ({
-        id: item.id,
-        title: item.title,
-        ...(item.projections ?? {}),
-        // Keep resolver projections distinct from the draft-shaped convenience fields above:
-        // RecordFormFields exposes only descriptor-declared paths to WEB_UI formulas.
-        projections: item.projections,
-        affectPatch: item.affectPatch,
-      });
-      sourceReferencePickerConfig.loadOptions = async (keyword: string) => {
-        const response = await referenceResolver.resolve(pickerFieldName, {
-          mode: 'QUERY',
-          fuzzy: keyword || undefined,
-          page: { pageNum: 1, pageSize: 50 },
-          formValues: { ...(editingRecord.value ?? {}) },
-          source: editingRecord.value?.id == null ? undefined : { recordId: String(editingRecord.value.id) },
-        });
-        return response.options.map(pickerRecord);
-      };
-      sourceReferencePickerConfig.loadTree = async () => {
-        const response = await referenceResolver.resolve(pickerFieldName, {
-          mode: 'TREE',
-          formValues: { ...(editingRecord.value ?? {}) },
-          source: editingRecord.value?.id == null ? undefined : { recordId: String(editingRecord.value.id) },
-        });
-        return response.tree ?? [];
-      };
-      sourceReferencePickerConfig.resolveOptions = async (values: string[]) => {
-        const response = await referenceResolver.resolve(pickerFieldName, {
-          mode: 'TRANSLATE',
-          values,
-          formValues: { ...(editingRecord.value ?? {}) },
-          source: editingRecord.value?.id == null ? undefined : { recordId: String(editingRecord.value.id) },
-        });
-        return response.results.flatMap((result) => (result.item ? [pickerRecord(result.item)] : []));
-      };
+      Object.assign(
+        sourceReferencePickerConfig,
+        sourceReferencePickerConfigFor({
+          reference,
+          pickerFieldName,
+          referenceResolver,
+          formValues: () => ({ ...(editingRecord.value ?? {}) }),
+          source: () =>
+            editingRecord.value?.id == null ? undefined : { recordId: String(editingRecord.value.id) },
+        }),
+      );
     }
     configs[pickerFieldName] = {
       context: hasPickerQueryScope

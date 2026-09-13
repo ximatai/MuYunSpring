@@ -48,7 +48,7 @@ public final class RuntimeActionBusinessLogEventListener implements RuntimeEvent
         boolean failed = event.eventType() == RuntimeEventType.ACTION_FAILED;
         BusinessLogContext context = BusinessLogContext.capturedNow(
                 event.eventId(), event.occurredAt(), safeTraceId(event.traceId()), event.tenantId(),
-                event.operatorId(), operatorOrganizationId(event), event.moduleAlias(), event.actionCode());
+                event.operatorId(), operatorAccount(event), operatorOrganizationId(event), event.moduleAlias(), event.actionCode());
         ActionLogDetails details = new ActionLogDetails(
                 failed ? ActionLogDetails.ActionOutcome.FAILURE : ActionLogDetails.ActionOutcome.SUCCESS,
                 ActionEventPayload.text(event.payload(), ActionEventPayload.EXECUTOR_TYPE),
@@ -64,6 +64,13 @@ public final class RuntimeActionBusinessLogEventListener implements RuntimeEvent
         return CurrentUserContext.currentUser()
                 .filter(user -> user.userId().equals(event.operatorId()))
                 .map(CurrentUser::organizationId)
+                .orElse(null);
+    }
+
+    private String operatorAccount(RuntimeEvent event) {
+        return CurrentUserContext.currentUser()
+                .filter(user -> user.userId().equals(event.operatorId()))
+                .map(CurrentUser::username)
                 .orElse(null);
     }
 

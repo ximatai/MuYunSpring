@@ -2,6 +2,7 @@ import { shallowMount } from '@vue/test-utils';
 import { describe, expect, it } from 'vitest';
 import QueryCriteriaComposer from '@/platform-components/QueryCriteriaComposer.vue';
 import QueryCriteriaGroupEditor from '@/platform-components/QueryCriteriaGroupEditor.vue';
+import { QUERY_CRITERIA_MAXIMUM_DEPTH } from '@/platform-components/queryCriteriaDraft';
 import type { QuerySchemaField } from '@/web-contracts';
 
 describe('QueryCriteriaComposer', () => {
@@ -128,5 +129,85 @@ describe('QueryCriteriaComposer', () => {
     expect(wrapper.findComponent({ name: 'QueryCriteriaGroupEditor' }).props('fields')).toEqual([
       { name: 'operatorId', title: '操作用户', valueType: 'STRING', operators: ['EQ'] },
     ]);
+  });
+
+  it('keeps an over-deep draft in place and marks the bracket group before sending it', async () => {
+    const wrapper = mountComposer();
+    let nested: Record<string, unknown> = {
+      kind: 'CONDITION',
+      id: QUERY_CRITERIA_MAXIMUM_DEPTH + 2,
+      fieldName: 'status',
+      operator: 'EQ',
+      values: ['OPEN'],
+    };
+    for (let depth = QUERY_CRITERIA_MAXIMUM_DEPTH + 1; depth >= 1; depth -= 1) {
+      nested = { kind: 'GROUP', id: depth, operator: 'AND', children: [nested] };
+    }
+    wrapper.findComponent({ name: 'QueryCriteriaGroupEditor' }).vm.$emit('update:group', nested);
+    await wrapper.vm.$nextTick();
+
+    (wrapper.vm as unknown as { apply: () => void }).apply();
+    await wrapper.vm.$nextTick();
+
+    expect(wrapper.emitted('apply')).toBeUndefined();
+    expect(
+      wrapper.findComponent({ name: 'QueryCriteriaGroupEditor' }).props('validationErrors'),
+    ).toMatchObject({
+      [QUERY_CRITERIA_MAXIMUM_DEPTH + 1]: `最多支持 ${QUERY_CRITERIA_MAXIMUM_DEPTH} 层括号组`,
+    });
+  });
+
+  it('lets a condition be wrapped in a group and lifted out again without drag interaction', async () => {
+    const wrapper = shallowMount(QueryCriteriaGroupEditor, {
+      props: {
+        group: {
+          kind: 'GROUP',
+          id: 1,
+          operator: 'AND',
+          children: [
+            { kind: 'CONDITION', id: 2, fieldName: 'status', operator: 'EQ', values: ['OPEN'] },
+            {
+              kind: 'GROUP',
+              id: 3,
+              operator: 'OR',
+              children: [
+                { kind: 'CONDITION', id: 4, fieldName: 'status', operator: 'EQ', values: ['CLOSED'] },
+              ],
+            },
+          ],
+        },
+        fields,
+        optionItemsByField: {},
+        referenceContexts: {},
+        nextId: () => 5,
+        disabled: false,
+        composition: 'TREE',
+      },
+      global: {
+        stubs: {
+          UiButton: { template: '<button @click="$emit(\'click\')"><slot /></button>' },
+          UiSelect: true,
+          QueryValueEditor: true,
+        },
+      },
+    });
+
+    const wrap = wrapper.findAll('button').find((button) => button.text() === '加括号');
+    await wrap?.trigger('click');
+    expect(
+      (wrapper.emitted('update:group')?.[0]?.[0] as { children: Array<Record<string, unknown>> }).children[0],
+    ).toMatchObject({ kind: 'GROUP', id: 5, operator: 'AND' });
+
+    const nestedEditor = wrapper
+      .findAllComponents({ name: 'QueryCriteriaGroupEditor' })
+      .find((editor) => (editor.props('group') as { id: number }).id === 3);
+    nestedEditor?.vm.$emit('lift-node', 3, 4);
+    await wrapper.vm.$nextTick();
+    expect(wrapper.emitted('update:group')?.at(-1)?.[0]).toMatchObject({
+      children: [
+        { kind: 'CONDITION', id: 2 },
+        { kind: 'CONDITION', id: 4 },
+      ],
+    });
   });
 });

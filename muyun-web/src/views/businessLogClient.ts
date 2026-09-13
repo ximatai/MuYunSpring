@@ -44,8 +44,28 @@ export interface BusinessLogStatistics {
   complete?: boolean;
 }
 
+export interface BusinessLogOperatorCandidate {
+  id: string;
+  title: string;
+  subtitle?: string;
+}
+
+export interface BusinessLogOperatorCandidateQuery {
+  keyword?: string;
+  pageNum?: number;
+  pageSize?: number;
+  selectedIds?: string[];
+}
+
+export interface BusinessLogOperatorCandidatePage {
+  records: BusinessLogOperatorCandidate[];
+  selectedRecords: BusinessLogOperatorCandidate[];
+  total: number;
+}
+
 export interface BusinessLogClient {
   detail(eventId: string): Promise<BusinessLogEventView>;
+  operatorCandidates(input: BusinessLogOperatorCandidateQuery): Promise<BusinessLogOperatorCandidatePage>;
   actionStatistics?(request: WebQueryRequest): Promise<BusinessLogStatistics>;
   pageAccessStatistics?(request: WebQueryRequest): Promise<BusinessLogStatistics>;
   diagnostic?(eventId: string): Promise<Record<string, unknown>>;
@@ -63,6 +83,19 @@ export function createBusinessLogClient(http: HttpClient, surface: BusinessLogSu
     async detail(eventId) {
       const response = await http.request<unknown>({ path: `${endpoint}/${encodeURIComponent(eventId)}` });
       return normalizeEvent(response);
+    },
+    async operatorCandidates(input) {
+      return normalizeOperatorCandidates(
+        await http.request<unknown>({
+          method: 'POST',
+          path: `${endpoint}/operator-candidates/query`,
+          body: {
+            keyword: input.keyword,
+            selectedIds: input.selectedIds,
+            page: { pageNum: input.pageNum ?? 1, pageSize: input.pageSize ?? 20 },
+          },
+        }),
+      );
     },
     ...(surface === 'activity'
       ? {
@@ -96,6 +129,32 @@ export function createBusinessLogClient(http: HttpClient, surface: BusinessLogSu
         }
       : {}),
   };
+}
+
+function normalizeOperatorCandidates(response: unknown): BusinessLogOperatorCandidatePage {
+  const page = recordOf(response);
+  return {
+    records: candidateRecords(page.records),
+    selectedRecords: candidateRecords(page.selectedRecords),
+    total: numberOf(page.total),
+  };
+}
+
+function candidateRecords(value: unknown): BusinessLogOperatorCandidate[] {
+  if (!Array.isArray(value)) return [];
+  const candidates: BusinessLogOperatorCandidate[] = [];
+  for (const item of value) {
+    const record = recordOf(item);
+    const id = stringOf(record.id);
+    if (!id) continue;
+    const subtitle = stringOf(record.subtitle);
+    candidates.push(
+      subtitle
+        ? { id, title: stringOf(record.title) ?? id, subtitle }
+        : { id, title: stringOf(record.title) ?? id },
+    );
+  }
+  return candidates;
 }
 
 function normalizeEvent(response: unknown): BusinessLogEventView {

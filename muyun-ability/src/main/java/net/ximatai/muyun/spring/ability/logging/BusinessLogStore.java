@@ -13,6 +13,16 @@ public interface BusinessLogStore {
     BusinessLogReadPage read(BusinessLogQuery query);
 
     /**
+     * Reads distinct operator accounts directly from the authorized log stream. Implementations
+     * must apply the supplied query before grouping, rather than deriving candidates from one
+     * already-paged event result.
+     */
+    default BusinessLogOperatorCandidatePage readOperatorCandidates(BusinessLogQuery query,
+                                                                     BusinessLogOperatorCandidateQuery candidateQuery) {
+        throw new UnsupportedOperationException("Business-log operator candidates are not supported");
+    }
+
+    /**
      * Optionally loads one event by its storage id. Authorization remains the responsibility of
      * the caller. Existing append/read adapters may opt out of detail retrieval while they are
      * migrated to this capability.

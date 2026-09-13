@@ -3146,6 +3146,8 @@ describe('ModulePageHost', () => {
 
   it('keeps source-field resolution scoped while ordinary reference pickers remain neutral', async () => {
     const requests: Request[] = [];
+    const ownerBodies: unknown[] = [];
+    const departmentBodies: unknown[] = [];
     globalThis.fetch = async (input, init) => {
       const request = new Request(input, init);
       requests.push(request);
@@ -3173,6 +3175,14 @@ describe('ModulePageHost', () => {
                       fieldRef: { fieldName: 'ownerId' },
                       reference: {
                         targetModuleAlias: 'iam.user',
+                        cardinality: 'ONE',
+                        candidateDelivery: 'SOURCE_FIELD',
+                      },
+                    },
+                    {
+                      fieldRef: { fieldName: 'departmentId' },
+                      reference: {
+                        targetModuleAlias: 'iam.department',
                         cardinality: 'ONE',
                         candidateDelivery: 'SOURCE_FIELD',
                       },
@@ -3208,6 +3218,7 @@ describe('ModulePageHost', () => {
         return Response.json({ records: [], total: 0, pageNum: 1, pageSize: 20, pages: 0, totalKnown: true });
       }
       if (request.url.endsWith('/platform.module/references/ownerId/resolve')) {
+        ownerBodies.push(await request.json());
         return Response.json({
           status: 'OK',
           mode: 'QUERY',
@@ -3216,6 +3227,25 @@ describe('ModulePageHost', () => {
           offset: 0,
           limit: 50,
           total: 0,
+        });
+      }
+      if (request.url.endsWith('/platform.module/references/departmentId/resolve')) {
+        const body = (await request.json()) as { mode?: string; parentId?: string; formValues?: unknown };
+        departmentBodies.push(body);
+        const options = body.parentId
+          ? [{ id: 'department-child', title: '子部门' }]
+          : [{ id: 'department-root', title: '根部门' }];
+        return Response.json({
+          status: 'OK',
+          mode: body.mode,
+          options,
+          results:
+            body.mode === 'TRANSLATE'
+              ? [{ input: 'department-root', status: 'RESOLVED', item: options[0], candidates: [] }]
+              : [],
+          offset: 0,
+          limit: 50,
+          total: options.length,
         });
       }
       throw new Error(`Unexpected request: ${request.url}`);
@@ -3253,11 +3283,57 @@ describe('ModulePageHost', () => {
       applicationAlias: {
         context: { runtime: { ready: Promise<unknown> }; crud: { query: () => Promise<unknown> } };
       };
-      ownerId: { loadOptions: (keyword: string) => Promise<unknown> };
+      ownerId: {
+        loadOptions: (keyword: string) => Promise<unknown>;
+        loadTree: () => Promise<unknown>;
+        resolveOptions: (values: string[]) => Promise<unknown>;
+        scopedTree?: unknown;
+      };
+      departmentId: {
+        scopedTree: {
+          disabled: boolean;
+          provider: {
+            loadRoot: (request: { keyword: string; signal: AbortSignal }) => Promise<unknown>;
+            loadChildren: (request: {
+              parent: { id: string };
+              cursor?: string;
+              signal: AbortSignal;
+            }) => Promise<unknown>;
+            resolve: (ids: string[]) => Promise<unknown>;
+          };
+        };
+      };
     };
     await pickerConfigs.applicationAlias.context.runtime.ready;
     await pickerConfigs.applicationAlias.context.crud.query();
     await pickerConfigs.ownerId.loadOptions('admin');
+    await pickerConfigs.ownerId.loadTree();
+    await pickerConfigs.ownerId.resolveOptions(['user-1']);
+    expect(pickerConfigs.ownerId.scopedTree).toBeUndefined();
+
+    // A department picker must not probe its source resolver before its required organization
+    // field exists. The form host renders the scope guide from this disabled config.
+    expect(pickerConfigs.departmentId.scopedTree.disabled).toBe(true);
+    expect(requests.some((request) => request.url.endsWith('/references/departmentId/resolve'))).toBe(false);
+
+    wrapper
+      .findComponent({ name: 'ModulePageRecordContent' })
+      .vm.$emit('update:field', 'organizationId', 'org-1');
+    await flushPromises();
+    const scopedDepartment = (
+      wrapper
+        .findComponent({ name: 'ModulePageRecordContent' })
+        .props('pickerConfigs') as typeof pickerConfigs
+    ).departmentId.scopedTree;
+    expect(scopedDepartment.disabled).toBe(false);
+    const controller = new AbortController();
+    await scopedDepartment.provider.loadRoot({ keyword: '', signal: controller.signal });
+    await scopedDepartment.provider.loadChildren({
+      parent: { id: 'department-root' },
+      signal: controller.signal,
+    });
+    await scopedDepartment.provider.loadRoot({ keyword: '研发', signal: controller.signal });
+    await scopedDepartment.provider.resolve(['department-root']);
 
     const normalRuntimeRequest = requests.find((request) =>
       request.url.endsWith('/platform.module/platform.application/reference-context'),
@@ -3273,6 +3349,193 @@ describe('ModulePageHost', () => {
     expect(sourceResolverRequest?.headers.get('X-MuYun-Menu-Id')).toBe(
       'platform.menu.module.platform.module',
     );
+    expect(ownerBodies).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ mode: 'QUERY', fuzzy: 'admin' }),
+        expect.objectContaining({ mode: 'TREE' }),
+        expect.objectContaining({ mode: 'TRANSLATE', values: ['user-1'] }),
+      ]),
+    );
+    expect(departmentBodies).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ mode: 'TREE_CHILDREN', formValues: { organizationId: 'org-1' } }),
+        expect.objectContaining({ mode: 'TREE_CHILDREN', parentId: 'department-root' }),
+        expect.objectContaining({ mode: 'QUERY', fuzzy: '研发' }),
+        expect.objectContaining({ mode: 'TRANSLATE', values: ['department-root'] }),
+      ]),
+    );
+  });
+
+  it('adds lazy organization expansion to the tenant-scoped menu scheme editor without replacing its picker', async () => {
+    const organizationBodies: Array<Record<string, unknown>> = [];
+    globalThis.fetch = async (input, init) => {
+      const request = new Request(input, init);
+      if (request.url.endsWith('/platform.module/platform.menu/context')) {
+        return Response.json({
+          moduleAlias: 'platform.menu',
+          capabilities: [],
+          actions: [],
+          uiDescriptor: {
+            schemaVersion: '1',
+            moduleAlias: 'platform.menu',
+            page: page({
+              template: 'TREE_MANAGEMENT',
+              navigator: {
+                levels: [
+                  {
+                    key: 'scheme',
+                    kind: 'MICRO_LIST',
+                    sourceModuleAlias: 'platform.menu_scheme',
+                    title: '菜单方案',
+                    management: { editorSurface: 'menu_scheme_editor' },
+                  },
+                ],
+              },
+            }),
+          },
+        });
+      }
+      if (request.url.endsWith('/platform.module/platform.menu_scheme/reference-context')) {
+        return Response.json({
+          moduleAlias: 'platform.menu_scheme',
+          capabilities: [],
+          actions: [{ actionCode: 'create', authorized: true }],
+          uiDescriptor: {
+            schemaVersion: '1',
+            moduleAlias: 'platform.menu_scheme',
+            editorSurfaces: [
+              {
+                key: 'menu_scheme_editor',
+                editor: {
+                  viewCode: 'menu_scheme_editor',
+                  viewKind: 'FORM',
+                  fields: [
+                    {
+                      fieldRef: { fieldName: 'tenantId' },
+                      reference: { targetModuleAlias: 'iam.tenant', cardinality: 'ONE' },
+                    },
+                    {
+                      fieldRef: { fieldName: 'organizationId' },
+                      reference: {
+                        targetModuleAlias: 'iam.organization',
+                        cardinality: 'ONE',
+                        candidateDelivery: 'SOURCE_FIELD',
+                        resolvePath:
+                          '/platform.module/platform.menu_scheme/references/organizationId/resolve',
+                        candidateDependencies: [{ sourceField: 'tenantId', targetField: 'tenantId' }],
+                      },
+                    },
+                  ],
+                },
+              },
+            ],
+          },
+        });
+      }
+      if (request.url.endsWith('/platform.module/platform.menu_scheme/references/organizationId/resolve')) {
+        const body = (await request.json()) as Record<string, unknown>;
+        organizationBodies.push(body);
+        const options = body.parentId
+          ? [{ id: 'organization-child', title: '下级机构', hasChildren: false }]
+          : [{ id: 'organization-root', title: '集团总部', hasChildren: true }];
+        return Response.json({
+          status: 'OK',
+          mode: body.mode,
+          options,
+          results:
+            body.mode === 'TRANSLATE'
+              ? [{ input: 'organization-root', status: 'RESOLVED', item: options[0], candidates: [] }]
+              : [],
+          offset: 0,
+          limit: 50,
+          total: options.length,
+        });
+      }
+      throw new Error(`Unexpected request: ${request.url}`);
+    };
+    configureModuleContext({ httpFactory: () => createHttpClient({ baseUrl: 'http://api.local' }) });
+
+    const wrapper = shallowMount(ModulePageHost, {
+      props: {
+        descriptor: {
+          pageType: 'dynamic-module',
+          openMode: 'dynamic-runner',
+          hostType: 'module-page-host',
+          tabPolicy: { identity: 'by-menu' },
+          target: { moduleAlias: 'platform.menu', pageMode: 'LIST' },
+        },
+      },
+      global: {
+        stubs: {
+          ManagementWorkspace: { template: '<section><slot /></section>' },
+          ManagementExplorerColumn: { template: '<aside><slot /></aside>' },
+          PageNavigatorExplorer: {
+            name: 'PageNavigatorExplorer',
+            props: ['level'],
+            emits: ['create'],
+            template: '<section><slot name="editor" /></section>',
+          },
+        },
+      },
+    });
+    await flushPromises();
+
+    const navigator = wrapper.findComponent({ name: 'PageNavigatorExplorer' });
+    navigator.vm.$emit('create');
+    await flushPromises();
+    const editor = wrapper.findComponent({ name: 'NavigatorManagementEditor' });
+    expect(editor.props('open')).toBe(true);
+
+    const organizationPicker = () =>
+      (
+        editor.props('pickerConfigs') as {
+          organizationId: {
+            scopedTree: {
+              disabled: boolean;
+              provider: {
+                loadRoot: (request: { keyword: string; signal: AbortSignal }) => Promise<unknown>;
+                loadChildren: (request: {
+                  parent: { id: string };
+                  cursor?: string;
+                  signal: AbortSignal;
+                }) => Promise<unknown>;
+                resolve: (ids: string[]) => Promise<unknown>;
+              };
+            };
+          };
+        }
+      ).organizationId;
+
+    expect(organizationPicker().scopedTree.disabled).toBe(true);
+    expect(organizationBodies).toEqual([]);
+
+    editor.vm.$emit('update-field', 'tenantId', 'tenant-1');
+    await flushPromises();
+    expect(organizationPicker().scopedTree.disabled).toBe(false);
+
+    const controller = new AbortController();
+    const roots = (await organizationPicker().scopedTree.provider.loadRoot({
+      keyword: '',
+      signal: controller.signal,
+    })) as { records: Array<{ id: string; isLeaf?: boolean }> };
+    const children = (await organizationPicker().scopedTree.provider.loadChildren({
+      parent: { id: 'organization-root' },
+      signal: controller.signal,
+    })) as { records: Array<{ id: string; isLeaf?: boolean }> };
+    expect(roots.records).toEqual([expect.objectContaining({ id: 'organization-root', isLeaf: false })]);
+    expect(children.records).toEqual([expect.objectContaining({ id: 'organization-child', isLeaf: true })]);
+    await organizationPicker().scopedTree.provider.loadRoot({ keyword: '集团', signal: controller.signal });
+    await organizationPicker().scopedTree.provider.resolve(['organization-root']);
+
+    expect(organizationBodies).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ mode: 'TREE_CHILDREN', formValues: { tenantId: 'tenant-1' } }),
+        expect.objectContaining({ mode: 'TREE_CHILDREN', parentId: 'organization-root' }),
+        expect.objectContaining({ mode: 'QUERY', fuzzy: '集团' }),
+        expect.objectContaining({ mode: 'TRANSLATE', values: ['organization-root'] }),
+      ]),
+    );
+    wrapper.unmount();
   });
 });
 

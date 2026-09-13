@@ -62,3 +62,30 @@ it('uses the safe error response summary and keeps the login account distinct fr
   expect(login.loginAccount).toBe('canonical-account');
   expect(login.loginAccount).not.toBe(login.operatorId);
 });
+
+it('loads and restores log operators through the source log module rather than iam.user', async () => {
+  const request = vi.fn(async () => ({
+    records: [{ id: 'user-1', title: '张三 (zhangsan)', subtitle: '华东机构 / 研发部' }],
+    selectedRecords: [{ id: 'user-2', title: 'lisi' }],
+    total: 1,
+  }));
+  const client = createBusinessLogClient({ request } as HttpClient, 'request-error');
+
+  const candidates = await client.operatorCandidates({
+    keyword: 'zhang',
+    pageNum: 2,
+    pageSize: 20,
+    selectedIds: ['user-2'],
+  });
+
+  expect(request).toHaveBeenCalledWith({
+    method: 'POST',
+    path: '/platform.request_error_log/operator-candidates/query',
+    body: { keyword: 'zhang', selectedIds: ['user-2'], page: { pageNum: 2, pageSize: 20 } },
+  });
+  expect(candidates).toEqual({
+    records: [{ id: 'user-1', title: '张三 (zhangsan)', subtitle: '华东机构 / 研发部' }],
+    selectedRecords: [{ id: 'user-2', title: 'lisi', subtitle: undefined }],
+    total: 1,
+  });
+});

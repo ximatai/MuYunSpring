@@ -23,6 +23,7 @@ import net.ximatai.muyun.spring.platform.web.PlatformMenuGroups;
 import net.ximatai.muyun.spring.platform.module.PlatformStaticModule;
 import net.ximatai.muyun.spring.platform.web.StaticModuleUiContributor;
 import net.ximatai.muyun.spring.common.platform.CustomActionEndpoint;
+import net.ximatai.muyun.spring.common.platform.ActionEndpoint;
 import net.ximatai.muyun.spring.common.platform.PlatformAction;
 import net.ximatai.muyun.spring.common.platform.PlatformActionLevel;
 import net.ximatai.muyun.spring.common.util.Preconditions;
@@ -91,6 +92,7 @@ public class RoleWebController extends WebSupport<RoleService> implements
     private EmployeeEmploymentReadService employeeEmploymentReadService;
     private TenantApplicationService tenantApplicationService;
     private RoleAccountCandidateQueryService roleAccountCandidateQueryService;
+    private RoleScopeSelectionFacade roleScopeSelectionFacade;
     private PageSelectionContextResolverRegistry roleScopeSelectionResolvers =
             new PageSelectionContextResolverRegistry(List.of());
 
@@ -141,6 +143,11 @@ public class RoleWebController extends WebSupport<RoleService> implements
         this.roleScopeSelectionResolvers = new PageSelectionContextResolverRegistry(List.of(roleScopeSelectionResolver));
     }
 
+    @Autowired(required = false)
+    void setRoleScopeSelectionFacade(RoleScopeSelectionFacade roleScopeSelectionFacade) {
+        this.roleScopeSelectionFacade = roleScopeSelectionFacade;
+    }
+
     @Override
     public PageSelectionContextResolverRegistry pageSelectionContextResolvers() {
         return roleScopeSelectionResolvers;
@@ -149,6 +156,19 @@ public class RoleWebController extends WebSupport<RoleService> implements
     @Override
     public List<PageContextBindingDefinition> pageSelectionContextBindings() {
         return ROLE_SCOPE_SELECTION_BINDINGS;
+    }
+
+    @GetMapping("/scope-selection/descriptor")
+    @ActionEndpoint(PlatformAction.QUERY)
+    public RoleScopeSelectionFacade.RoleScopeSelectionDescriptor roleScopeSelectionDescriptor() {
+        return requireRoleScopeSelectionFacade().descriptor();
+    }
+
+    @PostMapping("/scope-selection/candidates")
+    @ActionEndpoint(PlatformAction.QUERY)
+    public WebPageResponse<RoleScopeSelectionFacade.Candidate> roleScopeSelectionCandidates(
+            @RequestBody(required = false) RoleScopeSelectionFacade.CandidateRequest request) {
+        return requireRoleScopeSelectionFacade().candidates(request);
     }
 
     @Override
@@ -698,6 +718,13 @@ public class RoleWebController extends WebSupport<RoleService> implements
         if (service().select(roleId) == null) {
             throw new IllegalArgumentException("role does not exist: " + roleId);
         }
+    }
+
+    private RoleScopeSelectionFacade requireRoleScopeSelectionFacade() {
+        if (roleScopeSelectionFacade == null) {
+            throw new IllegalStateException("role scope selection is not available");
+        }
+        return roleScopeSelectionFacade;
     }
 
     private List<Menu> flattenMenus(List<Menu> menus) {

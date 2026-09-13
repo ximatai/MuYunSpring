@@ -67,6 +67,35 @@ export { default as RecordMetaSection } from './RecordMetaSection.vue';
 export { default as RecordModeDrawer } from './RecordModeDrawer.vue';
 export { default as RecordPicker } from './RecordPicker.vue';
 export { default as RecordMultiPicker } from './RecordMultiPicker.vue';
+export { default as UserPicker } from './UserPicker.vue';
+export { default as EmployeePicker } from './EmployeePicker.vue';
+export { default as ScopedTreePicker } from './ScopedTreePicker.vue';
+export type {
+  UserAccountId,
+  UserPickerCandidate,
+  UserPickerConfig,
+  UserPickerPage,
+  UserPickerPageRequest,
+  UserPickerPageSearch,
+  UserPickerResolver,
+} from './userPickerModel';
+export type {
+  EmployeeId,
+  EmployeePickerCandidate,
+  EmployeePickerConfig,
+  EmployeePickerPage,
+  EmployeePickerPageRequest,
+  EmployeePickerPageSearch,
+  EmployeePickerResolver,
+} from './employeePickerModel';
+export type {
+  ScopedTreePickerCandidate,
+  ScopedTreePickerChildrenRequest,
+  ScopedTreePickerConfig,
+  ScopedTreePickerPage,
+  ScopedTreePickerProvider,
+  ScopedTreePickerRootRequest,
+} from './scopedTreePickerModel';
 export { default as RecordQueryListPanel } from './RecordQueryListPanel.vue';
 export { default as RecordQueryListCell } from './RecordQueryListCell.vue';
 export { default as RecycleBinModeButton } from './RecycleBinModeButton.vue';

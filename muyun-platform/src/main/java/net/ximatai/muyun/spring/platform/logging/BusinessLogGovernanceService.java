@@ -3,6 +3,8 @@ package net.ximatai.muyun.spring.platform.logging;
 import net.ximatai.muyun.spring.ability.logging.ActionLogStatistics;
 import net.ximatai.muyun.spring.ability.logging.BusinessLogEvent;
 import net.ximatai.muyun.spring.ability.logging.BusinessLogEventType;
+import net.ximatai.muyun.spring.ability.logging.BusinessLogOperatorCandidatePage;
+import net.ximatai.muyun.spring.ability.logging.BusinessLogOperatorCandidateQuery;
 import net.ximatai.muyun.spring.ability.logging.BusinessLogQuery;
 import net.ximatai.muyun.spring.ability.logging.BusinessLogCursor;
 import net.ximatai.muyun.spring.ability.logging.BusinessLogPageRequest;
@@ -59,6 +61,27 @@ public final class BusinessLogGovernanceService {
     /** Reads request-error facts only, within the immutable administrative range. */
     public BusinessLogReadPage queryRequestErrors(BusinessLogQuery query, BusinessLogReadScope scope) {
         return store.read(constrain(query, scope, REQUEST_ERROR_TYPES));
+    }
+
+    /** Returns distinct action/page-access operators from facts visible through this query action. */
+    public BusinessLogOperatorCandidatePage queryBusinessActivityOperatorCandidates(
+            BusinessLogQuery query, BusinessLogReadScope scope, BusinessLogOperatorCandidateQuery candidates) {
+        return store.readOperatorCandidates(constrain(query, scope, BUSINESS_ACTIVITY_TYPES),
+                Objects.requireNonNull(candidates, "candidates must not be null"));
+    }
+
+    /** Returns distinct login operators from facts visible through this query action. */
+    public BusinessLogOperatorCandidatePage queryLoginAuditOperatorCandidates(
+            BusinessLogQuery query, BusinessLogReadScope scope, BusinessLogOperatorCandidateQuery candidates) {
+        return store.readOperatorCandidates(constrain(query, scope, LOGIN_AUDIT_TYPES),
+                Objects.requireNonNull(candidates, "candidates must not be null"));
+    }
+
+    /** Returns distinct request-error operators from facts visible through this query action. */
+    public BusinessLogOperatorCandidatePage queryRequestErrorOperatorCandidates(
+            BusinessLogQuery query, BusinessLogReadScope scope, BusinessLogOperatorCandidateQuery candidates) {
+        return store.readOperatorCandidates(constrain(query, scope, REQUEST_ERROR_TYPES),
+                Objects.requireNonNull(candidates, "candidates must not be null"));
     }
 
     /** Adapts a standard page request to cursor-backed action and page-access storage. */

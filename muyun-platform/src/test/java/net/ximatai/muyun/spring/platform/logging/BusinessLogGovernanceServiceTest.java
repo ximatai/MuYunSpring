@@ -10,6 +10,9 @@ import net.ximatai.muyun.spring.ability.logging.BusinessLogEventType;
 import net.ximatai.muyun.spring.ability.logging.BusinessLogQuery;
 import net.ximatai.muyun.spring.ability.logging.BusinessLogPageRequest;
 import net.ximatai.muyun.spring.ability.logging.BusinessLogPageResult;
+import net.ximatai.muyun.spring.ability.logging.BusinessLogOperatorCandidate;
+import net.ximatai.muyun.spring.ability.logging.BusinessLogOperatorCandidatePage;
+import net.ximatai.muyun.spring.ability.logging.BusinessLogOperatorCandidateQuery;
 import net.ximatai.muyun.spring.ability.logging.BusinessLogReadPage;
 import net.ximatai.muyun.spring.ability.logging.BusinessLogReadScope;
 import net.ximatai.muyun.spring.ability.logging.BusinessLogStatisticsQuery;
@@ -96,6 +99,28 @@ class BusinessLogGovernanceServiceTest {
         assertThat(page.total()).isEqualTo(2);
         assertThat(page.totalKnown()).isTrue();
         assertThat(store.lastQuery.operatorOrganizationIds()).containsExactly("organization-a");
+    }
+
+    @Test
+    void shouldDeriveOperatorCandidatesFromTheSameScopedActivityFacts() {
+        InMemoryStore store = new InMemoryStore(List.of(
+                action("visible", "tenant", "organization-a"),
+                action("other", "tenant", "organization-b"),
+                requestError("error", "tenant", "organization-a")
+        ));
+        BusinessLogGovernanceService service = new BusinessLogGovernanceService(store,
+                new CapturingStatisticsReader());
+
+        BusinessLogOperatorCandidatePage candidates = service.queryBusinessActivityOperatorCandidates(
+                BusinessLogQuery.newest(200), BusinessLogReadScope.organization("tenant", Set.of("organization-a")),
+                BusinessLogOperatorCandidateQuery.browse(null, new BusinessLogPageRequest(1, 20)));
+
+        assertThat(candidates.candidates()).extracting(BusinessLogOperatorCandidate::operatorId)
+                .containsExactly("operator");
+        assertThat(store.lastCandidateQuery.eventTypes()).containsExactlyInAnyOrder(
+                BusinessLogEventType.ACTION, BusinessLogEventType.PAGE_ACCESS);
+        assertThat(store.lastCandidateQuery.tenantId()).isEqualTo("tenant");
+        assertThat(store.lastCandidateQuery.operatorOrganizationIds()).containsExactly("organization-a");
     }
 
     @Test
@@ -211,6 +236,7 @@ class BusinessLogGovernanceServiceTest {
     private static final class InMemoryStore implements BusinessLogStore {
         private final List<BusinessLogEvent> events;
         private BusinessLogQuery lastQuery;
+        private BusinessLogQuery lastCandidateQuery;
 
         private InMemoryStore(List<BusinessLogEvent> events) {
             this.events = List.copyOf(events);
@@ -241,6 +267,23 @@ class BusinessLogGovernanceServiceTest {
             List<BusinessLogEvent> page = start >= visible.size() ? List.of() : visible.subList(start, end);
             BusinessLogCursor next = end < visible.size() ? cursor(page.getLast()) : null;
             return new BusinessLogReadPage(page, next);
+        }
+
+        @Override
+        public BusinessLogOperatorCandidatePage readOperatorCandidates(BusinessLogQuery query,
+                                                                         BusinessLogOperatorCandidateQuery candidateQuery) {
+            lastCandidateQuery = query;
+            List<BusinessLogOperatorCandidate> candidates = events.stream()
+                    .filter(event -> event.context().operatorId() != null)
+                    .filter(event -> query.eventTypes() == null || query.eventTypes().contains(event.eventType()))
+                    .filter(event -> query.tenantId() == null || query.tenantId().equals(event.context().tenantId()))
+                    .filter(event -> query.operatorOrganizationIds() == null
+                            || (event.context().operatorOrganizationId() != null
+                            && query.operatorOrganizationIds().contains(event.context().operatorOrganizationId())))
+                    .map(event -> new BusinessLogOperatorCandidate(event.context().tenantId(), event.context().operatorId()))
+                    .distinct().toList();
+            return new BusinessLogOperatorCandidatePage(candidates, candidates.size(),
+                    candidateQuery.page().pageNum(), candidateQuery.page().pageSize());
         }
 
         private static int cursorIndex(List<BusinessLogEvent> events, BusinessLogCursor cursor) {
