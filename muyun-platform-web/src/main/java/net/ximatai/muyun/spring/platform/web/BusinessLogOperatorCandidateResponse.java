@@ -9,7 +9,6 @@ package net.ximatai.muyun.spring.platform.web;
 public record BusinessLogOperatorCandidateResponse(
         String id,
         String title,
-        String subtitle,
         String account,
         String employeeName,
         String organizationId,
@@ -17,7 +16,4 @@ public record BusinessLogOperatorCandidateResponse(
         String departmentId,
         String departmentName
 ) {
-    public BusinessLogOperatorCandidateResponse(String id, String title, String subtitle) {
-        this(id, title, subtitle, null, null, null, null, null, null);
-    }
 }

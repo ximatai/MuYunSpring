@@ -25,6 +25,7 @@ import {
   type UserPickerCandidate,
   type UserPickerNavigationItem,
   type UserPickerNavigationScope,
+  type UserPickerPage,
   type UserPickerPageSearch,
   type UserPickerResolver,
 } from './userPickerModel';
@@ -75,16 +76,7 @@ const columns: UiDataTableColumn[] = [
 const open = ref(false);
 const keyword = ref('');
 const pageNum = ref(1);
-const page = ref<{
-  records: UserPickerCandidate[];
-  total: number;
-  navigation?: {
-    showTenantNavigation: boolean;
-    tenants: UserPickerNavigationItem[];
-    organizations: UserPickerNavigationItem[];
-    departments: UserPickerNavigationItem[];
-  };
-}>({ records: [], total: 0 });
+const page = ref<UserPickerPage>({ records: [], total: 0 });
 const navigationScope = ref<UserPickerNavigationScope>({});
 const loading = ref(false);
 const error = ref<string>();

@@ -69,7 +69,6 @@ it('loads and restores log operators through the source log module rather than i
       {
         id: 'user-1',
         title: '张三 (zhangsan)',
-        subtitle: '华东机构 / 研发部',
         account: 'zhangsan',
         employeeName: '张三',
         organizationId: 'organization-east',
@@ -100,7 +99,6 @@ it('loads and restores log operators through the source log module rather than i
       {
         id: 'user-1',
         title: '张三 (zhangsan)',
-        subtitle: '华东机构 / 研发部',
         account: 'zhangsan',
         employeeName: '张三',
         organizationId: 'organization-east',
@@ -109,7 +107,7 @@ it('loads and restores log operators through the source log module rather than i
         departmentName: '研发部',
       },
     ],
-    selectedRecords: [{ id: 'user-2', title: 'lisi', subtitle: undefined, account: 'lisi' }],
+    selectedRecords: [{ id: 'user-2', title: 'lisi', account: 'lisi' }],
     total: 1,
   });
 });

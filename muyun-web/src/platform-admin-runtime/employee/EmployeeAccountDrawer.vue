@@ -129,7 +129,6 @@ function userPickerCandidate(user: UserSelectorItem): UserPickerCandidate {
   return {
     id: user.id,
     title: user.username ?? user.id,
-    subtitle: user.organizationTitle ?? user.organizationId,
     account: user.username ?? user.id,
     employeeName: user.employeeTitle,
     organizationId: user.organizationId,

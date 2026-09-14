@@ -47,7 +47,6 @@ export interface BusinessLogStatistics {
 export interface BusinessLogOperatorCandidate {
   id: string;
   title: string;
-  subtitle?: string;
   account?: string;
   employeeName?: string;
   organizationId?: string;
@@ -205,7 +204,6 @@ function candidateRecords(value: unknown): BusinessLogOperatorCandidate[] {
     if (!id) continue;
     const candidate: BusinessLogOperatorCandidate = { id, title: stringOf(record.title) ?? id };
     const optionalFields = [
-      'subtitle',
       'account',
       'employeeName',
       'organizationId',

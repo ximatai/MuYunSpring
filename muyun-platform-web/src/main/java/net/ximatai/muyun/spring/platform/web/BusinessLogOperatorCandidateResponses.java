@@ -80,7 +80,7 @@ public final class BusinessLogOperatorCandidateResponses {
             BusinessLogOperatorIdentity identity = identities.get(new BusinessLogOperatorIdentityKey(candidate.tenantId(),
                     candidate.operatorId(), candidate.operatorOrganizationId()));
             distinct.putIfAbsent(candidate.operatorId(), new BusinessLogOperatorCandidateResponse(candidate.operatorId(),
-                    label(candidate.operatorId(), candidate.operatorAccount(), identity), subtitle(identity),
+                    label(candidate.operatorId(), candidate.operatorAccount(), identity),
                     account(candidate, identity), identity == null ? null : identity.employeeName(),
                     candidate.operatorOrganizationId(), attributedName(candidate.operatorOrganizationId(),
                             identity == null ? null : identity.organizationId(),
@@ -103,16 +103,6 @@ public final class BusinessLogOperatorCandidateResponses {
             return identity.employeeName();
         }
         return identity.username() == null ? (operatorAccount == null ? operatorId : operatorAccount) : identity.username();
-    }
-
-    private static String subtitle(BusinessLogOperatorIdentity identity) {
-        if (identity == null) {
-            return null;
-        }
-        if (identity.organizationName() != null && identity.departmentName() != null) {
-            return identity.organizationName() + " / " + identity.departmentName();
-        }
-        return identity.organizationName() == null ? identity.departmentName() : identity.organizationName();
     }
 
     private static String account(BusinessLogOperatorCandidate candidate, BusinessLogOperatorIdentity identity) {
