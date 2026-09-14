@@ -10,6 +10,8 @@ withDefaults(
     disabled?: boolean;
     loading?: boolean;
     searchText?: string;
+    /** Uses a compact icon action for browse/filter entry points while preserving standard search semantics. */
+    searchIconOnly?: boolean;
   }>(),
   {
     value: '',
@@ -17,13 +19,18 @@ withDefaults(
     disabled: false,
     loading: false,
     searchText: undefined,
+    searchIconOnly: false,
   },
 );
 
 const emit = defineEmits<{
   'update:value': [value: string];
-  search: [value: string];
+  search: [value: string, source?: 'input' | 'clear'];
 }>();
+
+function handleSearch(value: string, _event?: Event, info?: { source?: 'input' | 'clear' }) {
+  emit('search', value, info?.source);
+}
 
 function handleKeydown(event: KeyboardEvent) {
   if (event.key !== 'Escape') return;
@@ -39,12 +46,12 @@ function handleKeydown(event: KeyboardEvent) {
     :placeholder="placeholder"
     :disabled="disabled"
     :loading="loading"
-    :enter-button="searchText ?? false"
+    :enter-button="searchIconOnly ? true : (searchText ?? false)"
     allow-clear
     :class="$attrs.class"
     :style="$attrs.style"
     @update:value="emit('update:value', $event)"
-    @search="emit('search', $event)"
+    @search="handleSearch"
     @keydown="handleKeydown"
   />
 </template>

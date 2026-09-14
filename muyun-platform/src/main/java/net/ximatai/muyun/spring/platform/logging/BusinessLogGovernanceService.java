@@ -5,6 +5,9 @@ import net.ximatai.muyun.spring.ability.logging.BusinessLogEvent;
 import net.ximatai.muyun.spring.ability.logging.BusinessLogEventType;
 import net.ximatai.muyun.spring.ability.logging.BusinessLogOperatorCandidatePage;
 import net.ximatai.muyun.spring.ability.logging.BusinessLogOperatorCandidateQuery;
+import net.ximatai.muyun.spring.ability.logging.BusinessLogOperatorCandidateNavigationResult;
+import net.ximatai.muyun.spring.ability.logging.BusinessLogOperatorNavigation;
+import net.ximatai.muyun.spring.ability.logging.BusinessLogOperatorNavigationItem;
 import net.ximatai.muyun.spring.ability.logging.BusinessLogQuery;
 import net.ximatai.muyun.spring.ability.logging.BusinessLogCursor;
 import net.ximatai.muyun.spring.ability.logging.BusinessLogPageRequest;
@@ -70,6 +73,17 @@ public final class BusinessLogGovernanceService {
                 Objects.requireNonNull(candidates, "candidates must not be null"));
     }
 
+    /**
+     * Queries log-sourced operator navigation and validates every requested scope against the
+     * same immutable log read range before paging candidates. A valid deeper scope is accepted
+     * without requiring a parent selection; a forged scope is rejected rather than treated as an
+     * empty result.
+     */
+    public BusinessLogOperatorCandidateNavigationResult queryBusinessActivityOperatorNavigation(
+            BusinessLogQuery query, BusinessLogReadScope scope, BusinessLogOperatorCandidateQuery candidates) {
+        return queryOperatorNavigation(query, scope, candidates, BUSINESS_ACTIVITY_TYPES);
+    }
+
     /** Returns distinct login operators from facts visible through this query action. */
     public BusinessLogOperatorCandidatePage queryLoginAuditOperatorCandidates(
             BusinessLogQuery query, BusinessLogReadScope scope, BusinessLogOperatorCandidateQuery candidates) {
@@ -77,11 +91,21 @@ public final class BusinessLogGovernanceService {
                 Objects.requireNonNull(candidates, "candidates must not be null"));
     }
 
+    public BusinessLogOperatorCandidateNavigationResult queryLoginAuditOperatorNavigation(
+            BusinessLogQuery query, BusinessLogReadScope scope, BusinessLogOperatorCandidateQuery candidates) {
+        return queryOperatorNavigation(query, scope, candidates, LOGIN_AUDIT_TYPES);
+    }
+
     /** Returns distinct request-error operators from facts visible through this query action. */
     public BusinessLogOperatorCandidatePage queryRequestErrorOperatorCandidates(
             BusinessLogQuery query, BusinessLogReadScope scope, BusinessLogOperatorCandidateQuery candidates) {
         return store.readOperatorCandidates(constrain(query, scope, REQUEST_ERROR_TYPES),
                 Objects.requireNonNull(candidates, "candidates must not be null"));
+    }
+
+    public BusinessLogOperatorCandidateNavigationResult queryRequestErrorOperatorNavigation(
+            BusinessLogQuery query, BusinessLogReadScope scope, BusinessLogOperatorCandidateQuery candidates) {
+        return queryOperatorNavigation(query, scope, candidates, REQUEST_ERROR_TYPES);
     }
 
     /** Adapts a standard page request to cursor-backed action and page-access storage. */
@@ -208,6 +232,44 @@ public final class BusinessLogGovernanceService {
         return store.findById(requireEventId(eventId))
                 .filter(event -> allowedTypes.contains(event.eventType()))
                 .filter(resolvedScope::allows);
+    }
+
+    private BusinessLogOperatorCandidateNavigationResult queryOperatorNavigation(
+            BusinessLogQuery query, BusinessLogReadScope scope, BusinessLogOperatorCandidateQuery candidates,
+            Set<BusinessLogEventType> allowedTypes) {
+        BusinessLogReadScope resolvedScope = requireScope(scope);
+        BusinessLogQuery visible = constrain(query, resolvedScope, allowedTypes);
+        BusinessLogOperatorNavigation navigation = store.readOperatorNavigation(visible);
+        validateNavigationScope(navigation, candidates);
+        BusinessLogOperatorCandidatePage page = store.readOperatorCandidates(visible, candidates);
+        return new BusinessLogOperatorCandidateNavigationResult(page, navigation,
+                resolvedScope.isPlatformScope());
+    }
+
+    private static void validateNavigationScope(BusinessLogOperatorNavigation navigation,
+                                                BusinessLogOperatorCandidateQuery candidates) {
+        if (candidates.tenantId() != null && !contains(navigation.tenants(), null, candidates.tenantId())) {
+            throw new SecurityException("operator tenant scope is outside the readable log range");
+        }
+        if (candidates.organizationId() != null && !contains(navigation.organizations(), candidates.tenantId(),
+                candidates.organizationId())) {
+            throw new SecurityException("operator organization scope is outside the readable log range");
+        }
+        if (candidates.departmentId() != null && !contains(navigation.departments(), candidates.tenantId(),
+                candidates.organizationId(), candidates.departmentId())) {
+            throw new SecurityException("operator department scope is outside the readable log range");
+        }
+    }
+
+    private static boolean contains(List<BusinessLogOperatorNavigationItem> items, String tenantId, String id) {
+        return contains(items, tenantId, null, id);
+    }
+
+    private static boolean contains(List<BusinessLogOperatorNavigationItem> items, String tenantId,
+                                    String organizationId, String id) {
+        return items.stream().anyMatch(item -> item.id().equals(id)
+                && (tenantId == null || tenantId.equals(item.tenantId()))
+                && (organizationId == null || organizationId.equals(item.organizationId())));
     }
 
     private static BusinessLogQuery constrain(BusinessLogQuery query, BusinessLogReadScope scope,

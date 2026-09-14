@@ -6,6 +6,7 @@ import net.ximatai.muyun.spring.ability.logging.BusinessLogQuery;
 import net.ximatai.muyun.spring.ability.logging.BusinessLogPageRequest;
 import net.ximatai.muyun.spring.ability.query.QuerySchema;
 import net.ximatai.muyun.spring.ability.logging.BusinessLogOperatorIdentityLookup;
+import net.ximatai.muyun.spring.ability.logging.BusinessLogOperatorNavigationLookup;
 import net.ximatai.muyun.spring.common.platform.CustomActionEndpoint;
 import net.ximatai.muyun.spring.common.platform.PlatformActionLevel;
 import net.ximatai.muyun.spring.iam.logging.LoginAuditGovernanceService;
@@ -45,11 +46,14 @@ public class LoginAuditLogWebController extends WebSupport<LoginAuditGovernanceS
             .forProfile(BusinessLogQueryProfile.LOGIN_AUDIT);
 
     private final ObjectProvider<BusinessLogOperatorIdentityLookup> identityLookup;
+    private final ObjectProvider<BusinessLogOperatorNavigationLookup> navigationLookup;
 
     public LoginAuditLogWebController(LoginAuditGovernanceService service,
-                                       ObjectProvider<BusinessLogOperatorIdentityLookup> identityLookup) {
+                                       ObjectProvider<BusinessLogOperatorIdentityLookup> identityLookup,
+                                       ObjectProvider<BusinessLogOperatorNavigationLookup> navigationLookup) {
         this.service = service;
         this.identityLookup = identityLookup;
+        this.navigationLookup = navigationLookup;
     }
 
     @GetMapping("/query/schema")
@@ -77,10 +81,10 @@ public class LoginAuditLogWebController extends WebSupport<LoginAuditGovernanceS
             BusinessLogOperatorCandidateRequest normalized = request == null
                     ? BusinessLogOperatorCandidateRequest.EMPTY : request;
             BusinessLogOperatorIdentityLookup lookup = identityLookup.getIfAvailable();
-            var candidates = service().queryOperatorCandidates(BusinessLogQuery.newest(200), normalized.browseQuery());
+            var candidates = service().queryOperatorNavigation(BusinessLogQuery.newest(200), normalized.browseQuery());
             var selected = normalized.hasSelectedIds()
-                    ? service().queryOperatorCandidates(BusinessLogQuery.newest(200), normalized.selectedQuery()) : null;
-            return BusinessLogOperatorCandidateResponses.from(candidates, selected, lookup);
+                    ? service().queryOperatorNavigation(BusinessLogQuery.newest(200), normalized.selectedQuery()).candidates() : null;
+            return BusinessLogOperatorCandidateResponses.from(candidates, selected, lookup, navigationLookup.getIfAvailable());
         });
     }
 

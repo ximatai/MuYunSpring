@@ -28,6 +28,16 @@ function mountPicker(overrides: Record<string, unknown> = {}) {
           emits: ['click'],
           template: '<button @click="$emit(\'click\', $event)"><slot /></button>',
         },
+        UiRecordExplorerItem: {
+          name: 'UiRecordExplorerItem',
+          props: ['title', 'selected'],
+          emits: ['click'],
+          template: '<button @click="$emit(\'click\')">{{ title }}</button>',
+        },
+        RecordExplorerPanel: {
+          name: 'RecordExplorerPanel',
+          template: '<section><slot /></section>',
+        },
       },
     },
   });
@@ -37,7 +47,7 @@ it('opens from the text entry and delegates paged search to the injected provide
   const searchPage = vi.fn().mockResolvedValue({ records: users, total: 42 });
   const wrapper = mountPicker({ searchPage });
 
-  wrapper.findAllComponents({ name: 'UiSearchInput' })[0]!.vm.$emit('search', '张');
+  wrapper.findComponent({ name: 'ObjectPickerInput' }).vm.$emit('browse', '张');
   await flushPromises();
 
   expect(searchPage).toHaveBeenCalledWith({ keyword: '张', pageNum: 1, pageSize: 20 });
@@ -52,10 +62,10 @@ it('keeps object-specific search and count copy injected by a semantic wrapper',
     selectionNoun: '职员',
   });
 
-  wrapper.findAllComponents({ name: 'UiSearchInput' })[0]!.vm.$emit('search', '张');
+  wrapper.findComponent({ name: 'ObjectPickerInput' }).vm.$emit('browse', '张');
   await flushPromises();
 
-  expect(wrapper.findAllComponents({ name: 'UiSearchInput' })[1]!.props('placeholder')).toBe(
+  expect(wrapper.findComponent({ name: 'UiSearchInput' }).props('placeholder')).toBe(
     '按工号、姓名或职员 ID 搜索',
   );
   expect(wrapper.findComponent({ name: 'UiDataTable' }).props('emptyDescription')).toBe('没有可选择的职员');
@@ -68,10 +78,10 @@ it('resolves an existing user account ID through the injected authorized resolve
   await flushPromises();
 
   expect(resolveUsers).toHaveBeenCalledWith(['user-1']);
-  expect(wrapper.text()).toContain('张三');
+  expect(wrapper.findComponent({ name: 'ObjectPickerInput' }).props('value')).toBe('张三');
 });
 
-it('keeps the search draft separate from the selected user display', async () => {
+it('shows the selected user in the search entry while keeping dialog search separate', async () => {
   const searchPage = vi.fn().mockResolvedValue({ records: users, total: users.length });
   const wrapper = mountPicker({
     value: 'user-1',
@@ -80,17 +90,17 @@ it('keeps the search draft separate from the selected user display', async () =>
   });
   await flushPromises();
 
-  expect(wrapper.findAllComponents({ name: 'UiSearchInput' })[0]!.props('value')).toBe('');
-  expect(wrapper.text()).toContain('张三');
-  wrapper.findAllComponents({ name: 'UiSearchInput' })[0]!.vm.$emit('search', '');
+  expect(wrapper.findComponent({ name: 'ObjectPickerInput' }).props('value')).toBe('张三');
+  wrapper.findComponent({ name: 'ObjectPickerInput' }).vm.$emit('browse', '');
   await flushPromises();
+  expect(wrapper.findComponent({ name: 'UiSearchInput' }).props('value')).toBe('');
   expect(searchPage).toHaveBeenCalledWith({ keyword: '', pageNum: 1, pageSize: 20 });
 });
 
 it('keeps the external value unchanged when the selection draft is cancelled', async () => {
   const wrapper = mountPicker({ value: 'user-1' });
   await flushPromises();
-  wrapper.findAllComponents({ name: 'UiSearchInput' })[0]!.vm.$emit('search', '李');
+  wrapper.findComponent({ name: 'ObjectPickerInput' }).vm.$emit('browse', '李');
   await flushPromises();
   wrapper.findComponent({ name: 'UiDataTable' }).vm.$emit('rowClick', users[1], new MouseEvent('click'));
   wrapper.findComponent({ name: 'UiModal' }).vm.$emit('cancel');
@@ -102,7 +112,7 @@ it('keeps the external value unchanged when the selection draft is cancelled', a
 
 it('commits a single user account ID only after confirmation', async () => {
   const wrapper = mountPicker();
-  wrapper.findAllComponents({ name: 'UiSearchInput' })[0]!.vm.$emit('search', '李');
+  wrapper.findComponent({ name: 'ObjectPickerInput' }).vm.$emit('browse', '李');
   await flushPromises();
   wrapper.findComponent({ name: 'UiDataTable' }).vm.$emit('rowClick', users[1], new MouseEvent('click'));
   wrapper.findComponent({ name: 'UiModal' }).vm.$emit('confirm');
@@ -112,12 +122,38 @@ it('commits a single user account ID only after confirmation', async () => {
   expect(wrapper.emitted('select')).toEqual([[[users[1]]]]);
 });
 
+it('keeps single selection focused on the result list and does not render multiple-selection draft UI', async () => {
+  const wrapper = mountPicker({ value: 'user-1', resolveUsers: vi.fn().mockResolvedValue([users[0]]) });
+  await flushPromises();
+  wrapper.findComponent({ name: 'ObjectPickerInput' }).vm.$emit('browse', '张');
+  await flushPromises();
+
+  expect(wrapper.text()).not.toContain('已选');
+  expect(wrapper.text()).not.toContain('清空选择');
+  expect(wrapper.findComponent({ name: 'UiDataTable' }).props('selectedRowKey')).toBe('user-1');
+});
+
+it('completes a single selection immediately when a result row is double-clicked', async () => {
+  const wrapper = mountPicker();
+  wrapper.findComponent({ name: 'ObjectPickerInput' }).vm.$emit('browse', '李');
+  await flushPromises();
+
+  wrapper
+    .findComponent({ name: 'UiDataTable' })
+    .vm.$emit('rowDblclick', users[1], new MouseEvent('dblclick'));
+  await flushPromises();
+
+  expect(wrapper.emitted('update:value')).toEqual([['user-2']]);
+  expect(wrapper.emitted('select')).toEqual([[[users[1]]]]);
+  expect(wrapper.findComponent({ name: 'UiModal' }).props('open')).toBe(false);
+});
+
 it('retains multiple selection across pages and commits the IDs once', async () => {
   const searchPage = vi.fn(async ({ pageNum }: { pageNum: number }) =>
     pageNum === 1 ? { records: [users[0]], total: 40 } : { records: [users[1]], total: 40 },
   );
   const wrapper = mountPicker({ multiple: true, searchPage });
-  wrapper.findAllComponents({ name: 'UiSearchInput' })[0]!.vm.$emit('search', '');
+  wrapper.findComponent({ name: 'ObjectPickerInput' }).vm.$emit('browse', '');
   await flushPromises();
 
   const firstSelection = wrapper.findComponent({ name: 'UiDataTable' }).props('selection') as {
@@ -140,6 +176,9 @@ it('retains multiple selection across pages and commits the IDs once', async () 
     onChange: (ids: string[]) => void;
   };
   secondSelection.onChange(['user-1', 'user-2']);
+  await flushPromises();
+  expect(wrapper.text()).toContain('已选 2 位用户');
+  expect(wrapper.text()).toContain('清空选择');
   wrapper.findComponent({ name: 'UiModal' }).vm.$emit('confirm');
   await flushPromises();
 
@@ -160,13 +199,73 @@ it('does not allow an older search response to overwrite the current candidates'
     .mockResolvedValueOnce({ records: [users[1]], total: 1 });
   const wrapper = mountPicker({ searchPage });
 
-  wrapper.findAllComponents({ name: 'UiSearchInput' })[0]!.vm.$emit('search', '张');
+  wrapper.findComponent({ name: 'ObjectPickerInput' }).vm.$emit('browse', '张');
   await flushPromises();
-  wrapper.findAllComponents({ name: 'UiSearchInput' })[1]!.vm.$emit('search', '李');
+  wrapper.findComponent({ name: 'UiSearchInput' }).vm.$emit('search', '李');
   await flushPromises();
   resolveFirst!({ records: [users[0]], total: 1 });
   await flushPromises();
 
   expect(wrapper.findComponent({ name: 'UiDataTable' }).props('rows')).toEqual([users[1]]);
   expect(searchPage).toHaveBeenLastCalledWith({ keyword: '李', pageNum: 1, pageSize: 20 });
+});
+
+it('uses source-provided tenant, organization, and department navigation to narrow the people page', async () => {
+  const searchPage = vi
+    .fn()
+    .mockResolvedValueOnce({
+      records: users,
+      total: users.length,
+      navigation: {
+        showTenantNavigation: true,
+        tenants: [{ id: 'tenant-a', title: '租户 A' }],
+        organizations: [{ id: 'org-a', title: '华东机构', tenantId: 'tenant-a' }],
+        departments: [{ id: 'department-a', title: '研发部', tenantId: 'tenant-a', organizationId: 'org-a' }],
+      },
+    })
+    .mockResolvedValueOnce({ records: [users[0]], total: 1 });
+  const wrapper = mountPicker({ searchPage });
+
+  wrapper.findComponent({ name: 'ObjectPickerInput' }).vm.$emit('browse', '');
+  await flushPromises();
+
+  expect(wrapper.text()).toContain('租户 A');
+  expect(wrapper.text()).toContain('华东机构');
+  expect(wrapper.text()).toContain('研发部');
+  wrapper
+    .findAllComponents({ name: 'UiRecordExplorerItem' })
+    .find((item) => item.props('title') === '华东机构')!
+    .vm.$emit('click');
+  await flushPromises();
+
+  expect(searchPage).toHaveBeenLastCalledWith({
+    keyword: '',
+    pageNum: 1,
+    pageSize: 20,
+    scope: { tenantId: 'tenant-a', organizationId: 'org-a' },
+  });
+});
+
+it('clears the selected value without opening the picker when the entry clear affordance is used', async () => {
+  const wrapper = mountPicker({ value: 'user-1', resolveUsers: vi.fn().mockResolvedValue([users[0]]) });
+  await flushPromises();
+
+  wrapper.findComponent({ name: 'ObjectPickerInput' }).vm.$emit('clear');
+  await flushPromises();
+
+  expect(wrapper.emitted('update:value')).toEqual([[undefined]]);
+  expect(wrapper.emitted('select')).toEqual([[[]]]);
+  expect(wrapper.findComponent({ name: 'UiModal' }).props('open')).toBe(false);
+});
+
+it('uses the standard object-picker entry and keeps dialog search explicit', async () => {
+  const wrapper = mountPicker();
+  const entry = wrapper.findComponent({ name: 'ObjectPickerInput' });
+  expect(entry.props('browseLabel')).toBe('选择用户');
+
+  entry.vm.$emit('browse', '');
+  await flushPromises();
+  const dialogSearch = wrapper.findComponent({ name: 'UiSearchInput' });
+  expect(dialogSearch.props('searchIconOnly')).toBe(false);
+  expect(dialogSearch.props('searchText')).toBe('搜索');
 });

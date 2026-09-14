@@ -248,7 +248,6 @@ const quickSearchKeyword = ref('');
 const appliedQuickSearch = ref('');
 const conditionsExpanded = ref(false);
 const activeCriteria = ref<QueryCriteriaGroup>();
-const criteriaDraftPending = ref(false);
 const criteriaComposerResetKey = ref(0);
 const selectedRowKeys = ref<UiDataTableKey[]>([]);
 const persistentExternalQueryValues = ref<Record<string, boolean>>({});
@@ -353,18 +352,6 @@ const conditionsDisabled = computed(
 );
 const criteriaControlTitle = computed(() =>
   criteriaComposition.value === 'FLAT_AND' ? '更多筛选' : '高级筛选',
-);
-const persistentFieldDraftPending = computed(() =>
-  persistentFieldQueryControls.value.some(
-    (control) =>
-      !sameQueryValues(
-        persistentFieldDraftValue(control),
-        appliedPersistentFieldValues.value[control.id] ?? [],
-      ),
-  ),
-);
-const hasUnappliedQueryDraft = computed(
-  () => criteriaDraftPending.value || persistentFieldDraftPending.value,
 );
 const effectiveExternalQueryValues = computed(() => ({
   ...persistentExternalQueryValues.value,
@@ -593,7 +580,6 @@ async function loadSchemaAndRecords() {
       return;
     }
     activeCriteria.value = undefined;
-    criteriaDraftPending.value = false;
     conditionsExpanded.value = false;
     criteriaComposerResetKey.value += 1;
     await loadRecords(false);
@@ -612,7 +598,6 @@ async function loadSchemaAndRecords() {
         return;
       }
       activeCriteria.value = undefined;
-      criteriaDraftPending.value = false;
       conditionsExpanded.value = false;
       criteriaComposerResetKey.value += 1;
       await loadRecords(false);
@@ -823,10 +808,6 @@ function updatePersistentFieldDraftValue(
   values: unknown[],
 ) {
   persistentFieldDraftValues.value = { ...persistentFieldDraftValues.value, [control.id]: values };
-}
-
-function sameQueryValues(left: unknown[], right: unknown[]) {
-  return left.length === right.length && left.every((value, index) => Object.is(value, right[index]));
 }
 
 function applyPersistentFieldQueries() {
@@ -1139,14 +1120,12 @@ function toggleConditions() {
 
 function applyCriteria(criteria: QueryCriteriaGroup | undefined) {
   activeCriteria.value = criteria;
-  criteriaDraftPending.value = false;
   pageNum.value = 1;
   void loadRecords();
 }
 
 function clearCriteria() {
   activeCriteria.value = undefined;
-  criteriaDraftPending.value = false;
   pageNum.value = 1;
   void loadRecords();
 }
@@ -1311,9 +1290,6 @@ defineExpose({ clearSelection, refresh });
       <span v-if="conditionCount" class="record-query-list-query-state" role="status">
         已应用 {{ conditionCount }} 条筛选
       </span>
-      <span v-if="hasUnappliedQueryDraft" class="record-query-list-query-state is-pending" role="status">
-        筛选草稿尚未应用
-      </span>
     </template>
 
     <template #conditions>
@@ -1328,7 +1304,6 @@ defineExpose({ clearSelection, refresh });
           :composition="criteriaComposition === 'FLAT_AND' ? 'FLAT_AND' : 'TREE'"
           @apply="applyCriteria"
           @clear="clearCriteria"
-          @draft-change="criteriaDraftPending = $event"
           @validation="presentPlatformMessage($event, { phase: 'validation' })"
         />
       </section>
@@ -1520,10 +1495,6 @@ defineExpose({ clearSelection, refresh });
   color: var(--muyun-text-muted);
   font-size: 13px;
   white-space: nowrap;
-}
-
-.record-query-list-query-state.is-pending {
-  color: var(--muyun-warning);
 }
 
 :deep(.record-query-list-advanced.is-selected.ant-btn) {

@@ -11,16 +11,25 @@ import java.util.Set;
 /** HTTP request for one log stream's operator selector. */
 public record BusinessLogOperatorCandidateRequest(String keyword,
                                                   List<String> selectedIds,
+                                                  String tenantId,
+                                                  String organizationId,
+                                                  String departmentId,
                                                   WebPageRequest page) {
     public static final BusinessLogOperatorCandidateRequest EMPTY =
-            new BusinessLogOperatorCandidateRequest(null, List.of(), null);
+            new BusinessLogOperatorCandidateRequest(null, List.of(), null, null, null, null);
+
+    public BusinessLogOperatorCandidateRequest(String keyword, List<String> selectedIds, WebPageRequest page) {
+        this(keyword, selectedIds, null, null, null, page);
+    }
 
     public BusinessLogOperatorCandidateQuery browseQuery() {
-        return BusinessLogOperatorCandidateQuery.browse(keyword, pageRequest());
+        return BusinessLogOperatorCandidateQuery.browse(keyword, pageRequest())
+                .withScope(tenantId, organizationId, departmentId);
     }
 
     public BusinessLogOperatorCandidateQuery selectedQuery() {
-        return BusinessLogOperatorCandidateQuery.selected(selectedOperatorIds());
+        return BusinessLogOperatorCandidateQuery.selected(selectedOperatorIds())
+                .withScope(tenantId, organizationId, departmentId);
     }
 
     public boolean hasSelectedIds() {

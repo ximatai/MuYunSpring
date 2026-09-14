@@ -8,6 +8,7 @@ import net.ximatai.muyun.spring.ability.logging.BusinessLogPageResult;
 import net.ximatai.muyun.spring.ability.logging.BusinessLogReadScopeResolver;
 import net.ximatai.muyun.spring.ability.logging.BusinessLogOperatorCandidatePage;
 import net.ximatai.muyun.spring.ability.logging.BusinessLogOperatorCandidateQuery;
+import net.ximatai.muyun.spring.ability.logging.BusinessLogOperatorCandidateNavigationResult;
 import net.ximatai.muyun.spring.platform.logging.BusinessLogGovernanceService;
 import org.springframework.lang.Nullable;
 import org.springframework.stereotype.Service;
@@ -55,6 +56,15 @@ public class LoginAuditGovernanceService {
     public BusinessLogOperatorCandidatePage queryOperatorCandidates(BusinessLogQuery query,
                                                                       BusinessLogOperatorCandidateQuery candidates) {
         return governanceService().queryLoginAuditOperatorCandidates(
+                Objects.requireNonNull(query, "query must not be null"),
+                readScopeResolver.resolve(MODULE_ALIAS, QUERY_ACTION_CODE),
+                Objects.requireNonNull(candidates, "candidates must not be null"));
+    }
+
+    /** Returns log-derived progressive scope navigation and a paged operator result. */
+    public BusinessLogOperatorCandidateNavigationResult queryOperatorNavigation(BusinessLogQuery query,
+                                                                                  BusinessLogOperatorCandidateQuery candidates) {
+        return governanceService().queryLoginAuditOperatorNavigation(
                 Objects.requireNonNull(query, "query must not be null"),
                 readScopeResolver.resolve(MODULE_ALIAS, QUERY_ACTION_CODE),
                 Objects.requireNonNull(candidates, "candidates must not be null"));

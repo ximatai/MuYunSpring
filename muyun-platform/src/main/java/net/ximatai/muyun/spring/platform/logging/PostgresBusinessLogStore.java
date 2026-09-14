@@ -13,6 +13,8 @@ import net.ximatai.muyun.spring.ability.logging.BusinessLogQuery;
 import net.ximatai.muyun.spring.ability.logging.BusinessLogOperatorCandidate;
 import net.ximatai.muyun.spring.ability.logging.BusinessLogOperatorCandidatePage;
 import net.ximatai.muyun.spring.ability.logging.BusinessLogOperatorCandidateQuery;
+import net.ximatai.muyun.spring.ability.logging.BusinessLogOperatorNavigation;
+import net.ximatai.muyun.spring.ability.logging.BusinessLogOperatorNavigationItem;
 import net.ximatai.muyun.spring.ability.logging.BusinessLogReadPage;
 import net.ximatai.muyun.spring.ability.logging.BusinessLogStorageException;
 import net.ximatai.muyun.spring.ability.logging.BusinessLogStore;
@@ -51,12 +53,12 @@ public class PostgresBusinessLogStore implements BusinessLogStore, PlatformBoots
     private static final String INSERT = """
             insert into muyun_log.business_log_event
                 (event_id, event_type, occurred_at, captured_at, trace_id, tenant_id, operator_id,
-                 operator_account, operator_organization_id, module_alias, action_code, error_code, login_outcome, login_account, http_status, details_json)
-            values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, cast(? as jsonb))
+                 operator_account, operator_organization_id, operator_department_id, module_alias, action_code, error_code, login_outcome, login_account, http_status, details_json)
+            values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, cast(? as jsonb))
             on conflict (event_id) do nothing
             """;
     private static final String EVENT_COLUMNS = "event_id, event_type, occurred_at, captured_at, trace_id, "
-            + "tenant_id, operator_id, operator_account, operator_organization_id, module_alias, action_code, details_json";
+            + "tenant_id, operator_id, operator_account, operator_organization_id, operator_department_id, module_alias, action_code, details_json";
 
     private final SqlConnectionExecutor connections;
     private final ObjectMapper objectMapper;
@@ -198,10 +200,11 @@ public class PostgresBusinessLogStore implements BusinessLogStore, PlatformBoots
         appendQueryFilters(where, parameters, query);
         appendCandidateFilters(where, parameters, candidateQuery);
         String grouped = "select distinct on (tenant_id, operator_id) tenant_id, operator_id, operator_account, "
+                + "operator_organization_id, operator_department_id, "
                 + "occurred_at as last_occurred_at" + where
                 + " order by tenant_id asc nulls first, operator_id asc, occurred_at desc";
         long total = countCandidates(grouped, parameters);
-        String pageSql = "select tenant_id, operator_id, operator_account from (" + grouped + ") candidates"
+        String pageSql = "select tenant_id, operator_id, operator_account, operator_organization_id, operator_department_id from (" + grouped + ") candidates"
                 + " order by last_occurred_at desc, tenant_id asc nulls first, operator_id asc limit ? offset ?";
         List<Object> pageParameters = new ArrayList<>(parameters);
         pageParameters.add(candidateQuery.page().pageSize());
@@ -214,7 +217,9 @@ public class PostgresBusinessLogStore implements BusinessLogStore, PlatformBoots
                         List<BusinessLogOperatorCandidate> candidates = new ArrayList<>();
                         while (resultSet.next()) {
                             candidates.add(new BusinessLogOperatorCandidate(resultSet.getString("tenant_id"),
-                                    resultSet.getString("operator_id"), resultSet.getString("operator_account")));
+                                    resultSet.getString("operator_id"), resultSet.getString("operator_account"),
+                                    resultSet.getString("operator_organization_id"),
+                                    resultSet.getString("operator_department_id")));
                         }
                         return new BusinessLogOperatorCandidatePage(candidates, total,
                                 candidateQuery.page().pageNum(), candidateQuery.page().pageSize());
@@ -224,6 +229,20 @@ public class PostgresBusinessLogStore implements BusinessLogStore, PlatformBoots
         } catch (SQLException exception) {
             throw storageFailure("read business-log operator candidates", exception);
         }
+    }
+
+    @Override
+    public BusinessLogOperatorNavigation readOperatorNavigation(BusinessLogQuery query) {
+        Objects.requireNonNull(query, "query must not be null");
+        StringBuilder where = new StringBuilder(" from muyun_log.business_log_event where operator_id is not null");
+        List<Object> parameters = new ArrayList<>();
+        appendQueryFilters(where, parameters, query);
+        return new BusinessLogOperatorNavigation(
+                navigation("select distinct tenant_id" + where + " and tenant_id is not null order by tenant_id", parameters, false),
+                navigation("select distinct tenant_id, operator_organization_id" + where
+                        + " and operator_organization_id is not null order by tenant_id, operator_organization_id", parameters, true),
+                navigation("select distinct tenant_id, operator_organization_id, operator_department_id" + where
+                        + " and operator_department_id is not null order by tenant_id, operator_organization_id, operator_department_id", parameters, true));
     }
 
     @Override
@@ -258,17 +277,18 @@ public class PostgresBusinessLogStore implements BusinessLogStore, PlatformBoots
         statement.setString(7, context.operatorId());
         statement.setString(8, context.operatorAccount());
         statement.setString(9, context.operatorOrganizationId());
-        statement.setString(10, context.moduleAlias());
-        statement.setString(11, context.actionCode());
-        statement.setString(12, errorCode(event));
-        statement.setString(13, loginOutcome(event));
-        statement.setString(14, loginAccount(event));
+        statement.setString(10, context.operatorDepartmentId());
+        statement.setString(11, context.moduleAlias());
+        statement.setString(12, context.actionCode());
+        statement.setString(13, errorCode(event));
+        statement.setString(14, loginOutcome(event));
+        statement.setString(15, loginAccount(event));
         if (httpStatus(event) == null) {
-            statement.setNull(15, java.sql.Types.INTEGER);
+            statement.setNull(16, java.sql.Types.INTEGER);
         } else {
-            statement.setInt(15, httpStatus(event));
+            statement.setInt(16, httpStatus(event));
         }
-        statement.setString(16, serialize(event.details()));
+        statement.setString(17, serialize(event.details()));
         int updated = statement.executeUpdate();
         return new BusinessLogWriteResult(context.eventId(), updated == 1
                 ? BusinessLogWriteResult.Status.APPENDED : BusinessLogWriteResult.Status.DUPLICATE_IGNORED);
@@ -293,6 +313,7 @@ public class PostgresBusinessLogStore implements BusinessLogStore, PlatformBoots
                 resultSet.getString("operator_id"),
                 resultSet.getString("operator_account"),
                 resultSet.getString("operator_organization_id"),
+                resultSet.getString("operator_department_id"),
                 resultSet.getString("module_alias"),
                 resultSet.getString("action_code"));
         String detailsJson = resultSet.getString("details_json");
@@ -345,6 +366,34 @@ public class PostgresBusinessLogStore implements BusinessLogStore, PlatformBoots
             parameters.add(query.keyword());
         }
         appendInFilter(sql, parameters, "operator_id", query.operatorIds());
+        appendFilter(sql, parameters, "tenant_id = ?", query.tenantId());
+        appendFilter(sql, parameters, "operator_organization_id = ?", query.organizationId());
+        appendFilter(sql, parameters, "operator_department_id = ?", query.departmentId());
+    }
+
+    private List<BusinessLogOperatorNavigationItem> navigation(String sql, List<Object> parameters,
+                                                                 boolean hasTenantColumn) {
+        try {
+            return connections.withConnection(connection -> {
+                try (PreparedStatement statement = connection.prepareStatement(sql)) {
+                    bind(statement, parameters);
+                    try (ResultSet resultSet = statement.executeQuery()) {
+                        List<BusinessLogOperatorNavigationItem> values = new ArrayList<>();
+                        while (resultSet.next()) {
+                            String tenantId = hasTenantColumn ? resultSet.getString("tenant_id") : null;
+                            String id = hasTenantColumn ? resultSet.getString(resultSet.getMetaData().getColumnCount())
+                                    : resultSet.getString(1);
+                            String organizationId = hasTenantColumn && resultSet.getMetaData().getColumnCount() == 3
+                                    ? resultSet.getString("operator_organization_id") : null;
+                            values.add(new BusinessLogOperatorNavigationItem(tenantId, organizationId, id));
+                        }
+                        return List.copyOf(values);
+                    }
+                }
+            });
+        } catch (SQLException exception) {
+            throw storageFailure("read business-log operator navigation", exception);
+        }
     }
 
     private long countCandidates(String groupedQuery, List<Object> parameters) {

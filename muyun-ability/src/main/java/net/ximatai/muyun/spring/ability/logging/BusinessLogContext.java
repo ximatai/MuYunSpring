@@ -19,6 +19,7 @@ public record BusinessLogContext(
         String operatorId,
         String operatorAccount,
         String operatorOrganizationId,
+        String operatorDepartmentId,
         String moduleAlias,
         String actionCode
 ) {
@@ -38,6 +39,7 @@ public record BusinessLogContext(
         operatorId = optional(operatorId, "operatorId", 128);
         operatorAccount = optional(operatorAccount, "operatorAccount", 256);
         operatorOrganizationId = optional(operatorOrganizationId, "operatorOrganizationId", 128);
+        operatorDepartmentId = optional(operatorDepartmentId, "operatorDepartmentId", 128);
         moduleAlias = optional(moduleAlias, "moduleAlias", 192);
         actionCode = optional(actionCode, "actionCode", 128);
     }
@@ -47,7 +49,7 @@ public record BusinessLogContext(
      */
     public BusinessLogContext(String eventId, Instant occurredAt, Instant capturedAt, String traceId,
                               String tenantId, String operatorId, String moduleAlias, String actionCode) {
-        this(eventId, occurredAt, capturedAt, traceId, tenantId, operatorId, null, null, moduleAlias, actionCode);
+        this(eventId, occurredAt, capturedAt, traceId, tenantId, operatorId, null, null, null, moduleAlias, actionCode);
     }
 
     /** Source-compatible constructor for facts captured before operator-account snapshots. */
@@ -55,21 +57,21 @@ public record BusinessLogContext(
                               String tenantId, String operatorId, String operatorOrganizationId,
                               String moduleAlias, String actionCode) {
         this(eventId, occurredAt, capturedAt, traceId, tenantId, operatorId, null, operatorOrganizationId,
-                moduleAlias, actionCode);
+                null, moduleAlias, actionCode);
     }
 
     public static BusinessLogContext capturedNow(String eventId, Instant occurredAt, String traceId,
                                                  String tenantId, String operatorId,
                                                  String moduleAlias, String actionCode) {
         return new BusinessLogContext(eventId, occurredAt, Instant.now(), traceId, tenantId, operatorId,
-                null, null, moduleAlias, actionCode);
+                null, null, null, moduleAlias, actionCode);
     }
 
     public static BusinessLogContext capturedNow(String eventId, Instant occurredAt, String traceId,
                                                  String tenantId, String operatorId, String operatorOrganizationId,
                                                  String moduleAlias, String actionCode) {
         return new BusinessLogContext(eventId, occurredAt, Instant.now(), traceId, tenantId, operatorId,
-                null, operatorOrganizationId, moduleAlias, actionCode);
+                null, operatorOrganizationId, null, moduleAlias, actionCode);
     }
 
     /** Captures an operator-account snapshot while retaining the event-time organization snapshot. */
@@ -77,7 +79,24 @@ public record BusinessLogContext(
                                                  String tenantId, String operatorId, String operatorAccount,
                                                  String operatorOrganizationId, String moduleAlias, String actionCode) {
         return new BusinessLogContext(eventId, occurredAt, Instant.now(), traceId, tenantId, operatorId,
-                operatorAccount, operatorOrganizationId, moduleAlias, actionCode);
+                operatorAccount, operatorOrganizationId, null, moduleAlias, actionCode);
+    }
+
+    /** Captures immutable organization and department facts for audit-time navigation. */
+    public static BusinessLogContext capturedNow(String eventId, Instant occurredAt, String traceId,
+                                                 String tenantId, String operatorId, String operatorAccount,
+                                                 String operatorOrganizationId, String operatorDepartmentId,
+                                                 String moduleAlias, String actionCode) {
+        return new BusinessLogContext(eventId, occurredAt, Instant.now(), traceId, tenantId, operatorId,
+                operatorAccount, operatorOrganizationId, operatorDepartmentId, moduleAlias, actionCode);
+    }
+
+    /** Source-compatible constructor for account and organization snapshots predating departments. */
+    public BusinessLogContext(String eventId, Instant occurredAt, Instant capturedAt, String traceId,
+                              String tenantId, String operatorId, String operatorAccount,
+                              String operatorOrganizationId, String moduleAlias, String actionCode) {
+        this(eventId, occurredAt, capturedAt, traceId, tenantId, operatorId, operatorAccount,
+                operatorOrganizationId, null, moduleAlias, actionCode);
     }
 
     static String required(String value, String name, int maximumLength) {

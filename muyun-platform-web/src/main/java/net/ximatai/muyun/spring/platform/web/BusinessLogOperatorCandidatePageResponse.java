@@ -10,10 +10,18 @@ public record BusinessLogOperatorCandidatePageResponse(
         int pageNum,
         int pageSize,
         long pages,
-        boolean totalKnown
+        boolean totalKnown,
+        BusinessLogOperatorNavigationResponse navigation
 ) {
     public BusinessLogOperatorCandidatePageResponse {
         records = records == null ? List.of() : List.copyOf(records);
         selectedRecords = selectedRecords == null ? List.of() : List.copyOf(selectedRecords);
+    }
+
+    public BusinessLogOperatorCandidatePageResponse(List<BusinessLogOperatorCandidateResponse> records,
+                                                     List<BusinessLogOperatorCandidateResponse> selectedRecords,
+                                                     long total, int pageNum, int pageSize, long pages,
+                                                     boolean totalKnown) {
+        this(records, selectedRecords, total, pageNum, pageSize, pages, totalKnown, null);
     }
 }

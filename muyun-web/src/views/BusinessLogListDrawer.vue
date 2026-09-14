@@ -32,9 +32,9 @@ const client = createBusinessLogClient(moduleContext.http, props.surface);
 const operatorUserPicker: UserPickerConfig = {
   title: '选择操作用户',
   placeholder: '按账号或用户 ID 搜索',
-  searchPage: async ({ keyword, pageNum, pageSize }) => {
-    const page = await client.operatorCandidates({ keyword, pageNum, pageSize });
-    return { records: page.records, total: page.total };
+  searchPage: async ({ keyword, pageNum, pageSize, scope }) => {
+    const page = await client.operatorCandidates({ keyword, pageNum, pageSize, ...scope });
+    return { records: page.records, total: page.total, navigation: page.navigation };
   },
   resolveUsers: async (ids) => (await client.operatorCandidates({ selectedIds: ids })).selectedRecords,
 };

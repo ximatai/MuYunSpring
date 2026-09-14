@@ -6,6 +6,7 @@ import net.ximatai.muyun.spring.ability.logging.BusinessLogQuery;
 import net.ximatai.muyun.spring.ability.logging.BusinessLogPageRequest;
 import net.ximatai.muyun.spring.ability.query.QuerySchema;
 import net.ximatai.muyun.spring.ability.logging.BusinessLogOperatorIdentityLookup;
+import net.ximatai.muyun.spring.ability.logging.BusinessLogOperatorNavigationLookup;
 import net.ximatai.muyun.spring.ability.logging.BusinessLogReadScope;
 import net.ximatai.muyun.spring.ability.logging.BusinessLogReadScopeResolver;
 import net.ximatai.muyun.spring.ability.logging.RequestErrorLogDetails;
@@ -44,13 +45,16 @@ public class RequestErrorLogWebController extends WebSupport<BusinessLogGovernan
 
     private final BusinessLogReadScopeResolver scopeResolver;
     private final ObjectProvider<BusinessLogOperatorIdentityLookup> identityLookup;
+    private final ObjectProvider<BusinessLogOperatorNavigationLookup> navigationLookup;
 
     public RequestErrorLogWebController(BusinessLogGovernanceService service,
                                         BusinessLogReadScopeResolver scopeResolver,
-                                        ObjectProvider<BusinessLogOperatorIdentityLookup> identityLookup) {
+                                        ObjectProvider<BusinessLogOperatorIdentityLookup> identityLookup,
+                                        ObjectProvider<BusinessLogOperatorNavigationLookup> navigationLookup) {
         this.service = service;
         this.scopeResolver = scopeResolver;
         this.identityLookup = identityLookup;
+        this.navigationLookup = navigationLookup;
     }
 
     @GetMapping("/query/schema")
@@ -79,12 +83,12 @@ public class RequestErrorLogWebController extends WebSupport<BusinessLogGovernan
                     ? BusinessLogOperatorCandidateRequest.EMPTY : request;
             BusinessLogReadScope scope = scope(QUERY_EVENTS);
             BusinessLogOperatorIdentityLookup lookup = identityLookup.getIfAvailable();
-            var candidates = service().queryRequestErrorOperatorCandidates(BusinessLogQuery.newest(200), scope,
+            var candidates = service().queryRequestErrorOperatorNavigation(BusinessLogQuery.newest(200), scope,
                     normalized.browseQuery());
             var selected = normalized.hasSelectedIds()
-                    ? service().queryRequestErrorOperatorCandidates(BusinessLogQuery.newest(200), scope,
-                    normalized.selectedQuery()) : null;
-            return BusinessLogOperatorCandidateResponses.from(candidates, selected, lookup);
+                    ? service().queryRequestErrorOperatorNavigation(BusinessLogQuery.newest(200), scope,
+                    normalized.selectedQuery()).candidates() : null;
+            return BusinessLogOperatorCandidateResponses.from(candidates, selected, lookup, navigationLookup.getIfAvailable());
         });
     }
 

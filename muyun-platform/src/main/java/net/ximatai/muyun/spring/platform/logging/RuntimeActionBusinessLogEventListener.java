@@ -11,6 +11,7 @@ import net.ximatai.muyun.spring.ability.logging.BusinessLogPublisher;
 import net.ximatai.muyun.spring.ability.logging.LogText;
 import net.ximatai.muyun.spring.common.identity.CurrentUser;
 import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
+import net.ximatai.muyun.spring.common.identity.CurrentUserDepartmentResolver;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -26,9 +27,16 @@ public final class RuntimeActionBusinessLogEventListener implements RuntimeEvent
     private static final Logger log = LoggerFactory.getLogger(RuntimeActionBusinessLogEventListener.class);
     private static final Pattern TRACE_ID = Pattern.compile("[A-Za-z0-9][A-Za-z0-9._:/-]*");
     private final BusinessLogPublisher publisher;
+    private final CurrentUserDepartmentResolver departmentResolver;
 
     public RuntimeActionBusinessLogEventListener(BusinessLogPublisher publisher) {
+        this(publisher, CurrentUserDepartmentResolver.NONE);
+    }
+
+    public RuntimeActionBusinessLogEventListener(BusinessLogPublisher publisher,
+                                                  CurrentUserDepartmentResolver departmentResolver) {
         this.publisher = java.util.Objects.requireNonNull(publisher, "publisher must not be null");
+        this.departmentResolver = departmentResolver == null ? CurrentUserDepartmentResolver.NONE : departmentResolver;
     }
 
     @Override
@@ -48,7 +56,8 @@ public final class RuntimeActionBusinessLogEventListener implements RuntimeEvent
         boolean failed = event.eventType() == RuntimeEventType.ACTION_FAILED;
         BusinessLogContext context = BusinessLogContext.capturedNow(
                 event.eventId(), event.occurredAt(), safeTraceId(event.traceId()), event.tenantId(),
-                event.operatorId(), operatorAccount(event), operatorOrganizationId(event), event.moduleAlias(), event.actionCode());
+                event.operatorId(), operatorAccount(event), operatorOrganizationId(event), operatorDepartmentId(event),
+                event.moduleAlias(), event.actionCode());
         ActionLogDetails details = new ActionLogDetails(
                 failed ? ActionLogDetails.ActionOutcome.FAILURE : ActionLogDetails.ActionOutcome.SUCCESS,
                 ActionEventPayload.text(event.payload(), ActionEventPayload.EXECUTOR_TYPE),
@@ -72,6 +81,11 @@ public final class RuntimeActionBusinessLogEventListener implements RuntimeEvent
                 .filter(user -> user.userId().equals(event.operatorId()))
                 .map(CurrentUser::username)
                 .orElse(null);
+    }
+
+    private String operatorDepartmentId(RuntimeEvent event) {
+        return CurrentUserContext.currentUser().filter(user -> user.userId().equals(event.operatorId()))
+                .flatMap(departmentResolver::resolveDepartmentId).orElse(null);
     }
 
     private String safeTraceId(String traceId) {

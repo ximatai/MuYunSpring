@@ -59,6 +59,15 @@ class BusinessLoggingContractTest {
     }
 
     @Test
+    void shouldRetainDepartmentAsAnEventTimeSnapshotInsteadOfConsultingLaterIamState() {
+        BusinessLogContext context = new BusinessLogContext("event-1", Instant.now(), Instant.now(), null,
+                "tenant-1", "user-1", "alice", "organization-1", "department-at-event",
+                "sales.contract", "submit");
+
+        assertThat(context.operatorDepartmentId()).isEqualTo("department-at-event");
+    }
+
+    @Test
     void shouldRedactCredentialsAndKeepTruncationVisible() {
         LogText redacted = LogText.of("password=bad token: abc Bearer eyJhbGciOiJIUzI1NiJ9");
         LogText truncated = LogText.of("x".repeat(LogText.MAX_LENGTH + 1));

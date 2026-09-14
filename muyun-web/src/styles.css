@@ -16,6 +16,7 @@
   --muyun-success-bg: var(--muyun-positive-soft, #edf9f5);
   --muyun-success-border: var(--muyun-positive-border, #e3f3ec);
   --muyun-warning-text: var(--muyun-warning-base, #ed7b2f);
+  --muyun-standard-input-width: 280px;
   --muyun-info-text: var(--muyun-info-base, #0052d9);
   color: var(--muyun-text);
   background: var(--muyun-page-bg);

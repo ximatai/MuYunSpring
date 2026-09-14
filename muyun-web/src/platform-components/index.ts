@@ -67,6 +67,7 @@ export { default as RecordMetaSection } from './RecordMetaSection.vue';
 export { default as RecordModeDrawer } from './RecordModeDrawer.vue';
 export { default as RecordPicker } from './RecordPicker.vue';
 export { default as RecordMultiPicker } from './RecordMultiPicker.vue';
+export { default as ObjectPickerInput } from './ObjectPickerInput.vue';
 export { default as UserPicker } from './UserPicker.vue';
 export { default as EmployeePicker } from './EmployeePicker.vue';
 export { default as ScopedTreePicker } from './ScopedTreePicker.vue';
@@ -78,6 +79,9 @@ export type {
   UserPickerPageRequest,
   UserPickerPageSearch,
   UserPickerResolver,
+  UserPickerNavigation,
+  UserPickerNavigationItem,
+  UserPickerNavigationScope,
 } from './userPickerModel';
 export type {
   EmployeeId,

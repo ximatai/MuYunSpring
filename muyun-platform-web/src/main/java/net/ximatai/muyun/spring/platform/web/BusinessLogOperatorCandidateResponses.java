@@ -5,6 +5,10 @@ import net.ximatai.muyun.spring.ability.logging.BusinessLogOperatorCandidatePage
 import net.ximatai.muyun.spring.ability.logging.BusinessLogOperatorIdentity;
 import net.ximatai.muyun.spring.ability.logging.BusinessLogOperatorIdentityKey;
 import net.ximatai.muyun.spring.ability.logging.BusinessLogOperatorIdentityLookup;
+import net.ximatai.muyun.spring.ability.logging.BusinessLogOperatorCandidateNavigationResult;
+import net.ximatai.muyun.spring.ability.logging.BusinessLogOperatorNavigationItem;
+import net.ximatai.muyun.spring.ability.logging.BusinessLogOperatorNavigationLookup;
+import net.ximatai.muyun.spring.ability.logging.BusinessLogOperatorNavigationLabels;
 
 import java.util.Collection;
 import java.util.LinkedHashMap;
@@ -30,7 +34,33 @@ public final class BusinessLogOperatorCandidateResponses {
                 : lookup.resolve(keys(page.candidates(), selected == null ? List.of() : selected.candidates()));
         return new BusinessLogOperatorCandidatePageResponse(items(page.candidates(), identities),
                 selected == null ? List.of() : items(selected.candidates(), identities), page.total(), page.pageNum(),
-                page.pageSize(), pages(page.total(), page.pageSize()), totalKnown);
+                page.pageSize(), pages(page.total(), page.pageSize()), totalKnown, null);
+    }
+
+    public static BusinessLogOperatorCandidatePageResponse from(BusinessLogOperatorCandidateNavigationResult result,
+                                                                 BusinessLogOperatorCandidatePage selected,
+                                                                 BusinessLogOperatorIdentityLookup lookup,
+                                                                 BusinessLogOperatorNavigationLookup navigationLookup) {
+        BusinessLogOperatorCandidatePageResponse page = from(result.candidates(), selected, lookup);
+        return new BusinessLogOperatorCandidatePageResponse(page.records(), page.selectedRecords(), page.total(),
+                page.pageNum(), page.pageSize(), page.pages(), page.totalKnown(),
+                navigation(result, navigationLookup));
+    }
+
+    private static BusinessLogOperatorNavigationResponse navigation(BusinessLogOperatorCandidateNavigationResult result,
+                                                                     BusinessLogOperatorNavigationLookup lookup) {
+        BusinessLogOperatorNavigationLabels labels = lookup == null ? BusinessLogOperatorNavigationLabels.EMPTY
+                : lookup.resolve(result.navigation());
+        return new BusinessLogOperatorNavigationResponse(result.showTenantNavigation(),
+                navigation(result.navigation().tenants(), labels.tenants()),
+                navigation(result.navigation().organizations(), labels.organizations()),
+                navigation(result.navigation().departments(), labels.departments()));
+    }
+
+    private static List<BusinessLogOperatorNavigationItemResponse> navigation(
+            Collection<BusinessLogOperatorNavigationItem> items, Map<BusinessLogOperatorNavigationItem, String> labels) {
+        return items.stream().map(item -> new BusinessLogOperatorNavigationItemResponse(item.tenantId(),
+                item.organizationId(), item.id(), labels.getOrDefault(item, item.id()))).toList();
     }
 
     private static List<BusinessLogOperatorIdentityKey> keys(Collection<BusinessLogOperatorCandidate> primary,

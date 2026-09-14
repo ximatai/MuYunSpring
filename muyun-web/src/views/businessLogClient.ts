@@ -50,17 +50,35 @@ export interface BusinessLogOperatorCandidate {
   subtitle?: string;
 }
 
+export interface BusinessLogOperatorNavigationItem {
+  id: string;
+  title: string;
+  tenantId?: string;
+  organizationId?: string;
+}
+
+export interface BusinessLogOperatorNavigation {
+  showTenantNavigation: boolean;
+  tenants: BusinessLogOperatorNavigationItem[];
+  organizations: BusinessLogOperatorNavigationItem[];
+  departments: BusinessLogOperatorNavigationItem[];
+}
+
 export interface BusinessLogOperatorCandidateQuery {
   keyword?: string;
   pageNum?: number;
   pageSize?: number;
   selectedIds?: string[];
+  tenantId?: string;
+  organizationId?: string;
+  departmentId?: string;
 }
 
 export interface BusinessLogOperatorCandidatePage {
   records: BusinessLogOperatorCandidate[];
   selectedRecords: BusinessLogOperatorCandidate[];
   total: number;
+  navigation?: BusinessLogOperatorNavigation;
 }
 
 export interface BusinessLogClient {
@@ -92,6 +110,9 @@ export function createBusinessLogClient(http: HttpClient, surface: BusinessLogSu
           body: {
             keyword: input.keyword,
             selectedIds: input.selectedIds,
+            tenantId: input.tenantId,
+            organizationId: input.organizationId,
+            departmentId: input.departmentId,
             page: { pageNum: input.pageNum ?? 1, pageSize: input.pageSize ?? 20 },
           },
         }),
@@ -137,7 +158,36 @@ function normalizeOperatorCandidates(response: unknown): BusinessLogOperatorCand
     records: candidateRecords(page.records),
     selectedRecords: candidateRecords(page.selectedRecords),
     total: numberOf(page.total),
+    navigation: navigationOf(page.navigation),
   };
+}
+
+function navigationOf(value: unknown): BusinessLogOperatorNavigation | undefined {
+  const navigation = recordOf(value);
+  if (!Object.keys(navigation).length) return undefined;
+  return {
+    showTenantNavigation: booleanOf(navigation.showTenantNavigation) === true,
+    tenants: navigationItems(navigation.tenants),
+    organizations: navigationItems(navigation.organizations),
+    departments: navigationItems(navigation.departments),
+  };
+}
+
+function navigationItems(value: unknown): BusinessLogOperatorNavigationItem[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item) => {
+    const record = recordOf(item);
+    const id = stringOf(record.id);
+    if (!id) return [];
+    return [
+      {
+        id,
+        title: stringOf(record.title) ?? id,
+        tenantId: stringOf(record.tenantId),
+        organizationId: stringOf(record.organizationId),
+      },
+    ];
+  });
 }
 
 function candidateRecords(value: unknown): BusinessLogOperatorCandidate[] {

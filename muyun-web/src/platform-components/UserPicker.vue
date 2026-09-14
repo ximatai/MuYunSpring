@@ -1,12 +1,24 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
-import { UiButton, UiDataTable, UiError, UiModal, UiSearchInput, UiTagList } from '@muyun/vue-ui-antdv';
+import {
+  UiButton,
+  UiDataTable,
+  UiError,
+  UiModal,
+  UiRecordExplorerItem,
+  UiSearchInput,
+  UiTagList,
+} from '@muyun/vue-ui-antdv';
+import ObjectPickerInput from './ObjectPickerInput.vue';
+import RecordExplorerPanel from './RecordExplorerPanel.vue';
 import type { UiDataTableColumn, UiDataTableRecord, UiDataTableSelection } from '@muyun/vue-ui-antdv';
 import {
   normalizeUserAccountIds,
   userPickerValue,
   type UserAccountId,
   type UserPickerCandidate,
+  type UserPickerNavigationItem,
+  type UserPickerNavigationScope,
   type UserPickerPageSearch,
   type UserPickerResolver,
 } from './userPickerModel';
@@ -55,7 +67,17 @@ const columns: UiDataTableColumn[] = [
 const open = ref(false);
 const keyword = ref('');
 const pageNum = ref(1);
-const page = ref<{ records: UserPickerCandidate[]; total: number }>({ records: [], total: 0 });
+const page = ref<{
+  records: UserPickerCandidate[];
+  total: number;
+  navigation?: {
+    showTenantNavigation: boolean;
+    tenants: UserPickerNavigationItem[];
+    organizations: UserPickerNavigationItem[];
+    departments: UserPickerNavigationItem[];
+  };
+}>({ records: [], total: 0 });
+const navigationScope = ref<UserPickerNavigationScope>({});
 const loading = ref(false);
 const error = ref<string>();
 const draftIds = ref<UserAccountId[]>([]);
@@ -66,6 +88,33 @@ let resolveRequestVersion = 0;
 const externalIds = computed(() => normalizeUserAccountIds(props.value, props.multiple));
 const pageCount = computed(() => Math.max(1, Math.ceil(page.value.total / props.pageSize)));
 const rows = computed(() => page.value.records as unknown as UiDataTableRecord[]);
+const showNavigation = computed(() => Boolean(page.value.navigation));
+const navigationColumns = computed(() => {
+  const navigation = page.value.navigation;
+  if (!navigation) return [];
+  return [
+    ...(navigation.showTenantNavigation
+      ? [{ key: 'tenant' as const, title: '租户', items: navigation.tenants }]
+      : []),
+    {
+      key: 'organization' as const,
+      title: '机构',
+      items: navigation.organizations.filter(
+        (item) => !navigationScope.value.tenantId || item.tenantId === navigationScope.value.tenantId,
+      ),
+    },
+    {
+      key: 'department' as const,
+      title: '部门',
+      items: navigation.departments.filter(
+        (item) =>
+          (!navigationScope.value.tenantId || item.tenantId === navigationScope.value.tenantId) &&
+          (!navigationScope.value.organizationId ||
+            item.organizationId === navigationScope.value.organizationId),
+      ),
+    },
+  ];
+});
 const selectedUsers = computed(() =>
   draftIds.value.map((id) => candidatesById.value.get(id) ?? { id, title: id, unavailable: true }),
 );
@@ -124,6 +173,7 @@ function openPicker() {
   if (props.disabled) return;
   draftIds.value = [...externalIds.value];
   pageNum.value = 1;
+  navigationScope.value = {};
   error.value = undefined;
   open.value = true;
   void loadPage();
@@ -146,6 +196,7 @@ async function loadPage() {
       keyword: keyword.value.trim(),
       pageNum: pageNum.value,
       pageSize: props.pageSize,
+      ...(Object.keys(navigationScope.value).length ? { scope: { ...navigationScope.value } } : {}),
     });
     if (requestVersion !== pageRequestVersion || !open.value) return;
     page.value = result;
@@ -158,9 +209,48 @@ async function loadPage() {
   }
 }
 
+function clearSelection() {
+  draftIds.value = [];
+  emit('update:value', userPickerValue([], props.multiple));
+  emit('select', []);
+}
+
 function openWithKeyword(value: string) {
   keyword.value = value;
   openPicker();
+}
+
+function selectNavigation(level: 'tenant' | 'organization' | 'department', item?: UserPickerNavigationItem) {
+  if (level === 'tenant') {
+    navigationScope.value = item ? { tenantId: item.id } : {};
+  } else if (level === 'organization') {
+    navigationScope.value = item
+      ? { tenantId: item.tenantId ?? navigationScope.value.tenantId, organizationId: item.id }
+      : navigationScope.value.tenantId
+        ? { tenantId: navigationScope.value.tenantId }
+        : {};
+  } else {
+    navigationScope.value = item
+      ? {
+          tenantId: item.tenantId ?? navigationScope.value.tenantId,
+          organizationId: item.organizationId ?? navigationScope.value.organizationId,
+          departmentId: item.id,
+        }
+      : navigationScope.value.organizationId
+        ? { tenantId: navigationScope.value.tenantId, organizationId: navigationScope.value.organizationId }
+        : navigationScope.value.tenantId
+          ? { tenantId: navigationScope.value.tenantId }
+          : {};
+  }
+  pageNum.value = 1;
+  void loadPage();
+}
+
+function isNavigationSelected(
+  level: 'tenant' | 'organization' | 'department',
+  item: UserPickerNavigationItem,
+) {
+  return navigationScope.value[`${level}Id`] === item.id;
 }
 
 function searchInDialog(value: string) {
@@ -195,6 +285,15 @@ function selectSingle(record: UiDataTableRecord) {
   draftIds.value = [String(record.id)];
 }
 
+function completeSingle(record: UiDataTableRecord) {
+  if (props.multiple || !canSelect(String(record.id))) return;
+  const id = String(record.id);
+  draftIds.value = [id];
+  emit('update:value', id);
+  emit('select', [candidatesById.value.get(id) ?? { id, title: id, unavailable: true }]);
+  closePicker();
+}
+
 function confirm() {
   const users = selectedUsers.value;
   emit('update:value', userPickerValue(draftIds.value, props.multiple));
@@ -205,20 +304,19 @@ function confirm() {
 
 <template>
   <div class="user-picker">
-    <UiSearchInput
-      :value="keyword"
+    <ObjectPickerInput
+      :value="summary"
       :placeholder="placeholder"
       :disabled="disabled"
-      search-text="搜索"
-      @update:value="keyword = $event"
-      @search="openWithKeyword"
+      :browse-label="title"
+      @browse="openWithKeyword"
+      @clear="clearSelection"
     />
-    <p v-if="summary" class="user-picker-summary">{{ summary }}</p>
 
     <UiModal
       :open="open"
       :title="title"
-      :width="760"
+      :width="showNavigation ? 1120 : 760"
       :confirm-disabled="loading"
       :closable="!loading"
       @confirm="confirm"
@@ -233,42 +331,80 @@ function confirm() {
           @update:value="keyword = $event"
           @search="searchInDialog"
         />
-        <div class="user-picker-selection-summary">
+        <div v-if="multiple" class="user-picker-selection-summary">
           <UiTagList :items="pickerTags" :empty-text="'尚未选择'" />
           <span>已选 {{ draftIds.length }} 位{{ selectionNoun }}</span>
           <UiButton v-if="draftIds.length" type="link" size="small" @click="draftIds = []">清空选择</UiButton>
         </div>
-        <div v-if="error" class="user-picker-error">
-          <UiError :message="error" />
-          <UiButton size="small" @click="loadPage">重试</UiButton>
+        <div class="user-picker-browse">
+          <aside v-if="showNavigation" class="user-picker-navigation" aria-label="人员范围导航">
+            <RecordExplorerPanel
+              v-for="column in navigationColumns"
+              :key="column.key"
+              class="user-picker-navigation-column"
+              :title="column.title"
+              embedded
+              :refreshable="false"
+              :searchable="false"
+              :collapse-action="false"
+            >
+              <div class="user-picker-navigation-items">
+                <UiRecordExplorerItem
+                  :title="`全部${column.title}`"
+                  clickable
+                  :selected="!navigationScope[`${column.key}Id`]"
+                  @click="selectNavigation(column.key)"
+                />
+                <UiRecordExplorerItem
+                  v-for="item in column.items"
+                  :key="item.id"
+                  :title="item.title"
+                  clickable
+                  :selected="isNavigationSelected(column.key, item)"
+                  @click="selectNavigation(column.key, item)"
+                />
+                <UiRecordExplorerItem
+                  v-if="column.items.length === 0"
+                  title="当前范围没有可选项"
+                  muted
+                />
+              </div>
+            </RecordExplorerPanel>
+          </aside>
+          <div class="user-picker-results">
+            <div v-if="error" class="user-picker-error">
+              <UiError :message="error" />
+              <UiButton size="small" @click="loadPage">重试</UiButton>
+            </div>
+            <UiDataTable
+              :columns="columns"
+              :rows="rows"
+              :loading="loading"
+              :selection="selection"
+              :selected-row-key="multiple ? undefined : draftIds[0]"
+              :clickable-rows="!multiple"
+              :empty-description="emptyDescription"
+              @row-click="selectSingle"
+              @row-dblclick="completeSingle"
+            />
+            <footer class="user-picker-pagination">
+              <span>共 {{ page.total }} 位{{ selectionNoun }}</span>
+              <span>第 {{ pageNum }} / {{ pageCount }} 页</span>
+              <UiButton
+                icon-name="left"
+                aria-label="上一页"
+                :disabled="loading || pageNum <= 1"
+                @click="changePage(pageNum - 1)"
+              />
+              <UiButton
+                icon-name="right"
+                aria-label="下一页"
+                :disabled="loading || pageNum >= pageCount"
+                @click="changePage(pageNum + 1)"
+              />
+            </footer>
+          </div>
         </div>
-        <UiDataTable
-          :columns="columns"
-          :rows="rows"
-          :loading="loading"
-          :selection="selection"
-          :selected-row-key="multiple ? undefined : draftIds[0]"
-          :clickable-rows="!multiple"
-          :empty-description="emptyDescription"
-          @row-click="selectSingle"
-          @row-dblclick="selectSingle"
-        />
-        <footer class="user-picker-pagination">
-          <span>共 {{ page.total }} 位{{ selectionNoun }}</span>
-          <span>第 {{ pageNum }} / {{ pageCount }} 页</span>
-          <UiButton
-            icon-name="left"
-            aria-label="上一页"
-            :disabled="loading || pageNum <= 1"
-            @click="changePage(pageNum - 1)"
-          />
-          <UiButton
-            icon-name="right"
-            aria-label="下一页"
-            :disabled="loading || pageNum >= pageCount"
-            @click="changePage(pageNum + 1)"
-          />
-        </footer>
       </div>
     </UiModal>
   </div>
@@ -279,16 +415,64 @@ function confirm() {
   min-width: 0;
 }
 
-.user-picker-summary {
-  margin: 4px 0 0;
-  color: var(--muyun-text-secondary);
-  font-size: 12px;
-  line-height: 18px;
-}
-
 .user-picker-dialog {
   display: grid;
   gap: 12px;
+}
+
+.user-picker-browse {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  min-height: 340px;
+}
+
+.user-picker-browse:has(.user-picker-navigation) {
+  grid-template-columns: minmax(460px, 3fr) minmax(0, 7fr);
+  gap: 16px;
+}
+
+.user-picker-navigation {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  overflow: hidden;
+  border: 1px solid var(--muyun-border);
+  border-radius: 6px;
+  background: var(--muyun-hover-subtle);
+}
+
+.user-picker-navigation-column {
+  min-width: 0;
+  max-height: 410px;
+  padding: 8px 6px;
+  border-right: 1px solid var(--muyun-border);
+}
+
+.user-picker-navigation-column:last-child {
+  border-right: 0;
+}
+
+.user-picker-navigation-column :deep(.record-explorer-panel-header) {
+  margin-bottom: 6px;
+  padding: 0 4px;
+}
+
+.user-picker-navigation-column :deep(.management-panel-header-title) {
+  font-size: 13px;
+}
+
+.user-picker-navigation-items {
+  display: grid;
+  align-content: start;
+  gap: 2px;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.user-picker-results {
+  display: grid;
+  align-content: start;
+  gap: 12px;
+  min-width: 0;
 }
 
 .user-picker-error {
