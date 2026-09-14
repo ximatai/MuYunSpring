@@ -5,13 +5,18 @@ import {
   UiDataTable,
   UiError,
   UiModal,
-  UiRecordExplorerItem,
   UiSearchInput,
   UiTagList,
+  UiTree,
 } from '@muyun/vue-ui-antdv';
 import ObjectPickerInput from './ObjectPickerInput.vue';
 import RecordExplorerPanel from './RecordExplorerPanel.vue';
-import type { UiDataTableColumn, UiDataTableRecord, UiDataTableSelection } from '@muyun/vue-ui-antdv';
+import type {
+  UiDataTableColumn,
+  UiDataTableRecord,
+  UiDataTableSelection,
+  UiTreeNode,
+} from '@muyun/vue-ui-antdv';
 import {
   normalizeUserAccountIds,
   userPickerValue,
@@ -220,7 +225,26 @@ function openWithKeyword(value: string) {
   openPicker();
 }
 
-function selectNavigation(level: 'tenant' | 'organization' | 'department', item?: UserPickerNavigationItem) {
+function navigationNodes(items: UserPickerNavigationItem[]): UiTreeNode[] {
+  return items.map((item) => ({ key: item.id, title: item.title, isLeaf: true }));
+}
+
+function navigationItem(level: 'tenant' | 'organization' | 'department', id: string) {
+  const navigation = page.value.navigation;
+  if (!navigation) return undefined;
+  const items =
+    level === 'tenant'
+      ? navigation.tenants
+      : level === 'organization'
+        ? navigation.organizations
+        : navigation.departments;
+  return items.find((item) => item.id === id);
+}
+
+function updateNavigationScope(
+  level: 'tenant' | 'organization' | 'department',
+  item?: UserPickerNavigationItem,
+) {
   if (level === 'tenant') {
     navigationScope.value = item ? { tenantId: item.id } : {};
   } else if (level === 'organization') {
@@ -246,11 +270,13 @@ function selectNavigation(level: 'tenant' | 'organization' | 'department', item?
   void loadPage();
 }
 
-function isNavigationSelected(
-  level: 'tenant' | 'organization' | 'department',
-  item: UserPickerNavigationItem,
-) {
-  return navigationScope.value[`${level}Id`] === item.id;
+function selectNavigation(level: 'tenant' | 'organization' | 'department', node: UiTreeNode) {
+  const item = navigationItem(level, node.key);
+  if (item) updateNavigationScope(level, item);
+}
+
+function deselectNavigation(level: 'tenant' | 'organization' | 'department') {
+  updateNavigationScope(level);
 }
 
 function searchInDialog(value: string) {
@@ -348,27 +374,14 @@ function confirm() {
               :searchable="false"
               :collapse-action="false"
             >
-              <div class="user-picker-navigation-items">
-                <UiRecordExplorerItem
-                  :title="`全部${column.title}`"
-                  clickable
-                  :selected="!navigationScope[`${column.key}Id`]"
-                  @click="selectNavigation(column.key)"
-                />
-                <UiRecordExplorerItem
-                  v-for="item in column.items"
-                  :key="item.id"
-                  :title="item.title"
-                  clickable
-                  :selected="isNavigationSelected(column.key, item)"
-                  @click="selectNavigation(column.key, item)"
-                />
-                <UiRecordExplorerItem
-                  v-if="column.items.length === 0"
-                  title="当前范围没有可选项"
-                  muted
-                />
-              </div>
+              <UiTree
+                v-if="column.items.length"
+                display-mode="flat"
+                :nodes="navigationNodes(column.items)"
+                :selected-key="navigationScope[`${column.key}Id`]"
+                @select="selectNavigation(column.key, $event)"
+                @deselect="deselectNavigation(column.key)"
+              />
             </RecordExplorerPanel>
           </aside>
           <div class="user-picker-results">
@@ -458,14 +471,6 @@ function confirm() {
 
 .user-picker-navigation-column :deep(.management-panel-header-title) {
   font-size: 13px;
-}
-
-.user-picker-navigation-items {
-  display: grid;
-  align-content: start;
-  gap: 2px;
-  min-height: 0;
-  overflow-y: auto;
 }
 
 .user-picker-results {

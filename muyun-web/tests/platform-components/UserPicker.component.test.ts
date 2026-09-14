@@ -28,11 +28,12 @@ function mountPicker(overrides: Record<string, unknown> = {}) {
           emits: ['click'],
           template: '<button @click="$emit(\'click\', $event)"><slot /></button>',
         },
-        UiRecordExplorerItem: {
-          name: 'UiRecordExplorerItem',
-          props: ['title', 'selected'],
-          emits: ['click'],
-          template: '<button @click="$emit(\'click\')">{{ title }}</button>',
+        UiTree: {
+          name: 'UiTree',
+          props: ['nodes', 'selectedKey'],
+          emits: ['select', 'deselect'],
+          template:
+            '<div><button v-for="node in nodes" :key="node.key" @click="$emit(\'select\', node)">{{ node.title }}</button></div>',
         },
         RecordExplorerPanel: {
           name: 'RecordExplorerPanel',
@@ -211,19 +212,21 @@ it('does not allow an older search response to overwrite the current candidates'
 });
 
 it('uses source-provided tenant, organization, and department navigation to narrow the people page', async () => {
+  const navigation = {
+    showTenantNavigation: true,
+    tenants: [{ id: 'tenant-a', title: '租户 A' }],
+    organizations: [{ id: 'org-a', title: '华东机构', tenantId: 'tenant-a' }],
+    departments: [{ id: 'department-a', title: '研发部', tenantId: 'tenant-a', organizationId: 'org-a' }],
+  };
   const searchPage = vi
     .fn()
     .mockResolvedValueOnce({
       records: users,
       total: users.length,
-      navigation: {
-        showTenantNavigation: true,
-        tenants: [{ id: 'tenant-a', title: '租户 A' }],
-        organizations: [{ id: 'org-a', title: '华东机构', tenantId: 'tenant-a' }],
-        departments: [{ id: 'department-a', title: '研发部', tenantId: 'tenant-a', organizationId: 'org-a' }],
-      },
+      navigation,
     })
-    .mockResolvedValueOnce({ records: [users[0]], total: 1 });
+    .mockResolvedValueOnce({ records: [users[0]], total: 1, navigation })
+    .mockResolvedValueOnce({ records: users, total: users.length, navigation });
   const wrapper = mountPicker({ searchPage });
 
   wrapper.findComponent({ name: 'ObjectPickerInput' }).vm.$emit('browse', '');
@@ -232,10 +235,10 @@ it('uses source-provided tenant, organization, and department navigation to narr
   expect(wrapper.text()).toContain('租户 A');
   expect(wrapper.text()).toContain('华东机构');
   expect(wrapper.text()).toContain('研发部');
-  wrapper
-    .findAllComponents({ name: 'UiRecordExplorerItem' })
-    .find((item) => item.props('title') === '华东机构')!
-    .vm.$emit('click');
+  const organizationTree = wrapper
+    .findAllComponents({ name: 'UiTree' })
+    .find((tree) => (tree.props('nodes') as Array<{ key: string }>).some((node) => node.key === 'org-a'))!;
+  organizationTree.vm.$emit('select', { key: 'org-a' });
   await flushPromises();
 
   expect(searchPage).toHaveBeenLastCalledWith({
@@ -243,6 +246,19 @@ it('uses source-provided tenant, organization, and department navigation to narr
     pageNum: 1,
     pageSize: 20,
     scope: { tenantId: 'tenant-a', organizationId: 'org-a' },
+  });
+
+  wrapper
+    .findAllComponents({ name: 'UiTree' })
+    .find((tree) => (tree.props('nodes') as Array<{ key: string }>).some((node) => node.key === 'org-a'))!
+    .vm.$emit('deselect');
+  await flushPromises();
+
+  expect(searchPage).toHaveBeenLastCalledWith({
+    keyword: '',
+    pageNum: 1,
+    pageSize: 20,
+    scope: { tenantId: 'tenant-a' },
   });
 });
 
