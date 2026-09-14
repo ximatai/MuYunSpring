@@ -181,7 +181,7 @@ class PostgresBusinessLogStoreIT extends PlatformPostgresIntegrationTest {
                 BusinessLogOperatorCandidateQuery.browse("current-account", new BusinessLogPageRequest(1, 20)));
 
         assertThat(page.candidates()).containsExactly(new BusinessLogOperatorCandidate("tenant-a", "user-1",
-                "current-account"));
+                "current-account", "organization-1", null));
     }
 
     @Test
