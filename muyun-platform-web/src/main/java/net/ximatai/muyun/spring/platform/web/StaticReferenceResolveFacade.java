@@ -85,6 +85,7 @@ public class StaticReferenceResolveFacade {
                 () -> switch (normalized.mode()) {
                     case TRANSLATE -> translate(plan, normalized);
                     case TREE -> tree(plan, normalized);
+                    case TREE_CHILDREN -> treeChildren(plan, normalized);
                     case QUERY -> query(plan, normalized);
                 });
     }
@@ -178,6 +179,82 @@ public class StaticReferenceResolveFacade {
                 children.values().stream()
                         .flatMap(List::stream).map(TreeCapable::getId).toList());
         return targetTree(referenceAbility, children, selectionProjections, optionsByRecordId);
+    }
+
+    /**
+     * Delivers one expandable tree level without materialising the whole reference tree. The
+     * source-field dependencies are compiled before both the parent visibility check and the child
+     * page query, so the parent id cannot be used as an unscoped navigation handle.
+     */
+    private WebReferenceResolveResponse treeChildren(ReferencePlan plan, WebReferenceResolveRequest request) {
+        ReferenceAbility<?> referenceAbility = abilities.findReference(plan.target())
+                .orElseThrow(() -> new PlatformException("tree reference target is not available: "
+                        + plan.target().qualifiedName()));
+        requireTreeTarget(referenceAbility);
+
+        String parentId = normalizeTreeParentId(request.parentId());
+        Criteria criteria = candidateCriteria(plan, request);
+        if (!TreeAbility.ROOT_ID.equals(parentId) && !referenceVisible(plan, request, parentId)) {
+            return treeChildrenResponse(List.of(), 0, request.page());
+        }
+        criteria.eq(net.ximatai.muyun.spring.common.schema.PlatformAbilityFields.TREE_PARENT_FIELD, parentId);
+        WebPageRequest page = request.page() == null ? WebPageRequest.DEFAULT : request.page();
+        PageRequest pageRequest = PageRequest.of(page.pageNum(), page.pageSize());
+        PageResult<ReferenceOption> result = referenceOptions(plan, criteria, pageRequest);
+        Map<String, Map<String, Object>> selectionProjections = selectionProjections(plan,
+                result.getRecords().stream().map(ReferenceOption::id).toList());
+        java.util.Set<String> parentsWithVisibleChildren = visibleTreeParents(plan, request,
+                result.getRecords().stream().map(ReferenceOption::id).toList());
+        List<WebReferenceResolveItem> options = result.getRecords().stream()
+                .map(option -> new WebReferenceResolveItem(option.id(), option.title(), null,
+                        selectionProjections.get(option.id()), null,
+                        parentsWithVisibleChildren.contains(option.id())))
+                .toList();
+        return treeChildrenResponse(options, result.getTotal(), page);
+    }
+
+    /**
+     * Resolves presence only for the delivered parents.  EntityDao deliberately has no raw
+     * distinct-column API, so loading every matching child just to derive this structural hint
+     * would make a large branch unbounded.  A one-row plan-aware reference query per delivered
+     * parent keeps the candidate dependencies and REFERENCE data scope intact while materialising
+     * at most one option for each parent.
+     */
+    private java.util.Set<String> visibleTreeParents(ReferencePlan plan,
+                                                      WebReferenceResolveRequest request,
+                                                      List<String> parentIds) {
+        if (parentIds == null || parentIds.isEmpty()) {
+            return java.util.Set.of();
+        }
+        java.util.LinkedHashSet<String> visibleParents = new java.util.LinkedHashSet<>();
+        for (String parentId : new java.util.LinkedHashSet<>(parentIds)) {
+            Criteria childrenCriteria = candidateCriteria(plan, request);
+            childrenCriteria.eq(net.ximatai.muyun.spring.common.schema.PlatformAbilityFields.TREE_PARENT_FIELD,
+                    parentId);
+            if (!referenceOptions(plan, childrenCriteria, PageRequest.of(1, 1)).getRecords().isEmpty()) {
+                visibleParents.add(parentId);
+            }
+        }
+        return java.util.Set.copyOf(visibleParents);
+    }
+
+    private boolean referenceVisible(ReferencePlan plan, WebReferenceResolveRequest request, String parentId) {
+        Criteria parentCriteria = candidateCriteria(plan, request);
+        parentCriteria.eq(net.ximatai.muyun.spring.common.schema.StandardEntitySchema.ID_FIELD, parentId);
+        return !referenceOptions(plan, parentCriteria, PageRequest.of(1, 1)).getRecords().isEmpty();
+    }
+
+    private static String normalizeTreeParentId(String parentId) {
+        return parentId == null || parentId.isBlank() ? TreeAbility.ROOT_ID : parentId.trim();
+    }
+
+    private static WebReferenceResolveResponse treeChildrenResponse(List<WebReferenceResolveItem> options,
+                                                                      long total,
+                                                                      WebPageRequest page) {
+        WebPageRequest normalized = page == null ? WebPageRequest.DEFAULT : page;
+        return new WebReferenceResolveResponse(options.isEmpty() ? WebReferenceResolveStatus.NOT_FOUND
+                : WebReferenceResolveStatus.OK, WebReferenceResolveMode.TREE_CHILDREN, options, List.of(),
+                PageRequest.of(normalized.pageNum(), normalized.pageSize()).getOffset(), normalized.pageSize(), total);
     }
 
     /**

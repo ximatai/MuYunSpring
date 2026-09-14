@@ -65,6 +65,8 @@ class RuntimeActionBusinessLogEventListenerTest {
 
         assertThat(publisher.events).extracting(event -> ((ActionLogEvent) event).context().operatorOrganizationId())
                 .containsExactly("organization-a", null);
+        assertThat(publisher.events).extracting(event -> ((ActionLogEvent) event).context().operatorAccount())
+                .containsExactly("User", null);
     }
 
     @Test

@@ -10,6 +10,11 @@ import net.ximatai.muyun.spring.ability.logging.BusinessLogEventType;
 import net.ximatai.muyun.spring.ability.logging.BusinessLogQuery;
 import net.ximatai.muyun.spring.ability.logging.BusinessLogPageRequest;
 import net.ximatai.muyun.spring.ability.logging.BusinessLogPageResult;
+import net.ximatai.muyun.spring.ability.logging.BusinessLogOperatorCandidate;
+import net.ximatai.muyun.spring.ability.logging.BusinessLogOperatorCandidatePage;
+import net.ximatai.muyun.spring.ability.logging.BusinessLogOperatorCandidateQuery;
+import net.ximatai.muyun.spring.ability.logging.BusinessLogOperatorNavigation;
+import net.ximatai.muyun.spring.ability.logging.BusinessLogOperatorNavigationItem;
 import net.ximatai.muyun.spring.ability.logging.BusinessLogReadPage;
 import net.ximatai.muyun.spring.ability.logging.BusinessLogReadScope;
 import net.ximatai.muyun.spring.ability.logging.BusinessLogStatisticsQuery;
@@ -96,6 +101,73 @@ class BusinessLogGovernanceServiceTest {
         assertThat(page.total()).isEqualTo(2);
         assertThat(page.totalKnown()).isTrue();
         assertThat(store.lastQuery.operatorOrganizationIds()).containsExactly("organization-a");
+    }
+
+    @Test
+    void shouldDeriveOperatorCandidatesFromTheSameScopedActivityFacts() {
+        InMemoryStore store = new InMemoryStore(List.of(
+                action("visible", "tenant", "organization-a"),
+                action("other", "tenant", "organization-b"),
+                requestError("error", "tenant", "organization-a")
+        ));
+        BusinessLogGovernanceService service = new BusinessLogGovernanceService(store,
+                new CapturingStatisticsReader());
+
+        BusinessLogOperatorCandidatePage candidates = service.queryBusinessActivityOperatorCandidates(
+                BusinessLogQuery.newest(200), BusinessLogReadScope.organization("tenant", Set.of("organization-a")),
+                BusinessLogOperatorCandidateQuery.browse(null, new BusinessLogPageRequest(1, 20)));
+
+        assertThat(candidates.candidates()).extracting(BusinessLogOperatorCandidate::operatorId)
+                .containsExactly("operator");
+        assertThat(store.lastCandidateQuery.eventTypes()).containsExactlyInAnyOrder(
+                BusinessLogEventType.ACTION, BusinessLogEventType.PAGE_ACCESS);
+        assertThat(store.lastCandidateQuery.tenantId()).isEqualTo("tenant");
+        assertThat(store.lastCandidateQuery.operatorOrganizationIds()).containsExactly("organization-a");
+    }
+
+    @Test
+    void shouldValidateProgressiveNavigationAgainstTheSameHistoricLogFacts() {
+        InMemoryStore store = new InMemoryStore(List.of(
+                action("a", "tenant-a", "organization-a"),
+                action("b", "tenant-b", "organization-b")
+        ));
+        BusinessLogGovernanceService service = new BusinessLogGovernanceService(store,
+                new CapturingStatisticsReader());
+
+        var result = service.queryBusinessActivityOperatorNavigation(BusinessLogQuery.newest(200),
+                BusinessLogReadScope.platform(), BusinessLogOperatorCandidateQuery.browse(null,
+                        new BusinessLogPageRequest(1, 20)).withScope("tenant-a", "organization-a", null));
+
+        assertThat(result.showTenantNavigation()).isTrue();
+        assertThat(result.navigation().tenants()).extracting(BusinessLogOperatorNavigationItem::id)
+                .containsExactlyInAnyOrder("tenant-a", "tenant-b");
+        assertThatThrownBy(() -> service.queryBusinessActivityOperatorNavigation(BusinessLogQuery.newest(200),
+                BusinessLogReadScope.platform(), BusinessLogOperatorCandidateQuery.browse(null,
+                        new BusinessLogPageRequest(1, 20)).withScope("forged", null, null)))
+                .isInstanceOf(SecurityException.class).hasMessageContaining("tenant scope");
+        assertThatThrownBy(() -> service.queryBusinessActivityOperatorNavigation(BusinessLogQuery.newest(200),
+                BusinessLogReadScope.tenant("tenant-a"), BusinessLogOperatorCandidateQuery.browse(null,
+                        new BusinessLogPageRequest(1, 20)).withScope(null, "organization-b", null)))
+                .isInstanceOf(SecurityException.class).hasMessageContaining("organization scope");
+    }
+
+    @Test
+    void shouldShowTenantNavigationToPlatformAdministratorsEvenWithOneVisibleTenant() {
+        InMemoryStore store = new InMemoryStore(List.of(action("only", "tenant-a", "organization-a")));
+        BusinessLogGovernanceService service = new BusinessLogGovernanceService(store,
+                new CapturingStatisticsReader());
+
+        var platformResult = service.queryBusinessActivityOperatorNavigation(BusinessLogQuery.newest(200),
+                BusinessLogReadScope.platform(), BusinessLogOperatorCandidateQuery.browse(null,
+                        new BusinessLogPageRequest(1, 20)));
+        var tenantResult = service.queryBusinessActivityOperatorNavigation(BusinessLogQuery.newest(200),
+                BusinessLogReadScope.tenant("tenant-a"), BusinessLogOperatorCandidateQuery.browse(null,
+                        new BusinessLogPageRequest(1, 20)));
+
+        assertThat(platformResult.showTenantNavigation()).isTrue();
+        assertThat(platformResult.navigation().tenants()).extracting(BusinessLogOperatorNavigationItem::id)
+                .containsExactly("tenant-a");
+        assertThat(tenantResult.showTenantNavigation()).isFalse();
     }
 
     @Test
@@ -211,6 +283,7 @@ class BusinessLogGovernanceServiceTest {
     private static final class InMemoryStore implements BusinessLogStore {
         private final List<BusinessLogEvent> events;
         private BusinessLogQuery lastQuery;
+        private BusinessLogQuery lastCandidateQuery;
 
         private InMemoryStore(List<BusinessLogEvent> events) {
             this.events = List.copyOf(events);
@@ -241,6 +314,43 @@ class BusinessLogGovernanceServiceTest {
             List<BusinessLogEvent> page = start >= visible.size() ? List.of() : visible.subList(start, end);
             BusinessLogCursor next = end < visible.size() ? cursor(page.getLast()) : null;
             return new BusinessLogReadPage(page, next);
+        }
+
+        @Override
+        public BusinessLogOperatorCandidatePage readOperatorCandidates(BusinessLogQuery query,
+                                                                         BusinessLogOperatorCandidateQuery candidateQuery) {
+            lastCandidateQuery = query;
+            List<BusinessLogOperatorCandidate> candidates = events.stream()
+                    .filter(event -> event.context().operatorId() != null)
+                    .filter(event -> query.eventTypes() == null || query.eventTypes().contains(event.eventType()))
+                    .filter(event -> query.tenantId() == null || query.tenantId().equals(event.context().tenantId()))
+                    .filter(event -> query.operatorOrganizationIds() == null
+                            || (event.context().operatorOrganizationId() != null
+                            && query.operatorOrganizationIds().contains(event.context().operatorOrganizationId())))
+                    .map(event -> new BusinessLogOperatorCandidate(event.context().tenantId(), event.context().operatorId()))
+                    .distinct().toList();
+            return new BusinessLogOperatorCandidatePage(candidates, candidates.size(),
+                    candidateQuery.page().pageNum(), candidateQuery.page().pageSize());
+        }
+
+        @Override
+        public BusinessLogOperatorNavigation readOperatorNavigation(BusinessLogQuery query) {
+            List<BusinessLogEvent> visible = events.stream()
+                    .filter(event -> query.eventTypes() == null || query.eventTypes().contains(event.eventType()))
+                    .filter(event -> query.tenantId() == null || query.tenantId().equals(event.context().tenantId()))
+                    .filter(event -> query.operatorOrganizationIds() == null
+                            || query.operatorOrganizationIds().contains(event.context().operatorOrganizationId()))
+                    .toList();
+            return new BusinessLogOperatorNavigation(
+                    visible.stream().map(event -> event.context().tenantId()).filter(java.util.Objects::nonNull).distinct()
+                            .map(id -> new BusinessLogOperatorNavigationItem(null, id)).toList(),
+                    visible.stream().filter(event -> event.context().operatorOrganizationId() != null)
+                            .map(event -> new BusinessLogOperatorNavigationItem(event.context().tenantId(),
+                                    event.context().operatorOrganizationId())).distinct().toList(),
+                    visible.stream().filter(event -> event.context().operatorDepartmentId() != null)
+                            .map(event -> new BusinessLogOperatorNavigationItem(event.context().tenantId(),
+                                    event.context().operatorOrganizationId(), event.context().operatorDepartmentId()))
+                            .distinct().toList());
         }
 
         private static int cursorIndex(List<BusinessLogEvent> events, BusinessLogCursor cursor) {

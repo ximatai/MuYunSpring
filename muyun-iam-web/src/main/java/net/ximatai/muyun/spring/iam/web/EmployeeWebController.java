@@ -17,6 +17,8 @@ import net.ximatai.muyun.spring.web.BusinessMutation;
 import net.ximatai.muyun.spring.web.MutationTenantScopeExecutor;
 import net.ximatai.muyun.spring.web.MutationTenantScopeResolver;
 import net.ximatai.muyun.spring.web.WebListResponse;
+import net.ximatai.muyun.spring.web.WebPageRequest;
+import net.ximatai.muyun.spring.web.WebPageResponse;
 import net.ximatai.muyun.spring.common.platform.CustomActionEndpoint;
 import net.ximatai.muyun.spring.common.platform.PlatformActionLevel;
 import net.ximatai.muyun.spring.iam.employee.Employee;
@@ -38,6 +40,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.Optional;
+import java.util.List;
 import java.util.function.Supplier;
 
 @RestController
@@ -54,6 +57,7 @@ public class EmployeeWebController extends StaticModuleWebControllerAdapter<Empl
     private final EmployeeDelegationService employeeDelegationService;
     private OrganizationService organizationService;
     private AggregateChildRelationExpansionGateway aggregateChildRelationExpansionGateway;
+    private EmployeeAccountCandidateQueryService employeeAccountCandidateQueryService;
 
     @Autowired
     public EmployeeWebController(EmployeeAccountService employeeAccountService,
@@ -71,6 +75,12 @@ public class EmployeeWebController extends StaticModuleWebControllerAdapter<Empl
     void setAggregateChildRelationExpansionGateway(
             AggregateChildRelationExpansionGateway aggregateChildRelationExpansionGateway) {
         this.aggregateChildRelationExpansionGateway = aggregateChildRelationExpansionGateway;
+    }
+
+    @Autowired(required = false)
+    void setEmployeeAccountCandidateQueryService(
+            EmployeeAccountCandidateQueryService employeeAccountCandidateQueryService) {
+        this.employeeAccountCandidateQueryService = employeeAccountCandidateQueryService;
     }
 
     @Override
@@ -174,6 +184,24 @@ public class EmployeeWebController extends StaticModuleWebControllerAdapter<Empl
                 () -> employeeAccountService.select(employeeAccountService.bindAccount(employeeId, binding)));
     }
 
+    @PostMapping("/{employeeId}/account-candidates/query")
+    @CustomActionEndpoint(value = "employeeAccounts", title = "职员账号",
+            level = PlatformActionLevel.RECORD, dataAuth = true, recordIdPathVariable = "employeeId")
+    public WebPageResponse<UserSelectorItem> accountCandidates(
+            @PathVariable String employeeId,
+            @RequestBody(required = false) AccountCandidateRequest request) {
+        return employeeRecordScope(employeeId, () -> {
+            if (employeeAccountCandidateQueryService == null) {
+                throw new IllegalStateException("employee account selector is not available");
+            }
+            Employee employee = service().requireEnabled(employeeId, "employee is not active: " + employeeId);
+            AccountCandidateRequest normalized = request == null ? AccountCandidateRequest.EMPTY : request;
+            return employeeAccountCandidateQueryService.query(
+                    tenantIdForEmployee(employee).orElseThrow(() -> new IllegalStateException("employee tenant is required")),
+                    normalized.keyword(), normalized.ids(), normalized.pageOrDefault());
+        });
+    }
+
     @PostMapping("/{employeeId}/account/provision")
     @BusinessMutation
     @CustomActionEndpoint(value = "employeeAccounts", title = "职员账号",
@@ -265,6 +293,14 @@ public class EmployeeWebController extends StaticModuleWebControllerAdapter<Empl
     }
 
     public record AccountProvisionResponse(UserAccount user, EmployeeAccount binding) {
+    }
+
+    public record AccountCandidateRequest(String keyword, List<String> ids, WebPageRequest page) {
+        static final AccountCandidateRequest EMPTY = new AccountCandidateRequest(null, List.of(), null);
+
+        WebPageRequest pageOrDefault() {
+            return page == null ? WebPageRequest.DEFAULT : page;
+        }
     }
 
     private Optional<String> tenantIdForEmployee(Employee employee) {

@@ -592,6 +592,45 @@ describe('RecordQueryListPanel', () => {
     wrapper.unmount();
   });
 
+  it('lets a source-owned user picker replace the target reference context for a persistent query', async () => {
+    const context = createContext({ id: 'log-1' });
+    const userPicker = {
+      searchPage: async () => ({ records: [], total: 0 }),
+      resolveUsers: async () => [],
+    };
+    const wrapper = shallowMount(RecordQueryListPanel, {
+      props: {
+        context,
+        title: '异常日志',
+        userPickerOf: (field: { name: string }) => (field.name === 'operatorId' ? userPicker : undefined),
+        querySchema: {
+          scopeName: 'platform.request-error-log',
+          quickSearch: { enabled: false, fields: [], fieldSchemas: [] },
+          fields: [
+            {
+              name: 'operatorId',
+              title: '操作用户',
+              valueType: 'STRING',
+              operators: ['EQ'],
+              reference: { targetModuleAlias: 'iam.user', cardinality: 'ONE', labelField: 'username' },
+              persistentControl: { id: 'operatorId', title: '操作用户', operator: 'EQ', defaultValues: [] },
+            },
+          ],
+          externalCriteria: [],
+          defaultSorts: [],
+          criteriaComposition: 'FLAT_AND',
+        },
+      },
+      global: { stubs: { ManagementPanelHeader: false, QueryValueEditor: false } },
+    });
+
+    await flushPromises();
+    const editor = wrapper.findComponent({ name: 'QueryValueEditor' });
+    expect(editor.props('userPicker')).toBe(userPicker);
+    expect(editor.props('referenceContext')).toBeUndefined();
+    wrapper.unmount();
+  });
+
   it('sends an advanced nested OR group inside the standard root AND criteria', async () => {
     const requests: WebQueryRequest[] = [];
     const wrapper = shallowMount(RecordQueryListPanel, {

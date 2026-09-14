@@ -44,8 +44,52 @@ export interface BusinessLogStatistics {
   complete?: boolean;
 }
 
+export interface BusinessLogOperatorCandidate {
+  id: string;
+  title: string;
+  subtitle?: string;
+  account?: string;
+  employeeName?: string;
+  organizationId?: string;
+  organizationName?: string;
+  departmentId?: string;
+  departmentName?: string;
+}
+
+export interface BusinessLogOperatorNavigationItem {
+  id: string;
+  title: string;
+  tenantId?: string;
+  organizationId?: string;
+}
+
+export interface BusinessLogOperatorNavigation {
+  showTenantNavigation: boolean;
+  tenants: BusinessLogOperatorNavigationItem[];
+  organizations: BusinessLogOperatorNavigationItem[];
+  departments: BusinessLogOperatorNavigationItem[];
+}
+
+export interface BusinessLogOperatorCandidateQuery {
+  keyword?: string;
+  pageNum?: number;
+  pageSize?: number;
+  selectedIds?: string[];
+  tenantId?: string;
+  organizationId?: string;
+  departmentId?: string;
+}
+
+export interface BusinessLogOperatorCandidatePage {
+  records: BusinessLogOperatorCandidate[];
+  selectedRecords: BusinessLogOperatorCandidate[];
+  total: number;
+  navigation?: BusinessLogOperatorNavigation;
+}
+
 export interface BusinessLogClient {
   detail(eventId: string): Promise<BusinessLogEventView>;
+  operatorCandidates(input: BusinessLogOperatorCandidateQuery): Promise<BusinessLogOperatorCandidatePage>;
   actionStatistics?(request: WebQueryRequest): Promise<BusinessLogStatistics>;
   pageAccessStatistics?(request: WebQueryRequest): Promise<BusinessLogStatistics>;
   diagnostic?(eventId: string): Promise<Record<string, unknown>>;
@@ -63,6 +107,22 @@ export function createBusinessLogClient(http: HttpClient, surface: BusinessLogSu
     async detail(eventId) {
       const response = await http.request<unknown>({ path: `${endpoint}/${encodeURIComponent(eventId)}` });
       return normalizeEvent(response);
+    },
+    async operatorCandidates(input) {
+      return normalizeOperatorCandidates(
+        await http.request<unknown>({
+          method: 'POST',
+          path: `${endpoint}/operator-candidates/query`,
+          body: {
+            keyword: input.keyword,
+            selectedIds: input.selectedIds,
+            tenantId: input.tenantId,
+            organizationId: input.organizationId,
+            departmentId: input.departmentId,
+            page: { pageNum: input.pageNum ?? 1, pageSize: input.pageSize ?? 20 },
+          },
+        }),
+      );
     },
     ...(surface === 'activity'
       ? {
@@ -96,6 +156,70 @@ export function createBusinessLogClient(http: HttpClient, surface: BusinessLogSu
         }
       : {}),
   };
+}
+
+function normalizeOperatorCandidates(response: unknown): BusinessLogOperatorCandidatePage {
+  const page = recordOf(response);
+  return {
+    records: candidateRecords(page.records),
+    selectedRecords: candidateRecords(page.selectedRecords),
+    total: numberOf(page.total),
+    navigation: navigationOf(page.navigation),
+  };
+}
+
+function navigationOf(value: unknown): BusinessLogOperatorNavigation | undefined {
+  const navigation = recordOf(value);
+  if (!Object.keys(navigation).length) return undefined;
+  return {
+    showTenantNavigation: booleanOf(navigation.showTenantNavigation) === true,
+    tenants: navigationItems(navigation.tenants),
+    organizations: navigationItems(navigation.organizations),
+    departments: navigationItems(navigation.departments),
+  };
+}
+
+function navigationItems(value: unknown): BusinessLogOperatorNavigationItem[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item) => {
+    const record = recordOf(item);
+    const id = stringOf(record.id);
+    if (!id) return [];
+    return [
+      {
+        id,
+        title: stringOf(record.title) ?? id,
+        tenantId: stringOf(record.tenantId),
+        organizationId: stringOf(record.organizationId),
+      },
+    ];
+  });
+}
+
+function candidateRecords(value: unknown): BusinessLogOperatorCandidate[] {
+  if (!Array.isArray(value)) return [];
+  const candidates: BusinessLogOperatorCandidate[] = [];
+  for (const item of value) {
+    const record = recordOf(item);
+    const id = stringOf(record.id);
+    if (!id) continue;
+    const candidate: BusinessLogOperatorCandidate = { id, title: stringOf(record.title) ?? id };
+    const optionalFields = [
+      'subtitle',
+      'account',
+      'employeeName',
+      'organizationId',
+      'organizationName',
+      'departmentId',
+      'departmentName',
+    ] as const;
+    optionalFields.forEach((field) => {
+      const value = stringOf(record[field]);
+      if (value) candidate[field] = value;
+    });
+    candidates.push(candidate);
+  }
+  return candidates;
 }
 
 function normalizeEvent(response: unknown): BusinessLogEventView {

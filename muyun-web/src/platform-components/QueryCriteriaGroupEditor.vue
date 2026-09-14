@@ -8,6 +8,7 @@ import type {
   QueryCriteriaDraftNode,
   QueryCriteriaGroupDraft,
 } from './queryCriteriaDraft';
+import { QUERY_CRITERIA_MAXIMUM_DEPTH } from './queryCriteriaDraft';
 import type { RecordPickerRecord } from './recordPickerConstraints';
 
 defineOptions({ name: 'QueryCriteriaGroupEditor' });
@@ -23,11 +24,14 @@ const props = defineProps<{
   composition?: 'FLAT_AND' | 'TREE';
   validationErrors?: Record<number, string>;
   nested?: boolean;
+  /** Root is level 1; the server rejects deeper criteria as well. */
+  depth?: number;
 }>();
 
 const emit = defineEmits<{
   'update:group': [group: QueryCriteriaGroupDraft];
   remove: [id: number];
+  'lift-node': [sourceGroupId: number, nodeId: number];
   submit: [];
 }>();
 
@@ -85,10 +89,65 @@ function addCondition() {
 }
 
 function addGroup() {
-  if (props.composition !== 'TREE') return;
+  if (props.composition !== 'TREE' || groupDepth() >= QUERY_CRITERIA_MAXIMUM_DEPTH) return;
   updateGroup((group) => {
     group.children.push({ kind: 'GROUP', id: props.nextId(), operator: 'AND', children: [] });
   });
+}
+
+function moveChild(id: number, direction: -1 | 1) {
+  updateGroup((group) => {
+    const index = group.children.findIndex((child) => child.id === id);
+    const target = index + direction;
+    if (index < 0 || target < 0 || target >= group.children.length) return;
+    [group.children[index], group.children[target]] = [group.children[target]!, group.children[index]!];
+  });
+}
+
+function wrapChildInGroup(id: number) {
+  if (props.composition !== 'TREE' || groupDepth() >= QUERY_CRITERIA_MAXIMUM_DEPTH) return;
+  updateGroup((group) => {
+    const index = group.children.findIndex((child) => child.id === id);
+    if (index < 0) return;
+    const child = group.children[index]!;
+    group.children.splice(index, 1, {
+      kind: 'GROUP',
+      id: props.nextId(),
+      operator: 'AND',
+      children: [child],
+    });
+  });
+}
+
+function liftNode(sourceGroupId: number, nodeId: number) {
+  const sourceIndex = props.group.children.findIndex(
+    (child) => child.kind === 'GROUP' && child.id === sourceGroupId,
+  );
+  if (sourceIndex < 0) {
+    emit('lift-node', sourceGroupId, nodeId);
+    return;
+  }
+  updateGroup((group) => {
+    const source = group.children[sourceIndex];
+    if (!source || source.kind !== 'GROUP') return;
+    const childIndex = source.children.findIndex((child) => child.id === nodeId);
+    if (childIndex < 0) return;
+    const [lifted] = source.children.splice(childIndex, 1);
+    if (!lifted) return;
+    if (source.children.length === 0) {
+      group.children.splice(sourceIndex, 1, lifted);
+      return;
+    }
+    group.children.splice(sourceIndex + 1, 0, lifted);
+  });
+}
+
+function groupDepth() {
+  return props.depth ?? 1;
+}
+
+function childIndex(id: number) {
+  return props.group.children.findIndex((child) => child.id === id);
 }
 
 function removeChild(id: number) {
@@ -230,13 +289,53 @@ function operatorLabel(operator: string) {
             @submit="emit('submit')"
             @update:values="updateValues(node, $event)"
           />
-          <UiButton
-            type="text"
-            icon-name="delete"
-            danger
-            :disabled="disabled"
-            @click="removeChild(node.id)"
-          />
+          <div class="query-criteria-condition-actions">
+            <UiButton
+              type="text"
+              size="small"
+              :disabled="disabled || childIndex(node.id) === 0"
+              title="上移"
+              @click="moveChild(node.id, -1)"
+            >
+              上移
+            </UiButton>
+            <UiButton
+              type="text"
+              size="small"
+              :disabled="disabled || childIndex(node.id) === group.children.length - 1"
+              title="下移"
+              @click="moveChild(node.id, 1)"
+            >
+              下移
+            </UiButton>
+            <UiButton
+              v-if="composition === 'TREE'"
+              type="text"
+              size="small"
+              :disabled="disabled || groupDepth() >= QUERY_CRITERIA_MAXIMUM_DEPTH"
+              title="放入新的括号组"
+              @click="wrapChildInGroup(node.id)"
+            >
+              加括号
+            </UiButton>
+            <UiButton
+              v-if="nested"
+              type="text"
+              size="small"
+              :disabled="disabled"
+              title="移出当前括号组；组合关系会随之改变"
+              @click="emit('lift-node', group.id, node.id)"
+            >
+              移出
+            </UiButton>
+            <UiButton
+              type="text"
+              icon-name="delete"
+              danger
+              :disabled="disabled"
+              @click="removeChild(node.id)"
+            />
+          </div>
           <span v-if="validationErrors?.[node.id]" class="query-criteria-condition-error" role="alert">
             {{ validationErrors[node.id] }}
           </span>
@@ -250,10 +349,12 @@ function operatorLabel(operator: string) {
           :next-id="nextId"
           :disabled="disabled"
           :composition="composition"
+          :depth="groupDepth() + 1"
           :validation-errors="validationErrors"
           nested
           @update:group="updateChild"
           @remove="removeChild"
+          @lift-node="liftNode"
           @submit="emit('submit')"
         />
       </template>
@@ -264,7 +365,12 @@ function operatorLabel(operator: string) {
         v-if="composition === 'TREE'"
         type="text"
         icon-name="plus"
-        :disabled="disabled"
+        :disabled="disabled || groupDepth() >= QUERY_CRITERIA_MAXIMUM_DEPTH"
+        :title="
+          groupDepth() >= QUERY_CRITERIA_MAXIMUM_DEPTH
+            ? `最多 ${QUERY_CRITERIA_MAXIMUM_DEPTH} 层括号组`
+            : undefined
+        "
         @click="addGroup"
       >
         添加括号组
@@ -323,6 +429,13 @@ function operatorLabel(operator: string) {
   grid-column: 1 / -1;
   color: var(--muyun-danger);
   font-size: 13px;
+}
+
+.query-criteria-condition-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px;
 }
 
 .query-criteria-condition-field,

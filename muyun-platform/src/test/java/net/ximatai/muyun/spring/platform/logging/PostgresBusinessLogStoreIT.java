@@ -5,6 +5,9 @@ import net.ximatai.muyun.spring.ability.logging.ActionLogEvent;
 import net.ximatai.muyun.spring.ability.logging.BusinessLogContext;
 import net.ximatai.muyun.spring.ability.logging.BusinessLogEvent;
 import net.ximatai.muyun.spring.ability.logging.BusinessLogEventType;
+import net.ximatai.muyun.spring.ability.logging.BusinessLogOperatorCandidate;
+import net.ximatai.muyun.spring.ability.logging.BusinessLogOperatorCandidateQuery;
+import net.ximatai.muyun.spring.ability.logging.BusinessLogPageRequest;
 import net.ximatai.muyun.spring.ability.logging.BusinessLogQuery;
 import net.ximatai.muyun.spring.ability.logging.BusinessLogWriteResult;
 import net.ximatai.muyun.spring.ability.logging.LoginLogDetails;
@@ -161,8 +164,30 @@ class PostgresBusinessLogStoreIT extends PlatformPostgresIntegrationTest {
     }
 
     @Test
+    void shouldPageDistinctVisibleOperatorsByTheirEventTimeAccountSnapshot() {
+        ActionLogEvent oldAccount = new ActionLogEvent(new BusinessLogContext("business-log-old-account",
+                Instant.parse("2026-09-11T05:00:00Z"), Instant.parse("2026-09-11T05:00:01Z"), "trace-old",
+                "tenant-a", "user-1", "old-account", "organization-1", "sales.order", "submit"),
+                new ActionLogDetails(ActionLogDetails.ActionOutcome.SUCCESS, "SERVICE", 1L, 1L, null, null));
+        ActionLogEvent currentAccount = new ActionLogEvent(new BusinessLogContext("business-log-current-account",
+                Instant.parse("2026-09-11T05:01:00Z"), Instant.parse("2026-09-11T05:01:01Z"), "trace-current",
+                "tenant-a", "user-1", "current-account", "organization-1", "sales.order", "submit"),
+                new ActionLogDetails(ActionLogDetails.ActionOutcome.SUCCESS, "SERVICE", 1L, 1L, null, null));
+        store.appendAll(List.of(oldAccount, currentAccount));
+
+        var page = store.readOperatorCandidates(new BusinessLogQuery(null, null, "tenant-a",
+                        Set.of(BusinessLogEventType.ACTION), null, Set.of("organization-1"), null, null,
+                        null, null, null, null, null, 20),
+                BusinessLogOperatorCandidateQuery.browse("current-account", new BusinessLogPageRequest(1, 20)));
+
+        assertThat(page.candidates()).containsExactly(new BusinessLogOperatorCandidate("tenant-a", "user-1",
+                "current-account", "organization-1", null));
+    }
+
+    @Test
     void shouldSafelyAddOrganizationAttributionToAnExistingLogTable() throws Exception {
         try (Connection connection = dataSource.getConnection(); var statement = connection.createStatement()) {
+            statement.execute("alter table muyun_log.business_log_event drop column if exists operator_account");
             statement.execute("alter table muyun_log.business_log_event drop column if exists operator_organization_id");
             statement.execute("alter table muyun_log.business_log_event drop column if exists login_outcome");
             statement.execute("alter table muyun_log.business_log_event drop column if exists login_account");
@@ -176,11 +201,11 @@ class PostgresBusinessLogStoreIT extends PlatformPostgresIntegrationTest {
                      select count(*) from information_schema.columns
                      where table_schema = 'muyun_log'
                        and table_name = 'business_log_event'
-                       and column_name in ('operator_organization_id', 'login_outcome', 'login_account', 'http_status')
+                       and column_name in ('operator_account', 'operator_organization_id', 'login_outcome', 'login_account', 'http_status')
                      """);
              var resultSet = statement.executeQuery()) {
             assertThat(resultSet.next()).isTrue();
-            assertThat(resultSet.getInt(1)).isEqualTo(4);
+            assertThat(resultSet.getInt(1)).isEqualTo(5);
         }
     }
 

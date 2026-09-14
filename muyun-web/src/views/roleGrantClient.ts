@@ -78,13 +78,6 @@ export function createRoleGrantClient(http: HttpClient) {
         query: targetTenantId ? { targetTenantId } : undefined,
       });
     },
-    userSelector(request: UserSelectorRequest) {
-      return http.request<WebPageResponse<UserSelectorItem>>({
-        method: 'POST',
-        path: '/iam.user/selector/query',
-        body: request,
-      });
-    },
     accountRoleCandidates(
       roleId: string,
       request: Omit<UserSelectorRequest, 'roleId'> & { targetTenantId?: string },

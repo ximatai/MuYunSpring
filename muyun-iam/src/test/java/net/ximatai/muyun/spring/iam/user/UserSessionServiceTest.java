@@ -268,6 +268,7 @@ class UserSessionServiceTest {
             assertThat(event.details().reasonCode()).isNull();
             assertThat(event.context().traceId()).isEqualTo("login-trace-1");
             assertThat(event.context().operatorId()).isEqualTo("user-1");
+            assertThat(event.context().operatorAccount()).isEqualTo("alice");
             assertThat(event.details().sourceIp()).isEqualTo("127.0.0.1");
         });
         verify(sessionDao).insert(any(UserSession.class));

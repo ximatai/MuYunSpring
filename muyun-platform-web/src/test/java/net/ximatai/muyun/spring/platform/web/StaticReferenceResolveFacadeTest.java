@@ -9,6 +9,7 @@ import net.ximatai.muyun.spring.ability.DataScopeAbility;
 import net.ximatai.muyun.spring.ability.TreeAbility;
 import net.ximatai.muyun.spring.ability.reference.ReferenceAbility;
 import net.ximatai.muyun.spring.ability.reference.ReferenceOption;
+import net.ximatai.muyun.spring.ability.reference.ReferencePlan;
 import net.ximatai.muyun.spring.ability.reference.ReferenceTo;
 import net.ximatai.muyun.spring.common.model.standard.StandardEntity;
 import net.ximatai.muyun.spring.common.model.standard.StandardTitledEntity;
@@ -401,6 +402,82 @@ class StaticReferenceResolveFacadeTest {
 
         assertThat(response.tree()).isEmpty();
         verify(target).list(any(), any(PageRequest.class));
+    }
+
+    @Test
+    void shouldPageTreeChildrenInsideTheSourceFieldCandidateAndReferenceRange() {
+        @SuppressWarnings("unchecked") ReferenceAbility<TreeCustomer> target = mock(ReferenceAbility.class,
+                withSettings().extraInterfaces(TreeAbility.class, DataScopeAbility.class));
+        doReturn(TreeCustomer.class).when(target).modelClass();
+        doReturn("crm.customer").when(target).getModuleAlias();
+        when(target.referenceOptions(any(ReferencePlan.class), any(Criteria.class), any(PageRequest.class)))
+                .thenReturn(
+                        PageResult.of(List.of(new ReferenceOption("department-parent", "研发中心")), 1,
+                                PageRequest.of(1, 1)),
+                        PageResult.of(List.of(
+                                        new ReferenceOption("department-child", "平台研发部"),
+                                        new ReferenceOption("department-sibling", "产品研发部")), 73,
+                                PageRequest.of(2, 10)),
+                        PageResult.of(List.of(new ReferenceOption("department-nested", "基础平台组")), 1,
+                                PageRequest.of(1, 1)),
+                        PageResult.of(List.of(), 0, PageRequest.of(1, 1)));
+        StaticModuleDefinition definition = StaticModuleDefinition.builder("sales", "sales.order", "订单")
+                .modelClass(DependentTreeOrder.class).build();
+        StaticReferenceResolveFacade facade = new StaticReferenceResolveFacade(
+                new StaticModuleDefinitionCatalog(List.of(definition)), new StaticAbilityCatalog(List.of(target)));
+
+        var response = facade.resolve("sales.order", "departmentId", new WebReferenceResolveRequest(
+                WebReferenceResolveMode.TREE_CHILDREN, null, null, List.of(), List.of(), null,
+                new net.ximatai.muyun.spring.web.WebPageRequest(2, 10), true,
+                Map.of("organizationId", "organization-a"), null, null, null, null, null, "department-parent"));
+
+        assertThat(response.mode()).isEqualTo(WebReferenceResolveMode.TREE_CHILDREN);
+        assertThat(response.options()).extracting(item -> item.id())
+                .containsExactly("department-child", "department-sibling");
+        assertThat(response.options()).extracting(item -> item.hasChildren())
+                .containsExactly(true, false);
+        assertThat(response.offset()).isEqualTo(10);
+        assertThat(response.limit()).isEqualTo(10);
+        assertThat(response.total()).isEqualTo(73);
+
+        ArgumentCaptor<Criteria> criteria = ArgumentCaptor.forClass(Criteria.class);
+        ArgumentCaptor<PageRequest> page = ArgumentCaptor.forClass(PageRequest.class);
+        verify(target, org.mockito.Mockito.times(4)).referenceOptions(any(ReferencePlan.class), criteria.capture(), page.capture());
+        assertThat(criteria.getAllValues()).allSatisfy(value -> assertThat(value.getClauses())
+                .anySatisfy(clause -> {
+                    assertThat(clause.getField()).isEqualTo("organizationId");
+                    assertThat(clause.getOperator()).isEqualTo(CriteriaOperator.EQ);
+                    assertThat(clause.getValues()).containsExactly("organization-a");
+                }));
+        assertThat(criteria.getAllValues().getFirst().getClauses()).anySatisfy(clause -> {
+            assertThat(clause.getField()).isEqualTo("id");
+            assertThat(clause.getOperator()).isEqualTo(CriteriaOperator.EQ);
+            assertThat(clause.getValues()).containsExactly("department-parent");
+        });
+        assertThat(criteria.getAllValues().get(1).getClauses()).anySatisfy(clause -> {
+            assertThat(clause.getField()).isEqualTo("parentId");
+            assertThat(clause.getOperator()).isEqualTo(CriteriaOperator.EQ);
+            assertThat(clause.getValues()).containsExactly("department-parent");
+        });
+        assertThat(page.getAllValues()).extracting(PageRequest::getLimit).containsExactly(1, 10, 1, 1);
+
+        assertThat(criteria.getAllValues().get(2).getClauses()).anySatisfy(clause -> {
+            assertThat(clause.getField()).isEqualTo("organizationId");
+            assertThat(clause.getOperator()).isEqualTo(CriteriaOperator.EQ);
+            assertThat(clause.getValues()).containsExactly("organization-a");
+        });
+        assertThat(criteria.getAllValues().get(2).getClauses()).anySatisfy(clause -> {
+            assertThat(clause.getField()).isEqualTo("parentId");
+            assertThat(clause.getOperator()).isEqualTo(CriteriaOperator.EQ);
+            assertThat(clause.getValues()).containsExactly("department-child");
+        });
+        assertThat(criteria.getAllValues().get(3).getClauses()).anySatisfy(clause -> {
+            assertThat(clause.getField()).isEqualTo("parentId");
+            assertThat(clause.getOperator()).isEqualTo(CriteriaOperator.EQ);
+            assertThat(clause.getValues()).containsExactly("department-sibling");
+        });
+        verify((DataScopeAbility<?>) target, never()).listForAction(
+                eq(PlatformAction.REFERENCE), any(Criteria.class), any(PageRequest.class));
     }
 
     @Test

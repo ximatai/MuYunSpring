@@ -1,6 +1,8 @@
 package net.ximatai.muyun.spring.web;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import net.ximatai.muyun.spring.ability.query.QueryCriteria;
+import net.ximatai.muyun.spring.web.query.WebQueryRequests;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -54,5 +56,24 @@ class WebQueryCriteriaWireContractTest {
 
         assertThat(request.conditions()).containsExactly(
                 new WebQueryCondition("status", "EQ", List.of("active")));
+    }
+
+    @Test
+    void shouldApplySharedComplexityLimitsWhenTheRecursiveWebPayloadIsConverted() {
+        WebQueryCriteria nested = WebQueryCriteria.group(WebQueryGroupOperator.AND, List.of(
+                new WebQueryCondition("status", "EQ", List.of("active"))));
+        for (int depth = 1; depth < QueryCriteria.MAXIMUM_DEPTH + 1; depth++) {
+            nested = WebQueryCriteria.group(WebQueryGroupOperator.AND, List.of(nested));
+        }
+        WebQueryCriteria tooDeep = nested;
+        WebQueryCriteria tooManyValues = WebQueryCriteria.group(WebQueryGroupOperator.AND, List.of(
+                new WebQueryCondition("ownerId", "IN", java.util.stream.IntStream
+                        .range(0, QueryCriteria.MAXIMUM_COLLECTION_VALUES + 1)
+                        .mapToObj(String::valueOf).map(value -> (Object) value).toList())));
+
+        assertThatThrownBy(() -> WebQueryRequests.criteria(tooDeep))
+                .hasMessageContaining("maximum depth");
+        assertThatThrownBy(() -> WebQueryRequests.criteria(tooManyValues))
+                .hasMessageContaining("maximum collection values");
     }
 }

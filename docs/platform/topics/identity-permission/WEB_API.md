@@ -212,6 +212,18 @@
 | `POST` | `/iam.user/{id}/sessions/revoke`             | 批量下线用户指定登录会话；请求体包含 `sessionIds`。                    |
 | `POST` | `/iam.user/selector/query`                   | 用户选择器查询；支持按角色、账号关键字和启用状态过滤，返回轻量用户项。 |
 
+`/iam.user/selector/query` 属于用户管理语义，不能作为日志操作人或职员绑定账号的通用候选后门；不同用途分别使用其来源动作下受控的候选接口。
+
+## 职员账号绑定候选
+
+根路径：`/iam.employee/{employeeId}`
+
+| 方法   | URL                                                    | 功能 |
+| ------ | ------------------------------------------------------ | ---- |
+| `POST` | `/iam.employee/{employeeId}/account-candidates/query` | 为当前职员的账号绑定动作分页搜索或按 ID 回显候选；只返回该职员所属租户内启用且未绑定其他职员的用户账号。 |
+
+接口先校验目标职员的记录级账号动作授权，再按职员所属租户与数据范围收窄候选；浏览器不能以它读取任意用户管理数据。绑定提交仍使用现有 `POST /iam.employee/{employeeId}/account`。
+
 用户列表和用户绑定职员详情可返回绑定职员摘要字段；这些摘要属于用户管理入口的读模型，权限口径跟随 `iam.user` 的查询或查看入口，不额外要求调用方具备 `iam.employee` 查看权限。
 
 ## 角色、角色绑定与授权
@@ -245,6 +257,8 @@
 | `POST` | `/iam.role/permissionMatrix/{roleId}`                   | 按模块列表返回角色授权矩阵，用于回显可授权动作和已授权状态。                              |
 | `GET`  | `/iam.role/dataScopePolicyCatalog/{roleId}`             | 返回当前角色可配置的数据范围策略；传入 `moduleAlias` 时同时返回该模块可用的引用依赖候选。 |
 | `GET`  | `/iam.role/menuMatrix/{roleId}/{schemeId}`              | 按菜单方案返回菜单树和角色对模块菜单的授权状态。                                          |
+| `GET`  | `/iam.role/scope-selection/descriptor`                 | 返回当前身份可用于角色归属范围的直接选择与导航层级。                                      |
+| `POST` | `/iam.role/scope-selection/candidates`                 | 在描述允许的导航键和层级下分页查询租户或机构候选；服务端重新校验角色查询授权与范围。       |
 
 角色基础字段：
 

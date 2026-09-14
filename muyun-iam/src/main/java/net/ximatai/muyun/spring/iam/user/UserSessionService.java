@@ -437,7 +437,8 @@ public class UserSessionService {
             LoginLogEvent event = new LoginLogEvent(
                     new BusinessLogContext(Ids.newId(), occurredAt, now(),
                             logTraceId(), limit(tenantId, 128),
-                            user == null ? null : user.getId(), organizationId, "iam.user", "login"),
+                            user == null ? null : user.getId(), limit(confirmedAccount, 256), organizationId,
+                            "iam.user", "login"),
                     new LoginLogDetails("password", outcome, reasonCode, limit(ip, 64),
                             limit(username, 256), limit(confirmedAccount, 256)));
             LoginAuditLogger logger = loginAuditLogger.get();

@@ -8,6 +8,8 @@ import net.ximatai.muyun.spring.iam.user.LoginAuditLogger;
 import net.ximatai.muyun.spring.platform.logging.BusinessLogGovernanceService;
 import net.ximatai.muyun.spring.platform.logging.PostgresBusinessLogStore;
 import net.ximatai.muyun.spring.platform.logging.RuntimeActionBusinessLogEventListener;
+import net.ximatai.muyun.spring.common.identity.CurrentUserDepartmentResolver;
+import org.springframework.beans.factory.ObjectProvider;
 import net.ximatai.muyun.spring.platform.logging.StoreBackedBusinessLogStatisticsReader;
 import net.ximatai.muyun.spring.ability.logging.BusinessLogStatisticsReader;
 import net.ximatai.muyun.spring.platform.web.BusinessLogPageAccessRecorder;
@@ -51,8 +53,10 @@ public class MuYunSpringBusinessLoggingConfiguration {
     @Bean
     @ConditionalOnBean(BusinessLogPublisher.class)
     @ConditionalOnMissingBean(RuntimeActionBusinessLogEventListener.class)
-    RuntimeActionBusinessLogEventListener runtimeActionBusinessLogEventListener(BusinessLogPublisher publisher) {
-        return new RuntimeActionBusinessLogEventListener(publisher);
+    RuntimeActionBusinessLogEventListener runtimeActionBusinessLogEventListener(BusinessLogPublisher publisher,
+                                                                                  ObjectProvider<CurrentUserDepartmentResolver> departmentResolver) {
+        return new RuntimeActionBusinessLogEventListener(publisher,
+                departmentResolver.getIfAvailable(() -> CurrentUserDepartmentResolver.NONE));
     }
 
     @Bean

@@ -42,10 +42,29 @@ class BusinessLoggingContractTest {
                 "user-1", Set.of("organization-1"), "sales.contract", "submit", null, null, 20);
 
         assertThat(legacy.operatorOrganizationId()).isNull();
+        assertThat(legacy.operatorAccount()).isNull();
         assertThat(legacyQuery.eventTypes()).isNull();
         assertThat(legacyQuery.operatorId()).isNull();
         assertThat(legacyQuery.operatorOrganizationIds()).isNull();
         assertThat(restrictedQuery.operatorOrganizationIds()).containsExactly("organization-1");
+    }
+
+    @Test
+    void shouldRetainOperatorAccountAsAnOptionalEventTimeSnapshot() {
+        BusinessLogContext context = new BusinessLogContext("event-1", Instant.now(), Instant.now(), null,
+                "tenant-1", "user-1", "alice", "organization-1", "sales.contract", "submit");
+
+        assertThat(context.operatorAccount()).isEqualTo("alice");
+        assertThat(context.operatorOrganizationId()).isEqualTo("organization-1");
+    }
+
+    @Test
+    void shouldRetainDepartmentAsAnEventTimeSnapshotInsteadOfConsultingLaterIamState() {
+        BusinessLogContext context = new BusinessLogContext("event-1", Instant.now(), Instant.now(), null,
+                "tenant-1", "user-1", "alice", "organization-1", "department-at-event",
+                "sales.contract", "submit");
+
+        assertThat(context.operatorDepartmentId()).isEqualTo("department-at-event");
     }
 
     @Test

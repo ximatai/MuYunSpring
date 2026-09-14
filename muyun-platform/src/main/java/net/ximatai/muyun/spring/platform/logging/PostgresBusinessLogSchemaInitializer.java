@@ -42,7 +42,9 @@ public class PostgresBusinessLogSchemaInitializer {
                         trace_id varchar(128) not null,
                         tenant_id varchar(128),
                         operator_id varchar(128),
+                        operator_account varchar(256),
                         operator_organization_id varchar(128),
+                        operator_department_id varchar(128),
                         module_alias varchar(192),
                         action_code varchar(128),
                         error_code varchar(128),
@@ -53,7 +55,11 @@ public class PostgresBusinessLogSchemaInitializer {
                     )
                     """);
             statement.execute("alter table muyun_log.business_log_event "
+                    + "add column if not exists operator_account varchar(256)");
+            statement.execute("alter table muyun_log.business_log_event "
                     + "add column if not exists operator_organization_id varchar(128)");
+            statement.execute("alter table muyun_log.business_log_event "
+                    + "add column if not exists operator_department_id varchar(128)");
             statement.execute("alter table muyun_log.business_log_event "
                     + "add column if not exists login_outcome varchar(32)");
             statement.execute("alter table muyun_log.business_log_event "
@@ -67,6 +73,11 @@ public class PostgresBusinessLogSchemaInitializer {
             statement.execute("create index if not exists business_log_event_tenant_operator_organization_occurred_idx "
                     + "on muyun_log.business_log_event "
                     + "(tenant_id, operator_organization_id, occurred_at desc, event_id desc)");
+            statement.execute("create index if not exists business_log_event_tenant_operator_department_occurred_idx "
+                    + "on muyun_log.business_log_event "
+                    + "(tenant_id, operator_department_id, occurred_at desc, event_id desc)");
+            statement.execute("create index if not exists business_log_event_operator_account_occurred_idx "
+                    + "on muyun_log.business_log_event (operator_account, occurred_at desc, event_id desc)");
             statement.execute("create index if not exists business_log_event_module_action_occurred_idx "
                     + "on muyun_log.business_log_event (module_alias, action_code, occurred_at desc, event_id desc)");
             statement.execute("create index if not exists business_log_event_error_occurred_idx "

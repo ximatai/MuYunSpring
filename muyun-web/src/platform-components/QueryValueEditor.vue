@@ -11,6 +11,8 @@ import type { ModuleContext } from '@muyun/web-core';
 import RecordMultiPicker from './RecordMultiPicker.vue';
 import RecordPicker from './RecordPicker.vue';
 import type { RecordPickerRecord } from './recordPickerConstraints';
+import UserPicker from './UserPicker.vue';
+import type { UserPickerConfig } from './userPickerModel';
 
 defineOptions({ name: 'QueryValueEditor' });
 
@@ -21,6 +23,8 @@ const props = withDefaults(
     values?: unknown[];
     options?: Option[];
     referenceContext?: ModuleContext<RecordPickerRecord>;
+    /** Source-owned user candidates supersede generic target-module reference delivery. */
+    userPicker?: UserPickerConfig;
     loading?: boolean;
     disabled?: boolean;
   }>(),
@@ -28,6 +32,7 @@ const props = withDefaults(
     values: () => [],
     options: () => [],
     referenceContext: undefined,
+    userPicker: undefined,
     loading: false,
     disabled: false,
   },
@@ -126,6 +131,15 @@ function updateReferenceValues(values: string[]) {
   updateValues(values);
 }
 
+function userPickerValue() {
+  const values = props.values.filter((value): value is string => typeof value === 'string');
+  return isMultiple() ? values : values[0];
+}
+
+function updateUserPickerValue(value: string | string[] | undefined) {
+  updateValues(value === undefined ? [] : Array.isArray(value) ? value : [value]);
+}
+
 function isValueLess() {
   return ['NULL', 'NOT_NULL', 'EMPTY', 'NOT_EMPTY'].includes(props.operator);
 }
@@ -176,6 +190,18 @@ function referenceTitle(record: RecordPickerRecord) {
       allow-clear
       :placeholder="isMultiple() ? '选择一个或多个值' : '选择值'"
       @update:value="updateOptions"
+    />
+    <UserPicker
+      v-else-if="field.reference && userPicker"
+      :value="userPickerValue()"
+      :multiple="isMultiple()"
+      :max-selection="userPicker.maxSelection"
+      :title="userPicker.title"
+      :placeholder="userPicker.placeholder"
+      :search-page="userPicker.searchPage"
+      :resolve-users="userPicker.resolveUsers"
+      :disabled="disabled"
+      @update:value="updateUserPickerValue"
     />
     <RecordMultiPicker
       v-else-if="field.reference && referenceContext && isMultiple()"
