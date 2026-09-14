@@ -6,7 +6,6 @@ const users = [
   {
     id: 'user-1',
     title: '张三',
-    subtitle: '研发中心 / 研发一部',
     account: 'zhangsan',
     employeeName: '张三',
     organizationId: 'org-rd',
@@ -17,7 +16,6 @@ const users = [
   {
     id: 'user-2',
     title: '李四',
-    subtitle: '财务中心 / 财务部',
     account: 'lisi',
     employeeName: '李四',
     organizationId: 'org-finance',

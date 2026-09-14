@@ -27,9 +27,9 @@ class BusinessLogOperatorCandidateResponsesTest {
         ));
 
         assertThat(response.records()).containsExactly(new BusinessLogOperatorCandidateResponse(
-                "platform-admin", "admin", null, "admin", null, null, null, null, null));
+                "platform-admin", "admin", "admin", null, null, null, null, null));
         assertThat(response.selectedRecords()).containsExactly(new BusinessLogOperatorCandidateResponse(
-                "former-user", "历史职员 (former)", null, "former-account", "历史职员", null, null, null, null));
+                "former-user", "历史职员 (former)", "former-account", "历史职员", null, null, null, null));
     }
 
     @Test
@@ -40,7 +40,7 @@ class BusinessLogOperatorCandidateResponsesTest {
         var response = BusinessLogOperatorCandidateResponses.from(page, null, keys -> Map.of());
 
         assertThat(response.records()).containsExactly(new BusinessLogOperatorCandidateResponse(
-                "removed-user", "retired.account", null, "retired.account", null, null, null, null, null));
+                "removed-user", "retired.account", "retired.account", null, null, null, null, null));
     }
 
     @Test
@@ -56,7 +56,7 @@ class BusinessLogOperatorCandidateResponsesTest {
         ));
 
         assertThat(response.records()).containsExactly(new BusinessLogOperatorCandidateResponse("user-a",
-                "演示租户管理员 (demo_admin)", "综合管理部 / 研发一部", "demo_admin", "演示租户管理员",
-                "organization-a", "综合管理部", "department-a", "研发一部"));
+                "演示租户管理员 (demo_admin)", "demo_admin", "演示租户管理员", "organization-a",
+                "综合管理部", "department-a", "研发一部"));
     }
 }
