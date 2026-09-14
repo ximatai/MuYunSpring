@@ -13,6 +13,7 @@ import ObjectPickerInput from './ObjectPickerInput.vue';
 import RecordExplorerPanel from './RecordExplorerPanel.vue';
 import type {
   UiDataTableColumn,
+  UiDataTablePagination,
   UiDataTableRecord,
   UiDataTableSelection,
   UiTreeNode,
@@ -66,8 +67,10 @@ const emit = defineEmits<{
 }>();
 
 const columns: UiDataTableColumn[] = [
-  { key: 'title', title: '用户', width: 180 },
-  { key: 'subtitle', title: '身份摘要' },
+  { key: 'account', title: '用户账号', width: 140 },
+  { key: 'employeeName', title: '职员姓名', width: 140 },
+  { key: 'organizationName', title: '所属机构', width: 150 },
+  { key: 'departmentName', title: '所属部门', width: 150 },
 ];
 const open = ref(false);
 const keyword = ref('');
@@ -92,7 +95,15 @@ let resolveRequestVersion = 0;
 
 const externalIds = computed(() => normalizeUserAccountIds(props.value, props.multiple));
 const pageCount = computed(() => Math.max(1, Math.ceil(page.value.total / props.pageSize)));
-const rows = computed(() => page.value.records as unknown as UiDataTableRecord[]);
+const rows = computed<UiDataTableRecord[]>(() =>
+  page.value.records.map((candidate) => ({
+    ...candidate,
+    account: candidate.account ?? candidate.id,
+    employeeName: candidate.employeeName ?? candidate.title,
+    organizationName: candidate.organizationName ?? candidate.organizationId ?? '—',
+    departmentName: candidate.departmentName ?? candidate.departmentId ?? '—',
+  })),
+);
 const showNavigation = computed(() => Boolean(page.value.navigation));
 const navigationColumns = computed(() => {
   const navigation = page.value.navigation;
@@ -144,6 +155,14 @@ const selection = computed<UiDataTableSelection | undefined>(() =>
       }
     : undefined,
 );
+const tablePagination = computed<UiDataTablePagination>(() => ({
+  current: pageNum.value,
+  total: page.value.total,
+  pageSize: props.pageSize,
+  showSizeChanger: false,
+  showQuickJumper: false,
+  onChange: (nextPage) => changePage(nextPage),
+}));
 
 watch(
   externalIds,
@@ -393,29 +412,16 @@ function confirm() {
               :columns="columns"
               :rows="rows"
               :loading="loading"
+              :pagination="tablePagination"
               :selection="selection"
               :selected-row-key="multiple ? undefined : draftIds[0]"
               :clickable-rows="!multiple"
+              fill-height
+              horizontal-scroll
               :empty-description="emptyDescription"
               @row-click="selectSingle"
               @row-dblclick="completeSingle"
             />
-            <footer class="user-picker-pagination">
-              <span>共 {{ page.total }} 位{{ selectionNoun }}</span>
-              <span>第 {{ pageNum }} / {{ pageCount }} 页</span>
-              <UiButton
-                icon-name="left"
-                aria-label="上一页"
-                :disabled="loading || pageNum <= 1"
-                @click="changePage(pageNum - 1)"
-              />
-              <UiButton
-                icon-name="right"
-                aria-label="下一页"
-                :disabled="loading || pageNum >= pageCount"
-                @click="changePage(pageNum + 1)"
-              />
-            </footer>
           </div>
         </div>
       </div>
@@ -436,6 +442,7 @@ function confirm() {
 .user-picker-browse {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
+  height: min(52vh, 440px);
   min-height: 340px;
 }
 
@@ -475,8 +482,7 @@ function confirm() {
 
 .user-picker-results {
   display: grid;
-  align-content: start;
-  gap: 12px;
+  min-height: 0;
   min-width: 0;
 }
 
@@ -486,8 +492,7 @@ function confirm() {
   gap: 6px;
 }
 
-.user-picker-selection-summary,
-.user-picker-pagination {
+.user-picker-selection-summary {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -499,14 +504,9 @@ function confirm() {
   flex: 1 1 auto;
 }
 
-.user-picker-selection-summary > span,
-.user-picker-pagination > span {
+.user-picker-selection-summary > span {
   color: var(--muyun-text-secondary);
   font-size: 12px;
   white-space: nowrap;
-}
-
-.user-picker-pagination {
-  justify-content: flex-end;
 }
 </style>

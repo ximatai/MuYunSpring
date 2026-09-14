@@ -3,8 +3,28 @@ import { expect, it, vi } from 'vitest';
 import UserPicker from '@/platform-components/UserPicker.vue';
 
 const users = [
-  { id: 'user-1', title: '张三', subtitle: '研发部 / 租户 A' },
-  { id: 'user-2', title: '李四', subtitle: '财务部 / 租户 A' },
+  {
+    id: 'user-1',
+    title: '张三',
+    subtitle: '研发中心 / 研发一部',
+    account: 'zhangsan',
+    employeeName: '张三',
+    organizationId: 'org-rd',
+    organizationName: '研发中心',
+    departmentId: 'department-rd-1',
+    departmentName: '研发一部',
+  },
+  {
+    id: 'user-2',
+    title: '李四',
+    subtitle: '财务中心 / 财务部',
+    account: 'lisi',
+    employeeName: '李四',
+    organizationId: 'org-finance',
+    organizationName: '财务中心',
+    departmentId: 'department-finance',
+    departmentName: '财务部',
+  },
 ];
 
 function mountPicker(overrides: Record<string, unknown> = {}) {
@@ -56,7 +76,7 @@ it('opens from the text entry and delegates paged search to the injected provide
   expect(wrapper.findComponent({ name: 'UiDataTable' }).props('rows')).toEqual(users);
 });
 
-it('keeps object-specific search and count copy injected by a semantic wrapper', async () => {
+it('keeps object-specific search copy injected by a semantic wrapper', async () => {
   const wrapper = mountPicker({
     searchPlaceholder: '按工号、姓名或职员 ID 搜索',
     emptyDescription: '没有可选择的职员',
@@ -69,8 +89,16 @@ it('keeps object-specific search and count copy injected by a semantic wrapper',
   expect(wrapper.findComponent({ name: 'UiSearchInput' }).props('placeholder')).toBe(
     '按工号、姓名或职员 ID 搜索',
   );
-  expect(wrapper.findComponent({ name: 'UiDataTable' }).props('emptyDescription')).toBe('没有可选择的职员');
-  expect(wrapper.text()).toContain('共 2 位职员');
+  const table = wrapper.findComponent({ name: 'UiDataTable' });
+  expect(table.props('emptyDescription')).toBe('没有可选择的职员');
+  expect(table.props('columns')).toEqual([
+    { key: 'account', title: '用户账号', width: 140 },
+    { key: 'employeeName', title: '职员姓名', width: 140 },
+    { key: 'organizationName', title: '所属机构', width: 150 },
+    { key: 'departmentName', title: '所属部门', width: 150 },
+  ]);
+  expect(table.props('pagination')).toMatchObject({ current: 1, total: 2, pageSize: 20 });
+  expect(table.props('fillHeight')).toBe(true);
 });
 
 it('resolves an existing user account ID through the injected authorized resolver', async () => {
@@ -162,15 +190,13 @@ it('retains multiple selection across pages and commits the IDs once', async () 
   };
   firstSelection.onChange(['user-1']);
   await flushPromises();
-  const nextPage = wrapper
-    .findAllComponents({ name: 'UiButton' })
-    .find((button) => button.props('ariaLabel') === '下一页');
+  const table = wrapper.findComponent({ name: 'UiDataTable' });
+  const pagination = table.props('pagination') as { onChange: (page: number) => void };
   expect(searchPage).toHaveBeenCalledWith({ keyword: '', pageNum: 1, pageSize: 20 });
-  expect(wrapper.findComponent({ name: 'UiDataTable' }).props('rows')).toEqual([users[0]]);
-  expect(wrapper.text()).toContain('共 40 位用户');
+  expect(table.props('rows')).toEqual([users[0]]);
+  expect(pagination).toMatchObject({ current: 1, total: 40, pageSize: 20 });
   expect((wrapper.vm as unknown as { pageCount: number }).pageCount).toBe(2);
-  expect(nextPage?.props()).toMatchObject({ ariaLabel: '下一页' });
-  await nextPage!.trigger('click');
+  pagination.onChange(2);
   await flushPromises();
 
   const secondSelection = wrapper.findComponent({ name: 'UiDataTable' }).props('selection') as {

@@ -130,6 +130,12 @@ function userPickerCandidate(user: UserSelectorItem): UserPickerCandidate {
     id: user.id,
     title: user.username ?? user.id,
     subtitle: user.organizationTitle ?? user.organizationId,
+    account: user.username ?? user.id,
+    employeeName: user.employeeTitle,
+    organizationId: user.organizationId,
+    organizationName: user.organizationTitle,
+    departmentId: user.departmentId,
+    departmentName: user.departmentTitle,
   };
 }
 

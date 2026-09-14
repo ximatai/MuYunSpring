@@ -3,11 +3,16 @@ import type { IdentityPickerCandidate, IdentityPickerResolver } from './identity
 /** A user selection always persists an IAM user account ID, never an employee ID. */
 export type UserAccountId = string;
 
-/**
- * An authorized display projection returned by the selection provider.
- * `subtitle` can contain tenant, organization, or other context needed to disambiguate names.
- */
-export type UserPickerCandidate = IdentityPickerCandidate<UserAccountId>;
+/** An authorized user-account projection returned by the selection provider. */
+export interface UserPickerCandidate extends IdentityPickerCandidate<UserAccountId> {
+  /** Account snapshot or current account, as defined by the source. */
+  account?: string;
+  employeeName?: string;
+  organizationId?: string;
+  organizationName?: string;
+  departmentId?: string;
+  departmentName?: string;
+}
 export interface UserPickerNavigationScope {
   tenantId?: string;
   organizationId?: string;

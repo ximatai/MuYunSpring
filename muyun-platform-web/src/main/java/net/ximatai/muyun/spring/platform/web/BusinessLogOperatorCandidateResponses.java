@@ -14,6 +14,7 @@ import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 /** Converts log-sourced account IDs into safe selector labels without changing log authorization. */
 public final class BusinessLogOperatorCandidateResponses {
@@ -66,7 +67,8 @@ public final class BusinessLogOperatorCandidateResponses {
     private static List<BusinessLogOperatorIdentityKey> keys(Collection<BusinessLogOperatorCandidate> primary,
                                                                Collection<BusinessLogOperatorCandidate> selected) {
         return java.util.stream.Stream.concat(primary.stream(), selected.stream())
-                .map(candidate -> new BusinessLogOperatorIdentityKey(candidate.tenantId(), candidate.operatorId(), null))
+                .map(candidate -> new BusinessLogOperatorIdentityKey(candidate.tenantId(), candidate.operatorId(),
+                        candidate.operatorOrganizationId()))
                 .distinct().toList();
     }
 
@@ -76,9 +78,16 @@ public final class BusinessLogOperatorCandidateResponses {
         Map<String, BusinessLogOperatorCandidateResponse> distinct = new LinkedHashMap<>();
         for (BusinessLogOperatorCandidate candidate : candidates) {
             BusinessLogOperatorIdentity identity = identities.get(new BusinessLogOperatorIdentityKey(candidate.tenantId(),
-                    candidate.operatorId(), null));
+                    candidate.operatorId(), candidate.operatorOrganizationId()));
             distinct.putIfAbsent(candidate.operatorId(), new BusinessLogOperatorCandidateResponse(candidate.operatorId(),
-                    label(candidate.operatorId(), candidate.operatorAccount(), identity), subtitle(identity)));
+                    label(candidate.operatorId(), candidate.operatorAccount(), identity), subtitle(identity),
+                    account(candidate, identity), identity == null ? null : identity.employeeName(),
+                    candidate.operatorOrganizationId(), attributedName(candidate.operatorOrganizationId(),
+                            identity == null ? null : identity.organizationId(),
+                            identity == null ? null : identity.organizationName()),
+                    candidate.operatorDepartmentId(), attributedName(candidate.operatorDepartmentId(),
+                            identity == null ? null : identity.departmentId(),
+                            identity == null ? null : identity.departmentName())));
         }
         return List.copyOf(distinct.values());
     }
@@ -104,6 +113,15 @@ public final class BusinessLogOperatorCandidateResponses {
             return identity.organizationName() + " / " + identity.departmentName();
         }
         return identity.organizationName() == null ? identity.departmentName() : identity.organizationName();
+    }
+
+    private static String account(BusinessLogOperatorCandidate candidate, BusinessLogOperatorIdentity identity) {
+        return candidate.operatorAccount() != null ? candidate.operatorAccount()
+                : identity == null ? null : identity.username();
+    }
+
+    private static String attributedName(String attributedId, String resolvedId, String resolvedName) {
+        return Objects.equals(attributedId, resolvedId) ? resolvedName : null;
     }
 
     private static long pages(long total, int pageSize) {

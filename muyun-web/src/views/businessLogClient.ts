@@ -48,6 +48,12 @@ export interface BusinessLogOperatorCandidate {
   id: string;
   title: string;
   subtitle?: string;
+  account?: string;
+  employeeName?: string;
+  organizationId?: string;
+  organizationName?: string;
+  departmentId?: string;
+  departmentName?: string;
 }
 
 export interface BusinessLogOperatorNavigationItem {
@@ -197,12 +203,21 @@ function candidateRecords(value: unknown): BusinessLogOperatorCandidate[] {
     const record = recordOf(item);
     const id = stringOf(record.id);
     if (!id) continue;
-    const subtitle = stringOf(record.subtitle);
-    candidates.push(
-      subtitle
-        ? { id, title: stringOf(record.title) ?? id, subtitle }
-        : { id, title: stringOf(record.title) ?? id },
-    );
+    const candidate: BusinessLogOperatorCandidate = { id, title: stringOf(record.title) ?? id };
+    const optionalFields = [
+      'subtitle',
+      'account',
+      'employeeName',
+      'organizationId',
+      'organizationName',
+      'departmentId',
+      'departmentName',
+    ] as const;
+    optionalFields.forEach((field) => {
+      const value = stringOf(record[field]);
+      if (value) candidate[field] = value;
+    });
+    candidates.push(candidate);
   }
   return candidates;
 }

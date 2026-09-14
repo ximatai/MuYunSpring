@@ -27,9 +27,9 @@ class BusinessLogOperatorCandidateResponsesTest {
         ));
 
         assertThat(response.records()).containsExactly(new BusinessLogOperatorCandidateResponse(
-                "platform-admin", "admin", null));
+                "platform-admin", "admin", null, "admin", null, null, null, null, null));
         assertThat(response.selectedRecords()).containsExactly(new BusinessLogOperatorCandidateResponse(
-                "former-user", "历史职员 (former)", null));
+                "former-user", "历史职员 (former)", null, "former-account", "历史职员", null, null, null, null));
     }
 
     @Test
@@ -40,6 +40,23 @@ class BusinessLogOperatorCandidateResponsesTest {
         var response = BusinessLogOperatorCandidateResponses.from(page, null, keys -> Map.of());
 
         assertThat(response.records()).containsExactly(new BusinessLogOperatorCandidateResponse(
-                "removed-user", "retired.account", null));
+                "removed-user", "retired.account", null, "retired.account", null, null, null, null, null));
+    }
+
+    @Test
+    void shouldExposeStructuredEmployeeAndEventTimeOrganizationDetails() {
+        BusinessLogOperatorCandidatePage page = new BusinessLogOperatorCandidatePage(List.of(
+                new BusinessLogOperatorCandidate("tenant-a", "user-a", "demo_admin", "organization-a",
+                        "department-a")), 1, 1, 20);
+
+        var response = BusinessLogOperatorCandidateResponses.from(page, null, keys -> Map.of(
+                new BusinessLogOperatorIdentityKey("tenant-a", "user-a", "organization-a"),
+                new BusinessLogOperatorIdentity("演示租户管理员", "demo_admin", "organization-a", "综合管理部",
+                        "department-a", "研发一部")
+        ));
+
+        assertThat(response.records()).containsExactly(new BusinessLogOperatorCandidateResponse("user-a",
+                "演示租户管理员 (demo_admin)", "综合管理部 / 研发一部", "demo_admin", "演示租户管理员",
+                "organization-a", "综合管理部", "department-a", "研发一部"));
     }
 }

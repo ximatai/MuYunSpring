@@ -65,8 +65,20 @@ it('uses the safe error response summary and keeps the login account distinct fr
 
 it('loads and restores log operators through the source log module rather than iam.user', async () => {
   const request = vi.fn(async () => ({
-    records: [{ id: 'user-1', title: '张三 (zhangsan)', subtitle: '华东机构 / 研发部' }],
-    selectedRecords: [{ id: 'user-2', title: 'lisi' }],
+    records: [
+      {
+        id: 'user-1',
+        title: '张三 (zhangsan)',
+        subtitle: '华东机构 / 研发部',
+        account: 'zhangsan',
+        employeeName: '张三',
+        organizationId: 'organization-east',
+        organizationName: '华东机构',
+        departmentId: 'department-rd',
+        departmentName: '研发部',
+      },
+    ],
+    selectedRecords: [{ id: 'user-2', title: 'lisi', account: 'lisi' }],
     total: 1,
   }));
   const client = createBusinessLogClient({ request } as HttpClient, 'request-error');
@@ -84,8 +96,20 @@ it('loads and restores log operators through the source log module rather than i
     body: { keyword: 'zhang', selectedIds: ['user-2'], page: { pageNum: 2, pageSize: 20 } },
   });
   expect(candidates).toEqual({
-    records: [{ id: 'user-1', title: '张三 (zhangsan)', subtitle: '华东机构 / 研发部' }],
-    selectedRecords: [{ id: 'user-2', title: 'lisi', subtitle: undefined }],
+    records: [
+      {
+        id: 'user-1',
+        title: '张三 (zhangsan)',
+        subtitle: '华东机构 / 研发部',
+        account: 'zhangsan',
+        employeeName: '张三',
+        organizationId: 'organization-east',
+        organizationName: '华东机构',
+        departmentId: 'department-rd',
+        departmentName: '研发部',
+      },
+    ],
+    selectedRecords: [{ id: 'user-2', title: 'lisi', subtitle: undefined, account: 'lisi' }],
     total: 1,
   });
 });
