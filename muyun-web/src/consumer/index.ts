@@ -111,3 +111,25 @@ export type {
   FileTransferUploadReceipt,
   FileTransferUploadTask,
 } from '../platform-components/fileTransferUpload';
+
+// Reference interaction is a supported business-App extension point; the standard form runner
+// remains internal. Business sources supply their own authorized candidate provider.
+export { default as ReferencePicker } from '../platform-components/ReferencePicker.vue';
+export { ReferencePickerReadError } from '../platform-components/referencePickerReadError';
+export type { ReferencePickerReadErrorKind } from '../platform-components/referencePickerReadError';
+export type {
+  ReferencePickerAxisSelection,
+  ReferencePickerBrowseScope,
+  ReferencePickerCandidate,
+  ReferencePickerColumn,
+  ReferencePickerConfig,
+  ReferencePickerId,
+  ReferencePickerNavigationAxis,
+  ReferencePickerNavigationItem,
+  ReferencePickerPage,
+  ReferencePickerPageRequest,
+  ReferencePickerProvider,
+  ReferencePickerSelectionSummary,
+  ReferencePickerSourceIdentity,
+  ReferencePickerValidity,
+} from '../platform-components/referencePickerModel';

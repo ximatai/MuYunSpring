@@ -1,6 +1,7 @@
 import type { OptionItemDescriptor } from '@muyun/web-contracts';
 import type { RecordPickerRecord } from './recordPickerConstraints';
 import type { RecordFormFieldState, RecordFormRecord } from './recordFormFieldModel';
+import { readonlyReferenceDisplay } from './readonlyReferenceDisplay';
 
 export type RecordDetailDisplayValue = string | number | boolean | undefined | null;
 
@@ -50,6 +51,10 @@ export function resolveRecordDetailDisplayValue(
     return emptyText;
   }
   const referenceTitle = field.referenceTitleField ? record[field.referenceTitleField] : undefined;
+  if (field.reference) {
+    const display = readonlyReferenceDisplay(field.reference, value, referenceTitle);
+    if (display !== undefined) return display || emptyText;
+  }
   if (field.controlType === 'recordPicker' && isReferenceSummary(referenceTitle)) {
     return referenceSummaryLabel(referenceTitle) ?? String(value ?? emptyText);
   }

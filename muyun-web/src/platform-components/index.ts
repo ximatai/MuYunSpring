@@ -67,6 +67,30 @@ export { default as RecordMetaSection } from './RecordMetaSection.vue';
 export { default as RecordModeDrawer } from './RecordModeDrawer.vue';
 export { default as RecordPicker } from './RecordPicker.vue';
 export { default as RecordMultiPicker } from './RecordMultiPicker.vue';
+export { default as ReferencePicker } from './ReferencePicker.vue';
+export { readonlyReferenceDisplay } from './readonlyReferenceDisplay';
+export {
+  createSourceReferencePickerProvider,
+  sourceReferencePickerReloadKey,
+} from './sourceReferencePickerProvider';
+export { createUserReferencePickerProvider, userReferencePickerColumns } from './userReferencePicker';
+export type { UserReferencePickerConfig } from './userReferencePicker';
+export type {
+  ReferencePickerAxisSelection,
+  ReferencePickerBrowseScope,
+  ReferencePickerCandidate,
+  ReferencePickerColumn,
+  ReferencePickerConfig,
+  ReferencePickerId,
+  ReferencePickerNavigationAxis,
+  ReferencePickerNavigationItem,
+  ReferencePickerPage,
+  ReferencePickerPageRequest,
+  ReferencePickerProvider,
+  ReferencePickerSelectionSummary,
+  ReferencePickerSourceIdentity,
+  ReferencePickerValidity,
+} from './referencePickerModel';
 export { default as ObjectPickerInput } from './ObjectPickerInput.vue';
 export { default as UserPicker } from './UserPicker.vue';
 export { default as EmployeePicker } from './EmployeePicker.vue';
@@ -74,7 +98,6 @@ export { default as ScopedTreePicker } from './ScopedTreePicker.vue';
 export type {
   UserAccountId,
   UserPickerCandidate,
-  UserPickerConfig,
   UserPickerPage,
   UserPickerPageRequest,
   UserPickerPageSearch,
@@ -267,3 +290,6 @@ export { default as RecordRelationTable } from './RecordRelationTable.vue';
 export { default as RecordRelationValue } from './RecordRelationValue.vue';
 
 export { default as RecordPermissionDialog } from './RecordPermissionDialog.vue';
+
+export { ReferencePickerReadError } from './referencePickerReadError';
+export type { ReferencePickerReadErrorKind } from './referencePickerReadError';

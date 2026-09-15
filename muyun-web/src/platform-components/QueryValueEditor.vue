@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { computed, ref, watch } from 'vue';
 import { UiInput, UiSelect } from '@muyun/vue-ui-antdv';
 import type {
   Option,
@@ -11,8 +12,9 @@ import type { ModuleContext } from '@muyun/web-core';
 import RecordMultiPicker from './RecordMultiPicker.vue';
 import RecordPicker from './RecordPicker.vue';
 import type { RecordPickerRecord } from './recordPickerConstraints';
-import UserPicker from './UserPicker.vue';
-import type { UserPickerConfig } from './userPickerModel';
+import ReferencePicker from './ReferencePicker.vue';
+import { createQueryReferencePickerProvider } from './queryReferencePickerProvider';
+import type { ReferencePickerConfig, ReferencePickerValidity } from './referencePickerModel';
 
 defineOptions({ name: 'QueryValueEditor' });
 
@@ -23,8 +25,8 @@ const props = withDefaults(
     values?: unknown[];
     options?: Option[];
     referenceContext?: ModuleContext<RecordPickerRecord>;
-    /** Source-owned user candidates supersede generic target-module reference delivery. */
-    userPicker?: UserPickerConfig;
+    /** Source-owned reference candidates supersede target-module reference delivery. */
+    referencePicker?: ReferencePickerConfig;
     loading?: boolean;
     disabled?: boolean;
   }>(),
@@ -32,7 +34,7 @@ const props = withDefaults(
     values: () => [],
     options: () => [],
     referenceContext: undefined,
-    userPicker: undefined,
+    referencePicker: undefined,
     loading: false,
     disabled: false,
   },
@@ -40,6 +42,8 @@ const props = withDefaults(
 
 const emit = defineEmits<{
   'update:values': [values: unknown[]];
+  /** A reference input must settle before its owning query can apply its draft IDs. */
+  'validity-change': [validity: ReferencePickerValidity];
   /** Lets the owning query surface submit from a value input without coupling it to a page. */
   submit: [];
 }>();
@@ -48,6 +52,62 @@ const booleanOptions: Option[] = [
   { label: '是', value: 'true' },
   { label: '否', value: 'false' },
 ];
+
+const targetReferencePicker = ref<ReferencePickerConfig>();
+const targetReferencePending = ref(false);
+const referencePickerValidity = ref<ReferencePickerValidity>({ valid: true, status: 'ready' });
+let targetReferenceRequest = 0;
+const resolvedReferencePicker = computed(() => props.referencePicker ?? targetReferencePicker.value);
+const referencePickerKey = computed(() => `${props.field.name}:${props.operator}`);
+const reportedReferenceValidity = computed<ReferencePickerValidity>(() => {
+  if (isValueLess()) return { valid: true, status: 'ready' };
+  if (targetReferencePending.value) {
+    return { valid: false, status: 'resolving', message: '正在加载引用能力' };
+  }
+  return resolvedReferencePicker.value ? referencePickerValidity.value : { valid: true, status: 'ready' };
+});
+
+watch(reportedReferenceValidity, (validity) => emit('validity-change', validity), {
+  immediate: true,
+  flush: 'sync',
+});
+
+watch(
+  () => [props.field.reference, props.referenceContext, props.referencePicker] as const,
+  () => void resolveTargetReferencePicker(),
+  { immediate: true },
+);
+
+async function resolveTargetReferencePicker() {
+  const request = ++targetReferenceRequest;
+  targetReferencePicker.value = undefined;
+  const reference = props.field.reference;
+  const context = props.referenceContext;
+  if (props.referencePicker || !reference || !context) {
+    targetReferencePending.value = false;
+    return;
+  }
+  targetReferencePending.value = true;
+  try {
+    await context.runtime.ready;
+    if (request !== targetReferenceRequest) return;
+    // Tree targets retain their existing REFERENCE tree reader. Do not reinterpret a tree as a
+    // flat target query just because the common picker only owns the non-tree interaction here.
+    if (!context.abilities.tryTree()) {
+      targetReferencePicker.value = {
+        provider: createQueryReferencePickerProvider({ http: context.http, reference }),
+        title: `选择${props.field.title ?? props.field.name}`,
+        placeholder: `搜索${props.field.title ?? props.field.name}`,
+        searchPlaceholder: `搜索${props.field.title ?? props.field.name}`,
+      };
+    }
+  } catch {
+    // The legacy picker keeps the target REFERENCE context's explicit runtime failure visible.
+    // Never substitute a MENU context or an ordinary CRUD endpoint after that failure.
+  } finally {
+    if (request === targetReferenceRequest) targetReferencePending.value = false;
+  }
+}
 
 function updateValues(values: unknown[]) {
   emit(
@@ -131,13 +191,17 @@ function updateReferenceValues(values: string[]) {
   updateValues(values);
 }
 
-function userPickerValue() {
+function referencePickerValue() {
   const values = props.values.filter((value): value is string => typeof value === 'string');
   return isMultiple() ? values : values[0];
 }
 
-function updateUserPickerValue(value: string | string[] | undefined) {
+function updateReferencePickerValue(value: string | string[] | undefined) {
   updateValues(value === undefined ? [] : Array.isArray(value) ? value : [value]);
+}
+
+function updateReferencePickerValidity(validity: ReferencePickerValidity) {
+  referencePickerValidity.value = validity;
 }
 
 function isValueLess() {
@@ -191,17 +255,28 @@ function referenceTitle(record: RecordPickerRecord) {
       :placeholder="isMultiple() ? '选择一个或多个值' : '选择值'"
       @update:value="updateOptions"
     />
-    <UserPicker
-      v-else-if="field.reference && userPicker"
-      :value="userPickerValue()"
+    <ReferencePicker
+      v-else-if="field.reference && resolvedReferencePicker"
+      :key="referencePickerKey"
+      :value="referencePickerValue()"
       :multiple="isMultiple()"
-      :max-selection="userPicker.maxSelection"
-      :title="userPicker.title"
-      :placeholder="userPicker.placeholder"
-      :search-page="userPicker.searchPage"
-      :resolve-users="userPicker.resolveUsers"
+      :max-selection="resolvedReferencePicker.maxSelection"
+      :title="resolvedReferencePicker.title"
+      :placeholder="resolvedReferencePicker.placeholder"
+      :provider="resolvedReferencePicker.provider"
+      :mode="resolvedReferencePicker.mode ?? 'dialog'"
+      :columns="resolvedReferencePicker.columns"
+      :search-placeholder="resolvedReferencePicker.searchPlaceholder"
+      :reload-key="resolvedReferencePicker.reloadKey"
       :disabled="disabled"
-      @update:value="updateUserPickerValue"
+      @update:value="updateReferencePickerValue"
+      @validity-change="updateReferencePickerValidity"
+    />
+    <UiInput
+      v-else-if="field.reference && targetReferencePending"
+      value=""
+      disabled
+      placeholder="正在加载引用能力"
     />
     <RecordMultiPicker
       v-else-if="field.reference && referenceContext && isMultiple()"

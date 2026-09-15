@@ -77,3 +77,61 @@ body {
   margin-bottom: 14px;
   font-size: 16px;
 }
+
+.reference-state,
+.query-state,
+.generated-at {
+  color: #64748b;
+  font-size: 12px;
+}
+
+.reference-state {
+  display: block;
+  margin-top: 6px;
+}
+
+.manual-query {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.manual-query > label {
+  color: #475569;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.query-actions {
+  display: flex;
+  gap: 8px;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+th,
+td {
+  padding: 10px 8px;
+  border-bottom: 1px solid #e2e8f0;
+  text-align: left;
+}
+
+th {
+  color: #475569;
+  font-weight: 600;
+}
+
+.empty-row {
+  color: #64748b;
+  text-align: center;
+}
+
+@media (max-width: 820px) {
+  .business-grid {
+    grid-template-columns: 1fr;
+  }
+}

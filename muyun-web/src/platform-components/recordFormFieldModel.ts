@@ -20,6 +20,7 @@ import type { PickerConstraint, RecordPickerRecord } from './recordPickerConstra
 import type { WebTreeNode } from '@muyun/web-contracts';
 import type { RecordPickerMode } from './recordPickerModel';
 import type { ScopedTreePickerProvider } from './scopedTreePickerModel';
+import type { ReferencePickerColumn, ReferencePickerProvider } from './referencePickerModel';
 import { FormulaRuntime } from '../formula/FormulaRuntime';
 
 export type RecordFormFieldDescriptor = (ViewFieldDefinition | ResolvedViewFieldDescriptor) & {
@@ -120,6 +121,9 @@ export type RecordFormFieldControlType =
   | 'imageFileTransfer'
   | 'unsupported';
 
+/** The only source-field reference presentations implemented by the common picker. */
+export type RecordFormReferencePickerPresentation = 'dropdown' | 'dialog';
+
 export interface RecordFieldRenderer {
   rendererType: string;
   controlType: Exclude<RecordFormFieldControlType, 'unsupported'>;
@@ -197,10 +201,14 @@ export interface RecordFormFieldFallback {
 
 export interface RecordFormFieldPickerConfig {
   context: ModuleContext<RecordPickerRecord>;
+  /** Source-authorized, paged reference delivery for the common picker. */
+  provider?: ReferencePickerProvider;
+  /** Candidate columns are presentation only; identity and authorization stay with the provider. */
+  columns?: readonly ReferencePickerColumn[];
   loadOptions?: (keyword: string) => Promise<RecordPickerRecord[]>;
   loadTree?: () => Promise<WebTreeNode<RecordPickerRecord>[]>;
   resolveOptions?: (values: string[]) => Promise<RecordPickerRecord[]>;
-  reloadKey?: number;
+  reloadKey?: string | number;
   mode?: RecordPickerMode;
   placeholder?: string;
   allowClear?: boolean;
@@ -242,6 +250,13 @@ export interface RecordFormFieldState {
   optionTitleField?: string;
   optionItems?: import('@muyun/web-contracts').OptionItemDescriptor[];
   referenceTitleField?: string;
+  /** The compiled reference contract remains available to read-only detail and list renderers. */
+  reference?: ResolvedReferenceFieldDescriptor;
+  /**
+   * Source-neutral presentation resolved from the field control. It is intentionally separate
+   * from the provider: the descriptor chooses presentation while the host owns transport.
+   */
+  referencePickerPresentation?: RecordFormReferencePickerPresentation;
   /** Title for the standard TreeAbility root sentinel when this field is a tree parent reference. */
   treeRootTitle?: string;
   fileReference?: ResolvedFileReferenceFieldDescriptor;
@@ -422,6 +437,10 @@ export function resolveRecordFormFieldState(
     controlType === 'recordPicker' || controlType === 'recordMultiPicker'
       ? options.pickerConfigs?.[fieldName]
       : undefined;
+  const referencePickerPresentation =
+    controlType === 'recordPicker' || controlType === 'recordMultiPicker'
+      ? resolveReferencePickerPresentation(field?.fieldControl)
+      : undefined;
   const baseState: RecordFormFieldState = {
     fieldName,
     label,
@@ -435,9 +454,11 @@ export function resolveRecordFormFieldState(
     hasOption,
     pickerConfig,
     ...(field?.fieldControl && controlType === 'unsupported'
-      ? { rendererDiagnostic: rendererDiagnostic(field.fieldControl) }
+      ? { rendererDiagnostic: rendererDiagnostic(field, field.fieldControl) }
       : {}),
     ...(field?.fileReference ? { fileReference: field.fileReference } : {}),
+    ...(field?.reference ? { reference: field.reference } : {}),
+    ...(referencePickerPresentation ? { referencePickerPresentation } : {}),
     ...(booleanStatus ? { booleanStatus } : {}),
     ...(field?.valuePresentation ? { valuePresentation: field.valuePresentation } : {}),
     ...(field?.overrideOf ? { overrideOf: field.overrideOf } : {}),
@@ -573,13 +594,16 @@ function resolveFieldControlType(
   field: RecordFormFieldDescriptor,
   fieldControl: ResolvedFieldControlDescriptor,
 ): RecordFormFieldControlType {
+  if (recordPickerPresentationDiagnostic(field, fieldControl)) return 'unsupported';
   const renderer = recordFieldRendererRegistry.find(
     (candidate) => candidate.rendererType === fieldControl.rendererType && candidate.supports(field),
   );
   return renderer?.controlType ?? 'unsupported';
 }
 
-function rendererDiagnostic(fieldControl: ResolvedFieldControlDescriptor) {
+function rendererDiagnostic(field: RecordFormFieldDescriptor, fieldControl: ResolvedFieldControlDescriptor) {
+  const presentationDiagnostic = recordPickerPresentationDiagnostic(field, fieldControl);
+  if (presentationDiagnostic) return presentationDiagnostic;
   const rendererRegistered = recordFieldRendererRegistry.some(
     (candidate) => candidate.rendererType === fieldControl.rendererType,
   );
@@ -587,6 +611,40 @@ function rendererDiagnostic(fieldControl: ResolvedFieldControlDescriptor) {
     return `字段控件“${fieldControl.alias}”的 renderer“${fieldControl.rendererType}”缺少可执行的字段契约，已拒绝编辑。`;
   }
   return `字段控件“${fieldControl.alias}”的 renderer“${fieldControl.rendererType}”未在当前页面运行器登记，已拒绝编辑。`;
+}
+
+function resolveReferencePickerPresentation(
+  fieldControl: ResolvedFieldControlDescriptor | undefined,
+): RecordFormReferencePickerPresentation {
+  const presentation = fieldControl?.properties?.presentation;
+  return presentation === 'DROPDOWN' ? 'dropdown' : 'dialog';
+}
+
+/**
+ * Presentation is executable only for the source-field transport. Tree and target-navigator
+ * references keep their established controls; accepting this property there would silently
+ * advertise a provider the common form does not own.
+ */
+function recordPickerPresentationDiagnostic(
+  field: RecordFormFieldDescriptor,
+  fieldControl: ResolvedFieldControlDescriptor,
+): string | undefined {
+  if (fieldControl.rendererType !== 'RECORD_PICKER') return undefined;
+  const presentation = fieldControl.properties?.presentation;
+  if (presentation == null) return undefined;
+  if (presentation !== 'DROPDOWN' && presentation !== 'DIALOG') {
+    return `字段控件“${fieldControl.alias}”的 presentation“${presentation}”不受当前页面运行器支持，已拒绝编辑。`;
+  }
+  if (!field.reference) {
+    return `字段控件“${fieldControl.alias}”声明了 presentation，但该 renderer 只可用于引用字段，已拒绝编辑。`;
+  }
+  if (field.reference.pickerMode === 'TREE') {
+    return `字段控件“${fieldControl.alias}”的 presentation 不支持 TREE 引用选择，已拒绝编辑。`;
+  }
+  if (field.reference.candidateDelivery !== 'SOURCE_FIELD') {
+    return `字段控件“${fieldControl.alias}”的 presentation 只支持 SOURCE_FIELD 引用候选交付，已拒绝编辑。`;
+  }
+  return undefined;
 }
 
 function fieldControlSelectionMode(field: RecordFormFieldDescriptor | undefined) {

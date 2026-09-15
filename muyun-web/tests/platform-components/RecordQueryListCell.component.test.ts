@@ -103,3 +103,29 @@ it('preserves text, option title, custom rendering, color and multiline semantic
     'background-color: rgb(22, 119, 255)',
   );
 });
+
+it('renders reference summaries in stored ID order without affecting dictionary rendering', async () => {
+  const wrapper = shallowMount(RecordQueryListCell, {
+    props: {
+      record: {
+        reviewerIds: ['reviewer-2', 'reviewer-1', 'reviewer-missing'],
+        reviewerSummaries: [
+          { id: 'reviewer-1', title: '王华' },
+          { id: 'reviewer-2', title: '李明', unavailable: true },
+        ],
+      },
+      column: {
+        key: 'reviewerIds',
+        title: '评审人',
+        titleField: 'reviewerSummaries',
+        reference: { targetModuleAlias: 'iam.user', cardinality: 'MANY' },
+      },
+    },
+  });
+
+  expect(wrapper.find('.record-query-list-text').text()).toBe('李明（不可用）、王华、reviewer-missing');
+  await wrapper.setProps({
+    record: { reviewerIds: [], reviewerSummaries: [{ id: 'reviewer-1', title: '旧摘要' }] },
+  });
+  expect(wrapper.find('.record-query-list-text').text()).toBe('');
+});

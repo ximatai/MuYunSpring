@@ -8,10 +8,15 @@ import net.ximatai.muyun.spring.platform.metadata.FieldUiControlPresetCatalog;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /** Compiles configured controls into the descriptor contract consumed by page bootstrap. */
 final class FieldControlDescriptorCatalog {
+    private static final Set<String> DIRECTORY_MANAGED_ALIASES = FieldUiControlPresetCatalog.fieldUiControls().stream()
+            .map(FieldUiControl::getAlias)
+            .collect(Collectors.toUnmodifiableSet());
+
     private FieldControlDescriptorCatalog() { }
 
     /**
@@ -64,9 +69,21 @@ final class FieldControlDescriptorCatalog {
                 Map.entry("date", "DATE"), Map.entry("datetime", "DATETIME"), Map.entry("colorPicker", "COLOR_PICKER"), Map.entry("json", "JSON"),
                 Map.entry("recordPicker", "RECORD_PICKER"), Map.entry("recordMultiPicker", "RECORD_PICKER"), Map.entry("reference", "RECORD_PICKER"), Map.entry("enabledStatus", "ENABLED_STATUS"),
                 Map.entry("booleanStatus", "BOOLEAN_STATUS"), Map.entry("tagList", "TAG_LIST"));
-        return renderers.entrySet().stream().collect(Collectors.toUnmodifiableMap(Map.Entry::getKey,
-                entry -> new ResolvedFieldControlDescriptor(entry.getKey(), entry.getValue(),
-                        ("multi_select".equals(entry.getKey()) || "recordMultiPicker".equals(entry.getKey())) ? "COLLECTION" : "SCALAR",
-                        Map.of(), List.of())));
+        LinkedHashMap<String, ResolvedFieldControlDescriptor> result = new LinkedHashMap<>();
+        renderers.forEach((alias, renderer) -> result.put(alias, new ResolvedFieldControlDescriptor(alias, renderer,
+                ("multi_select".equals(alias) || "recordMultiPicker".equals(alias)) ? "COLLECTION" : "SCALAR",
+                Map.of(), List.of())));
+        fromConfigured(FieldUiControlPresetCatalog.fieldUiControls(), FieldUiControlPresetCatalog.properties(),
+                FieldUiControlPresetCatalog.bindings()).forEach((alias, descriptor) -> {
+            if (descriptor.rendererType().equals("RECORD_PICKER")) {
+                result.put(alias, descriptor);
+            }
+        });
+        return Map.copyOf(result);
+    }
+
+    /** Aliases seeded by the platform directory must resolve from that directory for dynamic pages. */
+    static boolean isDirectoryManagedAlias(String alias) {
+        return DIRECTORY_MANAGED_ALIASES.contains(alias);
     }
 }

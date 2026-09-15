@@ -1,15 +1,8 @@
-/**
- * Shared transport shapes for semantic identity-object pickers.  The concrete
- * user and employee components deliberately keep separate ID aliases and
- * provider names, so a form cannot accidentally treat an employee as a login
- * account merely because both IDs are strings.
- */
-export interface IdentityPickerCandidate<TId extends string> {
+import type { ReferencePickerCandidate } from './referencePickerModel';
+
+/** Identity aliases retain their distinct IDs while using the common display contract. */
+export interface IdentityPickerCandidate<TId extends string> extends ReferencePickerCandidate {
   id: TId;
-  title: string;
-  subtitle?: string;
-  disabled?: boolean;
-  unavailable?: boolean;
 }
 
 export interface IdentityPickerPageRequest {

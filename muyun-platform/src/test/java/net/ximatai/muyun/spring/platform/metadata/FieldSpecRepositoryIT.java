@@ -2,6 +2,9 @@ package net.ximatai.muyun.spring.platform.metadata;
 
 import net.ximatai.muyun.database.spring.boot.sql.annotation.EnableMuYunRepositories;
 import net.ximatai.muyun.database.core.orm.Criteria;
+import net.ximatai.muyun.spring.ability.PlatformAbilityRuntime;
+import net.ximatai.muyun.spring.platform.reference.PlatformReferenceLoadResolver;
+import net.ximatai.muyun.spring.platform.reference.StaticAbilityCatalog;
 import net.ximatai.muyun.spring.dynamic.metadata.DynamicQueryOperator;
 import net.ximatai.muyun.spring.dynamic.metadata.FieldType;
 import net.ximatai.muyun.spring.dynamic.metadata.EntityDefinition;
@@ -9,6 +12,8 @@ import net.ximatai.muyun.spring.dynamic.metadata.FieldDefinition;
 import net.ximatai.muyun.spring.dynamic.schema.DynamicSchemaService;
 import net.ximatai.muyun.spring.platform.support.PlatformPostgresIntegrationTest;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.AfterEach;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.SpringBootConfiguration;
 import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
@@ -23,6 +28,7 @@ import org.springframework.test.context.DynamicPropertySource;
 import javax.sql.DataSource;
 import java.sql.Connection;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 
@@ -38,17 +44,48 @@ class FieldSpecRepositoryIT extends PlatformPostgresIntegrationTest {
     }
 
     private final FieldSpecService fieldTypeService;
+    private final FieldUiControlService fieldUiControlService;
+    private final FieldUiControlPropertyService fieldUiControlPropertyService;
+    private final FieldUiControlBindingService fieldUiControlBindingService;
     private final MetadataService metadataService;
     private final DataSource dataSource;
     private final MetadataSchemaTransactionProbe transactionProbe;
 
     @Autowired
-    FieldSpecRepositoryIT(FieldSpecService fieldTypeService, MetadataService metadataService, DataSource dataSource,
+    FieldSpecRepositoryIT(FieldSpecService fieldTypeService, FieldUiControlService fieldUiControlService,
+                          FieldUiControlPropertyService fieldUiControlPropertyService,
+                          FieldUiControlBindingService fieldUiControlBindingService,
+                          MetadataService metadataService, DataSource dataSource,
                           MetadataSchemaTransactionProbe transactionProbe) {
         this.fieldTypeService = fieldTypeService;
+        this.fieldUiControlService = fieldUiControlService;
+        this.fieldUiControlPropertyService = fieldUiControlPropertyService;
+        this.fieldUiControlBindingService = fieldUiControlBindingService;
         this.metadataService = metadataService;
         this.dataSource = dataSource;
         this.transactionProbe = transactionProbe;
+    }
+
+    @BeforeEach
+    void configureReferenceLoads() {
+        PlatformAbilityRuntime.configureReferenceLoadResolver(new PlatformReferenceLoadResolver(
+                new StaticAbilityCatalog(List.of(fieldTypeService, fieldUiControlService,
+                        fieldUiControlPropertyService, fieldUiControlBindingService))));
+        PlatformAbilityRuntime.configureChildAbilityResolver(request -> {
+            if (FieldUiControlProperty.class.equals(request.staticModel())) {
+                return Optional.of(fieldUiControlPropertyService);
+            }
+            if (FieldUiControlBinding.class.equals(request.staticModel())) {
+                return Optional.of(fieldUiControlBindingService);
+            }
+            return Optional.empty();
+        });
+    }
+
+    @AfterEach
+    void resetReferenceLoads() {
+        PlatformAbilityRuntime.resetReferenceLoadResolver();
+        PlatformAbilityRuntime.resetChildAbilityResolver();
     }
 
     @Test
@@ -112,6 +149,61 @@ class FieldSpecRepositoryIT extends PlatformPostgresIntegrationTest {
     }
 
     @Test
+    void shouldReloadPersistedFieldUiControlReferenceTitlesWithoutPersistingReadProjections() {
+        String suffix = UUID.randomUUID().toString().replace("-", "").substring(0, 8);
+        FieldSpec fieldSpec = fieldType("string_" + suffix, FieldType.STRING, Set.of(), Set.of());
+        fieldSpec.setTitle("文本字段 " + suffix);
+        String fieldSpecId = fieldTypeService.insert(fieldSpec);
+
+        FieldUiControl control = new FieldUiControl();
+        control.setAlias("control_" + suffix);
+        control.setTitle("组合控件 " + suffix);
+        control.setDefaultFieldSpecAlias(fieldSpecId);
+        control.setValueShape(FieldUiControlValueShape.COMPOSITE);
+        control.setPrimaryValueKey("value");
+        String controlId = fieldUiControlService.insert(control);
+
+        FieldUiControlProperty property = new FieldUiControlProperty();
+        property.setFieldUiControlAlias(controlId);
+        property.setAttributeAlias("placeholder");
+        property.setTitle("占位提示");
+        property.setValueFieldSpecAlias(fieldSpecId);
+        String propertyId = fieldUiControlPropertyService.insert(property);
+
+        FieldUiControlBinding binding = new FieldUiControlBinding();
+        binding.setFieldUiControlAlias(controlId);
+        binding.setValueKey("value");
+        binding.setTitle("主值");
+        binding.setValueFieldSpecAlias(fieldSpecId);
+        String bindingId = fieldUiControlBindingService.insert(binding);
+
+        assertThat(fieldUiControlService.selectActiveRaw(controlId).getDefaultFieldSpecTitle()).isNull();
+        assertThat(fieldUiControlPropertyService.selectActiveRaw(propertyId).getValueFieldSpecTitle()).isNull();
+        assertThat(fieldUiControlBindingService.selectActiveRaw(bindingId).getValueFieldSpecTitle()).isNull();
+
+        FieldUiControl selectedControl = fieldUiControlService.select(controlId);
+        FieldUiControlProperty selectedProperty = fieldUiControlPropertyService.select(propertyId);
+        FieldUiControlBinding selectedBinding = fieldUiControlBindingService.select(bindingId);
+
+        assertThat(selectedControl.getId()).isEqualTo(controlId);
+        assertThat(selectedControl.getDefaultFieldSpecAlias()).isEqualTo(fieldSpecId);
+        assertThat(selectedControl.getDefaultFieldSpecTitle()).isEqualTo(fieldSpec.getTitle());
+        assertThat(selectedProperty.getValueFieldSpecAlias()).isEqualTo(fieldSpecId);
+        assertThat(selectedProperty.getValueFieldSpecTitle()).isEqualTo(fieldSpec.getTitle());
+        assertThat(selectedBinding.getValueFieldSpecAlias()).isEqualTo(fieldSpecId);
+        assertThat(selectedBinding.getValueFieldSpecTitle()).isEqualTo(fieldSpec.getTitle());
+
+        selectedControl.setTitle("已更新的组合控件 " + suffix);
+        fieldUiControlService.update(selectedControl);
+
+        FieldUiControl reloadedControl = fieldUiControlService.select(controlId);
+        assertThat(reloadedControl.getId()).isEqualTo(controlId);
+        assertThat(reloadedControl.getDefaultFieldSpecAlias()).isEqualTo(fieldSpecId);
+        assertThat(reloadedControl.getDefaultFieldSpecTitle()).isEqualTo(fieldSpec.getTitle());
+        assertThat(fieldUiControlService.selectActiveRaw(controlId).getDefaultFieldSpecTitle()).isNull();
+    }
+
+    @Test
     void shouldRollbackMetadataDaoAndDynamicDdlInOneSpringTransaction() throws Exception {
         String suffix = UUID.randomUUID().toString().replace("-", "").substring(0, 8);
         String alias = "tx_" + suffix;
@@ -151,7 +243,8 @@ class FieldSpecRepositoryIT extends PlatformPostgresIntegrationTest {
     @SpringBootConfiguration
     @EnableAutoConfiguration
     @EnableTransactionManagement
-    @EnableMuYunRepositories(basePackageClasses = {FieldSpecDao.class, MetadataDao.class})
+    @EnableMuYunRepositories(basePackageClasses = {FieldSpecDao.class, FieldUiControlDao.class,
+            FieldUiControlPropertyDao.class, FieldUiControlBindingDao.class, MetadataDao.class})
     static class TestApplication {
         @Bean
         DataSource dataSource() {
@@ -166,6 +259,26 @@ class FieldSpecRepositoryIT extends PlatformPostgresIntegrationTest {
         @Bean
         FieldSpecService fieldTypeService(FieldSpecDao fieldTypeDao) {
             return new FieldSpecService(fieldTypeDao);
+        }
+
+        @Bean
+        FieldUiControlService fieldUiControlService(FieldUiControlDao fieldUiControlDao,
+                                                    FieldSpecService fieldTypeService) {
+            return new FieldUiControlService(fieldUiControlDao, fieldTypeService);
+        }
+
+        @Bean
+        FieldUiControlPropertyService fieldUiControlPropertyService(FieldUiControlPropertyDao fieldUiControlPropertyDao,
+                                                                      FieldUiControlService fieldUiControlService,
+                                                                      FieldSpecService fieldTypeService) {
+            return new FieldUiControlPropertyService(fieldUiControlPropertyDao, fieldUiControlService, fieldTypeService);
+        }
+
+        @Bean
+        FieldUiControlBindingService fieldUiControlBindingService(FieldUiControlBindingDao fieldUiControlBindingDao,
+                                                                   FieldUiControlService fieldUiControlService,
+                                                                   FieldSpecService fieldTypeService) {
+            return new FieldUiControlBindingService(fieldUiControlBindingDao, fieldUiControlService, fieldTypeService);
         }
 
         @Bean

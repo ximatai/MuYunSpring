@@ -285,6 +285,32 @@ describe('pageCompositionDraftState', () => {
     ]);
   });
 
+  it('round-trips a selected or existing field-control alias through form field props', () => {
+    const state = createPageCompositionDraftState();
+    const supplier = {
+      id: 'supplier',
+      title: '供应商',
+      fieldName: 'supplierId',
+      referenceModuleAlias: 'purchase.supplier',
+      properties: { fieldUiControlAlias: 'custom_supplier_picker' },
+    };
+    state.replaceFields({ list: [], form: [supplier] });
+    state.selectNode(state.nodes.value.find((node) => node.id === 'form:supplier')!);
+
+    expect(state.toManagementUiTree().nodes[1].fields).toEqual([
+      { field: 'supplierId', props: { fieldUiControlAlias: 'custom_supplier_picker' } },
+    ]);
+
+    state.updateSelectedFieldProperties({ fieldUiControlAlias: 'record_picker_dialog' });
+    expect(state.toManagementUiTree().nodes[1].fields).toEqual([
+      { field: 'supplierId', props: { fieldUiControlAlias: 'record_picker_dialog' } },
+    ]);
+
+    state.moveField(supplier.id, 'form', 'list');
+    expect(state.listFields.value[0]?.properties?.fieldUiControlAlias).toBeUndefined();
+    expect(state.toManagementUiTree().nodes[0].fields).toEqual(['supplierId']);
+  });
+
   it('switches a selected group field to the editable form preview', () => {
     const state = createPageCompositionDraftState();
     state.addField(title, 'form');

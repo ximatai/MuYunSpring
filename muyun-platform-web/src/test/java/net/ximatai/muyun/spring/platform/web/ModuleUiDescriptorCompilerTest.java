@@ -908,7 +908,9 @@ class ModuleUiDescriptorCompilerTest {
                         .traits(traits -> { })))
                 .build();
 
-        ResolvedModuleUiDescriptor descriptor = ModuleUiDescriptorCompiler.compile(definition);
+        ResolvedModuleUiDescriptor descriptor = ModuleUiDescriptorCompiler.compile(definition, ModuleKind.STATIC,
+                "职员", Map.of(), Map.of("departmentId", new ResolvedReferenceFieldDescriptor("iam.department",
+                        ReferenceCardinality.ONE)), null);
 
         assertThat(descriptor.moduleAlias()).isEqualTo("iam.employee");
         assertThat(descriptor.schemaVersion()).isEqualTo(ResolvedModuleUiDescriptor.SCHEMA_VERSION);
@@ -1264,6 +1266,63 @@ class ModuleUiDescriptorCompilerTest {
         assertThat(field.fieldControl()).isEqualTo(new ResolvedFieldControlDescriptor("recordMultiPicker",
                 "RECORD_PICKER", "COLLECTION", Map.of(), List.of()));
         assertThat(field.reference().cardinality()).isEqualTo(ReferenceCardinality.MANY);
+    }
+
+    @Test
+    void shouldCompileConfiguredReferencePickerPresentationForSourceFieldReference() {
+        ModuleUiDefinition definition = editorPage("sales.order", form -> form
+                .field("customerId", field -> field.uiType("record_picker_dialog")));
+        ResolvedReferenceFieldDescriptor reference = new ResolvedReferenceFieldDescriptor("crm.customer",
+                ReferenceCardinality.ONE, "title", ReferencePickerMode.LIST, ReferenceCandidateDelivery.SOURCE_FIELD);
+
+        ResolvedViewFieldDescriptor field = ModuleUiDescriptorCompiler.compile(definition, ModuleKind.DYNAMIC, "订单",
+                Map.of(), Map.of("customerId", reference), null, Map.of(), FieldControlDescriptorCatalog.standard())
+                .page().detail().editor().fields().getFirst();
+        ResolvedViewFieldDescriptor staticField = ModuleUiDescriptorCompiler.compile(definition, ModuleKind.STATIC, "订单",
+                Map.of(), Map.of("customerId", reference), null, Map.of(), FieldControlDescriptorCatalog.standard())
+                .page().detail().editor().fields().getFirst();
+
+        assertThat(field.fieldControl()).isEqualTo(new ResolvedFieldControlDescriptor("record_picker_dialog",
+                "RECORD_PICKER", "SCALAR", Map.of("presentation", "DIALOG"), List.of()));
+        assertThat(staticField.fieldControl()).isEqualTo(field.fieldControl());
+    }
+
+    @Test
+    void shouldRejectRecordPickerPresentationOutsideExecutableSourceFieldReference() {
+        ModuleUiDefinition definition = editorPage("sales.order", form -> form
+                .field("customerId", field -> field.uiType("record_picker_dropdown")));
+        ResolvedReferenceFieldDescriptor targetNavigator = new ResolvedReferenceFieldDescriptor("crm.customer",
+                ReferenceCardinality.ONE, "title", ReferencePickerMode.LIST,
+                ReferenceCandidateDelivery.TARGET_NAVIGATOR);
+
+        assertThatThrownBy(() -> ModuleUiDescriptorCompiler.compile(definition, ModuleKind.DYNAMIC, "订单",
+                Map.of(), Map.of("customerId", targetNavigator), null, Map.of(), FieldControlDescriptorCatalog.standard()))
+                .hasMessageContaining("non-tree SOURCE_FIELD");
+
+        ResolvedReferenceFieldDescriptor tree = new ResolvedReferenceFieldDescriptor("crm.customer",
+                ReferenceCardinality.ONE, "title", ReferencePickerMode.TREE, ReferenceCandidateDelivery.SOURCE_FIELD);
+        assertThatThrownBy(() -> ModuleUiDescriptorCompiler.compile(definition, ModuleKind.STATIC, "订单",
+                Map.of(), Map.of("customerId", tree), null, Map.of(), FieldControlDescriptorCatalog.standard()))
+                .hasMessageContaining("non-tree SOURCE_FIELD");
+    }
+
+    @Test
+    void shouldRejectRecordPickerWithoutReferenceAndUnknownPresentation() {
+        ModuleUiDefinition withoutReference = editorPage("sales.order", form -> form
+                .field("customerId", field -> field.uiType("record_picker_dialog")));
+        assertThatThrownBy(() -> ModuleUiDescriptorCompiler.compile(withoutReference, ModuleKind.STATIC, "订单"))
+                .hasMessageContaining("must declare a reference");
+
+        ModuleUiDefinition definition = editorPage("sales.order", form -> form
+                .field("customerId", field -> field.uiType("broken_record_picker")));
+        ResolvedReferenceFieldDescriptor reference = new ResolvedReferenceFieldDescriptor("crm.customer",
+                ReferenceCardinality.ONE, "title", ReferencePickerMode.LIST, ReferenceCandidateDelivery.SOURCE_FIELD);
+        ResolvedFieldControlDescriptor control = new ResolvedFieldControlDescriptor("broken_record_picker",
+                "RECORD_PICKER", "SCALAR", Map.of("presentation", "TREE"), List.of());
+
+        assertThatThrownBy(() -> ModuleUiDescriptorCompiler.compile(definition, ModuleKind.DYNAMIC, "订单",
+                Map.of(), Map.of("customerId", reference), null, Map.of(), Map.of(control.alias(), control)))
+                .hasMessageContaining("presentation must be DROPDOWN or DIALOG");
     }
 
     @Test

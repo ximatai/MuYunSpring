@@ -50,6 +50,28 @@ class PlatformPresentationTemplateCatalogTest {
     }
 
     @Test
+    void allowsAValidFormFieldUiControlAliasAndRejectsUnsupportedPlacementsAndValues() {
+        var template = catalog.require("management", 1, PlatformPresentationClientType.WEB,
+                PlatformPageContractType.MANAGEMENT);
+        String tree = """
+                {"template":"management","templateVersion":1,"nodes":[
+                  {"slot":"list","title":"列表","fields":["customerId"]},
+                  {"slot":"form","title":"详情","fields":[
+                    {"field":"customerId","props":{"fieldUiControlAlias":"record_picker_dialog"}}
+                  ]}
+                ]}
+                """;
+        catalog.validateUiTree(tree, template);
+        assertThatThrownBy(() -> catalog.validateUiTree(
+                tree.replace("\"fieldUiControlAlias\":\"record_picker_dialog\"", "\"fieldUiControlAlias\":\"bad-alias\""), template))
+                .isInstanceOf(BusinessException.class);
+        assertThatThrownBy(() -> catalog.validateUiTree(
+                tree.replace("{\"slot\":\"list\",\"title\":\"列表\",\"fields\":[\"customerId\"]}",
+                        "{\"slot\":\"list\",\"title\":\"列表\",\"fields\":[{\"field\":\"customerId\",\"props\":{\"fieldUiControlAlias\":\"record_picker_dialog\"}}]}"), template))
+                .isInstanceOf(BusinessException.class);
+    }
+
+    @Test
     void validatesManagedEntryIdentityWithinEachRegion() {
         var template = catalog.require("management", 4, PlatformPresentationClientType.WEB, PlatformPageContractType.MANAGEMENT);
         String tree = """

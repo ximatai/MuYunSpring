@@ -112,6 +112,17 @@ class PlatformModelSchemaTest {
     }
 
     @Test
+    void shouldDeclareFieldCatalogReferencesGlobally() throws NoSuchFieldException {
+        assertGlobalReference(FieldSpec.class, "defaultUiControlAlias");
+        assertGlobalReference(FieldSpec.class, "uiControlAliases");
+        assertGlobalReference(FieldUiControl.class, "defaultFieldSpecAlias");
+        assertGlobalReference(FieldUiControlProperty.class, "fieldUiControlAlias");
+        assertGlobalReference(FieldUiControlProperty.class, "valueFieldSpecAlias");
+        assertGlobalReference(FieldUiControlBinding.class, "fieldUiControlAlias");
+        assertGlobalReference(FieldUiControlBinding.class, "valueFieldSpecAlias");
+    }
+
+    @Test
     void shouldMapMetadataModelsAsPlatformTables() {
         assertThat(columnNames(mapper.toTable(Metadata.class)))
                 .contains("id", "application_alias", "alias", "schema_name", "table_name", "title", "enabled", "sort_order");
@@ -476,6 +487,12 @@ class PlatformModelSchemaTest {
         assertThat(columnDefault(mapper.toTable(WorkflowTask.class), "assignment_kind")).isEqualTo("'normal'");
         assertThat(columnDefault(mapper.toTable(WorkflowTask.class), "check_status")).isEqualTo("'not_checked'");
         assertThat(columnDefault(mapper.toTable(WorkflowTaskDefinition.class), "manual_confirm")).isEqualTo("TRUE");
+    }
+
+    private void assertGlobalReference(Class<?> sourceType, String fieldName) throws NoSuchFieldException {
+        ReferenceTo reference = sourceType.getDeclaredField(fieldName).getAnnotation(ReferenceTo.class);
+
+        assertThat(reference.tenantScope()).isEqualTo(ReferenceTenantScope.GLOBAL);
     }
 
     private Set<String> columnNames(TableWrapper table) {

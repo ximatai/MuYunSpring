@@ -7,6 +7,8 @@ import net.ximatai.muyun.database.core.annotation.CompositeIndex;
 import net.ximatai.muyun.database.core.annotation.Table;
 import net.ximatai.muyun.database.core.builder.ColumnType;
 import net.ximatai.muyun.spring.common.model.standard.StandardSortableEntity;
+import net.ximatai.muyun.spring.ability.reference.ReferenceLoad;
+import net.ximatai.muyun.spring.ability.reference.ReferenceTenantScope;
 import net.ximatai.muyun.spring.ability.reference.ReferenceTo;
 import net.ximatai.muyun.spring.ability.child.ChildOf;
 
@@ -19,7 +21,7 @@ public class FieldUiControlBinding extends StandardSortableEntity {
     @Column(name = "field_ui_control_alias", type = ColumnType.VARCHAR, length = 64, nullable = false,
             comment = "Field UI type alias")
     @ChildOf
-    @ReferenceTo(target = FieldUiControlService.class)
+    @ReferenceTo(target = FieldUiControlService.class, tenantScope = ReferenceTenantScope.GLOBAL)
     private String fieldUiControlAlias;
 
     @Column(name = "value_key", type = ColumnType.VARCHAR, length = 64, nullable = false,
@@ -28,6 +30,9 @@ public class FieldUiControlBinding extends StandardSortableEntity {
 
     @Column(name = "value_field_spec_alias", type = ColumnType.VARCHAR, length = 64, nullable = false,
             comment = "Composite value component field spec alias")
-    @ReferenceTo(target = FieldSpecService.class)
+    @ReferenceTo(target = FieldSpecService.class, tenantScope = ReferenceTenantScope.GLOBAL)
     private String valueFieldSpecAlias;
+
+    @ReferenceLoad(source = "valueFieldSpecAlias", field = "title")
+    private transient String valueFieldSpecTitle;
 }

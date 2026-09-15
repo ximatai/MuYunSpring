@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import net.ximatai.muyun.spring.ability.action.BusinessExceptions;
 import net.ximatai.muyun.spring.ability.query.QueryOperator;
+import net.ximatai.muyun.spring.common.util.PlatformNameRules;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
@@ -439,7 +440,7 @@ public class PlatformPresentationTemplateCatalog {
         }
         Set<String> allowed = "list".equals(slot)
                 ? Set.of("label", "width", "align")
-                : Set.of("label", "columnSpan", "readOnly");
+                : Set.of("label", "columnSpan", "readOnly", "fieldUiControlAlias");
         java.util.Iterator<String> names = properties.fieldNames();
         while (names.hasNext()) {
             String name = names.next();
@@ -464,6 +465,10 @@ public class PlatformPresentationTemplateCatalog {
             throw invalidManagementTree();
         }
         if (properties.has("readOnly") && !properties.path("readOnly").isBoolean()) {
+            throw invalidManagementTree();
+        }
+        if (properties.has("fieldUiControlAlias") && (!properties.path("fieldUiControlAlias").isTextual()
+                || !PlatformNameRules.isIdentifier(properties.path("fieldUiControlAlias").asText()))) {
             throw invalidManagementTree();
         }
     }

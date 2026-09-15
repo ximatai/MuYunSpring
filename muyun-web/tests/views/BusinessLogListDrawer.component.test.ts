@@ -28,12 +28,12 @@ it.each([
     expect(rowActionsOf?.({})).toEqual([
       expect.objectContaining({ key: 'detail', title: '详情', primary: true }),
     ]);
-    const userPickerOf = list.props('userPickerOf') as
+    const referencePickerOf = list.props('referencePickerOf') as
       | ((field: { name: string }) => { placeholder?: string } | undefined)
       | undefined;
-    expect(userPickerOf?.({ name: 'operatorId' })).toEqual(
+    expect(referencePickerOf?.({ name: 'operatorId' })).toEqual(
       expect.objectContaining({ placeholder: '按账号或用户 ID 搜索' }),
     );
-    expect(userPickerOf?.({ name: 'moduleAlias' })).toBeUndefined();
+    expect(referencePickerOf?.({ name: 'moduleAlias' })).toBeUndefined();
   },
 );

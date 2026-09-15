@@ -6,7 +6,9 @@ import {
   RecordQueryListPanel,
   presentPlatformError,
   type RecordQueryListColumn,
-  type UserPickerConfig,
+  type ReferencePickerConfig,
+  createUserReferencePickerProvider,
+  userReferencePickerColumns,
 } from '@muyun/platform-components';
 import { useModuleContext } from '@muyun/web-core';
 import type { WebQueryRequest } from '@muyun/web-contracts';
@@ -29,14 +31,23 @@ const props = defineProps<{
 
 const moduleContext = useModuleContext<BusinessLogEventView>({ moduleAlias: props.moduleAlias });
 const client = createBusinessLogClient(moduleContext.http, props.surface);
-const operatorUserPicker: UserPickerConfig = {
+const operatorReferencePicker: ReferencePickerConfig = {
   title: '选择操作用户',
   placeholder: '按账号或用户 ID 搜索',
-  searchPage: async ({ keyword, pageNum, pageSize, scope }) => {
-    const page = await client.operatorCandidates({ keyword, pageNum, pageSize, ...scope });
-    return { records: page.records, total: page.total, navigation: page.navigation };
-  },
-  resolveUsers: async (ids) => (await client.operatorCandidates({ selectedIds: ids })).selectedRecords,
+  searchPlaceholder: '按账号或用户 ID 搜索',
+  mode: 'dialog',
+  columns: userReferencePickerColumns,
+  provider: createUserReferencePickerProvider({
+    sourceIdentity: {
+      targetModuleAlias: 'iam.user',
+      source: { kind: 'businessPurpose', id: `${props.moduleAlias}:operators` },
+    },
+    searchPage: async ({ keyword, pageNum, pageSize, scope }) => {
+      const page = await client.operatorCandidates({ keyword, pageNum, pageSize, ...scope });
+      return { records: page.records, total: page.total, navigation: page.navigation };
+    },
+    resolveUsers: async (ids) => (await client.operatorCandidates({ selectedIds: ids })).selectedRecords,
+  }),
 };
 const selectedEvent = ref<BusinessLogEventView>();
 const detailLoading = ref(false);
@@ -131,8 +142,8 @@ function defaultQueryRequest(): WebQueryRequest {
   return { page: { pageNum: 1, pageSize: 50 }, conditions: [] };
 }
 
-function userPickerOf(field: { name: string }) {
-  return field.name === 'operatorId' ? operatorUserPicker : undefined;
+function referencePickerOf(field: { name: string }) {
+  return field.name === 'operatorId' ? operatorReferencePicker : undefined;
 }
 
 function displayValue(column: string, event: BusinessLogEventView) {
@@ -276,7 +287,7 @@ const configBySurface: Record<BusinessLogSurface, { columns: RecordQueryListColu
     :show-recycle-bin="false"
     :page-size="50"
     :page-size-options="[20, 50, 100]"
-    :user-picker-of="userPickerOf"
+    :reference-picker-of="referencePickerOf"
     empty-description="暂无符合条件的日志"
     :row-actions-of="detailRowActions"
     row-actions-title="操作"

@@ -122,6 +122,58 @@ describe('RecordFormFields', () => {
     expect(wrapper.emitted('update:field')).toBeUndefined();
   });
 
+  it('keeps common-picker selection patches separate from historical display resolution', async () => {
+    const fields = new Map<string, RecordFormFieldDescriptor>([
+      [
+        'studentId',
+        {
+          fieldRef: { fieldName: 'studentId' },
+          label: '学生',
+          reference: {
+            targetModuleAlias: 'education.student',
+            cardinality: 'ONE',
+            displayProjections: [{ targetField: 'studentNo', outputField: 'studentNo' }],
+          },
+        },
+      ],
+    ]);
+    const provider = {
+      identity: {
+        targetModuleAlias: 'education.student',
+        source: { kind: 'sourceField' as const, id: 'education.enrollment:studentId:resolve' },
+      },
+      searchPage: vi.fn().mockResolvedValue({ records: [], total: 0 }),
+      resolve: vi.fn().mockResolvedValue([]),
+    };
+    const wrapper = mount(RecordFormFields, {
+      props: {
+        record: { studentId: 'student-1' },
+        fields,
+        pickerConfigs: { studentId: { context: {} as never, provider } },
+      },
+    });
+    const picker = wrapper.findComponent({ name: 'ReferencePicker' });
+    expect(picker.exists()).toBe(true);
+
+    picker.vm.$emit('selection-resolved', [
+      {
+        id: 'student-1',
+        title: '王华',
+        projections: { studentNo: 'S1' },
+        affectPatch: { classId: 'class-1' },
+      },
+    ]);
+    await flushPromises();
+    expect(wrapper.emitted('reference-projections-change')).toContainEqual([
+      'studentId',
+      { studentNo: 'S1' },
+    ]);
+    expect(wrapper.emitted('update:field')).toBeUndefined();
+
+    picker.vm.$emit('select', [{ id: 'student-1', title: '王华', affectPatch: { classId: 'class-1' } }]);
+    expect(wrapper.emitted('update:field')).toContainEqual(['classId', 'class-1']);
+  });
+
   it('renders declared override fields with explicit inherit, enabled and disabled states', async () => {
     const fields = new Map<string, RecordFormFieldDescriptor>([
       [
@@ -750,6 +802,111 @@ describe('RecordFormFields', () => {
 
     expect(wrapper.emitted('update:field')).toContainEqual(['customerCode', 'C-001']);
     expect(wrapper.emitted('update:field')).toContainEqual(['customerCode', 'C-002']);
+  });
+
+  it('uses descriptor presentations for source references while retaining ID mutations and read projections', async () => {
+    const provider = {
+      identity: {
+        targetModuleAlias: 'purchase.supplier',
+        source: { kind: 'sourceField' as const, id: 'purchase.order:supplierId:resolve' },
+      },
+      searchPage: vi.fn().mockResolvedValue({ records: [], total: 0 }),
+      resolve: vi.fn().mockResolvedValue([]),
+    };
+    const fields = new Map<string, RecordFormFieldDescriptor>([
+      [
+        'supplierId',
+        {
+          fieldRef: { fieldName: 'supplierId' },
+          label: '供应商',
+          fieldControl: {
+            alias: 'record_picker',
+            rendererType: 'RECORD_PICKER',
+            valueShape: 'SCALAR',
+            properties: { presentation: 'DIALOG' },
+          },
+          reference: {
+            targetModuleAlias: 'purchase.supplier',
+            cardinality: 'ONE',
+            candidateDelivery: 'SOURCE_FIELD',
+            displayProjections: [{ targetField: 'supplierCode', outputField: 'supplierCode' }],
+          },
+        },
+      ],
+      [
+        'supplierIds',
+        {
+          fieldRef: { fieldName: 'supplierIds' },
+          label: '可选供应商',
+          fieldControl: {
+            alias: 'record_picker',
+            rendererType: 'RECORD_PICKER',
+            valueShape: 'COLLECTION',
+            properties: { presentation: 'DROPDOWN' },
+          },
+          reference: {
+            targetModuleAlias: 'purchase.supplier',
+            cardinality: 'MANY',
+            candidateDelivery: 'SOURCE_FIELD',
+          },
+        },
+      ],
+    ]);
+    const wrapper = mount(RecordFormFields, {
+      props: {
+        record: { supplierId: 'supplier-1', supplierIds: ['supplier-2'] },
+        fields,
+        pickerConfigs: {
+          supplierId: { context: {} as never, provider },
+          supplierIds: { context: {} as never, provider },
+        },
+      },
+    });
+    let pickers = wrapper.findAllComponents({ name: 'ReferencePicker' });
+
+    expect(pickers).toHaveLength(2);
+    expect(pickers[0]!.props('mode')).toBe('dialog');
+    expect(pickers[0]!.props('multiple')).toBe(false);
+    expect(pickers[1]!.props('mode')).toBe('dropdown');
+    expect(pickers[1]!.props('multiple')).toBe(true);
+
+    // A retained ID is not sufficient while the reference input contains an unresolved draft.
+    for (const picker of pickers) {
+      for (const status of ['editing', 'resolving', 'unmatched', 'error'] as const) {
+        picker.vm.$emit('validity-change', { valid: false, status, message: '请完成引用选择' });
+        expect(wrapper.emitted('validity-change')?.at(-1)).toEqual([
+          expect.objectContaining({ valid: false }),
+        ]);
+        expect(wrapper.emitted('update:field')).toBeUndefined();
+      }
+      picker.vm.$emit('validity-change', { valid: true, status: 'ready' });
+      expect(wrapper.emitted('validity-change')?.at(-1)).toEqual([{ valid: true, errors: {} }]);
+    }
+    pickers[0]!.vm.$emit('validity-change', { valid: false, status: 'editing' });
+    await wrapper.setProps({ validationRequestKey: 1 });
+    expect(wrapper.findAllComponents({ name: 'ReferencePicker' })[0]!.element).toBe(pickers[0]!.element);
+    expect(wrapper.emitted('validity-change')?.at(-1)).toEqual([expect.objectContaining({ valid: false })]);
+    await wrapper.setProps({ disabled: true });
+    expect(wrapper.emitted('validity-change')?.at(-1)).toEqual([{ valid: true, errors: {} }]);
+    await wrapper.setProps({ disabled: false });
+    expect(wrapper.emitted('validity-change')?.at(-1)).toEqual([expect.objectContaining({ valid: false })]);
+    await wrapper.setProps({ formSessionKey: 'next-edit' });
+    expect(wrapper.emitted('validity-change')?.at(-1)).toEqual([{ valid: true, errors: {} }]);
+    pickers = wrapper.findAllComponents({ name: 'ReferencePicker' });
+
+    pickers[0]!.vm.$emit('update:value', 'supplier-3');
+    pickers[0]!.vm.$emit('selection-resolved', [
+      { id: 'supplier-3', title: '新供应商', projections: { supplierCode: 'SUP-003' } },
+    ]);
+    pickers[1]!.vm.$emit('update:value', ['supplier-4', 'supplier-5']);
+    await flushPromises();
+
+    expect(wrapper.emitted('update:field')).toContainEqual(['supplierId', 'supplier-3']);
+    expect(wrapper.emitted('update:field')).toContainEqual(['supplierIds', ['supplier-4', 'supplier-5']]);
+    expect(wrapper.emitted('reference-projections-change')).toContainEqual([
+      'supplierId',
+      { supplierCode: 'SUP-003' },
+    ]);
   });
 });
 

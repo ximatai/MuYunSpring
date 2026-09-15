@@ -1,4 +1,4 @@
-import { config, flushPromises, shallowMount } from '@vue/test-utils';
+import { config, flushPromises, mount, shallowMount } from '@vue/test-utils';
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 import ManagedDetailRelationSurface from '@/dynamic-page-runtime/ManagedDetailRelationSurface.vue';
 import ModulePageDetailRelations from '@/dynamic-page-runtime/ModulePageDetailRelations.vue';
@@ -315,9 +315,88 @@ describe('managed detail relation surface', () => {
 
     expect(wrapper.find('.managed-relation-inline__cell--validation-pulse').exists()).toBe(true);
     const firstPulse = wrapper.get('.managed-relation-inline__cell--validation-pulse').element;
+    const firstEditor = wrapper.findAllComponents({ name: 'RecordFormFields' })[1]!;
     await wrapper.setProps({ validationRequestKey: 2 });
-    expect(wrapper.get('.managed-relation-inline__cell--validation-pulse').element).not.toBe(firstPulse);
+    expect(wrapper.get('.managed-relation-inline__cell--validation-pulse').element).toBe(firstPulse);
+    expect(wrapper.findAllComponents({ name: 'RecordFormFields' })[1]!.vm).toBe(firstEditor.vm);
     expect(wrapper.emitted('records-change')?.at(-1)).toEqual([[{ title: '已填写名称' }]]);
+  });
+
+  it('retains an unmatched reference draft across repeated aggregate validation without replaying its prior ID', async () => {
+    const managed = relation('properties');
+    managed.embeddedField = 'properties';
+    managed.editing = { mode: 'INLINE', saveMode: 'AGGREGATE_DRAFT' };
+    managed.queryContract!.listProjection = { fields: [{ fieldName: 'studentId', title: '学生' }] };
+    const uiDescriptor = descriptor();
+    uiDescriptor.editorContributions![0]!.editor.fields = [
+      {
+        fieldRef: { relationCode: 'field_ui_control_property', fieldName: 'studentId' },
+        label: '学生',
+        visible: { constant: true },
+        required: { constant: true },
+        readOnly: { constant: false },
+        uiType: 'recordPicker',
+        reference: {
+          targetModuleAlias: 'education.student',
+          cardinality: 'ONE',
+          candidateDelivery: 'SOURCE_FIELD',
+          resolvePath: '/references/studentId/resolve',
+        },
+      },
+    ];
+    const request = vi.fn(async () => ({ options: [], results: [], total: 0 }));
+    const wrapper = mount(ManagedDetailRelationInlineSurface, {
+      props: {
+        sourceContext: context(request),
+        uiDescriptor,
+        relation: managed,
+        parentRecord: { id: 'exam-1', properties: [{ id: 'row-1', studentId: 'student-1' }] },
+        mutationEnabled: true,
+      },
+      global: {
+        stubs: {
+          UiSearchInput: {
+            name: 'UiSearchInput',
+            props: ['value'],
+            emits: ['update:value', 'search', 'blur'],
+            template: `
+              <div>
+                <input :value="value" @input="$emit('update:value', $event.target.value)" @blur="$emit('blur', $event)" />
+                <button @click="$emit('search', value)">搜索</button>
+              </div>
+            `,
+          },
+          UiModal: { name: 'UiModal', props: ['open'], template: '<section v-if="open"><slot /></section>' },
+          UiDataTable: { name: 'UiDataTable', template: '<section />' },
+          UiTree: { name: 'UiTree', template: '<section />' },
+          RecordExplorerPanel: { name: 'RecordExplorerPanel', template: '<section><slot /></section>' },
+        },
+      },
+    });
+    await flushPromises();
+
+    const picker = wrapper.findComponent({ name: 'ReferencePicker' });
+    expect(picker.exists()).toBe(true);
+    expect(picker.props('value')).toBe('student-1');
+    const input = picker.get('input');
+    await input.setValue('不存在的学生');
+    await input.trigger('blur', { relatedTarget: document.body });
+    await flushPromises();
+
+    expect((input.element as HTMLInputElement).value).toBe('不存在的学生');
+    expect(wrapper.emitted('validity-change')?.at(-1)).toEqual([false]);
+    expect(picker.props('value')).toBe('student-1');
+    const recordsBeforeValidation = wrapper.emitted('records-change')?.length ?? 0;
+
+    await wrapper.setProps({ validationRequestKey: 1 });
+    await wrapper.setProps({ validationRequestKey: 2 });
+
+    const retainedPicker = wrapper.findComponent({ name: 'ReferencePicker' });
+    expect(retainedPicker.element).toBe(picker.element);
+    expect((retainedPicker.get('input').element as HTMLInputElement).value).toBe('不存在的学生');
+    expect(retainedPicker.props('value')).toBe('student-1');
+    expect(wrapper.emitted('validity-change')?.at(-1)).toEqual([false]);
+    expect(wrapper.emitted('records-change')?.length ?? 0).toBe(recordsBeforeValidation);
   });
 
   it('uses the same dynamic required formula for cell presentation and aggregate validity', async () => {

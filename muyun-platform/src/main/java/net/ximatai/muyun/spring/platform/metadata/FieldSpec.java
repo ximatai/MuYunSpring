@@ -11,6 +11,7 @@ import net.ximatai.muyun.spring.common.option.OptionField;
 import net.ximatai.muyun.spring.common.option.OptionSelectionMode;
 import net.ximatai.muyun.spring.common.option.OptionSourceType;
 import net.ximatai.muyun.spring.ability.reference.ReferenceCardinality;
+import net.ximatai.muyun.spring.ability.reference.ReferenceTenantScope;
 import net.ximatai.muyun.spring.ability.reference.ReferenceTo;
 import net.ximatai.muyun.spring.ability.reference.ReferenceSummary;
 import net.ximatai.muyun.spring.dynamic.metadata.DynamicQueryOperator;
@@ -55,14 +56,15 @@ public class FieldSpec extends StandardEnabledSortableEntity {
     private Set<String> queryOperators;
 
     @Column(name = "default_ui_control_alias", type = ColumnType.VARCHAR, length = 64, comment = "Default field UI control alias")
-    @ReferenceTo(target = FieldUiControlService.class)
+    @ReferenceTo(target = FieldUiControlService.class, tenantScope = ReferenceTenantScope.GLOBAL)
     private String defaultUiControlAlias;
 
     @ReferenceSummary(source = "defaultUiControlAlias", fields = {"title", "alias"})
     private transient Map<String, Object> defaultUiControlSummary;
 
     @Column(name = "ui_control_aliases", type = ColumnType.JSON_SET, comment = "Allowed field UI control aliases")
-    @ReferenceTo(target = FieldUiControlService.class, cardinality = ReferenceCardinality.MANY)
+    @ReferenceTo(target = FieldUiControlService.class, cardinality = ReferenceCardinality.MANY,
+            tenantScope = ReferenceTenantScope.GLOBAL)
     private Set<String> uiControlAliases;
 
     /**

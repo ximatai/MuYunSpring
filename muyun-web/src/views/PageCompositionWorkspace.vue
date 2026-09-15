@@ -177,6 +177,9 @@ interface PageReferenceField {
   readOnly?: boolean;
   systemManaged?: boolean;
 }
+
+const platformDefaultReferencePickerAlias = '__platform_default_reference_picker__';
+const standardReferencePickerAliases = new Set(['record_picker_dropdown', 'record_picker_dialog']);
 interface PageQuerySummaryCatalog {
   moduleAlias: string;
   fields?: Array<{ fieldName: string; title: string }>;
@@ -329,6 +332,35 @@ const selectedField = computed(
 );
 const selectedRelation = computed(() => state.selectedNode.value?.relation);
 const selectedRelationField = computed(() => state.selectedNode.value?.relationField);
+const selectedDirectReferenceFormField = computed(() => {
+  const field = selectedField.value;
+  const node = state.selectedNode.value;
+  if (
+    !field ||
+    !node ||
+    node.slot !== 'form' ||
+    node.kind === 'relationField' ||
+    !field.referenceModuleAlias ||
+    field.fieldName.includes('.') ||
+    field.platformReadOnly
+  )
+    return undefined;
+  return field;
+});
+const referencePickerPresentationValue = computed(
+  () => propertyDraft.value.fieldUiControlAlias ?? platformDefaultReferencePickerAlias,
+);
+const referencePickerPresentationOptions = computed(() => {
+  const currentAlias = propertyDraft.value.fieldUiControlAlias;
+  return [
+    { label: '平台默认（清除配置）', value: platformDefaultReferencePickerAlias },
+    { label: '下拉选择', value: 'record_picker_dropdown' },
+    { label: '弹窗选择', value: 'record_picker_dialog' },
+    ...(currentAlias && !standardReferencePickerAliases.has(currentAlias)
+      ? [{ label: `当前自定义控件（${currentAlias}）`, value: currentAlias, disabled: true }]
+      : []),
+  ];
+});
 const selectedGroup = computed(() => state.selectedNode.value?.group);
 const selectedQuickSearch = computed(() => state.selectedNode.value?.id === 'template:list:quick-search');
 const selectedFieldLabel = computed(() =>
@@ -2187,6 +2219,16 @@ function updateFieldProperty<K extends keyof PageComposerFieldProperties>(
   propertyDraft.value = { ...propertyDraft.value, [key]: value };
   state.updateSelectedFieldProperties(propertyDraft.value);
 }
+function updateReferencePickerPresentation(value: unknown) {
+  if (value !== null && value !== undefined && typeof value !== 'string') return;
+  const alias = typeof value === 'string' ? value : undefined;
+  if (alias && alias !== platformDefaultReferencePickerAlias && !standardReferencePickerAliases.has(alias))
+    return;
+  updateFieldProperty(
+    'fieldUiControlAlias',
+    alias === platformDefaultReferencePickerAlias ? undefined : alias,
+  );
+}
 function updateQuickSearch(value: string) {
   if (isMutating.value) return;
   quickSearchPlaceholderDraft.value = value;
@@ -2602,6 +2644,16 @@ function openPropertyDrawer() {
             </label>
           </template>
           <template v-else>
+            <label v-if="selectedDirectReferenceFormField">
+              <span>引用选择形式</span>
+              <UiSelect
+                :value="referencePickerPresentationValue"
+                :options="referencePickerPresentationOptions"
+                :disabled="isMutating"
+                :allow-clear="false"
+                @update:value="updateReferencePickerPresentation"
+              />
+            </label>
             <label>
               <span>表单列宽度</span>
               <UiSelect

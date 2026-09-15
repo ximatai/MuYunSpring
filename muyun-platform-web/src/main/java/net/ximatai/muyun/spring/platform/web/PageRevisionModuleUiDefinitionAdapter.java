@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import net.ximatai.muyun.spring.ability.query.QueryOperator;
 import net.ximatai.muyun.spring.dynamic.descriptor.DynamicAssociationViewDescriptor;
+import net.ximatai.muyun.spring.common.util.PlatformNameRules;
 import net.ximatai.muyun.spring.platform.ui.PlatformPageContractType;
 import net.ximatai.muyun.spring.platform.ui.PlatformPageDefinition;
 import net.ximatai.muyun.spring.platform.ui.PlatformPresentationRevision;
@@ -288,6 +289,9 @@ public final class PageRevisionModuleUiDefinitionAdapter {
                 builder.align(field.align());
             }
         } else {
+            if (field.fieldUiControlAlias() != null) {
+                builder.uiType(PlatformNameRules.requireIdentifier(field.fieldUiControlAlias(), "fieldUiControlAlias"));
+            }
             if (field.columnSpan() != null) {
                 builder.columnSpan(field.columnSpan());
             }
@@ -553,16 +557,17 @@ public final class PageRevisionModuleUiDefinitionAdapter {
 
     private static FieldNode fieldNode(JsonNode node, String slot) {
         if (node.isTextual()) {
-            return new FieldNode(node.asText(), null, null, null, null, null);
+            return new FieldNode(node.asText(), null, null, null, null, null, null);
         }
         if (!node.isObject()) {
-            return new FieldNode(null, null, null, null, null, null);
+            return new FieldNode(null, null, null, null, null, null, null);
         }
         JsonNode properties = node.path("props");
         return new FieldNode(node.path("field").asText(null), properties.path("label").asText(null),
                 properties.path("width").asText(null), properties.path("align").asText(null),
                 properties.has("columnSpan") ? properties.path("columnSpan").asInt() : null,
-                properties.has("readOnly") ? properties.path("readOnly").asBoolean() : null);
+                properties.has("readOnly") ? properties.path("readOnly").asBoolean() : null,
+                "form".equals(slot) ? properties.path("fieldUiControlAlias").asText(null) : null);
     }
 
     private record Slot(String slot, String title, List<FieldNode> fields, List<RelationNode> relations,
@@ -584,6 +589,6 @@ public final class PageRevisionModuleUiDefinitionAdapter {
     }
 
     private record FieldNode(String name, String label, String width, String align, Integer columnSpan,
-                             Boolean readOnly) {
+                             Boolean readOnly, String fieldUiControlAlias) {
     }
 }

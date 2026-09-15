@@ -25,7 +25,7 @@ const props = withDefaults(
     loadTree?: () => Promise<WebTreeNode<RecordPickerRecord>[]>;
     resolveOptions?: (values: string[]) => Promise<RecordPickerRecord[]>;
     value?: string;
-    reloadKey?: number;
+    reloadKey?: string | number;
     mode?: RecordPickerMode;
     placeholder?: string;
     disabled?: boolean;

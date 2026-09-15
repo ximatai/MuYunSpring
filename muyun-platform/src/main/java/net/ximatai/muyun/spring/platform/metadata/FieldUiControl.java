@@ -8,6 +8,8 @@ import net.ximatai.muyun.database.core.annotation.Table;
 import net.ximatai.muyun.database.core.builder.ColumnType;
 import net.ximatai.muyun.spring.common.initialdata.InitialDataFields;
 import net.ximatai.muyun.spring.common.model.standard.StandardEnabledSortableEntity;
+import net.ximatai.muyun.spring.ability.reference.ReferenceLoad;
+import net.ximatai.muyun.spring.ability.reference.ReferenceTenantScope;
 import net.ximatai.muyun.spring.ability.reference.ReferenceTo;
 import net.ximatai.muyun.spring.common.option.OptionField;
 import net.ximatai.muyun.spring.common.option.OptionSourceType;
@@ -30,8 +32,11 @@ public class FieldUiControl extends StandardEnabledSortableEntity {
     private String alias;
 
     @Column(name = "default_field_spec_alias", type = ColumnType.VARCHAR, length = 64, comment = "Default field type alias")
-    @ReferenceTo(target = FieldSpecService.class)
+    @ReferenceTo(target = FieldSpecService.class, tenantScope = ReferenceTenantScope.GLOBAL)
     private String defaultFieldSpecAlias;
+
+    @ReferenceLoad(source = "defaultFieldSpecAlias", field = "title")
+    private transient String defaultFieldSpecTitle;
 
     @Column(name = "value_shape", type = ColumnType.VARCHAR, length = 16, nullable = false,
             comment = "Control value shape")

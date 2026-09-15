@@ -21,7 +21,7 @@ public final class FieldUiControlPresetCatalog {
             ViewControlType.TEXT, ViewControlType.TEXTAREA, ViewControlType.NUMBER,
             ViewControlType.DECIMAL, ViewControlType.SWITCH, ViewControlType.SELECT,
             ViewControlType.MULTI_SELECT, ViewControlType.DATE, ViewControlType.DATETIME,
-            ViewControlType.COLOR_PICKER, ViewControlType.JSON);
+            ViewControlType.RECORD_PICKER, ViewControlType.COLOR_PICKER, ViewControlType.JSON);
 
     public static List<FieldUiControl> fieldUiControls() {
         return List.of(
@@ -36,6 +36,10 @@ public final class FieldUiControlPresetCatalog {
                 fieldUiType("switch", "开关", "boolean", FieldUiControlValueShape.SCALAR, ViewControlType.SWITCH),
                 fieldUiType("select", "下拉单选", "string", FieldUiControlValueShape.SCALAR, ViewControlType.SELECT),
                 fieldUiType("multi_select", "下拉多选", "json", FieldUiControlValueShape.COLLECTION, ViewControlType.MULTI_SELECT),
+                fieldUiType("record_picker_dropdown", "引用下拉选择", "string", FieldUiControlValueShape.SCALAR,
+                        ViewControlType.RECORD_PICKER),
+                fieldUiType("record_picker_dialog", "引用弹窗选择", "string", FieldUiControlValueShape.SCALAR,
+                        ViewControlType.RECORD_PICKER),
                 fieldUiType("date", "日期", "date", FieldUiControlValueShape.SCALAR, ViewControlType.DATE),
                 fieldUiType("datetime", "日期时间", "datetime", FieldUiControlValueShape.SCALAR, ViewControlType.DATETIME),
                 fieldUiType("color_picker", "颜色选择器", "string", FieldUiControlValueShape.SCALAR, ViewControlType.COLOR_PICKER),
@@ -84,6 +88,8 @@ public final class FieldUiControlPresetCatalog {
                 attribute("percentage", "precision", "小数位数", "integer", "2"),
                 attribute("percentage", "min", "最小值", "decimal", "0"),
                 attribute("percentage", "max", "最大值", "decimal", "100"),
+                attribute("record_picker_dropdown", "presentation", "展示形式", "string", "DROPDOWN"),
+                attribute("record_picker_dialog", "presentation", "展示形式", "string", "DIALOG"),
                 attribute("date", "format", "格式", "string", "YYYY-MM-DD"),
                 attribute("datetime", "format", "格式", "string", "YYYY-MM-DD HH:mm:ss"),
                 attribute("date_time_with_time_zone", "format", "格式", "string", "YYYY-MM-DD HH:mm:ss")

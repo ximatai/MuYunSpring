@@ -16,6 +16,8 @@ import RecordStatusSwitch from './RecordStatusSwitch.vue';
 import RecordStatusTag from './RecordStatusTag.vue';
 import RecordPicker from './RecordPicker.vue';
 import RecordMultiPicker from './RecordMultiPicker.vue';
+import ReferencePicker from './ReferencePicker.vue';
+import type { ReferencePickerValidity } from './referencePickerModel';
 import ScopedTreePicker from './ScopedTreePicker.vue';
 import RecordFileReferenceTransfer from './RecordFileReferenceTransfer.vue';
 import SingleImageFileReferenceField from './SingleImageFileReferenceField.vue';
@@ -122,6 +124,7 @@ const loadingOptionFields = ref(new Set<string>());
 const optionFieldErrors = ref<Record<string, string>>({});
 const INHERIT_OPTION_VALUE = '__muyun_inherit__';
 const editorFieldErrors = ref<Record<string, string>>({});
+const referenceFieldValidity = ref<Record<string, ReferencePickerValidity>>({});
 const referenceSelectionContext = ref<RecordFormSelectionContext>({});
 const referenceSelectionSourceIds = ref<Record<string, string | undefined>>({});
 type ScopedTreePickerHandle = { open: (keyword?: string) => void };
@@ -151,6 +154,8 @@ const formValidity = computed<RecordFormValidity>(() => {
     ...editorFieldErrors.value,
   };
   for (const field of fieldStates.value) {
+    const referenceError = referenceFieldError(field);
+    if (referenceError) errors[field.fieldName] = referenceError;
     if (field.controlType === 'unsupported') {
       errors[field.fieldName] = field.rendererDiagnostic ?? '该字段控件当前不可编辑';
     }
@@ -169,6 +174,7 @@ watch([() => props.fields, () => props.optionEntityAlias], () => {
 watch([() => props.record.id, () => props.formSessionKey], () => {
   // A new record/session must never inherit parser failures from its predecessor.
   editorFieldErrors.value = {};
+  referenceFieldValidity.value = {};
   clearReferenceSelectionContext();
 });
 watch(referenceSelectionValues, (values) => {
@@ -181,7 +187,7 @@ watch(referenceSelectionValues, (values) => {
     }
   }
 });
-watch(formValidity, (validity) => emit('validity-change', validity), { immediate: true });
+watch(formValidity, (validity) => emit('validity-change', validity), { immediate: true, flush: 'sync' });
 
 function fieldState(fieldName: string): RecordFormFieldState {
   return resolveRecordFormFieldState(fieldName, {
@@ -413,6 +419,32 @@ function applyPickerSelection(
   }
 }
 
+function pickerRecordOf(candidate: import('./referencePickerModel').ReferencePickerCandidate) {
+  return {
+    ...(candidate.projections ?? {}),
+    // Projections remain convenient read facts, but can never replace the persisted identity.
+    id: candidate.id,
+    title: candidate.title,
+    projections: candidate.projections ? { ...candidate.projections } : undefined,
+    affectPatch: candidate.affectPatch ? { ...candidate.affectPatch } : undefined,
+  };
+}
+
+function applyReferencePickerSelection(
+  fieldName: string,
+  candidates: import('./referencePickerModel').ReferencePickerCandidate[],
+) {
+  for (const candidate of candidates) applyPickerSelection(fieldName, pickerRecordOf(candidate));
+}
+
+function updateReferencePickerSelectionContext(
+  fieldName: string,
+  candidates: import('./referencePickerModel').ReferencePickerCandidate[],
+) {
+  // Resolution updates read-only projections only. A resolve response must never replay patches.
+  updateReferenceSelectionContext(fieldName, candidates[0] ? pickerRecordOf(candidates[0]) : undefined);
+}
+
 /**
  * Reference projections are transient presentation facts. They are kept out of the form draft
  * and are only mapped through a descriptor-declared path for WEB_UI formula evaluation.
@@ -515,8 +547,27 @@ function requiredFieldError(field: RecordFormFieldState) {
   return requiredFieldErrors.value[field.fieldName];
 }
 
+function referenceFieldError(field: RecordFormFieldState) {
+  const validity = referenceFieldValidity.value[field.fieldName];
+  if (
+    fieldDisabled(field) ||
+    !field.pickerConfig?.provider ||
+    field.pickerConfig.mode === 'tree' ||
+    (field.controlType !== 'recordPicker' && field.controlType !== 'recordMultiPicker') ||
+    !validity ||
+    validity.valid
+  )
+    return undefined;
+  return validity.message ?? `请完成${field.label}的选择`;
+}
+
 function fieldInvalid(field: RecordFormFieldState) {
-  return Boolean(requiredFieldError(field) || optionFieldError(field) || editorFieldError(field));
+  return Boolean(
+    requiredFieldError(field) ||
+    optionFieldError(field) ||
+    editorFieldError(field) ||
+    referenceFieldError(field),
+  );
 }
 
 /** Required color fields must persist the same default color that the picker presents. */
@@ -565,10 +616,7 @@ function groupEndsAt(field: RecordFormFieldState, index: number) {
 </script>
 
 <template>
-  <template
-    v-for="(field, index) in fieldStates"
-    :key="`${field.fieldName}:${formSessionKey ?? ''}:${validationRequestKey}`"
-  >
+  <template v-for="(field, index) in fieldStates" :key="`${field.fieldName}:${formSessionKey ?? ''}`">
     <slot name="before-field" :field="field" />
     <template v-if="groupOf(field) && groupStartsAt(field, index)">
       <div v-if="!groupOf(fieldStates[index - 1])" class="record-form-group-divider" aria-hidden="true" />
@@ -658,7 +706,23 @@ function groupEndsAt(field: RecordFormFieldState, index: number) {
             @change="updateField(field.fieldName, $event)"
           />
           <template v-else-if="field.controlType === 'recordPicker' && field.pickerConfig">
+            <ReferencePicker
+              v-if="field.pickerConfig.provider && field.pickerConfig.mode !== 'tree'"
+              :value="recordPickerFieldValue(field.fieldName)"
+              :provider="field.pickerConfig.provider"
+              :reload-key="field.pickerConfig.reloadKey"
+              :mode="field.referencePickerPresentation"
+              :columns="field.pickerConfig.columns"
+              :placeholder="field.placeholder"
+              :disabled="fieldDisabled(field)"
+              :allow-clear="field.pickerConfig.allowClear"
+              @update:value="updateField(field.fieldName, $event)"
+              @select="applyReferencePickerSelection(field.fieldName, $event)"
+              @validity-change="referenceFieldValidity[field.fieldName] = $event"
+              @selection-resolved="updateReferencePickerSelectionContext(field.fieldName, $event)"
+            />
             <RecordPicker
+              v-else
               :value="recordPickerFieldValue(field.fieldName)"
               :context="field.pickerConfig.context"
               :load-options="field.pickerConfig.loadOptions"
@@ -702,6 +766,25 @@ function groupEndsAt(field: RecordFormFieldState, index: number) {
               />
             </div>
           </template>
+          <ReferencePicker
+            v-else-if="
+              field.controlType === 'recordMultiPicker' &&
+              field.pickerConfig?.provider &&
+              field.pickerConfig.mode !== 'tree'
+            "
+            :value="stringArrayFieldValue(field.fieldName)"
+            :provider="field.pickerConfig.provider"
+            :reload-key="field.pickerConfig.reloadKey"
+            multiple
+            :mode="field.referencePickerPresentation"
+            :columns="field.pickerConfig.columns"
+            :placeholder="field.placeholder"
+            :disabled="fieldDisabled(field)"
+            :allow-clear="field.pickerConfig.allowClear"
+            @update:value="updateField(field.fieldName, $event)"
+            @select="applyReferencePickerSelection(field.fieldName, $event)"
+            @validity-change="referenceFieldValidity[field.fieldName] = $event"
+          />
           <RecordMultiPicker
             v-else-if="field.controlType === 'recordMultiPicker' && field.pickerConfig"
             :value="stringArrayFieldValue(field.fieldName)"

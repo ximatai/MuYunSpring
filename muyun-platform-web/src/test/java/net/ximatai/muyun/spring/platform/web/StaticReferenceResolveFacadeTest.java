@@ -17,6 +17,10 @@ import net.ximatai.muyun.spring.common.model.capability.TreeCapable;
 import net.ximatai.muyun.spring.common.platform.PlatformAction;
 import net.ximatai.muyun.spring.common.tenant.TenantContext;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecordService;
+import net.ximatai.muyun.spring.platform.metadata.FieldSpec;
+import net.ximatai.muyun.spring.platform.metadata.FieldSpecService;
+import net.ximatai.muyun.spring.platform.metadata.FieldUiControl;
+import net.ximatai.muyun.spring.platform.metadata.FieldUiControlService;
 import net.ximatai.muyun.spring.platform.reference.StaticAbilityCatalog;
 import net.ximatai.muyun.spring.web.WebReferenceResolveMode;
 import net.ximatai.muyun.spring.web.WebReferenceResolveRequest;
@@ -263,6 +267,46 @@ class StaticReferenceResolveFacadeTest {
         }
 
         assertThat(observedTenant).hasValue("tenant-a");
+    }
+
+    @Test
+    void shouldResolvePersistedGlobalFieldUiControlReferenceForQueryAndTranslation() {
+        @SuppressWarnings("unchecked") CrudAbility<FieldUiControl> source = mock(CrudAbility.class);
+        doReturn(FieldUiControl.class).when(source).modelClass();
+        doReturn(FieldUiControlService.MODULE_ALIAS).when(source).getModuleAlias();
+        FieldUiControl textControl = new FieldUiControl();
+        textControl.setId("text");
+        when(source.select("text")).thenReturn(textControl);
+        @SuppressWarnings("unchecked") ReferenceAbility<FieldSpec> target = mock(ReferenceAbility.class);
+        doReturn(FieldSpec.class).when(target).modelClass();
+        doReturn(FieldSpecService.MODULE_ALIAS).when(target).getModuleAlias();
+        when(target.referenceOptions(any(), any(PageRequest.class)))
+                .thenReturn(PageResult.of(List.of(new ReferenceOption("string", "文本")), 1,
+                        PageRequest.of(1, 20)));
+        StaticModuleDefinition definition = StaticModuleDefinition.builder("platform", FieldUiControlService.MODULE_ALIAS,
+                        "字段 UI 控件")
+                .modelClass(FieldUiControl.class).build();
+        StaticReferenceResolveFacade facade = new StaticReferenceResolveFacade(
+                new StaticModuleDefinitionCatalog(List.of(definition)), new StaticAbilityCatalog(List.of(source, target)));
+        WebReferenceSource persistedTextControl = new WebReferenceSource("text");
+
+        var query = facade.resolve(FieldUiControlService.MODULE_ALIAS, "defaultFieldSpecAlias",
+                new WebReferenceResolveRequest(WebReferenceResolveMode.QUERY, null, null, List.of(), List.of(), null,
+                        new net.ximatai.muyun.spring.web.WebPageRequest(1, 20), true,
+                        Map.of(), persistedTextControl, null, null, null, null));
+        var translation = facade.resolve(FieldUiControlService.MODULE_ALIAS, "defaultFieldSpecAlias",
+                new WebReferenceResolveRequest(WebReferenceResolveMode.TRANSLATE, null, null, List.of("string"), List.of(),
+                        null, null, true, Map.of(), persistedTextControl, null, null, null, null));
+
+        assertThat(query.options()).singleElement().satisfies(item -> {
+            assertThat(item.id()).isEqualTo("string");
+            assertThat(item.title()).isEqualTo("文本");
+        });
+        assertThat(translation.results()).singleElement().satisfies(result -> {
+            assertThat(result.item().id()).isEqualTo("string");
+            assertThat(result.item().title()).isEqualTo("文本");
+        });
+        verify(source, never()).select("text");
     }
 
     @Test

@@ -21,6 +21,7 @@ import {
   QUERY_CRITERIA_MAXIMUM_DEPTH,
   QUERY_CRITERIA_MAXIMUM_NODES,
 } from './queryCriteriaDraft';
+import type { ReferencePickerConfig, ReferencePickerValidity } from './referencePickerModel';
 import type { RecordPickerRecord } from './recordPickerConstraints';
 
 defineOptions({ name: 'QueryCriteriaComposer' });
@@ -29,6 +30,7 @@ const props = defineProps<{
   fields: QuerySchemaField[];
   optionItemsByField: Record<string, Option[]>;
   referenceContexts: Record<string, ModuleContext<RecordPickerRecord>>;
+  referencePickerOf?: (field: QuerySchemaField) => ReferencePickerConfig | undefined;
   disabled: boolean;
   composition: 'FLAT_AND' | 'TREE';
   /** Fields already owned by a persistent control on a flat query surface. */
@@ -40,6 +42,8 @@ const emit = defineEmits<{
   clear: [];
   validation: [message: string];
   draftChange: [pending: boolean];
+  /** Query surfaces retain this by condition ID while the editor is hidden. */
+  'validity-change': [validity: Record<number, ReferencePickerValidity>];
 }>();
 
 let sequence = 0;
@@ -48,9 +52,21 @@ const selectableFields = computed(() =>
 );
 const root = ref<QueryCriteriaGroupDraft>(createRoot());
 const validationErrors = ref<Record<number, string>>({});
+const referenceValidityByNode = ref<Record<number, ReferencePickerValidity>>({});
+const referenceDraftValid = computed(() =>
+  Object.values(referenceValidityByNode.value).every((item) => item.valid),
+);
 
 function apply() {
   const errors: Record<number, string> = {};
+  for (const [id, validity] of Object.entries(referenceValidityByNode.value)) {
+    if (!validity.valid) errors[Number(id)] = validity.message ?? '请完成引用选择';
+  }
+  if (Object.keys(errors).length > 0) {
+    validationErrors.value = errors;
+    emit('validation', '请完成引用选择后再应用');
+    return;
+  }
   validateDraftComplexity(root.value, 1, errors, { count: 0 });
   const result = resolveGroup(root.value, true, errors);
   if (Object.keys(errors).length > 0 || !result) {
@@ -95,14 +111,46 @@ function validateDraftComplexity(
 function clear() {
   root.value = createRoot();
   validationErrors.value = {};
+  updateReferenceValidity(undefined, undefined);
   emit('draftChange', false);
   emit('clear');
 }
 
 function updateRoot(group: QueryCriteriaGroupDraft) {
   root.value = group;
+  pruneReferenceValidity(group);
   validationErrors.value = {};
   emit('draftChange', true);
+}
+
+function updateReferenceValidity(nodeId: number | undefined, validity: ReferencePickerValidity | undefined) {
+  if (nodeId === undefined) {
+    referenceValidityByNode.value = {};
+  } else {
+    const next = { ...referenceValidityByNode.value };
+    if (validity) next[nodeId] = validity;
+    else delete next[nodeId];
+    referenceValidityByNode.value = next;
+  }
+  emit('validity-change', { ...referenceValidityByNode.value });
+}
+
+function pruneReferenceValidity(group: QueryCriteriaGroupDraft) {
+  const currentNodeIds = new Set<number>();
+  const collect = (node: QueryCriteriaDraftNode) => {
+    if (node.kind === 'CONDITION') {
+      currentNodeIds.add(node.id);
+      return;
+    }
+    for (const child of node.children) collect(child);
+  };
+  collect(group);
+  const next = Object.fromEntries(
+    Object.entries(referenceValidityByNode.value).filter(([id]) => currentNodeIds.has(Number(id))),
+  ) as Record<number, ReferencePickerValidity>;
+  if (Object.keys(next).length === Object.keys(referenceValidityByNode.value).length) return;
+  referenceValidityByNode.value = next;
+  emit('validity-change', { ...next });
 }
 
 function createRoot(): QueryCriteriaGroupDraft {
@@ -203,16 +251,19 @@ function resolveNode(
       :fields="selectableFields"
       :option-items-by-field="optionItemsByField"
       :reference-contexts="referenceContexts"
+      :reference-picker-of="referencePickerOf"
+      :reference-validity-by-node="referenceValidityByNode"
       :next-id="nextId"
       :disabled="disabled"
       :composition="composition"
       :depth="1"
       :validation-errors="validationErrors"
       @update:group="updateRoot"
+      @validity-change="updateReferenceValidity"
       @submit="apply"
     />
     <footer class="query-criteria-composer-actions">
-      <UiButton type="primary" :disabled="disabled" @click="apply">应用条件</UiButton>
+      <UiButton type="primary" :disabled="disabled || !referenceDraftValid" @click="apply">应用条件</UiButton>
       <UiButton type="text" :disabled="disabled" @click="clear">重置</UiButton>
     </footer>
   </section>

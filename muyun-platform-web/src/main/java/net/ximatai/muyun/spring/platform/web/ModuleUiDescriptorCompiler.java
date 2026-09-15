@@ -1110,7 +1110,8 @@ public final class ModuleUiDescriptorCompiler {
                 PlatformFieldPolicy.isAudit(field.fieldRef().fieldName())
                         ? UiRule.constant(true) : field.readOnly(),
                 resolvedUiType,
-                resolveFieldControl(viewKind, resolvedUiType, resolvedValueType, field.valuePresentation(), fieldControls),
+                resolveFieldControl(viewKind, field.fieldRef(), resolvedUiType, resolvedValueType, field.valuePresentation(),
+                        reference, fieldControls),
                 resolvedValueType,
                 field.valuePresentation(),
                 field.width(),
@@ -1159,9 +1160,11 @@ public final class ModuleUiDescriptorCompiler {
      * compilation error rather than a browser-side text-input fallback.
      */
     private static ResolvedFieldControlDescriptor resolveFieldControl(ModuleViewKind viewKind,
+                                                                       ViewFieldRef fieldRef,
                                                                        String uiType,
                                                                        FieldValueType valueType,
                                                                        FieldValuePresentation presentation,
+                                                                       ResolvedReferenceFieldDescriptor reference,
                                                                        Map<String, ResolvedFieldControlDescriptor> fieldControls) {
         if (presentation != null) return null;
         String alias = uiType == null ? inferredControlAlias(valueType) : uiType;
@@ -1173,7 +1176,38 @@ public final class ModuleUiDescriptorCompiler {
             if (viewKind != ModuleViewKind.FORM) return null;
             throw new IllegalArgumentException("unsupported field control alias: " + alias);
         }
+        validateReferencePickerControl(fieldRef, descriptor, reference);
         return descriptor;
+    }
+
+    /**
+     * An explicit record-picker presentation requires the already-compiled reference contract.
+     * Legacy tree-parent controls without a presentation keep their established path. Presentation remains a small adapter-neutral property: the compiler rejects choices that
+     * cannot be fulfilled by the current source-field provider rather than letting the browser
+     * widen a target query or silently substitute a different picker.
+     */
+    private static void validateReferencePickerControl(ViewFieldRef fieldRef,
+                                                       ResolvedFieldControlDescriptor descriptor,
+                                                       ResolvedReferenceFieldDescriptor reference) {
+        if (!"RECORD_PICKER".equals(descriptor.rendererType())) {
+            return;
+        }
+        String presentation = descriptor.properties().get("presentation");
+        if (presentation == null) {
+            return;
+        }
+        if (reference == null) {
+            throw new IllegalArgumentException("record picker field must declare a reference: " + fieldRef.fieldName());
+        }
+        if (!"DROPDOWN".equals(presentation) && !"DIALOG".equals(presentation)) {
+            throw new IllegalArgumentException("record picker presentation must be DROPDOWN or DIALOG: "
+                    + fieldRef.fieldName() + "." + presentation);
+        }
+        if (reference.candidateDelivery() != ReferenceCandidateDelivery.SOURCE_FIELD
+                || reference.pickerMode() == ReferencePickerMode.TREE) {
+            throw new IllegalArgumentException("record picker presentation requires a non-tree SOURCE_FIELD reference: "
+                    + fieldRef.fieldName());
+        }
     }
 
     private static String inferredControlAlias(FieldValueType valueType) {

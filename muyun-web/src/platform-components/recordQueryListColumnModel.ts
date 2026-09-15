@@ -3,6 +3,7 @@ import type {
   QuerySchemaField,
   ResolvedViewDescriptor,
   ResolvedViewFieldDescriptor,
+  ResolvedReferenceFieldDescriptor,
 } from '@muyun/web-contracts';
 import type { Component } from 'vue';
 
@@ -22,6 +23,8 @@ export interface RecordQueryListColumn {
   width?: string;
   align?: 'left' | 'center' | 'right';
   titleField?: string;
+  /** Compiled reference facts for pure read-side title/summary rendering. */
+  reference?: ResolvedReferenceFieldDescriptor;
   /** Only descriptor-declared option fields load a runtime option catalog. */
   optionBinding?: boolean;
   /** Dynamic child entity whose declared option binding owns this field. */
@@ -64,9 +67,11 @@ export function resolveRecordQueryListColumns(
         width: field.width,
         align: normalizeColumnAlign(field.align),
         titleField:
+          field.reference?.titleField ??
           field.option?.titleField ??
           queryField?.optionTitleField ??
           (field.reference ? `${field.fieldRef.fieldName}Title` : undefined),
+        ...(field.reference ? { reference: field.reference } : {}),
         optionBinding: field.option ? true : undefined,
         booleanStatus: field.booleanStatus,
         maxDisplayLines: field.maxDisplayLines,
