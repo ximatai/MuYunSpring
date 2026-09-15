@@ -13,6 +13,14 @@ it('uses the standard compact search entry for candidate browsing', () => {
   expect(wrapper.emitted('browse')).toEqual([['']]);
 });
 
+it('opens candidate browsing when the input text is double-clicked', () => {
+  const wrapper = shallowMount(ObjectPickerInput, { props: { value: '青禾供应商' } });
+  const input = wrapper.findComponent({ name: 'UiSearchInput' });
+
+  input.vm.$emit('dblclick', new MouseEvent('dblclick'));
+  expect(wrapper.emitted('browse')).toEqual([['']]);
+});
+
 it('clears a selected value without treating the clear affordance as an empty browse', async () => {
   const wrapper = shallowMount(ObjectPickerInput, { props: { value: 'user-1' } });
   const input = wrapper.findComponent({ name: 'UiSearchInput' });

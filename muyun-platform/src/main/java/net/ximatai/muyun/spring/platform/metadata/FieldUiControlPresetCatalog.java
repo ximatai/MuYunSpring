@@ -21,6 +21,7 @@ public final class FieldUiControlPresetCatalog {
             ViewControlType.TEXT, ViewControlType.TEXTAREA, ViewControlType.NUMBER,
             ViewControlType.DECIMAL, ViewControlType.SWITCH, ViewControlType.SELECT,
             ViewControlType.MULTI_SELECT, ViewControlType.DATE, ViewControlType.DATETIME,
+            ViewControlType.DICTIONARY_PICKER, ViewControlType.DICTIONARY_RADIO_GROUP,
             ViewControlType.RECORD_PICKER, ViewControlType.COLOR_PICKER, ViewControlType.JSON);
 
     public static List<FieldUiControl> fieldUiControls() {
@@ -36,6 +37,16 @@ public final class FieldUiControlPresetCatalog {
                 fieldUiType("switch", "开关", "boolean", FieldUiControlValueShape.SCALAR, ViewControlType.SWITCH),
                 fieldUiType("select", "下拉单选", "string", FieldUiControlValueShape.SCALAR, ViewControlType.SELECT),
                 fieldUiType("multi_select", "下拉多选", "json", FieldUiControlValueShape.COLLECTION, ViewControlType.MULTI_SELECT),
+                fieldUiType("dictionary_dropdown", "字典下拉选择", "string", FieldUiControlValueShape.SCALAR,
+                        ViewControlType.SELECT),
+                fieldUiType("dictionary_multi_dropdown", "字典下拉多选", "json", FieldUiControlValueShape.COLLECTION,
+                        ViewControlType.MULTI_SELECT),
+                fieldUiType("dictionary_dialog", "字典弹窗选择", "string", FieldUiControlValueShape.SCALAR,
+                        ViewControlType.DICTIONARY_PICKER),
+                fieldUiType("dictionary_multi_dialog", "字典弹窗多选", "json", FieldUiControlValueShape.COLLECTION,
+                        ViewControlType.DICTIONARY_PICKER),
+                fieldUiType("dictionary_radio", "字典单选组", "string", FieldUiControlValueShape.SCALAR,
+                        ViewControlType.DICTIONARY_RADIO_GROUP),
                 fieldUiType("record_picker_dropdown", "引用下拉选择", "string", FieldUiControlValueShape.SCALAR,
                         ViewControlType.RECORD_PICKER),
                 fieldUiType("record_picker_dialog", "引用弹窗选择", "string", FieldUiControlValueShape.SCALAR,
@@ -90,6 +101,7 @@ public final class FieldUiControlPresetCatalog {
                 attribute("percentage", "max", "最大值", "decimal", "100"),
                 attribute("record_picker_dropdown", "presentation", "展示形式", "string", "DROPDOWN"),
                 attribute("record_picker_dialog", "presentation", "展示形式", "string", "DIALOG"),
+                attribute("dictionary_radio", "maxOptions", "最大选项数", "integer", "12"),
                 attribute("date", "format", "格式", "string", "YYYY-MM-DD"),
                 attribute("datetime", "format", "格式", "string", "YYYY-MM-DD HH:mm:ss"),
                 attribute("date_time_with_time_zone", "format", "格式", "string", "YYYY-MM-DD HH:mm:ss")
@@ -130,7 +142,8 @@ public final class FieldUiControlPresetCatalog {
         // editor that the published web runtime cannot execute yet.
         type.setEnabled(WEB_FORM_EXECUTABLE_RENDERERS.contains(controlType)
                 && (valueShape == FieldUiControlValueShape.SCALAR
-                || (controlType == ViewControlType.MULTI_SELECT && valueShape == FieldUiControlValueShape.COLLECTION)));
+                || ((controlType == ViewControlType.MULTI_SELECT || controlType == ViewControlType.DICTIONARY_PICKER)
+                && valueShape == FieldUiControlValueShape.COLLECTION)));
         if ("date_range".equals(alias) || "date_time_range".equals(alias)) {
             type.setQueryMode(FieldUiControlQueryMode.BETWEEN);
         }

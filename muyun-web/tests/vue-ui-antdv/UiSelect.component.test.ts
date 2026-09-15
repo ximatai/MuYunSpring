@@ -12,6 +12,8 @@ it('forwards typed search text so remote reference candidates can refresh', asyn
     await wrapper.get('input').setValue('青禾');
     await flushPromises();
     expect(wrapper.emitted('search')).toContainEqual(['青禾']);
+    await wrapper.get('input').trigger('focusout', { relatedTarget: document.body });
+    expect(wrapper.emitted('blur')).toHaveLength(1);
     await wrapper.get('input').setValue('');
     await flushPromises();
     expect(wrapper.emitted('search')).toContainEqual(['']);

@@ -42,6 +42,52 @@ it('keeps the last successful descriptor visibly stale and retries the current d
   );
 });
 
+it('keeps dictionary presentation separate from record-picker configuration and derives aliases by cardinality', () => {
+  const workspaceSource = readSource('src/views/PageCompositionWorkspace.vue');
+  const draftStateSource = readSource('src/views/pageCompositionDraftState.ts');
+
+  assert.match(workspaceSource, /selectedDirectDictionaryFormField/);
+  assert.match(workspaceSource, /field\.optionSourceType !== 'dictionary'/);
+  assert.match(workspaceSource, /dictionary_multi_dropdown/);
+  assert.match(workspaceSource, /dictionary_multi_dialog/);
+  assert.match(workspaceSource, /value === 'RADIO' && field\.optionSelectionMode === 'SINGLE'/);
+  assert.match(workspaceSource, /字典展示形式/);
+  assert.notMatch(workspaceSource, /dictionary_[\w_]+[\s\S]{0,60}record_picker/);
+  assert.match(draftStateSource, /optionSourceType\?: string/);
+  assert.match(draftStateSource, /optionSelectionMode\?: 'SINGLE' \| 'MULTIPLE'/);
+});
+
+it('preflights dictionary radio eligibility in composition instead of deferring hierarchy errors to the business form', () => {
+  const workspaceSource = readSource('src/views/PageCompositionWorkspace.vue');
+
+  assert.match(
+    workspaceSource,
+    /loadOptionFieldItems\(moduleContext, fieldName, undefined, props\.moduleAlias, true\)/,
+  );
+  assert.match(workspaceSource, /hasOptionHierarchy\(items\)/);
+  assert.match(workspaceSource, /!path[\s\S]{0,120}dictionaryRadioMaxOptions/);
+  assert.match(workspaceSource, /dictionaryRadioEligibilityIssue\(/);
+  assert.match(workspaceSource, /dictionaryRadioIssues/);
+  assert.match(workspaceSource, /dictionaryRadioIssues\.length > 0/);
+  assert.match(workspaceSource, /dictionaryRadioFactRequestEpoch\.invalidate\(\);/);
+  assert.match(
+    workspaceSource,
+    /async function loadMetadataTree[\s\S]*?referenceDirectoryEpoch \+= 1;[\s\S]*?invalidateDictionaryRadioFacts\(\);[\s\S]*?await Promise\.all/,
+  );
+  assert.match(
+    workspaceSource,
+    /function invalidateDictionaryRadioFacts\(\) \{[\s\S]*?dictionaryRadioFacts\.value = \{};[\s\S]*?dictionaryRadioFactErrors\.value = \{};[\s\S]*?dictionaryRadioFactLoading\.value = new Set\(\);/,
+  );
+  assert.match(
+    workspaceSource,
+    /const requestGeneration = dictionaryRadioFactRequestEpoch\.capture\(\);[\s\S]*?isCurrent\(requestGeneration\)/,
+  );
+  assert.match(
+    workspaceSource,
+    /if \(dictionaryRadioIssues\.value\.length\) \{\s*previewError\.value = undefined;/,
+  );
+});
+
 function readSource(path: string) {
   return readFileSync(resolve(root, path), 'utf8');
 }

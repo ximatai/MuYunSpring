@@ -898,6 +898,24 @@ class PlatformMetadataServiceContractTest {
     }
 
     @Test
+    void shouldRequirePositiveDictionaryRadioMaxOptionsAtPropertyWriteTime() {
+        fieldUiTypeService.insert(fieldUiType("dictionary_radio", "字典单选组", "string",
+                ViewControlType.DICTIONARY_RADIO_GROUP));
+        FieldUiControlProperty invalid = fieldUiTypeAttribute("dictionary_radio", "maxOptions", "最大选项数",
+                "integer", "not-a-number");
+
+        assertThatThrownBy(() -> fieldUiTypeAttributeService.insert(invalid))
+                .isInstanceOf(PlatformException.class)
+                .hasMessageContaining("dictionary radio maxOptions must be a positive integer");
+
+        FieldUiControlProperty configured = fieldUiTypeAttribute("dictionary_radio", "maxOptions", "最大选项数",
+                "integer", " 7 ");
+        fieldUiTypeAttributeService.insert(configured);
+
+        assertThat(fieldUiTypeAttributeService.select(configured.getId()).getDefaultValue()).isEqualTo("7");
+    }
+
+    @Test
     void shouldExposePresetFieldUiControlBusinessGranularity() {
         assertThat(FieldUiControlPresetCatalog.fieldUiControls())
                 .extracting(FieldUiControl::getAlias)
@@ -914,6 +932,25 @@ class PlatformMetadataServiceContractTest {
                 .filteredOn(control -> "multi_select".equals(control.getAlias()))
                 .extracting(FieldUiControl::getValueShape)
                 .containsExactly(FieldUiControlValueShape.COLLECTION);
+        assertThat(FieldUiControlPresetCatalog.fieldUiControls())
+                .filteredOn(control -> control.getAlias().startsWith("dictionary_"))
+                .extracting(FieldUiControl::getAlias, FieldUiControl::getRendererType, FieldUiControl::getValueShape)
+                .containsExactlyInAnyOrder(
+                        org.assertj.core.groups.Tuple.tuple("dictionary_dropdown", ViewControlType.SELECT,
+                                FieldUiControlValueShape.SCALAR),
+                        org.assertj.core.groups.Tuple.tuple("dictionary_multi_dropdown", ViewControlType.MULTI_SELECT,
+                                FieldUiControlValueShape.COLLECTION),
+                        org.assertj.core.groups.Tuple.tuple("dictionary_dialog", ViewControlType.DICTIONARY_PICKER,
+                                FieldUiControlValueShape.SCALAR),
+                        org.assertj.core.groups.Tuple.tuple("dictionary_multi_dialog", ViewControlType.DICTIONARY_PICKER,
+                                FieldUiControlValueShape.COLLECTION),
+                        org.assertj.core.groups.Tuple.tuple("dictionary_radio", ViewControlType.DICTIONARY_RADIO_GROUP,
+                                FieldUiControlValueShape.SCALAR));
+        assertThat(FieldUiControlPresetCatalog.properties())
+                .filteredOn(property -> "dictionary_radio".equals(property.getFieldUiControlAlias())
+                        && "maxOptions".equals(property.getAttributeAlias()))
+                .extracting(FieldUiControlProperty::getDefaultValue)
+                .containsExactly("12");
         assertThat(FieldUiControlPresetCatalog.fieldUiControls())
                 .filteredOn(control -> "color_picker".equals(control.getAlias()))
                 .singleElement()

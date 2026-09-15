@@ -1111,7 +1111,7 @@ public final class ModuleUiDescriptorCompiler {
                         ? UiRule.constant(true) : field.readOnly(),
                 resolvedUiType,
                 resolveFieldControl(viewKind, field.fieldRef(), resolvedUiType, resolvedValueType, field.valuePresentation(),
-                        reference, fieldControls),
+                        option, reference, fieldControls),
                 resolvedValueType,
                 field.valuePresentation(),
                 field.width(),
@@ -1164,6 +1164,7 @@ public final class ModuleUiDescriptorCompiler {
                                                                        String uiType,
                                                                        FieldValueType valueType,
                                                                        FieldValuePresentation presentation,
+                                                                       ResolvedOptionFieldDescriptor option,
                                                                        ResolvedReferenceFieldDescriptor reference,
                                                                        Map<String, ResolvedFieldControlDescriptor> fieldControls) {
         if (presentation != null) return null;
@@ -1177,6 +1178,7 @@ public final class ModuleUiDescriptorCompiler {
             throw new IllegalArgumentException("unsupported field control alias: " + alias);
         }
         validateReferencePickerControl(fieldRef, descriptor, reference);
+        validateDictionaryControl(fieldRef, descriptor, option);
         return descriptor;
     }
 
@@ -1207,6 +1209,69 @@ public final class ModuleUiDescriptorCompiler {
                 || reference.pickerMode() == ReferencePickerMode.TREE) {
             throw new IllegalArgumentException("record picker presentation requires a non-tree SOURCE_FIELD reference: "
                     + fieldRef.fieldName());
+        }
+    }
+
+    /**
+     * Dictionary controls are intentionally not record-pickers with a different visual treatment.
+     * Their source is a dictionary category and their persisted value remains the item code.  Keep
+     * these facts at descriptor compilation so static startup and dynamic page publication fail
+     * together instead of allowing the browser to reinterpret an enum or reference field.
+     */
+    private static void validateDictionaryControl(ViewFieldRef fieldRef,
+                                                  ResolvedFieldControlDescriptor descriptor,
+                                                  ResolvedOptionFieldDescriptor option) {
+        String alias = descriptor.alias();
+        boolean presetDictionaryControl = Set.of("dictionary_dropdown", "dictionary_multi_dropdown", "dictionary_dialog",
+                "dictionary_multi_dialog", "dictionary_radio").contains(alias);
+        boolean dictionaryRenderer = "DICTIONARY_PICKER".equals(descriptor.rendererType())
+                || "DICTIONARY_RADIO_GROUP".equals(descriptor.rendererType());
+        if (!presetDictionaryControl && dictionaryRenderer) {
+            throw new IllegalArgumentException("dictionary renderer requires a platform dictionary control alias: "
+                    + fieldRef.fieldName() + "." + alias);
+        }
+        if (!presetDictionaryControl) {
+            return;
+        }
+        if (option == null) {
+            throw new IllegalArgumentException("dictionary control requires an option binding: " + fieldRef.fieldName());
+        }
+        if (!OptionBinding.DICTIONARY_SOURCE.equals(option.binding().sourceType())) {
+            throw new IllegalArgumentException("dictionary control requires a DICTIONARY option source: "
+                    + fieldRef.fieldName());
+        }
+        boolean radio = "dictionary_radio".equals(alias);
+        if (radio && option.selectionMode() == OptionSelectionMode.MULTIPLE) {
+            throw new IllegalArgumentException("dictionary radio control does not support MULTIPLE selection: "
+                    + fieldRef.fieldName());
+        }
+        boolean multiple = option.selectionMode() == OptionSelectionMode.MULTIPLE;
+        boolean aliasSupportsMultiple = "dictionary_multi_dropdown".equals(alias)
+                || "dictionary_multi_dialog".equals(alias);
+        String expectedRenderer = switch (alias) {
+            case "dictionary_dropdown" -> "SELECT";
+            case "dictionary_multi_dropdown" -> "MULTI_SELECT";
+            case "dictionary_dialog", "dictionary_multi_dialog" -> "DICTIONARY_PICKER";
+            case "dictionary_radio" -> "DICTIONARY_RADIO_GROUP";
+            default -> throw new IllegalStateException("unexpected dictionary control: " + alias);
+        };
+        String expectedShape = aliasSupportsMultiple ? "COLLECTION" : "SCALAR";
+        if (aliasSupportsMultiple != multiple || !expectedShape.equals(descriptor.valueShape())
+                || !expectedRenderer.equals(descriptor.rendererType())) {
+            throw new IllegalArgumentException("dictionary control selection mode and value shape must match: "
+                    + fieldRef.fieldName() + "." + alias);
+        }
+        if (radio) {
+            String maxOptions = descriptor.properties().get("maxOptions");
+            try {
+                if (maxOptions == null || Integer.parseInt(maxOptions) <= 0) {
+                    throw new IllegalArgumentException("dictionary radio maxOptions must be a positive integer: "
+                            + fieldRef.fieldName());
+                }
+            } catch (NumberFormatException ignored) {
+                throw new IllegalArgumentException("dictionary radio maxOptions must be a positive integer: "
+                        + fieldRef.fieldName());
+            }
         }
     }
 

@@ -10,9 +10,13 @@ import net.ximatai.muyun.spring.dynamic.descriptor.DynamicModuleDescriptor;
 import net.ximatai.muyun.spring.dynamic.metadata.EntityDefinition;
 import net.ximatai.muyun.spring.dynamic.metadata.EntityReferenceDefinition;
 import net.ximatai.muyun.spring.dynamic.metadata.FieldDefinition;
+import net.ximatai.muyun.spring.dynamic.metadata.FieldType;
 import net.ximatai.muyun.spring.dynamic.metadata.ModuleDefinition;
 import net.ximatai.muyun.spring.dynamic.metadata.ModuleDefinitionException;
+import net.ximatai.muyun.spring.common.option.OptionSelectionMode;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecordService;
+import net.ximatai.muyun.spring.platform.metadata.FieldUiControlProperty;
+import net.ximatai.muyun.spring.platform.metadata.FieldUiControlPropertyService;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
@@ -108,6 +112,66 @@ class PageReferenceFieldCatalogServiceTest {
         assertThatThrownBy(() -> catalog.list("sales.order", "tagIds")).hasMessageContaining("ONE");
         assertThatThrownBy(() -> catalog.list("sales.order", "a.b.c.d.e.f.g"))
                 .hasMessageContaining("exceeds");
+    }
+
+    @Test
+    void exposesDictionaryOptionFactsForThePageComposerWithoutLeakingItsSourceIdentity() {
+        ModuleDefinition module = ModuleDefinition.builder("education.exam", "考试")
+                .entities(List.of(new EntityDefinition("exam", "exams", "考试", List.of(
+                        FieldDefinition.string("status", "考试状态")
+                                .dictionary("education", "exam_status", OptionSelectionMode.SINGLE),
+                        FieldDefinition.of("labels", FieldType.JSON, "标签")
+                                .dictionary("education", "exam_label", OptionSelectionMode.MULTIPLE)))))
+                .mainEntityAlias("exam").build();
+        when(records.describe("education.exam")).thenReturn(DynamicModuleDescriptor.from(module));
+        PageReferenceFieldCatalogService catalog = new PageReferenceFieldCatalogService(records,
+                new StaticModuleDefinitionCatalog(List.of()));
+
+        assertThat(catalog.list("education.exam", null).fields())
+                .filteredOn(field -> field.name().equals("status")).singleElement().satisfies(field -> {
+                    assertThat(field.optionSourceType()).isEqualTo("dictionary");
+                    assertThat(field.optionSelectionMode()).isEqualTo("SINGLE");
+                });
+        assertThat(catalog.list("education.exam", null).fields())
+                .filteredOn(field -> field.name().equals("labels")).singleElement().satisfies(field -> {
+                    assertThat(field.optionSourceType()).isEqualTo("dictionary");
+                    assertThat(field.optionSelectionMode()).isEqualTo("MULTIPLE");
+                });
+    }
+
+    @Test
+    void exposesConfiguredDictionaryRadioLimitAsAComposerCapability() {
+        FieldUiControlProperty configuredLimit = new FieldUiControlProperty();
+        configuredLimit.setFieldUiControlAlias("dictionary_radio");
+        configuredLimit.setAttributeAlias("maxOptions");
+        configuredLimit.setDefaultValue("7");
+        FieldUiControlPropertyService properties = mock(FieldUiControlPropertyService.class);
+        when(properties.listByFieldUiControlAliases(List.of("dictionary_radio")))
+                .thenReturn(List.of(configuredLimit));
+        ModuleDefinition module = ModuleDefinition.builder("education.radio_limit", "Radio 上限")
+                .entities(List.of(new EntityDefinition("radio_limit", "radio_limits", "Radio 上限", List.of(
+                        FieldDefinition.string("status", "状态"))))).mainEntityAlias("radio_limit").build();
+        when(records.describe("education.radio_limit")).thenReturn(DynamicModuleDescriptor.from(module));
+        PageReferenceFieldCatalogService catalog = new PageReferenceFieldCatalogService(records,
+                new StaticModuleDefinitionCatalog(List.of()), properties);
+
+        assertThat(catalog.list("education.radio_limit", null).dictionaryRadioMaxOptions()).isEqualTo(7);
+        assertThat(new PageReferenceFieldCatalog("education.radio_limit", "reference.status", null, List.of())
+                .dictionaryRadioMaxOptions()).isNull();
+        PageReferenceFieldCatalog.Field compatibleField = new PageReferenceFieldCatalog.Field(
+                "status", "status", "状态", FieldValueType.STRING, null, null,
+                false, false, false, true, null);
+        assertThat(compatibleField.optionSourceType()).isNull();
+        assertThat(compatibleField.optionSelectionMode()).isNull();
+
+        when(properties.listByFieldUiControlAliases(List.of("dictionary_radio"))).thenReturn(List.of());
+        assertThat(catalog.list("education.radio_limit", null).dictionaryRadioMaxOptions())
+                .isEqualTo(PageReferenceFieldCatalog.DEFAULT_DICTIONARY_RADIO_MAX_OPTIONS);
+
+        configuredLimit.setDefaultValue("0");
+        when(properties.listByFieldUiControlAliases(List.of("dictionary_radio"))).thenReturn(List.of(configuredLimit));
+        assertThatThrownBy(() -> catalog.list("education.radio_limit", null))
+                .hasMessageContaining("dictionary radio maxOptions configuration must be a positive integer");
     }
 
     private static net.ximatai.muyun.spring.ability.reference.ReferenceTargetResolver resolver(ModuleDefinition module) {

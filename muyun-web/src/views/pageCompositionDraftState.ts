@@ -18,6 +18,9 @@ export interface PageComposerField {
   referenceModuleAlias?: string;
   /** A derived path through a ONE reference is display-only by platform contract. */
   referenceCardinality?: 'ONE' | 'MANY';
+  /** Read-only option facts from the field directory; never persisted into a page revision. */
+  optionSourceType?: string;
+  optionSelectionMode?: 'SINGLE' | 'MULTIPLE';
   expandable?: boolean;
   /** Page-node presentation only; metadata field facts are never copied or edited here. */
   properties?: PageComposerFieldProperties;

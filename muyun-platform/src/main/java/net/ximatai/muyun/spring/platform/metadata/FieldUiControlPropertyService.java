@@ -93,10 +93,28 @@ public class FieldUiControlPropertyService extends AbstractAbilityService<FieldU
                     attribute.getValueFieldSpecAlias(), "valueFieldSpecAlias"));
             fieldTypeService.requireFieldType(attribute.getValueFieldSpecAlias());
         }
+        validateDictionaryRadioMaxOptions(attribute);
         rejectDuplicate(attribute, Criteria.of()
                         .eq("fieldUiControlAlias", attribute.getFieldUiControlAlias())
                         .eq("attributeAlias", attribute.getAttributeAlias()),
                 "field UI control attribute must be unique: " + attribute.getFieldUiControlAlias()
                         + "." + attribute.getAttributeAlias());
+    }
+
+    /** The radio threshold is consumed by both descriptor compilation and page composition. */
+    private static void validateDictionaryRadioMaxOptions(FieldUiControlProperty attribute) {
+        if (!"dictionary_radio".equals(attribute.getFieldUiControlAlias())
+                || !"maxOptions".equals(attribute.getAttributeAlias())) {
+            return;
+        }
+        String value = attribute.getDefaultValue();
+        try {
+            if (value == null || value.isBlank() || Integer.parseInt(value.trim()) <= 0) {
+                throw new NumberFormatException();
+            }
+            attribute.setDefaultValue(value.trim());
+        } catch (NumberFormatException ignored) {
+            throw new PlatformException("dictionary radio maxOptions must be a positive integer");
+        }
     }
 }

@@ -102,3 +102,32 @@ it('replaces an unsaved field when a failed preview is corrected with a new tech
     { operation: 'ADD', field: { fieldName: 'title', columnName: 'title' } },
   ]);
 });
+
+it('writes dictionary selection cardinality with its CodeTitleEnum wire code', () => {
+  const session = createMetadataModelWorkspaceEditSession();
+  session.begin([
+    { relationId: 'main', metadataId: 'metadata-main', expectedMetadataVersion: 1, fields: [] },
+  ]);
+
+  session.stageField(
+    'main',
+    { fieldName: 'attendanceStatus', columnName: 'attendance_status', fieldSpecAlias: 'string' },
+    {
+      kind: 'DICTIONARY',
+      dictionaryConfig: {
+        dictionaryApplicationAlias: 'education',
+        dictionaryCategoryAlias: 'exam_attendance_status',
+        selectionMode: 'SINGLE',
+      },
+    },
+  );
+
+  expect(session.buildProposal()?.relationDrafts[0]?.fieldDrafts[0]?.property).toMatchObject({
+    kind: 'DICTIONARY',
+    dictionaryConfig: {
+      dictionaryApplicationAlias: 'education',
+      dictionaryCategoryAlias: 'exam_attendance_status',
+      selectionMode: 'single',
+    },
+  });
+});

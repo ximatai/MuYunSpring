@@ -9,6 +9,8 @@ import {
   RecordExplorerPanel,
   presentPlatformError,
 } from '@muyun/platform-components';
+import { loadOptionFieldItems } from '@/platform-components/optionFieldOptionCache';
+import { hasOptionHierarchy } from '@/platform-components/optionFieldOptions';
 import { useWorkspaceViewUnsavedState } from '@muyun/platform-workbench';
 import {
   createStaticResourceCrudClient,
@@ -37,6 +39,7 @@ import {
 import type {
   MetadataField,
   ModuleMetadataRelation,
+  OptionItemDescriptor,
   ResolvedModuleUiDescriptor,
   WebPageResponse,
   WebQueryCondition,
@@ -83,6 +86,11 @@ import {
   type CompositionPlacementSource,
   type CompositionPlacementTarget,
 } from './pageCompositionPlacement';
+import {
+  dictionaryRadioEligibilityIssue,
+  type DictionaryRadioCandidateFacts,
+} from './dictionaryRadioEligibility';
+import { createDictionaryRadioFactRequestEpoch } from './dictionaryRadioFactRequestEpoch';
 
 defineOptions({ name: 'PageCompositionWorkspace' });
 
@@ -103,6 +111,11 @@ const publishing = ref(false);
 const relation = ref<ModuleMetadataRelation>();
 const metadataRelations = ref<ModuleMetadataRelation[]>([]);
 const metadataFields = ref<PageComposerField[]>([]);
+const dictionaryRadioFacts = ref<Record<string, DictionaryRadioCandidateFacts | undefined>>({});
+const dictionaryRadioFactErrors = ref<Record<string, string | undefined>>({});
+const dictionaryRadioFactLoading = ref(new Set<string>());
+const dictionaryRadioMaxOptions = ref(12);
+const dictionaryRadioFactRequestEpoch = createDictionaryRadioFactRequestEpoch();
 const referenceFieldDirectories = ref(new Map<string, PageComposerField[]>());
 const referenceDirectoryRequests = new Map<string, Promise<PageComposerField[]>>();
 const metadataTreeReloadKey = ref(0);
@@ -173,6 +186,8 @@ interface PageReferenceField {
   valueType?: string;
   referenceModuleAlias?: string;
   referenceCardinality?: 'ONE' | 'MANY';
+  optionSourceType?: string;
+  optionSelectionMode?: 'SINGLE' | 'MULTIPLE';
   expandable?: boolean;
   readOnly?: boolean;
   systemManaged?: boolean;
@@ -180,6 +195,14 @@ interface PageReferenceField {
 
 const platformDefaultReferencePickerAlias = '__platform_default_reference_picker__';
 const standardReferencePickerAliases = new Set(['record_picker_dropdown', 'record_picker_dialog']);
+const platformDefaultDictionaryPresentationAlias = '__platform_default_dictionary_presentation__';
+const standardDictionaryPresentationAliases = new Set([
+  'dictionary_dropdown',
+  'dictionary_multi_dropdown',
+  'dictionary_dialog',
+  'dictionary_multi_dialog',
+  'dictionary_radio',
+]);
 interface PageQuerySummaryCatalog {
   moduleAlias: string;
   fields?: Array<{ fieldName: string; title: string }>;
@@ -347,6 +370,21 @@ const selectedDirectReferenceFormField = computed(() => {
     return undefined;
   return field;
 });
+const selectedDirectDictionaryFormField = computed(() => {
+  const field = selectedField.value;
+  const node = state.selectedNode.value;
+  if (
+    !field ||
+    !node ||
+    node.slot !== 'form' ||
+    node.kind === 'relationField' ||
+    field.fieldName.includes('.') ||
+    field.platformReadOnly ||
+    field.optionSourceType !== 'dictionary'
+  )
+    return undefined;
+  return field;
+});
 const referencePickerPresentationValue = computed(
   () => propertyDraft.value.fieldUiControlAlias ?? platformDefaultReferencePickerAlias,
 );
@@ -357,6 +395,40 @@ const referencePickerPresentationOptions = computed(() => {
     { label: '下拉选择', value: 'record_picker_dropdown' },
     { label: '弹窗选择', value: 'record_picker_dialog' },
     ...(currentAlias && !standardReferencePickerAliases.has(currentAlias)
+      ? [{ label: `当前自定义控件（${currentAlias}）`, value: currentAlias, disabled: true }]
+      : []),
+  ];
+});
+const dictionaryPresentationValue = computed(() => {
+  const alias = propertyDraft.value.fieldUiControlAlias;
+  if (!alias) return platformDefaultDictionaryPresentationAlias;
+  if (alias === 'dictionary_dropdown' || alias === 'dictionary_multi_dropdown') return 'DROPDOWN';
+  if (alias === 'dictionary_dialog' || alias === 'dictionary_multi_dialog') return 'DIALOG';
+  if (alias === 'dictionary_radio') return 'RADIO';
+  return alias;
+});
+const selectedDictionaryRadioIssue = computed(() => {
+  const field = selectedDirectDictionaryFormField.value;
+  return field ? dictionaryRadioIssueOf(field) : undefined;
+});
+const dictionaryPresentationOptions = computed(() => {
+  const field = selectedDirectDictionaryFormField.value;
+  const currentAlias = propertyDraft.value.fieldUiControlAlias;
+  const radioIssue = field ? dictionaryRadioIssueOf(field) : 'radio 仅支持单值数据字典';
+  return [
+    { label: '平台默认（下拉）', value: platformDefaultDictionaryPresentationAlias },
+    { label: '下拉选择', value: 'DROPDOWN' },
+    { label: '弹框选择', value: 'DIALOG' },
+    ...(field?.optionSelectionMode === 'SINGLE'
+      ? [
+          {
+            label: radioIssue ? `radio 单选组（不可用：${radioIssue}）` : 'radio 单选组',
+            value: 'RADIO',
+            disabled: Boolean(radioIssue),
+          },
+        ]
+      : []),
+    ...(currentAlias && !standardDictionaryPresentationAliases.has(currentAlias)
       ? [{ label: `当前自定义控件（${currentAlias}）`, value: currentAlias, disabled: true }]
       : []),
   ];
@@ -430,6 +502,14 @@ const unavailableSources = computed(() =>
       unavailableNavigationSources.value,
     ),
 );
+const dictionaryRadioIssues = computed(() => {
+  const fields = [...state.formFields.value, ...state.formGroups.value.flatMap((group) => group.fields)];
+  return fields.flatMap((field) => {
+    if (field.properties?.fieldUiControlAlias !== 'dictionary_radio') return [];
+    const issue = dictionaryRadioIssueOf(field);
+    return issue ? [`${fieldDisplayTitle(field)}：${issue}`] : [];
+  });
+});
 const propertyValidationMessage = computed(() => {
   if (state.selectedNode.value?.slot !== 'list' && !selectedRelationField.value) return undefined;
   const width = propertyDraft.value.width?.trim();
@@ -510,10 +590,12 @@ watch([state.formFields, state.formGroups], () => state.normalizeFormFieldPlacem
 watch(
   () => props.moduleAlias,
   () => {
+    invalidateDictionaryRadioFacts();
     resetPreviewDescriptor();
     relation.value = undefined;
     metadataRelations.value = [];
     metadataFields.value = [];
+    dictionaryRadioMaxOptions.value = 12;
     referenceFieldDirectories.value = new Map();
     referenceDirectoryRequests.clear();
     summaryCatalogSequence += 1;
@@ -556,6 +638,7 @@ watch([currentUiTreeJson, unavailableSources, () => variant.value?.id, () => rev
 
 onBeforeUnmount(() => {
   workspaceLoadSequence += 1;
+  invalidateDictionaryRadioFacts();
   resetPreviewDescriptor();
 });
 
@@ -644,6 +727,9 @@ async function loadWorkspace() {
 async function loadMetadataTree(requestSequence = workspaceLoadSequence, moduleAlias = props.moduleAlias) {
   const metadataSequence = ++metadataLoadSequence;
   referenceDirectoryEpoch += 1;
+  // Reset synchronously: otherwise a stale in-flight request can leave the new binding's
+  // same-named field in the loading gate while the directory read is still pending or fails.
+  invalidateDictionaryRadioFacts();
   referenceDirectoryRequests.clear();
   referenceFieldDirectories.value = new Map();
   metadataTreeReloadKey.value += 1;
@@ -720,6 +806,8 @@ async function loadMetadataTree(requestSequence = workspaceLoadSequence, moduleA
     const referenceRoot = await loadReferenceDirectory(moduleAlias, '');
     if (!current()) return;
     const referenceByName = new Map(referenceRoot.map((field) => [field.fieldName, field]));
+    // A metadata edit can rebind a field to another dictionary while this KeepAlive workspace remains mounted.
+    // The presentation-only facts were already reset before any async directory read started.
     metadataFields.value = fallbackFields.map((field) => {
       const reference = referenceByName.get(field.fieldName);
       return reference
@@ -727,6 +815,8 @@ async function loadMetadataTree(requestSequence = workspaceLoadSequence, moduleA
             ...field,
             referenceModuleAlias: reference.referenceModuleAlias ?? field.referenceModuleAlias,
             referenceCardinality: reference.referenceCardinality ?? field.referenceCardinality,
+            optionSourceType: reference.optionSourceType ?? field.optionSourceType,
+            optionSelectionMode: reference.optionSelectionMode ?? field.optionSelectionMode,
             expandable: reference.expandable ?? field.expandable,
             platformReadOnly: field.platformReadOnly || reference.platformReadOnly,
           }
@@ -907,6 +997,8 @@ function toReferenceComposerField(field: PageReferenceField): PageComposerField 
     fieldSpecAlias: field.valueType,
     referenceModuleAlias: field.referenceModuleAlias,
     referenceCardinality: field.referenceCardinality,
+    optionSourceType: field.optionSourceType,
+    optionSelectionMode: field.optionSelectionMode,
     expandable: field.expandable === true && field.referenceCardinality === 'ONE',
     systemManaged: field.systemManaged,
     // Every non-root projection is server-derived.  The server also marks protected root fields.
@@ -923,13 +1015,26 @@ async function loadReferenceDirectory(moduleAlias: string, path: string): Promis
   const epoch = referenceDirectoryEpoch;
   let request!: Promise<PageComposerField[]>;
   request = moduleContext.http
-    .request<{ moduleAlias: string; path?: string; fields?: PageReferenceField[] }>({
+    .request<{
+      moduleAlias: string;
+      path?: string;
+      dictionaryRadioMaxOptions?: number;
+      fields?: PageReferenceField[];
+    }>({
       method: 'GET',
       path: `/platform.module/${encodeURIComponent(moduleAlias)}/page-reference-fields${
         path ? `?path=${encodeURIComponent(path)}` : ''
       }`,
     })
     .then((response) => {
+      if (
+        epoch === referenceDirectoryEpoch &&
+        moduleAlias === props.moduleAlias &&
+        !path &&
+        Number.isSafeInteger(response.dictionaryRadioMaxOptions) &&
+        response.dictionaryRadioMaxOptions! > 0
+      )
+        dictionaryRadioMaxOptions.value = response.dictionaryRadioMaxOptions!;
       const fields = (response.fields ?? [])
         .map(toReferenceComposerField)
         .filter((field): field is PageComposerField => field != null);
@@ -1118,6 +1223,14 @@ async function reloadComposition() {
   await loadComposition();
 }
 
+/** Clears stale radio preflight state before a metadata directory can expose a replacement binding. */
+function invalidateDictionaryRadioFacts() {
+  dictionaryRadioFactRequestEpoch.invalidate();
+  dictionaryRadioFacts.value = {};
+  dictionaryRadioFactErrors.value = {};
+  dictionaryRadioFactLoading.value = new Set();
+}
+
 function resetPreviewDescriptor() {
   previewRequestSequence += 1;
   if (previewDebounceTimer) {
@@ -1139,8 +1252,20 @@ function schedulePreviewDescriptor() {
   }
   const requestSequence = ++previewRequestSequence;
   if (previewDebounceTimer) clearTimeout(previewDebounceTimer);
-  if (unavailableSources.value.length || draftParseError.value || propertyIssues.value.length) {
+  if (
+    unavailableSources.value.length ||
+    draftParseError.value ||
+    propertyIssues.value.length ||
+    dictionaryRadioIssues.value.length
+  ) {
     previewLoading.value = false;
+    // This incompatibility is already presented as a page-composition alert.
+    // Keeping the preview error empty avoids reporting the same actionable
+    // issue twice while save and publish remain blocked below.
+    if (dictionaryRadioIssues.value.length) {
+      previewError.value = undefined;
+      return;
+    }
     previewError.value =
       draftParseError.value ??
       (propertyIssues.value.length
@@ -1461,6 +1586,7 @@ async function saveDraft(
   if (
     draftParseError.value ||
     propertyIssues.value.length > 0 ||
+    dictionaryRadioIssues.value.length > 0 ||
     actionIssues.value.length > 0 ||
     hasSummaryIssues.value ||
     summaryCatalogBlocksMutation.value ||
@@ -1506,6 +1632,7 @@ async function publishDraft() {
   if (
     isMutating.value ||
     propertyIssues.value.length > 0 ||
+    dictionaryRadioIssues.value.length > 0 ||
     actionIssues.value.length > 0 ||
     draftConflict.value ||
     unavailableSources.value.length ||
@@ -2229,6 +2356,88 @@ function updateReferencePickerPresentation(value: unknown) {
     alias === platformDefaultReferencePickerAlias ? undefined : alias,
   );
 }
+function updateDictionaryPresentation(value: unknown) {
+  if (typeof value !== 'string') return;
+  const field = selectedDirectDictionaryFormField.value;
+  if (!field) return;
+  if (value === 'RADIO' && dictionaryRadioIssueOf(field)) return;
+  const alias =
+    value === platformDefaultDictionaryPresentationAlias
+      ? undefined
+      : value === 'DROPDOWN'
+        ? field.optionSelectionMode === 'MULTIPLE'
+          ? 'dictionary_multi_dropdown'
+          : 'dictionary_dropdown'
+        : value === 'DIALOG'
+          ? field.optionSelectionMode === 'MULTIPLE'
+            ? 'dictionary_multi_dialog'
+            : 'dictionary_dialog'
+          : value === 'RADIO' && field.optionSelectionMode === 'SINGLE'
+            ? 'dictionary_radio'
+            : undefined;
+  if (value !== platformDefaultDictionaryPresentationAlias && !alias) return;
+  updateFieldProperty('fieldUiControlAlias', alias);
+}
+
+function dictionaryRadioIssueOf(field: PageComposerField): string | undefined {
+  return dictionaryRadioEligibilityIssue({
+    optionSourceType: field.optionSourceType,
+    optionSelectionMode: field.optionSelectionMode,
+    facts: dictionaryRadioFacts.value[field.fieldName],
+    loadError: dictionaryRadioFactErrors.value[field.fieldName],
+    maxOptions: dictionaryRadioMaxOptions.value,
+  });
+}
+
+async function loadDictionaryRadioFacts(field: PageComposerField) {
+  if (field.optionSourceType !== 'dictionary' || field.optionSelectionMode !== 'SINGLE') return;
+  const fieldName = field.fieldName;
+  if (dictionaryRadioFacts.value[fieldName] || dictionaryRadioFactLoading.value.has(fieldName)) return;
+  const requestGeneration = dictionaryRadioFactRequestEpoch.capture();
+  dictionaryRadioFactLoading.value = new Set(dictionaryRadioFactLoading.value).add(fieldName);
+  try {
+    const items = await loadOptionFieldItems(moduleContext, fieldName, undefined, props.moduleAlias, true);
+    if (!dictionaryRadioFactRequestEpoch.isCurrent(requestGeneration)) return;
+    const facts: DictionaryRadioCandidateFacts = {
+      enabledCandidateCount: items.filter((item: OptionItemDescriptor) => item.enabled).length,
+      hasHierarchy: hasOptionHierarchy(items),
+    };
+    dictionaryRadioFacts.value = { ...dictionaryRadioFacts.value, [fieldName]: facts };
+    if (dictionaryRadioFactErrors.value[fieldName]) {
+      const nextErrors = { ...dictionaryRadioFactErrors.value };
+      delete nextErrors[fieldName];
+      dictionaryRadioFactErrors.value = nextErrors;
+    }
+  } catch (cause) {
+    if (!dictionaryRadioFactRequestEpoch.isCurrent(requestGeneration)) return;
+    dictionaryRadioFactErrors.value = {
+      ...dictionaryRadioFactErrors.value,
+      [fieldName]: cause instanceof Error ? cause.message : '请求失败',
+    };
+  } finally {
+    if (dictionaryRadioFactRequestEpoch.isCurrent(requestGeneration)) {
+      const nextLoading = new Set(dictionaryRadioFactLoading.value);
+      nextLoading.delete(fieldName);
+      dictionaryRadioFactLoading.value = nextLoading;
+    }
+  }
+}
+
+watch(
+  () => selectedDirectDictionaryFormField.value,
+  (field) => {
+    if (field) void loadDictionaryRadioFacts(field);
+  },
+  { immediate: true },
+);
+
+watch(
+  metadataFields,
+  (fields) => {
+    void Promise.all(fields.map((field) => loadDictionaryRadioFacts(field)));
+  },
+  { immediate: true },
+);
 function updateQuickSearch(value: string) {
   if (isMutating.value) return;
   quickSearchPlaceholderDraft.value = value;
@@ -2293,6 +2502,7 @@ function openPropertyDrawer() {
                 isMutating ||
                 draftConflict ||
                 propertyIssues.length > 0 ||
+                dictionaryRadioIssues.length > 0 ||
                 actionIssues.length > 0 ||
                 hasSummaryIssues ||
                 summaryCatalogBlocksMutation ||
@@ -2313,6 +2523,7 @@ function openPropertyDrawer() {
                 isMutating ||
                 draftConflict ||
                 propertyIssues.length > 0 ||
+                dictionaryRadioIssues.length > 0 ||
                 actionIssues.length > 0 ||
                 unavailableSources.length > 0 ||
                 hasSummaryIssues ||
@@ -2490,6 +2701,7 @@ function openPropertyDrawer() {
           v-if="
             unavailableSources.length ||
             draftParseError ||
+            dictionaryRadioIssues.length ||
             (hasCatalogDependentSummary && summaryCatalogError)
           "
           class="page-composition-source-error"
@@ -2497,6 +2709,9 @@ function openPropertyDrawer() {
         >
           {{
             draftParseError ??
+            (dictionaryRadioIssues.length
+              ? `字典 radio 配置需修正：${dictionaryRadioIssues.join('；')}。`
+              : undefined) ??
             (hasCatalogDependentSummary ? summaryCatalogError : undefined) ??
             `来源失效：${[...new Set(unavailableSources)].join('、')}。配置已保留，请在编排树中移除标记节点并重新选择；修正后才能发布。`
           }}
@@ -2653,6 +2868,22 @@ function openPropertyDrawer() {
                 :allow-clear="false"
                 @update:value="updateReferencePickerPresentation"
               />
+            </label>
+            <label v-if="selectedDirectDictionaryFormField">
+              <span>字典展示形式</span>
+              <UiSelect
+                :value="dictionaryPresentationValue"
+                :options="dictionaryPresentationOptions"
+                :disabled="isMutating"
+                :allow-clear="false"
+                @update:value="updateDictionaryPresentation"
+              />
+              <small v-if="selectedDirectDictionaryFormField.optionSelectionMode === 'SINGLE'">
+                {{
+                  selectedDictionaryRadioIssue ??
+                  `radio 可用：不超过 ${dictionaryRadioMaxOptions} 个启用候选且没有层级。`
+                }}
+              </small>
             </label>
             <label>
               <span>表单列宽度</span>

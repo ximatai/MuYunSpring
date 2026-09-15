@@ -23,12 +23,34 @@ export interface MetadataFieldChangeSetDraft {
   property?: MetadataFieldPropertyChangeSetPayload;
 }
 
-export type MetadataFieldPropertyChangeSetPayload = MetadataFieldPropertyDraft;
+/**
+ * The editor uses stable upper-case cardinality labels, while the public HTTP contract for
+ * CodeTitleEnum writes their lower-case codes. Keep that translation at the change-set boundary
+ * rather than leaking transport values into the editor and form renderer.
+ */
+export type MetadataFieldPropertyChangeSetPayload = Omit<MetadataFieldPropertyDraft, 'dictionaryConfig'> & {
+  dictionaryConfig?: Omit<NonNullable<MetadataFieldPropertyDraft['dictionaryConfig']>, 'selectionMode'> & {
+    selectionMode?: 'single' | 'multiple';
+  };
+};
 
 export function toFieldPropertyChangeSetPayload(
   property: MetadataFieldPropertyDraft,
 ): MetadataFieldPropertyChangeSetPayload {
-  return copyFieldPropertyDraft(property);
+  const copy = copyFieldPropertyDraft(property);
+  if (copy.kind !== 'DICTIONARY' || !copy.dictionaryConfig) {
+    const { dictionaryConfig, ...payload } = copy;
+    void dictionaryConfig;
+    return payload;
+  }
+  const { selectionMode, ...dictionaryConfig } = copy.dictionaryConfig;
+  return {
+    ...copy,
+    dictionaryConfig: {
+      ...dictionaryConfig,
+      ...(selectionMode ? { selectionMode: selectionMode.toLowerCase() as 'single' | 'multiple' } : {}),
+    },
+  };
 }
 
 export interface MetadataRelationChangeSetProposal {
