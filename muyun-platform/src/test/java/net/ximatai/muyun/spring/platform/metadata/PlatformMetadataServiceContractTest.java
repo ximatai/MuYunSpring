@@ -898,6 +898,24 @@ class PlatformMetadataServiceContractTest {
     }
 
     @Test
+    void shouldRequirePositiveDictionaryRadioMaxOptionsAtPropertyWriteTime() {
+        fieldUiTypeService.insert(fieldUiType("dictionary_radio", "字典单选组", "string",
+                ViewControlType.DICTIONARY_RADIO_GROUP));
+        FieldUiControlProperty invalid = fieldUiTypeAttribute("dictionary_radio", "maxOptions", "最大选项数",
+                "integer", "not-a-number");
+
+        assertThatThrownBy(() -> fieldUiTypeAttributeService.insert(invalid))
+                .isInstanceOf(PlatformException.class)
+                .hasMessageContaining("dictionary radio maxOptions must be a positive integer");
+
+        FieldUiControlProperty configured = fieldUiTypeAttribute("dictionary_radio", "maxOptions", "最大选项数",
+                "integer", " 7 ");
+        fieldUiTypeAttributeService.insert(configured);
+
+        assertThat(fieldUiTypeAttributeService.select(configured.getId()).getDefaultValue()).isEqualTo("7");
+    }
+
+    @Test
     void shouldExposePresetFieldUiControlBusinessGranularity() {
         assertThat(FieldUiControlPresetCatalog.fieldUiControls())
                 .extracting(FieldUiControl::getAlias)

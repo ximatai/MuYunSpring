@@ -1363,6 +1363,28 @@ class ModuleUiDescriptorCompilerTest {
     }
 
     @Test
+    void shouldRejectCustomDictionaryRenderersOutsidePlatformAliases() {
+        ModuleUiDefinition picker = editorPage("iam.dictionary_demo", form -> form
+                .field("status", field -> field.uiType("tenant_dictionary_picker")));
+        Map<String, ResolvedFieldControlDescriptor> pickerControls = Map.of("tenant_dictionary_picker",
+                new ResolvedFieldControlDescriptor("tenant_dictionary_picker", "DICTIONARY_PICKER", "SCALAR",
+                        Map.of(), List.of()));
+
+        assertThatThrownBy(() -> ModuleUiDescriptorCompiler.compile(picker, ModuleKind.DYNAMIC, "字典演示",
+                Map.of("status", dictionaryOption(OptionSelectionMode.SINGLE)), Map.of(), null, Map.of(), pickerControls))
+                .hasMessageContaining("dictionary renderer requires a platform dictionary control alias");
+
+        ModuleUiDefinition radio = editorPage("iam.dictionary_demo", form -> form
+                .field("status", field -> field.uiType("tenant_dictionary_radio")));
+        Map<String, ResolvedFieldControlDescriptor> radioControls = Map.of("tenant_dictionary_radio",
+                new ResolvedFieldControlDescriptor("tenant_dictionary_radio", "DICTIONARY_RADIO_GROUP", "SCALAR",
+                        Map.of("maxOptions", "12"), List.of()));
+        assertThatThrownBy(() -> ModuleUiDescriptorCompiler.compile(radio, ModuleKind.DYNAMIC, "字典演示",
+                Map.of("status", dictionaryOption(OptionSelectionMode.SINGLE)), Map.of(), null, Map.of(), radioControls))
+                .hasMessageContaining("dictionary renderer requires a platform dictionary control alias");
+    }
+
+    @Test
     void shouldRejectRecordPickerPresentationOutsideExecutableSourceFieldReference() {
         ModuleUiDefinition definition = editorPage("sales.order", form -> form
                 .field("customerId", field -> field.uiType("record_picker_dropdown")));

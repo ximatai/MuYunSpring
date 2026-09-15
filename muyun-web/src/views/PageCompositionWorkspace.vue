@@ -90,6 +90,7 @@ import {
   dictionaryRadioEligibilityIssue,
   type DictionaryRadioCandidateFacts,
 } from './dictionaryRadioEligibility';
+import { createDictionaryRadioFactRequestEpoch } from './dictionaryRadioFactRequestEpoch';
 
 defineOptions({ name: 'PageCompositionWorkspace' });
 
@@ -114,6 +115,7 @@ const dictionaryRadioFacts = ref<Record<string, DictionaryRadioCandidateFacts | 
 const dictionaryRadioFactErrors = ref<Record<string, string | undefined>>({});
 const dictionaryRadioFactLoading = ref(new Set<string>());
 const dictionaryRadioMaxOptions = ref(12);
+const dictionaryRadioFactRequestEpoch = createDictionaryRadioFactRequestEpoch();
 const referenceFieldDirectories = ref(new Map<string, PageComposerField[]>());
 const referenceDirectoryRequests = new Map<string, Promise<PageComposerField[]>>();
 const metadataTreeReloadKey = ref(0);
@@ -588,6 +590,7 @@ watch([state.formFields, state.formGroups], () => state.normalizeFormFieldPlacem
 watch(
   () => props.moduleAlias,
   () => {
+    invalidateDictionaryRadioFacts();
     resetPreviewDescriptor();
     relation.value = undefined;
     metadataRelations.value = [];
@@ -635,6 +638,7 @@ watch([currentUiTreeJson, unavailableSources, () => variant.value?.id, () => rev
 
 onBeforeUnmount(() => {
   workspaceLoadSequence += 1;
+  invalidateDictionaryRadioFacts();
   resetPreviewDescriptor();
 });
 
@@ -723,6 +727,9 @@ async function loadWorkspace() {
 async function loadMetadataTree(requestSequence = workspaceLoadSequence, moduleAlias = props.moduleAlias) {
   const metadataSequence = ++metadataLoadSequence;
   referenceDirectoryEpoch += 1;
+  // Reset synchronously: otherwise a stale in-flight request can leave the new binding's
+  // same-named field in the loading gate while the directory read is still pending or fails.
+  invalidateDictionaryRadioFacts();
   referenceDirectoryRequests.clear();
   referenceFieldDirectories.value = new Map();
   metadataTreeReloadKey.value += 1;
@@ -800,10 +807,7 @@ async function loadMetadataTree(requestSequence = workspaceLoadSequence, moduleA
     if (!current()) return;
     const referenceByName = new Map(referenceRoot.map((field) => [field.fieldName, field]));
     // A metadata edit can rebind a field to another dictionary while this KeepAlive workspace remains mounted.
-    // Drop the presentation-only facts so radio eligibility is always recalculated from the active binding.
-    dictionaryRadioFacts.value = {};
-    dictionaryRadioFactErrors.value = {};
-    dictionaryRadioFactLoading.value = new Set();
+    // The presentation-only facts were already reset before any async directory read started.
     metadataFields.value = fallbackFields.map((field) => {
       const reference = referenceByName.get(field.fieldName);
       return reference
@@ -1217,6 +1221,14 @@ async function reloadComposition() {
     if (!confirmed || sequence !== workspaceLoadSequence || isMutating.value) return;
   }
   await loadComposition();
+}
+
+/** Clears stale radio preflight state before a metadata directory can expose a replacement binding. */
+function invalidateDictionaryRadioFacts() {
+  dictionaryRadioFactRequestEpoch.invalidate();
+  dictionaryRadioFacts.value = {};
+  dictionaryRadioFactErrors.value = {};
+  dictionaryRadioFactLoading.value = new Set();
 }
 
 function resetPreviewDescriptor() {
@@ -2381,9 +2393,11 @@ async function loadDictionaryRadioFacts(field: PageComposerField) {
   if (field.optionSourceType !== 'dictionary' || field.optionSelectionMode !== 'SINGLE') return;
   const fieldName = field.fieldName;
   if (dictionaryRadioFacts.value[fieldName] || dictionaryRadioFactLoading.value.has(fieldName)) return;
+  const requestGeneration = dictionaryRadioFactRequestEpoch.capture();
   dictionaryRadioFactLoading.value = new Set(dictionaryRadioFactLoading.value).add(fieldName);
   try {
     const items = await loadOptionFieldItems(moduleContext, fieldName, undefined, props.moduleAlias, true);
+    if (!dictionaryRadioFactRequestEpoch.isCurrent(requestGeneration)) return;
     const facts: DictionaryRadioCandidateFacts = {
       enabledCandidateCount: items.filter((item: OptionItemDescriptor) => item.enabled).length,
       hasHierarchy: hasOptionHierarchy(items),
@@ -2395,14 +2409,17 @@ async function loadDictionaryRadioFacts(field: PageComposerField) {
       dictionaryRadioFactErrors.value = nextErrors;
     }
   } catch (cause) {
+    if (!dictionaryRadioFactRequestEpoch.isCurrent(requestGeneration)) return;
     dictionaryRadioFactErrors.value = {
       ...dictionaryRadioFactErrors.value,
       [fieldName]: cause instanceof Error ? cause.message : '请求失败',
     };
   } finally {
-    const nextLoading = new Set(dictionaryRadioFactLoading.value);
-    nextLoading.delete(fieldName);
-    dictionaryRadioFactLoading.value = nextLoading;
+    if (dictionaryRadioFactRequestEpoch.isCurrent(requestGeneration)) {
+      const nextLoading = new Set(dictionaryRadioFactLoading.value);
+      nextLoading.delete(fieldName);
+      dictionaryRadioFactLoading.value = nextLoading;
+    }
   }
 }
 

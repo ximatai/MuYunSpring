@@ -69,6 +69,19 @@ it('preflights dictionary radio eligibility in composition instead of deferring 
   assert.match(workspaceSource, /dictionaryRadioEligibilityIssue\(/);
   assert.match(workspaceSource, /dictionaryRadioIssues/);
   assert.match(workspaceSource, /dictionaryRadioIssues\.length > 0/);
+  assert.match(workspaceSource, /dictionaryRadioFactRequestEpoch\.invalidate\(\);/);
+  assert.match(
+    workspaceSource,
+    /async function loadMetadataTree[\s\S]*?referenceDirectoryEpoch \+= 1;[\s\S]*?invalidateDictionaryRadioFacts\(\);[\s\S]*?await Promise\.all/,
+  );
+  assert.match(
+    workspaceSource,
+    /function invalidateDictionaryRadioFacts\(\) \{[\s\S]*?dictionaryRadioFacts\.value = \{};[\s\S]*?dictionaryRadioFactErrors\.value = \{};[\s\S]*?dictionaryRadioFactLoading\.value = new Set\(\);/,
+  );
+  assert.match(
+    workspaceSource,
+    /const requestGeneration = dictionaryRadioFactRequestEpoch\.capture\(\);[\s\S]*?isCurrent\(requestGeneration\)/,
+  );
   assert.match(
     workspaceSource,
     /if \(dictionaryRadioIssues\.value\.length\) \{\s*previewError\.value = undefined;/,

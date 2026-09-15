@@ -1222,8 +1222,15 @@ public final class ModuleUiDescriptorCompiler {
                                                   ResolvedFieldControlDescriptor descriptor,
                                                   ResolvedOptionFieldDescriptor option) {
         String alias = descriptor.alias();
-        if (!Set.of("dictionary_dropdown", "dictionary_multi_dropdown", "dictionary_dialog",
-                "dictionary_multi_dialog", "dictionary_radio").contains(alias)) {
+        boolean presetDictionaryControl = Set.of("dictionary_dropdown", "dictionary_multi_dropdown", "dictionary_dialog",
+                "dictionary_multi_dialog", "dictionary_radio").contains(alias);
+        boolean dictionaryRenderer = "DICTIONARY_PICKER".equals(descriptor.rendererType())
+                || "DICTIONARY_RADIO_GROUP".equals(descriptor.rendererType());
+        if (!presetDictionaryControl && dictionaryRenderer) {
+            throw new IllegalArgumentException("dictionary renderer requires a platform dictionary control alias: "
+                    + fieldRef.fieldName() + "." + alias);
+        }
+        if (!presetDictionaryControl) {
             return;
         }
         if (option == null) {
@@ -1233,7 +1240,8 @@ public final class ModuleUiDescriptorCompiler {
             throw new IllegalArgumentException("dictionary control requires a DICTIONARY option source: "
                     + fieldRef.fieldName());
         }
-        if ("dictionary_radio".equals(alias) && option.selectionMode() == OptionSelectionMode.MULTIPLE) {
+        boolean radio = "dictionary_radio".equals(alias);
+        if (radio && option.selectionMode() == OptionSelectionMode.MULTIPLE) {
             throw new IllegalArgumentException("dictionary radio control does not support MULTIPLE selection: "
                     + fieldRef.fieldName());
         }
@@ -1253,7 +1261,7 @@ public final class ModuleUiDescriptorCompiler {
             throw new IllegalArgumentException("dictionary control selection mode and value shape must match: "
                     + fieldRef.fieldName() + "." + alias);
         }
-        if ("dictionary_radio".equals(alias)) {
+        if (radio) {
             String maxOptions = descriptor.properties().get("maxOptions");
             try {
                 if (maxOptions == null || Integer.parseInt(maxOptions) <= 0) {

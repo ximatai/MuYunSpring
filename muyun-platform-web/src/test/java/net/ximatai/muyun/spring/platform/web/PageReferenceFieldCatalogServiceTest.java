@@ -158,6 +158,20 @@ class PageReferenceFieldCatalogServiceTest {
         assertThat(catalog.list("education.radio_limit", null).dictionaryRadioMaxOptions()).isEqualTo(7);
         assertThat(new PageReferenceFieldCatalog("education.radio_limit", "reference.status", null, List.of())
                 .dictionaryRadioMaxOptions()).isNull();
+        PageReferenceFieldCatalog.Field compatibleField = new PageReferenceFieldCatalog.Field(
+                "status", "status", "状态", FieldValueType.STRING, null, null,
+                false, false, false, true, null);
+        assertThat(compatibleField.optionSourceType()).isNull();
+        assertThat(compatibleField.optionSelectionMode()).isNull();
+
+        when(properties.listByFieldUiControlAliases(List.of("dictionary_radio"))).thenReturn(List.of());
+        assertThat(catalog.list("education.radio_limit", null).dictionaryRadioMaxOptions())
+                .isEqualTo(PageReferenceFieldCatalog.DEFAULT_DICTIONARY_RADIO_MAX_OPTIONS);
+
+        configuredLimit.setDefaultValue("0");
+        when(properties.listByFieldUiControlAliases(List.of("dictionary_radio"))).thenReturn(List.of(configuredLimit));
+        assertThatThrownBy(() -> catalog.list("education.radio_limit", null))
+                .hasMessageContaining("dictionary radio maxOptions configuration must be a positive integer");
     }
 
     private static net.ximatai.muyun.spring.ability.reference.ReferenceTargetResolver resolver(ModuleDefinition module) {

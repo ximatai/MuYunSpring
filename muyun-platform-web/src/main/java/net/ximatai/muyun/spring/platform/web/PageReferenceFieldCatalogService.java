@@ -174,22 +174,22 @@ public class PageReferenceFieldCatalogService {
      */
     private int dictionaryRadioMaxOptions() {
         if (fieldUiControlProperties == null) return PageReferenceFieldCatalog.DEFAULT_DICTIONARY_RADIO_MAX_OPTIONS;
-        return fieldUiControlProperties.listByFieldUiControlAliases(List.of("dictionary_radio")).stream()
+        String configuredValue = fieldUiControlProperties.listByFieldUiControlAliases(List.of("dictionary_radio")).stream()
                 .filter(property -> "dictionary_radio".equals(property.getFieldUiControlAlias()))
                 .filter(property -> "maxOptions".equals(property.getAttributeAlias()))
                 .map(FieldUiControlProperty::getDefaultValue)
                 .filter(value -> value != null && !value.isBlank())
                 .map(String::trim)
-                .mapToInt(value -> {
-                    try {
-                        return Integer.parseInt(value);
-                    } catch (NumberFormatException ignored) {
-                        return PageReferenceFieldCatalog.DEFAULT_DICTIONARY_RADIO_MAX_OPTIONS;
-                    }
-                })
-                .filter(value -> value > 0)
                 .findFirst()
-                .orElse(PageReferenceFieldCatalog.DEFAULT_DICTIONARY_RADIO_MAX_OPTIONS);
+                .orElse(null);
+        if (configuredValue == null) return PageReferenceFieldCatalog.DEFAULT_DICTIONARY_RADIO_MAX_OPTIONS;
+        try {
+            int maxOptions = Integer.parseInt(configuredValue);
+            if (maxOptions <= 0) throw new NumberFormatException();
+            return maxOptions;
+        } catch (NumberFormatException ignored) {
+            throw new IllegalArgumentException("dictionary radio maxOptions configuration must be a positive integer");
+        }
     }
 
     private PageReferenceFieldCatalog.Field descriptor(String moduleAlias, String name, DirectoryField field, boolean nested,

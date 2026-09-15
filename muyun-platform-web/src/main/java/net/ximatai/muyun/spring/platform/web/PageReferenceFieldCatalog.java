@@ -23,6 +23,15 @@ public record PageReferenceFieldCatalog(String moduleAlias, String path, Integer
                         boolean expandable, boolean readOnly, boolean systemManaged,
                         boolean formulaReadable, String formulaDisabledReason,
                         String optionSourceType, String optionSelectionMode) {
+        /** Compatibility constructor for existing Java consumers of the pre-option-facts directory contract. */
+        public Field(String id, String name, String label, FieldValueType valueType,
+                     String referenceModuleAlias, String referenceCardinality,
+                     boolean expandable, boolean readOnly, boolean systemManaged,
+                     boolean formulaReadable, String formulaDisabledReason) {
+            this(id, name, label, valueType, referenceModuleAlias, referenceCardinality, expandable, readOnly,
+                    systemManaged, formulaReadable, formulaDisabledReason, null, null);
+        }
+
         public Field(String id, String name, String label, FieldValueType valueType,
                      String referenceModuleAlias, String referenceCardinality,
                      boolean expandable, boolean readOnly, boolean systemManaged) {

@@ -172,6 +172,39 @@ it('forwards a double-click from a nested dictionary child to the dialog owner',
   expect(wrapper.emitted('double-click')).toEqual([['child']]);
 });
 
+it('keeps an enabled child selectable when its dictionary parent is disabled', async () => {
+  const wrapper = mountInteractiveDialog({
+    items: [
+      { code: 'retired-category', title: '已停用分类', enabled: false },
+      { code: 'active-child', title: '仍可使用的子项', enabled: true, parentCode: 'retired-category' },
+    ],
+  });
+  const choices = wrapper.findAll('[role="radio"]');
+
+  expect(choices[0]!.attributes('disabled')).toBeDefined();
+  expect(choices[1]!.attributes('disabled')).toBeUndefined();
+  await choices[1]!.trigger('dblclick');
+  await wrapper.vm.$nextTick();
+
+  expect(wrapper.emitted('update:value')).toEqual([['active-child']]);
+  expect(wrapper.emitted('confirm')).toEqual([['active-child']]);
+});
+
+it('keeps an enabled child selectable beneath a disabled missing-parent structure node', async () => {
+  const wrapper = mountInteractiveDialog({
+    items: [{ code: 'orphan-child', title: '可用孤儿子项', enabled: true, parentCode: 'missing-parent' }],
+  });
+  const choices = wrapper.findAll('[role="radio"]');
+
+  expect(choices[0]!.attributes('disabled')).toBeDefined();
+  expect(choices[1]!.attributes('disabled')).toBeUndefined();
+  await choices[1]!.trigger('dblclick');
+  await wrapper.vm.$nextTick();
+
+  expect(wrapper.emitted('update:value')).toEqual([['orphan-child']]);
+  expect(wrapper.emitted('confirm')).toEqual([['orphan-child']]);
+});
+
 it('uses one picker for searchable dropdowns and commits dictionary codes immediately', async () => {
   const wrapper = mountPicker({ mode: 'dropdown', value: 'enabled', items: items.slice(0, 2) });
   const select = wrapper.findComponent({ name: 'UiSelect' });

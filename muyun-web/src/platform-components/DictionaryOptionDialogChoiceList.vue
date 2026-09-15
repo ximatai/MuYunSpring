@@ -69,7 +69,7 @@ function confirmOnDoubleClick(node: DictionaryOptionTreeNode) {
         :nodes="node.children"
         :selected-codes="selectedCodes"
         :selection-mode="selectionMode"
-        :disabled="disabled || node.disabled"
+        :disabled="disabled"
         nested
         @update:selected-codes="emit('update:selectedCodes', $event)"
         @double-click="emit('double-click', $event)"
