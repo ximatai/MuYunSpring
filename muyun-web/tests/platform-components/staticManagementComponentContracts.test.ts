@@ -494,6 +494,7 @@ it('record picker delegates single-value interaction to the standard select adap
   assert.notMatch(pickerSource, /document\.addEventListener|record-picker-clear|record-picker-panel/);
   assert.match(treeSelectSource, /:show-search="showSearch"/);
   assert.match(treeSelectSource, /:filter-tree-node="filterTreeNode"/);
+  assert.match(treeSelectSource, /\{ search: \(keyword: string\) => emit\('search', keyword\) \}/);
 });
 
 it('role scope navigation uses the platform tree with deferred children', () => {

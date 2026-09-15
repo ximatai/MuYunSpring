@@ -43,7 +43,8 @@ final class FieldControlDescriptorCatalog {
                         + control.getAlias() + "." + control.getRendererType().name());
             }
             if (control.getValueShape() != net.ximatai.muyun.spring.platform.metadata.FieldUiControlValueShape.SCALAR
-                    && !(control.getRendererType() == net.ximatai.muyun.spring.dynamic.metadata.ViewControlType.MULTI_SELECT
+                    && !((control.getRendererType() == net.ximatai.muyun.spring.dynamic.metadata.ViewControlType.MULTI_SELECT
+                    || control.getRendererType() == net.ximatai.muyun.spring.dynamic.metadata.ViewControlType.DICTIONARY_PICKER)
                     && control.getValueShape() == net.ximatai.muyun.spring.platform.metadata.FieldUiControlValueShape.COLLECTION)) {
                 throw new IllegalArgumentException("enabled field control has no executable web value shape: "
                         + control.getAlias() + "." + control.getValueShape());
@@ -75,7 +76,10 @@ final class FieldControlDescriptorCatalog {
                 Map.of(), List.of())));
         fromConfigured(FieldUiControlPresetCatalog.fieldUiControls(), FieldUiControlPresetCatalog.properties(),
                 FieldUiControlPresetCatalog.bindings()).forEach((alias, descriptor) -> {
-            if (descriptor.rendererType().equals("RECORD_PICKER")) {
+            if (descriptor.rendererType().equals("RECORD_PICKER")
+                    || descriptor.rendererType().equals("DICTIONARY_PICKER")
+                    || descriptor.rendererType().equals("DICTIONARY_RADIO_GROUP")
+                    || alias.startsWith("dictionary_")) {
                 result.put(alias, descriptor);
             }
         });

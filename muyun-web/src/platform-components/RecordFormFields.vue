@@ -17,6 +17,11 @@ import RecordStatusTag from './RecordStatusTag.vue';
 import RecordPicker from './RecordPicker.vue';
 import RecordMultiPicker from './RecordMultiPicker.vue';
 import ReferencePicker from './ReferencePicker.vue';
+import DictionaryPicker, {
+  type DictionaryPickerMode,
+  type DictionaryPickerValidity,
+} from './DictionaryPicker.vue';
+import DictionaryRadioGroup from './DictionaryRadioGroup.vue';
 import type { ReferencePickerValidity } from './referencePickerModel';
 import ScopedTreePicker from './ScopedTreePicker.vue';
 import RecordFileReferenceTransfer from './RecordFileReferenceTransfer.vue';
@@ -125,6 +130,7 @@ const optionFieldErrors = ref<Record<string, string>>({});
 const INHERIT_OPTION_VALUE = '__muyun_inherit__';
 const editorFieldErrors = ref<Record<string, string>>({});
 const referenceFieldValidity = ref<Record<string, ReferencePickerValidity>>({});
+const dictionaryFieldValidity = ref<Record<string, DictionaryPickerValidity>>({});
 const referenceSelectionContext = ref<RecordFormSelectionContext>({});
 const referenceSelectionSourceIds = ref<Record<string, string | undefined>>({});
 type ScopedTreePickerHandle = { open: (keyword?: string) => void };
@@ -154,6 +160,10 @@ const formValidity = computed<RecordFormValidity>(() => {
     ...editorFieldErrors.value,
   };
   for (const field of fieldStates.value) {
+    const dictionaryRendererError = dictionaryRendererErrorOf(field);
+    if (dictionaryRendererError) errors[field.fieldName] = dictionaryRendererError;
+    const dictionaryPickerError = dictionaryPickerErrorOf(field);
+    if (dictionaryPickerError) errors[field.fieldName] = dictionaryPickerError;
     const referenceError = referenceFieldError(field);
     if (referenceError) errors[field.fieldName] = referenceError;
     if (field.controlType === 'unsupported') {
@@ -175,6 +185,7 @@ watch([() => props.record.id, () => props.formSessionKey], () => {
   // A new record/session must never inherit parser failures from its predecessor.
   editorFieldErrors.value = {};
   referenceFieldValidity.value = {};
+  dictionaryFieldValidity.value = {};
   clearReferenceSelectionContext();
 });
 watch(referenceSelectionValues, (values) => {
@@ -321,7 +332,62 @@ function optionFieldLoading(field: RecordFormFieldState) {
 }
 
 function optionFieldError(field: RecordFormFieldState) {
+  return optionFieldErrors.value[field.fieldName] ?? dictionaryRendererErrorOf(field);
+}
+
+function optionFieldLoadError(field: RecordFormFieldState) {
   return optionFieldErrors.value[field.fieldName];
+}
+
+function dictionaryRendererErrorOf(field: RecordFormFieldState) {
+  if (field.controlType !== 'dictionaryRadioGroup' || optionFieldLoading(field)) return undefined;
+  const items = optionFieldItems(field);
+  if (items.some((item) => Boolean(item.parentCode))) {
+    return '层级字典不支持 radio 单选组，请在页面编排中改用下拉或弹框。';
+  }
+  const configured = Number(field.fieldControl?.properties?.maxOptions ?? '12');
+  const maxOptions = Number.isSafeInteger(configured) && configured > 0 ? configured : 12;
+  const enabledCount = items.filter((item) => item.enabled).length;
+  if (enabledCount > maxOptions) {
+    return `当前有 ${enabledCount} 个启用候选，radio 单选组最多支持 ${maxOptions} 个；请调整页面配置。`;
+  }
+  return undefined;
+}
+
+function dictionaryPickerValue(fieldName: string): string | string[] | undefined {
+  const value = optionFieldValue(fieldName);
+  if (Array.isArray(value)) return value.map(String);
+  return value == null ? undefined : String(value);
+}
+
+function dictionaryRadioValue(fieldName: string): string | undefined {
+  const value = optionFieldValue(fieldName);
+  return Array.isArray(value) || value == null ? undefined : String(value);
+}
+
+function updateDictionaryPickerValue(field: RecordFormFieldState, value: string | string[] | undefined) {
+  updateSelectField(field, value ?? null);
+}
+
+function dictionaryPickerMode(field: RecordFormFieldState): DictionaryPickerMode | undefined {
+  const descriptor = props.fields?.get(field.fieldName);
+  if (descriptor?.option?.binding.sourceType !== 'dictionary') return undefined;
+  const alias = field.fieldControl?.alias;
+  if (
+    alias === 'dictionary_dropdown' ||
+    alias === 'dictionary_multi_dropdown' ||
+    field.controlType === 'select'
+  )
+    return 'dropdown';
+  if (alias === 'dictionary_dialog' || alias === 'dictionary_multi_dialog') return 'dialog';
+  return undefined;
+}
+
+function dictionaryPickerErrorOf(field: RecordFormFieldState) {
+  // Dictionary completion is local to its picker, while the form owns save blocking and messaging.
+  const validity = dictionaryFieldValidity.value[field.fieldName];
+  if (!dictionaryPickerMode(field) || fieldDisabled(field) || !validity || validity.valid) return undefined;
+  return validity.message ?? `请完成${field.label}的选择`;
 }
 
 function retryOptionField(field: RecordFormFieldState) {
@@ -565,6 +631,7 @@ function fieldInvalid(field: RecordFormFieldState) {
   return Boolean(
     requiredFieldError(field) ||
     optionFieldError(field) ||
+    dictionaryRendererErrorOf(field) ||
     editorFieldError(field) ||
     referenceFieldError(field),
   );
@@ -804,6 +871,29 @@ function groupEndsAt(field: RecordFormFieldState, index: number) {
             @update:value="updateField(field.fieldName, $event)"
             @select="applyMultiPickerSelection(field.fieldName, $event)"
           />
+          <DictionaryPicker
+            v-else-if="dictionaryPickerMode(field)"
+            :value="dictionaryPickerValue(field.fieldName)"
+            :items="optionFieldItems(field)"
+            :selection-mode="field.optionSelectionMode ?? 'SINGLE'"
+            :mode="dictionaryPickerMode(field)!"
+            :title="`选择${field.label}`"
+            :placeholder="field.placeholder ?? '搜索并选择'"
+            :disabled="fieldDisabled(field) || optionFieldLoading(field)"
+            :allow-clear="!field.required"
+            @update:value="updateDictionaryPickerValue(field, $event)"
+            @validity-change="dictionaryFieldValidity[field.fieldName] = $event"
+          />
+          <DictionaryRadioGroup
+            v-else-if="field.controlType === 'dictionaryRadioGroup'"
+            :value="dictionaryRadioValue(field.fieldName)"
+            :items="optionFieldItems(field)"
+            :max-options="field.fieldControl?.properties?.maxOptions"
+            :disabled="
+              fieldDisabled(field) || optionFieldLoading(field) || Boolean(dictionaryRendererErrorOf(field))
+            "
+            @update:value="updateSelectField(field, $event ?? null)"
+          />
           <SingleImageFileReferenceField
             v-else-if="
               field.controlType === 'imageFileTransfer' &&
@@ -921,7 +1011,12 @@ function groupEndsAt(field: RecordFormFieldState, index: number) {
         </div>
         <div v-if="optionFieldError(field)" class="record-form-field-error">
           <span>{{ optionFieldError(field) }}</span>
-          <UiButton type="link" :disabled="optionFieldLoading(field)" @click="retryOptionField(field)">
+          <UiButton
+            v-if="optionFieldLoadError(field)"
+            type="link"
+            :disabled="optionFieldLoading(field)"
+            @click="retryOptionField(field)"
+          >
             重试
           </UiButton>
         </div>

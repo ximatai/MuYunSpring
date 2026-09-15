@@ -23,6 +23,7 @@ import net.ximatai.muyun.spring.platform.metadata.FieldUiControl;
 import net.ximatai.muyun.spring.platform.metadata.FieldUiControlBinding;
 import net.ximatai.muyun.spring.platform.metadata.FieldUiControlProperty;
 import net.ximatai.muyun.spring.platform.metadata.FieldUiControlValueShape;
+import net.ximatai.muyun.spring.platform.metadata.FieldUiControlPresetCatalog;
 import net.ximatai.muyun.spring.dynamic.metadata.ViewControlType;
 import org.junit.jupiter.api.Test;
 
@@ -1288,6 +1289,80 @@ class ModuleUiDescriptorCompilerTest {
     }
 
     @Test
+    void shouldCompileDictionaryControlAliasesForStaticAndDynamicModules() {
+        ModuleUiDefinition ui = editorPage("iam.dictionary_demo", form -> form
+                .field("dropdown", field -> field.uiType("dictionary_dropdown"))
+                .field("multiDropdown", field -> field.uiType("dictionary_multi_dropdown"))
+                .field("dialog", field -> field.uiType("dictionary_dialog"))
+                .field("multiDialog", field -> field.uiType("dictionary_multi_dialog"))
+                .field("radio", field -> field.uiType("dictionary_radio")));
+        List<FieldDefinition> fields = List.of(
+                FieldDefinition.string("dropdown", "下拉"), FieldDefinition.string("multiDropdown", "多选下拉"),
+                FieldDefinition.string("dialog", "弹窗"), FieldDefinition.string("multiDialog", "多选弹窗"),
+                FieldDefinition.string("radio", "单选组"));
+        StaticModuleDefinition staticDefinition = StaticModuleDefinition.builder("iam", "iam.dictionary_demo", "字典演示")
+                .entities(List.of(new EntityDefinition("dictionary_demo", "iam_dictionary_demo", "DictionaryDemo", fields)))
+                .uiDefinition(ui).modelClass(DictionaryControlRecord.class).build();
+        Map<String, ResolvedOptionFieldDescriptor> dynamicOptions = Map.of(
+                "dropdown", dictionaryOption(OptionSelectionMode.SINGLE),
+                "multiDropdown", dictionaryOption(OptionSelectionMode.MULTIPLE),
+                "dialog", dictionaryOption(OptionSelectionMode.SINGLE),
+                "multiDialog", dictionaryOption(OptionSelectionMode.MULTIPLE),
+                "radio", dictionaryOption(OptionSelectionMode.SINGLE));
+        Map<String, ResolvedFieldControlDescriptor> dynamicControls = FieldControlDescriptorCatalog.fromConfigured(
+                FieldUiControlPresetCatalog.fieldUiControls(), FieldUiControlPresetCatalog.properties(),
+                FieldUiControlPresetCatalog.bindings());
+
+        List<ResolvedViewFieldDescriptor> staticFields = ModuleUiDescriptorCompiler.compile(staticDefinition).page()
+                .detail().editor().fields();
+        List<ResolvedViewFieldDescriptor> dynamicFields = ModuleUiDescriptorCompiler.compile(ui, ModuleKind.DYNAMIC,
+                "字典演示", dynamicOptions, Map.of(), null, Map.of(), dynamicControls).page().detail().editor().fields();
+
+        assertThat(staticFields).extracting(ResolvedViewFieldDescriptor::fieldControl)
+                .containsExactlyElementsOf(dynamicFields.stream().map(ResolvedViewFieldDescriptor::fieldControl).toList());
+        assertThat(dynamicFields).extracting(field -> field.fieldControl().rendererType())
+                .containsExactly("SELECT", "MULTI_SELECT", "DICTIONARY_PICKER", "DICTIONARY_PICKER", "DICTIONARY_RADIO_GROUP");
+        assertThat(dynamicFields).extracting(field -> field.fieldControl().valueShape())
+                .containsExactly("SCALAR", "COLLECTION", "SCALAR", "COLLECTION", "SCALAR");
+        assertThat(dynamicFields.getLast().fieldControl().properties()).containsEntry("maxOptions", "12");
+    }
+
+    @Test
+    void shouldRejectDictionaryControlsWithoutDictionaryOptionContractsOrMatchingShapes() {
+        ModuleUiDefinition dropdown = editorPage("iam.dictionary_demo", form -> form
+                .field("status", field -> field.uiType("dictionary_dropdown")));
+        Map<String, ResolvedFieldControlDescriptor> controls = FieldControlDescriptorCatalog.standard();
+
+        assertThatThrownBy(() -> ModuleUiDescriptorCompiler.compile(dropdown, ModuleKind.DYNAMIC, "字典演示",
+                Map.of(), Map.of(), null, Map.of(), controls))
+                .hasMessageContaining("dictionary control requires an option binding");
+        assertThatThrownBy(() -> ModuleUiDescriptorCompiler.compile(dropdown, ModuleKind.DYNAMIC, "字典演示",
+                Map.of("status", new ResolvedOptionFieldDescriptor(
+                        new OptionBinding(OptionBinding.ENUM_SOURCE, "demo.Status"), OptionSelectionMode.SINGLE, null)),
+                Map.of(), null, Map.of(), controls))
+                .hasMessageContaining("requires a DICTIONARY option source");
+
+        ModuleUiDefinition radio = editorPage("iam.dictionary_demo", form -> form
+                .field("status", field -> field.uiType("dictionary_radio")));
+        assertThatThrownBy(() -> ModuleUiDescriptorCompiler.compile(radio, ModuleKind.DYNAMIC, "字典演示",
+                Map.of("status", dictionaryOption(OptionSelectionMode.MULTIPLE)), Map.of(), null, Map.of(), controls))
+                .hasMessageContaining("radio control does not support MULTIPLE");
+        Map<String, ResolvedFieldControlDescriptor> invalidRadioMaxOptions = Map.of("dictionary_radio",
+                new ResolvedFieldControlDescriptor("dictionary_radio", "DICTIONARY_RADIO_GROUP", "SCALAR",
+                        Map.of("maxOptions", "0"), List.of()));
+        assertThatThrownBy(() -> ModuleUiDescriptorCompiler.compile(radio, ModuleKind.DYNAMIC, "字典演示",
+                Map.of("status", dictionaryOption(OptionSelectionMode.SINGLE)), Map.of(), null, Map.of(),
+                invalidRadioMaxOptions))
+                .hasMessageContaining("radio maxOptions must be a positive integer");
+
+        Map<String, ResolvedFieldControlDescriptor> mismatchedShape = Map.of("dictionary_dropdown",
+                new ResolvedFieldControlDescriptor("dictionary_dropdown", "SELECT", "COLLECTION", Map.of(), List.of()));
+        assertThatThrownBy(() -> ModuleUiDescriptorCompiler.compile(dropdown, ModuleKind.DYNAMIC, "字典演示",
+                Map.of("status", dictionaryOption(OptionSelectionMode.SINGLE)), Map.of(), null, Map.of(), mismatchedShape))
+                .hasMessageContaining("selection mode and value shape must match");
+    }
+
+    @Test
     void shouldRejectRecordPickerPresentationOutsideExecutableSourceFieldReference() {
         ModuleUiDefinition definition = editorPage("sales.order", form -> form
                 .field("customerId", field -> field.uiType("record_picker_dropdown")));
@@ -1968,6 +2043,27 @@ class ModuleUiDescriptorCompilerTest {
                         )
                 )
         );
+    }
+
+    private static ResolvedOptionFieldDescriptor dictionaryOption(OptionSelectionMode selectionMode) {
+        return new ResolvedOptionFieldDescriptor(OptionBinding.dictionary("iam", "status"), selectionMode, null);
+    }
+
+    private static class DictionaryControlRecord {
+        @DictionaryField(source = "iam.status")
+        private String dropdown;
+
+        @DictionaryField(source = "iam.status", selectionMode = OptionSelectionMode.MULTIPLE)
+        private Set<String> multiDropdown;
+
+        @DictionaryField(source = "iam.status")
+        private String dialog;
+
+        @DictionaryField(source = "iam.status", selectionMode = OptionSelectionMode.MULTIPLE)
+        private Set<String> multiDialog;
+
+        @DictionaryField(source = "iam.status")
+        private String radio;
     }
 
     private static class OptionEmployee {

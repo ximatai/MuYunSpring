@@ -592,7 +592,10 @@ describe('RecordFormFields', () => {
           option: {
             binding: { sourceType: 'dictionary', source: 'crm.category' },
             selectionMode: 'MULTIPLE',
-            inlineItems: [{ code: 'vip', title: '重点客户', enabled: true }],
+            inlineItems: [
+              { code: 'vip', title: '重点客户', enabled: true },
+              { code: 'new', title: '新客户', enabled: true },
+            ],
           },
         },
       ],
@@ -906,6 +909,285 @@ describe('RecordFormFields', () => {
     expect(wrapper.emitted('reference-projections-change')).toContainEqual([
       'supplierId',
       { supplierCode: 'SUP-003' },
+    ]);
+  });
+
+  it('uses dictionary-only renderers without changing code-valued form mutations', async () => {
+    const DictionaryPickerStub = defineComponent({
+      name: 'DictionaryPicker',
+      props: ['value', 'items', 'selectionMode', 'mode'],
+      emits: ['update:value'],
+      template: '<div class="dictionary-picker-stub" />',
+    });
+    const DictionaryRadioGroupStub = defineComponent({
+      name: 'DictionaryRadioGroup',
+      props: ['value', 'items', 'maxOptions', 'disabled'],
+      emits: ['update:value'],
+      template: '<div class="dictionary-radio-group-stub" />',
+    });
+    const dictionaryOption = {
+      binding: { sourceType: 'dictionary', source: 'education.exam_status' },
+      selectionMode: 'SINGLE' as const,
+      inlineItems: [
+        { code: 'draft', title: '草稿', enabled: true },
+        { code: 'published', title: '已发布', enabled: true },
+      ],
+    };
+    const fields = new Map<string, RecordFormFieldDescriptor>([
+      [
+        'status',
+        {
+          fieldRef: { fieldName: 'status' },
+          label: '状态',
+          fieldControl: {
+            alias: 'dictionary_dialog',
+            rendererType: 'DICTIONARY_PICKER',
+            valueShape: 'SCALAR',
+            properties: {},
+          },
+          option: dictionaryOption,
+        },
+      ],
+      [
+        'visibility',
+        {
+          fieldRef: { fieldName: 'visibility' },
+          label: '可见性',
+          fieldControl: {
+            alias: 'dictionary_radio',
+            rendererType: 'DICTIONARY_RADIO_GROUP',
+            valueShape: 'SCALAR',
+            properties: { maxOptions: '12' },
+          },
+          option: dictionaryOption,
+        },
+      ],
+    ]);
+    const wrapper = mount(RecordFormFields, {
+      props: { record: { status: 'draft', visibility: 'published' }, fields },
+      global: {
+        stubs: {
+          DictionaryPicker: DictionaryPickerStub,
+          DictionaryRadioGroup: DictionaryRadioGroupStub,
+        },
+      },
+    });
+
+    const dialog = wrapper.findComponent(DictionaryPickerStub);
+    const radio = wrapper.findComponent(DictionaryRadioGroupStub);
+    expect(dialog.props('value')).toBe('draft');
+    expect(dialog.props('selectionMode')).toBe('SINGLE');
+    expect(dialog.props('mode')).toBe('dialog');
+    expect(radio.props('value')).toBe('published');
+    expect(radio.props('maxOptions')).toBe('12');
+
+    dialog.vm.$emit('update:value', 'published');
+    radio.vm.$emit('update:value', 'draft');
+    await wrapper.vm.$nextTick();
+    expect(wrapper.emitted('update:field')).toContainEqual(['status', 'published']);
+    expect(wrapper.emitted('update:field')).toContainEqual(['visibility', 'draft']);
+  });
+
+  it('normalizes lower-case CodeTitleEnum cardinality before the unified dictionary picker emits a value', async () => {
+    const DictionaryPickerStub = defineComponent({
+      name: 'DictionaryPicker',
+      props: ['value', 'items', 'selectionMode', 'mode'],
+      emits: ['update:value'],
+      template: '<div class="dictionary-picker-stub" />',
+    });
+    const wrapper = mount(RecordFormFields, {
+      props: {
+        record: { status: 'draft' },
+        fields: new Map<string, RecordFormFieldDescriptor>([
+          [
+            'status',
+            {
+              fieldRef: { fieldName: 'status' },
+              label: '状态',
+              fieldControl: {
+                alias: 'dictionary_dialog',
+                rendererType: 'DICTIONARY_PICKER',
+                valueShape: 'SCALAR',
+                properties: {},
+              },
+              option: {
+                binding: { sourceType: 'dictionary', source: 'education.exam_status' },
+                selectionMode: 'single' as never,
+              },
+            },
+          ],
+        ]),
+      },
+      global: { stubs: { DictionaryPicker: DictionaryPickerStub } },
+    });
+
+    const dialog = wrapper.findComponent(DictionaryPickerStub);
+    expect(dialog.props('selectionMode')).toBe('SINGLE');
+    expect(dialog.props('mode')).toBe('dialog');
+    dialog.vm.$emit('update:value', 'published');
+    await wrapper.vm.$nextTick();
+    expect(wrapper.emitted('update:field')).toContainEqual(['status', 'published']);
+  });
+
+  it('routes dictionary dropdown aliases through the same picker while preserving code arrays', async () => {
+    const DictionaryPickerStub = defineComponent({
+      name: 'DictionaryPicker',
+      props: ['value', 'items', 'selectionMode', 'mode'],
+      emits: ['update:value'],
+      template: '<div class="dictionary-picker-stub" />',
+    });
+    const wrapper = mount(RecordFormFields, {
+      props: {
+        record: { statuses: ['draft'] },
+        fields: new Map<string, RecordFormFieldDescriptor>([
+          [
+            'statuses',
+            {
+              fieldRef: { fieldName: 'statuses' },
+              label: '状态集合',
+              fieldControl: {
+                alias: 'dictionary_multi_dropdown',
+                rendererType: 'MULTI_SELECT',
+                valueShape: 'COLLECTION',
+                properties: {},
+              },
+              option: {
+                binding: { sourceType: 'dictionary', source: 'education.exam_status' },
+                selectionMode: 'MULTIPLE',
+              },
+            },
+          ],
+        ]),
+      },
+      global: { stubs: { DictionaryPicker: DictionaryPickerStub } },
+    });
+
+    const picker = wrapper.findComponent(DictionaryPickerStub);
+    expect(picker.props('mode')).toBe('dropdown');
+    expect(picker.props('selectionMode')).toBe('MULTIPLE');
+    expect(picker.props('value')).toEqual(['draft']);
+    picker.vm.$emit('update:value', ['published', 'archived']);
+    await wrapper.vm.$nextTick();
+    expect(wrapper.emitted('update:field')).toContainEqual(['statuses', ['published', 'archived']]);
+  });
+
+  it('routes the default dictionary select through the unified dropdown without changing enum selects', () => {
+    const DictionaryPickerStub = defineComponent({
+      name: 'DictionaryPicker',
+      props: ['mode'],
+      template: '<div class="dictionary-picker-stub" />',
+    });
+    const wrapper = mount(RecordFormFields, {
+      props: {
+        record: {},
+        fields: new Map<string, RecordFormFieldDescriptor>([
+          [
+            'dictionaryStatus',
+            {
+              fieldRef: { fieldName: 'dictionaryStatus' },
+              label: '字典状态',
+              option: {
+                binding: { sourceType: 'dictionary', source: 'education.exam_status' },
+                selectionMode: 'SINGLE',
+                inlineItems: [{ code: 'draft', title: '草稿', enabled: true }],
+              },
+            },
+          ],
+          [
+            'enumStatus',
+            {
+              fieldRef: { fieldName: 'enumStatus' },
+              label: '枚举状态',
+              option: {
+                binding: { sourceType: 'enum', source: 'status' },
+                selectionMode: 'SINGLE',
+                inlineItems: [{ code: 'draft', title: '草稿', enabled: true }],
+              },
+            },
+          ],
+        ]),
+      },
+      global: { stubs: { DictionaryPicker: DictionaryPickerStub } },
+    });
+
+    expect(wrapper.findAllComponents(DictionaryPickerStub)).toHaveLength(1);
+    expect(wrapper.findComponent(DictionaryPickerStub).props('mode')).toBe('dropdown');
+    expect(wrapper.findAllComponents({ name: 'UiSelect' })).toHaveLength(1);
+  });
+
+  it('blocks form submission for an unmatched dictionary draft without duplicating the picker-level visual prompt', async () => {
+    const DictionaryPickerStub = defineComponent({
+      name: 'DictionaryPicker',
+      emits: ['validity-change'],
+      template: '<div class="dictionary-picker-stub" />',
+    });
+    const wrapper = mount(RecordFormFields, {
+      props: {
+        record: { status: 'enabled' },
+        fields: new Map<string, RecordFormFieldDescriptor>([
+          [
+            'status',
+            {
+              fieldRef: { fieldName: 'status' },
+              label: '验收状态',
+              option: {
+                binding: { sourceType: 'dictionary', source: 'education.exam_status' },
+                selectionMode: 'SINGLE',
+                inlineItems: [{ code: 'enabled', title: '启用', enabled: true }],
+              },
+            },
+          ],
+        ]),
+      },
+      global: { stubs: { DictionaryPicker: DictionaryPickerStub } },
+    });
+
+    wrapper.findComponent(DictionaryPickerStub).vm.$emit('validity-change', {
+      valid: false,
+      status: 'unmatched',
+      message: '未找到匹配的字典项',
+    });
+    await wrapper.vm.$nextTick();
+
+    expect(wrapper.text()).not.toContain('未找到匹配的字典项');
+    expect(wrapper.emitted('validity-change')?.at(-1)).toEqual([
+      { valid: false, errors: { status: '未找到匹配的字典项' } },
+    ]);
+    expect(wrapper.emitted('update:field')).toBeUndefined();
+  });
+
+  it('blocks radio rendering for a hierarchical or oversized dictionary instead of truncating candidates', async () => {
+    const fields = new Map<string, RecordFormFieldDescriptor>([
+      [
+        'status',
+        {
+          fieldRef: { fieldName: 'status' },
+          label: '状态',
+          fieldControl: {
+            alias: 'dictionary_radio',
+            rendererType: 'DICTIONARY_RADIO_GROUP',
+            valueShape: 'SCALAR',
+            properties: { maxOptions: '1' },
+          },
+          option: {
+            binding: { sourceType: 'dictionary', source: 'education.exam_status' },
+            selectionMode: 'SINGLE',
+            inlineItems: [
+              { code: 'parent', title: '父项', enabled: true },
+              { code: 'child', title: '子项', enabled: true, parentCode: 'parent' },
+            ],
+          },
+        },
+      ],
+    ]);
+    const wrapper = mount(RecordFormFields, { props: { record: { status: 'child' }, fields } });
+
+    expect(wrapper.text()).toContain('层级字典不支持 radio 单选组');
+    expect(wrapper.emitted('validity-change')?.at(-1)).toEqual([
+      expect.objectContaining({
+        valid: false,
+        errors: expect.objectContaining({ status: expect.any(String) }),
+      }),
     ]);
   });
 });

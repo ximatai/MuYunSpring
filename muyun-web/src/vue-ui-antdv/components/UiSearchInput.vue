@@ -51,6 +51,7 @@ const emit = defineEmits<{
   search: [value: string, source?: 'input' | 'clear'];
   blur: [event: FocusEvent];
   change: [event: Event];
+  dblclick: [event: MouseEvent];
 }>();
 
 function handleSearch(value: string, event?: Event, info?: { source?: 'input' | 'clear' }) {
@@ -92,6 +93,7 @@ function handleKeydown(event: KeyboardEvent) {
     @blur="emit('blur', $event)"
     @change="emit('change', $event)"
     @keydown="handleKeydown"
+    @dblclick="emit('dblclick', $event)"
   />
 </template>
 

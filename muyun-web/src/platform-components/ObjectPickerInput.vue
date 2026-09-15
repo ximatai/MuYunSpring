@@ -81,6 +81,11 @@ function browse(value: string, source?: 'input' | 'clear') {
   emit('browse', value === props.value ? '' : value);
 }
 
+function browseOnDoubleClick() {
+  if (props.disabled) return;
+  browse(inputValue.value);
+}
+
 function completeDraft(event: FocusEvent) {
   const nextFocus = event.relatedTarget;
   const ownControl =
@@ -114,6 +119,7 @@ function completeDraft(event: FocusEvent) {
     :aria-label="browseLabel"
     @update:value="updateDraft"
     @search="browse"
+    @dblclick="browseOnDoubleClick"
     @blur="completeDraft"
   />
 </template>

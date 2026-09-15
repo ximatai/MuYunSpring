@@ -117,6 +117,8 @@ export type RecordFormFieldControlType =
   | 'switch'
   | 'recordPicker'
   | 'recordMultiPicker'
+  | 'dictionaryPicker'
+  | 'dictionaryRadioGroup'
   | 'fileTransfer'
   | 'imageFileTransfer'
   | 'unsupported';
@@ -167,6 +169,17 @@ export const recordFieldRendererRegistry: readonly RecordFieldRenderer[] = [
     supports: (field) => field.reference?.cardinality === 'MANY',
   },
   {
+    rendererType: 'DICTIONARY_PICKER',
+    controlType: 'dictionaryPicker',
+    supports: isDictionaryOptionField,
+  },
+  {
+    rendererType: 'DICTIONARY_RADIO_GROUP',
+    controlType: 'dictionaryRadioGroup',
+    supports: (field) =>
+      isDictionaryOptionField(field) && optionSelectionModeOf(field.option?.selectionMode) === 'SINGLE',
+  },
+  {
     rendererType: 'FILE',
     controlType: 'fileTransfer',
     supports: (field) => field.fileReference != null && !isSingleImageFileReference(field.fileReference),
@@ -185,6 +198,10 @@ export const recordFieldRendererRegistry: readonly RecordFieldRenderer[] = [
  */
 function isTreeParentPicker(field: RecordFormFieldDescriptor) {
   return field.fieldRef?.fieldName === 'parentId' && Boolean(field.treeRootTitle);
+}
+
+function isDictionaryOptionField(field: RecordFormFieldDescriptor) {
+  return field.option?.binding.sourceType === 'dictionary';
 }
 
 export interface RecordFormFieldFallback {
@@ -471,7 +488,8 @@ export function resolveRecordFormFieldState(
     ...baseState,
     ...(field?.option
       ? {
-          optionSelectionMode: fieldControlSelectionMode(field) ?? field.option.selectionMode,
+          optionSelectionMode:
+            fieldControlSelectionMode(field) ?? optionSelectionModeOf(field.option.selectionMode),
           ...(field.option.inlineItems?.length ? { optionItems: field.option.inlineItems } : {}),
           ...(field.option.titleField ? { optionTitleField: field.option.titleField } : {}),
         }
@@ -652,6 +670,14 @@ function fieldControlSelectionMode(field: RecordFormFieldDescriptor | undefined)
     return 'MULTIPLE' as const;
   }
   return undefined;
+}
+
+/**
+ * CodeTitleEnum values cross the HTTP boundary as lower-case codes. Renderers deliberately keep
+ * the upper-case UI union, so normalize once while compiling the form state.
+ */
+function optionSelectionModeOf(value: unknown): 'SINGLE' | 'MULTIPLE' {
+  return String(value).toUpperCase() === 'MULTIPLE' ? 'MULTIPLE' : 'SINGLE';
 }
 
 /**

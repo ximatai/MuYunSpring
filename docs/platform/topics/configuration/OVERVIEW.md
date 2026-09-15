@@ -91,6 +91,12 @@ Web 维护面按“独立配置根 + 模块聚合子资源”组织：应用、�
 1. `DICTIONARY`：静态字段使用 `@DictionaryField(source = "applicationAlias.categoryAlias")`；字段需要交付最小字典值域时在同一注解声明 `title` 和 `initialItems`。业务字段保存字典项目 `code`。租户上下文读取字典选项时，租户字典优先；租户下不存在对应类目时，允许回退读取平台全局字典。
 2. `ENUM`：字段类型或 `enumType` 必须实现 `CodeTitleEnum`，业务字段保存 enum code。集合或数组字段必须显式声明 `selectionMode = MULTIPLE`。
 
+### 字典字段展示形式
+
+字典绑定、合法值域和单值／多值基数属于字段事实；页面只可通过 `props.fieldUiControlAlias` 选择展示，不得把字典改成模块引用或保存字典项目记录 ID。平台预设为 `dictionary_dropdown`、`dictionary_multi_dropdown`、`dictionary_dialog`、`dictionary_multi_dialog` 和 `dictionary_radio`；静态声明与动态元数据都先编译为同一 option 描述符，再由标准表单读取候选和保存校验。下拉和弹框分别覆盖单值、多值，radio 只允许单值。
+
+字典弹框以 code 为草稿和提交值，标题仅用于展示；它支持搜索、确认、取消、清除和重开回显，并保留层级字典的树关系。失效项目可作为历史 code 回显但不可重新选择，新增或修改值仍由服务端按启用项目校验。radio 只适合完整、小规模且无层级的候选集，默认最多 12 个启用候选；层级或超限时运行态明确阻止编辑，发布／浏览器均不截断候选，也不静默降级为其他展示形式。
+
 ## 子实体系统字段
 
 子实体与主实体使用同一基础标准字段目录，包括 ID、租户、版本、软删除与创建/更新信息；这些目录项由平台生成，并对应统一运行态的物理列。子实体不因此继承主实体的树、启停、排序或数据范围等模块增强能力。
