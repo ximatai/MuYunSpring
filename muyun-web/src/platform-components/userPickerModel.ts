@@ -50,31 +50,3 @@ export interface UserPickerPageRequest {
 
 export type UserPickerPageSearch = (request: UserPickerPageRequest) => Promise<UserPickerPage>;
 export type UserPickerResolver = IdentityPickerResolver<UserAccountId>;
-
-/**
- * A source-owned user-selection delivery contract. The picker consumes it without knowing
- * whether candidates come from a form reference, an authorization surface, or a log stream.
- */
-export interface UserPickerConfig {
-  title?: string;
-  placeholder?: string;
-  maxSelection?: number;
-  searchPage: UserPickerPageSearch;
-  resolveUsers: UserPickerResolver;
-}
-
-export function normalizeUserAccountIds(
-  value: UserAccountId | readonly UserAccountId[] | undefined,
-  multiple: boolean,
-): UserAccountId[] {
-  const raw = Array.isArray(value) ? value : value ? [value] : [];
-  const unique = [...new Set(raw.filter(Boolean))];
-  return multiple ? unique : unique.slice(0, 1);
-}
-
-export function userPickerValue(
-  ids: readonly UserAccountId[],
-  multiple: boolean,
-): UserAccountId | UserAccountId[] | undefined {
-  return multiple ? [...ids] : ids[0];
-}

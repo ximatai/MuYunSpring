@@ -1,50 +1,41 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue';
+import { computed, getCurrentInstance } from 'vue';
+import ReferencePicker from './ReferencePicker.vue';
 import {
-  UiButton,
-  UiDataTable,
-  UiError,
-  UiModal,
-  UiSearchInput,
-  UiTagList,
-  UiTree,
-} from '@muyun/vue-ui-antdv';
-import ObjectPickerInput from './ObjectPickerInput.vue';
-import RecordExplorerPanel from './RecordExplorerPanel.vue';
+  createUserReferencePickerProvider,
+  toUserPickerCandidate,
+  userReferencePickerColumns,
+} from './userReferencePicker';
 import type {
-  UiDataTableColumn,
-  UiDataTablePagination,
-  UiDataTableRecord,
-  UiDataTableSelection,
-  UiTreeNode,
-} from '@muyun/vue-ui-antdv';
-import {
-  normalizeUserAccountIds,
-  userPickerValue,
-  type UserAccountId,
-  type UserPickerCandidate,
-  type UserPickerNavigationItem,
-  type UserPickerNavigationScope,
-  type UserPickerPage,
-  type UserPickerPageSearch,
-  type UserPickerResolver,
+  ReferencePickerCandidate,
+  ReferencePickerSourceIdentity,
+  ReferencePickerValidity,
+} from './referencePickerModel';
+import type {
+  UserAccountId,
+  UserPickerCandidate,
+  UserPickerPageSearch,
+  UserPickerResolver,
 } from './userPickerModel';
 
 defineOptions({ name: 'UserPicker' });
 
 const props = withDefaults(
   defineProps<{
-    /** User account ID for a single picker, or account IDs for a multiple picker. */
     value?: UserAccountId | readonly UserAccountId[];
     multiple?: boolean;
     maxSelection?: number;
     placeholder?: string;
     disabled?: boolean;
+    allowClear?: boolean;
     pageSize?: number;
     title?: string;
     searchPlaceholder?: string;
     emptyDescription?: string;
     selectionNoun?: string;
+    reloadKey?: string | number;
+    /** A caller declares its source purpose; account target identity alone is never a cache scope. */
+    sourceIdentity?: ReferencePickerSourceIdentity;
     searchPage: UserPickerPageSearch;
     resolveUsers: UserPickerResolver;
   }>(),
@@ -54,451 +45,77 @@ const props = withDefaults(
     maxSelection: undefined,
     placeholder: '搜索并选择用户',
     disabled: false,
+    allowClear: true,
     pageSize: 20,
     title: '选择用户',
     searchPlaceholder: '按账号或用户 ID 搜索',
     emptyDescription: '没有可选择的用户',
     selectionNoun: '用户',
+    reloadKey: undefined,
+    sourceIdentity: undefined,
   },
 );
 
 const emit = defineEmits<{
   'update:value': [value: UserAccountId | UserAccountId[] | undefined];
   select: [users: UserPickerCandidate[]];
+  'selection-resolved': [users: UserPickerCandidate[]];
+  'validity-change': [validity: ReferencePickerValidity];
 }>();
 
-const columns: UiDataTableColumn[] = [
-  { key: 'account', title: '用户账号', width: 140 },
-  { key: 'employeeName', title: '职员姓名', width: 140 },
-  { key: 'organizationName', title: '所属机构', width: 150 },
-  { key: 'departmentName', title: '所属部门', width: 150 },
-];
-const open = ref(false);
-const keyword = ref('');
-const pageNum = ref(1);
-const page = ref<UserPickerPage>({ records: [], total: 0 });
-const navigationScope = ref<UserPickerNavigationScope>({});
-const loading = ref(false);
-const error = ref<string>();
-const draftIds = ref<UserAccountId[]>([]);
-const candidatesById = ref(new Map<UserAccountId, UserPickerCandidate>());
-let pageRequestVersion = 0;
-let resolveRequestVersion = 0;
-
-const externalIds = computed(() => normalizeUserAccountIds(props.value, props.multiple));
-const pageCount = computed(() => Math.max(1, Math.ceil(page.value.total / props.pageSize)));
-const rows = computed<UiDataTableRecord[]>(() =>
-  page.value.records.map((candidate) => ({
-    ...candidate,
-    account: candidate.account ?? candidate.id,
-    employeeName: candidate.employeeName ?? candidate.title,
-    organizationName: candidate.organizationName ?? candidate.organizationId ?? '—',
-    departmentName: candidate.departmentName ?? candidate.departmentId ?? '—',
-  })),
-);
-const showNavigation = computed(() => Boolean(page.value.navigation));
-const navigationColumns = computed(() => {
-  const navigation = page.value.navigation;
-  if (!navigation) return [];
-  return [
-    ...(navigation.showTenantNavigation
-      ? [{ key: 'tenant' as const, title: '租户', items: navigation.tenants }]
-      : []),
-    {
-      key: 'organization' as const,
-      title: '机构',
-      items: navigation.organizations.filter(
-        (item) => !navigationScope.value.tenantId || item.tenantId === navigationScope.value.tenantId,
-      ),
+const instanceId = getCurrentInstance()?.uid ?? Math.random().toString(36).slice(2);
+const sourceIdentity = computed<ReferencePickerSourceIdentity>(
+  () =>
+    props.sourceIdentity ?? {
+      targetModuleAlias: 'iam.user',
+      // This default only isolates a legacy component instance; real shared sources must declare identity.
+      source: { kind: 'targetReference', id: `legacy-user-picker-${instanceId}` },
     },
-    {
-      key: 'department' as const,
-      title: '部门',
-      items: navigation.departments.filter(
-        (item) =>
-          (!navigationScope.value.tenantId || item.tenantId === navigationScope.value.tenantId) &&
-          (!navigationScope.value.organizationId ||
-            item.organizationId === navigationScope.value.organizationId),
-      ),
-    },
-  ];
-});
-const selectedUsers = computed(() =>
-  draftIds.value.map((id) => candidatesById.value.get(id) ?? { id, title: id, unavailable: true }),
 );
-const summary = computed(() => {
-  if (!externalIds.value.length) return '';
-  if (props.multiple) return `已选择 ${externalIds.value.length} 位${props.selectionNoun}`;
-  return candidatesById.value.get(externalIds.value[0]!)?.title ?? externalIds.value[0]!;
-});
-const pickerTags = computed(() =>
-  selectedUsers.value.map((user) => ({
-    key: user.id,
-    label: user.unavailable ? `${user.title}（不可用）` : user.title,
-  })),
-);
-const selection = computed<UiDataTableSelection | undefined>(() =>
-  props.multiple
-    ? {
-        selectedRowKeys: draftIds.value,
-        preserveSelectedRowKeys: true,
-        disabledOf: (record) => !canSelect(String(record.id)),
-        onChange: (keys) => updateDraft(keys.map(String)),
-      }
-    : undefined,
-);
-const tablePagination = computed<UiDataTablePagination>(() => ({
-  current: pageNum.value,
-  total: page.value.total,
-  pageSize: props.pageSize,
-  showSizeChanger: false,
-  showQuickJumper: false,
-  onChange: (nextPage) => changePage(nextPage),
-}));
-
-watch(
-  externalIds,
-  (ids) => {
-    void resolveSelection(ids);
-    if (open.value) draftIds.value = [...ids];
-  },
-  { immediate: true },
+const provider = computed(() =>
+  createUserReferencePickerProvider({
+    sourceIdentity: sourceIdentity.value,
+    searchPage: props.searchPage,
+    resolveUsers: props.resolveUsers,
+  }),
 );
 
-function remember(users: readonly UserPickerCandidate[]) {
-  if (!users.length) return;
-  const next = new Map(candidatesById.value);
-  for (const user of users) next.set(user.id, user);
-  candidatesById.value = next;
+function updateValue(value: string | string[] | undefined) {
+  emit('update:value', value);
 }
 
-async function resolveSelection(ids: readonly UserAccountId[]) {
-  const requestVersion = ++resolveRequestVersion;
-  if (!ids.length) return;
-  try {
-    const users = await props.resolveUsers([...ids]);
-    if (requestVersion !== resolveRequestVersion) return;
-    remember(users);
-  } catch {
-    // The caller owns authorization and error presentation for a historical/unavailable projection.
-    // Keep the persisted ID visible instead of silently dropping it.
-  }
+function select(candidates: ReferencePickerCandidate[]) {
+  emit('select', candidates.map(toUserPickerCandidate));
 }
 
-function openPicker() {
-  if (props.disabled) return;
-  draftIds.value = [...externalIds.value];
-  pageNum.value = 1;
-  navigationScope.value = {};
-  error.value = undefined;
-  open.value = true;
-  void loadPage();
+function resolved(candidates: ReferencePickerCandidate[]) {
+  emit('selection-resolved', candidates.map(toUserPickerCandidate));
 }
 
-function closePicker() {
-  open.value = false;
-  keyword.value = '';
-  pageRequestVersion += 1;
-  error.value = undefined;
-}
-
-async function loadPage() {
-  if (!open.value) return;
-  const requestVersion = ++pageRequestVersion;
-  loading.value = true;
-  error.value = undefined;
-  try {
-    const result = await props.searchPage({
-      keyword: keyword.value.trim(),
-      pageNum: pageNum.value,
-      pageSize: props.pageSize,
-      ...(Object.keys(navigationScope.value).length ? { scope: { ...navigationScope.value } } : {}),
-    });
-    if (requestVersion !== pageRequestVersion || !open.value) return;
-    page.value = result;
-    remember(result.records);
-  } catch (cause) {
-    if (requestVersion !== pageRequestVersion || !open.value) return;
-    error.value = cause instanceof Error ? cause.message : '用户候选加载失败';
-  } finally {
-    if (requestVersion === pageRequestVersion) loading.value = false;
-  }
-}
-
-function clearSelection() {
-  draftIds.value = [];
-  emit('update:value', userPickerValue([], props.multiple));
-  emit('select', []);
-}
-
-function openWithKeyword(value: string) {
-  keyword.value = value;
-  openPicker();
-}
-
-function navigationNodes(items: UserPickerNavigationItem[]): UiTreeNode[] {
-  return items.map((item) => ({ key: item.id, title: item.title, isLeaf: true }));
-}
-
-function navigationItem(level: 'tenant' | 'organization' | 'department', id: string) {
-  const navigation = page.value.navigation;
-  if (!navigation) return undefined;
-  const items =
-    level === 'tenant'
-      ? navigation.tenants
-      : level === 'organization'
-        ? navigation.organizations
-        : navigation.departments;
-  return items.find((item) => item.id === id);
-}
-
-function updateNavigationScope(
-  level: 'tenant' | 'organization' | 'department',
-  item?: UserPickerNavigationItem,
-) {
-  if (level === 'tenant') {
-    navigationScope.value = item ? { tenantId: item.id } : {};
-  } else if (level === 'organization') {
-    navigationScope.value = item
-      ? { tenantId: item.tenantId ?? navigationScope.value.tenantId, organizationId: item.id }
-      : navigationScope.value.tenantId
-        ? { tenantId: navigationScope.value.tenantId }
-        : {};
-  } else {
-    navigationScope.value = item
-      ? {
-          tenantId: item.tenantId ?? navigationScope.value.tenantId,
-          organizationId: item.organizationId ?? navigationScope.value.organizationId,
-          departmentId: item.id,
-        }
-      : navigationScope.value.organizationId
-        ? { tenantId: navigationScope.value.tenantId, organizationId: navigationScope.value.organizationId }
-        : navigationScope.value.tenantId
-          ? { tenantId: navigationScope.value.tenantId }
-          : {};
-  }
-  pageNum.value = 1;
-  void loadPage();
-}
-
-function selectNavigation(level: 'tenant' | 'organization' | 'department', node: UiTreeNode) {
-  const item = navigationItem(level, node.key);
-  if (item) updateNavigationScope(level, item);
-}
-
-function deselectNavigation(level: 'tenant' | 'organization' | 'department') {
-  updateNavigationScope(level);
-}
-
-function searchInDialog(value: string) {
-  keyword.value = value;
-  pageNum.value = 1;
-  void loadPage();
-}
-
-function changePage(nextPage: number) {
-  if (nextPage < 1 || nextPage > pageCount.value || nextPage === pageNum.value) return;
-  pageNum.value = nextPage;
-  void loadPage();
-}
-
-function canSelect(id: UserAccountId) {
-  const candidate = candidatesById.value.get(id);
-  if (candidate?.disabled || candidate?.unavailable) return false;
-  return (
-    draftIds.value.includes(id) ||
-    props.maxSelection === undefined ||
-    draftIds.value.length < props.maxSelection
-  );
-}
-
-function updateDraft(ids: UserAccountId[]) {
-  const next = normalizeUserAccountIds(ids, props.multiple).filter(canSelect);
-  draftIds.value = props.maxSelection === undefined ? next : next.slice(0, props.maxSelection);
-}
-
-function selectSingle(record: UiDataTableRecord) {
-  if (props.multiple || !canSelect(String(record.id))) return;
-  draftIds.value = [String(record.id)];
-}
-
-function completeSingle(record: UiDataTableRecord) {
-  if (props.multiple || !canSelect(String(record.id))) return;
-  const id = String(record.id);
-  draftIds.value = [id];
-  emit('update:value', id);
-  emit('select', [candidatesById.value.get(id) ?? { id, title: id, unavailable: true }]);
-  closePicker();
-}
-
-function confirm() {
-  const users = selectedUsers.value;
-  emit('update:value', userPickerValue(draftIds.value, props.multiple));
-  emit('select', users);
-  closePicker();
+function validityChanged(validity: ReferencePickerValidity) {
+  emit('validity-change', validity);
 }
 </script>
 
 <template>
-  <div class="user-picker">
-    <ObjectPickerInput
-      :value="summary"
-      :placeholder="placeholder"
-      :disabled="disabled"
-      :browse-label="title"
-      @browse="openWithKeyword"
-      @clear="clearSelection"
-    />
-
-    <UiModal
-      :open="open"
-      :title="title"
-      :width="showNavigation ? 1120 : 760"
-      :confirm-disabled="loading"
-      :closable="!loading"
-      @confirm="confirm"
-      @cancel="closePicker"
-    >
-      <div class="user-picker-dialog">
-        <UiSearchInput
-          :value="keyword"
-          :placeholder="searchPlaceholder"
-          :loading="loading"
-          search-text="搜索"
-          @update:value="keyword = $event"
-          @search="searchInDialog"
-        />
-        <div v-if="multiple" class="user-picker-selection-summary">
-          <UiTagList :items="pickerTags" :empty-text="'尚未选择'" />
-          <span>已选 {{ draftIds.length }} 位{{ selectionNoun }}</span>
-          <UiButton v-if="draftIds.length" type="link" size="small" @click="draftIds = []">清空选择</UiButton>
-        </div>
-        <div class="user-picker-browse">
-          <aside v-if="showNavigation" class="user-picker-navigation" aria-label="人员范围导航">
-            <RecordExplorerPanel
-              v-for="column in navigationColumns"
-              :key="column.key"
-              class="user-picker-navigation-column"
-              :title="column.title"
-              embedded
-              :refreshable="false"
-              :searchable="false"
-              :collapse-action="false"
-            >
-              <UiTree
-                v-if="column.items.length"
-                display-mode="flat"
-                :nodes="navigationNodes(column.items)"
-                :selected-key="navigationScope[`${column.key}Id`]"
-                @select="selectNavigation(column.key, $event)"
-                @deselect="deselectNavigation(column.key)"
-              />
-            </RecordExplorerPanel>
-          </aside>
-          <div class="user-picker-results">
-            <div v-if="error" class="user-picker-error">
-              <UiError :message="error" />
-              <UiButton size="small" @click="loadPage">重试</UiButton>
-            </div>
-            <UiDataTable
-              :columns="columns"
-              :rows="rows"
-              :loading="loading"
-              :pagination="tablePagination"
-              :selection="selection"
-              :selected-row-key="multiple ? undefined : draftIds[0]"
-              :clickable-rows="!multiple"
-              fill-height
-              horizontal-scroll
-              :empty-description="emptyDescription"
-              @row-click="selectSingle"
-              @row-dblclick="completeSingle"
-            />
-          </div>
-        </div>
-      </div>
-    </UiModal>
-  </div>
+  <ReferencePicker
+    :value="value"
+    :multiple="multiple"
+    :max-selection="maxSelection"
+    :provider="provider"
+    :reload-key="reloadKey"
+    :columns="userReferencePickerColumns"
+    :placeholder="placeholder"
+    :disabled="disabled"
+    :allow-clear="allowClear"
+    :page-size="pageSize"
+    :title="title"
+    :search-placeholder="searchPlaceholder"
+    :empty-description="emptyDescription"
+    :selection-noun="selectionNoun"
+    @update:value="updateValue"
+    @select="select"
+    @selection-resolved="resolved"
+    @validity-change="validityChanged"
+  />
 </template>
-
-<style scoped>
-.user-picker {
-  min-width: 0;
-}
-
-.user-picker-dialog {
-  display: grid;
-  gap: 12px;
-}
-
-.user-picker-browse {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  height: min(52vh, 440px);
-  min-height: 340px;
-}
-
-.user-picker-browse:has(.user-picker-navigation) {
-  grid-template-columns: minmax(460px, 3fr) minmax(0, 7fr);
-  gap: 16px;
-}
-
-.user-picker-navigation {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  overflow: hidden;
-  border: 1px solid var(--muyun-border);
-  border-radius: 6px;
-  background: var(--muyun-hover-subtle);
-}
-
-.user-picker-navigation-column {
-  min-width: 0;
-  max-height: 410px;
-  padding: 8px 6px;
-  border-right: 1px solid var(--muyun-border);
-}
-
-.user-picker-navigation-column:last-child {
-  border-right: 0;
-}
-
-.user-picker-navigation-column :deep(.record-explorer-panel-header) {
-  margin-bottom: 6px;
-  padding: 0 4px;
-}
-
-.user-picker-navigation-column :deep(.management-panel-header-title) {
-  font-size: 13px;
-}
-
-.user-picker-results {
-  display: grid;
-  min-height: 0;
-  min-width: 0;
-}
-
-.user-picker-error {
-  display: grid;
-  justify-items: start;
-  gap: 6px;
-}
-
-.user-picker-selection-summary {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-}
-
-.user-picker-selection-summary > :first-child {
-  min-width: 0;
-  flex: 1 1 auto;
-}
-
-.user-picker-selection-summary > span {
-  color: var(--muyun-text-secondary);
-  font-size: 12px;
-  white-space: nowrap;
-}
-</style>

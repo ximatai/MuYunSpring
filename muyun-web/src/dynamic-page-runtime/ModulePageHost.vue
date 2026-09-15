@@ -78,10 +78,10 @@ import {
   type ModuleContext,
   type ModuleRecordActionAvailability,
   type ModuleTreeClient,
-  type ReferenceResolveClient,
 } from '@muyun/web-core';
 import { canMutateModuleDetail } from './moduleDetailStateModel';
 import { recordMutationPayload } from './recordMutationPayload';
+import { createSourceReferencePickerConfigAssembler } from './sourceReferencePickerConfig';
 import {
   createReadonlyCardRecordSnapshot,
   resolveModulePageEnhancement,
@@ -546,74 +546,23 @@ let listPageSizePreferenceWrite = Promise.resolve();
 
 type NavigatorRecord = { id?: string; version?: number };
 
-type SourceReferencePickerConfigOptions = {
-  reference: ResolvedReferenceFieldDescriptor;
-  pickerFieldName: string;
-  referenceResolver: ReferenceResolveClient;
-  formValues: () => Record<string, unknown>;
-  source: () => { recordId: string } | undefined;
-};
+const sourceReferencePickerConfigFor = createSourceReferencePickerConfigAssembler();
 
 /**
  * The compact picker remains the default for source-owned references.  Only the two IAM trees
  * with an explicit form-field scope gain the optional expanded, lazy tree affordance here.
  */
-function sourceReferencePickerConfigFor({
-  reference,
-  pickerFieldName,
-  referenceResolver,
-  formValues,
-  source,
-}: SourceReferencePickerConfigOptions): Pick<
+function sourceReferencePickerConfigWithScopedTree(
+  options: Parameters<typeof sourceReferencePickerConfigFor>[0],
+): Pick<
   RecordFormFieldPickerConfig,
-  'loadOptions' | 'loadTree' | 'resolveOptions' | 'scopedTree'
+  'provider' | 'reloadKey' | 'loadOptions' | 'loadTree' | 'resolveOptions' | 'scopedTree'
 > {
-  const pickerRecord = (item: {
-    id: string;
-    title?: string;
-    projections?: Record<string, unknown>;
-    affectPatch?: Record<string, unknown>;
-  }): RecordPickerRecord => ({
-    id: item.id,
-    title: item.title,
-    ...(item.projections ?? {}),
-    // Keep resolver projections distinct from the draft-shaped convenience fields above:
-    // RecordFormFields exposes only descriptor-declared paths to WEB_UI formulas.
-    projections: item.projections,
-    affectPatch: item.affectPatch,
-  });
+  const { reference, pickerFieldName, referenceResolver, formValues, source } = options;
   const config: Pick<
     RecordFormFieldPickerConfig,
-    'loadOptions' | 'loadTree' | 'resolveOptions' | 'scopedTree'
-  > = {
-    loadOptions: async (keyword) => {
-      const response = await referenceResolver.resolve(pickerFieldName, {
-        mode: 'QUERY',
-        fuzzy: keyword || undefined,
-        page: { pageNum: 1, pageSize: 50 },
-        formValues: formValues(),
-        source: source(),
-      });
-      return response.options.map(pickerRecord);
-    },
-    loadTree: async () => {
-      const response = await referenceResolver.resolve(pickerFieldName, {
-        mode: 'TREE',
-        formValues: formValues(),
-        source: source(),
-      });
-      return response.tree ?? [];
-    },
-    resolveOptions: async (values) => {
-      const response = await referenceResolver.resolve(pickerFieldName, {
-        mode: 'TRANSLATE',
-        values,
-        formValues: formValues(),
-        source: source(),
-      });
-      return response.results.flatMap((result) => (result.item ? [pickerRecord(result.item)] : []));
-    },
-  };
+    'provider' | 'reloadKey' | 'loadOptions' | 'loadTree' | 'resolveOptions' | 'scopedTree'
+  > = sourceReferencePickerConfigFor(options);
   const scopedTree = scopedTreeScopeOf(reference);
   if (!scopedTree) return config;
 
@@ -656,7 +605,7 @@ function sourceReferencePickerConfigFor({
       loadRoot: async ({ keyword }) => {
         if (!scopeReady()) return { records: [] };
         if (keyword) {
-          const response = await referenceResolver.resolve(pickerFieldName, {
+          const response = await referenceResolver().resolve(pickerFieldName, {
             mode: 'QUERY',
             fuzzy: keyword,
             page: { pageNum: 1, pageSize: 50 },
@@ -665,7 +614,7 @@ function sourceReferencePickerConfigFor({
           });
           return { records: response.options.map((item) => ({ ...candidate(item), isLeaf: true })) };
         }
-        const response = await referenceResolver.resolve(pickerFieldName, {
+        const response = await referenceResolver().resolve(pickerFieldName, {
           mode: 'TREE_CHILDREN',
           page: { pageNum: 1, pageSize: 50 },
           formValues: formValues(),
@@ -676,7 +625,7 @@ function sourceReferencePickerConfigFor({
       loadChildren: async ({ parent, cursor }) => {
         if (!scopeReady()) return { records: [] };
         const pageNum = pageNumber(cursor);
-        const response = await referenceResolver.resolve(pickerFieldName, {
+        const response = await referenceResolver().resolve(pickerFieldName, {
           mode: 'TREE_CHILDREN',
           parentId: parent.id,
           page: { pageNum, pageSize: 50 },
@@ -687,7 +636,7 @@ function sourceReferencePickerConfigFor({
       },
       resolve: async (ids) => {
         if (!scopeReady()) return [];
-        const response = await referenceResolver.resolve(pickerFieldName, {
+        const response = await referenceResolver().resolve(pickerFieldName, {
           mode: 'TRANSLATE',
           values: ids,
           formValues: formValues(),
@@ -751,15 +700,19 @@ const navigatorManagementPickerConfigs = computed<Record<string, RecordFormField
     const pickerFieldName = field.fieldRef.fieldName;
     const usesSourceReferenceResolver = reference.candidateDelivery === 'SOURCE_FIELD';
     const sourceReferencePickerConfig = usesSourceReferenceResolver
-      ? sourceReferencePickerConfigFor({
+      ? sourceReferencePickerConfigWithScopedTree({
           reference,
+          providerScopeKey: `navigator:${level.descriptor.key}`,
+          sourceModuleAlias: level.context.moduleAlias,
           pickerFieldName,
-          referenceResolver: createReferenceResolveClient(
-            level.context.http,
-            level.context.moduleAlias,
-            reference.resolvePath,
-          ),
+          referenceResolver: () =>
+            createReferenceResolveClient(
+              level.context.http,
+              level.context.moduleAlias,
+              reference.resolvePath,
+            ),
           formValues: () => ({ ...(navigatorManagementDetail.draft.value ?? {}) }),
+          reloadRecord: () => navigatorManagementDetail.draft.value,
           source: () =>
             navigatorManagementDetail.draft.value?.id == null
               ? undefined
@@ -1611,21 +1564,20 @@ const referencePickerConfigs = computed<Record<string, RecordFormFieldPickerConf
     const usesSourceReferenceResolver = reference.candidateDelivery === 'SOURCE_FIELD';
     const sourceReferencePickerConfig: Pick<
       RecordFormFieldPickerConfig,
-      'loadOptions' | 'loadTree' | 'resolveOptions' | 'scopedTree'
+      'provider' | 'reloadKey' | 'loadOptions' | 'loadTree' | 'resolveOptions' | 'scopedTree'
     > = {};
     if (usesSourceReferenceResolver) {
-      const referenceResolver = createReferenceResolveClient(
-        context.http,
-        context.moduleAlias,
-        reference.resolvePath,
-      );
       Object.assign(
         sourceReferencePickerConfig,
-        sourceReferencePickerConfigFor({
+        sourceReferencePickerConfigWithScopedTree({
           reference,
+          providerScopeKey: 'main',
+          sourceModuleAlias: context.moduleAlias,
           pickerFieldName,
-          referenceResolver,
+          referenceResolver: () =>
+            createReferenceResolveClient(context.http, context.moduleAlias, reference.resolvePath),
           formValues: () => ({ ...(editingRecord.value ?? {}) }),
+          reloadRecord: () => editingRecord.value,
           source: () =>
             editingRecord.value?.id == null ? undefined : { recordId: String(editingRecord.value.id) },
         }),
@@ -2380,7 +2332,7 @@ async function saveNavigatorRecord() {
   if (level.context.can(creating ? 'create' : 'update') !== true) return;
   navigatorManagementDetail.saving.value = true;
   try {
-    const record = recordMutationPayload(draft);
+    const record = recordMutationPayload(draft, navigatorManagementFormFields.value.values());
     const id = record.id == null ? undefined : String(record.id);
     const result =
       !creating && id ? await level.context.crud.update(id, record) : await level.context.crud.insert(record);
@@ -2634,7 +2586,7 @@ async function saveRecord() {
   }
   saving.value = true;
   try {
-    const record = recordMutationPayload(draft);
+    const record = recordMutationPayload(draft, formFields.value.values());
     const id = record.id == null ? undefined : String(record.id);
     const result =
       editorMode.value === 'edit' && id

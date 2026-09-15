@@ -112,6 +112,32 @@ it('record detail display joins server-projected titles for a multi-record picke
   );
 });
 
+it('record detail uses compiled reference summaries without any picker provider work', () => {
+  const field = formField('operatorIds', {
+    controlType: 'recordMultiPicker',
+    referenceTitleField: 'operatorSummaries',
+    reference: { targetModuleAlias: 'iam.user', cardinality: 'MANY', titleField: 'operatorSummaries' },
+  });
+
+  assert.equal(
+    resolveRecordDetailDisplayValue(field, {
+      operatorIds: ['user-2', 'user-1', 'user-missing'],
+      operatorSummaries: [
+        { id: 'user-1', title: '王华' },
+        { id: 'user-2', title: '李明', unavailable: true },
+      ],
+    }),
+    '李明（不可用）、王华、user-missing',
+  );
+  assert.equal(
+    resolveRecordDetailDisplayValue(field, {
+      operatorIds: [],
+      operatorSummaries: [{ id: 'user-1', title: '旧摘要' }],
+    }),
+    '-',
+  );
+});
+
 function formField(fieldName: string, options: Partial<RecordFormFieldState> = {}): RecordFormFieldState {
   return {
     fieldName,

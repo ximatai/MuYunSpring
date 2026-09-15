@@ -547,6 +547,85 @@ describe('RecordQueryListPanel', () => {
     });
   });
 
+  it('does not apply a persistent reference draft until it is valid, while paging the prior query remains available', async () => {
+    const requests: WebQueryRequest[] = [];
+    const context = createContext({ id: 'log-1', operatorId: 'user-1' }, requests);
+    const referencePicker = {
+      provider: {
+        identity: {
+          targetModuleAlias: 'iam.user',
+          source: { kind: 'businessPurpose' as const, id: 'operators' },
+        },
+        searchPage: async () => ({ records: [], total: 0 }),
+        resolve: async () => [],
+      },
+    };
+    const wrapper = shallowMount(RecordQueryListPanel, {
+      props: {
+        context,
+        title: '登录日志',
+        referencePickerOf: () => referencePicker,
+        querySchema: {
+          scopeName: 'platform.login-log',
+          quickSearch: { enabled: false, fields: [], fieldSchemas: [] },
+          fields: [
+            {
+              name: 'operatorId',
+              title: '操作用户',
+              valueType: 'STRING',
+              operators: ['EQ'],
+              reference: { targetModuleAlias: 'iam.user', cardinality: 'ONE' },
+              persistentControl: { id: 'operatorId', title: '操作用户', operator: 'EQ' },
+            },
+          ],
+          externalCriteria: [],
+          defaultSorts: [],
+        },
+      },
+      global: { stubs: { ManagementPanelHeader: false, QueryValueEditor: false } },
+    });
+
+    await vi.waitFor(() => expect(requests).toHaveLength(1));
+    const editor = wrapper.findComponent({ name: 'QueryValueEditor' });
+    editor.vm.$emit('update:values', ['user-2']);
+    editor.vm.$emit('validity-change', { valid: false, status: 'editing', message: '请完成引用选择' });
+    await wrapper.vm.$nextTick();
+
+    editor.vm.$emit('submit');
+    wrapper
+      .find('.record-query-list-persistent-field-actions')
+      .findComponent({ name: 'UiButton' })
+      .vm.$emit('click');
+    await flushPromises();
+    expect(requests).toHaveLength(1);
+
+    (wrapper.vm as unknown as { goPage: (page: number) => void }).goPage(1);
+    await vi.waitFor(() => expect(requests).toHaveLength(2));
+    expect(requests.at(-1)?.criteria).toBeUndefined();
+
+    editor.vm.$emit('validity-change', { valid: true, status: 'ready' });
+    editor.vm.$emit('submit');
+    await vi.waitFor(() => expect(requests).toHaveLength(3));
+    expect(requests.at(-1)?.criteria).toEqual({
+      kind: 'GROUP',
+      operator: 'AND',
+      children: [{ kind: 'CONDITION', fieldName: 'operatorId', operator: 'EQ', values: ['user-2'] }],
+    });
+
+    editor.vm.$emit('validity-change', { valid: false, status: 'unmatched' });
+    const reset = wrapper
+      .find('.record-query-list-persistent-field-actions')
+      .findAllComponents({ name: 'UiButton' })[1]!;
+    reset.vm.$emit('click');
+    await wrapper.vm.$nextTick();
+    const resetEditor = wrapper.findComponent({ name: 'QueryValueEditor' });
+    expect(resetEditor.vm).not.toBe(editor.vm);
+    resetEditor.vm.$emit('validity-change', { valid: true, status: 'ready' });
+    resetEditor.vm.$emit('submit');
+    await vi.waitFor(() => expect(requests).toHaveLength(5));
+    expect(requests.at(-1)?.criteria).toBeUndefined();
+  });
+
   it('uses the reference read surface for a persistent reference query instead of target CRUD', async () => {
     const request = vi.fn(async () => ({ records: [], total: 0, pageNum: 1, pageSize: 20 }));
     const context = createContext({ id: 'log-1' });
@@ -592,17 +671,24 @@ describe('RecordQueryListPanel', () => {
     wrapper.unmount();
   });
 
-  it('lets a source-owned user picker replace the target reference context for a persistent query', async () => {
+  it('lets a source-owned reference picker replace the target reference context for a persistent query', async () => {
     const context = createContext({ id: 'log-1' });
-    const userPicker = {
-      searchPage: async () => ({ records: [], total: 0 }),
-      resolveUsers: async () => [],
+    const referencePicker = {
+      provider: {
+        identity: {
+          targetModuleAlias: 'iam.user',
+          source: { kind: 'businessPurpose' as const, id: 'log-operators' },
+        },
+        searchPage: async () => ({ records: [], total: 0 }),
+        resolve: async () => [],
+      },
     };
     const wrapper = shallowMount(RecordQueryListPanel, {
       props: {
         context,
         title: '异常日志',
-        userPickerOf: (field: { name: string }) => (field.name === 'operatorId' ? userPicker : undefined),
+        referencePickerOf: (field: { name: string }) =>
+          field.name === 'operatorId' ? referencePicker : undefined,
         querySchema: {
           scopeName: 'platform.request-error-log',
           quickSearch: { enabled: false, fields: [], fieldSchemas: [] },
@@ -626,7 +712,7 @@ describe('RecordQueryListPanel', () => {
 
     await flushPromises();
     const editor = wrapper.findComponent({ name: 'QueryValueEditor' });
-    expect(editor.props('userPicker')).toBe(userPicker);
+    expect(editor.props('referencePicker')).toBe(referencePicker);
     expect(editor.props('referenceContext')).toBeUndefined();
     wrapper.unmount();
   });
@@ -691,6 +777,73 @@ describe('RecordQueryListPanel', () => {
         },
       ],
     });
+  });
+
+  it('retains unresolved advanced-reference validity while collapsed and guards the panel application handler', async () => {
+    const requests: WebQueryRequest[] = [];
+    const context = createContext({ id: 'log-1', operatorId: 'user-1' }, requests);
+    const referencePicker = {
+      provider: {
+        identity: {
+          targetModuleAlias: 'iam.user',
+          source: { kind: 'businessPurpose' as const, id: 'operators' },
+        },
+        searchPage: async () => ({ records: [], total: 0 }),
+        resolve: async () => [],
+      },
+    };
+    const wrapper = shallowMount(RecordQueryListPanel, {
+      props: {
+        context,
+        title: '登录日志',
+        referencePickerOf: () => referencePicker,
+        querySchema: {
+          scopeName: 'platform.login-log',
+          quickSearch: { enabled: false, fields: [], fieldSchemas: [] },
+          fields: [
+            {
+              name: 'operatorId',
+              title: '操作用户',
+              valueType: 'STRING',
+              operators: ['EQ'],
+              reference: { targetModuleAlias: 'iam.user', cardinality: 'ONE' },
+            },
+          ],
+          externalCriteria: [],
+          defaultSorts: [],
+        },
+      },
+    });
+
+    await vi.waitFor(() => expect(requests).toHaveLength(1));
+    (wrapper.vm as unknown as { toggleConditions: () => void }).toggleConditions();
+    await wrapper.vm.$nextTick();
+    const composer = wrapper.findComponent({ name: 'QueryCriteriaComposer' });
+    composer.vm.$emit('validity-change', {
+      2: { valid: false, status: 'unmatched', message: '未找到可选择的记录' },
+    });
+    await wrapper.vm.$nextTick();
+
+    (wrapper.vm as unknown as { toggleConditions: () => void }).toggleConditions();
+    (wrapper.vm as unknown as { toggleConditions: () => void }).toggleConditions();
+    await wrapper.vm.$nextTick();
+    expect(wrapper.findComponent({ name: 'QueryCriteriaComposer' }).vm).toBe(composer.vm);
+
+    composer.vm.$emit('apply', {
+      kind: 'GROUP',
+      operator: 'AND',
+      children: [{ kind: 'CONDITION', fieldName: 'operatorId', operator: 'EQ', values: ['user-2'] }],
+    });
+    await flushPromises();
+    expect(requests).toHaveLength(1);
+
+    composer.vm.$emit('validity-change', { 2: { valid: true, status: 'ready' } });
+    composer.vm.$emit('apply', {
+      kind: 'GROUP',
+      operator: 'AND',
+      children: [{ kind: 'CONDITION', fieldName: 'operatorId', operator: 'EQ', values: ['user-2'] }],
+    });
+    await vi.waitFor(() => expect(requests).toHaveLength(2));
   });
 
   it('uses the flat AND query surface without emitting a nested criteria group', async () => {

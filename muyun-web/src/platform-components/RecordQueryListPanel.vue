@@ -50,7 +50,7 @@ import QueryGroupedSummary from './QueryGroupedSummary.vue';
 import QueryCriteriaComposer from './QueryCriteriaComposer.vue';
 import QueryValueEditor from './QueryValueEditor.vue';
 import type { RecordPickerRecord } from './recordPickerConstraints';
-import type { UserPickerConfig } from './userPickerModel';
+import type { ReferencePickerConfig, ReferencePickerValidity } from './referencePickerModel';
 import RecycleBinModeButton from './RecycleBinModeButton.vue';
 import {
   mergeRecordActions,
@@ -139,7 +139,7 @@ const props = withDefaults(
     /** A source-owned query schema avoids forcing embedded relation lists through target-module access. */
     querySchema?: QuerySchema;
     /** Allows a source surface to supply semantic user candidates for a query field. */
-    userPickerOf?: (field: QuerySchemaField) => UserPickerConfig | undefined;
+    referencePickerOf?: (field: QuerySchemaField) => ReferencePickerConfig | undefined;
     /** Read-only relation runners may deliberately suppress ad-hoc query controls. */
     queryable?: boolean;
     /** A relation query can intentionally be a bounded, non-pageable result. */
@@ -191,7 +191,7 @@ const props = withDefaults(
     uiConfigId: undefined,
     queryTemplateId: undefined,
     querySchema: undefined,
-    userPickerOf: undefined,
+    referencePickerOf: undefined,
     queryable: true,
     pageable: true,
     ready: true,
@@ -247,12 +247,17 @@ const recordsLoadError = ref<string>();
 const quickSearchKeyword = ref('');
 const appliedQuickSearch = ref('');
 const conditionsExpanded = ref(false);
+/** Once opened, retain the draft editor while collapsed so reference resolution cannot be discarded. */
+const criteriaComposerMounted = ref(false);
 const activeCriteria = ref<QueryCriteriaGroup>();
 const criteriaComposerResetKey = ref(0);
 const selectedRowKeys = ref<UiDataTableKey[]>([]);
 const persistentExternalQueryValues = ref<Record<string, boolean>>({});
 const persistentFieldDraftValues = ref<Record<string, unknown[]>>({});
 const appliedPersistentFieldValues = ref<Record<string, unknown[]>>({});
+const persistentFieldReferenceValidity = ref<Record<string, ReferencePickerValidity>>({});
+const persistentFieldEditorResetKey = ref(0);
+const advancedReferenceValidity = ref<Record<number, ReferencePickerValidity>>({});
 const querySummaryValues = ref<WebListQuerySummaryItem[]>([]);
 const optionItemsByField = ref<Record<string, import('@muyun/web-contracts').OptionItemDescriptor[]>>({});
 const queryOptionItemsByField = ref<Record<string, import('@muyun/web-contracts').OptionItemDescriptor[]>>(
@@ -304,7 +309,7 @@ const queryReferenceContexts = computed(() =>
   Object.fromEntries(
     queryFields.value.flatMap((field) => {
       const targetModuleAlias = field.reference?.targetModuleAlias;
-      return targetModuleAlias
+      return targetModuleAlias && !props.referencePickerOf?.(field)
         ? [
             [
               targetModuleAlias,
@@ -328,6 +333,12 @@ const canQueryRecycleBinAvailable = computed(() => canQueryRecycleBin(props.cont
 const quickSearchEnabled = computed(() => props.queryable && schema.value?.quickSearch.enabled === true);
 const quickSearchDisabled = computed(() => !queryReady.value || !quickSearchEnabled.value);
 const queryActionsDisabled = computed(() => !queryReady.value);
+const persistentFieldDraftValid = computed(() =>
+  Object.values(persistentFieldReferenceValidity.value).every((validity) => validity.valid),
+);
+const advancedCriteriaDraftValid = computed(() =>
+  Object.values(advancedReferenceValidity.value).every((validity) => validity.valid),
+);
 const criteriaComposition = computed(() => schema.value?.criteriaComposition ?? 'TREE');
 const advancedCriteriaExcludedFieldNames = computed(() =>
   criteriaComposition.value === 'FLAT_AND'
@@ -514,6 +525,8 @@ watch(
     );
     persistentFieldDraftValues.value = defaults;
     appliedPersistentFieldValues.value = defaults;
+    persistentFieldReferenceValidity.value = {};
+    persistentFieldEditorResetKey.value += 1;
   },
   { immediate: true },
 );
@@ -581,6 +594,8 @@ async function loadSchemaAndRecords() {
     }
     activeCriteria.value = undefined;
     conditionsExpanded.value = false;
+    criteriaComposerMounted.value = false;
+    advancedReferenceValidity.value = {};
     criteriaComposerResetKey.value += 1;
     await loadRecords(false);
   } catch (cause) {
@@ -599,6 +614,8 @@ async function loadSchemaAndRecords() {
       }
       activeCriteria.value = undefined;
       conditionsExpanded.value = false;
+      criteriaComposerMounted.value = false;
+      advancedReferenceValidity.value = {};
       criteriaComposerResetKey.value += 1;
       await loadRecords(false);
       return;
@@ -796,7 +813,7 @@ function persistentFieldOptions(control: ResolvedPageListFieldPersistentQueryCon
 
 function persistentReferenceContext(control: ResolvedPageListFieldPersistentQueryControlDescriptor) {
   const field = fieldByName(control.fieldName);
-  if (field && props.userPickerOf?.(field)) {
+  if (field && props.referencePickerOf?.(field)) {
     return undefined;
   }
   const targetModuleAlias = field?.reference?.targetModuleAlias;
@@ -810,7 +827,18 @@ function updatePersistentFieldDraftValue(
   persistentFieldDraftValues.value = { ...persistentFieldDraftValues.value, [control.id]: values };
 }
 
+function updatePersistentFieldReferenceValidity(
+  control: ResolvedPageListFieldPersistentQueryControlDescriptor,
+  validity: ReferencePickerValidity,
+) {
+  persistentFieldReferenceValidity.value = {
+    ...persistentFieldReferenceValidity.value,
+    [control.id]: validity,
+  };
+}
+
 function applyPersistentFieldQueries() {
+  if (!queryReady.value || !persistentFieldDraftValid.value) return;
   appliedPersistentFieldValues.value = Object.fromEntries(
     persistentFieldQueryControls.value.map((control) => [control.id, persistentFieldDraftValue(control)]),
   );
@@ -824,6 +852,8 @@ function resetPersistentFieldQueries() {
   );
   persistentFieldDraftValues.value = defaults;
   appliedPersistentFieldValues.value = defaults;
+  persistentFieldReferenceValidity.value = {};
+  persistentFieldEditorResetKey.value += 1;
   pageNum.value = 1;
   void loadRecords();
 }
@@ -1115,10 +1145,12 @@ function toggleConditions() {
   if (conditionsDisabled.value) {
     return;
   }
+  if (!conditionsExpanded.value) criteriaComposerMounted.value = true;
   conditionsExpanded.value = !conditionsExpanded.value;
 }
 
 function applyCriteria(criteria: QueryCriteriaGroup | undefined) {
+  if (!queryReady.value || !advancedCriteriaDraftValid.value) return;
   activeCriteria.value = criteria;
   pageNum.value = 1;
   void loadRecords();
@@ -1126,6 +1158,7 @@ function applyCriteria(criteria: QueryCriteriaGroup | undefined) {
 
 function clearCriteria() {
   activeCriteria.value = undefined;
+  advancedReferenceValidity.value = {};
   pageNum.value = 1;
   void loadRecords();
 }
@@ -1254,20 +1287,26 @@ defineExpose({ clearSelection, refresh });
         <span class="record-query-list-persistent-field-label">{{ control.title }}</span>
         <QueryValueEditor
           v-if="fieldByName(control.fieldName)"
+          :key="`${control.id}:${persistentFieldEditorResetKey}`"
           :field="fieldByName(control.fieldName)!"
           :operator="control.operator"
           :values="persistentFieldDraftValue(control)"
           :options="persistentFieldOptions(control)"
           :reference-context="persistentReferenceContext(control)"
-          :user-picker="userPickerOf?.(fieldByName(control.fieldName)!)"
+          :reference-picker="referencePickerOf?.(fieldByName(control.fieldName)!)"
           :disabled="queryActionsDisabled"
           @submit="applyPersistentFieldQueries"
           @update:values="updatePersistentFieldDraftValue(control, $event)"
+          @validity-change="updatePersistentFieldReferenceValidity(control, $event)"
         />
         <span v-else class="record-query-list-persistent-field-error">字段不可用</span>
       </div>
       <div v-if="persistentFieldQueryControls.length > 0" class="record-query-list-persistent-field-actions">
-        <UiButton type="primary" :disabled="queryActionsDisabled" @click="applyPersistentFieldQueries">
+        <UiButton
+          type="primary"
+          :disabled="queryActionsDisabled || !persistentFieldDraftValid"
+          @click="applyPersistentFieldQueries"
+        >
           查询
         </UiButton>
         <UiButton type="text" :disabled="queryActionsDisabled" @click="resetPersistentFieldQueries">
@@ -1293,18 +1332,20 @@ defineExpose({ clearSelection, refresh });
     </template>
 
     <template #conditions>
-      <section v-if="conditionsExpanded" class="record-query-conditions">
+      <section v-if="criteriaComposerMounted" v-show="conditionsExpanded" class="record-query-conditions">
         <QueryCriteriaComposer
           :key="criteriaComposerResetKey"
           :fields="queryFields"
           :excluded-field-names="advancedCriteriaExcludedFieldNames"
           :option-items-by-field="queryOptionOptions"
           :reference-contexts="queryReferenceContexts"
+          :reference-picker-of="referencePickerOf"
           :disabled="conditionsDisabled"
           :composition="criteriaComposition === 'FLAT_AND' ? 'FLAT_AND' : 'TREE'"
           @apply="applyCriteria"
           @clear="clearCriteria"
           @validation="presentPlatformMessage($event, { phase: 'validation' })"
+          @validity-change="advancedReferenceValidity = $event"
         />
       </section>
     </template>

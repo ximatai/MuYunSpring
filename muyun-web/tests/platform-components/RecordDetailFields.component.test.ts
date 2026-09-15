@@ -97,6 +97,48 @@ describe('RecordDetailFields', () => {
     );
   });
 
+  it('renders reference projections without invoking a picker provider or emitting form effects', () => {
+    const searchPage = vi.fn();
+    const resolve = vi.fn();
+    const wrapper = mount(RecordDetailFields, {
+      props: {
+        record: { ownerId: 'user-1', ownerSummary: { id: 'user-1', title: '平台管理员' } },
+        fields: new Map([
+          [
+            'ownerId',
+            {
+              fieldRef: { fieldName: 'ownerId' },
+              label: '负责人',
+              reference: {
+                targetModuleAlias: 'iam.user',
+                cardinality: 'ONE' as const,
+                titleField: 'ownerSummary',
+              },
+            },
+          ],
+        ]),
+        pickerConfigs: {
+          ownerId: {
+            context: {} as never,
+            provider: {
+              identity: {
+                targetModuleAlias: 'iam.user',
+                source: { kind: 'sourceField', id: 'test' },
+              },
+              searchPage,
+              resolve,
+            },
+          },
+        },
+      },
+    });
+
+    expect(wrapper.text()).toContain('平台管理员');
+    expect(searchPage).not.toHaveBeenCalled();
+    expect(resolve).not.toHaveBeenCalled();
+    expect(wrapper.emitted()).toEqual({});
+  });
+
   it('renders a declared single-image file reference as a preview instead of its file id', () => {
     const ImagePreviewStub = defineComponent({
       name: 'RecordImageFileReferencePreview',

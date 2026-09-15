@@ -82,6 +82,10 @@ public class PlatformModuleRuntimeContextService {
     private final PageNavigatorResolver pageNavigatorResolver;
     private final PageNavigatorSourceCapabilityResolver navigatorSourceCapabilityResolver;
     private final DynamicPublishedPageDefinitionResolver publishedPageDefinitionResolver;
+    private final FieldUiControlService fieldUiControlService;
+    private final FieldUiControlPropertyService fieldUiControlPropertyService;
+    private final FieldUiControlBindingService fieldUiControlBindingService;
+    private ObjectProvider<ModuleExecutionPlanCatalog> executionPlanCatalog;
 
     @Autowired
     public PlatformModuleRuntimeContextService(PlatformModuleService moduleService,
@@ -92,6 +96,9 @@ public class PlatformModuleRuntimeContextService {
                                                ObjectProvider<FileReferenceFieldPolicy> fileReferenceFieldPolicies,
                                                ObjectProvider<PageNavigatorResolver> pageNavigatorResolver,
                                                ObjectProvider<PageNavigatorSourceCapabilityResolver> navigatorSourceCapabilityResolver,
+                                               ObjectProvider<FieldUiControlService> fieldUiControlService,
+                                               ObjectProvider<FieldUiControlPropertyService> fieldUiControlPropertyService,
+                                               ObjectProvider<FieldUiControlBindingService> fieldUiControlBindingService,
                                                ObjectProvider<DynamicPublishedPageDefinitionResolver> publishedPageDefinitionResolver) {
         this(moduleService, actionService, staticModuleCatalog,
                 dynamicRecordService == null ? null : dynamicRecordService.getIfAvailable(),
@@ -103,7 +110,9 @@ public class PlatformModuleRuntimeContextService {
                 new CompositePageNavigatorResolver(pageNavigatorResolver == null ? List.of()
                         : pageNavigatorResolver.orderedStream().toList()),
                 navigatorSourceCapabilityResolver == null ? null : navigatorSourceCapabilityResolver.getIfAvailable(),
-                null, null, null, null,
+                fieldUiControlService == null ? null : fieldUiControlService.getIfAvailable(),
+                fieldUiControlPropertyService == null ? null : fieldUiControlPropertyService.getIfAvailable(),
+                fieldUiControlBindingService == null ? null : fieldUiControlBindingService.getIfAvailable(), null,
                 publishedPageDefinitionResolver == null ? null : publishedPageDefinitionResolver.getIfAvailable());
     }
 
@@ -226,6 +235,9 @@ public class PlatformModuleRuntimeContextService {
                 : pageNavigatorResolver;
         this.navigatorSourceCapabilityResolver = navigatorSourceCapabilityResolver;
         this.publishedPageDefinitionResolver = publishedPageDefinitionResolver;
+        this.fieldUiControlService = fieldUiControlService;
+        this.fieldUiControlPropertyService = fieldUiControlPropertyService;
+        this.fieldUiControlBindingService = fieldUiControlBindingService;
     }
 
     private net.ximatai.muyun.spring.platform.ui.PlatformUiControlRulesService uiControlRulesService;
@@ -235,15 +247,26 @@ public class PlatformModuleRuntimeContextService {
         this.uiControlRulesService = service;
     }
 
+    /**
+     * Dynamic page delivery consumes the plan installed at publication time. The provider breaks
+     * the intentional catalog-to-context compilation cycle without making a page request rebuild
+     * a descriptor from later control-directory edits.
+     */
+    @org.springframework.beans.factory.annotation.Autowired
+    void setExecutionPlanCatalog(ObjectProvider<ModuleExecutionPlanCatalog> executionPlanCatalog) {
+        this.executionPlanCatalog = executionPlanCatalog;
+    }
+
     public PlatformModuleRuntimeContext context(String moduleAlias) {
-        return context(moduleAlias, true);
+        return context(moduleAlias, true, true);
     }
 
     PlatformModuleRuntimeContext contextWithoutUiControls(String moduleAlias) {
-        return context(moduleAlias, false);
+        return context(moduleAlias, false, true);
     }
 
-    private PlatformModuleRuntimeContext context(String moduleAlias, boolean projectUiControls) {
+    private PlatformModuleRuntimeContext context(String moduleAlias, boolean projectUiControls,
+                                                 boolean useInstalledDynamicPlan) {
         String validModuleAlias = PlatformNameRules.requireModuleAlias(moduleAlias);
         PlatformModule module = moduleService.resolveVisibleModule(validModuleAlias);
         Optional<StaticModuleDefinition> staticDefinition = staticModuleCatalog.find(validModuleAlias);
@@ -257,9 +280,12 @@ public class PlatformModuleRuntimeContextService {
                 dynamicDescriptor);
         Set<EntityCapability> capabilities = capabilities(staticDefinition, dynamicDescriptor, actions);
         String title = title(module, staticDefinition, dynamicDescriptor, validModuleAlias);
-        ResolvedModuleUiDescriptor uiDescriptor = uiDescriptor(validModuleAlias, moduleKind, title, staticDefinition,
-                dynamicDescriptor);
-        if (projectUiControls && uiControlRulesService != null) {
+        ModuleExecutionPlanCatalog installedPlanCatalog = useInstalledDynamicPlan
+                ? installedExecutionPlanCatalog(moduleKind) : null;
+        ResolvedModuleUiDescriptor uiDescriptor = installedPlanCatalog == null
+                ? uiDescriptor(validModuleAlias, moduleKind, title, staticDefinition, dynamicDescriptor)
+                : installedPlanCatalog.find(validModuleAlias).map(ModuleExecutionPlan::uiDescriptor).orElse(null);
+        if (projectUiControls && uiDescriptor != null && uiControlRulesService != null) {
             uiDescriptor = UiControlFormProjection.project(uiDescriptor, uiControlRulesService.snapshot(validModuleAlias).rules());
         }
         return new PlatformModuleRuntimeContext(
@@ -339,7 +365,9 @@ public class PlatformModuleRuntimeContextService {
                 publishedPageDefinitionResolver == null ? Optional.empty()
                         : publishedPageDefinitionResolver.resolveWebGlobal(dynamicDescriptor);
         if (publishedPage.isPresent()) {
-            PlatformModuleRuntimeContext runtimeContext = context(validAlias);
+            // Plans retain the published base descriptor. Request-time UI rules are projected by
+            // context(), so they remain removable and never become part of an installed plan.
+            PlatformModuleRuntimeContext runtimeContext = context(validAlias, false, false);
             if (runtimeContext.moduleKind() != ModuleKind.DYNAMIC || runtimeContext.uiDescriptor() == null) {
                 return Optional.empty();
             }
@@ -347,6 +375,13 @@ public class PlatformModuleRuntimeContextService {
                     publishedPage.get()));
         }
         return Optional.empty();
+    }
+
+    private ModuleExecutionPlanCatalog installedExecutionPlanCatalog(ModuleKind moduleKind) {
+        if (moduleKind != ModuleKind.DYNAMIC || executionPlanCatalog == null) {
+            return null;
+        }
+        return executionPlanCatalog.getIfAvailable();
     }
 
     private ModuleExecutionPlan compiledPublishedPageExecutionPlan(
@@ -541,7 +576,7 @@ public class PlatformModuleRuntimeContextService {
         ResolvedModuleUiDescriptor descriptor = ModuleUiDescriptorCompiler.compileDynamicRelationEditors(
                 withDynamicRelationEditors(definition, relationTargets), ModuleKind.DYNAMIC, title,
                 optionFields, referenceFields,
-                dynamicRecordLabelField(dynamicDescriptor), fieldTypes, FieldControlDescriptorCatalog.standard(),
+                dynamicRecordLabelField(dynamicDescriptor), fieldTypes, dynamicFieldControls(definition),
                 relationOptionFields, relationReferenceFields, dynamicSortPartitionFields(dynamicDescriptor));
         // Formula projection needs the resolved aggregate-child relation code and its child editor
         // fields. Attach them before compiling browser-visible business rules.
@@ -556,6 +591,69 @@ public class PlatformModuleRuntimeContextService {
         descriptor = PageActionInvocationCompiler.bind(descriptor, actions(moduleAlias, ModuleKind.DYNAMIC, Optional.empty(), dynamicDescriptor).stream()
                 .collect(java.util.stream.Collectors.toMap(PlatformModuleRuntimeAction::actionCode, PlatformModuleRuntimeAction::invocations)));
         return descriptor.withPage(resolvePage(moduleAlias, ModuleKind.DYNAMIC, descriptor.page()));
+    }
+
+    /**
+     * Dynamic publication resolves only controls explicitly requested by the page definition.
+     * Built-in static aliases remain available for source compatibility, while directory-owned
+     * aliases must be present and executable in the current control catalog before publication.
+     */
+    private Map<String, ResolvedFieldControlDescriptor> dynamicFieldControls(ModuleUiDefinition definition) {
+        Map<String, ResolvedFieldControlDescriptor> controls = new LinkedHashMap<>(FieldControlDescriptorCatalog.standard());
+        if (fieldUiControlService == null || fieldUiControlPropertyService == null || fieldUiControlBindingService == null) {
+            return Map.copyOf(controls);
+        }
+        List<String> aliases = explicitFieldControlAliases(definition).stream().sorted().toList();
+        if (aliases.isEmpty()) {
+            return Map.copyOf(controls);
+        }
+        List<net.ximatai.muyun.spring.platform.metadata.FieldUiControl> configured =
+                fieldUiControlService.listEnabledByAliases(aliases);
+        Map<String, ResolvedFieldControlDescriptor> configuredDescriptors = FieldControlDescriptorCatalog.fromConfigured(
+                configured, fieldUiControlPropertyService.listByFieldUiControlAliases(aliases),
+                fieldUiControlBindingService.listByFieldUiControlAliases(aliases));
+        for (String alias : aliases) {
+            if (FieldControlDescriptorCatalog.isDirectoryManagedAlias(alias)
+                    && !configuredDescriptors.containsKey(alias)) {
+                throw new IllegalArgumentException("configured field control alias is unavailable: " + alias);
+            }
+        }
+        controls.putAll(configuredDescriptors);
+        return Map.copyOf(controls);
+    }
+
+    private static Set<String> explicitFieldControlAliases(ModuleUiDefinition definition) {
+        if (definition == null) return Set.of();
+        LinkedHashSet<String> aliases = new LinkedHashSet<>();
+        if (definition.defaultEditor() != null) {
+            definition.defaultEditor().fields().forEach(field -> addFieldControlAlias(aliases, field));
+        }
+        definition.editorSurfaces().forEach(surface -> surface.editor().fields()
+                .forEach(field -> addFieldControlAlias(aliases, field)));
+        definition.editorContributions().forEach(contribution -> contribution.editor().fields()
+                .forEach(field -> addFieldControlAlias(aliases, field)));
+        if (definition.page() == null) return Set.copyOf(aliases);
+        switch (definition.page()) {
+            case FlatManagementPageDefinition flat -> addPageFieldControlAliases(aliases, flat.detail());
+            case ListDetailCardPageDefinition card -> {
+                card.list().list().fields().forEach(field -> addFieldControlAlias(aliases, field));
+                addPageFieldControlAliases(aliases, card.detail());
+            }
+            case TreeManagementPageDefinition tree -> addPageFieldControlAliases(aliases, tree.detail());
+        }
+        return Set.copyOf(aliases);
+    }
+
+    private static void addPageFieldControlAliases(Set<String> aliases, PageDetailDefinition detail) {
+        if (detail == null) return;
+        if (detail.display() != null) detail.display().fields().forEach(field -> addFieldControlAlias(aliases, field));
+        if (detail.editor() != null) detail.editor().fields().forEach(field -> addFieldControlAlias(aliases, field));
+    }
+
+    private static void addFieldControlAlias(Set<String> aliases, ViewFieldDefinition field) {
+        if (field != null && field.uiType() != null && !field.uiType().isBlank()) {
+            aliases.add(field.uiType());
+        }
     }
 
     private List<net.ximatai.muyun.spring.common.formula.FormulaRule> dynamicMainFormulaRules(

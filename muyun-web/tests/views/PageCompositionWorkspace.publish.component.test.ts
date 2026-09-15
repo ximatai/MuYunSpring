@@ -1323,6 +1323,102 @@ describe('PageCompositionWorkspace publication flow', () => {
     }
   });
 
+  it('edits a direct main-reference picker preset and preserves an existing custom alias until changed', async () => {
+    const requests: HttpRequestOptions[] = [];
+    const draft = JSON.stringify({
+      template: 'management',
+      templateVersion: 1,
+      nodes: [
+        { slot: 'list', fields: [] },
+        {
+          slot: 'form',
+          fields: [{ field: 'supplierId', props: { fieldUiControlAlias: 'custom_supplier_picker' } }],
+        },
+      ],
+    });
+    const delegate = publicationFlowHttp(requests, draft, [
+      {
+        id: 'field-supplier',
+        fieldName: 'supplierId',
+        title: '供应商',
+        fieldOwnership: 'BUSINESS',
+        fieldForm: 'PHYSICAL',
+      },
+    ]);
+    configureModuleContext({
+      http: {
+        request: <T>(options: HttpRequestOptions) =>
+          options.path === '/platform.module/education.exam/page-reference-fields'
+            ? Promise.resolve({
+                moduleAlias: 'education.exam',
+                path: '',
+                fields: [
+                  {
+                    id: 'field-supplier',
+                    name: 'supplierId',
+                    label: '供应商',
+                    referenceModuleAlias: 'purchase.supplier',
+                    referenceCardinality: 'ONE',
+                  },
+                ],
+              } as T)
+            : delegate.request<T>(options),
+      },
+    });
+    const wrapper = mount(PageCompositionWorkspace, {
+      props: { moduleAlias: 'education.exam' },
+      global: { stubs: workspaceStubs() },
+    });
+    try {
+      await flushPromises();
+      await flushPromises();
+      const tree = wrapper.findComponent(PageCompositionTree);
+      tree.vm.$emit('node-action', 'configure', 'ui:field:form:field-supplier');
+      await flushPromises();
+      const pickerLabel = wrapper.findAll('label').find((label) => label.text().startsWith('引用选择形式'))!;
+      const picker = pickerLabel.findComponent({ name: 'UiSelect' });
+
+      expect(picker.props('value')).toBe('custom_supplier_picker');
+      expect(picker.props('options')).toContainEqual({
+        label: '当前自定义控件（custom_supplier_picker）',
+        value: 'custom_supplier_picker',
+        disabled: true,
+      });
+      expect(picker.props('options')).toContainEqual({
+        label: '平台默认（清除配置）',
+        value: '__platform_default_reference_picker__',
+      });
+
+      picker.vm.$emit('update:value', 'record_picker_dialog');
+      await flushPromises();
+      await wrapper
+        .findAll('button')
+        .find((button) => button.text() === '保存草稿')!
+        .trigger('click');
+      await flushPromises();
+
+      const saved = requests.find((request) => request.path.endsWith('/update/revision-1'))!.body as {
+        uiTreeJson: string;
+      };
+      expect(JSON.parse(saved.uiTreeJson).nodes[1].fields).toEqual([
+        { field: 'supplierId', props: { fieldUiControlAlias: 'record_picker_dialog' } },
+      ]);
+
+      picker.vm.$emit('update:value', '__platform_default_reference_picker__');
+      await flushPromises();
+      await wrapper
+        .findAll('button')
+        .find((button) => button.text() === '保存草稿')!
+        .trigger('click');
+      await flushPromises();
+      const cleared = requests.filter((request) => request.path.endsWith('/update/revision-1')).at(-1)!
+        .body as { uiTreeJson: string };
+      expect(JSON.parse(cleared.uiTreeJson).nodes[1].fields).toEqual(['supplierId']);
+    } finally {
+      wrapper.unmount();
+    }
+  });
+
   it.each(['ui:group:form:basic', 'ui:relation:form:relation-participant'])(
     'undoes removal of %s with its fields and properties, and expires undo after further edits',
     async (key) => {
@@ -2052,7 +2148,12 @@ function workspaceStubs() {
       template:
         '<input :value="value" :disabled="disabled" @input="$emit(\'update:value\', $event.target.value)" />',
     },
-    UiSelect: { props: ['options', 'value', 'disabled'], template: '<select :disabled="disabled" />' },
+    UiSelect: {
+      name: 'UiSelect',
+      props: ['options', 'value', 'disabled'],
+      emits: ['update:value'],
+      template: '<select :disabled="disabled" />',
+    },
     UiSpin: { template: '<span><slot /></span>' },
     UiSwitch: {
       props: ['checked'],

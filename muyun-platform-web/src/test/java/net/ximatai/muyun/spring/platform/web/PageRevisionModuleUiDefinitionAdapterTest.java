@@ -19,6 +19,22 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class PageRevisionModuleUiDefinitionAdapterTest {
     @Test
+    void shouldMapManagementFormFieldUiControlAliasIntoTheSourceNeutralDefinition() {
+        ModuleUiDefinition definition = PageRevisionModuleUiDefinitionAdapter.fromPublishedRevision(page(), revision("""
+                {"template":"management","templateVersion":1,"nodes":[
+                  {"slot":"list","title":"列表","fields":["customerId"]},
+                  {"slot":"form","title":"详情","fields":[
+                    {"field":"customerId","props":{"fieldUiControlAlias":"record_picker_dialog"}}
+                  ]}
+                ]}
+                """), new DynamicPageCompilationContext(DynamicModuleOverviewMode.LIST_CARD,
+                Map.of("customerId", "客户"), java.util.Set.of(), Map.of()));
+
+        assertThat(((ListDetailCardPageDefinition) definition.page()).detail().editor().fields().getFirst().uiType())
+                .isEqualTo("record_picker_dialog");
+    }
+
+    @Test
     void shouldCompileFieldPersistentQueriesIntoTheSourceNeutralListDescriptor() {
         ModuleUiDefinition definition = PageRevisionModuleUiDefinitionAdapter.fromPublishedRevision(page(), revision("""
                 {"template":"management","templateVersion":4,"mode":"LIST_CARD","quickSearchFields":[],"actions":[],

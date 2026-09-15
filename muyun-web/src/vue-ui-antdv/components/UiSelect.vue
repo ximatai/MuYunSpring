@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
 import { Select as ASelect } from 'ant-design-vue';
 import type { Option, OptionValue, OptionValueList } from '@muyun/web-contracts';
 
@@ -49,27 +49,66 @@ function normalize(value: unknown) {
   emit('update:value', typeof value === 'string' || typeof value === 'number' ? value : null);
 }
 
+const dropdownOpen = ref<boolean>();
+
 const searchListeners = computed(() =>
   props.showSearch ? { search: (keyword: string) => emit('search', keyword) } : {},
 );
 </script>
 
 <template>
-  <ASelect
-    :allow-clear="allowClear"
-    :mode="mode"
-    :value="value ?? undefined"
-    :options="options"
-    :placeholder="placeholder"
-    :disabled="disabled"
-    :show-search="showSearch"
-    :filter-option="filterOption"
-    :loading="loading"
-    :id="id"
-    :aria-label="ariaLabel"
-    :class="$attrs.class"
-    :style="$attrs.style"
-    v-on="searchListeners"
-    @update:value="normalize"
-  />
+  <div :class="$slots.suffixAction ? 'ui-select-action-shell' : 'ui-select-pass-through'">
+    <ASelect
+      :allow-clear="allowClear"
+      :mode="mode"
+      :value="value ?? undefined"
+      :options="options"
+      :placeholder="placeholder"
+      :disabled="disabled"
+      :show-search="showSearch"
+      :filter-option="filterOption"
+      :loading="loading"
+      :show-arrow="!$slots.suffixAction"
+      :id="id"
+      :aria-label="ariaLabel"
+      :class="[$attrs.class, { 'ui-select--suffix-action': !!$slots.suffixAction }]"
+      :open="dropdownOpen"
+      @dropdown-visible-change="dropdownOpen = $event"
+      :style="$attrs.style"
+      v-on="searchListeners"
+      @update:value="normalize"
+    />
+    <span
+      v-if="$slots.suffixAction"
+      class="ui-select-suffix-action"
+      @mousedown.prevent.stop
+      @click.stop="dropdownOpen = false"
+    >
+      <slot name="suffixAction" />
+    </span>
+  </div>
 </template>
+
+<style scoped>
+.ui-select-pass-through {
+  display: contents;
+}
+.ui-select-action-shell {
+  position: relative;
+  width: 100%;
+}
+.ui-select--suffix-action :deep(.ant-select-clear) {
+  right: 36px;
+}
+.ui-select--suffix-action :deep(.ant-select-selector) {
+  padding-right: 60px !important;
+}
+.ui-select-suffix-action {
+  position: absolute;
+  top: 50%;
+  right: 6px;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+}
+</style>

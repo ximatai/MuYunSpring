@@ -29,6 +29,8 @@ export interface PageComposerFieldProperties {
   align?: 'left' | 'center' | 'right';
   columnSpan?: 1 | 2;
   readOnly?: boolean;
+  /** Optional platform field-control preset selected by this page placement. */
+  fieldUiControlAlias?: string;
 }
 
 export type PageQuerySummarySource = 'MATCHED_COUNT' | 'SUM' | 'CONTRIBUTOR' | 'GROUPED';
@@ -794,7 +796,10 @@ function placedField(field: PageComposerField, includeReadOnly = false): PageCom
     ...(field.properties ?? {}),
     ...(includeReadOnly && field.platformReadOnly ? { readOnly: true } : {}),
   };
-  if (!includeReadOnly) delete properties.readOnly;
+  if (!includeReadOnly) {
+    delete properties.readOnly;
+    delete properties.fieldUiControlAlias;
+  }
   return {
     ...source,
     ...(Object.keys(properties).length ? { properties } : {}),
@@ -813,7 +818,10 @@ function toPersistedField(
   includeReadOnly = true,
 ): string | { field: string; props: PageComposerFieldProperties } {
   const properties = { ...(field.properties ?? {}) };
-  if (!includeReadOnly) delete properties.readOnly;
+  if (!includeReadOnly) {
+    delete properties.readOnly;
+    delete properties.fieldUiControlAlias;
+  }
   const compact = compactProperties(properties);
   return compact ? { field: field.fieldName, props: compact } : field.fieldName;
 }

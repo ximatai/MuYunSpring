@@ -210,6 +210,126 @@ it('registers every renderer kind promised by the persisted web-form support mat
   );
 });
 
+it.each([
+  ['DROPDOWN', 'ONE', 'dropdown'],
+  ['DIALOG', 'ONE', 'dialog'],
+  ['DROPDOWN', 'MANY', 'dropdown'],
+  ['DIALOG', 'MANY', 'dialog'],
+] as const)(
+  'resolves SOURCE_FIELD RECORD_PICKER presentation %s for a %s reference',
+  (presentation, cardinality, expectedPresentation) => {
+    const fieldName = cardinality === 'ONE' ? 'supplierId' : 'supplierIds';
+    const state = resolveRecordFormFieldState(fieldName, {
+      fields: new Map([
+        [
+          fieldName,
+          {
+            ...descriptorField(fieldName, '供应商'),
+            fieldControl: {
+              alias: 'record_picker',
+              rendererType: 'RECORD_PICKER',
+              valueShape: cardinality === 'ONE' ? 'SCALAR' : 'COLLECTION',
+              properties: { presentation },
+            },
+            reference: {
+              targetModuleAlias: 'purchase.supplier',
+              cardinality,
+              candidateDelivery: 'SOURCE_FIELD',
+            },
+          },
+        ],
+      ]),
+    });
+
+    expect(state.controlType).toBe(cardinality === 'ONE' ? 'recordPicker' : 'recordMultiPicker');
+    expect(state.referencePickerPresentation).toBe(expectedPresentation);
+  },
+);
+
+it('defaults descriptor-free and presentation-free record pickers to the compact dialog entry', () => {
+  const descriptorFree = resolveRecordFormFieldState('supplierId', {
+    fields: new Map([
+      [
+        'supplierId',
+        {
+          ...descriptorField('supplierId', '供应商'),
+          reference: { targetModuleAlias: 'purchase.supplier', cardinality: 'ONE' },
+        },
+      ],
+    ]),
+  });
+  const noPresentation = resolveRecordFormFieldState('customerId', {
+    fields: new Map([
+      [
+        'customerId',
+        {
+          ...descriptorField('customerId', '客户'),
+          fieldControl: { alias: 'record_picker', rendererType: 'RECORD_PICKER', valueShape: 'SCALAR' },
+          reference: {
+            targetModuleAlias: 'crm.customer',
+            cardinality: 'ONE',
+            candidateDelivery: 'SOURCE_FIELD',
+          },
+        },
+      ],
+    ]),
+  });
+
+  expect(descriptorFree.referencePickerPresentation).toBe('dialog');
+  expect(noPresentation.referencePickerPresentation).toBe('dialog');
+});
+
+it.each([
+  [
+    'unknown presentation',
+    { presentation: 'POPOVER' },
+    { targetModuleAlias: 'crm.customer', cardinality: 'ONE', candidateDelivery: 'SOURCE_FIELD' },
+    'presentation“POPOVER”不受当前页面运行器支持',
+  ],
+  ['non-reference field', { presentation: 'DIALOG' }, undefined, 'renderer 只可用于引用字段'],
+  [
+    'tree reference',
+    { presentation: 'DROPDOWN' },
+    {
+      targetModuleAlias: 'iam.organization',
+      cardinality: 'ONE',
+      pickerMode: 'TREE',
+      candidateDelivery: 'SOURCE_FIELD',
+    },
+    'presentation 不支持 TREE 引用选择',
+  ],
+  [
+    'target navigator delivery',
+    { presentation: 'DIALOG' },
+    { targetModuleAlias: 'iam.organization', cardinality: 'ONE', candidateDelivery: 'TARGET_NAVIGATOR' },
+    'presentation 只支持 SOURCE_FIELD 引用候选交付',
+  ],
+] as const)(
+  'rejects RECORD_PICKER $s instead of silently changing its presentation',
+  (_reason, properties, reference, expectedDiagnostic) => {
+    const state = resolveRecordFormFieldState('referenceId', {
+      fields: new Map([
+        [
+          'referenceId',
+          {
+            ...descriptorField('referenceId', '引用'),
+            fieldControl: {
+              alias: 'record_picker',
+              rendererType: 'RECORD_PICKER',
+              valueShape: 'SCALAR',
+              properties,
+            },
+            ...(reference ? { reference } : {}),
+          },
+        ],
+      ]),
+    });
+
+    expect(state.controlType).toBe('unsupported');
+    expect(state.rendererDiagnostic).toContain(expectedDiagnostic);
+  },
+);
+
 it('excludes password controls from the read-only detail projection', () => {
   const fields = resolveRecordDetailFields({
     moduleAlias: 'iam.user',

@@ -5,6 +5,7 @@ import FileSizeText from './FileSizeText.vue';
 import RecordStatusTag from './RecordStatusTag.vue';
 import RecordTagList from './RecordTagList.vue';
 import { resolveRecordBooleanStatusValue } from './recordFormFieldModel';
+import { readonlyReferenceDisplay } from './readonlyReferenceDisplay';
 import type { QueryListRecord, RecordQueryListColumn } from './recordQueryListColumnModel';
 
 defineOptions({ name: 'RecordQueryListCell' });
@@ -24,6 +25,16 @@ const renderedValue = computed<unknown>(
 );
 const displayValue = computed(() => {
   if (renderedValue.value !== undefined) return renderedValue.value;
+  if (props.column.reference) {
+    const display = readonlyReferenceDisplay(
+      props.column.reference,
+      props.record[props.column.key],
+      props.column.titleField
+        ? props.record[props.column.titleField]
+        : props.record[`${props.column.key}Title`],
+    );
+    if (display !== undefined) return display;
+  }
   return displayRecordFieldValue(props.record, props.column.key, props.column.titleField);
 });
 const dateTimeValue = computed(() =>

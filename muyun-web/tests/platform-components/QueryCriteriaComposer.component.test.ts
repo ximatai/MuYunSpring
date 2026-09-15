@@ -62,6 +62,33 @@ describe('QueryCriteriaComposer', () => {
     });
   });
 
+  it('blocks both the apply action and Enter submission while a nested reference draft is unresolved', async () => {
+    const wrapper = mountComposer();
+    const group = wrapper.findComponent({ name: 'QueryCriteriaGroupEditor' });
+    group.vm.$emit('update:group', {
+      kind: 'GROUP',
+      id: 1,
+      operator: 'AND',
+      children: [{ kind: 'CONDITION', id: 2, fieldName: 'status', operator: 'EQ', values: ['OPEN'] }],
+    });
+    group.vm.$emit('validity-change', 2, { valid: false, status: 'resolving', message: '正在确认引用选择' });
+    await wrapper.vm.$nextTick();
+
+    expect(wrapper.findComponent({ name: 'UiButton' }).props('disabled')).toBe(true);
+    (wrapper.vm as unknown as { apply: () => void }).apply();
+    await wrapper.vm.$nextTick();
+    expect(wrapper.emitted('apply')).toBeUndefined();
+    expect(wrapper.findComponent({ name: 'QueryCriteriaGroupEditor' }).props('validationErrors')).toEqual({
+      2: '正在确认引用选择',
+    });
+
+    group.vm.$emit('validity-change', 2, undefined);
+    await wrapper.vm.$nextTick();
+    (wrapper.vm as unknown as { apply: () => void }).apply();
+    await wrapper.vm.$nextTick();
+    expect(wrapper.emitted('apply')?.at(-1)?.[0]).toMatchObject({ kind: 'GROUP' });
+  });
+
   it('keeps a flat query as root AND leaves and never offers a group editor affordance', async () => {
     const wrapper = mountComposer('FLAT_AND');
     expect(wrapper.findComponent({ name: 'QueryCriteriaGroupEditor' }).props('composition')).toBe('FLAT_AND');
@@ -207,6 +234,40 @@ describe('QueryCriteriaComposer', () => {
       children: [
         { kind: 'CONDITION', id: 2 },
         { kind: 'CONDITION', id: 4 },
+      ],
+    });
+  });
+
+  it('clears an unfinished reference value before nesting a condition that remounts its editor', () => {
+    const wrapper = shallowMount(QueryCriteriaGroupEditor, {
+      props: {
+        group: {
+          kind: 'GROUP',
+          id: 1,
+          operator: 'AND',
+          children: [
+            { kind: 'CONDITION', id: 2, fieldName: 'customerId', operator: 'EQ', values: ['old-id'] },
+          ],
+        },
+        fields: [{ name: 'customerId', title: '客户', valueType: 'STRING', operators: ['EQ'] }],
+        optionItemsByField: {},
+        referenceContexts: {},
+        referenceValidityByNode: { 2: { valid: false, status: 'editing' } },
+        nextId: () => 3,
+        disabled: false,
+        composition: 'TREE',
+      },
+    });
+
+    (wrapper.vm as unknown as { wrapChildInGroup: (id: number) => void }).wrapChildInGroup(2);
+
+    expect(wrapper.emitted('validity-change')).toContainEqual([2, undefined]);
+    expect(wrapper.emitted('update:group')?.at(-1)?.[0]).toMatchObject({
+      children: [
+        {
+          kind: 'GROUP',
+          children: [{ kind: 'CONDITION', id: 2, values: [] }],
+        },
       ],
     });
   });

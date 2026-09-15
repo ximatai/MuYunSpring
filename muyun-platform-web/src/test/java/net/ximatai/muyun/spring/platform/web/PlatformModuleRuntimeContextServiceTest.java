@@ -69,6 +69,7 @@ import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.servlet.mvc.method.RequestMappingInfo;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
@@ -378,6 +379,152 @@ class PlatformModuleRuntimeContextServiceTest {
         assertThat(formField.label()).isEqualTo("合同主题");
         assertThat(formField.columnSpan()).isEqualTo(2);
         assertThat(formField.readOnly().constant()).isTrue();
+    }
+
+    @Test
+    void shouldCompileAndPublishDynamicReferencePickerFromItsConfiguredControlDirectoryEntry() {
+        PlatformModuleService moduleService = mock(PlatformModuleService.class);
+        PlatformModuleActionService actionService = mock(PlatformModuleActionService.class);
+        DynamicRecordService dynamicRecordService = mock(DynamicRecordService.class);
+        FieldUiControlService controls = mock(FieldUiControlService.class);
+        FieldUiControlPropertyService properties = mock(FieldUiControlPropertyService.class);
+        FieldUiControlBindingService bindings = mock(FieldUiControlBindingService.class);
+        var pages = mock(net.ximatai.muyun.spring.platform.ui.PlatformPageDefinitionService.class);
+        var revisions = mock(net.ximatai.muyun.spring.platform.ui.PlatformPresentationRevisionResolver.class);
+        DynamicEntityDescriptor entity = new DynamicEntityDescriptor("contract", "合同", Set.of("CRUD"),
+                List.of(DynamicFieldDescriptor.from(FieldDefinition.string("customerId", "客户"),
+                        dynamicReference("contract", "customerId"))), List.of(), List.of(), List.of(), List.of());
+        DynamicModuleDescriptor dynamicDescriptor = new DynamicModuleDescriptor("sales.contract", "合同", "contract",
+                List.of(), List.of(entity), List.of(), List.of(), List.of());
+        FieldUiControl control = new FieldUiControl();
+        control.setAlias("record_picker_dialog");
+        control.setEnabled(Boolean.TRUE);
+        control.setRendererType(ViewControlType.RECORD_PICKER);
+        control.setValueShape(FieldUiControlValueShape.SCALAR);
+        FieldUiControlProperty presentation = new FieldUiControlProperty();
+        presentation.setFieldUiControlAlias("record_picker_dialog");
+        presentation.setAttributeAlias("presentation");
+        presentation.setDefaultValue("DIALOG");
+        PlatformPageDefinition page = new PlatformPageDefinition();
+        page.setId("page-contract");
+        page.setModuleAlias("sales.contract");
+        page.setContractType(net.ximatai.muyun.spring.platform.ui.PlatformPageContractType.MANAGEMENT);
+        PlatformPresentationRevision revision = new PlatformPresentationRevision();
+        revision.setId("revision-contract");
+        revision.setRevisionNo(1);
+        revision.setTemplateAlias("management");
+        revision.setTemplateVersion(1);
+        revision.setStatus(net.ximatai.muyun.spring.platform.ui.PlatformPresentationRevisionStatus.PUBLISHED);
+        revision.setUiTreeJson("""
+                {"template":"management","templateVersion":1,"nodes":[
+                  {"slot":"list","title":"合同列表","fields":["customerId"]},
+                  {"slot":"form","title":"编辑合同","fields":[
+                    {"field":"customerId","props":{"fieldUiControlAlias":"record_picker_dialog"}}
+                  ]}
+                ]}
+                """);
+
+        when(moduleService.resolveVisibleModule("sales.contract"))
+                .thenReturn(module("sales.contract", "合同", ModuleKind.DYNAMIC));
+        when(actionService.listByModuleAliases(List.of("sales.contract"))).thenReturn(List.of());
+        when(dynamicRecordService.describe("sales.contract")).thenReturn(dynamicDescriptor);
+        when(dynamicRecordService.actions("sales.contract")).thenReturn(List.of());
+        when(dynamicRecordService.runtimeRevision("sales.contract")).thenReturn(1L);
+        when(dynamicRecordService.moduleDefinitions()).thenReturn(List.of());
+        when(controls.listEnabledByAliases(List.of("record_picker_dialog"))).thenReturn(List.of(control));
+        when(properties.listByFieldUiControlAliases(List.of("record_picker_dialog"))).thenReturn(List.of(presentation));
+        when(bindings.listByFieldUiControlAliases(List.of("record_picker_dialog"))).thenReturn(List.of());
+        when(pages.resolveGlobalPage("sales.contract", "management")).thenReturn(Optional.of(page));
+        when(revisions.resolve("page-contract", net.ximatai.muyun.spring.platform.ui.PlatformPresentationClientType.WEB,
+                null, null)).thenReturn(Optional.of(revision));
+        PlatformModuleRuntimeContextService service = new PlatformModuleRuntimeContextService(
+                moduleService, actionService, new StaticModuleDefinitionCatalog(List.of()), dynamicRecordService,
+                null, null, allowAllPolicy(), List.of(), new DeclaredPageNavigatorResolver(), null,
+                controls, properties, bindings, null, new DynamicPublishedPageDefinitionResolver(pages, revisions, moduleService));
+        ModuleExecutionPlanCatalog planCatalog = new ModuleExecutionPlanCatalog(new StaticModuleDefinitionCatalog(List.of()));
+
+        new DynamicPublishedPageExecutionCoordinator(service, planCatalog)
+                .prepareAfterPublishedConfigurationChange("sales.contract");
+        ModuleExecutionPlan plan = planCatalog.find("sales.contract").orElseThrow();
+        ResolvedFieldControlDescriptor fieldControl = plan.uiDescriptor().page().detail().editor().fields().getFirst().fieldControl();
+        assertThat(fieldControl).isEqualTo(new ResolvedFieldControlDescriptor("record_picker_dialog",
+                "RECORD_PICKER", "SCALAR", Map.of("presentation", "DIALOG"), List.of()));
+
+        @SuppressWarnings("unchecked")
+        org.springframework.beans.factory.ObjectProvider<ModuleExecutionPlanCatalog> planCatalogProvider = mock(
+                org.springframework.beans.factory.ObjectProvider.class);
+        when(planCatalogProvider.getIfAvailable()).thenReturn(planCatalog);
+        service.setExecutionPlanCatalog(planCatalogProvider);
+        org.mockito.Mockito.clearInvocations(controls, properties, bindings, pages, revisions);
+        assertThat(service.context("sales.contract").uiDescriptor().page().detail().editor().fields().getFirst().fieldControl())
+                .isEqualTo(fieldControl);
+        org.mockito.Mockito.verifyNoInteractions(controls, properties, bindings, pages, revisions);
+
+        FieldUiControlProperty unsupportedPresentation = new FieldUiControlProperty();
+        unsupportedPresentation.setFieldUiControlAlias("record_picker_dialog");
+        unsupportedPresentation.setAttributeAlias("presentation");
+        unsupportedPresentation.setDefaultValue("TREE");
+        when(properties.listByFieldUiControlAliases(List.of("record_picker_dialog"))).thenReturn(List.of(unsupportedPresentation));
+        ModuleExecutionPlanCatalog rejectedCatalog = new ModuleExecutionPlanCatalog(new StaticModuleDefinitionCatalog(List.of()));
+        assertThatThrownBy(() -> new DynamicPublishedPageExecutionCoordinator(service, rejectedCatalog)
+                .prepareAfterPublishedConfigurationChange("sales.contract"))
+                .hasMessageContaining("presentation must be DROPDOWN or DIALOG");
+        assertThat(rejectedCatalog.find("sales.contract")).isEmpty();
+    }
+
+    @Test
+    void shouldReadOnlyTheInstalledDynamicPlanAndApplyUiRulesWithoutRetainingRemovedRules() {
+        PlatformModuleService moduleService = mock(PlatformModuleService.class);
+        PlatformModuleActionService actionService = mock(PlatformModuleActionService.class);
+        DynamicRecordService records = mock(DynamicRecordService.class);
+        DynamicPublishedPageDefinitionResolver resolver = mock(DynamicPublishedPageDefinitionResolver.class);
+        DynamicEntityDescriptor entity = new DynamicEntityDescriptor("contract", "合同", Set.of("CRUD"),
+                List.of(DynamicFieldDescriptor.from(FieldDefinition.string("title", "标题"))), List.of(), List.of(), List.of(), List.of());
+        DynamicModuleDescriptor descriptor = new DynamicModuleDescriptor("sales.contract", "合同", "contract",
+                List.of(), List.of(entity), List.of(), List.of(), List.of());
+        PlatformPageDefinition page = new PlatformPageDefinition(); page.setId("page-contract");
+        PlatformPresentationRevision revision = new PlatformPresentationRevision(); revision.setId("revision-contract");
+        ModuleUiDefinition definition = ModuleUiDefinition.builder("sales.contract")
+                .page(PageTemplates.listDetailCard(pageDefinition -> pageDefinition
+                        .list(list -> list.fields(fields -> fields.field("title")))
+                        .detail(detail -> detail.editor(form -> form.field("title"))))).build();
+        when(moduleService.resolveVisibleModule("sales.contract")).thenReturn(module("sales.contract", "合同", ModuleKind.DYNAMIC));
+        when(actionService.listByModuleAliases(List.of("sales.contract"))).thenReturn(List.of());
+        when(records.describe("sales.contract")).thenReturn(descriptor);
+        when(records.actions("sales.contract")).thenReturn(List.of());
+        when(records.runtimeRevision("sales.contract")).thenReturn(1L);
+        when(records.moduleDefinitions()).thenReturn(List.of());
+        when(resolver.resolveWebGlobal(descriptor)).thenReturn(Optional.of(
+                new DynamicPublishedPageDefinitionResolver.ResolvedPublishedPage(page, revision, definition)));
+        PlatformModuleRuntimeContextService service = new PlatformModuleRuntimeContextService(moduleService, actionService,
+                new StaticModuleDefinitionCatalog(List.of()), records, null, null, allowAllPolicy(), List.of(),
+                new DeclaredPageNavigatorResolver(), null, null, null, null, null, resolver);
+        ModuleExecutionPlanCatalog catalog = new ModuleExecutionPlanCatalog(new StaticModuleDefinitionCatalog(List.of()));
+        @SuppressWarnings("unchecked")
+        org.springframework.beans.factory.ObjectProvider<ModuleExecutionPlanCatalog> provider = mock(
+                org.springframework.beans.factory.ObjectProvider.class);
+        when(provider.getIfAvailable()).thenReturn(catalog);
+        service.setExecutionPlanCatalog(provider);
+        var rules = mock(net.ximatai.muyun.spring.platform.ui.PlatformUiControlRulesService.class);
+        service.setUiControlRulesService(rules);
+        var hidden = new net.ximatai.muyun.spring.platform.ui.UiControlRule("hideTitle", "detail",
+                "PRESENT({title})", true, List.of(new net.ximatai.muyun.spring.platform.ui.UiControlRule.Target("title", true, false)));
+        when(rules.snapshot("sales.contract")).thenReturn(new net.ximatai.muyun.spring.platform.ui.PlatformUiControlRulesService.Snapshot("one", List.of(hidden)));
+        catalog.replaceDynamicPlan("sales.contract", service.dynamicExecutionPlan("sales.contract"));
+        assertThat(catalog.find("sales.contract").orElseThrow().uiDescriptor().page().detail().editor().fields().getFirst()
+                .visible().constant()).isTrue();
+        assertThat(service.context("sales.contract").uiDescriptor().page().detail().editor().fields().getFirst()
+                .visible().formula().expression()).isEqualTo("!(PRESENT({title}))");
+        when(rules.snapshot("sales.contract")).thenReturn(new net.ximatai.muyun.spring.platform.ui.PlatformUiControlRulesService.Snapshot("two", List.of()));
+        assertThat(service.context("sales.contract").uiDescriptor().page().detail().editor().fields().getFirst()
+                .visible().constant()).isTrue();
+        assertThat(service.contextWithoutUiControls("sales.contract").uiDescriptor().page().detail().editor().fields().getFirst()
+                .visible().constant()).isTrue();
+
+        catalog.replaceDynamicPlan("sales.contract", Optional.empty());
+        org.mockito.Mockito.clearInvocations(resolver);
+        assertThat(service.context("sales.contract").uiDescriptor()).isNull();
+        org.mockito.Mockito.verifyNoInteractions(resolver);
     }
 
     @Test

@@ -9,6 +9,7 @@ import type {
   QueryCriteriaGroupDraft,
 } from './queryCriteriaDraft';
 import { QUERY_CRITERIA_MAXIMUM_DEPTH } from './queryCriteriaDraft';
+import type { ReferencePickerConfig, ReferencePickerValidity } from './referencePickerModel';
 import type { RecordPickerRecord } from './recordPickerConstraints';
 
 defineOptions({ name: 'QueryCriteriaGroupEditor' });
@@ -18,6 +19,8 @@ const props = defineProps<{
   fields: QuerySchemaField[];
   optionItemsByField: Record<string, Option[]>;
   referenceContexts: Record<string, ModuleContext<RecordPickerRecord>>;
+  referencePickerOf?: (field: QuerySchemaField) => ReferencePickerConfig | undefined;
+  referenceValidityByNode?: Record<number, ReferencePickerValidity>;
   nextId: () => number;
   disabled: boolean;
   /** Flat query surfaces keep the root as a plain AND list. */
@@ -32,6 +35,8 @@ const emit = defineEmits<{
   'update:group': [group: QueryCriteriaGroupDraft];
   remove: [id: number];
   'lift-node': [sourceGroupId: number, nodeId: number];
+  /** Condition IDs stay stable while groups are moved or the drawer is collapsed. */
+  'validity-change': [nodeId: number, validity: ReferencePickerValidity | undefined];
   submit: [];
 }>();
 
@@ -56,6 +61,7 @@ function updateGroupOperator(value: OptionValue | OptionValueList | null) {
 
 function updateField(node: QueryCriteriaConditionDraft, value: OptionValue | OptionValueList | null) {
   const field = fieldByName(singleValue(value));
+  clearConditionValidity(node.id);
   updateCondition(node.id, (condition) => {
     condition.fieldName = field?.name;
     condition.operator = field?.defaultOperator ?? field?.operators[0];
@@ -64,6 +70,7 @@ function updateField(node: QueryCriteriaConditionDraft, value: OptionValue | Opt
 }
 
 function updateOperator(node: QueryCriteriaConditionDraft, value: OptionValue | OptionValueList | null) {
+  clearConditionValidity(node.id);
   updateCondition(node.id, (condition) => {
     condition.operator = singleValue(value) as QueryCriteriaConditionDraft['operator'];
     condition.values = [];
@@ -110,6 +117,7 @@ function wrapChildInGroup(id: number) {
     const index = group.children.findIndex((child) => child.id === id);
     if (index < 0) return;
     const child = group.children[index]!;
+    resetInvalidReferenceDraft(child);
     group.children.splice(index, 1, {
       kind: 'GROUP',
       id: props.nextId(),
@@ -134,6 +142,7 @@ function liftNode(sourceGroupId: number, nodeId: number) {
     if (childIndex < 0) return;
     const [lifted] = source.children.splice(childIndex, 1);
     if (!lifted) return;
+    resetInvalidReferenceDraft(lifted);
     if (source.children.length === 0) {
       group.children.splice(sourceIndex, 1, lifted);
       return;
@@ -151,9 +160,39 @@ function childIndex(id: number) {
 }
 
 function removeChild(id: number) {
+  const child = props.group.children.find((item) => item.id === id);
+  if (child) clearNodeValidity(child);
   updateGroup((group) => {
     group.children = group.children.filter((child) => child.id !== id);
   });
+}
+
+function clearConditionValidity(id: number) {
+  emit('validity-change', id, undefined);
+}
+
+function clearNodeValidity(node: QueryCriteriaDraftNode) {
+  if (node.kind === 'CONDITION') {
+    clearConditionValidity(node.id);
+    return;
+  }
+  for (const child of node.children) clearNodeValidity(child);
+}
+
+/** A moved condition remounts its editor. Never let that remount bless a prior unfinished reference draft. */
+function resetInvalidReferenceDraft(node: QueryCriteriaDraftNode) {
+  if (node.kind === 'CONDITION') {
+    if (props.referenceValidityByNode?.[node.id]?.valid === false) {
+      node.values = [];
+      clearConditionValidity(node.id);
+    }
+    return;
+  }
+  for (const child of node.children) resetInvalidReferenceDraft(child);
+}
+
+function forwardNestedValidity(nodeId: number, validity: ReferencePickerValidity | undefined) {
+  emit('validity-change', nodeId, validity);
 }
 
 function updateChild(updated: QueryCriteriaGroupDraft) {
@@ -285,9 +324,11 @@ function operatorLabel(operator: string) {
             :values="node.values"
             :options="optionItemsByField[node.fieldName!] ?? []"
             :reference-context="referenceContext(fieldByName(node.fieldName)!)"
+            :reference-picker="referencePickerOf?.(fieldByName(node.fieldName)!)"
             :disabled="disabled"
             @submit="emit('submit')"
             @update:values="updateValues(node, $event)"
+            @validity-change="emit('validity-change', node.id, $event)"
           />
           <div class="query-criteria-condition-actions">
             <UiButton
@@ -346,6 +387,8 @@ function operatorLabel(operator: string) {
           :fields="fields"
           :option-items-by-field="optionItemsByField"
           :reference-contexts="referenceContexts"
+          :reference-picker-of="referencePickerOf"
+          :reference-validity-by-node="referenceValidityByNode"
           :next-id="nextId"
           :disabled="disabled"
           :composition="composition"
@@ -355,6 +398,7 @@ function operatorLabel(operator: string) {
           @update:group="updateChild"
           @remove="removeChild"
           @lift-node="liftNode"
+          @validity-change="forwardNestedValidity"
           @submit="emit('submit')"
         />
       </template>

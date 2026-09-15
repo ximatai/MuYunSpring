@@ -12,12 +12,22 @@ defineOptions({ name: 'ObjectPickerInput' });
 const props = withDefaults(
   defineProps<{
     value?: string;
+    linked?: boolean;
+    unmatched?: boolean;
+    /** The owner has an unresolved draft, so asynchronous display refreshes must not overwrite it. */
+    preserveDraft?: boolean;
+    /** Changes on confirmed selection, including reselecting the same value. */
+    selectionVersion?: number;
     placeholder?: string;
     disabled?: boolean;
     browseLabel?: string;
   }>(),
   {
     value: '',
+    linked: false,
+    unmatched: false,
+    preserveDraft: false,
+    selectionVersion: 0,
     placeholder: '搜索并选择',
     disabled: false,
     browseLabel: '打开候选选择',
@@ -27,25 +37,68 @@ const props = withDefaults(
 const emit = defineEmits<{
   browse: [keyword: string];
   clear: [];
+  /** A changed draft lets the owner invalidate any in-flight completion request. */
+  'draft-change': [value: string];
+  /** A non-empty user draft has left the compact entry. */
+  blur: [value: string];
 }>();
 
 const inputValue = ref(props.value);
+const draftEdited = ref(false);
+let clearEmitted = false;
 
 watch(
-  () => props.value,
-  (value) => {
+  () => [props.value, props.selectionVersion] as const,
+  ([value, selectionVersion], [, previousSelectionVersion]) => {
+    if (props.preserveDraft && selectionVersion === previousSelectionVersion) return;
+    if (draftEdited.value && selectionVersion === previousSelectionVersion) return;
     inputValue.value = value;
+    draftEdited.value = false;
+    clearEmitted = false;
   },
 );
 
-function browse(value: string) {
-  // Ant's Input.Search does not consistently expose its clear-origin metadata. The input value
-  // is already cleared at this point, which reliably distinguishes its clear affordance.
-  if (value === '' && props.value && inputValue.value === '') {
+function updateDraft(value: string) {
+  inputValue.value = value;
+  draftEdited.value = true;
+  if (value.trim()) clearEmitted = false;
+  emit('draft-change', value);
+  if (!value.trim() && props.value && !clearEmitted) {
+    clearEmitted = true;
     emit('clear');
+  }
+}
+
+function browse(value: string, source?: 'input' | 'clear') {
+  draftEdited.value = false;
+  if (source === 'clear') {
+    if (!clearEmitted) {
+      clearEmitted = true;
+      emit('clear');
+    }
     return;
   }
   emit('browse', value === props.value ? '' : value);
+}
+
+function completeDraft(event: FocusEvent) {
+  const nextFocus = event.relatedTarget;
+  const ownControl =
+    event.target instanceof Element ? event.target.closest('.object-picker-input-control') : null;
+  if (
+    nextFocus instanceof Element &&
+    ownControl != null &&
+    nextFocus.closest('.object-picker-input-control') === ownControl
+  )
+    return;
+  if (
+    (!draftEdited.value && !props.preserveDraft) ||
+    !inputValue.value.trim() ||
+    inputValue.value === props.value
+  )
+    return;
+  draftEdited.value = false;
+  emit('blur', inputValue.value);
 }
 </script>
 
@@ -55,10 +108,13 @@ function browse(value: string) {
     :value="inputValue"
     :placeholder="placeholder"
     :disabled="disabled"
+    :linked="linked && !!value && inputValue === value"
+    :unmatched="unmatched"
     search-icon-only
     :aria-label="browseLabel"
-    @update:value="inputValue = $event"
+    @update:value="updateDraft"
     @search="browse"
+    @blur="completeDraft"
   />
 </template>
 

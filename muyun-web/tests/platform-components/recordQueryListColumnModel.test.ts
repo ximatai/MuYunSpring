@@ -157,6 +157,17 @@ it('uses the declared reference convention when a list descriptor has no option 
   ).toMatchObject([{ key: 'classroomId', titleField: 'classroomIdTitle' }]);
 });
 
+it('preserves the compiled reference and prefers its explicit title field', () => {
+  const reference = {
+    targetModuleAlias: 'education.classroom',
+    cardinality: 'ONE' as const,
+    titleField: 'classroomSummary',
+  };
+  expect(
+    resolveRecordQueryListColumns(listView([{ fieldRef: { fieldName: 'classroomId' }, reference }])),
+  ).toMatchObject([{ key: 'classroomId', titleField: 'classroomSummary', reference }]);
+});
+
 function listView(fields: ResolvedViewDescriptor['fields']): ResolvedViewDescriptor {
   return { viewCode: 'list', viewKind: 'LIST', fields };
 }

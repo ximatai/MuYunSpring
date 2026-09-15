@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, toRaw, watch } from 'vue';
+import { recordMutationPayload } from './recordMutationPayload';
+import { createSourceReferencePickerConfigAssembler } from './sourceReferencePickerConfig';
 import {
   RecordFormFields,
   RecordRelationTable,
@@ -85,6 +87,7 @@ const recoveredSourceIds = ref(new Set<string>());
 const optionItems = ref<Record<string, OptionItemDescriptor[]>>({});
 let draftSequence = 0;
 let recycleBinRequestSequence = 0;
+const sourceReferencePickerConfigFor = createSourceReferencePickerConfigAssembler();
 
 const parentId = computed(() => (props.parentRecord.id == null ? undefined : String(props.parentRecord.id)));
 const embeddedField = computed(() => props.relation.embeddedField);
@@ -143,62 +146,35 @@ function pickerConfigsOf(row: DraftRow): Record<string, RecordFormFieldPickerCon
     if (!reference) continue;
     const fieldName = field.fieldRef.fieldName;
     const usesSourceReferenceResolver = reference.candidateDelivery === 'SOURCE_FIELD';
-    const pickerRecord = (item: {
-      id: string;
-      title?: string;
-      projections?: Record<string, unknown>;
-      affectPatch?: Record<string, unknown>;
-    }): RecordPickerRecord => ({
-      id: item.id,
-      title: item.title,
-      ...(item.projections ?? {}),
-      projections: item.projections,
-      affectPatch: item.affectPatch,
-    });
     const sourceReferencePickerConfig: Pick<
       RecordFormFieldPickerConfig,
-      'loadOptions' | 'loadTree' | 'resolveOptions'
+      'provider' | 'reloadKey' | 'loadOptions' | 'loadTree' | 'resolveOptions'
     > = {};
     if (usesSourceReferenceResolver) {
-      const referenceResolver = createReferenceResolveClient(
-        props.sourceContext.http,
-        props.relation.targetModuleAlias,
-        reference.resolvePath,
-      );
-      const formValues = () => ({
-        ...props.parentRecord,
-        ...row,
-      });
+      const referenceResolver = () =>
+        createReferenceResolveClient(
+          props.sourceContext.http,
+          props.relation.targetModuleAlias,
+          reference.resolvePath,
+        );
       // A child reference belongs to the row being edited, not to the aggregate parent. The row
       // may be newly created, so do not send the parent's id as a child-source record id.
       const source = () => undefined;
-      sourceReferencePickerConfig.loadOptions = async (keyword: string) => {
-        const response = await referenceResolver.resolve(fieldName, {
-          mode: 'QUERY',
-          fuzzy: keyword || undefined,
-          page: { pageNum: 1, pageSize: 50 },
-          formValues: formValues(),
-          source: source(),
-        });
-        return response.options.map(pickerRecord);
-      };
-      sourceReferencePickerConfig.loadTree = async () => {
-        const response = await referenceResolver.resolve(fieldName, {
-          mode: 'TREE',
-          formValues: formValues(),
-          source: source(),
-        });
-        return response.tree ?? [];
-      };
-      sourceReferencePickerConfig.resolveOptions = async (values: string[]) => {
-        const response = await referenceResolver.resolve(fieldName, {
-          mode: 'TRANSLATE',
-          values,
-          formValues: formValues(),
-          source: source(),
-        });
-        return response.results.flatMap((result) => (result.item ? [pickerRecord(result.item)] : []));
-      };
+      const currentRow = () => rows.value.find((candidate) => candidate.__draftKey === row.__draftKey) ?? row;
+      const sourceModuleAlias = props.relation.targetModuleAlias;
+      Object.assign(
+        sourceReferencePickerConfig,
+        sourceReferencePickerConfigFor({
+          providerScopeKey: row.__draftKey,
+          sourceModuleAlias,
+          reference,
+          pickerFieldName: fieldName,
+          referenceResolver,
+          formValues: () => ({ ...props.parentRecord, ...currentRow() }),
+          reloadRecord: () => ({ ...props.parentRecord, ...currentRow() }),
+          source,
+        }),
+      );
     }
     // SOURCE_FIELD delegates every candidate operation to the declaring child field. Its
     // picker must therefore use the already-ready source-module context; initializing a
@@ -523,6 +499,7 @@ function updateReferenceProjections(row: DraftRow, fieldName: string, projection
 }
 
 function updateValidity(row: DraftRow, fieldName: string, value: boolean) {
+  if (fieldValidity.value[row.__draftKey]?.[fieldName] === value) return;
   fieldValidity.value = {
     ...fieldValidity.value,
     [row.__draftKey]: { ...(fieldValidity.value[row.__draftKey] ?? {}), [fieldName]: value },
@@ -530,7 +507,12 @@ function updateValidity(row: DraftRow, fieldName: string, value: boolean) {
 }
 
 function publishDraft() {
-  emit('records-change', rows.value.filter((row) => !blankNewRow(row)).map(cloneRecord));
+  emit(
+    'records-change',
+    rows.value
+      .filter((row) => !blankNewRow(row))
+      .map((row) => recordMutationPayload(cloneRecord(row), formFields.value.values())),
+  );
 }
 
 watch(valid, (value) => emit('validity-change', value), { immediate: true });
@@ -579,7 +561,7 @@ onMounted(() => void load());
     row-key="__draftKey"
     :selection="editingEnabled"
     :density="density"
-    :cell-key="(_row, column) => `${column.fieldName}:${validationRequestKey ?? 0}`"
+    :cell-key="(_row, column) => column.fieldName"
     :cell-class="
       (row, column) =>
         (validationRequestKey ?? 0) > 0 && cellInvalid(row, column.fieldName)

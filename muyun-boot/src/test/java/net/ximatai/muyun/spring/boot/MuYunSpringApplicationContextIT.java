@@ -50,6 +50,13 @@ import net.ximatai.muyun.spring.iam.user.UserAccountService;
 import net.ximatai.muyun.spring.iam.user.UserSession;
 import net.ximatai.muyun.spring.iam.user.UserSessionDao;
 import net.ximatai.muyun.spring.iam.user.UserSessionService;
+import net.ximatai.muyun.spring.iam.role.Role;
+import net.ximatai.muyun.spring.iam.role.RoleAssignmentType;
+import net.ximatai.muyun.spring.iam.role.RoleKind;
+import net.ximatai.muyun.spring.iam.role.RoleOwnerScopeType;
+import net.ximatai.muyun.spring.iam.role.RoleService;
+import net.ximatai.muyun.spring.iam.role.RoleSharePolicy;
+import net.ximatai.muyun.spring.iam.logging.LoginAuditGovernanceService;
 import net.ximatai.muyun.spring.common.tenant.TenantContext;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.BeforeEach;
@@ -123,6 +130,9 @@ class MuYunSpringApplicationContextIT {
 
     @Autowired
     private UserAccountService userAccountService;
+
+    @Autowired
+    private RoleService roleService;
 
     @Autowired
     private EmployeeService employeeService;
@@ -624,6 +634,79 @@ class MuYunSpringApplicationContextIT {
     }
 
     @Test
+    void shouldServePagedLoginAuditOperatorCandidatesToAQueryOnlyTenantRole() {
+        String suffix = Long.toUnsignedString(System.nanoTime(), 36);
+        String tenantId = insertSummaryTenant("login_ops_" + suffix);
+        String queryOnlyUserId = "login_query_" + suffix;
+        insertUser(tenantId, queryOnlyUserId, "login_candidate_query_only");
+        jdbcTemplate.update("update iam_user set password_status = ? where id = ?", "NORMAL", queryOnlyUserId);
+        grantLoginAuditQueryOnlyRole(tenantId, queryOnlyUserId);
+
+        String selectedOperatorId = loginOperatorId(suffix, 24);
+        for (int index = 1; index <= 24; index++) {
+            String operatorId = loginOperatorId(suffix, index);
+            insertLoginAuditEvent("login-candidate-" + tenantId + "-" + index, tenantId, operatorId,
+                    "needle-%02d".formatted(index), Instant.parse("2030-01-01T00:00:00Z").plusSeconds(index));
+        }
+        String otherTenantId = insertSummaryTenant("login_ops_o_" + suffix);
+        String outsideOperatorId = "login_outside_" + suffix;
+        insertLoginAuditEvent("login-candidate-" + otherTenantId, otherTenantId, outsideOperatorId,
+                "outside-only", Instant.parse("2030-01-02T00:00:00Z"));
+
+        HttpHeaders headers = bearerHeaders(issueActiveSessionToken(tenantId, queryOnlyUserId, "query_only"));
+        Map<String, Object> secondPageRequest = Map.of(
+                "page", Map.of("pageNum", 2, "pageSize", 10),
+                "selectedIds", List.of(selectedOperatorId, outsideOperatorId)
+        );
+        ResponseEntity<JsonNode> secondPage = restTemplate.exchange(
+                "/iam.login_audit_log/operator-candidates/query", HttpMethod.POST,
+                new HttpEntity<>(secondPageRequest, headers), JsonNode.class);
+
+        assertThat(secondPage.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(secondPage.getBody()).isNotNull();
+        JsonNode candidates = secondPage.getBody();
+        assertThat(candidates.path("total").asInt()).isEqualTo(24);
+        assertThat(candidates.path("pageNum").asInt()).isEqualTo(2);
+        assertThat(candidates.path("records")).hasSize(10);
+        assertThat(candidates.path("records").toString()).contains(loginOperatorId(suffix, 14));
+        assertThat(candidates.path("selectedRecords")).hasSize(1);
+        assertThat(candidates.path("selectedRecords").get(0).path("id").asText()).isEqualTo(selectedOperatorId);
+        assertThat(candidates.path("selectedRecords").toString()).doesNotContain(outsideOperatorId);
+
+        ResponseEntity<JsonNode> keyword = restTemplate.exchange(
+                "/iam.login_audit_log/operator-candidates/query", HttpMethod.POST,
+                new HttpEntity<>(Map.of("keyword", "needle-01", "page", Map.of("pageNum", 1, "pageSize", 10)), headers),
+                JsonNode.class);
+        assertThat(keyword.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(keyword.getBody()).isNotNull();
+        assertThat(keyword.getBody().path("total").asInt()).isEqualTo(1);
+        assertThat(keyword.getBody().path("records").get(0).path("id").asText())
+                .isEqualTo(loginOperatorId(suffix, 1));
+
+        ResponseEntity<JsonNode> userQuery = restTemplate.exchange("/iam.user/query", HttpMethod.POST,
+                new HttpEntity<>(Map.of("page", Map.of("pageNum", 1, "pageSize", 10)), headers), JsonNode.class);
+        assertThat(userQuery.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        ResponseEntity<JsonNode> userReference = restTemplate.exchange("/iam.user/navigator/reference/query",
+                HttpMethod.POST, new HttpEntity<>(Map.of("keyword", "needle", "page", Map.of("pageNum", 1, "pageSize", 10)), headers),
+                JsonNode.class);
+        assertThat(userReference.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        ResponseEntity<JsonNode> detail = restTemplate.exchange(
+                "/iam.login_audit_log/login-candidate-" + tenantId + "-24", HttpMethod.GET,
+                new HttpEntity<>(headers), JsonNode.class);
+        assertThat(detail.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+
+        String ungrantedUserId = "login_ungranted_" + suffix;
+        insertUser(tenantId, ungrantedUserId, "login_ungranted");
+        jdbcTemplate.update("update iam_user set password_status = ? where id = ?", "NORMAL", ungrantedUserId);
+        ResponseEntity<JsonNode> ungrantedCandidates = restTemplate.exchange(
+                "/iam.login_audit_log/operator-candidates/query", HttpMethod.POST,
+                new HttpEntity<>(Map.of("page", Map.of("pageNum", 1, "pageSize", 10)),
+                        bearerHeaders(issueActiveSessionToken(tenantId, ungrantedUserId, "login_ungranted"))),
+                JsonNode.class);
+        assertThat(ungrantedCandidates.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+    }
+
+    @Test
     void shouldManageRecordPermissionsThroughStandardHttpEndpoints() {
         String tenantId = insertSummaryTenant("tenant_permission_http");
         seedUserEmployeeProjectionRecords(tenantId);
@@ -1002,6 +1085,57 @@ class MuYunSpringApplicationContextIT {
                 java.util.UUID.randomUUID().toString().replace("-", ""), tenantId, userId, code, tokenHash(token),
                 Timestamp.from(now), Timestamp.from(now.plus(1, ChronoUnit.HOURS)),
                 Timestamp.from(now.plus(1, ChronoUnit.DAYS)), Timestamp.from(now), Boolean.FALSE, Boolean.FALSE);
+    }
+
+    private String issueActiveSessionToken(String tenantId, String userId, String username) {
+        String token = "login-candidate-token-" + System.nanoTime();
+        Instant now = Instant.now().truncatedTo(ChronoUnit.MILLIS);
+        jdbcTemplate.update("""
+                        insert into iam_user_session (
+                            id, tenant_id, user_id, username, token_hash, issued_at, expires_at,
+                            max_expires_at, last_seen_at, password_change_required, deleted
+                        ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                java.util.UUID.randomUUID().toString().replace("-", ""), tenantId, userId, username, tokenHash(token),
+                Timestamp.from(now), Timestamp.from(now.plus(1, ChronoUnit.HOURS)),
+                Timestamp.from(now.plus(1, ChronoUnit.DAYS)), Timestamp.from(now), Boolean.FALSE, Boolean.FALSE);
+        return token;
+    }
+
+    private void grantLoginAuditQueryOnlyRole(String tenantId, String userId) {
+        String roleId = "login_role_" + userId.substring("login_query_".length());
+        try (TenantContext.Scope ignored = TenantContext.use(tenantId)) {
+            Role role = new Role();
+            role.setId(roleId);
+            role.setTitle("Login audit query only");
+            role.setAssignmentType(RoleAssignmentType.ACCOUNT);
+            role.setRoleKind(RoleKind.STANDARD);
+            role.setOwnerScopeType(RoleOwnerScopeType.TENANT);
+            role.setOwnerScopeId(tenantId);
+            role.setOwnerScopeKey("tenant:" + tenantId);
+            role.setSharePolicy(RoleSharePolicy.PRIVATE);
+            role.setEnabled(Boolean.TRUE);
+            roleService.insert(role);
+            roleService.grantAction(roleId, LoginAuditGovernanceService.MODULE_ALIAS,
+                    LoginAuditGovernanceService.QUERY_ACTION_CODE);
+            roleService.grantAccountRoleResult(roleId, userId, tenantId);
+        }
+    }
+
+    private void insertLoginAuditEvent(String eventId, String tenantId, String operatorId, String account,
+                                       Instant occurredAt) {
+        jdbcTemplate.update("""
+                        insert into muyun_log.business_log_event (
+                            event_id, event_type, occurred_at, captured_at, trace_id, tenant_id, operator_id,
+                            operator_account, module_alias, action_code, details_json
+                        ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, cast(? as jsonb))
+                        """,
+                eventId, "LOGIN", Timestamp.from(occurredAt), Timestamp.from(occurredAt), "trace-" + eventId,
+                tenantId, operatorId, account, "iam.login", "login", "{}");
+    }
+
+    private String loginOperatorId(String suffix, int index) {
+        return "login_operator_" + suffix + "_" + String.format("%02d", index);
     }
 
     private String issueSuperAdminSessionToken() {

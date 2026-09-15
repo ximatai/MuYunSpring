@@ -12,6 +12,7 @@ public enum ViewControlType implements CodeTitleEnum {
     DECIMAL("小数"),
     SELECT("下拉单选"),
     MULTI_SELECT("下拉多选"),
+    RECORD_PICKER("引用选择器"),
     COLOR_PICKER("颜色选择器"),
     JSON("JSON");
 

@@ -3284,9 +3284,18 @@ describe('ModulePageHost', () => {
         context: { runtime: { ready: Promise<unknown> }; crud: { query: () => Promise<unknown> } };
       };
       ownerId: {
-        loadOptions: (keyword: string) => Promise<unknown>;
-        loadTree: () => Promise<unknown>;
-        resolveOptions: (values: string[]) => Promise<unknown>;
+        provider: {
+          searchPage: (request: {
+            keyword: string;
+            pageNum: number;
+            pageSize: number;
+            scope: { selections: unknown[] };
+          }) => Promise<unknown>;
+          resolve: (values: string[]) => Promise<unknown>;
+        };
+        loadOptions?: undefined;
+        loadTree?: undefined;
+        resolveOptions?: undefined;
         scopedTree?: unknown;
       };
       departmentId: {
@@ -3306,9 +3315,16 @@ describe('ModulePageHost', () => {
     };
     await pickerConfigs.applicationAlias.context.runtime.ready;
     await pickerConfigs.applicationAlias.context.crud.query();
-    await pickerConfigs.ownerId.loadOptions('admin');
-    await pickerConfigs.ownerId.loadTree();
-    await pickerConfigs.ownerId.resolveOptions(['user-1']);
+    await pickerConfigs.ownerId.provider.searchPage({
+      keyword: 'admin',
+      pageNum: 1,
+      pageSize: 50,
+      scope: { selections: [] },
+    });
+    await pickerConfigs.ownerId.provider.resolve(['user-1']);
+    expect(pickerConfigs.ownerId.loadOptions).toBeUndefined();
+    expect(pickerConfigs.ownerId.loadTree).toBeUndefined();
+    expect(pickerConfigs.ownerId.resolveOptions).toBeUndefined();
     expect(pickerConfigs.ownerId.scopedTree).toBeUndefined();
 
     // A department picker must not probe its source resolver before its required organization
@@ -3352,7 +3368,6 @@ describe('ModulePageHost', () => {
     expect(ownerBodies).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ mode: 'QUERY', fuzzy: 'admin' }),
-        expect.objectContaining({ mode: 'TREE' }),
         expect.objectContaining({ mode: 'TRANSLATE', values: ['user-1'] }),
       ]),
     );

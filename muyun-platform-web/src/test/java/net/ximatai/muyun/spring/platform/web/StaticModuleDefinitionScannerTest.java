@@ -1212,6 +1212,7 @@ class StaticModuleDefinitionScannerTest {
                         assertThat(field.uiType()).isEqualTo("recordPicker");
                         assertThat(field.reference()).isNotNull();
                         assertThat(field.reference().targetModuleAlias()).isEqualTo(FieldSpecService.MODULE_ALIAS);
+                        assertThat(field.reference().titleField()).isEqualTo("valueFieldSpecTitle");
                     });
 
             Map<String, ResolvedViewFieldDescriptor> editorFields = ModuleUiDescriptorCompiler
@@ -1221,6 +1222,7 @@ class StaticModuleDefinitionScannerTest {
             assertThat(editorFields.get("defaultFieldSpecAlias")).satisfies(field -> {
                 assertThat(field.uiType()).isEqualTo("recordPicker");
                 assertThat(field.reference()).isNotNull();
+                assertThat(field.reference().titleField()).isEqualTo("defaultFieldSpecTitle");
             });
             assertThat(editorFields.get("primaryValueKey")).satisfies(field -> {
                 assertThat(field.visible().formula().expression()).isEqualTo("{valueShape} == 'COMPOSITE'");
