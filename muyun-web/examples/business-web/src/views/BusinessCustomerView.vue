@@ -75,6 +75,7 @@ const queryDraftAccountManagerTitle = ref('');
 const appliedAccountManagerId = ref<string>();
 const appliedAccountManagerTitle = ref('');
 const queryDraftValidity = ref<ReferencePickerValidity>({ valid: true, status: 'ready' });
+const queryResetKey = ref(0);
 
 const visibleRows = computed(() =>
   appliedAccountManagerId.value
@@ -120,6 +121,8 @@ function applyQuery() {
 }
 
 function resetQuery() {
+  queryResetKey.value += 1;
+  queryDraftValidity.value = { valid: true, status: 'ready' };
   queryDraftAccountManagerId.value = undefined;
   queryDraftAccountManagerTitle.value = '';
   appliedAccountManagerId.value = undefined;
@@ -167,6 +170,7 @@ function resetQuery() {
         <label for="customer-owner-query">按客户负责人筛选</label>
         <ReferencePicker
           id="customer-owner-query"
+          :key="queryResetKey"
           :value="queryDraftAccountManagerId"
           :provider="queryContactProvider"
           :columns="referenceColumns"
