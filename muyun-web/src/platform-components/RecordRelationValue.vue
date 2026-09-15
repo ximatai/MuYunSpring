@@ -6,6 +6,7 @@ import {
   type RecordFormRecord,
 } from './recordFormFieldModel';
 import { resolveRecordDetailDisplayValue } from './recordDetailFieldModel';
+import ReadonlyReferenceValue from './ReadonlyReferenceValue.vue';
 defineOptions({ name: 'RecordRelationValue' });
 defineProps<{ field: RecordFormFieldState; record: RecordFormRecord; text?: string }>();
 </script>
@@ -22,6 +23,13 @@ defineProps<{ field: RecordFormFieldState; record: RecordFormRecord; text?: stri
     :enabled-tone="field.booleanStatus?.trueTone"
     :disabled-tone="field.booleanStatus?.falseTone"
   />
+  <span v-else-if="field.reference && text == null" class="managed-relation-inline__value"
+    ><ReadonlyReferenceValue
+      :reference="field.reference"
+      :value="record[field.fieldName]"
+      :summary="field.referenceTitleField ? record[field.referenceTitleField] : undefined"
+      empty-text="-"
+  /></span>
   <span v-else class="managed-relation-inline__value">{{
     text ?? resolveRecordDetailDisplayValue(field, record)
   }}</span>

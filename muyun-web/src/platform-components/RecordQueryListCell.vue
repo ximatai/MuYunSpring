@@ -6,6 +6,8 @@ import RecordStatusTag from './RecordStatusTag.vue';
 import RecordTagList from './RecordTagList.vue';
 import { resolveRecordBooleanStatusValue } from './recordFormFieldModel';
 import { readonlyReferenceDisplay } from './readonlyReferenceDisplay';
+import ReadonlyReferenceValue from './ReadonlyReferenceValue.vue';
+import { useReferenceRecordDetailBrowser } from './referenceRecordDetailBrowser';
 import type { QueryListRecord, RecordQueryListColumn } from './recordQueryListColumnModel';
 
 defineOptions({ name: 'RecordQueryListCell' });
@@ -19,6 +21,7 @@ const props = withDefaults(
   }>(),
   { cellRenderers: () => ({}) },
 );
+const referenceBrowser = useReferenceRecordDetailBrowser();
 
 const renderedValue = computed<unknown>(
   () => props.column.render?.(props.record) ?? props.cellRenderers[props.column.key]?.(props.record),
@@ -124,6 +127,16 @@ function fileSizePresentationValue(value: unknown) {
     <i :style="{ backgroundColor: String(record[column.key] ?? '') }" aria-hidden="true" />
     {{ displayValue }}
   </span>
+  <span
+    v-else-if="column.reference && referenceBrowser && renderedValue === undefined"
+    class="record-query-list-text"
+    :style="{ '--record-query-list-max-lines': String(column.maxDisplayLines ?? 1) }"
+    :title="String(displayValue)"
+    ><ReadonlyReferenceValue
+      :reference="column.reference"
+      :value="record[column.key]"
+      :summary="column.titleField ? record[column.titleField] : record[`${column.key}Title`]"
+  /></span>
   <span
     v-else
     class="record-query-list-text"

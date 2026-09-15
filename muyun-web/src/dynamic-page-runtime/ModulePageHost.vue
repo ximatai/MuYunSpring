@@ -21,6 +21,9 @@ import {
   RecordMetaSection,
   RecordModeDrawer,
   RecordDetailDrawer,
+  ReferenceRecordDetailBrowser,
+  createReferenceRecordDetailBrowser,
+  provideReferenceRecordDetailBrowser,
   DrawerTitleActions,
   RecordPanelButton,
   RecordPanelState,
@@ -164,6 +167,8 @@ const currentUser = useCurrentUserContext();
 const baseContext = useModuleContext<QueryListRecord>({
   moduleAlias: props.descriptor.target.moduleAlias,
 });
+const referenceRecordDetailBrowser = createReferenceRecordDetailBrowser(baseContext.http);
+provideReferenceRecordDetailBrowser(referenceRecordDetailBrowser);
 const disabledStandardActions = ref<readonly string[]>([]);
 // Resolve the module-wide contribution before creating any module transport.
 // A selection-aware page must attach its initial opaque selection even to the
@@ -4022,6 +4027,7 @@ function recordTitle(record: QueryListRecord | undefined) {
       </template>
       <component :is="enhancementDrawer.definition.component" :context="enhancementDrawer.context" />
     </RecordDetailDrawer>
+    <ReferenceRecordDetailBrowser :browser="referenceRecordDetailBrowser" inline-anchor />
   </section>
   <section v-else class="module-unsupported">
     <h2>{{ title }}</h2>

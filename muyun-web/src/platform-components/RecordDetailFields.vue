@@ -19,6 +19,7 @@ import {
 } from './recordFormFieldModel';
 import { resolveRecordDetailDisplayValue, type RecordDetailDisplayResolver } from './recordDetailFieldModel';
 import { loadOptionFieldItems } from './optionFieldOptionCache';
+import ReadonlyReferenceValue from './ReadonlyReferenceValue.vue';
 
 defineOptions({ name: 'RecordDetailFields' });
 
@@ -101,6 +102,16 @@ function displayValue(field: RecordFormFieldState) {
     emptyText: props.emptyText,
     optionItems: optionItems.value[field.fieldName],
   });
+}
+
+function hasCustomDisplayValue(field: RecordFormFieldState) {
+  const value = props.displayOf?.(field.fieldName, props.record[field.fieldName], props.record, field);
+  return value !== undefined && value !== null && value !== '';
+}
+
+function hasOptionTitle(field: RecordFormFieldState) {
+  const value = field.optionTitleField ? props.record[field.optionTitleField] : undefined;
+  return value !== undefined && value !== null && value !== '';
 }
 
 async function loadOptionFields() {
@@ -239,6 +250,13 @@ function groupEndsAt(index: number) {
             <FileSizeText
               v-else-if="field.valuePresentation === 'FILE_SIZE'"
               :value="fileSizeValue(field)"
+              :empty-text="props.emptyText"
+            />
+            <ReadonlyReferenceValue
+              v-else-if="field.reference && !hasCustomDisplayValue(field) && !hasOptionTitle(field)"
+              :reference="field.reference"
+              :value="props.record[field.fieldName]"
+              :summary="field.referenceTitleField ? props.record[field.referenceTitleField] : undefined"
               :empty-text="props.emptyText"
             />
             <span v-else>{{ displayValue(field) }}</span>

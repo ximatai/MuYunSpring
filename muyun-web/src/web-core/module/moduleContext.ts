@@ -45,7 +45,7 @@ export interface ModuleContextConfig {
 
 export interface ModuleContextOptions extends ModuleContextConfig {
   moduleAlias: string;
-  runtimeAccess?: 'MENU' | 'REFERENCE';
+  runtimeAccess?: 'MENU' | 'REFERENCE' | 'VIEW';
   navigatorReference?: NavigatorReferenceRequestContext;
 }
 
@@ -93,11 +93,17 @@ export function useModuleContext<TRecord>(
   if (!moduleAlias) {
     throw new Error('Module context requires a moduleAlias');
   }
-  if (!options.http && !options.httpFactory && injectedContext?.value?.moduleAlias === moduleAlias) {
+  if (
+    !options.http &&
+    !options.httpFactory &&
+    options.runtimeAccess === undefined &&
+    options.navigatorReference === undefined &&
+    injectedContext?.value?.moduleAlias === moduleAlias
+  ) {
     return injectedContext.value as ModuleContext<TRecord>;
   }
   const http = resolveModuleHttpClient(options, config);
-  return moduleContextOf<TRecord>(http, moduleAlias);
+  return moduleContextOf<TRecord>(http, moduleAlias, options.runtimeAccess, options.navigatorReference);
 }
 
 export function useModuleTreeContext<TRecord>(
@@ -110,7 +116,7 @@ export function useModuleTreeContext<TRecord>(
     throw new Error('Module tree context requires a moduleAlias');
   }
   const http = resolveModuleHttpClient(options, config);
-  return moduleTreeContextOf<TRecord>(http, moduleAlias);
+  return moduleTreeContextOf<TRecord>(http, moduleAlias, options.runtimeAccess, options.navigatorReference);
 }
 
 /** An immutable transport boundary; remount it to begin a separate business data session. */
@@ -157,7 +163,7 @@ export const ModuleContextProvider = defineComponent({
 function moduleContextOf<TRecord>(
   http: HttpClient,
   moduleAlias: string,
-  runtimeAccess: 'MENU' | 'REFERENCE' = 'MENU',
+  runtimeAccess: 'MENU' | 'REFERENCE' | 'VIEW' = 'MENU',
   navigatorReference?: NavigatorReferenceRequestContext,
 ): ModuleContext<TRecord> {
   const { crud, tree } = moduleClientsFor<TRecord>(http, moduleAlias, runtimeAccess, navigatorReference);
@@ -185,7 +191,7 @@ function moduleContextOf<TRecord>(
 function moduleClientsFor<TRecord>(
   http: HttpClient,
   moduleAlias: string,
-  runtimeAccess: 'MENU' | 'REFERENCE',
+  runtimeAccess: 'MENU' | 'REFERENCE' | 'VIEW',
   navigatorReference?: NavigatorReferenceRequestContext,
 ) {
   if (runtimeAccess === 'REFERENCE') {
@@ -203,7 +209,7 @@ function moduleClientsFor<TRecord>(
 function moduleTreeContextOf<TRecord>(
   http: HttpClient,
   moduleAlias: string,
-  runtimeAccess: 'MENU' | 'REFERENCE' = 'MENU',
+  runtimeAccess: 'MENU' | 'REFERENCE' | 'VIEW' = 'MENU',
   navigatorReference?: NavigatorReferenceRequestContext,
 ): ModuleTreeContext<TRecord> {
   const context = moduleContextOf<TRecord>(http, moduleAlias, runtimeAccess, navigatorReference);

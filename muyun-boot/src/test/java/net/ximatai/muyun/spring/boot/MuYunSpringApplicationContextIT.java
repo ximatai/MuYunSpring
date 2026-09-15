@@ -52,10 +52,12 @@ import net.ximatai.muyun.spring.iam.user.UserSessionDao;
 import net.ximatai.muyun.spring.iam.user.UserSessionService;
 import net.ximatai.muyun.spring.iam.role.Role;
 import net.ximatai.muyun.spring.iam.role.RoleAssignmentType;
+import net.ximatai.muyun.spring.iam.role.DataScopePolicy;
 import net.ximatai.muyun.spring.iam.role.RoleKind;
 import net.ximatai.muyun.spring.iam.role.RoleOwnerScopeType;
 import net.ximatai.muyun.spring.iam.role.RoleService;
 import net.ximatai.muyun.spring.iam.role.RoleSharePolicy;
+import net.ximatai.muyun.spring.iam.role.TenantScopePolicy;
 import net.ximatai.muyun.spring.iam.logging.LoginAuditGovernanceService;
 import net.ximatai.muyun.spring.common.tenant.TenantContext;
 import org.junit.jupiter.api.Test;
@@ -707,6 +709,69 @@ class MuYunSpringApplicationContextIT {
     }
 
     @Test
+    void shouldOpenStaticReferenceDetailWithViewButWithoutMenuPermission() {
+        String suffix = Long.toUnsignedString(System.nanoTime(), 36);
+        String tenantId = insertSummaryTenant("reference_view_" + suffix);
+        String otherTenantId = insertSummaryTenant("reference_view_other_" + suffix);
+        String viewUserId = "rv_user_" + suffix;
+        String visibleRecordId = "rv_record_" + suffix;
+        String outsideRecordId = "rv_outside_" + suffix;
+        insertUser(tenantId, viewUserId, "rv_user_" + suffix);
+        insertUser(tenantId, visibleRecordId, "rv_record_" + suffix);
+        insertUser(otherTenantId, outsideRecordId, "rv_outside_" + suffix);
+        jdbcTemplate.update("update iam_user set password_status = ? where id in (?, ?, ?)", "NORMAL", viewUserId,
+                visibleRecordId, outsideRecordId);
+        grantTenantScopedEmploymentAction(tenantId, viewUserId, "view_" + suffix, PlatformAction.VIEW);
+
+        HttpHeaders viewHeaders = bearerHeaders(issueActiveSessionToken(tenantId, viewUserId, "reference_view"));
+        ResponseEntity<JsonNode> descriptor = restTemplate.exchange(
+                "/platform.module/iam.user/view-context", HttpMethod.GET, new HttpEntity<>(viewHeaders), JsonNode.class);
+        assertThat(descriptor.getStatusCode()).withFailMessage("view descriptor response: %s", descriptor.getBody())
+                .isEqualTo(HttpStatus.OK);
+        assertThat(descriptor.getBody()).isNotNull();
+        assertThat(descriptor.getBody().path("moduleAlias").asText()).isEqualTo(UserAccountService.MODULE_ALIAS);
+        assertThat(descriptor.getBody().path("uiDescriptor").path("moduleAlias").asText())
+                .isEqualTo(UserAccountService.MODULE_ALIAS);
+
+        ResponseEntity<JsonNode> visibleDetail = restTemplate.exchange(
+                "/iam.user/view/" + visibleRecordId, HttpMethod.GET, new HttpEntity<>(viewHeaders), JsonNode.class);
+        assertThat(visibleDetail.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(visibleDetail.getBody()).isNotNull();
+        assertThat(visibleDetail.getBody().path("id").asText()).isEqualTo(visibleRecordId);
+
+        ResponseEntity<JsonNode> outsideDetail = restTemplate.exchange(
+                "/iam.user/view/" + outsideRecordId, HttpMethod.GET, new HttpEntity<>(viewHeaders), JsonNode.class);
+        assertThat(outsideDetail.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+
+        ResponseEntity<JsonNode> menuContext = restTemplate.exchange(
+                "/platform.module/iam.user/context", HttpMethod.GET, new HttpEntity<>(viewHeaders), JsonNode.class);
+        assertThat(menuContext.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+
+        String sourceQueryUserId = "rsq_user_" + suffix;
+        insertUser(tenantId, sourceQueryUserId, "rsq_user_" + suffix);
+        jdbcTemplate.update("update iam_user set password_status = ? where id = ?", "NORMAL", sourceQueryUserId);
+        grantLoginAuditQueryOnlyRole(tenantId, sourceQueryUserId);
+        insertLoginAuditEvent("reference-source-" + suffix, tenantId, "source_operator_" + suffix,
+                "source-query", Instant.parse("2030-01-01T00:00:00Z"));
+        HttpHeaders sourceQueryHeaders = bearerHeaders(issueActiveSessionToken(tenantId, sourceQueryUserId,
+                "source_query"));
+        ResponseEntity<JsonNode> candidates = restTemplate.exchange(
+                "/iam.login_audit_log/operator-candidates/query", HttpMethod.POST,
+                new HttpEntity<>(Map.of("keyword", "source-query", "page", Map.of("pageNum", 1, "pageSize", 10)),
+                        sourceQueryHeaders),
+                JsonNode.class);
+        assertThat(candidates.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(candidates.getBody()).isNotNull();
+        assertThat(candidates.getBody().path("total").asInt()).isEqualTo(1);
+        assertThat(candidates.getBody().path("records").get(0).path("id").asText())
+                .isEqualTo("source_operator_" + suffix);
+        ResponseEntity<JsonNode> sourceQueryDescriptor = restTemplate.exchange(
+                "/platform.module/iam.user/view-context", HttpMethod.GET,
+                new HttpEntity<>(sourceQueryHeaders), JsonNode.class);
+        assertThat(sourceQueryDescriptor.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+    }
+
+    @Test
     void shouldManageRecordPermissionsThroughStandardHttpEndpoints() {
         String tenantId = insertSummaryTenant("tenant_permission_http");
         seedUserEmployeeProjectionRecords(tenantId);
@@ -1120,6 +1185,62 @@ class MuYunSpringApplicationContextIT {
                     LoginAuditGovernanceService.QUERY_ACTION_CODE);
             roleService.grantAccountRoleResult(roleId, userId, tenantId);
         }
+    }
+
+    private void grantTenantScopedEmploymentAction(String tenantId,
+                                                   String userId,
+                                                   String roleSuffix,
+                                                   PlatformAction action) {
+        String organizationId = "rv_org_" + roleSuffix;
+        String departmentId = "rv_dept_" + roleSuffix;
+        String employeeId = "rv_employee_" + roleSuffix;
+        String positionId = "rv_position_" + roleSuffix;
+        String employeePositionId = "rv_employment_" + roleSuffix;
+        String actionRoleId = "rv_action_role_" + roleSuffix;
+        String dataRoleId = "rv_data_role_" + roleSuffix;
+        insertOrganization(tenantId, organizationId, "REF-ORG-" + roleSuffix, "Reference view organization");
+        insertDepartment(tenantId, departmentId, organizationId, "REF-DEPT-" + roleSuffix,
+                "Reference view department");
+        insertEmployee(tenantId, employeeId, organizationId, departmentId, "REF-EMP-" + roleSuffix,
+                "Reference view employee", false);
+        insertEmployeeAccount(tenantId, "rv_binding_" + roleSuffix, employeeId, userId, false);
+        jdbcTemplate.update("""
+                        insert into iam_employee_position (
+                            id, tenant_id, employee_id, organization_id, department_id, position_id,
+                            primary_position, enabled, deleted
+                        ) values (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                employeePositionId, tenantId, employeeId, organizationId, departmentId, positionId,
+                Boolean.TRUE, Boolean.TRUE, Boolean.FALSE);
+        try (TenantContext.Scope ignored = TenantContext.use(tenantId)) {
+            Role dataRole = employmentRole(dataRoleId, tenantId, "Reference data " + action.code(), RoleKind.DATA_GRANT);
+            roleService.insert(dataRole);
+            roleService.replaceDataGrantActions(dataRoleId, List.of(
+                    new RoleService.DataGrantActionCommand(action.code(), DataScopePolicy.ALL, true)));
+            roleService.grantEmploymentRole(dataRoleId, employeePositionId);
+
+            Role actionRole = employmentRole(actionRoleId, tenantId, "Reference action " + action.code(),
+                    RoleKind.STANDARD);
+            roleService.insert(actionRole);
+            roleService.grantAction(actionRoleId, UserAccountService.MODULE_ALIAS, action.code(),
+                    DataScopePolicy.INHERIT_DATA_GRANT,
+                    TenantScopePolicy.CURRENT_TENANT);
+            roleService.grantEmploymentRole(actionRoleId, employeePositionId);
+        }
+    }
+
+    private Role employmentRole(String roleId, String tenantId, String title, RoleKind roleKind) {
+        Role role = new Role();
+        role.setId(roleId);
+        role.setTitle(title);
+        role.setAssignmentType(RoleAssignmentType.EMPLOYMENT);
+        role.setRoleKind(roleKind);
+        role.setOwnerScopeType(RoleOwnerScopeType.TENANT);
+        role.setOwnerScopeId(tenantId);
+        role.setOwnerScopeKey("tenant:" + tenantId);
+        role.setSharePolicy(RoleSharePolicy.PRIVATE);
+        role.setEnabled(Boolean.TRUE);
+        return role;
     }
 
     private void insertLoginAuditEvent(String eventId, String tenantId, String operatorId, String account,

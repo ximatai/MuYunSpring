@@ -80,7 +80,7 @@ export interface ModuleRuntimeContextState {
 export function createModuleRuntimeContextState(
   http: HttpClient,
   moduleAlias: string,
-  access: 'MENU' | 'REFERENCE' = 'MENU',
+  access: 'MENU' | 'REFERENCE' | 'VIEW' = 'MENU',
 ): ModuleRuntimeContextState {
   const current = shallowRef<ModuleRuntimeContext>();
   const currentError = shallowRef<AppError>();
@@ -91,7 +91,7 @@ export function createModuleRuntimeContextState(
   const load = () => {
     loading ??= http
       .request<ModuleRuntimeContext>({
-        path: `/platform.module/${encodeURIComponent(moduleAlias)}/${access === 'REFERENCE' ? 'reference-context' : 'context'}`,
+        path: `/platform.module/${encodeURIComponent(moduleAlias)}/${runtimeContextPath(access)}`,
       })
       .then((context) => {
         current.value = context;
@@ -250,6 +250,12 @@ export function createModuleRuntimeContextState(
       recordId == null || !recordId.trim() ? undefined : recordActionSnapshots.value.get(recordId.trim()),
     invalidateRecordActions,
   };
+}
+
+function runtimeContextPath(access: 'MENU' | 'REFERENCE' | 'VIEW') {
+  if (access === 'REFERENCE') return 'reference-context';
+  if (access === 'VIEW') return 'view-context';
+  return 'context';
 }
 
 export function isRuntimeAbilityAvailable(

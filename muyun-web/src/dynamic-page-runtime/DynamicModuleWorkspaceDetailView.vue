@@ -7,6 +7,9 @@ import {
   presentPlatformError,
   recordPickerModeOf,
   RecordDetailExtensionSection,
+  ReferenceRecordDetailBrowser,
+  createReferenceRecordDetailBrowser,
+  provideReferenceRecordDetailBrowser,
   DrawerTitleActions,
   RecordDetailFields,
   RecordDetailPanel,
@@ -37,6 +40,8 @@ defineOptions({ name: 'DynamicModuleWorkspaceDetailView' });
 const props = defineProps<{ recordId: string }>();
 const emit = defineEmits<{ 'close-workspace': [] }>();
 const context = useModuleContext<QueryListRecord>();
+const referenceRecordDetailBrowser = createReferenceRecordDetailBrowser(context.http);
+provideReferenceRecordDetailBrowser(referenceRecordDetailBrowser);
 const modulePageNavigation = useModulePageNavigation();
 const detail = useRecordDetailController<QueryListRecord>();
 const { record, draft, mode, formSessionKey, loading, loadFailed, saving, togglingEnabled } = detail;
@@ -369,6 +374,7 @@ async function toggleEnabled() {
       </template>
       <component :is="enhancementDrawer.definition.component" :context="enhancementDrawer.context" />
     </RecordModeDrawer>
+    <ReferenceRecordDetailBrowser :browser="referenceRecordDetailBrowser" inline-anchor />
   </section>
 </template>
 
