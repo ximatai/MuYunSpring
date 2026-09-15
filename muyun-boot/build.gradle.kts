@@ -15,7 +15,6 @@ configurations.configureEach {
 dependencies {
     implementation(project(":muyun-spring-boot-starter"))
     runtimeOnly(libs.postgresql)
-    developmentOnly(libs.spring.boot.devtools)
 
     testImplementation(libs.spring.boot.starter.test)
     testImplementation(libs.spring.boot.starter.webmvc.test)
@@ -75,8 +74,7 @@ val demoRuntimeBuildDirectories = demoRuntimeProjectPaths.map { projectPath ->
 }
 
 tasks.named<BootRun>("bootRun") {
-    // DevTools can only restart against mutable class directories. Do not retain the matching
-    // project JARs: duplicate platform classes split parent/child types across DevTools loaders.
+    // Run against current project outputs without duplicate classes from matching project JARs.
     classpath = standardRuntimeOutputs + classpath.filter { entry ->
         standardRuntimeBuildDirectories.none { buildDirectory ->
             entry.toPath().startsWith(buildDirectory.get().asFile.toPath())
@@ -89,7 +87,7 @@ tasks.register<BootRun>("demoBootRun") {
     group = "application"
     mainClass.set("net.ximatai.muyun.spring.boot.MuYunSpringApplication")
     systemProperty("spring.profiles.include", "school-demo")
-    // DevTools needs mutable project outputs for every assembled module, including the optional demo.
+    // Include current project outputs for every assembled module, including the optional demo.
     classpath = bootMainOutput.get() + demoRuntimeOutputs + demoRuntimeClasspath.filter { entry ->
         demoRuntimeBuildDirectories.none { buildDirectory ->
             entry.toPath().startsWith(buildDirectory.get().asFile.toPath())
