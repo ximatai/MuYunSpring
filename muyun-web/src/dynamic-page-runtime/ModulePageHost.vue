@@ -348,6 +348,8 @@ const {
 // RecordFormFields owns parser and renderer diagnostics. Persist only its
 // validity fact here; the host remains responsible for the save boundary.
 const deleting = ref(false);
+const detailEnhancementRunning = ref(false);
+const referenceRecordDetailInteraction = ref({ editing: false, busy: false });
 const mainFormValid = ref(true);
 const relationDraftValid = ref(true);
 const incompleteAggregateChildRelations = ref(new Set<string>());
@@ -813,21 +815,27 @@ const {
     if (props.recordOnly) emit('record-only-change', { type: 'saved', record });
   },
 });
+const interactionBusy = computed(
+  () =>
+    deleting.value ||
+    saving.value ||
+    togglingEnabled.value ||
+    recordOnlyAuthorizing.value ||
+    detailEnhancementRunning.value ||
+    localEditSaving.value ||
+    navigatorManagementDetail.saving.value ||
+    navigatorManagementTogglingEnabled.value ||
+    referenceRecordDetailInteraction.value.busy,
+);
 // Hosts may protect reload/close without inspecting the runtime's private form drafts.
 watch(
   () => ({
     editing:
       Boolean(detailOpen.value && editorMode.value !== 'view') ||
       Boolean(navigatorManagementDetail.open.value && navigatorManagementDetail.mode.value !== 'view') ||
-      localEditOpen.value,
-    busy:
-      deleting.value ||
-      saving.value ||
-      togglingEnabled.value ||
-      recordOnlyAuthorizing.value ||
-      localEditSaving.value ||
-      navigatorManagementDetail.saving.value ||
-      navigatorManagementTogglingEnabled.value,
+      localEditOpen.value ||
+      referenceRecordDetailInteraction.value.editing,
+    busy: interactionBusy.value,
   }),
   (state) => emit('interaction-state-change', state),
   { immediate: true, flush: 'sync' },
@@ -1263,10 +1271,15 @@ const listRowExpansionEnabled = computed(
 );
 const enhancementDetailActions = computed<ModulePageRecordActionContribution[]>(() => {
   const record = selectedRecord.value;
-  return (pageEnhancement.value?.detail?.actions ?? []).map(({ state, ...action }) => ({
-    ...action,
-    ...(record ? state?.(record) : { visible: false }),
-  }));
+  return (pageEnhancement.value?.detail?.actions ?? []).map(({ state, ...action }) => {
+    const resolvedState = record ? state?.(record) : { visible: false };
+    return {
+      ...action,
+      ...resolvedState,
+      disabled:
+        detailEnhancementRunning.value || action.disabled === true || resolvedState?.disabled === true,
+    };
+  });
 });
 const enhancementDetailSections = computed<ModulePageDetailSection[]>(
   () => pageEnhancement.value?.detail?.sections ?? [],
@@ -1851,8 +1864,17 @@ async function runDetailEnhancementAction(
   contribution: ModulePageRecordActionContribution,
   record: QueryListRecord,
 ) {
-  const succeeded = await runEnhancementAction(contribution, { ...modulePageActionContext(record), record });
-  if (succeeded && props.recordOnly) await reportRecordOnlyRefresh(record);
+  if (detailEnhancementRunning.value) return;
+  detailEnhancementRunning.value = true;
+  try {
+    const succeeded = await runEnhancementAction(contribution, {
+      ...modulePageActionContext(record),
+      record,
+    });
+    if (succeeded && props.recordOnly) await reportRecordOnlyRefresh(record);
+  } finally {
+    detailEnhancementRunning.value = false;
+  }
 }
 
 async function reportRecordOnlyRefresh(record: QueryListRecord) {
@@ -3132,14 +3154,14 @@ function handleReferenceRecordChange(mutation: ReferenceRecordDetailMutation) {
 defineExpose({ refreshList });
 
 function closeDetail() {
-  if (saving.value) return;
+  if (saving.value || detailEnhancementRunning.value) return;
   invalidatePendingRequests();
   detail.close();
 }
 
 /** The reference browser owns the record-only session and releases this Host on close. */
 function closeRecordOnlyDetail() {
-  if (saving.value || deleting.value || recordOnlyAuthorizing.value) return;
+  if (interactionBusy.value) return;
   emit('record-only-close');
 }
 
@@ -4188,6 +4210,7 @@ function recordTitle(record: QueryListRecord | undefined) {
       :render-mode="props.recordOnly?.renderMode ?? 'inline'"
       :scope="props.recordOnly?.scope ?? 'tab'"
       @record-change="handleReferenceRecordChange"
+      @interaction-state-change="referenceRecordDetailInteraction = $event"
     />
   </Teleport>
   <RecordPermissionDialog

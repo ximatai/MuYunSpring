@@ -443,6 +443,117 @@ describe('ModuleReferenceRecordDetailBrowser', () => {
     wrapper.unmount();
   });
 
+  it.each([false, true])(
+    'keeps a record-only detail extension busy through %s and restores its reference browser',
+    async (fails) => {
+      let finishAction!: () => void;
+      let finishRefresh!: (record: { id: string; version: number; title: string }) => void;
+      let runs = 0;
+      let viewCount = 0;
+      const pendingAction = new Promise<void>((resolve) => {
+        finishAction = resolve;
+      });
+      const pendingRefresh = new Promise<{ id: string; version: number; title: string }>((resolve) => {
+        finishRefresh = resolve;
+      });
+      configureModulePageEnhancements([
+        {
+          id: 'supplier-pending-detail-extension',
+          target: { moduleAlias: 'purchase.supplier' },
+          detail: {
+            actions: [
+              {
+                key: 'pending-extension',
+                title: '延迟扩展',
+                async run() {
+                  runs += 1;
+                  await pendingAction;
+                  if (fails) throw new Error('扩展执行失败');
+                },
+              },
+            ],
+          },
+        },
+      ]);
+      const http: HttpClient = {
+        async request(options) {
+          if (options.path === '/platform.module/purchase.supplier/view-context') {
+            return {
+              moduleAlias: 'purchase.supplier',
+              capabilities: [],
+              actions: [{ actionCode: 'view', authorized: true }],
+              uiDescriptor: {
+                schemaVersion: '1',
+                moduleAlias: 'purchase.supplier',
+                page: { template: 'LIST_DETAIL_CARD', detail: {} },
+              },
+            } as never;
+          }
+          if (options.path === '/purchase.supplier/actions/supplier-1') {
+            return { recordId: 'supplier-1', actions: [{ actionCode: 'view', available: true }] } as never;
+          }
+          if (options.path === '/purchase.supplier/view/supplier-1') {
+            viewCount += 1;
+            if (viewCount > 2) return pendingRefresh as never;
+            return { id: 'supplier-1', version: 1, title: '供应商' } as never;
+          }
+          throw new Error(`unexpected request: ${options.path}`);
+        },
+      };
+      const browser = createReferenceRecordDetailBrowser(http);
+      const wrapper = mount(ModuleReferenceRecordDetailBrowser, {
+        props: { browser, inlineAnchor: true },
+        global: {
+          stubs: {
+            RecordDetailDrawer: DrawerLayoutHarness,
+            RecordDetailPanel: { template: '<section><slot /><slot name="actions" /></section>' },
+            RecordPanelState: { template: '<section />' },
+            RecordDetailFields: { template: '<section />' },
+            RecordFormFields: { template: '<section />' },
+            RecordMetaSection: { template: '<section />' },
+            ModulePageDetailRelations: { template: '<section />' },
+            RecordActionBar: { template: '<section />' },
+          },
+        },
+      });
+
+      browser.open('purchase.supplier', 'supplier-1');
+      await flush();
+      await flush();
+      const actions = wrapper.findComponent({ name: 'ModuleRecordDetailActions' });
+      const extension = (actions.props('actions') as Array<{ key: string }>).find(
+        (action) => action.key === 'pending-extension',
+      );
+      expect(extension).toBeDefined();
+      expect(viewCount).toBe(2);
+      expect(actions.props('detailLoading')).toBe(false);
+      actions.vm.$emit('detailAction', extension);
+      await flush();
+      expect(browser.active.value?.busy).toBe(true);
+      browser.close();
+      browser.open('purchase.supplier', 'supplier-2');
+      actions.vm.$emit('detailAction', extension);
+      await flush();
+      expect(browser.active.value?.recordId).toBe('supplier-1');
+      expect(runs).toBe(1);
+
+      finishAction();
+      await flush();
+      if (!fails) {
+        expect(viewCount).toBe(3);
+        expect(browser.active.value?.busy).toBe(true);
+        browser.close();
+        expect(browser.active.value?.recordId).toBe('supplier-1');
+        finishRefresh({ id: 'supplier-1', version: 2, title: '已回读供应商' });
+        await flush();
+      }
+      expect(browser.active.value?.busy).toBe(false);
+      browser.close();
+      expect(browser.active.value).toBeUndefined();
+      wrapper.unmount();
+    },
+  );
+
   it.each([
     {
       name: 'no capability',
@@ -679,7 +790,13 @@ describe('ModuleReferenceRecordDetailBrowser', () => {
           return {
             moduleAlias,
             capabilities: [],
-            actions: [{ actionCode: 'view', authorized: true }],
+            actions:
+              moduleAlias === 'crm.customer'
+                ? [
+                    { actionCode: 'view', authorized: true },
+                    { actionCode: 'update', authorized: true },
+                  ]
+                : [{ actionCode: 'view', authorized: true }],
             uiDescriptor: {
               schemaVersion: '1',
               moduleAlias,
@@ -707,7 +824,7 @@ describe('ModuleReferenceRecordDetailBrowser', () => {
         if (options.path.endsWith('/actions/supplier-1') || options.path.endsWith('/actions/customer-1')) {
           return {
             recordId: options.path.endsWith('supplier-1') ? 'supplier-1' : 'customer-1',
-            actions: [],
+            actions: options.path.endsWith('customer-1') ? [{ actionCode: 'update', available: true }] : [],
           } as never;
         }
         if (options.path === '/purchase.supplier/view/supplier-1') {
@@ -753,6 +870,13 @@ describe('ModuleReferenceRecordDetailBrowser', () => {
       expect.objectContaining({ renderMode: 'portal', scope: 'viewport' }),
       expect.objectContaining({ renderMode: 'portal', scope: 'viewport' }),
     ]);
+    const customerActions = hostLayers[1].findComponent({ name: 'ModuleRecordDetailActions' });
+    customerActions.vm.$emit('edit');
+    await flush();
+    expect(wrapper.emitted('interaction-state-change')?.at(-1)?.[0]).toEqual({ editing: true, busy: false });
+    customerActions.vm.$emit('cancel');
+    await flush();
+    expect(wrapper.emitted('interaction-state-change')?.at(-1)?.[0]).toEqual({ editing: false, busy: false });
     wrapper.unmount();
   });
 

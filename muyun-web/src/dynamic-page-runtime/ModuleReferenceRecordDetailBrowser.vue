@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, watch } from 'vue';
 import { ModuleContextProvider, type HttpClient } from '@muyun/web-core';
 import {
   ReferenceRecordDetailBrowser,
+  createReferenceRecordDetailBrowser,
   type ReferenceRecordDetailBrowserState,
   type ReferenceRecordDetailMutation,
 } from '@muyun/platform-components';
@@ -29,7 +30,29 @@ const props = withDefaults(
 );
 const emit = defineEmits<{
   'record-change': [mutation: ReferenceRecordDetailMutation];
+  'interaction-state-change': [state: { editing: boolean; busy: boolean }];
 }>();
+const browser = props.browser ?? createReferenceRecordDetailBrowser(requireHttp(props.http));
+
+function reportInteraction(state: { editing: boolean; busy: boolean }, setBusy: (busy: boolean) => void) {
+  setBusy(state.busy);
+  emit('interaction-state-change', state);
+}
+
+// The standard browser may dismiss a target after a delete or access loss. Reset
+// the outer Host in that path as well, even though the target Host is unmounted.
+watch(
+  () => browser.active.value,
+  (active) => {
+    if (!active) emit('interaction-state-change', { editing: false, busy: false });
+  },
+  { flush: 'sync' },
+);
+
+function requireHttp(http: HttpClient | undefined) {
+  if (!http) throw new Error('Module reference record detail browser requires an HttpClient');
+  return http;
+}
 
 function recordOnlyDescriptor(moduleAlias: string) {
   return {
@@ -53,7 +76,7 @@ const presentation = computed(() => {
 <template>
   <ReferenceRecordDetailBrowser
     :http="props.http"
-    :browser="props.browser"
+    :browser="browser"
     :inline-anchor="presentation.renderMode === 'inline'"
     @record-change="emit('record-change', $event)"
   >
@@ -68,7 +91,7 @@ const presentation = computed(() => {
             renderMode: presentation.renderMode,
             scope: presentation.scope,
           }"
-          @interaction-state-change="setBusy($event.busy)"
+          @interaction-state-change="reportInteraction($event, setBusy)"
           @record-only-close="close"
           @record-only-change="
             (mutation) =>
