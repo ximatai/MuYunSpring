@@ -42,7 +42,10 @@ export {
   createReferenceRecordDetailBrowser,
   provideReferenceRecordDetailBrowser,
 } from './referenceRecordDetailBrowser';
-export type { ReferenceRecordDetailBrowser as ReferenceRecordDetailBrowserState } from './referenceRecordDetailBrowser';
+export type {
+  ReferenceRecordDetailBrowser as ReferenceRecordDetailBrowserState,
+  ReferenceRecordDetailMutation,
+} from './referenceRecordDetailBrowser';
 export type { DrawerPromotion } from './drawerPromotion';
 export { default as RecordExternalChangeNotice } from './RecordExternalChangeNotice.vue';
 export { default as RecordDetailFields } from './RecordDetailFields.vue';
@@ -101,6 +104,7 @@ export type {
   ReferencePickerProvider,
   ReferencePickerSelectionSummary,
   ReferencePickerSourceIdentity,
+  ReferencePickerTreeNode,
   ReferencePickerValidity,
 } from './referencePickerModel';
 export { default as ObjectPickerInput } from './ObjectPickerInput.vue';

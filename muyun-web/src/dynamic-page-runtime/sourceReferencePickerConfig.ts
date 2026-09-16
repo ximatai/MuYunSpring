@@ -17,6 +17,8 @@ type SourceReferencePickerConfigOptions = {
   formValues: () => Record<string, unknown>;
   reloadRecord: () => Record<string, unknown> | undefined;
   source: () => { recordId: string } | undefined;
+  /** Scoped-tree hosts retain their compact legacy picker alongside lazy expansion. */
+  legacyTreeLoaders?: boolean;
 };
 
 type SourceReferencePickerConfig = Pick<
@@ -27,8 +29,8 @@ type SourceReferencePickerConfig = Pick<
 /**
  * Retains source-authorized providers for one page-runtime instance. The source callbacks stay
  * live so page and child-row drafts can change without recreating the picker or widening its
- * candidate authority. Legacy loaders remain only for the TREE branch, which still renders the
- * pre-provider picker.
+ * candidate authority. SOURCE_FIELD TREE delivery is part of the same provider contract; it is
+ * never reconstructed from a paged QUERY result.
  */
 export function createSourceReferencePickerConfigAssembler() {
   const providers = new Map<
@@ -40,19 +42,11 @@ export function createSourceReferencePickerConfigAssembler() {
   >();
 
   return (options: SourceReferencePickerConfigOptions): SourceReferencePickerConfig => {
-    const {
-      providerScopeKey,
-      sourceModuleAlias,
-      reference,
-      pickerFieldName,
-      referenceResolver,
-      formValues,
-      reloadRecord,
-      source,
-    } = options;
+    const { providerScopeKey, sourceModuleAlias, reference, pickerFieldName, reloadRecord } = options;
     const referenceContractKey = JSON.stringify({
       targetModuleAlias: reference.targetModuleAlias,
       cardinality: reference.cardinality,
+      pickerMode: reference.pickerMode,
       resolvePath: reference.resolvePath,
       candidateDependencies: reference.candidateDependencies,
     });
@@ -81,7 +75,7 @@ export function createSourceReferencePickerConfigAssembler() {
         reloadRecord(),
       ),
     };
-    if (reference.pickerMode !== 'TREE') return config;
+    if (reference.pickerMode !== 'TREE' || !options.legacyTreeLoaders) return config;
 
     const pickerRecord = (item: {
       id: string;
@@ -98,29 +92,29 @@ export function createSourceReferencePickerConfigAssembler() {
     return {
       ...config,
       loadOptions: async (keyword) => {
-        const response = await referenceResolver().resolve(pickerFieldName, {
+        const response = await entry.live.options.referenceResolver().resolve(pickerFieldName, {
           mode: 'QUERY',
           fuzzy: keyword || undefined,
           page: { pageNum: 1, pageSize: 50 },
-          formValues: formValues(),
-          source: source(),
+          formValues: entry.live.options.formValues(),
+          source: entry.live.options.source(),
         });
         return response.options.map(pickerRecord);
       },
       loadTree: async () => {
-        const response = await referenceResolver().resolve(pickerFieldName, {
+        const response = await entry.live.options.referenceResolver().resolve(pickerFieldName, {
           mode: 'TREE',
-          formValues: formValues(),
-          source: source(),
+          formValues: entry.live.options.formValues(),
+          source: entry.live.options.source(),
         });
         return response.tree ?? [];
       },
       resolveOptions: async (values) => {
-        const response = await referenceResolver().resolve(pickerFieldName, {
+        const response = await entry.live.options.referenceResolver().resolve(pickerFieldName, {
           mode: 'TRANSLATE',
           values,
-          formValues: formValues(),
-          source: source(),
+          formValues: entry.live.options.formValues(),
+          source: entry.live.options.source(),
         });
         return response.results.flatMap((result) => (result.item ? [pickerRecord(result.item)] : []));
       },

@@ -23,6 +23,9 @@ export interface ModulePageDetailActionRuntimeOptions {
   localEditValid?: Ref<boolean>;
   presentSuccess(result: unknown, fallbackMessage: string, source: string): Promise<unknown> | unknown;
   presentError(cause: unknown, source: string): void;
+  /** Reports a failed post-mutation detail read without treating the mutation itself as failed. */
+  reportRefreshFailure?(cause: unknown, source: string): void;
+  recordChanged?(record: QueryListRecord): void;
 }
 
 /**
@@ -153,11 +156,20 @@ export function useModulePageDetailActionRuntime(options: ModulePageDetailAction
           },
         },
       });
-      if (block.refreshStrategy?.detail !== false)
-        options.detail.resolveLoad(await options.context.crud.view(recordId));
+      let refreshFailure: unknown;
+      if (block.refreshStrategy?.detail !== false) {
+        try {
+          const refreshed = await options.context.crud.view(recordId);
+          options.detail.resolveLoad(refreshed);
+          options.recordChanged?.(refreshed);
+        } catch (cause) {
+          refreshFailure = cause;
+        }
+      }
       if (block.refreshStrategy?.list !== false) options.refreshList();
       localEditOpen.value = false;
       await options.presentSuccess(result, `${block.title ?? block.actionCode}成功`, 'module-local-edit');
+      if (refreshFailure) reportRefreshFailure(refreshFailure, 'module-local-edit');
     } catch (cause) {
       options.presentError(cause, 'module-local-edit');
     } finally {
@@ -172,12 +184,25 @@ export function useModulePageDetailActionRuntime(options: ModulePageDetailAction
         path: `/${encodeURIComponent(options.context.moduleAlias)}/${encodeURIComponent(block.actionCode)}/${encodeURIComponent(recordId)}`,
         body: {},
       });
-      options.detail.resolveLoad(await options.context.crud.view(recordId));
+      let refreshFailure: unknown;
+      try {
+        const refreshed = await options.context.crud.view(recordId);
+        options.detail.resolveLoad(refreshed);
+        options.recordChanged?.(refreshed);
+      } catch (cause) {
+        refreshFailure = cause;
+      }
       options.refreshList();
       await options.presentSuccess(result, `${block.title ?? block.actionCode}成功`, 'module-action-block');
+      if (refreshFailure) reportRefreshFailure(refreshFailure, 'module-action-block');
     } catch (cause) {
       options.presentError(cause, 'module-action-block');
     }
+  }
+
+  function reportRefreshFailure(cause: unknown, source: string) {
+    if (options.reportRefreshFailure) options.reportRefreshFailure(cause, source);
+    else options.presentError(cause, source);
   }
 
   return {

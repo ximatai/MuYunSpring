@@ -116,6 +116,7 @@ export type {
 // remains internal. Business sources supply their own authorized candidate provider.
 export { default as ReferencePicker } from '../platform-components/ReferencePicker.vue';
 export { default as ReferenceRecordDetailBrowser } from '../platform-components/ReferenceRecordDetailBrowser.vue';
+export { default as ModuleReferenceRecordDetailBrowser } from '../dynamic-page-runtime/ModuleReferenceRecordDetailBrowser.vue';
 export { default as ReadonlyReferenceValue } from '../platform-components/ReadonlyReferenceValue.vue';
 export { ReferencePickerReadError } from '../platform-components/referencePickerReadError';
 export type { ReferencePickerReadErrorKind } from '../platform-components/referencePickerReadError';
@@ -133,5 +134,6 @@ export type {
   ReferencePickerProvider,
   ReferencePickerSelectionSummary,
   ReferencePickerSourceIdentity,
+  ReferencePickerTreeNode,
   ReferencePickerValidity,
 } from '../platform-components/referencePickerModel';

@@ -774,7 +774,10 @@ function groupEndsAt(field: RecordFormFieldState, index: number) {
           />
           <template v-else-if="field.controlType === 'recordPicker' && field.pickerConfig">
             <ReferencePicker
-              v-if="field.pickerConfig.provider && field.pickerConfig.mode !== 'tree'"
+              v-if="
+                field.pickerConfig.provider &&
+                (field.pickerConfig.mode !== 'tree' || !field.pickerConfig.scopedTree)
+              "
               :value="recordPickerFieldValue(field.fieldName)"
               :provider="field.pickerConfig.provider"
               :reload-key="field.pickerConfig.reloadKey"
@@ -837,7 +840,7 @@ function groupEndsAt(field: RecordFormFieldState, index: number) {
             v-else-if="
               field.controlType === 'recordMultiPicker' &&
               field.pickerConfig?.provider &&
-              field.pickerConfig.mode !== 'tree'
+              (field.pickerConfig.mode !== 'tree' || !field.pickerConfig.scopedTree)
             "
             :value="stringArrayFieldValue(field.fieldName)"
             :provider="field.pickerConfig.provider"

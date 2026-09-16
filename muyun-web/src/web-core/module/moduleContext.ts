@@ -141,10 +141,17 @@ export const ModuleContextProvider = defineComponent({
       required: false,
       default: undefined,
     },
+    /** Reuse an already-authorized module session without recreating a MENU runtime. */
+    context: {
+      type: Object as PropType<ModuleContext<unknown>>,
+      required: false,
+      default: undefined,
+    },
   },
   setup(props, { slots }) {
     const config = inject(moduleContextConfigKey, undefined);
     const moduleContext = computed<ModuleContext<unknown> | undefined>(() => {
+      if (props.context) return props.context;
       if (!props.moduleAlias) {
         return undefined;
       }
@@ -153,7 +160,7 @@ export const ModuleContextProvider = defineComponent({
     });
     provide(
       moduleAliasKey,
-      computed(() => props.moduleAlias),
+      computed(() => props.context?.moduleAlias ?? props.moduleAlias),
     );
     provide(moduleContextKey, moduleContext);
     return () => slots.default?.();

@@ -195,17 +195,28 @@ export function useNavigatorRuntime(
     return { identity: requested.identity, revision, record };
   }
 
+  /**
+   * Loads only the target module's descriptor and its main-entity fields.
+   * Record-only detail hosts deliberately stop here: a page navigator/tree
+   * is a list-session concern and must not be initialized for a reference.
+   */
+  async function loadRuntimeDescriptor() {
+    const runtimeContext = await context.runtime.ready;
+    runtimeUiDescriptor.value = runtimeContext.uiDescriptor;
+    runtimePage.value = runtimeContext.uiDescriptor?.page;
+    runtimePageResolved.value = true;
+    treeModule.value = context.abilities.hasTree() === true;
+    formFields.value = resolveRecordFormFields(runtimeContext.uiDescriptor);
+    detailDisplayFields.value = resolveRecordDetailFields(runtimeContext.uiDescriptor);
+  }
+
   async function loadRuntimeForm(
     isListPage: Ref<boolean>,
     hasBusinessRecordView: () => boolean,
     fail: (message: string) => void,
   ) {
     if (!isListPage.value) return;
-    const runtimeContext = await context.runtime.ready;
-    runtimeUiDescriptor.value = runtimeContext.uiDescriptor;
-    runtimePage.value = runtimeContext.uiDescriptor?.page;
-    runtimePageResolved.value = true;
-    treeModule.value = context.abilities.hasTree() === true;
+    await loadRuntimeDescriptor();
     if (treeModule.value && hasBusinessRecordView()) {
       fail('模块页面增强的业务查看呈现仅支持普通列表模块，不支持树模块');
       return;
@@ -247,8 +258,8 @@ export function useNavigatorRuntime(
       }),
     );
     const treeResource = runtimePage.value?.treeResource?.resource;
-    formFields.value = resolveRecordFormFields(runtimeContext.uiDescriptor, treeResource);
-    detailDisplayFields.value = resolveRecordDetailFields(runtimeContext.uiDescriptor, treeResource);
+    formFields.value = resolveRecordFormFields(runtimeUiDescriptor.value, treeResource);
+    detailDisplayFields.value = resolveRecordDetailFields(runtimeUiDescriptor.value, treeResource);
   }
 
   return {
@@ -267,6 +278,7 @@ export function useNavigatorRuntime(
     navigatorEntrySelectionPendingFor,
     resolveNavigatorEntrySelection,
     isCurrentNavigatorEntrySelection,
+    loadRuntimeDescriptor,
     loadRuntimeForm,
   };
 }

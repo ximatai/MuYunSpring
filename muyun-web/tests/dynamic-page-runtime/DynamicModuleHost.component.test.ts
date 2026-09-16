@@ -1,5 +1,5 @@
-import { flushPromises, mount, shallowMount } from '@vue/test-utils';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { config, flushPromises, mount, shallowMount } from '@vue/test-utils';
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { defineComponent } from 'vue';
 import ModulePageHost from '@/dynamic-page-runtime/ModulePageHost.vue';
 import { configureModuleContext, createHttpClient } from '@muyun/web-core';
@@ -8,6 +8,18 @@ import { refreshModulePageList } from '@/dynamic-page-runtime/modulePageListRefr
 
 describe('ModulePageHost', () => {
   const originalFetch = globalThis.fetch;
+  const originalTeleportStub = config.global.stubs.Teleport;
+
+  beforeEach(() => {
+    // The standard host teleports only its inline layer back into the workspace.
+    // Keep that layer in this component wrapper so existing behavioral assertions
+    // observe the same Host contract rather than browser placement details.
+    config.global.stubs.Teleport = { template: '<slot />' };
+  });
+
+  afterAll(() => {
+    config.global.stubs.Teleport = originalTeleportStub;
+  });
 
   it.each([true, false])('executes a placed action only through its issued binding (%s)', async (bound) => {
     const calls: Array<{ path: string; method: string; body: unknown }> = [];
@@ -1256,6 +1268,7 @@ describe('ModulePageHost', () => {
   it('keeps a list dormant until every declared navigator scope is selected', async () => {
     window.localStorage.setItem('muyun.preference.module-page.detail-surface.crm.customer', '"drawer"');
     let detailRequests = 0;
+    const targetRequests: Request[] = [];
     let listPageContextHeader: string | null | undefined;
     globalThis.fetch = async (input, init) => {
       const request = new Request(input, init);
@@ -1313,6 +1326,14 @@ describe('ModulePageHost', () => {
           },
         });
       }
+      if (request.url.endsWith('/platform.module/purchase.supplier/view-context')) {
+        targetRequests.push(request);
+        return Response.json({ moduleAlias: 'purchase.supplier', capabilities: [], actions: [] });
+      }
+      if (request.url.endsWith('/purchase.supplier/view/supplier-1')) {
+        targetRequests.push(request);
+        return Response.json({ id: 'supplier-1', title: '供应商' });
+      }
       if (request.url.endsWith('/platform.module/iam.tenant/reference-context')) {
         return Response.json({ moduleAlias: 'iam.tenant', capabilities: [], actions: [] });
       }
@@ -1330,7 +1351,12 @@ describe('ModulePageHost', () => {
       throw new Error(`Unexpected request: ${request.url}`);
     };
     configureModuleContext({
-      httpFactory: () => createHttpClient({ baseUrl: 'http://api.local' }),
+      httpFactory: () =>
+        createHttpClient({
+          baseUrl: 'http://api.local',
+          token: 'session-token',
+          headers: { 'X-MuYun-Tenant-Id': 'session-tenant' },
+        }),
     });
 
     const wrapper = shallowMount(ModulePageHost, {
@@ -1387,6 +1413,18 @@ describe('ModulePageHost', () => {
     expect(panel.props('ready')).toBe(true);
     await panel.props('context').crud.query();
     expect(listPageContextHeader).toBe('{"tenant":"tenant-1","organization":"organization-1"}');
+
+    const referenceBrowser = wrapper
+      .findComponent({ name: 'ModuleReferenceRecordDetailBrowser' })
+      .props('browser');
+    await referenceBrowser.open('purchase.supplier', 'supplier-1');
+    expect(targetRequests).toHaveLength(2);
+    for (const request of targetRequests) {
+      expect(request.headers.get('X-MuYun-Page-Context')).toBeNull();
+      expect(request.headers.get('X-MuYun-Menu-Id')).toBeNull();
+      expect(request.headers.get('X-MuYun-Tenant-Id')).toBe('session-tenant');
+      expect(request.headers.get('Authorization')).toBe('Bearer session-token');
+    }
 
     explorers[0].vm.$emit('select', { id: 'tenant-2', title: '乙租户' });
     await flushPromises();
@@ -3185,6 +3223,7 @@ describe('ModulePageHost', () => {
                         targetModuleAlias: 'iam.department',
                         cardinality: 'ONE',
                         candidateDelivery: 'SOURCE_FIELD',
+                        pickerMode: 'TREE',
                       },
                     },
                   ],
@@ -3299,6 +3338,8 @@ describe('ModulePageHost', () => {
         scopedTree?: unknown;
       };
       departmentId: {
+        loadTree: () => Promise<unknown>;
+        resolveOptions: (values: string[]) => Promise<unknown>;
         scopedTree: {
           disabled: boolean;
           provider: {
@@ -3350,6 +3391,13 @@ describe('ModulePageHost', () => {
     });
     await scopedDepartment.provider.loadRoot({ keyword: '研发', signal: controller.signal });
     await scopedDepartment.provider.resolve(['department-root']);
+    const legacyDepartment = (
+      wrapper
+        .findComponent({ name: 'ModulePageRecordContent' })
+        .props('pickerConfigs') as typeof pickerConfigs
+    ).departmentId;
+    await legacyDepartment.loadTree();
+    await legacyDepartment.resolveOptions(['department-root']);
 
     const normalRuntimeRequest = requests.find((request) =>
       request.url.endsWith('/platform.module/platform.application/reference-context'),
@@ -3377,6 +3425,7 @@ describe('ModulePageHost', () => {
         expect.objectContaining({ mode: 'TREE_CHILDREN', parentId: 'department-root' }),
         expect.objectContaining({ mode: 'QUERY', fuzzy: '研发' }),
         expect.objectContaining({ mode: 'TRANSLATE', values: ['department-root'] }),
+        expect.objectContaining({ mode: 'TREE', formValues: { organizationId: 'org-1' } }),
       ]),
     );
   });

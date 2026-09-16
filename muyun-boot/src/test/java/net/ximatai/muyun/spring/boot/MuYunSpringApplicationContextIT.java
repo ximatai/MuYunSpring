@@ -29,7 +29,14 @@ import net.ximatai.muyun.spring.web.WebSort;
 import net.ximatai.muyun.spring.web.endpoint.RegisteredWebEndpointCatalog;
 import net.ximatai.muyun.spring.web.endpoint.ResolvedWebEndpoint;
 import net.ximatai.muyun.spring.ability.deletion.DeletionRecoveryAbility;
+import net.ximatai.muyun.spring.common.identity.CurrentUser;
+import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
 import net.ximatai.muyun.spring.common.platform.PlatformAction;
+import net.ximatai.muyun.spring.common.tenant.TenantContext;
+import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecord;
+import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecordService;
+import net.ximatai.muyun.spring.platform.application.Application;
+import net.ximatai.muyun.spring.platform.application.ApplicationService;
 import net.ximatai.muyun.spring.platform.deletion.DeletionEntry;
 import net.ximatai.muyun.spring.platform.deletion.RecycleBinFacade;
 import net.ximatai.muyun.spring.platform.deletion.RecycleBinItem;
@@ -38,8 +45,40 @@ import net.ximatai.muyun.spring.platform.deletion.RestoreReport;
 import net.ximatai.muyun.spring.platform.deletion.StaticDeletionRecoveryResourceResolver;
 import net.ximatai.muyun.spring.iam.employee.EmployeeAccountService;
 import net.ximatai.muyun.spring.iam.employee.EmployeeService;
+import net.ximatai.muyun.spring.platform.module.ModuleActionContribution;
+import net.ximatai.muyun.spring.platform.module.ModuleActionContributionRegistrar;
+import net.ximatai.muyun.spring.platform.module.ModuleActionSourceType;
 import net.ximatai.muyun.spring.platform.module.ModuleEntryType;
-import net.ximatai.muyun.spring.platform.application.ApplicationService;
+import net.ximatai.muyun.spring.platform.module.ModuleKind;
+import net.ximatai.muyun.spring.platform.module.PlatformModule;
+import net.ximatai.muyun.spring.platform.module.PlatformModuleService;
+import net.ximatai.muyun.spring.platform.metadata.MetadataField;
+import net.ximatai.muyun.spring.platform.metadata.MetadataFieldChangeSetDraft;
+import net.ximatai.muyun.spring.platform.metadata.MetadataFieldForm;
+import net.ximatai.muyun.spring.platform.metadata.MetadataFieldOwnership;
+import net.ximatai.muyun.spring.platform.metadata.MetadataRelationChangeSetApplyCommand;
+import net.ximatai.muyun.spring.platform.metadata.MetadataRelationChangeSetApplyService;
+import net.ximatai.muyun.spring.platform.metadata.MetadataRelationChangeSetPreview;
+import net.ximatai.muyun.spring.platform.metadata.MetadataRelationChangeSetPreviewCommand;
+import net.ximatai.muyun.spring.platform.metadata.MetadataRelationChangeSetPreviewService;
+import net.ximatai.muyun.spring.platform.metadata.ModuleMainMetadataCreateCommand;
+import net.ximatai.muyun.spring.platform.metadata.ModuleMainMetadataCreationResult;
+import net.ximatai.muyun.spring.platform.metadata.ModuleMetadataOrchestrationService;
+import net.ximatai.muyun.spring.platform.metadata.ModuleMetadataRelation;
+import net.ximatai.muyun.spring.platform.metadata.ModuleMetadataRelationService;
+import net.ximatai.muyun.spring.platform.metadata.RelationRole;
+import net.ximatai.muyun.spring.platform.runtime.PlatformDynamicRuntimeRefreshService;
+import net.ximatai.muyun.spring.platform.ui.PlatformPageContractType;
+import net.ximatai.muyun.spring.platform.ui.PlatformPageDefinition;
+import net.ximatai.muyun.spring.platform.ui.PlatformPageDefinitionService;
+import net.ximatai.muyun.spring.platform.ui.PlatformPresentationClientType;
+import net.ximatai.muyun.spring.platform.ui.PlatformPresentationRevision;
+import net.ximatai.muyun.spring.platform.ui.PlatformPresentationRevisionPublishService;
+import net.ximatai.muyun.spring.platform.ui.PlatformPresentationRevisionService;
+import net.ximatai.muyun.spring.platform.ui.PlatformPresentationRevisionStatus;
+import net.ximatai.muyun.spring.platform.ui.PlatformPresentationScopeType;
+import net.ximatai.muyun.spring.platform.ui.PlatformPresentationVariant;
+import net.ximatai.muyun.spring.platform.ui.PlatformPresentationVariantService;
 import net.ximatai.muyun.spring.platform.dictionary.DictionaryCategory;
 import net.ximatai.muyun.spring.platform.dictionary.DictionaryCategoryService;
 import net.ximatai.muyun.spring.iam.tenant.Tenant;
@@ -59,7 +98,6 @@ import net.ximatai.muyun.spring.iam.role.RoleService;
 import net.ximatai.muyun.spring.iam.role.RoleSharePolicy;
 import net.ximatai.muyun.spring.iam.role.TenantScopePolicy;
 import net.ximatai.muyun.spring.iam.logging.LoginAuditGovernanceService;
-import net.ximatai.muyun.spring.common.tenant.TenantContext;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.BeforeEach;
 import org.springframework.aop.support.AopUtils;
@@ -78,6 +116,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.testcontainers.containers.PostgreSQLContainer;
@@ -135,6 +174,48 @@ class MuYunSpringApplicationContextIT {
 
     @Autowired
     private RoleService roleService;
+
+    @Autowired
+    private ApplicationService applicationService;
+
+    @Autowired
+    private PlatformModuleService moduleService;
+
+    @Autowired
+    private ModuleMetadataOrchestrationService metadataOrchestrationService;
+
+    @Autowired
+    private MetadataRelationChangeSetPreviewService metadataChangeSetPreviewService;
+
+    @Autowired
+    private MetadataRelationChangeSetApplyService metadataChangeSetApplyService;
+
+    @Autowired
+    private ModuleMetadataRelationService moduleMetadataRelationService;
+
+    @Autowired
+    private ModuleActionContributionRegistrar moduleActionRegistrar;
+
+    @Autowired
+    private PlatformDynamicRuntimeRefreshService dynamicRuntimeRefreshService;
+
+    @Autowired
+    private DynamicRecordService dynamicRecordService;
+
+    @Autowired
+    private TransactionTemplate transactionTemplate;
+
+    @Autowired
+    private PlatformPageDefinitionService pageDefinitionService;
+
+    @Autowired
+    private PlatformPresentationVariantService presentationVariantService;
+
+    @Autowired
+    private PlatformPresentationRevisionService presentationRevisionService;
+
+    @Autowired
+    private PlatformPresentationRevisionPublishService presentationRevisionPublishService;
 
     @Autowired
     private EmployeeService employeeService;
@@ -772,6 +853,138 @@ class MuYunSpringApplicationContextIT {
     }
 
     @Test
+    void shouldOpenDynamicReferenceDetailWithViewButWithoutMenuPermission() {
+        String suffix = Long.toUnsignedString(System.nanoTime(), 36);
+        String applicationAlias = "refdyn" + suffix;
+        String moduleAlias = applicationAlias + ".target";
+        String tenantId = insertSummaryTenant("dynamic_view_" + suffix);
+        String otherTenantId = insertSummaryTenant("dynamic_view_other_" + suffix);
+        installDynamicReferenceTarget(applicationAlias, moduleAlias, "target");
+        openTenantApplication(tenantId, applicationAlias);
+        String viewUserId = "rdv_user_" + suffix;
+        insertUser(tenantId, viewUserId, "rdv_user_" + suffix);
+        jdbcTemplate.update("update iam_user set password_status = ? where id = ?", "NORMAL", viewUserId);
+        String visibleRecordId = insertDynamicReferenceTarget(moduleAlias, "target", tenantId, viewUserId,
+                "Visible dynamic target " + suffix);
+        String hiddenRecordId = insertDynamicReferenceTarget(moduleAlias, "target", tenantId, "other_user_" + suffix,
+                "Hidden dynamic target " + suffix);
+        String outsideRecordId = insertDynamicReferenceTarget(moduleAlias, "target", otherTenantId, viewUserId,
+                "Outside dynamic target " + suffix);
+        assertThat(jdbcTemplate.queryForObject("select auth_user_id from " + applicationAlias + "_target where id = ?",
+                String.class, visibleRecordId)).isEqualTo(viewUserId);
+        assertThat(jdbcTemplate.queryForObject("select auth_user_id from " + applicationAlias + "_target where id = ?",
+                String.class, hiddenRecordId)).isEqualTo("other_user_" + suffix);
+        grantTenantScopedEmploymentAction(tenantId, viewUserId, "dynamic_" + suffix, moduleAlias,
+                PlatformAction.VIEW, DataScopePolicy.OWNER);
+        try (CurrentUserContext.Scope user = CurrentUserContext.use(
+                CurrentUser.tenantUser(viewUserId, "rdv_user_" + suffix, tenantId));
+             TenantContext.Scope ignored = TenantContext.use(tenantId)) {
+            assertThat(dynamicRecordService.select(moduleAlias, "target", visibleRecordId)).isNotNull();
+            assertThat(dynamicRecordService.select(moduleAlias, "target", hiddenRecordId)).isNull();
+        }
+
+        HttpHeaders viewHeaders = bearerHeaders(issueActiveSessionToken(tenantId, viewUserId, "dynamic_view"));
+        ResponseEntity<JsonNode> descriptor = restTemplate.exchange(
+                "/platform.module/" + moduleAlias + "/view-context", HttpMethod.GET,
+                new HttpEntity<>(viewHeaders), JsonNode.class);
+        assertThat(descriptor.getStatusCode()).withFailMessage("dynamic descriptor response: %s", descriptor.getBody())
+                .isEqualTo(HttpStatus.OK);
+        assertThat(descriptor.getBody()).isNotNull();
+        assertThat(descriptor.getBody().path("moduleAlias").asText()).isEqualTo(moduleAlias);
+        assertThat(descriptor.getBody().path("mainEntityAlias").asText()).isEqualTo("target");
+        assertThat(descriptor.getBody().path("capabilities").toString()).contains("DATA_SCOPE");
+
+        ResponseEntity<JsonNode> visibleDetail = restTemplate.exchange(
+                "/" + moduleAlias + "/view/" + visibleRecordId, HttpMethod.GET,
+                new HttpEntity<>(viewHeaders), JsonNode.class);
+        assertThat(visibleDetail.getStatusCode()).withFailMessage("dynamic detail response: %s", visibleDetail.getBody())
+                .isEqualTo(HttpStatus.OK);
+        assertThat(visibleDetail.getBody()).isNotNull();
+        assertThat(visibleDetail.getBody().path("id").asText()).isEqualTo(visibleRecordId);
+        assertThat(visibleDetail.getBody().path("values").path("title").asText())
+                .isEqualTo("Visible dynamic target " + suffix);
+
+        ResponseEntity<JsonNode> hiddenDetail = restTemplate.exchange(
+                "/" + moduleAlias + "/view/" + hiddenRecordId, HttpMethod.GET,
+                new HttpEntity<>(viewHeaders), JsonNode.class);
+        assertThat(hiddenDetail.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+
+        ResponseEntity<JsonNode> outsideDetail = restTemplate.exchange(
+                "/" + moduleAlias + "/view/" + outsideRecordId, HttpMethod.GET,
+                new HttpEntity<>(viewHeaders), JsonNode.class);
+        assertThat(outsideDetail.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+
+        ResponseEntity<JsonNode> missingDetail = restTemplate.exchange(
+                "/" + moduleAlias + "/view/missing-" + suffix, HttpMethod.GET,
+                new HttpEntity<>(viewHeaders), JsonNode.class);
+        assertThat(missingDetail.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+
+        ResponseEntity<JsonNode> menuContext = restTemplate.exchange(
+                "/platform.module/" + moduleAlias + "/context", HttpMethod.GET,
+                new HttpEntity<>(viewHeaders), JsonNode.class);
+        assertThat(menuContext.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+
+        ResponseEntity<JsonNode> readonlyActions = restTemplate.exchange(
+                "/" + moduleAlias + "/actions/" + visibleRecordId, HttpMethod.GET,
+                new HttpEntity<>(viewHeaders), JsonNode.class);
+        assertThat(readonlyActions.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat((Iterable<JsonNode>) readonlyActions.getBody().path("actions")).anySatisfy(action -> {
+            assertThat(action.path("actionCode").asText()).isEqualTo("update");
+            assertThat(action.path("available").asBoolean()).isFalse();
+        });
+
+        Map<String, Object> update = Map.of("version", visibleDetail.getBody().path("version").asInt(),
+                "values", Map.of("title", "Updated reference target " + suffix));
+        ResponseEntity<JsonNode> deniedUpdate = restTemplate.exchange(
+                "/" + moduleAlias + "/update/" + visibleRecordId, HttpMethod.POST,
+                new HttpEntity<>(update, viewHeaders), JsonNode.class);
+        assertThat(deniedUpdate.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+
+        try (TenantContext.Scope ignored = TenantContext.use(tenantId)) {
+            roleService.replaceDataGrantActions("rv_data_role_dynamic_" + suffix, List.of(
+                    new RoleService.DataGrantActionCommand(PlatformAction.VIEW.code(), DataScopePolicy.OWNER, true),
+                    new RoleService.DataGrantActionCommand(PlatformAction.UPDATE.code(), DataScopePolicy.OWNER, true)));
+            roleService.grantAction("rv_action_role_dynamic_" + suffix, moduleAlias, PlatformAction.UPDATE.code(),
+                    DataScopePolicy.INHERIT_DATA_GRANT, TenantScopePolicy.CURRENT_TENANT);
+        }
+        ResponseEntity<JsonNode> writableActions = restTemplate.exchange(
+                "/" + moduleAlias + "/actions/" + visibleRecordId, HttpMethod.GET,
+                new HttpEntity<>(viewHeaders), JsonNode.class);
+        assertThat(writableActions.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat((Iterable<JsonNode>) writableActions.getBody().path("actions")).anySatisfy(action -> {
+            assertThat(action.path("actionCode").asText()).isEqualTo("update");
+            assertThat(action.path("available").asBoolean()).isTrue();
+        });
+        ResponseEntity<JsonNode> updated = restTemplate.exchange(
+                "/" + moduleAlias + "/update/" + visibleRecordId, HttpMethod.POST,
+                new HttpEntity<>(update, viewHeaders), JsonNode.class);
+        assertThat(updated.getStatusCode()).withFailMessage("update without menu response: %s", updated.getBody())
+                .isEqualTo(HttpStatus.OK);
+        ResponseEntity<JsonNode> reloaded = restTemplate.exchange(
+                "/" + moduleAlias + "/view/" + visibleRecordId, HttpMethod.GET,
+                new HttpEntity<>(viewHeaders), JsonNode.class);
+        assertThat(reloaded.getBody().path("values").path("title").asText())
+                .isEqualTo("Updated reference target " + suffix);
+        assertThat(reloaded.getBody().path("version").asInt())
+                .isGreaterThan(visibleDetail.getBody().path("version").asInt());
+        ResponseEntity<JsonNode> staleUpdate = restTemplate.exchange(
+                "/" + moduleAlias + "/update/" + visibleRecordId, HttpMethod.POST,
+                new HttpEntity<>(update, viewHeaders), JsonNode.class);
+        assertThat(staleUpdate.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        ResponseEntity<JsonNode> hiddenUpdate = restTemplate.exchange(
+                "/" + moduleAlias + "/update/" + hiddenRecordId, HttpMethod.POST,
+                new HttpEntity<>(update, viewHeaders), JsonNode.class);
+        assertThat(hiddenUpdate.getStatusCode()).withFailMessage("hidden update: %s", hiddenUpdate.getBody())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(jdbcTemplate.queryForObject("select title from " + applicationAlias + "_target where id = ?",
+                String.class, hiddenRecordId)).isEqualTo("Hidden dynamic target " + suffix);
+        ResponseEntity<JsonNode> stillNoMenu = restTemplate.exchange(
+                "/platform.module/" + moduleAlias + "/context", HttpMethod.GET,
+                new HttpEntity<>(viewHeaders), JsonNode.class);
+        assertThat(stillNoMenu.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+    }
+
+    @Test
     void shouldManageRecordPermissionsThroughStandardHttpEndpoints() {
         String tenantId = insertSummaryTenant("tenant_permission_http");
         seedUserEmployeeProjectionRecords(tenantId);
@@ -1187,10 +1400,165 @@ class MuYunSpringApplicationContextIT {
         }
     }
 
+    private void installDynamicReferenceTarget(String applicationAlias, String moduleAlias, String entityAlias) {
+        try (CurrentUserContext.Scope user = CurrentUserContext.use(
+                CurrentUser.systemUser("dynamic-reference-fixture", "Dynamic reference fixture"));
+             TenantContext.Scope ignored = TenantContext.system("install dynamic reference target fixture")) {
+            transactionTemplate.executeWithoutResult(status -> {
+                Application application = new Application();
+                application.setAlias(applicationAlias);
+                application.setTitle("Dynamic reference application");
+                applicationService.insert(application);
+
+                PlatformModule module = new PlatformModule();
+                module.setAlias(moduleAlias);
+                module.setApplicationAlias(applicationAlias);
+                module.setModuleKind(ModuleKind.DYNAMIC);
+                module.setTitle("Dynamic reference target");
+                moduleService.insert(module);
+                moduleActionRegistrar.registerAll(List.of(PlatformAction.MENU, PlatformAction.CREATE, PlatformAction.VIEW, PlatformAction.UPDATE)
+                        .stream()
+                        .map(action -> dynamicStandardAction(moduleAlias, entityAlias, action))
+                        .toList());
+
+                ModuleMainMetadataCreationResult main = metadataOrchestrationService.createMainMetadata(moduleAlias,
+                        new ModuleMainMetadataCreateCommand(entityAlias, "Dynamic reference target", null,
+                                applicationAlias + "_" + entityAlias, true));
+                MetadataField title = new MetadataField();
+                title.setFieldName("title");
+                title.setColumnName("title");
+                title.setFieldSpecAlias("string");
+                title.setFieldOwnership(MetadataFieldOwnership.BUSINESS);
+                title.setFieldForm(MetadataFieldForm.PHYSICAL);
+                title.setTitle("Title");
+                title.setRequired(Boolean.FALSE);
+                title.setTitleField(Boolean.TRUE);
+                title.setEnabled(Boolean.TRUE);
+                MetadataRelationChangeSetPreviewCommand proposal = new MetadataRelationChangeSetPreviewCommand(
+                        main.metadata().getVersion(), Map.of(), List.of(new MetadataFieldChangeSetDraft(
+                                MetadataFieldChangeSetDraft.Operation.ADD, null, null, title)));
+                MetadataRelationChangeSetPreview preview = metadataChangeSetPreviewService.preview(moduleAlias,
+                        main.relation().getId(), proposal);
+                if (!preview.valid()) {
+                    throw new IllegalStateException("dynamic reference target metadata proposal is invalid: "
+                            + preview.errors());
+                }
+                metadataChangeSetApplyService.apply(moduleAlias, main.relation().getId(),
+                        new MetadataRelationChangeSetApplyCommand(proposal, preview.proposalFingerprint()));
+
+            });
+            dynamicRuntimeRefreshService.refresh(moduleAlias);
+            publishDynamicReferenceTargetPage(moduleAlias);
+        }
+    }
+
+    private void publishDynamicReferenceTargetPage(String moduleAlias) {
+        ModuleMetadataRelation mainRelation = moduleMetadataRelationService.list(
+                Criteria.of().eq("moduleAlias", moduleAlias).eq("relationRole", RelationRole.MAIN), ALL).getFirst();
+        PlatformPageDefinition page = new PlatformPageDefinition();
+        page.setModuleAlias(moduleAlias);
+        page.setAlias("management");
+        page.setTitle("Dynamic reference target page");
+        page.setContractType(PlatformPageContractType.MANAGEMENT);
+        page.setMainRelationId(mainRelation.getId());
+        String pageId = pageDefinitionService.insert(page);
+
+        PlatformPresentationVariant variant = new PlatformPresentationVariant();
+        variant.setPageId(pageId);
+        variant.setClientType(PlatformPresentationClientType.WEB);
+        variant.setScopeType(PlatformPresentationScopeType.GLOBAL);
+        variant.setTitle("Dynamic reference target Web presentation");
+        String variantId = presentationVariantService.insert(variant);
+
+        PlatformPresentationRevision revision = new PlatformPresentationRevision();
+        revision.setVariantId(variantId);
+        revision.setRevisionNo(1);
+        revision.setTemplateAlias("management");
+        revision.setTemplateVersion(1);
+        revision.setStatus(PlatformPresentationRevisionStatus.DRAFT);
+        revision.setTitle("Dynamic reference target page v1");
+        revision.setUiTreeJson("""
+                {"template":"management","templateVersion":1,
+                 "nodes":[
+                   {"slot":"list","title":"Dynamic targets","fields":["title"]},
+                   {"slot":"form","title":"Dynamic target detail","fields":["title"]}
+                 ]}
+                """);
+        presentationRevisionPublishService.publish(presentationRevisionService.insert(revision));
+    }
+
+    private void openTenantApplication(String tenantId, String applicationAlias) {
+        try (TenantContext.Scope ignored = TenantContext.system("open dynamic reference fixture application")) {
+            Set<String> applications = new LinkedHashSet<>(tenantApplicationService.openedApplicationAliases(tenantId));
+            applications.add(applicationAlias);
+            tenantApplicationService.configureApplications(tenantId, applications);
+        }
+    }
+
+    private ModuleActionContribution dynamicStandardAction(String moduleAlias,
+                                                            String entityAlias,
+                                                            PlatformAction action) {
+        return new ModuleActionContribution(
+                moduleAlias,
+                entityAlias,
+                action.code(),
+                action.permissionActionCode(),
+                action.title(),
+                null,
+                null,
+                null,
+                action.actionAuth(),
+                action.dataAuth(),
+                action.defaultGrantPolicy(),
+                null,
+                null,
+                null,
+                null,
+                ModuleActionSourceType.DYNAMIC_MODULE,
+                moduleAlias,
+                null,
+                null,
+                null,
+                null,
+                true
+        );
+    }
+
+    private String insertDynamicReferenceTarget(String moduleAlias,
+                                                String entityAlias,
+                                                String tenantId,
+                                                String ownerUserId,
+                                                String title) {
+        try (CurrentUserContext.Scope user = CurrentUserContext.use(
+                CurrentUser.systemUser("dynamic-reference-fixture", "Dynamic reference fixture"));
+             TenantContext.Scope ignored = TenantContext.use(tenantId)) {
+            DynamicRecord record = dynamicRecordService.newRecord(moduleAlias, entityAlias).setValue("title", title);
+            record.setAuthUserId(ownerUserId);
+            return dynamicRecordService.mainEntity(moduleAlias).create(record);
+        }
+    }
+
     private void grantTenantScopedEmploymentAction(String tenantId,
                                                    String userId,
                                                    String roleSuffix,
                                                    PlatformAction action) {
+        grantTenantScopedEmploymentAction(tenantId, userId, roleSuffix, UserAccountService.MODULE_ALIAS, action);
+    }
+
+    private void grantTenantScopedEmploymentAction(String tenantId,
+                                                   String userId,
+                                                   String roleSuffix,
+                                                   String moduleAlias,
+                                                   PlatformAction action) {
+        grantTenantScopedEmploymentAction(tenantId, userId, roleSuffix, moduleAlias, action, DataScopePolicy.ALL);
+    }
+
+    private void grantTenantScopedEmploymentAction(String tenantId,
+                                                   String userId,
+                                                   String roleSuffix,
+                                                   String moduleAlias,
+                                                   PlatformAction action,
+                                                   DataScopePolicy dataScopePolicy) {
         String organizationId = "rv_org_" + roleSuffix;
         String departmentId = "rv_dept_" + roleSuffix;
         String employeeId = "rv_employee_" + roleSuffix;
@@ -1216,13 +1584,13 @@ class MuYunSpringApplicationContextIT {
             Role dataRole = employmentRole(dataRoleId, tenantId, "Reference data " + action.code(), RoleKind.DATA_GRANT);
             roleService.insert(dataRole);
             roleService.replaceDataGrantActions(dataRoleId, List.of(
-                    new RoleService.DataGrantActionCommand(action.code(), DataScopePolicy.ALL, true)));
+                    new RoleService.DataGrantActionCommand(action.code(), dataScopePolicy, true)));
             roleService.grantEmploymentRole(dataRoleId, employeePositionId);
 
             Role actionRole = employmentRole(actionRoleId, tenantId, "Reference action " + action.code(),
                     RoleKind.STANDARD);
             roleService.insert(actionRole);
-            roleService.grantAction(actionRoleId, UserAccountService.MODULE_ALIAS, action.code(),
+            roleService.grantAction(actionRoleId, moduleAlias, action.code(),
                     DataScopePolicy.INHERIT_DATA_GRANT,
                     TenantScopePolicy.CURRENT_TENANT);
             roleService.grantEmploymentRole(actionRoleId, employeePositionId);

@@ -7,7 +7,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-/** Runtime descriptor transport for opening an already selected reference in read-only detail. */
+/** Runtime descriptor transport for opening record details independently of a menu entry. */
 @RestController
 @RequestMapping("/platform.module/{moduleAlias}/view-context")
 public class PlatformModuleViewRuntimeContextWebController {

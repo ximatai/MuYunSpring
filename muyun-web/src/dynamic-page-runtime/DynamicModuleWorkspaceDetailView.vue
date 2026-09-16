@@ -7,7 +7,6 @@ import {
   presentPlatformError,
   recordPickerModeOf,
   RecordDetailExtensionSection,
-  ReferenceRecordDetailBrowser,
   createReferenceRecordDetailBrowser,
   provideReferenceRecordDetailBrowser,
   DrawerTitleActions,
@@ -21,6 +20,7 @@ import {
   type QueryListRecord,
   type RecordFormFieldPickerConfig,
   type RecordFormFieldValue,
+  type ReferenceRecordDetailMutation,
 } from '@muyun/platform-components';
 import RecordFormSurface from './RecordFormSurface.vue';
 import { refreshModulePageList } from './modulePageListRefresh';
@@ -32,8 +32,10 @@ import {
 } from './modulePageEnhancements';
 import { useModulePageNavigation } from './modulePageNavigation';
 import ModuleRecordDetailActions from './ModuleRecordDetailActions.vue';
+import ModuleReferenceRecordDetailBrowser from './ModuleReferenceRecordDetailBrowser.vue';
 import { useModulePageDetailExtensionRuntime } from './composables/useModulePageDetailExtensionRuntime';
 import { useRecordDetailController } from './recordDetailController';
+import { applyReferenceRecordProjection } from './referenceRecordProjection';
 
 defineOptions({ name: 'DynamicModuleWorkspaceDetailView' });
 
@@ -91,15 +93,45 @@ const referencePickerConfigs = computed<Record<string, RecordFormFieldPickerConf
   }
   return configs;
 });
+const showStatusSwitch = computed(() => {
+  const value = record.value;
+  if (context.abilities.hasEnable() !== true || typeof value?.enabled !== 'boolean') return false;
+  const page = context.runtime.snapshot()?.uiDescriptor?.page;
+  return (
+    page?.managedActions !== true ||
+    Boolean(
+      page.actions?.some(
+        (action) => action.anchor === 'DETAIL' && action.operation === (value.enabled ? 'DISABLE' : 'ENABLE'),
+      ),
+    )
+  );
+});
+watch(
+  () => [showStatusSwitch.value, record.value?.id, record.value?.version] as const,
+  ([visible, id]) => {
+    if (visible && id != null) {
+      void context
+        .recordActions(String(id))
+        .catch((cause) => presentPlatformError(cause, { source: 'module-status', phase: 'authorization' }));
+    }
+  },
+);
 const canToggleEnabled = computed(() => {
   const value = record.value;
-  if (!value?.id || mode.value !== 'view' || loading.value || loadFailed.value || togglingEnabled.value) {
+  if (
+    !showStatusSwitch.value ||
+    !value?.id ||
+    mode.value !== 'view' ||
+    loading.value ||
+    loadFailed.value ||
+    togglingEnabled.value
+  ) {
     return false;
   }
   const actionCode = value.enabled === false ? 'enable' : 'disable';
   const availability = context.recordActionsSnapshot(String(value.id));
   const action = availability?.actions.find((item) => item.actionCode === actionCode);
-  return action ? action.available : context.can(actionCode) === true;
+  return action?.available === true;
 });
 const toggleEnabledDisabledReason = computed(() => {
   const value = record.value;
@@ -161,6 +193,20 @@ async function cancelEditing() {
 function updateDraftField(fieldName: string, value: RecordFormFieldValue) {
   if (!draft.value) return;
   draft.value = { ...draft.value, [fieldName]: value };
+}
+
+function handleReferenceRecordChange(mutation: ReferenceRecordDetailMutation) {
+  refreshModulePageList(context.moduleAlias);
+  const source = record.value;
+  if (!source?.id) return;
+  if (mode.value === 'view') {
+    void loadRecord();
+    return;
+  }
+  const currentDraft = draft.value;
+  if (mode.value !== 'edit' || !currentDraft) return;
+  const projectedDraft = applyReferenceRecordProjection(currentDraft, fields.value, mutation);
+  if (projectedDraft !== currentDraft) draft.value = projectedDraft;
 }
 
 async function saveRecord() {
@@ -310,7 +356,7 @@ async function toggleEnabled() {
       </template>
       <template #status>
         <RecordStatusSwitch
-          v-if="mode === 'view' && record"
+          v-if="showStatusSwitch && mode === 'view' && record"
           :enabled="record.enabled !== false"
           :disabled="!canToggleEnabled"
           :disabled-reason="toggleEnabledDisabledReason"
@@ -374,7 +420,12 @@ async function toggleEnabled() {
       </template>
       <component :is="enhancementDrawer.definition.component" :context="enhancementDrawer.context" />
     </RecordModeDrawer>
-    <ReferenceRecordDetailBrowser :browser="referenceRecordDetailBrowser" inline-anchor />
+    <ModuleReferenceRecordDetailBrowser
+      :browser="referenceRecordDetailBrowser"
+      render-mode="inline"
+      scope="tab"
+      @record-change="handleReferenceRecordChange"
+    />
   </section>
 </template>
 

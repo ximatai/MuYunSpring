@@ -16,6 +16,8 @@ import net.ximatai.muyun.spring.ability.reference.ReferenceTarget;
 import net.ximatai.muyun.spring.ability.permission.RecordPermissionAccess;
 import net.ximatai.muyun.spring.ability.permission.RecordPermissionWrite;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
+import net.ximatai.muyun.spring.common.exception.PlatformAccessDeniedException;
+import net.ximatai.muyun.spring.common.exception.ErrorScope;
 import net.ximatai.muyun.spring.common.identity.CurrentUser;
 import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
 import net.ximatai.muyun.spring.common.platform.ActionAccessMode;
@@ -1117,7 +1119,8 @@ public class DynamicRecordService {
                 .distinct()
                 .count());
         if (visible != normalized.size()) {
-            throw new PlatformException("record data permission denied: " + moduleAlias + "." + policy.actionCode());
+            throw new PlatformAccessDeniedException("record data permission denied: " + moduleAlias + "." + policy.actionCode(),
+                    ErrorScope.module(moduleAlias).action(policy.actionCode()));
         }
         return scope;
     }

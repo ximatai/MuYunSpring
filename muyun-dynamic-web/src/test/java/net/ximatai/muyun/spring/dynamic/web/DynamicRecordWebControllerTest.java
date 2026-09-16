@@ -345,6 +345,14 @@ class DynamicRecordWebControllerTest {
     }
 
     @Test
+    void shouldReturnNotFoundWhenDynamicViewRecordIsNotVisible() throws Exception {
+        when(mainEntity.select("hidden")).thenReturn(null);
+
+        mvc.perform(get("/{moduleAlias}/view/{recordId}", MODULE, "hidden"))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
     void shouldNotCaptureRootFileLikePath() throws Exception {
         mvc.perform(get("/openapi.json"))
                 .andExpect(status().isNotFound());

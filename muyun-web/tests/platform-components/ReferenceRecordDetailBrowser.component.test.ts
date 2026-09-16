@@ -1,6 +1,6 @@
 /* eslint-disable vue/one-component-per-file -- Local slot fixtures cover distinct reference-field layouts. */
 import { mount } from '@vue/test-utils';
-import { defineComponent, nextTick } from 'vue';
+import { defineComponent, h, nextTick } from 'vue';
 import { describe, expect, it, vi } from 'vitest';
 import { AppError, type HttpClient } from '@/web-core';
 import ReferenceRecordDetailBrowser from '@/platform-components/ReferenceRecordDetailBrowser.vue';
@@ -110,6 +110,51 @@ describe('ReferenceRecordDetailBrowser', () => {
     ]);
     expect(requests.every((request) => request.headers === undefined)).toBe(true);
     expect(wrapper.text()).toContain('平台管理员');
+    wrapper.unmount();
+  });
+
+  it('forwards a target mutation from a record-only renderer without replacing the source slot draft', async () => {
+    const http: HttpClient = {
+      async request(options) {
+        if (options.path.endsWith('/view-context')) return viewContext() as never;
+        return { id: 'user-1', title: '修改前' } as never;
+      },
+    };
+    const wrapper = mount(ReferenceRecordDetailBrowser, {
+      props: { http },
+      slots: {
+        default: ReferenceField,
+        detail: ({ context, record, reportMutation }) =>
+          h(
+            'button',
+            {
+              'data-testid': 'save-target',
+              onClick: () =>
+                reportMutation({
+                  targetModuleAlias: context.moduleAlias,
+                  recordId: String(record.id),
+                  type: 'saved',
+                  record: { id: String(record.id), title: '修改后' },
+                }),
+            },
+            '保存',
+          ),
+      },
+      global: { stubs: { RecordDetailDrawer: { template: '<aside><slot /></aside>' } } },
+    });
+
+    await wrapper.get('button[title="查看 平台管理员"]').trigger('click');
+    await flush();
+    await wrapper.get('[data-testid="save-target"]').trigger('click');
+    await flush();
+
+    expect(wrapper.emitted('record-change')).toEqual([
+      [expect.objectContaining({ type: 'saved', recordId: 'user-1', targetModuleAlias: 'iam.user' })],
+    ]);
+    expect(
+      (wrapper.vm as unknown as { browser: { active: { value: { record: { title: string } } } } }).browser
+        .active.value.record.title,
+    ).toBe('修改后');
     wrapper.unmount();
   });
 
@@ -405,5 +450,29 @@ describe('ReferenceRecordDetailBrowser', () => {
     expect(viewContextAttempts).toBe(2);
     expect(wrapper.text()).toContain('重试成功');
     wrapper.unmount();
+  });
+
+  it('forces teardown of a busy reference session so late target work cannot keep a drawer active', async () => {
+    const http: HttpClient = {
+      async request(options) {
+        if (options.path.endsWith('/view-context')) return viewContext() as never;
+        return { id: 'user-1', title: '待保存目标' } as never;
+      },
+    };
+    const wrapper = mount(ReferenceRecordDetailBrowser, {
+      props: { http },
+      slots: { default: ReferenceField },
+      global: { stubs: { RecordDetailDrawer: { template: '<aside><slot /></aside>' } } },
+    });
+
+    await wrapper.get('button').trigger('click');
+    await flush();
+    const browser = wrapper.vm.browser;
+    browser.setBusy('iam.user', 'user-1', true);
+    browser.close();
+    expect(browser.active.value?.recordId).toBe('user-1');
+
+    wrapper.unmount();
+    expect(browser.active.value).toBeUndefined();
   });
 });

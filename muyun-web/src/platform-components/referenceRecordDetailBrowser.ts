@@ -9,8 +9,17 @@ export type ActiveReferenceRecord = {
   recordId: string;
   record?: QueryListRecord;
   loading: boolean;
+  /** A record-only editor owns an in-flight target mutation. */
+  busy?: boolean;
   failed: boolean;
   failureKind?: 'notFound' | 'temporary';
+};
+
+export type ReferenceRecordDetailMutation = {
+  targetModuleAlias: string;
+  recordId: string;
+  type: 'saved' | 'deleted' | 'unavailable';
+  record?: QueryListRecord;
 };
 
 export interface ReferenceRecordDetailBrowser {
@@ -21,7 +30,11 @@ export interface ReferenceRecordDetailBrowser {
   title: { value: string };
   canBrowse(targetModuleAlias: string, recordId: string): boolean;
   open(targetModuleAlias: string, recordId: string): void;
+  setBusy(targetModuleAlias: string, recordId: string, busy: boolean): void;
+  reportMutation(mutation: ReferenceRecordDetailMutation): void;
   close(): void;
+  /** Component teardown bypasses the user-facing busy close gate. */
+  dispose(): void;
 }
 
 export const referenceRecordDetailBrowserKey: InjectionKey<ReferenceRecordDetailBrowser | undefined> = Symbol(
@@ -61,6 +74,11 @@ export function createReferenceRecordDetailBrowser(http: HttpClient): ReferenceR
     return context;
   };
   const close = () => {
+    if (active.value?.busy) return;
+    requestRevision += 1;
+    active.value = undefined;
+  };
+  const dispose = () => {
     requestRevision += 1;
     active.value = undefined;
   };
@@ -69,7 +87,8 @@ export function createReferenceRecordDetailBrowser(http: HttpClient): ReferenceR
       !targetModuleAlias ||
       !recordId ||
       accessByModule.get(targetModuleAlias) === 'denied' ||
-      deniedRecordKeys.has(recordKey(targetModuleAlias, recordId))
+      deniedRecordKeys.has(recordKey(targetModuleAlias, recordId)) ||
+      active.value?.busy
     )
       return;
     const currentRequestRevision = ++requestRevision;
@@ -122,7 +141,33 @@ export function createReferenceRecordDetailBrowser(http: HttpClient): ReferenceR
       accessByModule.get(targetModuleAlias) !== 'denied' &&
       !deniedRecordKeys.has(recordKey(targetModuleAlias, recordId)),
     open,
+    setBusy: (targetModuleAlias, recordId, busy) => {
+      const current = active.value;
+      if (!current || current.targetModuleAlias !== targetModuleAlias || current.recordId !== recordId)
+        return;
+      active.value = { ...current, busy };
+    },
+    reportMutation: (mutation) => {
+      const current = active.value;
+      if (
+        !current ||
+        current.targetModuleAlias !== mutation.targetModuleAlias ||
+        current.recordId !== mutation.recordId
+      )
+        return;
+      if (mutation.type === 'unavailable' || mutation.type === 'deleted') {
+        deniedRecordKeys.add(recordKey(mutation.targetModuleAlias, mutation.recordId));
+        requestRevision += 1;
+        active.value = undefined;
+      } else if (mutation.record) {
+        active.value = { ...current, record: mutation.record, busy: false };
+      } else {
+        active.value = { ...current, busy: false };
+      }
+      revision.value += 1;
+    },
     close,
+    dispose,
   };
 }
 
