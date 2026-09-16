@@ -94,6 +94,56 @@ describe('source reference picker provider', () => {
     );
   });
 
+  it('adapts only an authorized TREE response into the complete picker tree', async () => {
+    const resolve = vi.fn().mockResolvedValue({
+      tree: [
+        {
+          record: { id: 'student-root', title: '高一年级' },
+          children: [
+            {
+              record: {
+                id: 'student-1',
+                title: '王华',
+                projections: { studentNo: 'S1' },
+                affectPatch: { studentNo: 'S1' },
+              },
+              children: [],
+            },
+          ],
+        },
+      ],
+    });
+    const provider = createSourceReferencePickerProvider({
+      sourceModuleAlias: 'education.enrollment',
+      fieldName: 'studentId',
+      reference: { ...reference, pickerMode: 'TREE' },
+      resolver: () => ({ resolve }),
+      formValues: () => ({ classId: 'class-1' }),
+      source: () => ({ recordId: 'enrollment-1' }),
+    });
+
+    await expect(provider.loadTree!({ scope: { selections: [] } })).resolves.toEqual([
+      {
+        record: { id: 'student-root', title: '高一年级', projections: undefined, affectPatch: undefined },
+        children: [
+          {
+            record: {
+              id: 'student-1',
+              title: '王华',
+              projections: { studentNo: 'S1' },
+              affectPatch: { studentNo: 'S1' },
+            },
+          },
+        ],
+      },
+    ]);
+    expect(resolve).toHaveBeenCalledWith('studentId', {
+      mode: 'TREE',
+      formValues: { classId: 'class-1' },
+      source: { recordId: 'enrollment-1' },
+    });
+  });
+
   it('does not reinterpret source delivery as an unrestricted navigation source', async () => {
     const provider = createSourceReferencePickerProvider({
       sourceModuleAlias: 'education.enrollment',

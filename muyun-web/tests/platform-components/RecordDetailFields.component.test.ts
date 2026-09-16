@@ -139,6 +139,60 @@ describe('RecordDetailFields', () => {
     expect(wrapper.emitted()).toEqual({});
   });
 
+  it('keeps a consumer displayOf override ahead of the shared reference browser', () => {
+    const wrapper = mount(RecordDetailFields, {
+      props: {
+        record: { ownerId: 'user-1', ownerSummary: { id: 'user-1', title: '平台管理员' } },
+        fields: new Map([
+          [
+            'ownerId',
+            {
+              fieldRef: { fieldName: 'ownerId' },
+              label: '负责人',
+              reference: {
+                targetModuleAlias: 'iam.user',
+                cardinality: 'ONE' as const,
+                titleField: 'ownerSummary',
+              },
+            },
+          ],
+        ]),
+        displayOf: () => '自定义负责人',
+      },
+    });
+
+    expect(wrapper.text()).toContain('自定义负责人');
+    expect(wrapper.findComponent({ name: 'ReadonlyReferenceValue' }).exists()).toBe(false);
+  });
+
+  it('uses the configured detail empty text when a cleared reference retains a stale summary', async () => {
+    const wrapper = mount(RecordDetailFields, {
+      props: {
+        emptyText: '未设置',
+        record: { ownerId: null, ownerSummary: { id: 'user-1', title: '旧负责人' } },
+        fields: new Map([
+          [
+            'ownerId',
+            {
+              fieldRef: { fieldName: 'ownerId' },
+              label: '负责人',
+              reference: {
+                targetModuleAlias: 'iam.user',
+                cardinality: 'ONE' as const,
+                titleField: 'ownerSummary',
+              },
+            },
+          ],
+        ]),
+      },
+    });
+
+    expect(wrapper.text()).toContain('未设置');
+    expect(wrapper.text()).not.toContain('旧负责人');
+    await wrapper.setProps({ emptyText: undefined });
+    expect(wrapper.text()).toContain('-');
+  });
+
   it('renders a declared single-image file reference as a preview instead of its file id', () => {
     const ImagePreviewStub = defineComponent({
       name: 'RecordImageFileReferencePreview',

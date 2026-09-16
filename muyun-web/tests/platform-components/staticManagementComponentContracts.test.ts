@@ -1018,8 +1018,13 @@ it('dynamic module host uses shared descriptor driven list and form runners', ()
   assert.match(bootstrapSource, /createPageBootstrapClient\(context\.http\)\.byMenu\(entryMenuId\)/);
   assert.match(bootstrapSource, /bootstrap\.entry\.moduleAlias !== context\.moduleAlias/);
   assert.match(hostSource, /pageBootstrap\.value\?\.entry\.pageMode/);
-  assert.match(hostSource, /v-else-if="!pageReady"/);
-  assert.match(hostSource, /v-else-if="isListPage"/);
+  assert.match(hostSource, /v-else-if="!props\.recordOnly && !pageReady"/);
+  assert.match(hostSource, /v-else-if="!props\.recordOnly && isListPage"/);
+  assert.match(hostSource, /<Teleport :disabled="Boolean\(props\.recordOnly\) \|\| !workspaceElement"/);
+  assert.match(
+    hostSource,
+    /<RecordModeDrawer[\s\S]*<\/RecordModeDrawer>\s*<ModuleReferenceRecordDetailBrowser/,
+  );
   assert.match(hostSource, /:query-template-id="listQueryTemplateId"/);
   assert.match(hostSource, /:ready="pageReady && navigatorListScopeReady"/);
   assert.match(hostSource, /\$\{pageMode\.value\}入口暂未接入模块页面运行器/);
@@ -1060,7 +1065,7 @@ it('dynamic module host uses shared descriptor driven list and form runners', ()
   assert.match(hostSource, /<RecordPanelState/);
   assert.match(
     hostSource,
-    /v-if="!persistentTreeDetail && !flatManagementPage && \(!listDetailCardPage \|\| detailSurfaceUsesDrawer\)"/,
+    /props\.recordOnly \|\|[\s\S]*!persistentTreeDetail && !flatManagementPage && \(!listDetailCardPage \|\| detailSurfaceUsesDrawer\)/,
   );
   assert.match(
     hostSource,
@@ -1077,7 +1082,7 @@ it('dynamic module host uses shared descriptor driven list and form runners', ()
   assert.match(hostSource, /<RecordDetailPanel[\s\S]*<template #title-prefix>/);
   assert.match(
     hostSource,
-    /<RecordModeDrawer[\s\S]*<template v-if="listDetailCardPage && !narrowDetailSurface" #title-prefix>/,
+    /<RecordModeDrawer[\s\S]*<template v-if="!props\.recordOnly && listDetailCardPage && !narrowDetailSurface" #title-prefix>/,
   );
   assert.match(hostSource, /title="固定到右侧展示"/);
   assert.match(

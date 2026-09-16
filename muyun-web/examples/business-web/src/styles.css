@@ -96,6 +96,10 @@ body {
   margin-bottom: 12px;
 }
 
+.customer-details + .manual-query {
+  margin-top: 20px;
+}
+
 .manual-query > label {
   color: #475569;
   font-size: 13px;

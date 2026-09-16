@@ -418,7 +418,6 @@ const dictionaryPresentationOptions = computed(() => {
   return [
     { label: '平台默认（下拉）', value: platformDefaultDictionaryPresentationAlias },
     { label: '下拉选择', value: 'DROPDOWN' },
-    { label: '弹框选择', value: 'DIALOG' },
     ...(field?.optionSelectionMode === 'SINGLE'
       ? [
           {

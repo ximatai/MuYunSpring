@@ -65,7 +65,7 @@ describe('source reference picker config', () => {
     });
   });
 
-  it('keeps legacy source loaders only for the TREE picker branch', async () => {
+  it('keeps TREE delivery on the shared source provider without legacy picker loaders', async () => {
     const resolve = vi.fn().mockResolvedValue({
       options: [{ id: 'student-1', title: '王华', projections: { studentNo: 'S1' } }],
       results: [{ item: { id: 'student-1', title: '王华', projections: { studentNo: 'S1' } } }],
@@ -83,25 +83,35 @@ describe('source reference picker config', () => {
       source: () => undefined,
     });
 
-    await expect(config.loadOptions!('王')).resolves.toEqual([
-      {
-        id: 'student-1',
-        title: '王华',
-        studentNo: 'S1',
-        projections: { studentNo: 'S1' },
-        affectPatch: undefined,
-      },
-    ]);
-    await expect(config.loadTree!()).resolves.toEqual([]);
-    await expect(config.resolveOptions!(['student-1'])).resolves.toEqual([
-      {
-        id: 'student-1',
-        title: '王华',
-        studentNo: 'S1',
-        projections: { studentNo: 'S1' },
-        affectPatch: undefined,
-      },
-    ]);
-    expect(resolve.mock.calls.map(([, request]) => request.mode)).toEqual(['QUERY', 'TREE', 'TRANSLATE']);
+    expect(config.loadOptions).toBeUndefined();
+    expect(config.loadTree).toBeUndefined();
+    expect(config.resolveOptions).toBeUndefined();
+    await expect(config.provider!.loadTree!({ scope: { selections: [] } })).resolves.toEqual([]);
+    expect(resolve).toHaveBeenCalledWith('studentId', {
+      mode: 'TREE',
+      formValues: { classId: 'class-1' },
+      source: undefined,
+    });
+  });
+
+  it('does not reuse a non-tree provider after the reference contract changes to TREE', () => {
+    const assemble = createSourceReferencePickerConfigAssembler();
+    const options = {
+      providerScopeKey: 'main',
+      sourceModuleAlias: 'education.enrollment',
+      reference,
+      pickerFieldName: 'studentId',
+      referenceResolver: () => ({ resolve: vi.fn() }) as unknown as ReferenceResolveClient,
+      formValues: () => ({ classId: 'class-1' }),
+      reloadRecord: () => ({ classId: 'class-1' }),
+      source: () => undefined,
+    };
+
+    const list = assemble(options);
+    const tree = assemble({ ...options, reference: { ...reference, pickerMode: 'TREE' } });
+
+    expect(tree.provider).not.toBe(list.provider);
+    expect(list.provider?.loadTree).toBeUndefined();
+    expect(tree.provider?.loadTree).toBeTypeOf('function');
   });
 });

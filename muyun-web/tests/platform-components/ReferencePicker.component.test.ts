@@ -7,6 +7,7 @@ import ReferencePicker from '@/platform-components/ReferencePicker.vue';
 import type {
   ReferencePickerCandidate,
   ReferencePickerProvider,
+  ReferencePickerTreeNode,
 } from '@/platform-components/referencePickerModel';
 
 const records = [
@@ -64,7 +65,20 @@ function mountPicker(overrides: Record<string, unknown> = {}) {
           emits: ['click'],
           template: '<button @click="$emit(\'click\')"><slot /></button>',
         },
-        UiTree: { name: 'UiTree', props: ['nodes'], emits: ['select', 'deselect'], template: '<div />' },
+        UiTree: {
+          name: 'UiTree',
+          props: [
+            'nodes',
+            'selectedKey',
+            'checkable',
+            'checkStrictly',
+            'checkedKeys',
+            'canCheck',
+            'emptyDescription',
+          ],
+          emits: ['select', 'deselect', 'update:checkedKeys', 'check'],
+          template: '<div />',
+        },
         RecordExplorerPanel: { name: 'RecordExplorerPanel', template: '<section><slot /></section>' },
       },
     },
@@ -96,7 +110,20 @@ function mountPickerWithInput(overrides: Record<string, unknown> = {}) {
         },
         UiDataTable: { name: 'UiDataTable', template: '<section />' },
         UiButton: { name: 'UiButton', template: '<button><slot /></button>' },
-        UiTree: { name: 'UiTree', template: '<div />' },
+        UiTree: {
+          name: 'UiTree',
+          props: [
+            'nodes',
+            'selectedKey',
+            'checkable',
+            'checkStrictly',
+            'checkedKeys',
+            'canCheck',
+            'emptyDescription',
+          ],
+          emits: ['select', 'deselect', 'update:checkedKeys', 'check'],
+          template: '<div />',
+        },
         RecordExplorerPanel: { name: 'RecordExplorerPanel', template: '<section><slot /></section>' },
       },
     },
@@ -165,6 +192,143 @@ it('keeps a multiple draft across pages and cancellation never changes external 
     pageSize: 20,
     scope: { selections: [] },
   });
+});
+
+it('uses a complete authorized tree for an empty dialog and selects a single node without radios', async () => {
+  const loadTree = vi.fn().mockResolvedValue([
+    {
+      record: { id: 'department-root', title: '总部' },
+      children: [{ record: { id: 'department-rd', title: '研发部' } }],
+    },
+  ]);
+  const candidateProvider = provider({ loadTree });
+  const wrapper = mountPicker({ provider: candidateProvider });
+
+  wrapper.findComponent({ name: 'ObjectPickerInput' }).vm.$emit('browse', '');
+  await flushPromises();
+
+  const tree = wrapper.findComponent({ name: 'UiTree' });
+  expect(loadTree).toHaveBeenCalledWith({ scope: { selections: [] } });
+  expect(candidateProvider.searchPage).not.toHaveBeenCalled();
+  expect(tree.props('nodes')).toEqual([
+    {
+      key: 'department-root',
+      title: '总部',
+      secondary: undefined,
+      disabled: undefined,
+      isLeaf: false,
+      children: [
+        {
+          key: 'department-rd',
+          title: '研发部',
+          secondary: undefined,
+          disabled: undefined,
+          isLeaf: true,
+        },
+      ],
+    },
+  ]);
+  expect(tree.props('checkable')).toBe(false);
+  expect(tree.props('checkStrictly')).toBe(false);
+
+  tree.vm.$emit('select', { key: 'department-rd' });
+  wrapper.findComponent({ name: 'UiModal' }).vm.$emit('confirm');
+
+  expect(wrapper.emitted('update:value')).toEqual([['department-rd']]);
+  expect(wrapper.emitted('select')).toEqual([[[{ id: 'department-rd', title: '研发部' }]]]);
+});
+
+it('uses checked-key updates as the sole strict-tree draft input and keeps parent and child selections independent', async () => {
+  const loadTree = vi.fn().mockResolvedValue([
+    {
+      record: { id: 'department-root', title: '总部' },
+      children: [{ record: { id: 'department-rd', title: '研发部' } }],
+    },
+  ]);
+  const wrapper = mountPicker({ provider: provider({ loadTree }), multiple: true, maxSelection: 2 });
+
+  wrapper.findComponent({ name: 'ObjectPickerInput' }).vm.$emit('browse', '');
+  await flushPromises();
+  const tree = wrapper.findComponent({ name: 'UiTree' });
+  tree.vm.$emit('update:checkedKeys', ['department-root', 'department-rd']);
+  tree.vm.$emit('check', { checkedKeys: ['department-root'] });
+  await flushPromises();
+  expect(tree.props('checkedKeys')).toEqual(['department-root', 'department-rd']);
+
+  wrapper.findComponent({ name: 'UiModal' }).vm.$emit('cancel');
+  expect(wrapper.emitted('update:value')).toBeUndefined();
+  expect(wrapper.emitted('select')).toBeUndefined();
+});
+
+it('switches a tree dialog to paged keyword search without building a local tree from query rows', async () => {
+  const loadTree = vi.fn().mockResolvedValue([{ record: { id: 'department-root', title: '总部' } }]);
+  const searchPage = vi.fn().mockResolvedValue({ records: [records[1]], total: 1 });
+  const wrapper = mountPicker({ provider: provider({ loadTree, searchPage }) });
+
+  wrapper.findComponent({ name: 'ObjectPickerInput' }).vm.$emit('browse', '');
+  await flushPromises();
+  wrapper.findComponent({ name: 'UiSearchInput' }).vm.$emit('search', '第二');
+  await flushPromises();
+
+  expect(searchPage).toHaveBeenCalledWith({
+    keyword: '第二',
+    pageNum: 1,
+    pageSize: 20,
+    scope: { selections: [] },
+  });
+  expect(wrapper.findComponent({ name: 'UiDataTable' }).props('rows')).toEqual([
+    { id: 'record-2', title: '第二条', subtitle: undefined, code: 'A-02' },
+  ]);
+  expect(loadTree).toHaveBeenCalledOnce();
+});
+
+it('ignores a stale tree after a dependency reload starts a replacement tree request', async () => {
+  const stale = deferred<ReferencePickerTreeNode[]>();
+  const replacement = deferred<ReferencePickerTreeNode[]>();
+  const loadTree = vi.fn().mockReturnValueOnce(stale.promise).mockReturnValueOnce(replacement.promise);
+  const wrapper = mountPicker({ provider: provider({ loadTree }), reloadKey: 'class-1' });
+
+  wrapper.findComponent({ name: 'ObjectPickerInput' }).vm.$emit('browse', '');
+  await flushPromises();
+  await wrapper.setProps({ reloadKey: 'class-2' });
+  await flushPromises();
+
+  stale.resolve([{ record: { id: 'stale-department', title: '旧部门' } }]);
+  await flushPromises();
+  expect(wrapper.findComponent({ name: 'UiTree' }).props('nodes')).toEqual([]);
+
+  replacement.resolve([{ record: { id: 'current-department', title: '新部门' } }]);
+  await flushPromises();
+  expect(wrapper.findComponent({ name: 'UiTree' }).props('nodes')).toEqual([
+    {
+      key: 'current-department',
+      title: '新部门',
+      secondary: undefined,
+      disabled: undefined,
+      isLeaf: true,
+    },
+  ]);
+});
+
+it('invalidates pending tree and historical resolution work on unmount', async () => {
+  const tree = deferred<ReferencePickerTreeNode[]>();
+  const resolution = deferred<ReferencePickerCandidate[]>();
+  const wrapper = mountPicker({
+    value: 'department-rd',
+    provider: provider({
+      loadTree: vi.fn().mockReturnValue(tree.promise),
+      resolve: vi.fn().mockReturnValue(resolution.promise),
+    }),
+  });
+  await flushPromises();
+  wrapper.findComponent({ name: 'ObjectPickerInput' }).vm.$emit('browse', '');
+  await flushPromises();
+  wrapper.unmount();
+  tree.resolve([{ record: { id: 'department-rd', title: '研发部' } }]);
+  resolution.resolve([{ id: 'department-rd', title: '研发部' }]);
+  await flushPromises();
+
+  expect(wrapper.emitted('selection-resolved')).toBeUndefined();
 });
 
 it('keeps an initially persisted ID neutral until deferred resolution succeeds', async () => {

@@ -68,11 +68,26 @@ export interface ReferencePickerPage<TCandidate extends ReferencePickerCandidate
   navigation?: readonly ReferencePickerNavigationAxis[];
 }
 
+/** A complete, source-authorized browse tree. It is never synthesized from paged query results. */
+export interface ReferencePickerTreeNode<
+  TCandidate extends ReferencePickerCandidate = ReferencePickerCandidate,
+> {
+  record: TCandidate;
+  children?: ReferencePickerTreeNode<TCandidate>[];
+}
+
 export interface ReferencePickerProvider<
   TCandidate extends ReferencePickerCandidate = ReferencePickerCandidate,
 > {
   identity: ReferencePickerSourceIdentity;
   searchPage(request: ReferencePickerPageRequest): Promise<ReferencePickerPage<TCandidate>>;
+  /**
+   * Reads the complete tree under the source's authorization scope. Dialog browse uses this only
+   * without a keyword; keyword search remains server-paged through searchPage.
+   */
+  loadTree?: (request: {
+    scope: ReferencePickerBrowseScope;
+  }) => Promise<ReferencePickerTreeNode<TCandidate>[]>;
   /** Resolves persisted IDs under the source's authorized historical-display scope. */
   resolve(ids: ReferencePickerId[]): Promise<TCandidate[]>;
 }

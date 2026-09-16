@@ -3,7 +3,11 @@ import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 import ManagedDetailRelationSurface from '@/dynamic-page-runtime/ManagedDetailRelationSurface.vue';
 import ModulePageDetailRelations from '@/dynamic-page-runtime/ModulePageDetailRelations.vue';
 import ManagedDetailRelationInlineSurface from '@/dynamic-page-runtime/ManagedDetailRelationInlineSurface.vue';
-import type { ModuleContext } from '@muyun/web-core';
+import {
+  createReferenceRecordDetailBrowser,
+  referenceRecordDetailBrowserKey,
+} from '@/platform-components/referenceRecordDetailBrowser';
+import type { HttpClient, ModuleContext } from '@muyun/web-core';
 import type { ResolvedDetailRelationDescriptor, ResolvedModuleUiDescriptor } from '@muyun/web-contracts';
 
 const originalStubs = config.global.stubs;
@@ -238,6 +242,76 @@ describe('managed detail relation surface', () => {
         query: { enabledOnly: false, entityAlias: 'field_ui_control_property' },
       }),
     );
+  });
+
+  it('keeps a read-only inline reference projection available to the shared detail browser', async () => {
+    const managed = relation('properties');
+    managed.embeddedField = 'properties';
+    managed.editing = { mode: 'INLINE', saveMode: 'AGGREGATE_DRAFT' };
+    managed.queryContract!.listProjection = { fields: [{ fieldName: 'supplierId', title: '供应商' }] };
+    const uiDescriptor = descriptor();
+    uiDescriptor.editorContributions![0]!.editor.fields = [
+      {
+        fieldRef: { relationCode: 'field_ui_control_property', fieldName: 'supplierId' },
+        label: '供应商',
+        visible: { constant: true },
+        required: { constant: false },
+        readOnly: { constant: true },
+        reference: {
+          targetModuleAlias: 'purchase.supplier',
+          cardinality: 'ONE',
+          titleField: 'supplierSummary',
+        },
+      },
+    ];
+    const request = vi.fn(async (options: { path: string }) => {
+      if (options.path.endsWith('/view-context')) {
+        return {
+          moduleAlias: 'purchase.supplier',
+          actions: [],
+          capabilities: [],
+          uiDescriptor: { page: { detail: { display: { fields: [] } } } },
+        };
+      }
+      return { id: 'supplier-1', title: '星河供应商详情' };
+    });
+    const browser = createReferenceRecordDetailBrowser({ request } as HttpClient);
+    const wrapper = mount(ManagedDetailRelationInlineSurface, {
+      props: {
+        sourceContext: context(vi.fn()),
+        uiDescriptor,
+        relation: managed,
+        parentRecord: {
+          id: 'purchase-1',
+          properties: [
+            {
+              id: 'row-1',
+              supplierId: 'supplier-1',
+              supplierSummary: { id: 'supplier-1', title: '星河供应商' },
+            },
+          ],
+        },
+        mutationEnabled: false,
+      },
+      global: { provide: { [referenceRecordDetailBrowserKey]: browser } },
+    });
+    await flushPromises();
+
+    const value = wrapper.findComponent({ name: 'RecordRelationValue' });
+    expect(value.props('text')).toBeUndefined();
+    expect(value.text()).toContain('星河供应商');
+    await wrapper.get('button[title="查看 星河供应商"]').trigger('click');
+    await flushPromises();
+
+    expect(request).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ path: '/platform.module/purchase.supplier/view-context' }),
+    );
+    expect(request).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ path: '/purchase.supplier/view/supplier-1' }),
+    );
+    expect(browser.active.value?.record).toMatchObject({ id: 'supplier-1', title: '星河供应商详情' });
   });
 
   it('keeps reference projection columns read-only while refreshing them from the selected record', async () => {

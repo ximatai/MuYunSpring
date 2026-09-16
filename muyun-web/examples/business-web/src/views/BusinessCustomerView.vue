@@ -8,6 +8,7 @@ import {
   type ReferencePickerValidity,
 } from '@ximatai/muyun-web-app';
 import { createBusinessContactReferenceProvider } from '../fixtures/businessContactReference';
+import { businessServiceReferenceProvider } from '../fixtures/businessServiceReference';
 
 interface CustomerRecord {
   id?: string;
@@ -15,6 +16,7 @@ interface CustomerRecord {
   industry: string;
   level: string;
   accountManagerId?: string;
+  serviceIds?: string[];
 }
 
 const record = ref<CustomerRecord>({
@@ -22,6 +24,7 @@ const record = ref<CustomerRecord>({
   industry: 'software',
   level: 'key',
   accountManagerId: 'contact-024',
+  serviceIds: ['service-training'],
 });
 
 const rows = ref<CustomerRecord[]>([
@@ -161,6 +164,20 @@ function resetQuery() {
           </small>
         </dd>
       </dl>
+      <div class="manual-query">
+        <label for="customer-services">签约服务</label>
+        <ReferencePicker
+          id="customer-services"
+          :value="record.serviceIds"
+          :provider="businessServiceReferenceProvider"
+          multiple
+          :max-selection="3"
+          title="选择签约服务"
+          placeholder="选择服务项目"
+          @update:value="record.serviceIds = Array.isArray($event) ? $event : $event ? [$event] : []"
+        />
+        <small class="reference-state">保存字段：{{ record.serviceIds?.join('、') || '未选择' }}</small>
+      </div>
     </article>
 
     <article class="business-card">

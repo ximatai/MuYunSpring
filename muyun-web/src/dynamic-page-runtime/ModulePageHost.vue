@@ -21,6 +21,8 @@ import {
   RecordMetaSection,
   RecordModeDrawer,
   RecordDetailDrawer,
+  createReferenceRecordDetailBrowser,
+  provideReferenceRecordDetailBrowser,
   DrawerTitleActions,
   RecordPanelButton,
   RecordPanelState,
@@ -46,6 +48,7 @@ import {
   type RecordExplorerItemDescriptor,
   type RecordActionItem,
   type RecordQueryListCellComponent,
+  type ReferenceRecordDetailMutation,
   type StandardCrudRowActionKey,
   type QueryListRecord,
   type RecordFormRecord,
@@ -117,6 +120,7 @@ import ModuleRecordDetailActions from './ModuleRecordDetailActions.vue';
 import ModulePageDetailRelations from './ModulePageDetailRelations.vue';
 import ModulePageListExpansionSurface from './ModulePageListExpansionSurface.vue';
 import ModulePageRecordContent from './ModulePageRecordContent.vue';
+import ModuleReferenceRecordDetailBrowser from './ModuleReferenceRecordDetailBrowser.vue';
 import NavigatorManagementEditor from './NavigatorManagementEditor.vue';
 import PageNavigatorExplorer from './PageNavigatorExplorer.vue';
 import { shouldHideSingleResultNavigator } from './navigatorVisibility';
@@ -145,6 +149,7 @@ import { useRecordEditingSession } from './composables/useRecordEditingSession';
 import { useModulePageListSession } from './composables/useModulePageListSession';
 import { useModulePageDetailActionRuntime } from './composables/useModulePageDetailActionRuntime';
 import { useModulePageDetailExtensionRuntime } from './composables/useModulePageDetailExtensionRuntime';
+import { applyReferenceRecordProjection } from './referenceRecordProjection';
 
 /**
  * Descriptor-driven CRUD runner for every standard platform module page.
@@ -154,16 +159,22 @@ defineOptions({ name: 'ModulePageHost' });
 const props = defineProps<{
   descriptor: StandardModulePageDescriptor;
   requireConfiguredPage?: boolean;
+  /** Renders one target record through the standard detail lifecycle without a menu/list session. */
+  recordOnly?: { recordId: string; renderMode?: 'inline' | 'portal'; scope?: 'tab' | 'viewport' };
 }>();
 
 const emit = defineEmits<{
   'interaction-state-change': [state: { editing: boolean; busy: boolean }];
+  'record-only-change': [mutation: { type: 'saved' | 'deleted' | 'unavailable'; record?: QueryListRecord }];
+  'record-only-close': [];
 }>();
 
 const currentUser = useCurrentUserContext();
 const baseContext = useModuleContext<QueryListRecord>({
   moduleAlias: props.descriptor.target.moduleAlias,
 });
+const referenceRecordDetailBrowser = createReferenceRecordDetailBrowser(baseContext.http);
+provideReferenceRecordDetailBrowser(referenceRecordDetailBrowser);
 const disabledStandardActions = ref<readonly string[]>([]);
 // Resolve the module-wide contribution before creating any module transport.
 // A selection-aware page must attach its initial opaque selection even to the
@@ -198,21 +209,23 @@ const pageSelectionHeader = computed(() => {
   const selection = navigatorExtensionSelection.value;
   return selection ? JSON.stringify(selection) : undefined;
 });
-const rawContext = createModuleContext<QueryListRecord>({
-  moduleAlias: props.descriptor.target.moduleAlias,
-  http: withHttpHeaders(
-    baseContext.http,
-    () => ({
-      'X-MuYun-Menu-Id': props.descriptor.menuId,
-      'X-MuYun-Page-Context': pageContextHeader.value,
-      'X-MuYun-Page-Selection': pageSelectionHeader.value,
-    }),
-    (request) =>
-      request.path === moduleRequestPrefix ||
-      request.path.startsWith(`${moduleRequestPrefix}/`) ||
-      request.path === `/platform.module/${props.descriptor.target.moduleAlias}/context`,
-  ),
-});
+const rawContext = props.recordOnly
+  ? baseContext
+  : createModuleContext<QueryListRecord>({
+      moduleAlias: props.descriptor.target.moduleAlias,
+      http: withHttpHeaders(
+        baseContext.http,
+        () => ({
+          'X-MuYun-Menu-Id': props.descriptor.menuId,
+          'X-MuYun-Page-Context': pageContextHeader.value,
+          'X-MuYun-Page-Selection': pageSelectionHeader.value,
+        }),
+        (request) =>
+          request.path === moduleRequestPrefix ||
+          request.path.startsWith(`${moduleRequestPrefix}/`) ||
+          request.path === `/platform.module/${props.descriptor.target.moduleAlias}/context`,
+      ),
+    });
 const context: ModuleContext<QueryListRecord> = {
   ...rawContext,
   crud: {
@@ -335,11 +348,15 @@ const {
 // RecordFormFields owns parser and renderer diagnostics. Persist only its
 // validity fact here; the host remains responsible for the save boundary.
 const deleting = ref(false);
+const detailEnhancementRunning = ref(false);
+const referenceRecordDetailInteraction = ref({ editing: false, busy: false });
 const mainFormValid = ref(true);
 const relationDraftValid = ref(true);
 const incompleteAggregateChildRelations = ref(new Set<string>());
 const formValidationRequestKey = ref(0);
 const localEditFormValid = ref(true);
+const recordOnlyAuthorizing = ref(false);
+let recordOnlySession = 0;
 function updateMainFormValidity(validity: { valid: boolean }) {
   mainFormValid.value = validity.valid;
 }
@@ -397,6 +414,7 @@ const {
   navigatorEntrySelectionPendingFor,
   resolveNavigatorEntrySelection,
   isCurrentNavigatorEntrySelection,
+  loadRuntimeDescriptor,
   loadRuntimeForm,
 } = useNavigatorRuntime(context, baseContext.http);
 const navigatorEntryReloadKeys = ref<Record<string, number>>({});
@@ -559,11 +577,11 @@ function sourceReferencePickerConfigWithScopedTree(
   'provider' | 'reloadKey' | 'loadOptions' | 'loadTree' | 'resolveOptions' | 'scopedTree'
 > {
   const { reference, pickerFieldName, referenceResolver, formValues, source } = options;
+  const scopedTree = scopedTreeScopeOf(reference);
   const config: Pick<
     RecordFormFieldPickerConfig,
     'provider' | 'reloadKey' | 'loadOptions' | 'loadTree' | 'resolveOptions' | 'scopedTree'
-  > = sourceReferencePickerConfigFor(options);
-  const scopedTree = scopedTreeScopeOf(reference);
+  > = sourceReferencePickerConfigFor({ ...options, legacyTreeLoaders: Boolean(scopedTree) });
   if (!scopedTree) return config;
 
   const scopeReady = () => {
@@ -792,21 +810,32 @@ const {
   localEditValid: localEditFormValid,
   presentSuccess: presentModuleActionSuccess,
   presentError: (cause, source) => presentPlatformError(cause, { source, phase: 'action' }),
+  reportRefreshFailure: (cause, source) => reportDetailRefreshFailure(cause, source),
+  recordChanged: (record) => {
+    if (props.recordOnly) emit('record-only-change', { type: 'saved', record });
+  },
 });
+const interactionBusy = computed(
+  () =>
+    deleting.value ||
+    saving.value ||
+    togglingEnabled.value ||
+    recordOnlyAuthorizing.value ||
+    detailEnhancementRunning.value ||
+    localEditSaving.value ||
+    navigatorManagementDetail.saving.value ||
+    navigatorManagementTogglingEnabled.value ||
+    referenceRecordDetailInteraction.value.busy,
+);
 // Hosts may protect reload/close without inspecting the runtime's private form drafts.
 watch(
   () => ({
     editing:
       Boolean(detailOpen.value && editorMode.value !== 'view') ||
       Boolean(navigatorManagementDetail.open.value && navigatorManagementDetail.mode.value !== 'view') ||
-      localEditOpen.value,
-    busy:
-      deleting.value ||
-      saving.value ||
-      togglingEnabled.value ||
-      localEditSaving.value ||
-      navigatorManagementDetail.saving.value ||
-      navigatorManagementTogglingEnabled.value,
+      localEditOpen.value ||
+      referenceRecordDetailInteraction.value.editing,
+    busy: interactionBusy.value,
   }),
   (state) => emit('interaction-state-change', state),
   { immediate: true, flush: 'sync' },
@@ -1242,10 +1271,15 @@ const listRowExpansionEnabled = computed(
 );
 const enhancementDetailActions = computed<ModulePageRecordActionContribution[]>(() => {
   const record = selectedRecord.value;
-  return (pageEnhancement.value?.detail?.actions ?? []).map(({ state, ...action }) => ({
-    ...action,
-    ...(record ? state?.(record) : { visible: false }),
-  }));
+  return (pageEnhancement.value?.detail?.actions ?? []).map(({ state, ...action }) => {
+    const resolvedState = record ? state?.(record) : { visible: false };
+    return {
+      ...action,
+      ...resolvedState,
+      disabled:
+        detailEnhancementRunning.value || action.disabled === true || resolvedState?.disabled === true,
+    };
+  });
 });
 const enhancementDetailSections = computed<ModulePageDetailSection[]>(
   () => pageEnhancement.value?.detail?.sections ?? [],
@@ -1301,7 +1335,7 @@ const constrainedManagementPage = computed(
 const standardCrudRowActionKeys = computed<StandardCrudRowActionKey[]>(() =>
   enhancementDetailDrawer.value ? ['view'] : ['view', 'edit', 'delete'],
 );
-const pageBootstrapRequired = computed(() => Boolean(props.descriptor.menuId));
+const pageBootstrapRequired = computed(() => !props.recordOnly && Boolean(props.descriptor.menuId));
 const pageReady = computed(
   () =>
     (!pageBootstrapRequired.value || pageBootstrap.value !== undefined) &&
@@ -1406,9 +1440,26 @@ const pickerQueryFieldNames = computed(
         .map((binding) => binding.targetPickerFieldKey!),
     ),
 );
+const showStatusSwitch = computed(
+  () =>
+    context.abilities.hasEnable() === true &&
+    typeof selectedRecord.value?.enabled === 'boolean' &&
+    (!managedPageActions.value || Boolean(statusSwitchAction.value)),
+);
+watch(
+  () => [showStatusSwitch.value, selectedRecord.value?.id, selectedRecord.value?.version] as const,
+  ([visible, id]) => {
+    if (visible && id != null) {
+      void context
+        .recordActions(String(id))
+        .catch((cause) => presentPlatformError(cause, { source: 'module-status', phase: 'authorization' }));
+    }
+  },
+);
 const canToggleEnabled = computed(() => {
   const record = selectedRecord.value;
   if (
+    !showStatusSwitch.value ||
     recycleBinDetailActive.value ||
     !record?.id ||
     editorMode.value !== 'view' ||
@@ -1420,25 +1471,25 @@ const canToggleEnabled = computed(() => {
   }
   if (managedPageActions.value && (!statusSwitchAction.value || statusSwitchAction.value.disabled))
     return false;
-  return selectedRecordActionAvailable(record.enabled === false ? 'enable' : 'disable');
+  return (
+    context
+      .recordActionsSnapshot(String(record.id))
+      ?.actions.find((action) => action.actionCode === (record.enabled ? 'disable' : 'enable'))?.available ===
+    true
+  );
 });
 const toggleEnabledDisabledReason = computed(() => {
   const record = selectedRecord.value;
   if (!record?.id || canToggleEnabled.value) return undefined;
-  if (managedPageActions.value && !statusSwitchAction.value) return '页面未配置当前状态切换操作';
+  if (statusSwitchAction.value?.disabled) return statusSwitchAction.value.disabledReason;
   const actionCode = record.enabled === false ? 'enable' : 'disable';
-  return context
-    .recordActionsSnapshot(String(record.id))
-    ?.actions.find((action) => action.actionCode === actionCode)?.reason;
+  return (
+    context
+      .recordActionsSnapshot(String(record.id))
+      ?.actions.find((action) => action.actionCode === actionCode)?.reason ?? '当前记录不允许执行此操作'
+  );
 });
 
-function selectedRecordActionAvailable(actionCode: string) {
-  const recordId = selectedRecord.value?.id;
-  if (recordId == null) return false;
-  const availability = context.recordActionsSnapshot(String(recordId));
-  const recordAction = availability?.actions.find((action) => action.actionCode === actionCode);
-  return recordAction ? recordAction.available : context.can(actionCode) === true;
-}
 const flatManagementRecycleBin = useRecycleBinExplorerMode<QueryListRecord>({
   context,
   listReloadKey: flatManagementReloadKey,
@@ -1599,6 +1650,15 @@ const referencePickerConfigs = computed<Record<string, RecordFormFieldPickerConf
 });
 
 onMounted(async () => {
+  if (props.recordOnly) {
+    try {
+      await loadRuntimeDescriptor();
+      await openRecord({ id: props.recordOnly.recordId }, 'view');
+    } catch (cause) {
+      pageBootstrapError.value = cause instanceof Error ? cause.message : '页面运行时加载失败';
+    }
+    return;
+  }
   void restoreDetailSurfaceMode();
   void restoreListPageSizePreference();
   await loadPageBootstrap();
@@ -1621,6 +1681,10 @@ onMounted(async () => {
   if (isListPage.value && !pageBootstrapError.value) {
     unregisterListRefresh = modulePageListRefreshRegistry.register(context.moduleAlias, refreshList);
   }
+});
+
+onUnmounted(() => {
+  recordOnlySession += 1;
 });
 
 async function restoreDetailSurfaceMode() {
@@ -1772,7 +1836,7 @@ function handleFlatManagementAction(action: RecordActionItem) {
   const record = selectedRecord.value;
   const contribution = flatManagementEnhancementActions.value.find((item) => item.key === action.key);
   if (record && contribution) {
-    void runEnhancementAction(contribution, { ...modulePageActionContext(record), record });
+    void runDetailEnhancementAction(contribution, record);
     return;
   }
   if (detailPageActions.value.some((item) => item.key === action.key)) {
@@ -1794,6 +1858,30 @@ function handleFlatManagementAction(action: RecordActionItem) {
   if (action.key === 'delete' && selectedRecord.value) {
     void deleteRecord(selectedRecord.value);
   }
+}
+
+async function runDetailEnhancementAction(
+  contribution: ModulePageRecordActionContribution,
+  record: QueryListRecord,
+) {
+  if (detailEnhancementRunning.value) return;
+  detailEnhancementRunning.value = true;
+  try {
+    const succeeded = await runEnhancementAction(contribution, {
+      ...modulePageActionContext(record),
+      record,
+    });
+    if (succeeded && props.recordOnly) await reportRecordOnlyRefresh(record);
+  } finally {
+    detailEnhancementRunning.value = false;
+  }
+}
+
+async function reportRecordOnlyRefresh(record: QueryListRecord) {
+  const recordId = record.id == null ? undefined : String(record.id);
+  if (!props.recordOnly || !recordId) return;
+  const refresh = await reloadDetailAfterMutation(recordId);
+  if (refresh.failure) reportDetailRefreshFailure(refresh.failure, 'module-record-only');
 }
 
 function selectListDetailRecord(record: QueryListRecord) {
@@ -2557,8 +2645,35 @@ function createChildRecord() {
   if (parentId) createRecord(parentId);
 }
 
+/** Keeps target authorization checks inside the mounted reference-detail session. */
+async function recordOnlyActionAvailable(recordId: string, actionCode: string): Promise<boolean> {
+  if (!props.recordOnly) return true;
+  const session = recordOnlySession;
+  recordOnlyAuthorizing.value = true;
+  try {
+    const availability = await context.recordActions(recordId);
+    return (
+      session === recordOnlySession &&
+      detailOpen.value &&
+      availability.actions.some((action) => action.actionCode === actionCode && action.available)
+    );
+  } catch (cause) {
+    if (session === recordOnlySession) {
+      presentPlatformError(cause, { source: 'module-record-only', phase: 'authorization' });
+    }
+    return false;
+  } finally {
+    if (session === recordOnlySession) recordOnlyAuthorizing.value = false;
+  }
+}
+
 async function editRecord(record: QueryListRecord, cancelDestination: 'close' | 'restore-view' = 'close') {
   if (context.can('update') !== true) return;
+  if (props.recordOnly) {
+    const recordId = record.id == null ? undefined : String(record.id);
+    if (!recordId) return;
+    if (!(await recordOnlyActionAvailable(recordId, 'update'))) return;
+  }
   if (selectedRecord.value?.id === record.id && detail.beginEdit({ cancelDestination })) return;
   await openRecord(record, 'edit', { cancelDestination });
 }
@@ -2573,6 +2688,11 @@ async function saveRecord() {
   if (!passesFormValidation(draft, formValidationRulesOf(context.runtime.snapshot()?.uiDescriptor))) return;
   if (editorMode.value === 'create' ? context.can('create') !== true : context.can('update') !== true) {
     return;
+  }
+  if (props.recordOnly && editorMode.value === 'edit') {
+    const recordId = draft.id == null ? undefined : String(draft.id);
+    if (!recordId) return;
+    if (!(await recordOnlyActionAvailable(recordId, 'update'))) return;
   }
   if (
     !canMutateModuleDetail({
@@ -2608,19 +2728,26 @@ async function saveRecord() {
       context.invalidateRecordActions?.([savedId]);
       void context.recordActions(savedId).catch(() => undefined);
     }
+    if (props.recordOnly && refreshFailure && isRecordOnlyAccessLoss(refreshFailure)) {
+      refreshList();
+      await presentModuleActionSuccess(result, '保存成功');
+      reportDetailRefreshFailure(refreshFailure, 'module-action');
+      return;
+    }
     selectedRecord.value = persistedRecord;
     if (persistentTreeDetail.value) {
       selectedTreeRecord.value = persistedRecord;
     }
     detail.applySaved(persistedRecord);
+    if (props.recordOnly) {
+      emit('record-only-change', { type: 'saved', record: persistedRecord });
+    }
     relationDraftValid.value = true;
     detailRelationReloadKey.value += 1;
     refreshList();
     formSessionKey.value += 1;
     await presentModuleActionSuccess(result, '保存成功');
-    if (refreshFailure) {
-      presentPlatformError(refreshFailure, { source: 'module-action', phase: 'load' });
-    }
+    if (refreshFailure) reportDetailRefreshFailure(refreshFailure, 'module-action');
   } catch (cause) {
     presentPlatformError(cause, { source: 'module-action', phase: 'action' });
   } finally {
@@ -2632,6 +2759,9 @@ async function deleteRecord(record: QueryListRecord) {
   const id = record.id == null ? undefined : String(record.id);
   const version = typeof record.version === 'number' ? record.version : undefined;
   if (!id || version === undefined || deleting.value) return;
+  if (props.recordOnly) {
+    if (!(await recordOnlyActionAvailable(id, 'delete'))) return;
+  }
   deleting.value = true;
   try {
     if (
@@ -2650,6 +2780,7 @@ async function deleteRecord(record: QueryListRecord) {
       detail.clearDeleted();
       selectedTreeRecord.value = undefined;
     }
+    if (props.recordOnly) emit('record-only-change', { type: 'deleted' });
     refreshList();
     await presentModuleActionSuccess(result, '删除成功');
   } catch (cause) {
@@ -2664,6 +2795,10 @@ async function toggleEnabled() {
   const id = record?.id == null ? undefined : String(record.id);
   const version = typeof record?.version === 'number' ? record.version : undefined;
   if (!record || !id || version === undefined || !canToggleEnabled.value) return;
+  if (props.recordOnly) {
+    const actionCode = record.enabled === false ? 'enable' : 'disable';
+    if (!(await recordOnlyActionAvailable(id, actionCode))) return;
+  }
 
   togglingEnabled.value = true;
   try {
@@ -2672,15 +2807,39 @@ async function toggleEnabled() {
       ? await context.crud.enable(id, { version })
       : await context.crud.disable(id, { version });
     context.invalidateRecordActions?.([id]);
-    const refreshed = await context.crud.view(id);
-    detail.resolveLoad(refreshed);
+    const refresh = await reloadDetailAfterMutation(id);
     refreshList();
     await presentModuleActionSuccess(result, enabling ? '已启用' : '已停用');
+    if (refresh.failure) reportDetailRefreshFailure(refresh.failure, 'module-action');
   } catch (cause) {
     presentPlatformError(cause, { source: 'module-action', phase: 'action' });
   } finally {
     togglingEnabled.value = false;
   }
+}
+
+function isRecordOnlyAccessLoss(cause: unknown) {
+  return cause instanceof AppError && (cause.status === 403 || cause.status === 404);
+}
+
+async function reloadDetailAfterMutation(recordId: string): Promise<{ failure?: unknown }> {
+  try {
+    const refreshed = await context.crud.view(recordId);
+    detail.resolveLoad(refreshed);
+    if (props.recordOnly) emit('record-only-change', { type: 'saved', record: refreshed });
+    return {};
+  } catch (failure) {
+    return { failure };
+  }
+}
+
+function reportDetailRefreshFailure(cause: unknown, source: string) {
+  if (props.recordOnly && isRecordOnlyAccessLoss(cause)) {
+    detail.clearDeleted();
+    emit('record-only-change', { type: 'unavailable' });
+    return;
+  }
+  presentPlatformError(cause, { source, phase: 'load' });
 }
 
 function presentModuleActionSuccess(result: unknown, fallbackMessage: string, source = 'module-action') {
@@ -2800,7 +2959,7 @@ function handleDetailAction(action: { key?: string }) {
   const record = selectedRecord.value;
   const contribution = enhancementDetailActions.value.find((item) => item.key === action.key);
   if (record && contribution) {
-    void runEnhancementAction(contribution, { ...modulePageActionContext(record), record });
+    void runDetailEnhancementAction(contribution, record);
     return;
   }
   if (placedDetailActions.value.some((item) => item.key === action.key)) void runPlacedRecordAction(action);
@@ -2860,14 +3019,16 @@ async function invokePlacedAction(key: string | undefined, recordId?: string) {
     const formContext = placement?.anchor === 'FORM';
     const draft = formContext && !recordId && editingRecord.value ? toRaw(editingRecord.value) : undefined;
     const result = await invokePageAction(context.http, placement?.invocation, { recordId, record: draft });
+    let refreshFailure: unknown;
     if (recordId) {
-      detail.resolveLoad(await context.crud.view(recordId));
+      refreshFailure = (await reloadDetailAfterMutation(recordId)).failure;
     } else if (formContext && editingRecord.value) {
       const { recordPatch } = formActionResult(result);
       editingRecord.value = { ...editingRecord.value, ...recordPatch };
     }
     if (!formContext) refreshList();
     await presentModuleActionSuccess(result, '操作成功');
+    if (refreshFailure) reportDetailRefreshFailure(refreshFailure, 'module-page-action');
   } catch (cause) {
     presentPlatformError(cause, { source: 'module-page-action', phase: 'action' });
   } finally {
@@ -2975,12 +3136,33 @@ function refreshList() {
   reloadKey.value += 1;
 }
 
+/** Refreshes a source view after a target mutation without replaying an in-progress source form. */
+function handleReferenceRecordChange(mutation: ReferenceRecordDetailMutation) {
+  refreshList();
+  const source = selectedRecord.value;
+  if (!source?.id) return;
+  if (editorMode.value === 'view') {
+    void openRecord(source, 'view');
+    return;
+  }
+  const draft = editingRecord.value;
+  if (editorMode.value !== 'edit' || !draft) return;
+  const projectedDraft = applyReferenceRecordProjection(draft, formFields.value, mutation);
+  if (projectedDraft !== draft) editingRecord.value = projectedDraft;
+}
+
 defineExpose({ refreshList });
 
 function closeDetail() {
-  if (saving.value) return;
+  if (saving.value || detailEnhancementRunning.value) return;
   invalidatePendingRequests();
   detail.close();
+}
+
+/** The reference browser owns the record-only session and releases this Host on close. */
+function closeRecordOnlyDetail() {
+  if (interactionBusy.value) return;
+  emit('record-only-close');
 }
 
 /** Returns to a detail only when the state machine retained that surface. */
@@ -3027,17 +3209,20 @@ function recordTitle(record: QueryListRecord | undefined) {
 </script>
 
 <template>
-  <section v-if="requireConfiguredPage && runtimePageResolved && !runtimePage" class="module-unsupported">
+  <section
+    v-if="!props.recordOnly && requireConfiguredPage && runtimePageResolved && !runtimePage"
+    class="module-unsupported"
+  >
     <RecordPanelState description="当前模块尚未发布页面，请先发布页面配置。" />
   </section>
-  <section v-else-if="pageBootstrapError" class="module-unsupported">
+  <section v-else-if="!props.recordOnly && pageBootstrapError" class="module-unsupported">
     <RecordPanelState class="module-bootstrap-error" :description="pageBootstrapError" />
   </section>
-  <section v-else-if="!pageReady" class="module-unsupported">
+  <section v-else-if="!props.recordOnly && !pageReady" class="module-unsupported">
     <RecordPanelState loading loading-tip="加载页面入口" description="" />
   </section>
   <section
-    v-else-if="isListPage"
+    v-else-if="!props.recordOnly && isListPage"
     ref="workspaceElement"
     class="module-workspace"
     :class="{
@@ -3227,14 +3412,20 @@ function recordTitle(record: QueryListRecord | undefined) {
       </template>
       <template #detail-status>
         <RecordStatusSwitch
-          v-if="!flatManagementRecycleBin.active.value && editorMode !== 'view' && editingRecord"
+          v-if="
+            context.abilities.hasEnable() === true &&
+            !flatManagementRecycleBin.active.value &&
+            editorMode !== 'view' &&
+            editingRecord &&
+            (editorMode === 'create' || typeof editingRecord.enabled === 'boolean')
+          "
           :enabled="editingRecord.enabled !== false"
           :disabled="saving"
           :show-label="false"
           @change="updateDraftField('enabled', $event)"
         />
         <RecordStatusSwitch
-          v-else-if="!flatManagementRecycleBin.active.value && selectedRecord"
+          v-else-if="showStatusSwitch && !flatManagementRecycleBin.active.value && selectedRecord"
           :enabled="selectedRecord.enabled !== false"
           :disabled="!canToggleEnabled"
           :disabled-reason="toggleEnabledDisabledReason"
@@ -3469,7 +3660,7 @@ function recordTitle(record: QueryListRecord | undefined) {
         </template>
         <template #status>
           <RecordStatusSwitch
-            v-if="!recycleBinDetailActive && editorMode === 'view' && selectedRecord"
+            v-if="showStatusSwitch && !recycleBinDetailActive && editorMode === 'view' && selectedRecord"
             :enabled="selectedRecord.enabled !== false"
             :disabled="!canToggleEnabled"
             :disabled-reason="toggleEnabledDisabledReason"
@@ -3733,7 +3924,7 @@ function recordTitle(record: QueryListRecord | undefined) {
         </template>
         <template #status>
           <RecordStatusSwitch
-            v-if="editorMode === 'view' && selectedRecord"
+            v-if="showStatusSwitch && editorMode === 'view' && selectedRecord"
             :enabled="selectedRecord.enabled !== false"
             :disabled="!canToggleEnabled"
             :disabled-reason="toggleEnabledDisabledReason"
@@ -3868,20 +4059,30 @@ function recordTitle(record: QueryListRecord | undefined) {
         />
       </template>
     </RecordQueryListPanel>
+  </section>
+  <section v-else-if="!props.recordOnly" class="module-unsupported">
+    <h2>{{ title }}</h2>
+    <p>{{ unsupportedPageModeText }}</p>
+  </section>
 
+  <Teleport :disabled="Boolean(props.recordOnly) || !workspaceElement" :to="workspaceElement ?? 'body'">
     <RecordModeDrawer
-      v-if="!persistentTreeDetail && !flatManagementPage && (!listDetailCardPage || detailSurfaceUsesDrawer)"
+      v-if="
+        props.recordOnly ||
+        (!persistentTreeDetail && !flatManagementPage && (!listDetailCardPage || detailSurfaceUsesDrawer))
+      "
       :open="detailOpen"
       :title="detailTitle"
-      render-mode="inline"
+      :render-mode="props.recordOnly?.renderMode ?? 'inline'"
+      :scope="props.recordOnly?.scope ?? 'tab'"
       :width="enhancementDetailDrawer?.width"
       :mode="editorMode"
       :loading="detailLoading"
       :load-failed="detailLoadFailed"
-      @close="closeDetail"
+      @close="props.recordOnly ? closeRecordOnlyDetail() : closeDetail()"
       @retry="retryLoadDetail"
     >
-      <template v-if="detailWorkspaceAvailable" #header-actions>
+      <template v-if="!props.recordOnly && detailWorkspaceAvailable" #header-actions>
         <RecordPanelButton
           type="text"
           icon-name="open-in-new"
@@ -3890,7 +4091,7 @@ function recordTitle(record: QueryListRecord | undefined) {
           @click="openDetailWorkspaceView"
         />
       </template>
-      <template v-if="listDetailCardPage && !narrowDetailSurface" #title-prefix>
+      <template v-if="!props.recordOnly && listDetailCardPage && !narrowDetailSurface" #title-prefix>
         <RecordPanelButton
           class="detail-surface-mode-button"
           type="text"
@@ -3903,7 +4104,11 @@ function recordTitle(record: QueryListRecord | undefined) {
       <template #status>
         <RecordStatusSwitch
           v-if="
-            !recycleBinDetailActive && !enhancementDetailDrawer && editorMode === 'view' && selectedRecord
+            showStatusSwitch &&
+            !recycleBinDetailActive &&
+            !enhancementDetailDrawer &&
+            editorMode === 'view' &&
+            selectedRecord
           "
           :enabled="selectedRecord.enabled !== false"
           :disabled="!canToggleEnabled"
@@ -3918,7 +4123,7 @@ function recordTitle(record: QueryListRecord | undefined) {
           :context="context"
           :record="selectedRecord"
           :mode="editorMode"
-          :saving="saving"
+          :saving="saving || deleting"
           :detail-loading="detailLoading"
           :detail-load-failed="detailLoadFailed"
           :recycle-bin-active="recycleBinDetailActive"
@@ -4000,33 +4205,14 @@ function recordTitle(record: QueryListRecord | undefined) {
         />
       </template>
     </RecordModeDrawer>
-
-    <RecordDetailDrawer
-      v-if="enhancementDrawer"
-      :open="enhancementDrawerOpen"
-      :title="enhancementDrawer.definition.title"
-      :subtitle="enhancementDrawer.subtitle"
-      render-mode="inline"
-      :width="enhancementDrawer.definition.width"
-      @close="closeEnhancementDrawer"
-      @after-close="disposeEnhancementDrawer"
-    >
-      <template v-if="enhancementDrawer.titleActions.length" #title-actions>
-        <DrawerTitleActions :actions="enhancementDrawer.titleActions" />
-      </template>
-      <template v-if="enhancementDrawer.operation?.summary" #operation-summary>
-        {{ enhancementDrawer.operation.summary }}
-      </template>
-      <template v-if="enhancementDrawer.operation" #operation>
-        <DrawerTitleActions :actions="enhancementDrawer.operation.actions" />
-      </template>
-      <component :is="enhancementDrawer.definition.component" :context="enhancementDrawer.context" />
-    </RecordDetailDrawer>
-  </section>
-  <section v-else class="module-unsupported">
-    <h2>{{ title }}</h2>
-    <p>{{ unsupportedPageModeText }}</p>
-  </section>
+    <ModuleReferenceRecordDetailBrowser
+      :browser="referenceRecordDetailBrowser"
+      :render-mode="props.recordOnly?.renderMode ?? 'inline'"
+      :scope="props.recordOnly?.scope ?? 'tab'"
+      @record-change="handleReferenceRecordChange"
+      @interaction-state-change="referenceRecordDetailInteraction = $event"
+    />
+  </Teleport>
   <RecordPermissionDialog
     v-if="permissionsOpen && selectedRecord?.id != null"
     :open="permissionsOpen"
@@ -4035,6 +4221,27 @@ function recordTitle(record: QueryListRecord | undefined) {
     @close="permissionsOpen = false"
     @changed="permissionsChanged"
   />
+  <RecordDetailDrawer
+    v-if="enhancementDrawer"
+    :open="enhancementDrawerOpen"
+    :title="enhancementDrawer.definition.title"
+    :subtitle="enhancementDrawer.subtitle"
+    render-mode="inline"
+    :width="enhancementDrawer.definition.width"
+    @close="closeEnhancementDrawer"
+    @after-close="disposeEnhancementDrawer"
+  >
+    <template v-if="enhancementDrawer.titleActions.length" #title-actions>
+      <DrawerTitleActions :actions="enhancementDrawer.titleActions" />
+    </template>
+    <template v-if="enhancementDrawer.operation?.summary" #operation-summary>
+      {{ enhancementDrawer.operation.summary }}
+    </template>
+    <template v-if="enhancementDrawer.operation" #operation>
+      <DrawerTitleActions :actions="enhancementDrawer.operation.actions" />
+    </template>
+    <component :is="enhancementDrawer.definition.component" :context="enhancementDrawer.context" />
+  </RecordDetailDrawer>
   <UiModal
     :open="localEditOpen"
     :title="localEditBlock?.title ?? '局部编辑'"

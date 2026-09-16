@@ -2,13 +2,14 @@ import { ref, type Ref } from 'vue';
 import { describe, expect, it, vi } from 'vitest';
 import { useModulePageDetailActionRuntime } from '@/dynamic-page-runtime/composables/useModulePageDetailActionRuntime.ts';
 
-function createRuntime(localEditValid?: Ref<boolean>) {
+function createRuntime(localEditValid?: Ref<boolean>, refreshDetail = false) {
   const request = vi.fn().mockResolvedValue({ message: '已提交' });
   const view = vi.fn().mockResolvedValue({ id: 'record-1', version: 2, title: '已刷新' });
   const resolveLoad = vi.fn();
   const refreshList = vi.fn();
   const presentSuccess = vi.fn();
   const presentError = vi.fn();
+  const reportRefreshFailure = vi.fn();
   const selectedRecord = ref({
     id: 'record-1',
     version: 1,
@@ -31,7 +32,7 @@ function createRuntime(localEditValid?: Ref<boolean>) {
             actionCode: 'rename',
             title: '改名',
             submitPath: '/crm.customer/rename/{recordId}',
-            refreshStrategy: { detail: false, list: true },
+            refreshStrategy: { detail: refreshDetail, list: true },
             localEditForm: {
               uiConfigId: 'rename-form',
               fieldUiControls: [
@@ -74,8 +75,18 @@ function createRuntime(localEditValid?: Ref<boolean>) {
     refreshList,
     presentSuccess,
     presentError,
+    reportRefreshFailure,
   });
-  return { runtime, request, view, resolveLoad, refreshList, presentSuccess, presentError };
+  return {
+    runtime,
+    request,
+    view,
+    resolveLoad,
+    refreshList,
+    presentSuccess,
+    presentError,
+    reportRefreshFailure,
+  };
 }
 
 describe('module page detail action runtime', () => {
@@ -145,6 +156,23 @@ describe('module page detail action runtime', () => {
 
     expect(presentError).toHaveBeenCalledWith(expect.any(Error), 'module-local-edit');
     expect(runtime.localEditSaving.value).toBe(false);
+  });
+
+  it('preserves a successful local edit when its requested detail refresh fails', async () => {
+    const { runtime, view, presentSuccess, presentError, reportRefreshFailure } = createRuntime(
+      undefined,
+      true,
+    );
+    const refreshFailure = new Error('详情暂时不可读');
+    view.mockRejectedValueOnce(refreshFailure);
+    runtime.handleConfiguredAction(runtime.detailPageActions.value[0]);
+
+    await runtime.submitLocalEdit();
+
+    expect(presentSuccess).toHaveBeenCalledWith({ message: '已提交' }, '改名成功', 'module-local-edit');
+    expect(reportRefreshFailure).toHaveBeenCalledWith(refreshFailure, 'module-local-edit');
+    expect(presentError).not.toHaveBeenCalled();
+    expect(runtime.localEditOpen.value).toBe(false);
   });
 
   it('does not issue local-edit HTTP while the mounted form reports invalid, then submits after correction', async () => {

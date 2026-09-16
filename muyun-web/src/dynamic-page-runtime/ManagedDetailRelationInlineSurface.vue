@@ -244,6 +244,16 @@ function displayValue(row: DraftRow | QueryListRecord, fieldName: string) {
   return value === 'true' ? '是' : value === 'false' ? '否' : value;
 }
 
+function relationDisplayText(row: DraftRow | QueryListRecord, fieldName: string) {
+  const field = resolveRecordFormFieldState(fieldName, {
+    fields: formFields.value,
+    record: displayRecord(row),
+  });
+  // Reference values retain their ID-aligned read projection so the shared browser can make each
+  // usable target clickable. Dictionary, status and caller-provided text semantics remain local.
+  return field.reference ? undefined : displayValue(row, fieldName);
+}
+
 async function loadOptionFields() {
   for (const field of formFields.value.values()) {
     if (!field.option || field.option.inlineItems?.length) continue;
@@ -619,7 +629,7 @@ onMounted(() => void load());
           resolveRecordFormFieldState(column.fieldName, { fields: formFields, record: displayRecord(row) })
         "
         :record="displayRecord(row)"
-        :text="displayValue(row, column.fieldName)"
+        :text="relationDisplayText(row, column.fieldName)"
       />
     </template>
   </RecordRelationTable>
@@ -654,7 +664,7 @@ onMounted(() => void load());
             <RecordRelationValue
               :field="resolveRecordFormFieldState(column.fieldName, { fields: formFields, record: record })"
               :record="record"
-              :text="displayValue(record, column.fieldName)"
+              :text="relationDisplayText(record, column.fieldName)"
             />
           </td>
         </tr>

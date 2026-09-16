@@ -2,6 +2,13 @@ import type { ResolvedReferenceFieldDescriptor } from '@muyun/web-contracts';
 
 type ReferenceSummary = Record<string, unknown>;
 
+export interface ReadonlyReferenceDisplayItem {
+  id: string;
+  label: string;
+  /** Only a delivered, usable projection may enter the target-detail browser. */
+  browseable: boolean;
+}
+
 /**
  * Formats only record-projected reference facts. It never resolves candidates: an absent title
  * remains the persisted ID, which distinguishes an unavailable projection from a deleted or
@@ -12,35 +19,45 @@ export function readonlyReferenceDisplay(
   value: unknown,
   summary: unknown,
 ): string | undefined {
+  return readonlyReferenceDisplayItems(reference, value, summary)
+    .map((item) => item.label)
+    .join('、');
+}
+
+/**
+ * Keeps the persisted reference order while retaining enough projection identity for the shared
+ * read-only browser. A raw ID intentionally remains non-interactive: it may be absent, deleted,
+ * or hidden by a target data scope.
+ */
+export function readonlyReferenceDisplayItems(
+  reference: Pick<ResolvedReferenceFieldDescriptor, 'cardinality'>,
+  value: unknown,
+  summary: unknown,
+): ReadonlyReferenceDisplayItem[] {
   const ids = referenceIds(value);
-  // A cleared persisted value is authoritative over a stale read projection.
-  if (ids.length === 0) return '';
-  if (reference.cardinality === 'ONE') return singleDisplay(ids[0]!, summary);
-  return multipleDisplay(ids, summary);
+  if (reference.cardinality === 'ONE') return ids.length ? [singleItem(ids[0]!, summary)] : [];
+  return multipleItems(ids, summary);
 }
 
-function singleDisplay(id: string, summary: unknown) {
-  if (isText(summary)) return summary;
-  if (!isSummary(summary) || String(summary.id ?? '') !== id) return id;
-  return summaryDisplay(summary, id);
+function singleItem(id: string, summary: unknown): ReadonlyReferenceDisplayItem {
+  if (isText(summary)) return { id, label: summary, browseable: true };
+  if (!isSummary(summary) || String(summary.id ?? '') !== id) return rawItem(id);
+  return summaryItem(id, summary);
 }
 
-function multipleDisplay(ids: readonly string[], summary: unknown) {
-  if (!Array.isArray(summary)) return ids.join('、');
-  // Legacy title arrays did not carry IDs. They remain valid only when one title exists for
-  // every persisted ID, in exactly the stored order.
-  if (summary.length === ids.length && summary.every(isText)) return summary.join('、');
-
+function multipleItems(ids: readonly string[], summary: unknown): ReadonlyReferenceDisplayItem[] {
+  if (!Array.isArray(summary)) return ids.map(rawItem);
+  if (summary.length === ids.length && summary.every(isText)) {
+    return ids.map((id, index) => ({ id, label: summary[index] as string, browseable: true }));
+  }
   const summariesById = new Map<string, ReferenceSummary>();
   for (const item of summary) {
     if (isSummary(item) && isText(item.id)) summariesById.set(String(item.id), item);
   }
-  return ids
-    .map((id) => {
-      const item = summariesById.get(id);
-      return item ? summaryDisplay(item, id) : id;
-    })
-    .join('、');
+  return ids.map((id) => {
+    const item = summariesById.get(id);
+    return item ? summaryItem(id, item) : rawItem(id);
+  });
 }
 
 function referenceIds(value: unknown): string[] {
@@ -71,6 +88,19 @@ function summaryDisplay(summary: ReferenceSummary, fallbackId: string) {
   const alias = isText(summary.alias) ? summary.alias : undefined;
   const label = title && alias && title !== alias ? `${title} (${alias})` : (title ?? alias ?? fallbackId);
   return summary.unavailable === true ? `${label}（不可用）` : label;
+}
+
+function summaryItem(id: string, summary: ReferenceSummary): ReadonlyReferenceDisplayItem {
+  const label = summaryDisplay(summary, id);
+  return {
+    id,
+    label,
+    browseable: summary.unavailable !== true && (isText(summary.title) || isText(summary.alias)),
+  };
+}
+
+function rawItem(id: string): ReadonlyReferenceDisplayItem {
+  return { id, label: id, browseable: false };
 }
 
 function isSummary(value: unknown): value is ReferenceSummary {

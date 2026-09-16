@@ -1,6 +1,15 @@
-import type { ResolvedReferenceFieldDescriptor } from '@muyun/web-contracts';
+import type {
+  ResolvedReferenceFieldDescriptor,
+  WebReferenceResolveItem,
+  WebTreeNode,
+} from '@muyun/web-contracts';
 import type { ReferenceResolveClient } from '@muyun/web-core';
-import type { ReferencePickerCandidate, ReferencePickerProvider } from './referencePickerModel';
+import type {
+  ReferencePickerCandidate,
+  ReferencePickerBrowseScope,
+  ReferencePickerProvider,
+  ReferencePickerTreeNode,
+} from './referencePickerModel';
 import {
   missingReferencePickerDependencies,
   unsupportedReferencePickerConfiguration,
@@ -41,6 +50,10 @@ export function createSourceReferencePickerProvider({
     projections: item.projections,
     affectPatch: item.affectPatch,
   });
+  const treeNodeOf = (node: WebTreeNode<WebReferenceResolveItem>): ReferencePickerTreeNode => ({
+    record: candidateOf(node.record),
+    ...(node.children.length ? { children: node.children.map(treeNodeOf) } : {}),
+  });
   const resolvePath = reference.resolvePath ?? '';
   const missingDependencies = () => {
     const values = formValues();
@@ -52,6 +65,24 @@ export function createSourceReferencePickerProvider({
     const fields = missingDependencies();
     if (fields.length > 0) throw missingReferencePickerDependencies(fields);
   };
+
+  const treeProvider =
+    reference.pickerMode === 'TREE'
+      ? {
+          async loadTree({ scope }: { scope: ReferencePickerBrowseScope }) {
+            if (scope.selections.length > 0) {
+              throw unsupportedReferencePickerConfiguration('当前引用来源不支持范围导航');
+            }
+            requireDependencies();
+            const response = await resolver().resolve(fieldName, {
+              mode: 'TREE',
+              formValues: formValues(),
+              source: source(),
+            });
+            return (response.tree ?? []).map(treeNodeOf);
+          },
+        }
+      : {};
 
   return {
     identity: {
@@ -74,6 +105,7 @@ export function createSourceReferencePickerProvider({
       });
       return { records: response.options.map(candidateOf), total: response.total };
     },
+    ...treeProvider,
     async resolve(ids) {
       if (!ids.length) return [];
       requireDependencies();

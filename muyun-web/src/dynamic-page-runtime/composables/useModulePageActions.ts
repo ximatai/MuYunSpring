@@ -18,14 +18,16 @@ export function useModulePageActions() {
   async function runEnhancementAction<TContext>(
     contribution: { key: string; run(context: TContext): void | Promise<void> },
     actionContext: TContext,
-  ) {
+  ): Promise<boolean> {
     try {
       await contribution.run(actionContext);
+      return true;
     } catch (cause) {
       presentPlatformError(cause, {
         source: `module-page-enhancement:${contribution.key}`,
         phase: 'action',
       });
+      return false;
     }
   }
 

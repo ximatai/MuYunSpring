@@ -8,6 +8,8 @@ import net.ximatai.muyun.spring.ability.permission.RecordPermissionWrite;
 import net.ximatai.muyun.spring.ability.reference.ReferenceTarget;
 import net.ximatai.muyun.spring.ability.TreeAbility;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
+import net.ximatai.muyun.spring.common.exception.PlatformAccessDeniedException;
+import net.ximatai.muyun.spring.common.exception.ErrorScope;
 import net.ximatai.muyun.spring.common.id.Ids;
 import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
 import net.ximatai.muyun.spring.common.platform.ActionExecutionContext;
@@ -371,7 +373,10 @@ final class DynamicRecordMutationRuntime {
         DataScopeCriteriaResult scope = dataScope.resolveReadScope(module, policy, criteria, CurrentUserContext.currentUser());
         long visible = withTenantScope(scope, () -> entityService(module, entity).list(scope.criteria(), new PageRequest(0, recordIds.size())).stream()
                 .map(DynamicRecord::getId).filter(recordIds::contains).distinct().count());
-        if (visible != recordIds.size()) throw new PlatformException("record data permission denied: " + module + "." + policy.actionCode());
+        if (visible != recordIds.size()) {
+            throw new PlatformAccessDeniedException("record data permission denied: " + module + "." + policy.actionCode(),
+                    ErrorScope.module(module).action(policy.actionCode()));
+        }
         return scope;
     }
 
@@ -426,7 +431,8 @@ final class DynamicRecordMutationRuntime {
                 .distinct()
                 .count());
         if (visible != recordIds.size()) {
-            throw new PlatformException("record data permission denied: " + module + "." + policy.actionCode());
+            throw new PlatformAccessDeniedException("record data permission denied: " + module + "." + policy.actionCode(),
+                    ErrorScope.module(module).action(policy.actionCode()));
         }
         return scope;
     }

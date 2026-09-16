@@ -12,6 +12,8 @@ const props = withDefaults(
     open: boolean;
     title: string;
     container?: HTMLElement | null;
+    /** Explicit presentation is needed by embedded record-only surfaces. */
+    renderMode?: 'inline' | 'portal';
     subtitle?: string;
     width?: number | string;
     scope?: UiSidePanelScope;
@@ -39,6 +41,7 @@ const props = withDefaults(
   }>(),
   {
     container: undefined,
+    renderMode: undefined,
     subtitle: undefined,
     width: 520,
     scope: 'tab',
@@ -99,7 +102,7 @@ const actualCloseOnOutside = computed(() => props.closeOnOutside ?? viewModeActi
   <RecordDetailDrawer
     :open="open"
     :title="title"
-    :render-mode="container ? 'inline' : 'portal'"
+    :render-mode="renderMode ?? (container ? 'inline' : 'portal')"
     :subtitle="subtitle"
     :width="width"
     :scope="scope"

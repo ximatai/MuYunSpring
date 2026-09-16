@@ -32,6 +32,7 @@ import net.ximatai.muyun.spring.platform.web.ModuleQueryFormField;
 import net.ximatai.muyun.spring.platform.web.ModuleQueryTemplatePlan;
 import net.ximatai.muyun.spring.web.EnableWeb;
 import net.ximatai.muyun.spring.web.ReferenceWeb;
+import net.ximatai.muyun.spring.web.RecordReadSupport;
 import net.ximatai.muyun.spring.web.TreeSortWebRequest;
 import net.ximatai.muyun.spring.web.TreeSortScopeRequest;
 import net.ximatai.muyun.spring.web.TreeWeb;
@@ -780,7 +781,8 @@ public class DynamicRecordWebController implements
     @GetMapping("/view/{id}")
     @ActionEndpoint(PlatformAction.VIEW)
     public DynamicRecord view(@PathVariable String id) {
-        return webScope(() -> detailOutput(selectForAction(PlatformAction.VIEW, id)));
+        return webScope(() -> detailOutput(RecordReadSupport.requireVisible(webScopeName(), id,
+                selectForAction(PlatformAction.VIEW, id))));
     }
 
     private DynamicRecord detailOutput(DynamicRecord record) {

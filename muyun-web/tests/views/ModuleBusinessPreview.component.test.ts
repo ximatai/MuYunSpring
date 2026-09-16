@@ -17,6 +17,7 @@ import { provideWorkspaceViewHost } from '@/platform-workbench/workspaceViewHost
 import { provideCurrentUserContext } from '@/platform-admin-runtime/currentUserContext';
 import ModuleBusinessPreview from '@/views/ModuleBusinessPreview.vue';
 import ModulePageHost from '@/dynamic-page-runtime/ModulePageHost.vue';
+import ModuleReferenceRecordDetailBrowser from '@/dynamic-page-runtime/ModuleReferenceRecordDetailBrowser.vue';
 import { moduleGovernanceWorkspaceView } from '@/views/moduleGovernanceWorkspaceView';
 
 const runtime = (published = true) => ({
@@ -203,6 +204,116 @@ describe('ModuleBusinessPreview', () => {
         .every((call) => call.tenant === 'a'),
     ).toBe(true);
     expect(calls.some((call) => call.url.endsWith('/insert'))).toBe(true);
+  });
+
+  it('blocks preview reload and tenant changes while an opened reference target edits, then releases both exits', async () => {
+    let contextLoads = 0;
+    let finishSave!: () => void;
+    const pendingSave = new Promise<void>((resolve) => {
+      finishSave = resolve;
+    });
+    setup((url) => {
+      if (url.endsWith('/platform.module/education.exam/context')) {
+        contextLoads += 1;
+        return {
+          ...runtime(),
+          tenantRequired: true,
+          actions: [{ actionCode: 'query', authorized: true }],
+        };
+      }
+      if (url.endsWith('/iam.tenant/navigator/reference/query'))
+        return { records: [{ id: 'a' }, { id: 'b' }], total: 2 };
+      if (url.endsWith('/education.exam/query')) return { records: [], total: 0, pageNum: 1, pageSize: 20 };
+      if (url.endsWith('/platform.module/purchase.supplier/view-context')) {
+        return {
+          moduleAlias: 'purchase.supplier',
+          capabilities: [],
+          actions: [
+            { actionCode: 'view', authorized: true },
+            { actionCode: 'update', authorized: true },
+          ],
+          uiDescriptor: {
+            schemaVersion: '1',
+            moduleAlias: 'purchase.supplier',
+            page: {
+              template: 'LIST_DETAIL_CARD',
+              detail: {
+                editor: {
+                  fields: [{ fieldRef: { fieldName: 'title' }, label: '名称', valueType: 'STRING' }],
+                },
+              },
+            },
+          },
+        };
+      }
+      if (url.endsWith('/purchase.supplier/actions/supplier-1')) {
+        return {
+          recordId: 'supplier-1',
+          actions: [
+            { actionCode: 'view', available: true },
+            { actionCode: 'update', available: true },
+          ],
+        };
+      }
+      if (url.endsWith('/purchase.supplier/view/supplier-1'))
+        return { id: 'supplier-1', version: 1, title: '供应商' };
+      if (url.endsWith('/purchase.supplier/update/supplier-1'))
+        return pendingSave.then(() => ({ id: 'supplier-1' }));
+      throw new Error(`Unexpected ${url}`);
+    });
+    const wrapper = render(false);
+    await flushPromises();
+    const tenant = wrapper.findComponent(UiSelect);
+    tenant.vm.$emit('update:value', 'a');
+    await flushPromises();
+    const sourceHost = wrapper.findComponent(ModulePageHost);
+    const reference = sourceHost.findComponent(ModuleReferenceRecordDetailBrowser);
+    const browser = reference.props('browser') as {
+      active: { value?: { recordId: string } };
+      open(targetModuleAlias: string, recordId: string): void;
+      close(): void;
+    };
+    browser.open('purchase.supplier', 'supplier-1');
+    await flushPromises();
+    await flushPromises();
+
+    const targetActions = reference.findComponent({ name: 'ModuleRecordDetailActions' });
+    targetActions.vm.$emit('edit');
+    await flushPromises();
+    const reload = wrapper.find('header.business-preview__toolbar button');
+    expect(reload.attributes('disabled')).toBeDefined();
+    expect(tenant.props('disabled')).toBe(true);
+    const contextLoadsBeforeBlockedInteractions = contextLoads;
+    await reload.trigger('click');
+    tenant.vm.$emit('update:value', 'b');
+    await flushPromises();
+    expect(contextLoads).toBe(contextLoadsBeforeBlockedInteractions);
+    expect(wrapper.findComponent(ModulePageHost).vm.$).toBe(sourceHost.vm.$);
+
+    targetActions.vm.$emit('cancel');
+    await flushPromises();
+    expect(reload.attributes('disabled')).toBeUndefined();
+    expect(tenant.props('disabled')).toBe(false);
+
+    targetActions.vm.$emit('edit');
+    await flushPromises();
+    targetActions.vm.$emit('save');
+    await flushPromises();
+    expect(reload.attributes('disabled')).toBeDefined();
+    expect(tenant.props('disabled')).toBe(true);
+    finishSave();
+    await flushPromises();
+    expect(reload.attributes('disabled')).toBeUndefined();
+    expect(tenant.props('disabled')).toBe(false);
+
+    targetActions.vm.$emit('edit');
+    await flushPromises();
+    expect(reload.attributes('disabled')).toBeDefined();
+    browser.close();
+    await flushPromises();
+    expect(browser.active.value).toBeUndefined();
+    expect(reload.attributes('disabled')).toBeUndefined();
+    expect(tenant.props('disabled')).toBe(false);
   });
 
   it('passes one tenant through the standard update, delete, child, reference and action transports', async () => {

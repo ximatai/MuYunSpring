@@ -36,6 +36,16 @@ export type { HeaderActionItem } from './AdaptiveHeaderActionBar.vue';
 export type { HeaderActionLevel } from './adaptiveHeaderActionLayout';
 export { default as RecordContentSectionHeading } from './RecordContentSectionHeading.vue';
 export { default as RecordDetailDrawer } from './RecordDetailDrawer.vue';
+export { default as ReferenceRecordDetailBrowser } from './ReferenceRecordDetailBrowser.vue';
+export { default as ReadonlyReferenceValue } from './ReadonlyReferenceValue.vue';
+export {
+  createReferenceRecordDetailBrowser,
+  provideReferenceRecordDetailBrowser,
+} from './referenceRecordDetailBrowser';
+export type {
+  ReferenceRecordDetailBrowser as ReferenceRecordDetailBrowserState,
+  ReferenceRecordDetailMutation,
+} from './referenceRecordDetailBrowser';
 export type { DrawerPromotion } from './drawerPromotion';
 export { default as RecordExternalChangeNotice } from './RecordExternalChangeNotice.vue';
 export { default as RecordDetailFields } from './RecordDetailFields.vue';
@@ -94,6 +104,7 @@ export type {
   ReferencePickerProvider,
   ReferencePickerSelectionSummary,
   ReferencePickerSourceIdentity,
+  ReferencePickerTreeNode,
   ReferencePickerValidity,
 } from './referencePickerModel';
 export { default as ObjectPickerInput } from './ObjectPickerInput.vue';

@@ -30,6 +30,7 @@ import {
   type ReferencePickerPage,
   type ReferencePickerProvider,
   type ReferencePickerSelectionSummary,
+  type ReferencePickerTreeNode,
   type ReferencePickerValidity,
 } from './referencePickerModel';
 import { referencePickerReadErrorOf, type ReferencePickerReadError } from './referencePickerReadError';
@@ -86,6 +87,7 @@ const open = ref(false);
 const keyword = ref('');
 const pageNum = ref(1);
 const page = ref<ReferencePickerPage>({ records: [], total: 0 });
+const tree = ref<ReferencePickerTreeNode[]>([]);
 const scopeSelections = ref<ReferencePickerAxisSelection[]>([]);
 const loading = ref(false);
 const pageError = ref<ReferencePickerReadError>();
@@ -98,6 +100,7 @@ const validity = ref<ReferencePickerValidity>({ valid: true, status: 'ready' });
 const candidatesById = ref(new Map<ReferencePickerId, ReferencePickerCandidate>());
 const resolvedById = ref(new Map<ReferencePickerId, ReferencePickerCandidate>());
 let pageRequestVersion = 0;
+let treeRequestVersion = 0;
 let resolveRequestVersion = 0;
 let completionRequestVersion = 0;
 let unmounted = false;
@@ -114,6 +117,8 @@ const rows = computed<UiDataTableRecord[]>(() =>
     subtitle: candidate.subtitle,
   })),
 );
+const browsingTree = computed(() => open.value && !keyword.value.trim() && Boolean(props.provider.loadTree));
+const treeNodes = computed<UiTreeNode[]>(() => tree.value.map(treeNode));
 const summary = computed(() => summariesFor(externalIds.value, resolvedById.value));
 const inputSummary = computed(() => {
   if (!summary.value.length) return '';
@@ -190,6 +195,9 @@ onMounted(() => {
 onBeforeUnmount(() => {
   unmounted = true;
   invalidateCompletion();
+  pageRequestVersion += 1;
+  treeRequestVersion += 1;
+  resolveRequestVersion += 1;
 });
 
 function summariesFor(
@@ -225,10 +233,12 @@ function remember(candidates: readonly ReferencePickerCandidate[]) {
 function resetProviderState() {
   invalidateCompletion();
   pageRequestVersion += 1;
+  treeRequestVersion += 1;
   resolveRequestVersion += 1;
   candidatesById.value = new Map();
   resolvedById.value = new Map();
   page.value = { records: [], total: 0 };
+  tree.value = [];
   scopeSelections.value = [];
   draftIds.value = [...externalIds.value];
   keyword.value = '';
@@ -244,7 +254,7 @@ function resetProviderState() {
   void resolveSelection(externalIds.value);
   if (open.value || props.mode === 'dropdown') {
     pageNum.value = 1;
-    void loadPage();
+    void loadBrowse();
   }
 }
 
@@ -349,7 +359,7 @@ function openPicker(initialKeyword = '') {
   pageError.value = undefined;
   pageReadFailed.value = false;
   open.value = true;
-  void loadPage();
+  void loadBrowse();
 }
 
 function openPickerWithPage(initialKeyword: string, result: ReferencePickerPage) {
@@ -371,10 +381,33 @@ function closePicker() {
   open.value = false;
   keyword.value = '';
   pageRequestVersion += 1;
+  treeRequestVersion += 1;
   loading.value = false;
 }
 
+function treeNode(node: ReferencePickerTreeNode): UiTreeNode {
+  const record = node.record;
+  return {
+    key: record.id,
+    title: record.unavailable ? `${record.title}（不可用）` : record.title,
+    secondary: record.subtitle,
+    disabled: record.disabled || record.unavailable,
+    isLeaf: !node.children?.length,
+    ...(node.children?.length ? { children: node.children.map(treeNode) } : {}),
+  };
+}
+
+function treeCandidates(nodes: readonly ReferencePickerTreeNode[]): ReferencePickerCandidate[] {
+  return nodes.flatMap((node) => [node.record, ...treeCandidates(node.children ?? [])]);
+}
+
+function loadBrowse() {
+  if (browsingTree.value) return loadTree();
+  return loadPage();
+}
+
 async function loadPage() {
+  treeRequestVersion += 1;
   const requestVersion = ++pageRequestVersion;
   loading.value = true;
   pageError.value = undefined;
@@ -400,17 +433,41 @@ async function loadPage() {
   }
 }
 
+async function loadTree() {
+  const loadTree = props.provider.loadTree;
+  if (!loadTree) return loadPage();
+  const requestVersion = ++treeRequestVersion;
+  pageRequestVersion += 1;
+  loading.value = true;
+  pageError.value = undefined;
+  pageReadFailed.value = false;
+  tree.value = [];
+  page.value = { records: [], total: 0 };
+  try {
+    const result = await loadTree({ scope: { selections: [...scopeSelections.value] } });
+    if (requestVersion !== treeRequestVersion) return;
+    tree.value = result;
+    remember(treeCandidates(result));
+  } catch (cause) {
+    if (requestVersion !== treeRequestVersion) return;
+    pageReadFailed.value = true;
+    pageError.value = referencePickerReadErrorOf(cause, '引用树加载失败');
+  } finally {
+    if (requestVersion === treeRequestVersion) loading.value = false;
+  }
+}
+
 function search(value: string) {
   invalidateCompletion();
   keyword.value = value;
   pageNum.value = 1;
-  void loadPage();
+  void loadBrowse();
 }
 
 function changePage(nextPage: number) {
   if (nextPage < 1 || nextPage > pageCount.value || nextPage === pageNum.value) return;
   pageNum.value = nextPage;
-  void loadPage();
+  void loadBrowse();
 }
 
 function canSelect(id: ReferencePickerId) {
@@ -432,6 +489,18 @@ function updateDraft(ids: ReferencePickerId[]) {
     return Boolean(candidate && !candidate.disabled && !candidate.unavailable);
   });
   draftIds.value = props.maxSelection === undefined ? next : next.slice(0, props.maxSelection);
+}
+
+function updateTreeDraft(ids: string[]) {
+  if (props.multiple) updateDraft(ids);
+}
+
+function selectTree(node: UiTreeNode) {
+  if (!props.multiple && canSelect(node.key)) updateDraft([node.key]);
+}
+
+function deselectTree() {
+  if (!props.multiple) updateDraft([]);
 }
 
 function canCommit() {
@@ -616,7 +685,7 @@ function retryCompactError() {
   if (resolveError.value?.retryable) void resolveSelection(externalIds.value);
   else if (pageError.value?.retryable) {
     if (failedCompletionKeyword.value) void completeDraft(failedCompletionKeyword.value);
-    else void loadPage();
+    else void loadBrowse();
   }
 }
 </script>
@@ -730,9 +799,23 @@ function retryCompactError() {
           <div class="reference-picker-results">
             <div v-if="pageError" class="reference-picker-error">
               <UiError :message="pageError.message" />
-              <UiButton v-if="pageError.retryable" size="small" @click="loadPage">重试</UiButton>
+              <UiButton v-if="pageError.retryable" size="small" @click="loadBrowse">重试</UiButton>
             </div>
+            <UiTree
+              v-if="browsingTree"
+              :nodes="treeNodes"
+              :selected-key="multiple ? undefined : draftIds[0]"
+              :checkable="multiple"
+              :check-strictly="multiple"
+              :checked-keys="multiple ? draftIds : undefined"
+              :can-check="multiple ? (node) => canSelect(node.key) : undefined"
+              :empty-description="emptyDescription"
+              @select="selectTree"
+              @deselect="deselectTree"
+              @update:checked-keys="updateTreeDraft"
+            />
             <UiDataTable
+              v-else
               :columns="dataColumns"
               :rows="rows"
               :loading="loading"

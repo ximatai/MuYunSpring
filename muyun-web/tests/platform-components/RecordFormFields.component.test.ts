@@ -174,6 +174,77 @@ describe('RecordFormFields', () => {
     expect(wrapper.emitted('update:field')).toContainEqual(['classId', 'class-1']);
   });
 
+  it('routes ordinary source TREE references through the shared picker for single and multiple values', async () => {
+    const fields = new Map<string, RecordFormFieldDescriptor>([
+      [
+        'departmentId',
+        {
+          fieldRef: { fieldName: 'departmentId' },
+          label: '所属部门',
+          reference: {
+            targetModuleAlias: 'iam.department',
+            cardinality: 'ONE',
+            candidateDelivery: 'SOURCE_FIELD',
+            pickerMode: 'TREE',
+          },
+        },
+      ],
+      [
+        'departmentIds',
+        {
+          fieldRef: { fieldName: 'departmentIds' },
+          label: '可见部门',
+          reference: {
+            targetModuleAlias: 'iam.department',
+            cardinality: 'MANY',
+            candidateDelivery: 'SOURCE_FIELD',
+            pickerMode: 'TREE',
+          },
+        },
+      ],
+    ]);
+    const provider = {
+      identity: {
+        targetModuleAlias: 'iam.department',
+        source: { kind: 'sourceField' as const, id: 'iam.role:departmentId:resolve' },
+      },
+      searchPage: vi.fn().mockResolvedValue({ records: [], total: 0 }),
+      loadTree: vi.fn().mockResolvedValue([]),
+      resolve: vi.fn().mockResolvedValue([]),
+    };
+    const wrapper = mount(RecordFormFields, {
+      props: {
+        record: { departmentId: 'department-old', departmentIds: ['department-other'] },
+        fields,
+        pickerConfigs: {
+          departmentId: { context: {} as never, provider, mode: 'tree' },
+          departmentIds: { context: {} as never, provider, mode: 'tree' },
+        },
+      },
+    });
+    const pickers = wrapper.findAllComponents({ name: 'ReferencePicker' });
+
+    expect(pickers).toHaveLength(2);
+    expect(pickers[0]!.props('multiple')).toBe(false);
+    expect(pickers[1]!.props('multiple')).toBe(true);
+    pickers[0]!.vm.$emit('update:value', 'department-rd');
+    pickers[0]!.vm.$emit('select', [{ id: 'department-rd', title: '研发部', affectPatch: { code: 'RD' } }]);
+    pickers[1]!.vm.$emit('update:value', ['department-rd', 'department-sales']);
+    pickers[1]!.vm.$emit('select', [
+      { id: 'department-rd', title: '研发部', affectPatch: { code: 'RD' } },
+      { id: 'department-sales', title: '销售部', affectPatch: { region: 'east' } },
+    ]);
+    await flushPromises();
+
+    expect(wrapper.emitted('update:field')).toContainEqual(['departmentId', 'department-rd']);
+    expect(wrapper.emitted('update:field')).toContainEqual([
+      'departmentIds',
+      ['department-rd', 'department-sales'],
+    ]);
+    expect(wrapper.emitted('update:field')).toContainEqual(['code', 'RD']);
+    expect(wrapper.emitted('update:field')).toContainEqual(['region', 'east']);
+  });
+
   it('renders declared override fields with explicit inherit, enabled and disabled states', async () => {
     const fields = new Map<string, RecordFormFieldDescriptor>([
       [
