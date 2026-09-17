@@ -456,7 +456,10 @@ it('http client permits a stream caller to select a binary response media type',
   };
 
   try {
-    await createHttpClient().stream({ path: '/platform.runtime_log/files/app.log/download', headers: { Accept: 'application/octet-stream' } });
+    await createHttpClient().stream({
+      path: '/platform.runtime_log/files/app.log/download',
+      headers: { Accept: 'application/octet-stream' },
+    });
 
     assert.equal(requests[0].headers.get('Accept'), 'application/octet-stream');
   } finally {

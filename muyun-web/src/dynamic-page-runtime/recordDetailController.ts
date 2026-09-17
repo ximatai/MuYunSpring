@@ -33,7 +33,8 @@ export function useRecordDetailController<TRecord extends Record<string, unknown
   const editCancelDestination = ref<RecordDetailCancelDestination>('close');
   const draftBaseline = ref<string>();
   const isDirty = computed(
-    () => mode.value !== 'view' && draft.value != null && draftBaseline.value !== stableRecordDraft(draft.value),
+    () =>
+      mode.value !== 'view' && draft.value != null && draftBaseline.value !== stableRecordDraft(draft.value),
   );
 
   function beginLoad(

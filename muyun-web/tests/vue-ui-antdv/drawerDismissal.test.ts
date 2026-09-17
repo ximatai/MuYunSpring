@@ -27,7 +27,9 @@ describe('drawer dismissal', () => {
   it('keeps explicit drawers closable through their close button', async () => {
     const beforeClose = vi.fn(() => true);
 
-    await expect(mayCloseUiDrawer({ dismissal: 'explicit', beforeClose }, 'close-button')).resolves.toBe(true);
+    await expect(mayCloseUiDrawer({ dismissal: 'explicit', beforeClose }, 'close-button')).resolves.toBe(
+      true,
+    );
     expect(beforeClose).toHaveBeenCalledWith('close-button');
   });
 });

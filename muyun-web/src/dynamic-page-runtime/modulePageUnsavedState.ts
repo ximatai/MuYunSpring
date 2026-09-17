@@ -9,8 +9,9 @@ export interface ModulePageUnsavedStateHost {
   registerUnsavedState(source: string, isDirty: () => boolean): () => void;
 }
 
-const modulePageUnsavedStateHostKey: InjectionKey<ModulePageUnsavedStateHost | undefined> =
-  Symbol('module-page-unsaved-state-host');
+const modulePageUnsavedStateHostKey: InjectionKey<ModulePageUnsavedStateHost | undefined> = Symbol(
+  'module-page-unsaved-state-host',
+);
 
 export function provideModulePageUnsavedStateHost(host: ModulePageUnsavedStateHost | undefined) {
   provide(modulePageUnsavedStateHostKey, host);

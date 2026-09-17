@@ -9,19 +9,16 @@ import {
   type RecordQueryListColumn,
 } from '@muyun/platform-components';
 import { useModuleContext } from '@muyun/web-core';
-import {
-  UiButton,
-  UiEmpty,
-  UiError,
-  UiActionButton,
-} from '@muyun/vue-ui-antdv';
+import { UiButton, UiEmpty, UiError, UiActionButton } from '@muyun/vue-ui-antdv';
 import { createRuntimeLogClient, type RuntimeLogFile } from './runtimeLogClient';
 import { createRuntimeLogSseParser, type RuntimeLogSseEvent } from './runtimeLogSse';
 
 defineOptions({ name: 'RuntimeLogView' });
 
 const TAIL_LINES = 500;
-const moduleContext = useModuleContext<RuntimeLogFile & Record<string, unknown>>({ moduleAlias: 'platform.runtime_log' });
+const moduleContext = useModuleContext<RuntimeLogFile & Record<string, unknown>>({
+  moduleAlias: 'platform.runtime_log',
+});
 const client = createRuntimeLogClient(moduleContext.http);
 const listError = ref<string>();
 const downloadingName = ref<string>();
@@ -285,15 +282,21 @@ function errorMessage(error: unknown, fallback: string) {
     >
       <template #toolbarActions>
         <div class="runtime-log-view__header-actions">
-          <UiButton type="primary" icon-name="eye" @click="openActiveLog">
-            实时查看
-          </UiButton>
+          <UiButton type="primary" icon-name="eye" @click="openActiveLog"> 实时查看 </UiButton>
         </div>
       </template>
       <template #cell="{ column, record }">
-        <FileSizeText v-if="column.key === 'sizeBytes'" :value="(record as unknown as RuntimeLogFile).sizeBytes" />
-        <DateTimeText v-else-if="column.key === 'lastModifiedAt'" :value="(record as unknown as RuntimeLogFile).lastModifiedAt" />
-        <span v-else-if="column.key === 'active'">{{ (record as unknown as RuntimeLogFile).active ? '正在写入' : '已归档' }}</span>
+        <FileSizeText
+          v-if="column.key === 'sizeBytes'"
+          :value="(record as unknown as RuntimeLogFile).sizeBytes"
+        />
+        <DateTimeText
+          v-else-if="column.key === 'lastModifiedAt'"
+          :value="(record as unknown as RuntimeLogFile).lastModifiedAt"
+        />
+        <span v-else-if="column.key === 'active'">{{
+          (record as unknown as RuntimeLogFile).active ? '正在写入' : '已归档'
+        }}</span>
         <span v-else>{{ (record as unknown as RuntimeLogFile)[column.key as keyof RuntimeLogFile] }}</span>
       </template>
       <template #rowActions="{ record }">
@@ -405,5 +408,4 @@ function errorMessage(error: unknown, fallback: string) {
 .runtime-log-view__viewport :deep(.ant-empty) {
   color: #dce4ee;
 }
-
 </style>

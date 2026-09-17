@@ -23,13 +23,19 @@ it('lists log files and opens the active file as an authenticated SSE stream', a
       return {
         scopeName: 'runtime-log-files',
         quickSearch: { enabled: true, fields: ['name'], fieldSchemas: [] },
-        fields: [], externalCriteria: [], defaultSorts: [{ field: 'lastModifiedAt', desc: true }],
+        fields: [],
+        externalCriteria: [],
+        defaultSorts: [{ field: 'lastModifiedAt', desc: true }],
         criteriaComposition: 'FLAT_AND',
       };
     }
     return {
       records: [{ name: 'app.log', sizeBytes: 125, lastModifiedAt: '2026-09-17T10:00:00Z', active: true }],
-      total: 1, pageNum: 1, pageSize: 20, pages: 1, totalKnown: true,
+      total: 1,
+      pageNum: 1,
+      pageSize: 20,
+      pages: 1,
+      totalKnown: true,
     };
   });
   configureModuleContext({ http: { request, stream } as StreamingHttpClient });
@@ -58,13 +64,15 @@ it('lists log files and opens the active file as an authenticated SSE stream', a
   await (wrapper.vm as unknown as { openActiveLog(): Promise<void> }).openActiveLog();
   await flushPromises();
 
-  expect(stream).toHaveBeenCalledWith(expect.objectContaining({
-    method: 'POST',
-    path: '/platform.runtime_log/active/stream',
-    body: { tailLines: 500 },
-    headers: { Accept: 'text/event-stream, application/json' },
-    signal: expect.any(AbortSignal),
-  }));
+  expect(stream).toHaveBeenCalledWith(
+    expect.objectContaining({
+      method: 'POST',
+      path: '/platform.runtime_log/active/stream',
+      body: { tailLines: 500 },
+      headers: { Accept: 'text/event-stream, application/json' },
+      signal: expect.any(AbortSignal),
+    }),
+  );
   expect(wrapper.text()).toContain('booted');
 
   list.vm.$emit('loaded', []);

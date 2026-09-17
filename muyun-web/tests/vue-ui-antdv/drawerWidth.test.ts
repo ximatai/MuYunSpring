@@ -16,9 +16,7 @@ describe('drawer widths', () => {
   });
 
   it('limits consumers to the platform vocabulary', () => {
-    expectTypeOf<UiDrawerWidth>().toEqualTypeOf<
-      'compact' | 'narrow' | 'standard' | 'wide' | 'extraWide'
-    >();
+    expectTypeOf<UiDrawerWidth>().toEqualTypeOf<'compact' | 'narrow' | 'standard' | 'wide' | 'extraWide'>();
     expect(isUiDrawerWidth('compact')).toBe(true);
     expect(isUiDrawerWidth('980')).toBe(false);
   });

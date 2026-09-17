@@ -63,12 +63,7 @@ function handleAfterVisibleChange(visible: boolean) {
 }
 
 async function requestOutsideClose() {
-  if (
-    await mayCloseUiDrawer(
-      dismissalOptions.value,
-      'outside',
-    )
-  ) {
+  if (await mayCloseUiDrawer(dismissalOptions.value, 'outside')) {
     emit('close');
   }
 }

@@ -85,12 +85,7 @@ function handleAfterVisibleChange(visible: boolean) {
 }
 
 async function requestClose(reason: 'close-button' | 'outside') {
-  if (
-    await mayCloseUiDrawer(
-      dismissalOptions.value,
-      reason,
-    )
-  ) {
+  if (await mayCloseUiDrawer(dismissalOptions.value, reason)) {
     emit('close');
   }
 }
@@ -137,7 +132,12 @@ watch(
       </template>
       <template #actions>
         <slot name="header-actions" />
-        <UiActionButton emphasis="quiet" icon-name="close" :title="closeTitle" @click="requestClose('close-button')" />
+        <UiActionButton
+          emphasis="quiet"
+          icon-name="close"
+          :title="closeTitle"
+          @click="requestClose('close-button')"
+        />
       </template>
       <slot />
       <template v-if="$slots['operation-summary']" #operation-summary>
@@ -182,7 +182,12 @@ watch(
       </template>
       <template #actions>
         <slot name="header-actions" />
-        <UiActionButton emphasis="quiet" icon-name="close" :title="closeTitle" @click="requestClose('close-button')" />
+        <UiActionButton
+          emphasis="quiet"
+          icon-name="close"
+          :title="closeTitle"
+          @click="requestClose('close-button')"
+        />
       </template>
       <slot />
       <template v-if="$slots['operation-summary']" #operation-summary>
