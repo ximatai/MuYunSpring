@@ -63,6 +63,7 @@ class AiModelConfigurationServiceTest {
         configuration.setApiKeyInput("model-secret");
 
         service.beforeInsert(configuration);
+        assertThat(configuration.getTitle()).isEqualTo("LM Studio · local-model");
         try (var mutation = service.protectFieldsForStorage(configuration)) {
             assertThat(configuration.getApiKey()).startsWith("v1:").isNotEqualTo("model-secret");
             assertThat(configuration.getApiKeySignature()).isNotBlank();

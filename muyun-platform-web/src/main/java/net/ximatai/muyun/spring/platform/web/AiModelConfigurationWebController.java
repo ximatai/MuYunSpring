@@ -23,9 +23,11 @@ import java.util.function.Supplier;
 @PlatformStaticWebScope(PlatformStaticWebScope.Scope.CUSTOM)
 @PlatformStaticModule(application = PlatformApplication.class, alias = AiModelConfigurationService.MODULE_ALIAS,
         title = "智能模型配置")
+@PlatformMenu(parent = PlatformMenuGroups.SETTINGS, title = "智能模型配置", order = 30)
 @RequestMapping("/platform.ai_model_configuration")
 public class AiModelConfigurationWebController
-        extends NestedCrudWebSupport<AiModelConfiguration, AiModelConfigurationService> {
+        extends NestedCrudWebSupport<AiModelConfiguration, AiModelConfigurationService>
+        implements StaticModuleUiContributor {
     private final AiModelConnectionTester connectionTester;
 
     public AiModelConfigurationWebController(AiModelConnectionTester connectionTester) {
@@ -36,6 +38,23 @@ public class AiModelConfigurationWebController
     @ActionEndpoint(PlatformAction.UPDATE)
     public AiModelConnectionTestResult test(@PathVariable String id) {
         return webScope(() -> connectionTester.test(id));
+    }
+
+    @Override
+    public ModuleUiDefinition moduleUiDefinition() {
+        return ModuleUiDefinition.builder(AiModelConfigurationService.MODULE_ALIAS)
+                .page(PageTemplates.flatManagement(page -> {
+                    page.explorer(explorer -> explorer.title("智能模型配置").titleField("modelId")
+                            .secondaryField("provider"));
+                    page.detail(detail -> detail.editor(form -> form
+                            .title("智能模型配置")
+                            .field("provider", field -> field.label("模型供应商").required().select())
+                            .field("modelId", field -> field.label("模型 ID").required())
+                            .field("apiKeyInput", field -> field.label("API Key").required())
+                            .field("enabled", field -> field.label("启用状态").enabledStatus())));
+                    page.traits(traits -> traits.operations(operations -> operations.standardCrud().enabledLifecycle()));
+                }))
+                .build();
     }
 
     @Override

@@ -22,4 +22,4 @@ muyun:
     # To enable encrypted and signed field protection, uncomment and set a Base64-encoded
     # 16/24/32-byte AES master key through a local secret environment variable.
     # field-protection:
-    #   key-base64: ${MUYUN_FIELD_PROTECTION_KEY_BASE64}
+    #   key-base64: ${MUYUN_SECURITY_FIELD_PROTECTION_KEY_BASE64}

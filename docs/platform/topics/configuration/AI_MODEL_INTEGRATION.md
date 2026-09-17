@@ -28,7 +28,7 @@ API Key 是写入专用字段：读取 API、模块描述符、OpenAPI 和运行
 muyun:
   security:
     field-protection:
-      key-base64: ${MUYUN_FIELD_PROTECTION_KEY_BASE64}
+      key-base64: ${MUYUN_SECURITY_FIELD_PROTECTION_KEY_BASE64}
 ```
 
 缺少该配置时，平台不允许持久化受保护的模型凭据。密钥本身不进入数据库、日志、审计或配置导出。后续如迁移到 Vault/KMS，应替换密钥提供器，不改变模型配置或调用门面。

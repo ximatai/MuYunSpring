@@ -129,6 +129,7 @@ public class AiModelConfigurationService extends AbstractAbilityService<AiModelC
             throw new PlatformException("AI model id must not be blank");
         }
         configuration.setModelId(configuration.getModelId().trim());
+        configuration.setTitle(configuration.getProvider().getTitle() + " · " + configuration.getModelId());
         if (configuration.getEnabled() == null) {
             configuration.setEnabled(Boolean.TRUE);
         }
