@@ -161,7 +161,7 @@ export default defineComponent({
         @deselect="changeTenantScope(undefined)"
       />
     </ManagementExplorerColumn>
-    <ModulePageBusinessState :pending="pending" :error="businessError" @retry="emit('retry')" />
+    <ModulePageBusinessState :pending="pending" :error="businessError" @retry="retryBusinessSession" />
   </ManagementWorkspace>
   <section
     v-else-if="
