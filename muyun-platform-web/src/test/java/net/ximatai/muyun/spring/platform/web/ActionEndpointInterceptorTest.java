@@ -750,6 +750,25 @@ class ActionEndpointInterceptorTest {
     }
 
     @Test
+    void shouldLeavePageReferenceFieldDiscoveryAvailableBeforeTenantSelection() throws Exception {
+        ModuleTenantScope tenantScope = mock(ModuleTenantScope.class);
+        ActionEndpointInterceptor scopedInterceptor = new ActionEndpointInterceptor(
+                policyService, new ActionEndpointContextResolver(), null, null, null, tenantScope);
+        PageReferenceFieldCatalogWebController controller =
+                new PageReferenceFieldCatalogWebController(mock(PageReferenceFieldCatalogService.class));
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/platform.module/education.purchase/page-reference-fields");
+        request.setAttribute(HandlerMapping.URI_TEMPLATE_VARIABLES_ATTRIBUTE,
+                java.util.Map.of("moduleAlias", "education.purchase"));
+
+        scopedInterceptor.preHandle(request, new MockHttpServletResponse(),
+                handler(controller, PageReferenceFieldCatalogWebController.class
+                        .getMethod("list", String.class, String.class)));
+
+        verify(tenantScope, never()).requireActiveTenantIfRequired("education.purchase");
+        assertThat(policyService.context).isNotNull();
+    }
+
+    @Test
     void shouldAuthorizeReferenceContextAsReferenceWhileLeavingTenantSelectionToThePage() throws Exception {
         ModuleTenantScope tenantScope = mock(ModuleTenantScope.class);
         ActionEndpointInterceptor scopedInterceptor = new ActionEndpointInterceptor(

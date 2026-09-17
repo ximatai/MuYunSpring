@@ -89,6 +89,11 @@ class ActionEndpointAnnotationTest {
 
         assertThat(StaticModuleOpenApiEndpoint.class.getMethod("openApi", HttpServletRequest.class)
                 .getAnnotation(ModuleDiscoveryEndpoint.class)).isNotNull();
+
+        Method referenceFieldCatalog = PageReferenceFieldCatalogWebController.class
+                .getMethod("list", String.class, String.class);
+        assertThat(customEndpoint(referenceFieldCatalog).value()).isEqualTo("viewPageReferenceFields");
+        assertThat(referenceFieldCatalog.getAnnotation(ModuleDiscoveryEndpoint.class)).isNotNull();
     }
 
     @Test
@@ -164,6 +169,10 @@ class ActionEndpointAnnotationTest {
     private CustomActionEndpoint customEndpoint(Class<?> type, String methodName, Class<?>... parameterTypes)
             throws Exception {
         Method method = type.getMethod(methodName, parameterTypes);
+        return customEndpoint(method);
+    }
+
+    private CustomActionEndpoint customEndpoint(Method method) {
         return method.getAnnotation(CustomActionEndpoint.class);
     }
 }
