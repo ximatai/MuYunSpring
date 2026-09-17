@@ -22,7 +22,7 @@ export default defineComponent({
   },
   emits: {
     ready: (session: ModulePageSessionView) => Boolean(session),
-    failed: (message: string) => Boolean(message),
+    failed: (session: ModulePageSessionView, message: string) => Boolean(session) && Boolean(message),
     'interaction-state-change': (state: { editing: boolean; busy: boolean }) => Boolean(state),
     'record-only-change': (mutation: {
       type: 'saved' | 'deleted' | 'unavailable';
@@ -34,7 +34,7 @@ export default defineComponent({
     const session = proxyRefs(
       useModulePageSession(props, emit, () => {
         if (session.pageBootstrapError) {
-          emit('failed', session.pageBootstrapError);
+          emit('failed', session, session.pageBootstrapError);
           return;
         }
         emit('ready', session);

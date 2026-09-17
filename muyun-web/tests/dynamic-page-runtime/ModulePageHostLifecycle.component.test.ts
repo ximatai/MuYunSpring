@@ -188,6 +188,42 @@ describe('ModulePageHost lifecycle boundaries', () => {
     }
   });
 
+  it('keeps tenant selection available when the initial tenant-required business session fails', async () => {
+    let unscopedRuntimeRequests = 0;
+    const http: HttpClient = {
+      async request(options) {
+        if (options.path === '/platform.module/crm.customer/context') {
+          const selectedTenant = tenantHeader(options);
+          if (!selectedTenant && unscopedRuntimeRequests++ > 0)
+            throw new Error('initial business runtime unavailable');
+          return runtime('crm.customer', { tenantRequired: true }) as never;
+        }
+        if (options.path === '/crm.customer/query')
+          return { records: [], total: 0, pageNum: 1, pageSize: 20, pages: 0, totalKnown: true } as never;
+        return runtime('iam.tenant') as never;
+      },
+    };
+    configureModuleContext({ http });
+    const wrapper = mount(ModulePageHost, {
+      props: { descriptor: descriptor('crm.customer') },
+      global: { stubs: hostStubs },
+    });
+    try {
+      await flushPromises();
+      await flushPromises();
+      expect(wrapper.text()).toContain('initial business runtime unavailable');
+      const tenant = wrapper.findComponent(tenantExplorerStub);
+      expect(tenant.exists()).toBe(true);
+
+      tenant.vm.$emit('select', { id: 'tenant-a', title: '甲租户' });
+      await flushPromises();
+      expect(wrapper.findComponent(queryListStub).exists()).toBe(true);
+      expect(tenant.props('selectedId')).toBe('tenant-a');
+    } finally {
+      wrapper.unmount();
+    }
+  });
+
   it('keeps the tenant controller and stable layout after a failed switch, then retries with a frozen new tenant client', async () => {
     const requests: Array<{ path: string; tenantId?: string }> = [];
     let tenantBFailures = 0;

@@ -50,7 +50,10 @@ function acceptSession(session: ModulePageSessionView) {
   failure.value = undefined;
   pending.value = false;
 }
-function rejectSession(message: string) {
+function rejectSession(session: ModulePageSessionView, message: string) {
+  // Keep the stable renderer mounted after an initial business bootstrap error.
+  // It owns the tenant explorer, so a system user can select a tenant and retry.
+  if (!view.value) view.value = session;
   failure.value = message;
   pending.value = false;
 }

@@ -34,6 +34,7 @@ import net.ximatai.muyun.spring.platform.module.StaticReferenceCompiler;
 import net.ximatai.muyun.spring.platform.web.StaticRecordReadProjectionService;
 import net.ximatai.muyun.spring.platform.web.StandardModuleWebRuntime;
 import net.ximatai.muyun.spring.platform.web.ModuleExecutionPlanCatalog;
+import net.ximatai.muyun.spring.platform.web.ModuleTenantScope;
 import net.ximatai.muyun.spring.platform.web.ListQuerySummaryRuntime;
 import net.ximatai.muyun.spring.platform.web.ActionEndpointWebConfiguration;
 import net.ximatai.muyun.spring.web.ActionResultResponseAdvice;
@@ -42,6 +43,7 @@ import net.ximatai.muyun.spring.web.PlatformWebExceptionHandler;
 import net.ximatai.muyun.spring.common.platform.EntityCapability;
 import net.ximatai.muyun.spring.common.platform.DataScopeCriteriaResult;
 import net.ximatai.muyun.spring.common.platform.PlatformAction;
+import net.ximatai.muyun.spring.common.tenant.ActiveTenantVerifier;
 import net.ximatai.muyun.spring.common.exception.PlatformErrorCodes;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.identity.CurrentUser;
@@ -84,6 +86,9 @@ import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Import;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Primary;
+import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.web.servlet.MockMvc;
@@ -130,7 +135,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         StaticRecordReadProjectionService.class,
         StandardModuleWebRuntime.class,
         ListQuerySummaryRuntime.class,
-        net.ximatai.muyun.spring.platform.web.ListQuerySummaryContributorCatalog.class
+        net.ximatai.muyun.spring.platform.web.ListQuerySummaryContributorCatalog.class,
+        IamWebMvcSliceTest.TenantScopeTestConfiguration.class
 })
 class IamWebMvcSliceTest {
     @Autowired
@@ -194,6 +200,9 @@ class IamWebMvcSliceTest {
     @MockitoBean
     private CurrentUserProvider currentUserProvider;
 
+    @Autowired
+    private ActiveTenantVerifier activeTenantVerifier;
+
     @BeforeEach
     void installEmployeeExecutionPlan() {
         StaticModuleDefinition definition = employeeStaticModuleDefinition();
@@ -206,6 +215,26 @@ class IamWebMvcSliceTest {
         when(executionPlanCatalog.find("iam.tenant")).thenReturn(compiledPlans.find("iam.tenant"));
         when(executionPlanCatalog.find("iam.position")).thenReturn(compiledPlans.find("iam.position"));
         clearInvocations(employeeController);
+    }
+
+    @TestConfiguration
+    static class TenantScopeTestConfiguration {
+        @Bean
+        @Primary
+        ActiveTenantVerifier activeTenantVerifier() {
+            return org.mockito.Mockito.mock(ActiveTenantVerifier.class);
+        }
+
+        @Bean
+        net.ximatai.muyun.spring.web.TenantRequestScope tenantRequestScope(ActiveTenantVerifier verifier) {
+            return new net.ximatai.muyun.spring.web.TenantRequestScope(verifier);
+        }
+
+        @Bean
+        ModuleTenantScope moduleTenantScope(StaticModuleDefinitionCatalog definitions,
+                                            net.ximatai.muyun.spring.web.TenantRequestScope requestScope) {
+            return new ModuleTenantScope(definitions, null, requestScope);
+        }
     }
 
     @Test
@@ -546,6 +575,43 @@ class IamWebMvcSliceTest {
         assertThat(containsCondition(criteria.getValue(), "departmentId", "dept-child")).isTrue();
         assertThat(containsCondition(criteria.getValue(), "title", "%Alice%")).isTrue();
         assertThat(sorts.getValue()).hasSize(1);
+    }
+
+    @Test
+    void shouldRejectSystemEmployeeQueryWithoutTenantBeforeInvokingTheService() throws Exception {
+        when(currentUserProvider.currentUser())
+                .thenReturn(Optional.of(CurrentUser.systemUser("admin", "Admin")));
+        when(staticModuleDefinitionCatalog.find(EmployeeService.MODULE_ALIAS))
+                .thenReturn(Optional.of(employeeStaticModuleDefinition()));
+
+        mvc.perform(post("/iam.employee/query")
+                        .contentType("application/json")
+                        .content("{}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("iam.employee requires tenant context"));
+
+        verify(employeeService, never()).pageQueryForAction(eq(PlatformAction.QUERY),
+                any(Criteria.class), any(PageRequest.class), any(Sort[].class));
+    }
+
+    @Test
+    void shouldRejectInactiveTenantBeforeInvokingTheEmployeeQueryService() throws Exception {
+        when(currentUserProvider.currentUser())
+                .thenReturn(Optional.of(CurrentUser.systemUser("admin", "Admin")));
+        when(staticModuleDefinitionCatalog.find(EmployeeService.MODULE_ALIAS))
+                .thenReturn(Optional.of(employeeStaticModuleDefinition()));
+        org.mockito.Mockito.doThrow(new PlatformException("tenant-inactive is inactive"))
+                .when(activeTenantVerifier).verifyActiveTenant("tenant-inactive");
+
+        mvc.perform(post("/iam.employee/query")
+                .header("X-MuYun-Tenant-Id", "tenant-inactive")
+                .contentType("application/json")
+                .content("{}"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("TENANT_ACCESS_DENIED"));
+
+        verify(employeeService, never()).pageQueryForAction(eq(PlatformAction.QUERY),
+                any(Criteria.class), any(PageRequest.class), any(Sort[].class));
     }
 
     @Test
@@ -1111,6 +1177,7 @@ class IamWebMvcSliceTest {
         EmployeeWebController controller = new EmployeeWebController(employeeAccountService, employeeDelegationService);
         return StaticModuleDefinition.builder("iam", EmployeeService.MODULE_ALIAS, "职员管理")
                        .parentModuleAlias(null)
+                       .tenantRequired(true)
                        .entry(ModuleEntryType.ROUTE, "/iam/employees", null)
                        .capabilities(Set.of(EntityCapability.CRUD, EntityCapability.ENABLE, EntityCapability.SORT, EntityCapability.SOFT_DELETE, EntityCapability.RECYCLE_BIN))
                        .actions(List.of())

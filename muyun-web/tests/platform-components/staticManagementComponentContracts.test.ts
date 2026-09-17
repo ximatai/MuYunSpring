@@ -1018,7 +1018,7 @@ it('dynamic module host uses shared descriptor driven list and form runners', ()
   assert.match(bootstrapSource, /createPageBootstrapClient\(context\.http\)\.byMenu\(entryMenuId\)/);
   assert.match(bootstrapSource, /bootstrap\.entry\.moduleAlias !== context\.moduleAlias/);
   assert.match(hostSource, /pageBootstrap\.value\?\.entry\.pageMode/);
-  assert.match(hostSource, /v-else-if="!props\.recordOnly && !pageReady"/);
+  assert.match(hostSource, /v-else-if="businessVisible && !props\.recordOnly && !pageReady"/);
   assert.match(hostSource, /v-else-if="!props\.recordOnly && isListPage"/);
   assert.match(hostSource, /<Teleport :disabled="Boolean\(props\.recordOnly\) \|\| !workspaceElement"/);
   assert.match(

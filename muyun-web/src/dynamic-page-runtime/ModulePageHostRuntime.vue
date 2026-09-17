@@ -144,23 +144,47 @@ export default defineComponent({
 </script>
 
 <template>
+  <ManagementWorkspace
+    v-if="session.pageBootstrapError && !props.recordOnly && tenantScopeExplorerVisible && tenantScopeContext"
+    class="module-tenant-recovery-workspace"
+    :explorer-count="tenantScopeExplorerCount"
+  >
+    <ManagementExplorerColumn collapsible title="租户" :has-selection="Boolean(tenantScopeId)">
+      <TenantScopeExplorer
+        :context="tenantScopeContext"
+        :selected-id="tenantScopeId || undefined"
+        :reload-key="tenantScopeReloadKey"
+        :disabled="tenantSwitchBlocked"
+        @refresh="tenantScopeReloadKey += 1"
+        @loaded="handleTenantScopeLoaded"
+        @select="changeTenantScope($event)"
+        @deselect="changeTenantScope(undefined)"
+      />
+    </ManagementExplorerColumn>
+    <ModulePageBusinessState :pending="pending" :error="businessError" @retry="emit('retry')" />
+  </ManagementWorkspace>
   <section
-    v-if="!props.recordOnly && props.requireConfiguredPage && runtimePageResolved && !runtimePage"
+    v-else-if="
+      businessVisible &&
+      !props.recordOnly &&
+      props.requireConfiguredPage &&
+      runtimePageResolved &&
+      !runtimePage
+    "
     class="module-unsupported"
   >
     <template v-if="businessVisible">
       <RecordPanelState description="当前模块尚未发布页面，请先发布页面配置。" />
     </template>
   </section>
-  <section v-else-if="!props.recordOnly && pageBootstrapError" class="module-unsupported">
-    <template v-if="businessVisible">
-      <RecordPanelState class="module-bootstrap-error" :description="pageBootstrapError" />
-    </template>
+  <section
+    v-else-if="!props.recordOnly && pageBootstrapError && !(businessError && tenantScopeExplorerVisible)"
+    class="module-unsupported"
+  >
+    <RecordPanelState class="module-bootstrap-error" :description="pageBootstrapError" />
   </section>
-  <section v-else-if="!props.recordOnly && !pageReady" class="module-unsupported">
-    <template v-if="businessVisible">
-      <RecordPanelState loading loading-tip="加载页面入口" description="" />
-    </template>
+  <section v-else-if="businessVisible && !props.recordOnly && !pageReady" class="module-unsupported">
+    <RecordPanelState loading loading-tip="加载页面入口" description="" />
   </section>
   <section
     v-else-if="!props.recordOnly && isListPage"
