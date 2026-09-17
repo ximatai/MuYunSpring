@@ -16,6 +16,8 @@ export interface HttpRequestOptions {
   query?: Record<string, RouteQueryValue>;
   body?: unknown;
   headers?: Record<string, string>;
+  /** Cancels the underlying Fetch request, including a long-lived response stream. */
+  signal?: AbortSignal;
 }
 
 export interface HttpClient {
@@ -110,10 +112,11 @@ export function createHttpClient(context: RequestContext = {}): StreamingHttpCli
       return (await responseBody(response)) as T;
     },
     async stream(options: HttpRequestOptions): Promise<ReadableStream<Uint8Array>> {
-      // SSE endpoints participate in Spring MVC content negotiation. The JSON
-      // default used by ordinary requests would reject this response before the
-      // endpoint handler is invoked.
-      const response = await send(context, options, { Accept: 'text/event-stream' });
+      // SSE is the default stream representation. A caller may select another
+      // media type for a read-only byte stream such as a file download.
+      const response = await send(context, options, {
+        Accept: headerValue(options.headers, 'accept') ?? 'text/event-stream',
+      });
 
       if (!response.ok) {
         return throwFailedResponse(context, response);
@@ -137,6 +140,7 @@ async function send(
       credentials: context.credentials,
       headers: { ...headersOf(context, options), ...headerOverrides },
       body: requestBody(options.body),
+      signal: options.signal,
     });
   } catch (error) {
     throw new AppError('Network request failed', {
@@ -201,6 +205,10 @@ function headersOf(context: RequestContext, options: HttpRequestOptions) {
   }
   Object.assign(headers, options.headers);
   return headers;
+}
+
+function headerValue(headers: Record<string, string> | undefined, name: string): string | undefined {
+  return Object.entries(headers ?? {}).find(([key]) => key.toLowerCase() === name)?.[1];
 }
 
 /** Preserve multipart boundaries when a platform capability uploads browser files. */

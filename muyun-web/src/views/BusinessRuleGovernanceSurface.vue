@@ -1379,7 +1379,7 @@ async function runTrial() {
         <RecordDetailDrawer
           :open="ruleDrawerOpen"
           render-mode="inline"
-          :width="980"
+          width="extraWide"
           :title="newRuleDraft ? '新增规则' : selectedRule ? ruleChoiceLabel(selectedRule) : '规则编辑'"
           close-title="返回规则列表"
           @close="closeRuleDrawer"

@@ -36,6 +36,17 @@ export { default as ReferenceSelect } from './components/ReferenceSelect.vue';
 export { default as UiTable } from './components/UiTable.vue';
 export { confirmAction } from './confirm';
 export {
+  allowsUiDrawerOutsideDismissal,
+  mayCloseUiDrawer,
+  resolveUiDrawerDismissal,
+} from './drawerDismissal';
+export type {
+  UiDrawerCloseGuard,
+  UiDrawerCloseReason,
+  UiDrawerDismissal,
+  UiDrawerDismissalOptions,
+} from './drawerDismissal';
+export {
   showErrorMessage,
   showFeedback,
   showInfoMessage,
@@ -46,6 +57,8 @@ export type { UiFeedbackOptions, UiFeedbackTone } from './feedback';
 export { resolveFieldComponent } from './registry';
 export type { UiIconName } from './components/UiIcon.vue';
 export type { UiSidePanelScope } from './components/sidePanelHost';
+export { isUiDrawerWidth, resolveUiDrawerWidth, uiDrawerWidths } from './drawerWidth';
+export type { UiDrawerWidth } from './drawerWidth';
 export type { UiTagListItem } from './components/UiTagList.vue';
 export {
   antDesignThemeOf,

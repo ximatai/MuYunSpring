@@ -48,6 +48,7 @@ import type {
   WebQueryRequest,
 } from '@muyun/web-contracts';
 import { useModuleContext, type ModuleContext } from '@muyun/web-core';
+import { useWorkspaceViewUnsavedState } from '@muyun/platform-workbench';
 import { useCurrentUserContext } from '../platform-admin-runtime/currentUserContext';
 import { useWorkspaceViewHost } from '../platform-admin-runtime/workspaceViewHost';
 import { useWorkspaceViewPromotion } from '../platform-admin-runtime/useWorkspaceViewPromotion';
@@ -202,6 +203,16 @@ const roleDetailTitle = computed(() => {
   return roleTitle(selectedRole.value ?? roleDraft.value);
 });
 const roleDetailSubtitle = computed(() => selectedScope.value?.title ?? '角色详情');
+const roleDetailDirty = computed(() => {
+  const selected = selectedRole.value;
+  const scope = selectedScope.value;
+  if (roleDetailMode.value !== 'edit' || !selected || !scope) return false;
+  return (
+    JSON.stringify(normalizedRoleDraft(roleDraft.value, scope)) !==
+    JSON.stringify(normalizedRoleDraft(selected, scope))
+  );
+});
+useWorkspaceViewUnsavedState('角色详情', () => roleDetailDirty.value);
 const roleFormDisabled = computed(() => savingRole.value || loadingRoleDetail.value);
 const canSaveRole = computed(() => {
   if (loadingRoleDetail.value || !selectedScope.value) {
@@ -384,7 +395,7 @@ onMounted(() => {
 onBeforeUnmount(() => disposeRoleWorkspaceHandoffRecipient?.());
 
 function receiveRoleDetailWorkspaceSession(session: RoleDetailWorkspaceSession) {
-  if (roleDetailMode.value === 'edit') return false;
+  if (roleDetailDirty.value) return false;
   restoreRoleDetailWorkspaceSession(session);
   return true;
 }
@@ -530,7 +541,7 @@ async function loadScopeTree() {
     });
     scopeTreeNodes.value = response.records.map(tenantTreeNode);
     if (!selectedScope.value && canSelectPlatformScope.value) {
-      selectPlatformScope();
+      void selectPlatformScope();
     }
   } catch (cause) {
     scopeTreeNodes.value = [];
@@ -603,13 +614,13 @@ function handleScopeTreeSelect(node: UiTreeNode) {
   const tenantId = tenantIdFromNodeKey(node.key);
   if (tenantId) {
     const tenant = scopeTenants.get(tenantId);
-    if (tenant) selectTenant(tenant);
+    if (tenant) void selectTenant(tenant);
     return;
   }
   const tenantRootId = tenantRootIdFromNodeKey(node.key);
   if (tenantRootId) {
     const tenant = scopeTenants.get(tenantRootId);
-    if (tenant) selectTenant(tenant);
+    if (tenant) void selectTenant(tenant);
     return;
   }
   const organizationId = organizationIdFromNodeKey(node.key);
@@ -617,8 +628,7 @@ function handleScopeTreeSelect(node: UiTreeNode) {
   const organization = scopeOrganizations.get(organizationId);
   const organizationTenantId = scopeOrganizationTenantIds.get(organizationId);
   if (organization && organizationTenantId) {
-    selectedTenant.value = scopeTenants.get(organizationTenantId);
-    selectOrganizationScope(organization);
+    void selectOrganizationScope(organization, scopeTenants.get(organizationTenantId));
   }
 }
 
@@ -646,11 +656,11 @@ function initializeTenantUserScope(record = currentUserTenant.value) {
     return;
   }
   selectedTenant.value = record;
-  selectTenantRootScope(record);
+  void selectTenantRootScope(record);
 }
 
-function selectPlatformScope() {
-  if (!canLeaveRoleDetailContext() || !canSelectPlatformScope.value) {
+async function selectPlatformScope() {
+  if (!canSelectPlatformScope.value || !(await mayLeaveRoleDetail())) {
     return;
   }
   selectedTenant.value = undefined;
@@ -662,29 +672,23 @@ function selectPlatformScope() {
 }
 
 /** The absence of a tree selection is the platform-role scope, not a tree node. */
-function clearScopeSelection() {
-  if (!canLeaveRoleDetailContext()) {
-    return;
-  }
+async function clearScopeSelection() {
   if (!canSelectPlatformScope.value) {
-    selectTenantRootScope();
+    await selectTenantRootScope();
     return;
   }
-  selectPlatformScope();
+  await selectPlatformScope();
 }
 
-function selectTenant(record: Tenant) {
-  if (!canLeaveRoleDetailContext()) {
+async function selectTenant(record: Tenant) {
+  await selectTenantRootScope(record);
+}
+
+async function selectTenantRootScope(record = selectedTenant.value) {
+  if (!record?.id || !(await mayLeaveRoleDetail())) {
     return;
   }
   selectedTenant.value = record;
-  selectTenantRootScope(record);
-}
-
-function selectTenantRootScope(record = selectedTenant.value) {
-  if (!record?.id || !canLeaveRoleDetailContext()) {
-    return;
-  }
   selectedScope.value = {
     kind: 'tenant',
     id: record.id,
@@ -694,23 +698,24 @@ function selectTenantRootScope(record = selectedTenant.value) {
   };
 }
 
-function selectOrganizationScope(record: Organization) {
-  if (!record.id || !canLeaveRoleDetailContext()) {
+async function selectOrganizationScope(record: Organization, tenant = selectedTenant.value) {
+  if (!record.id || !(await mayLeaveRoleDetail())) {
     return;
   }
+  selectedTenant.value = tenant;
   selectedScope.value = {
     kind: 'organization',
     id: record.id,
     key: `organization:${record.id}`,
     title: organizationTitle(record),
-    tenant: selectedTenant.value,
+    tenant,
     organization: record,
   };
 }
 
 function handleRoleListAction(action: RecordActionItem) {
   if (action.key === 'create') {
-    startCreateRole();
+    void startCreateRole();
   }
 }
 
@@ -837,8 +842,8 @@ function closeRoleBinding() {
   bindingRole.value = undefined;
 }
 
-function startCreateRole() {
-  if (!canLeaveRoleDetailContext()) {
+async function startCreateRole() {
+  if (!(await mayLeaveRoleDetail())) {
     return;
   }
   if (!selectedScope.value) {
@@ -856,7 +861,7 @@ function startCreateRole() {
 }
 
 async function openRoleDetail(record: QueryListRecord, mode: RoleDetailMode) {
-  if (!canLeaveRoleDetailContext()) {
+  if (!(await mayLeaveRoleDetail())) {
     return;
   }
   const id = String(record.id ?? '');
@@ -910,8 +915,8 @@ function closeRoleDetail() {
   }
 }
 
-function cancelRoleDetail() {
-  if (savingRole.value) {
+async function cancelRoleDetail() {
+  if (!(await mayLeaveRoleDetail())) {
     return;
   }
   if (!selectedRole.value?.id || roleDetailMode.value === 'create') {
@@ -926,7 +931,7 @@ function cancelRoleDetail() {
 
 function handleRoleDetailAction(action: RecordActionItem) {
   if (action.key === 'cancel') {
-    cancelRoleDetail();
+    void cancelRoleDetail();
     return;
   }
   if (action.key === 'save') {
@@ -1042,6 +1047,20 @@ async function toggleRoleEnabled(record: Partial<Role> | QueryListRecord | undef
 
 function canLeaveRoleDetailContext() {
   return !savingRole.value;
+}
+
+async function mayLeaveRoleDetail() {
+  return canLeaveRoleDetailContext() && (await confirmRoleDetailDismissal());
+}
+
+async function confirmRoleDetailDismissal() {
+  if (!roleDetailDirty.value) return true;
+  return confirmAction({
+    title: '放弃未保存的角色修改',
+    content: '当前角色存在未保存的修改，离开后将丢失。是否继续？',
+    okText: '放弃修改',
+    danger: true,
+  });
 }
 
 function canCommitRoleDetailRequest(recordId: string, requestSeq: number) {
@@ -1474,7 +1493,8 @@ function parseRoleIds(value: unknown) {
       :title="roleDetailTitle"
       render-mode="inline"
       :subtitle="roleDetailSubtitle"
-      :close-on-outside="roleDetailMode === 'view'"
+      :dismissal="roleDetailMode === 'view' ? 'dismissible' : 'guarded'"
+      :before-close="confirmRoleDetailDismissal"
       :promotion="roleDetailPromotion"
       @close="closeRoleDetail"
     >

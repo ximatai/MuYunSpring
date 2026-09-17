@@ -2768,7 +2768,7 @@ function openPropertyDrawer() {
         :open="propertyDrawerOpen"
         render-mode="inline"
         :title="propertyDrawerTitle"
-        :width="420"
+        width="compact"
         @close="propertyDrawerOpen = false"
       >
         <div v-if="selectedQuickSearch" class="component-property-drawer">
@@ -2937,7 +2937,7 @@ function openPropertyDrawer() {
         :open="summaryDrawerOpen"
         render-mode="inline"
         title="汇总统计"
-        :width="480"
+        width="narrow"
         @close="closeSummaryEditor"
       >
         <PageQuerySummaryEditor

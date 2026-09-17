@@ -1,7 +1,18 @@
 <script setup lang="ts">
 import { computed, inject, watch } from 'vue';
 import { Drawer as ADrawer } from 'ant-design-vue';
-import { UiActionButton, UiSidePanel, type UiSidePanelScope } from '@muyun/vue-ui-antdv';
+import {
+  resolveUiDrawerWidth,
+  UiActionButton,
+  UiSidePanel,
+  allowsUiDrawerOutsideDismissal,
+  mayCloseUiDrawer,
+  type UiDrawerCloseGuard,
+  type UiDrawerDismissal,
+  type UiDrawerDismissalOptions,
+  type UiDrawerWidth,
+  type UiSidePanelScope,
+} from '@muyun/vue-ui-antdv';
 import { sidePanelHostKey } from '../vue-ui-antdv/components/sidePanelHost';
 import RecordDetailLayout from './RecordDetailLayout.vue';
 import type { DrawerPromotion } from './drawerPromotion';
@@ -15,18 +26,23 @@ const props = withDefaults(
     /** `inline` keeps slot anchors in the owning workspace; `portal` uses the standard side-panel host. */
     renderMode?: 'inline' | 'portal';
     subtitle?: string;
-    width?: number | string;
+    width?: UiDrawerWidth;
     scope?: UiSidePanelScope;
+    dismissal?: UiDrawerDismissal;
+    /** @deprecated Use `dismissal` and `beforeClose`. */
     closeOnOutside?: boolean;
+    beforeClose?: UiDrawerCloseGuard;
     closeTitle?: string;
     promotion?: DrawerPromotion;
   }>(),
   {
     renderMode: 'portal',
     subtitle: undefined,
-    width: 520,
+    width: 'standard',
     scope: 'tab',
+    dismissal: undefined,
     closeOnOutside: false,
+    beforeClose: undefined,
     closeTitle: '关闭',
     promotion: undefined,
   },
@@ -51,14 +67,32 @@ const emit = defineEmits<{
 const sidePanelHost = inject(sidePanelHostKey, undefined);
 const hasDrawerContainer = computed(() => props.scope === 'viewport' || Boolean(sidePanelHost?.value));
 const inlineWidth = computed(() => {
-  const requestedWidth = typeof props.width === 'number' ? `${props.width}px` : props.width;
+  const resolvedWidth = resolveUiDrawerWidth(props.width);
+  const requestedWidth = typeof resolvedWidth === 'number' ? `${resolvedWidth}px` : resolvedWidth;
   // Inline drawers share the workspace's containing block. Reserve a visible
   // edge so a wide business surface never starts outside that block.
   return `min(${requestedWidth}, calc(100% - 32px))`;
 });
+const dismissalOptions = computed<UiDrawerDismissalOptions>(() => ({
+  dismissal: props.dismissal,
+  closeOnOutside: props.closeOnOutside,
+  beforeClose: props.beforeClose,
+}));
+const outsideDismissalAllowed = computed(() => allowsUiDrawerOutsideDismissal(dismissalOptions.value));
 
 function handleAfterVisibleChange(visible: boolean) {
   if (!visible) emit('afterClose');
+}
+
+async function requestClose(reason: 'close-button' | 'outside') {
+  if (
+    await mayCloseUiDrawer(
+      dismissalOptions.value,
+      reason,
+    )
+  ) {
+    emit('close');
+  }
 }
 
 watch(
@@ -78,7 +112,9 @@ watch(
     :open="open"
     :width="width"
     :scope="scope"
+    :dismissal="dismissal"
     :close-on-outside="closeOnOutside"
+    :before-close="beforeClose"
     @close="emit('close')"
     @after-close="emit('afterClose')"
   >
@@ -101,7 +137,7 @@ watch(
       </template>
       <template #actions>
         <slot name="header-actions" />
-        <UiActionButton emphasis="quiet" icon-name="close" :title="closeTitle" @click="emit('close')" />
+        <UiActionButton emphasis="quiet" icon-name="close" :title="closeTitle" @click="requestClose('close-button')" />
       </template>
       <slot />
       <template v-if="$slots['operation-summary']" #operation-summary>
@@ -120,15 +156,15 @@ watch(
     placement="right"
     :width="inlineWidth"
     :get-container="false"
-    :mask="closeOnOutside"
-    :mask-closable="closeOnOutside"
+    :mask="outsideDismissalAllowed"
+    :mask-closable="outsideDismissalAllowed"
     :mask-style="{ background: 'transparent' }"
-    :keyboard="closeOnOutside"
+    :keyboard="outsideDismissalAllowed"
     :closable="false"
     :header-style="{ display: 'none' }"
     :body-style="{ height: '100%', padding: 0 }"
     :root-style="{ position: 'absolute', inset: 0, zIndex: 6 }"
-    @close="emit('close')"
+    @close="requestClose('outside')"
     @after-open-change="handleAfterVisibleChange"
   >
     <RecordDetailLayout surface="drawer" :title="title" :subtitle="subtitle" scrollable-content>
@@ -146,7 +182,7 @@ watch(
       </template>
       <template #actions>
         <slot name="header-actions" />
-        <UiActionButton emphasis="quiet" icon-name="close" :title="closeTitle" @click="emit('close')" />
+        <UiActionButton emphasis="quiet" icon-name="close" :title="closeTitle" @click="requestClose('close-button')" />
       </template>
       <slot />
       <template v-if="$slots['operation-summary']" #operation-summary>

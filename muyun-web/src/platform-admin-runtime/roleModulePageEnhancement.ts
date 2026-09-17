@@ -16,7 +16,7 @@ const roleRecordActions: ModulePageRecordActionContribution[] = [
       disabled: record.systemManaged === true,
     }),
     run({ openDrawer }) {
-      openDrawer({ title: '绑定用户', width: 960, component: RoleAccountGrantDrawerSurface });
+      openDrawer({ title: '绑定用户', width: 'extraWide', component: RoleAccountGrantDrawerSurface });
     },
   },
   {
@@ -28,7 +28,7 @@ const roleRecordActions: ModulePageRecordActionContribution[] = [
       disabled: record.systemManaged === true,
     }),
     run({ openDrawer }) {
-      openDrawer({ title: '绑定任职', width: 960, component: RoleEmploymentGrantDrawerSurface });
+      openDrawer({ title: '绑定任职', width: 'extraWide', component: RoleEmploymentGrantDrawerSurface });
     },
   },
   {
@@ -40,7 +40,7 @@ const roleRecordActions: ModulePageRecordActionContribution[] = [
       disabled: record.systemManaged === true,
     }),
     run({ openDrawer }) {
-      openDrawer({ title: '角色授权', width: 820, component: RoleAuthorizationDrawerSurface });
+      openDrawer({ title: '角色授权', width: 'wide', component: RoleAuthorizationDrawerSurface });
     },
   },
 ];

@@ -206,7 +206,11 @@ const props = withDefaults(
 );
 
 const emit = defineEmits<{
+  /** A single click only changes the page-owned current selection. */
   select: [record: QueryListRecord];
+  /** The standard record-open intent, currently activated by double click. */
+  recordActivate: [record: QueryListRecord, event: MouseEvent];
+  /** Raw pointer event for pages that intentionally need a gesture-specific behavior. */
   rowDblclick: [record: QueryListRecord, event: MouseEvent];
   loaded: [records: QueryListRecord[]];
   action: [action: RecordActionItem, event: MouseEvent];
@@ -1123,6 +1127,7 @@ function handleTableRowClick(row: QueryListRow) {
 }
 
 function handleTableRowDblclick(row: QueryListRow, event: MouseEvent) {
+  emit('recordActivate', row.record, event);
   emit('rowDblclick', row.record, event);
 }
 

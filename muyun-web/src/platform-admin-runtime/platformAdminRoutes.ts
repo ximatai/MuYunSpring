@@ -9,6 +9,7 @@ const RoleAuthorizationView = defineAsyncComponent(() => import('../views/RoleAu
 const BusinessActivityLogView = defineAsyncComponent(() => import('../views/BusinessActivityLogView.vue'));
 const RequestErrorLogView = defineAsyncComponent(() => import('../views/RequestErrorLogView.vue'));
 const LoginAuditLogView = defineAsyncComponent(() => import('../views/LoginAuditLogView.vue'));
+const RuntimeLogView = defineAsyncComponent(() => import('../views/RuntimeLogView.vue'));
 
 export interface PlatformAdminRoute {
   route: string;
@@ -21,6 +22,12 @@ export interface PlatformAdminRoute {
 }
 
 export const platformAdminRoutes: PlatformAdminRoute[] = [
+  {
+    route: '/platform/logs/runtime',
+    moduleAlias: 'platform.runtime_log',
+    component: RuntimeLogView,
+    layout: 'workspace',
+  },
   {
     route: '/platform/logs/activity',
     moduleAlias: 'platform.business_activity_log',

@@ -1,6 +1,14 @@
 <script setup lang="ts">
 import { computed, inject, type CSSProperties } from 'vue';
 import { Drawer as ADrawer } from 'ant-design-vue';
+import { resolveUiDrawerWidth, type UiDrawerWidth } from '../drawerWidth';
+import {
+  allowsUiDrawerOutsideDismissal,
+  mayCloseUiDrawer,
+  type UiDrawerCloseGuard,
+  type UiDrawerDismissal,
+  type UiDrawerDismissalOptions,
+} from '../drawerDismissal';
 import { sidePanelHostKey, type UiSidePanelScope } from './sidePanelHost';
 
 defineOptions({ name: 'UiSidePanel', inheritAttrs: false });
@@ -8,13 +16,18 @@ defineOptions({ name: 'UiSidePanel', inheritAttrs: false });
 const props = withDefaults(
   defineProps<{
     open: boolean;
-    width?: number | string;
+    width?: UiDrawerWidth;
+    dismissal?: UiDrawerDismissal;
+    /** @deprecated Use `dismissal` and `beforeClose`. */
     closeOnOutside?: boolean;
+    beforeClose?: UiDrawerCloseGuard;
     scope?: UiSidePanelScope;
   }>(),
   {
-    width: 520,
+    width: 'standard',
+    dismissal: undefined,
     closeOnOutside: false,
+    beforeClose: undefined,
     scope: 'tab',
   },
 );
@@ -31,6 +44,13 @@ const rootStyle = computed<CSSProperties>(() =>
     ? { position: 'fixed', inset: 0, zIndex: 6 }
     : { position: 'absolute', inset: 0, zIndex: 6 },
 );
+const resolvedWidth = computed(() => resolveUiDrawerWidth(props.width));
+const dismissalOptions = computed<UiDrawerDismissalOptions>(() => ({
+  dismissal: props.dismissal,
+  closeOnOutside: props.closeOnOutside,
+  beforeClose: props.beforeClose,
+}));
+const outsideDismissalAllowed = computed(() => allowsUiDrawerOutsideDismissal(dismissalOptions.value));
 
 const emit = defineEmits<{
   close: [];
@@ -41,25 +61,36 @@ const emit = defineEmits<{
 function handleAfterVisibleChange(visible: boolean) {
   if (!visible) emit('afterClose');
 }
+
+async function requestOutsideClose() {
+  if (
+    await mayCloseUiDrawer(
+      dismissalOptions.value,
+      'outside',
+    )
+  ) {
+    emit('close');
+  }
+}
 </script>
 
 <template>
   <ADrawer
     :open="open"
     placement="right"
-    :width="width"
+    :width="resolvedWidth"
     :get-container="container"
-    :mask="closeOnOutside"
-    :mask-closable="closeOnOutside"
+    :mask="outsideDismissalAllowed"
+    :mask-closable="outsideDismissalAllowed"
     :mask-style="{ background: 'transparent' }"
-    :keyboard="closeOnOutside"
+    :keyboard="outsideDismissalAllowed"
     :closable="false"
     :header-style="{ display: 'none' }"
     :body-style="{ height: '100%', padding: 0 }"
     :root-style="rootStyle"
     :class="$attrs.class"
     :style="$attrs.style"
-    @close="emit('close')"
+    @close="requestOutsideClose"
     @after-open-change="handleAfterVisibleChange"
   >
     <slot />

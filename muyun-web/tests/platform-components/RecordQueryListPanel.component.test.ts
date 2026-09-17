@@ -18,6 +18,23 @@ afterEach(() => {
 });
 
 describe('RecordQueryListPanel', () => {
+  it('keeps a single row click as selection and exposes double click as semantic record activation', async () => {
+    const record = { id: 'log-1', title: '异常日志' };
+    const wrapper = shallowMount(RecordQueryListPanel, {
+      props: { context: createContext(record), title: '异常日志', columns: [] },
+    });
+    await flushPromises();
+
+    const surface = wrapper.findComponent({ name: 'RecordQueryListSurface' });
+    surface.vm.$emit('rowClick', { key: 'log-1', record });
+    surface.vm.$emit('rowDblclick', { key: 'log-1', record }, {} as MouseEvent);
+
+    expect(wrapper.emitted('select')).toEqual([[record]]);
+    expect(wrapper.emitted('recordActivate')).toEqual([[record, expect.anything()]]);
+    expect(wrapper.emitted('rowDblclick')).toEqual([[record, expect.anything()]]);
+    wrapper.unmount();
+  });
+
   it('reloads the query schema before querying records after a schema failure', async () => {
     const context = createContext({ id: '1' });
     const schema = await context.crud.querySchema();

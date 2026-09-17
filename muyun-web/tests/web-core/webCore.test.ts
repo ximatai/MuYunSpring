@@ -447,6 +447,23 @@ it('http client requests event-stream media type for authenticated streams', asy
   }
 });
 
+it('http client permits a stream caller to select a binary response media type', async () => {
+  const requests: Request[] = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (input, init) => {
+    requests.push(new Request(input, init));
+    return new Response('log', { headers: { 'Content-Type': 'text/plain' } });
+  };
+
+  try {
+    await createHttpClient().stream({ path: '/platform.runtime_log/files/app.log/download', headers: { Accept: 'application/octet-stream' } });
+
+    assert.equal(requests[0].headers.get('Accept'), 'application/octet-stream');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 it('header-scoped streaming client preserves stream capability and controlled page context', async () => {
   const requests: Request[] = [];
   const originalFetch = globalThis.fetch;

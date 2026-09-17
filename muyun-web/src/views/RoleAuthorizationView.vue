@@ -29,6 +29,7 @@ import type {
   RolePermissionAction,
 } from '@muyun/web-contracts';
 import { useModuleContext, type ModuleContext } from '@muyun/web-core';
+import { useWorkspaceViewUnsavedState } from '@muyun/platform-workbench';
 import type { ModulePageDrawerContext } from '@muyun/dynamic-page-runtime';
 import WorkspaceViewDrawer from '../platform-admin-runtime/WorkspaceViewDrawer.vue';
 import { useWorkspaceViewHost } from '../platform-admin-runtime/workspaceViewHost';
@@ -178,6 +179,8 @@ const workspaceContainerProps = computed(() =>
         container: props.container ?? null,
         profile: roleAuthorizationWorkspaceView.drawerProfile,
         promotion: authorizationPromotion.value,
+        dismissal: 'guarded' as const,
+        beforeClose: confirmWorkspaceDismissal,
         onClose: dismissWorkspaceView,
       }
     : usesStandaloneWorkspaceShell.value
@@ -198,6 +201,7 @@ const permissionMatrixDirty = computed(() => {
   );
 });
 const authorizationDirty = computed(() => dataGrantDirty.value || permissionMatrixDirty.value);
+useWorkspaceViewUnsavedState('角色授权', () => authorizationDirty.value);
 const allActionsGranted = computed(
   () => actions.value.length > 0 && actions.value.every((action) => action.granted),
 );
@@ -497,16 +501,17 @@ async function confirmAuthorization() {
   await savePermissionMatrix();
 }
 
-async function dismissWorkspaceView() {
-  if (authorizationDirty.value) {
-    const confirmed = await confirmAction({
-      title: '放弃未确认的授权配置',
-      content: '当前修改尚未确认，关闭后将丢失这些修改。',
-      okText: '放弃修改',
-      danger: true,
-    });
-    if (!confirmed) return;
-  }
+async function confirmWorkspaceDismissal() {
+  if (!authorizationDirty.value) return true;
+  return confirmAction({
+    title: '放弃未确认的授权配置',
+    content: '当前修改尚未确认，关闭后将丢失这些修改。',
+    okText: '放弃修改',
+    danger: true,
+  });
+}
+
+function dismissWorkspaceView() {
   dismissDrawerHost();
 }
 

@@ -944,7 +944,7 @@ class MuYunSpringApplicationContextIT {
             roleService.replaceDataGrantActions("rv_data_role_dynamic_" + suffix, List.of(
                     new RoleService.DataGrantActionCommand(PlatformAction.VIEW.code(), DataScopePolicy.OWNER, true),
                     new RoleService.DataGrantActionCommand(PlatformAction.UPDATE.code(), DataScopePolicy.OWNER, true)));
-            roleService.grantAction("rv_action_role_dynamic_" + suffix, moduleAlias, PlatformAction.UPDATE.code(),
+            roleService.grantAction("rv_act_role_dynamic_" + suffix, moduleAlias, PlatformAction.UPDATE.code(),
                     DataScopePolicy.INHERIT_DATA_GRANT, TenantScopePolicy.CURRENT_TENANT);
         }
         ResponseEntity<JsonNode> writableActions = restTemplate.exchange(
@@ -1567,7 +1567,9 @@ class MuYunSpringApplicationContextIT {
         String employeeId = "rv_employee_" + roleSuffix;
         String positionId = "rv_position_" + roleSuffix;
         String employeePositionId = "rv_employment_" + roleSuffix;
-        String actionRoleId = "rv_action_role_" + roleSuffix;
+        // iam_role.id is varchar(32); the dynamic-reference fixture suffix can
+        // otherwise make the descriptive prefix exceed that database contract.
+        String actionRoleId = "rv_act_role_" + roleSuffix;
         String dataRoleId = "rv_data_role_" + roleSuffix;
         insertOrganization(tenantId, organizationId, "REF-ORG-" + roleSuffix, "Reference view organization");
         insertDepartment(tenantId, departmentId, organizationId, "REF-DEPT-" + roleSuffix,

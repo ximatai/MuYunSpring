@@ -281,7 +281,6 @@ const configBySurface: Record<BusinessLogSurface, { columns: RecordQueryListColu
     class="business-log-list"
     :context="moduleContext"
     :title="title"
-    subtitle="按事件发生时间检索，数据范围由当前登录账号的管理范围决定。"
     :columns="tableColumns"
     row-key="eventId"
     :show-recycle-bin="false"
@@ -292,7 +291,7 @@ const configBySurface: Record<BusinessLogSurface, { columns: RecordQueryListColu
     :row-actions-of="detailRowActions"
     row-actions-title="操作"
     action-column-width="88px"
-    @select="openDetail"
+    @record-activate="openDetail"
     @row-action="handleRowAction"
     @queried="rememberQuery"
   >

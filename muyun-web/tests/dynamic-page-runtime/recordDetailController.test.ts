@@ -92,3 +92,22 @@ it('closes the deleted record detail and clears its editable draft', () => {
   expect(detail.draft.value).toBeUndefined();
   expect(detail.beginEdit()).toBe(false);
 });
+
+it('derives dirty state from the live edit draft and resets its baseline after save or cancel', () => {
+  const detail = useRecordDetailController<RecordDetail>();
+  detail.beginLoad({ id: 'device-dirty', title: '初始标题', enabled: true }, 'edit');
+  detail.resolveLoad({ id: 'device-dirty', title: '初始标题', enabled: true });
+  detail.finishLoad();
+
+  expect(detail.isDirty.value).toBe(false);
+  detail.draft.value = { ...detail.draft.value, title: '已修改标题' };
+  expect(detail.isDirty.value).toBe(true);
+
+  detail.cancelEdit();
+  expect(detail.isDirty.value).toBe(false);
+
+  expect(detail.beginEdit()).toBe(true);
+  detail.draft.value = { ...detail.draft.value, title: '已保存标题' };
+  detail.applySaved({ id: 'device-dirty', title: '已保存标题', enabled: true });
+  expect(detail.isDirty.value).toBe(false);
+});

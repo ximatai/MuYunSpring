@@ -2,6 +2,7 @@
 import type { BusinessRoutePageDescriptor } from '@muyun/web-contracts';
 import { computed, onUnmounted } from 'vue';
 import { UiEmpty } from '@muyun/vue-ui-antdv';
+import { provideModulePageUnsavedStateHost } from '@muyun/dynamic-page-runtime';
 import { tabKeyOf } from './menuNavigation';
 import { useWorkbenchNavigation } from './workbenchNavigation';
 import { provideWorkspaceViewHost } from './workspaceViewHost';
@@ -18,6 +19,11 @@ const resolvedView = computed(() => resolveWorkspaceView(props.descriptor));
 // a descriptor that may now describe a different navigation state.
 const ownerPageKey = tabKeyOf(props.descriptor);
 const navigation = useWorkbenchNavigation();
+
+function registerUnsavedState(source: string, isDirty: () => boolean) {
+  return registerWorkspaceViewUnsavedState(ownerPageKey, source, isDirty);
+}
+
 provideWorkspaceViewHost({
   get presentation() {
     return resolvedView.value?.presentation ?? 'tab';
@@ -39,9 +45,7 @@ provideWorkspaceViewHost({
       target: { ...props.descriptor.target, query },
     });
   },
-  registerUnsavedState(source, isDirty) {
-    return registerWorkspaceViewUnsavedState(ownerPageKey, source, isDirty);
-  },
+  registerUnsavedState,
   dismiss() {
     const view = resolvedView.value;
     if (view && navigation)
@@ -51,6 +55,7 @@ provideWorkspaceViewHost({
     navigation?.closePage(ownerPageKey);
   },
 });
+provideModulePageUnsavedStateHost({ registerUnsavedState });
 
 onUnmounted(() => clearWorkspaceViewUnsavedState(ownerPageKey));
 </script>

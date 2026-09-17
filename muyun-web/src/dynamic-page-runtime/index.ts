@@ -13,6 +13,11 @@ export {
 } from './modulePageEnhancements';
 export { provideModulePageNavigation, useModulePageNavigation } from './modulePageNavigation';
 export {
+  provideModulePageUnsavedStateHost,
+  useModulePageUnsavedState,
+  type ModulePageUnsavedStateHost,
+} from './modulePageUnsavedState';
+export {
   NAVIGATOR_ENTRY_MODULE_ALIAS_QUERY_KEY,
   NAVIGATOR_ENTRY_RECORD_ID_QUERY_KEY,
 } from './navigatorEntrySelection';

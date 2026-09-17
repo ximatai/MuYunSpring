@@ -1,4 +1,4 @@
-import { ref } from 'vue';
+import { computed, ref } from 'vue';
 
 export type RecordDetailMode = 'create' | 'edit' | 'view';
 
@@ -31,6 +31,10 @@ export function useRecordDetailController<TRecord extends Record<string, unknown
   const createRestoreRecord = ref<TRecord>();
   const createCancelDestination = ref<RecordDetailCancelDestination>('close');
   const editCancelDestination = ref<RecordDetailCancelDestination>('close');
+  const draftBaseline = ref<string>();
+  const isDirty = computed(
+    () => mode.value !== 'view' && draft.value != null && draftBaseline.value !== stableRecordDraft(draft.value),
+  );
 
   function beginLoad(
     next: TRecord,
@@ -40,6 +44,7 @@ export function useRecordDetailController<TRecord extends Record<string, unknown
     formSessionKey.value += 1;
     record.value = next;
     draft.value = undefined;
+    draftBaseline.value = undefined;
     mode.value = nextMode;
     open.value = true;
     loading.value = true;
@@ -53,6 +58,7 @@ export function useRecordDetailController<TRecord extends Record<string, unknown
   function resolveLoad(next: TRecord) {
     record.value = next;
     draft.value = { ...next };
+    draftBaseline.value = stableRecordDraft(draft.value);
     loadFailed.value = false;
   }
 
@@ -70,6 +76,7 @@ export function useRecordDetailController<TRecord extends Record<string, unknown
     formSessionKey.value += 1;
     record.value = undefined;
     draft.value = { ...initial };
+    draftBaseline.value = stableRecordDraft(draft.value);
     mode.value = 'create';
     open.value = true;
     loading.value = false;
@@ -81,6 +88,7 @@ export function useRecordDetailController<TRecord extends Record<string, unknown
   function beginEdit(options: RecordDetailTransitionOptions = {}) {
     if (!record.value) return false;
     draft.value = { ...record.value };
+    draftBaseline.value = stableRecordDraft(draft.value);
     mode.value = 'edit';
     open.value = true;
     loading.value = false;
@@ -97,6 +105,7 @@ export function useRecordDetailController<TRecord extends Record<string, unknown
       open.value = Boolean(restoreRecord);
       record.value = restoreRecord;
       draft.value = restoreRecord ? { ...restoreRecord } : undefined;
+      draftBaseline.value = draft.value ? stableRecordDraft(draft.value) : undefined;
       mode.value = 'view';
       loading.value = false;
       loadFailed.value = false;
@@ -109,6 +118,7 @@ export function useRecordDetailController<TRecord extends Record<string, unknown
       open.value = false;
     }
     draft.value = record.value ? { ...record.value } : undefined;
+    draftBaseline.value = draft.value ? stableRecordDraft(draft.value) : undefined;
     mode.value = 'view';
     loading.value = false;
     loadFailed.value = false;
@@ -119,6 +129,7 @@ export function useRecordDetailController<TRecord extends Record<string, unknown
   function applySaved(next: TRecord) {
     record.value = next;
     draft.value = { ...next };
+    draftBaseline.value = stableRecordDraft(draft.value);
     mode.value = 'view';
     createRestoreRecord.value = undefined;
     createCancelDestination.value = 'close';
@@ -130,6 +141,7 @@ export function useRecordDetailController<TRecord extends Record<string, unknown
     open.value = false;
     record.value = undefined;
     draft.value = undefined;
+    draftBaseline.value = undefined;
     mode.value = 'view';
     loading.value = false;
     loadFailed.value = false;
@@ -147,6 +159,7 @@ export function useRecordDetailController<TRecord extends Record<string, unknown
     } else {
       draft.value = record.value ? { ...record.value } : undefined;
     }
+    draftBaseline.value = draft.value ? stableRecordDraft(draft.value) : undefined;
     createCancelDestination.value = 'close';
     editCancelDestination.value = 'close';
     mode.value = 'view';
@@ -165,6 +178,7 @@ export function useRecordDetailController<TRecord extends Record<string, unknown
     saving,
     togglingEnabled,
     formSessionKey,
+    isDirty,
     beginLoad,
     resolveLoad,
     failLoad,
@@ -176,4 +190,16 @@ export function useRecordDetailController<TRecord extends Record<string, unknown
     clearDeleted,
     close,
   };
+}
+
+/** Object key order must not make a form appear dirty after a renderer normalizes a record. */
+function stableRecordDraft(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableRecordDraft).join(',')}]`;
+  if (value && typeof value === 'object') {
+    return `{${Object.entries(value as Record<string, unknown>)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, entry]) => `${JSON.stringify(key)}:${stableRecordDraft(entry)}`)
+      .join(',')}}`;
+  }
+  return JSON.stringify(value);
 }

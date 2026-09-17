@@ -576,7 +576,7 @@ it('role management enters the standard runner while keeping IAM scope and actio
   assert.match(roleEnhancementSource, /RoleAccountGrantDrawerSurface/);
   assert.match(roleEnhancementSource, /RoleEmploymentGrantDrawerSurface/);
   assert.match(roleEnhancementSource, /RoleAuthorizationDrawerSurface/);
-  assert.match(roleEnhancementSource, /title: '角色授权', width: 820/);
+  assert.match(roleEnhancementSource, /title: '角色授权', width: 'wide'/);
   assert.match(
     roleEnhancementSource,
     /cellComponents:[\s\S]*assignmentType[\s\S]*roleKind[\s\S]*sharePolicy/,
@@ -735,6 +735,13 @@ it('role management enters the standard runner while keeping IAM scope and actio
   assert.match(roleAuthorizationViewSource, /registerRoleAuthorizationWorkspaceHandoffRecipient/);
   assert.match(roleAuthorizationViewSource, /onPromoted: dismissPromotedDrawer/);
   assert.match(roleAuthorizationViewSource, /onPromotionRejected/);
+  assert.match(roleAuthorizationViewSource, /useWorkspaceViewUnsavedState\('角色授权'/);
+  assert.match(roleAuthorizationViewSource, /dismissal: 'guarded'/);
+  assert.match(roleAuthorizationViewSource, /beforeClose: confirmWorkspaceDismissal/);
+  assert.match(roleViewSource, /const roleDetailDirty = computed/);
+  assert.match(roleViewSource, /useWorkspaceViewUnsavedState\('角色详情'/);
+  assert.match(roleViewSource, /async function selectOrganizationScope[\s\S]*selectedTenant\.value = tenant/);
+  assert.match(roleViewSource, /before-close="confirmRoleDetailDismissal"/);
   assert.match(roleAuthorizationViewSource, /UiCheckbox/);
   assert.match(roleAuthorizationViewSource, /#header="\{ column \}"/);
   assert.match(roleAuthorizationViewSource, /updateAllActions/);
@@ -742,7 +749,9 @@ it('role management enters the standard runner while keeping IAM scope and actio
   assert.match(roleAuthorizationViewSource, /确认/);
   assert.match(roleAuthorizationViewSource, /props\.drawer === true/);
   assert.match(roleAuthorizationWorkspaceViewSource, /drawerProfile: 'wide-work'/);
-  assert.match(workspaceDrawerSource, /min\(600px, 100vw\)/);
+  assert.match(workspaceDrawerSource, /props\.profile === 'wide-work' \? 'wide' : 'standard'/);
+  assert.match(workspaceDrawerSource, /dismissal\?: UiDrawerDismissal/);
+  assert.match(workspaceDrawerSource, /:before-close="beforeClose"/);
   assert.match(queryListCellSource, /\[titleField, `\$\{fieldName\}Title`\]/);
   assert.match(contractsSource, /export type RoleAssignmentType = 'account' \| 'employment'/);
   assert.match(contractsSource, /export type RoleOwnerScopeType = 'platform' \| 'tenant' \| 'organization'/);
@@ -1303,12 +1312,16 @@ it('pages own their drawer containers and fixed drawer action regions', () => {
   assert.match(dynamicWorkspaceDetailSource, /const workspaceElement = ref<HTMLElement>\(\)/);
   assert.match(dynamicWorkspaceDetailSource, /<section ref="workspaceElement"/);
   assert.match(dynamicWorkspaceDetailSource, /:container="workspaceElement \?\? null"/);
+  assert.match(dynamicWorkspaceDetailSource, /useModulePageUnsavedState\('记录详情'/);
+  assert.match(dynamicWorkspaceDetailSource, /const \{ record, draft, mode, formSessionKey, isDirty,/);
+  assert.match(dynamicWorkspaceDetailSource, /confirmDiscardEditing/);
   assert.match(detailDrawerSource, /promotion\?: DrawerPromotion/);
   assert.match(detailDrawerSource, /promotion\.promote\(\)/);
   assert.match(detailDrawerSource, /<template #title-actions>/);
   assert.match(detailDrawerSource, /icon-name="export"/);
   assert.match(workspaceViewOutletSource, /resolveWorkspaceView/);
   assert.match(workspaceViewOutletSource, /provideWorkspaceViewHost/);
+  assert.match(workspaceViewOutletSource, /provideModulePageUnsavedStateHost/);
   assert.match(workspaceViewOutletSource, /dismissWorkspaceViewDescriptor/);
   assert.match(workspaceViewOutletSource, /tabKeyOf\(props\.descriptor\)/);
   assert.match(workspaceViewOutletSource, /const ownerPageKey = tabKeyOf\(props\.descriptor\)/);

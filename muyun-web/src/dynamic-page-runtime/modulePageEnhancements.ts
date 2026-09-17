@@ -10,6 +10,7 @@ import type {
 } from '@muyun/web-contracts';
 import type { ModuleContext } from '@muyun/web-core';
 import type {
+  DrawerWidth,
   RecordActionItem,
   RecordFormFieldState,
   RecordFormFieldValue,
@@ -371,7 +372,7 @@ export interface ModulePageDetailDrawer {
   /** The component receives only the documented read-only ModulePageRecordViewContext prop. */
   component: Component;
   /** Keeps the platform drawer shell while allowing dense business views more room. */
-  width?: number | string;
+  width?: DrawerWidth;
   /**
    * Defaults to true. Set false when the business detail body has its own
    * governed read endpoint and only needs the selected list record as context.
@@ -395,7 +396,7 @@ export interface ModulePageCellComponentContribution {
 
 export interface ModulePageDrawer {
   title: string;
-  width?: number | string;
+  width?: DrawerWidth;
   /** The component receives only the documented ModulePageDrawerContext prop. */
   component: Component;
 }

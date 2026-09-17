@@ -23,7 +23,7 @@ export default defineComponent({
   emits: {
     ready: (session: ModulePageSessionView) => Boolean(session),
     failed: (session: ModulePageSessionView, message: string) => Boolean(session) && Boolean(message),
-    'interaction-state-change': (state: { editing: boolean; busy: boolean }) => Boolean(state),
+    'interaction-state-change': (state: { editing: boolean; busy: boolean; dirty?: boolean }) => Boolean(state),
     'record-only-change': (mutation: {
       type: 'saved' | 'deleted' | 'unavailable';
       record?: QueryListRecord;

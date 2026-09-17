@@ -1197,6 +1197,8 @@ export default defineComponent({
         :mode="editorMode"
         :loading="detailLoading"
         :load-failed="detailLoadFailed"
+        :dismissal="editorMode === 'view' ? 'dismissible' : 'guarded'"
+        :before-close="confirmDetailDrawerClose"
         @close="props.recordOnly ? closeRecordOnlyDetail() : closeDetail()"
         @after-close="finishRecordOnlyDetailClose"
         @retry="retryLoadDetail"

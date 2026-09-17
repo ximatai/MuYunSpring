@@ -30,6 +30,27 @@
 
 Java 程序日志继续使用标准 SLF4J/Logback 控制台和文件通道。Boot 的 console/file pattern 输出 `traceId`、`endpointId`、`moduleAlias` 和 `actionCode`，缺失字段使用稳定占位符。`ActionEndpointInterceptor` 在动作处理期间维护 module/action/endpoint MDC，并在正常完成、异常清理和异步交接时清除。MDC 不写入业务字段或凭据。没有 Logback Appender 写 PostgreSQL，也没有集中程序日志采集。
 
+“日志管理”中的“程序日志”是一个系统级静态模块，不参与租户选择。它读取当前 JVM 实例的 `muyun.platform.runtime-log.directory` 目录下可读的 `.log` 与 Boot 滚动产生的 `.log.gz` 归档：所有文件可列出和下载，流式查看只选择最新的未压缩活跃日志。归档保留 Spring Boot 默认的 gzip 压缩策略，按大小或日期滚动，重启不会单独生成归档。目录未配置时接口明确报配置错误，不会回退到工作目录；符号链接、目录外路径和删除/清空操作均不开放。流在日志滚动到新文件时通知客户端重新连接，每个实例最多同时保留四个流，单个流最长五分钟。
+
+部署必须把 Logback 写入文件和运行日志读取目录配置到同一目录，并根据日志卷容量显式设定单文件大小、保留天数和总容量上限。启用读取目录却缺少文件输出、或两者目录不一致时，应用在启动期明确失败。例如：
+
+```yaml
+logging:
+  file:
+    name: /var/log/muyun/application.log
+  logback:
+    rollingpolicy:
+      max-file-size: 100MB
+      max-history: 14
+      total-size-cap: 2GB
+muyun:
+  platform:
+    runtime-log:
+      directory: /var/log/muyun
+```
+
+示例数值需要按实际容量和采集周期调整，不作为框架默认值。多实例日志汇集仍由外部采集系统负责；当前页面只呈现所在 JVM 实例的本地文件。
+
 ## 查询与统计边界
 
 `BusinessLogStore.read` 是存储中立的明细读取底座。`BusinessLogStatisticsReader` 提供服务内、类型化的动作和页面访问聚合：动作结果、已知耗时/影响数量的计数和总值，以及按 pageKey 的访问计数。统计查询设有最大扫描量，并以 `complete` 明确标示是否在上限内读取完全部明细。

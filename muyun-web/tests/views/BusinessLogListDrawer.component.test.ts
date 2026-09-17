@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { shallowMount } from '@vue/test-utils';
 import { expect, it } from 'vitest';
 import { RecordQueryListPanel } from '@muyun/platform-components';
@@ -20,6 +22,9 @@ it.each([
       props: { surface, moduleAlias, title: '日志' },
     });
     const list = wrapper.findComponent(RecordQueryListPanel);
+    expect(readFileSync(resolve(import.meta.dirname, '../../src/views/BusinessLogListDrawer.vue'), 'utf8')).toContain(
+      '@record-activate="openDetail"',
+    );
 
     expect((list.props('columns') as Array<{ key: string }>).map((column) => column.key)).toEqual(keys);
     const rowActionsOf = list.props('rowActionsOf') as
