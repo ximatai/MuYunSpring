@@ -15,10 +15,20 @@ describe('ModulePageHost', () => {
     // Keep that layer in this component wrapper so existing behavioral assertions
     // observe the same Host contract rather than browser placement details.
     config.global.stubs.Teleport = { template: '<slot />' };
+    // Mount the public Host's internal session and stable renderer while the
+    // test-specific leaf stubs keep the interaction surface focused.
+    config.global.stubs.ModulePageBusinessSession = false;
+    config.global.stubs.ModulePageHostSession = false;
+    config.global.stubs.ModulePageHostRuntime = false;
+    config.global.stubs.ModuleHttpProvider = false;
   });
 
   afterAll(() => {
     config.global.stubs.Teleport = originalTeleportStub;
+    delete config.global.stubs.ModulePageBusinessSession;
+    delete config.global.stubs.ModulePageHostSession;
+    delete config.global.stubs.ModulePageHostRuntime;
+    delete config.global.stubs.ModuleHttpProvider;
   });
 
   it.each([true, false])('executes a placed action only through its issued binding (%s)', async (bound) => {
@@ -52,7 +62,13 @@ describe('ModulePageHost', () => {
     };
     configureModuleContext({ httpFactory: () => createHttpClient({ baseUrl: 'http://api.local' }) });
     const wrapper = shallowMount(ModulePageHost, {
-      global: { stubs: { ManagementWorkspace: { template: '<section><slot /></section>' } } },
+      global: {
+        stubs: {
+          ManagementWorkspace: { template: '<section><slot /></section>' },
+          ManagementExplorerColumn: { template: '<aside><slot /></aside>' },
+          RecordExplorerPanel: { template: '<section><slot /></section>' },
+        },
+      },
       props: {
         descriptor: {
           pageType: 'dynamic-module',
@@ -370,6 +386,8 @@ describe('ModulePageHost', () => {
       },
       global: {
         stubs: {
+          ModulePageHostRuntime: false,
+          ModuleHttpProvider: false,
           ManagementWorkspace: { template: '<section><slot /></section>' },
           StaticManagementLayout: {
             template: '<section><slot name="explorer" /><slot name="detail-actions" /><slot /></section>',
@@ -464,6 +482,8 @@ describe('ModulePageHost', () => {
       },
       global: {
         stubs: {
+          ModulePageHostRuntime: false,
+          ModuleHttpProvider: false,
           ManagementWorkspace: { template: '<section><slot /></section>' },
           StaticManagementLayout: {
             template: '<section><slot name="explorer" /><slot name="detail-actions" /><slot /></section>',
@@ -3599,6 +3619,186 @@ describe('ModulePageHost', () => {
         expect.objectContaining({ mode: 'TRANSLATE', values: ['organization-root'] }),
       ]),
     );
+    wrapper.unmount();
+  });
+
+  it('owns the tenant scope in the left workspace column and keeps business traffic dormant until selection', async () => {
+    const requests: Request[] = [];
+    globalThis.fetch = async (input, init) => {
+      const request = new Request(input, init);
+      requests.push(request);
+      if (request.url.endsWith('/platform.module/crm.customer/context')) {
+        return Response.json({
+          moduleAlias: 'crm.customer',
+          tenantRequired: true,
+          capabilities: [],
+          actions: [],
+          uiDescriptor: {
+            schemaVersion: '1',
+            moduleAlias: 'crm.customer',
+            page: page({
+              navigator: {
+                contextBindings: [],
+                levels: [
+                  {
+                    key: 'organization',
+                    kind: 'TREE',
+                    sourceModuleAlias: 'iam.organization',
+                    title: '机构',
+                  },
+                ],
+              },
+            }),
+          },
+        });
+      }
+      if (request.url.endsWith('/platform.module/iam.tenant/reference-context'))
+        return Response.json({ moduleAlias: 'iam.tenant', capabilities: [], actions: [] });
+      if (request.url.endsWith('/platform.module/iam.organization/reference-context'))
+        return Response.json({ moduleAlias: 'iam.organization', capabilities: ['TREE'], actions: [] });
+      if (request.url.endsWith('/crm.customer/query'))
+        return Response.json({ records: [], total: 0, pageNum: 1, pageSize: 20, pages: 0, totalKnown: true });
+      if (request.url.endsWith('/platform.module/references/ownerId/resolve'))
+        return Response.json({ values: [] });
+      throw new Error(`Unexpected request: ${request.url}`);
+    };
+    configureModuleContext({ httpFactory: () => createHttpClient({ baseUrl: 'http://api.local' }) });
+
+    const wrapper = shallowMount(ModulePageHost, {
+      props: {
+        descriptor: {
+          pageType: 'dynamic-module',
+          openMode: 'dynamic-runner',
+          hostType: 'module-page-host',
+          tabPolicy: { identity: 'by-menu' },
+          target: { moduleAlias: 'crm.customer', pageMode: 'LIST' },
+        },
+      },
+      global: {
+        stubs: {
+          ModulePageHostRuntime: false,
+          ModuleHttpProvider: false,
+          ManagementWorkspace: { template: '<section><slot /></section>' },
+          ManagementExplorerColumn: { template: '<aside><slot /></aside>' },
+          RecordExplorerPanel: { template: '<section><slot /></section>' },
+        },
+      },
+    });
+    await flushPromises();
+
+    const tenant = wrapper.findComponent({ name: 'TenantScopeExplorer' });
+    expect(tenant.exists()).toBe(true);
+    expect(tenant.props('selectedId')).toBeUndefined();
+    const list = wrapper.findComponent({ name: 'RecordQueryListPanel' });
+    expect(list.props('ready')).toBe(false);
+    expect(requests.some((request) => request.url.endsWith('/crm.customer/query'))).toBe(false);
+
+    await tenant.props('context').runtime.ready;
+    expect(
+      requests
+        .filter((request) => request.url.endsWith('/platform.module/iam.tenant/reference-context'))
+        .every((request) => request.headers.get('X-MuYun-Tenant-Id') === null),
+    ).toBe(true);
+
+    tenant.vm.$emit('loaded', [{ id: 'tenant-a', title: '甲租户' }], false);
+    await flushPromises();
+    expect(wrapper.findComponent({ name: 'TenantScopeExplorer' }).props('selectedId')).toBeUndefined();
+
+    tenant.vm.$emit('select', { id: 'tenant-a', title: '甲租户' });
+    await flushPromises();
+    const scopedList = wrapper.findComponent({ name: 'RecordQueryListPanel' });
+    expect(scopedList.props('ready')).toBe(true);
+    await scopedList.props('context').crud.query();
+    await scopedList.props('context').http.request({
+      method: 'POST',
+      path: '/platform.module/references/ownerId/resolve',
+      body: {},
+    });
+    expect(
+      requests
+        .filter(
+          (request) =>
+            request.url.endsWith('/crm.customer/query') ||
+            request.url.endsWith('/platform.module/references/ownerId/resolve'),
+        )
+        .map((request) => request.headers.get('X-MuYun-Tenant-Id')),
+    ).toEqual(['tenant-a', 'tenant-a']);
+    wrapper.unmount();
+  });
+
+  it('only auto-selects an initial full one-candidate result and replaces the business session on a switch', async () => {
+    const requestHeaders: Array<{ url: string; tenant: string | null }> = [];
+    globalThis.fetch = async (input, init) => {
+      const request = new Request(input, init);
+      requestHeaders.push({ url: request.url, tenant: request.headers.get('X-MuYun-Tenant-Id') });
+      if (request.url.endsWith('/platform.module/crm.customer/context'))
+        return Response.json({
+          moduleAlias: 'crm.customer',
+          tenantRequired: true,
+          capabilities: [],
+          actions: [],
+          uiDescriptor: { schemaVersion: '1', moduleAlias: 'crm.customer', page: page() },
+        });
+      if (request.url.endsWith('/platform.module/iam.tenant/reference-context'))
+        return Response.json({ moduleAlias: 'iam.tenant', capabilities: [], actions: [] });
+      if (request.url.endsWith('/crm.customer/query'))
+        return Response.json({ records: [], total: 0, pageNum: 1, pageSize: 20, pages: 0, totalKnown: true });
+      throw new Error(`Unexpected request: ${request.url}`);
+    };
+    configureModuleContext({ httpFactory: () => createHttpClient({ baseUrl: 'http://api.local' }) });
+    const wrapper = shallowMount(ModulePageHost, {
+      props: {
+        descriptor: {
+          pageType: 'dynamic-module',
+          openMode: 'dynamic-runner',
+          hostType: 'module-page-host',
+          tabPolicy: { identity: 'by-menu' },
+          target: { moduleAlias: 'crm.customer', pageMode: 'LIST' },
+        },
+      },
+      global: {
+        stubs: {
+          ModulePageHostRuntime: false,
+          ModuleHttpProvider: false,
+          ManagementWorkspace: { template: '<section><slot /></section>' },
+          ManagementExplorerColumn: { template: '<aside><slot /></aside>' },
+          RecordExplorerPanel: { template: '<section><slot /></section>' },
+        },
+      },
+    });
+    await flushPromises();
+    let tenant = wrapper.findComponent({ name: 'TenantScopeExplorer' });
+    tenant.vm.$emit('loaded', [{ id: 'tenant-a', title: '甲租户' }], true, 2);
+    await flushPromises();
+    expect(tenant.props('selectedId')).toBeUndefined();
+    tenant.vm.$emit('loaded', [{ id: 'tenant-a', title: '甲租户' }], true, 1);
+    await flushPromises();
+    tenant = wrapper.findComponent({ name: 'TenantScopeExplorer' });
+    expect(tenant.props('selectedId')).toBe('tenant-a');
+
+    tenant.vm.$emit('loaded', [{ id: 'tenant-b', title: '乙租户' }], false);
+    await flushPromises();
+    expect(wrapper.findComponent({ name: 'TenantScopeExplorer' }).props('selectedId')).toBe('tenant-a');
+
+    const beforeSwitch = wrapper.findComponent({ name: 'RecordQueryListPanel' }).vm;
+    const oldContext = wrapper.findComponent({ name: 'RecordQueryListPanel' }).props('context');
+    tenant.vm.$emit('select', { id: 'tenant-b', title: '乙租户' });
+    await flushPromises();
+    const afterSwitch = wrapper.findComponent({ name: 'RecordQueryListPanel' });
+    expect(afterSwitch.vm).not.toBe(beforeSwitch);
+    await afterSwitch.props('context').crud.query();
+    await oldContext.crud.query();
+    expect(
+      requestHeaders
+        .filter((request) => request.url.endsWith('/crm.customer/query'))
+        .map((request) => request.tenant),
+    ).toEqual(['tenant-b', 'tenant-a']);
+    await wrapper.findComponent({ name: 'TenantScopeExplorer' }).props('context').runtime.ready;
+    expect(
+      requestHeaders
+        .filter((request) => request.url.endsWith('/platform.module/iam.tenant/reference-context'))
+        .every((request) => request.tenant === null),
+    ).toBe(true);
     wrapper.unmount();
   });
 });

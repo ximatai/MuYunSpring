@@ -22,6 +22,7 @@ import net.ximatai.muyun.spring.platform.web.PlatformMenu;
 import net.ximatai.muyun.spring.platform.web.PlatformMenuGroups;
 import net.ximatai.muyun.spring.platform.module.PlatformStaticModule;
 import net.ximatai.muyun.spring.platform.web.StaticModuleUiContributor;
+import net.ximatai.muyun.spring.platform.web.StaticModuleTenantScopePolicy;
 import net.ximatai.muyun.spring.common.platform.CustomActionEndpoint;
 import net.ximatai.muyun.spring.common.platform.ActionEndpoint;
 import net.ximatai.muyun.spring.common.platform.PlatformAction;
@@ -68,6 +69,7 @@ import java.util.stream.Stream;
 @RestController
 @PlatformStaticModule(application = net.ximatai.muyun.spring.iam.application.IamApplication.class,
         alias = "iam.role", title = "角色管理")
+@StaticModuleTenantScopePolicy(requireActiveTenant = false)
 @StaticModuleOpenApi
 @PlatformMenu(parent = PlatformMenuGroups.IDENTITY, order = 70)
 @RequestMapping("/iam.role")

@@ -187,9 +187,12 @@ describe('ModuleReferenceRecordDetailBrowser', () => {
     await flush();
     await flush();
 
-    const host = wrapper.findComponent({ name: 'ModulePageHost' });
+    const host = wrapper.findComponent({ name: 'ModulePageHostRuntime' });
     expect(host.exists()).toBe(true);
-    expect(host.props('recordOnly')).toMatchObject({ renderMode: 'inline', scope: 'tab' });
+    expect((host.props('session') as { props: { recordOnly?: unknown } }).props.recordOnly).toMatchObject({
+      renderMode: 'inline',
+      scope: 'tab',
+    });
     expect(wrapper.find('.module-workspace').exists()).toBe(false);
     expect(wrapper.findComponent({ name: 'RecordQueryListPanel' }).exists()).toBe(false);
     expect(wrapper.find('[title="固定到右侧展示"]').exists()).toBe(false);
@@ -203,10 +206,13 @@ describe('ModuleReferenceRecordDetailBrowser', () => {
 
     await wrapper.setProps({ inlineAnchor: false });
     await flush();
-    expect(wrapper.findComponent({ name: 'ModulePageHost' }).props('recordOnly')).toMatchObject({
-      renderMode: 'portal',
-      scope: 'viewport',
-    });
+    expect(
+      (
+        wrapper.findComponent({ name: 'ModulePageHostRuntime' }).props('session') as {
+          props: { recordOnly?: unknown };
+        }
+      ).props.recordOnly,
+    ).toMatchObject({ renderMode: 'portal', scope: 'viewport' });
     expect(host.findComponent({ name: 'ModuleReferenceRecordDetailBrowser' }).props()).toMatchObject({
       renderMode: 'portal',
       scope: 'viewport',
@@ -245,6 +251,17 @@ describe('ModuleReferenceRecordDetailBrowser', () => {
       type: 'saved',
       recordId: 'supplier-1',
     });
+
+    const detailDrawer = host.findComponent(RecordModeDrawer);
+    detailDrawer.vm.$emit('close');
+    await flush();
+    expect(browser.active.value?.recordId).toBe('supplier-1');
+    expect(detailDrawer.props('open')).toBe(false);
+
+    detailDrawer.vm.$emit('afterClose');
+    await flush();
+    expect(browser.active.value).toBeUndefined();
+    expect(wrapper.findComponent({ name: 'ModulePageHost' }).exists()).toBe(false);
 
     wrapper.unmount();
   });

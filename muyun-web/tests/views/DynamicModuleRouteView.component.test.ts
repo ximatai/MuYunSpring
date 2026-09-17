@@ -6,6 +6,26 @@ import DynamicModuleRouteView from '@/views/DynamicModuleRouteView.vue';
 
 const moduleHostRuntime = vi.hoisted(() => ({ instances: 0 }));
 
+vi.mock('@/views/ModuleBusinessPreview.vue', async () => {
+  const { defineComponent, h } = await import('vue');
+  return {
+    // eslint-disable-next-line vue/one-component-per-file -- local tenant-scoped runtime stub.
+    default: defineComponent({
+      name: 'ModuleBusinessPreview',
+      props: { descriptor: { type: Object, required: true } },
+      setup(props) {
+        const instance = ++moduleHostRuntime.instances;
+        return () =>
+          h(
+            'p',
+            { 'data-testid': 'module-runtime' },
+            `${instance}:${(props.descriptor as { target: { moduleAlias: string } }).target.moduleAlias}`,
+          );
+      },
+    }),
+  };
+});
+
 vi.mock('@muyun/dynamic-page-runtime', async () => {
   const { defineComponent, h } = await import('vue');
   return {

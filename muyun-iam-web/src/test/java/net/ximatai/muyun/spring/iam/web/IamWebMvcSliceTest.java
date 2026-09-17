@@ -417,9 +417,9 @@ class IamWebMvcSliceTest {
     }
 
     @Test
-    void shouldExposeEmployeeQuerySchemaInTenantScope() throws Exception {
+    void shouldExposeEmployeeQuerySchemaBeforeTenantSelection() throws Exception {
         when(currentUserProvider.currentUser())
-                .thenReturn(Optional.of(CurrentUser.tenantUser("user-1", "User", "tenant_a")));
+                .thenReturn(Optional.of(CurrentUser.systemUser("user-1", "User")));
         when(staticModuleDefinitionCatalog.find(EmployeeService.MODULE_ALIAS))
                 .thenReturn(Optional.of(employeeStaticModuleDefinition()));
         when(employeeService.queryDescriptor()).thenReturn(employeeQueryDescriptor());
@@ -448,7 +448,6 @@ class IamWebMvcSliceTest {
                         .value(org.hamcrest.Matchers.contains("BOOLEAN")))
                 .andExpect(jsonPath("$.externalCriteria[0].key").value("departmentScope"));
 
-        verify(employeeService).verifyActiveTenant("tenant_a");
     }
 
     @Test

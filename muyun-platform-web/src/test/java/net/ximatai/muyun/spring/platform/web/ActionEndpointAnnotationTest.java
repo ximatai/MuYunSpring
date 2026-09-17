@@ -22,8 +22,12 @@ class ActionEndpointAnnotationTest {
     void shouldDescribeStandardCrudEndpointActionSemantics() throws Exception {
         assertThat(endpoint(CrudWeb.class, "query", WebQueryRequest.class).value()).isEqualTo(PlatformAction.QUERY);
         assertThat(endpoint(CrudWeb.class, "querySchema", String.class).value()).isEqualTo(PlatformAction.QUERY);
+        assertThat(CrudWeb.class.getMethod("querySchema", String.class)
+                .getAnnotation(ModuleDiscoveryEndpoint.class)).isNotNull();
         assertThat(endpoint(CrudWeb.class, "formSchema", String.class, String.class).value())
                 .isEqualTo(PlatformAction.VIEW);
+        assertThat(CrudWeb.class.getMethod("formSchema", String.class, String.class)
+                .getAnnotation(ModuleDiscoveryEndpoint.class)).isNotNull();
         assertThat(endpoint(CrudWeb.class, "view", String.class).value()).isEqualTo(PlatformAction.VIEW);
         assertThat(endpoint(CrudWeb.class, "insert", EntityContract.class).value()).isEqualTo(PlatformAction.CREATE);
         assertThat(endpoint(CrudWeb.class, "update", String.class, EntityContract.class).value()).isEqualTo(PlatformAction.UPDATE);
@@ -61,9 +65,30 @@ class ActionEndpointAnnotationTest {
                 HttpServletRequest.class, String.class, TreeSortWebRequest.class).value()).isEqualTo(PlatformAction.SORT);
         assertThat(endpoint(DynamicRecordWebController.class, "querySchema", String.class).value())
                 .isEqualTo(PlatformAction.QUERY);
+        assertThat(DynamicRecordWebController.class.getMethod("querySchema", String.class)
+                .getAnnotation(ModuleDiscoveryEndpoint.class)).isNotNull();
         assertThat(endpoint(DynamicRecordWebController.class, "reference", String.class,
                 WebReferenceResolveRequest.class).value())
                 .isEqualTo(PlatformAction.REFERENCE);
+    }
+
+    @Test
+    void shouldDescribeModuleRuntimeDiscoveryEndpointsWithoutChangingTheirActionPermissions() throws Exception {
+        Method menuContext = PlatformModuleRuntimeContextWebController.class.getMethod("context", String.class);
+        assertThat(endpoint(menuContext).value()).isEqualTo(PlatformAction.MENU);
+        assertThat(menuContext.getAnnotation(ModuleDiscoveryEndpoint.class)).isNotNull();
+
+        Method referenceContext = PlatformModuleReferenceRuntimeContextWebController.class
+                .getMethod("context", String.class);
+        assertThat(endpoint(referenceContext).value()).isEqualTo(PlatformAction.REFERENCE);
+        assertThat(referenceContext.getAnnotation(ModuleDiscoveryEndpoint.class)).isNotNull();
+
+        Method viewContext = PlatformModuleViewRuntimeContextWebController.class.getMethod("context", String.class);
+        assertThat(endpoint(viewContext).value()).isEqualTo(PlatformAction.VIEW);
+        assertThat(viewContext.getAnnotation(ModuleDiscoveryEndpoint.class)).isNotNull();
+
+        assertThat(StaticModuleOpenApiEndpoint.class.getMethod("openApi", HttpServletRequest.class)
+                .getAnnotation(ModuleDiscoveryEndpoint.class)).isNotNull();
     }
 
     @Test
@@ -129,6 +154,10 @@ class ActionEndpointAnnotationTest {
 
     private ActionEndpoint endpoint(Class<?> type, String methodName, Class<?>... parameterTypes) throws Exception {
         Method method = type.getMethod(methodName, parameterTypes);
+        return endpoint(method);
+    }
+
+    private ActionEndpoint endpoint(Method method) {
         return method.getAnnotation(ActionEndpoint.class);
     }
 

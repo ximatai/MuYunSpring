@@ -7,8 +7,6 @@ import net.ximatai.muyun.spring.platform.web.PlatformMenuGroups;
 import net.ximatai.muyun.spring.platform.module.PlatformStaticModule;
 import net.ximatai.muyun.spring.platform.web.ModuleUiDefinition;
 import net.ximatai.muyun.spring.platform.web.PageTemplates;
-import net.ximatai.muyun.spring.platform.web.PageNavigatorSingleResultPolicy;
-import net.ximatai.muyun.spring.platform.web.PageNavigatorSourceScope;
 import net.ximatai.muyun.spring.platform.web.StaticModuleUiContributor;
 import net.ximatai.muyun.spring.platform.web.StaticRecordReadProjectionService;
 import net.ximatai.muyun.spring.platform.web.StaticModuleOpenApi;
@@ -62,11 +60,7 @@ public class DepartmentWebController extends WebSupport<DepartmentService> imple
         return ModuleUiDefinition.builder(DepartmentService.MODULE_ALIAS)
                 .page(PageTemplates.treeManagement(page -> page
                 .navigator(navigator -> navigator
-                        .level("tenant", level -> level.microList("iam.tenant", "租户", "搜索租户")
-                                .sourceScope(PageNavigatorSourceScope.CURRENT_TENANT)
-                                .singleResultPolicy(PageNavigatorSingleResultPolicy.AUTO_SELECT_AND_HIDE))
                         .level("organization", level -> level.tree("iam.organization", "机构树", "搜索机构"))
-                        .bindNavigatorToNavigator("tenant", "organization", "tenantId")
                         .filterListByNavigator("organization", "organizationId")
                         .prefillFormFromNavigator("organization", "organizationId")
                         .bindNavigatorToPickerQuery("organization", "parentId", "organizationId"))

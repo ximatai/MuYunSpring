@@ -1,4 +1,4 @@
-import { computed, ref } from 'vue';
+import { computed, ref, type Ref } from 'vue';
 import { normalizeError, type AppError, type ModuleContext } from '@muyun/web-core';
 import type { UiConfirmOptions } from '@muyun/vue-ui-antdv';
 import {
@@ -67,8 +67,8 @@ export interface StaticCrudManagementOptions<TRecord extends StaticCrudRecord> {
 export function useFlatCrudManagementState<TRecord extends StaticCrudRecord>(
   options: StaticCrudManagementOptions<TRecord>,
 ) {
-  const selected = ref<TRecord>();
-  const draft = ref<TRecord>(options.emptyDraft());
+  const selected = ref<TRecord>() as Ref<TRecord | undefined>;
+  const draft = ref<TRecord>(options.emptyDraft()) as Ref<TRecord>;
   const mode = ref<StaticCrudCardMode>('view');
   const reloadKey = ref(0);
   const saving = ref(false);

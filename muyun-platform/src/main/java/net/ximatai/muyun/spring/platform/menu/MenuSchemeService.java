@@ -243,7 +243,11 @@ public class MenuSchemeService extends AbstractAbilityService<MenuScheme> implem
             throw new AuthenticationRequiredException("current user is required");
         }
         if (user.system()) {
-            return requireFirstEnabledScheme(MenuScopeType.SYSTEM, null, null);
+            // Navigation authorization belongs to the authenticated system principal,
+            // not to an optional business tenant selected for the request.  A system
+            // administrator may run tenant-scoped business data through a system menu;
+            // resolve that menu scheme outside the business tenant filter.
+            return requireFirstEnabledSystemScheme();
         }
         if (systemMenuSchemeAccessPolicy.canUseSystemMenuScheme(user)) {
             return requireFirstEnabledSystemScheme();

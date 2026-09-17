@@ -119,12 +119,16 @@ export function useModuleTreeContext<TRecord>(
   return moduleTreeContextOf<TRecord>(http, moduleAlias, options.runtimeAccess, options.navigatorReference);
 }
 
-/** An immutable transport boundary; remount it to begin a separate business data session. */
+/** New consumers capture the current immutable transport; existing contexts keep their original client. */
 export const ModuleHttpProvider = defineComponent({
   name: 'ModuleHttpProvider',
   props: { http: { type: Object as PropType<HttpClient>, required: true } },
   setup(props, { slots }) {
-    provideModuleContextConfig({ http: props.http });
+    provideModuleContextConfig({
+      get http() {
+        return props.http;
+      },
+    });
     provide(
       moduleContextKey,
       computed(() => undefined),

@@ -152,15 +152,17 @@ public interface CrudWeb<T extends EntityContract, S extends CrudAbility<T>>
 
     @GetMapping("/query/schema")
     @ActionEndpoint(PlatformAction.QUERY)
+    @ModuleDiscoveryEndpoint
     default QuerySchema querySchema(@RequestParam(required = false) String uiConfigId) {
-        return webScope(() -> CrudWebRuntimeSupport.querySchema(this, uiConfigId));
+        return CrudWebRuntimeSupport.querySchema(this, uiConfigId);
     }
 
     @GetMapping("/form/schema")
     @ActionEndpoint(PlatformAction.VIEW)
+    @ModuleDiscoveryEndpoint
     default FormSchema formSchema(@RequestParam(required = false) String resource,
                                   @RequestParam(required = false) String editorSurface) {
-        return webScope(() -> CrudWebRuntimeSupport.formSchema(this, resource, editorSurface));
+        return CrudWebRuntimeSupport.formSchema(this, resource, editorSurface);
     }
 
     /**

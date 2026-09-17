@@ -12,6 +12,7 @@ import net.ximatai.muyun.spring.web.NavigatorReferenceWeb;
 @RestController
 @PlatformStaticModule(application = net.ximatai.muyun.spring.platform.application.PlatformApplication.class,
         alias = MenuSchemeService.MODULE_ALIAS, title = "平台菜单方案")
+@StaticModuleTenantScopePolicy(requireActiveTenant = false)
 @StaticModuleOpenApi
 @RequestMapping("/platform.menu_scheme")
 public class MenuSchemeWebController extends net.ximatai.muyun.spring.web.WebSupport<MenuSchemeService>

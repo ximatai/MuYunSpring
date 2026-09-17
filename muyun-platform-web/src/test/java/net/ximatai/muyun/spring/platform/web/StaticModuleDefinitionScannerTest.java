@@ -292,6 +292,7 @@ class StaticModuleDefinitionScannerTest {
                     "iam.position_category", "iam.position", "iam.role", "iam.user",
                     "iam.password_policy_rule");
             assertThat(byAlias.get("iam.tenant")).satisfies(definition -> {
+                assertThat(definition.tenantRequired()).isFalse();
                 assertThat(definition.applicationAlias()).isEqualTo("iam");
                 assertThat(definition.title()).isEqualTo("租户管理");
                 assertThat(definition.actions()).extracting(StaticModuleActionDefinition::actionCode)
@@ -299,6 +300,7 @@ class StaticModuleDefinitionScannerTest {
                                 "sort", "enable", "disable", "recycleBinQuery", "recycleBinRestore", "reference");
             });
             assertThat(byAlias.get("iam.organization")).satisfies(definition -> {
+                assertThat(definition.tenantRequired()).isTrue();
                 assertThat(definition.actions()).extracting(StaticModuleActionDefinition::actionCode)
                         .doesNotContain("recycleBinQuery", "recycleBinRestore");
                 assertThat(definition.applicationAlias()).isEqualTo("iam");
@@ -310,6 +312,7 @@ class StaticModuleDefinitionScannerTest {
                                 "tree", "sort", "enable", "disable", "reference");
             });
             assertThat(byAlias.get("iam.department")).satisfies(definition -> {
+                assertThat(definition.tenantRequired()).isTrue();
                 assertThat(definition.applicationAlias()).isEqualTo("iam");
                 assertThat(definition.title()).isEqualTo("部门管理");
                 assertThat(definition.entryType()).isEqualTo(ModuleEntryType.MODULE);
@@ -319,6 +322,7 @@ class StaticModuleDefinitionScannerTest {
                                 "tree", "sort", "enable", "disable", "reference");
             });
             assertThat(byAlias.get("iam.employee")).satisfies(definition -> {
+                assertThat(definition.tenantRequired()).isTrue();
                 assertThat(definition.applicationAlias()).isEqualTo("iam");
                 assertThat(definition.title()).isEqualTo("职员管理");
                 assertThat(definition.entryType()).isEqualTo(ModuleEntryType.MODULE);
@@ -365,7 +369,7 @@ class StaticModuleDefinitionScannerTest {
                         });
                 assertThat(ModuleUiDescriptorCompiler.compile(definition).page().navigator().levels())
                         .extracting(ResolvedPageNavigatorLevelDescriptor::key)
-                        .containsExactly("tenant", "organization");
+                        .containsExactly("organization");
                 assertThat(ModuleUiDescriptorCompiler.compile(definition).page().navigator().contextBindings())
                         .contains(new ResolvedPageContextBindingDescriptor(PageContextSource.NAVIGATOR, "organization",
                                 PageContextTarget.LIST_QUERY, "organizationId", null));
@@ -394,6 +398,7 @@ class StaticModuleDefinitionScannerTest {
                         });
             });
             assertThat(byAlias.get("iam.position_category")).satisfies(definition -> {
+                assertThat(definition.tenantRequired()).isTrue();
                 assertThat(definition.applicationAlias()).isEqualTo("iam");
                 assertThat(definition.title()).isEqualTo("岗位分类");
                 assertThat(definition.entryType()).isEqualTo(ModuleEntryType.MODULE);
@@ -403,6 +408,7 @@ class StaticModuleDefinitionScannerTest {
                                 "tree", "sort", "enable", "disable", "reference");
             });
             assertThat(byAlias.get("iam.position")).satisfies(definition -> {
+                assertThat(definition.tenantRequired()).isTrue();
                 assertThat(definition.applicationAlias()).isEqualTo("iam");
                 assertThat(definition.title()).isEqualTo("岗位管理");
                 assertThat(definition.entryType()).isEqualTo(ModuleEntryType.MODULE);
@@ -413,7 +419,7 @@ class StaticModuleDefinitionScannerTest {
                 assertThat(definition.uiDefinition()).isNotNull();
                 assertThat(ModuleUiDescriptorCompiler.compile(definition).page().navigator().levels())
                         .extracting(ResolvedPageNavigatorLevelDescriptor::key)
-                        .containsExactly("tenant", "category");
+                        .containsExactly("category");
                 assertThat(ModuleUiDescriptorCompiler.compile(definition).page().navigator().levels())
                         .filteredOn(level -> level.key().equals("category"))
                         .singleElement()
@@ -424,6 +430,7 @@ class StaticModuleDefinitionScannerTest {
                         .containsExactly("categoryId", "code", "title", "description", "enabled");
             });
             assertThat(byAlias.get("iam.role")).satisfies(definition -> {
+                assertThat(definition.tenantRequired()).isFalse();
                 assertThat(definition.applicationAlias()).isEqualTo("iam");
                 assertThat(definition.title()).isEqualTo("角色管理");
                 assertThat(definition.entryType()).isEqualTo(ModuleEntryType.MODULE);
@@ -469,6 +476,7 @@ class StaticModuleDefinitionScannerTest {
                         });
             });
             assertThat(byAlias.get("iam.user")).satisfies(definition -> {
+                assertThat(definition.tenantRequired()).isFalse();
                 assertThat(definition.applicationAlias()).isEqualTo("iam");
                 assertThat(definition.moduleAlias()).isEqualTo("iam.user");
                 assertThat(definition.title()).isEqualTo("用户管理");
@@ -704,12 +712,14 @@ class StaticModuleDefinitionScannerTest {
                     .extracting(StaticModuleActionDefinition::actionCode)
                     .containsExactlyInAnyOrder("menu", "create", "view", "update", "delete", "query", "reference",
                             "sort", "enable", "disable");
+            assertThat(byAlias.get("platform.menu_scheme").tenantRequired()).isFalse();
             assertThat(byAlias.get("platform.menu_scheme").entryRoute()).isBlank();
             assertThat(byAlias.get("platform.menu_scheme").entities())
                     .extracting(EntityDefinition::alias)
                     .containsExactly("menu_scheme");
             assertThat(byAlias.get("platform.menu").sortPartitionFields())
                     .containsExactly("schemeId");
+            assertThat(byAlias.get("platform.menu").tenantRequired()).isFalse();
             ResolvedModuleUiDescriptor menuDescriptor =
                     ModuleUiDescriptorCompiler.compile(byAlias.get("platform.menu"));
             assertThat(menuDescriptor.page().template()).isEqualTo(ModulePageTemplate.TREE_MANAGEMENT);

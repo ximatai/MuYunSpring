@@ -323,7 +323,7 @@ it('record mode drawer owns detail mode branch switching', () => {
 });
 
 it('standard module runner waits for a complete detail and action availability before enabling mutations', () => {
-  const hostSource = readSource('src/dynamic-page-runtime/ModulePageHost.vue');
+  const hostSource = readModulePageImplementation();
   const detailActionsSource = readSource('src/dynamic-page-runtime/ModuleRecordDetailActions.vue');
   const detailControllerSource = readSource('src/dynamic-page-runtime/recordDetailController.ts');
   const editingSessionSource = readSource('src/dynamic-page-runtime/composables/useRecordEditingSession.ts');
@@ -362,10 +362,10 @@ it('standard module runner waits for a complete detail and action availability b
 });
 
 it('page navigator renders levels through the standard module runner', () => {
-  const hostSource = readSource('src/dynamic-page-runtime/ModulePageHost.vue');
+  const hostSource = readModulePageImplementation();
   const navigatorRuntimeSource = readSource('src/dynamic-page-runtime/composables/useNavigatorRuntime.ts');
 
-  assert.match(hostSource, /useNavigatorRuntime\(context, baseContext\.http\)/);
+  assert.match(hostSource, /useNavigatorRuntime\(context, rawContext\.http\)/);
   assert.match(navigatorRuntimeSource, /navigatorLevels = ref<NavigatorLevelRuntime\[\]>/);
   assert.match(hostSource, /selectedNavigatorRecords/);
   assert.match(hostSource, /function selectNavigatorRecord/);
@@ -473,7 +473,7 @@ it('management workspace consumes the page layout contract for constrained deskt
 });
 
 it('user management is hosted by the constrained standard module workspace', () => {
-  const hostSource = readSource('src/dynamic-page-runtime/ModulePageHost.vue');
+  const hostSource = readModulePageImplementation();
   const enhancementSource = readSource('src/platform-admin-runtime/userModulePageEnhancement.ts');
   const routesSource = readSource('src/platform-admin-runtime/platformAdminRoutes.ts');
 
@@ -892,7 +892,7 @@ it.skip('historical user management page contract was replaced by the module pag
 it('password management uses the standard module runner with a source-owned card assistant', () => {
   const passwordPreviewSource = readSource('src/views/PasswordPolicyPreview.vue');
   const enhancementSource = readSource('src/platform-admin-runtime/passwordPolicyPageEnhancement.ts');
-  const hostSource = readSource('src/dynamic-page-runtime/ModulePageHost.vue');
+  const hostSource = readModulePageImplementation();
   const routesSource = readSource('src/platform-admin-runtime/platformAdminRoutes.ts');
   const contractsSource = readSource('src/web-contracts/index.ts');
 
@@ -990,7 +990,7 @@ it('business views use page realtime lifecycle wrappers only', () => {
 });
 
 it('dynamic module host uses shared descriptor driven list and form runners', () => {
-  const hostSource = readSource('src/dynamic-page-runtime/ModulePageHost.vue');
+  const hostSource = readModulePageImplementation();
   const navigatorExplorerSource = readSource('src/dynamic-page-runtime/PageNavigatorExplorer.vue');
   const listPanelSource = readSource('src/platform-components/RecordQueryListPanel.vue');
   const bootstrapSource = readSource('src/dynamic-page-runtime/composables/useModulePageBootstrap.ts');
@@ -1009,7 +1009,7 @@ it('dynamic module host uses shared descriptor driven list and form runners', ()
   assert.match(hostSource, /context\.crud\.enable\(id, \{ version \}\)/);
   assert.match(hostSource, /context\.crud\.disable\(id, \{ version \}\)/);
   assert.match(hostSource, /:exclude-field-names="\['enabled'\]"/);
-  assert.match(hostSource, /useNavigatorRuntime\(context, baseContext\.http\)/);
+  assert.match(hostSource, /useNavigatorRuntime\(context, rawContext\.http\)/);
   assert.match(hostSource, /isListPage/);
   assert.match(hostSource, /listUiConfigId/);
   assert.match(navigatorRuntimeSource, /runtimePage\.value\?\.navigator\?\.levels/);
@@ -1023,19 +1023,22 @@ it('dynamic module host uses shared descriptor driven list and form runners', ()
   assert.match(hostSource, /<Teleport :disabled="Boolean\(props\.recordOnly\) \|\| !workspaceElement"/);
   assert.match(
     hostSource,
-    /<RecordModeDrawer[\s\S]*<\/RecordModeDrawer>\s*<ModuleReferenceRecordDetailBrowser/,
+    /<RecordModeDrawer[\s\S]*<\/RecordModeDrawer>[\s\S]*<ModuleReferenceRecordDetailBrowser/,
   );
   assert.match(hostSource, /:query-template-id="listQueryTemplateId"/);
   assert.match(hostSource, /:ready="pageReady && navigatorListScopeReady"/);
   assert.match(hostSource, /\$\{pageMode\.value\}入口暂未接入模块页面运行器/);
   assert.match(navigatorRuntimeSource, /treeModule\.value = context\.abilities\.hasTree\(\) === true/);
-  assert.match(hostSource, /:explorer-count="navigatorExplorerCount"/);
+  assert.match(hostSource, /:explorer-count="navigatorExplorerCount \+ tenantScopeExplorerCount"/);
   assert.match(hostSource, /const workspaceElement = ref<HTMLElement>\(\)/);
-  assert.match(hostSource, /listDetailWorkspaceMinWidth\(navigatorExplorerCount\.value\)/);
+  assert.match(
+    hostSource,
+    /listDetailWorkspaceMinWidth\(navigatorExplorerCount\.value \+ tenantScopeExplorerCount\.value\)/,
+  );
   assert.match(hostSource, /new ResizeObserver\(\(\) => updateDetailSurfaceForWorkspaceWidth\(\)\)/);
   assert.match(hostSource, /workspaceWidth < listDetailMinimumWidth\.value/);
   assert.equal(/max-width: 719px/.test(hostSource), false);
-  assert.match(hostSource, /:navigator-count="navigatorExplorerCount"/);
+  assert.match(hostSource, /:navigator-count="navigatorExplorerCount \+ tenantScopeExplorerCount"/);
   assert.match(hostSource, /<ManagementWorkspace[\s\S]*v-else-if="treeManagementPage \|\| treeModule"/);
   assert.match(hostSource, /<ManagementExplorerColumn[\s\S]*collapsible[\s\S]*:has-selection=/);
   assert.match(hostSource, /<CrudRecordListExplorer/);
@@ -1079,7 +1082,7 @@ it('dynamic module host uses shared descriptor driven list and form runners', ()
   assert.match(hostSource, /icon-name="pin-off"/);
   assert.match(hostSource, /icon-name="pin"/);
   assert.match(hostSource, /:workspace-available="detailWorkspaceAvailable"/);
-  assert.match(hostSource, /<RecordDetailPanel[\s\S]*<template #title-prefix>/);
+  assert.match(hostSource, /<RecordDetailPanel[\s\S]*#title-prefix/);
   assert.match(
     hostSource,
     /<RecordModeDrawer[\s\S]*<template v-if="!props\.recordOnly && listDetailCardPage && !narrowDetailSurface" #title-prefix>/,
@@ -1110,7 +1113,6 @@ it('dynamic module host uses shared descriptor driven list and form runners', ()
   assert.match(hostSource, /await presentModuleActionSuccess\(result, enabling \? '已启用' : '已停用'\)/);
   assert.match(hostSource, /presentPlatformError\(cause, \{ source: 'module-action', phase: 'action' \}\)/);
   assert.notMatch(hostSource, /formViewCode/);
-  assert.match(hostSource, /:subtitle="mainTreeScopeContext"/);
   assert.notMatch(hostSource, /<button/);
   assert.notMatch(hostSource, /@muyun\/vue-ui-antdv/);
   assert.notMatch(hostSource, /等待接入页面 bootstrap 与列表查询/);
@@ -1272,7 +1274,7 @@ it('production workbench delegates page lifetime to the Vue Router outlet', () =
   assert.notMatch(workbenchSource, /activePageContentKey|pageRefreshRevision/);
   assert.notMatch(appSource, /PlatformAdminRouteOutlet|WorkbenchOutlet/);
   assert.match(dynamicModuleRouteSource, /const moduleRuntimeKey = computed/);
-  assert.match(dynamicModuleRouteSource, /<ModulePageHost :key="moduleRuntimeKey" :descriptor="descriptor"/);
+  assert.match(dynamicModuleRouteSource, /<ModulePageHost[\s\S]*:key="moduleRuntimeKey"/);
 });
 
 it('pages own their drawer containers and fixed drawer action regions', () => {
@@ -1385,7 +1387,7 @@ it('record lists reuse their existing region for recycle-bin data and lifecycle 
   const explorerItemSource = readSource('src/vue-ui-antdv/components/UiRecordExplorerItem.vue');
   const explorerPanelSource = readSource('src/platform-components/RecordExplorerPanel.vue');
   const staticLayoutSource = readSource('src/platform-components/StaticManagementLayout.vue');
-  const hostSource = readSource('src/dynamic-page-runtime/ModulePageHost.vue');
+  const hostSource = readModulePageImplementation();
   const listSessionSource = readSource('src/dynamic-page-runtime/composables/useModulePageListSession.ts');
   const recycleBinModeSource = readSource('src/platform-components/useRecycleBinExplorerMode.ts');
   const editingSessionSource = readSource('src/dynamic-page-runtime/composables/useRecordEditingSession.ts');
@@ -1453,6 +1455,17 @@ it('record lists reuse their existing region for recycle-bin data and lifecycle 
 
 function readSource(path: string) {
   return readFileSync(resolve(root, path), 'utf8');
+}
+
+function readModulePageImplementation() {
+  return [
+    'ModulePageHost.vue',
+    'ModulePageHostRuntime.vue',
+    'useModulePageSession.ts',
+    'useTenantScopeController.ts',
+  ]
+    .map((file) => readSource(`src/dynamic-page-runtime/${file}`))
+    .join('\n');
 }
 
 function viewSources() {

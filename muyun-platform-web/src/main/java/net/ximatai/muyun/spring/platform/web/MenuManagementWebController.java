@@ -18,6 +18,7 @@ import java.util.List;
 @RestController
 @PlatformStaticModule(application = net.ximatai.muyun.spring.platform.application.PlatformApplication.class,
         alias = MenuService.MODULE_ALIAS, title = "菜单管理")
+@StaticModuleTenantScopePolicy(requireActiveTenant = false)
 @StaticModuleOpenApi
 @PlatformMenu(parent = PlatformMenuGroups.SETTINGS, title = "菜单管理", order = 10)
 @RequestMapping("/platform.menu")

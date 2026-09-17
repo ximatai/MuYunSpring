@@ -30,6 +30,7 @@ import net.ximatai.muyun.spring.platform.web.NavigatorListQueryMode;
 import net.ximatai.muyun.spring.platform.web.PageContextScopePolicy;
 import net.ximatai.muyun.spring.platform.web.PageTemplates;
 import net.ximatai.muyun.spring.platform.web.StaticModuleUiContributor;
+import net.ximatai.muyun.spring.platform.web.StaticModuleTenantScopePolicy;
 import net.ximatai.muyun.spring.platform.web.StaticModuleWebControllerAdapter;
 import net.ximatai.muyun.spring.platform.web.StaticRecordReadProjectionService;
 import net.ximatai.muyun.spring.dynamic.metadata.ViewControlType;
@@ -74,6 +75,7 @@ import java.util.stream.Collectors;
 @RestController
 @PlatformStaticModule(application = net.ximatai.muyun.spring.iam.application.IamApplication.class,
         alias = "iam.user", title = "用户管理")
+@StaticModuleTenantScopePolicy(requireActiveTenant = false)
 @StaticModuleOpenApi
 @PlatformMenu(parent = PlatformMenuGroups.IDENTITY, order = 60)
 @RequestMapping("/iam.user")

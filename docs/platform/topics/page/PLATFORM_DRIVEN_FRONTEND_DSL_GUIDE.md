@@ -11,7 +11,7 @@
 | 情况                                           | 推荐方式                                                        | 原因                                                 |
 | ---------------------------------------------- | --------------------------------------------------------------- | ---------------------------------------------------- |
 | 标准 CRUD、字段展示、启停、回收站、引用选择    | 页面 DSL + traits                                               | 平台已经拥有保存、权限、租户、审计、校验和交互闭环。 |
-| 按组织、租户、分类等范围筛选的标准列表         | 页面 DSL 的 navigator 和 context binding                        | 范围、查询和新建预填仍走标准链路。                   |
+| 按组织、分类等业务范围筛选的标准列表         | 页面 DSL 的 navigator 和 context binding                        | 范围、查询和新建预填仍走标准链路。                   |
 | 树形资源、列表详情、平铺管理页                 | `PageTemplates` 选择页面骨架                                    | 避免业务自行拼三栏布局、抽屉和列表状态。             |
 | 子资源或标准关联明细                           | `relation(...)`、`editorContribution` | 关系身份、父子约束、权限和保存语义由平台治理。       |
 | 额外状态列、只读会话明细、密码管理等领域特性   | `ModulePageEnhancement` 受控扩展                                | 标准页面保留所有权，业务只在命名边界注入内容。       |
@@ -120,16 +120,15 @@ private String moduleAlias;
 
 ```java
 .navigator(navigator -> navigator
-        .level("tenant", level -> level
-                .microList("iam.tenant", "租户", "搜索租户")
-                .sourceScope(PageNavigatorSourceScope.CURRENT_TENANT)
-                .singleResultPolicy(PageNavigatorSingleResultPolicy.AUTO_SELECT_AND_HIDE))
         .level("organization", level -> level
                 .tree("iam.organization", "机构树", "搜索机构"))
-        .bindNavigatorToNavigator("tenant", "organization", "tenantId")
         .filterListByNavigator("organization", "organizationId")
         .prefillFormFromNavigator("organization", "organizationId"))
 ```
+
+普通租户业务的租户选择由标准页面宿主提供，不在业务 DSL 中重复声明租户导航、租户到机构的绑定或租户表单默认值。宿主依据模块的租户作用域契约，在业务导航左侧复用标准列表面板；机构树、列表、引用和写操作继承同一页面实例的租户作用域。静态页面、动态页面和治理中的业务预览遵守同一规则。
+
+租户身份使用登录租户并隐藏租户列表；系统身份展示可访问租户，只有一个候选时自动选中并保留列表。租户选择不改变登录身份，也不改变其他已打开页面的作用域。系统资源和明确的跨范围治理页面保持各自声明的作用域，不能把未选择租户当成“全部租户”。
 
 常用选择：
 

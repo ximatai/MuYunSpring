@@ -1,4 +1,4 @@
-import { computed, ref } from 'vue';
+import { computed, ref, type Ref } from 'vue';
 import { webDataChangeTypes, type WebDataChange } from '@muyun/web-contracts';
 
 export interface RecordEditorSessionOptions<TRecord, TMode extends string> {
@@ -25,9 +25,9 @@ export interface RecordExternalChangeOptions {
 export function createRecordEditorSessionState<TRecord, TMode extends string>(
   options: RecordEditorSessionOptions<TRecord, TMode>,
 ) {
-  const selected = ref<TRecord>();
-  const draft = ref<TRecord>(options.emptyDraft());
-  const mode = ref<TMode>(options.viewMode);
+  const selected = ref<TRecord>() as Ref<TRecord | undefined>;
+  const draft = ref<TRecord>(options.emptyDraft()) as Ref<TRecord>;
+  const mode = ref<TMode>(options.viewMode) as Ref<TMode>;
   const externalChangedRecordId = ref<string>();
   const copyRecord = options.copyRecord ?? ((record: TRecord) => ({ ...record }) as TRecord);
   const recordIdOf = options.recordIdOf ?? defaultRecordIdOf;

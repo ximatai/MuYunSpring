@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import { usePageDescriptor, usePageRoute } from '../app/pageRouteContext';
-import { ModulePageHost } from '@muyun/dynamic-page-runtime';
 import type { MenuPageMode, ModulePageDescriptor } from '@muyun/web-contracts';
+import { ModulePageHost } from '@muyun/dynamic-page-runtime';
 
 const route = usePageRoute();
 const restoredDescriptor = usePageDescriptor();
@@ -46,9 +46,9 @@ const descriptor = computed<ModulePageDescriptor>(() => {
     tabPolicy: { identity: 'by-menu', closable: true, cacheable: true },
   };
 });
-// ModulePageHost creates module-scoped transport clients in setup. Route
-// transitions can update this descriptor before an outer cached page host has
-// deactivated, so its identity must include the resolved module and route.
+// The page runtime owns the optional tenant-scoped transport. Route transitions can update
+// this descriptor before an outer cached page host has deactivated, so its identity must include
+// the resolved module and route.
 const moduleRuntimeKey = computed(
   () =>
     `${descriptor.value.target.moduleAlias}:${descriptor.value.menuId ?? ''}:${route.value.path}:${JSON.stringify(route.value.query)}`,

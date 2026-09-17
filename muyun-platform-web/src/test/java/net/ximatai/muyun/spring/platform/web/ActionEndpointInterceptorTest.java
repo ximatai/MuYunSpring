@@ -698,6 +698,77 @@ class ActionEndpointInterceptorTest {
     }
 
     @Test
+    void shouldRequireTheResolvedModuleTenantScopeAfterAuthorizingAnAction() throws Exception {
+        ModuleTenantScope tenantScope = mock(ModuleTenantScope.class);
+        ActionExecutionPolicyService policy = mock(ActionExecutionPolicyService.class);
+        ActionAuthorizationResult authorization = ActionAuthorizationResult.allowed(
+                ActionExecutionContext.ofPlatformAction("iam.organization", PlatformAction.QUERY,
+                        java.util.Set.of(), java.util.Optional.empty()), "TEST_ALLOWED");
+        when(policy.authorize(org.mockito.ArgumentMatchers.any(ActionExecutionContext.class))).thenReturn(authorization);
+        ActionEndpointInterceptor scopedInterceptor = new ActionEndpointInterceptor(
+                policy, new ActionEndpointContextResolver(), null, null, null, tenantScope);
+        MockHttpServletRequest request = new MockHttpServletRequest("POST", "/iam.organization/query");
+
+        scopedInterceptor.preHandle(request, new MockHttpServletResponse(),
+                handler(new StaticScopedWeb(), CrudWeb.class.getMethod("query", WebQueryRequest.class)));
+
+        org.mockito.InOrder inOrder = org.mockito.Mockito.inOrder(policy, tenantScope);
+        inOrder.verify(policy).authorize(org.mockito.ArgumentMatchers.any(ActionExecutionContext.class));
+        inOrder.verify(tenantScope).requireActiveTenantIfRequired("iam.organization");
+    }
+
+    @Test
+    void shouldPreserveAuthenticationFailureBeforeResolvingModuleTenantScope() throws Exception {
+        ModuleTenantScope tenantScope = mock(ModuleTenantScope.class);
+        ActionExecutionPolicyService policy = mock(ActionExecutionPolicyService.class);
+        when(policy.authorize(org.mockito.ArgumentMatchers.any(ActionExecutionContext.class)))
+                .thenThrow(new net.ximatai.muyun.spring.common.exception.AuthenticationRequiredException("login required"));
+        ActionEndpointInterceptor scopedInterceptor = new ActionEndpointInterceptor(
+                policy, new ActionEndpointContextResolver(), null, null, null, tenantScope);
+
+        assertThatThrownBy(() -> scopedInterceptor.preHandle(new MockHttpServletRequest("POST", "/iam.organization/query"),
+                new MockHttpServletResponse(),
+                handler(new StaticScopedWeb(), CrudWeb.class.getMethod("query", WebQueryRequest.class))))
+                .isInstanceOf(net.ximatai.muyun.spring.common.exception.AuthenticationRequiredException.class)
+                .satisfies(exception -> assertThat(((PlatformException) exception).httpStatus()).isEqualTo(401));
+
+        verify(tenantScope, never()).requireActiveTenantIfRequired("iam.organization");
+    }
+
+    @Test
+    void shouldLeaveModuleDiscoveryEndpointsAvailableBeforeTenantSelection() throws Exception {
+        ModuleTenantScope tenantScope = mock(ModuleTenantScope.class);
+        ActionEndpointInterceptor scopedInterceptor = new ActionEndpointInterceptor(
+                policyService, new ActionEndpointContextResolver(), null, null, null, tenantScope);
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/iam.organization/query/schema");
+
+        scopedInterceptor.preHandle(request, new MockHttpServletResponse(),
+                handler(new StaticScopedWeb(), CrudWeb.class.getMethod("querySchema", String.class)));
+
+        verify(tenantScope, never()).requireActiveTenantIfRequired("iam.organization");
+        assertThat(policyService.context).isNotNull();
+    }
+
+    @Test
+    void shouldAuthorizeReferenceContextAsReferenceWhileLeavingTenantSelectionToThePage() throws Exception {
+        ModuleTenantScope tenantScope = mock(ModuleTenantScope.class);
+        ActionEndpointInterceptor scopedInterceptor = new ActionEndpointInterceptor(
+                policyService, new ActionEndpointContextResolver(), null, null, null, tenantScope);
+        PlatformModuleRuntimeContextService runtimeContexts = mock(PlatformModuleRuntimeContextService.class);
+        MockHttpServletRequest request = new MockHttpServletRequest("GET",
+                "/platform.module/iam.organization/reference-context");
+        request.setAttribute(HandlerMapping.URI_TEMPLATE_VARIABLES_ATTRIBUTE, Map.of("moduleAlias", "iam.organization"));
+
+        scopedInterceptor.preHandle(request, new MockHttpServletResponse(),
+                handler(new PlatformModuleReferenceRuntimeContextWebController(runtimeContexts),
+                        PlatformModuleReferenceRuntimeContextWebController.class.getMethod("context", String.class)));
+
+        assertThat(policyService.context).extracting(ActionExecutionContext::platformAction)
+                .isEqualTo(PlatformAction.REFERENCE);
+        verify(tenantScope, never()).requireActiveTenantIfRequired("iam.organization");
+    }
+
+    @Test
     void shouldRejectEndpointMethodWithBothStandardAndCustomActionAnnotations() throws Exception {
         MockHttpServletRequest request = new MockHttpServletRequest("POST", "/iam.organization/invalid");
 

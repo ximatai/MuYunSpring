@@ -22,6 +22,7 @@ public class StaticModuleOpenApiEndpoint {
     }
 
     @ActionEndpoint(PlatformAction.VIEW)
+    @ModuleDiscoveryEndpoint
     @ResponseBody
     public Map<String, Object> openApi(HttpServletRequest request) {
         String requestPath = request.getRequestURI().substring(request.getContextPath().length());

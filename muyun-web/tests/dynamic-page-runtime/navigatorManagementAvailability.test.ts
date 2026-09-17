@@ -43,7 +43,7 @@ describe('navigator management availability', () => {
 
 function modulePageHostSource() {
   return readFileSync(
-    resolve(import.meta.dirname, '../../src/dynamic-page-runtime/ModulePageHost.vue'),
+    resolve(import.meta.dirname, '../../src/dynamic-page-runtime/useModulePageSession.ts'),
     'utf8',
   );
 }

@@ -42,7 +42,10 @@ public class DynamicActionExecutorContributionRegistrar implements PlatformBoots
 
     @Override
     public int order() {
-        return 20;
+        // Dynamic modules may be supplied by an application bootstrap fixture (for example the
+        // school demo). Register code-owned actions only after those module declarations and
+        // their page baselines have settled, then refresh the runtime projection once.
+        return 230;
     }
 
     private void register(DynamicActionExecutor executor) {
