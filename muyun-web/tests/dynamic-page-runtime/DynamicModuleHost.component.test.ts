@@ -14,7 +14,10 @@ describe('ModulePageHost', () => {
     // The standard host teleports only its inline layer back into the workspace.
     // Keep that layer in this component wrapper so existing behavioral assertions
     // observe the same Host contract rather than browser placement details.
-    config.global.stubs.Teleport = { template: '<slot />' };
+    // Teleport receives its native `to` and `disabled` attributes.  This stub
+    // intentionally ignores them while preserving the inline layer for host
+    // assertions; otherwise Vue prints the full runtime session for every mount.
+    config.global.stubs.Teleport = defineComponent({ inheritAttrs: false, template: '<slot />' });
     // Mount the public Host's internal session and stable renderer while the
     // test-specific leaf stubs keep the interaction surface focused.
     config.global.stubs.ModulePageBusinessSession = false;
