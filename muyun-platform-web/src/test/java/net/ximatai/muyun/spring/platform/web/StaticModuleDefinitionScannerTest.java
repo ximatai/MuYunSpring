@@ -465,7 +465,7 @@ class StaticModuleDefinitionScannerTest {
                             assertThat(view.fields()).extracting(field -> field.fieldRef().fieldName())
                                     .containsExactly("title", "assignmentType", "roleKind", "memberRoleIds",
                                             "ownerScopeType", "ownerScopeId", "sharePolicy", "description",
-                                            "enabled", "sortOrder");
+                                            "enabled");
                             assertThat(view.fields()).filteredOn(field -> field.fieldRef().fieldName().equals("ownerScopeType"))
                                     .singleElement()
                                     .satisfies(field -> {

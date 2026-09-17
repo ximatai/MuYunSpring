@@ -42,7 +42,7 @@ import {
   type ModuleContext,
 } from '@muyun/web-core';
 import { presentPlatformError, presentPlatformMessage } from './platformErrorFeedback';
-import { WORKSPACE_NAVIGATION_DISABLED } from './managementWorkspaceContext';
+import { useWorkspaceSortActivity, WORKSPACE_NAVIGATION_DISABLED } from './managementWorkspaceContext';
 import RecordActionBar from './RecordActionBar.vue';
 import RecordQueryListCell from './RecordQueryListCell.vue';
 import RecordQueryListSurface from './RecordQueryListSurface.vue';
@@ -69,6 +69,7 @@ import {
 } from './recordQueryListColumnModel';
 import { reconcileSelectedKeys } from './selectionRefresh';
 import { loadOptionFieldItems } from './optionFieldOptionCache';
+import { sortPartitionKey } from './sortPartitionKey';
 
 const navigationDisabled = inject(
   WORKSPACE_NAVIGATION_DISABLED,
@@ -144,6 +145,8 @@ const props = withDefaults(
     queryable?: boolean;
     /** A relation query can intentionally be a bounded, non-pageable result. */
     pageable?: boolean;
+    /** Opts a standard, paginated flat list into the platform's relative sort interaction. */
+    sortable?: boolean;
     ready?: boolean;
     externalQueryValues?: Record<string, unknown>;
     /** Descriptor-owned controls rendered after quick search and before advanced filtering. */
@@ -194,6 +197,7 @@ const props = withDefaults(
     referencePickerOf: undefined,
     queryable: true,
     pageable: true,
+    sortable: false,
     ready: true,
     externalQueryValues: undefined,
     querySummaries: () => [],
@@ -237,6 +241,9 @@ const slots = defineSlots<{
 }>();
 
 const loading = ref(false);
+const sorting = ref(false);
+const sortingRequest = ref(false);
+useWorkspaceSortActivity(sortingRequest);
 const schema = ref<QuerySchema>();
 const records = ref<QueryListRecord[]>([]);
 const recycleBinItems = new Map<string, RecycleBinItem<QueryListRecord>>();
@@ -372,8 +379,34 @@ const effectiveExternalQueryValues = computed(() => ({
   ...persistentExternalQueryValues.value,
   ...(props.externalQueryValues ?? {}),
 }));
+const sortingSupported = computed(
+  () => props.sortable && props.mode === 'normal' && queryReady.value && props.context.can('sort') === true,
+);
+const hasClientOwnedQueryCriteria = computed(
+  () =>
+    quickSearchKeyword.value.trim().length > 0 ||
+    appliedQuickSearch.value.trim().length > 0 ||
+    conditionCount.value > 0 ||
+    persistentExternalQueryControls.value.some((control) => persistentQueryValue(control)) ||
+    persistentFieldCriteria().length > 0,
+);
+const sortingToggleDisabled = computed(
+  () =>
+    !sortingSupported.value ||
+    loading.value ||
+    sortingRequest.value ||
+    (!sorting.value && hasClientOwnedQueryCriteria.value),
+);
+const sortingToggleTitle = computed(() => {
+  if (sorting.value) return '结束排序';
+  if (hasClientOwnedQueryCriteria.value) return '清空搜索和筛选后可调整排序';
+  return '调整排序';
+});
+const sortingRowDragEnabled = computed(
+  () => sorting.value && !loading.value && !sortingRequest.value && props.mode === 'normal',
+);
 const panelActions = computed<RecordActionItem[]>(() => {
-  if (props.mode === 'recycleBin') {
+  if (props.mode === 'recycleBin' || sorting.value) {
     return [];
   }
   let base: RecordActionItem[];
@@ -397,13 +430,13 @@ const panelActions = computed<RecordActionItem[]>(() => {
   return mergeRecordActions(base, props.extraActions);
 });
 const batchActionItems = computed<RecordActionItem[]>(() =>
-  props.batchActions.map((action) => ({
+  (sorting.value ? [] : props.batchActions).map((action) => ({
     ...action,
     disabled: action.disabled === true || selectedRowKeys.value.length === 0,
   })),
 );
 const selection = computed<UiDataTableSelection | undefined>(() =>
-  props.batchActions.length > 0
+  !sorting.value && props.batchActions.length > 0
     ? {
         selectedRowKeys: selectedRowKeys.value,
         preserveSelectedRowKeys: false,
@@ -415,6 +448,7 @@ const selection = computed<UiDataTableSelection | undefined>(() =>
 );
 const hasRowActions = computed(
   () =>
+    !sorting.value &&
     props.rowActionsVisible &&
     ((props.mode === 'recycleBin' &&
       (props.context.can('recycleBinRestore') === true || props.context.can('recycleBinPurge') === true)) ||
@@ -506,6 +540,7 @@ watch(
 watch(
   () => props.mode,
   () => {
+    sorting.value = false;
     pageNum.value = 1;
     void loadRecords();
   },
@@ -740,7 +775,7 @@ function buildQueryRequest(): WebQueryRequest {
   const quickSearch = appliedQuickSearch.value.trim();
   const request: WebQueryRequest = {
     page: { pageNum: pageNum.value, pageSize: pageSize.value },
-    sorts: defaultSorts(),
+    sorts: sorting.value ? [{ field: 'sortOrder', desc: false }] : defaultSorts(),
   };
   const criteriaChildren = [...persistentFieldCriteria(), ...activeCriteriaChildren()];
   if (criteriaChildren.length > 0) {
@@ -1135,6 +1170,79 @@ function handleTableRowExpand(row: QueryListRow, expanded: boolean) {
   emit('rowExpand', row.record, expanded);
 }
 
+function toggleSorting() {
+  if (sortingToggleDisabled.value) return;
+  sorting.value = !sorting.value;
+  void loadRecords();
+}
+
+/**
+ * Uses only the visible page as the interaction window. The API receives the new immediate
+ * neighbors, so it can place a record at a page boundary without the browser loading the scope.
+ */
+async function handleRowDrop(event: {
+  source: QueryListRow;
+  target: QueryListRow;
+  position: 'before' | 'after';
+}) {
+  if (!sortingRowDragEnabled.value) return;
+  const source = event.source.record;
+  const target = event.target.record;
+  const sourceId = sortRecordId(source);
+  const targetId = sortRecordId(target);
+  if (!sourceId || !targetId || sourceId === targetId) return;
+
+  const partition = sortPartitionOf(source);
+  if (partition === undefined || partition !== sortPartitionOf(target)) {
+    presentPlatformMessage('只能在同一归属范围内调整排序', { phase: 'validation' });
+    return;
+  }
+
+  const reordered = records.value.filter((record) => sortPartitionOf(record) === partition);
+  const sourceIndex = reordered.findIndex((record) => sortRecordId(record) === sourceId);
+  const targetIndex = reordered.findIndex((record) => sortRecordId(record) === targetId);
+  if (sourceIndex < 0 || targetIndex < 0 || sourceIndex === targetIndex) return;
+
+  const [moving] = reordered.splice(sourceIndex, 1);
+  const adjustedTargetIndex = reordered.findIndex((record) => sortRecordId(record) === targetId);
+  reordered.splice(event.position === 'before' ? adjustedTargetIndex : adjustedTargetIndex + 1, 0, moving);
+  const movedIndex = reordered.indexOf(moving);
+  if (movedIndex === sourceIndex) return;
+
+  sortingRequest.value = true;
+  const context = props.context;
+  try {
+    await context.runtime.ready;
+    const sort = context.abilities.crud().sort;
+    if (!sort) return;
+    await sort(sourceId, {
+      previousId: sortRecordId(reordered[movedIndex - 1]) ?? null,
+      nextId: sortRecordId(reordered[movedIndex + 1]) ?? null,
+    });
+    if (context !== props.context) return;
+    await loadRecords();
+  } catch (cause) {
+    presentPlatformError(cause, { source: 'record-query-list-panel', phase: 'action' });
+  } finally {
+    sortingRequest.value = false;
+  }
+}
+
+function sortPartitionOf(record: QueryListRecord) {
+  const runtime = props.context.runtime.snapshot?.();
+  if (!runtime) return undefined;
+  const fields = runtime.sortPartitionFields ?? [];
+  const values = record as Record<string, unknown>;
+  if (fields.some((field) => !Object.prototype.hasOwnProperty.call(values, field))) return undefined;
+  return sortPartitionKey(fields.map((field) => values[field]));
+}
+
+function sortRecordId(record: QueryListRecord | undefined) {
+  if (record?.id === undefined || record.id === null) return undefined;
+  const id = String(record.id).trim();
+  return id || undefined;
+}
+
 function submitQuickSearch(value = quickSearchKeyword.value) {
   quickSearchKeyword.value = value;
   appliedQuickSearch.value = value;
@@ -1213,7 +1321,7 @@ defineExpose({ clearSelection, refresh });
     :title-action-icon="showTitle && refreshable ? 'reload' : undefined"
     :title-action-title="showTitle ? (refreshTitle ?? `刷新${title}`) : undefined"
     :title-action-disabled="queryActionsDisabled"
-    :quick-search-visible="quickSearchEnabled"
+    :quick-search-visible="!sorting && quickSearchEnabled"
     :quick-search-value="quickSearchKeyword"
     :quick-search-placeholder="quickSearchPlaceholder"
     :quick-search-disabled="quickSearchDisabled"
@@ -1230,6 +1338,9 @@ defineExpose({ clearSelection, refresh });
     :show-action-column="hasRowActions"
     :action-column-title="rowActionsTitle"
     :action-column-width="actionColumnWidth"
+    :row-draggable="sortingRowDragEnabled"
+    row-drag-handle-title="拖拽调整排序"
+    :conditions-visible="!sorting"
     :table-visible="!loading && queryReady && !descriptorLoadError && !recordsLoadError && records.length > 0"
     :pageable="pageable"
     :total="total"
@@ -1238,13 +1349,16 @@ defineExpose({ clearSelection, refresh });
     :pages="pages"
     :page-size="pageSize"
     :page-size-options="pageSizeOptions"
-    :pagination-disabled="queryActionsDisabled"
+    :pagination-disabled="queryActionsDisabled || sortingRequest"
     @title-action="refresh"
     @update:quick-search-value="handleQuickSearchInput"
     @quick-search="submitQuickSearch"
     @row-click="handleTableRowClick($event as QueryListRow)"
     @row-dblclick="(row, event) => handleTableRowDblclick(row as QueryListRow, event)"
     @row-expand="(row, expanded) => handleTableRowExpand(row as QueryListRow, expanded)"
+    @row-drop="
+      handleRowDrop($event as { source: QueryListRow; target: QueryListRow; position: 'before' | 'after' })
+    "
     @page-change="goPage"
     @page-size-change="handlePageSizeChange"
   >
@@ -1271,9 +1385,20 @@ defineExpose({ clearSelection, refresh });
         size="compact"
         @action="(action, event) => handleBatchAction(action, event)"
       />
+      <UiButton
+        v-if="sortingSupported"
+        class="record-query-list-sorting-toggle"
+        :class="{ 'is-selected': sorting }"
+        type="text"
+        icon-name="swap-vertical"
+        :disabled="sortingToggleDisabled"
+        :title="sortingToggleTitle"
+        :aria-label="sortingToggleTitle"
+        @click="toggleSorting"
+      />
       <slot name="toolbarActions" :refresh="refresh" />
     </template>
-    <template #persistentQueries>
+    <template v-if="!sorting" #persistentQueries>
       <UiCheckbox
         v-for="control in persistentExternalQueryControls"
         :key="control.id"
@@ -1319,7 +1444,7 @@ defineExpose({ clearSelection, refresh });
         </UiButton>
       </div>
     </template>
-    <template #queryControls>
+    <template v-if="!sorting" #queryControls>
       <UiButton
         v-if="advancedCriteriaVisible"
         class="record-query-list-advanced"
@@ -1469,6 +1594,11 @@ defineExpose({ clearSelection, refresh });
 <style scoped>
 .record-query-list-panel[inert] {
   opacity: 0.55;
+}
+
+.record-query-list-sorting-toggle.is-selected {
+  background: var(--muyun-selected);
+  color: var(--muyun-theme-base);
 }
 
 .record-query-condition-actions {

@@ -13,6 +13,7 @@ vi.mock('@muyun/vue-ui-antdv', async (importOriginal) => ({
 
 const roleList = {
   name: 'RecordQueryListPanel',
+  props: ['sortable'],
   emits: ['action'],
   template: '<button data-testid="create-role" @click="$emit(\'action\', { key: \'create\' })">新建</button>',
 };
@@ -148,6 +149,15 @@ describe('RoleManagementView create draft dismissal', () => {
       path: '/iam.role/view/tenant_admin_2a97516c354b6884',
       selection: JSON.stringify({ kind: 'roleScope', key: 'tenant:demo' }),
     });
+    wrapper.unmount();
+  });
+
+  it('opts the scoped role list into platform drag sorting instead of exposing a manual order field', async () => {
+    const { wrapper } = mountRoleManagement();
+    await flushPromises();
+    await flushPromises();
+
+    expect(wrapper.findComponent(roleList).props('sortable')).toBe(true);
     wrapper.unmount();
   });
 });

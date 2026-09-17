@@ -823,6 +823,7 @@ describe('ModulePageHost', () => {
       expect.objectContaining({ key: 'conversation', actionCode: 'crm.customer.conversation' }),
     ]);
     expect(panel.props('pageSize')).toBe(20);
+    expect(panel.props('sortable')).toBe(true);
     panel.vm.$emit('pageSizeChange', 50);
     await flushPromises();
     expect(panel.props('pageSize')).toBe(50);

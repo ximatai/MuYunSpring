@@ -6,7 +6,6 @@ import net.ximatai.muyun.spring.common.identity.CurrentUser;
 import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
 import net.ximatai.muyun.spring.common.option.OptionSelectionMode;
 import net.ximatai.muyun.spring.common.tenant.TenantContext;
-import net.ximatai.muyun.spring.common.platform.PlatformAction;
 import net.ximatai.muyun.spring.demo.school.classroom.ClassMember;
 import net.ximatai.muyun.spring.demo.school.classroom.Classroom;
 import net.ximatai.muyun.spring.demo.school.classroom.ClassroomService;
@@ -30,9 +29,7 @@ import net.ximatai.muyun.spring.platform.metadata.ModuleMetadataRelation;
 import net.ximatai.muyun.spring.platform.metadata.ModuleMetadataRelationService;
 import net.ximatai.muyun.spring.platform.metadata.RelationRole;
 import net.ximatai.muyun.spring.platform.module.ModuleKind;
-import net.ximatai.muyun.spring.platform.module.ModuleActionContribution;
-import net.ximatai.muyun.spring.platform.module.ModuleActionContributionRegistrar;
-import net.ximatai.muyun.spring.platform.module.ModuleActionSourceType;
+import net.ximatai.muyun.spring.platform.module.DynamicModuleStandardActionRegistrar;
 import net.ximatai.muyun.spring.platform.module.PlatformModule;
 import net.ximatai.muyun.spring.platform.module.PlatformModuleService;
 import net.ximatai.muyun.spring.platform.runtime.PlatformBootstrapTask;
@@ -70,7 +67,7 @@ public class ExamDemoBootstrapTask implements PlatformBootstrapTask {
     private final SubjectCategoryService subjectCategoryService;
     private final TeacherService teacherService;
     private final ClassroomService classroomService;
-    private final ModuleActionContributionRegistrar actionRegistrar;
+    private final DynamicModuleStandardActionRegistrar standardActionRegistrar;
     private final PlatformDynamicRuntimeRefreshService runtimeRefreshService;
     private final TransactionTemplate transactionTemplate;
 
@@ -87,7 +84,7 @@ public class ExamDemoBootstrapTask implements PlatformBootstrapTask {
                                  SubjectCategoryService subjectCategoryService,
                                  TeacherService teacherService,
                                  ClassroomService classroomService,
-                                 ModuleActionContributionRegistrar actionRegistrar,
+                                 DynamicModuleStandardActionRegistrar standardActionRegistrar,
                                  PlatformDynamicRuntimeRefreshService runtimeRefreshService,
                                  TransactionTemplate transactionTemplate) {
         this.moduleService = moduleService;
@@ -103,7 +100,7 @@ public class ExamDemoBootstrapTask implements PlatformBootstrapTask {
         this.subjectCategoryService = subjectCategoryService;
         this.teacherService = teacherService;
         this.classroomService = classroomService;
-        this.actionRegistrar = actionRegistrar;
+        this.standardActionRegistrar = standardActionRegistrar;
         this.runtimeRefreshService = runtimeRefreshService;
         this.transactionTemplate = transactionTemplate;
     }
@@ -126,6 +123,9 @@ public class ExamDemoBootstrapTask implements PlatformBootstrapTask {
                 // 元数据、字段和关系在同一事务内提交，schema ensure 在事务提交后按完整实体一次建表，
                 // 避免逐条保存时向已存在表追加 NOT NULL 列被严格迁移拒绝。
                 transactionTemplate.executeWithoutResult(status -> configureMetadata());
+                // 标准动作由动态模块能力统一派生。示例模块不能维护一份不完整的动作目录，
+                // 否则能力新增后会在下次启动时被错误地视为过期动作并停用。
+                standardActionRegistrar.register(moduleService.select(MODULE_ALIAS));
                 // 元数据事务提交后刷新动态运行态：编译模块定义、建表并注册到内存注册表，
                 // 否则后续创建记录时注册表仍不认识该模块；重启场景同样需要该刷新。
                 runtimeRefreshService.refresh(MODULE_ALIAS);
@@ -151,7 +151,6 @@ public class ExamDemoBootstrapTask implements PlatformBootstrapTask {
 
     private void configureMetadata() {
         ensureModule();
-        ensureModuleActions();
         Metadata exam = ensureMetadata(EXAM_METADATA_ALIAS, "考试", "education_exam");
         ensureField(exam.getId(), "title", "title", "string", "考试名称", true, true);
         MetadataField classroomId = ensureField(exam.getId(), "classroomId", "classroom_id", "string", "教学班", true,
@@ -190,50 +189,6 @@ public class ExamDemoBootstrapTask implements PlatformBootstrapTask {
         module.setModuleKind(ModuleKind.DYNAMIC);
         module.setTitle("考试管理");
         moduleService.insert(module);
-    }
-
-    /**
-     * 动态模块的标准动作同样是平台动作目录中的治理事实；不能只依赖运行时临时推导，
-     * 否则租户管理员无法按既有隐式授权规则进入模块。
-     */
-    private void ensureModuleActions() {
-        actionRegistrar.registerAll(List.of(
-                PlatformAction.MENU,
-                PlatformAction.CREATE,
-                PlatformAction.VIEW,
-                PlatformAction.UPDATE,
-                PlatformAction.DELETE,
-                PlatformAction.BATCH_DELETE,
-                PlatformAction.QUERY,
-                PlatformAction.REFERENCE
-        ).stream().map(this::standardAction).toList());
-    }
-
-    private ModuleActionContribution standardAction(PlatformAction action) {
-        return new ModuleActionContribution(
-                MODULE_ALIAS,
-                EXAM_METADATA_ALIAS,
-                action.code(),
-                action.permissionActionCode(),
-                action.title(),
-                null,
-                null,
-                null,
-                action.actionAuth(),
-                false,
-                action.defaultGrantPolicy(),
-                null,
-                null,
-                null,
-                null,
-                ModuleActionSourceType.DYNAMIC_MODULE,
-                MODULE_ALIAS,
-                null,
-                null,
-                null,
-                null,
-                true
-        );
     }
 
     private Metadata ensureMetadata(String alias, String title, String tableName) {

@@ -89,8 +89,7 @@ type RoleFormFieldName =
   | 'ownerScopeId'
   | 'sharePolicy'
   | 'description'
-  | 'enabled'
-  | 'sortOrder';
+  | 'enabled';
 
 interface RoleScope {
   kind: RoleScopeKind;
@@ -367,7 +366,6 @@ const roleFormFieldFallback = computed<Record<RoleFormFieldName, RecordFormField
   },
   description: { label: '说明', visible: true, placeholder: '请输入角色说明' },
   enabled: { label: '启用状态', visible: true, controlType: 'enabledStatus' },
-  sortOrder: { label: '排序号', visible: true, placeholder: '请输入排序号' },
 }));
 const rolePrimaryFormFieldNames: RoleFormFieldName[] = ['title', 'assignmentType', 'roleKind'];
 const roleSecondaryFormFieldNames: RoleFormFieldName[] = [
@@ -376,14 +374,13 @@ const roleSecondaryFormFieldNames: RoleFormFieldName[] = [
   'sharePolicy',
   'description',
   'enabled',
-  'sortOrder',
 ];
 const roleDetailFieldNames = computed<RoleFormFieldName[]>(() => {
   const names: RoleFormFieldName[] = ['title', 'assignmentType', 'roleKind'];
   if (roleDraft.value.roleKind === 'group') {
     names.push('memberRoleIds');
   }
-  names.push('ownerScopeType', 'ownerScopeId', 'sharePolicy', 'description', 'enabled', 'sortOrder');
+  names.push('ownerScopeType', 'ownerScopeId', 'sharePolicy', 'description', 'enabled');
   return names;
 });
 
@@ -1201,7 +1198,6 @@ function createRoleDraft(scope: RoleScope | undefined): Partial<Role> {
     roleKind: 'standard',
     sharePolicy: defaultSharePolicy(),
     enabled: true,
-    sortOrder: 100,
   };
 }
 
@@ -1224,7 +1220,6 @@ function normalizedRoleDraft(draft: Partial<Role>, scope: RoleScope): Role {
     sharePolicy,
     description: draft.description?.trim() || undefined,
     enabled: draft.enabled !== false,
-    sortOrder: normalizeSortOrder(draft.sortOrder),
   });
   if (roleKind !== 'group') {
     normalized.memberRoleIds = undefined;
@@ -1316,14 +1311,6 @@ function normalizedSharePolicy(
 
 function defaultSharePolicy(): RoleSharePolicy {
   return 'private';
-}
-
-function normalizeSortOrder(value: unknown) {
-  if (typeof value === 'number') {
-    return Number.isFinite(value) ? value : 100;
-  }
-  const parsed = Number(String(value ?? '').trim());
-  return Number.isFinite(parsed) ? parsed : 100;
 }
 
 function sharePolicyOptions(scopeType: RoleOwnerScopeType | undefined) {
@@ -1536,6 +1523,7 @@ function parseRoleIds(value: unknown) {
       :selected-key="selectedRoleKey"
       :reload-key="roleReloadKey"
       :ready="roleListReady"
+      :sortable="true"
       quick-search-placeholder="搜索角色名称或说明"
       empty-description="当前范围暂无角色"
       waiting-description="请选择角色归属范围"
