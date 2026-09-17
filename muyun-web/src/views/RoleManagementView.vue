@@ -14,6 +14,7 @@ import {
   executeStaticFormSave,
   executeStaticRecordAction,
   normalizeRecordDraft,
+  recordDraftFingerprint,
   presentPlatformError,
   presentPlatformMessage,
   resolveRecordFormFieldState,
@@ -47,7 +48,12 @@ import type {
   WebTreeNode,
   WebQueryRequest,
 } from '@muyun/web-contracts';
-import { useModuleContext, type ModuleContext } from '@muyun/web-core';
+import {
+  createModuleCrudClient,
+  useModuleContext,
+  withHttpHeaders,
+  type ModuleContext,
+} from '@muyun/web-core';
 import { useWorkspaceViewUnsavedState } from '@muyun/platform-workbench';
 import { useCurrentUserContext } from '../platform-admin-runtime/currentUserContext';
 import { useWorkspaceViewHost } from '../platform-admin-runtime/workspaceViewHost';
@@ -119,6 +125,7 @@ const authorizationRole = ref<Role>();
 const authorizationDrawerOpen = ref(false);
 const roleDetailRequestSeq = ref(0);
 const roleDraft = ref<Partial<Role>>(createRoleDraft(undefined));
+const roleDraftBaseline = ref(recordDraftFingerprint(roleDraft.value));
 const roleFormFieldDefinitions = ref(resolveRecordFormFields(undefined));
 const memberRoleCandidates = ref<Role[]>([]);
 
@@ -157,8 +164,13 @@ const currentUserTenant = computed<Tenant | undefined>(() => {
     enabled: true,
   } as Tenant;
 });
+const roleRequestContext = computed(() => createRoleScopeModuleContext(roleContext, selectedScope.value));
 const roleListContext = computed(
-  () => createScopedRoleModuleContext(roleContext, selectedScope.value) as ModuleContext<QueryListRecord>,
+  () =>
+    createScopedRoleModuleContext(
+      roleRequestContext.value,
+      selectedScope.value,
+    ) as ModuleContext<QueryListRecord>,
 );
 const roleListColumns = computed<RecordQueryListColumn[]>(() => [
   { key: 'title', title: '角色名称', width: '22%' },
@@ -204,15 +216,15 @@ const roleDetailTitle = computed(() => {
 });
 const roleDetailSubtitle = computed(() => selectedScope.value?.title ?? '角色详情');
 const roleDetailDirty = computed(() => {
-  const selected = selectedRole.value;
-  const scope = selectedScope.value;
-  if (roleDetailMode.value !== 'edit' || !selected || !scope) return false;
   return (
-    JSON.stringify(normalizedRoleDraft(roleDraft.value, scope)) !==
-    JSON.stringify(normalizedRoleDraft(selected, scope))
+    roleDetailMode.value !== 'view' && roleDraftBaseline.value !== recordDraftFingerprint(roleDraft.value)
   );
 });
-useWorkspaceViewUnsavedState('角色详情', () => roleDetailDirty.value);
+useWorkspaceViewUnsavedState(
+  '角色详情',
+  () => roleDetailDirty.value,
+  () => savingRole.value,
+);
 const roleFormDisabled = computed(() => savingRole.value || loadingRoleDetail.value);
 const canSaveRole = computed(() => {
   if (loadingRoleDetail.value || !selectedScope.value) {
@@ -305,6 +317,7 @@ const roleDetailPromotion = useWorkspaceViewPromotion({
       (await handOffRoleDetailWorkspaceSession(input, {
         selectedRole: selected,
         draft: roleDraft.value,
+        draftBaseline: roleDraftBaseline.value,
         scope,
         mode: roleDetailMode.value === 'edit' ? 'edit' : 'view',
       })) === 'accepted'
@@ -438,7 +451,7 @@ async function loadMemberRoleCandidates(scope = selectedScope.value) {
     return;
   }
   try {
-    const response = await roleContext.crud.query(
+    const response = await roleRequestContext.value.crud.query(
       scopedRoleQuery(
         {
           page: { pageNum: 0, pageSize: 500 },
@@ -474,6 +487,27 @@ function createScopedRoleModuleContext(
         return context.crud.query(scopedRoleQuery(request, scope));
       },
     },
+  };
+}
+
+/**
+ * The role page's owner range is an IAM-owned, opaque navigator selection.
+ * Workspace restoration carries a selection, but does not run the dynamic
+ * page navigator that normally attaches this header. The backend still validates
+ * the selection; route parameters and query conditions cannot grant access.
+ */
+function createRoleScopeModuleContext(
+  context: ModuleContext<Role>,
+  scope: RoleScope | undefined,
+): ModuleContext<Role> {
+  if (!scope) return context;
+  const http = withHttpHeaders(context.http, {
+    'X-MuYun-Page-Selection': JSON.stringify({ kind: 'roleScope', key: scope.key }),
+  });
+  return {
+    ...context,
+    http,
+    crud: createModuleCrudClient<Role>(http, { moduleAlias: context.moduleAlias }),
   };
 }
 
@@ -652,7 +686,13 @@ function organizationIdFromNodeKey(key: string) {
 }
 
 function initializeTenantUserScope(record = currentUserTenant.value) {
-  if (!record || canBrowseTenants.value || selectedTenant.value || selectedScope.value) {
+  if (
+    isWorkspaceView.value ||
+    !record ||
+    canBrowseTenants.value ||
+    selectedTenant.value ||
+    selectedScope.value
+  ) {
     return;
   }
   selectedTenant.value = record;
@@ -824,7 +864,7 @@ async function openRoleBinding(record: QueryListRecord, employment = false) {
   employmentBindingDrawerOpen.value = employment;
   bindingRole.value = copyRole(record as Role);
   try {
-    bindingRole.value = await roleContext.crud.view(id);
+    bindingRole.value = await roleRequestContext.value.crud.view(id);
   } catch (cause) {
     bindingDrawerOpen.value = false;
     employmentBindingDrawerOpen.value = false;
@@ -853,6 +893,7 @@ async function startCreateRole() {
   selectedRole.value = undefined;
   selectedRoleKey.value = undefined;
   roleDraft.value = createRoleDraft(selectedScope.value);
+  resetRoleDraftBaseline();
   roleDetailMode.value = 'create';
   loadingRoleDetail.value = false;
   roleDetailLoadFailed.value = false;
@@ -873,12 +914,13 @@ async function openRoleDetail(record: QueryListRecord, mode: RoleDetailMode) {
   roleDetailMode.value = mode;
   selectedRole.value = undefined;
   roleDraft.value = copyRole(record as Role);
+  resetRoleDraftBaseline();
   loadingRoleDetail.value = true;
   roleDetailLoadFailed.value = false;
   const requestSeq = roleDetailRequestSeq.value + 1;
   roleDetailRequestSeq.value = requestSeq;
   try {
-    const fullRecord = await roleContext.crud.view(id);
+    const fullRecord = await roleRequestContext.value.crud.view(id);
     if (!canCommitRoleDetailRequest(id, requestSeq)) {
       return;
     }
@@ -910,6 +952,7 @@ function closeRoleDetail() {
   roleDetailOpen.value = false;
   roleDetailMode.value = 'view';
   roleDraft.value = selectedRole.value ? copyRole(selectedRole.value) : createRoleDraft(selectedScope.value);
+  resetRoleDraftBaseline();
   if (isDrawerWorkspaceView.value) {
     workspaceViewHost?.dismiss();
   }
@@ -924,6 +967,7 @@ async function cancelRoleDetail() {
     return;
   }
   roleDraft.value = copyRole(selectedRole.value);
+  resetRoleDraftBaseline();
   roleDetailMode.value = 'view';
   loadingRoleDetail.value = false;
   roleDetailLoadFailed.value = false;
@@ -943,6 +987,7 @@ function handleRoleDetailAction(action: RecordActionItem) {
   }
   if (action.key === 'edit' && selectedRole.value && !selectedRole.value.systemManaged) {
     roleDraft.value = copyRole(selectedRole.value);
+    resetRoleDraftBaseline();
     roleDetailMode.value = 'edit';
     return;
   }
@@ -979,8 +1024,8 @@ async function saveRole() {
     validateRecord: validateRoleDraft,
     save: (draft, mode) =>
       mode === 'edit' && selectedRole.value?.id
-        ? roleContext.crud.update(selectedRole.value.id, draft)
-        : roleContext.crud.insert(draft),
+        ? roleRequestContext.value.crud.update(selectedRole.value.id, draft)
+        : roleRequestContext.value.crud.insert(draft),
     onSaved: ({ record }) => {
       commitRoleDetailRecord(record);
       roleReloadKey.value += 1;
@@ -1004,12 +1049,15 @@ async function removeRole(record: Partial<Role> | QueryListRecord | undefined) {
         danger: true,
       }),
     execute: (target) =>
-      roleContext.crud.delete(String(target.id), { version: (target as { version: number }).version }),
+      roleRequestContext.value.crud.delete(String(target.id), {
+        version: (target as { version: number }).version,
+      }),
     onExecuted: (_, target) => {
       if (selectedRoleKey.value === String(target.id)) {
         selectedRoleKey.value = undefined;
         selectedRole.value = undefined;
         roleDraft.value = createRoleDraft(selectedScope.value);
+        resetRoleDraftBaseline();
         roleDetailOpen.value = false;
         roleDetailMode.value = 'view';
         loadingRoleDetail.value = false;
@@ -1032,11 +1080,15 @@ async function toggleRoleEnabled(record: Partial<Role> | QueryListRecord | undef
     deniedMessage: '当前用户无权变更角色启停状态',
     execute: (target) =>
       target.enabled === false
-        ? roleContext.crud.enable(String(target.id), { version: (target as { version: number }).version })
-        : roleContext.crud.disable(String(target.id), { version: (target as { version: number }).version }),
+        ? roleRequestContext.value.crud.enable(String(target.id), {
+            version: (target as { version: number }).version,
+          })
+        : roleRequestContext.value.crud.disable(String(target.id), {
+            version: (target as { version: number }).version,
+          }),
     onExecuted: async (_, target) => {
       if (selectedRoleKey.value === String(target.id)) {
-        const refreshed = await roleContext.crud.view(String(target.id));
+        const refreshed = await roleRequestContext.value.crud.view(String(target.id));
         commitRoleDetailRecord(refreshed);
       }
       roleReloadKey.value += 1;
@@ -1071,6 +1123,7 @@ function commitRoleDetailRecord(record: Role, nextMode: RoleDetailMode = 'view')
   selectedRole.value = record;
   selectedRoleKey.value = record.id;
   roleDraft.value = copyRole(record);
+  resetRoleDraftBaseline();
   roleDetailMode.value = nextMode === 'edit' && record.systemManaged !== true ? 'edit' : 'view';
   roleDetailOpen.value = true;
   loadingRoleDetail.value = false;
@@ -1127,11 +1180,16 @@ function restoreRoleDetailWorkspaceSession(session: RoleDetailWorkspaceSession) 
   selectedRole.value = session.selectedRole;
   selectedRoleKey.value = session.selectedRole.id;
   roleDraft.value = session.draft;
+  roleDraftBaseline.value = session.draftBaseline;
   roleDetailMode.value = session.mode;
   roleDetailOpen.value = true;
   loadingRoleDetail.value = false;
   roleDetailLoadFailed.value = false;
   roleDetailRequestSeq.value += 1;
+}
+
+function resetRoleDraftBaseline() {
+  roleDraftBaseline.value = recordDraftFingerprint(roleDraft.value);
 }
 
 function createRoleDraft(scope: RoleScope | undefined): Partial<Role> {

@@ -6,7 +6,7 @@ import { inject, onUnmounted, provide, type InjectionKey } from 'vue';
  * owns registration, confirmation and tab destruction.
  */
 export interface ModulePageUnsavedStateHost {
-  registerUnsavedState(source: string, isDirty: () => boolean): () => void;
+  registerUnsavedState(source: string, isDirty: () => boolean, isBusy?: () => boolean): () => void;
 }
 
 const modulePageUnsavedStateHostKey: InjectionKey<ModulePageUnsavedStateHost | undefined> = Symbol(
@@ -17,8 +17,8 @@ export function provideModulePageUnsavedStateHost(host: ModulePageUnsavedStateHo
   provide(modulePageUnsavedStateHostKey, host);
 }
 
-export function useModulePageUnsavedState(source: string, isDirty: () => boolean) {
+export function useModulePageUnsavedState(source: string, isDirty: () => boolean, isBusy?: () => boolean) {
   const host = inject(modulePageUnsavedStateHostKey, undefined);
-  const unregister = host?.registerUnsavedState(source, isDirty);
+  const unregister = host?.registerUnsavedState(source, isDirty, isBusy);
   if (unregister) onUnmounted(unregister);
 }

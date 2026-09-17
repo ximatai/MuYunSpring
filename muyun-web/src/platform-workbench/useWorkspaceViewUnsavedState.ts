@@ -5,8 +5,8 @@ import { useWorkspaceViewHost } from './workspaceViewHost';
  * Lets a workspace panel declare unsaved local state without exposing or
  * duplicating its draft in the workbench shell.
  */
-export function useWorkspaceViewUnsavedState(source: string, isDirty: () => boolean) {
+export function useWorkspaceViewUnsavedState(source: string, isDirty: () => boolean, isBusy?: () => boolean) {
   const host = useWorkspaceViewHost();
-  const unregister = host?.registerUnsavedState(source, isDirty);
+  const unregister = host?.registerUnsavedState(source, isDirty, isBusy);
   if (unregister) onUnmounted(unregister);
 }

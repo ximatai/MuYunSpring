@@ -2591,6 +2591,90 @@ describe('ModulePageHost', () => {
     ).toBe(true);
   });
 
+  it.each([
+    { key: 'platform', ownerScopeType: 'platform', ownerScopeId: null },
+    { key: 'tenant:demo', ownerScopeType: 'tenant', ownerScopeId: 'demo' },
+    { key: 'organization:org-1', ownerScopeType: 'organization', ownerScopeId: 'org-1' },
+  ])('initializes a new record with resolved selection defaults for $key', async (scope) => {
+    const defaults = { ownerScopeType: scope.ownerScopeType, ownerScopeId: scope.ownerScopeId };
+    const calls: Headers[] = [];
+    globalThis.fetch = async (input, init) => {
+      const request = new Request(input, init);
+      if (request.url.endsWith('/context'))
+        return Response.json({
+          moduleAlias: 'iam.role',
+          capabilities: [],
+          actions: [{ actionCode: 'create', authorized: true }],
+          uiDescriptor: {
+            moduleAlias: 'iam.role',
+            page: page({
+              navigator: {
+                levels: [],
+                contextBindings: Object.keys(defaults).map((field) => ({
+                  source: 'RESOLVED_SELECTION',
+                  sourceKey: 'roleScope',
+                  target: 'FORM_DEFAULT',
+                  targetKey: field,
+                })),
+              },
+            }),
+          },
+        });
+      if (request.url.endsWith('/page-context/form-defaults')) {
+        calls.push(request.headers);
+        return Response.json(defaults);
+      }
+      throw new Error(`Unexpected request: ${request.url}`);
+    };
+    configureModuleContext({ httpFactory: () => createHttpClient({ baseUrl: 'http://api.local' }) });
+    configureModulePageEnhancements([
+      {
+        id: 'role-defaults-test',
+        target: { moduleAlias: 'iam.role' },
+        navigator: {
+          extension: {
+            key: 'role-scope',
+            component: { template: '<aside />' },
+            selection: { kind: 'roleScope', initialKey: () => scope.key },
+          },
+        },
+      },
+    ]);
+    const wrapper = shallowMount(ModulePageHost, {
+      props: {
+        descriptor: {
+          pageType: 'dynamic-module',
+          openMode: 'dynamic-runner',
+          hostType: 'module-page-host',
+          tabPolicy: { identity: 'by-menu' },
+          target: { moduleAlias: 'iam.role', pageMode: 'LIST' },
+        },
+      },
+      global: {
+        stubs: {
+          ManagementWorkspace: { template: '<section><slot /><slot name="detail" /></section>' },
+          RecordDetailPanel: { template: '<section><slot name="actions" /><slot /></section>' },
+          ModulePageRecordContent: false,
+        },
+      },
+    });
+    await flushPromises();
+    wrapper.findComponent({ name: 'RecordQueryListPanel' }).vm.$emit('action', { key: 'create' });
+    await flushPromises();
+    expect(calls.length).toBeGreaterThan(0);
+    expect(
+      calls.every(
+        (headers) =>
+          headers.get('X-MuYun-Page-Selection') === JSON.stringify({ kind: 'roleScope', key: scope.key }),
+      ),
+    ).toBe(true);
+    expect(wrapper.findComponent({ name: 'ModulePageRecordContent' }).props('record')).toMatchObject({
+      ownerScopeType: scope.ownerScopeType,
+      ...(scope.ownerScopeId === null ? {} : { ownerScopeId: scope.ownerScopeId }),
+    });
+    wrapper.unmount();
+  });
+
   it('applies signed form-compute rules through the host draft coordinator after a field edit', async () => {
     globalThis.fetch = async (input) => {
       const request = new Request(input);
@@ -3573,6 +3657,11 @@ describe('ModulePageHost', () => {
     const editor = wrapper.findComponent({ name: 'NavigatorManagementEditor' });
     expect(editor.props('open')).toBe(true);
 
+    expect(wrapper.emitted('interaction-state-change')?.at(-1)?.[0]).toMatchObject({
+      editing: true,
+      dirty: false,
+    });
+
     const organizationPicker = () =>
       (
         editor.props('pickerConfigs') as {
@@ -3596,6 +3685,18 @@ describe('ModulePageHost', () => {
     expect(organizationPicker().scopedTree.disabled).toBe(true);
     expect(organizationBodies).toEqual([]);
 
+    editor.vm.$emit('update-field', 'tenantId', 'tenant-1');
+    await flushPromises();
+    expect(wrapper.emitted('interaction-state-change')?.at(-1)?.[0]).toMatchObject({
+      editing: true,
+      dirty: true,
+    });
+    editor.vm.$emit('update-field', 'tenantId', undefined);
+    await flushPromises();
+    expect(wrapper.emitted('interaction-state-change')?.at(-1)?.[0]).toMatchObject({
+      editing: true,
+      dirty: false,
+    });
     editor.vm.$emit('update-field', 'tenantId', 'tenant-1');
     await flushPromises();
     expect(organizationPicker().scopedTree.disabled).toBe(false);

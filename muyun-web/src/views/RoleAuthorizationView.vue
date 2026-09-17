@@ -201,7 +201,11 @@ const permissionMatrixDirty = computed(() => {
   );
 });
 const authorizationDirty = computed(() => dataGrantDirty.value || permissionMatrixDirty.value);
-useWorkspaceViewUnsavedState('角色授权', () => authorizationDirty.value);
+useWorkspaceViewUnsavedState(
+  '角色授权',
+  () => authorizationDirty.value,
+  () => saving.value,
+);
 const allActionsGranted = computed(
   () => actions.value.length > 0 && actions.value.every((action) => action.granted),
 );

@@ -18,7 +18,11 @@ const changed = ref(false);
 const generation = ref(0);
 const interaction = ref({ editing: false, busy: false, dirty: false });
 const reloadBlocked = computed(() => interaction.value.editing || interaction.value.busy);
-useWorkspaceViewUnsavedState('业务预览', () => interaction.value.dirty);
+useWorkspaceViewUnsavedState(
+  '业务预览',
+  () => interaction.value.dirty,
+  () => interaction.value.busy,
+);
 let fingerprint: string | undefined;
 let requestId = 0;
 const descriptor = computed<StandardModulePageDescriptor>(() => {

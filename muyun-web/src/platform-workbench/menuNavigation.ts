@@ -10,6 +10,7 @@ import type {
   RouteQueryPrimitive,
   RouteQueryValue,
 } from '@muyun/web-contracts';
+import { resolveWorkspaceView } from './workspaceViews';
 
 export interface PageDescriptorResolveOptions {
   title?: string;
@@ -423,9 +424,11 @@ export function pageDescriptorFromUrl(
     throw new Error(`The technical dynamic module URL is no longer supported: ${url}`);
   }
 
-  const dynamicModuleAlias = !isBusinessRoutePath(path, options)
-    ? dynamicModuleAliasFromPath(path, options)
-    : undefined;
+  const registeredWorkspaceView = registeredWorkspaceViewAt(path, query);
+  const dynamicModuleAlias =
+    !registeredWorkspaceView && !isBusinessRoutePath(path, options)
+      ? dynamicModuleAliasFromPath(path, options)
+      : undefined;
   if (dynamicModuleAlias) {
     const menuId = stringValue(query[WORKBENCH_PUBLIC_MENU_ID_QUERY_KEY]);
     return {
@@ -540,7 +543,8 @@ export function pageDescriptorFromUrl(
     };
   }
 
-  const pageType = isBusinessRoutePath(path, options) ? 'business-route' : 'platform-route';
+  const pageType =
+    registeredWorkspaceView || isBusinessRoutePath(path, options) ? 'business-route' : 'platform-route';
   const menuId = workbenchQueryValue(query, WORKBENCH_MENU_ID_QUERY_KEY);
   const routeQuery = withoutKeys(query, [
     WORKBENCH_ENTRY_PARAMS_QUERY_KEY,
@@ -577,6 +581,19 @@ export function pageDescriptorFromUrl(
     pageType: 'platform-route',
     hostType: 'platform-route-host',
   };
+}
+
+/** A registered workspace view may deliberately use a standard module URL. */
+function registeredWorkspaceViewAt(path: string, query: Record<string, RouteQueryValue>): boolean {
+  const resolved = resolveWorkspaceView({
+    pageType: 'business-route',
+    openMode: 'workbench-route',
+    hostType: 'business-route-host',
+    target: { route: path, query },
+    params: query,
+    tabPolicy: { identity: 'by-params' },
+  });
+  return resolved?.view.route === path;
 }
 
 export function tryPageDescriptorFromUrl(

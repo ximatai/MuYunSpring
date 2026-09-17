@@ -1333,7 +1333,7 @@ export default defineComponent({
         :render-mode="props.recordOnly?.renderMode ?? 'inline'"
         :scope="props.recordOnly?.scope ?? 'tab'"
         @record-change="handleReferenceRecordChange"
-        @interaction-state-change="referenceRecordDetailInteraction = $event"
+        @interaction-state-change="updateReferenceRecordDetailInteraction($event)"
       />
     </Teleport>
     <RecordPermissionDialog
@@ -1372,7 +1372,7 @@ export default defineComponent({
       :width="localEditBlock?.width ?? 640"
       :confirm-loading="localEditSaving"
       @confirm="submitLocalEdit"
-      @cancel="localEditOpen = false"
+      @cancel="dismissLocalEdit"
     >
       <RecordFormFields
         v-if="localEditDraft"

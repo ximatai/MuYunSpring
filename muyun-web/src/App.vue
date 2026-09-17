@@ -22,6 +22,7 @@ import {
 } from '@muyun/vue-ui-antdv';
 import {
   presentPlatformError,
+  presentPlatformMessage,
   presentPlatformSuccess,
   providePlatformTimeZoneContext,
   BusinessNotificationPanel,
@@ -104,6 +105,7 @@ import {
 import { syncModulePageWorkspaceViewContributions } from './platform-workbench/modulePageWorkspaceViews';
 import {
   clearWorkspaceViewUnsavedState,
+  workspaceViewBusyStateSources,
   workspaceViewUnsavedStateSources,
 } from './platform-workbench/workspaceViewUnsavedState';
 import StaticRoutePageHost from './app/StaticRoutePageHost.vue';
@@ -1026,11 +1028,9 @@ function handleToggleTabLock(key: string) {
 }
 
 async function handleCloseTab(key: string) {
+  if (!startup.value || !(await confirmDiscardWorkspaceViewState([key]))) return;
   const current = startup.value;
-  if (!current) {
-    return;
-  }
-  if (!(await confirmDiscardWorkspaceViewState([key]))) return;
+  if (!current) return;
 
   const result = closeMenuTab(current.tabs ?? [], activeTabKey.value, key);
   startup.value = {
@@ -1047,11 +1047,9 @@ async function handleCloseTab(key: string) {
 }
 
 async function handleCloseTabs(keys: string[]) {
+  if (!startup.value || keys.length === 0 || !(await confirmDiscardWorkspaceViewState(keys))) return;
   const current = startup.value;
-  if (!current || keys.length === 0) {
-    return;
-  }
-  if (!(await confirmDiscardWorkspaceViewState(keys))) return;
+  if (!current) return;
   const result = closeMenuTabs(current.tabs ?? [], activeTabKey.value, keys);
   startup.value = {
     ...current,
@@ -1067,6 +1065,11 @@ async function handleCloseTabs(keys: string[]) {
 }
 
 async function confirmDiscardWorkspaceViewState(keys: readonly string[]): Promise<boolean> {
+  const busySources = [...new Set(keys.flatMap(workspaceViewBusyStateSources))];
+  if (busySources.length > 0) {
+    presentPlatformMessage(`“${busySources.join('、')}”正在处理操作，请完成后再关闭。`);
+    return false;
+  }
   const dirtySources = [...new Set(keys.flatMap(workspaceViewUnsavedStateSources))];
   if (dirtySources.length === 0) return true;
   const summary = dirtySources.join('、');

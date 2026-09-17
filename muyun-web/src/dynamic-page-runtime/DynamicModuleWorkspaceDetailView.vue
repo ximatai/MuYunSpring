@@ -48,7 +48,12 @@ provideReferenceRecordDetailBrowser(referenceRecordDetailBrowser);
 const modulePageNavigation = useModulePageNavigation();
 const detail = useRecordDetailController<QueryListRecord>();
 const { record, draft, mode, formSessionKey, isDirty, loading, loadFailed, saving, togglingEnabled } = detail;
-useModulePageUnsavedState('记录详情', () => isDirty.value);
+const referenceRecordDetailInteraction = ref({ busy: false, dirty: false });
+useModulePageUnsavedState(
+  '记录详情',
+  () => isDirty.value || referenceRecordDetailInteraction.value.dirty,
+  () => saving.value || togglingEnabled.value || referenceRecordDetailInteraction.value.busy,
+);
 const fields = ref(resolveRecordFormFields(undefined));
 const workspaceElement = ref<HTMLElement>();
 const {
@@ -205,6 +210,10 @@ async function confirmDiscardEditing() {
 function updateDraftField(fieldName: string, value: RecordFormFieldValue) {
   if (!draft.value) return;
   draft.value = { ...draft.value, [fieldName]: value };
+}
+
+function updateReferenceRecordDetailInteraction(state: { busy: boolean; dirty?: boolean }) {
+  referenceRecordDetailInteraction.value = { busy: state.busy, dirty: state.dirty === true };
 }
 
 function handleReferenceRecordChange(mutation: ReferenceRecordDetailMutation) {
@@ -437,6 +446,7 @@ async function toggleEnabled() {
       render-mode="inline"
       scope="tab"
       @record-change="handleReferenceRecordChange"
+      @interaction-state-change="updateReferenceRecordDetailInteraction($event)"
     />
   </section>
 </template>

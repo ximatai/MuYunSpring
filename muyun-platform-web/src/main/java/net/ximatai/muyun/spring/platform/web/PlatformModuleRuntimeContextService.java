@@ -1002,22 +1002,24 @@ public class PlatformModuleRuntimeContextService {
 
     private ResolvedPageNavigatorDescriptor filterNavigator(ResolvedPageNavigatorDescriptor navigator,
                                                              Set<String> visibleLevelKeys) {
-        if (navigator == null || visibleLevelKeys == null || visibleLevelKeys.isEmpty()) {
-            return null;
-        }
+        if (navigator == null) return null;
+        // A missing resolution has the same fail-closed level visibility as an empty result, but
+        // does not erase bindings that never depend on a navigator level.
+        Set<String> visibleKeys = visibleLevelKeys == null ? Set.of() : visibleLevelKeys;
         List<ResolvedPageNavigatorLevelDescriptor> visibleLevels = navigator.levels().stream()
-                .filter(level -> visibleLevelKeys.contains(level.key()))
+                .filter(level -> visibleKeys.contains(level.key()))
                 .map(level -> new ResolvedPageNavigatorLevelDescriptor(level.key(), level.kind(),
                         level.sourceModuleAlias(), level.title(), level.searchPlaceholder(), level.secondaryField(), level.management(),
                         level.singleResultPolicy(), level.initialSelectionPolicy(), level.sourceScope()))
                 .toList();
         List<ResolvedPageContextBindingDescriptor> visibleBindings = navigator.contextBindings().stream()
                 .filter(binding -> binding.source() != PageContextSource.NAVIGATOR
-                        || visibleLevelKeys.contains(binding.sourceKey()))
+                        || visibleKeys.contains(binding.sourceKey()))
                 .filter(binding -> binding.target() != PageContextTarget.NAVIGATOR_QUERY
-                        || visibleLevelKeys.contains(binding.targetNavigatorLevelKey()))
+                        || visibleKeys.contains(binding.targetNavigatorLevelKey()))
                 .toList();
-        return visibleLevels.isEmpty() ? null : new ResolvedPageNavigatorDescriptor(visibleLevels, visibleBindings);
+        return visibleLevels.isEmpty() && visibleBindings.isEmpty()
+                ? null : new ResolvedPageNavigatorDescriptor(visibleLevels, visibleBindings);
     }
 
     private ResolvedFileReferenceFieldDescriptor withFieldAccess(String moduleAlias,

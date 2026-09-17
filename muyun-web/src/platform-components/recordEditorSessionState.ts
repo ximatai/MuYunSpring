@@ -1,6 +1,23 @@
 import { computed, ref, type Ref } from 'vue';
 import { webDataChangeTypes, type WebDataChange } from '@muyun/web-contracts';
 
+/**
+ * Produces a stable value snapshot for a record draft. Editor sessions use it
+ * as a local baseline: returning every edited field to its starting value is
+ * not an unsaved change.
+ */
+export function recordDraftFingerprint(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(recordDraftFingerprint).join(',')}]`;
+  if (value && typeof value === 'object') {
+    return `{${Object.entries(value as Record<string, unknown>)
+      .filter(([, entry]) => entry !== undefined)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, entry]) => `${JSON.stringify(key)}:${recordDraftFingerprint(entry)}`)
+      .join(',')}}`;
+  }
+  return value === undefined ? 'undefined' : JSON.stringify(value);
+}
+
 export interface RecordEditorSessionOptions<TRecord, TMode extends string> {
   viewMode: TMode;
   createMode: TMode;

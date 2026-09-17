@@ -1,7 +1,7 @@
 import { expect, it } from 'vitest';
 import { useRecordDetailController } from '@/dynamic-page-runtime/recordDetailController.ts';
 
-type RecordDetail = { id?: string; title?: string; enabled?: boolean };
+type RecordDetail = { id?: string; title?: string; enabled?: boolean; settings?: { tags: string[] } };
 
 it('keeps one existing record detail open when an edit is cancelled', () => {
   const detail = useRecordDetailController<RecordDetail>();
@@ -109,5 +109,17 @@ it('derives dirty state from the live edit draft and resets its baseline after s
   expect(detail.beginEdit()).toBe(true);
   detail.draft.value = { ...detail.draft.value, title: '已保存标题' };
   detail.applySaved({ id: 'device-dirty', title: '已保存标题', enabled: true });
+  expect(detail.isDirty.value).toBe(false);
+});
+
+it('tracks create drafts from their own nested baseline and clears dirty after reverting', () => {
+  const detail = useRecordDetailController<RecordDetail>();
+  detail.beginCreate({ title: '新设备', settings: { tags: ['初始'] } });
+
+  expect(detail.isDirty.value).toBe(false);
+  detail.draft.value = { ...detail.draft.value!, settings: { tags: ['已修改'] } };
+  expect(detail.isDirty.value).toBe(true);
+
+  detail.draft.value = { ...detail.draft.value!, settings: { tags: ['初始'] } };
   expect(detail.isDirty.value).toBe(false);
 });

@@ -981,6 +981,19 @@ it('restores one logical workspace tab from public URLs while retaining its inst
   }
 });
 
+it('restores a role detail workspace view whose route is also a standard module URL', () => {
+  const restored = restoreWorkbenchStartupStateFromUrl(
+    { session: { currentUser }, menus, tabs: [] },
+    '/iam/role?recordId=tenant_admin_2a97516c354b6884&scopeId=demo&scopeKind=tenant&workspacePresentation=drawer&workspaceView=iam.role.detail',
+  );
+  const descriptor = restored.tabs?.[0]?.pageDescriptor;
+  if (descriptor?.pageType !== 'business-route') throw new Error('Expected a restored business route');
+
+  assert.equal(descriptor.target.route, '/iam/role');
+  assert.equal(descriptor.target.query?.workspaceView, 'iam.role.detail');
+  assert.equal(descriptor.target.query?.workspacePresentation, 'drawer');
+});
+
 it('restoreWorkbenchStartupStateFromUrl creates direct tab when URL has no menu match', () => {
   const state = {
     session: { currentUser },

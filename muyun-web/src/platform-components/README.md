@@ -51,6 +51,8 @@ This layer may compose `vue-ui-antdv`, `web-core`, `dynamic-page-runtime`, and `
 
 抽屉使用 `UiSidePanel`、`RecordDetailDrawer` 或 `RecordModeDrawer`。宽度只能声明为 `compact`、`narrow`、`standard`、`wide`、`extraWide`；关闭策略声明为 `explicit`、`dismissible`、`guarded`。编辑态使用 `guarded` 并提供脏状态守卫，只读和实时浏览可使用 `dismissible`。`closeOnOutside` 仅为存量兼容，新增业务不得使用。
 
+草稿基线和保存状态由编辑会话持有，页面汇总主详情、导航器、局部编辑与引用详情的状态。工作台通过 `registerUnsavedState` 分别读取 `isDirty` 与可选 `isBusy`：未保存修改需要确认放弃，进行中的写操作则禁止关闭；不得用“正在编辑”代替真实脏状态。
+
 ## Management State Helpers
 
 `useFlatCrudManagementState` is for single-record management pages where the detail area is the primary workspace. Empty states may stay in `create` mode so the page can guide users to create the first record.

@@ -2,6 +2,7 @@ import { afterEach, expect, it } from 'vitest';
 import {
   clearWorkspaceViewUnsavedState,
   registerWorkspaceViewUnsavedState,
+  workspaceViewBusyStateSources,
   workspaceViewUnsavedStateSources,
 } from '@/platform-workbench/workspaceViewUnsavedState';
 
@@ -29,4 +30,21 @@ it('treats a failed optional signal as non-blocking', () => {
   });
 
   expect(workspaceViewUnsavedStateSources(pageKey)).toEqual([]);
+});
+
+it('reports in-flight mutations separately from unsaved drafts', () => {
+  let busy = false;
+  registerWorkspaceViewUnsavedState(
+    pageKey,
+    '记录详情',
+    () => false,
+    () => busy,
+  );
+
+  expect(workspaceViewUnsavedStateSources(pageKey)).toEqual([]);
+  expect(workspaceViewBusyStateSources(pageKey)).toEqual([]);
+
+  busy = true;
+  expect(workspaceViewUnsavedStateSources(pageKey)).toEqual([]);
+  expect(workspaceViewBusyStateSources(pageKey)).toEqual(['记录详情']);
 });

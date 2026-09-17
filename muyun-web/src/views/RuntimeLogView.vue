@@ -391,8 +391,8 @@ function errorMessage(error: unknown, fallback: string) {
   overflow: auto;
   border: 1px solid var(--muyun-border);
   border-radius: 6px;
-  background: #101318;
-  color: #dce4ee;
+  background: var(--muyun-surface);
+  color: var(--muyun-text);
 }
 
 .runtime-log-view__content {
@@ -406,6 +406,6 @@ function errorMessage(error: unknown, fallback: string) {
 }
 
 .runtime-log-view__viewport :deep(.ant-empty) {
-  color: #dce4ee;
+  color: var(--muyun-text-muted);
 }
 </style>

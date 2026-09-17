@@ -735,11 +735,17 @@ it('role management enters the standard runner while keeping IAM scope and actio
   assert.match(roleAuthorizationViewSource, /registerRoleAuthorizationWorkspaceHandoffRecipient/);
   assert.match(roleAuthorizationViewSource, /onPromoted: dismissPromotedDrawer/);
   assert.match(roleAuthorizationViewSource, /onPromotionRejected/);
-  assert.match(roleAuthorizationViewSource, /useWorkspaceViewUnsavedState\('角色授权'/);
+  assert.match(roleAuthorizationViewSource, /useWorkspaceViewUnsavedState\(\s*'角色授权'/);
   assert.match(roleAuthorizationViewSource, /dismissal: 'guarded'/);
   assert.match(roleAuthorizationViewSource, /beforeClose: confirmWorkspaceDismissal/);
   assert.match(roleViewSource, /const roleDetailDirty = computed/);
-  assert.match(roleViewSource, /useWorkspaceViewUnsavedState\('角色详情'/);
+  assert.match(roleViewSource, /const roleDraftBaseline = ref\(recordDraftFingerprint\(roleDraft\.value\)\)/);
+  assert.match(roleViewSource, /roleDetailMode\.value !== 'view'/);
+  assert.match(
+    roleViewSource,
+    /async function startCreateRole\(\)[\s\S]*roleDraft\.value = createRoleDraft[\s\S]*resetRoleDraftBaseline\(\)/,
+  );
+  assert.match(roleViewSource, /useWorkspaceViewUnsavedState\(\s*'角色详情'/);
   assert.match(roleViewSource, /async function selectOrganizationScope[\s\S]*selectedTenant\.value = tenant/);
   assert.match(roleViewSource, /before-close="confirmRoleDetailDismissal"/);
   assert.match(roleAuthorizationViewSource, /UiCheckbox/);
@@ -1312,7 +1318,7 @@ it('pages own their drawer containers and fixed drawer action regions', () => {
   assert.match(dynamicWorkspaceDetailSource, /const workspaceElement = ref<HTMLElement>\(\)/);
   assert.match(dynamicWorkspaceDetailSource, /<section ref="workspaceElement"/);
   assert.match(dynamicWorkspaceDetailSource, /:container="workspaceElement \?\? null"/);
-  assert.match(dynamicWorkspaceDetailSource, /useModulePageUnsavedState\('记录详情'/);
+  assert.match(dynamicWorkspaceDetailSource, /useModulePageUnsavedState\(\s*'记录详情'/);
   assert.match(dynamicWorkspaceDetailSource, /const \{ record, draft, mode, formSessionKey, isDirty,/);
   assert.match(dynamicWorkspaceDetailSource, /confirmDiscardEditing/);
   assert.match(detailDrawerSource, /promotion\?: DrawerPromotion/);

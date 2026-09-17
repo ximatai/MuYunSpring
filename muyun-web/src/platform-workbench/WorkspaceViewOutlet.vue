@@ -20,8 +20,8 @@ const resolvedView = computed(() => resolveWorkspaceView(props.descriptor));
 const ownerPageKey = tabKeyOf(props.descriptor);
 const navigation = useWorkbenchNavigation();
 
-function registerUnsavedState(source: string, isDirty: () => boolean) {
-  return registerWorkspaceViewUnsavedState(ownerPageKey, source, isDirty);
+function registerUnsavedState(source: string, isDirty: () => boolean, isBusy?: () => boolean) {
+  return registerWorkspaceViewUnsavedState(ownerPageKey, source, isDirty, isBusy);
 }
 
 provideWorkspaceViewHost({

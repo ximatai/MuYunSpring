@@ -359,7 +359,7 @@ export function useModulePageSession(
   // validity fact here; the host remains responsible for the save boundary.
   const deleting = ref(false);
   const detailEnhancementRunning = ref(false);
-  const referenceRecordDetailInteraction = ref({ editing: false, busy: false });
+  const referenceRecordDetailInteraction = ref({ editing: false, busy: false, dirty: false });
   const mainFormValid = ref(true);
   const relationDraftValid = ref(true);
   const incompleteAggregateChildRelations = ref(new Set<string>());
@@ -813,8 +813,10 @@ export function useModulePageSession(
     localEditSaving,
     localEditBlock,
     localEditDraft,
+    localEditDirty,
     localEditFields,
     handleConfiguredAction,
+    dismissLocalEdit,
     submitLocalEdit,
   } = useModulePageDetailActionRuntime({
     context,
@@ -850,12 +852,26 @@ export function useModulePageSession(
       localEditOpen.value ||
       referenceRecordDetailInteraction.value.editing,
   );
+  const sessionDirty = computed(
+    () =>
+      detailDirty.value ||
+      navigatorManagementDetail.isDirty.value ||
+      localEditDirty.value ||
+      referenceRecordDetailInteraction.value.dirty,
+  );
+  function updateReferenceRecordDetailInteraction(state: {
+    editing: boolean;
+    busy: boolean;
+    dirty?: boolean;
+  }) {
+    referenceRecordDetailInteraction.value = { ...state, dirty: state.dirty === true };
+  }
   // Hosts may protect reload/close without inspecting the runtime's private form drafts.
   watch(
     () => ({
       editing: interactionEditing.value,
       busy: interactionBusy.value,
-      dirty: detailDirty.value,
+      dirty: sessionDirty.value,
     }),
     (state) => emit('interaction-state-change', state),
     { immediate: true, flush: 'sync' },
@@ -3377,6 +3393,7 @@ export function useModulePageSession(
     editingRecord,
     saving,
     detailDirty,
+    sessionDirty,
     updateDraftField,
     showStatusSwitch,
     canToggleEnabled,
@@ -3499,6 +3516,7 @@ export function useModulePageSession(
     referenceRecordDetailBrowser,
     handleReferenceRecordChange,
     referenceRecordDetailInteraction,
+    updateReferenceRecordDetailInteraction,
     permissionsOpen,
     permissionsChanged,
     enhancementDrawer,
@@ -3509,6 +3527,7 @@ export function useModulePageSession(
     localEditBlock,
     localEditSaving,
     submitLocalEdit,
+    dismissLocalEdit,
     localEditDraft,
     localEditFields,
     updateLocalEditFormValidity,

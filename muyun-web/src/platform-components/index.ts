@@ -283,7 +283,11 @@ export type {
   PlatformActionResultHandlingContext,
 } from './platformActionResultFeedback';
 export { executeStaticFormSave, executeStaticRecordAction } from './staticFormActionFlow';
-export { applyRecordExternalChange, createRecordEditorSessionState } from './recordEditorSessionState';
+export {
+  applyRecordExternalChange,
+  createRecordEditorSessionState,
+  recordDraftFingerprint,
+} from './recordEditorSessionState';
 export { useFlatCrudManagementState } from './staticCrudManagementState';
 export type { PlatformActionErrorHandler, PlatformErrorFeedbackContext } from './platformErrorFeedback';
 export type {

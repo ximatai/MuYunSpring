@@ -13,13 +13,19 @@ import {
 it('reports dynamic workspace draft state through the optional host bridge and unregisters on teardown', () => {
   const unregister = vi.fn();
   let reportedDirty: (() => boolean) | undefined;
-  const registerUnsavedState = vi.fn((_: string, isDirty: () => boolean) => {
+  let reportedBusy: (() => boolean) | undefined;
+  const registerUnsavedState = vi.fn((_: string, isDirty: () => boolean, isBusy?: () => boolean) => {
     reportedDirty = isDirty;
+    reportedBusy = isBusy;
     return unregister;
   });
   const Child = defineComponent({
     setup() {
-      useModulePageUnsavedState('记录详情', () => true);
+      useModulePageUnsavedState(
+        '记录详情',
+        () => true,
+        () => true,
+      );
       return () => h('div');
     },
   });
@@ -31,8 +37,9 @@ it('reports dynamic workspace draft state through the optional host bridge and u
   });
 
   const wrapper = mount(Harness);
-  expect(registerUnsavedState).toHaveBeenCalledWith('记录详情', expect.any(Function));
+  expect(registerUnsavedState).toHaveBeenCalledWith('记录详情', expect.any(Function), expect.any(Function));
   expect(reportedDirty?.()).toBe(true);
+  expect(reportedBusy?.()).toBe(true);
   wrapper.unmount();
   expect(unregister).toHaveBeenCalledOnce();
 });

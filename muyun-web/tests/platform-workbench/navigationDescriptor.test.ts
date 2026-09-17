@@ -14,8 +14,13 @@ import {
   tryPageDescriptorFromUrl,
   withPageInstanceKey,
 } from '@/platform-workbench/menuNavigation.ts';
+import {
+  configureWorkspaceViewContributions,
+  createWorkspaceViewDescriptor,
+} from '@/platform-workbench/workspaceViews.ts';
 import type { PageDescriptor } from '@/web-contracts/index.ts';
 import { platformAdminRoutes } from '@/platform-admin-runtime/platformAdminRoutes.ts';
+import { roleDetailWorkspaceView } from '@/views/roleDetailWorkspaceView.ts';
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -68,6 +73,35 @@ it('keeps workspace tab identity separate from URL state when assigning an insta
     pageDescriptorToUrl(keyed),
     '/_platform/workspace/platform.module.governance?governanceTab=metadata&moduleAlias=education.exam&moduleTitle=%E8%80%83%E8%AF%95%E7%AE%A1%E7%90%86&workspacePresentation=tab&workspaceView=platform.module.governance',
   );
+});
+
+it('restores a registered workspace view from a standard module URL', () => {
+  configureWorkspaceViewContributions('role-detail-standard-route-test', [roleDetailWorkspaceView]);
+  try {
+    const descriptor = createWorkspaceViewDescriptor(
+      roleDetailWorkspaceView,
+      {
+        recordId: 'tenant_admin_2a97516c354b6884',
+        scopeKind: 'tenant',
+        scopeId: 'demo',
+      },
+      'drawer',
+    );
+    const url = pageDescriptorToUrl(descriptor);
+
+    assert.equal(
+      url,
+      '/iam/role?recordId=tenant_admin_2a97516c354b6884&scopeId=demo&scopeKind=tenant&workspacePresentation=drawer&workspaceView=iam.role.detail',
+    );
+    const restored = pageDescriptorFromUrl(url);
+
+    assertPageType(restored, 'business-route');
+    assert.equal(restored.target.route, '/iam/role');
+    assert.equal(restored.target.query?.workspaceView, 'iam.role.detail');
+    assert.equal(restored.target.query?.workspacePresentation, 'drawer');
+  } finally {
+    configureWorkspaceViewContributions('role-detail-standard-route-test', []);
+  }
 });
 
 function assertPageType<T extends PageDescriptor['pageType']>(
