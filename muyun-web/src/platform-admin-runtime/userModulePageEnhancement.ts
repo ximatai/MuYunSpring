@@ -53,7 +53,7 @@ export const userModulePageEnhancement: ModulePageEnhancement = {
         iconName: 'lock',
         state: (record) => ({ visible: record.id != null }),
         run({ openDrawer }) {
-          openDrawer({ title: '密码管理', width: 460, component: UserPasswordDrawer });
+          openDrawer({ title: '密码管理', width: 'narrow', component: UserPasswordDrawer });
         },
       },
     ],

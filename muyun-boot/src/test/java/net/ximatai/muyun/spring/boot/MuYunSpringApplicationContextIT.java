@@ -98,6 +98,7 @@ import net.ximatai.muyun.spring.iam.role.RoleService;
 import net.ximatai.muyun.spring.iam.role.RoleSharePolicy;
 import net.ximatai.muyun.spring.iam.role.TenantScopePolicy;
 import net.ximatai.muyun.spring.iam.logging.LoginAuditGovernanceService;
+import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.BeforeEach;
 import org.springframework.aop.support.AopUtils;
@@ -123,7 +124,10 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
+import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.sql.Timestamp;
@@ -131,11 +135,14 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.HexFormat;
 import java.util.Arrays;
+import java.util.Comparator;
 import java.util.EnumSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Stream;
+import java.util.stream.StreamSupport;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -150,6 +157,7 @@ class MuYunSpringApplicationContextIT {
     static final PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:16-alpine");
 
     private static final PageRequest ALL = new PageRequest(0, Integer.MAX_VALUE);
+    private static final Path RUNTIME_LOG_DIRECTORY = createRuntimeLogDirectory();
 
     @Autowired
     private UserSessionService userSessionService;
@@ -252,6 +260,29 @@ class MuYunSpringApplicationContextIT {
                 .rootUri("http://localhost:" + port + "/api"));
     }
 
+    private static Path createRuntimeLogDirectory() {
+        try {
+            return Files.createTempDirectory("muyun-runtime-log-it-");
+        } catch (java.io.IOException ex) {
+            throw new IllegalStateException("failed to create runtime log integration-test directory", ex);
+        }
+    }
+
+    @AfterAll
+    static void deleteRuntimeLogDirectory() throws java.io.IOException {
+        try (Stream<Path> files = Files.walk(RUNTIME_LOG_DIRECTORY)) {
+            files.sorted(Comparator.reverseOrder()).forEach(path -> {
+                try {
+                    Files.deleteIfExists(path);
+                } catch (java.io.IOException ex) {
+                    throw new UncheckedIOException(ex);
+                }
+            });
+        } catch (UncheckedIOException ex) {
+            throw ex.getCause();
+        }
+    }
+
     @DynamicPropertySource
     static void applicationProperties(DynamicPropertyRegistry registry) {
         registry.add("spring.datasource.url", postgres::getJdbcUrl);
@@ -259,6 +290,8 @@ class MuYunSpringApplicationContextIT {
         registry.add("spring.datasource.password", postgres::getPassword);
         registry.add("spring.datasource.driver-class-name", postgres::getDriverClassName);
         registry.add("muyun.database.repository-schema-mode", () -> "ENSURE");
+        registry.add("muyun.platform.runtime-log.directory", () -> RUNTIME_LOG_DIRECTORY.toString());
+        registry.add("logging.file.name", () -> RUNTIME_LOG_DIRECTORY.resolve("application.log").toString());
     }
 
     @Test
@@ -717,6 +750,134 @@ class MuYunSpringApplicationContextIT {
     }
 
     @Test
+    void shouldRestrictRuntimeLogEndpointsToTheSystemApplicationThroughRealHttp() {
+        String systemToken = issueSuperAdminSessionToken();
+        String tenantToken = null;
+        try {
+            ResponseEntity<JsonNode> systemSchema = restTemplate.exchange(
+                    "/platform.runtime_log/query/schema", HttpMethod.GET,
+                    new HttpEntity<>(bearerHeaders(systemToken)), JsonNode.class);
+            assertThat(systemSchema.getStatusCode()).isEqualTo(HttpStatus.OK);
+            assertThat(systemSchema.getBody()).isNotNull();
+            assertThat(systemSchema.getBody().path("quickSearch").path("fields").get(0).asText())
+                    .isEqualTo("name");
+
+            String suffix = Long.toUnsignedString(System.nanoTime(), 36);
+            String tenantId = insertActiveTenant("runtime_log_" + suffix);
+            String userId = "runtime_log_user_" + suffix;
+            insertUser(tenantId, userId, "runtime_log_reader");
+            jdbcTemplate.update("update iam_user set password_status = ? where id = ?", "NORMAL", userId);
+            tenantToken = issueActiveSessionToken(tenantId, userId, "runtime_log_reader");
+            HttpHeaders headers = bearerHeaders(tenantToken);
+            headers.set(HttpHeaders.ACCEPT, "application/json, text/event-stream, application/octet-stream");
+
+            for (var endpoint : Map.of(
+                    "/query/schema", HttpMethod.GET,
+                    "/query", HttpMethod.POST,
+                    "/files/application.log/download", HttpMethod.GET,
+                    "/active/stream", HttpMethod.POST).entrySet()) {
+                ResponseEntity<JsonNode> denied = restTemplate.exchange(
+                        "/platform.runtime_log" + endpoint.getKey(), endpoint.getValue(),
+                        new HttpEntity<>(headers), JsonNode.class);
+                assertThat(denied.getStatusCode()).as(endpoint.getKey()).isEqualTo(HttpStatus.FORBIDDEN);
+                assertThat(denied.getBody()).isNotNull();
+                assertThat(denied.getBody().path("code").asText()).as(endpoint.getKey())
+                        .isEqualTo("APPLICATION_NOT_OPENED");
+            }
+        } finally {
+            if (tenantToken != null) {
+                userSessionService.logout(tenantToken);
+            }
+            userSessionService.logout(systemToken);
+        }
+    }
+
+    @Test
+    void shouldDownloadRuntimeLogThroughTheRealHttpResponsePipeline() throws Exception {
+        String marker = "runtime-download-" + Long.toUnsignedString(System.nanoTime(), 36);
+        Files.writeString(RUNTIME_LOG_DIRECTORY.resolve("http-download.log"), marker);
+        String token = issueSuperAdminSessionToken();
+        try {
+            ResponseEntity<byte[]> response = restTemplate.exchange(
+                    "/platform.runtime_log/files/http-download.log/download", HttpMethod.GET,
+                    new HttpEntity<>(bearerHeaders(token)), byte[].class);
+
+            assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+            assertThat(response.getHeaders().getContentType()).isEqualTo(org.springframework.http.MediaType.APPLICATION_OCTET_STREAM);
+            assertThat(response.getBody()).isNotNull();
+            assertThat(new String(response.getBody(), StandardCharsets.UTF_8)).isEqualTo(marker);
+        } finally {
+            userSessionService.logout(token);
+        }
+    }
+
+    @Test
+    void shouldDeliverRoleScopeFormDefaultsAsWireCodesAndEnforceTheSelectedScopeOnCreate() {
+        String token = issueSuperAdminSessionToken();
+        try {
+            String suffix = Long.toUnsignedString(System.nanoTime(), 36);
+            String tenantId = insertActiveTenant("role_scope_" + suffix);
+            String organizationId = "role_scope_org_" + suffix;
+            insertOrganization(tenantId, organizationId, "ROLE-SCOPE-" + suffix, "Role scope organization");
+
+            ResponseEntity<JsonNode> context = restTemplate.exchange("/platform.module/iam.role/context", HttpMethod.GET,
+                    new HttpEntity<>(bearerHeaders(token)), JsonNode.class);
+            assertThat(context.getStatusCode()).isEqualTo(HttpStatus.OK);
+            assertThat(context.getBody()).isNotNull();
+            List<String> formDefaultBindings = StreamSupport.stream(context.getBody().path("uiDescriptor").path("page")
+                            .path("navigator").path("contextBindings").spliterator(), false)
+                    .filter(binding -> "RESOLVED_SELECTION".equals(binding.path("source").asText()))
+                    .filter(binding -> "roleScope".equals(binding.path("sourceKey").asText()))
+                    .filter(binding -> "FORM_DEFAULT".equals(binding.path("target").asText()))
+                    .map(binding -> binding.path("targetKey").asText())
+                    .toList();
+            assertThat(formDefaultBindings).containsExactly("ownerScopeType", "ownerScopeId", "ownerScopeKey");
+
+            JsonNode platform = roleScopeFormDefaults(token, "platform");
+            assertThat(platform.path("ownerScopeType").asText()).isEqualTo("platform");
+            assertThat(platform.has("ownerScopeId")).isTrue();
+            assertThat(platform.path("ownerScopeId").isNull()).isTrue();
+            assertThat(platform.path("ownerScopeKey").asText()).isEqualTo("platform");
+
+            JsonNode tenant = roleScopeFormDefaults(token, "tenant:" + tenantId);
+            assertThat(tenant.path("ownerScopeType").asText()).isEqualTo("tenant");
+            assertThat(tenant.path("ownerScopeId").asText()).isEqualTo(tenantId);
+            assertThat(tenant.path("ownerScopeKey").asText()).isEqualTo("tenant:" + tenantId);
+
+            JsonNode organization = roleScopeFormDefaults(token, "organization:" + organizationId);
+            assertThat(organization.path("ownerScopeType").asText()).isEqualTo("organization");
+            assertThat(organization.path("ownerScopeId").asText()).isEqualTo(organizationId);
+            assertThat(organization.path("ownerScopeKey").asText())
+                    .isEqualTo("organization:" + organizationId);
+
+            Map<String, Object> role = new java.util.LinkedHashMap<>();
+            role.put("title", "Scope constrained role " + suffix);
+            role.put("assignmentType", "employment");
+            role.put("roleKind", "standard");
+            role.put("sharePolicy", "private");
+            role.put("ownerScopeType", "platform");
+            role.put("ownerScopeId", "browser-supplied-owner");
+            role.put("ownerScopeKey", "browser-supplied-key");
+
+            ResponseEntity<JsonNode> created = restTemplate.exchange("/iam.role/insert", HttpMethod.POST,
+                    new HttpEntity<>(role, roleScopeHeaders(token, "organization:" + organizationId)), JsonNode.class);
+
+            assertThat(created.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+            assertThat(created.getBody()).isNotNull();
+            JsonNode createdRole = created.getBody().path("data");
+            assertThat(createdRole.path("ownerScopeType").asText()).isEqualTo("organization");
+            assertThat(createdRole.path("ownerScopeId").asText()).isEqualTo(organizationId);
+            assertThat(createdRole.path("ownerScopeKey").asText())
+                    .isEqualTo("organization:" + organizationId);
+            assertThat(createdRole.path("tenantId").asText()).isEqualTo(tenantId);
+            assertThat(jdbcTemplate.queryForObject("select owner_scope_type from iam_role where id = ?", String.class,
+                    createdRole.path("id").asText())).isEqualTo("organization");
+        } finally {
+            userSessionService.logout(token);
+        }
+    }
+
+    @Test
     void shouldServePagedLoginAuditOperatorCandidatesToAQueryOnlyTenantRole() {
         String suffix = Long.toUnsignedString(System.nanoTime(), 36);
         String tenantId = insertActiveTenant("login_ops_" + suffix);
@@ -944,7 +1105,7 @@ class MuYunSpringApplicationContextIT {
             roleService.replaceDataGrantActions("rv_data_role_dynamic_" + suffix, List.of(
                     new RoleService.DataGrantActionCommand(PlatformAction.VIEW.code(), DataScopePolicy.OWNER, true),
                     new RoleService.DataGrantActionCommand(PlatformAction.UPDATE.code(), DataScopePolicy.OWNER, true)));
-            roleService.grantAction("rv_action_role_dynamic_" + suffix, moduleAlias, PlatformAction.UPDATE.code(),
+            roleService.grantAction("rv_act_role_dynamic_" + suffix, moduleAlias, PlatformAction.UPDATE.code(),
                     DataScopePolicy.INHERIT_DATA_GRANT, TenantScopePolicy.CURRENT_TENANT);
         }
         ResponseEntity<JsonNode> writableActions = restTemplate.exchange(
@@ -1567,7 +1728,9 @@ class MuYunSpringApplicationContextIT {
         String employeeId = "rv_employee_" + roleSuffix;
         String positionId = "rv_position_" + roleSuffix;
         String employeePositionId = "rv_employment_" + roleSuffix;
-        String actionRoleId = "rv_action_role_" + roleSuffix;
+        // iam_role.id is varchar(32); the dynamic-reference fixture suffix can
+        // otherwise make the descriptive prefix exceed that database contract.
+        String actionRoleId = "rv_act_role_" + roleSuffix;
         String dataRoleId = "rv_data_role_" + roleSuffix;
         insertOrganization(tenantId, organizationId, "REF-ORG-" + roleSuffix, "Reference view organization");
         insertDepartment(tenantId, departmentId, organizationId, "REF-DEPT-" + roleSuffix,
@@ -1664,6 +1827,20 @@ class MuYunSpringApplicationContextIT {
     private HttpHeaders bearerHeaders(String token) {
         HttpHeaders headers = new HttpHeaders();
         headers.setBearerAuth(token);
+        return headers;
+    }
+
+    private JsonNode roleScopeFormDefaults(String token, String selectionKey) {
+        ResponseEntity<JsonNode> response = restTemplate.exchange("/iam.role/page-context/form-defaults",
+                HttpMethod.GET, new HttpEntity<>(roleScopeHeaders(token, selectionKey)), JsonNode.class);
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getBody()).isNotNull();
+        return response.getBody();
+    }
+
+    private HttpHeaders roleScopeHeaders(String token, String selectionKey) {
+        HttpHeaders headers = bearerHeaders(token);
+        headers.set("X-MuYun-Page-Selection", "{\"kind\":\"roleScope\",\"key\":\"" + selectionKey + "\"}");
         return headers;
     }
 

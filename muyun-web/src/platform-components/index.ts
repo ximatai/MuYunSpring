@@ -5,6 +5,8 @@ export { default as ApplicationScopeSwitcher } from './ApplicationScopeSwitcher.
 export { default as BusinessNotificationPanel } from './BusinessNotificationPanel.vue';
 export { confirmAction } from '@muyun/vue-ui-antdv';
 export { UiModal } from '@muyun/vue-ui-antdv';
+export { uiDrawerWidths as drawerWidths } from '@muyun/vue-ui-antdv';
+export type { UiDrawerWidth as DrawerWidth } from '@muyun/vue-ui-antdv';
 export { default as CrudRecordListExplorer } from './CrudRecordListExplorer.vue';
 export { default as DrawerOperationBar } from './DrawerOperationBar.vue';
 export { default as DrawerTitleActions } from './DrawerTitleActions.vue';
@@ -281,7 +283,11 @@ export type {
   PlatformActionResultHandlingContext,
 } from './platformActionResultFeedback';
 export { executeStaticFormSave, executeStaticRecordAction } from './staticFormActionFlow';
-export { applyRecordExternalChange, createRecordEditorSessionState } from './recordEditorSessionState';
+export {
+  applyRecordExternalChange,
+  createRecordEditorSessionState,
+  recordDraftFingerprint,
+} from './recordEditorSessionState';
 export { useFlatCrudManagementState } from './staticCrudManagementState';
 export type { PlatformActionErrorHandler, PlatformErrorFeedbackContext } from './platformErrorFeedback';
 export type {

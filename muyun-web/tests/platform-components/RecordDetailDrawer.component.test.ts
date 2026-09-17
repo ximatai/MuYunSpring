@@ -25,6 +25,24 @@ describe('RecordDetailDrawer', () => {
     wrapper.unmount();
   });
 
+  it('resolves a semantic width tier before rendering an inline drawer', () => {
+    const wrapper = mount(RecordDetailDrawer, {
+      props: { open: true, title: '职员详情', renderMode: 'inline', width: 'wide' },
+      global: {
+        stubs: {
+          ADrawer: {
+            name: 'ADrawer',
+            props: ['width'],
+            template: '<section><slot /></section>',
+          },
+        },
+      },
+    });
+
+    expect(wrapper.findComponent({ name: 'ADrawer' }).props('width')).toBe('min(760px, calc(100% - 32px))');
+    wrapper.unmount();
+  });
+
   it('forwards transition completion from its inline workspace drawer', async () => {
     const wrapper = mount(RecordDetailDrawer, {
       props: { open: true, title: '职员详情', renderMode: 'inline' },

@@ -13,7 +13,7 @@ const props = defineProps<{
   reloadKey?: number;
 }>();
 const emit = defineEmits<{
-  'interaction-state-change': [state: { editing: boolean; busy: boolean }];
+  'interaction-state-change': [state: { editing: boolean; busy: boolean; dirty?: boolean }];
   'record-only-change': [mutation: { type: 'saved' | 'deleted' | 'unavailable'; record?: QueryListRecord }];
   'record-only-close': [];
 }>();

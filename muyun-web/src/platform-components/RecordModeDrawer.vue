@@ -1,6 +1,12 @@
 <script setup lang="ts">
 import { computed } from 'vue';
-import { UiActionButton, type UiSidePanelScope } from '@muyun/vue-ui-antdv';
+import {
+  UiActionButton,
+  type UiDrawerCloseGuard,
+  type UiDrawerDismissal,
+  type UiDrawerWidth,
+  type UiSidePanelScope,
+} from '@muyun/vue-ui-antdv';
 import RecordDetailDrawer from './RecordDetailDrawer.vue';
 import RecordExternalChangeNotice from './RecordExternalChangeNotice.vue';
 import type { DrawerPromotion } from './drawerPromotion';
@@ -15,14 +21,17 @@ const props = withDefaults(
     /** Explicit presentation is needed by embedded record-only surfaces. */
     renderMode?: 'inline' | 'portal';
     subtitle?: string;
-    width?: number | string;
+    width?: UiDrawerWidth;
     scope?: UiSidePanelScope;
     mode: string;
     viewMode?: string;
     formModes?: string[];
     loading?: boolean;
     loadFailed?: boolean;
+    dismissal?: UiDrawerDismissal;
+    /** @deprecated Use `dismissal` and `beforeClose`. */
     closeOnOutside?: boolean;
+    beforeClose?: UiDrawerCloseGuard;
     closeTitle?: string;
     promotion?: DrawerPromotion;
     errorTitle?: string;
@@ -43,13 +52,15 @@ const props = withDefaults(
     container: undefined,
     renderMode: undefined,
     subtitle: undefined,
-    width: 520,
+    width: 'standard',
     scope: 'tab',
     viewMode: 'view',
     formModes: () => ['edit', 'create'],
     loading: false,
     loadFailed: false,
+    dismissal: undefined,
     closeOnOutside: undefined,
+    beforeClose: undefined,
     closeTitle: '关闭',
     promotion: undefined,
     errorTitle: '详情加载失败',
@@ -95,7 +106,7 @@ const emit = defineEmits<{
 
 const viewModeActive = computed(() => props.mode === props.viewMode);
 const formModeActive = computed(() => props.formModes.includes(props.mode));
-const actualCloseOnOutside = computed(() => props.closeOnOutside ?? viewModeActive.value);
+const legacyCloseOnOutside = computed(() => props.closeOnOutside ?? viewModeActive.value);
 </script>
 
 <template>
@@ -106,7 +117,9 @@ const actualCloseOnOutside = computed(() => props.closeOnOutside ?? viewModeActi
     :subtitle="subtitle"
     :width="width"
     :scope="scope"
-    :close-on-outside="actualCloseOnOutside"
+    :dismissal="dismissal"
+    :close-on-outside="legacyCloseOnOutside"
+    :before-close="beforeClose"
     :close-title="closeTitle"
     :promotion="promotion"
     @close="emit('close')"

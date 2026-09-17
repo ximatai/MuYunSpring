@@ -13,12 +13,14 @@ import type { BusinessRoutePageDescriptor } from '@/web-contracts/index.ts';
 it('registers every static administration route and keeps role authorization internal', () => {
   assert.deepEqual(platformAdminRoutePrefixes, [
     '/_platform/workspace',
+    '/platform/logs/runtime',
     '/platform/logs/activity',
     '/platform/logs/errors',
     '/iam/logs/login',
     '/iam/role/authorization',
   ]);
   assert.deepEqual(platformAdminModuleRoutes, {
+    'platform.runtime_log': '/platform/logs/runtime',
     'platform.business_activity_log': '/platform/logs/activity',
     'platform.request_error_log': '/platform/logs/errors',
     'iam.login_audit_log': '/iam/logs/login',

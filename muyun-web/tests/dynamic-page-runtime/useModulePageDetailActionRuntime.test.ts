@@ -128,6 +128,23 @@ describe('module page detail action runtime', () => {
     });
   });
 
+  it('tracks a local-edit draft against its opening baseline and clears after reverting or dismissal', () => {
+    const { runtime } = createRuntime();
+    runtime.handleConfiguredAction(runtime.detailPageActions.value[0]);
+
+    expect(runtime.localEditDirty.value).toBe(false);
+    runtime.localEditDraft.value!.title = '新名称';
+    expect(runtime.localEditDirty.value).toBe(true);
+
+    runtime.localEditDraft.value!.title = '旧标题';
+    expect(runtime.localEditDirty.value).toBe(false);
+
+    runtime.localEditDraft.value!.title = '再次修改';
+    runtime.dismissLocalEdit();
+    expect(runtime.localEditOpen.value).toBe(false);
+    expect(runtime.localEditDirty.value).toBe(false);
+  });
+
   it('preserves canonical LONG and DECIMAL editor strings in local-edit payloads', async () => {
     const { runtime, request } = createRuntime();
     runtime.handleConfiguredAction(runtime.detailPageActions.value[0]);

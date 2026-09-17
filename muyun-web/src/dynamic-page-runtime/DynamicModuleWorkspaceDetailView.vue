@@ -31,6 +31,7 @@ import {
   type ModulePageRecordActionContribution,
 } from './modulePageEnhancements';
 import { useModulePageNavigation } from './modulePageNavigation';
+import { useModulePageUnsavedState } from './modulePageUnsavedState';
 import ModuleRecordDetailActions from './ModuleRecordDetailActions.vue';
 import ModuleReferenceRecordDetailBrowser from './ModuleReferenceRecordDetailBrowser.vue';
 import { useModulePageDetailExtensionRuntime } from './composables/useModulePageDetailExtensionRuntime';
@@ -46,7 +47,13 @@ const referenceRecordDetailBrowser = createReferenceRecordDetailBrowser(context.
 provideReferenceRecordDetailBrowser(referenceRecordDetailBrowser);
 const modulePageNavigation = useModulePageNavigation();
 const detail = useRecordDetailController<QueryListRecord>();
-const { record, draft, mode, formSessionKey, loading, loadFailed, saving, togglingEnabled } = detail;
+const { record, draft, mode, formSessionKey, isDirty, loading, loadFailed, saving, togglingEnabled } = detail;
+const referenceRecordDetailInteraction = ref({ busy: false, dirty: false });
+useModulePageUnsavedState(
+  '记录详情',
+  () => isDirty.value || referenceRecordDetailInteraction.value.dirty,
+  () => saving.value || togglingEnabled.value || referenceRecordDetailInteraction.value.busy,
+);
 const fields = ref(resolveRecordFormFields(undefined));
 const workspaceElement = ref<HTMLElement>();
 const {
@@ -173,7 +180,7 @@ function editRecord() {
 }
 
 async function cancelEditing() {
-  if (saving.value) return;
+  if (saving.value || !(await confirmDiscardEditing())) return;
   detail.cancelEdit();
   if (!detail.open.value) return;
   const current = record.value;
@@ -190,9 +197,23 @@ async function cancelEditing() {
   }
 }
 
+async function confirmDiscardEditing() {
+  if (!isDirty.value) return true;
+  return confirmAction({
+    title: '放弃未保存的修改',
+    content: '当前记录存在未保存的修改，取消后将丢失。是否继续？',
+    okText: '放弃修改',
+    danger: true,
+  });
+}
+
 function updateDraftField(fieldName: string, value: RecordFormFieldValue) {
   if (!draft.value) return;
   draft.value = { ...draft.value, [fieldName]: value };
+}
+
+function updateReferenceRecordDetailInteraction(state: { busy: boolean; dirty?: boolean }) {
+  referenceRecordDetailInteraction.value = { busy: state.busy, dirty: state.dirty === true };
 }
 
 function handleReferenceRecordChange(mutation: ReferenceRecordDetailMutation) {
@@ -425,6 +446,7 @@ async function toggleEnabled() {
       render-mode="inline"
       scope="tab"
       @record-change="handleReferenceRecordChange"
+      @interaction-state-change="updateReferenceRecordDetailInteraction($event)"
     />
   </section>
 </template>

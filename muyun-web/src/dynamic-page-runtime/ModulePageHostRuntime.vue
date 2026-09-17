@@ -636,6 +636,7 @@ export default defineComponent({
           :query-template-id="listQueryTemplateId"
           :page-size="listPageSize"
           :ready="pageReady && navigatorListScopeReady"
+          :sortable="true"
           :external-query-values="navigatorListQueryValues"
           :persistent-query-controls="persistentListQueryControls"
           :query-summaries="listQuerySummaries"
@@ -1136,6 +1137,7 @@ export default defineComponent({
           :query-template-id="listQueryTemplateId"
           :page-size="listPageSize"
           :ready="pageReady && navigatorListScopeReady"
+          :sortable="true"
           :external-query-values="navigatorListQueryValues"
           :required-external-criteria-keys="navigatorListCriteriaKeys"
           :mode="listMode"
@@ -1197,6 +1199,8 @@ export default defineComponent({
         :mode="editorMode"
         :loading="detailLoading"
         :load-failed="detailLoadFailed"
+        :dismissal="editorMode === 'view' ? 'dismissible' : 'guarded'"
+        :before-close="confirmDetailDrawerClose"
         @close="props.recordOnly ? closeRecordOnlyDetail() : closeDetail()"
         @after-close="finishRecordOnlyDetailClose"
         @retry="retryLoadDetail"
@@ -1331,7 +1335,7 @@ export default defineComponent({
         :render-mode="props.recordOnly?.renderMode ?? 'inline'"
         :scope="props.recordOnly?.scope ?? 'tab'"
         @record-change="handleReferenceRecordChange"
-        @interaction-state-change="referenceRecordDetailInteraction = $event"
+        @interaction-state-change="updateReferenceRecordDetailInteraction($event)"
       />
     </Teleport>
     <RecordPermissionDialog
@@ -1370,7 +1374,7 @@ export default defineComponent({
       :width="localEditBlock?.width ?? 640"
       :confirm-loading="localEditSaving"
       @confirm="submitLocalEdit"
-      @cancel="localEditOpen = false"
+      @cancel="dismissLocalEdit"
     >
       <RecordFormFields
         v-if="localEditDraft"

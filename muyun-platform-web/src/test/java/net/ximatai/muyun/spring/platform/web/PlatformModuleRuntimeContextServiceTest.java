@@ -849,6 +849,42 @@ class PlatformModuleRuntimeContextServiceTest {
     }
 
     @Test
+    void shouldRetainNonNavigatorBindingsWhenNoNavigatorLevelsAreVisible() {
+        PlatformModuleService moduleService = mock(PlatformModuleService.class);
+        PlatformModuleActionService actionService = mock(PlatformModuleActionService.class);
+        when(moduleService.resolveVisibleModule("iam.role"))
+                .thenReturn(module("iam.role", "角色管理", ModuleKind.STATIC));
+        when(actionService.listByModuleAliases(List.of("iam.role"))).thenReturn(List.of());
+        PageContextBindingDefinition selectionBinding = PageContextBindingDefinition.resolvedSelection(
+                "roleScope", PageContextTarget.FORM_DEFAULT, "ownerScopeType");
+        PageContextBindingDefinition sessionBinding = PageContextBindingDefinition.session(
+                "tenant", PageContextTarget.FORM_DEFAULT, "tenantId");
+        StaticModuleDefinition definition = StaticModuleDefinition.builder("iam", "iam.role", "角色管理")
+                .actions(List.of(StaticModuleActionDefinition.platformAction(PlatformAction.MENU)))
+                .entities(List.of(new EntityDefinition("role", "iam_role", "Role", List.of(
+                        FieldDefinition.string("title", "名称"),
+                        FieldDefinition.string("ownerScopeType", "归属范围")))))
+                .uiDefinition(ModuleUiDefinition.builder("iam.role")
+                        .page(PageTemplates.listDetailCard(page -> page
+                                .list(list -> list.fields(fields -> fields.field("title")))
+                                .detail(detail -> detail.editor(fields -> fields.field("title")))))
+                        .build())
+                .pageContextBindings(List.of(selectionBinding, sessionBinding))
+                .build();
+        PlatformModuleRuntimeContextService service = new PlatformModuleRuntimeContextService(
+                moduleService, actionService, new StaticModuleDefinitionCatalog(List.of(definition)), null,
+                null, null, allowAllPolicy(), List.of(), new DeclaredPageNavigatorResolver());
+
+        ResolvedPageNavigatorDescriptor navigator = service.context("iam.role").uiDescriptor().page().navigator();
+
+        assertThat(navigator).isNotNull();
+        assertThat(navigator.levels()).isEmpty();
+        assertThat(navigator.contextBindings()).containsExactly(
+                ResolvedPageContextBindingDescriptor.from(selectionBinding),
+                ResolvedPageContextBindingDescriptor.from(sessionBinding));
+    }
+
+    @Test
     void shouldNotResolveNavigatorWhenModuleDoesNotDeclareAPage() {
         PlatformModuleService moduleService = mock(PlatformModuleService.class);
         PlatformModuleActionService actionService = mock(PlatformModuleActionService.class);

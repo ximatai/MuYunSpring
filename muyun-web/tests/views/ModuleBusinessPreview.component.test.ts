@@ -3,6 +3,7 @@ import { defineComponent, ref } from 'vue';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import ModuleBusinessPreview from '@/views/ModuleBusinessPreview.vue';
 import { configureModuleContext, createHttpClient } from '@muyun/web-core';
+import { provideWorkspaceViewHost } from '@/platform-workbench/workspaceViewHost.ts';
 
 function publishedRuntime(revision = '1') {
   return {
@@ -75,6 +76,51 @@ describe('ModuleBusinessPreview', () => {
     await flushPromises();
     expect(reload.props('disabled')).toBe(false);
     expect(wrapper.findComponent({ name: 'ModulePageHost' }).exists()).toBe(true);
+  });
+
+  it('registers the host aggregate dirty fact for workbench tab closing', async () => {
+    vi.stubGlobal('fetch', async () => Response.json(publishedRuntime()));
+    configureModuleContext({ httpFactory: () => createHttpClient({ baseUrl: 'http://api.local' }) });
+    let registeredDirty: (() => boolean) | undefined;
+    let registeredBusy: (() => boolean) | undefined;
+    const wrapper = mount(
+      defineComponent({
+        components: { ModuleBusinessPreview },
+        setup() {
+          provideWorkspaceViewHost({
+            presentation: 'tab',
+            setTitle: () => undefined,
+            replaceQuery: () => undefined,
+            registerUnsavedState: (_source, isDirty, isBusy) => {
+              registeredDirty = isDirty;
+              registeredBusy = isBusy;
+              return () => undefined;
+            },
+            dismiss: () => undefined,
+            close: () => undefined,
+          });
+        },
+        template: '<ModuleBusinessPreview module-alias="education.exam" />',
+      }),
+      { global: { stubs: { ModulePageHost: true } } },
+    );
+    await flushPromises();
+    const host = wrapper.findComponent({ name: 'ModulePageHost' });
+
+    expect(registeredDirty?.()).toBe(false);
+    expect(registeredBusy?.()).toBe(false);
+    host.vm.$emit('interaction-state-change', { editing: true, busy: false, dirty: true });
+    await flushPromises();
+    expect(registeredDirty?.()).toBe(true);
+
+    host.vm.$emit('interaction-state-change', { editing: true, busy: false, dirty: false });
+    await flushPromises();
+    expect(registeredDirty?.()).toBe(false);
+    host.vm.$emit('interaction-state-change', { editing: true, busy: true, dirty: false });
+    await flushPromises();
+    expect(registeredDirty?.()).toBe(false);
+    expect(registeredBusy?.()).toBe(true);
+    wrapper.unmount();
   });
 
   it('preserves the active host when publication changes and reloads only on request', async () => {

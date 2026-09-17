@@ -300,13 +300,13 @@ describe('module page enhancements', () => {
       {
         id: 'customer-detail-drawer',
         target: { moduleAlias: 'crm.customer' },
-        recordView: { drawer: { component: DetailDrawer, width: 720, loadRecord: false } },
+        recordView: { drawer: { component: DetailDrawer, width: 'wide', loadRecord: false } },
       },
     ]);
 
     expect(registry.resolve('crm.customer')?.recordView?.drawer).toEqual({
       component: DetailDrawer,
-      width: 720,
+      width: 'wide',
       loadRecord: false,
     });
   });

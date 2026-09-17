@@ -17,7 +17,7 @@ const props = defineProps<{
   reloadKey?: number;
 }>();
 const emit = defineEmits<{
-  'interaction-state-change': [state: { editing: boolean; busy: boolean }];
+  'interaction-state-change': [state: { editing: boolean; busy: boolean; dirty?: boolean }];
   'record-only-change': [mutation: { type: 'saved' | 'deleted' | 'unavailable'; record?: QueryListRecord }];
   'record-only-close': [];
 }>();
@@ -57,7 +57,7 @@ function rejectSession(session: ModulePageSessionView, message: string) {
   failure.value = message;
   pending.value = false;
 }
-function interactionChanged(state: { editing: boolean; busy: boolean }) {
+function interactionChanged(state: { editing: boolean; busy: boolean; dirty?: boolean }) {
   blocked.value = state.editing || state.busy;
   emit('interaction-state-change', state);
 }

@@ -49,6 +49,10 @@ This layer may compose `vue-ui-antdv`, `web-core`, `dynamic-page-runtime`, and `
 
 具有稳定对象身份的业务面板不应复用临时抽屉。它可以在同一增强内声明 `workspaceViews`，并由动作的 `openWorkspaceTab(view, input)` 打开为按参数去重的 Workbench Tab；平台会为该 Vue 组件提供对应模块的 `ModuleContext`。
 
+抽屉使用 `UiSidePanel`、`RecordDetailDrawer` 或 `RecordModeDrawer`。宽度只能声明为 `compact`、`narrow`、`standard`、`wide`、`extraWide`；关闭策略声明为 `explicit`、`dismissible`、`guarded`。编辑态使用 `guarded` 并提供脏状态守卫，只读和实时浏览可使用 `dismissible`。`closeOnOutside` 仅为存量兼容，新增业务不得使用。
+
+草稿基线和保存状态由编辑会话持有，页面汇总主详情、导航器、局部编辑与引用详情的状态。工作台通过 `registerUnsavedState` 分别读取 `isDirty` 与可选 `isBusy`：未保存修改需要确认放弃，进行中的写操作则禁止关闭；不得用“正在编辑”代替真实脏状态。
+
 ## Management State Helpers
 
 `useFlatCrudManagementState` is for single-record management pages where the detail area is the primary workspace. Empty states may stay in `create` mode so the page can guide users to create the first record.
@@ -56,3 +60,7 @@ This layer may compose `vue-ui-antdv`, `web-core`, `dynamic-page-runtime`, and `
 `createRecordEditorSessionState` is for local editor sessions inside composite management pages. Canceling a create session closes the editor by returning to `view`; canceling an edit session restores the selected record draft.
 
 By default, `startCreate()` clears the selected record. Use `preserveSelection` when the selected record is the surrounding context, and use `selectedRecord` plus a custom `draft`/`mode` when creating a child record under a parent.
+
+## 标准列表记录交互
+
+`RecordQueryListPanel` 中单击产生 `select`，只表示页面拥有的当前记录选择；它不能被用作打开详情。默认打开意图由双击产生的 `recordActivate` 表达。业务页面应监听 `record-activate` 打开只读详情，行操作继续用于可发现的显式入口。只有确实依赖鼠标手势细节的特殊交互才监听原始 `row-dblclick`。

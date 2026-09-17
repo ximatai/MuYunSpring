@@ -1,4 +1,5 @@
 import { computed, ref, type Ref } from 'vue';
+import { recordDraftFingerprint } from '@muyun/platform-components';
 import type {
   RecordActionItem,
   RecordFormFieldDescriptor,
@@ -71,6 +72,13 @@ export function useModulePageDetailActionRuntime(options: ModulePageDetailAction
   const localEditSaving = ref(false);
   const localEditBlock = ref<(typeof localEditActionBlocks.value)[number]>();
   const localEditDraft = ref<RecordFormRecord>();
+  const localEditBaseline = ref<string>();
+  const localEditDirty = computed(
+    () =>
+      localEditOpen.value &&
+      localEditDraft.value != null &&
+      localEditBaseline.value !== recordDraftFingerprint(localEditDraft.value),
+  );
   const localEditFields = computed<Map<string, RecordFormFieldDescriptor>>(() => {
     const form = localEditBlock.value?.localEditForm;
     const controlsByAlias = new Map((form?.fieldUiControls ?? []).map((control) => [control.alias, control]));
@@ -123,7 +131,18 @@ export function useModulePageDetailActionRuntime(options: ModulePageDetailAction
         (block.localEditForm.fields ?? []).map((field) => [field.fieldName, record[field.fieldName]]),
       ),
     };
+    localEditBaseline.value = recordDraftFingerprint(localEditDraft.value);
     localEditOpen.value = true;
+  }
+
+  function dismissLocalEdit() {
+    if (localEditSaving.value) return;
+    closeLocalEditSession();
+  }
+
+  function closeLocalEditSession() {
+    localEditOpen.value = false;
+    localEditBaseline.value = undefined;
   }
 
   async function submitLocalEdit() {
@@ -167,7 +186,7 @@ export function useModulePageDetailActionRuntime(options: ModulePageDetailAction
         }
       }
       if (block.refreshStrategy?.list !== false) options.refreshList();
-      localEditOpen.value = false;
+      closeLocalEditSession();
       await options.presentSuccess(result, `${block.title ?? block.actionCode}成功`, 'module-local-edit');
       if (refreshFailure) reportRefreshFailure(refreshFailure, 'module-local-edit');
     } catch (cause) {
@@ -213,8 +232,10 @@ export function useModulePageDetailActionRuntime(options: ModulePageDetailAction
     localEditSaving,
     localEditBlock,
     localEditDraft,
+    localEditDirty,
     localEditFields,
     handleConfiguredAction,
+    dismissLocalEdit,
     submitLocalEdit,
   };
 }

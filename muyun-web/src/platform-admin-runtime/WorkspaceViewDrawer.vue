@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import { RecordDetailDrawer, type DrawerPromotion } from '@muyun/platform-components';
+import type { UiDrawerCloseGuard, UiDrawerDismissal } from '@muyun/vue-ui-antdv';
 import type { WorkspaceDrawerProfile } from './workspaceViewContract';
 
 defineOptions({ name: 'WorkspaceViewDrawer' });
@@ -13,19 +14,21 @@ const props = withDefaults(
     subtitle?: string;
     profile?: WorkspaceDrawerProfile;
     promotion?: DrawerPromotion;
+    dismissal?: UiDrawerDismissal;
+    beforeClose?: UiDrawerCloseGuard;
   }>(),
   {
     subtitle: undefined,
     profile: 'detail',
     promotion: undefined,
+    dismissal: undefined,
+    beforeClose: undefined,
   },
 );
 
 const emit = defineEmits<{ close: [] }>();
 
-// CSS min() keeps wide work drawers inside the workbench on narrow screens;
-// standard details retain the compact, form-oriented capacity.
-const width = computed(() => (props.profile === 'wide-work' ? 'min(600px, 100vw)' : 520));
+const width = computed(() => (props.profile === 'wide-work' ? 'wide' : 'standard'));
 </script>
 
 <template>
@@ -36,6 +39,8 @@ const width = computed(() => (props.profile === 'wide-work' ? 'min(600px, 100vw)
     :subtitle="subtitle"
     :width="width"
     :promotion="promotion"
+    :dismissal="dismissal"
+    :before-close="beforeClose"
     @close="emit('close')"
   >
     <template v-if="$slots.operation" #operation>

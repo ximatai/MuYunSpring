@@ -41,7 +41,7 @@ export const tenantModulePageEnhancement: ModulePageEnhancement = {
         run({ openDrawer }) {
           openDrawer({
             title: '配置应用',
-            width: 760,
+            width: 'wide',
             component: TenantApplicationConfigurationDrawer,
           });
         },

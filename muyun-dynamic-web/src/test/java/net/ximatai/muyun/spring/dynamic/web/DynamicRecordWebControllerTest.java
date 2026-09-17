@@ -1851,6 +1851,36 @@ class DynamicRecordWebControllerTest {
     }
 
     @Test
+    void shouldAllowCapabilitySortFieldOutsideTheDynamicQueryForm() throws Exception {
+        EntityDefinition sortableEntity = sortableEntity();
+        when(service.describe(MODULE)).thenReturn(DynamicModuleDescriptor.from(
+                new ModuleDefinition(MODULE, "Contract", List.of(sortableEntity))));
+        DynamicRecord record = new DynamicRecord(sortableEntity).setValue("code", "C-001");
+        record.setId("contract-1");
+        when(mainEntity.pageQuery(any(Criteria.class), any(PageRequest.class), any(Sort[].class)))
+                .thenReturn(PageResult.of(List.of(record), 1, PageRequest.of(1, 20)));
+
+        mvc.perform(post("/{moduleAlias}/query", MODULE)
+                        .contentType("application/json")
+                        .content("""
+                                {
+                                  "sorts": [
+                                    {"field": "sortOrder", "desc": false}
+                                  ]
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.records[0].values.code").value("C-001"));
+
+        ArgumentCaptor<Sort[]> sorts = ArgumentCaptor.forClass(Sort[].class);
+        verify(mainEntity).pageQuery(any(Criteria.class), any(PageRequest.class), sorts.capture());
+        assertThat(sorts.getValue()).singleElement().satisfies(sort -> {
+            assertThat(sort.getField()).isEqualTo("sortOrder");
+            assertThat(sort.getDirection()).isEqualTo(net.ximatai.muyun.database.core.orm.SortDirection.ASC);
+        });
+    }
+
+    @Test
     void shouldAllowProjectionFieldSortsWhenDynamicSqlProjectionIsSupported() throws Exception {
         DynamicRelationProjectionReadService projectionReadService = mock(DynamicRelationProjectionReadService.class);
         MockMvc lowCodeMvc = projectionMvc(projectionReadService);

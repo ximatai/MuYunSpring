@@ -14,6 +14,7 @@ import {
   executeStaticFormSave,
   executeStaticRecordAction,
   normalizeRecordDraft,
+  recordDraftFingerprint,
   presentPlatformError,
   presentPlatformMessage,
   resolveRecordFormFieldState,
@@ -47,7 +48,13 @@ import type {
   WebTreeNode,
   WebQueryRequest,
 } from '@muyun/web-contracts';
-import { useModuleContext, type ModuleContext } from '@muyun/web-core';
+import {
+  createModuleCrudClient,
+  useModuleContext,
+  withHttpHeaders,
+  type ModuleContext,
+} from '@muyun/web-core';
+import { useWorkspaceViewUnsavedState } from '@muyun/platform-workbench';
 import { useCurrentUserContext } from '../platform-admin-runtime/currentUserContext';
 import { useWorkspaceViewHost } from '../platform-admin-runtime/workspaceViewHost';
 import { useWorkspaceViewPromotion } from '../platform-admin-runtime/useWorkspaceViewPromotion';
@@ -82,8 +89,7 @@ type RoleFormFieldName =
   | 'ownerScopeId'
   | 'sharePolicy'
   | 'description'
-  | 'enabled'
-  | 'sortOrder';
+  | 'enabled';
 
 interface RoleScope {
   kind: RoleScopeKind;
@@ -118,6 +124,7 @@ const authorizationRole = ref<Role>();
 const authorizationDrawerOpen = ref(false);
 const roleDetailRequestSeq = ref(0);
 const roleDraft = ref<Partial<Role>>(createRoleDraft(undefined));
+const roleDraftBaseline = ref(recordDraftFingerprint(roleDraft.value));
 const roleFormFieldDefinitions = ref(resolveRecordFormFields(undefined));
 const memberRoleCandidates = ref<Role[]>([]);
 
@@ -156,8 +163,13 @@ const currentUserTenant = computed<Tenant | undefined>(() => {
     enabled: true,
   } as Tenant;
 });
+const roleRequestContext = computed(() => createRoleScopeModuleContext(roleContext, selectedScope.value));
 const roleListContext = computed(
-  () => createScopedRoleModuleContext(roleContext, selectedScope.value) as ModuleContext<QueryListRecord>,
+  () =>
+    createScopedRoleModuleContext(
+      roleRequestContext.value,
+      selectedScope.value,
+    ) as ModuleContext<QueryListRecord>,
 );
 const roleListColumns = computed<RecordQueryListColumn[]>(() => [
   { key: 'title', title: '角色名称', width: '22%' },
@@ -202,6 +214,16 @@ const roleDetailTitle = computed(() => {
   return roleTitle(selectedRole.value ?? roleDraft.value);
 });
 const roleDetailSubtitle = computed(() => selectedScope.value?.title ?? '角色详情');
+const roleDetailDirty = computed(() => {
+  return (
+    roleDetailMode.value !== 'view' && roleDraftBaseline.value !== recordDraftFingerprint(roleDraft.value)
+  );
+});
+useWorkspaceViewUnsavedState(
+  '角色详情',
+  () => roleDetailDirty.value,
+  () => savingRole.value,
+);
 const roleFormDisabled = computed(() => savingRole.value || loadingRoleDetail.value);
 const canSaveRole = computed(() => {
   if (loadingRoleDetail.value || !selectedScope.value) {
@@ -294,6 +316,7 @@ const roleDetailPromotion = useWorkspaceViewPromotion({
       (await handOffRoleDetailWorkspaceSession(input, {
         selectedRole: selected,
         draft: roleDraft.value,
+        draftBaseline: roleDraftBaseline.value,
         scope,
         mode: roleDetailMode.value === 'edit' ? 'edit' : 'view',
       })) === 'accepted'
@@ -343,7 +366,6 @@ const roleFormFieldFallback = computed<Record<RoleFormFieldName, RecordFormField
   },
   description: { label: '说明', visible: true, placeholder: '请输入角色说明' },
   enabled: { label: '启用状态', visible: true, controlType: 'enabledStatus' },
-  sortOrder: { label: '排序号', visible: true, placeholder: '请输入排序号' },
 }));
 const rolePrimaryFormFieldNames: RoleFormFieldName[] = ['title', 'assignmentType', 'roleKind'];
 const roleSecondaryFormFieldNames: RoleFormFieldName[] = [
@@ -352,14 +374,13 @@ const roleSecondaryFormFieldNames: RoleFormFieldName[] = [
   'sharePolicy',
   'description',
   'enabled',
-  'sortOrder',
 ];
 const roleDetailFieldNames = computed<RoleFormFieldName[]>(() => {
   const names: RoleFormFieldName[] = ['title', 'assignmentType', 'roleKind'];
   if (roleDraft.value.roleKind === 'group') {
     names.push('memberRoleIds');
   }
-  names.push('ownerScopeType', 'ownerScopeId', 'sharePolicy', 'description', 'enabled', 'sortOrder');
+  names.push('ownerScopeType', 'ownerScopeId', 'sharePolicy', 'description', 'enabled');
   return names;
 });
 
@@ -384,7 +405,7 @@ onMounted(() => {
 onBeforeUnmount(() => disposeRoleWorkspaceHandoffRecipient?.());
 
 function receiveRoleDetailWorkspaceSession(session: RoleDetailWorkspaceSession) {
-  if (roleDetailMode.value === 'edit') return false;
+  if (roleDetailDirty.value) return false;
   restoreRoleDetailWorkspaceSession(session);
   return true;
 }
@@ -427,7 +448,7 @@ async function loadMemberRoleCandidates(scope = selectedScope.value) {
     return;
   }
   try {
-    const response = await roleContext.crud.query(
+    const response = await roleRequestContext.value.crud.query(
       scopedRoleQuery(
         {
           page: { pageNum: 0, pageSize: 500 },
@@ -463,6 +484,27 @@ function createScopedRoleModuleContext(
         return context.crud.query(scopedRoleQuery(request, scope));
       },
     },
+  };
+}
+
+/**
+ * The role page's owner range is an IAM-owned, opaque navigator selection.
+ * Workspace restoration carries a selection, but does not run the dynamic
+ * page navigator that normally attaches this header. The backend still validates
+ * the selection; route parameters and query conditions cannot grant access.
+ */
+function createRoleScopeModuleContext(
+  context: ModuleContext<Role>,
+  scope: RoleScope | undefined,
+): ModuleContext<Role> {
+  if (!scope) return context;
+  const http = withHttpHeaders(context.http, {
+    'X-MuYun-Page-Selection': JSON.stringify({ kind: 'roleScope', key: scope.key }),
+  });
+  return {
+    ...context,
+    http,
+    crud: createModuleCrudClient<Role>(http, { moduleAlias: context.moduleAlias }),
   };
 }
 
@@ -530,7 +572,7 @@ async function loadScopeTree() {
     });
     scopeTreeNodes.value = response.records.map(tenantTreeNode);
     if (!selectedScope.value && canSelectPlatformScope.value) {
-      selectPlatformScope();
+      void selectPlatformScope();
     }
   } catch (cause) {
     scopeTreeNodes.value = [];
@@ -603,13 +645,13 @@ function handleScopeTreeSelect(node: UiTreeNode) {
   const tenantId = tenantIdFromNodeKey(node.key);
   if (tenantId) {
     const tenant = scopeTenants.get(tenantId);
-    if (tenant) selectTenant(tenant);
+    if (tenant) void selectTenant(tenant);
     return;
   }
   const tenantRootId = tenantRootIdFromNodeKey(node.key);
   if (tenantRootId) {
     const tenant = scopeTenants.get(tenantRootId);
-    if (tenant) selectTenant(tenant);
+    if (tenant) void selectTenant(tenant);
     return;
   }
   const organizationId = organizationIdFromNodeKey(node.key);
@@ -617,8 +659,7 @@ function handleScopeTreeSelect(node: UiTreeNode) {
   const organization = scopeOrganizations.get(organizationId);
   const organizationTenantId = scopeOrganizationTenantIds.get(organizationId);
   if (organization && organizationTenantId) {
-    selectedTenant.value = scopeTenants.get(organizationTenantId);
-    selectOrganizationScope(organization);
+    void selectOrganizationScope(organization, scopeTenants.get(organizationTenantId));
   }
 }
 
@@ -642,15 +683,21 @@ function organizationIdFromNodeKey(key: string) {
 }
 
 function initializeTenantUserScope(record = currentUserTenant.value) {
-  if (!record || canBrowseTenants.value || selectedTenant.value || selectedScope.value) {
+  if (
+    isWorkspaceView.value ||
+    !record ||
+    canBrowseTenants.value ||
+    selectedTenant.value ||
+    selectedScope.value
+  ) {
     return;
   }
   selectedTenant.value = record;
-  selectTenantRootScope(record);
+  void selectTenantRootScope(record);
 }
 
-function selectPlatformScope() {
-  if (!canLeaveRoleDetailContext() || !canSelectPlatformScope.value) {
+async function selectPlatformScope() {
+  if (!canSelectPlatformScope.value || !(await mayLeaveRoleDetail())) {
     return;
   }
   selectedTenant.value = undefined;
@@ -662,29 +709,23 @@ function selectPlatformScope() {
 }
 
 /** The absence of a tree selection is the platform-role scope, not a tree node. */
-function clearScopeSelection() {
-  if (!canLeaveRoleDetailContext()) {
-    return;
-  }
+async function clearScopeSelection() {
   if (!canSelectPlatformScope.value) {
-    selectTenantRootScope();
+    await selectTenantRootScope();
     return;
   }
-  selectPlatformScope();
+  await selectPlatformScope();
 }
 
-function selectTenant(record: Tenant) {
-  if (!canLeaveRoleDetailContext()) {
+async function selectTenant(record: Tenant) {
+  await selectTenantRootScope(record);
+}
+
+async function selectTenantRootScope(record = selectedTenant.value) {
+  if (!record?.id || !(await mayLeaveRoleDetail())) {
     return;
   }
   selectedTenant.value = record;
-  selectTenantRootScope(record);
-}
-
-function selectTenantRootScope(record = selectedTenant.value) {
-  if (!record?.id || !canLeaveRoleDetailContext()) {
-    return;
-  }
   selectedScope.value = {
     kind: 'tenant',
     id: record.id,
@@ -694,23 +735,24 @@ function selectTenantRootScope(record = selectedTenant.value) {
   };
 }
 
-function selectOrganizationScope(record: Organization) {
-  if (!record.id || !canLeaveRoleDetailContext()) {
+async function selectOrganizationScope(record: Organization, tenant = selectedTenant.value) {
+  if (!record.id || !(await mayLeaveRoleDetail())) {
     return;
   }
+  selectedTenant.value = tenant;
   selectedScope.value = {
     kind: 'organization',
     id: record.id,
     key: `organization:${record.id}`,
     title: organizationTitle(record),
-    tenant: selectedTenant.value,
+    tenant,
     organization: record,
   };
 }
 
 function handleRoleListAction(action: RecordActionItem) {
   if (action.key === 'create') {
-    startCreateRole();
+    void startCreateRole();
   }
 }
 
@@ -819,7 +861,7 @@ async function openRoleBinding(record: QueryListRecord, employment = false) {
   employmentBindingDrawerOpen.value = employment;
   bindingRole.value = copyRole(record as Role);
   try {
-    bindingRole.value = await roleContext.crud.view(id);
+    bindingRole.value = await roleRequestContext.value.crud.view(id);
   } catch (cause) {
     bindingDrawerOpen.value = false;
     employmentBindingDrawerOpen.value = false;
@@ -837,8 +879,8 @@ function closeRoleBinding() {
   bindingRole.value = undefined;
 }
 
-function startCreateRole() {
-  if (!canLeaveRoleDetailContext()) {
+async function startCreateRole() {
+  if (!(await mayLeaveRoleDetail())) {
     return;
   }
   if (!selectedScope.value) {
@@ -848,6 +890,7 @@ function startCreateRole() {
   selectedRole.value = undefined;
   selectedRoleKey.value = undefined;
   roleDraft.value = createRoleDraft(selectedScope.value);
+  resetRoleDraftBaseline();
   roleDetailMode.value = 'create';
   loadingRoleDetail.value = false;
   roleDetailLoadFailed.value = false;
@@ -856,7 +899,7 @@ function startCreateRole() {
 }
 
 async function openRoleDetail(record: QueryListRecord, mode: RoleDetailMode) {
-  if (!canLeaveRoleDetailContext()) {
+  if (!(await mayLeaveRoleDetail())) {
     return;
   }
   const id = String(record.id ?? '');
@@ -868,12 +911,13 @@ async function openRoleDetail(record: QueryListRecord, mode: RoleDetailMode) {
   roleDetailMode.value = mode;
   selectedRole.value = undefined;
   roleDraft.value = copyRole(record as Role);
+  resetRoleDraftBaseline();
   loadingRoleDetail.value = true;
   roleDetailLoadFailed.value = false;
   const requestSeq = roleDetailRequestSeq.value + 1;
   roleDetailRequestSeq.value = requestSeq;
   try {
-    const fullRecord = await roleContext.crud.view(id);
+    const fullRecord = await roleRequestContext.value.crud.view(id);
     if (!canCommitRoleDetailRequest(id, requestSeq)) {
       return;
     }
@@ -905,13 +949,14 @@ function closeRoleDetail() {
   roleDetailOpen.value = false;
   roleDetailMode.value = 'view';
   roleDraft.value = selectedRole.value ? copyRole(selectedRole.value) : createRoleDraft(selectedScope.value);
+  resetRoleDraftBaseline();
   if (isDrawerWorkspaceView.value) {
     workspaceViewHost?.dismiss();
   }
 }
 
-function cancelRoleDetail() {
-  if (savingRole.value) {
+async function cancelRoleDetail() {
+  if (!(await mayLeaveRoleDetail())) {
     return;
   }
   if (!selectedRole.value?.id || roleDetailMode.value === 'create') {
@@ -919,6 +964,7 @@ function cancelRoleDetail() {
     return;
   }
   roleDraft.value = copyRole(selectedRole.value);
+  resetRoleDraftBaseline();
   roleDetailMode.value = 'view';
   loadingRoleDetail.value = false;
   roleDetailLoadFailed.value = false;
@@ -926,7 +972,7 @@ function cancelRoleDetail() {
 
 function handleRoleDetailAction(action: RecordActionItem) {
   if (action.key === 'cancel') {
-    cancelRoleDetail();
+    void cancelRoleDetail();
     return;
   }
   if (action.key === 'save') {
@@ -938,6 +984,7 @@ function handleRoleDetailAction(action: RecordActionItem) {
   }
   if (action.key === 'edit' && selectedRole.value && !selectedRole.value.systemManaged) {
     roleDraft.value = copyRole(selectedRole.value);
+    resetRoleDraftBaseline();
     roleDetailMode.value = 'edit';
     return;
   }
@@ -974,8 +1021,8 @@ async function saveRole() {
     validateRecord: validateRoleDraft,
     save: (draft, mode) =>
       mode === 'edit' && selectedRole.value?.id
-        ? roleContext.crud.update(selectedRole.value.id, draft)
-        : roleContext.crud.insert(draft),
+        ? roleRequestContext.value.crud.update(selectedRole.value.id, draft)
+        : roleRequestContext.value.crud.insert(draft),
     onSaved: ({ record }) => {
       commitRoleDetailRecord(record);
       roleReloadKey.value += 1;
@@ -999,12 +1046,15 @@ async function removeRole(record: Partial<Role> | QueryListRecord | undefined) {
         danger: true,
       }),
     execute: (target) =>
-      roleContext.crud.delete(String(target.id), { version: (target as { version: number }).version }),
+      roleRequestContext.value.crud.delete(String(target.id), {
+        version: (target as { version: number }).version,
+      }),
     onExecuted: (_, target) => {
       if (selectedRoleKey.value === String(target.id)) {
         selectedRoleKey.value = undefined;
         selectedRole.value = undefined;
         roleDraft.value = createRoleDraft(selectedScope.value);
+        resetRoleDraftBaseline();
         roleDetailOpen.value = false;
         roleDetailMode.value = 'view';
         loadingRoleDetail.value = false;
@@ -1027,11 +1077,15 @@ async function toggleRoleEnabled(record: Partial<Role> | QueryListRecord | undef
     deniedMessage: '当前用户无权变更角色启停状态',
     execute: (target) =>
       target.enabled === false
-        ? roleContext.crud.enable(String(target.id), { version: (target as { version: number }).version })
-        : roleContext.crud.disable(String(target.id), { version: (target as { version: number }).version }),
+        ? roleRequestContext.value.crud.enable(String(target.id), {
+            version: (target as { version: number }).version,
+          })
+        : roleRequestContext.value.crud.disable(String(target.id), {
+            version: (target as { version: number }).version,
+          }),
     onExecuted: async (_, target) => {
       if (selectedRoleKey.value === String(target.id)) {
-        const refreshed = await roleContext.crud.view(String(target.id));
+        const refreshed = await roleRequestContext.value.crud.view(String(target.id));
         commitRoleDetailRecord(refreshed);
       }
       roleReloadKey.value += 1;
@@ -1044,6 +1098,20 @@ function canLeaveRoleDetailContext() {
   return !savingRole.value;
 }
 
+async function mayLeaveRoleDetail() {
+  return canLeaveRoleDetailContext() && (await confirmRoleDetailDismissal());
+}
+
+async function confirmRoleDetailDismissal() {
+  if (!roleDetailDirty.value) return true;
+  return confirmAction({
+    title: '放弃未保存的角色修改',
+    content: '当前角色存在未保存的修改，离开后将丢失。是否继续？',
+    okText: '放弃修改',
+    danger: true,
+  });
+}
+
 function canCommitRoleDetailRequest(recordId: string, requestSeq: number) {
   return roleDetailRequestSeq.value === requestSeq && selectedRoleKey.value === recordId;
 }
@@ -1052,6 +1120,7 @@ function commitRoleDetailRecord(record: Role, nextMode: RoleDetailMode = 'view')
   selectedRole.value = record;
   selectedRoleKey.value = record.id;
   roleDraft.value = copyRole(record);
+  resetRoleDraftBaseline();
   roleDetailMode.value = nextMode === 'edit' && record.systemManaged !== true ? 'edit' : 'view';
   roleDetailOpen.value = true;
   loadingRoleDetail.value = false;
@@ -1108,11 +1177,16 @@ function restoreRoleDetailWorkspaceSession(session: RoleDetailWorkspaceSession) 
   selectedRole.value = session.selectedRole;
   selectedRoleKey.value = session.selectedRole.id;
   roleDraft.value = session.draft;
+  roleDraftBaseline.value = session.draftBaseline;
   roleDetailMode.value = session.mode;
   roleDetailOpen.value = true;
   loadingRoleDetail.value = false;
   roleDetailLoadFailed.value = false;
   roleDetailRequestSeq.value += 1;
+}
+
+function resetRoleDraftBaseline() {
+  roleDraftBaseline.value = recordDraftFingerprint(roleDraft.value);
 }
 
 function createRoleDraft(scope: RoleScope | undefined): Partial<Role> {
@@ -1124,7 +1198,6 @@ function createRoleDraft(scope: RoleScope | undefined): Partial<Role> {
     roleKind: 'standard',
     sharePolicy: defaultSharePolicy(),
     enabled: true,
-    sortOrder: 100,
   };
 }
 
@@ -1147,7 +1220,6 @@ function normalizedRoleDraft(draft: Partial<Role>, scope: RoleScope): Role {
     sharePolicy,
     description: draft.description?.trim() || undefined,
     enabled: draft.enabled !== false,
-    sortOrder: normalizeSortOrder(draft.sortOrder),
   });
   if (roleKind !== 'group') {
     normalized.memberRoleIds = undefined;
@@ -1239,14 +1311,6 @@ function normalizedSharePolicy(
 
 function defaultSharePolicy(): RoleSharePolicy {
   return 'private';
-}
-
-function normalizeSortOrder(value: unknown) {
-  if (typeof value === 'number') {
-    return Number.isFinite(value) ? value : 100;
-  }
-  const parsed = Number(String(value ?? '').trim());
-  return Number.isFinite(parsed) ? parsed : 100;
 }
 
 function sharePolicyOptions(scopeType: RoleOwnerScopeType | undefined) {
@@ -1459,6 +1523,7 @@ function parseRoleIds(value: unknown) {
       :selected-key="selectedRoleKey"
       :reload-key="roleReloadKey"
       :ready="roleListReady"
+      :sortable="true"
       quick-search-placeholder="搜索角色名称或说明"
       empty-description="当前范围暂无角色"
       waiting-description="请选择角色归属范围"
@@ -1474,7 +1539,8 @@ function parseRoleIds(value: unknown) {
       :title="roleDetailTitle"
       render-mode="inline"
       :subtitle="roleDetailSubtitle"
-      :close-on-outside="roleDetailMode === 'view'"
+      :dismissal="roleDetailMode === 'view' ? 'dismissible' : 'guarded'"
+      :before-close="confirmRoleDetailDismissal"
       :promotion="roleDetailPromotion"
       @close="closeRoleDetail"
     >

@@ -2,6 +2,7 @@ package net.ximatai.muyun.spring.dynamic.web;
 
 import net.ximatai.muyun.spring.web.PlatformAuditMutationGuard;
 import net.ximatai.muyun.spring.common.schema.PlatformFieldPolicy;
+import net.ximatai.muyun.spring.common.schema.PlatformAbilityFields;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletRequest;
@@ -587,7 +588,8 @@ public class DynamicRecordWebController implements
         if (request == null || request.sorts().isEmpty()) {
             return new Sort[0];
         }
-        validatePlanSorts(requireExecutionPlan(DynamicWebRequest.moduleAlias()).querySchema(), request.sorts(), Set.of());
+        String moduleAlias = DynamicWebRequest.moduleAlias();
+        validatePlanSorts(requireExecutionPlan(moduleAlias).querySchema(), request.sorts(), runtimeSortFields(moduleAlias));
         return DynamicWebQueryMapper.sorts(request.sorts());
     }
 
@@ -625,8 +627,29 @@ public class DynamicRecordWebController implements
         if (request == null || request.sorts().isEmpty()) {
             return new Sort[0];
         }
-        validatePlanSorts(requireExecutionPlan(DynamicWebRequest.moduleAlias()).querySchema(), request.sorts(), additionalSortableFields);
+        String moduleAlias = DynamicWebRequest.moduleAlias();
+        Set<String> sortableFields = new LinkedHashSet<>(additionalSortableFields == null ? Set.of() : additionalSortableFields);
+        sortableFields.addAll(runtimeSortFields(moduleAlias));
+        validatePlanSorts(requireExecutionPlan(moduleAlias).querySchema(), request.sorts(), sortableFields);
         return DynamicWebQueryMapper.sorts(request.sorts());
+    }
+
+    /**
+     * Sort capability has one platform-owned field whose transport is valid even when it is
+     * intentionally absent from the user-configurable query form. Dynamic query schemas only
+     * enumerate filter fields, so derive this narrow exception from the installed entity contract.
+     */
+    private Set<String> runtimeSortFields(String moduleAlias) {
+        DynamicModuleDescriptor module = recordService.describe(moduleAlias);
+        if (module == null) return Set.of();
+        return module.entities().stream()
+                .filter(entity -> module.mainEntityAlias().equals(entity.entityAlias()))
+                .filter(entity -> entity.capabilities().contains(EntityCapability.SORT.name()))
+                .filter(entity -> entity.fields().stream().anyMatch(field ->
+                        PlatformAbilityFields.SORT_FIELD.equals(field.fieldName()) && field.sortable()))
+                .findFirst()
+                .map(ignored -> Set.of(PlatformAbilityFields.SORT_FIELD))
+                .orElseGet(Set::of);
     }
 
     private void validatePlanSorts(QuerySchema schema, List<net.ximatai.muyun.spring.web.WebSort> sorts,

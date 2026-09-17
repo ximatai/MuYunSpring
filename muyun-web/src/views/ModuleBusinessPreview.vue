@@ -16,9 +16,13 @@ const error = ref('');
 const published = ref(false);
 const changed = ref(false);
 const generation = ref(0);
-const interaction = ref({ editing: false, busy: false });
+const interaction = ref({ editing: false, busy: false, dirty: false });
 const reloadBlocked = computed(() => interaction.value.editing || interaction.value.busy);
-useWorkspaceViewUnsavedState('业务预览', () => reloadBlocked.value);
+useWorkspaceViewUnsavedState(
+  '业务预览',
+  () => interaction.value.dirty,
+  () => interaction.value.busy,
+);
 let fingerprint: string | undefined;
 let requestId = 0;
 const descriptor = computed<StandardModulePageDescriptor>(() => {
@@ -64,7 +68,7 @@ async function load(reload = false) {
 watch(
   () => props.moduleAlias,
   () => {
-    interaction.value = { editing: false, busy: false };
+    interaction.value = { editing: false, busy: false, dirty: false };
     fingerprint = undefined;
     published.value = false;
     changed.value = false;
@@ -98,8 +102,8 @@ onBeforeUnmount(() => {
       <ModulePageHost
         :descriptor="descriptor"
         :reload-key="generation"
-        @interaction-state-change="interaction = $event"
         require-configured-page
+        @interaction-state-change="interaction = { ...$event, dirty: $event.dirty ?? false }"
       />
     </div>
     <UiSpin v-else-if="loading" tip="加载已发布页面" />

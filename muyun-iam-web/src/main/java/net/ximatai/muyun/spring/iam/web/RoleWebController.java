@@ -198,8 +198,7 @@ public class RoleWebController extends WebSupport<RoleService> implements
                         .field("ownerScopeId", field -> field.label("归属对象").readOnly())
                         .field("sharePolicy", field -> field.label("公开策略").required().select())
                         .field("description", field -> field.label("说明"))
-                        .field("enabled", field -> field.label("启用状态").enabledStatus())
-                        .field("sortOrder", field -> field.label("排序号"))))
+                        .field("enabled", field -> field.label("启用状态").enabledStatus())))
                 .traits(traits -> traits.operations(operations -> operations.standardCrud().enabledLifecycle()).presentation(presentation -> presentation.responsiveDetailSurface()))))
                 .build();
     }

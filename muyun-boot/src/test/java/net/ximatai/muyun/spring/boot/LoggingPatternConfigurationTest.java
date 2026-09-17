@@ -18,4 +18,15 @@ class LoggingPatternConfigurationTest {
         assertThat(properties.getProperty("logging.pattern.file"))
                 .contains("%X{traceId:-}", "%X{endpointId:-}", "%X{moduleAlias:-}", "%X{actionCode:-}");
     }
+
+    @Test
+    void shouldKeepBootCompressedRollingArchiveDefaultAndRequireAnExplicitRuntimeLogDirectory() {
+        YamlPropertiesFactoryBean yaml = new YamlPropertiesFactoryBean();
+        yaml.setResources(new ClassPathResource("application.yml"));
+        var properties = yaml.getObject();
+
+        assertThat(properties.getProperty("logging.logback.rollingpolicy.file-name-pattern")).isNull();
+        assertThat(properties.getProperty("muyun.platform.runtime-log.directory"))
+                .isEqualTo("${MUYUN_RUNTIME_LOG_DIRECTORY:}");
+    }
 }

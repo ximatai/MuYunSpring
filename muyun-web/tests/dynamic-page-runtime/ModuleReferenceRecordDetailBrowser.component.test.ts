@@ -890,10 +890,26 @@ describe('ModuleReferenceRecordDetailBrowser', () => {
     const customerActions = hostLayers[1].findComponent({ name: 'ModuleRecordDetailActions' });
     customerActions.vm.$emit('edit');
     await flush();
-    expect(wrapper.emitted('interaction-state-change')?.at(-1)?.[0]).toEqual({ editing: true, busy: false });
-    customerActions.vm.$emit('cancel');
+    expect(wrapper.emitted('interaction-state-change')?.at(-1)?.[0]).toEqual({
+      editing: true,
+      busy: false,
+      dirty: false,
+    });
+    const customerContent = hostLayers[1].findComponent({ name: 'ModulePageRecordContent' });
+    customerContent.vm.$emit('update:field', 'title', '客户新名称');
     await flush();
-    expect(wrapper.emitted('interaction-state-change')?.at(-1)?.[0]).toEqual({ editing: false, busy: false });
+    expect(wrapper.emitted('interaction-state-change')?.at(-1)?.[0]).toEqual({
+      editing: true,
+      busy: false,
+      dirty: true,
+    });
+    browser.close();
+    await flush();
+    expect(wrapper.emitted('interaction-state-change')?.at(-1)?.[0]).toEqual({
+      editing: false,
+      busy: false,
+      dirty: false,
+    });
     wrapper.unmount();
   });
 

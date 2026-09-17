@@ -2,12 +2,24 @@ import { assert, it } from 'vitest';
 import {
   applyRecordExternalChange,
   createRecordEditorSessionState,
+  recordDraftFingerprint,
 } from '@/platform-components/recordEditorSessionState.ts';
 
 interface DemoRecord {
   id?: string;
   title: string;
 }
+
+it('fingerprints nested drafts independent of object key order', () => {
+  const baseline = recordDraftFingerprint({ title: '原值', settings: { tags: ['a', 'b'] } });
+
+  assert.equal(recordDraftFingerprint({ settings: { tags: ['a', 'b'] }, title: '原值' }), baseline);
+  assert.notEqual(recordDraftFingerprint({ title: '原值', settings: { tags: ['a', 'c'] } }), baseline);
+  assert.equal(
+    recordDraftFingerprint({ title: '原值', unused: undefined }),
+    recordDraftFingerprint({ title: '原值' }),
+  );
+});
 
 it('record editor session closes creation when canceling without selected record', () => {
   const session = createRecordEditorSessionState<DemoRecord, 'view' | 'edit' | 'create'>({

@@ -49,6 +49,6 @@ describe('tenant module page enhancement', () => {
     });
 
     expect(drawers).toHaveLength(1);
-    expect(drawers[0]).toMatchObject({ title: '配置应用', width: 760 });
+    expect(drawers[0]).toMatchObject({ title: '配置应用', width: 'wide' });
   });
 });

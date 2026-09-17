@@ -39,7 +39,11 @@ const props = withDefaults(
     actionColumnTitle?: string;
     actionColumnWidth?: string | number;
     actionColumnFixed?: boolean;
+    /** The list owner persists generic row-reorder events. */
+    rowDraggable?: boolean;
+    rowDragHandleTitle?: string;
     tableVisible?: boolean;
+    conditionsVisible?: boolean;
     embedded?: boolean;
     chromeFree?: boolean;
     /** The surface renders pagination only; its owner keeps query state and data loading. */
@@ -77,7 +81,10 @@ const props = withDefaults(
     actionColumnTitle: undefined,
     actionColumnWidth: undefined,
     actionColumnFixed: true,
+    rowDraggable: false,
+    rowDragHandleTitle: '拖拽排序',
     tableVisible: true,
+    conditionsVisible: true,
     embedded: false,
     chromeFree: false,
     pageable: false,
@@ -98,6 +105,7 @@ const emit = defineEmits<{
   rowClick: [record: UiDataTableRecord, event: MouseEvent];
   rowDblclick: [record: UiDataTableRecord, event: MouseEvent];
   rowExpand: [record: UiDataTableRecord, expanded: boolean];
+  rowDrop: [event: { source: UiDataTableRecord; target: UiDataTableRecord; position: 'before' | 'after' }];
   pageChange: [pageNum: number];
   pageSizeChange: [pageSize: number];
 }>();
@@ -182,7 +190,7 @@ defineSlots<{
       </div>
     </header>
 
-    <section v-if="$slots.conditions" class="record-query-list-conditions">
+    <section v-if="conditionsVisible && $slots.conditions" class="record-query-list-conditions">
       <slot name="conditions" />
     </section>
 
@@ -206,9 +214,12 @@ defineSlots<{
         :action-column-title="actionColumnTitle"
         :action-column-width="actionColumnWidth"
         :action-column-fixed="actionColumnFixed"
+        :row-draggable="rowDraggable"
+        :row-drag-handle-title="rowDragHandleTitle"
         @row-click="(record, event) => emit('rowClick', record, event)"
         @row-dblclick="(record, event) => emit('rowDblclick', record, event)"
         @row-expand="(record, expanded) => emit('rowExpand', record, expanded)"
+        @row-drop="(event) => emit('rowDrop', event)"
       >
         <template v-if="$slots.header" #header="slotProps"
           ><slot name="header" v-bind="slotProps"

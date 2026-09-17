@@ -32,7 +32,7 @@ export const platformModulePageEnhancement: ModulePageEnhancement = {
         title: '添加到菜单',
         state: (record) => ({ visible: moduleAliasOf(record) !== undefined }),
         run({ openDrawer }) {
-          openDrawer({ title: '添加到菜单', width: 480, component: ModuleMenuDrawer });
+          openDrawer({ title: '添加到菜单', width: 'narrow', component: ModuleMenuDrawer });
         },
       },
       {

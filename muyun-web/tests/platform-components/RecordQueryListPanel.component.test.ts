@@ -18,6 +18,23 @@ afterEach(() => {
 });
 
 describe('RecordQueryListPanel', () => {
+  it('keeps a single row click as selection and exposes double click as semantic record activation', async () => {
+    const record = { id: 'log-1', title: '异常日志' };
+    const wrapper = shallowMount(RecordQueryListPanel, {
+      props: { context: createContext(record), title: '异常日志', columns: [] },
+    });
+    await flushPromises();
+
+    const surface = wrapper.findComponent({ name: 'RecordQueryListSurface' });
+    surface.vm.$emit('rowClick', { key: 'log-1', record });
+    surface.vm.$emit('rowDblclick', { key: 'log-1', record }, {} as MouseEvent);
+
+    expect(wrapper.emitted('select')).toEqual([[record]]);
+    expect(wrapper.emitted('recordActivate')).toEqual([[record, expect.anything()]]);
+    expect(wrapper.emitted('rowDblclick')).toEqual([[record, expect.anything()]]);
+    wrapper.unmount();
+  });
+
   it('reloads the query schema before querying records after a schema failure', async () => {
     const context = createContext({ id: '1' });
     const schema = await context.crud.querySchema();
@@ -262,6 +279,118 @@ describe('RecordQueryListPanel', () => {
     surface.vm.$emit('pageSizeChange', 50);
     await vi.waitFor(() => expect(requests).toHaveLength(3));
     expect(requests[2]?.page).toEqual({ pageNum: 1, pageSize: 50 });
+    wrapper.unmount();
+  });
+
+  it('uses the visible page as a relative sort window while retaining its page request', async () => {
+    const requests: WebQueryRequest[] = [];
+    const sort = vi.fn().mockResolvedValue(1);
+    const records = [
+      { id: 'role-1', title: '平台管理员', scope: 'platform' },
+      { id: 'role-2', title: '平台审计员', scope: 'platform' },
+      { id: 'role-3', title: '平台运维员', scope: 'platform' },
+    ];
+    const context = createContext(records[0]!, requests);
+    Object.assign(context, {
+      can: (actionCode: string) => actionCode === 'sort',
+      runtime: {
+        ready: Promise.resolve({ sortPartitionFields: ['scope'] }),
+        snapshot: () => ({ sortPartitionFields: ['scope'] }),
+      },
+      abilities: {
+        crud: () => ({ ...context.crud, sort }),
+        has: () => true,
+      },
+    });
+    context.crud.query = async (request?: WebQueryRequest) => {
+      requests.push(request ?? {});
+      return {
+        records,
+        total: 23,
+        pages: 3,
+        totalKnown: true,
+        pageNum: request?.page?.pageNum ?? 1,
+        pageSize: request?.page?.pageSize ?? 10,
+      };
+    };
+    const wrapper = shallowMount(RecordQueryListPanel, {
+      props: {
+        context,
+        title: '角色',
+        sortable: true,
+        pageSize: 10,
+        externalQueryValues: { scope: 'platform' },
+        showTitle: false,
+      },
+    });
+
+    await vi.waitFor(() => expect(requests).toHaveLength(1));
+    const surface = wrapper.findComponent({ name: 'RecordQueryListSurface' });
+    expect(surface.props('rowDraggable')).toBe(false);
+    await wrapper.get('[aria-label="调整排序"]').trigger('click');
+    await vi.waitFor(() => expect(requests).toHaveLength(2));
+    expect(requests[1]).toMatchObject({
+      page: { pageNum: 1, pageSize: 10 },
+      sorts: [{ field: 'sortOrder', desc: false }],
+      externalQueryValues: { scope: 'platform' },
+    });
+    expect(surface.props('rowDraggable')).toBe(true);
+    expect(surface.props('quickSearchVisible')).toBe(false);
+
+    const visibleRows = surface.props('rows') as Array<{ record: QueryListRecord }>;
+    surface.vm.$emit('rowDrop', {
+      source: visibleRows[2],
+      target: visibleRows[0],
+      position: 'before',
+    });
+    await vi.waitFor(() => expect(sort).toHaveBeenCalledOnce());
+    expect(sort).toHaveBeenCalledWith('role-3', { previousId: null, nextId: 'role-1' });
+    await vi.waitFor(() => expect(requests).toHaveLength(3));
+    expect(requests[2]).toMatchObject({
+      page: { pageNum: 1, pageSize: 10 },
+      sorts: [{ field: 'sortOrder', desc: false }],
+    });
+    wrapper.unmount();
+  });
+
+  it('blocks a paginated sort drop across runtime-declared partitions', async () => {
+    const sort = vi.fn().mockResolvedValue(1);
+    const records = [
+      { id: 'platform-role', scope: 'platform' },
+      { id: 'tenant-role', scope: 'tenant' },
+    ];
+    const context = createContext(records[0]!);
+    Object.assign(context, {
+      can: (actionCode: string) => actionCode === 'sort',
+      runtime: {
+        ready: Promise.resolve({ sortPartitionFields: ['scope'] }),
+        snapshot: () => ({ sortPartitionFields: ['scope'] }),
+      },
+      abilities: {
+        crud: () => ({ ...context.crud, sort }),
+        has: () => true,
+      },
+    });
+    context.crud.query = async () => ({
+      records,
+      total: 2,
+      pages: 1,
+      totalKnown: true,
+      pageNum: 1,
+      pageSize: 10,
+    });
+    const wrapper = shallowMount(RecordQueryListPanel, {
+      props: { context, title: '角色', sortable: true, showTitle: false },
+    });
+
+    await flushPromises();
+    await wrapper.get('[aria-label="调整排序"]').trigger('click');
+    await flushPromises();
+    const surface = wrapper.findComponent({ name: 'RecordQueryListSurface' });
+    const visibleRows = surface.props('rows') as Array<{ record: QueryListRecord }>;
+    surface.vm.$emit('rowDrop', { source: visibleRows[0], target: visibleRows[1], position: 'after' });
+    await flushPromises();
+    expect(sort).not.toHaveBeenCalled();
     wrapper.unmount();
   });
 

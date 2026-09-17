@@ -1,4 +1,5 @@
-import { ref } from 'vue';
+import { computed, ref } from 'vue';
+import { recordDraftFingerprint } from '@muyun/platform-components';
 
 export type RecordDetailMode = 'create' | 'edit' | 'view';
 
@@ -31,6 +32,13 @@ export function useRecordDetailController<TRecord extends Record<string, unknown
   const createRestoreRecord = ref<TRecord>();
   const createCancelDestination = ref<RecordDetailCancelDestination>('close');
   const editCancelDestination = ref<RecordDetailCancelDestination>('close');
+  const draftBaseline = ref<string>();
+  const isDirty = computed(
+    () =>
+      mode.value !== 'view' &&
+      draft.value != null &&
+      draftBaseline.value !== recordDraftFingerprint(draft.value),
+  );
 
   function beginLoad(
     next: TRecord,
@@ -40,6 +48,7 @@ export function useRecordDetailController<TRecord extends Record<string, unknown
     formSessionKey.value += 1;
     record.value = next;
     draft.value = undefined;
+    draftBaseline.value = undefined;
     mode.value = nextMode;
     open.value = true;
     loading.value = true;
@@ -53,6 +62,7 @@ export function useRecordDetailController<TRecord extends Record<string, unknown
   function resolveLoad(next: TRecord) {
     record.value = next;
     draft.value = { ...next };
+    draftBaseline.value = recordDraftFingerprint(draft.value);
     loadFailed.value = false;
   }
 
@@ -70,6 +80,7 @@ export function useRecordDetailController<TRecord extends Record<string, unknown
     formSessionKey.value += 1;
     record.value = undefined;
     draft.value = { ...initial };
+    draftBaseline.value = recordDraftFingerprint(draft.value);
     mode.value = 'create';
     open.value = true;
     loading.value = false;
@@ -81,6 +92,7 @@ export function useRecordDetailController<TRecord extends Record<string, unknown
   function beginEdit(options: RecordDetailTransitionOptions = {}) {
     if (!record.value) return false;
     draft.value = { ...record.value };
+    draftBaseline.value = recordDraftFingerprint(draft.value);
     mode.value = 'edit';
     open.value = true;
     loading.value = false;
@@ -97,6 +109,7 @@ export function useRecordDetailController<TRecord extends Record<string, unknown
       open.value = Boolean(restoreRecord);
       record.value = restoreRecord;
       draft.value = restoreRecord ? { ...restoreRecord } : undefined;
+      draftBaseline.value = draft.value ? recordDraftFingerprint(draft.value) : undefined;
       mode.value = 'view';
       loading.value = false;
       loadFailed.value = false;
@@ -109,6 +122,7 @@ export function useRecordDetailController<TRecord extends Record<string, unknown
       open.value = false;
     }
     draft.value = record.value ? { ...record.value } : undefined;
+    draftBaseline.value = draft.value ? recordDraftFingerprint(draft.value) : undefined;
     mode.value = 'view';
     loading.value = false;
     loadFailed.value = false;
@@ -119,6 +133,7 @@ export function useRecordDetailController<TRecord extends Record<string, unknown
   function applySaved(next: TRecord) {
     record.value = next;
     draft.value = { ...next };
+    draftBaseline.value = recordDraftFingerprint(draft.value);
     mode.value = 'view';
     createRestoreRecord.value = undefined;
     createCancelDestination.value = 'close';
@@ -130,6 +145,7 @@ export function useRecordDetailController<TRecord extends Record<string, unknown
     open.value = false;
     record.value = undefined;
     draft.value = undefined;
+    draftBaseline.value = undefined;
     mode.value = 'view';
     loading.value = false;
     loadFailed.value = false;
@@ -147,6 +163,7 @@ export function useRecordDetailController<TRecord extends Record<string, unknown
     } else {
       draft.value = record.value ? { ...record.value } : undefined;
     }
+    draftBaseline.value = draft.value ? recordDraftFingerprint(draft.value) : undefined;
     createCancelDestination.value = 'close';
     editCancelDestination.value = 'close';
     mode.value = 'view';
@@ -165,6 +182,7 @@ export function useRecordDetailController<TRecord extends Record<string, unknown
     saving,
     togglingEnabled,
     formSessionKey,
+    isDirty,
     beginLoad,
     resolveLoad,
     failLoad,

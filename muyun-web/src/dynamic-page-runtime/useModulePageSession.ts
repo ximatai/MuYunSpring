@@ -138,7 +138,7 @@ export interface ModulePageSessionProps {
 }
 
 export interface ModulePageSessionEvents {
-  (event: 'interaction-state-change', state: { editing: boolean; busy: boolean }): void;
+  (event: 'interaction-state-change', state: { editing: boolean; busy: boolean; dirty?: boolean }): void;
   (
     event: 'record-only-change',
     mutation: { type: 'saved' | 'deleted' | 'unavailable'; record?: QueryListRecord },
@@ -349,6 +349,7 @@ export function useModulePageSession(
     mode: editorMode,
     open: detailOpen,
     saving,
+    isDirty: detailDirty,
     formSessionKey,
     togglingEnabled,
     loading: detailLoading,
@@ -358,7 +359,7 @@ export function useModulePageSession(
   // validity fact here; the host remains responsible for the save boundary.
   const deleting = ref(false);
   const detailEnhancementRunning = ref(false);
-  const referenceRecordDetailInteraction = ref({ editing: false, busy: false });
+  const referenceRecordDetailInteraction = ref({ editing: false, busy: false, dirty: false });
   const mainFormValid = ref(true);
   const relationDraftValid = ref(true);
   const incompleteAggregateChildRelations = ref(new Set<string>());
@@ -530,7 +531,7 @@ export function useModulePageSession(
     handleRecycleBinRestore,
     selectListDetailRecord: selectListDetail,
     selectStandaloneListRecord,
-    openListRecord,
+    openListRecord: openListRecordSurface,
   } = useModulePageListSession({
     selectedRecord,
     saving,
@@ -812,8 +813,10 @@ export function useModulePageSession(
     localEditSaving,
     localEditBlock,
     localEditDraft,
+    localEditDirty,
     localEditFields,
     handleConfiguredAction,
+    dismissLocalEdit,
     submitLocalEdit,
   } = useModulePageDetailActionRuntime({
     context,
@@ -849,11 +852,26 @@ export function useModulePageSession(
       localEditOpen.value ||
       referenceRecordDetailInteraction.value.editing,
   );
+  const sessionDirty = computed(
+    () =>
+      detailDirty.value ||
+      navigatorManagementDetail.isDirty.value ||
+      localEditDirty.value ||
+      referenceRecordDetailInteraction.value.dirty,
+  );
+  function updateReferenceRecordDetailInteraction(state: {
+    editing: boolean;
+    busy: boolean;
+    dirty?: boolean;
+  }) {
+    referenceRecordDetailInteraction.value = { ...state, dirty: state.dirty === true };
+  }
   // Hosts may protect reload/close without inspecting the runtime's private form drafts.
   watch(
     () => ({
       editing: interactionEditing.value,
       busy: interactionBusy.value,
+      dirty: sessionDirty.value,
     }),
     (state) => emit('interaction-state-change', state),
     { immediate: true, flush: 'sync' },
@@ -1926,8 +1944,14 @@ export function useModulePageSession(
     if (refresh.failure) reportDetailRefreshFailure(refresh.failure, 'module-record-only');
   }
 
-  function selectListDetailRecord(record: QueryListRecord) {
+  async function selectListDetailRecord(record: QueryListRecord) {
+    if (selectedRecord.value?.id !== record.id && !(await mayLeaveDetailSession())) return;
     selectListDetail(record, detailSurfaceUsesDrawer.value);
+  }
+
+  async function openListRecord(record: QueryListRecord) {
+    if (selectedRecord.value?.id !== record.id && !(await mayLeaveDetailSession())) return;
+    openListRecordSurface(record);
   }
 
   /**
@@ -3221,6 +3245,26 @@ export function useModulePageSession(
     detail.close();
   }
 
+  /**
+   * Drawer gestures do not own a record draft.  They ask this session whether
+   * it is safe to leave, so the same draft can later be guarded for card
+   * selection and independent workbench tabs as well.
+   */
+  async function mayLeaveDetailSession() {
+    if (saving.value || detailEnhancementRunning.value) return false;
+    if (!detailDirty.value) return true;
+    return confirmAction({
+      title: '放弃未保存更改',
+      content: '当前记录存在未保存的更改，关闭后将丢失。是否继续？',
+      okText: '放弃更改',
+      danger: true,
+    });
+  }
+
+  function confirmDetailDrawerClose() {
+    return mayLeaveDetailSession();
+  }
+
   /** The reference browser owns the record-only session and releases this Host on close. */
   function closeRecordOnlyDetail() {
     if (interactionBusy.value || recordOnlyClosePending.value) return;
@@ -3348,6 +3392,8 @@ export function useModulePageSession(
     handleFlatManagementAction,
     editingRecord,
     saving,
+    detailDirty,
+    sessionDirty,
     updateDraftField,
     showStatusSwitch,
     canToggleEnabled,
@@ -3460,6 +3506,7 @@ export function useModulePageSession(
     enhancementDetailDrawer,
     closeRecordOnlyDetail,
     closeDetail,
+    confirmDetailDrawerClose,
     finishRecordOnlyDetailClose,
     retryLoadDetail,
     recordViewContext,
@@ -3469,6 +3516,7 @@ export function useModulePageSession(
     referenceRecordDetailBrowser,
     handleReferenceRecordChange,
     referenceRecordDetailInteraction,
+    updateReferenceRecordDetailInteraction,
     permissionsOpen,
     permissionsChanged,
     enhancementDrawer,
@@ -3479,6 +3527,7 @@ export function useModulePageSession(
     localEditBlock,
     localEditSaving,
     submitLocalEdit,
+    dismissLocalEdit,
     localEditDraft,
     localEditFields,
     updateLocalEditFormValidity,

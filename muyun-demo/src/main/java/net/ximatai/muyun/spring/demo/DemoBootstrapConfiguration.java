@@ -22,7 +22,7 @@ import net.ximatai.muyun.spring.platform.metadata.ModuleMetadataRelationService;
 import net.ximatai.muyun.spring.platform.dictionary.DictionaryCategoryService;
 import net.ximatai.muyun.spring.platform.dictionary.DictionaryItemService;
 import net.ximatai.muyun.spring.platform.module.PlatformModuleService;
-import net.ximatai.muyun.spring.platform.module.ModuleActionContributionRegistrar;
+import net.ximatai.muyun.spring.platform.module.DynamicModuleStandardActionRegistrar;
 import net.ximatai.muyun.spring.platform.menu.MenuService;
 import net.ximatai.muyun.spring.platform.runtime.PlatformDynamicRuntimeRefreshService;
 import net.ximatai.muyun.spring.platform.ui.PlatformPageDefinitionService;
@@ -82,13 +82,13 @@ public class DemoBootstrapConfiguration {
                                                 SubjectCategoryService subjectCategoryService,
                                                 TeacherService teacherService,
                                                 ClassroomService classroomService,
-                                                ModuleActionContributionRegistrar actionRegistrar,
+                                                DynamicModuleStandardActionRegistrar standardActionRegistrar,
                                                 PlatformDynamicRuntimeRefreshService runtimeRefreshService,
                                                 TransactionTemplate transactionTemplate) {
         return new ExamDemoBootstrapTask(moduleService, metadataService, fieldService, fieldConfigService,
                 referenceConfigService, dictionaryCategoryService, dictionaryItemService, relationService,
                 recordService, studentService, subjectCategoryService, teacherService, classroomService,
-                actionRegistrar, runtimeRefreshService, transactionTemplate);
+                standardActionRegistrar, runtimeRefreshService, transactionTemplate);
     }
 
     @Bean

@@ -18,6 +18,7 @@ export interface RoleDetailWorkspaceScope {
 export interface RoleDetailWorkspaceSession {
   selectedRole: Role;
   draft: Partial<Role>;
+  draftBaseline: string;
   scope: RoleDetailWorkspaceScope;
   mode: 'view' | 'edit';
 }

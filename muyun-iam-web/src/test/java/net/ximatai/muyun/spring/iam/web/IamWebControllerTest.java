@@ -233,6 +233,18 @@ class IamWebControllerTest {
     }
 
     @Test
+    void shouldKeepRoleOrderAsAnInternalSortAbilityConcern() {
+        RoleWebController controller = new RoleWebController(grantableActionResolver);
+
+        var editor = ((net.ximatai.muyun.spring.platform.web.ListDetailCardPageDefinition) controller
+                .moduleUiDefinition().page()).detail().editor();
+
+        assertThat(editor.fields())
+                .extracting(field -> field.fieldRef().fieldName())
+                .doesNotContain("sortOrder");
+    }
+
+    @Test
     void shouldCompileTenantBrandingControlsIntoTheStandardRuntimeDescriptor() {
         TenantWebController controller = new TenantWebController();
         StaticModuleDefinition definition = StaticModuleDefinition.builder("iam", TenantService.MODULE_ALIAS, "租户管理")

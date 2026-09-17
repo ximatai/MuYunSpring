@@ -27,7 +27,7 @@ public class DevelopmentEndpointCatalogReporter implements ApplicationListener<A
         log.info("Platform endpoint catalog: {} registered endpoints", catalog.endpoints().size());
         catalog.endpoints().forEach(endpoint -> {
             ResolvedWebEndpoint definition = endpoint.definition();
-            log.info("Platform endpoint [{}] module={} action={} {} {} source={}",
+            log.debug("Platform endpoint [{}] module={} action={} {} {} source={}",
                     definition.endpointId(), definition.moduleAlias(), definition.action().code(),
                     definition.method(), definition.path(), definition.source());
         });

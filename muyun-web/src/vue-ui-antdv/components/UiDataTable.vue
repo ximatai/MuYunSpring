@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, h } from 'vue';
+import { computed, h, ref } from 'vue';
 import { Table as ATable } from 'ant-design-vue';
 import UiEmpty from './UiEmpty.vue';
 import { resolveUiDataTableScroll } from '../dataTableModel';
@@ -34,6 +34,9 @@ const props = withDefaults(
     actionColumnWidth?: string | number;
     /** Compact embedded lists can keep actions in flow instead of forcing horizontal scrolling. */
     actionColumnFixed?: boolean;
+    /** Enables the adapter's generic row-reorder interaction. The owner decides persistence. */
+    rowDraggable?: boolean;
+    rowDragHandleTitle?: string;
     emptyDescription?: string;
   }>(),
   {
@@ -52,6 +55,8 @@ const props = withDefaults(
     actionColumnTitle: '操作',
     actionColumnWidth: 92,
     actionColumnFixed: true,
+    rowDraggable: false,
+    rowDragHandleTitle: '拖拽排序',
     emptyDescription: '暂无记录',
   },
 );
@@ -60,6 +65,7 @@ const emit = defineEmits<{
   rowClick: [record: UiDataTableRecord, event: MouseEvent];
   rowDblclick: [record: UiDataTableRecord, event: MouseEvent];
   rowExpand: [record: UiDataTableRecord, expanded: boolean];
+  rowDrop: [event: { source: UiDataTableRecord; target: UiDataTableRecord; position: 'before' | 'after' }];
 }>();
 
 const slots = defineSlots<{
@@ -80,22 +86,46 @@ const tableColumns = computed(() => {
     customRender: ({ record, text }: { record: UiDataTableRecord; text: unknown }) =>
       slots.cell?.({ column, record, value: text }) ?? String(text ?? ''),
   }));
-  if (!props.showActionColumn) {
-    return columns;
-  }
-  return [
-    ...columns,
-    {
-      title: props.actionColumnTitle,
-      key: '__actions',
-      width: props.actionColumnWidth,
-      align: 'right' as const,
-      fixed: props.actionColumnFixed ? ('right' as const) : undefined,
-      className: 'ui-data-table-action-cell',
-      customRender: ({ record }: { record: UiDataTableRecord }) =>
-        slots.rowActions?.({ record, rowKey: resolveRowKey(record) }),
-    },
-  ];
+  const draggableColumn = props.rowDraggable
+    ? [
+        {
+          title: '',
+          key: '__row-drag',
+          width: 38,
+          align: 'center' as const,
+          className: 'ui-data-table-drag-cell',
+          customRender: ({ record }: { record: UiDataTableRecord }) =>
+            h(
+              'span',
+              {
+                class: 'ui-data-table-drag-handle',
+                draggable: canDragRow(record),
+                role: 'img',
+                'aria-label': props.rowDragHandleTitle,
+                title: props.rowDragHandleTitle,
+                onDragstart: (event: DragEvent) => handleDragStart(record, event),
+                onDragend: handleDragEnd,
+              },
+              '⠿',
+            ),
+        },
+      ]
+    : [];
+  const actionColumn = !props.showActionColumn
+    ? []
+    : [
+        {
+          title: props.actionColumnTitle,
+          key: '__actions',
+          width: props.actionColumnWidth,
+          align: 'right' as const,
+          fixed: props.actionColumnFixed ? ('right' as const) : undefined,
+          className: 'ui-data-table-action-cell',
+          customRender: ({ record }: { record: UiDataTableRecord }) =>
+            slots.rowActions?.({ record, rowKey: resolveRowKey(record) }),
+        },
+      ];
+  return [...draggableColumn, ...columns, ...actionColumn];
 });
 
 const tablePagination = computed<TablePaginationConfig | false>(() =>
@@ -118,7 +148,7 @@ const tableScroll = computed<TableProps['scroll']>(() =>
   resolveUiDataTableScroll({
     horizontal: props.horizontalScroll,
     fillHeight: props.fillHeight,
-    hasFixedColumn: tableColumns.value.some((column) => Boolean(column.fixed)),
+    hasFixedColumn: tableColumns.value.some((column) => 'fixed' in column && Boolean(column.fixed)),
   }),
 );
 
@@ -141,27 +171,37 @@ function rowClassName(record: UiDataTableRecord) {
   if (props.rowMuted?.(record)) {
     classes.push('muted');
   }
+  if (draggingRowKey.value === resolveRowKey(record)) {
+    classes.push('dragging');
+  }
+  if (dragOverRowKey.value === resolveRowKey(record)) {
+    classes.push(`drag-over-${dragOverPosition.value}`);
+  }
   return classes.join(' ');
 }
 
 function customRow(record: UiDataTableRecord) {
-  if (!props.clickableRows) {
-    return {};
-  }
-  return {
-    onClick: (event: MouseEvent) => {
-      if (isExpandTriggerEvent(event)) {
+  const row: Record<string, unknown> = {};
+  if (props.clickableRows) {
+    row.onClick = (event: MouseEvent) => {
+      if (isExpandTriggerEvent(event) || isRowDragHandleEvent(event)) {
         return;
       }
       emit('rowClick', record, event);
-    },
-    onDblclick: (event: MouseEvent) => {
-      if (isExpandTriggerEvent(event)) {
+    };
+    row.onDblclick = (event: MouseEvent) => {
+      if (isExpandTriggerEvent(event) || isRowDragHandleEvent(event)) {
         return;
       }
       emit('rowDblclick', record, event);
-    },
-  };
+    };
+  }
+  if (props.rowDraggable) {
+    row.onDragover = (event: DragEvent) => handleDragOver(record, event);
+    row.onDragleave = () => handleDragLeave(record);
+    row.onDrop = (event: DragEvent) => handleDrop(record, event);
+  }
+  return row;
 }
 
 function handleExpand(expanded: boolean, record: UiDataTableRecord) {
@@ -171,6 +211,66 @@ function handleExpand(expanded: boolean, record: UiDataTableRecord) {
 function isExpandTriggerEvent(event: MouseEvent) {
   const target = event.target;
   return target instanceof Element && Boolean(target.closest('.ant-table-row-expand-icon'));
+}
+
+const draggingRecord = ref<UiDataTableRecord>();
+const draggingRowKey = computed(() =>
+  draggingRecord.value ? resolveRowKey(draggingRecord.value) : undefined,
+);
+const dragOverRowKey = ref<string>();
+const dragOverPosition = ref<'before' | 'after'>('before');
+
+function canDragRow(record: UiDataTableRecord) {
+  return props.rowDraggable && Boolean(resolveRowKey(record));
+}
+
+function handleDragStart(record: UiDataTableRecord, event: DragEvent) {
+  if (!canDragRow(record)) return;
+  draggingRecord.value = record;
+  if (event.dataTransfer) {
+    event.dataTransfer.effectAllowed = 'move';
+    event.dataTransfer.setData('text/plain', resolveRowKey(record));
+  }
+}
+
+function handleDragEnd() {
+  draggingRecord.value = undefined;
+  dragOverRowKey.value = undefined;
+}
+
+function handleDragOver(record: UiDataTableRecord, event: DragEvent) {
+  if (!draggingRecord.value || !canDragRow(record)) return;
+  if (resolveRowKey(draggingRecord.value) === resolveRowKey(record)) return;
+  event.preventDefault();
+  if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
+  dragOverRowKey.value = resolveRowKey(record);
+  dragOverPosition.value = dropPositionOf(event);
+}
+
+function handleDragLeave(record: UiDataTableRecord) {
+  if (dragOverRowKey.value === resolveRowKey(record)) {
+    dragOverRowKey.value = undefined;
+  }
+}
+
+function handleDrop(target: UiDataTableRecord, event: DragEvent) {
+  const source = draggingRecord.value;
+  event.preventDefault();
+  handleDragEnd();
+  if (!source || resolveRowKey(source) === resolveRowKey(target)) return;
+  emit('rowDrop', { source, target, position: dropPositionOf(event) });
+}
+
+function dropPositionOf(event: DragEvent): 'before' | 'after' {
+  const row = event.currentTarget;
+  if (!(row instanceof HTMLElement)) return 'before';
+  const { top, height } = row.getBoundingClientRect();
+  return event.clientY - top > height / 2 ? 'after' : 'before';
+}
+
+function isRowDragHandleEvent(event: MouseEvent) {
+  const target = event.target;
+  return target instanceof Element && Boolean(target.closest('.ui-data-table-drag-handle'));
 }
 </script>
 
@@ -290,6 +390,46 @@ function isExpandTriggerEvent(event: MouseEvent) {
 
 .ui-data-table :deep(.ant-table-thead > tr > th.ui-data-table-action-cell) {
   text-align: center !important;
+}
+
+.ui-data-table :deep(.ant-table-thead > tr > th.ui-data-table-drag-cell),
+.ui-data-table :deep(.ant-table-tbody > tr > td.ui-data-table-drag-cell) {
+  padding-inline: 6px !important;
+}
+
+.ui-data-table-drag-handle {
+  display: inline-grid;
+  width: 22px;
+  height: 22px;
+  place-items: center;
+  border-radius: 4px;
+  color: var(--muyun-text-muted);
+  cursor: grab;
+  font-size: 17px;
+  line-height: 1;
+  letter-spacing: -3px;
+  user-select: none;
+}
+
+.ui-data-table-drag-handle:hover {
+  background: var(--muyun-hover-subtle);
+  color: var(--muyun-theme-base);
+}
+
+.ui-data-table-drag-handle:active {
+  cursor: grabbing;
+}
+
+.ui-data-table :deep(.ant-table-tbody > tr.dragging > td) {
+  opacity: 0.52;
+}
+
+.ui-data-table :deep(.ant-table-tbody > tr.drag-over-before > td) {
+  box-shadow: inset 0 2px 0 var(--muyun-theme-base);
+}
+
+.ui-data-table :deep(.ant-table-tbody > tr.drag-over-after > td) {
+  box-shadow: inset 0 -2px 0 var(--muyun-theme-base);
 }
 
 .ui-data-table.is-clickable :deep(.ant-table-tbody > tr) {

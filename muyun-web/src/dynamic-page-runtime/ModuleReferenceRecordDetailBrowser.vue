@@ -30,11 +30,14 @@ const props = withDefaults(
 );
 const emit = defineEmits<{
   'record-change': [mutation: ReferenceRecordDetailMutation];
-  'interaction-state-change': [state: { editing: boolean; busy: boolean }];
+  'interaction-state-change': [state: { editing: boolean; busy: boolean; dirty?: boolean }];
 }>();
 const browser = props.browser ?? createReferenceRecordDetailBrowser(requireHttp(props.http));
 
-function reportInteraction(state: { editing: boolean; busy: boolean }, setBusy: (busy: boolean) => void) {
+function reportInteraction(
+  state: { editing: boolean; busy: boolean; dirty?: boolean },
+  setBusy: (busy: boolean) => void,
+) {
   setBusy(state.busy);
   emit('interaction-state-change', state);
 }
@@ -44,7 +47,7 @@ function reportInteraction(state: { editing: boolean; busy: boolean }, setBusy: 
 watch(
   () => browser.active.value,
   (active) => {
-    if (!active) emit('interaction-state-change', { editing: false, busy: false });
+    if (!active) emit('interaction-state-change', { editing: false, busy: false, dirty: false });
   },
   { flush: 'sync' },
 );
