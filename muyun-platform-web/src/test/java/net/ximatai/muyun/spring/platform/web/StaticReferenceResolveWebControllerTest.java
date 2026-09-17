@@ -1,12 +1,10 @@
 package net.ximatai.muyun.spring.platform.web;
 
-import net.ximatai.muyun.spring.common.tenant.TenantContext;
 import net.ximatai.muyun.spring.web.WebReferenceResolveMode;
 import net.ximatai.muyun.spring.web.WebReferenceResolveItem;
 import net.ximatai.muyun.spring.web.WebReferenceResolveRequest;
 import net.ximatai.muyun.spring.web.WebReferenceResolveResponse;
 import net.ximatai.muyun.spring.web.WebReferenceResolveStatus;
-import net.ximatai.muyun.spring.web.TenantRequestScope;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
@@ -32,7 +30,7 @@ class StaticReferenceResolveWebControllerTest {
                         List.of(new WebReferenceResolveItem("department-1", "平台研发部", null,
                                 null, null, true)), List.of(), 0, 20, 1));
         MockMvc mvc = MockMvcBuilders.standaloneSetup(
-                new StaticReferenceResolveWebController(facade, mock(TenantRequestScope.class))).build();
+                new StaticReferenceResolveWebController(facade, mock(ModuleTenantScope.class))).build();
 
         mvc.perform(post("/platform.module/iam.department/references/organizationId/resolve")
                         .contentType("application/json")
@@ -49,17 +47,15 @@ class StaticReferenceResolveWebControllerTest {
     }
 
     @Test
-    void shouldRequireAnActiveTenantForTenantScopedReferenceResolution() {
+    void shouldUseTheModuleTenantScopeForReferenceResolution() {
         StaticReferenceResolveFacade facade = mock(StaticReferenceResolveFacade.class);
-        TenantRequestScope tenantRequestScope = mock(TenantRequestScope.class);
+        ModuleTenantScope tenantScope = mock(ModuleTenantScope.class);
         StaticReferenceResolveWebController controller =
-                new StaticReferenceResolveWebController(facade, tenantRequestScope);
+                new StaticReferenceResolveWebController(facade, tenantScope);
 
-        try (TenantContext.Scope ignored = TenantContext.use("tenant-a")) {
-            controller.resolve("iam.department", "organizationId", null);
-        }
+        controller.resolve("iam.department", "organizationId", null);
 
-        verify(tenantRequestScope).requireActiveTenant("iam.department");
+        verify(tenantScope).requireActiveTenantIfRequired("iam.department");
         verify(facade).resolve("iam.department", "organizationId", null);
     }
 }

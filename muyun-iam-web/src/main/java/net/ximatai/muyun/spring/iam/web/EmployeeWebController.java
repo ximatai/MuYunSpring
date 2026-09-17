@@ -5,8 +5,6 @@ import net.ximatai.muyun.spring.platform.web.PlatformMenuGroups;
 import net.ximatai.muyun.spring.platform.module.PlatformStaticModule;
 import net.ximatai.muyun.spring.platform.web.ModuleUiDefinition;
 import net.ximatai.muyun.spring.platform.web.PageTemplates;
-import net.ximatai.muyun.spring.platform.web.PageNavigatorSingleResultPolicy;
-import net.ximatai.muyun.spring.platform.web.PageNavigatorSourceScope;
 import net.ximatai.muyun.spring.platform.web.StaticModuleUiContributor;
 import net.ximatai.muyun.spring.platform.web.StaticModuleOpenApi;
 import net.ximatai.muyun.spring.platform.web.StaticModuleWebControllerAdapter;
@@ -93,11 +91,7 @@ public class EmployeeWebController extends StaticModuleWebControllerAdapter<Empl
         return ModuleUiDefinition.builder(EmployeeService.MODULE_ALIAS)
                 .page(PageTemplates.listDetailCard(page -> page
                 .navigator(navigator -> navigator
-                        .level("tenant", level -> level.microList("iam.tenant", "租户", "搜索租户")
-                                .sourceScope(PageNavigatorSourceScope.CURRENT_TENANT)
-                                .singleResultPolicy(PageNavigatorSingleResultPolicy.AUTO_SELECT_AND_HIDE))
                         .level("organization", level -> level.tree(OrganizationService.MODULE_ALIAS, "机构树", "搜索机构"))
-                        .bindNavigatorToNavigator("tenant", "organization", "tenantId")
                         .filterListByNavigator("organization", "organizationId")
                         .prefillFormFromNavigator("organization", "organizationId"))
                 .list(list -> list.fields(fields -> fields

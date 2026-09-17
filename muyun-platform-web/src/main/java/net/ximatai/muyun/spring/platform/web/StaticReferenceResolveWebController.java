@@ -2,8 +2,6 @@ package net.ximatai.muyun.spring.platform.web;
 
 import net.ximatai.muyun.spring.common.platform.ActionEndpoint;
 import net.ximatai.muyun.spring.common.platform.PlatformAction;
-import net.ximatai.muyun.spring.common.tenant.TenantContext;
-import net.ximatai.muyun.spring.web.TenantRequestScope;
 import net.ximatai.muyun.spring.web.WebReferenceResolveRequest;
 import net.ximatai.muyun.spring.web.WebReferenceResolveResponse;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -17,12 +15,12 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/platform.module/{moduleAlias:[a-z][a-z0-9_]*(?:\\.[a-z][a-z0-9_]*)+}/references")
 public class StaticReferenceResolveWebController {
     private final StaticReferenceResolveFacade facade;
-    private final TenantRequestScope tenantRequestScope;
+    private final ModuleTenantScope tenantScope;
 
     public StaticReferenceResolveWebController(StaticReferenceResolveFacade facade,
-                                               TenantRequestScope tenantRequestScope) {
+                                               ModuleTenantScope tenantScope) {
         this.facade = facade;
-        this.tenantRequestScope = tenantRequestScope;
+        this.tenantScope = tenantScope;
     }
 
     @PostMapping("/{fieldName}/resolve")
@@ -30,9 +28,7 @@ public class StaticReferenceResolveWebController {
     public WebReferenceResolveResponse resolve(@PathVariable String moduleAlias,
                                                @PathVariable String fieldName,
                                                @RequestBody(required = false) WebReferenceResolveRequest request) {
-        if (!TenantContext.isSystem()) {
-            tenantRequestScope.requireActiveTenant(moduleAlias);
-        }
+        tenantScope.requireActiveTenantIfRequired(moduleAlias);
         return facade.resolve(moduleAlias, fieldName, request);
     }
 }

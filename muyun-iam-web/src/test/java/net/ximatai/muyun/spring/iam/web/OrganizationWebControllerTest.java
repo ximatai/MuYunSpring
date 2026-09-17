@@ -12,15 +12,11 @@ import static org.mockito.Mockito.when;
 
 class OrganizationWebControllerTest {
     @Test
-    void shouldDeclareTenantNavigatorOnTheStandardTreePage() {
+    void shouldRelyOnThePlatformTenantScopeWithoutDeclaringTenantNavigator() {
         TreeManagementPageDefinition page = (TreeManagementPageDefinition) new OrganizationWebController()
                 .moduleUiDefinition().page();
 
-        assertThat(page.navigator().levels()).singleElement().satisfies(level -> {
-            assertThat(level.key()).isEqualTo("tenant");
-            assertThat(level.sourceModuleAlias()).isEqualTo("iam.tenant");
-        });
-        assertThat(page.navigator().contextBindings()).hasSize(2);
+        assertThat(page.navigator()).isNull();
         assertThat(page.detail().editor().fields()).extracting(field -> field.fieldRef().fieldName())
                 .containsExactly("title", "code", "parentId", "enabled");
     }

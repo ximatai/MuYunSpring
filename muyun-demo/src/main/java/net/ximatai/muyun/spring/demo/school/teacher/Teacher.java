@@ -28,6 +28,10 @@ public class Teacher extends StandardTitledEntity implements EnabledCapable {
     @Column(name = "student_assistant_id", type = ColumnType.VARCHAR, length = 32, comment = "Student assistant id")
     private String studentAssistantId;
 
+    /** 为静态页面的班主任助理引用提供可读标题，不向详情页泄露原始 ID。 */
+    @ReferenceLoad(source = "studentAssistantId", field = "title")
+    private transient String studentAssistantTitle;
+
     @Column(name = "teacher_no", type = ColumnType.VARCHAR, length = 32, nullable = false)
     private String teacherNo;
 

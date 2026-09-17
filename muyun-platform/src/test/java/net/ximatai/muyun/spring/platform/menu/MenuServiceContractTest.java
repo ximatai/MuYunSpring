@@ -709,6 +709,26 @@ class MenuServiceContractTest {
     }
 
     @Test
+    void shouldKeepSystemMenuNavigationVisibleWhenSystemUserSelectsBusinessTenant() {
+        MenuService scopedMenuService = new MenuService(menuDao, schemeService, moduleService,
+                Optional.of((moduleAlias, currentUser) -> true));
+        String systemMenuId;
+        try (TenantContext.Scope ignored = TenantContext.system("seed system menu scheme")) {
+            String systemSchemeId = schemeService.insert(scheme(
+                    "platform_admin", MenuScopeType.SYSTEM, null));
+            systemMenuId = scopedMenuService.insert(moduleMenu(
+                    systemSchemeId, "平台客户", TreeAbility.ROOT_ID, "crm.customer"));
+        }
+
+        try (TenantContext.Scope ignored = TenantContext.use("tenant-a");
+             CurrentUserContext.Scope ignoredUser = CurrentUserContext.use(
+                     CurrentUser.systemUser("platform.user.super_admin", "admin"))) {
+            assertThat(scopedMenuService.currentUserVisibleMenu(systemMenuId).getId())
+                    .isEqualTo(systemMenuId);
+        }
+    }
+
+    @Test
     void shouldRejectTenantUserWhenTenantHasNoMenuScheme() {
         MenuService scopedMenuService = new MenuService(menuDao, schemeService, moduleService,
                 Optional.of((moduleAlias, currentUser) -> true));

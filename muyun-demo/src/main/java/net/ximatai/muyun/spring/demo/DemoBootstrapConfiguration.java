@@ -12,6 +12,7 @@ import net.ximatai.muyun.spring.demo.school.student.StudentService;
 import net.ximatai.muyun.spring.demo.school.subject.SubjectCategoryService;
 import net.ximatai.muyun.spring.demo.school.teacher.TeacherService;
 import net.ximatai.muyun.spring.demo.school.classroom.ClassroomService;
+import net.ximatai.muyun.spring.demo.school.configuration.TeachingDemoMenuInitialDataDeclarationProvider;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecordService;
 import net.ximatai.muyun.spring.platform.metadata.MetadataFieldService;
 import net.ximatai.muyun.spring.platform.metadata.MetadataFieldConfigService;
@@ -22,6 +23,7 @@ import net.ximatai.muyun.spring.platform.dictionary.DictionaryCategoryService;
 import net.ximatai.muyun.spring.platform.dictionary.DictionaryItemService;
 import net.ximatai.muyun.spring.platform.module.PlatformModuleService;
 import net.ximatai.muyun.spring.platform.module.ModuleActionContributionRegistrar;
+import net.ximatai.muyun.spring.platform.menu.MenuService;
 import net.ximatai.muyun.spring.platform.runtime.PlatformDynamicRuntimeRefreshService;
 import net.ximatai.muyun.spring.platform.ui.PlatformPageDefinitionService;
 import net.ximatai.muyun.spring.platform.ui.PlatformPresentationRevisionPublishService;
@@ -38,6 +40,23 @@ import org.springframework.transaction.support.TransactionTemplate;
 @Profile("school-demo")
 @EnableConfigurationProperties(DemoBootstrapProperties.class)
 public class DemoBootstrapConfiguration {
+    /** A profile-scoped, code-owned dynamic action used by the school demonstration. */
+    @Bean
+    ExamPostponeActionExecutor examPostponeActionExecutor() {
+        return new ExamPostponeActionExecutor();
+    }
+
+    @Bean
+    TeachingDemoMenuInitialDataDeclarationProvider teachingDemoMenuInitialDataDeclarationProvider(
+            MenuService menuService) {
+        return new TeachingDemoMenuInitialDataDeclarationProvider(menuService);
+    }
+
+    @Bean
+    ExamDemoMenuBootstrapTask examDemoMenuBootstrapTask(MenuService menuService) {
+        return new ExamDemoMenuBootstrapTask(menuService);
+    }
+
     @Bean
     DemoBootstrapTask demoBootstrapTask(DemoBootstrapProperties properties, TenantService tenantService,
                                         TenantApplicationService tenantApplicationService,

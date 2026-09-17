@@ -35,23 +35,24 @@ public class ActionEndpointInterceptor implements AsyncHandlerInterceptor {
     private final ActingRequestResolver actingRequestResolver;
     private final RegisteredWebEndpointCatalog endpointCatalog;
     private final StaticCrudActionLogRecorder staticCrudActionLogRecorder;
+    private final ModuleTenantScope moduleTenantScope;
 
     public ActionEndpointInterceptor(ActionExecutionPolicyService policyService,
                                      ActionEndpointContextResolver contextResolver) {
-        this(policyService, contextResolver, null, null, null);
+        this(policyService, contextResolver, null, null, null, null);
     }
 
     public ActionEndpointInterceptor(ActionExecutionPolicyService policyService,
                                      ActionEndpointContextResolver contextResolver,
                                      ActingRequestResolver actingRequestResolver) {
-        this(policyService, contextResolver, actingRequestResolver, null, null);
+        this(policyService, contextResolver, actingRequestResolver, null, null, null);
     }
 
     public ActionEndpointInterceptor(ActionExecutionPolicyService policyService,
                                      ActionEndpointContextResolver contextResolver,
                                      ActingRequestResolver actingRequestResolver,
                                      RegisteredWebEndpointCatalog endpointCatalog) {
-        this(policyService, contextResolver, actingRequestResolver, endpointCatalog, null);
+        this(policyService, contextResolver, actingRequestResolver, endpointCatalog, null, null);
     }
 
     public ActionEndpointInterceptor(ActionExecutionPolicyService policyService,
@@ -59,11 +60,21 @@ public class ActionEndpointInterceptor implements AsyncHandlerInterceptor {
                                      ActingRequestResolver actingRequestResolver,
                                      RegisteredWebEndpointCatalog endpointCatalog,
                                      StaticCrudActionLogRecorder staticCrudActionLogRecorder) {
+        this(policyService, contextResolver, actingRequestResolver, endpointCatalog, staticCrudActionLogRecorder, null);
+    }
+
+    public ActionEndpointInterceptor(ActionExecutionPolicyService policyService,
+                                     ActionEndpointContextResolver contextResolver,
+                                     ActingRequestResolver actingRequestResolver,
+                                     RegisteredWebEndpointCatalog endpointCatalog,
+                                     StaticCrudActionLogRecorder staticCrudActionLogRecorder,
+                                     ModuleTenantScope moduleTenantScope) {
         this.policyService = policyService;
         this.contextResolver = contextResolver;
         this.actingRequestResolver = actingRequestResolver;
         this.endpointCatalog = endpointCatalog;
         this.staticCrudActionLogRecorder = staticCrudActionLogRecorder == null ? new StaticCrudActionLogRecorder(null) : staticCrudActionLogRecorder;
+        this.moduleTenantScope = moduleTenantScope;
     }
 
     @Override
@@ -121,6 +132,9 @@ public class ActionEndpointInterceptor implements AsyncHandlerInterceptor {
                 }
             }
             ActionAuthorizationResult authorization = policyService.authorize(resolved);
+            if (moduleTenantScope != null && !isModuleDiscoveryEndpoint(handlerMethod)) {
+                moduleTenantScope.requireActiveTenantIfRequired(resolved.moduleAlias());
+            }
             ActionExecutionContext authorized = resolved.withAuthorizationResult(authorization);
             request.setAttribute(ACTION_CONTEXT_SCOPE_ATTRIBUTE, ActionExecutionContextHolder.use(authorized));
             if (handlerMethod.getBean() instanceof CrudWeb<?, ?> && isStaticCrudMutation(authorized)) {
@@ -140,6 +154,11 @@ public class ActionEndpointInterceptor implements AsyncHandlerInterceptor {
     private static String pageEntryParentModuleAlias(HandlerMethod handlerMethod) {
         PlatformPageEntryChild child = handlerMethod.getBeanType().getAnnotation(PlatformPageEntryChild.class);
         return child == null ? null : child.parentModuleAlias();
+    }
+
+    private static boolean isModuleDiscoveryEndpoint(HandlerMethod handlerMethod) {
+        return WebAnnotationSupport.findMergedMethodAnnotation(handlerMethod.getMethod(), handlerMethod.getBeanType(),
+                ModuleDiscoveryEndpoint.class) != null;
     }
 
     @Override

@@ -49,7 +49,8 @@ export interface ModuleRuntimeContext {
   moduleAlias: string;
   tenantRequired?: boolean;
   title?: string;
-  moduleKind?: 'STATIC' | 'DYNAMIC';
+  /** Stable wire code of the registered module kind. */
+  moduleKind?: 'static' | 'dynamic';
   entryType?: 'module' | 'route' | 'link';
   entryRoute?: string;
   entryExternalUrl?: string;

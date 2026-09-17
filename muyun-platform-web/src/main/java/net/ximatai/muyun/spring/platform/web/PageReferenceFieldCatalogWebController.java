@@ -22,6 +22,7 @@ public class PageReferenceFieldCatalogWebController {
     @GetMapping
     @CustomActionEndpoint(value = "viewPageReferenceFields", title = "查看页面引用字段",
             level = PlatformActionLevel.LIST, dataAuth = false)
+    @ModuleDiscoveryEndpoint
     public PageReferenceFieldCatalog list(@PathVariable String moduleAlias,
                                           @RequestParam(required = false) String path) {
         return catalog.list(moduleAlias, path);

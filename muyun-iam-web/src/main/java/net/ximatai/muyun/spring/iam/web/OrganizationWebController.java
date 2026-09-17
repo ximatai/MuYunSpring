@@ -5,8 +5,6 @@ import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.spring.platform.web.StaticModuleOpenApi;
 import net.ximatai.muyun.spring.platform.web.CrudWeb;
 import net.ximatai.muyun.spring.platform.web.ModuleUiDefinition;
-import net.ximatai.muyun.spring.platform.web.PageNavigatorSingleResultPolicy;
-import net.ximatai.muyun.spring.platform.web.PageNavigatorSourceScope;
 import net.ximatai.muyun.spring.platform.web.PageTemplates;
 import net.ximatai.muyun.spring.web.TreeScope;
 import net.ximatai.muyun.spring.web.MutationTenantScopeResolver;
@@ -45,13 +43,6 @@ public class OrganizationWebController extends WebSupport<OrganizationService> i
     public ModuleUiDefinition moduleUiDefinition() {
         return ModuleUiDefinition.builder(OrganizationService.MODULE_ALIAS)
                 .page(PageTemplates.treeManagement(page -> page
-                        .navigator(navigator -> navigator
-                                .level("tenant", level -> level
-                                        .microList("iam.tenant", "租户", "搜索租户")
-                                        .sourceScope(PageNavigatorSourceScope.CURRENT_TENANT)
-                                        .singleResultPolicy(PageNavigatorSingleResultPolicy.AUTO_SELECT_AND_HIDE))
-                                .filterListByNavigator("tenant", "tenantId")
-                                .prefillFormFromNavigator("tenant", "tenantId"))
                         .detail(detail -> detail
                                 .emptyDescription("请选择机构，或新建根机构")
                                 .editor(form -> form
@@ -94,9 +85,6 @@ public class OrganizationWebController extends WebSupport<OrganizationService> i
                 ? null
                 : requestedTenantId.trim();
         if (TenantContext.isSystem()) {
-            if (normalized == null) {
-                return null;
-            }
             return normalized;
         }
         String currentTenantId = TenantContext.currentTenantId()

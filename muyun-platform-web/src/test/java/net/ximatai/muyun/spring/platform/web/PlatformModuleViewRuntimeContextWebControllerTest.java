@@ -53,6 +53,7 @@ class PlatformModuleViewRuntimeContextWebControllerTest {
 
         assertThat(endpoint).isNotNull();
         assertThat(endpoint.value()).isEqualTo(PlatformAction.VIEW);
+        assertThat(method.getAnnotation(ModuleDiscoveryEndpoint.class)).isNotNull();
     }
 
     @Test

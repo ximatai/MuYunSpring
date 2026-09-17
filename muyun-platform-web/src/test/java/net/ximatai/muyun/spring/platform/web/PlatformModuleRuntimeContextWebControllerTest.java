@@ -95,6 +95,7 @@ class PlatformModuleRuntimeContextWebControllerTest {
 
         assertThat(endpoint).isNotNull();
         assertThat(endpoint.value()).isEqualTo(PlatformAction.MENU);
+        assertThat(method.getAnnotation(ModuleDiscoveryEndpoint.class)).isNotNull();
     }
 
     @Test

@@ -1,5 +1,5 @@
 import { mount } from '@vue/test-utils';
-import { defineComponent, h } from 'vue';
+import { defineComponent, h, ref, nextTick } from 'vue';
 import { describe, expect, it } from 'vitest';
 import type { HttpClient, HttpRequestOptions } from '@/web-core/http';
 import {
@@ -7,6 +7,7 @@ import {
   ModuleHttpProvider,
   useModuleContext,
   useModuleTreeContext,
+  type ModuleContext,
 } from '@/web-core/module/moduleContext';
 
 function mountConsumer(consume: () => void) {
@@ -44,6 +45,51 @@ function mountConsumer(consume: () => void) {
 }
 
 describe('module context hooks', () => {
+  it('gives newly mounted consumers the current client while existing and disposed contexts retain their client', async () => {
+    const requests: string[] = [];
+    const client = (tenant: string): HttpClient => ({
+      async request(options) {
+        requests.push(`${tenant}:${options.path}`);
+        return { moduleAlias: 'crm.customer', actions: [], capabilities: [] } as never;
+      },
+    });
+    const first = client('first');
+    const second = client('second');
+    const http = ref(first);
+    const generation = ref(0);
+    const contexts: ModuleContext<unknown>[] = [];
+    const Consumer = defineComponent({
+      setup() {
+        contexts.push(useModuleContext({ moduleAlias: 'crm.customer' }));
+        return () => null;
+      },
+    });
+    const Root = defineComponent({
+      setup: () => () =>
+        h(
+          ModuleHttpProvider,
+          { http: http.value },
+          {
+            default: () => h(Consumer, { key: generation.value }),
+          },
+        ),
+    });
+    const wrapper = mount(Root);
+    http.value = second;
+    await nextTick();
+    await contexts[0]!.crud.query();
+    generation.value += 1;
+    await nextTick();
+    await contexts[1]!.crud.query();
+    await contexts[0]!.crud.query();
+    expect(requests.filter((path) => path.endsWith('/query'))).toEqual([
+      'first:/crm.customer/query',
+      'second:/crm.customer/query',
+      'first:/crm.customer/query',
+    ]);
+    wrapper.unmount();
+  });
+
   it('reuses the injected default context but honors an explicit VIEW access', async () => {
     let completion!: Promise<unknown>;
     const { wrapper, requests } = mountConsumer(() => {

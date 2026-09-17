@@ -1,22 +1,25 @@
+// Source-only composition contracts; runtime tenant and entry behavior is covered by
+// DynamicModuleHost, ModulePageHostLifecycle, and ModulePageTenantScope component tests.
 import { assert, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
-it('is the implementation owner for neutral module page descriptors', () => {
-  const source = readFileSync(
-    resolve(import.meta.dirname, '../../src/dynamic-page-runtime/ModulePageHost.vue'),
+function readRuntimeSource() {
+  return readFileSync(
+    resolve(import.meta.dirname, '../../src/dynamic-page-runtime/ModulePageHostRuntime.vue'),
     'utf8',
   );
+}
 
-  assert.match(source, /defineOptions\(\{ name: 'ModulePageHost' \}\)/);
-  assert.match(source, /descriptor: StandardModulePageDescriptor/);
-});
+function readSessionSource() {
+  return readFileSync(
+    resolve(import.meta.dirname, '../../src/dynamic-page-runtime/useModulePageSession.ts'),
+    'utf8',
+  );
+}
 
 it('routes every standard card shell through the shared content and form surfaces', () => {
-  const source = readFileSync(
-    resolve(import.meta.dirname, '../../src/dynamic-page-runtime/ModulePageHost.vue'),
-    'utf8',
-  );
+  const source = `${readRuntimeSource()}\n${readSessionSource()}`;
 
   assert.match(
     source,
@@ -38,28 +41,8 @@ it('routes every standard card shell through the shared content and form surface
   assert.match(source, /@validity-change="updateLocalEditFormValidity"/);
 });
 
-it('uses the declared tree resource or page title as the tree panel title without synthesizing a suffix', () => {
-  const source = readFileSync(
-    resolve(import.meta.dirname, '../../src/dynamic-page-runtime/ModulePageHost.vue'),
-    'utf8',
-  );
-
-  assert.match(
-    source,
-    /const treePanelTitle = computed\([\s\S]*treeResource\?\.title \?\? modulePageTitle\.value/,
-  );
-  assert.notMatch(source, /\$\{modulePageTitle\.value\}树/);
-  assert.match(
-    source,
-    /<RecordExplorerPanel[\s\S]*?:title="treePanelTitle"[\s\S]*?:refresh-title="`刷新\$\{treePanelTitle\}`"/,
-  );
-});
-
 it('places tree sorting between the explorer search affordance and create action', () => {
-  const source = readFileSync(
-    resolve(import.meta.dirname, '../../src/dynamic-page-runtime/ModulePageHost.vue'),
-    'utf8',
-  );
+  const source = `${readRuntimeSource()}\n${readSessionSource()}`;
 
   assert.match(source, /const mainTreeSorting = ref\(false\)/);
   assert.match(
@@ -72,10 +55,7 @@ it('places tree sorting between the explorer search affordance and create action
 });
 
 it('exposes flat-list ordering only when the runtime declares sort capability', () => {
-  const source = readFileSync(
-    resolve(import.meta.dirname, '../../src/dynamic-page-runtime/ModulePageHost.vue'),
-    'utf8',
-  );
+  const source = `${readRuntimeSource()}\n${readSessionSource()}`;
 
   assert.match(source, /const flatManagementSorting = ref\(false\)/);
   assert.match(
@@ -86,23 +66,17 @@ it('exposes flat-list ordering only when the runtime declares sort capability', 
 });
 
 it('exposes sortable navigator lists through the navigator module capability', () => {
-  const source = readFileSync(
-    resolve(import.meta.dirname, '../../src/dynamic-page-runtime/ModulePageHost.vue'),
-    'utf8',
-  );
+  const source = `${readRuntimeSource()}\n${readSessionSource()}`;
 
   assert.match(source, /<PageNavigatorExplorer[\s\S]*:sort="navigatorSortState\(level\)"/);
   assert.match(
     source,
-    /<PageNavigatorExplorer[\s\S]*:sort="navigatorSortState\(navigatorLevelAt\(index\)!\)"/,
+    /<PageNavigatorExplorer[\s\S]*:sort="navigatorSortState\(navigatorLevelAt\(index - tenantScopeExplorerCount\)!\)"/,
   );
 });
 
 it('declares cancellation destinations from the detail entry context', () => {
-  const source = readFileSync(
-    resolve(import.meta.dirname, '../../src/dynamic-page-runtime/ModulePageHost.vue'),
-    'utf8',
-  );
+  const source = `${readRuntimeSource()}\n${readSessionSource()}`;
 
   assert.match(source, /cancelDestination: persistentTreeDetail\.value \? 'restore-view' : 'close'/);
   assert.match(source, /function editRecord\([\s\S]*cancelDestination: 'close' \| 'restore-view' = 'close'/);
@@ -115,10 +89,7 @@ it('declares cancellation destinations from the detail entry context', () => {
 
 // Static DSL allows query scope independently of explorer display bindings.
 it('installs explicit tree query scope even without explorer display bindings', () => {
-  const source = readFileSync(
-    resolve(import.meta.dirname, '../../src/dynamic-page-runtime/ModulePageHost.vue'),
-    'utf8',
-  );
+  const source = readRuntimeSource();
   assert.match(
     source,
     /<TreeRecordExplorer[\s\S]*?:filter-option="\s*runtimePage\?\.explorer \|\| runtimePage\?\.quickSearchFields != null\s+\? matchesPageQuickSearch\s+: undefined/,

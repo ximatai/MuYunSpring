@@ -36,6 +36,8 @@ const props = withDefaults(
     externalQueryValues?: Record<string, unknown>;
     navigatorHostModuleAlias?: string;
     navigatorTargetLevelKey?: string;
+    /** Server-side search for large explorer sources; `keyword` still filters the rendered labels. */
+    quickSearch?: string;
     keyword?: string;
     emptyDescription?: string;
     loadingTip?: string;
@@ -57,6 +59,7 @@ const props = withDefaults(
     externalQueryValues: undefined,
     navigatorHostModuleAlias: undefined,
     navigatorTargetLevelKey: undefined,
+    quickSearch: undefined,
     keyword: '',
     emptyDescription: '暂无记录',
     loadingTip: '加载记录列表',
@@ -77,7 +80,7 @@ const emit = defineEmits<{
   select: [record: CrudRecordListBase];
   deselect: [];
   action: [action: UiRecordInlineAction, record: CrudRecordListBase];
-  loaded: [records: CrudRecordListBase[]];
+  loaded: [records: CrudRecordListBase[], total?: number];
   restored: [];
   recycleBinSummary: [total: number | undefined];
   sorted: [];
@@ -154,6 +157,11 @@ watch(
 );
 
 watch(
+  () => props.quickSearch,
+  () => loadRecords('interaction'),
+);
+
+watch(
   () => props.mode,
   () => loadRecords(),
 );
@@ -174,6 +182,7 @@ async function loadRecords(reason: UiTreeChangeReason = 'reset') {
     }
     const response = await props.context.abilities.crud().query({
       page: { pageNum: 1, pageSize: 200 },
+      ...(props.quickSearch?.trim() ? { quickSearch: props.quickSearch.trim() } : {}),
       ...(props.externalQueryValues && Object.keys(props.externalQueryValues).length > 0
         ? { externalQueryValues: props.externalQueryValues }
         : {}),
@@ -187,7 +196,7 @@ async function loadRecords(reason: UiTreeChangeReason = 'reset') {
     if (requestSeq !== recordsRequestSeq) return;
     changeReason.value = reason;
     records.value = response.records;
-    emit('loaded', response.records);
+    emit('loaded', response.records, response.totalKnown === false ? undefined : response.total);
     if (canQueryRecycleBin(props.context)) void recycleBinState.refreshSummary();
   } catch (cause) {
     if (requestSeq !== recordsRequestSeq) return;

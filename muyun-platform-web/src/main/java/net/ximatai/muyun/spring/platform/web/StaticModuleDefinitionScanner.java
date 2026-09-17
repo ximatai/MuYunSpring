@@ -180,9 +180,7 @@ public class StaticModuleDefinitionScanner implements StaticModuleRegistrationSo
         Class<?> modelClass = modelClass(bean);
         List<EntityDefinition> entities = entities(bean, module, projectionJoins);
         return StaticModuleDefinition.builder(application.alias(), module.alias(), module.title())
-                .tenantRequired(service(bean) instanceof CrudAbility<?>
-                        && !(bean instanceof net.ximatai.muyun.spring.web.SystemScope<?>)
-                        && !(service(bean) instanceof net.ximatai.muyun.spring.ability.GlobalScopedAbility<?>))
+                .tenantRequired(tenantRequired(bean, beanClass))
                 .parentModuleAlias(module.parent().isBlank() ? null : module.parent())
                 .entry(entryType(module), module.route(), module.externalUrl())
                 .capabilities(capabilities)
@@ -199,6 +197,17 @@ public class StaticModuleDefinitionScanner implements StaticModuleRegistrationSo
                 .queryDescriptor(queryDescriptor(bean, module.alias()))
                 .openApiAvailable(AnnotationUtils.findAnnotation(beanClass, StaticModuleOpenApi.class) != null)
                 .build();
+    }
+
+    private boolean tenantRequired(Object bean, Class<?> beanClass) {
+        StaticModuleTenantScopePolicy policy = AnnotationUtils.findAnnotation(beanClass,
+                StaticModuleTenantScopePolicy.class);
+        if (policy != null) {
+            return policy.requireActiveTenant();
+        }
+        return service(bean) instanceof CrudAbility<?>
+                && !(bean instanceof net.ximatai.muyun.spring.web.SystemScope<?>)
+                && !(service(bean) instanceof net.ximatai.muyun.spring.ability.GlobalScopedAbility<?>);
     }
 
     private List<String> sortPartitionFields(Object bean) {

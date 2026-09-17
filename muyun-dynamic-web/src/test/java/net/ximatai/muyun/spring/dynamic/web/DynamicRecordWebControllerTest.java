@@ -1779,7 +1779,7 @@ class DynamicRecordWebControllerTest {
     }
 
     @Test
-    void shouldExposeDynamicQuerySchemaWithUiScopedQuickSearchFields() throws Exception {
+    void shouldExposeDynamicQuerySchemaWithUiScopedQuickSearchFieldsBeforeTenantSelection() throws Exception {
         PlatformPageConfigSnapshotService snapshotService = mock(PlatformPageConfigSnapshotService.class);
         ModuleExecutionPlanCatalog planCatalog = new ModuleExecutionPlanCatalog(new StaticModuleDefinitionCatalog(List.of()));
         planCatalog.replaceDynamicPlan(MODULE, java.util.Optional.of(installedQuickSearchOnlyPlan()));
@@ -1788,7 +1788,7 @@ class DynamicRecordWebControllerTest {
                 .setMessageConverters(new MappingJackson2HttpMessageConverter(objectMapper))
                 .setControllerAdvice(new PlatformWebExceptionHandler(), new DynamicWebExceptionHandler())
                 .addFilters(new CurrentUserWebFilter(() -> java.util.Optional.of(
-                        CurrentUser.tenantUser("user-1", "User", "tenant_a"))))
+                        CurrentUser.systemUser("user-1", "User"))))
                 .build();
         lowCodeMvc.perform(get("/{moduleAlias}/query/schema", MODULE)
                         .param("uiConfigId", "ui-list"))
@@ -1804,7 +1804,6 @@ class DynamicRecordWebControllerTest {
                 .andExpect(jsonPath("$.fields[?(@.name == 'code')]").isEmpty())
                 .andExpect(jsonPath("$.fields[?(@.name == 'amount')]").isEmpty());
 
-        verify(activeTenantVerifier).verifyActiveTenant("tenant_a");
     }
 
     @Test

@@ -30,10 +30,10 @@
 2. `RecordFormFields` 已承接普通输入字段、`enabledStatus` 和 `recordPicker` 控件；未显式传入字段顺序时，可按 descriptor 字段顺序和 fallback 顺序稳定推导字段。
 3. `executeStaticFormSave` 已承接保存动作的重复提交保护、权限提示、校验提示、loading、成功反馈和异常反馈。
 4. `executeStaticRecordAction` 已承接启停和删除动作的重复提交保护、权限提示、确认后的 loading、成功反馈和异常反馈。
-5. `EmployeeManagementView` 不再硬编码职员列表列；普通表单字段顺序来自 resolved form view，页面仅保留机构 scope 展示、部门选择器上下文、保存载荷归一和启停/删除业务分支。
-6. 部门管理已迁入标准模块运行器：租户、机构树、部门树和父部门选择器 scope 均由页面 descriptor 的导航与 `PICKER_QUERY` 上下文绑定声明，不再保留专用 Vue 页面。
+5. 职员管理使用标准模块宿主；租户列表由平台执行作用域提供，业务 descriptor 仅声明机构导航、职员字段和任职聚合等业务事实。
+6. 部门管理使用标准模块运行器：租户列表由平台执行作用域提供，机构树、部门树和父部门选择器 scope 由页面 descriptor 的导航与 `PICKER_QUERY` 上下文绑定声明。
 7. `DictionaryManagementView` 已复用静态树资源上下文门面承接应用 scope 下的字典类目树和类目 scope 下的字典项树，并复用 `RecordFormFields` 承接类目表单和后端 `item_default_form` 条目表单；页面仍保留应用选择、类目/条目状态编排和保存 payload 归一。
-8. 岗位管理已迁入标准动态运行器：租户、岗位分类树、岗位列表和所属分类候选均由页面 descriptor 的 navigator/context binding 声明；不再保留专用 Vue 页面。
+8. 岗位管理使用标准模块运行器：租户列表由平台执行作用域提供，岗位分类树、岗位列表和所属分类候选由页面 descriptor 的 navigator/context binding 声明。
 9. `RecordQueryListPanel` 在 descriptor 加载失败时进入明确失败态，不把声明加载失败伪装成空列表。
 
 ## 仍属业务编排

@@ -2,12 +2,9 @@ package net.ximatai.muyun.spring.iam.web;
 
 import net.ximatai.muyun.spring.platform.web.CrudWeb;
 import net.ximatai.muyun.spring.platform.web.ModuleUiDefinition;
-import net.ximatai.muyun.spring.platform.web.ModuleUiBindingKey;
 import net.ximatai.muyun.spring.platform.web.ModuleUiField;
 import net.ximatai.muyun.spring.platform.web.ModuleUiNavigatorKey;
 import net.ximatai.muyun.spring.platform.web.PageNavigatorInitialSelectionPolicy;
-import net.ximatai.muyun.spring.platform.web.PageNavigatorSingleResultPolicy;
-import net.ximatai.muyun.spring.platform.web.PageNavigatorSourceScope;
 import net.ximatai.muyun.spring.platform.web.PageTemplates;
 import net.ximatai.muyun.spring.platform.web.PlatformMenu;
 import net.ximatai.muyun.spring.platform.web.PlatformMenuGroups;
@@ -38,9 +35,7 @@ public class PositionWebController extends StaticModuleWebControllerAdapter<Posi
         MutationTenantScopeResolver<Position>,
         StaticModuleUiContributor {
 
-    private static final ModuleUiNavigatorKey TENANT_NAVIGATOR = ModuleUiNavigatorKey.of("tenant");
     private static final ModuleUiNavigatorKey CATEGORY_NAVIGATOR = ModuleUiNavigatorKey.of("category");
-    private static final ModuleUiField TENANT_ID = ModuleUiField.of("tenantId");
     private static final ModuleUiField CATEGORY_ID = ModuleUiField.of("categoryId");
     private static final ModuleUiField CODE = ModuleUiField.of("code");
     private static final ModuleUiField TITLE = ModuleUiField.of("title");
@@ -87,15 +82,10 @@ public class PositionWebController extends StaticModuleWebControllerAdapter<Posi
         return ModuleUiDefinition.builder(PositionService.MODULE_ALIAS)
                 .page(PageTemplates.listDetailCard(page -> page
                         .navigator(navigator -> navigator
-                                .level(TENANT_NAVIGATOR, level -> level
-                                        .microList("iam.tenant", "租户", "搜索租户")
-                                        .sourceScope(PageNavigatorSourceScope.CURRENT_TENANT)
-                                        .singleResultPolicy(PageNavigatorSingleResultPolicy.AUTO_SELECT_AND_HIDE))
                                 .level(CATEGORY_NAVIGATOR, level -> level
                                         .tree(PositionCategoryService.MODULE_ALIAS, "岗位分类", "搜索岗位分类")
                                         .manageable()
                                         .initialSelectionPolicy(PageNavigatorInitialSelectionPolicy.FIRST_RECORD))
-                                .bindNavigatorToNavigator(TENANT_NAVIGATOR, CATEGORY_NAVIGATOR, TENANT_ID)
                                 .filterListByNavigator(CATEGORY_NAVIGATOR, CATEGORY_ID)
                                 .prefillFormFromNavigator(CATEGORY_NAVIGATOR, CATEGORY_ID))
                         .list(list -> list.fields(fields -> fields

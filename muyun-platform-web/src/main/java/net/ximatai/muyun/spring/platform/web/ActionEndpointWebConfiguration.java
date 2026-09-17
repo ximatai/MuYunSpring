@@ -75,10 +75,21 @@ public class ActionEndpointWebConfiguration {
                                                               ObjectProvider<ActingRequestResolver> actingRequestResolver,
                                                               ObjectProvider<RegisteredWebEndpointCatalog>
                                                                       endpointCatalog,
-                                                              ObjectProvider<StaticCrudActionLogRecorder> staticCrudActionLogRecorder) {
+                                                              ObjectProvider<StaticCrudActionLogRecorder> staticCrudActionLogRecorder,
+                                                              ObjectProvider<ModuleTenantScope> moduleTenantScope) {
         return new ActionEndpointInterceptor(policyService, contextResolver,
                 actingRequestResolver.getIfAvailable(),
-                endpointCatalog.getIfAvailable(), staticCrudActionLogRecorder.getIfAvailable());
+                endpointCatalog.getIfAvailable(), staticCrudActionLogRecorder.getIfAvailable(),
+                moduleTenantScope.getIfAvailable());
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    @ConditionalOnBean(net.ximatai.muyun.spring.web.TenantRequestScope.class)
+    public ModuleTenantScope moduleTenantScope(StaticModuleDefinitionCatalog staticModules,
+                                               ObjectProvider<net.ximatai.muyun.spring.platform.module.PlatformModuleService> modules,
+                                               net.ximatai.muyun.spring.web.TenantRequestScope requestScope) {
+        return new ModuleTenantScope(staticModules, modules.getIfAvailable(), requestScope);
     }
 
     @Bean

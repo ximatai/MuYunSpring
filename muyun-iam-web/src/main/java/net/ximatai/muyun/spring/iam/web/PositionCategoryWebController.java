@@ -11,12 +11,13 @@ import net.ximatai.muyun.spring.platform.web.StaticModuleUiContributor;
 import net.ximatai.muyun.spring.web.MutationTenantScopeResolver;
 import net.ximatai.muyun.spring.web.TreeScope;
 import net.ximatai.muyun.spring.web.ScopedTreeWebProjectionPolicy;
-import net.ximatai.muyun.spring.web.TreeWebQuerySupport;
 import net.ximatai.muyun.spring.web.WebSupport;
 import net.ximatai.muyun.spring.web.NavigatorReferenceWeb;
 import net.ximatai.muyun.spring.web.NavigatorReferenceTreeWeb;
 import net.ximatai.muyun.spring.iam.position.PositionCategory;
 import net.ximatai.muyun.spring.iam.position.PositionCategoryService;
+import net.ximatai.muyun.spring.common.exception.PlatformException;
+import net.ximatai.muyun.spring.common.tenant.TenantContext;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -47,11 +48,9 @@ public class PositionCategoryWebController extends WebSupport<PositionCategorySe
     }
     @Override
     public TreeScope treeScope(HttpServletRequest request) {
-        String tenantId = TreeWebQuerySupport.externalQueryText(request, "tenantId");
-        if (tenantId == null || tenantId.isBlank()) {
-            return TreeScope.none();
-        }
-        return TreeScope.tenant(Criteria.of().eq("tenantId", tenantId), tenantId);
+        String tenantId = TenantContext.currentTenantId()
+                .orElseThrow(() -> new PlatformException("iam.position_category tree requires tenant context"));
+        return TreeScope.tenant(Criteria.of(), tenantId);
     }
 
     @Override

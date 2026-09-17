@@ -52,18 +52,17 @@ public interface StaticQueryViewWeb<T extends EntityContract, S extends CrudAbil
      */
     @GetMapping("/query/schema")
     @ActionEndpoint(PlatformAction.QUERY)
+    @ModuleDiscoveryEndpoint
     default QuerySchema querySchema(@RequestParam(required = false) String uiConfigId) {
-        return webScope(() -> {
-            StaticRecordReadProjectionService projectionService = staticRecordReadProjectionService();
-            if (projectionService != null && this instanceof StaticModuleUiContributor contributor
-                    && projectionService.hasModuleDefinition(contributor.moduleUiDefinition().moduleAlias())) {
-                return projectionService.querySchema(contributor.moduleUiDefinition().moduleAlias(), service());
-            }
-            if (service() instanceof QueryAbility<?> queryAbility) {
-                return queryAbility.querySchema();
-            }
-            throw new IllegalArgumentException("query schema is not supported by " + webScopeName());
-        });
+        StaticRecordReadProjectionService projectionService = staticRecordReadProjectionService();
+        if (projectionService != null && this instanceof StaticModuleUiContributor contributor
+                && projectionService.hasModuleDefinition(contributor.moduleUiDefinition().moduleAlias())) {
+            return projectionService.querySchema(contributor.moduleUiDefinition().moduleAlias(), service());
+        }
+        if (service() instanceof QueryAbility<?> queryAbility) {
+            return queryAbility.querySchema();
+        }
+        throw new IllegalArgumentException("query schema is not supported by " + webScopeName());
     }
 
     @Override

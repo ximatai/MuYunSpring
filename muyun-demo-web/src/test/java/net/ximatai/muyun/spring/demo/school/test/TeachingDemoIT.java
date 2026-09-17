@@ -5,12 +5,15 @@ import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.spring.boot.MuYunSpringApplication;
 import net.ximatai.muyun.spring.demo.DemoBootstrapTask;
 import net.ximatai.muyun.spring.demo.ExamDemoBootstrapTask;
+import net.ximatai.muyun.spring.demo.ExamDemoMenuBootstrapTask;
+import net.ximatai.muyun.spring.demo.ExamPostponeActionExecutor;
 import net.ximatai.muyun.spring.demo.ExamPageDemoBootstrapTask;
 import net.ximatai.muyun.spring.demo.school.classroom.ClassMember;
 import net.ximatai.muyun.spring.demo.school.classroom.ClassMemberService;
 import net.ximatai.muyun.spring.demo.school.classroom.Classroom;
 import net.ximatai.muyun.spring.demo.school.classroom.ClassroomService;
 import net.ximatai.muyun.spring.demo.school.configuration.TeachingDemoConfiguration;
+import net.ximatai.muyun.spring.demo.school.configuration.TeachingDemoMenuGroups;
 import net.ximatai.muyun.spring.demo.school.subject.SubjectCategory;
 import net.ximatai.muyun.spring.demo.school.subject.SubjectCategoryService;
 import net.ximatai.muyun.spring.demo.school.student.Student;
@@ -27,6 +30,8 @@ import net.ximatai.muyun.spring.platform.application.ApplicationService;
 import net.ximatai.muyun.spring.platform.module.ModuleActionSourceType;
 import net.ximatai.muyun.spring.platform.module.PlatformModuleAction;
 import net.ximatai.muyun.spring.platform.module.PlatformModuleActionService;
+import net.ximatai.muyun.spring.platform.menu.Menu;
+import net.ximatai.muyun.spring.platform.menu.MenuService;
 import net.ximatai.muyun.spring.platform.metadata.Metadata;
 import net.ximatai.muyun.spring.platform.metadata.MetadataField;
 import net.ximatai.muyun.spring.platform.metadata.MetadataFieldConfigService;
@@ -99,6 +104,9 @@ public class TeachingDemoIT {
     private ClassMemberService members;
 
     @Autowired
+    private MenuService menus;
+
+    @Autowired
     private ClassroomService classrooms;
 
     @Autowired
@@ -168,6 +176,14 @@ public class TeachingDemoIT {
     private net.ximatai.muyun.spring.iam.tenant.TenantService tenantService;
     @Autowired
     private net.ximatai.muyun.spring.web.RequestTenantVerifier requestTenantVerifier;
+    @Autowired
+    private net.ximatai.muyun.spring.iam.tenant.TenantApplicationService tenantApplications;
+    @Autowired
+    private net.ximatai.muyun.spring.iam.organization.OrganizationService organizations;
+    @Autowired
+    private net.ximatai.muyun.spring.iam.department.DepartmentService departments;
+    @Autowired
+    private net.ximatai.muyun.spring.iam.employee.EmployeeService employees;
 
     @Test
     void shouldIsolateStaticAndDynamicBusinessRequestsUsingVerifiedTenantHeader() throws Exception {
@@ -275,6 +291,153 @@ public class TeachingDemoIT {
     }
 
     @Test
+    void shouldRequireTenantHeaderAndKeepEmployeeAndOrganizationPagesInTheSelectedTenant() throws Exception {
+        String otherTenant = "employee_scope_" + serial();
+        String otherOrganizationId = "employee_scope_org_" + serial();
+        String otherDepartmentId = "employee_scope_dept_" + serial();
+        String otherEmployeeId = "employee_scope_employee_" + serial();
+        try (var user = CurrentUserContext.use(CurrentUser.systemUser("employee-scope-fixture", "fixture"));
+             TenantContext.Scope ignored = TenantContext.system("employee scope fixture")) {
+            var tenant = new net.ximatai.muyun.spring.iam.tenant.Tenant();
+            tenant.setAlias(otherTenant);
+            tenant.setTitle("Employee scope tenant");
+            tenant.setEnabled(true);
+            tenantService.insert(tenant);
+            tenantApplications.configureApplications(otherTenant, List.of("iam"));
+        }
+        try (var user = CurrentUserContext.use(CurrentUser.systemUser("employee-scope-fixture", "fixture"));
+             TenantContext.Scope ignored = TenantContext.use(otherTenant)) {
+            var organization = new net.ximatai.muyun.spring.iam.organization.Organization();
+            organization.setId(otherOrganizationId);
+            organization.setCode("ORG-" + serial());
+            organization.setTitle("Other tenant organization");
+            organization.setEnabled(true);
+            organizations.insert(organization);
+            var department = new net.ximatai.muyun.spring.iam.department.Department();
+            department.setId(otherDepartmentId);
+            department.setOrganizationId(otherOrganizationId);
+            department.setCode("DEPT-" + serial());
+            department.setTitle("Other tenant department");
+            department.setEnabled(true);
+            departments.insert(department);
+            var employee = new net.ximatai.muyun.spring.iam.employee.Employee();
+            employee.setId(otherEmployeeId);
+            employee.setOrganizationId(otherOrganizationId);
+            employee.setDepartmentId(otherDepartmentId);
+            employee.setEmployeeNo("EMP-" + serial());
+            employee.setTitle("Other tenant employee");
+            employee.setEnabled(true);
+            employees.insert(employee);
+        }
+
+        var identity = new java.util.concurrent.atomic.AtomicReference<>(CurrentUser.systemUser("employee-scope-admin", "admin"));
+        MockMvc mvc = webAppContextSetup(webApplicationContext)
+                .addFilters(new net.ximatai.muyun.spring.web.CurrentUserWebFilter(
+                        () -> java.util.Optional.of(identity.get()), requestTenantVerifier)).build();
+        String tenantHeader = net.ximatai.muyun.spring.web.CurrentUserWebFilter.TENANT_HEADER;
+
+        MockMvc anonymousMvc = webAppContextSetup(webApplicationContext)
+                .addFilters(new net.ximatai.muyun.spring.web.CurrentUserWebFilter(
+                        () -> java.util.Optional.empty(), requestTenantVerifier)).build();
+        var anonymous = anonymousMvc.perform(post("/iam.employee/query").contentType("application/json")
+                        .content("{\"externalQueryValues\":{\"organizationId\":\"%s\"}}"
+                                .formatted(DemoBootstrapTask.ORGANIZATION_ID)))
+                .andReturn().getResponse();
+        assertThat(anonymous.getStatus()).as(anonymous.getContentAsString()).isEqualTo(401);
+        assertThat(anonymous.getContentAsString()).contains("AUTH_REQUIRED");
+
+        var employeeSchema = mvc.perform(get("/iam.employee/query/schema"))
+                .andReturn().getResponse();
+        assertThat(employeeSchema.getStatus()).as(employeeSchema.getContentAsString()).isEqualTo(200);
+        var employeeFormSchema = mvc.perform(get("/iam.employee/form/schema"))
+                .andReturn().getResponse();
+        assertThat(employeeFormSchema.getStatus()).as(employeeFormSchema.getContentAsString()).isEqualTo(200);
+        var examSchema = mvc.perform(get("/education.exam/query/schema"))
+                .andReturn().getResponse();
+        assertThat(examSchema.getStatus()).as(examSchema.getContentAsString()).isEqualTo(200);
+        var employeeContext = mvc.perform(get("/platform.module/iam.employee/context"))
+                .andReturn().getResponse();
+        assertThat(employeeContext.getStatus()).as(employeeContext.getContentAsString()).isEqualTo(200);
+        assertThat(employeeContext.getContentAsString()).contains("\"tenantRequired\":true");
+        var examContext = mvc.perform(get("/platform.module/education.exam/context"))
+                .andReturn().getResponse();
+        assertThat(examContext.getStatus()).as(examContext.getContentAsString()).isEqualTo(200);
+        assertThat(examContext.getContentAsString()).contains("\"tenantRequired\":true");
+        var organizationReferenceContext = mvc.perform(get("/platform.module/iam.organization/reference-context"))
+                .andReturn().getResponse();
+        assertThat(organizationReferenceContext.getStatus())
+                .as(organizationReferenceContext.getContentAsString()).isEqualTo(200);
+        assertThat(organizationReferenceContext.getContentAsString()).contains("\"tenantRequired\":true");
+        var systemMenuSchemes = mvc.perform(post("/platform.menu_scheme/query")
+                        .contentType("application/json").content("{}"))
+                .andReturn().getResponse();
+        assertThat(systemMenuSchemes.getStatus()).as(systemMenuSchemes.getContentAsString()).isEqualTo(200);
+        assertThat(systemMenuSchemes.getContentAsString()).contains("platform.menu_scheme.admin");
+        var systemMenuEntries = mvc.perform(post("/platform.menu/tree/query")
+                        .contentType("application/json")
+                        .content("{\"externalQueryValues\":{\"schemeId\":\"platform.menu_scheme.admin\"}}"))
+                .andReturn().getResponse();
+        assertThat(systemMenuEntries.getStatus()).as(systemMenuEntries.getContentAsString()).isEqualTo(200);
+        assertThat(systemMenuEntries.getContentAsString()).contains("platform.menu.group.platform");
+
+        var missingScope = mvc.perform(post("/iam.employee/query").contentType("application/json")
+                .content("{\"externalQueryValues\":{\"organizationId\":\"%s\"}}"
+                                .formatted(DemoBootstrapTask.ORGANIZATION_ID)))
+                .andReturn().getResponse();
+        assertThat(missingScope.getStatus()).as(missingScope.getContentAsString()).isEqualTo(400);
+        assertThat(missingScope.getContentAsString()).contains("iam.employee requires tenant context");
+
+        var demoEmployees = mvc.perform(post("/iam.employee/query").header(tenantHeader, DemoBootstrapTask.TENANT_ALIAS)
+                        .contentType("application/json")
+                        .content("{\"externalQueryValues\":{\"organizationId\":\"%s\"}}"
+                                .formatted(DemoBootstrapTask.ORGANIZATION_ID)))
+                .andReturn().getResponse();
+        assertThat(demoEmployees.getStatus()).isEqualTo(200);
+        assertThat(demoEmployees.getContentAsString()).contains(DemoBootstrapTask.EMPLOYEE_ID)
+                .doesNotContain(otherEmployeeId);
+        var otherEmployees = mvc.perform(post("/iam.employee/query").header(tenantHeader, otherTenant)
+                        .contentType("application/json")
+                        .content("{\"externalQueryValues\":{\"organizationId\":\"%s\"}}"
+                                .formatted(otherOrganizationId)))
+                .andReturn().getResponse();
+        assertThat(otherEmployees.getStatus()).isEqualTo(200);
+        assertThat(otherEmployees.getContentAsString()).contains(otherEmployeeId)
+                .doesNotContain(DemoBootstrapTask.EMPLOYEE_ID);
+        var crossTenantOrganization = mvc.perform(post("/iam.employee/query")
+                        .header(tenantHeader, DemoBootstrapTask.TENANT_ALIAS)
+                        .contentType("application/json")
+                        .content("{\"externalQueryValues\":{\"organizationId\":\"%s\"}}"
+                                .formatted(otherOrganizationId)))
+                .andReturn().getResponse();
+        assertThat(crossTenantOrganization.getStatus()).isEqualTo(200);
+        assertThat(crossTenantOrganization.getContentAsString()).doesNotContain(otherEmployeeId);
+        var hiddenOtherEmployee = mvc.perform(get("/iam.employee/view/{id}", otherEmployeeId)
+                        .header(tenantHeader, DemoBootstrapTask.TENANT_ALIAS))
+                .andReturn().getResponse();
+        assertThat(hiddenOtherEmployee.getStatus()).as(hiddenOtherEmployee.getContentAsString()).isEqualTo(404);
+
+        var demoOrganizations = mvc.perform(get("/iam.organization/tree?flat=true")
+                        .header(tenantHeader, DemoBootstrapTask.TENANT_ALIAS))
+                .andReturn().getResponse();
+        assertThat(demoOrganizations.getStatus()).isEqualTo(200);
+        assertThat(demoOrganizations.getContentAsString()).contains(DemoBootstrapTask.ORGANIZATION_ID)
+                .doesNotContain(otherOrganizationId);
+        var otherOrganizations = mvc.perform(get("/iam.organization/tree?flat=true").header(tenantHeader, otherTenant))
+                .andReturn().getResponse();
+        assertThat(otherOrganizations.getStatus()).isEqualTo(200);
+        assertThat(otherOrganizations.getContentAsString()).contains(otherOrganizationId)
+                .doesNotContain(DemoBootstrapTask.ORGANIZATION_ID);
+
+        identity.set(CurrentUser.tenantUser("employee-scope-user", "User", DemoBootstrapTask.TENANT_ALIAS));
+        var forgedTenantHeader = mvc.perform(post("/iam.employee/query").header(tenantHeader, otherTenant)
+                        .contentType("application/json")
+                        .content("{\"externalQueryValues\":{\"organizationId\":\"%s\"}}"
+                                .formatted(otherOrganizationId)))
+                .andReturn().getResponse();
+        assertThat(forgedTenantHeader.getStatus()).as(forgedTenantHeader.getContentAsString()).isEqualTo(403);
+    }
+
+    @Test
     void shouldRegisterDeliveredSchoolApplicationModulesAndTheirAbilityEndpoints() {
         assertThat(applicationService.select("education")).satisfies(application -> {
             assertThat(application.getTitle()).isEqualTo("教学管理");
@@ -285,6 +448,24 @@ public class TeachingDemoIT {
                         "education.teacher.enable.disable", "education.classroom.sort.sort",
                         "education.classroom.recycleBin.restore", "education.subject_category.tree.tree",
                         "education.subject_category.tree.sort");
+    }
+
+    @Test
+    void shouldPlaceTeachingDemoModulesInTheirOwnMenuGroup() {
+        try (TenantContext.Scope ignored = TenantContext.system("inspect teaching demo menu group")) {
+            assertThat(menus.select(TeachingDemoMenuGroups.ROOT)).satisfies(group -> {
+                assertThat(group.getTitle()).isEqualTo("教学演示");
+                assertThat(group.getParentId()).isEqualTo(MenuService.ADMIN_PLATFORM_GROUP_ID);
+            });
+            assertThat(List.of("education.student", "education.classroom", "education.teacher",
+                    "education.subject_category", ExamDemoBootstrapTask.MODULE_ALIAS))
+                    .allSatisfy(moduleAlias -> assertThat(menus.select("platform.menu.module." + moduleAlias))
+                            .extracting(Menu::getParentId)
+                            .isEqualTo(TeachingDemoMenuGroups.ROOT));
+            assertThat(menus.select(ExamDemoMenuBootstrapTask.MENU_ID))
+                    .extracting(Menu::getModuleAlias)
+                    .isEqualTo(ExamDemoBootstrapTask.MODULE_ALIAS);
+        }
     }
 
     @Test
@@ -385,13 +566,22 @@ public class TeachingDemoIT {
     @Test
     void shouldRegisterGovernableStandardActionsForDynamicExamModule() {
         try (TenantContext.Scope ignored = TenantContext.system("inspect academic evaluation actions")) {
-            assertThat(moduleActions.listByModuleAliases(List.of(ExamDemoBootstrapTask.MODULE_ALIAS)))
+            List<PlatformModuleAction> actions = moduleActions.listByModuleAliases(
+                    List.of(ExamDemoBootstrapTask.MODULE_ALIAS));
+            assertThat(actions)
                     .extracting(PlatformModuleAction::getActionCode)
                     .containsExactlyInAnyOrder("menu", "create", "view", "update", "delete", "batchDelete", "query",
-                            "reference");
-            assertThat(moduleActions.listByModuleAliases(List.of(ExamDemoBootstrapTask.MODULE_ALIAS)))
+                            "reference", ExamPostponeActionExecutor.ACTION_CODE);
+            assertThat(actions.stream()
+                    .filter(action -> !ExamPostponeActionExecutor.ACTION_CODE.equals(action.getActionCode()))
+                    .toList())
                     .extracting(PlatformModuleAction::getSourceType)
                     .containsOnly(ModuleActionSourceType.DYNAMIC_MODULE);
+            assertThat(actions.stream()
+                    .filter(action -> ExamPostponeActionExecutor.ACTION_CODE.equals(action.getActionCode()))
+                    .findFirst().orElseThrow())
+                    .extracting(PlatformModuleAction::getSourceType, PlatformModuleAction::getExecutorKey)
+                    .containsExactly(ModuleActionSourceType.CODE_EXTENSION, ExamPostponeActionExecutor.EXECUTOR_KEY);
         }
     }
 
@@ -415,8 +605,8 @@ public class TeachingDemoIT {
                     .max(java.util.Comparator.comparing(PlatformPresentationRevision::getRevisionNo)).orElseThrow();
             assertThat(draft.getRevisionNo()).isGreaterThan(published.getRevisionNo());
             assertThat(draft.getUiTreeJson()).isEqualTo(published.getUiTreeJson());
-            assertThat(published.getUiTreeJson()).contains("searchPlaceholder", "participants", "studentNo")
-                    .doesNotContain("\"studentIdTitle\"");
+            assertThat(published.getUiTreeJson()).contains("searchPlaceholder", "participants")
+                    .doesNotContain("\"studentNo\"", "\"studentIdTitle\"");
 
             ModuleExecutionPlan plan = runtimeContexts.dynamicExecutionPlan(ExamDemoBootstrapTask.MODULE_ALIAS)
                     .orElseThrow();
@@ -443,12 +633,12 @@ public class TeachingDemoIT {
                 });
                 assertThat(participants.queryContract().listProjection().fields())
                         .extracting(field -> field.fieldName())
-                        .containsExactly("studentId", "studentNo", "score", "attendanceStatus");
+                        .containsExactly("studentId", "score", "attendanceStatus");
                 assertThat(participants.queryContract().listProjection().fields())
-                        .filteredOn(field -> field.fieldName().equals("studentId") || field.fieldName().equals("studentNo")
+                        .filteredOn(field -> field.fieldName().equals("studentId")
                                 || field.fieldName().equals("attendanceStatus"))
                         .extracting(field -> field.title())
-                        .containsExactly("学生", "学号", "参加状态");
+                        .containsExactly("学生", "参加状态");
             });
             assertThat(plan.uiDescriptor().editorContributions()).singleElement().satisfies(contribution ->
                     assertThat(contribution.editor().fields()).extracting(field -> field.fieldRef().fieldName())

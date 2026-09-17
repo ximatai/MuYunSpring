@@ -120,7 +120,7 @@ public class ExamPageDemoBootstrapTask implements PlatformBootstrapTask {
         PlatformPresentationRevision published = revisions(variant.getId()).stream()
                 .filter(revision -> revision.getStatus() == PlatformPresentationRevisionStatus.PUBLISHED)
                 .findFirst().orElse(null);
-        if (published != null) return published;
+        if (published != null && !containsRetiredParticipantField(published)) return published;
         PlatformPresentationRevision baseline = newRevision(variant.getId(), nextRevisionNo(variant.getId()),
                 PlatformPresentationRevisionStatus.DRAFT, baselineTree());
         String revisionId = revisionService.insert(baseline);
@@ -131,11 +131,18 @@ public class ExamPageDemoBootstrapTask implements PlatformBootstrapTask {
         java.util.List<PlatformPresentationRevision> drafts = revisions(variant.getId()).stream()
                 .filter(revision -> revision.getStatus() == PlatformPresentationRevisionStatus.DRAFT)
                 .toList();
-        if (!drafts.isEmpty()) return;
+        // Existing drafts are user-owned. Do not mutate or discard a legacy draft; instead create
+        // a newer valid starting point that the governance workspace can safely select and publish.
+        if (drafts.stream().anyMatch(revision -> published.getUiTreeJson().equals(revision.getUiTreeJson()))) return;
         PlatformPresentationRevision draft = newRevision(variant.getId(), nextRevisionNo(variant.getId()),
                 PlatformPresentationRevisionStatus.DRAFT, published.getUiTreeJson());
         draft.setTitle("考试管理页草稿");
         revisionService.insert(draft);
+    }
+
+    /** The former copied student number is now supplied only as a student-reference read projection. */
+    private boolean containsRetiredParticipantField(PlatformPresentationRevision revision) {
+        return revision.getUiTreeJson() != null && revision.getUiTreeJson().contains("\"studentNo\"");
     }
 
     private java.util.List<PlatformPresentationRevision> revisions(String variantId) {
@@ -166,9 +173,9 @@ public class ExamPageDemoBootstrapTask implements PlatformBootstrapTask {
                  "props":{"list":{"searchPlaceholder":"搜索考试名称"}},
                  "nodes":[
                    {"slot":"list","title":"考试列表","fields":["title","classroomId","subjectCategoryId","examDate"]},
-                    {"slot":"form","title":"考试详情 / 编辑","fields":["title","classroomId","subjectCategoryId","examDate"],
+                   {"slot":"form","title":"考试详情 / 编辑","fields":["title","classroomId","subjectCategoryId","examDate"],
                     "relations":[{"relation":"participants","title":"参考学生",
-                    "fields":["studentId","studentNo","score","attendanceStatus"]}]}
+                    "fields":["studentId","score","attendanceStatus"]}]}
                  ]}
                 """;
     }

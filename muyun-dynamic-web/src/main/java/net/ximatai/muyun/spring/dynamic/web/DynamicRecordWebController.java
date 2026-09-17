@@ -18,6 +18,7 @@ import net.ximatai.muyun.spring.ability.query.QuerySchema;
 import net.ximatai.muyun.spring.web.ActionWeb;
 import net.ximatai.muyun.spring.web.StandardMutationResultSupport;
 import net.ximatai.muyun.spring.platform.web.CrudWeb;
+import net.ximatai.muyun.spring.platform.web.ModuleDiscoveryEndpoint;
 import net.ximatai.muyun.spring.platform.web.RecycleBinPurgeWeb;
 import net.ximatai.muyun.spring.platform.web.PageContextBindingDefinition;
 import net.ximatai.muyun.spring.platform.web.PageContextScopePolicy;
@@ -310,12 +311,11 @@ public class DynamicRecordWebController implements
     @Override
     @GetMapping("/query/schema")
     @ActionEndpoint(PlatformAction.QUERY)
+    @ModuleDiscoveryEndpoint
     public QuerySchema querySchema(@RequestParam(required = false) String uiConfigId) {
-        return webScope(() -> {
-            var plan = requireExecutionPlan(DynamicWebRequest.moduleAlias());
-            requirePlanListUiConfig(plan, uiConfigId);
-            return plan.querySchema();
-        });
+        var plan = requireExecutionPlan(DynamicWebRequest.moduleAlias());
+        requirePlanListUiConfig(plan, uiConfigId);
+        return plan.querySchema();
     }
 
     @Override

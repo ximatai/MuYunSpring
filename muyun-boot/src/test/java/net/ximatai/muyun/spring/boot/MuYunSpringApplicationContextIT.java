@@ -719,7 +719,7 @@ class MuYunSpringApplicationContextIT {
     @Test
     void shouldServePagedLoginAuditOperatorCandidatesToAQueryOnlyTenantRole() {
         String suffix = Long.toUnsignedString(System.nanoTime(), 36);
-        String tenantId = insertSummaryTenant("login_ops_" + suffix);
+        String tenantId = insertActiveTenant("login_ops_" + suffix);
         String queryOnlyUserId = "login_query_" + suffix;
         insertUser(tenantId, queryOnlyUserId, "login_candidate_query_only");
         jdbcTemplate.update("update iam_user set password_status = ? where id = ?", "NORMAL", queryOnlyUserId);
@@ -731,7 +731,7 @@ class MuYunSpringApplicationContextIT {
             insertLoginAuditEvent("login-candidate-" + tenantId + "-" + index, tenantId, operatorId,
                     "needle-%02d".formatted(index), Instant.parse("2030-01-01T00:00:00Z").plusSeconds(index));
         }
-        String otherTenantId = insertSummaryTenant("login_ops_o_" + suffix);
+        String otherTenantId = insertActiveTenant("login_ops_o_" + suffix);
         String outsideOperatorId = "login_outside_" + suffix;
         insertLoginAuditEvent("login-candidate-" + otherTenantId, otherTenantId, outsideOperatorId,
                 "outside-only", Instant.parse("2030-01-02T00:00:00Z"));
@@ -792,8 +792,8 @@ class MuYunSpringApplicationContextIT {
     @Test
     void shouldOpenStaticReferenceDetailWithViewButWithoutMenuPermission() {
         String suffix = Long.toUnsignedString(System.nanoTime(), 36);
-        String tenantId = insertSummaryTenant("reference_view_" + suffix);
-        String otherTenantId = insertSummaryTenant("reference_view_other_" + suffix);
+        String tenantId = insertActiveTenant("reference_view_" + suffix);
+        String otherTenantId = insertActiveTenant("reference_view_other_" + suffix);
         String viewUserId = "rv_user_" + suffix;
         String visibleRecordId = "rv_record_" + suffix;
         String outsideRecordId = "rv_outside_" + suffix;
@@ -857,8 +857,8 @@ class MuYunSpringApplicationContextIT {
         String suffix = Long.toUnsignedString(System.nanoTime(), 36);
         String applicationAlias = "refdyn" + suffix;
         String moduleAlias = applicationAlias + ".target";
-        String tenantId = insertSummaryTenant("dynamic_view_" + suffix);
-        String otherTenantId = insertSummaryTenant("dynamic_view_other_" + suffix);
+        String tenantId = insertActiveTenant("dynamic_view_" + suffix);
+        String otherTenantId = insertActiveTenant("dynamic_view_other_" + suffix);
         installDynamicReferenceTarget(applicationAlias, moduleAlias, "target");
         openTenantApplication(tenantId, applicationAlias);
         String viewUserId = "rdv_user_" + suffix;
@@ -986,7 +986,7 @@ class MuYunSpringApplicationContextIT {
 
     @Test
     void shouldManageRecordPermissionsThroughStandardHttpEndpoints() {
-        String tenantId = insertSummaryTenant("tenant_permission_http");
+        String tenantId = insertActiveTenant("tenant_permission_http");
         seedUserEmployeeProjectionRecords(tenantId);
         jdbcTemplate.update("update iam_user set password_status = ? where tenant_id = ?", "NORMAL", tenantId);
         String id = projectionUserId(tenantId, "alice");
@@ -1010,6 +1010,7 @@ class MuYunSpringApplicationContextIT {
     @Test
     void shouldQueryUserListWithBoundEmployeeProjectionThroughRealDatabase() {
         String tenantId = "tenant_projection_it";
+        insertActiveTenant(tenantId);
         seedUserEmployeeProjectionRecords(tenantId);
         assertThat(staticModuleDefinitionCatalog.find(UserAccountService.MODULE_ALIAS))
                 .get()
@@ -1195,8 +1196,10 @@ class MuYunSpringApplicationContextIT {
                 List.of(new WebQueryCondition("username", "EQ", List.of(projectionUsername(tenantId, "alice")))),
                 List.of(new WebSort("employeeNo", false)))
                 .withExternalQueryValues(Map.of("organizationId", projectionOrganizationId(tenantId)));
+        HttpHeaders employeeHeaders = bearerHeaders(token);
+        employeeHeaders.set("X-MuYun-Tenant-Id", tenantId);
         ResponseEntity<JsonNode> employeeHttpPage = restTemplate.exchange(
-                "/iam.employee/query", HttpMethod.POST, new HttpEntity<>(employeeRequest, headers), JsonNode.class);
+                "/iam.employee/query", HttpMethod.POST, new HttpEntity<>(employeeRequest, employeeHeaders), JsonNode.class);
         assertThat(employeeHttpPage.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(employeeHttpPage.getBody()).isNotNull();
         assertThat(employeeHttpPage.getBody().path("records")).hasSize(1);
@@ -1281,8 +1284,8 @@ class MuYunSpringApplicationContextIT {
     void contributorCountMatchesListScopeForNavigationAndAdditionalConditions() {
         String fixtureKey = "sum_" + Long.toUnsignedString(System.nanoTime(), 36);
         String alias = fixtureKey;
-        String tenantId = insertSummaryTenant(alias);
-        String otherTenantId = insertSummaryTenant(alias + "_other");
+        String tenantId = insertActiveTenant(alias);
+        String otherTenantId = insertActiveTenant(alias + "_other");
         String aliceId = fixtureKey + "_alice";
         String bobId = fixtureKey + "_bob";
         String offlineId = fixtureKey + "_offline";
@@ -1336,8 +1339,8 @@ class MuYunSpringApplicationContextIT {
         assertThat(summary.path("value").asInt()).isEqualTo(activeUsers);
     }
 
-    private String insertSummaryTenant(String tenantId) {
-        try (TenantContext.Scope ignored = TenantContext.system("list summary integration test")) {
+    private String insertActiveTenant(String tenantId) {
+        try (TenantContext.Scope ignored = TenantContext.system("active tenant integration fixture")) {
             Tenant tenant = new Tenant();
             tenant.setAlias(tenantId);
             tenant.setTitle(tenantId);

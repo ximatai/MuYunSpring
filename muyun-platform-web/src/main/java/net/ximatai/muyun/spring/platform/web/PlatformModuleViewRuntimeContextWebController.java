@@ -19,6 +19,7 @@ public class PlatformModuleViewRuntimeContextWebController {
 
     @GetMapping
     @ActionEndpoint(PlatformAction.VIEW)
+    @ModuleDiscoveryEndpoint
     public PlatformModuleRuntimeContext context(@PathVariable String moduleAlias) {
         return contextService.context(moduleAlias);
     }
