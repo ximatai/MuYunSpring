@@ -7,7 +7,6 @@ import net.ximatai.muyun.spring.ability.BaseDao;
 import net.ximatai.muyun.spring.ability.CacheAbility;
 import net.ximatai.muyun.spring.ability.EnableAbility;
 import net.ximatai.muyun.spring.ability.PlatformAbilityRuntime;
-import net.ximatai.muyun.spring.ability.SortAbility;
 import net.ximatai.muyun.spring.ability.query.QueryAbility;
 import net.ximatai.muyun.spring.ability.query.QueryDescriptor;
 import net.ximatai.muyun.spring.ability.query.QueryDescriptors;
@@ -24,11 +23,10 @@ import org.springframework.stereotype.Service;
 
 import java.util.List;
 
-/** Resolves the first enabled model in the tenant, targeted-platform, then global-platform priority order. */
+/** Resolves the enabled tenant configuration, falling back to the enabled global configuration. */
 @Service
 public class AiModelConfigurationService extends AbstractAbilityService<AiModelConfiguration> implements
         EnableAbility<AiModelConfiguration>,
-        SortAbility<AiModelConfiguration>,
         CacheAbility<AiModelConfiguration>,
         QueryAbility<AiModelConfiguration>,
         FieldProtectionAbility<AiModelConfiguration>,
@@ -65,24 +63,7 @@ public class AiModelConfigurationService extends AbstractAbilityService<AiModelC
     public QueryDescriptor queryDescriptor() {
         return QueryDescriptors.fromModel(MODULE_ALIAS, AiModelConfiguration.class,
                 List.of("id", "tenantId", "title", "provider", "availabilityScope", "modelId", "apiKeyConfigured",
-                        "enabled", "sortOrder", "createdAt", "updatedAt"),
-                net.ximatai.muyun.database.core.orm.Sort.asc("sortOrder"));
-    }
-
-    /**
-     * Platform-owned configurations have a {@code null} tenant id.  The generic field partition
-     * helper expresses that as {@code = null}, which cannot be compiled by the database criteria
-     * engine; it must be an explicit {@code IS NULL} predicate instead.
-     */
-    @Override
-    public Criteria sortScope(AiModelConfiguration configuration) {
-        Criteria criteria = Criteria.of();
-        if (configuration.getTenantId() == null || configuration.getTenantId().isBlank()) {
-            criteria.isNull("tenantId");
-        } else {
-            criteria.eq("tenantId", configuration.getTenantId());
-        }
-        return criteria.eq("availabilityScope", configuration.getAvailabilityScope());
+                        "enabled", "createdAt", "updatedAt"));
     }
 
     @Override
@@ -108,18 +89,18 @@ public class AiModelConfigurationService extends AbstractAbilityService<AiModelC
         configuration.setApiKeyConfigured(configured);
     }
 
-    /** Resolves the first enabled candidate within each ownership/availability tier. */
+    /** Resolves the single enabled configuration in the current tenant, then the global scope. */
     public AiModelConfiguration requireEffectiveConfiguration() {
         String tenantId = TenantContext.currentTenantId().orElse(null);
         if (tenantId != null) {
-            AiModelConfiguration tenant = firstEnabled(Criteria.of());
+            AiModelConfiguration tenant = enabledConfiguration(Criteria.of());
             if (tenant != null) return requireUsable(tenant, "tenant");
         }
         return requireUsable(firstPlatformConfiguration(), "platform");
     }
 
     public AiModelConfiguration requireCurrentScopeConfiguration() {
-        AiModelConfiguration configuration = firstEnabled(Criteria.of());
+        AiModelConfiguration configuration = enabledConfiguration(Criteria.of());
         if (configuration == null) {
             throw new PlatformConfigurationException("AI model configuration is missing for current scope");
         }
@@ -146,8 +127,9 @@ public class AiModelConfigurationService extends AbstractAbilityService<AiModelC
         if (currentTenantId != null) {
             configuration.setTenantId(currentTenantId);
         } else if (existing == null) {
-            String targetTenantId = configuration.getTenantId();
-            configuration.setTenantId(targetTenantId == null || targetTenantId.isBlank() ? null : targetTenantId.trim());
+            String requestedTenantId = configuration.getTenantId();
+            configuration.setTenantId(requestedTenantId == null || requestedTenantId.isBlank()
+                    ? null : requestedTenantId.trim());
         } else {
             configuration.setTenantId(existing.getTenantId());
         }
@@ -190,13 +172,14 @@ public class AiModelConfigurationService extends AbstractAbilityService<AiModelC
         configuration.setApiKeyConfigured(Boolean.TRUE);
     }
 
-    private AiModelConfiguration firstEnabled(Criteria criteria) {
-        return sortedList(criteria).stream().filter(item -> Boolean.TRUE.equals(item.getEnabled())).findFirst().orElse(null);
+    private AiModelConfiguration enabledConfiguration(Criteria criteria) {
+        return list(criteria, PageRequest.of(1, 1)).stream()
+                .filter(item -> Boolean.TRUE.equals(item.getEnabled())).findFirst().orElse(null);
     }
 
     private AiModelConfiguration firstPlatformConfiguration() {
         try (TenantContext.Scope ignored = TenantContext.system("resolve platform AI model configuration")) {
-            return firstEnabled(Criteria.of().eq("availabilityScope", AiModelAvailabilityScope.PLATFORM));
+            return enabledConfiguration(Criteria.of().isNull("tenantId"));
         }
     }
 
@@ -211,11 +194,7 @@ public class AiModelConfigurationService extends AbstractAbilityService<AiModelC
     }
 
     private void requireNoConfigurationForScope(AiModelConfiguration configuration) {
-        Criteria criteria = Criteria.of();
-        if (configuration.getTenantId() == null) criteria.isNull("tenantId");
-        else criteria.eq("tenantId", configuration.getTenantId());
-        criteria.eq("availabilityScope", configuration.getAvailabilityScope());
-        if (count(criteria) > 0) {
+        if (count(Criteria.of().eq("ownershipScopeKey", configuration.getOwnershipScopeKey())) > 0) {
             throw new PlatformException(configuration.getTenantId() == null
                     ? "a global AI model configuration already exists"
                     : "an AI model configuration already exists for tenant: " + configuration.getTenantId());

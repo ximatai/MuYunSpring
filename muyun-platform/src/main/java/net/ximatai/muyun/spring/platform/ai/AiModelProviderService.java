@@ -40,7 +40,6 @@ public class AiModelProviderService extends StandardBusinessService<AiModelProvi
     public static final String DEEPSEEK_ID = "deepseek";
     public static final String BAILIAN_ID = "bailian";
     public static final String LM_STUDIO_ID = "lm_studio";
-    private static final String LEGACY_LM_STUDIO_ID = "lmStudio";
     private static final PageRequest ALL = new PageRequest(0, Integer.MAX_VALUE);
 
     public AiModelProviderService(BaseDao<AiModelProvider, String> dao) {
@@ -97,8 +96,7 @@ public class AiModelProviderService extends StandardBusinessService<AiModelProvi
             throw new PlatformException("AI model provider must not be blank");
         }
         try (TenantContext.Scope ignored = TenantContext.system("resolve AI model provider")) {
-            String normalizedId = LEGACY_LM_STUDIO_ID.equals(providerId.trim()) ? LM_STUDIO_ID : providerId.trim();
-            AiModelProvider provider = list(Criteria.of().eq("id", normalizedId), ALL, Sort.asc("sortOrder"))
+            AiModelProvider provider = list(Criteria.of().eq("id", providerId.trim()), ALL, Sort.asc("sortOrder"))
                     .stream().findFirst().orElse(null);
             if (provider == null || !Boolean.TRUE.equals(provider.getEnabled())) {
                 throw new PlatformException("AI model provider is unavailable: " + providerId);

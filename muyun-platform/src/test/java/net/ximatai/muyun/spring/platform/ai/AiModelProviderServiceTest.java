@@ -1,6 +1,9 @@
 package net.ximatai.muyun.spring.platform.ai;
 
 import net.ximatai.muyun.spring.ability.BaseDao;
+import net.ximatai.muyun.database.core.orm.Criteria;
+import net.ximatai.muyun.database.core.orm.PageRequest;
+import net.ximatai.muyun.database.core.orm.Sort;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.identity.CurrentUser;
 import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
@@ -8,9 +11,13 @@ import net.ximatai.muyun.spring.common.tenant.TenantContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
+import java.util.List;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 class AiModelProviderServiceTest {
     @AfterEach
@@ -52,6 +59,29 @@ class AiModelProviderServiceTest {
              CurrentUserContext.Scope ignoredUser = CurrentUserContext.use(CurrentUser.tenantUser("user", "user", "tenant-a"))) {
             assertThatThrownBy(() -> service.beforePrepareInsert(provider("https://api.example.com/v1")))
                     .isInstanceOf(PlatformException.class).hasMessageContaining("super administrators");
+        }
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void rejectsTheUnregisteredLegacyLmStudioProviderId() {
+        BaseDao<AiModelProvider, String> dao = mock(BaseDao.class);
+        AiModelProvider registered = provider("http://127.0.0.1:1234/v1");
+        registered.setId(AiModelProviderService.LM_STUDIO_ID);
+        registered.setEnabled(Boolean.TRUE);
+        when(dao.query(any(Criteria.class), any(PageRequest.class), any(Sort[].class))).thenAnswer(invocation -> {
+            Criteria criteria = invocation.getArgument(0);
+            boolean requestsCanonicalId = criteria.getClauses().stream()
+                    .anyMatch(clause -> "id".equals(clause.getField())
+                            && clause.getValues().contains(AiModelProviderService.LM_STUDIO_ID));
+            return requestsCanonicalId ? List.of(registered) : List.of();
+        });
+        AiModelProviderService service = new AiModelProviderService(dao);
+
+        try (TenantContext.Scope ignored = TenantContext.system("test")) {
+            assertThatThrownBy(() -> service.requireEnabled("lmStudio"))
+                    .isInstanceOf(PlatformException.class)
+                    .hasMessage("AI model provider is unavailable: lmStudio");
         }
     }
 

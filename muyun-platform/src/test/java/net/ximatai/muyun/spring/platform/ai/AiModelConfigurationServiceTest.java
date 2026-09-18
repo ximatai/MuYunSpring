@@ -3,7 +3,6 @@ package net.ximatai.muyun.spring.platform.ai;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.database.core.orm.Sort;
-import net.ximatai.muyun.database.core.orm.CriteriaOperator;
 import net.ximatai.muyun.spring.ability.BaseDao;
 import net.ximatai.muyun.spring.ability.PlatformAbilityRuntime;
 import net.ximatai.muyun.spring.ability.reference.ReferenceAbility;
@@ -44,8 +43,8 @@ class AiModelConfigurationServiceTest {
     @Test
     void tenantConfigurationWinsOverGlobalConfiguration() {
         BaseDao<AiModelConfiguration, String> dao = mock(BaseDao.class);
-        AiModelConfiguration tenant = configuration("tenant", "tenant-key", 20);
-        AiModelConfiguration global = configuration("global", "global-key", 10);
+        AiModelConfiguration tenant = configuration("tenant", "tenant-key");
+        AiModelConfiguration global = configuration("global", "global-key");
         when(dao.query(any(), any(PageRequest.class), any(Sort[].class))).thenAnswer(invocation ->
                 TenantContext.isSystem() ? List.of(global) : List.of(tenant));
         AiModelConfigurationService service = service(dao);
@@ -58,7 +57,7 @@ class AiModelConfigurationServiceTest {
     @Test
     void globalConfigurationIsUsedWhenTenantHasNone() {
         BaseDao<AiModelConfiguration, String> dao = mock(BaseDao.class);
-        AiModelConfiguration global = configuration("global", "global-key", 20);
+        AiModelConfiguration global = configuration("global", "global-key");
         when(dao.query(any(), any(PageRequest.class), any(Sort[].class))).thenAnswer(invocation ->
                 TenantContext.isSystem() ? List.of(global) : List.of());
         AiModelConfigurationService service = service(dao);
@@ -122,7 +121,7 @@ class AiModelConfigurationServiceTest {
     void updateKeepsTheOriginalTenantOwnershipForTheSharedRecord() {
         tenantExists("tenant-a");
         AiModelConfigurationService service = service(mock(BaseDao.class));
-        AiModelConfiguration existing = configuration("existing", "tenant-secret", 100);
+        AiModelConfiguration existing = configuration("existing", "tenant-secret");
         existing.setTenantId("tenant-a");
         AiModelConfiguration incoming = input("tenant-model", null);
         incoming.setTenantId("other-tenant");
@@ -183,22 +182,9 @@ class AiModelConfigurationServiceTest {
     @Test
     void persistedTenantOwnershipIsAvailableForReadSideProjection() {
         AiModelConfigurationService service = service(mock(BaseDao.class));
-        AiModelConfiguration configuration = configuration("tenant", "tenant-key", 10);
+        AiModelConfiguration configuration = configuration("tenant", "tenant-key");
         configuration.setTenantId("tenant-a");
         assertThat(configuration.getTenantId()).isEqualTo("tenant-a");
-    }
-
-    @Test
-    void platformSortScopeUsesIsNullForTheAbsentTenant() {
-        AiModelConfigurationService service = service(mock(BaseDao.class));
-        AiModelConfiguration configuration = configuration("platform", "model-key", 10);
-        configuration.setTenantId(null);
-
-        assertThat(service.sortScope(configuration).getClauses())
-                .anySatisfy(clause -> {
-                    assertThat(clause.getField()).isEqualTo("tenantId");
-                    assertThat(clause.getOperator()).isEqualTo(CriteriaOperator.IS_NULL);
-                });
     }
 
     private AiModelConfigurationService service(BaseDao<AiModelConfiguration, String> dao) {
@@ -229,14 +215,13 @@ class AiModelConfigurationServiceTest {
         PlatformAbilityRuntime.configureReferenceTargetResolver(target -> Optional.of(tenants));
     }
 
-    private AiModelConfiguration configuration(String id, String key, int sortOrder) {
+    private AiModelConfiguration configuration(String id, String key) {
         AiModelConfiguration configuration = new AiModelConfiguration();
         configuration.setId(id);
         configuration.setProvider(AiModelProviderService.LM_STUDIO_ID);
         configuration.setModelId("local-model");
         configuration.setAvailabilityScope(AiModelAvailabilityScope.PLATFORM);
         configuration.setEnabled(Boolean.TRUE);
-        configuration.setSortOrder(sortOrder);
         configuration.setApiKey(crypto.encrypt("apiKey", key));
         configuration.setApiKeySignature(signer.sign("apiKey", key));
         return configuration;
