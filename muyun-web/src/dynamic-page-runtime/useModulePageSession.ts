@@ -595,7 +595,10 @@ export function useModulePageSession(
     presentation: 'dialog' | 'dropdown' | undefined,
   ): Pick<RecordFormFieldPickerConfig, 'provider' | 'reloadKey'> {
     if (reference.candidateDelivery !== 'TARGET_NAVIGATOR' || !presentation) return {};
-    const providerKey = `${reference.targetModuleAlias}:${reference.cardinality}:${reference.titleField ?? ''}`;
+    // `titleField` belongs to the source record's read projection.  A target navigator only
+    // knows the target record, so it must use its stable title/code fallback instead of treating
+    // that source field as a target candidate label.
+    const providerKey = `${reference.targetModuleAlias}:${reference.cardinality}`;
     let provider = targetReferencePickerProviders.get(providerKey);
     if (!provider) {
       provider = createQueryReferencePickerProvider({
@@ -603,7 +606,6 @@ export function useModulePageSession(
         reference: {
           targetModuleAlias: reference.targetModuleAlias,
           cardinality: reference.cardinality,
-          ...(reference.titleField ? { labelField: reference.titleField } : {}),
         },
       });
       targetReferencePickerProviders.set(providerKey, provider);

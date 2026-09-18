@@ -6,11 +6,13 @@ import net.ximatai.muyun.spring.ability.AbstractAbilityService;
 import net.ximatai.muyun.spring.ability.BaseDao;
 import net.ximatai.muyun.spring.ability.CacheAbility;
 import net.ximatai.muyun.spring.ability.EnableAbility;
+import net.ximatai.muyun.spring.ability.PlatformAbilityRuntime;
 import net.ximatai.muyun.spring.ability.SortAbility;
 import net.ximatai.muyun.spring.ability.query.QueryAbility;
 import net.ximatai.muyun.spring.ability.query.QueryDescriptor;
 import net.ximatai.muyun.spring.ability.query.QueryDescriptors;
 import net.ximatai.muyun.spring.ability.reference.ReferenceAbility;
+import net.ximatai.muyun.spring.ability.reference.ReferenceTarget;
 import net.ximatai.muyun.spring.ability.security.FieldCryptoProvider;
 import net.ximatai.muyun.spring.ability.security.FieldProtectionAbility;
 import net.ximatai.muyun.spring.ability.security.FieldSigner;
@@ -32,6 +34,7 @@ public class AiModelConfigurationService extends AbstractAbilityService<AiModelC
         FieldProtectionAbility<AiModelConfiguration>,
         ReferenceAbility<AiModelConfiguration> {
     public static final String MODULE_ALIAS = "platform.ai_model_configuration";
+    private static final ReferenceTarget TENANT_TARGET = ReferenceTarget.of("iam", "tenant");
 
     private final AiModelProviderService providerService;
     private final FieldCryptoProvider cryptoProvider;
@@ -148,11 +151,27 @@ public class AiModelConfigurationService extends AbstractAbilityService<AiModelC
         } else {
             configuration.setTenantId(existing.getTenantId());
         }
+        if (TenantContext.isSystem() && configuration.getTenantId() != null) {
+            requireExistingTenant(configuration.getTenantId());
+        }
         configuration.setAvailabilityScope(configuration.getTenantId() == null
                 ? AiModelAvailabilityScope.PLATFORM : AiModelAvailabilityScope.TENANT_PRIVATE);
         configuration.setOwnershipScopeKey(configuration.getTenantId() == null ? "G" : "T:" + configuration.getTenantId());
         if (configuration.getEnabled() == null) {
             configuration.setEnabled(Boolean.TRUE);
+        }
+    }
+
+    /**
+     * A system-scoped configuration may target any tenant, so its ownership field must not rely
+     * on the browser picker for referential integrity.  Resolve through the platform reference
+     * facade rather than depending on the IAM service directly.
+     */
+    private void requireExistingTenant(String tenantId) {
+        ReferenceAbility<?> tenants = PlatformAbilityRuntime.referenceTargetResolver().resolve(TENANT_TARGET)
+                .orElseThrow(() -> new PlatformConfigurationException("tenant reference target is unavailable"));
+        if (!tenants.titles(List.of(tenantId)).containsKey(tenantId)) {
+            throw new PlatformException("AI model configuration tenant does not exist: " + tenantId);
         }
     }
 

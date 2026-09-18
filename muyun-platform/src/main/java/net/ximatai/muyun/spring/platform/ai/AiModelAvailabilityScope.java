@@ -5,9 +5,6 @@ import net.ximatai.muyun.spring.common.model.contract.CodeTitleEnum;
 /** Ownership scope of the single effective configuration for a platform or tenant. */
 public enum AiModelAvailabilityScope implements CodeTitleEnum {
     TENANT_PRIVATE("tenantPrivate", "租户级"),
-    /** Legacy persisted value retained only so the one-time ownership migration can read old rows. */
-    @Deprecated(forRemoval = true)
-    SELECTED_TENANTS("selectedTenants", "待迁移的指定租户配置"),
     PLATFORM("platform", "全局级");
 
     private final String code;

@@ -3315,7 +3315,23 @@ describe('ModulePageHost', () => {
                   fields: [
                     {
                       fieldRef: { fieldName: 'applicationAlias' },
-                      reference: { targetModuleAlias: 'platform.application', cardinality: 'ONE' },
+                      reference: {
+                        targetModuleAlias: 'platform.application',
+                        cardinality: 'ONE',
+                        candidateDelivery: 'TARGET_NAVIGATOR',
+                        titleField: 'applicationTitle',
+                      },
+                      fieldControl: { properties: { presentation: 'DIALOG' } },
+                    },
+                    {
+                      fieldRef: { fieldName: 'secondaryApplicationAlias' },
+                      reference: {
+                        targetModuleAlias: 'platform.application',
+                        cardinality: 'ONE',
+                        candidateDelivery: 'TARGET_NAVIGATOR',
+                        titleField: 'secondaryApplicationTitle',
+                      },
+                      fieldControl: { properties: { presentation: 'DIALOG' } },
                     },
                     {
                       fieldRef: { fieldName: 'ownerId' },
@@ -3362,7 +3378,14 @@ describe('ModulePageHost', () => {
         });
       }
       if (request.url.endsWith('/platform.application/navigator/reference/query')) {
-        return Response.json({ records: [], total: 0, pageNum: 1, pageSize: 20, pages: 0, totalKnown: true });
+        return Response.json({
+          records: [{ id: 'application-1', title: '平台应用', applicationTitle: '来源投影不能作为候选标签' }],
+          total: 1,
+          pageNum: 1,
+          pageSize: 20,
+          pages: 1,
+          totalKnown: true,
+        });
       }
       if (request.url.endsWith('/platform.module/references/ownerId/resolve')) {
         ownerBodies.push(await request.json());
@@ -3429,6 +3452,17 @@ describe('ModulePageHost', () => {
       .props('pickerConfigs') as {
       applicationAlias: {
         context: { runtime: { ready: Promise<unknown> }; crud: { query: () => Promise<unknown> } };
+        provider: {
+          searchPage: (request: {
+            keyword: string;
+            pageNum: number;
+            pageSize: number;
+            scope: { selections: unknown[] };
+          }) => Promise<unknown>;
+        };
+      };
+      secondaryApplicationAlias: {
+        provider: unknown;
       };
       ownerId: {
         provider: {
@@ -3464,6 +3498,19 @@ describe('ModulePageHost', () => {
     };
     await pickerConfigs.applicationAlias.context.runtime.ready;
     await pickerConfigs.applicationAlias.context.crud.query();
+    await expect(
+      pickerConfigs.applicationAlias.provider.searchPage({
+        keyword: '',
+        pageNum: 1,
+        pageSize: 20,
+        scope: { selections: [] },
+      }),
+    ).resolves.toEqual({
+      records: [{ id: 'application-1', title: '平台应用', disabled: false }],
+      total: 1,
+    });
+    // Source read projections differ, but the target navigator and its candidate contract do not.
+    expect(pickerConfigs.secondaryApplicationAlias.provider).toBe(pickerConfigs.applicationAlias.provider);
     await pickerConfigs.ownerId.provider.searchPage({
       keyword: 'admin',
       pageNum: 1,

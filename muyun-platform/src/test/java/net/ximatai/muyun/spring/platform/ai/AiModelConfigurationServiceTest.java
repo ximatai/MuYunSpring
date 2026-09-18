@@ -5,6 +5,8 @@ import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.database.core.orm.Sort;
 import net.ximatai.muyun.database.core.orm.CriteriaOperator;
 import net.ximatai.muyun.spring.ability.BaseDao;
+import net.ximatai.muyun.spring.ability.PlatformAbilityRuntime;
+import net.ximatai.muyun.spring.ability.reference.ReferenceAbility;
 import net.ximatai.muyun.spring.ability.security.AesGcmFieldCryptoProvider;
 import net.ximatai.muyun.spring.ability.security.FieldCryptoProvider;
 import net.ximatai.muyun.spring.ability.security.FieldSigner;
@@ -18,6 +20,7 @@ import org.springframework.beans.factory.support.DefaultListableBeanFactory;
 
 import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -35,6 +38,7 @@ class AiModelConfigurationServiceTest {
     @AfterEach
     void clearContexts() {
         TenantContext.clear();
+        PlatformAbilityRuntime.resetReferenceTargetResolver();
     }
 
     @Test
@@ -68,6 +72,7 @@ class AiModelConfigurationServiceTest {
     void systemAdministratorCanCreateOneConfigurationForAnExplicitTenant() {
         BaseDao<AiModelConfiguration, String> dao = mock(BaseDao.class);
         when(dao.count(any())).thenReturn(0L);
+        tenantExists("tenant-a");
         AiModelConfigurationService service = service(dao);
         AiModelConfiguration configuration = input("tenant-model", "tenant-secret");
         configuration.setTenantId(" tenant-a ");
@@ -79,6 +84,21 @@ class AiModelConfigurationServiceTest {
         assertThat(configuration.getTenantId()).isEqualTo("tenant-a");
         assertThat(configuration.getAvailabilityScope()).isEqualTo(AiModelAvailabilityScope.TENANT_PRIVATE);
         assertThat(configuration.getOwnershipScopeKey()).isEqualTo("T:tenant-a");
+    }
+
+    @Test
+    void systemAdministratorCannotCreateConfigurationForAnUnknownTenant() {
+        BaseDao<AiModelConfiguration, String> dao = mock(BaseDao.class);
+        tenantExists();
+        AiModelConfigurationService service = service(dao);
+        AiModelConfiguration configuration = input("tenant-model", "tenant-secret");
+        configuration.setTenantId("missing-tenant");
+
+        try (TenantContext.Scope ignored = TenantContext.system("admin creates tenant configuration")) {
+            assertThatThrownBy(() -> service.beforeInsert(configuration))
+                    .isInstanceOf(PlatformException.class)
+                    .hasMessage("AI model configuration tenant does not exist: missing-tenant");
+        }
     }
 
     @Test
@@ -100,6 +120,7 @@ class AiModelConfigurationServiceTest {
 
     @Test
     void updateKeepsTheOriginalTenantOwnershipForTheSharedRecord() {
+        tenantExists("tenant-a");
         AiModelConfigurationService service = service(mock(BaseDao.class));
         AiModelConfiguration existing = configuration("existing", "tenant-secret", 100);
         existing.setTenantId("tenant-a");
@@ -120,6 +141,7 @@ class AiModelConfigurationServiceTest {
     void rejectsAnotherConfigurationInTheSameOwnershipScope() {
         BaseDao<AiModelConfiguration, String> dao = mock(BaseDao.class);
         when(dao.count(any())).thenReturn(1L);
+        tenantExists("tenant-a");
         AiModelConfigurationService service = service(dao);
 
         assertThatThrownBy(() -> service.beforeInsert(input("global-model", "global-secret")))
@@ -193,6 +215,18 @@ class AiModelConfigurationServiceTest {
         when(providers.requireEnabled(AiModelProviderService.LM_STUDIO_ID)).thenReturn(provider);
         return new AiModelConfigurationService(dao, providers,
                 beans.getBeanProvider(FieldCryptoProvider.class), beans.getBeanProvider(FieldSigner.class));
+    }
+
+    @SuppressWarnings("unchecked")
+    private void tenantExists(String... tenantIds) {
+        ReferenceAbility<?> tenants = mock(ReferenceAbility.class);
+        List<String> existing = List.of(tenantIds);
+        when(tenants.titles(any())).thenAnswer(invocation -> {
+            List<String> requested = invocation.getArgument(0);
+            return requested.stream().filter(existing::contains)
+                    .collect(java.util.stream.Collectors.toMap(id -> id, id -> id));
+        });
+        PlatformAbilityRuntime.configureReferenceTargetResolver(target -> Optional.of(tenants));
     }
 
     private AiModelConfiguration configuration(String id, String key, int sortOrder) {

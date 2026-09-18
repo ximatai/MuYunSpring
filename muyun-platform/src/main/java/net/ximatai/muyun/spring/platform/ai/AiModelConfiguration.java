@@ -55,10 +55,7 @@ public class AiModelConfiguration extends StandardEnabledSortableEntity {
             comment = "Whether API key is configured", defaultVal = @Default(bool = TrueOrFalse.FALSE))
     private Boolean apiKeyConfigured = Boolean.FALSE;
 
-    /**
-     * Internal unique key for the one-global-or-one-per-tenant invariant.  Legacy records remain
-     * null until the explicit ownership migration, so schema rollout never rewrites data at boot.
-     */
+    /** Internal unique key for the one-global-or-one-per-tenant invariant. */
     @JsonIgnore
     @Column(name = "ownership_scope_key", type = ColumnType.VARCHAR, length = 64,
             comment = "Unique AI configuration ownership key")
