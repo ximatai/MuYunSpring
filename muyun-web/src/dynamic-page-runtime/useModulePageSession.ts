@@ -791,7 +791,10 @@ export function useModulePageSession(
                 : { recordId: String(navigatorManagementDetail.draft.value.id) },
           })
         : {};
-      const targetReferencePicker = targetReferencePickerConfig(reference, referencePickerPresentationOf(field));
+      const targetReferencePicker = targetReferencePickerConfig(
+        reference,
+        referencePickerPresentationOf(field),
+      );
       configs[pickerFieldName] = {
         context: createModuleContext({ http: rawContext.http, moduleAlias: reference.targetModuleAlias }),
         mode: recordPickerModeOf(reference.pickerMode),
@@ -1726,7 +1729,10 @@ export function useModulePageSession(
           }),
         );
       }
-      const targetReferencePicker = targetReferencePickerConfig(reference, referencePickerPresentationOf(field));
+      const targetReferencePicker = targetReferencePickerConfig(
+        reference,
+        referencePickerPresentationOf(field),
+      );
       configs[pickerFieldName] = {
         context: hasPickerQueryScope
           ? createQueryScopedTreeModuleContext(pickerContext, {

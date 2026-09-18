@@ -326,9 +326,9 @@ it('uses a target-navigator server-side title projection instead of the target c
     ]),
   });
 
-  expect(resolveRecordDetailDisplayValue(field, { title: '当前记录', tenantId: 'demo', tenantTitle: '演示租户' })).toBe(
-    '演示租户',
-  );
+  expect(
+    resolveRecordDetailDisplayValue(field, { title: '当前记录', tenantId: 'demo', tenantTitle: '演示租户' }),
+  ).toBe('演示租户');
 });
 
 it.each([

@@ -81,14 +81,14 @@ describe('query reference picker provider', () => {
 
   it('resolves every selected ID in bounded batches while preserving deduplicated input order', async () => {
     const request = vi.fn(async (options: { body: { ids: string[] } }) => {
-        const ids = options.body.ids;
-        return {
-          records: [...ids].reverse().map((id) => ({ id, title: `客户 ${id}` })),
-          total: ids.length,
-          pageNum: 1,
-          pageSize: ids.length,
-        };
-      });
+      const ids = options.body.ids;
+      return {
+        records: [...ids].reverse().map((id) => ({ id, title: `客户 ${id}` })),
+        total: ids.length,
+        pageNum: 1,
+        pageSize: ids.length,
+      };
+    });
     const provider = createQueryReferencePickerProvider({
       http: { request } as unknown as HttpClient,
       reference: { targetModuleAlias: 'sales.customer', cardinality: 'ONE' },
