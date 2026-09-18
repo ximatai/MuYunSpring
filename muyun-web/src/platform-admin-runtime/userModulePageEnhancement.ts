@@ -35,15 +35,6 @@ export const userModulePageEnhancement: ModulePageEnhancement = {
       },
     ],
   },
-  form: {
-    contributions: [],
-    fieldPolicies: [
-      {
-        fieldName: 'password',
-        visible: ({ mode }) => mode === 'create',
-      },
-    ],
-  },
   detail: {
     actions: [
       {

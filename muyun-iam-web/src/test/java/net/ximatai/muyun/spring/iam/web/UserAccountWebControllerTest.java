@@ -72,6 +72,21 @@ class UserAccountWebControllerTest {
     }
 
     @Test
+    void shouldDeclareInitialPasswordAsACreateOnlyWriteOnlySecretInput() {
+        var page = (net.ximatai.muyun.spring.platform.web.ListDetailCardPageDefinition) new UserAccountWebController()
+                .moduleUiDefinition().page();
+
+        assertThat(page.detail().editor().fields())
+                .filteredOn(field -> field.fieldRef().fieldName().equals("password"))
+                .singleElement()
+                .satisfies(field -> {
+                    assertThat(field.secretInput()).isTrue();
+                    assertThat(field.uiType()).isEqualTo("password");
+                    assertThat(field.visible().formula().expression()).isEqualTo("!(PRESENT({id}))");
+                });
+    }
+
+    @Test
     void shouldExposeUsernameAsAFieldBackedPersistentQuery() {
         var page = (net.ximatai.muyun.spring.platform.web.ListDetailCardPageDefinition) new UserAccountWebController()
                 .moduleUiDefinition().page();

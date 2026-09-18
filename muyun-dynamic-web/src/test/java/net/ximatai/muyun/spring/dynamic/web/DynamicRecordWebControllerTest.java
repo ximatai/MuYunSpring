@@ -1216,6 +1216,50 @@ class DynamicRecordWebControllerTest {
     }
 
     @Test
+    void shouldTranslatePersistedReferencesThroughTheTenantReferenceAction() throws Exception {
+        DynamicRecord record = new DynamicRecord(entity()).setValue("code", "C-001");
+        record.setId("contract-1");
+        when(service.pageForAction(eq(MODULE), eq(ENTITY), eq(PlatformAction.REFERENCE.code()),
+                any(Criteria.class), any(PageRequest.class), any(Sort[].class)))
+                .thenAnswer(invocation -> {
+                    assertThat(TenantContext.currentTenantId()).contains("tenant_a");
+                    return PageResult.of(List.of(record), 1, PageRequest.of(1, 2));
+                });
+
+        mvc.perform(post("/{moduleAlias}/navigator/reference/translate", MODULE)
+                        .contentType("application/json")
+                        .content(json(Map.of("ids", List.of("contract-1", "contract-1", "hidden-record")))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.records.length()").value(1))
+                .andExpect(jsonPath("$.records[0].id").value("contract-1"));
+
+        ArgumentCaptor<Criteria> criteria = ArgumentCaptor.forClass(Criteria.class);
+        ArgumentCaptor<PageRequest> page = ArgumentCaptor.forClass(PageRequest.class);
+        verify(service).pageForAction(eq(MODULE), eq(ENTITY), eq(PlatformAction.REFERENCE.code()),
+                criteria.capture(), page.capture(), any(Sort[].class));
+        assertThat(criteria.getValue().getClauses()).singleElement().satisfies(clause -> {
+            assertThat(clause.getField()).isEqualTo("id");
+            assertThat(clause.getValues()).containsExactly("contract-1", "hidden-record");
+        });
+        assertThat(page.getValue().getLimit()).isEqualTo(2);
+        verify(mainEntity, never()).queryCriteria(any());
+        verify(mainEntity, never()).pageQuery(any(), any(PageRequest.class), any(Sort[].class));
+    }
+
+    @Test
+    void shouldNotReadForEmptyOrOversizedReferenceTranslation() throws Exception {
+        mvc.perform(post("/{moduleAlias}/navigator/reference/translate", MODULE)
+                        .contentType("application/json").content("{\"ids\":[]}"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.records.length()").value(0));
+        mvc.perform(post("/{moduleAlias}/navigator/reference/translate", MODULE)
+                        .contentType("application/json").content(json(Map.of("ids",
+                                java.util.stream.IntStream.range(0, 101).mapToObj(i -> "id-" + i).toList()))))
+                .andExpect(status().isBadRequest());
+        verify(service, never()).pageForAction(anyString(), anyString(), anyString(),
+                any(Criteria.class), any(PageRequest.class), any(Sort[].class));
+    }
+
+    @Test
     void shouldReadNavigatorReferenceQueryThroughReferenceActionScope() throws Exception {
         Criteria criteria = Criteria.of().eq("code", "C-001");
         DynamicRecord record = new DynamicRecord(entity()).setValue("code", "C-001");

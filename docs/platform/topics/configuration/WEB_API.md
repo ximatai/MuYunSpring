@@ -44,6 +44,8 @@
 | 汇率                 | `ExchangeRateService`                  | `/platform.exchange_rate`                                                                 |
 | 菜单方案             | `MenuSchemeService`                    | `/platform.menu_scheme`                                                                   |
 | 菜单维护             | `MenuService`                          | `/platform.menu-scheme/{schemeId}/menus`                                                  |
+| 模型供应商           | `AiModelProviderService`                | `/platform.ai_model_provider`                                                             |
+| 智能模型配置         | `AiModelConfigurationService`           | `/platform.ai_model_configuration`                                                        |
 
 ## 标准维护接口
 

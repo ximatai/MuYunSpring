@@ -545,7 +545,10 @@ describe('managed detail relation surface', () => {
     const field = wrapper.findComponent({ name: 'RecordFormFields' });
     expect(field.exists()).toBe(true);
     expect(field.props('optionEntityAlias')).toBe('field_ui_control_property');
-    expect(wrapper.findAll('col')[1]!.attributes('style')).toContain('width: 180px');
+    const columns = wrapper.findAll('col');
+    expect(columns[0]!.classes()).toContain('managed-relation-inline__selection-column');
+    expect(columns[1]!.attributes('style')).toBeUndefined();
+    expect(wrapper.find('.managed-relation-inline__table').attributes('style')).toContain('min-width: 214px');
     field.vm.$emit('update:field', 'attributeAlias', 'visibleRows');
     await flushPromises();
 

@@ -34,8 +34,8 @@ public class MuYunSpringRecordOutputConfiguration {
 
     @Bean
     @Order(10)
-    RecordOutputTransformer auditReferenceRecordOutputTransformer() {
-        return new net.ximatai.muyun.spring.ability.output.AuditReferenceRecordOutputTransformer();
+    RecordOutputTransformer standardReferenceRecordOutputTransformer() {
+        return new net.ximatai.muyun.spring.ability.output.StandardReferenceRecordOutputTransformer();
     }
 
     @Bean

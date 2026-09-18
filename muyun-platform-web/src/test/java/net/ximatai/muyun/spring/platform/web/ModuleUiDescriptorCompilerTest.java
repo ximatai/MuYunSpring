@@ -958,11 +958,29 @@ class ModuleUiDescriptorCompilerTest {
         assertThatCode(() -> ViewFieldDefinition.field("online").booleanStatus("在线", "离线").build())
                 .doesNotThrowAnyException();
         assertThat(ViewFieldDefinition.field("departmentId").recordPicker().build().uiType()).isEqualTo("recordPicker");
+        assertThat(ViewFieldDefinition.field("tenantId").recordPickerDialog().build().uiType())
+                .isEqualTo("record_picker_dialog");
         assertThat(ViewFieldDefinition.field("enabled").enabledStatus().build().uiType()).isEqualTo("enabledStatus");
         assertThat(ViewFieldDefinition.field("type").select().build().uiType()).isEqualTo("select");
+        assertThat(ViewFieldDefinition.field("apiKey").secretInput().build().uiType()).isEqualTo("password");
+        assertThat(ViewFieldDefinition.field("apiKey").secretInput().build().secretInput()).isTrue();
+        assertThatThrownBy(() -> ViewFieldDefinition.field("apiKey").secretInput().uiType("text").build())
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("secret input requires uiType password");
         assertThatThrownBy(() -> ViewFieldDefinition.field("description").maxDisplayLines(0).build())
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("maxDisplayLines must be at least 1");
+    }
+
+    @Test
+    void shouldRejectSecretInputThatDoesNotBindAWriteOnlyInputModelField() {
+        ModuleUiDefinition definition = editorPage("iam.employee",
+                form -> form.field("employeeNo", field -> field.secretInput()));
+
+        assertThatThrownBy(() -> ModuleUiDescriptorCompiler.compile(staticDefinition(definition)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("secret input must target a transient Jackson write-only main field: "
+                        + "iam.employee.page_detail_editor.employeeNo");
     }
 
     @Test
@@ -1289,6 +1307,21 @@ class ModuleUiDescriptorCompilerTest {
     }
 
     @Test
+    void shouldCompileConfiguredReferencePickerPresentationForTargetNavigatorReference() {
+        ModuleUiDefinition definition = editorPage("platform.ai_model_configuration", form -> form
+                .field("tenantId", ViewFieldDefinition.Builder::recordPickerDialog));
+        ResolvedReferenceFieldDescriptor reference = new ResolvedReferenceFieldDescriptor("iam.tenant",
+                ReferenceCardinality.ONE, "title", ReferencePickerMode.LIST, ReferenceCandidateDelivery.TARGET_NAVIGATOR);
+
+        ResolvedViewFieldDescriptor field = ModuleUiDescriptorCompiler.compile(definition, ModuleKind.STATIC, "智能模型配置",
+                Map.of(), Map.of("tenantId", reference), null, Map.of(), FieldControlDescriptorCatalog.standard())
+                .page().detail().editor().fields().getFirst();
+
+        assertThat(field.fieldControl()).isEqualTo(new ResolvedFieldControlDescriptor("record_picker_dialog",
+                "RECORD_PICKER", "SCALAR", Map.of("presentation", "DIALOG"), List.of()));
+    }
+
+    @Test
     void shouldCompileDictionaryControlAliasesForStaticAndDynamicModules() {
         ModuleUiDefinition ui = editorPage("iam.dictionary_demo", form -> form
                 .field("dropdown", field -> field.uiType("dictionary_dropdown"))
@@ -1385,22 +1418,14 @@ class ModuleUiDescriptorCompilerTest {
     }
 
     @Test
-    void shouldRejectRecordPickerPresentationOutsideExecutableSourceFieldReference() {
+    void shouldRejectRecordPickerPresentationForTreeReference() {
         ModuleUiDefinition definition = editorPage("sales.order", form -> form
                 .field("customerId", field -> field.uiType("record_picker_dropdown")));
-        ResolvedReferenceFieldDescriptor targetNavigator = new ResolvedReferenceFieldDescriptor("crm.customer",
-                ReferenceCardinality.ONE, "title", ReferencePickerMode.LIST,
-                ReferenceCandidateDelivery.TARGET_NAVIGATOR);
-
-        assertThatThrownBy(() -> ModuleUiDescriptorCompiler.compile(definition, ModuleKind.DYNAMIC, "订单",
-                Map.of(), Map.of("customerId", targetNavigator), null, Map.of(), FieldControlDescriptorCatalog.standard()))
-                .hasMessageContaining("non-tree SOURCE_FIELD");
-
         ResolvedReferenceFieldDescriptor tree = new ResolvedReferenceFieldDescriptor("crm.customer",
                 ReferenceCardinality.ONE, "title", ReferencePickerMode.TREE, ReferenceCandidateDelivery.SOURCE_FIELD);
         assertThatThrownBy(() -> ModuleUiDescriptorCompiler.compile(definition, ModuleKind.STATIC, "订单",
                 Map.of(), Map.of("customerId", tree), null, Map.of(), FieldControlDescriptorCatalog.standard()))
-                .hasMessageContaining("non-tree SOURCE_FIELD");
+                .hasMessageContaining("non-tree reference");
     }
 
     @Test

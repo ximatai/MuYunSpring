@@ -742,8 +742,10 @@ class StaticModuleDefinitionScannerTest {
                         assertThat(surface.editor().fields()).extracting(field -> field.fieldRef().fieldName())
                                 .containsExactly("alias", "title", "scopeType", "tenantId", "organizationId", "enabled");
                         assertThat(surface.editor().fields()).filteredOn(field -> field.fieldRef().fieldName().equals("tenantId"))
-                                .singleElement().satisfies(field -> assertThat(field.reference().targetModuleAlias())
-                                        .isEqualTo("iam.tenant"));
+                                .singleElement().satisfies(field -> {
+                                    assertThat(field.reference().targetModuleAlias()).isEqualTo("iam.tenant");
+                                    assertThat(field.reference().titleField()).isEqualTo("tenantTitle");
+                                });
                         assertThat(surface.editor().fields()).filteredOn(field -> field.fieldRef().fieldName().equals("organizationId"))
                                 .singleElement().satisfies(field -> assertThat(field.reference().targetModuleAlias())
                                         .isEqualTo("iam.organization"));

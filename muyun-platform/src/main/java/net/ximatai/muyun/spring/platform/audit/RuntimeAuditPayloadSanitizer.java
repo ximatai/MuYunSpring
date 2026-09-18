@@ -53,6 +53,8 @@ public class RuntimeAuditPayloadSanitizer {
         return normalized.contains("password")
                 || normalized.contains("secret")
                 || normalized.contains("token")
+                || normalized.contains("apikey")
+                || normalized.contains("authorization")
                 || normalized.contains("credential")
                 || normalized.contains("signature");
     }

@@ -105,6 +105,14 @@ class MainRecordFormulaAbilityTest {
                 .extracting(error -> ((PlatformException) error).code())
                 .isEqualTo("FORMULA_STATIC_PROTECTED_FIELD");
 
+        FormulaRecordService readProjectionService = new FormulaRecordService(List.of(
+                calculation("tenantTitle", "{tenantTitle} = 'forbidden'")
+        ));
+        assertThatThrownBy(() -> readProjectionService.insert(record("1", 1, "0")))
+                .isInstanceOf(PlatformException.class)
+                .extracting(error -> ((PlatformException) error).code())
+                .isEqualTo("FORMULA_STATIC_PROTECTED_FIELD");
+
         FormulaRecordService childInputService = new FormulaRecordService(List.of(
                 calculation("gross", "SUM({lines.amount})")
         ));

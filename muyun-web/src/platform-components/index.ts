@@ -86,6 +86,7 @@ export { default as RecordPicker } from './RecordPicker.vue';
 export { default as RecordMultiPicker } from './RecordMultiPicker.vue';
 export { default as ReferencePicker } from './ReferencePicker.vue';
 export { readonlyReferenceDisplay } from './readonlyReferenceDisplay';
+export { createQueryReferencePickerProvider } from './queryReferencePickerProvider';
 export {
   createSourceReferencePickerProvider,
   sourceReferencePickerReloadKey,

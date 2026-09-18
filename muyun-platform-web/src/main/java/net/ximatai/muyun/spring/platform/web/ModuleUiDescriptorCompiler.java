@@ -542,7 +542,8 @@ public final class ModuleUiDescriptorCompiler {
                 .map(field -> new ResolvedDetailRelationListField(field.fieldRef().fieldName(), field.label(),
                         null, field.fieldControl() == null ? null : field.fieldControl().alias(),
                         field.valueType() == null ? null : field.valueType().name(),
-                        relationColumnWidth(field.width()), field.align(), field.maxDisplayLines()))
+                        relationColumnWidth(field.width()), field.align(), field.maxDisplayLines(),
+                        field.reference() == null ? null : field.reference().titleField()))
                 .map(relation::applyColumnProperties)
                 .toList();
         return new ResolvedDetailRelationListProjection(null, fields);
@@ -1185,8 +1186,9 @@ public final class ModuleUiDescriptorCompiler {
     /**
      * An explicit record-picker presentation requires the already-compiled reference contract.
      * Legacy tree-parent controls without a presentation keep their established path. Presentation remains a small adapter-neutral property: the compiler rejects choices that
-     * cannot be fulfilled by the current source-field provider rather than letting the browser
-     * widen a target query or silently substitute a different picker.
+     * cannot be fulfilled by the current candidate provider rather than letting the browser
+     * widen a target query or silently substitute a different picker. SOURCE_FIELD uses the
+     * source resolver; TARGET_NAVIGATOR uses the target's REFERENCE navigator endpoint.
      */
     private static void validateReferencePickerControl(ViewFieldRef fieldRef,
                                                        ResolvedFieldControlDescriptor descriptor,
@@ -1205,9 +1207,8 @@ public final class ModuleUiDescriptorCompiler {
             throw new IllegalArgumentException("record picker presentation must be DROPDOWN or DIALOG: "
                     + fieldRef.fieldName() + "." + presentation);
         }
-        if (reference.candidateDelivery() != ReferenceCandidateDelivery.SOURCE_FIELD
-                || reference.pickerMode() == ReferencePickerMode.TREE) {
-            throw new IllegalArgumentException("record picker presentation requires a non-tree SOURCE_FIELD reference: "
+        if (reference.pickerMode() == ReferencePickerMode.TREE) {
+            throw new IllegalArgumentException("record picker presentation requires a non-tree reference: "
                     + fieldRef.fieldName());
         }
     }
@@ -1453,7 +1454,7 @@ public final class ModuleUiDescriptorCompiler {
                 java.util.stream.Stream.of(java.util.Map.entry(StandardEntitySchema.TENANT_ID_FIELD,
                         new ResolvedReferenceFieldDescriptor("iam.tenant",
                                 net.ximatai.muyun.spring.ability.reference.ReferenceCardinality.ONE,
-                                "title", pickerModeResolver.apply("iam.tenant"))));
+                                StandardEntitySchema.TENANT_TITLE_FIELD, pickerModeResolver.apply("iam.tenant"))));
         Map<String, ResolvedReferenceFieldDescriptor> declaredReferences = java.util.stream.Stream.concat(declared, discriminated)
                 .collect(java.util.stream.Collectors.toUnmodifiableMap(
                         java.util.Map.Entry::getKey,
@@ -1679,6 +1680,11 @@ public final class ModuleUiDescriptorCompiler {
                                       Set<String> readProjectionOutputFields,
                                       Set<String> writeOnlyInputFields) {
         ViewFieldRef fieldRef = field.fieldRef();
+        if (field.secretInput() && (fieldRef.relationCode() != null
+                || !writeOnlyInputFields.contains(fieldRef.fieldName()))) {
+            throw new IllegalArgumentException("secret input must target a transient Jackson write-only main field: "
+                    + fieldPath(moduleAlias, view, fieldRef));
+        }
         if (fieldRef.relationCode() == null && writeOnlyInputFields.contains(fieldRef.fieldName())) {
             if (view.viewKind() != ModuleViewKind.FORM) {
                 throw new IllegalArgumentException("write-only input fields are only supported by form views: "

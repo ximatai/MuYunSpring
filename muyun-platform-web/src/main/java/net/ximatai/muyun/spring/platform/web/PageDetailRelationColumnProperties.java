@@ -16,6 +16,6 @@ public record PageDetailRelationColumnProperties(String label, Integer width, St
         return new ResolvedDetailRelationListField(field.fieldName(), label == null ? field.title() : label,
                 field.fieldForm(), field.fieldUiControlAlias(), field.valueType(),
                 width == null ? field.width() : width, align == null ? field.align() : align,
-                field.maxDisplayLines());
+                field.maxDisplayLines(), field.referenceTitleField());
     }
 }

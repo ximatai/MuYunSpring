@@ -13,6 +13,7 @@ import net.ximatai.muyun.spring.starter.configuration.platform.MuYunSpringOption
 import net.ximatai.muyun.spring.starter.configuration.platform.MuYunSpringRecordOutputConfiguration;
 import net.ximatai.muyun.spring.starter.configuration.platform.MuYunSpringReferenceConfiguration;
 import net.ximatai.muyun.spring.starter.configuration.runtime.MuYunSpringRuntimeEventHandlerConfiguration;
+import net.ximatai.muyun.spring.starter.configuration.security.MuYunSpringFieldProtectionConfiguration;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.AutoConfigurationExcludeFilter;
 import org.springframework.boot.context.TypeExcludeFilter;
@@ -57,6 +58,7 @@ import org.springframework.scheduling.annotation.EnableScheduling;
         MuYunSpringRecordOutputConfiguration.class,
         MuYunSpringReferenceConfiguration.class,
         MuYunSpringRuntimeEventHandlerConfiguration.class,
+        MuYunSpringFieldProtectionConfiguration.class,
         MuYunSpringBootstrapConfiguration.class
 })
 public class MuYunSpringAutoConfiguration {

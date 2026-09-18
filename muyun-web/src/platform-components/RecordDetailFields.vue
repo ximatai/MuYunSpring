@@ -13,7 +13,6 @@ import {
   resolveRecordBooleanStatusValue,
   type RecordFormFieldDescriptor,
   type RecordFormFieldFallback,
-  type RecordFormFieldPickerConfig,
   type RecordFormFieldState,
   type RecordFormRecord,
 } from './recordFormFieldModel';
@@ -30,7 +29,6 @@ const props = withDefaults(
     excludeFieldNames?: string[];
     fields?: Map<string, RecordFormFieldDescriptor>;
     fallback?: Record<string, RecordFormFieldFallback>;
-    pickerConfigs?: Record<string, RecordFormFieldPickerConfig>;
     optionContext?: ModuleContext<unknown>;
     fileTransferContext?: ModuleContext<unknown>;
     displayOf?: RecordDetailDisplayResolver;
@@ -49,7 +47,6 @@ const props = withDefaults(
     fields: undefined,
     excludeFieldNames: () => [],
     fallback: () => ({}),
-    pickerConfigs: () => ({}),
     optionContext: undefined,
     fileTransferContext: undefined,
     displayOf: undefined,
@@ -86,7 +83,6 @@ function fieldState(fieldName: string): RecordFormFieldState {
   return resolveRecordFormFieldState(fieldName, {
     fields: props.fields,
     fallback: props.fallback,
-    pickerConfigs: props.pickerConfigs,
     record: props.record,
   });
 }

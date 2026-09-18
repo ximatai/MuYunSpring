@@ -317,7 +317,6 @@ describe('module page enhancements', () => {
     expect(registry.resolve('iam.user')).toMatchObject({
       target: { moduleAlias: 'iam.user' },
       list: { columns: [{ key: 'onlineStatus' }], rowExpansion: { key: 'iam-user-sessions' } },
-      form: { fieldPolicies: [{ fieldName: 'password' }] },
       detail: {
         actions: [{ key: 'iam-user-password' }],
       },

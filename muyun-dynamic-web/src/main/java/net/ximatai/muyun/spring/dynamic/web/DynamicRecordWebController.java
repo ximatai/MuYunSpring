@@ -39,6 +39,7 @@ import net.ximatai.muyun.spring.web.TreeSortWebRequest;
 import net.ximatai.muyun.spring.web.TreeSortScopeRequest;
 import net.ximatai.muyun.spring.web.TreeWeb;
 import net.ximatai.muyun.spring.web.WebListResponse;
+import net.ximatai.muyun.spring.web.WebReferenceTranslationRequest;
 import net.ximatai.muyun.spring.web.WebOutputSupport;
 import net.ximatai.muyun.spring.web.WebPageRequest;
 import net.ximatai.muyun.spring.web.WebPageResponse;
@@ -59,6 +60,8 @@ import net.ximatai.muyun.spring.platform.web.ProjectionQueryDescriptor;
 import net.ximatai.muyun.spring.platform.web.ProjectionQueryFallbackReason;
 import net.ximatai.muyun.spring.platform.web.PageReferenceProjectionReader;
 import net.ximatai.muyun.spring.ability.reference.PlatformAuditReferences;
+import net.ximatai.muyun.spring.ability.reference.PlatformTenantReferences;
+import net.ximatai.muyun.spring.ability.reference.ReferenceReadPipeline;
 import net.ximatai.muyun.spring.common.exception.ErrorScope;
 import net.ximatai.muyun.spring.common.exception.ErrorTarget;
 import net.ximatai.muyun.spring.common.exception.PlatformErrorCodes;
@@ -73,6 +76,7 @@ import net.ximatai.muyun.spring.common.platform.EntityCapability;
 import net.ximatai.muyun.spring.common.web.PlatformWebPathRules;
 import net.ximatai.muyun.spring.common.identity.CurrentUser;
 import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
+import net.ximatai.muyun.spring.common.schema.StandardEntitySchema;
 import net.ximatai.muyun.spring.platform.attachment.RecordAttachment;
 import net.ximatai.muyun.spring.platform.attachment.RecordAttachmentAccess;
 import net.ximatai.muyun.spring.platform.attachment.RecordAttachmentAccessService;
@@ -611,7 +615,7 @@ public class DynamicRecordWebController implements
                 ? queryProjectionRecords(storageProjectionFields, criteria, pageRequest, sorts)
                 : null;
         if (projectedPage != null) {
-            populatePageReferencePaths(projectedPage.getRecords(), projectionFields);
+            populateReadProjections(projectedPage.getRecords(), projectionFields);
             return projectedPage;
         }
         PageResult<DynamicRecord> page = service().pageQuery(criteria, pageRequest, sorts);
@@ -619,7 +623,7 @@ public class DynamicRecordWebController implements
         List<DynamicRecord> records = page.getRecords().stream()
                 .map(record -> project(record, fields))
                 .toList();
-        populatePageReferencePaths(records, projectionFields);
+        populateReadProjections(records, projectionFields);
         return PageResult.of(records, page.getTotal(), PageRequest.of(page.getPageNum(), page.getPageSize()));
     }
 
@@ -703,7 +707,7 @@ public class DynamicRecordWebController implements
         List<DynamicRecord> projected = records.stream()
                 .map(record -> project(record, storageProjectionFields))
                 .toList();
-        populatePageReferencePaths(projected, projectionFields);
+        populateReadProjections(projected, projectionFields);
         return projected;
     }
 
@@ -766,6 +770,22 @@ public class DynamicRecordWebController implements
         });
     }
 
+    /** Persisted-ID recovery uses the same REFERENCE data scope as candidate queries. */
+    @PostMapping("/navigator/reference/translate")
+    @ActionEndpoint(PlatformAction.REFERENCE)
+    public WebPageResponse<DynamicRecord> navigatorReferenceTranslate(
+            @RequestBody(required = false) WebReferenceTranslationRequest request) {
+        return webScope(() -> {
+            List<String> ids = request == null ? List.of() : request.ids();
+            if (ids.isEmpty()) return WebPageResponse.fromList(List.of());
+            String moduleAlias = DynamicWebRequest.moduleAlias();
+            PageResult<DynamicRecord> result = recordService.pageForAction(moduleAlias, mainEntityAlias(moduleAlias),
+                    PlatformAction.REFERENCE.code(), Criteria.of().in(StandardEntitySchema.ID_FIELD, ids),
+                    PageRequest.of(1, ids.size()));
+            return WebPageResponse.from(WebOutputSupport.page(service(), result, FieldOutputContext.LIST));
+        });
+    }
+
     /** Tree variant of the navigator reference surface, governed by the same REFERENCE action. */
     @PostMapping("/navigator/reference/tree/query")
     @ActionEndpoint(PlatformAction.REFERENCE)
@@ -813,7 +833,7 @@ public class DynamicRecordWebController implements
         if (output == null) return output;
         var plan = requireExecutionPlan(DynamicWebRequest.moduleAlias());
         DynamicRecord enriched = output.copy();
-        populatePageReferencePaths(List.of(enriched), projectionFields(DynamicWebRequest.moduleAlias()));
+        populateReadProjections(List.of(enriched), projectionFields(DynamicWebRequest.moduleAlias()));
         plan.uiDescriptor().detailRelations().stream()
                 .filter(relation -> relation.embeddedField() != null)
                 .forEach(relation -> enrichEmbeddedRelation(enriched, relation.code()));
@@ -1258,6 +1278,12 @@ public class DynamicRecordWebController implements
         return projected;
     }
 
+    /** Read enrichments are compiled output only and never accepted by mutation paths. */
+    private void populateReadProjections(List<DynamicRecord> records, Set<String> fields) {
+        populateStandardReferenceProjections(records, fields);
+        populatePageReferencePaths(records, fields);
+    }
+
     /** Dotted management-page fields are compiled read projections and never accepted by mutation paths. */
     private void populatePageReferencePaths(List<DynamicRecord> records, Set<String> fields) {
         if (fields == null || fields.stream().noneMatch(field -> field != null && field.contains("."))) {
@@ -1270,6 +1296,21 @@ public class DynamicRecordWebController implements
                     values.putAll(PlatformAuditReferences.values(record));
                     return values;
                 }, (record, projections) -> projections.forEach(record::putReadProjectionValue));
+    }
+
+    /** Standard scope labels are resolved only when the selected output needs their source or label. */
+    private void populateStandardReferenceProjections(List<DynamicRecord> records, Set<String> fields) {
+        if (fields != null && !fields.contains(StandardEntitySchema.TENANT_ID_FIELD)
+                && !fields.contains(StandardEntitySchema.TENANT_TITLE_FIELD)) {
+            return;
+        }
+        new ReferenceReadPipeline<DynamicRecord>(PlatformTenantReferences.availablePlans(), List.of(),
+                PlatformTenantReferences::values,
+                (record, output) -> output.forEach(record::putReadProjectionValue),
+                target -> net.ximatai.muyun.spring.ability.PlatformAbilityRuntime.referenceTargetResolver()
+                        .resolve(target).orElseThrow(),
+                net.ximatai.muyun.spring.ability.PlatformAbilityRuntime.referenceReadObserver())
+                .populate(records);
     }
 
     private static Set<String> pageReferenceStorageFields(Set<String> fields) {

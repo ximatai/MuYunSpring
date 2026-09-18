@@ -18,6 +18,16 @@ const props = withDefaults(
 function columnWidth(column: { width?: number }) {
   return column.width != null && Number.isFinite(column.width) && column.width > 0 ? column.width : 160;
 }
+
+/**
+ * A selected relation table reserves its checkbox column absolutely. Let the final data column
+ * absorb surplus width so the browser never rescales the checkbox column with the other columns.
+ */
+function columnStyle(column: { width?: number }, index: number) {
+  if (props.selection && index === props.columns.length - 1) return undefined;
+  return { width: `${columnWidth(column)}px` };
+}
+
 const tableMinWidth = computed(() =>
   props.columns.reduce((width, column) => width + columnWidth(column), props.selection ? 34 : 0),
 );
@@ -29,9 +39,9 @@ const tableMinWidth = computed(() =>
         <colgroup>
           <col v-if="selection" class="managed-relation-inline__selection-column" />
           <col
-            v-for="column in columns"
+            v-for="(column, index) in columns"
             :key="column.fieldName"
-            :style="{ width: `${columnWidth(column)}px` }"
+            :style="columnStyle(column, index)"
           />
         </colgroup>
         <thead>

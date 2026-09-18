@@ -128,8 +128,9 @@ public class ManagedDetailRelationGateway implements SmartInitializingSingleton 
             } else {
                 records = runtime.handler().childService().list(criteria, sorts == null ? new Sort[0] : sorts);
             }
-            return WebPageResponse.fromList(WebOutputSupport.records((CrudAbility) runtime.handler().childService(),
-                    (List) records, FieldOutputContext.LIST));
+            return projectRelationOutput(runtime, WebPageResponse.fromList(
+                    WebOutputSupport.records((CrudAbility) runtime.handler().childService(), (List) records,
+                            FieldOutputContext.LIST)));
         }
         WebPageRequest requestedPage = request == null || request.page() == null
                 ? new WebPageRequest(1, queryContract.pageSize()) : request.page();
@@ -149,8 +150,22 @@ public class ManagedDetailRelationGateway implements SmartInitializingSingleton 
             result = runtime.handler().childService().pageQuery(criteria,
                     PageRequest.of(page.pageNum(), page.pageSize()), sorts == null ? new Sort[0] : sorts);
         }
-        return WebPageResponse.from(WebOutputSupport.page((CrudAbility) runtime.handler().childService(),
-                (PageResult) result, FieldOutputContext.LIST));
+        return projectRelationOutput(runtime, WebPageResponse.from(WebOutputSupport.page(
+                (CrudAbility) runtime.handler().childService(), (PageResult) result, FieldOutputContext.LIST)));
+    }
+
+    @SuppressWarnings({"rawtypes", "unchecked"})
+    private static WebPageResponse<?> projectRelationOutput(RelationRuntime runtime, WebPageResponse<?> response) {
+        var projection = runtime.relation().queryContract().listProjection();
+        if (projection == null || projection.fields().isEmpty()) return response;
+        CrudAbility childService = runtime.handler().childService();
+        List<String> outputFields = RelationReadProjectionSupport.outputFields(childService,
+                projection.fields().stream().map(field -> field.fieldName()).toList());
+        List<Map<String, Object>> records = RelationReadProjectionSupport.project(childService,
+                runtime.relation().targetModuleAlias(), "managed_detail_relation:" + runtime.relation().code(),
+                response.records(), outputFields);
+        return new WebPageResponse(records, response.total(), response.pageNum(), response.pageSize(), response.pages(),
+                response.totalKnown(), response.navigation());
     }
 
     /** Reads retained aggregate children; recovery itself remains part of the parent aggregate draft save. */

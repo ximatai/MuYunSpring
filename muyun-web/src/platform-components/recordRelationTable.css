@@ -117,7 +117,7 @@
 .managed-relation-inline__table td :deep(.ant-input-affix-wrapper) {
   border: 0 !important;
   min-height: 26px;
-  padding: 0;
+  padding: 0 11px 0 4px;
   width: 100%;
 }
 
@@ -163,12 +163,17 @@
 }
 
 .managed-relation-inline__selection {
+  box-sizing: border-box;
+  max-width: 34px;
+  min-width: 34px;
   padding: 0 !important;
   text-align: center !important;
   width: 34px;
 }
 
 .managed-relation-inline__selection-column {
+  max-width: 34px;
+  min-width: 34px;
   width: 34px;
 }
 

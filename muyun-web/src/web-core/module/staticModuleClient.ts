@@ -120,17 +120,30 @@ export function createModuleCrudClient<TRecord>(
   return createStaticResourceCrudClient(http, modulePathOf(options.moduleAlias));
 }
 
+/** Persisted selection recovery shares the module wire normalization used by candidate queries. */
+export interface NavigatorReferenceCrudClient<TRecord> extends ModuleCrudClient<TRecord> {
+  translate(ids: readonly string[]): Promise<WebPageResponse<TRecord>>;
+}
+
 /** The navigation-only read surface deliberately does not reuse the module query endpoint. */
 export function createNavigatorReferenceCrudClient<TRecord>(
   http: HttpClient,
   options: { moduleAlias: string; navigatorReference?: NavigatorReferenceRequestContext },
-): ModuleCrudClient<TRecord> {
+): NavigatorReferenceCrudClient<TRecord> {
   const normal = createModuleCrudClient<TRecord>(http, options);
   const modulePath = modulePathOf(options.moduleAlias);
   return {
     ...normal,
     // A navigator reference is a scoped read projection, not the source module's full CRUD scope.
     sort: undefined,
+    translate: (ids) =>
+      http
+        .request<WebPageResponse<TRecord>>({
+          method: 'POST',
+          path: `${modulePath}/navigator/reference/translate`,
+          body: { ids },
+        })
+        .then(normalizeModulePageResponse),
     query: (request) =>
       http
         .request<WebPageResponse<TRecord>>({

@@ -62,6 +62,45 @@ class FieldProtectionAbilityTest {
     }
 
     @Test
+    void shouldRetainProtectedFieldWithoutMutatingTheRawSnapshot() {
+        CopyingProtectedRecordDao dao = new CopyingProtectedRecordDao();
+        ProtectedRecordService service = new ProtectedRecordService(dao);
+        ProtectedDemoRecord record = new ProtectedDemoRecord();
+        record.setPhone("13812345678");
+        String id = service.insert(record);
+        ProtectedDemoRecord stored = service.selectActiveRaw(id);
+        ProtectedDemoRecord incoming = new ProtectedDemoRecord();
+        incoming.setId(id);
+        incoming.setVersion(stored.getVersion());
+
+        service.retainProtectedFieldFromStorage(incoming, stored, "phone");
+        assertThat(stored.getPhone()).isEqualTo("enc:13812345678");
+        assertThat(incoming.getPhone()).isEqualTo("13812345678");
+        service.update(incoming);
+        assertThat(service.select(id).getPhone()).isEqualTo("13812345678");
+        assertThat(dao.stored(id).getPhone()).isEqualTo("enc:13812345678");
+    }
+
+    @Test
+    void shouldVerifyRetainedProtectedFieldsBeforeChangingTheIncomingRecord() {
+        CopyingProtectedRecordDao dao = new CopyingProtectedRecordDao();
+        ProtectedRecordService service = new ProtectedRecordService(dao);
+        ProtectedDemoRecord record = new ProtectedDemoRecord();
+        record.setPhone("13812345678");
+        String id = service.insert(record);
+        ProtectedDemoRecord stored = service.selectActiveRaw(id);
+        stored.setPhoneSignature("tampered");
+        ProtectedDemoRecord incoming = new ProtectedDemoRecord();
+
+        assertThatThrownBy(() -> service.retainProtectedFieldFromStorage(incoming, stored, "phone"))
+                .isInstanceOf(FieldProtectionException.class);
+        assertThat(incoming.getPhone()).isNull();
+        assertThat(stored.getPhone()).isEqualTo("enc:13812345678");
+        assertThatThrownBy(() -> service.retainProtectedFieldFromStorage(incoming, stored, "title"))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("no storage protection");
+    }
+
+    @Test
     void shouldRejectTamperedStaticProtectedFieldSignature() {
         CopyingProtectedRecordDao dao = new CopyingProtectedRecordDao();
         ProtectedRecordService service = new ProtectedRecordService(dao);

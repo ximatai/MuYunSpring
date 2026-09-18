@@ -4,14 +4,12 @@ import net.ximatai.muyun.spring.ability.CrudAbility;
 import net.ximatai.muyun.spring.ability.DataScopeAbility;
 import net.ximatai.muyun.spring.ability.child.ChildRelation;
 import net.ximatai.muyun.spring.ability.child.ChildrenAbility;
-import net.ximatai.muyun.spring.ability.reference.StaticReferenceResolver;
 import net.ximatai.muyun.spring.common.model.contract.EntityContract;
 import net.ximatai.muyun.spring.common.platform.PlatformAction;
 import net.ximatai.muyun.spring.web.WebListResponse;
 import net.ximatai.muyun.spring.web.WebOutputSupport;
 import org.springframework.stereotype.Component;
 
-import java.util.LinkedHashSet;
 import java.util.List;
 
 /**
@@ -63,40 +61,9 @@ public class AggregateChildRelationExpansionGateway {
         List<EntityContract> children = (List<EntityContract>) childRelation.selectChildren(parent.getId());
         List<EntityContract> secured = WebOutputSupport.records(childService, children,
                 net.ximatai.muyun.spring.common.security.FieldOutputContext.LIST);
-        List<String> outputFields = expansionOutputFields(childService, expansion);
-        RecordReadProjection projection = new RecordReadProjection(
-                relation.targetModuleAlias(),
-                "list_relation_expansion:" + relationCode,
-                outputFields.stream().map(ViewFieldRef::main).toList(),
-                List.of(), List.of());
-        List<java.util.Map<String, Object>> projected = RecordReadProjectionProjector.project(secured, projection);
-        return new WebListResponse<>(ReferenceReadProjectionPostProcessor.apply(
-                childService.modelClass(), projected, outputFields));
-    }
-
-    /**
-     * Reference labels are presentation companions of a declared expansion column, not additional
-     * business columns.  Returning them keeps the narrow endpoint compatible with the standard
-     * display renderer without making every list-expansion DSL repeat transient title-field names.
-     */
-    private static List<String> expansionOutputFields(CrudAbility<?> childService,
-                                                      ResolvedPageListRelationExpansionDescriptor expansion) {
-        LinkedHashSet<String> fields = new LinkedHashSet<>(expansion.fields());
-        Class<?> modelClass = childService.modelClass();
-        if (modelClass == null) {
-            return List.copyOf(fields);
-        }
-        StaticReferenceResolver.plans(modelClass).forEach(plan -> {
-            if (fields.contains(plan.sourceField())) {
-                plan.projections().forEach(projection -> fields.add(projection.outputField()));
-            }
-        });
-        StaticReferenceResolver.loadPaths(modelClass).forEach(path -> {
-            if (fields.contains(path.sourceField())) {
-                fields.add(path.outputField());
-            }
-        });
-        return List.copyOf(fields);
+        List<String> outputFields = RelationReadProjectionSupport.outputFields(childService, expansion.fields());
+        return new WebListResponse<>(RelationReadProjectionSupport.project(childService, relation.targetModuleAlias(),
+                "list_relation_expansion:" + relationCode, secured, outputFields));
     }
 
     @SuppressWarnings({"rawtypes", "unchecked"})

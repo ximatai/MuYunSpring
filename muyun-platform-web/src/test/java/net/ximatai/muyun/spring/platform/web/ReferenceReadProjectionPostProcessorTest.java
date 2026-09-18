@@ -46,6 +46,25 @@ class ReferenceReadProjectionPostProcessorTest {
     }
 
     @Test
+    void resolvesTenantScopeTitleForAnExplicitStaticListProjection() {
+        ReferenceAbility<?> target = mock(ReferenceAbility.class);
+        when(target.projections(List.of("tenant-1", "tenant-2"), List.of("title")))
+                .thenReturn(Map.of("tenant-1", Map.of("title", "租户一"),
+                        "tenant-2", Map.of("title", "租户二")));
+        PlatformAbilityRuntime.configureReferenceTargetResolver(key -> ReferenceTarget.of("iam", "tenant").equals(key)
+                ? java.util.Optional.of(target) : java.util.Optional.empty());
+
+        List<Map<String, Object>> result = ReferenceReadProjectionPostProcessor.apply(StandardEntity.class, List.of(
+                Map.of("id", "task-1", "tenantId", "tenant-1"),
+                Map.of("id", "task-2", "tenantId", "tenant-2")), List.of("tenantId", "tenantTitle"));
+
+        assertThat(result).containsExactly(
+                Map.of("id", "task-1", "tenantId", "tenant-1", "tenantTitle", "租户一"),
+                Map.of("id", "task-2", "tenantId", "tenant-2", "tenantTitle", "租户二"));
+        verify(target).projections(List.of("tenant-1", "tenant-2"), List.of("title"));
+    }
+
+    @Test
     void shouldBatchEnrichStaticRecordsFromADynamicReferenceTarget() {
         @SuppressWarnings("unchecked")
         ReferenceAbility<?> target = mock(ReferenceAbility.class);

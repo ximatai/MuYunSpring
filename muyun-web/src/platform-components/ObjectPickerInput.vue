@@ -126,6 +126,6 @@ function completeDraft(event: FocusEvent) {
 
 <style scoped>
 .object-picker-input-control {
-  width: min(100%, var(--muyun-standard-input-width, 280px));
+  width: 100%;
 }
 </style>
