@@ -39,6 +39,7 @@ import net.ximatai.muyun.spring.web.TreeSortWebRequest;
 import net.ximatai.muyun.spring.web.TreeSortScopeRequest;
 import net.ximatai.muyun.spring.web.TreeWeb;
 import net.ximatai.muyun.spring.web.WebListResponse;
+import net.ximatai.muyun.spring.web.WebReferenceTranslationRequest;
 import net.ximatai.muyun.spring.web.WebOutputSupport;
 import net.ximatai.muyun.spring.web.WebPageRequest;
 import net.ximatai.muyun.spring.web.WebPageResponse;
@@ -765,6 +766,22 @@ public class DynamicRecordWebController implements
                     navigatorReferenceCriteria(DynamicWebRequest.moduleAlias(), request),
                     PageRequest.of(page.pageNum(), page.pageSize()),
                     querySorts(request));
+            return WebPageResponse.from(WebOutputSupport.page(service(), result, FieldOutputContext.LIST));
+        });
+    }
+
+    /** Persisted-ID recovery uses the same REFERENCE data scope as candidate queries. */
+    @PostMapping("/navigator/reference/translate")
+    @ActionEndpoint(PlatformAction.REFERENCE)
+    public WebPageResponse<DynamicRecord> navigatorReferenceTranslate(
+            @RequestBody(required = false) WebReferenceTranslationRequest request) {
+        return webScope(() -> {
+            List<String> ids = request == null ? List.of() : request.ids();
+            if (ids.isEmpty()) return WebPageResponse.fromList(List.of());
+            String moduleAlias = DynamicWebRequest.moduleAlias();
+            PageResult<DynamicRecord> result = recordService.pageForAction(moduleAlias, mainEntityAlias(moduleAlias),
+                    PlatformAction.REFERENCE.code(), Criteria.of().in(StandardEntitySchema.ID_FIELD, ids),
+                    PageRequest.of(1, ids.size()));
             return WebPageResponse.from(WebOutputSupport.page(service(), result, FieldOutputContext.LIST));
         });
     }

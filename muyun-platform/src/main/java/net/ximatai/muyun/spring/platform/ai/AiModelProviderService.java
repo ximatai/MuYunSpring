@@ -1,12 +1,10 @@
 package net.ximatai.muyun.spring.platform.ai;
 
 import net.ximatai.muyun.database.core.orm.Criteria;
-import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.database.core.orm.Sort;
 import net.ximatai.muyun.spring.ability.BaseDao;
 import net.ximatai.muyun.spring.ability.EnableAbility;
 import net.ximatai.muyun.spring.ability.GlobalScopedAbility;
-import net.ximatai.muyun.spring.ability.SoftDeleteAbility;
 import net.ximatai.muyun.spring.ability.SortAbility;
 import net.ximatai.muyun.spring.ability.StandardBusinessService;
 import net.ximatai.muyun.spring.ability.initialdata.InitialDataAbility;
@@ -29,7 +27,6 @@ import java.util.Locale;
 /** Owns the trusted, global provider catalogue. */
 @Service
 public class AiModelProviderService extends StandardBusinessService<AiModelProvider> implements
-        SoftDeleteAbility<AiModelProvider>,
         GlobalScopedAbility<AiModelProvider>,
         EnableAbility<AiModelProvider>,
         SortAbility<AiModelProvider>,
@@ -40,7 +37,6 @@ public class AiModelProviderService extends StandardBusinessService<AiModelProvi
     public static final String DEEPSEEK_ID = "deepseek";
     public static final String BAILIAN_ID = "bailian";
     public static final String LM_STUDIO_ID = "lm_studio";
-    private static final PageRequest ALL = new PageRequest(0, Integer.MAX_VALUE);
 
     public AiModelProviderService(BaseDao<AiModelProvider, String> dao) {
         super(MODULE_ALIAS, AiModelProvider.class, dao);
@@ -66,11 +62,9 @@ public class AiModelProviderService extends StandardBusinessService<AiModelProvi
     }
 
     @Override
-    public void beforeUpdate(AiModelProvider provider) {
+    public void beforeUpdate(AiModelProvider provider, AiModelProvider existing) {
         requireSystemAdministrator();
-        AiModelProvider existing = selectIncludingDeleted(provider.getId());
         if (existing == null) throw new PlatformException("AI model provider does not exist");
-        provider.setId(existing.getId());
         normalizeAndValidate(provider);
     }
 
@@ -96,8 +90,7 @@ public class AiModelProviderService extends StandardBusinessService<AiModelProvi
             throw new PlatformException("AI model provider must not be blank");
         }
         try (TenantContext.Scope ignored = TenantContext.system("resolve AI model provider")) {
-            AiModelProvider provider = list(Criteria.of().eq("id", providerId.trim()), ALL, Sort.asc("sortOrder"))
-                    .stream().findFirst().orElse(null);
+            AiModelProvider provider = findOne(Criteria.of().eq("id", providerId.trim()));
             if (provider == null || !Boolean.TRUE.equals(provider.getEnabled())) {
                 throw new PlatformException("AI model provider is unavailable: " + providerId);
             }

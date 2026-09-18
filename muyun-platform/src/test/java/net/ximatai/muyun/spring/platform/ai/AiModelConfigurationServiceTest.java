@@ -1,6 +1,5 @@
 package net.ximatai.muyun.spring.platform.ai;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.database.core.orm.Sort;
 import net.ximatai.muyun.spring.ability.BaseDao;
@@ -10,7 +9,6 @@ import net.ximatai.muyun.spring.ability.security.AesGcmFieldCryptoProvider;
 import net.ximatai.muyun.spring.ability.security.FieldCryptoProvider;
 import net.ximatai.muyun.spring.ability.security.FieldSigner;
 import net.ximatai.muyun.spring.ability.security.HmacSha256FieldSigner;
-import net.ximatai.muyun.spring.ability.reference.StaticReferenceResolver;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.tenant.TenantContext;
 import org.junit.jupiter.api.AfterEach;
@@ -33,7 +31,6 @@ class AiModelConfigurationServiceTest {
     private final FieldSigner signer = new HmacSha256FieldSigner(
             "0123456789abcdef0123456789abcdef".getBytes(StandardCharsets.UTF_8));
 
-    @Test
     @AfterEach
     void clearContexts() {
         TenantContext.clear();
@@ -133,7 +130,8 @@ class AiModelConfigurationServiceTest {
         assertThat(incoming.getTenantId()).isEqualTo("tenant-a");
         assertThat(incoming.getAvailabilityScope()).isEqualTo(AiModelAvailabilityScope.TENANT_PRIVATE);
         assertThat(incoming.getOwnershipScopeKey()).isEqualTo("T:tenant-a");
-        assertThat(incoming.getApiKey()).isEqualTo(existing.getApiKey());
+        assertThat(incoming.getApiKey()).isEqualTo("tenant-secret");
+        assertThat(existing.getApiKey()).startsWith("v1:");
     }
 
     @Test
@@ -172,19 +170,10 @@ class AiModelConfigurationServiceTest {
             assertThat(configuration.getApiKey()).startsWith("v1:").isNotEqualTo("model-secret");
             assertThat(configuration.getApiKeySignature()).isNotBlank();
         }
-        service.afterSelect(configuration);
 
         assertThat(configuration.getApiKey()).isEqualTo("model-secret");
         assertThat(configuration.getApiKeyInput()).isNull();
         assertThat(configuration.getApiKeyConfigured()).isTrue();
-    }
-
-    @Test
-    void persistedTenantOwnershipIsAvailableForReadSideProjection() {
-        AiModelConfigurationService service = service(mock(BaseDao.class));
-        AiModelConfiguration configuration = configuration("tenant", "tenant-key");
-        configuration.setTenantId("tenant-a");
-        assertThat(configuration.getTenantId()).isEqualTo("tenant-a");
     }
 
     private AiModelConfigurationService service(BaseDao<AiModelConfiguration, String> dao) {

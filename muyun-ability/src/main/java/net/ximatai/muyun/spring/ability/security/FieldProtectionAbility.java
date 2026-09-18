@@ -100,17 +100,37 @@ public interface FieldProtectionAbility<T extends EntityContract> extends CrudAb
             if (!field.hasValue(entity) || !field.protection().hasStorageProtection()) {
                 continue;
             }
-            Object value = field.get(entity);
-            Object plainValue = value;
-            if (field.protection().encryptionMode() == FieldEncryptionMode.ENCRYPTED) {
-                plainValue = fieldCryptoProvider().decrypt(field.fieldName(), String.valueOf(value));
-                field.set(entity, plainValue);
-            }
-            if (field.protection().signatureMode().enabled()) {
-                Object signature = field.getSignature(entity);
-                fieldSigner().verify(field.fieldName(), plainValue, signature == null ? null : String.valueOf(signature));
-            }
+            field.set(entity, readProtectedStorageValue(field, entity));
         }
+    }
+
+    /**
+     * Retains one omitted write-only input from the RAW snapshot supplied to beforeUpdate.
+     * Decrypts and verifies before assigning; the snapshot remains in storage form and the
+     * incoming record remains in business form until the normal persistence boundary.
+     */
+    default void retainProtectedFieldFromStorage(T incoming, T stored, String fieldName) {
+        if (incoming == null || stored == null) {
+            throw new IllegalArgumentException("retaining a protected field requires incoming and stored records");
+        }
+        ProtectedFieldAccessor<T> field = fieldProtectionPlan().fields().stream()
+                .filter(candidate -> candidate.fieldName().equals(fieldName)
+                        && candidate.protection().hasStorageProtection())
+                .findFirst().orElseThrow(() -> new IllegalArgumentException(
+                        "field has no storage protection: " + fieldName));
+        field.set(incoming, readProtectedStorageValue(field, stored));
+    }
+
+    private Object readProtectedStorageValue(ProtectedFieldAccessor<T> field, T stored) {
+        Object value = field.get(stored);
+        if (value == null) return null;
+        Object plainValue = field.protection().encryptionMode() == FieldEncryptionMode.ENCRYPTED
+                ? fieldCryptoProvider().decrypt(field.fieldName(), String.valueOf(value)) : value;
+        if (field.protection().signatureMode().enabled()) {
+            Object signature = field.getSignature(stored);
+            fieldSigner().verify(field.fieldName(), plainValue, signature == null ? null : String.valueOf(signature));
+        }
+        return plainValue;
     }
 
     default Object maskProtectedValue(String fieldName, Object value, FieldOutputContext context) {

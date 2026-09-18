@@ -26,7 +26,7 @@ public class AiModelProviderWebController extends WebSupport<AiModelProviderServ
                         .explorer(explorer -> explorer.title("模型供应商").titleField("title").secondaryField("id"))
                         .detail(detail -> detail.editor(form -> form.title("模型供应商")
                                 .field("id", field -> field.label("供应商编码").required()
-                                        .enabledWhen(UiFormula.booleanExpression("!(PRESENT({id}))")))
+                                        .enabledWhen(UiFormula.booleanExpression("!(PRESENT({version}))")))
                                 .field("title", field -> field.label("供应商名称").required())
                                 .field("protocol", field -> field.label("接口协议").required().select())
                                 .field("baseUrl", field -> field.label("API 基础地址").required())

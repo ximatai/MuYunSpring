@@ -59,6 +59,23 @@ describe('query reference picker provider', () => {
     );
   });
 
+  it('normalizes dynamic reference records before recovering labels and enabled state', async () => {
+    const request = vi.fn().mockResolvedValue({
+      records: [{ id: 'dynamic-1', version: 1, values: { name: '动态客户', enabled: false }, children: {} }],
+      total: 1,
+      pageNum: 1,
+      pageSize: 1,
+    });
+    const provider = createQueryReferencePickerProvider({
+      http: { request } as unknown as HttpClient,
+      reference: { targetModuleAlias: 'sales.customer', cardinality: 'ONE', labelField: 'name' },
+    });
+
+    await expect(provider.resolve(['dynamic-1'])).resolves.toEqual([
+      { id: 'dynamic-1', title: '动态客户', projections: { name: '动态客户' }, disabled: true },
+    ]);
+  });
+
   it('rejects unsupported browse axes rather than widening the target query', async () => {
     const provider = createQueryReferencePickerProvider({
       http: { request: vi.fn() } as unknown as HttpClient,

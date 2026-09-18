@@ -7,6 +7,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -15,7 +17,6 @@ import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
@@ -46,7 +47,7 @@ public class OpenAiCompatibleModelClient implements AiModelClient {
             HttpResponse<String> response = httpClient.send(request(configuration, request, false),
                     HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
             requireSuccess(response.statusCode());
-            JsonNode root = objectMapper.readTree(response.body());
+            JsonNode root = readResponseObject(response.body(), "AI model returned an invalid response");
             JsonNode choice = root.path("choices").path(0);
             String text = choice.path("message").path("content").asText(null);
             if (text == null) throw new PlatformException("AI model response does not contain text");
@@ -54,6 +55,9 @@ public class OpenAiCompatibleModelClient implements AiModelClient {
                     .firstValue("x-request-id").orElse(null));
         } catch (PlatformException exception) {
             throw exception;
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new PlatformException("AI model request interrupted", exception);
         } catch (Exception exception) {
             throw new PlatformException("AI model request failed", exception);
         }
@@ -63,26 +67,62 @@ public class OpenAiCompatibleModelClient implements AiModelClient {
     public void stream(AiModelConfiguration configuration, AiTextRequest request, AiTextStreamConsumer consumer) {
         Objects.requireNonNull(consumer, "consumer must not be null");
         try {
-            HttpResponse<java.io.InputStream> response = httpClient.send(request(configuration, request, true),
+            HttpResponse<InputStream> response = httpClient.send(request(configuration, request, true),
                     HttpResponse.BodyHandlers.ofInputStream());
-            requireSuccess(response.statusCode());
             try (BufferedReader reader = new BufferedReader(new InputStreamReader(response.body(), StandardCharsets.UTF_8))) {
+                requireSuccess(response.statusCode());
+                StringBuilder data = new StringBuilder();
                 String line;
                 while ((line = reader.readLine()) != null) {
-                    if (!line.startsWith("data:")) continue;
-                    String data = line.substring("data:".length()).trim();
-                    if ("[DONE]".equals(data)) return;
-                    JsonNode delta = objectMapper.readTree(data).path("choices").path(0).path("delta").path("content");
-                    if (!delta.isMissingNode() && !delta.isNull() && !delta.asText().isEmpty()) {
-                        consumer.accept(delta.asText());
+                    if (line.isEmpty()) {
+                        if (consumeStreamEvent(data, consumer)) return;
+                        data.setLength(0);
+                    } else if (line.startsWith("data:")) {
+                        if (!data.isEmpty()) data.append('\n');
+                        data.append(line.substring("data:".length()).stripLeading());
                     }
                 }
+                if (consumeStreamEvent(data, consumer)) return;
+                throw new PlatformException("AI model stream ended before completion");
             }
         } catch (PlatformException exception) {
             throw exception;
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new PlatformException("AI model streaming request interrupted", exception);
         } catch (Exception exception) {
             throw new PlatformException("AI model streaming request failed", exception);
         }
+    }
+
+    /** Error payloads may contain provider details; never expose them through platform exceptions. */
+    private boolean consumeStreamEvent(StringBuilder data, AiTextStreamConsumer consumer) {
+        String payload = data.toString().trim();
+        if (payload.isEmpty()) return false;
+        if ("[DONE]".equals(payload)) return true;
+        JsonNode event = readResponseObject(payload, "AI model stream contains an invalid event");
+        JsonNode delta = event.path("choices").path(0).path("delta").path("content");
+        if (!delta.isMissingNode() && !delta.isNull() && !delta.asText().isEmpty()) {
+            consumer.accept(delta.asText());
+        }
+        return false;
+    }
+
+    private JsonNode readResponseObject(String payload, String invalidMessage) {
+        final JsonNode response;
+        try {
+            response = objectMapper.readTree(payload);
+        } catch (IOException exception) {
+            // Jackson diagnostics can include response content; keep it out of exception chains.
+            throw new PlatformException(invalidMessage);
+        }
+        if (response == null || !response.isObject()) {
+            throw new PlatformException(invalidMessage);
+        }
+        if (response.hasNonNull("error")) {
+            throw new PlatformException("AI model request was rejected by provider");
+        }
+        return response;
     }
 
     private HttpRequest request(AiModelConfiguration configuration, AiTextRequest request, boolean stream) throws Exception {

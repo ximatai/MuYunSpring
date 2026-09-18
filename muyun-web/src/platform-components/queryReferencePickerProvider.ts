@@ -48,11 +48,7 @@ export function createQueryReferencePickerProvider({
       if (requestedIds.length === 0) return [];
       const candidatesById = new Map<string, ReferencePickerCandidate>();
       for (const batch of batches(requestedIds, REFERENCE_RESOLVE_MAXIMUM_IDS)) {
-        const response = await http.request<{ records: Record<string, unknown>[] }>({
-          method: 'POST',
-          path: `/${reference.targetModuleAlias}/navigator/reference/translate`,
-          body: { ids: batch },
-        });
+        const response = await target.translate(batch);
         for (const candidate of response.records.flatMap(candidateOf(reference))) {
           candidatesById.set(candidate.id, candidate);
         }

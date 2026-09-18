@@ -12,10 +12,11 @@ import net.ximatai.muyun.database.core.annotation.TrueOrFalse;
 import net.ximatai.muyun.database.core.builder.ColumnType;
 import net.ximatai.muyun.spring.common.model.standard.StandardEnabledEntity;
 import net.ximatai.muyun.spring.common.security.EncryptedField;
+import net.ximatai.muyun.spring.common.option.OptionField;
+import net.ximatai.muyun.spring.common.option.OptionSourceType;
 import net.ximatai.muyun.spring.common.security.SignedField;
 import net.ximatai.muyun.spring.ability.reference.ReferenceTenantScope;
 import net.ximatai.muyun.spring.ability.reference.ReferenceTo;
-
 
 /** One LLM connection owned by either the platform or the current tenant. */
 @Getter
@@ -27,7 +28,7 @@ public class AiModelConfiguration extends StandardEnabledEntity {
     @ReferenceTo(target = AiModelProviderService.class, tenantScope = ReferenceTenantScope.GLOBAL)
     private String provider;
 
-    @net.ximatai.muyun.spring.common.option.OptionField(type = net.ximatai.muyun.spring.common.option.OptionSourceType.ENUM)
+    @OptionField(type = OptionSourceType.ENUM)
     @Column(name = "availability_scope", type = ColumnType.VARCHAR, length = 32, nullable = false,
             comment = "Tenant availability scope")
     private AiModelAvailabilityScope availabilityScope = AiModelAvailabilityScope.PLATFORM;
@@ -59,5 +60,4 @@ public class AiModelConfiguration extends StandardEnabledEntity {
     @Column(name = "ownership_scope_key", type = ColumnType.VARCHAR, length = 64,
             comment = "Unique AI configuration ownership key")
     private String ownershipScopeKey;
-
 }

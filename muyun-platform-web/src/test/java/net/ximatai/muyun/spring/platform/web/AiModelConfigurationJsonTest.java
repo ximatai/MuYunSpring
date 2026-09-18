@@ -1,11 +1,16 @@
 package net.ximatai.muyun.spring.platform.web;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import net.ximatai.muyun.spring.common.formula.FormulaEngine;
+import net.ximatai.muyun.spring.common.formula.FormulaRuntimeData;
 import net.ximatai.muyun.spring.common.platform.CustomActionEndpoint;
 import net.ximatai.muyun.spring.common.platform.PlatformActionLevel;
 import net.ximatai.muyun.spring.platform.ai.AiModelConfiguration;
 import net.ximatai.muyun.spring.platform.ai.AiModelConnectionTester;
 import org.junit.jupiter.api.Test;
+
+import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -59,6 +64,25 @@ class AiModelConfigurationJsonTest {
         assertThat(endpoint.level()).isEqualTo(PlatformActionLevel.RECORD);
         assertThat(endpoint.dataAuth()).isTrue();
         assertThat(endpoint.pageInvocable()).isTrue();
+    }
+
+    @Test
+    void providerCodeRemainsEditableUntilTheRecordHasBeenPersisted() {
+        ModuleUiDefinition definition = new AiModelProviderWebController().moduleUiDefinition();
+        FlatManagementPageDefinition page = (FlatManagementPageDefinition) definition.page();
+        UiFormula readOnly = page.detail().editor().fields().stream()
+                .filter(field -> field.fieldRef().fieldName().equals("id"))
+                .findFirst().orElseThrow().readOnly().formula();
+        var engine = new FormulaEngine();
+        for (String draftCode : List.of("", "m", "my_provider")) {
+            assertThat(engine.evaluateBoolean(readOnly.expression(),
+                    FormulaRuntimeData.of(Map.of("id", draftCode))))
+                    .isFalse();
+        }
+        assertThat(engine.evaluateBoolean(readOnly.expression(),
+                FormulaRuntimeData.of(
+                        Map.of("id", "my_provider", "version", 0))))
+                .isTrue();
     }
 
     @Test

@@ -1,7 +1,6 @@
 package net.ximatai.muyun.spring.platform.ai;
 
 import net.ximatai.muyun.database.core.orm.Criteria;
-import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.spring.ability.AbstractAbilityService;
 import net.ximatai.muyun.spring.ability.BaseDao;
 import net.ximatai.muyun.spring.ability.CacheAbility;
@@ -44,9 +43,8 @@ public class AiModelConfigurationService extends AbstractAbilityService<AiModelC
                                        ObjectProvider<FieldSigner> signer) {
         super(MODULE_ALIAS, AiModelConfiguration.class, dao);
         this.providerService = providerService;
-        this.cryptoProvider = cryptoProvider == null ? FieldCryptoProvider.UNAVAILABLE
-                : cryptoProvider.getIfAvailable(() -> FieldCryptoProvider.UNAVAILABLE);
-        this.signer = signer == null ? FieldSigner.UNAVAILABLE : signer.getIfAvailable(() -> FieldSigner.UNAVAILABLE);
+        this.cryptoProvider = cryptoProvider.getIfAvailable(() -> FieldCryptoProvider.UNAVAILABLE);
+        this.signer = signer.getIfAvailable(() -> FieldSigner.UNAVAILABLE);
     }
 
     @Override
@@ -78,15 +76,8 @@ public class AiModelConfigurationService extends AbstractAbilityService<AiModelC
         if (existing == null) {
             throw new PlatformException("AI model configuration does not exist");
         }
-        configuration.setTenantId(existing.getTenantId());
         normalize(configuration, existing);
         applyNewApiKey(configuration, existing);
-    }
-
-    @Override
-    public void afterSelect(AiModelConfiguration configuration) {
-        boolean configured = configuration.getApiKey() != null && !configuration.getApiKey().isBlank();
-        configuration.setApiKeyConfigured(configured);
     }
 
     /** Resolves the single enabled configuration in the current tenant, then the global scope. */
@@ -97,14 +88,6 @@ public class AiModelConfigurationService extends AbstractAbilityService<AiModelC
             if (tenant != null) return requireUsable(tenant, "tenant");
         }
         return requireUsable(firstPlatformConfiguration(), "platform");
-    }
-
-    public AiModelConfiguration requireCurrentScopeConfiguration() {
-        AiModelConfiguration configuration = enabledConfiguration(Criteria.of());
-        if (configuration == null) {
-            throw new PlatformConfigurationException("AI model configuration is missing for current scope");
-        }
-        return configuration;
     }
 
     private void normalize(AiModelConfiguration configuration, AiModelConfiguration existing) {
@@ -164,17 +147,15 @@ public class AiModelConfigurationService extends AbstractAbilityService<AiModelC
             if (existing == null || existing.getApiKey() == null || existing.getApiKey().isBlank()) {
                 throw new PlatformException("AI model API key must not be blank");
             }
-            configuration.setApiKey(existing.getApiKey());
-            configuration.setApiKeyConfigured(Boolean.TRUE);
-            return;
+            retainProtectedFieldFromStorage(configuration, existing, "apiKey");
+        } else {
+            configuration.setApiKey(input.trim());
         }
-        configuration.setApiKey(input.trim());
         configuration.setApiKeyConfigured(Boolean.TRUE);
     }
 
     private AiModelConfiguration enabledConfiguration(Criteria criteria) {
-        return list(criteria, PageRequest.of(1, 1)).stream()
-                .filter(item -> Boolean.TRUE.equals(item.getEnabled())).findFirst().orElse(null);
+        return findOne(enabledCriteria(criteria));
     }
 
     private AiModelConfiguration firstPlatformConfiguration() {
