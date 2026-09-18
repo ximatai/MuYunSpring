@@ -8,9 +8,6 @@ import net.ximatai.muyun.spring.platform.ai.AiModelConnectionTestResult;
 import net.ximatai.muyun.spring.platform.ai.AiModelConnectionTester;
 import net.ximatai.muyun.spring.platform.application.PlatformApplication;
 import net.ximatai.muyun.spring.platform.module.PlatformStaticModule;
-import net.ximatai.muyun.database.core.orm.Criteria;
-import net.ximatai.muyun.spring.web.NestedCrudWebSupport;
-import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -21,13 +18,16 @@ import java.util.function.Supplier;
 /** Standard management surface for the effective platform or current-tenant model configuration. */
 @RestController
 @PlatformStaticWebScope(PlatformStaticWebScope.Scope.CUSTOM)
+@StaticModuleTenantScopePolicy(requireActiveTenant = false)
 @PlatformStaticModule(application = PlatformApplication.class, alias = AiModelConfigurationService.MODULE_ALIAS,
         title = "智能模型配置")
 @PlatformMenu(parent = PlatformMenuGroups.SETTINGS, title = "智能模型配置", order = 30)
 @RequestMapping("/platform.ai_model_configuration")
 public class AiModelConfigurationWebController
-        extends NestedCrudWebSupport<AiModelConfiguration, AiModelConfigurationService>
-        implements StaticModuleUiContributor {
+        extends StaticModuleWebControllerAdapter<AiModelConfigurationService>
+        implements CrudWeb<AiModelConfiguration, AiModelConfigurationService>,
+        ManagedDetailRelationWeb<AiModelConfiguration, AiModelConfigurationService>,
+        StaticModuleUiContributor {
     private final AiModelConnectionTester connectionTester;
 
     public AiModelConfigurationWebController(AiModelConnectionTester connectionTester) {
@@ -46,14 +46,32 @@ public class AiModelConfigurationWebController
                 .page(PageTemplates.flatManagement(page -> {
                     page.explorer(explorer -> explorer.title("智能模型配置").titleField("modelId")
                             .secondaryField("provider"));
-                    page.detail(detail -> detail.editor(form -> form
-                            .title("智能模型配置")
-                            .field("provider", field -> field.label("模型供应商").required().select())
-                            .field("modelId", field -> field.label("模型 ID").required())
-                            .field("apiKeyInput", field -> field.label("API Key").required())
-                            .field("enabled", field -> field.label("启用状态").enabledStatus())));
+                    page.detail(detail -> detail
+                            .display(form -> form
+                                    .title("智能模型配置")
+                                    .field("title", field -> field.label("配置名称").readOnly())
+                                    .field("provider", field -> field.label("模型供应商").readOnly())
+                                    .field("modelId", field -> field.label("模型 ID").readOnly())
+                                    .field("availabilityScope", field -> field.label("适用范围").readOnly())
+                                    .field("apiKeyConfigured", field -> field.label("API Key")
+                                            .readOnly().booleanStatus("已配置", "未配置")))
+                            .editor(form -> form
+                                    .title("智能模型配置")
+                                    .field("title", field -> field.label("配置名称"))
+                                    .field("provider", field -> field.label("模型供应商").required().recordPicker())
+                                    .field("modelId", field -> field.label("模型 ID").required())
+                                    .field("availabilityScope", field -> field.label("适用范围")
+                                            .required().select())
+                                    .field("apiKeyInput", field -> field.label("API Key（已配置时留空不修改）")
+                                            .required(UiRule.formula(UiFormula.booleanExpression("!(PRESENT({id}))"))))
+                                    .field("enabled", field -> field.label("启用状态").enabledStatus())));
                     page.traits(traits -> traits.operations(operations -> operations.standardCrud().enabledLifecycle()));
                 }))
+                .relation("tenant_grants", relation -> relation.aggregateChild(child -> child
+                        .title("指定租户")
+                        .targetEntity("ai_model_configuration_tenant")
+                        .parentBinding("configurationId")
+                        .visible(UiRule.formula(UiFormula.booleanExpression("{availabilityScope} == 'selectedTenants'")))))
                 .build();
     }
 
@@ -62,16 +80,4 @@ public class AiModelConfigurationWebController
         return action.get();
     }
 
-    @Override
-    protected void appendScope(Criteria criteria, HttpServletRequest request) {
-    }
-
-    @Override
-    protected void bindScope(AiModelConfiguration record, HttpServletRequest request) {
-    }
-
-    @Override
-    protected boolean inScope(AiModelConfiguration record, HttpServletRequest request) {
-        return true;
-    }
 }

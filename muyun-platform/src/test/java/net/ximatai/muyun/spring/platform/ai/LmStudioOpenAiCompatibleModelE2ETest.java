@@ -20,13 +20,12 @@ class LmStudioOpenAiCompatibleModelE2ETest {
         Assumptions.assumeTrue(modelId != null && !modelId.isBlank(), "lmstudio.model-id must be configured");
 
         AiModelConfiguration configuration = new AiModelConfiguration();
-        configuration.setProvider(AiModelProvider.LM_STUDIO);
-        configuration.setProtocol(AiModelProtocol.OPENAI_COMPATIBLE);
+        configuration.setProvider(AiModelProviderService.LM_STUDIO_ID);
         configuration.setModelId(modelId);
         configuration.setApiKey(apiKey);
 
         AiTextResponse response = new OpenAiCompatibleModelClient(new ObjectMapper(),
-                ignored -> AiModelProvider.LM_STUDIO.baseUrl())
+                ignored -> "http://127.0.0.1:1234/v1")
                 .generate(configuration, AiTextRequest.userText("Reply with exactly OK."));
 
         assertThat(response.text().trim()).isEqualTo("OK");

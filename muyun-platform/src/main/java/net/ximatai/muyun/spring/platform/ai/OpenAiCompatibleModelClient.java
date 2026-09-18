@@ -30,7 +30,8 @@ public class OpenAiCompatibleModelClient implements AiModelClient {
 
     @Autowired
     public OpenAiCompatibleModelClient(ObjectMapper objectMapper, AiModelEndpointResolver endpointResolver) {
-        this(HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build(), objectMapper, endpointResolver);
+        this(HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10))
+                .followRedirects(HttpClient.Redirect.NEVER).build(), objectMapper, endpointResolver);
     }
 
     OpenAiCompatibleModelClient(HttpClient httpClient, ObjectMapper objectMapper, AiModelEndpointResolver endpointResolver) {
@@ -85,8 +86,7 @@ public class OpenAiCompatibleModelClient implements AiModelClient {
     }
 
     private HttpRequest request(AiModelConfiguration configuration, AiTextRequest request, boolean stream) throws Exception {
-        if (configuration == null || configuration.getProvider() == null || configuration.getProtocol() == null
-                || configuration.getProtocol() != AiModelProtocol.OPENAI_COMPATIBLE) {
+        if (configuration == null || configuration.getProvider() == null || configuration.getProvider().isBlank()) {
             throw new PlatformException("AI model configuration is invalid");
         }
         Map<String, Object> body = new LinkedHashMap<>();

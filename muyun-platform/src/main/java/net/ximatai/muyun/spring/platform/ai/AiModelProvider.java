@@ -1,28 +1,27 @@
 package net.ximatai.muyun.spring.platform.ai;
 
-import net.ximatai.muyun.spring.common.model.contract.CodeTitleEnum;
+import lombok.Getter;
+import lombok.Setter;
+import net.ximatai.muyun.database.core.annotation.Column;
+import net.ximatai.muyun.database.core.annotation.Table;
+import net.ximatai.muyun.database.core.builder.ColumnType;
+import net.ximatai.muyun.spring.common.initialdata.InitialDataFields;
+import net.ximatai.muyun.spring.common.model.standard.StandardEnabledSortableEntity;
+import net.ximatai.muyun.spring.common.option.OptionField;
+import net.ximatai.muyun.spring.common.option.OptionSourceType;
 
-/** Providers admitted by the first OpenAI-compatible model-connection contract. */
-public enum AiModelProvider implements CodeTitleEnum {
-    DEEPSEEK("deepseek", "DeepSeek", "https://api.deepseek.com"),
-    BAILIAN("bailian", "阿里云百炼", "https://dashscope.aliyuncs.com/compatible-mode/v1"),
-    LM_STUDIO("lmStudio", "LM Studio", "http://127.0.0.1:1234/v1");
+/** Platform-governed endpoint definition that tenant model connections may use. */
+@Getter
+@Setter
+@Table(name = "platform_ai_model_provider", comment = "AI model provider")
+@InitialDataFields(operator = {"title", "protocol", "baseUrl", "enabled", "sortOrder"})
+public class AiModelProvider extends StandardEnabledSortableEntity {
+    @OptionField(type = OptionSourceType.ENUM)
+    @Column(name = "protocol", type = ColumnType.VARCHAR, length = 32, nullable = false,
+            comment = "Provider API protocol")
+    private AiModelProtocol protocol = AiModelProtocol.OPENAI_COMPATIBLE;
 
-    private final String code;
-    private final String title;
-    private final String baseUrl;
-
-    AiModelProvider(String code, String title, String baseUrl) {
-        this.code = code;
-        this.title = title;
-        this.baseUrl = baseUrl;
-    }
-
-    @Override
-    public String getCode() { return code; }
-
-    @Override
-    public String getTitle() { return title; }
-
-    public String baseUrl() { return baseUrl; }
+    @Column(name = "base_url", type = ColumnType.VARCHAR, length = 512, nullable = false,
+            comment = "Provider API base URL")
+    private String baseUrl;
 }

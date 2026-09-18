@@ -62,8 +62,7 @@ class OpenAiCompatibleModelClientTest {
 
     private AiModelConfiguration configuration() {
         AiModelConfiguration configuration = new AiModelConfiguration();
-        configuration.setProvider(AiModelProvider.LM_STUDIO);
-        configuration.setProtocol(AiModelProtocol.OPENAI_COMPATIBLE);
+        configuration.setProvider(AiModelProviderService.LM_STUDIO_ID);
         configuration.setModelId("local-model");
         configuration.setApiKey("model-secret");
         return configuration;

@@ -5,11 +5,17 @@ import org.springframework.stereotype.Service;
 
 @Service
 public class DefaultAiModelEndpointResolver implements AiModelEndpointResolver {
+    private final AiModelProviderService providerService;
+
+    public DefaultAiModelEndpointResolver(AiModelProviderService providerService) {
+        this.providerService = providerService;
+    }
+
     @Override
     public String resolve(AiModelConfiguration configuration) {
-        if (configuration == null || configuration.getProvider() == null) {
+        if (configuration == null || configuration.getProvider() == null || configuration.getProvider().isBlank()) {
             throw new PlatformException("AI model provider is missing");
         }
-        return configuration.getProvider().baseUrl();
+        return providerService.requireEnabled(configuration.getProvider()).getBaseUrl();
     }
 }
