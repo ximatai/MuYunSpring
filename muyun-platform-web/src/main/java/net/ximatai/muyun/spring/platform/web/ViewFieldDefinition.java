@@ -6,6 +6,7 @@ public record ViewFieldDefinition(ViewFieldRef fieldRef,
                                   UiRule<Boolean> required,
                                   UiRule<Boolean> readOnly,
                                   String uiType,
+                                  boolean secretInput,
                                   FieldValuePresentation valuePresentation,
                                   String width,
                                   Integer columnSpan,
@@ -24,6 +25,9 @@ public record ViewFieldDefinition(ViewFieldRef fieldRef,
         required = required == null ? UiRule.constant(Boolean.FALSE) : required;
         readOnly = readOnly == null ? UiRule.constant(Boolean.FALSE) : readOnly;
         uiType = uiType == null || uiType.isBlank() ? null : uiType.trim();
+        if (secretInput && !"password".equals(uiType)) {
+            throw new IllegalArgumentException("secret input requires uiType password");
+        }
         if ("fileSize".equals(uiType) || "file_size".equals(uiType)) {
             throw new IllegalArgumentException("file size must use value presentation instead of uiType");
         }
@@ -62,7 +66,7 @@ public record ViewFieldDefinition(ViewFieldRef fieldRef,
                                BooleanStatusPresentation booleanStatus,
                                Integer maxDisplayLines,
                                String treeRootTitle) {
-        this(fieldRef, label, visible, required, readOnly, uiType, valuePresentation, width, columnSpan, align,
+        this(fieldRef, label, visible, required, readOnly, uiType, false, valuePresentation, width, columnSpan, align,
                 fixed, booleanStatus, maxDisplayLines, treeRootTitle, null);
     }
 
@@ -78,8 +82,8 @@ public record ViewFieldDefinition(ViewFieldRef fieldRef,
                                String align,
                                Boolean fixed,
                                BooleanStatusPresentation booleanStatus) {
-        this(fieldRef, label, visible, required, readOnly, uiType, null, width, columnSpan, align, fixed,
-                booleanStatus, null, null);
+        this(fieldRef, label, visible, required, readOnly, uiType, false, null, width, columnSpan, align, fixed,
+                booleanStatus, null, null, null);
     }
 
     public static Builder field(String fieldName) {
@@ -97,6 +101,7 @@ public record ViewFieldDefinition(ViewFieldRef fieldRef,
         private UiRule<Boolean> required = UiRule.constant(Boolean.FALSE);
         private UiRule<Boolean> readOnly = UiRule.constant(Boolean.FALSE);
         private String uiType;
+        private boolean secretInput;
         private FieldValuePresentation valuePresentation;
         private String width;
         private Integer columnSpan = 1;
@@ -169,9 +174,24 @@ public record ViewFieldDefinition(ViewFieldRef fieldRef,
             return uiType("recordPicker");
         }
 
+        /** Uses the standard reference dialog backed by the target's REFERENCE navigator. */
+        public Builder recordPickerDialog() {
+            return uiType("record_picker_dialog");
+        }
+
         /** Uses the standard option-selection control for an already declared field domain. */
         public Builder select() {
             return uiType("select");
+        }
+
+        /**
+         * Declares a write-only secret input. The compiler rejects this declaration unless the
+         * model field is transient and Jackson write-only, preventing a password-looking editor
+         * from accidentally binding a readable or persisted field.
+         */
+        public Builder secretInput() {
+            this.secretInput = true;
+            return uiType("password");
         }
 
         /** Uses the lifecycle-aware enabled-state presentation and editor. */
@@ -261,7 +281,7 @@ public record ViewFieldDefinition(ViewFieldRef fieldRef,
 
         public ViewFieldDefinition build() {
             return new ViewFieldDefinition(fieldRef, label, visible, required, readOnly,
-                    uiType, valuePresentation, width, columnSpan, align, fixed, booleanStatus, maxDisplayLines,
+                    uiType, secretInput, valuePresentation, width, columnSpan, align, fixed, booleanStatus, maxDisplayLines,
                     treeRootTitle, overrideOf);
         }
     }

@@ -101,6 +101,25 @@ class PageActionInvocationCompilerTest {
     }
 
     @Test
+    void legacyPagesCanPlaceOnlyABoundCustomActionWithoutRedeclaringStandardCrud() {
+        var action = StaticModuleActionDefinition.recordAction("approve", "批准");
+        var ui = ModuleUiDefinition.builder("demo.entry")
+                .page(PageTemplates.listDetailCard(page -> page.list(list -> list.fields(fields -> { }))
+                        .detail(detail -> detail.editor(editor -> { }))))
+                .pageAction("approve", PageActionAnchor.DETAIL).build();
+        var definition = StaticModuleDefinition.builder("demo", "demo.entry", "Entry")
+                .actions(List.of(action)).uiDefinition(ui)
+                .actionInvocations(Map.of("approve", compile(Endpoint.class).get("approve"))).build();
+
+        var page = ModuleUiDescriptorCompiler.compile(definition).page();
+
+        assertThat(page.managedActions()).isFalse();
+        assertThat(page.actions()).containsExactly(new ResolvedPageActionDescriptor("approve", PageActionAnchor.DETAIL,
+                null, PageActionOperation.INVOKE,
+                new PageActionInvocation("PATCH", "/demo.entry/documents/{recordId}/approval", PageActionInvocation.Input.NONE)));
+    }
+
+    @Test
     void staticDefaultCategoryAndExecutorMatchPersistedActionDefaults() {
         var custom = StaticModuleActionDefinition.recordAction("approve", "批准");
         assertThat(custom.category()).isEqualTo(EntityActionCategory.CUSTOM);

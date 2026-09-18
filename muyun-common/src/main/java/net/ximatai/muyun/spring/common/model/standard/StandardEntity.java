@@ -18,6 +18,7 @@ import java.time.Instant;
 @Setter
 public abstract class StandardEntity implements EntityContract {
     /** Read-only reference labels; never stored or accepted as mutation facts. */
+    private transient String tenantTitle;
     private transient String createdByTitle;
     private transient String updatedByTitle;
 

@@ -5,6 +5,7 @@ import { computed, nextTick, onMounted, onUnmounted, ref, shallowRef, toRaw, wat
 import { useCurrentUserContext } from '../platform-admin-runtime/currentUserContext';
 import {
   createQueryScopedTreeModuleContext,
+  createQueryReferencePickerProvider,
   listDetailWorkspaceMinWidth,
   createReferenceRecordDetailBrowser,
   confirmAction,
@@ -17,6 +18,7 @@ import {
   useRecycleBinExplorerMode,
   type RecordFormFieldPickerConfig,
   type RecordPickerRecord,
+  type ReferencePickerProvider,
   type ScopedTreePickerCandidate,
   type CrudRecordListBase,
   type RecordExplorerItemDescriptor,
@@ -581,6 +583,42 @@ export function useModulePageSession(
   type NavigatorRecord = { id?: string; version?: number };
 
   const sourceReferencePickerConfigFor = createSourceReferencePickerConfigAssembler();
+  const targetReferencePickerProviders = new Map<string, ReferencePickerProvider>();
+
+  /**
+   * Target-navigator references normally retain the compact legacy picker. A descriptor may
+   * explicitly request dialog or dropdown presentation; both use the target's REFERENCE
+   * navigator, never ordinary target CRUD.
+   */
+  function targetReferencePickerConfig(
+    reference: ResolvedReferenceFieldDescriptor,
+    presentation: 'dialog' | 'dropdown' | undefined,
+  ): Pick<RecordFormFieldPickerConfig, 'provider' | 'reloadKey'> {
+    if (reference.candidateDelivery !== 'TARGET_NAVIGATOR' || !presentation) return {};
+    const providerKey = `${reference.targetModuleAlias}:${reference.cardinality}:${reference.titleField ?? ''}`;
+    let provider = targetReferencePickerProviders.get(providerKey);
+    if (!provider) {
+      provider = createQueryReferencePickerProvider({
+        http: rawContext.http,
+        reference: {
+          targetModuleAlias: reference.targetModuleAlias,
+          cardinality: reference.cardinality,
+          ...(reference.titleField ? { labelField: reference.titleField } : {}),
+        },
+      });
+      targetReferencePickerProviders.set(providerKey, provider);
+    }
+    return { provider, reloadKey: `target-reference:${providerKey}` };
+  }
+
+  function referencePickerPresentationOf(field: {
+    fieldControl?: { properties?: Readonly<Record<string, string>> };
+  }): 'dialog' | 'dropdown' | undefined {
+    const presentation = field.fieldControl?.properties?.presentation;
+    if (presentation === 'DIALOG') return 'dialog';
+    if (presentation === 'DROPDOWN') return 'dropdown';
+    return undefined;
+  }
 
   /**
    * The compact picker remains the default for source-owned references.  Only the two IAM trees
@@ -753,11 +791,13 @@ export function useModulePageSession(
                 : { recordId: String(navigatorManagementDetail.draft.value.id) },
           })
         : {};
+      const targetReferencePicker = targetReferencePickerConfig(reference, referencePickerPresentationOf(field));
       configs[pickerFieldName] = {
         context: createModuleContext({ http: rawContext.http, moduleAlias: reference.targetModuleAlias }),
         mode: recordPickerModeOf(reference.pickerMode),
         allowClear: !field.required?.constant,
         ...sourceReferencePickerConfig,
+        ...targetReferencePicker,
       };
     }
     if (level.tree && navigatorManagementFormFields.value.has('parentId')) {
@@ -1686,6 +1726,7 @@ export function useModulePageSession(
           }),
         );
       }
+      const targetReferencePicker = targetReferencePickerConfig(reference, referencePickerPresentationOf(field));
       configs[pickerFieldName] = {
         context: hasPickerQueryScope
           ? createQueryScopedTreeModuleContext(pickerContext, {
@@ -1696,6 +1737,7 @@ export function useModulePageSession(
         mode: recordPickerModeOf(reference.pickerMode),
         allowClear: !field.required?.constant,
         ...sourceReferencePickerConfig,
+        ...targetReferencePicker,
       };
     }
     return configs;

@@ -6,12 +6,11 @@ import net.ximatai.muyun.spring.ability.AbstractAbilityService;
 import net.ximatai.muyun.spring.ability.BaseDao;
 import net.ximatai.muyun.spring.ability.CacheAbility;
 import net.ximatai.muyun.spring.ability.EnableAbility;
-import net.ximatai.muyun.spring.ability.SoftDeleteAbility;
 import net.ximatai.muyun.spring.ability.SortAbility;
-import net.ximatai.muyun.spring.ability.child.ChildrenAbility;
 import net.ximatai.muyun.spring.ability.query.QueryAbility;
 import net.ximatai.muyun.spring.ability.query.QueryDescriptor;
 import net.ximatai.muyun.spring.ability.query.QueryDescriptors;
+import net.ximatai.muyun.spring.ability.reference.ReferenceAbility;
 import net.ximatai.muyun.spring.ability.security.FieldCryptoProvider;
 import net.ximatai.muyun.spring.ability.security.FieldProtectionAbility;
 import net.ximatai.muyun.spring.ability.security.FieldSigner;
@@ -26,28 +25,24 @@ import java.util.List;
 /** Resolves the first enabled model in the tenant, targeted-platform, then global-platform priority order. */
 @Service
 public class AiModelConfigurationService extends AbstractAbilityService<AiModelConfiguration> implements
-        SoftDeleteAbility<AiModelConfiguration>,
         EnableAbility<AiModelConfiguration>,
         SortAbility<AiModelConfiguration>,
         CacheAbility<AiModelConfiguration>,
         QueryAbility<AiModelConfiguration>,
         FieldProtectionAbility<AiModelConfiguration>,
-        ChildrenAbility<AiModelConfiguration> {
+        ReferenceAbility<AiModelConfiguration> {
     public static final String MODULE_ALIAS = "platform.ai_model_configuration";
 
     private final AiModelProviderService providerService;
-    private final ObjectProvider<AiModelConfigurationTenantService> tenantGrantService;
     private final FieldCryptoProvider cryptoProvider;
     private final FieldSigner signer;
 
     public AiModelConfigurationService(BaseDao<AiModelConfiguration, String> dao,
                                        AiModelProviderService providerService,
-                                       ObjectProvider<AiModelConfigurationTenantService> tenantGrantService,
                                        ObjectProvider<FieldCryptoProvider> cryptoProvider,
                                        ObjectProvider<FieldSigner> signer) {
         super(MODULE_ALIAS, AiModelConfiguration.class, dao);
         this.providerService = providerService;
-        this.tenantGrantService = tenantGrantService;
         this.cryptoProvider = cryptoProvider == null ? FieldCryptoProvider.UNAVAILABLE
                 : cryptoProvider.getIfAvailable(() -> FieldCryptoProvider.UNAVAILABLE);
         this.signer = signer == null ? FieldSigner.UNAVAILABLE : signer.getIfAvailable(() -> FieldSigner.UNAVAILABLE);
@@ -89,7 +84,8 @@ public class AiModelConfigurationService extends AbstractAbilityService<AiModelC
 
     @Override
     public void beforeInsert(AiModelConfiguration configuration) {
-        normalize(configuration);
+        normalize(configuration, null);
+        requireNoConfigurationForScope(configuration);
         applyNewApiKey(configuration, null);
     }
 
@@ -99,7 +95,7 @@ public class AiModelConfigurationService extends AbstractAbilityService<AiModelC
             throw new PlatformException("AI model configuration does not exist");
         }
         configuration.setTenantId(existing.getTenantId());
-        normalize(configuration);
+        normalize(configuration, existing);
         applyNewApiKey(configuration, existing);
     }
 
@@ -115,8 +111,6 @@ public class AiModelConfigurationService extends AbstractAbilityService<AiModelC
         if (tenantId != null) {
             AiModelConfiguration tenant = firstEnabled(Criteria.of());
             if (tenant != null) return requireUsable(tenant, "tenant");
-            AiModelConfiguration targeted = firstTargetedPlatformConfiguration(tenantId);
-            if (targeted != null) return requireUsable(targeted, "targeted platform");
         }
         return requireUsable(firstPlatformConfiguration(), "platform");
     }
@@ -129,7 +123,7 @@ public class AiModelConfigurationService extends AbstractAbilityService<AiModelC
         return configuration;
     }
 
-    private void normalize(AiModelConfiguration configuration) {
+    private void normalize(AiModelConfiguration configuration, AiModelConfiguration existing) {
         if (configuration.getProvider() == null || configuration.getProvider().isBlank()) {
             throw new PlatformException("AI model provider must not be blank");
         }
@@ -145,12 +139,18 @@ public class AiModelConfigurationService extends AbstractAbilityService<AiModelC
         } else {
             configuration.setTitle(configuration.getTitle().trim());
         }
-        if (TenantContext.currentTenantId().isPresent()) {
-            configuration.setAvailabilityScope(AiModelAvailabilityScope.TENANT_PRIVATE);
-        } else if (configuration.getAvailabilityScope() == null
-                || configuration.getAvailabilityScope() == AiModelAvailabilityScope.TENANT_PRIVATE) {
-            configuration.setAvailabilityScope(AiModelAvailabilityScope.PLATFORM);
+        String currentTenantId = TenantContext.currentTenantId().orElse(null);
+        if (currentTenantId != null) {
+            configuration.setTenantId(currentTenantId);
+        } else if (existing == null) {
+            String targetTenantId = configuration.getTenantId();
+            configuration.setTenantId(targetTenantId == null || targetTenantId.isBlank() ? null : targetTenantId.trim());
+        } else {
+            configuration.setTenantId(existing.getTenantId());
         }
+        configuration.setAvailabilityScope(configuration.getTenantId() == null
+                ? AiModelAvailabilityScope.PLATFORM : AiModelAvailabilityScope.TENANT_PRIVATE);
+        configuration.setOwnershipScopeKey(configuration.getTenantId() == null ? "G" : "T:" + configuration.getTenantId());
         if (configuration.getEnabled() == null) {
             configuration.setEnabled(Boolean.TRUE);
         }
@@ -175,17 +175,6 @@ public class AiModelConfigurationService extends AbstractAbilityService<AiModelC
         return sortedList(criteria).stream().filter(item -> Boolean.TRUE.equals(item.getEnabled())).findFirst().orElse(null);
     }
 
-    private AiModelConfiguration firstTargetedPlatformConfiguration(String tenantId) {
-        AiModelConfigurationTenantService grants = tenantGrantService == null ? null : tenantGrantService.getIfAvailable();
-        if (grants == null) return null;
-        List<String> configurationIds = grants.configurationIdsForTenant(tenantId);
-        if (configurationIds.isEmpty()) return null;
-        try (TenantContext.Scope ignored = TenantContext.system("resolve targeted platform AI model configuration")) {
-            return firstEnabled(Criteria.of().in("id", configurationIds)
-                    .eq("availabilityScope", AiModelAvailabilityScope.SELECTED_TENANTS));
-        }
-    }
-
     private AiModelConfiguration firstPlatformConfiguration() {
         try (TenantContext.Scope ignored = TenantContext.system("resolve platform AI model configuration")) {
             return firstEnabled(Criteria.of().eq("availabilityScope", AiModelAvailabilityScope.PLATFORM));
@@ -200,5 +189,17 @@ public class AiModelConfigurationService extends AbstractAbilityService<AiModelC
             throw new PlatformConfigurationException(scope + " AI model configuration has no API key");
         }
         return configuration;
+    }
+
+    private void requireNoConfigurationForScope(AiModelConfiguration configuration) {
+        Criteria criteria = Criteria.of();
+        if (configuration.getTenantId() == null) criteria.isNull("tenantId");
+        else criteria.eq("tenantId", configuration.getTenantId());
+        criteria.eq("availabilityScope", configuration.getAvailabilityScope());
+        if (count(criteria) > 0) {
+            throw new PlatformException(configuration.getTenantId() == null
+                    ? "a global AI model configuration already exists"
+                    : "an AI model configuration already exists for tenant: " + configuration.getTenantId());
+        }
     }
 }

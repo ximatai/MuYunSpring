@@ -839,7 +839,7 @@ function retryCompactError() {
 <style scoped>
 .reference-picker {
   min-width: 0;
-  width: min(100%, var(--muyun-standard-input-width, 280px));
+  width: 100%;
 }
 .reference-picker-select {
   width: 100%;

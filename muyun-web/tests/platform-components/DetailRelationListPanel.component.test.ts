@@ -149,6 +149,7 @@ function executableRelation(): ResolvedDetailRelationDescriptor {
           {
             fieldName: 'summary',
             title: '摘要',
+            referenceTitleField: 'summaryTitle',
             width: 240,
             align: 'center',
             maxDisplayLines: 2,

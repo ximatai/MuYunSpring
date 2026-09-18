@@ -33,6 +33,8 @@ import net.ximatai.muyun.spring.platform.web.StaticModuleUiContributor;
 import net.ximatai.muyun.spring.platform.web.StaticModuleTenantScopePolicy;
 import net.ximatai.muyun.spring.platform.web.StaticModuleWebControllerAdapter;
 import net.ximatai.muyun.spring.platform.web.StaticRecordReadProjectionService;
+import net.ximatai.muyun.spring.platform.web.UiFormula;
+import net.ximatai.muyun.spring.platform.web.UiRule;
 import net.ximatai.muyun.spring.dynamic.metadata.ViewControlType;
 import net.ximatai.muyun.spring.common.platform.ActionAccessMode;
 import net.ximatai.muyun.spring.common.platform.ActionDefaultGrantPolicy;
@@ -169,7 +171,8 @@ public class UserAccountWebController extends StaticModuleWebControllerAdapter<U
                 .detail(detail -> detail.editor(form -> form
                         .title("用户账号")
                         .field("username", field -> field.label("账号").required())
-                        .field("password", field -> field.label("初始密码").required().uiType("password"))
+                        .field("password", field -> field.label("初始密码").secretInput().required()
+                                .visible(UiRule.formula(UiFormula.booleanExpression("!(PRESENT({id}))"))))
                         .field("enabled", field -> field.label("启用状态").enabledStatus())
                         .field("passwordStatus", field -> field.label("密码状态").readOnly())
                         .field("employeeNo", field -> field.label("职员工号").readOnly())

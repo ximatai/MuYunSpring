@@ -59,6 +59,8 @@ private transient List<Map<String, Object>> tagSummaries;
 且必须带出 `title`；`color` 是可选展示字段。当前 `ReferenceSummary` 仅有静态 Java 注解入口，动态元数据
 尚不能声明该摘要事实，因此动态页面配置不能使用 `tagList`，这是阶段限制而非动静一体的完成形态。
 
+`tenantId` 是平台标准作用域字段，不要求、也不允许每个租户实体重复将它声明为业务 `@ReferenceTo`。平台将其作为标准引用计划投影为只读 `tenantTitle`：静态记录的标准输出转换和动态记录的读投影复用同一 `iam.tenant` 目标解析，不进入保存字段，也不改变租户过滤或数据归属。页面 descriptor 对 `tenantId` 的 `titleField` 指向该来源记录投影字段；候选目标自身的 `title` 不能被当作来源记录字段读取。详情和列表只消费 `tenantTitle`，缺失时保留 ID，不以候选／翻译请求补齐标题。
+
 `@ReferencedBy` 则表达只读反向关联。它从 `List` 的泛型来源模型中寻找唯一指向当前模型的
 `@ReferenceTo`；多条引用时以 `sourceField` 消歧。平台启动时按来源模型自动解析唯一的 CRUD service，
 读取目标记录后按该外键装配列表；批量详情与领域聚合会对同一来源关系执行一次 `IN` 查询后按外键回填。缺少或重复来源 service 会在启动期失败。该注解不属于聚合、不会写入

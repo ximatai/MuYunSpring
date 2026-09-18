@@ -1,6 +1,6 @@
 package net.ximatai.muyun.spring.platform.web;
 
-import net.ximatai.muyun.spring.ability.reference.PlatformAuditReferences;
+import net.ximatai.muyun.spring.ability.reference.PlatformStandardReferences;
 import net.ximatai.muyun.spring.platform.module.StaticModuleReadProjectionDefinition;
 
 import net.ximatai.muyun.database.core.orm.Criteria;
@@ -423,7 +423,7 @@ public class StaticRecordReadProjectionService {
                 .map(ViewFieldRef::fieldName)
                 .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new));
         if (modelClass != null) {
-            PlatformAuditReferences.plans().stream()
+            PlatformStandardReferences.availablePlans().stream()
                     .filter(plan -> fields.contains(plan.sourceField()))
                     .flatMap(plan -> plan.projections().stream()).map(net.ximatai.muyun.spring.ability.reference.ReferenceProjection::outputField).forEach(fields::add);
             Set<String> optionLoadFields = projection.postReadTransforms().stream()
@@ -449,7 +449,7 @@ public class StaticRecordReadProjectionService {
         }
         Set<String> output = Set.copyOf(outputFieldNames(projection, modelClass));
         List<String> internal = new java.util.ArrayList<>(projection.internalReadFields());
-        for (ReferencePlan plan : PlatformAuditReferences.withStaticPlans(modelClass)) {
+        for (ReferencePlan plan : PlatformStandardReferences.withStaticPlans(modelClass)) {
             boolean projectionRequested = plan.projections().stream()
                     .anyMatch(item -> output.contains(item.outputField()));
             if (projectionRequested && !output.contains(plan.sourceField())) {

@@ -7,18 +7,26 @@ import net.ximatai.muyun.spring.common.model.standard.StandardEntity;
 import java.lang.reflect.Field;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Set;
 
 public final class StandardEntitySchema {
     public static final String ID_FIELD = "id";
     public static final String TENANT_ID_FIELD = "tenantId";
+    public static final String TENANT_TITLE_FIELD = "tenantTitle";
     public static final String VERSION_FIELD = "version";
     public static final String DELETED_FIELD = "deleted";
     public static final String DELETED_AT_FIELD = "deletedAt";
     public static final String DELETED_BY_FIELD = "deletedBy";
     public static final String CREATED_BY_FIELD = "createdBy";
+    public static final String CREATED_BY_TITLE_FIELD = "createdByTitle";
     public static final String CREATED_AT_FIELD = "createdAt";
     public static final String UPDATED_BY_FIELD = "updatedBy";
+    public static final String UPDATED_BY_TITLE_FIELD = "updatedByTitle";
     public static final String UPDATED_AT_FIELD = "updatedAt";
+
+    /** Derived labels enrich read output only; they are never persistence or mutation fields. */
+    public static final Set<String> READ_ONLY_PROJECTION_FIELDS = Set.of(
+            TENANT_TITLE_FIELD, CREATED_BY_TITLE_FIELD, UPDATED_BY_TITLE_FIELD);
 
     public static final String ID_COLUMN = columnName(field(ID_FIELD));
     public static final String TENANT_ID_COLUMN = columnName(field(TENANT_ID_FIELD));

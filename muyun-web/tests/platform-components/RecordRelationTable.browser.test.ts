@@ -1,5 +1,7 @@
 import { mount } from '@vue/test-utils';
+import { h } from 'vue';
 import { expect, it } from 'vitest';
+import ObjectPickerInput from '@/platform-components/ObjectPickerInput.vue';
 import RecordRelationTable from '@/platform-components/RecordRelationTable.vue';
 import '@/styles.css';
 
@@ -27,7 +29,7 @@ it.each(['default', 'compact'] as const)(
       expect(widths()[0]).toBeCloseTo(34, 0);
       expect(widths()[1]).toBeCloseTo(160, 0);
       expect(widths()[2]).toBeCloseTo(220, 0);
-      expect(widths()[3]).toBeCloseTo(160, 0);
+      expect(widths()[3]).toBeCloseTo(159, 0);
       const scroll = wrapper.get('.managed-relation-inline__scroll').element;
       expect(scroll.clientWidth).toBeLessThanOrEqual(420);
       expect(scroll.scrollWidth).toBeGreaterThan(scroll.clientWidth);
@@ -43,3 +45,54 @@ it.each(['default', 'compact'] as const)(
     }
   },
 );
+
+it('keeps the selection column fixed when a relation table fills its host', () => {
+  const host = document.createElement('div');
+  host.style.width = '640px';
+  document.body.append(host);
+  const wrapper = mount(RecordRelationTable, {
+    attachTo: host,
+    props: {
+      selection: true,
+      columns: [{ fieldName: 'tenantId', title: '租户' }],
+      rows: [{ tenantId: 'demo' }],
+    },
+  });
+  try {
+    const widths = wrapper.findAll('th').map((cell) => cell.element.getBoundingClientRect().width);
+    expect(widths[0]).toBeCloseTo(34, 0);
+    expect(widths[1]).toBeCloseTo(605, 0);
+  } finally {
+    wrapper.unmount();
+    host.remove();
+  }
+});
+
+it('keeps an embedded picker clear affordance aligned with the standard picker', () => {
+  const host = document.createElement('div');
+  host.style.width = '640px';
+  document.body.append(host);
+  const standard = mount(ObjectPickerInput, { attachTo: host, props: { value: '演示租户' } });
+  const relation = mount(RecordRelationTable, {
+    attachTo: host,
+    props: {
+      columns: [{ fieldName: 'tenantId', title: '租户' }],
+      rows: [{ tenantId: 'demo' }],
+    },
+    slots: {
+      cell: () => h(ObjectPickerInput, { value: '演示租户' }),
+    },
+  });
+  try {
+    const clearGap = (root: ReturnType<typeof mount>) => {
+      const clear = root.get('.ant-input-clear-icon').element.getBoundingClientRect();
+      const action = root.get('.ant-input-search-button').element.getBoundingClientRect();
+      return action.left - clear.right;
+    };
+    expect(clearGap(relation)).toBeCloseTo(clearGap(standard), 0);
+  } finally {
+    relation.unmount();
+    standard.unmount();
+    host.remove();
+  }
+});

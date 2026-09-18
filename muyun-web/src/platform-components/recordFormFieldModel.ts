@@ -639,9 +639,10 @@ function resolveReferencePickerPresentation(
 }
 
 /**
- * Presentation is executable only for the source-field transport. Tree and target-navigator
- * references keep their established controls; accepting this property there would silently
- * advertise a provider the common form does not own.
+ * A record-picker presentation is executable for both standard reference transports. The
+ * source-field transport supplies its own resolver; the target-navigator transport is supplied
+ * by the common form session through the target's REFERENCE navigator. Tree references retain
+ * their dedicated control because neither presentation describes hierarchical navigation.
  */
 function recordPickerPresentationDiagnostic(
   field: RecordFormFieldDescriptor,
@@ -658,9 +659,6 @@ function recordPickerPresentationDiagnostic(
   }
   if (field.reference.pickerMode === 'TREE') {
     return `字段控件“${fieldControl.alias}”的 presentation 不支持 TREE 引用选择，已拒绝编辑。`;
-  }
-  if (field.reference.candidateDelivery !== 'SOURCE_FIELD') {
-    return `字段控件“${fieldControl.alias}”的 presentation 只支持 SOURCE_FIELD 引用候选交付，已拒绝编辑。`;
   }
   return undefined;
 }

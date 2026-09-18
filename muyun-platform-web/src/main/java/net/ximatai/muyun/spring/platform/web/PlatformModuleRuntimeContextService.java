@@ -1065,7 +1065,7 @@ public class PlatformModuleRuntimeContextService {
         if (dynamicDescriptor == null) {
             return java.util.Map.of();
         }
-        return dynamicDescriptor.entities().stream()
+        java.util.Map<String, ResolvedReferenceFieldDescriptor> declared = dynamicDescriptor.entities().stream()
                 .filter(entity -> entity.entityAlias().equals(dynamicDescriptor.mainEntityAlias()))
                 .findFirst()
                 .map(entity -> ReferenceFieldDescriptorCompiler.withTreeParentReference(
@@ -1093,6 +1093,16 @@ public class PlatformModuleRuntimeContextService {
                                         (left, right) -> left)),
                         ignored -> ReferencePickerMode.TREE))
                 .orElseGet(java.util.Map::of);
+        ResolvedReferenceFieldDescriptor tenantScope = new ResolvedReferenceFieldDescriptor("iam.tenant",
+                net.ximatai.muyun.spring.ability.reference.ReferenceCardinality.ONE,
+                net.ximatai.muyun.spring.common.schema.StandardEntitySchema.TENANT_TITLE_FIELD,
+                ReferencePickerMode.LIST);
+        return java.util.stream.Stream.concat(declared.entrySet().stream(),
+                        java.util.stream.Stream.of(java.util.Map.entry(
+                                net.ximatai.muyun.spring.common.schema.StandardEntitySchema.TENANT_ID_FIELD, tenantScope)))
+                .collect(java.util.stream.Collectors.toUnmodifiableMap(
+                        java.util.Map.Entry::getKey, java.util.Map.Entry::getValue,
+                        (declaredReference, ignoredStandardScope) -> declaredReference));
     }
 
     /** The source-side companion projection is stable even when the target label is not named title. */

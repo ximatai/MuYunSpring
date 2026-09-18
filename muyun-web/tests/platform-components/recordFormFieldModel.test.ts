@@ -20,6 +20,7 @@ import {
   optionItemsToOptions,
   optionItemsToTree,
 } from '@/platform-components/optionFieldOptions.ts';
+import { resolveRecordDetailDisplayValue } from '@/platform-components/recordDetailFieldModel.ts';
 import type { ResolvedModuleUiDescriptor } from '@/web-contracts/index.ts';
 
 it('clears declared dependent references from the full form catalog', () => {
@@ -279,6 +280,57 @@ it('defaults descriptor-free and presentation-free record pickers to the compact
   expect(noPresentation.referencePickerPresentation).toBe('dialog');
 });
 
+it('accepts an explicit dialog presentation for target-navigator references', () => {
+  const state = resolveRecordFormFieldState('tenantId', {
+    fields: new Map([
+      [
+        'tenantId',
+        {
+          ...descriptorField('tenantId', '绑定租户'),
+          fieldControl: {
+            alias: 'record_picker_dialog',
+            rendererType: 'RECORD_PICKER',
+            valueShape: 'SCALAR',
+            properties: { presentation: 'DIALOG' },
+          },
+          reference: {
+            targetModuleAlias: 'iam.tenant',
+            cardinality: 'ONE',
+            candidateDelivery: 'TARGET_NAVIGATOR',
+          },
+        },
+      ],
+    ]),
+  });
+
+  expect(state.controlType).toBe('recordPicker');
+  expect(state.referencePickerPresentation).toBe('dialog');
+  expect(state.rendererDiagnostic).toBeUndefined();
+});
+
+it('uses a target-navigator server-side title projection instead of the target candidate field name', () => {
+  const field = resolveRecordFormFieldState('tenantId', {
+    fields: new Map([
+      [
+        'tenantId',
+        {
+          ...descriptorField('tenantId', '绑定租户'),
+          reference: {
+            targetModuleAlias: 'iam.tenant',
+            cardinality: 'ONE',
+            titleField: 'tenantTitle',
+            candidateDelivery: 'TARGET_NAVIGATOR',
+          },
+        },
+      ],
+    ]),
+  });
+
+  expect(resolveRecordDetailDisplayValue(field, { title: '当前记录', tenantId: 'demo', tenantTitle: '演示租户' })).toBe(
+    '演示租户',
+  );
+});
+
 it.each([
   [
     'unknown presentation',
@@ -297,12 +349,6 @@ it.each([
       candidateDelivery: 'SOURCE_FIELD',
     },
     'presentation 不支持 TREE 引用选择',
-  ],
-  [
-    'target navigator delivery',
-    { presentation: 'DIALOG' },
-    { targetModuleAlias: 'iam.organization', cardinality: 'ONE', candidateDelivery: 'TARGET_NAVIGATOR' },
-    'presentation 只支持 SOURCE_FIELD 引用候选交付',
   ],
 ] as const)(
   'rejects RECORD_PICKER $s instead of silently changing its presentation',

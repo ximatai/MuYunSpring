@@ -474,6 +474,8 @@ export interface ResolvedDetailRelationListField {
   width?: number;
   align?: 'left' | 'center' | 'right' | string;
   maxDisplayLines?: number;
+  /** Read-side label companion for a reference ID column. */
+  referenceTitleField?: string;
 }
 
 export function hasExecutableDetailRelationQueryContract(

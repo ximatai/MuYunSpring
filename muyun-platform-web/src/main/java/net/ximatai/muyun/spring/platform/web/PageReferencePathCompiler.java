@@ -1,7 +1,7 @@
 package net.ximatai.muyun.spring.platform.web;
 
 import net.ximatai.muyun.spring.ability.PlatformAbilityRuntime;
-import net.ximatai.muyun.spring.ability.reference.PlatformAuditReferences;
+import net.ximatai.muyun.spring.ability.reference.PlatformStandardReferences;
 import net.ximatai.muyun.spring.ability.reference.ReferenceCardinality;
 import net.ximatai.muyun.spring.ability.reference.ReferenceLoadPath;
 import net.ximatai.muyun.spring.ability.reference.ReferencePlan;
@@ -57,9 +57,9 @@ public final class PageReferencePathCompiler {
         if (source == null || field == null || field.isBlank()) {
             throw new IllegalArgumentException("page reference path contains a blank field");
         }
-        var audit = PlatformAuditReferences.plans().stream()
+        var standard = PlatformStandardReferences.plans().stream()
                 .filter(candidate -> field.equals(candidate.sourceField())).findFirst();
-        if (audit.isPresent()) return audit.get();
+        if (standard.isPresent()) return standard.get();
         return PlatformAbilityRuntime.referenceTargetResolver().referencePlan(source, field)
                 .orElseThrow(() -> new IllegalArgumentException("page reference path is not a declared reference: "
                         + source.qualifiedName() + "." + field));

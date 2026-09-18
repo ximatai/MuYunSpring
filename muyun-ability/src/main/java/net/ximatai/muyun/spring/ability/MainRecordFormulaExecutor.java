@@ -44,7 +44,7 @@ import java.util.stream.Collectors;
  */
 final class MainRecordFormulaExecutor {
     /** Transient display companions from {@code StandardEntity}; they do not carry mutation facts. */
-    private static final Set<String> READ_ONLY_COMPANION_FIELDS = Set.of("createdByTitle", "updatedByTitle");
+    private static final Set<String> READ_ONLY_COMPANION_FIELDS = StandardEntitySchema.READ_ONLY_PROJECTION_FIELDS;
     private static final Set<String> PROTECTED_FIELDS = protectedFields();
 
     private final FormulaEngine engine = new FormulaEngine();

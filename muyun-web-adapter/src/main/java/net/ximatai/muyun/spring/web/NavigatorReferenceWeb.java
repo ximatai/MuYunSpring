@@ -12,6 +12,8 @@ import net.ximatai.muyun.spring.common.security.FieldOutputContext;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 
+import java.util.List;
+
 /**
  * Read-only transport for a module used as a page navigator source.
  *
@@ -35,6 +37,32 @@ public interface NavigatorReferenceWeb<T extends EntityContract, S extends CrudA
                 result = scoped;
             } else {
                 result = service().pageQuery(criteria, pageRequest, querySorts(request));
+            }
+            return WebPageResponse.from(WebOutputSupport.page(service(), result, FieldOutputContext.LIST));
+        });
+    }
+
+    /**
+     * Resolves persisted selections without treating the entity primary key as a user-queryable
+     * field. The REFERENCE action and its data scope remain the authorization boundary.
+     */
+    @PostMapping("/navigator/reference/translate")
+    @ActionEndpoint(PlatformAction.REFERENCE)
+    default WebPageResponse<T> navigatorReferenceTranslate(
+            @RequestBody(required = false) WebReferenceTranslationRequest request) {
+        List<String> ids = request == null ? List.of() : request.ids();
+        if (ids.isEmpty()) return WebPageResponse.fromList(List.of());
+        return webScope(() -> {
+            Criteria criteria = Criteria.of().in("id", ids);
+            PageRequest pageRequest = PageRequest.of(1, ids.size());
+            PageResult<T> result;
+            if (service() instanceof DataScopeAbility<?> dataScopeAbility) {
+                @SuppressWarnings("unchecked")
+                PageResult<T> scoped = (PageResult<T>) DataScopeAbility.cast(dataScopeAbility).pageQueryForAction(
+                        PlatformAction.REFERENCE, criteria, pageRequest);
+                result = scoped;
+            } else {
+                result = service().pageQuery(criteria, pageRequest);
             }
             return WebPageResponse.from(WebOutputSupport.page(service(), result, FieldOutputContext.LIST));
         });

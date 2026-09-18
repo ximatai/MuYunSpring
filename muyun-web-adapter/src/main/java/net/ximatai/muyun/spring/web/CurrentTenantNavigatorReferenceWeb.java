@@ -11,6 +11,8 @@ import net.ximatai.muyun.spring.common.security.FieldOutputContext;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 
+import java.util.List;
+
 /**
  * Navigator transport for the tenant selector.
  *
@@ -39,6 +41,25 @@ public interface CurrentTenantNavigatorReferenceWeb<T extends EntityContract, S 
             return WebPageResponse.from(WebOutputSupport.page(service(),
                     service().pageQuery(Criteria.of().eq("id", tenantId).eq("enabled", true),
                             PageRequest.of(page.pageNum(), page.pageSize()), querySorts(request)),
+                    FieldOutputContext.LIST));
+        });
+    }
+
+    @Override
+    @PostMapping("/navigator/reference/translate")
+    @ActionEndpoint(PlatformAction.REFERENCE)
+    default WebPageResponse<T> navigatorReferenceTranslate(
+            @RequestBody(required = false) WebReferenceTranslationRequest request) {
+        if (CurrentUserContext.isSystem()) {
+            return NavigatorReferenceWeb.super.navigatorReferenceTranslate(request);
+        }
+        return webScope(() -> {
+            String tenantId = CurrentUserContext.currentTenantId().filter(value -> !value.isBlank())
+                    .orElseThrow(() -> new IllegalStateException("tenant reference requires tenant context"));
+            List<String> ids = request == null ? List.of() : request.ids();
+            if (!ids.contains(tenantId)) return WebPageResponse.fromList(List.of());
+            return WebPageResponse.from(WebOutputSupport.page(service(),
+                    service().pageQuery(Criteria.of().eq("id", tenantId), PageRequest.of(1, 1)),
                     FieldOutputContext.LIST));
         });
     }

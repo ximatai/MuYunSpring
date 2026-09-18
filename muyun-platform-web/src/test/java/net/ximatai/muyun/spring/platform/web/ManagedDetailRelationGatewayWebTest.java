@@ -9,8 +9,11 @@ import net.ximatai.muyun.spring.common.platform.ActionExecutionPolicyService;
 import net.ximatai.muyun.spring.common.platform.ActionExecutionContext;
 import net.ximatai.muyun.spring.common.platform.PlatformAction;
 import net.ximatai.muyun.spring.ability.DataScopeAbility;
+import net.ximatai.muyun.spring.ability.PlatformAbilityRuntime;
 import net.ximatai.muyun.spring.ability.child.ChildRelation;
 import net.ximatai.muyun.spring.ability.child.ChildrenAbility;
+import net.ximatai.muyun.spring.ability.reference.ReferenceAbility;
+import net.ximatai.muyun.spring.ability.reference.StaticReferenceResolver;
 import net.ximatai.muyun.spring.platform.metadata.FieldUiControl;
 import net.ximatai.muyun.spring.platform.metadata.FieldUiControlProperty;
 import net.ximatai.muyun.spring.platform.metadata.FieldUiControlPropertyService;
@@ -23,6 +26,8 @@ import net.ximatai.muyun.spring.platform.ui.ResolvedDetailRelationDescriptor;
 import net.ximatai.muyun.spring.platform.ui.ResolvedDetailRelationMutationContract;
 import net.ximatai.muyun.spring.platform.ui.ResolvedDetailRelationQueryContract;
 import net.ximatai.muyun.spring.platform.ui.ResolvedDetailRelationEditing;
+import net.ximatai.muyun.spring.platform.ui.ResolvedDetailRelationListField;
+import net.ximatai.muyun.spring.platform.ui.ResolvedDetailRelationListProjection;
 import net.ximatai.muyun.spring.platform.module.StaticModuleActionDefinition;
 import net.ximatai.muyun.spring.platform.module.PlatformModuleAction;
 import net.ximatai.muyun.spring.platform.module.PlatformModuleActionService;
@@ -33,6 +38,7 @@ import net.ximatai.muyun.spring.common.platform.ActionExecutionPolicy;
 import net.ximatai.muyun.spring.common.platform.DataScopeCriteriaResult;
 import net.ximatai.muyun.spring.common.platform.DataScopeCriteriaService;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.AfterEach;
 import org.springframework.http.MediaType;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.MockMvc;
@@ -59,6 +65,11 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 class ManagedDetailRelationGatewayWebTest {
+    @AfterEach
+    void resetReferenceTargetResolver() {
+        PlatformAbilityRuntime.resetReferenceTargetResolver();
+    }
+
     @Test
     void shouldExposeRetainedAggregateChildrenOnlyThroughTheParentRelationBoundary() throws Exception {
         FieldUiControlService parentService = mock(FieldUiControlService.class);
@@ -172,6 +183,38 @@ class ManagedDetailRelationGatewayWebTest {
         assertThat(authorization.getAllValues()).extracting(ActionExecutionContext::actionCode)
                 .contains("field_ui_control_property_query", "field_ui_control_property_create",
                         "field_ui_control_property_update", "field_ui_control_property_delete");
+    }
+
+    @Test
+    void shouldReturnTheDeclaredReferenceTitleCompanionForManagedRelationRows() {
+        FieldUiControlService parentService = mock(FieldUiControlService.class);
+        FieldUiControlPropertyService childService = mock(FieldUiControlPropertyService.class);
+        FieldUiControl parent = parent("select");
+        FieldUiControlProperty property = property("property-1", "select");
+        property.setValueFieldSpecAlias("text");
+        when(parentService.select("select")).thenReturn(parent);
+        when(childService.modelClass()).thenReturn(FieldUiControlProperty.class);
+        when(childService.list(any(Criteria.class), any(net.ximatai.muyun.database.core.orm.Sort[].class)))
+                .thenReturn(List.of(property));
+        ReferenceAbility<?> target = mock(ReferenceAbility.class);
+        var reference = StaticReferenceResolver.plans(FieldUiControlProperty.class).stream()
+                .filter(plan -> plan.sourceField().equals("valueFieldSpecAlias"))
+                .findFirst().orElseThrow().target();
+        when(target.projections(eq(List.of("text")), eq(List.of("title"))))
+                .thenReturn(Map.of("text", Map.of("title", "文本")));
+        PlatformAbilityRuntime.configureReferenceTargetResolver(candidate -> reference.equals(candidate)
+                ? Optional.of(target) : Optional.empty());
+        ResolvedDetailRelationListProjection projection = new ResolvedDetailRelationListProjection(null, List.of(
+                new ResolvedDetailRelationListField("valueFieldSpecAlias", "字段类型", null, null,
+                        null, null, null, null)));
+
+        var response = gateway(parentService, childService, mutation(true, true, true), new AllowAllPolicyService(),
+                new ActionEndpointContextResolver(), projection)
+                .query(FieldUiControlService.MODULE_ALIAS, parentService, "select", "properties", null);
+
+        assertThat(response.records()).singleElement().satisfies(record ->
+                assertThat((Map<String, Object>) record).containsEntry("valueFieldSpecAlias", "text")
+                        .containsEntry("valueFieldSpecTitle", "文本"));
     }
 
     @Test
@@ -409,6 +452,15 @@ class ManagedDetailRelationGatewayWebTest {
                                                         ResolvedDetailRelationMutationContract mutation,
                                                         ActionExecutionPolicyService policy,
                                                         ActionEndpointContextResolver actionContextResolver) {
+        return gateway(parentService, childService, mutation, policy, actionContextResolver, null);
+    }
+
+    private static ManagedDetailRelationGateway gateway(FieldUiControlService parentService,
+                                                        FieldUiControlPropertyService childService,
+                                                        ResolvedDetailRelationMutationContract mutation,
+                                                        ActionExecutionPolicyService policy,
+                                                        ActionEndpointContextResolver actionContextResolver,
+                                                        ResolvedDetailRelationListProjection listProjection) {
         ModuleExecutionPlanCatalog catalog = mock(ModuleExecutionPlanCatalog.class);
         ModuleExecutionPlan plan = mock(ModuleExecutionPlan.class);
         ResolvedModuleUiDescriptor descriptor = mock(ResolvedModuleUiDescriptor.class);
@@ -418,7 +470,7 @@ class ManagedDetailRelationGatewayWebTest {
         when(descriptor.detailRelations()).thenReturn(List.of(new ResolvedDetailRelationDescriptor(
                 "properties", "控件属性", false, FieldUiControlService.MODULE_ALIAS, "field_ui_control",
                 FieldUiControlPropertyService.MODULE_ALIAS, "field_ui_control_property", "fieldUiControlAlias",
-                new ResolvedDetailRelationQueryContract(null, null, null, false, false, null,
+                new ResolvedDetailRelationQueryContract(null, null, null, false, false, listProjection,
                         net.ximatai.muyun.spring.ability.query.QuerySchema.from(
                                 net.ximatai.muyun.spring.ability.query.QueryDescriptor.builder("field_ui_control_property").build()),
                         true, "field_ui_control_property_query", null, List.of()),

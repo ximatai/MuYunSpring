@@ -37,7 +37,7 @@ const columns = computed<RecordQueryListColumn[]>(() =>
       title: field.title ?? field.fieldName,
       width: field.width == null ? undefined : `${field.width}px`,
       align: normalizeAlign(field.align),
-      titleField: queryField?.optionTitleField,
+      titleField: field.referenceTitleField ?? queryField?.optionTitleField,
       optionBinding: queryField?.optionBinding ? true : undefined,
       optionEntityAlias: queryField?.optionBinding ? props.relation.targetEntityAlias : undefined,
       maxDisplayLines: field.maxDisplayLines,

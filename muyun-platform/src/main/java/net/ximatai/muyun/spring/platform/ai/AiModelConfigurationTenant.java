@@ -8,10 +8,14 @@ import net.ximatai.muyun.database.core.annotation.Table;
 import net.ximatai.muyun.database.core.builder.ColumnType;
 import net.ximatai.muyun.spring.ability.child.ChildOf;
 import net.ximatai.muyun.spring.ability.reference.ReferenceTenantScope;
+import net.ximatai.muyun.spring.ability.reference.ReferenceLoad;
 import net.ximatai.muyun.spring.ability.reference.ReferenceTo;
 import net.ximatai.muyun.spring.common.model.standard.StandardEntity;
 
-/** A tenant explicitly admitted to use one platform-owned model configuration. */
+/**
+ * Legacy selected-tenant grant retained only as input for the explicit ownership migration.
+ * It is not part of the active AI configuration aggregate or its web surface.
+ */
 @Getter
 @Setter
 @Table(name = "platform_ai_model_configuration_tenant", comment = "AI model configuration tenant grant")
@@ -23,8 +27,12 @@ public class AiModelConfigurationTenant extends StandardEntity {
             comment = "AI model configuration id")
     private String configurationId;
 
-    @ReferenceTo(moduleAlias = "iam.tenant", entityAlias = "tenant", tenantScope = ReferenceTenantScope.GLOBAL)
+    @ReferenceTo(moduleAlias = "iam", entityAlias = "tenant", tenantScope = ReferenceTenantScope.GLOBAL)
     @Column(name = "target_tenant_id", type = ColumnType.VARCHAR, length = 32, nullable = false,
             comment = "Granted tenant id")
     private String targetTenantId;
+
+    /** Read-side companion used by both the inline editor and detail relation browse projection. */
+    @ReferenceLoad(source = "targetTenantId", field = "title")
+    private transient String targetTenantIdTitle;
 }

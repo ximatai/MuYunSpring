@@ -3,7 +3,7 @@ import type { HttpClient } from '@/web-core';
 import { createQueryReferencePickerProvider } from '@/platform-components/queryReferencePickerProvider';
 
 describe('query reference picker provider', () => {
-  it('uses only the target REFERENCE navigation query for pages and bounded ID resolution', async () => {
+  it('uses only target REFERENCE transports for pages and bounded ID translation', async () => {
     const request = vi
       .fn()
       .mockResolvedValueOnce({
@@ -50,17 +50,8 @@ describe('query reference picker provider', () => {
     });
     expect(request).toHaveBeenNthCalledWith(2, {
       method: 'POST',
-      path: '/sales.customer/navigator/reference/query',
-      body: {
-        page: { pageNum: 1, pageSize: 2 },
-        criteria: {
-          kind: 'GROUP',
-          operator: 'AND',
-          children: [
-            { kind: 'CONDITION', fieldName: 'id', operator: 'IN', values: ['customer-1', 'customer-3'] },
-          ],
-        },
-      },
+      path: '/sales.customer/navigator/reference/translate',
+      body: { ids: ['customer-1', 'customer-3'] },
     });
     expect(request.mock.calls.flat().map((call) => call.path)).not.toContain('/sales.customer/query');
     expect(request.mock.calls.flat().map((call) => call.path)).not.toContain(
@@ -89,19 +80,15 @@ describe('query reference picker provider', () => {
   });
 
   it('resolves every selected ID in bounded batches while preserving deduplicated input order', async () => {
-    const request = vi.fn(
-      async (options: {
-        body: { page: { pageSize: number }; criteria: { children: Array<{ values: string[] }> } };
-      }) => {
-        const ids = options.body.criteria.children[0]!.values;
+    const request = vi.fn(async (options: { body: { ids: string[] } }) => {
+        const ids = options.body.ids;
         return {
           records: [...ids].reverse().map((id) => ({ id, title: `客户 ${id}` })),
           total: ids.length,
           pageNum: 1,
           pageSize: ids.length,
         };
-      },
-    );
+      });
     const provider = createQueryReferencePickerProvider({
       http: { request } as unknown as HttpClient,
       reference: { targetModuleAlias: 'sales.customer', cardinality: 'ONE' },
@@ -112,8 +99,7 @@ describe('query reference picker provider', () => {
       ids.map((id) => ({ id, title: `客户 ${id}`, disabled: false })),
     );
     expect(request).toHaveBeenCalledTimes(3);
-    expect(request.mock.calls.map(([call]) => call.body.page.pageSize)).toEqual([100, 100, 1]);
-    expect(request.mock.calls.map(([call]) => call.body.criteria.children[0]?.values)).toEqual([
+    expect(request.mock.calls.map(([call]) => call.body.ids)).toEqual([
       ids.slice(0, 100),
       ids.slice(100, 200),
       ids.slice(200),

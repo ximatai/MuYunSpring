@@ -26,10 +26,15 @@ final class PageActionInvocationCompiler {
     static ResolvedModuleUiDescriptor bind(ResolvedModuleUiDescriptor descriptor,
             Map<String, Map<PageActionAnchor, PageActionInvocation>> invocations) {
         var page = descriptor.page();
-        if (page == null || !page.managedActions()) return descriptor;
+        if (page == null) return descriptor;
         var actions = page.actions().stream().map(action -> {
+            if (!page.managedActions() && invocations.getOrDefault(action.actionCode(), Map.of()).containsKey(action.anchor())) {
+                action = new ResolvedPageActionDescriptor(action.actionCode(), action.anchor(), action.title(),
+                        PageActionOperation.INVOKE);
+            }
             if (action.operation() != PageActionOperation.INVOKE) return action;
             var invocation = invocations.getOrDefault(action.actionCode(), Map.of()).get(action.anchor());
+            if (invocation == null && !page.managedActions()) return action;
             if (invocation == null) throw new IllegalArgumentException("页面动作缺少可执行绑定："
                     + action.actionCode() + " / " + action.anchor());
             boolean valid = switch (action.anchor()) {

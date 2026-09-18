@@ -1,7 +1,7 @@
 package net.ximatai.muyun.spring.platform.web;
 
-import net.ximatai.muyun.spring.common.platform.ActionEndpoint;
-import net.ximatai.muyun.spring.common.platform.PlatformAction;
+import net.ximatai.muyun.spring.common.platform.CustomActionEndpoint;
+import net.ximatai.muyun.spring.common.platform.PlatformActionLevel;
 import net.ximatai.muyun.spring.platform.ai.AiModelConfiguration;
 import net.ximatai.muyun.spring.platform.ai.AiModelConfigurationService;
 import net.ximatai.muyun.spring.platform.ai.AiModelConnectionTestResult;
@@ -26,8 +26,9 @@ import java.util.function.Supplier;
 public class AiModelConfigurationWebController
         extends StaticModuleWebControllerAdapter<AiModelConfigurationService>
         implements CrudWeb<AiModelConfiguration, AiModelConfigurationService>,
-        ManagedDetailRelationWeb<AiModelConfiguration, AiModelConfigurationService>,
         StaticModuleUiContributor {
+    private static final String TEST_CONNECTION_ACTION = "testConnection";
+
     private final AiModelConnectionTester connectionTester;
 
     public AiModelConfigurationWebController(AiModelConnectionTester connectionTester) {
@@ -35,7 +36,8 @@ public class AiModelConfigurationWebController
     }
 
     @PostMapping("/{id}/test")
-    @ActionEndpoint(PlatformAction.UPDATE)
+    @CustomActionEndpoint(value = TEST_CONNECTION_ACTION, title = "测试连接", level = PlatformActionLevel.RECORD,
+            dataAuth = true, pageInvocable = true)
     public AiModelConnectionTestResult test(@PathVariable String id) {
         return webScope(() -> connectionTester.test(id));
     }
@@ -52,7 +54,8 @@ public class AiModelConfigurationWebController
                                     .field("title", field -> field.label("配置名称").readOnly())
                                     .field("provider", field -> field.label("模型供应商").readOnly())
                                     .field("modelId", field -> field.label("模型 ID").readOnly())
-                                    .field("availabilityScope", field -> field.label("适用范围").readOnly())
+                                    .field("availabilityScope", field -> field.label("配置级别").readOnly())
+                                    .field("tenantId", field -> field.label("绑定租户（全局级未绑定）").readOnly())
                                     .field("apiKeyConfigured", field -> field.label("API Key")
                                             .readOnly().booleanStatus("已配置", "未配置")))
                             .editor(form -> form
@@ -60,18 +63,15 @@ public class AiModelConfigurationWebController
                                     .field("title", field -> field.label("配置名称"))
                                     .field("provider", field -> field.label("模型供应商").required().recordPicker())
                                     .field("modelId", field -> field.label("模型 ID").required())
-                                    .field("availabilityScope", field -> field.label("适用范围")
-                                            .required().select())
+                                    .field("tenantId", field -> field.label("绑定租户（留空为全局级）")
+                                            .recordPickerDialog())
                                     .field("apiKeyInput", field -> field.label("API Key（已配置时留空不修改）")
+                                            .secretInput()
                                             .required(UiRule.formula(UiFormula.booleanExpression("!(PRESENT({id}))"))))
                                     .field("enabled", field -> field.label("启用状态").enabledStatus())));
                     page.traits(traits -> traits.operations(operations -> operations.standardCrud().enabledLifecycle()));
                 }))
-                .relation("tenant_grants", relation -> relation.aggregateChild(child -> child
-                        .title("指定租户")
-                        .targetEntity("ai_model_configuration_tenant")
-                        .parentBinding("configurationId")
-                        .visible(UiRule.formula(UiFormula.booleanExpression("{availabilityScope} == 'selectedTenants'")))))
+                .pageAction(TEST_CONNECTION_ACTION, PageActionAnchor.DETAIL)
                 .build();
     }
 

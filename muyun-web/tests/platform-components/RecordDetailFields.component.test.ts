@@ -97,9 +97,7 @@ describe('RecordDetailFields', () => {
     );
   });
 
-  it('renders reference projections without invoking a picker provider or emitting form effects', () => {
-    const searchPage = vi.fn();
-    const resolve = vi.fn();
+  it('renders a source-reference read projection without editable-form dependencies', () => {
     const wrapper = mount(RecordDetailFields, {
       props: {
         record: { ownerId: 'user-1', ownerSummary: { id: 'user-1', title: '平台管理员' } },
@@ -117,26 +115,37 @@ describe('RecordDetailFields', () => {
             },
           ],
         ]),
-        pickerConfigs: {
-          ownerId: {
-            context: {} as never,
-            provider: {
-              identity: {
-                targetModuleAlias: 'iam.user',
-                source: { kind: 'sourceField', id: 'test' },
-              },
-              searchPage,
-              resolve,
-            },
-          },
-        },
       },
     });
 
     expect(wrapper.text()).toContain('平台管理员');
-    expect(searchPage).not.toHaveBeenCalled();
-    expect(resolve).not.toHaveBeenCalled();
     expect(wrapper.emitted()).toEqual({});
+  });
+
+  it('renders a target-navigator reference from its server-side read projection', () => {
+    const wrapper = mount(RecordDetailFields, {
+      props: {
+        record: { title: 'E2E 单租户回显', tenantId: 'demo', tenantTitle: '演示租户' },
+        fields: new Map([
+          [
+            'tenantId',
+            {
+              fieldRef: { fieldName: 'tenantId' },
+              label: '绑定租户',
+              reference: {
+                targetModuleAlias: 'iam.tenant',
+                cardinality: 'ONE' as const,
+                titleField: 'tenantTitle',
+                candidateDelivery: 'TARGET_NAVIGATOR' as const,
+              },
+            },
+          ],
+        ]),
+      },
+    });
+
+    expect(wrapper.text()).toContain('演示租户');
+    expect(wrapper.text()).not.toContain('E2E 单租户回显');
   });
 
   it('keeps a consumer displayOf override ahead of the shared reference browser', () => {

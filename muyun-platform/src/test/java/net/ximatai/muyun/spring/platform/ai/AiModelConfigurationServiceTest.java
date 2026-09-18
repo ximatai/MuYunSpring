@@ -1,5 +1,6 @@
 package net.ximatai.muyun.spring.platform.ai;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.database.core.orm.Sort;
 import net.ximatai.muyun.database.core.orm.CriteriaOperator;
@@ -8,6 +9,8 @@ import net.ximatai.muyun.spring.ability.security.AesGcmFieldCryptoProvider;
 import net.ximatai.muyun.spring.ability.security.FieldCryptoProvider;
 import net.ximatai.muyun.spring.ability.security.FieldSigner;
 import net.ximatai.muyun.spring.ability.security.HmacSha256FieldSigner;
+import net.ximatai.muyun.spring.ability.reference.StaticReferenceResolver;
+import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.tenant.TenantContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -17,6 +20,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -27,22 +31,20 @@ class AiModelConfigurationServiceTest {
     private final FieldSigner signer = new HmacSha256FieldSigner(
             "0123456789abcdef0123456789abcdef".getBytes(StandardCharsets.UTF_8));
 
+    @Test
     @AfterEach
     void clearContexts() {
         TenantContext.clear();
     }
 
     @Test
-    void tenantOwnedConfigurationWinsOverTargetedAndGlobalConfiguration() {
+    void tenantConfigurationWinsOverGlobalConfiguration() {
         BaseDao<AiModelConfiguration, String> dao = mock(BaseDao.class);
         AiModelConfiguration tenant = configuration("tenant", "tenant-key", 20);
-        AiModelConfiguration targeted = configuration("targeted", "targeted-key", 10);
         AiModelConfiguration global = configuration("global", "global-key", 10);
         when(dao.query(any(), any(PageRequest.class), any(Sort[].class))).thenAnswer(invocation ->
-                TenantContext.isSystem() ? List.of(targeted, global) : List.of(tenant));
-        AiModelConfigurationTenantService grants = mock(AiModelConfigurationTenantService.class);
-        when(grants.configurationIdsForTenant("tenant-a")).thenReturn(List.of("targeted"));
-        AiModelConfigurationService service = service(dao, grants);
+                TenantContext.isSystem() ? List.of(global) : List.of(tenant));
+        AiModelConfigurationService service = service(dao);
 
         try (TenantContext.Scope ignored = TenantContext.use("tenant-a")) {
             assertThat(service.requireEffectiveConfiguration().getId()).isEqualTo("tenant");
@@ -50,18 +52,86 @@ class AiModelConfigurationServiceTest {
     }
 
     @Test
-    void targetedPlatformConfigurationWinsOverGlobalConfiguration() {
+    void globalConfigurationIsUsedWhenTenantHasNone() {
         BaseDao<AiModelConfiguration, String> dao = mock(BaseDao.class);
-        AiModelConfiguration targeted = configuration("targeted", "targeted-key", 10);
         AiModelConfiguration global = configuration("global", "global-key", 20);
         when(dao.query(any(), any(PageRequest.class), any(Sort[].class))).thenAnswer(invocation ->
-                TenantContext.isSystem() ? List.of(targeted, global) : List.of());
-        AiModelConfigurationTenantService grants = mock(AiModelConfigurationTenantService.class);
-        when(grants.configurationIdsForTenant("tenant-a")).thenReturn(List.of("targeted"));
-        AiModelConfigurationService service = service(dao, grants);
+                TenantContext.isSystem() ? List.of(global) : List.of());
+        AiModelConfigurationService service = service(dao);
 
         try (TenantContext.Scope ignored = TenantContext.use("tenant-a")) {
-            assertThat(service.requireEffectiveConfiguration().getId()).isEqualTo("targeted");
+            assertThat(service.requireEffectiveConfiguration().getId()).isEqualTo("global");
+        }
+    }
+
+    @Test
+    void systemAdministratorCanCreateOneConfigurationForAnExplicitTenant() {
+        BaseDao<AiModelConfiguration, String> dao = mock(BaseDao.class);
+        when(dao.count(any())).thenReturn(0L);
+        AiModelConfigurationService service = service(dao);
+        AiModelConfiguration configuration = input("tenant-model", "tenant-secret");
+        configuration.setTenantId(" tenant-a ");
+
+        try (TenantContext.Scope ignored = TenantContext.system("admin creates tenant configuration")) {
+            service.beforeInsert(configuration);
+        }
+
+        assertThat(configuration.getTenantId()).isEqualTo("tenant-a");
+        assertThat(configuration.getAvailabilityScope()).isEqualTo(AiModelAvailabilityScope.TENANT_PRIVATE);
+        assertThat(configuration.getOwnershipScopeKey()).isEqualTo("T:tenant-a");
+    }
+
+    @Test
+    void tenantCallerCannotCreateOrRetargetAnotherTenantsConfiguration() {
+        BaseDao<AiModelConfiguration, String> dao = mock(BaseDao.class);
+        when(dao.count(any())).thenReturn(0L);
+        AiModelConfigurationService service = service(dao);
+        AiModelConfiguration configuration = input("tenant-model", "tenant-secret");
+        configuration.setTenantId("other-tenant");
+
+        try (TenantContext.Scope ignored = TenantContext.use("tenant-a")) {
+            service.beforeInsert(configuration);
+        }
+
+        assertThat(configuration.getTenantId()).isEqualTo("tenant-a");
+        assertThat(configuration.getAvailabilityScope()).isEqualTo(AiModelAvailabilityScope.TENANT_PRIVATE);
+        assertThat(configuration.getOwnershipScopeKey()).isEqualTo("T:tenant-a");
+    }
+
+    @Test
+    void updateKeepsTheOriginalTenantOwnershipForTheSharedRecord() {
+        AiModelConfigurationService service = service(mock(BaseDao.class));
+        AiModelConfiguration existing = configuration("existing", "tenant-secret", 100);
+        existing.setTenantId("tenant-a");
+        AiModelConfiguration incoming = input("tenant-model", null);
+        incoming.setTenantId("other-tenant");
+
+        try (TenantContext.Scope ignored = TenantContext.system("admin updates tenant configuration")) {
+            service.beforeUpdate(incoming, existing);
+        }
+
+        assertThat(incoming.getTenantId()).isEqualTo("tenant-a");
+        assertThat(incoming.getAvailabilityScope()).isEqualTo(AiModelAvailabilityScope.TENANT_PRIVATE);
+        assertThat(incoming.getOwnershipScopeKey()).isEqualTo("T:tenant-a");
+        assertThat(incoming.getApiKey()).isEqualTo(existing.getApiKey());
+    }
+
+    @Test
+    void rejectsAnotherConfigurationInTheSameOwnershipScope() {
+        BaseDao<AiModelConfiguration, String> dao = mock(BaseDao.class);
+        when(dao.count(any())).thenReturn(1L);
+        AiModelConfigurationService service = service(dao);
+
+        assertThatThrownBy(() -> service.beforeInsert(input("global-model", "global-secret")))
+                .isInstanceOf(PlatformException.class)
+                .hasMessage("a global AI model configuration already exists");
+
+        AiModelConfiguration tenantInput = input("tenant-model", "tenant-secret");
+        tenantInput.setTenantId("tenant-a");
+        try (TenantContext.Scope ignored = TenantContext.system("admin creates duplicate tenant configuration")) {
+            assertThatThrownBy(() -> service.beforeInsert(tenantInput))
+                    .isInstanceOf(PlatformException.class)
+                    .hasMessage("an AI model configuration already exists for tenant: tenant-a");
         }
     }
 
@@ -69,7 +139,7 @@ class AiModelConfigurationServiceTest {
     void fieldProtectionEncryptsSignsAndReportsConfiguredApiKey() {
         BaseDao<AiModelConfiguration, String> dao = mock(BaseDao.class);
         when(dao.query(any(), any(PageRequest.class), any(Sort[].class))).thenReturn(List.of());
-        AiModelConfigurationService service = service(dao, null);
+        AiModelConfigurationService service = service(dao);
         AiModelConfiguration configuration = new AiModelConfiguration();
         configuration.setProvider(AiModelProviderService.LM_STUDIO_ID);
         configuration.setModelId("local-model");
@@ -89,8 +159,16 @@ class AiModelConfigurationServiceTest {
     }
 
     @Test
+    void persistedTenantOwnershipIsAvailableForReadSideProjection() {
+        AiModelConfigurationService service = service(mock(BaseDao.class));
+        AiModelConfiguration configuration = configuration("tenant", "tenant-key", 10);
+        configuration.setTenantId("tenant-a");
+        assertThat(configuration.getTenantId()).isEqualTo("tenant-a");
+    }
+
+    @Test
     void platformSortScopeUsesIsNullForTheAbsentTenant() {
-        AiModelConfigurationService service = service(mock(BaseDao.class), null);
+        AiModelConfigurationService service = service(mock(BaseDao.class));
         AiModelConfiguration configuration = configuration("platform", "model-key", 10);
         configuration.setTenantId(null);
 
@@ -101,12 +179,10 @@ class AiModelConfigurationServiceTest {
                 });
     }
 
-    private AiModelConfigurationService service(BaseDao<AiModelConfiguration, String> dao,
-                                                AiModelConfigurationTenantService grants) {
+    private AiModelConfigurationService service(BaseDao<AiModelConfiguration, String> dao) {
         DefaultListableBeanFactory beans = new DefaultListableBeanFactory();
         beans.registerSingleton("crypto", crypto);
         beans.registerSingleton("signer", signer);
-        if (grants != null) beans.registerSingleton("grants", grants);
         AiModelProviderService providers = mock(AiModelProviderService.class);
         AiModelProvider provider = new AiModelProvider();
         provider.setId(AiModelProviderService.LM_STUDIO_ID);
@@ -116,7 +192,6 @@ class AiModelConfigurationServiceTest {
         provider.setBaseUrl("http://127.0.0.1:1234/v1");
         when(providers.requireEnabled(AiModelProviderService.LM_STUDIO_ID)).thenReturn(provider);
         return new AiModelConfigurationService(dao, providers,
-                beans.getBeanProvider(AiModelConfigurationTenantService.class),
                 beans.getBeanProvider(FieldCryptoProvider.class), beans.getBeanProvider(FieldSigner.class));
     }
 
@@ -130,6 +205,14 @@ class AiModelConfigurationServiceTest {
         configuration.setSortOrder(sortOrder);
         configuration.setApiKey(crypto.encrypt("apiKey", key));
         configuration.setApiKeySignature(signer.sign("apiKey", key));
+        return configuration;
+    }
+
+    private AiModelConfiguration input(String modelId, String apiKey) {
+        AiModelConfiguration configuration = new AiModelConfiguration();
+        configuration.setProvider(AiModelProviderService.LM_STUDIO_ID);
+        configuration.setModelId(modelId);
+        configuration.setApiKeyInput(apiKey);
         return configuration;
     }
 }
