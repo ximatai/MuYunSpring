@@ -2,6 +2,7 @@
 import { nextTick, ref } from 'vue';
 import { UiButton, UiIcon, UiTextArea } from '@muyun/vue-ui-antdv';
 import {
+  AssistantConversationFollowUpError,
   runAssistantConversation,
   StaleAssistantInvocationError,
   normalizeError,
@@ -51,30 +52,43 @@ async function submit() {
         if (step.results.length > 0) {
           const succeeded = step.results.filter((candidate) => !candidate.error).length;
           const failed = step.results.length - succeeded;
-          append(
-            'status',
-            failed > 0 ? `已执行 ${succeeded} 项，${failed} 项未完成` : `已执行 ${succeeded} 项操作`,
-          );
+          append('status', capabilityResultStatus(succeeded, failed, step.appliedEffectCount));
         }
       },
     });
     if (!result.completed) append('status', '本次任务步骤较多，已暂停。请重新完整描述后续目标。');
-    else if (
-      result.steps.every((step) => !step.output.text) &&
-      result.steps.some((step) => step.results.some((candidate) => !candidate.error))
-    ) {
-      append('assistant', '操作已完成，请检查当前页面。');
+    else if (result.steps.every((step) => !step.output.text)) {
+      const applied = result.steps.reduce((total, step) => total + step.appliedEffectCount, 0);
+      const succeeded = result.steps.some((step) => step.results.some((candidate) => !candidate.error));
+      if (applied > 0) append('assistant', '页面操作已完成，请检查当前页面。');
+      else if (succeeded) append('assistant', '信息已读取，但未生成可展示的说明，请重新提问。');
     }
   } catch (error) {
     if (isAbortError(error)) append('status', '已停止本次操作。');
     else if (error instanceof StaleAssistantInvocationError) {
       append('status', '页面状态已经变化，请基于当前页面重新发送。');
+    } else if (error instanceof AssistantConversationFollowUpError) {
+      const applied = error.steps.reduce((total, step) => total + step.appliedEffectCount, 0);
+      append(
+        'status',
+        `前面的 ${applied} 项页面操作已生效，但后续说明未能生成。请检查当前页面，必要时继续告诉我下一步。`,
+      );
     } else append('status', userFacingErrorMessage(normalizeError(error)));
   } finally {
     controller = undefined;
     busy.value = false;
     await nextTick();
   }
+}
+
+function capabilityResultStatus(succeeded: number, failed: number, applied: number) {
+  const successfulText =
+    applied === 0
+      ? `已获取 ${succeeded} 项结果`
+      : applied === succeeded
+        ? `已应用 ${applied} 项页面操作`
+        : `已完成 ${succeeded} 项调用，其中 ${applied} 项已应用到页面`;
+  return failed > 0 ? `${successfulText}，${failed} 项未完成` : successfulText;
 }
 
 function cancel() {

@@ -1,5 +1,6 @@
 import { expect, it, vi } from 'vitest';
 import {
+  AssistantConversationFollowUpError,
   createAssistantSurfaceRegistry,
   runAssistantConversation,
   runAssistantStep,
@@ -45,6 +46,7 @@ it('executes declared capabilities and ends the step when their effect changes c
     { callId: 'call-1', capabilityCode: 'form.patch-draft', output: { changed: true } },
   ]);
   expect(result.contextChanged).toBe(true);
+  expect(result.appliedEffectCount).toBe(1);
 });
 
 it('returns an ordinary capability failure as a structured result', async () => {
@@ -79,6 +81,7 @@ it('returns an ordinary capability failure as a structured result', async () => 
     },
   ]);
   expect(result.contextChanged).toBe(false);
+  expect(result.appliedEffectCount).toBe(0);
 });
 
 it('continues from a fresh surface after an effect and stops on the final model answer', async () => {
@@ -126,6 +129,166 @@ it('continues from a fresh surface after an effect and stops on the final model 
     }),
     expect.any(AbortSignal),
   );
+});
+
+it('preserves successful steps when a later model follow-up fails', async () => {
+  const requestTurn = vi
+    .fn()
+    .mockResolvedValueOnce({
+      toolCalls: [{ id: 'call-1', code: 'form.patch-draft', input: {} }],
+    })
+    .mockRejectedValueOnce(new Error('model returned no executable content'));
+  const registry = createAssistantSurfaceRegistry();
+  registry.register({
+    pageInstanceKey: 'tab-a',
+    contextRevision: () => 'stable',
+    surface: {
+      describe: () => ({ surface: 'page', facts: {} }),
+      capabilities: () => [
+        {
+          descriptor: { code: 'form.patch-draft', description: 'Patch draft', inputSchema: {} },
+          parseInput: (input) => input,
+          async execute(_input, context) {
+            context.applyEffect(() => undefined);
+            return { changed: true };
+          },
+        },
+      ],
+      requestTurn,
+    },
+  });
+  registry.activate('tab-a');
+
+  const conversation = runAssistantConversation(registry, 'change it');
+
+  await expect(conversation).rejects.toMatchObject({
+    name: 'AssistantConversationFollowUpError',
+    steps: [
+      expect.objectContaining({
+        results: [
+          {
+            callId: 'call-1',
+            capabilityCode: 'form.patch-draft',
+            output: { changed: true },
+          },
+        ],
+      }),
+    ],
+  });
+  await expect(conversation).rejects.toBeInstanceOf(AssistantConversationFollowUpError);
+});
+
+it('keeps a failed follow-up after a read-only result as the original error', async () => {
+  const followUpError = new Error('model unavailable');
+  const requestTurn = vi
+    .fn()
+    .mockResolvedValueOnce({ toolCalls: [{ id: 'call-1', code: 'page.describe', input: {} }] })
+    .mockRejectedValueOnce(followUpError);
+  const registry = createAssistantSurfaceRegistry();
+  registry.register({
+    pageInstanceKey: 'tab-a',
+    contextRevision: () => 'stable',
+    surface: {
+      describe: () => ({ surface: 'page', facts: {} }),
+      capabilities: () => [
+        {
+          descriptor: { code: 'page.describe', description: 'Describe', inputSchema: {} },
+          parseInput: (input) => input,
+          execute: async () => ({ title: 'Page' }),
+        },
+      ],
+      requestTurn,
+    },
+  });
+  registry.activate('tab-a');
+
+  await expect(runAssistantConversation(registry, 'describe')).rejects.toBe(followUpError);
+});
+
+it('keeps a stale invoke after a successful effect as a stale invocation error', async () => {
+  const requestTurn = vi
+    .fn()
+    .mockResolvedValueOnce({ toolCalls: [{ id: 'call-1', code: 'page.change', input: {} }] })
+    .mockResolvedValueOnce({ toolCalls: [{ id: 'call-2', code: 'page.stale', input: {} }] });
+  const registry = createAssistantSurfaceRegistry();
+  registry.register({
+    pageInstanceKey: 'tab-a',
+    contextRevision: () => 'stable',
+    surface: {
+      describe: () => ({ surface: 'page', facts: {} }),
+      capabilities: () => [
+        {
+          descriptor: { code: 'page.change', description: 'Change', inputSchema: {} },
+          parseInput: (input) => input,
+          async execute(_input, context) {
+            context.applyEffect(() => undefined);
+            return { changed: true };
+          },
+        },
+        {
+          descriptor: { code: 'page.stale', description: 'Stale', inputSchema: {} },
+          parseInput: (input) => input,
+          async execute() {
+            throw new StaleAssistantInvocationError();
+          },
+        },
+      ],
+      requestTurn,
+    },
+  });
+  registry.activate('tab-a');
+
+  await expect(runAssistantConversation(registry, 'change')).rejects.toBeInstanceOf(
+    StaleAssistantInvocationError,
+  );
+});
+
+it('counts an applied effect once when its result is replayed before a failed follow-up', async () => {
+  const requestTurn = vi
+    .fn()
+    .mockResolvedValueOnce({ toolCalls: [{ id: 'call-1', code: 'page.change', input: {} }] })
+    .mockResolvedValueOnce({
+      toolCalls: [
+        { id: 'call-2', code: 'page.change', input: {} },
+        { id: 'call-3', code: 'page.describe', input: {} },
+      ],
+    })
+    .mockRejectedValueOnce(new Error('model unavailable'));
+  const registry = createAssistantSurfaceRegistry();
+  registry.register({
+    pageInstanceKey: 'tab-a',
+    contextRevision: () => 'stable',
+    surface: {
+      describe: () => ({ surface: 'page', facts: {} }),
+      capabilities: () => [
+        {
+          descriptor: { code: 'page.change', description: 'Change', inputSchema: {} },
+          parseInput: (input) => input,
+          async execute(_input, context) {
+            context.applyEffect(() => undefined);
+            return { changed: true };
+          },
+        },
+        {
+          descriptor: { code: 'page.describe', description: 'Describe', inputSchema: {} },
+          parseInput: (input) => input,
+          execute: async () => ({ title: 'Page' }),
+        },
+      ],
+      requestTurn,
+    },
+  });
+  registry.activate('tab-a');
+
+  const conversation = runAssistantConversation(registry, 'change');
+
+  await expect(conversation).rejects.toMatchObject({
+    name: 'AssistantConversationFollowUpError',
+    steps: [
+      expect.objectContaining({ appliedEffectCount: 1 }),
+      expect.objectContaining({ appliedEffectCount: 0 }),
+    ],
+  });
 });
 
 it('stops a conversation at the configured bounded step limit', async () => {

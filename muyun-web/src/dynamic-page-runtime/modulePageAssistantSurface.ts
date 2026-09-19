@@ -209,7 +209,7 @@ function referenceSearchCapability(
             title: candidate.title.slice(0, 500),
           };
         });
-      context.applyEffect(() => {
+      context.commitInternalState(() => {
         if (state.searchRevision !== searchRevision) {
           throw new Error('Reference search is no longer current; search again');
         }

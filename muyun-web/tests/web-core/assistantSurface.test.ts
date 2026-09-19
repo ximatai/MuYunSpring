@@ -169,6 +169,29 @@ describe('assistant surface registry', () => {
     ).resolves.toEqual({ value: 'changed', contextChanged: true });
   });
 
+  it('commits guarded internal state without reporting a page effect', async () => {
+    let remembered = '';
+    const registry = createAssistantSurfaceRegistry();
+    registry.register(
+      fixture({
+        pageInstanceKey: 'tab-a',
+        revision: () => 'stable',
+        execute: async (input, context) => {
+          context.commitInternalState(() => {
+            remembered = String(input);
+          });
+          return 'remembered';
+        },
+      }),
+    );
+    registry.activate('tab-a');
+
+    await expect(
+      registry.invoke({ id: 'call-1', code: 'form.patch-draft', input: 'value' }, registry.snapshot()!.token),
+    ).resolves.toEqual({ value: 'remembered', contextChanged: false });
+    expect(remembered).toBe('value');
+  });
+
   it('discards a result when context drifts again after the guarded effect', async () => {
     let revision = 'draft-before';
     let resolve!: (value: string) => void;

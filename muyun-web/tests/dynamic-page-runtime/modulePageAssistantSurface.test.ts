@@ -930,6 +930,9 @@ function executionContext() {
   return {
     signal: new AbortController().signal,
     isCurrent: () => true,
+    commitInternalState<T>(commit: () => T) {
+      return commit();
+    },
     applyEffect<T>(effect: () => T) {
       return effect();
     },

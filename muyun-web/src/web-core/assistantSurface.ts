@@ -16,6 +16,9 @@ export interface AssistantCapability<TInput = unknown, TOutput = unknown> {
 export interface AssistantCapabilityExecutionContext {
   signal: AbortSignal;
   isCurrent(): boolean;
+  /** Commit invocation-local guarded state without claiming a user-visible page effect. */
+  commitInternalState<T>(commit: () => T): T;
+  /** Apply a user-visible page effect. The runtime reports it separately from reads and internal state. */
   applyEffect<T>(effect: () => T, settle?: () => Promise<void>): T;
 }
 
@@ -226,6 +229,13 @@ export function createAssistantSurfaceRegistry(): AssistantSurfaceRegistry {
             } catch {
               return false;
             }
+          },
+          commitInternalState(commit) {
+            if (controller.signal.aborted) {
+              throw new DOMException('Assistant invocation was cancelled', 'AbortError');
+            }
+            requireCurrent(token);
+            return commit();
           },
           applyEffect(effect, settle) {
             if (controller.signal.aborted) {

@@ -11,6 +11,8 @@ export interface AssistantRuntimeStepResult {
   output: AssistantTurnOutput;
   results: AssistantCapabilityResult[];
   contextChanged: boolean;
+  /** Successful capability invocations that committed an effect through applyEffect in this step. */
+  appliedEffectCount: number;
 }
 
 interface InternalAssistantRuntimeStepResult extends AssistantRuntimeStepResult {
@@ -28,6 +30,16 @@ export interface AssistantConversationOptions {
 export interface AssistantConversationResult {
   steps: AssistantRuntimeStepResult[];
   completed: boolean;
+}
+
+export class AssistantConversationFollowUpError extends Error {
+  constructor(
+    readonly steps: readonly AssistantRuntimeStepResult[],
+    cause: unknown,
+  ) {
+    super('Assistant follow-up failed after successful capability execution', { cause });
+    this.name = 'AssistantConversationFollowUpError';
+  }
 }
 
 const DEFAULT_MAX_STEPS = 8;
@@ -87,6 +99,10 @@ export async function runAssistantConversation(
       if (error instanceof AssistantDecisionContextChangedError) {
         throw new StaleAssistantInvocationError();
       }
+      if (error instanceof StaleAssistantInvocationError) throw error;
+      if (!isAbortError(error) && hasAppliedCapabilityEffect(steps)) {
+        throw new AssistantConversationFollowUpError(steps, error);
+      }
       throw error;
     }
     decisionRestarts = 0;
@@ -106,6 +122,10 @@ export async function runAssistantConversation(
     results = step.results;
   }
   return { steps, completed: false };
+}
+
+function hasAppliedCapabilityEffect(steps: readonly AssistantRuntimeStepResult[]) {
+  return steps.some((step) => step.appliedEffectCount > 0);
 }
 
 /**
@@ -128,6 +148,7 @@ function toPublicStep(step: InternalAssistantRuntimeStepResult): AssistantRuntim
     output: step.output,
     results: step.results,
     contextChanged: step.contextChanged,
+    appliedEffectCount: step.appliedEffectCount,
   };
 }
 
@@ -155,6 +176,7 @@ async function runAssistantStepWithSuccessfulCalls(
   const results: AssistantCapabilityResult[] = [];
   const replayableCalls = new Map<string, AssistantCapabilityResult>();
   let attemptedCallCount = 0;
+  let appliedEffectCount = 0;
   for (const call of output.toolCalls) {
     const callKey = capabilityCallKey(snapshot.token, call.code, call.input);
     const successful = successfulCalls.get(callKey);
@@ -170,6 +192,7 @@ async function runAssistantStepWithSuccessfulCalls(
       results.push(result);
       replayableCalls.set(callKey, result);
       if (invocation.contextChanged) {
+        appliedEffectCount += 1;
         const continuationToken = registry.snapshot()?.token;
         if (continuationToken) {
           replayableCalls.set(capabilityCallKey(continuationToken, call.code, call.input), result);
@@ -179,6 +202,7 @@ async function runAssistantStepWithSuccessfulCalls(
           results,
           contextChanged: true,
           attemptedCallCount,
+          appliedEffectCount,
           continuationToken,
           replayableCalls,
         };
@@ -195,10 +219,24 @@ async function runAssistantStepWithSuccessfulCalls(
       });
     }
     if (!sameToken(snapshot.token, registry.snapshot()?.token)) {
-      return { output, results, contextChanged: true, attemptedCallCount, replayableCalls };
+      return {
+        output,
+        results,
+        contextChanged: true,
+        attemptedCallCount,
+        appliedEffectCount,
+        replayableCalls,
+      };
     }
   }
-  return { output, results, contextChanged: false, attemptedCallCount, replayableCalls };
+  return {
+    output,
+    results,
+    contextChanged: false,
+    attemptedCallCount,
+    appliedEffectCount,
+    replayableCalls,
+  };
 }
 
 function capabilityCallKey(token: AssistantInvocationToken, code: string, input: unknown) {

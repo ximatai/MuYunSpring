@@ -65,7 +65,7 @@ it('cancels an in-flight request from the panel', async () => {
   expect(wrapper.text()).toContain('已停止本次操作');
 });
 
-it('treats an empty follow-up as completion after a successful page operation', async () => {
+it('does not report a read-only result as a completed page operation', async () => {
   const requestTurn = vi
     .fn()
     .mockResolvedValueOnce({ toolCalls: [{ id: 'call-1', code: 'page.inspect', input: {} }] })
@@ -83,6 +83,58 @@ it('treats an empty follow-up as completion after a successful page operation', 
   await wrapper.get('button.ant-btn-primary').trigger('click');
   await flushPromises();
 
-  expect(wrapper.text()).toContain('已执行 1 项操作');
-  expect(wrapper.text()).toContain('操作已完成，请检查当前页面');
+  expect(wrapper.text()).toContain('已获取 1 项结果');
+  expect(wrapper.text()).toContain('信息已读取，但未生成可展示的说明');
+  expect(wrapper.text()).not.toContain('页面操作已完成');
+});
+
+it('treats an empty follow-up as completion after an applied page operation', async () => {
+  const requestTurn = vi
+    .fn()
+    .mockResolvedValueOnce({ toolCalls: [{ id: 'call-1', code: 'form.patch-draft', input: {} }] })
+    .mockResolvedValueOnce({ toolCalls: [] });
+  const registry = createRegistryWithCapabilities(requestTurn, [
+    {
+      descriptor: { code: 'form.patch-draft', description: 'Patch draft', inputSchema: {} },
+      parseInput: (input) => input,
+      async execute(_input, context) {
+        context.applyEffect(() => undefined);
+        return { changed: true };
+      },
+    },
+  ]);
+  const wrapper = mount(WorkbenchAssistantPanel, { props: { open: true, registry } });
+
+  await wrapper.get('textarea').setValue('填写当前草稿');
+  await wrapper.get('button.ant-btn-primary').trigger('click');
+  await flushPromises();
+
+  expect(wrapper.text()).toContain('已应用 1 项页面操作');
+  expect(wrapper.text()).toContain('页面操作已完成，请检查当前页面');
+});
+
+it('keeps successful operation feedback when the model follow-up fails', async () => {
+  const requestTurn = vi
+    .fn()
+    .mockResolvedValueOnce({ toolCalls: [{ id: 'call-1', code: 'form.patch-draft', input: {} }] })
+    .mockRejectedValueOnce(new Error('model returned no executable content'));
+  const registry = createRegistryWithCapabilities(requestTurn, [
+    {
+      descriptor: { code: 'form.patch-draft', description: 'Patch draft', inputSchema: {} },
+      parseInput: (input) => input,
+      async execute(_input, context) {
+        context.applyEffect(() => undefined);
+        return { changed: true };
+      },
+    },
+  ]);
+  const wrapper = mount(WorkbenchAssistantPanel, { props: { open: true, registry } });
+
+  await wrapper.get('textarea').setValue('填写当前草稿');
+  await wrapper.get('button.ant-btn-primary').trigger('click');
+  await flushPromises();
+
+  expect(wrapper.text()).toContain('已应用 1 项页面操作');
+  expect(wrapper.text()).toContain('前面的 1 项页面操作已生效，但后续说明未能生成');
+  expect(wrapper.text()).not.toContain('model returned no executable content');
 });
