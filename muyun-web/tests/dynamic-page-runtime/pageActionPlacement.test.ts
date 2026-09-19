@@ -127,6 +127,31 @@ it('exposes an ANY custom service action in the unsaved form context', () => {
   expect(resolvePlacedPageActions(placement, 'FORM', () => action, [], 'view', true)).toEqual([]);
 });
 
+it('renders a pending icon for actions that validate the current input snapshot', () => {
+  const placement = {
+    actionCode: 'validateDraft',
+    anchor: 'FORM' as const,
+    operation: 'INVOKE',
+    statusMode: 'INPUT_VALIDATION' as const,
+    invocation: {
+      method: 'POST' as const,
+      path: '/demo.order/form-actions/validateDraft',
+      input: 'FORM_RECORD' as const,
+    },
+  };
+
+  expect(
+    resolvePlacedPageActions(
+      [placement],
+      'FORM',
+      () => ({ actionCode: 'validateDraft', actionLevel: 'ANY', formSupported: true }),
+      [],
+      'edit',
+      true,
+    ),
+  ).toMatchObject([{ actionCode: 'validateDraft', iconName: 'reload' }]);
+});
+
 it('does not expose an unbound action as executable even when authorized', () => {
   expect(
     resolvePlacedPageActions(

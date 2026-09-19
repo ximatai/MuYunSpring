@@ -43,6 +43,9 @@ class QueryCompilerTest {
         assertThat(containsCondition(criteria, "departmentId", "dept-1")).isTrue();
         assertThat(containsCondition(criteria, "code", "%alice%")).isTrue();
         assertThat(containsCondition(criteria, "title", "%alice%")).isTrue();
+        assertThat(clauses(criteria)).filteredOn(clause -> "%alice%".equals(clause.getValues().getFirst()))
+                .extracting(CriteriaClause::getOperator)
+                .containsOnly(net.ximatai.muyun.database.core.orm.CriteriaOperator.LIKE_IGNORE_CASE);
         assertThat(sorts).hasSize(1);
         assertThat(sorts[0].getField()).isEqualTo("code");
         assertThat(sorts[0].getDirection()).isEqualTo(SortDirection.DESC);

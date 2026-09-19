@@ -2351,7 +2351,7 @@ class DynamicRecordServiceTest {
                 MODULE,
                 "line",
                 "contractId",
-                DynamicReferenceResolveRequest.query("Contract")
+                DynamicReferenceResolveRequest.query("contract")
                         .withCriteria(Criteria.of().eq("code", "CONTRACT-1"))
         );
 
@@ -2360,7 +2360,7 @@ class DynamicRecordServiceTest {
         verify(operations, org.mockito.Mockito.atLeastOnce()).query(sql.capture(), anyMap());
         assertThat(sql.getAllValues()).anySatisfy(statement -> assertThat(statement)
                 .contains("\"code\" =")
-                .contains("\"title\" LIKE"));
+                .contains("\"title\" ILIKE"));
     }
 
     @Test

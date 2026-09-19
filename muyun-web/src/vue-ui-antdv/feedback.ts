@@ -9,9 +9,9 @@ export interface UiFeedbackOptions {
 }
 
 const DEFAULT_DURATION_SECONDS = 2.6;
-// The workbench header occupies 70px at its compact desktop height. Leave a
-// small visual gap so transient feedback never obscures the current page title.
-const FEEDBACK_TOP_OFFSET = '80px';
+// Align feedback with the workbench tab strip near the 62px header boundary,
+// keeping short-lived notices away from the current page action row.
+const FEEDBACK_TOP_OFFSET = '60px';
 
 // Ant Design Vue positions the shared notification container, rather than each
 // notice. Configure it before the first notice is created so every top placement

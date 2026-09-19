@@ -81,6 +81,10 @@ class PlatformPresentationTemplateCatalogTest {
                 """;
         catalog.validateUiTree(tree, template);
         catalog.validateUiTree(tree.replace("\"title\":\"登记\"", "\"title\":\"登记\",\"hidden\":true"), template);
+        catalog.validateUiTree(tree.replace("\"title\":\"登记\"",
+                "\"title\":\"登记\",\"statusMode\":\"INPUT_VALIDATION\""), template);
+        assertThatThrownBy(() -> catalog.validateUiTree(tree.replace("\"title\":\"登记\"",
+                "\"title\":\"登记\",\"statusMode\":\"UNKNOWN\""), template)).isInstanceOf(RuntimeException.class);
         assertThatThrownBy(() -> catalog.validateUiTree(tree.replace("\"title\":\"登记\"", "\"hidden\":\"true\""), template)).isInstanceOf(RuntimeException.class);
         assertThatThrownBy(() -> catalog.validateUiTree(tree.replace("\"anchor\":\"form\"", "\"anchor\":\"page\""), template))
                 .isInstanceOf(RuntimeException.class);

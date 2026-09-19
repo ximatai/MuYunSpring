@@ -22,29 +22,27 @@ import java.util.Objects;
 
 /** Minimal OpenAI chat-completions adapter shared by the allowed first-stage providers. */
 @Service
-public class OpenAiCompatibleModelClient implements AiModelClient {
+final class OpenAiCompatibleModelClient implements AiModelClient {
     private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(60);
 
     private final HttpClient httpClient;
     private final ObjectMapper objectMapper;
-    private final AiModelEndpointResolver endpointResolver;
 
     @Autowired
-    public OpenAiCompatibleModelClient(ObjectMapper objectMapper, AiModelEndpointResolver endpointResolver) {
+    OpenAiCompatibleModelClient(ObjectMapper objectMapper) {
         this(HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10))
-                .followRedirects(HttpClient.Redirect.NEVER).build(), objectMapper, endpointResolver);
+                .followRedirects(HttpClient.Redirect.NEVER).build(), objectMapper);
     }
 
-    OpenAiCompatibleModelClient(HttpClient httpClient, ObjectMapper objectMapper, AiModelEndpointResolver endpointResolver) {
+    OpenAiCompatibleModelClient(HttpClient httpClient, ObjectMapper objectMapper) {
         this.httpClient = Objects.requireNonNull(httpClient, "httpClient must not be null");
         this.objectMapper = Objects.requireNonNull(objectMapper, "objectMapper must not be null");
-        this.endpointResolver = Objects.requireNonNull(endpointResolver, "endpointResolver must not be null");
     }
 
     @Override
-    public AiTextResponse generate(AiModelConfiguration configuration, AiTextRequest request) {
+    public AiTextResponse generate(ResolvedAiModelRoute route, AiTextRequest request) {
         try {
-            HttpResponse<String> response = httpClient.send(request(configuration, request, false),
+            HttpResponse<String> response = httpClient.send(request(route, request, false),
                     HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
             requireSuccess(response.statusCode());
             JsonNode root = readResponseObject(response.body(), "AI model returned an invalid response");
@@ -64,10 +62,10 @@ public class OpenAiCompatibleModelClient implements AiModelClient {
     }
 
     @Override
-    public void stream(AiModelConfiguration configuration, AiTextRequest request, AiTextStreamConsumer consumer) {
+    public void stream(ResolvedAiModelRoute route, AiTextRequest request, AiTextStreamConsumer consumer) {
         Objects.requireNonNull(consumer, "consumer must not be null");
         try {
-            HttpResponse<InputStream> response = httpClient.send(request(configuration, request, true),
+            HttpResponse<InputStream> response = httpClient.send(request(route, request, true),
                     HttpResponse.BodyHandlers.ofInputStream());
             try (BufferedReader reader = new BufferedReader(new InputStreamReader(response.body(), StandardCharsets.UTF_8))) {
                 requireSuccess(response.statusCode());
@@ -125,21 +123,21 @@ public class OpenAiCompatibleModelClient implements AiModelClient {
         return response;
     }
 
-    private HttpRequest request(AiModelConfiguration configuration, AiTextRequest request, boolean stream) throws Exception {
-        if (configuration == null || configuration.getProvider() == null || configuration.getProvider().isBlank()) {
-            throw new PlatformException("AI model configuration is invalid");
+    private HttpRequest request(ResolvedAiModelRoute route, AiTextRequest request, boolean stream) throws Exception {
+        if (route.protocol() != AiModelProtocol.OPENAI_COMPATIBLE) {
+            throw new PlatformException("AI model protocol is not supported: " + route.protocol());
         }
         Map<String, Object> body = new LinkedHashMap<>();
-        body.put("model", configuration.getModelId());
+        body.put("model", route.modelId());
         body.put("messages", request.messages().stream().map(message -> Map.of(
                 "role", message.role().name().toLowerCase(java.util.Locale.ROOT), "content", message.content())).toList());
         if (request.temperature() != null) body.put("temperature", request.temperature());
         if (request.maxOutputTokens() != null) body.put("max_tokens", request.maxOutputTokens());
         if (stream) body.put("stream", true);
-        return HttpRequest.newBuilder(URI.create(endpointResolver.resolve(configuration) + "/chat/completions"))
+        return HttpRequest.newBuilder(URI.create(route.chatCompletionsUrl()))
                 .timeout(REQUEST_TIMEOUT)
                 .header("Content-Type", "application/json")
-                .header("Authorization", "Bearer " + configuration.getApiKey())
+                .header("Authorization", "Bearer " + route.apiKey())
                 .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(body), StandardCharsets.UTF_8))
                 .build();
     }

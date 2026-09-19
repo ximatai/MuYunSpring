@@ -30,7 +30,7 @@ final class PageActionInvocationCompiler {
         var actions = page.actions().stream().map(action -> {
             if (!page.managedActions() && invocations.getOrDefault(action.actionCode(), Map.of()).containsKey(action.anchor())) {
                 action = new ResolvedPageActionDescriptor(action.actionCode(), action.anchor(), action.title(),
-                        PageActionOperation.INVOKE);
+                        PageActionOperation.INVOKE, null, action.statusMode());
             }
             if (action.operation() != PageActionOperation.INVOKE) return action;
             var invocation = invocations.getOrDefault(action.actionCode(), Map.of()).get(action.anchor());
@@ -44,7 +44,7 @@ final class PageActionInvocationCompiler {
             };
             if (!valid) throw new IllegalArgumentException("页面动作绑定与区域不匹配：" + action.actionCode() + " / " + action.anchor());
             return new ResolvedPageActionDescriptor(action.actionCode(), action.anchor(), action.title(),
-                    action.operation(), invocation);
+                    action.operation(), invocation, action.statusMode());
         }).toList();
         return descriptor.withPage(new ResolvedModulePageDescriptor(page.template(), page.explorer(), page.navigator(),
                 page.list(), page.treeResource(), page.detail(), page.traits(), page.quickSearchFields(), actions, page.managedActions()));

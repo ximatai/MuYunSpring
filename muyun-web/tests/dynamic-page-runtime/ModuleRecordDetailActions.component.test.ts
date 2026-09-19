@@ -59,3 +59,68 @@ it('uses managed entries as the only configurable buttons while retaining cancel
     wrapper.unmount();
   }
 });
+
+it('locks peer detail actions while showing loading on the action that owns the session', async () => {
+  const context = { can: () => true } as unknown as ModuleContext<QueryListRecord>;
+  const wrapper = shallowMount(ModuleRecordDetailActions, {
+    props: {
+      context,
+      mode: 'view',
+      record: { id: '1' },
+      saving: true,
+      activeActionKey: 'test-connection',
+      configuredActions: [{ key: 'test-connection', title: '测试连接' }],
+    },
+  });
+  const actions = () =>
+    wrapper.findComponent({ name: 'RecordActionBar' }).props('actions') as {
+      key: string;
+      disabled?: boolean;
+      loading?: boolean;
+    }[];
+  try {
+    expect(actions().find((action) => action.key === 'test-connection')).toMatchObject({
+      loading: true,
+      disabled: true,
+    });
+    expect(actions().find((action) => action.key === '__platform-edit')?.disabled).toBe(true);
+    expect(actions().find((action) => action.key === '__platform-delete')).toMatchObject({
+      disabled: true,
+      loading: false,
+    });
+  } finally {
+    wrapper.unmount();
+  }
+});
+
+it('keeps the delete loading indicator on the delete button while locking its peers', () => {
+  const context = { can: () => true } as unknown as ModuleContext<QueryListRecord>;
+  const wrapper = shallowMount(ModuleRecordDetailActions, {
+    props: {
+      context,
+      mode: 'view',
+      record: { id: '1' },
+      saving: true,
+      activeActionKey: 'delete',
+      configuredActions: [{ key: 'test-connection', title: '测试连接' }],
+    },
+  });
+  const actions = wrapper.findComponent({ name: 'RecordActionBar' }).props('actions') as {
+    key: string;
+    disabled?: boolean;
+    loading?: boolean;
+  }[];
+  try {
+    expect(actions.find((action) => action.key === '__platform-edit')?.disabled).toBe(true);
+    expect(actions.find((action) => action.key === '__platform-delete')).toMatchObject({
+      disabled: true,
+      loading: true,
+    });
+    expect(actions.find((action) => action.key === 'test-connection')).toMatchObject({
+      disabled: true,
+      loading: false,
+    });
+  } finally {
+    wrapper.unmount();
+  }
+});

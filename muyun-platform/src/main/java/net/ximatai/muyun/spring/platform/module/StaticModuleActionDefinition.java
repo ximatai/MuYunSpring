@@ -37,6 +37,14 @@ public record StaticModuleActionDefinition(
                 defaultGrantPolicy, null, null, false);
     }
 
+    public StaticModuleActionDefinition(String actionCode, String permissionActionCode, String title,
+                                        EntityActionLevel actionLevel, EntityActionAccessMode accessMode,
+                                        boolean actionAuth, boolean dataAuth, ActionDefaultGrantPolicy defaultGrantPolicy,
+                                        boolean formSupported) {
+        this(actionCode, permissionActionCode, title, actionLevel, null, accessMode, actionAuth, dataAuth,
+                defaultGrantPolicy, null, null, formSupported);
+    }
+
     public StaticModuleActionDefinition {
         actionCode = PlatformNameRules.requireActionCode(actionCode, "actionCode");
         permissionActionCode = permissionActionCode == null || permissionActionCode.isBlank()

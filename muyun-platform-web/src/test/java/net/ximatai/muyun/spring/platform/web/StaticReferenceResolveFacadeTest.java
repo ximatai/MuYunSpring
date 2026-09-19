@@ -149,7 +149,7 @@ class StaticReferenceResolveFacadeTest {
         verify(target, org.mockito.Mockito.times(2)).referenceOptions(criteria.capture(), page.capture());
         assertThat(criteria.getAllValues().getFirst().getClauses()).singleElement().satisfies(clause -> {
             assertThat(clause.getField()).isEqualTo("title");
-            assertThat(clause.getOperator()).isEqualTo(CriteriaOperator.LIKE);
+            assertThat(clause.getOperator()).isEqualTo(CriteriaOperator.LIKE_IGNORE_CASE);
             assertThat(clause.getValues()).containsExactly("%星云%");
         });
         assertThat(page.getAllValues().getFirst().getOffset()).isZero();

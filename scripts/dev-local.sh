@@ -7,6 +7,8 @@ BACKEND_PORT="${MUYUN_BACKEND_PORT:-8080}"
 FRONTEND_PORT="${MUYUN_FRONTEND_PORT:-5173}"
 API_CONTEXT_PATH="${MUYUN_API_CONTEXT_PATH:-/api}"
 FRONTEND_API_BASE_URL="${VITE_MUYUN_API_BASE_URL:-http://127.0.0.1:${BACKEND_PORT}${API_CONTEXT_PATH}}"
+LOCAL_STATE_DIR="${MUYUN_LOCAL_STATE_DIR:-$ROOT_DIR/.local}"
+FIELD_PROTECTION_KEY_FILE="${MUYUN_FIELD_PROTECTION_KEY_FILE:-$LOCAL_STATE_DIR/field-protection-key}"
 FORCE_RESTART=false
 RUN_MODE="demo"
 
@@ -34,6 +36,11 @@ Environment:
   MUYUN_FRONTEND_PORT=5173            Frontend port to clean and display.
   MUYUN_API_CONTEXT_PATH=/api         HTTP API context path. Defaults to /api.
   VITE_MUYUN_API_BASE_URL=<backend>   Frontend API base URL. Defaults to the selected backend API path.
+  MUYUN_LOCAL_STATE_DIR=<directory>   Persistent local state. Defaults to <repository>/.local.
+  MUYUN_FIELD_PROTECTION_KEY_FILE=<file>
+                                       Persistent local field-protection key file.
+  MUYUN_SECURITY_FIELD_PROTECTION_KEY_BASE64=<key>
+                                       Explicit field-protection key; takes precedence over the file.
 USAGE
 }
 
@@ -163,6 +170,35 @@ ensure_frontend_dependencies() {
   npm ci --prefix "$FRONTEND_DIR"
 }
 
+ensure_field_protection_key() {
+  if [[ -n "${MUYUN_SECURITY_FIELD_PROTECTION_KEY_BASE64:-}" ]]; then
+    export MUYUN_SECURITY_FIELD_PROTECTION_KEY_BASE64
+    return
+  fi
+
+  if [[ -f "$FIELD_PROTECTION_KEY_FILE" ]]; then
+    MUYUN_SECURITY_FIELD_PROTECTION_KEY_BASE64="$(<"$FIELD_PROTECTION_KEY_FILE")"
+    if [[ -z "$MUYUN_SECURITY_FIELD_PROTECTION_KEY_BASE64" ]]; then
+      echo "Local field-protection key file is empty: $FIELD_PROTECTION_KEY_FILE" >&2
+      exit 1
+    fi
+    export MUYUN_SECURITY_FIELD_PROTECTION_KEY_BASE64
+    return
+  fi
+
+  if ! command -v openssl >/dev/null 2>&1; then
+    echo "Cannot create the local field-protection key because openssl is not available." >&2
+    exit 1
+  fi
+
+  mkdir -p "$(dirname "$FIELD_PROTECTION_KEY_FILE")"
+  (umask 077 && openssl rand -base64 32 >"$FIELD_PROTECTION_KEY_FILE")
+  chmod 600 "$FIELD_PROTECTION_KEY_FILE"
+  MUYUN_SECURITY_FIELD_PROTECTION_KEY_BASE64="$(<"$FIELD_PROTECTION_KEY_FILE")"
+  export MUYUN_SECURITY_FIELD_PROTECTION_KEY_BASE64
+  echo "Created persistent local field-protection key: $FIELD_PROTECTION_KEY_FILE"
+}
+
 wait_for_postgres() {
   local attempts=30
   echo "Waiting for PostgreSQL to accept connections..."
@@ -248,6 +284,7 @@ force_stop_existing_processes
 echo "Starting PostgreSQL..."
 docker compose up -d
 wait_for_postgres
+ensure_field_protection_key
 ensure_frontend_dependencies
 
 echo "Starting $RUN_MODE backend, continuous compilation and frontend..."

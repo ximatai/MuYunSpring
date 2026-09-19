@@ -1,8 +1,8 @@
 package net.ximatai.muyun.spring.platform.ai;
 
-/** Provider adapter boundary. Agent and business code never depend on a vendor SDK. */
-public interface AiModelClient {
-    AiTextResponse generate(AiModelConfiguration configuration, AiTextRequest request);
+/** Internal provider adapter boundary. Business code enters through {@link AiModelGateway}. */
+interface AiModelClient {
+    AiTextResponse generate(ResolvedAiModelRoute route, AiTextRequest request);
 
-    void stream(AiModelConfiguration configuration, AiTextRequest request, AiTextStreamConsumer consumer);
+    void stream(ResolvedAiModelRoute route, AiTextRequest request, AiTextStreamConsumer consumer);
 }

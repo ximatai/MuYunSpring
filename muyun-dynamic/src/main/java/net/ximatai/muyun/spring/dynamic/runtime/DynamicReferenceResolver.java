@@ -148,10 +148,12 @@ final class DynamicReferenceResolver {
         if (fuzzy == null || fuzzy.isBlank()) return criteria;
         if (request.matchMode() == DynamicReferenceMatchMode.KEY) return criteria.eq(plan.targetKeyField(), fuzzy);
         String pattern = QueryLikePattern.containsLiteral(fuzzy.trim());
-        if (request.matchMode() == DynamicReferenceMatchMode.LABEL) return criteria.like(titleFieldName(), pattern);
+        if (request.matchMode() == DynamicReferenceMatchMode.LABEL) {
+            return criteria.likeIgnoreCase(titleFieldName(), pattern);
+        }
         return criteria.andGroup(group -> group
                 .or(plan.targetKeyField(), net.ximatai.muyun.database.core.orm.CriteriaOperator.EQ, fuzzy)
-                .or(titleFieldName(), net.ximatai.muyun.database.core.orm.CriteriaOperator.LIKE, pattern));
+                .orLikeIgnoreCase(titleFieldName(), pattern));
     }
 
     private Criteria baseCriteria(Criteria base) {

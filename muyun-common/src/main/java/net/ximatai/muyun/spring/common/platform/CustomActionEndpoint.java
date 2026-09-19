@@ -19,6 +19,9 @@ public @interface CustomActionEndpoint {
     /** Publishes this simple HTTP endpoint as a platform page button. */
     boolean pageInvocable() default false;
 
+    /** Allows the action to receive the current unsaved form record through the standard form-action transport. */
+    boolean formSupported() default false;
+
     String title() default "";
 
     PlatformActionLevel level() default PlatformActionLevel.DEFAULT;

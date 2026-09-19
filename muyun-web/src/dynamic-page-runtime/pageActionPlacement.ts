@@ -71,6 +71,7 @@ export function resolvePlacedPageActions(
               : 'standard',
         disabled: !supported || Boolean(statusReason),
         disabledReason: supported ? statusReason : '该动作尚未提供当前区域的执行入口',
+        iconName: placement.statusMode === 'INPUT_VALIDATION' ? 'reload' : undefined,
       },
     ];
   });

@@ -1349,6 +1349,7 @@ export interface ResolvedPageActionDescriptor {
   actionCode: string;
   anchor: 'PAGE' | 'DETAIL' | 'FORM';
   invocation?: PageActionInvocation;
+  statusMode?: 'NONE' | 'INPUT_VALIDATION';
 }
 
 export interface ResolvedPageTreeResourceDescriptor {

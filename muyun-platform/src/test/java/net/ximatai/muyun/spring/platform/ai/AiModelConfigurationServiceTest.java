@@ -38,12 +38,12 @@ class AiModelConfigurationServiceTest {
     }
 
     @Test
-    void tenantConfigurationWinsOverGlobalConfiguration() {
+    void tenantConfigurationWinsOverPlatformFallback() {
         BaseDao<AiModelConfiguration, String> dao = mock(BaseDao.class);
         AiModelConfiguration tenant = configuration("tenant", "tenant-key");
-        AiModelConfiguration global = configuration("global", "global-key");
+        AiModelConfiguration platform = configuration("platform", "platform-key");
         when(dao.query(any(), any(PageRequest.class), any(Sort[].class))).thenAnswer(invocation ->
-                TenantContext.isSystem() ? List.of(global) : List.of(tenant));
+                TenantContext.isSystem() ? List.of(platform) : List.of(tenant));
         AiModelConfigurationService service = service(dao);
 
         try (TenantContext.Scope ignored = TenantContext.use("tenant-a")) {
@@ -52,16 +52,57 @@ class AiModelConfigurationServiceTest {
     }
 
     @Test
-    void globalConfigurationIsUsedWhenTenantHasNone() {
+    void tenantFallbackConfigurationIsUsedWhenTenantHasNone() {
         BaseDao<AiModelConfiguration, String> dao = mock(BaseDao.class);
-        AiModelConfiguration global = configuration("global", "global-key");
+        AiModelConfiguration platform = configuration("platform", "platform-key");
+        platform.setTenantFallbackEnabled(Boolean.TRUE);
         when(dao.query(any(), any(PageRequest.class), any(Sort[].class))).thenAnswer(invocation ->
-                TenantContext.isSystem() ? List.of(global) : List.of());
+                TenantContext.isSystem() && Boolean.TRUE.equals(platform.getTenantFallbackEnabled())
+                        ? List.of(platform) : List.of());
         AiModelConfigurationService service = service(dao);
 
         try (TenantContext.Scope ignored = TenantContext.use("tenant-a")) {
-            assertThat(service.requireEffectiveConfiguration().getId()).isEqualTo("global");
+            assertThat(service.requireEffectiveConfiguration().getId()).isEqualTo("platform");
         }
+    }
+
+    @Test
+    void explicitSystemContextUsesThePlatformConfigurationWithoutRequiringTenantSharing() {
+        BaseDao<AiModelConfiguration, String> dao = mock(BaseDao.class);
+        AiModelConfiguration platform = configuration("platform", "platform-key");
+        platform.setTenantFallbackEnabled(Boolean.FALSE);
+        when(dao.query(any(), any(PageRequest.class), any(Sort[].class))).thenReturn(List.of(platform));
+        AiModelConfigurationService service = service(dao);
+
+        try (TenantContext.Scope ignored = TenantContext.system("platform AI invocation")) {
+            assertThat(service.requireEffectiveConfiguration().getId()).isEqualTo("platform");
+        }
+    }
+
+    @Test
+    void platformOnlyConfigurationIsNotAvailableAsTenantFallback() {
+        BaseDao<AiModelConfiguration, String> dao = mock(BaseDao.class);
+        AiModelConfiguration platformOnly = configuration("platform", "platform-key");
+        when(dao.query(any(), any(PageRequest.class), any(Sort[].class))).thenReturn(List.of());
+        AiModelConfigurationService service = service(dao);
+
+        try (TenantContext.Scope ignored = TenantContext.use("tenant-a")) {
+            assertThatThrownBy(service::requireEffectiveConfiguration)
+                    .isInstanceOf(PlatformException.class)
+                    .hasMessage("no usable tenant fallback AI model configuration exists");
+        }
+
+        assertThat(platformOnly.getTenantFallbackEnabled()).isFalse();
+    }
+
+    @Test
+    void missingExecutionContextCannotFallThroughToThePlatformConfiguration() {
+        BaseDao<AiModelConfiguration, String> dao = mock(BaseDao.class);
+        AiModelConfigurationService service = service(dao);
+
+        assertThatThrownBy(service::requireEffectiveConfiguration)
+                .isInstanceOf(PlatformException.class)
+                .hasMessage("AI model routing requires an explicit tenant or system context");
     }
 
     @Test
@@ -78,7 +119,8 @@ class AiModelConfigurationServiceTest {
         }
 
         assertThat(configuration.getTenantId()).isEqualTo("tenant-a");
-        assertThat(configuration.getAvailabilityScope()).isEqualTo(AiModelAvailabilityScope.TENANT_PRIVATE);
+        assertThat(configuration.getConfigurationLevel()).isEqualTo(AiModelConfigurationLevel.TENANT);
+        assertThat(configuration.getTenantFallbackEnabled()).isFalse();
         assertThat(configuration.getOwnershipScopeKey()).isEqualTo("T:tenant-a");
     }
 
@@ -104,34 +146,80 @@ class AiModelConfigurationServiceTest {
         AiModelConfigurationService service = service(dao);
         AiModelConfiguration configuration = input("tenant-model", "tenant-secret");
         configuration.setTenantId("other-tenant");
+        configuration.setTenantFallbackEnabled(Boolean.TRUE);
 
         try (TenantContext.Scope ignored = TenantContext.use("tenant-a")) {
             service.beforeInsert(configuration);
         }
 
         assertThat(configuration.getTenantId()).isEqualTo("tenant-a");
-        assertThat(configuration.getAvailabilityScope()).isEqualTo(AiModelAvailabilityScope.TENANT_PRIVATE);
+        assertThat(configuration.getConfigurationLevel()).isEqualTo(AiModelConfigurationLevel.TENANT);
+        assertThat(configuration.getTenantFallbackEnabled()).isFalse();
         assertThat(configuration.getOwnershipScopeKey()).isEqualTo("T:tenant-a");
+
+        AiModelConfiguration existing = configuration("existing", "tenant-secret");
+        existing.setTenantId("tenant-a");
+        AiModelConfiguration update = input("tenant-model", null);
+        update.setTenantId("other-tenant");
+        try (TenantContext.Scope ignored = TenantContext.use("tenant-a")) {
+            service.beforeUpdate(update, existing);
+        }
+        assertThat(update.getTenantId()).isEqualTo("tenant-a");
     }
 
     @Test
-    void updateKeepsTheOriginalTenantOwnershipForTheSharedRecord() {
-        tenantExists("tenant-a");
+    void systemAdministratorCanRetargetTheSharedConfiguration() {
+        BaseDao<AiModelConfiguration, String> dao = mock(BaseDao.class);
+        when(dao.count(any())).thenReturn(0L);
+        tenantExists("tenant-b");
+        AiModelConfigurationService service = service(dao);
+        AiModelConfiguration existing = configuration("existing", "tenant-secret");
+        existing.setTenantId("tenant-a");
+        AiModelConfiguration incoming = input("tenant-model", null);
+        incoming.setTenantId(" tenant-b ");
+
+        try (TenantContext.Scope ignored = TenantContext.system("admin updates tenant configuration")) {
+            assertThat(service.allowsTenantOwnershipChange(existing, incoming)).isTrue();
+            service.beforeUpdate(incoming, existing);
+        }
+
+        assertThat(incoming.getTenantId()).isEqualTo("tenant-b");
+        assertThat(incoming.getConfigurationLevel()).isEqualTo(AiModelConfigurationLevel.TENANT);
+        assertThat(incoming.getTenantFallbackEnabled()).isFalse();
+        assertThat(incoming.getOwnershipScopeKey()).isEqualTo("T:tenant-b");
+        assertThat(incoming.getApiKey()).isEqualTo("tenant-secret");
+        assertThat(existing.getApiKey()).startsWith("v1:");
+    }
+
+    @Test
+    void tenantCallerCannotOptIntoChangingConfigurationOwnership() {
         AiModelConfigurationService service = service(mock(BaseDao.class));
         AiModelConfiguration existing = configuration("existing", "tenant-secret");
         existing.setTenantId("tenant-a");
         AiModelConfiguration incoming = input("tenant-model", null);
-        incoming.setTenantId("other-tenant");
+        incoming.setTenantId("tenant-b");
+
+        try (TenantContext.Scope ignored = TenantContext.use("tenant-a")) {
+            assertThat(service.allowsTenantOwnershipChange(existing, incoming)).isFalse();
+        }
+    }
+
+    @Test
+    void systemAdministratorCannotRetargetConfigurationToAnOccupiedScope() {
+        BaseDao<AiModelConfiguration, String> dao = mock(BaseDao.class);
+        when(dao.count(any())).thenReturn(1L);
+        tenantExists("tenant-b");
+        AiModelConfigurationService service = service(dao);
+        AiModelConfiguration existing = configuration("existing", "tenant-secret");
+        existing.setTenantId("tenant-a");
+        AiModelConfiguration incoming = input("tenant-model", null);
+        incoming.setTenantId("tenant-b");
 
         try (TenantContext.Scope ignored = TenantContext.system("admin updates tenant configuration")) {
-            service.beforeUpdate(incoming, existing);
+            assertThatThrownBy(() -> service.beforeUpdate(incoming, existing))
+                    .isInstanceOf(PlatformException.class)
+                    .hasMessage("an AI model configuration already exists for tenant: tenant-b");
         }
-
-        assertThat(incoming.getTenantId()).isEqualTo("tenant-a");
-        assertThat(incoming.getAvailabilityScope()).isEqualTo(AiModelAvailabilityScope.TENANT_PRIVATE);
-        assertThat(incoming.getOwnershipScopeKey()).isEqualTo("T:tenant-a");
-        assertThat(incoming.getApiKey()).isEqualTo("tenant-secret");
-        assertThat(existing.getApiKey()).startsWith("v1:");
     }
 
     @Test
@@ -143,7 +231,7 @@ class AiModelConfigurationServiceTest {
 
         assertThatThrownBy(() -> service.beforeInsert(input("global-model", "global-secret")))
                 .isInstanceOf(PlatformException.class)
-                .hasMessage("a global AI model configuration already exists");
+                .hasMessage("a platform AI model configuration already exists");
 
         AiModelConfiguration tenantInput = input("tenant-model", "tenant-secret");
         tenantInput.setTenantId("tenant-a");
@@ -163,9 +251,14 @@ class AiModelConfigurationServiceTest {
         configuration.setProvider(AiModelProviderService.LM_STUDIO_ID);
         configuration.setModelId("local-model");
         configuration.setApiKeyInput("model-secret");
+        configuration.setConfigurationLevel(AiModelConfigurationLevel.TENANT);
+        configuration.setTenantFallbackEnabled(Boolean.TRUE);
 
         service.beforeInsert(configuration);
         assertThat(configuration.getTitle()).isEqualTo("LM Studio · local-model");
+        assertThat(configuration.getConfigurationLevel()).isEqualTo(AiModelConfigurationLevel.PLATFORM);
+        assertThat(configuration.getTenantFallbackEnabled()).isTrue();
+        assertThat(configuration.getOwnershipScopeKey()).isEqualTo("P");
         try (var mutation = service.protectFieldsForStorage(configuration)) {
             assertThat(configuration.getApiKey()).startsWith("v1:").isNotEqualTo("model-secret");
             assertThat(configuration.getApiKeySignature()).isNotBlank();
@@ -209,7 +302,7 @@ class AiModelConfigurationServiceTest {
         configuration.setId(id);
         configuration.setProvider(AiModelProviderService.LM_STUDIO_ID);
         configuration.setModelId("local-model");
-        configuration.setAvailabilityScope(AiModelAvailabilityScope.PLATFORM);
+        configuration.setConfigurationLevel(AiModelConfigurationLevel.PLATFORM);
         configuration.setEnabled(Boolean.TRUE);
         configuration.setApiKey(crypto.encrypt("apiKey", key));
         configuration.setApiKeySignature(signer.sign("apiKey", key));

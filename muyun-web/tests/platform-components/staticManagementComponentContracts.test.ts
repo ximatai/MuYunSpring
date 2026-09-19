@@ -1212,7 +1212,7 @@ it('platform error feedback respects global error presentation slots', () => {
     uiFeedbackSource,
     /options\.tone === 'error' \|\| options\.tone === 'warning' \? 'top' : 'topRight'/,
   );
-  assert.match(uiFeedbackSource, /const FEEDBACK_TOP_OFFSET = '80px'/);
+  assert.match(uiFeedbackSource, /const FEEDBACK_TOP_OFFSET = '60px'/);
   assert.match(uiFeedbackSource, /notification\.config\(\{ top: FEEDBACK_TOP_OFFSET \}\)/);
   assert.match(uiFeedbackSource, /muyun-feedback-notification-\$\{options\.tone\}/);
   assert.match(uiFeedbackSource, /width: 'fit-content'/);
