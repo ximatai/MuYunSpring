@@ -116,12 +116,16 @@ describe('RecordQueryListPanel', () => {
     const controller = wrapper.emitted('queryControllerChange')?.[0]?.[0] as RecordQueryListQueryController;
 
     const initialRevision = controller.revision();
+    const initialInteractionRevision = controller.interactionRevision?.();
     const assistantSearch = controller.applyQuickSearch('superseded');
     expect(controller.revision()).toBeGreaterThan(initialRevision);
+    expect(controller.interactionRevision?.()).not.toBe(initialInteractionRevision);
     await flushPromises();
     const assistantRevision = controller.revision();
+    const assistantInteractionRevision = controller.interactionRevision?.();
     (wrapper.vm as unknown as { refresh(): void }).refresh();
     expect(controller.revision()).toBeGreaterThan(assistantRevision);
+    expect(controller.interactionRevision?.()).toBe(assistantInteractionRevision);
     await flushPromises();
     resolveSuperseded({
       records: [{ id: 'late', title: 'Late result' }],

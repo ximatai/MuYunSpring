@@ -39,6 +39,8 @@ export interface AssistantSurfaceRegistration {
   pageInstanceKey: string;
   fallback?: boolean;
   contextRevision(): string;
+  /** User-controlled page state. Stable values let the runtime distinguish background refreshes. */
+  interactionRevision?(): string;
   surface: AssistantSurface;
 }
 
@@ -50,6 +52,7 @@ export interface AssistantInvocationToken {
   pageInstanceKey: string;
   surfaceGeneration: number;
   contextRevision: string;
+  interactionRevision?: string;
   fallback: boolean;
 }
 
@@ -143,6 +146,7 @@ export function createAssistantSurfaceRegistry(): AssistantSurfaceRegistry {
       pageInstanceKey: registration.pageInstanceKey,
       surfaceGeneration: registration.surfaceGeneration,
       contextRevision: registration.contextRevision(),
+      interactionRevision: registration.interactionRevision?.(),
       fallback: registration.fallback === true,
     };
   }
@@ -294,6 +298,7 @@ function sameToken(left: AssistantInvocationToken, right: AssistantInvocationTok
     left.pageInstanceKey === right.pageInstanceKey &&
     left.surfaceGeneration === right.surfaceGeneration &&
     left.contextRevision === right.contextRevision &&
+    left.interactionRevision === right.interactionRevision &&
     left.fallback === right.fallback
   );
 }

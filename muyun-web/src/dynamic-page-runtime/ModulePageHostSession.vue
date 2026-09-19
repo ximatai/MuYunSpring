@@ -16,6 +16,7 @@ import type { ModulePageSessionView } from './useModulePageSession';
 import {
   createModulePageAssistantSurface,
   modulePageAssistantContextRevision,
+  modulePageAssistantInteractionRevision,
 } from './modulePageAssistantSurface';
 
 defineOptions({ name: 'ModulePageHostSession' });
@@ -134,7 +135,18 @@ function settleAssistantTenantScopeChange(record: QueryListRecord, signal: Abort
       tenantId,
       resolve: () => {
         cleanup();
-        resolve();
+        const session = view.value;
+        if (!session) {
+          reject(new Error('Tenant scope session became unavailable before its query settled'));
+          return;
+        }
+        void session.settleAssistantNavigatorSelection(signal).then(() => {
+          if (targetGeneration !== generation.value || tenantId !== tenantController.selectedId.value) {
+            reject(new Error('Tenant scope selection was replaced before its query settled'));
+            return;
+          }
+          resolve();
+        }, reject);
       },
       reject: (cause) => {
         cleanup();
@@ -167,6 +179,7 @@ function syncAssistantSurface() {
   unregisterAssistantSurface = assistantHost.registry.register({
     pageInstanceKey: assistantPageInstanceKey,
     contextRevision: () => modulePageAssistantContextRevision(session),
+    interactionRevision: () => modulePageAssistantInteractionRevision(session),
     surface: createModulePageAssistantSurface(
       session,
       createAssistantTurnRequester(sessionHttp.value),

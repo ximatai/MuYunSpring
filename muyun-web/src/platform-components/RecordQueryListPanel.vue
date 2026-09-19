@@ -1407,39 +1407,53 @@ function assistantListValue(
 
 const queryController: RecordQueryListQueryController = {
   revision: () => queryControllerRevision,
+  interactionRevision: () => JSON.stringify(buildQueryRequest()),
   snapshot: queryControllerSnapshot,
   async settle(signal?: AbortSignal) {
-    if (signal?.aborted) throw new DOMException('Assistant invocation was cancelled', 'AbortError');
-    await nextTick();
-    if (signal?.aborted) throw new DOMException('Assistant invocation was cancelled', 'AbortError');
-    if (loading.value) {
-      await new Promise<void>((resolve, reject) => {
-        let settlement!: QueryControllerSettlement;
-        const cleanup = () => signal?.removeEventListener('abort', abort);
-        const abort = () => {
-          queryControllerSettlements.delete(settlement);
-          cleanup();
-          reject(new DOMException('Assistant invocation was cancelled', 'AbortError'));
-        };
-        settlement = {
-          resolve: () => {
-            cleanup();
-            resolve();
-          },
-          reject: (cause) => {
-            cleanup();
-            reject(cause);
-          },
-        };
-        queryControllerSettlements.add(settlement);
-        signal?.addEventListener('abort', abort, { once: true });
-      });
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      throwIfQuerySettlementAborted(signal);
+      await nextTick();
+      throwIfQuerySettlementAborted(signal);
+      if (loading.value) await waitForQueryControllerLoad(signal);
+      const settledRevision = queryControllerRevision;
+      await nextTick();
+      throwIfQuerySettlementAborted(signal);
+      if (!loading.value && queryControllerRevision === settledRevision) {
+        return queryControllerSnapshot();
+      }
     }
-    if (signal?.aborted) throw new DOMException('Assistant invocation was cancelled', 'AbortError');
-    return queryControllerSnapshot();
+    throw new Error('List query did not settle on a stable revision');
   },
   applyQuickSearch: applyControllerQuickSearch,
 };
+
+function waitForQueryControllerLoad(signal?: AbortSignal) {
+  return new Promise<void>((resolve, reject) => {
+    let settlement!: QueryControllerSettlement;
+    const cleanup = () => signal?.removeEventListener('abort', abort);
+    const abort = () => {
+      queryControllerSettlements.delete(settlement);
+      cleanup();
+      reject(new DOMException('Assistant invocation was cancelled', 'AbortError'));
+    };
+    settlement = {
+      resolve: () => {
+        cleanup();
+        resolve();
+      },
+      reject: (cause) => {
+        cleanup();
+        reject(cause);
+      },
+    };
+    queryControllerSettlements.add(settlement);
+    signal?.addEventListener('abort', abort, { once: true });
+  });
+}
+
+function throwIfQuerySettlementAborted(signal?: AbortSignal) {
+  if (signal?.aborted) throw new DOMException('Assistant invocation was cancelled', 'AbortError');
+}
 
 function handleQuickSearchInput(value: string) {
   if (quickSearchKeyword.value !== value) queryControllerRevision += 1;

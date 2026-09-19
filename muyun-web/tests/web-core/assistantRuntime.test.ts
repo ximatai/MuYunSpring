@@ -496,6 +496,134 @@ it('does not replay a model decision after the user switches pages', async () =>
   expect(requestTurn).toHaveBeenCalledOnce();
 });
 
+it('restarts an initial model decision from a fresh snapshot when the same surface refreshes', async () => {
+  let revision = 'before';
+  const requestTurn = vi
+    .fn()
+    .mockImplementationOnce(async () => {
+      revision = 'after';
+      return { text: 'stale answer', toolCalls: [] };
+    })
+    .mockResolvedValueOnce({ text: 'fresh answer', toolCalls: [] });
+  const registry = createAssistantSurfaceRegistry();
+  registry.register({
+    pageInstanceKey: 'tab-a',
+    contextRevision: () => revision,
+    interactionRevision: () => 'stable-page-state',
+    surface: {
+      describe: () => ({ surface: 'page', facts: { revision } }),
+      capabilities: () => [],
+      requestTurn,
+    },
+  });
+  registry.activate('tab-a');
+
+  const result = await runAssistantConversation(registry, 'describe');
+
+  expect(result.completed).toBe(true);
+  expect(result.steps).toHaveLength(1);
+  expect(result.steps[0]?.output.text).toBe('fresh answer');
+  expect(requestTurn).toHaveBeenCalledTimes(2);
+  expect(requestTurn.mock.calls[0]?.[0].context.facts).toEqual({ revision: 'before' });
+  expect(requestTurn.mock.calls[1]?.[0].context.facts).toEqual({ revision: 'after' });
+});
+
+it('restarts before invoking the first capability when its decision snapshot just refreshed', async () => {
+  let revision = 'before';
+  const create = vi.fn(async () => ({ opened: true }));
+  const staleOutput = {
+    get toolCalls() {
+      revision = 'after';
+      return [{ id: 'stale-call', code: 'page.create', input: {} }];
+    },
+  };
+  const requestTurn = vi
+    .fn()
+    .mockResolvedValueOnce(staleOutput)
+    .mockResolvedValueOnce({
+      toolCalls: [{ id: 'fresh-call', code: 'page.create', input: {} }],
+    })
+    .mockResolvedValueOnce({ text: 'draft opened', toolCalls: [] });
+  const registry = createAssistantSurfaceRegistry();
+  registry.register({
+    pageInstanceKey: 'tab-a',
+    contextRevision: () => revision,
+    interactionRevision: () => 'stable-page-state',
+    surface: {
+      describe: () => ({ surface: 'page', facts: { revision } }),
+      capabilities: () => [
+        {
+          descriptor: { code: 'page.create', description: 'Create', inputSchema: {} },
+          parseInput: (input) => input,
+          execute: create,
+        },
+      ],
+      requestTurn,
+    },
+  });
+  registry.activate('tab-a');
+
+  const result = await runAssistantConversation(registry, 'create');
+
+  expect(result.completed).toBe(true);
+  expect(create).toHaveBeenCalledOnce();
+  expect(result.steps[0]?.results).toEqual([
+    { callId: 'fresh-call', capabilityCode: 'page.create', output: { opened: true } },
+  ]);
+});
+
+it('bounds initial decision restarts when the same surface keeps refreshing', async () => {
+  let revision = 0;
+  const requestTurn = vi.fn(async () => {
+    revision += 1;
+    return { text: `stale-${revision}`, toolCalls: [] };
+  });
+  const registry = createAssistantSurfaceRegistry();
+  registry.register({
+    pageInstanceKey: 'tab-a',
+    contextRevision: () => String(revision),
+    interactionRevision: () => 'stable-page-state',
+    surface: {
+      describe: () => ({ surface: 'page', facts: { revision } }),
+      capabilities: () => [],
+      requestTurn,
+    },
+  });
+  registry.activate('tab-a');
+
+  await expect(runAssistantConversation(registry, 'describe')).rejects.toBeInstanceOf(
+    StaleAssistantInvocationError,
+  );
+  expect(requestTurn).toHaveBeenCalledTimes(4);
+});
+
+it('does not replay an initial decision when user-controlled page state changes', async () => {
+  let revision = 'record-a:list-1';
+  let interactionRevision = 'record-a';
+  const requestTurn = vi.fn(async () => {
+    revision = 'record-b:list-1';
+    interactionRevision = 'record-b';
+    return { text: 'answer for record a', toolCalls: [] };
+  });
+  const registry = createAssistantSurfaceRegistry();
+  registry.register({
+    pageInstanceKey: 'tab-a',
+    contextRevision: () => revision,
+    interactionRevision: () => interactionRevision,
+    surface: {
+      describe: () => ({ surface: 'page', facts: { revision } }),
+      capabilities: () => [],
+      requestTurn,
+    },
+  });
+  registry.activate('tab-a');
+
+  await expect(runAssistantConversation(registry, 'update this record')).rejects.toBeInstanceOf(
+    StaleAssistantInvocationError,
+  );
+  expect(requestTurn).toHaveBeenCalledOnce();
+});
+
 it('does not replay a post-effect decision when a formal surface is refreshed', async () => {
   let revision = 'before';
   const registry = createAssistantSurfaceRegistry();

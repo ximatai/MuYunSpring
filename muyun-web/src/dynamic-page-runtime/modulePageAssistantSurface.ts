@@ -33,7 +33,17 @@ interface AssistantReferenceSelectionState {
 }
 
 export function modulePageAssistantContextRevision(view: ModulePageSessionView): string {
-  return `${view.assistantContextRevision}:${view.listQueryController?.revision() ?? '-'}`;
+  return `${modulePageAssistantInteractionRevision(view)}:${view.listQueryController?.revision() ?? '-'}`;
+}
+
+export function modulePageAssistantInteractionRevision(view: ModulePageSessionView): string {
+  return JSON.stringify({
+    page: view.assistantContextRevision,
+    navigators: Object.entries(view.selectedNavigatorRecords ?? {})
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, record]) => [key, record?.id == null ? null : String(record.id)]),
+    query: view.listQueryController?.interactionRevision?.() ?? null,
+  });
 }
 
 export function createModulePageAssistantSurface(

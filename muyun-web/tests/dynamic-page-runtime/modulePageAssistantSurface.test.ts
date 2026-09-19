@@ -3,6 +3,7 @@ import { nextTick, ref, watch } from 'vue';
 import {
   createModulePageAssistantSurface,
   modulePageAssistantContextRevision,
+  modulePageAssistantInteractionRevision,
 } from '@muyun/dynamic-page-runtime';
 import { createAssistantSurfaceRegistry } from '@muyun/web-core';
 import type { ModulePageSessionView } from '@/dynamic-page-runtime/useModulePageSession';
@@ -98,11 +99,36 @@ describe('module page assistant surface', () => {
     view.editingRecord = { ...view.editingRecord!, summary: 'secret manual edit' };
 
     expect(modulePageAssistantContextRevision(view)).toBe(before);
-    expect(before).toBe('7:-');
+    expect(before).toContain('"page":7');
+    expect(before).not.toContain('secret manual edit');
 
     view.assistantContextRevision += 1;
 
     expect(modulePageAssistantContextRevision(view)).not.toBe(before);
+  });
+
+  it('separates user-controlled navigator and query changes from background list refreshes', () => {
+    const view = viewFixture();
+    let listRevision = 1;
+    let queryInteraction = 'page-1';
+    view.selectedNavigatorRecords = {};
+    view.listQueryController = {
+      revision: () => listRevision,
+      interactionRevision: () => queryInteraction,
+      snapshot: vi.fn(),
+      applyQuickSearch: vi.fn(),
+    };
+    const before = modulePageAssistantInteractionRevision(view);
+
+    listRevision += 1;
+    expect(modulePageAssistantInteractionRevision(view)).toBe(before);
+
+    view.selectedNavigatorRecords.organization = { id: 'org-a' };
+    expect(modulePageAssistantInteractionRevision(view)).not.toBe(before);
+    const afterNavigator = modulePageAssistantInteractionRevision(view);
+
+    queryInteraction = 'page-2';
+    expect(modulePageAssistantInteractionRevision(view)).not.toBe(afterNavigator);
   });
 
   it('adapts the mounted standard list query controller without owning query state', async () => {
@@ -140,7 +166,7 @@ describe('module page assistant surface', () => {
       expect.objectContaining({ appliedQuickSearch: 'daily' }),
     );
     expect(view.listQueryController.applyQuickSearch).toHaveBeenCalledWith('daily');
-    expect(modulePageAssistantContextRevision(view)).toBe('7:4');
+    expect(modulePageAssistantContextRevision(view)).toMatch(/"page":7.*:4$/);
   });
 
   it('selects an exact authorized tenant scope without exposing internal identifiers to the model', async () => {
@@ -287,6 +313,22 @@ describe('module page assistant surface', () => {
       contextChanged: true,
     });
     expect(listRevision).toBe(1);
+
+    view.selectedNavigatorRecords = {};
+    view.settleAssistantNavigatorSelection = async () => {
+      await nextTick();
+      view.selectedNavigatorRecords.organization = { id: 'org-b', title: '另一机构' };
+    };
+    await expect(
+      registry.invoke(
+        {
+          id: 'scope-2',
+          code: 'scope.select-navigator',
+          input: { scopeKey: 'organization', title: '戏码台' },
+        },
+        registry.snapshot()!.token,
+      ),
+    ).rejects.toThrow('Navigator scope selection was replaced before its query settled');
     stop();
   });
 

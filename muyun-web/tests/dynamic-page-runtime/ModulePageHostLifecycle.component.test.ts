@@ -1,6 +1,6 @@
 import { flushPromises, mount } from '@vue/test-utils';
-import { describe, expect, it } from 'vitest';
-import { defineComponent, h } from 'vue';
+import { describe, expect, it, vi } from 'vitest';
+import { defineComponent, h, onMounted } from 'vue';
 import ModulePageHost from '@/dynamic-page-runtime/ModulePageHost.vue';
 import ModuleBusinessPreview from '@/views/ModuleBusinessPreview.vue';
 import {
@@ -232,6 +232,24 @@ describe('ModulePageHost lifecycle boundaries', () => {
   });
 
   it('settles assistant tenant selection only after the replacement business surface is ready', async () => {
+    let releaseListSettlement!: () => void;
+    const settleList = vi.fn(() => new Promise<void>((resolve) => (releaseListSettlement = resolve)));
+    const settlingQueryListStub = defineComponent({
+      name: 'RecordQueryListPanel',
+      props: ['context'],
+      emits: ['query-controller-change'],
+      setup(_props, { emit }) {
+        onMounted(() => {
+          emit('query-controller-change', {
+            revision: () => 0,
+            snapshot: () => ({ rows: [], truncated: false }),
+            applyQuickSearch: vi.fn(),
+            settle: settleList,
+          });
+        });
+        return () => h('section');
+      },
+    });
     const http: HttpClient = {
       async request(options) {
         if (options.path === '/iam.tenant/navigator/reference/query') {
@@ -266,16 +284,28 @@ describe('ModulePageHost lifecycle boundaries', () => {
         return () => h(ModulePageHost, { descriptor: descriptor('crm.customer') });
       },
     });
-    const wrapper = mount(Harness, { global: { stubs: hostStubs } });
+    const wrapper = mount(Harness, {
+      global: { stubs: { ...hostStubs, RecordQueryListPanel: settlingQueryListStub } },
+    });
     try {
       await flushPromises();
       await flushPromises();
       const before = registry.snapshot()!.token;
       expect(registry.snapshot()!.capabilities.map(({ code }) => code)).toContain('scope.select-tenant');
 
-      await expect(
-        registry.invoke({ id: 'tenant-1', code: 'scope.select-tenant', input: { title: '甲租户' } }, before),
-      ).resolves.toEqual({
+      const invocation = registry.invoke(
+        { id: 'tenant-1', code: 'scope.select-tenant', input: { title: '甲租户' } },
+        before,
+      );
+      let invocationSettled = false;
+      void invocation.finally(() => {
+        invocationSettled = true;
+      });
+      await flushPromises();
+      expect(settleList).toHaveBeenCalled();
+      expect(invocationSettled).toBe(false);
+      releaseListSettlement();
+      await expect(invocation).resolves.toEqual({
         value: { scope: 'tenant', selectedTitle: '甲租户', changed: true },
         contextChanged: true,
       });
@@ -284,6 +314,18 @@ describe('ModulePageHost lifecycle boundaries', () => {
       expect(after.pageInstanceKey).toBe('page-1');
       expect(after.surfaceGeneration).not.toBe(before.surfaceGeneration);
       expect(wrapper.findComponent(tenantExplorerStub).props('selectedId')).toBe('tenant-a');
+
+      const replacedInvocation = registry.invoke(
+        { id: 'tenant-2', code: 'scope.select-tenant', input: { title: '乙租户' } },
+        after,
+      );
+      await flushPromises();
+      wrapper.findComponent(tenantExplorerStub).vm.$emit('select', { id: 'tenant-a', title: '甲租户' });
+      await flushPromises();
+      releaseListSettlement();
+      await expect(replacedInvocation).rejects.toThrow(
+        'Tenant scope selection was replaced before its query settled',
+      );
     } finally {
       wrapper.unmount();
     }

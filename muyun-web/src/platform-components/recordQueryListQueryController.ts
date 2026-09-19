@@ -32,6 +32,8 @@ export interface RecordQueryListQuerySnapshot {
 /** Public list-query port used by orchestration adapters without owning list state. */
 export interface RecordQueryListQueryController {
   revision(): number;
+  /** Stable signature of user-controlled scope, filters, sorting and pagination. */
+  interactionRevision?(): string;
   snapshot(): RecordQueryListQuerySnapshot;
   /** Waits until the current reactive query transition and any active load have settled. */
   settle?(signal?: AbortSignal): Promise<RecordQueryListQuerySnapshot>;

@@ -93,11 +93,16 @@ export async function runAssistantConversation(
     } catch (error) {
       if (streamedText) options.onTextDiscard?.(index);
       const replacement = registry.snapshot()?.token;
+      const contextRefreshedBeforeAnyEffect =
+        !hasAppliedCapabilityEffect(steps) && isSamePageSurfaceContextRefresh(error, replacement);
+      const expectedSurfaceReplaced =
+        expectedReplacementToken !== undefined &&
+        error instanceof AssistantDecisionContextChangedError &&
+        sameToken(error.token, expectedReplacementToken) &&
+        isSamePageSurfaceReplacement(expectedReplacementToken, replacement);
       if (
         error instanceof AssistantDecisionContextChangedError &&
-        expectedReplacementToken !== undefined &&
-        sameToken(error.token, expectedReplacementToken) &&
-        isSamePageSurfaceReplacement(expectedReplacementToken, replacement) &&
+        (contextRefreshedBeforeAnyEffect || expectedSurfaceReplaced) &&
         decisionRestarts < MAX_DECISION_RESTARTS
       ) {
         decisionRestarts += 1;
@@ -223,7 +228,12 @@ async function runAssistantStepWithSuccessfulCalls(
         };
       }
     } catch (error) {
-      if (error instanceof StaleAssistantInvocationError || isAbortError(error)) throw error;
+      if (error instanceof StaleAssistantInvocationError || isAbortError(error)) {
+        if (appliedEffectCount === 0 && !signal?.aborted) {
+          throw new AssistantDecisionContextChangedError(snapshot.token);
+        }
+        throw error;
+      }
       results.push({
         callId: call.id,
         capabilityCode: call.code,
@@ -276,6 +286,7 @@ function sameToken(left: AssistantInvocationToken, right: AssistantInvocationTok
     left.pageInstanceKey === right.pageInstanceKey &&
     left.surfaceGeneration === right.surfaceGeneration &&
     left.contextRevision === right.contextRevision &&
+    left.interactionRevision === right.interactionRevision &&
     left.fallback === right.fallback
   );
 }
@@ -290,6 +301,19 @@ function isSamePageSurfaceReplacement(
     previous.surfaceGeneration !== current.surfaceGeneration &&
     previous.fallback &&
     !current.fallback
+  );
+}
+
+function isSamePageSurfaceContextRefresh(error: unknown, current: AssistantInvocationToken | undefined) {
+  if (!(error instanceof AssistantDecisionContextChangedError) || current === undefined) return false;
+  const previous = error.token;
+  return (
+    previous.pageInstanceKey === current.pageInstanceKey &&
+    previous.surfaceGeneration === current.surfaceGeneration &&
+    previous.fallback === current.fallback &&
+    previous.interactionRevision !== undefined &&
+    previous.interactionRevision === current.interactionRevision &&
+    previous.contextRevision !== current.contextRevision
   );
 }
 

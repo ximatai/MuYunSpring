@@ -167,13 +167,23 @@ function navigatorScopeSelectionCapability(
           changed: false,
         };
       }
+      let appliedRevision: string | undefined;
       context.applyEffect(
         () => {
           if (!view.applyAssistantNavigatorSelection(scopeKey, selected, scopeRevision)) {
             throw new Error('Navigator scope selection is no longer available');
           }
+          appliedRevision = view.assistantNavigatorScopeRevision(scopeKey);
         },
-        () => view.settleAssistantNavigatorSelection(context.signal),
+        async () => {
+          await view.settleAssistantNavigatorSelection(context.signal);
+          if (
+            String(view.selectedNavigatorRecords[scopeKey]?.id ?? '') !== String(selected.id) ||
+            view.assistantNavigatorScopeRevision(scopeKey) !== appliedRevision
+          ) {
+            throw new Error('Navigator scope selection was replaced before its query settled');
+          }
+        },
       );
       return {
         scopeKey,
