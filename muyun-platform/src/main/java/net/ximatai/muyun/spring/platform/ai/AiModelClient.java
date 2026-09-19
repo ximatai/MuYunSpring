@@ -7,4 +7,6 @@ interface AiModelClient {
     void stream(ResolvedAiModelRoute route, AiTextRequest request, AiTextStreamConsumer consumer);
 
     AiTurnResponse complete(ResolvedAiModelRoute route, AiTurnRequest request);
+
+    void stream(ResolvedAiModelRoute route, AiTurnRequest request, AiTurnStreamConsumer consumer);
 }

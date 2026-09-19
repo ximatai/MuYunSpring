@@ -9,6 +9,7 @@ import net.ximatai.muyun.spring.platform.ai.AiChatMessage;
 import net.ximatai.muyun.spring.platform.ai.AiModelGateway;
 import net.ximatai.muyun.spring.platform.ai.AiTurnRequest;
 import net.ximatai.muyun.spring.platform.ai.AiTurnResponse;
+import net.ximatai.muyun.spring.platform.ai.AiTurnStreamConsumer;
 import org.springframework.stereotype.Service;
 
 import java.util.LinkedHashMap;
@@ -45,24 +46,52 @@ public class AssistantTurnService {
     }
 
     public AiTurnResponse turn(AssistantTurnCommand command) {
+        AiTurnRequest request = request(command);
+        AiTurnResponse response = gateway.complete(request);
+        validateResponse(response, command);
+        return response;
+    }
+
+    public void stream(AssistantTurnCommand command, AiTurnStreamConsumer consumer) {
+        Objects.requireNonNull(consumer, "consumer must not be null");
+        AiTurnRequest request = request(command);
+        gateway.stream(request, new AiTurnStreamConsumer() {
+            @Override
+            public void onTextDelta(String text) {
+                consumer.onTextDelta(text);
+            }
+
+            @Override
+            public void onComplete(AiTurnResponse response) {
+                validateResponse(response, command);
+                consumer.onComplete(response);
+            }
+        });
+    }
+
+    private AiTurnRequest request(AssistantTurnCommand command) {
         requireAuthenticatedUser();
         validate(command);
         String payload = payload(command);
         if (payload.length() > MAX_PAYLOAD_LENGTH) {
             throw new PlatformException("assistant turn payload is too large");
         }
-        AiTurnResponse response = gateway.complete(new AiTurnRequest(List.of(
+        return new AiTurnRequest(List.of(
                 new AiChatMessage(AiChatMessage.Role.SYSTEM, SYSTEM_PROMPT),
                 new AiChatMessage(AiChatMessage.Role.USER, payload)
-        ), command.capabilities(), 0.1, 2_048));
-        validateResponse(response, command);
-        return response;
+        ), command.capabilities(), 0.1, 2_048);
     }
 
     private void validateResponse(AiTurnResponse response, AssistantTurnCommand command) {
+        String expectedFinishReason = response.toolCalls().isEmpty() ? "stop" : "tool_calls";
+        if (!expectedFinishReason.equalsIgnoreCase(response.finishReason())) {
+            String message = "length".equalsIgnoreCase(response.finishReason())
+                    ? "模型响应被截断，请缩短描述后重试"
+                    : "模型响应未完整结束，请重试";
+            throw new PlatformException(message);
+        }
         if (response.text() == null && response.toolCalls().isEmpty()
-                && (!"stop".equalsIgnoreCase(response.finishReason()) || command.results().stream()
-                .noneMatch(result -> result.errorCode() == null))) {
+                && command.results().stream().noneMatch(result -> result.errorCode() == null)) {
             throw new PlatformException("模型未返回可执行内容，请重新描述后再试");
         }
         if (response.toolCalls().size() > MAX_TOOL_CALLS) {

@@ -25,6 +25,8 @@ export interface AssistantConversationOptions {
   signal?: AbortSignal;
   maxSteps?: number;
   onStep?(step: AssistantRuntimeStepResult): void | Promise<void>;
+  onTextDelta?(text: string, stepIndex: number): void;
+  onTextDiscard?(stepIndex: number): void;
 }
 
 export interface AssistantConversationResult {
@@ -73,6 +75,7 @@ export async function runAssistantConversation(
   let decisionRestarts = 0;
   for (let index = 0; index < maxSteps; index += 1) {
     let step: InternalAssistantRuntimeStepResult;
+    let streamedText = false;
     try {
       step = await runAssistantStepWithSuccessfulCalls(
         registry,
@@ -80,8 +83,15 @@ export async function runAssistantConversation(
         results,
         options.signal,
         successfulCalls,
+        options.onTextDelta
+          ? (text) => {
+              streamedText = true;
+              options.onTextDelta?.(text, index);
+            }
+          : undefined,
       );
     } catch (error) {
+      if (streamedText) options.onTextDiscard?.(index);
       const replacement = registry.snapshot()?.token;
       if (
         error instanceof AssistantDecisionContextChangedError &&
@@ -158,12 +168,17 @@ async function runAssistantStepWithSuccessfulCalls(
   previousResults: AssistantCapabilityResult[],
   signal: AbortSignal | undefined,
   successfulCalls: Map<string, AssistantCapabilityResult>,
+  onTextDelta?: (text: string) => void,
 ): Promise<InternalAssistantRuntimeStepResult> {
   const snapshot = registry.snapshot();
   if (!snapshot) throw new Error('No assistant surface is active');
   let output: AssistantTurnOutput;
   try {
-    output = await registry.requestTurn({ message, results: previousResults }, snapshot.token, signal);
+    output = onTextDelta
+      ? await registry.requestTurn({ message, results: previousResults }, snapshot.token, signal, {
+          onTextDelta,
+        })
+      : await registry.requestTurn({ message, results: previousResults }, snapshot.token, signal);
   } catch (error) {
     if (!signal?.aborted && (error instanceof StaleAssistantInvocationError || isAbortError(error))) {
       throw new AssistantDecisionContextChangedError(snapshot.token);

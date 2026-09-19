@@ -6,10 +6,9 @@ import net.ximatai.muyun.spring.common.exception.PlatformException;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
-import java.io.BufferedReader;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.InputStreamReader;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -21,12 +20,14 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.function.Predicate;
 
 /** Minimal OpenAI chat-completions adapter shared by the allowed first-stage providers. */
 @Service
 final class OpenAiCompatibleModelClient implements AiModelClient {
     private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(60);
     private static final int MAX_STRUCTURED_RESPONSE_BYTES = 1_048_576;
+    private static final int MAX_STRUCTURED_EVENT_BYTES = 131_072;
     private static final int MAX_TOOL_CALLS = 8;
     private static final int MAX_TOOL_ARGUMENT_BYTES = 65_536;
 
@@ -72,20 +73,9 @@ final class OpenAiCompatibleModelClient implements AiModelClient {
         try {
             HttpResponse<InputStream> response = httpClient.send(request(route, request, true),
                     HttpResponse.BodyHandlers.ofInputStream());
-            try (BufferedReader reader = new BufferedReader(new InputStreamReader(response.body(), StandardCharsets.UTF_8))) {
+            try (InputStream body = response.body()) {
                 requireSuccess(response.statusCode());
-                StringBuilder data = new StringBuilder();
-                String line;
-                while ((line = reader.readLine()) != null) {
-                    if (line.isEmpty()) {
-                        if (consumeStreamEvent(data, consumer)) return;
-                        data.setLength(0);
-                    } else if (line.startsWith("data:")) {
-                        if (!data.isEmpty()) data.append('\n');
-                        data.append(line.substring("data:".length()).stripLeading());
-                    }
-                }
-                if (consumeStreamEvent(data, consumer)) return;
+                if (consumeSseStream(body, payload -> consumeStreamEvent(payload, consumer))) return;
                 throw new PlatformException("AI model stream ended before completion");
             }
         } catch (PlatformException exception) {
@@ -101,7 +91,7 @@ final class OpenAiCompatibleModelClient implements AiModelClient {
     @Override
     public AiTurnResponse complete(ResolvedAiModelRoute route, AiTurnRequest request) {
         try {
-            HttpResponse<InputStream> response = httpClient.send(turnRequest(route, request),
+            HttpResponse<InputStream> response = httpClient.send(turnRequest(route, request, false),
                     HttpResponse.BodyHandlers.ofInputStream());
             final JsonNode root;
             try (InputStream body = response.body()) {
@@ -130,9 +120,32 @@ final class OpenAiCompatibleModelClient implements AiModelClient {
         }
     }
 
+    @Override
+    public void stream(ResolvedAiModelRoute route, AiTurnRequest request, AiTurnStreamConsumer consumer) {
+        Objects.requireNonNull(consumer, "consumer must not be null");
+        try {
+            HttpResponse<InputStream> response = httpClient.send(turnRequest(route, request, true),
+                    HttpResponse.BodyHandlers.ofInputStream());
+            try (InputStream body = response.body()) {
+                requireSuccess(response.statusCode());
+                StructuredTurnAccumulator accumulator = new StructuredTurnAccumulator(request.tools(), consumer,
+                        response.headers().firstValue("x-request-id").orElse(null));
+                if (consumeSseStream(body, payload -> consumeStructuredStreamEvent(payload, accumulator))) return;
+                throw new PlatformException("AI model structured stream ended before completion");
+            }
+        } catch (PlatformException exception) {
+            throw exception;
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new PlatformException("AI model structured streaming request interrupted", exception);
+        } catch (Exception exception) {
+            throw new PlatformException("AI model structured streaming request failed", exception);
+        }
+    }
+
     /** Error payloads may contain provider details; never expose them through platform exceptions. */
-    private boolean consumeStreamEvent(StringBuilder data, AiTextStreamConsumer consumer) {
-        String payload = data.toString().trim();
+    private boolean consumeStreamEvent(String value, AiTextStreamConsumer consumer) {
+        String payload = value.trim();
         if (payload.isEmpty()) return false;
         if ("[DONE]".equals(payload)) return true;
         JsonNode event = readResponseObject(payload, "AI model stream contains an invalid event");
@@ -179,7 +192,7 @@ final class OpenAiCompatibleModelClient implements AiModelClient {
                 .build();
     }
 
-    private HttpRequest turnRequest(ResolvedAiModelRoute route, AiTurnRequest request) throws Exception {
+    private HttpRequest turnRequest(ResolvedAiModelRoute route, AiTurnRequest request, boolean stream) throws Exception {
         if (route.protocol() != AiModelProtocol.OPENAI_COMPATIBLE) {
             throw new PlatformException("AI model protocol is not supported: " + route.protocol());
         }
@@ -200,12 +213,177 @@ final class OpenAiCompatibleModelClient implements AiModelClient {
         }
         if (request.temperature() != null) body.put("temperature", request.temperature());
         if (request.maxOutputTokens() != null) body.put("max_tokens", request.maxOutputTokens());
+        if (stream) body.put("stream", true);
         return HttpRequest.newBuilder(URI.create(route.chatCompletionsUrl()))
                 .timeout(REQUEST_TIMEOUT)
                 .header("Content-Type", "application/json")
                 .header("Authorization", "Bearer " + route.apiKey())
                 .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(body), StandardCharsets.UTF_8))
                 .build();
+    }
+
+    private boolean consumeStructuredStreamEvent(String value, StructuredTurnAccumulator accumulator) {
+        String payload = value.trim();
+        if (payload.isEmpty()) return false;
+        if ("[DONE]".equals(payload)) {
+            accumulator.complete();
+            return true;
+        }
+        accumulator.accept(readResponseObject(payload, "AI model structured stream contains an invalid event"));
+        return false;
+    }
+
+    /** Reads provider SSE framing with bounded allocation before handing payloads to protocol-specific consumers. */
+    private boolean consumeSseStream(InputStream input, Predicate<String> eventConsumer) throws IOException {
+        ByteArrayOutputStream line = new ByteArrayOutputStream();
+        StringBuilder data = new StringBuilder();
+        int totalBytes = 0;
+        int next;
+        while ((next = input.read()) != -1) {
+            if (++totalBytes > MAX_STRUCTURED_RESPONSE_BYTES) {
+                throw new PlatformException("AI model returned an oversized structured response");
+            }
+            if (next == '\n') {
+                if (consumeSseLine(line, data, eventConsumer)) return true;
+                line.reset();
+            } else if (next != '\r') {
+                if (line.size() >= MAX_STRUCTURED_EVENT_BYTES) {
+                    throw new PlatformException("AI model stream contains an oversized event");
+                }
+                line.write(next);
+            }
+        }
+        if (line.size() > 0 && consumeSseLine(line, data, eventConsumer)) return true;
+        return eventConsumer.test(data.toString());
+    }
+
+    private boolean consumeSseLine(ByteArrayOutputStream line, StringBuilder data,
+                                   Predicate<String> eventConsumer) {
+        if (line.size() == 0) {
+            boolean complete = eventConsumer.test(data.toString());
+            data.setLength(0);
+            return complete;
+        }
+        String value = line.toString(StandardCharsets.UTF_8);
+        if (!value.startsWith("data:")) return false;
+        if (!data.isEmpty()) data.append('\n');
+        data.append(value.substring("data:".length()).stripLeading());
+        if (data.toString().getBytes(StandardCharsets.UTF_8).length > MAX_STRUCTURED_EVENT_BYTES) {
+            throw new PlatformException("AI model stream contains an oversized event");
+        }
+        return false;
+    }
+
+    private final class StructuredTurnAccumulator {
+        private final List<AiToolDefinition> tools;
+        private final AiTurnStreamConsumer consumer;
+        private final String requestId;
+        private final StringBuilder text = new StringBuilder();
+        private final Map<Integer, StructuredToolCallAccumulator> calls = new LinkedHashMap<>();
+        private String finishReason;
+        private boolean sawChoice;
+        private int accumulatedBytes;
+
+        private StructuredTurnAccumulator(List<AiToolDefinition> tools, AiTurnStreamConsumer consumer,
+                                          String requestId) {
+            this.tools = tools;
+            this.consumer = consumer;
+            this.requestId = requestId;
+        }
+
+        private void accept(JsonNode root) {
+            JsonNode choices = root.path("choices");
+            if (!choices.isArray()) {
+                throw new PlatformException("AI model structured stream contains an invalid event");
+            }
+            if (choices.isEmpty()) return;
+            JsonNode choice = choices.path(0);
+            if (!choice.isObject() || !choice.path("delta").isObject()) {
+                throw new PlatformException("AI model structured stream contains an invalid event");
+            }
+            sawChoice = true;
+            JsonNode delta = choice.path("delta");
+            String content = textOrNull(delta.path("content"));
+            if (content != null) {
+                text.append(content);
+                addAccumulatedBytes(content);
+                consumer.onTextDelta(content);
+            }
+            accumulateToolCalls(delta.path("tool_calls"));
+            String currentFinishReason = textOrNull(choice.path("finish_reason"));
+            if (currentFinishReason != null) finishReason = currentFinishReason;
+        }
+
+        private void accumulateToolCalls(JsonNode nodes) {
+            if (nodes.isMissingNode() || nodes.isNull()) return;
+            if (!nodes.isArray()) throw new PlatformException("AI model returned invalid tool calls");
+            for (JsonNode node : nodes) {
+                int index = node.path("index").asInt(-1);
+                if (index < 0 || index >= MAX_TOOL_CALLS) {
+                    throw new PlatformException("AI model returned too many tool calls");
+                }
+                StructuredToolCallAccumulator call = calls.computeIfAbsent(index,
+                        ignored -> new StructuredToolCallAccumulator());
+                String id = textOrNull(node.path("id"));
+                if (id != null) {
+                    call.id.append(id);
+                    addAccumulatedBytes(id);
+                }
+                JsonNode function = node.path("function");
+                if (!function.isMissingNode() && !function.isNull()) {
+                    if (!function.isObject()) throw new PlatformException("AI model returned invalid tool calls");
+                    String name = textOrNull(function.path("name"));
+                    String arguments = textOrNull(function.path("arguments"));
+                    if (name != null) {
+                        call.name.append(name);
+                        addAccumulatedBytes(name);
+                    }
+                    if (arguments != null) {
+                        call.arguments.append(arguments);
+                        addAccumulatedBytes(arguments);
+                    }
+                }
+                if (call.arguments.toString().getBytes(StandardCharsets.UTF_8).length > MAX_TOOL_ARGUMENT_BYTES) {
+                    throw new PlatformException("AI model returned oversized tool arguments");
+                }
+            }
+        }
+
+        private void addAccumulatedBytes(String fragment) {
+            accumulatedBytes += fragment.getBytes(StandardCharsets.UTF_8).length;
+            if (accumulatedBytes > MAX_STRUCTURED_RESPONSE_BYTES) {
+                throw new PlatformException("AI model returned an oversized structured response");
+            }
+        }
+
+        private void complete() {
+            if (!sawChoice) {
+                throw new PlatformException("AI model returned an invalid structured response");
+            }
+            List<AiToolCall> toolCalls = calls.entrySet().stream()
+                    .sorted(Map.Entry.comparingByKey())
+                    .map(entry -> entry.getValue().toToolCall(tools))
+                    .toList();
+            consumer.onComplete(new AiTurnResponse(text.isEmpty() ? null : text.toString(), toolCalls,
+                    finishReason, requestId));
+        }
+    }
+
+    private final class StructuredToolCallAccumulator {
+        private final StringBuilder id = new StringBuilder();
+        private final StringBuilder name = new StringBuilder();
+        private final StringBuilder arguments = new StringBuilder();
+
+        private AiToolCall toToolCall(List<AiToolDefinition> tools) {
+            if (id.isEmpty() || name.isEmpty() || arguments.isEmpty()) {
+                throw new PlatformException("AI model returned invalid tool calls");
+            }
+            int toolIndex = providerToolIndex(name.toString(), tools.size());
+            JsonNode parsed = readJsonObject(arguments.toString(), "AI model returned invalid tool arguments");
+            @SuppressWarnings("unchecked")
+            Map<String, Object> values = objectMapper.convertValue(parsed, Map.class);
+            return new AiToolCall(id.toString(), tools.get(toolIndex).code(), values);
+        }
     }
 
     private List<AiToolCall> toolCalls(JsonNode nodes, List<AiToolDefinition> tools) {

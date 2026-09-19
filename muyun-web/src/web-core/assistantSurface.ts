@@ -6,6 +6,7 @@ import type {
   AssistantTurnOutput,
 } from '@muyun/web-contracts';
 import { inject, provide, type InjectionKey } from 'vue';
+import type { AssistantTurnProgress } from './assistantTurnClient';
 
 export interface AssistantCapability<TInput = unknown, TOutput = unknown> {
   descriptor: AssistantCapabilityDescriptor;
@@ -25,7 +26,11 @@ export interface AssistantCapabilityExecutionContext {
 export interface AssistantSurface {
   describe(): AssistantSurfaceContext;
   capabilities(): AssistantCapability[];
-  requestTurn(input: AssistantTurnInput, signal: AbortSignal): Promise<AssistantTurnOutput>;
+  requestTurn(
+    input: AssistantTurnInput,
+    signal: AbortSignal,
+    progress?: AssistantTurnProgress,
+  ): Promise<AssistantTurnOutput>;
 }
 
 export interface AssistantSurfaceRegistration {
@@ -60,6 +65,7 @@ export interface AssistantSurfaceRegistry {
     input: Omit<AssistantTurnInput, 'context' | 'capabilities'>,
     token: AssistantInvocationToken,
     signal?: AbortSignal,
+    progress?: AssistantTurnProgress,
   ): Promise<AssistantTurnOutput>;
   invoke(
     call: AssistantCapabilityCall,
@@ -186,17 +192,17 @@ export function createAssistantSurfaceRegistry(): AssistantSurfaceRegistry {
     register,
     activate,
     snapshot,
-    requestTurn(input, token, signal) {
+    requestTurn(input, token, signal, progress) {
       return controlled(token, signal, true, (registration, controlledSignal) => {
         const current = requireCurrent(token);
-        return registration.surface.requestTurn(
-          {
-            ...input,
-            context: current.surface.describe(),
-            capabilities: current.surface.capabilities().map(({ descriptor }) => descriptor),
-          },
-          controlledSignal,
-        );
+        const request = {
+          ...input,
+          context: current.surface.describe(),
+          capabilities: current.surface.capabilities().map(({ descriptor }) => descriptor),
+        };
+        return progress
+          ? registration.surface.requestTurn(request, controlledSignal, progress)
+          : registration.surface.requestTurn(request, controlledSignal);
       });
     },
     async invoke(call, token, signal) {

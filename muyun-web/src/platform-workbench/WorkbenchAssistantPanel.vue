@@ -30,6 +30,8 @@ const items = ref<ConversationItem[]>([]);
 const busy = ref(false);
 let nextItemId = 0;
 let controller: AbortController | undefined;
+let streamingItemId: number | undefined;
+let pendingStreamText = '';
 
 function append(role: ConversationItem['role'], text: string) {
   const normalized = text.trim();
@@ -47,8 +49,32 @@ async function submit() {
   try {
     const result = await runAssistantConversation(props.registry, message, {
       signal: controller.signal,
+      onTextDelta(text) {
+        if (!text) return;
+        if (streamingItemId === undefined) {
+          pendingStreamText += text;
+          if (!pendingStreamText.trim()) return;
+        }
+        if (streamingItemId === undefined) {
+          streamingItemId = ++nextItemId;
+          items.value.push({ id: streamingItemId, role: 'assistant', text: pendingStreamText });
+          pendingStreamText = '';
+          return;
+        }
+        const item = items.value.find(({ id }) => id === streamingItemId);
+        if (item) item.text += text;
+      },
+      onTextDiscard() {
+        if (streamingItemId !== undefined) {
+          items.value = items.value.filter(({ id }) => id !== streamingItemId);
+        }
+        streamingItemId = undefined;
+        pendingStreamText = '';
+      },
       onStep(step) {
-        if (step.output.text) append('assistant', step.output.text);
+        if (step.output.text && streamingItemId === undefined) append('assistant', step.output.text);
+        streamingItemId = undefined;
+        pendingStreamText = '';
         if (step.results.length > 0) {
           const succeeded = step.results.filter((candidate) => !candidate.error).length;
           const failed = step.results.length - succeeded;
@@ -75,6 +101,8 @@ async function submit() {
       );
     } else append('status', userFacingErrorMessage(normalizeError(error)));
   } finally {
+    streamingItemId = undefined;
+    pendingStreamText = '';
     controller = undefined;
     busy.value = false;
     await nextTick();

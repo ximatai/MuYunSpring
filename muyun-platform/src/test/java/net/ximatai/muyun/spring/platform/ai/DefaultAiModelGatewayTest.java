@@ -11,6 +11,44 @@ import static org.mockito.Mockito.when;
 
 class DefaultAiModelGatewayTest {
     @Test
+    void structuredStreamingDefaultsToOneCompletedTurnForExistingGatewayImplementations() {
+        AiTurnResponse expected = new AiTurnResponse("ready", java.util.List.of(), "stop", "request-default");
+        AiModelGateway gateway = new AiModelGateway() {
+            @Override
+            public AiTextResponse generate(AiTextRequest request) {
+                throw new UnsupportedOperationException();
+            }
+
+            @Override
+            public void stream(AiTextRequest request, AiTextStreamConsumer consumer) {
+                throw new UnsupportedOperationException();
+            }
+
+            @Override
+            public AiTurnResponse complete(AiTurnRequest request) {
+                return expected;
+            }
+        };
+        var events = new java.util.ArrayList<String>();
+
+        gateway.stream(new AiTurnRequest(java.util.List.of(
+                        new AiChatMessage(AiChatMessage.Role.USER, "describe")), java.util.List.of(), null, null),
+                new AiTurnStreamConsumer() {
+                    @Override
+                    public void onTextDelta(String text) {
+                        events.add("text:" + text);
+                    }
+
+                    @Override
+                    public void onComplete(AiTurnResponse response) {
+                        events.add("complete:" + response.requestId());
+                    }
+                });
+
+        assertThat(events).containsExactly("text:ready", "complete:request-default");
+    }
+
+    @Test
     void resolvesTheRuntimeRouteForEachInvocation() {
         AiModelRouteResolver routes = mock(AiModelRouteResolver.class);
         AiModelClient client = mock(AiModelClient.class);
@@ -64,6 +102,23 @@ class DefaultAiModelGatewayTest {
         assertThat(actual).isSameAs(expected);
         verify(routes).resolveCurrent();
         verify(client).complete(route, request);
+    }
+
+    @Test
+    void resolvesTheRuntimeRouteForAStreamingStructuredTurn() {
+        AiModelRouteResolver routes = mock(AiModelRouteResolver.class);
+        AiModelClient client = mock(AiModelClient.class);
+        ResolvedAiModelRoute route = new ResolvedAiModelRoute("provider",
+                AiModelProtocol.OPENAI_COMPATIBLE, "https://example.test/v1", "model", "secret");
+        AiTurnRequest request = new AiTurnRequest(java.util.List.of(
+                new AiChatMessage(AiChatMessage.Role.USER, "open customers")), java.util.List.of(), null, null);
+        AiTurnStreamConsumer consumer = mock(AiTurnStreamConsumer.class);
+        when(routes.resolveCurrent()).thenReturn(route);
+
+        new DefaultAiModelGateway(routes, client).stream(request, consumer);
+
+        verify(routes).resolveCurrent();
+        verify(client).stream(route, request, consumer);
     }
 
     @Test

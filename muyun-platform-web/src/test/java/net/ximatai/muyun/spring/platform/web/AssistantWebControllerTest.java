@@ -1,5 +1,10 @@
 package net.ximatai.muyun.spring.platform.web;
 
+import net.ximatai.muyun.spring.common.identity.CurrentUser;
+import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
+import net.ximatai.muyun.spring.common.tenant.TenantContext;
+import net.ximatai.muyun.spring.common.exception.PlatformErrorCodes;
+import net.ximatai.muyun.spring.platform.ai.AiTurnStreamConsumer;
 import net.ximatai.muyun.spring.platform.ai.AiToolCall;
 import net.ximatai.muyun.spring.platform.ai.AiToolDefinition;
 import net.ximatai.muyun.spring.platform.ai.AiTurnResponse;
@@ -7,16 +12,75 @@ import net.ximatai.muyun.spring.platform.assistant.AssistantTurnCommand;
 import net.ximatai.muyun.spring.platform.assistant.AssistantTurnService;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doThrow;
 
 class AssistantWebControllerTest {
+    @Test
+    void treatsAnAlreadyDisconnectedEmitterAsACompletedStream() {
+        SseEmitter emitter = mock(SseEmitter.class);
+        doThrow(new IllegalStateException("response already closed")).when(emitter).complete();
+
+        AssistantWebController.complete(emitter);
+
+        verify(emitter).complete();
+    }
+
+    @Test
+    void preservesValidationSemanticsForStreamingErrors() {
+        var error = AssistantWebController.streamError(
+                new IllegalArgumentException("assistant turn message must not be blank"));
+
+        assertThat(error.code()).isEqualTo(PlatformErrorCodes.VALIDATION_FAILED);
+        assertThat(error.status()).isEqualTo(400);
+        assertThat(error.message()).isEqualTo("assistant turn message must not be blank");
+    }
+
+    @Test
+    void restoresTheVerifiedWebRequestContextForStreamingModelRouting() throws Exception {
+        AssistantTurnService service = mock(AssistantTurnService.class);
+        CountDownLatch completed = new CountDownLatch(1);
+        AtomicReference<String> tenant = new AtomicReference<>();
+        AtomicReference<Boolean> system = new AtomicReference<>();
+        doAnswer(invocation -> {
+            tenant.set(TenantContext.currentTenantId().orElse(null));
+            system.set(TenantContext.isSystem());
+            AiTurnStreamConsumer consumer = invocation.getArgument(1);
+            consumer.onComplete(new AiTurnResponse("ready", List.of(), "stop", "request-stream"));
+            completed.countDown();
+            return null;
+        }).when(service).stream(org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any(AiTurnStreamConsumer.class));
+        AssistantWebController controller = new AssistantWebController(service);
+        AssistantTurnWebRequest request = new AssistantTurnWebRequest("describe", Map.of(), List.of(), List.of());
+
+        try (CurrentUserContext.Scope ignoredUser = CurrentUserContext.use(
+                CurrentUser.tenantUser("user-1", "User", "tenant-1"));
+             TenantContext.Scope ignoredTenant = TenantContext.use("tenant-1")) {
+            controller.stream(request);
+        }
+
+        try {
+            assertThat(completed.await(2, TimeUnit.SECONDS)).isTrue();
+            assertThat(tenant.get()).isEqualTo("tenant-1");
+            assertThat(system.get()).isFalse();
+        } finally {
+            controller.closeStreams();
+        }
+    }
+
     @Test
     void adaptsBrowserResultsAndModelToolArgumentsWithoutLeakingTransportTypesIntoTheService() {
         AssistantTurnService service = mock(AssistantTurnService.class);

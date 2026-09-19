@@ -1,26 +1,41 @@
 package net.ximatai.muyun.spring.platform.web;
 
+import jakarta.annotation.PreDestroy;
+import net.ximatai.muyun.spring.common.exception.PlatformException;
+import net.ximatai.muyun.spring.common.exception.PlatformErrorCodes;
 import net.ximatai.muyun.spring.platform.ai.AiTurnResponse;
+import net.ximatai.muyun.spring.platform.ai.AiTurnStreamConsumer;
 import net.ximatai.muyun.spring.platform.ai.AiToolCall;
 import net.ximatai.muyun.spring.platform.ai.AiToolDefinition;
 import net.ximatai.muyun.spring.platform.assistant.AssistantCapabilityResult;
 import net.ximatai.muyun.spring.platform.assistant.AssistantTurnCommand;
 import net.ximatai.muyun.spring.platform.assistant.AssistantTurnService;
+import net.ximatai.muyun.spring.web.WebRequestContext;
+import net.ximatai.muyun.spring.web.PlatformWebError;
+import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
+import java.io.IOException;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 
 /** Authenticated assistant turn endpoint. Capability execution stays in the owning browser surface. */
 @RestController
 @RequestMapping("/platform.assistant")
 public class AssistantWebController {
     private final AssistantTurnService service;
+    private final ExecutorService streamExecutor = Executors.newVirtualThreadPerTaskExecutor();
 
     public AssistantWebController(AssistantTurnService service) {
         this.service = service;
@@ -29,11 +44,104 @@ public class AssistantWebController {
     @PostMapping("/turn")
     public AssistantTurnWebResponse turn(@RequestBody AssistantTurnWebRequest request) {
         if (request == null) throw new IllegalArgumentException("assistant turn request must not be null");
-        AiTurnResponse response = service.turn(new AssistantTurnCommand(request.message(), request.context(),
-                request.capabilities(), request.results().stream().map(AssistantCapabilityResultWeb::toDomain).toList()));
+        return response(service.turn(command(request)));
+    }
+
+    @PostMapping(value = "/turn/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public SseEmitter stream(@RequestBody AssistantTurnWebRequest request) {
+        if (request == null) throw new IllegalArgumentException("assistant turn request must not be null");
+        WebRequestContext requestContext = WebRequestContext.capture().orElseThrow(() ->
+                new PlatformException(PlatformErrorCodes.AUTH_REQUIRED, 401,
+                        "authentication is required for assistant turns"));
+        AssistantTurnCommand command = command(request);
+        SseEmitter emitter = new SseEmitter(75_000L);
+        AtomicBoolean closed = new AtomicBoolean();
+        AtomicReference<Future<?>> task = new AtomicReference<>();
+        Runnable close = () -> {
+            if (closed.compareAndSet(false, true)) {
+                Future<?> current = task.get();
+                if (current != null) current.cancel(true);
+            }
+        };
+        emitter.onCompletion(close);
+        emitter.onTimeout(close);
+        emitter.onError(error -> close.run());
+        Future<?> submitted = streamExecutor.submit(requestContext.wrap(() -> stream(command, emitter, closed)));
+        task.set(submitted);
+        if (closed.get()) submitted.cancel(true);
+        return emitter;
+    }
+
+    private void stream(AssistantTurnCommand command, SseEmitter emitter, AtomicBoolean closed) {
+        try {
+            service.stream(command, new AiTurnStreamConsumer() {
+                @Override
+                public void onTextDelta(String text) {
+                    send(emitter, "text", Map.of("text", text), closed);
+                }
+
+                @Override
+                public void onComplete(AiTurnResponse response) {
+                    send(emitter, "complete", response(response), closed);
+                }
+            });
+            if (closed.compareAndSet(false, true)) complete(emitter);
+        } catch (Exception error) {
+            if (closed.compareAndSet(false, true)) {
+                try {
+                    emitter.send(SseEmitter.event().name("error").data(streamError(error)));
+                } catch (Exception ignored) {
+                    // The browser closing an assistant stream is a normal cancellation path.
+                }
+                complete(emitter);
+            }
+        }
+    }
+
+    static void complete(SseEmitter emitter) {
+        try {
+            emitter.complete();
+        } catch (Exception ignored) {
+            // A disconnected browser has already completed the transport lifecycle.
+        }
+    }
+
+    private static void send(SseEmitter emitter, String event, Object data, AtomicBoolean closed) {
+        if (closed.get()) throw new AssistantStreamClosedException();
+        try {
+            emitter.send(SseEmitter.event().name(event).data(data));
+        } catch (IOException error) {
+            throw new AssistantStreamClosedException();
+        }
+    }
+
+    static PlatformWebError streamError(Exception error) {
+        if (error instanceof PlatformException platformException) {
+            return PlatformWebError.of(platformException);
+        }
+        if (error instanceof IllegalArgumentException && error.getMessage() != null) {
+            return PlatformWebError.of(PlatformErrorCodes.VALIDATION_FAILED, 400, error.getMessage());
+        }
+        return PlatformWebError.of(PlatformErrorCodes.INTERNAL_ERROR, 500, "智能助手响应中断，请重试");
+    }
+
+    private static AssistantTurnCommand command(AssistantTurnWebRequest request) {
+        return new AssistantTurnCommand(request.message(), request.context(), request.capabilities(),
+                request.results().stream().map(AssistantCapabilityResultWeb::toDomain).toList());
+    }
+
+    private static AssistantTurnWebResponse response(AiTurnResponse response) {
         return new AssistantTurnWebResponse(response.text(),
                 response.toolCalls().stream().map(AssistantCapabilityCallWeb::from).toList(),
                 response.finishReason(), response.requestId());
+    }
+
+    @PreDestroy
+    void closeStreams() {
+        streamExecutor.shutdownNow();
+    }
+
+    private static final class AssistantStreamClosedException extends RuntimeException {
     }
 }
 

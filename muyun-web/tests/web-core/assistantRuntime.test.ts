@@ -598,3 +598,28 @@ it('does not replay a post-effect decision after the same surface context drifts
   await expect(conversation).rejects.toBeInstanceOf(StaleAssistantInvocationError);
   expect(requestTurn).toHaveBeenCalledTimes(2);
 });
+
+it('discards streamed text when its structured turn fails before completion', async () => {
+  const registry = createAssistantSurfaceRegistry();
+  registry.register({
+    pageInstanceKey: 'tab-a',
+    contextRevision: () => 'stable',
+    surface: {
+      describe: () => ({ surface: 'page', facts: {} }),
+      capabilities: () => [],
+      requestTurn: async (_input, _signal, progress) => {
+        progress?.onTextDelta?.('partial');
+        throw new Error('stream failed');
+      },
+    },
+  });
+  registry.activate('tab-a');
+  const onTextDelta = vi.fn();
+  const onTextDiscard = vi.fn();
+
+  await expect(
+    runAssistantConversation(registry, 'describe', { onTextDelta, onTextDiscard }),
+  ).rejects.toThrow('stream failed');
+  expect(onTextDelta).toHaveBeenCalledWith('partial', 0);
+  expect(onTextDiscard).toHaveBeenCalledWith(0);
+});

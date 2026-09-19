@@ -1,6 +1,7 @@
 import { flushPromises, mount } from '@vue/test-utils';
 import { expect, it, vi } from 'vitest';
 import WorkbenchAssistantPanel from '@/platform-workbench/WorkbenchAssistantPanel.vue';
+import type { AssistantTurnOutput } from '@muyun/web-contracts';
 import {
   createAssistantSurfaceRegistry,
   type AssistantCapability,
@@ -42,6 +43,50 @@ it('submits a user request and renders the final assistant response', async () =
   expect(requestTurn).toHaveBeenCalledOnce();
   expect(wrapper.text()).toContain('打开客户管理');
   expect(wrapper.text()).toContain('已经找到对应页面');
+});
+
+it('renders streamed assistant text before the terminal turn arrives without duplicating it', async () => {
+  let complete!: (value: { text: string; toolCalls: never[]; finishReason: string }) => void;
+  const requestTurn: AssistantTurnRequester = vi.fn((_input, _signal, progress) => {
+    progress?.onTextDelta?.('正在');
+    progress?.onTextDelta?.('处理');
+    return new Promise<AssistantTurnOutput>((resolve) => {
+      complete = resolve;
+    });
+  });
+  const wrapper = mount(WorkbenchAssistantPanel, {
+    props: { open: true, registry: createRegistry(requestTurn) },
+  });
+
+  await wrapper.get('textarea').setValue('描述当前页面');
+  await wrapper.get('button.ant-btn-primary').trigger('click');
+  await flushPromises();
+
+  expect(wrapper.text()).toContain('正在处理');
+  expect(wrapper.text()).toContain('正在理解并执行');
+
+  complete({ text: '正在处理', toolCalls: [], finishReason: 'stop' });
+  await flushPromises();
+
+  expect(wrapper.findAll('.assistant-message--assistant')).toHaveLength(1);
+  expect(wrapper.text()).not.toContain('正在理解并执行');
+});
+
+it('removes an uncommitted partial response when its stream fails', async () => {
+  const requestTurn: AssistantTurnRequester = vi.fn(async (_input, _signal, progress) => {
+    progress?.onTextDelta?.('不完整的回答');
+    throw new Error('stream failed');
+  });
+  const wrapper = mount(WorkbenchAssistantPanel, {
+    props: { open: true, registry: createRegistry(requestTurn) },
+  });
+
+  await wrapper.get('textarea').setValue('描述当前页面');
+  await wrapper.get('button.ant-btn-primary').trigger('click');
+  await flushPromises();
+
+  expect(wrapper.text()).not.toContain('不完整的回答');
+  expect(wrapper.text()).toContain('stream failed');
 });
 
 it('cancels an in-flight request from the panel', async () => {

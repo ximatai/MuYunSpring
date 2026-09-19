@@ -9,6 +9,7 @@ import net.ximatai.muyun.spring.platform.ai.AiToolDefinition;
 import net.ximatai.muyun.spring.platform.ai.AiToolCall;
 import net.ximatai.muyun.spring.platform.ai.AiTurnRequest;
 import net.ximatai.muyun.spring.platform.ai.AiTurnResponse;
+import net.ximatai.muyun.spring.platform.ai.AiTurnStreamConsumer;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
@@ -21,8 +22,88 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.doAnswer;
 
 class AssistantTurnServiceTest {
+    @Test
+    void validatesTheTerminalStructuredResponseBeforeCompletingAStream() {
+        AiModelGateway gateway = mock(AiModelGateway.class);
+        doAnswer(invocation -> {
+            AiTurnStreamConsumer consumer = invocation.getArgument(1);
+            consumer.onTextDelta("ready");
+            consumer.onComplete(new AiTurnResponse("ready", List.of(), "stop", "request-stream"));
+            return null;
+        }).when(gateway).stream(org.mockito.ArgumentMatchers.any(AiTurnRequest.class),
+                org.mockito.ArgumentMatchers.any(AiTurnStreamConsumer.class));
+        AssistantTurnService service = new AssistantTurnService(gateway, new ObjectMapper());
+        List<String> events = new java.util.ArrayList<>();
+
+        try (CurrentUserContext.Scope ignored = CurrentUserContext.use(CurrentUser.systemUser("system", "System"))) {
+            service.stream(new AssistantTurnCommand("describe", Map.of(), List.of(), List.of()),
+                    new AiTurnStreamConsumer() {
+                        @Override
+                        public void onTextDelta(String text) {
+                            events.add("delta:" + text);
+                        }
+
+                        @Override
+                        public void onComplete(AiTurnResponse response) {
+                            events.add("complete:" + response.requestId());
+                        }
+                    });
+        }
+
+        assertThat(events).containsExactly("delta:ready", "complete:request-stream");
+    }
+
+    @Test
+    void rejectsTruncatedTerminalResponsesForBothSynchronousAndStreamingTurns() {
+        AiModelGateway gateway = mock(AiModelGateway.class);
+        AiTurnResponse truncated = new AiTurnResponse("partial", List.of(), "length", "request-truncated");
+        when(gateway.complete(org.mockito.ArgumentMatchers.any())).thenReturn(truncated);
+        doAnswer(invocation -> {
+            AiTurnStreamConsumer consumer = invocation.getArgument(1);
+            consumer.onTextDelta("partial");
+            consumer.onComplete(truncated);
+            return null;
+        }).when(gateway).stream(org.mockito.ArgumentMatchers.any(AiTurnRequest.class),
+                org.mockito.ArgumentMatchers.any(AiTurnStreamConsumer.class));
+        AssistantTurnService service = new AssistantTurnService(gateway, new ObjectMapper());
+        AssistantTurnCommand command = new AssistantTurnCommand("describe", Map.of(), List.of(), List.of());
+
+        try (CurrentUserContext.Scope ignored = CurrentUserContext.use(CurrentUser.systemUser("system", "System"))) {
+            assertThatThrownBy(() -> service.turn(command))
+                    .isInstanceOf(PlatformException.class)
+                    .hasMessageContaining("截断");
+            assertThatThrownBy(() -> service.stream(command, new AiTurnStreamConsumer() {
+                @Override
+                public void onTextDelta(String text) {
+                }
+
+                @Override
+                public void onComplete(AiTurnResponse response) {
+                    throw new AssertionError("truncated responses must not complete");
+                }
+            })).isInstanceOf(PlatformException.class).hasMessageContaining("截断");
+        }
+    }
+
+    @Test
+    void rejectsToolCallsWithoutTheToolCallsTerminalReason() {
+        AiModelGateway gateway = mock(AiModelGateway.class);
+        when(gateway.complete(org.mockito.ArgumentMatchers.any())).thenReturn(new AiTurnResponse(null,
+                List.of(new AiToolCall("call-1", "page.describe", Map.of())), null, "request-incomplete"));
+        AssistantTurnService service = new AssistantTurnService(gateway, new ObjectMapper());
+        AssistantTurnCommand command = new AssistantTurnCommand("describe", Map.of(),
+                List.of(new AiToolDefinition("page.describe", "Describe page", Map.of("type", "object"))), List.of());
+
+        try (CurrentUserContext.Scope ignored = CurrentUserContext.use(CurrentUser.systemUser("system", "System"))) {
+            assertThatThrownBy(() -> service.turn(command))
+                    .isInstanceOf(PlatformException.class)
+                    .hasMessageContaining("未完整结束");
+        }
+    }
+
     @Test
     void keepsSystemRulesServerOwnedAndForwardsOnlyDeclaredCapabilities() {
         AiModelGateway gateway = mock(AiModelGateway.class);
@@ -127,7 +208,7 @@ class AssistantTurnServiceTest {
                     new AiTurnResponse(null, List.of(), "length", "request-4"));
             assertThatThrownBy(() -> service.turn(continuation))
                     .isInstanceOf(PlatformException.class)
-                    .hasMessageContaining("模型未返回可执行内容");
+                    .hasMessageContaining("截断");
 
             when(gateway.complete(org.mockito.ArgumentMatchers.any())).thenReturn(empty);
             AssistantTurnCommand failedContinuation = new AssistantTurnCommand("continue", Map.of(), List.of(),

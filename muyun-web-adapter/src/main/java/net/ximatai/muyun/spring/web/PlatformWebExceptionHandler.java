@@ -21,6 +21,7 @@ import org.springframework.web.HttpMediaTypeNotSupportedException;
 import org.springframework.http.converter.HttpMessageConversionException;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
+import org.springframework.web.context.request.async.AsyncRequestNotUsableException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.servlet.NoHandlerFoundException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
@@ -117,6 +118,13 @@ public class PlatformWebExceptionHandler {
     @ExceptionHandler(HttpMessageConversionException.class)
     public ResponseEntity<PlatformWebError> handleMessageConversion(HttpMessageConversionException exception) {
         return badRequest("请求参数格式错误", exception);
+    }
+
+    /** The response is already unusable after a client disconnect, so no error body can be written. */
+    @ExceptionHandler(AsyncRequestNotUsableException.class)
+    public void handleDisconnectedClient(AsyncRequestNotUsableException exception) {
+        log.debug("Client disconnected before the asynchronous response completed, traceId={}, endpointId={}",
+                MDC.get("traceId"), MDC.get("endpointId"));
     }
 
     @ExceptionHandler(NoHandlerFoundException.class)

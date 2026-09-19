@@ -1,5 +1,6 @@
 export * from './errors';
 export * from './http';
+export * from './sse';
 export * from './query';
 export * from './actionResult';
 export * from './assistantSurface';
