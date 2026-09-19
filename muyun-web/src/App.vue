@@ -3,6 +3,7 @@ import {
   computed,
   defineComponent,
   h,
+  nextTick,
   onMounted,
   onUnmounted,
   ref,
@@ -35,6 +36,7 @@ import {
   createLoginContextClient,
   invokeBusinessNotificationRecordAction,
   provideModuleContextConfig,
+  StaleAssistantInvocationError,
   userPreferences,
   type AppError,
   type RealtimeConnectionState,
@@ -211,6 +213,39 @@ const renderedTabMatchesRoute = computed(() => {
   const expected = tab?.fullPath ?? (tab?.pageDescriptor && pageDescriptorToUrl(tab.pageDescriptor));
   return expected === router.currentRoute.value.fullPath && expected === renderedPageRoute.value?.fullPath;
 });
+
+/** Wait until router, active tab and the mounted page Surface describe one page. */
+function waitForAssistantPageReady() {
+  const expectedTabKey = activeTabKey.value;
+  if (!expectedTabKey) return Promise.reject(new StaleAssistantInvocationError());
+  const targetReady = () =>
+    activeTabKey.value === expectedTabKey &&
+    renderedTabKey.value === expectedTabKey &&
+    renderedTabMatchesRoute.value;
+  if (targetReady()) return nextTick();
+  return new Promise<void>((resolve, reject) => {
+    let settled = false;
+    const finish = (error?: Error) => {
+      if (settled) return;
+      settled = true;
+      stop();
+      window.clearTimeout(timeout);
+      if (error) reject(error);
+      else void nextTick(resolve);
+    };
+    const stop = watch([activeTabKey, renderedTabKey, renderedTabMatchesRoute], () => {
+      if (activeTabKey.value !== expectedTabKey) {
+        finish(new StaleAssistantInvocationError());
+      } else if (targetReady()) {
+        finish();
+      }
+    });
+    const timeout = window.setTimeout(
+      () => finish(new Error('Assistant target page did not become ready in time')),
+      5_000,
+    );
+  });
+}
 const loginRequired = ref(false);
 const loginLoading = ref(false);
 const logoutLoading = ref(false);
@@ -1288,6 +1323,7 @@ function componentForCommittedRoute(route: RouteLocationNormalizedLoaded): VueCo
       :theme-appearance="activeThemeSkin.theme.appearance"
       :locked-tab-keys="lockedTabKeys()"
       :assistant-request-turn="assistantRequestTurn"
+      :assistant-wait-for-page-ready="waitForAssistantPageReady"
       @select-menu="handleSelectMenu"
       @change-tab="handleChangeTab"
       @close-tab="handleCloseTab"

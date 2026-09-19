@@ -83,4 +83,24 @@ class AssistantTurnServiceTest {
                     .hasMessageContaining("undeclared capability call");
         }
     }
+
+    @Test
+    void acceptsPreviousSurfaceResultsOutsideTheCurrentCapabilityCatalog() {
+        AiModelGateway gateway = mock(AiModelGateway.class);
+        when(gateway.complete(org.mockito.ArgumentMatchers.any())).thenReturn(
+                new AiTurnResponse("continued", List.of(), "stop", "request-2"));
+        AssistantTurnService service = new AssistantTurnService(gateway, new ObjectMapper());
+        AssistantTurnCommand command = new AssistantTurnCommand("continue", Map.of(),
+                List.of(new AiToolDefinition("page.describe", "Describe page", Map.of())),
+                List.of(new AssistantCapabilityResult("call-1", "other.capability", Map.of(), null, null)));
+
+        try (CurrentUserContext.Scope ignored = CurrentUserContext.use(CurrentUser.systemUser("system", "System"))) {
+            assertThat(service.turn(command).text()).isEqualTo("continued");
+        }
+
+        ArgumentCaptor<AiTurnRequest> request = ArgumentCaptor.forClass(AiTurnRequest.class);
+        verify(gateway).complete(request.capture());
+        assertThat(request.getValue().messages().get(1).content())
+                .contains("other.capability", "call-1");
+    }
 }

@@ -48,9 +48,10 @@ record AssistantTurnWebRequest(String message,
     }
 }
 
-record AssistantCapabilityResultWeb(String callId, Object output, AssistantCapabilityErrorWeb error) {
+record AssistantCapabilityResultWeb(String callId, String capabilityCode, Object output,
+                                    AssistantCapabilityErrorWeb error) {
     AssistantCapabilityResult toDomain() {
-        return new AssistantCapabilityResult(callId, output,
+        return new AssistantCapabilityResult(callId, capabilityCode, output,
                 error == null ? null : error.code(), error == null ? null : error.message());
     }
 }

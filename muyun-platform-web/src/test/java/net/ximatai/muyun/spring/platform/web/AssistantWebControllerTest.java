@@ -26,7 +26,8 @@ class AssistantWebControllerTest {
         AssistantTurnWebRequest request = new AssistantTurnWebRequest("continue",
                 Map.of("surface", "module-page"),
                 List.of(new AiToolDefinition("form.patch-draft", "Patch form", Map.of("type", "object"))),
-                List.of(new AssistantCapabilityResultWeb("call-1", Map.of("opened", true), null)));
+                List.of(new AssistantCapabilityResultWeb("call-1", "workbench.open-menu",
+                        Map.of("opened", true), null)));
 
         AssistantTurnWebResponse response = new AssistantWebController(service).turn(request);
 

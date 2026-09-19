@@ -84,7 +84,7 @@ function formDescribeCapability(view: ModulePageSessionView): AssistantCapabilit
             readOnly: field.readOnly,
             valueType: field.valueType,
             controlType: field.controlType,
-            assistantWritable: isAssistantWritableField(field),
+            assistantWritable: Boolean(view.editingRecord) && isAssistantWritableField(field),
             options: assistantOptions(field),
           })),
       };

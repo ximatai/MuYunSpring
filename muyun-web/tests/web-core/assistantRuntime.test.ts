@@ -1,5 +1,11 @@
 import { expect, it, vi } from 'vitest';
-import { createAssistantSurfaceRegistry, runAssistantStep, type AssistantCapability } from '@muyun/web-core';
+import {
+  createAssistantSurfaceRegistry,
+  runAssistantConversation,
+  runAssistantStep,
+  StaleAssistantInvocationError,
+  type AssistantCapability,
+} from '@muyun/web-core';
 
 it('executes declared capabilities and ends the step when their effect changes context', async () => {
   let revision = 'draft-before';
@@ -35,7 +41,9 @@ it('executes declared capabilities and ends the step when their effect changes c
 
   const result = await runAssistantStep(registry, 'fill title');
 
-  expect(result.results).toEqual([{ callId: 'call-1', output: { changed: true } }]);
+  expect(result.results).toEqual([
+    { callId: 'call-1', capabilityCode: 'form.patch-draft', output: { changed: true } },
+  ]);
   expect(result.contextChanged).toBe(true);
 });
 
@@ -66,8 +74,364 @@ it('returns an ordinary capability failure as a structured result', async () => 
   expect(result.results).toEqual([
     {
       callId: 'call-1',
+      capabilityCode: 'page.fail',
       error: { code: 'CAPABILITY_FAILED', message: 'Capability execution failed' },
     },
   ]);
   expect(result.contextChanged).toBe(false);
+});
+
+it('continues from a fresh surface after an effect and stops on the final model answer', async () => {
+  let revision = 'before';
+  const requestTurn = vi
+    .fn()
+    .mockResolvedValueOnce({
+      toolCalls: [{ id: 'call-1', code: 'page.change', input: {} }],
+      finishReason: 'tool_calls',
+    })
+    .mockResolvedValueOnce({ text: 'Done', toolCalls: [], finishReason: 'stop' });
+  const registry = createAssistantSurfaceRegistry();
+  registry.register({
+    pageInstanceKey: 'tab-a',
+    contextRevision: () => revision,
+    surface: {
+      describe: () => ({ surface: 'page', facts: { revision } }),
+      capabilities: () => [
+        {
+          descriptor: { code: 'page.change', description: 'Change page', inputSchema: {} },
+          parseInput: (input) => input,
+          async execute(_input, context) {
+            context.applyEffect(() => {
+              revision = 'after';
+            });
+            return { changed: true };
+          },
+        },
+      ],
+      requestTurn,
+    },
+  });
+  registry.activate('tab-a');
+
+  const result = await runAssistantConversation(registry, 'change it');
+
+  expect(result.completed).toBe(true);
+  expect(result.steps).toHaveLength(2);
+  expect(requestTurn).toHaveBeenNthCalledWith(
+    2,
+    expect.objectContaining({
+      message: 'change it',
+      results: [{ callId: 'call-1', capabilityCode: 'page.change', output: { changed: true } }],
+      context: expect.objectContaining({ facts: { revision: 'after' } }),
+    }),
+    expect.any(AbortSignal),
+  );
+});
+
+it('stops a conversation at the configured bounded step limit', async () => {
+  let sequence = 0;
+  const registry = createAssistantSurfaceRegistry();
+  registry.register({
+    pageInstanceKey: 'tab-a',
+    contextRevision: () => 'stable',
+    surface: {
+      describe: () => ({ surface: 'page', facts: {} }),
+      capabilities: () => [
+        {
+          descriptor: { code: 'page.read', description: 'Read', inputSchema: {} },
+          parseInput: (input) => input,
+          async execute() {
+            return { ready: true };
+          },
+        },
+      ],
+      requestTurn: async () => ({
+        toolCalls: [{ id: crypto.randomUUID(), code: 'page.read', input: { sequence: sequence++ } }],
+      }),
+    },
+  });
+  registry.activate('tab-a');
+
+  const result = await runAssistantConversation(registry, 'keep reading', { maxSteps: 2 });
+
+  expect(result.completed).toBe(false);
+  expect(result.steps).toHaveLength(2);
+});
+
+it('does not execute the same successful capability call twice in one conversation', async () => {
+  const deliveredSteps: Array<{ text?: string; resultCount: number }> = [];
+  const execute = vi.fn(async () => ({ opened: true }));
+  const requestTurn = vi
+    .fn()
+    .mockResolvedValueOnce({
+      toolCalls: [{ id: 'call-1', code: 'page.open', input: { menuId: 'apps' } }],
+    })
+    .mockResolvedValueOnce({
+      text: 'already open',
+      toolCalls: [{ id: 'call-2', code: 'page.open', input: { menuId: 'apps' } }],
+    });
+  const registry = createAssistantSurfaceRegistry();
+  registry.register({
+    pageInstanceKey: 'tab-a',
+    contextRevision: () => 'stable',
+    surface: {
+      describe: () => ({ surface: 'page', facts: {} }),
+      capabilities: () => [
+        {
+          descriptor: { code: 'page.open', description: 'Open', inputSchema: {} },
+          parseInput: (input) => input,
+          execute,
+        },
+      ],
+      requestTurn,
+    },
+  });
+  registry.activate('tab-a');
+
+  const result = await runAssistantConversation(registry, 'open apps', {
+    onStep(step) {
+      deliveredSteps.push({ text: step.output.text, resultCount: step.results.length });
+    },
+  });
+
+  expect(result.completed).toBe(true);
+  expect(result.steps).toHaveLength(2);
+  expect(result.steps[1]?.results).toEqual([
+    { callId: 'call-2', capabilityCode: 'page.open', output: { opened: true } },
+  ]);
+  expect(execute).toHaveBeenCalledOnce();
+  expect(deliveredSteps).toEqual([
+    { text: undefined, resultCount: 1 },
+    { text: 'already open', resultCount: 0 },
+  ]);
+});
+
+it('only reuses a successful call in the immediately following model decision', async () => {
+  const execute = vi.fn(async (input) => input);
+  const requestTurn = vi
+    .fn()
+    .mockResolvedValueOnce({ toolCalls: [{ id: 'call-1', code: 'page.read', input: { key: 'a' } }] })
+    .mockResolvedValueOnce({ toolCalls: [{ id: 'call-2', code: 'page.read', input: { key: 'b' } }] })
+    .mockResolvedValueOnce({ toolCalls: [{ id: 'call-3', code: 'page.read', input: { key: 'a' } }] })
+    .mockResolvedValueOnce({ text: 'done', toolCalls: [] });
+  const registry = createAssistantSurfaceRegistry();
+  registry.register({
+    pageInstanceKey: 'tab-a',
+    contextRevision: () => 'stable',
+    surface: {
+      describe: () => ({ surface: 'page', facts: {} }),
+      capabilities: () => [
+        {
+          descriptor: { code: 'page.read', description: 'Read', inputSchema: {} },
+          parseInput: (input) => input,
+          execute,
+        },
+      ],
+      requestTurn,
+    },
+  });
+  registry.activate('tab-a');
+
+  const result = await runAssistantConversation(registry, 'read values');
+
+  expect(result.completed).toBe(true);
+  expect(execute).toHaveBeenCalledTimes(3);
+  expect(execute).toHaveBeenNthCalledWith(1, { key: 'a' }, expect.anything());
+  expect(execute).toHaveBeenNthCalledWith(2, { key: 'b' }, expect.anything());
+  expect(execute).toHaveBeenNthCalledWith(3, { key: 'a' }, expect.anything());
+});
+
+it('restarts a post-navigation decision only when the target page replaces its fallback surface', async () => {
+  const registry = createAssistantSurfaceRegistry();
+  const fallbackRequest = vi.fn(
+    (_input, signal: AbortSignal) =>
+      new Promise<{ toolCalls: never[] }>((_resolve, reject) => {
+        signal.addEventListener('abort', () => reject(new DOMException('replaced', 'AbortError')), {
+          once: true,
+        });
+      }),
+  );
+  registry.register({
+    pageInstanceKey: 'tab-b',
+    fallback: true,
+    contextRevision: () => 'fallback',
+    surface: {
+      describe: () => ({ surface: 'workbench', facts: {} }),
+      capabilities: () => [],
+      requestTurn: fallbackRequest,
+    },
+  });
+  registry.register({
+    pageInstanceKey: 'tab-a',
+    contextRevision: () => 'source',
+    surface: {
+      describe: () => ({ surface: 'source-page', facts: {} }),
+      capabilities: () => [
+        {
+          descriptor: { code: 'page.open', description: 'Open target', inputSchema: {} },
+          parseInput: (input) => input,
+          async execute(_input, context) {
+            context.applyEffect(() => registry.activate('tab-b'));
+            return { opened: true };
+          },
+        },
+      ],
+      requestTurn: async () => ({
+        toolCalls: [{ id: 'call-1', code: 'page.open', input: {} }],
+        finishReason: 'tool_calls',
+      }),
+    },
+  });
+  registry.activate('tab-a');
+  const conversation = runAssistantConversation(registry, 'describe');
+  await vi.waitFor(() => expect(fallbackRequest).toHaveBeenCalledOnce());
+  registry.register({
+    pageInstanceKey: 'tab-b',
+    contextRevision: () => 'page',
+    surface: {
+      describe: () => ({ surface: 'module-page', facts: {} }),
+      capabilities: () => [],
+      requestTurn: async () => ({ text: 'page ready', toolCalls: [] }),
+    },
+  });
+
+  const result = await conversation;
+
+  expect(result.completed).toBe(true);
+  expect(result.steps).toHaveLength(2);
+  expect(result.steps[1]?.output.text).toBe('page ready');
+});
+
+it('does not replay a model decision after the user switches pages', async () => {
+  const registry = createAssistantSurfaceRegistry();
+  const requestTurn = vi.fn(
+    (_input, signal: AbortSignal) =>
+      new Promise<{ toolCalls: never[] }>((_resolve, reject) => {
+        signal.addEventListener('abort', () => reject(new DOMException('switched', 'AbortError')), {
+          once: true,
+        });
+      }),
+  );
+  for (const pageInstanceKey of ['tab-a', 'tab-b']) {
+    registry.register({
+      pageInstanceKey,
+      contextRevision: () => pageInstanceKey,
+      surface: {
+        describe: () => ({ surface: 'page', facts: {} }),
+        capabilities: () => [],
+        requestTurn,
+      },
+    });
+  }
+  registry.activate('tab-a');
+  const conversation = runAssistantConversation(registry, 'describe');
+  await vi.waitFor(() => expect(requestTurn).toHaveBeenCalledOnce());
+
+  registry.activate('tab-b');
+
+  await expect(conversation).rejects.toBeInstanceOf(StaleAssistantInvocationError);
+  expect(requestTurn).toHaveBeenCalledOnce();
+});
+
+it('does not replay a post-effect decision when a formal surface is refreshed', async () => {
+  let revision = 'before';
+  const registry = createAssistantSurfaceRegistry();
+  const fallbackRequest = vi.fn(async () => ({ text: 'fallback', toolCalls: [] }));
+  registry.register({
+    pageInstanceKey: 'tab-a',
+    fallback: true,
+    contextRevision: () => 'fallback',
+    surface: {
+      describe: () => ({ surface: 'workbench', facts: {} }),
+      capabilities: () => [],
+      requestTurn: fallbackRequest,
+    },
+  });
+  const formalRequest = vi
+    .fn()
+    .mockResolvedValueOnce({ toolCalls: [{ id: 'call-1', code: 'page.change', input: {} }] })
+    .mockImplementationOnce(
+      (_input, signal: AbortSignal) =>
+        new Promise<{ toolCalls: never[] }>((_resolve, reject) => {
+          signal.addEventListener('abort', () => reject(new DOMException('refreshed', 'AbortError')), {
+            once: true,
+          });
+        }),
+    );
+  const change: AssistantCapability = {
+    descriptor: { code: 'page.change', description: 'Change', inputSchema: {} },
+    parseInput: (input) => input,
+    async execute(_input, context) {
+      context.applyEffect(() => {
+        revision = 'after';
+      });
+      return { changed: true };
+    },
+  };
+  const formalSurface = {
+    describe: () => ({ surface: 'page', facts: {} }),
+    capabilities: () => [change],
+    requestTurn: formalRequest,
+  };
+  const unregisterFormal = registry.register({
+    pageInstanceKey: 'tab-a',
+    contextRevision: () => revision,
+    surface: formalSurface,
+  });
+  registry.activate('tab-a');
+  const conversation = runAssistantConversation(registry, 'change');
+  await vi.waitFor(() => expect(formalRequest).toHaveBeenCalledTimes(2));
+
+  unregisterFormal();
+  registry.register({
+    pageInstanceKey: 'tab-a',
+    contextRevision: () => revision,
+    surface: { ...formalSurface, requestTurn: async () => ({ text: 'new page', toolCalls: [] }) },
+  });
+
+  await expect(conversation).rejects.toBeInstanceOf(StaleAssistantInvocationError);
+  expect(fallbackRequest).not.toHaveBeenCalled();
+});
+
+it('does not replay a post-effect decision after the same surface context drifts', async () => {
+  let revision = 'before';
+  let resolveSecond!: (value: { toolCalls: never[] }) => void;
+  const requestTurn = vi
+    .fn()
+    .mockResolvedValueOnce({
+      toolCalls: [{ id: 'call-1', code: 'page.change', input: {} }],
+      finishReason: 'tool_calls',
+    })
+    .mockImplementationOnce(
+      () => new Promise<{ toolCalls: never[] }>((resolve) => (resolveSecond = resolve)),
+    );
+  const registry = createAssistantSurfaceRegistry();
+  registry.register({
+    pageInstanceKey: 'tab-a',
+    contextRevision: () => revision,
+    surface: {
+      describe: () => ({ surface: 'page', facts: {} }),
+      capabilities: () => [
+        {
+          descriptor: { code: 'page.change', description: 'Change', inputSchema: {} },
+          parseInput: (input) => input,
+          async execute(_input, context) {
+            context.applyEffect(() => {
+              revision = 'assistant-effect';
+            });
+            return { changed: true };
+          },
+        },
+      ],
+      requestTurn,
+    },
+  });
+  registry.activate('tab-a');
+  const conversation = runAssistantConversation(registry, 'change');
+  await vi.waitFor(() => expect(requestTurn).toHaveBeenCalledTimes(2));
+  revision = 'user-change';
+  resolveSecond({ toolCalls: [] });
+
+  await expect(conversation).rejects.toBeInstanceOf(StaleAssistantInvocationError);
+  expect(requestTurn).toHaveBeenCalledTimes(2);
 });

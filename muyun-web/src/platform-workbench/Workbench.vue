@@ -16,6 +16,7 @@ import {
   userPreferences,
 } from '@muyun/web-core';
 import WorkbenchBrandControl from './WorkbenchBrandControl.vue';
+import WorkbenchAssistantPanel from './WorkbenchAssistantPanel.vue';
 import WorkbenchMenu from './WorkbenchMenu.vue';
 import { getMenuNavigationTarget, resolvePageDescriptor } from './menuNavigation';
 import { createWorkbenchAssistantCapabilities } from './workbenchAssistantCapabilities';
@@ -38,6 +39,7 @@ const props = withDefaults(
     realtimeStatus?: WorkbenchRealtimeStatus;
     themeAppearance?: 'light' | 'dark';
     assistantRequestTurn?: AssistantTurnRequester;
+    assistantWaitForPageReady?: () => Promise<void>;
   }>(),
   {
     loading: false,
@@ -48,6 +50,7 @@ const props = withDefaults(
     realtimeStatus: 'unavailable',
     themeAppearance: 'light',
     assistantRequestTurn: undefined,
+    assistantWaitForPageReady: undefined,
   },
 );
 
@@ -72,6 +75,7 @@ const activeTabKey = computed(
 const activeTab = computed(() => openedTabs.value.find((tab) => tab.key === activeTabKey.value));
 const activePageInstanceKey = computed(() => activeTab.value?.instanceKey ?? activeTab.value?.key);
 const assistantSurfaceRegistry = createAssistantSurfaceRegistry();
+const assistantOpen = ref(false);
 function workbenchAssistantCapabilities() {
   return createWorkbenchAssistantCapabilities(
     () => props.startup?.menus ?? [],
@@ -84,7 +88,7 @@ function workbenchAssistantCapabilities() {
       handleSelectMenu(menu, target);
       return true;
     },
-    () => nextTick(),
+    () => props.assistantWaitForPageReady?.() ?? nextTick(),
   );
 }
 provideAssistantSurfaceHost({
@@ -452,6 +456,14 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
         </div>
 
         <div class="topbar-actions" aria-label="全局工具">
+          <UiButton
+            v-if="assistantRequestTurn"
+            class="assistant-toggle"
+            :type="assistantOpen ? 'primary' : 'default'"
+            @click="assistantOpen = !assistantOpen"
+          >
+            AI 助手
+          </UiButton>
           <button
             class="icon-button skin-button"
             type="button"
@@ -507,6 +519,11 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
           <UiEmpty v-else description="暂无页面" />
         </section>
       </section>
+      <WorkbenchAssistantPanel
+        :open="assistantOpen"
+        :registry="assistantSurfaceRegistry"
+        @close="assistantOpen = false"
+      />
     </section>
   </main>
 </template>

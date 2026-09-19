@@ -40,6 +40,7 @@ export interface AssistantInvocationToken {
   pageInstanceKey: string;
   surfaceGeneration: number;
   contextRevision: string;
+  fallback: boolean;
 }
 
 export interface AssistantSurfaceSnapshot {
@@ -131,6 +132,7 @@ export function createAssistantSurfaceRegistry(): AssistantSurfaceRegistry {
       pageInstanceKey: registration.pageInstanceKey,
       surfaceGeneration: registration.surfaceGeneration,
       contextRevision: registration.contextRevision(),
+      fallback: registration.fallback === true,
     };
   }
 
@@ -270,7 +272,8 @@ function sameToken(left: AssistantInvocationToken, right: AssistantInvocationTok
   return (
     left.pageInstanceKey === right.pageInstanceKey &&
     left.surfaceGeneration === right.surfaceGeneration &&
-    left.contextRevision === right.contextRevision
+    left.contextRevision === right.contextRevision &&
+    left.fallback === right.fallback
   );
 }
 

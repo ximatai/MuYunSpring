@@ -14,6 +14,7 @@ it('keeps a workbench fallback surface under the active page surface', async () 
     },
   });
   const requestTurn = vi.fn(async () => ({ text: 'ready', toolCalls: [] }));
+  const waitForPageReady = vi.fn(async () => nextTick());
   const Harness = defineComponent({
     setup() {
       const startup = ref<WorkbenchStartupState>({
@@ -45,6 +46,7 @@ it('keeps a workbench fallback surface under the active page surface', async () 
           {
             startup: startup.value,
             assistantRequestTurn: requestTurn,
+            assistantWaitForPageReady: waitForPageReady,
             onSelectMenu: () => {
               startup.value = {
                 ...startup.value,
@@ -75,6 +77,7 @@ it('keeps a workbench fallback surface under the active page surface', async () 
     contextChanged: true,
   });
   expect(host?.registry.snapshot()?.token.pageInstanceKey).toBe('customers-instance');
+  expect(waitForPageReady).toHaveBeenCalledOnce();
 
   const unregisterPage = host!.registry.register({
     pageInstanceKey: 'customers-instance',

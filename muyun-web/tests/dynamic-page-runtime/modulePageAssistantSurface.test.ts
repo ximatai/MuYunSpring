@@ -89,6 +89,27 @@ describe('module page assistant surface', () => {
     expect(modulePageAssistantContextRevision(view)).not.toBe(before);
   });
 
+  it('does not advertise writable fields while the page is outside an edit session', async () => {
+    const view = viewFixture();
+    view.editingRecord = undefined;
+    view.editorMode = 'view';
+    const surface = createModulePageAssistantSurface(view, vi.fn());
+    const describe = surface.capabilities().find(({ descriptor }) => descriptor.code === 'form.describe')!;
+
+    const description = (await describe.execute(describe.parseInput({}), executionContext())) as {
+      editable: boolean;
+      fields: Array<{ fieldName: string; assistantWritable: boolean }>;
+    };
+
+    expect(description.editable).toBe(false);
+    expect(description.fields).toContainEqual(
+      expect.objectContaining({ fieldName: 'summary', assistantWritable: false }),
+    );
+    expect(surface.capabilities()).not.toContainEqual(
+      expect.objectContaining({ descriptor: expect.objectContaining({ code: 'form.patch-draft' }) }),
+    );
+  });
+
   it('hides password fields and rejects direct reference identifiers', async () => {
     const view = viewFixture();
     view.formFields.set('apiKey', {

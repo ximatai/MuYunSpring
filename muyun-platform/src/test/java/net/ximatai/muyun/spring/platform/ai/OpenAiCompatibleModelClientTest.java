@@ -1,6 +1,7 @@
 package net.ximatai.muyun.spring.platform.ai;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.JsonNode;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
@@ -144,6 +145,32 @@ class OpenAiCompatibleModelClientTest {
         });
         assertThat(response.finishReason()).isEqualTo("tool_calls");
         assertThat(response.requestId()).isEqualTo("request-structured");
+    }
+
+    @Test
+    void normalizesEmptyObjectSchemasForStrictOpenAiCompatibleProviders() throws Exception {
+        AtomicReference<String> requestBody = new AtomicReference<>();
+        server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/v1/chat/completions", exchange -> {
+            requestBody.set(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
+            byte[] body = "{\"choices\":[{\"message\":{\"content\":\"ready\"},\"finish_reason\":\"stop\"}]}"
+                    .getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(200, body.length);
+            exchange.getResponseBody().write(body);
+            exchange.close();
+        });
+        server.start();
+        AiTurnRequest request = new AiTurnRequest(
+                List.of(new AiChatMessage(AiChatMessage.Role.USER, "describe")),
+                List.of(new AiToolDefinition("page.describe", "Describe page",
+                        Map.of("type", "object", "additionalProperties", false))),
+                null, 512);
+
+        new OpenAiCompatibleModelClient(new ObjectMapper()).complete(route(), request);
+
+        JsonNode sent = new ObjectMapper().readTree(requestBody.get());
+        assertThat(sent.path("tools").path(0).path("function").path("parameters").path("properties").isObject())
+                .isTrue();
     }
 
     @Test

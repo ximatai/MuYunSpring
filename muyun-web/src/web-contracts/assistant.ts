@@ -18,6 +18,7 @@ export interface AssistantCapabilityCall {
 
 export interface AssistantCapabilityResult {
   callId: string;
+  capabilityCode: string;
   output?: unknown;
   error?: {
     code: string;

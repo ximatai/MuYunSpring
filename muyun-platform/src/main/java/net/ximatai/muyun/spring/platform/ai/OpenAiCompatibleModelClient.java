@@ -192,7 +192,7 @@ final class OpenAiCompatibleModelClient implements AiModelClient {
                 tools.add(Map.of("type", "function", "function", Map.of(
                         "name", providerToolName(index),
                         "description", tool.description(),
-                        "parameters", tool.inputSchema())));
+                        "parameters", providerParameters(tool.inputSchema()))));
             }
             body.put("tools", tools);
         }
@@ -239,6 +239,18 @@ final class OpenAiCompatibleModelClient implements AiModelClient {
 
     private String providerToolName(int index) {
         return "capability_" + index;
+    }
+
+    /**
+     * Some OpenAI-compatible runtimes require object schemas to declare an
+     * explicit properties object even though JSON Schema itself does not.
+     */
+    private Map<String, Object> providerParameters(Map<String, Object> schema) {
+        Map<String, Object> normalized = new LinkedHashMap<>(schema);
+        if ("object".equals(normalized.get("type")) && !normalized.containsKey("properties")) {
+            normalized.put("properties", Map.of());
+        }
+        return normalized;
     }
 
     private JsonNode readJsonObject(String payload, String invalidMessage) {
