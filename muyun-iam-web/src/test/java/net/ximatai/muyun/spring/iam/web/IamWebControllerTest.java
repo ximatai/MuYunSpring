@@ -400,6 +400,31 @@ class IamWebControllerTest {
     }
 
     @Test
+    void shouldQuickSearchTenantReferenceCandidatesByTitle() throws Exception {
+        currentUser = CurrentUser.systemUser("admin", "Admin");
+        when(tenantDao.pageQuery(any(Criteria.class), any(PageRequest.class), any(Sort[].class)))
+                .thenReturn(PageResult.of(List.of(tenant("tenant_demo", "演示租户")), 1, PageRequest.of(1, 10)));
+
+        mvc.perform(post("/iam.tenant/navigator/reference/query")
+                        .contentType("application/json")
+                        .content(json(Map.of(
+                                "quickSearch", "演示租户",
+                                "page", Map.of("pageNum", 1, "pageSize", 10)
+                        ))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.records[0].id").value("tenant_demo"))
+                .andExpect(jsonPath("$.records[0].title").value("演示租户"))
+                .andExpect(jsonPath("$.total").value(1));
+
+        ArgumentCaptor<Criteria> criteriaCaptor = ArgumentCaptor.captor();
+        ArgumentCaptor<PageRequest> pageCaptor = ArgumentCaptor.captor();
+        verify(tenantDao).pageQuery(criteriaCaptor.capture(), pageCaptor.capture(), any(Sort[].class));
+        assertThat(compiledCriteria(criteriaCaptor.getValue())).contains("\"title\"");
+        assertThat(pageCaptor.getValue().getOffset()).isZero();
+        assertThat(pageCaptor.getValue().getLimit()).isEqualTo(10);
+    }
+
+    @Test
     void shouldExposeTenantRecycleBinThroughSystemScopedLifecycleFacade() throws Exception {
         Tenant deleted = tenant("tenant_deleted", "Deleted Tenant");
         deleted.setDeleted(true);
@@ -443,7 +468,7 @@ class IamWebControllerTest {
                         .contentType("application/json")
                         .content(json(Map.of(
                                 "conditions", List.of(Map.of(
-                                        "fieldName", "title",
+                                        "fieldName", "workbenchTitle",
                                         "operator", "EQ",
                                         "values", List.of("Tenant A")
                                 ))
@@ -451,7 +476,7 @@ class IamWebControllerTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.traceId").isNotEmpty())
                 .andExpect(jsonPath("$.code").value(PlatformErrorCodes.VALIDATION_FAILED))
-                .andExpect(jsonPath("$.message").value("query conditions are not supported by iam.tenant"));
+                .andExpect(jsonPath("$.message").value("query field is not supported by iam.tenant: workbenchTitle"));
     }
 
     @Test
@@ -464,7 +489,7 @@ class IamWebControllerTest {
                                         "operator", "OR",
                                         "children", List.of(Map.of(
                                                 "kind", "CONDITION",
-                                                "fieldName", "title",
+                                                "fieldName", "workbenchTitle",
                                                 "operator", "EQ",
                                                 "values", List.of("Tenant A")
                                         ))
@@ -473,7 +498,7 @@ class IamWebControllerTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.traceId").isNotEmpty())
                 .andExpect(jsonPath("$.code").value(PlatformErrorCodes.VALIDATION_FAILED))
-                .andExpect(jsonPath("$.message").value("query criteria are not supported by iam.tenant"));
+                .andExpect(jsonPath("$.message").value("query field is not supported by iam.tenant: workbenchTitle"));
     }
 
     @Test

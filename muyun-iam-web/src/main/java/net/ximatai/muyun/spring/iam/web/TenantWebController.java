@@ -32,6 +32,7 @@ public class TenantWebController extends StaticModuleWebControllerAdapter<Tenant
         return ModuleUiDefinition.builder(TenantService.MODULE_ALIAS)
                 .typedTextConfirmation("delete", "alias")
                 .page(PageTemplates.flatManagement(page -> page
+                        .quickSearch("title")
                         .explorer(explorer -> explorer.title("租户列表").titleField("title").secondaryField("alias"))
                         .detail(detail -> detail.editor(form -> form
                         .title("租户档案")

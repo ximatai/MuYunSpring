@@ -617,6 +617,106 @@ describe('module page assistant surface', () => {
     expect(view.updateDraftReference).not.toHaveBeenCalled();
   });
 
+  it('resolves and patches a unique exact reference title through the standard picker source', async () => {
+    const candidate = {
+      id: 'tenant-1',
+      title: 'Demo Tenant',
+      affectPatch: { tenantName: 'Demo Tenant' },
+    };
+    const view = referenceViewFixture([candidate]);
+    const resolveAndPatch = createModulePageAssistantSurface(view, vi.fn())
+      .capabilities()
+      .find(({ descriptor }) => descriptor.code === 'reference.resolve-and-patch')!;
+
+    const result = await resolveAndPatch.execute(
+      resolveAndPatch.parseInput({ fieldName: 'tenantId', title: '  demo tenant  ' }),
+      executionContext(),
+    );
+
+    const provider = view.referencePickerConfigs?.tenantId?.provider;
+    if (!provider) throw new Error('reference provider fixture is missing');
+    expect(provider.searchPage).toHaveBeenCalledWith({
+      keyword: 'demo tenant',
+      pageNum: 1,
+      pageSize: 10,
+      scope: { selections: [] },
+    });
+    expect(view.updateDraftReference).toHaveBeenCalledWith('tenantId', candidate);
+    expect(result).toEqual({ changedField: 'tenantId', selectedTitle: 'Demo Tenant' });
+  });
+
+  it('does not patch a reference when text resolution is fuzzy, ambiguous, or identifier-only', async () => {
+    const cases = [
+      { records: [{ id: 'tenant-1', title: 'Demo Tenant' }], total: 1, title: 'Demo' },
+      {
+        records: [
+          { id: 'tenant-1', title: 'Demo Tenant' },
+          { id: 'tenant-2', title: 'Demo Tenant' },
+        ],
+        total: 2,
+        title: 'Demo Tenant',
+      },
+      {
+        records: [{ id: 'tenant-1', title: 'tenant-1', identifierFallback: true }],
+        total: 1,
+        title: 'tenant-1',
+      },
+    ];
+
+    for (const testCase of cases) {
+      const view = referenceViewFixture([]);
+      const provider = view.referencePickerConfigs?.tenantId?.provider;
+      if (!provider) throw new Error('reference provider fixture is missing');
+      provider.searchPage = vi.fn().mockResolvedValue(testCase);
+      const resolveAndPatch = createModulePageAssistantSurface(view, vi.fn())
+        .capabilities()
+        .find(({ descriptor }) => descriptor.code === 'reference.resolve-and-patch')!;
+
+      await expect(
+        resolveAndPatch.execute(
+          resolveAndPatch.parseInput({ fieldName: 'tenantId', title: testCase.title }),
+          executionContext(),
+        ),
+      ).rejects.toThrow('Reference title is not a unique exact match');
+      expect(view.updateDraftReference).not.toHaveBeenCalled();
+    }
+  });
+
+  it('invalidates an earlier searched selection when a later deterministic resolution starts', async () => {
+    const view = referenceViewFixture([{ id: 'tenant-1', title: 'Demo Tenant' }]);
+    const surface = createModulePageAssistantSurface(view, vi.fn());
+    const search = surface
+      .capabilities()
+      .find(({ descriptor }) => descriptor.code === 'reference.search-options')!;
+    const resolveAndPatch = surface
+      .capabilities()
+      .find(({ descriptor }) => descriptor.code === 'reference.resolve-and-patch')!;
+    const patch = surface
+      .capabilities()
+      .find(({ descriptor }) => descriptor.code === 'reference.patch-draft')!;
+    const searchResult = (await search.execute(
+      search.parseInput({ fieldName: 'tenantId', keyword: 'Demo' }),
+      executionContext(),
+    )) as { options: Array<{ selectionKey: string }> };
+    const provider = view.referencePickerConfigs?.tenantId?.provider;
+    if (!provider) throw new Error('reference provider fixture is missing');
+    provider.searchPage = vi.fn().mockResolvedValue({ records: [], total: 0 });
+
+    await expect(
+      resolveAndPatch.execute(
+        resolveAndPatch.parseInput({ fieldName: 'tenantId', title: 'Missing Tenant' }),
+        executionContext(),
+      ),
+    ).rejects.toThrow('Reference title is not a unique exact match');
+    await expect(
+      patch.execute(
+        patch.parseInput({ selectionKey: searchResult.options[0]!.selectionKey }),
+        executionContext(),
+      ),
+    ).rejects.toThrow('Reference selection is no longer available');
+    expect(view.updateDraftReference).not.toHaveBeenCalled();
+  });
+
   it('does not expose identifier fallback titles as reference candidates', async () => {
     const view = referenceViewFixture([
       { id: 'internal-tenant-id', title: 'internal-tenant-id', identifierFallback: true },

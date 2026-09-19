@@ -22,6 +22,7 @@ const MAX_ASSISTANT_REFERENCE_OPTIONS = 10;
 interface AssistantReferenceSelection {
   fieldName: string;
   contextRevision: string;
+  searchRevision: number;
   candidate: ReferencePickerCandidate;
 }
 
@@ -66,7 +67,86 @@ function referenceCapabilities(
   if (!hasEditableDraft(view)) return [];
   const fieldNames = assistantReferenceFields(view).map(({ fieldName }) => fieldName);
   if (fieldNames.length === 0) return [];
-  return [referenceSearchCapability(view, state, fieldNames), referencePatchCapability(view, state)];
+  return [
+    referenceResolveAndPatchCapability(view, state, fieldNames),
+    referenceSearchCapability(view, state, fieldNames),
+    referencePatchCapability(view, state),
+  ];
+}
+
+function referenceResolveAndPatchCapability(
+  view: ModulePageSessionView,
+  state: AssistantReferenceSelectionState,
+  fieldNames: string[],
+): AssistantCapability<{ fieldName: string; title: string }> {
+  return {
+    descriptor: {
+      code: 'reference.resolve-and-patch',
+      description:
+        '按业务名称检索当前表单的单值引用；仅当标准引用源返回唯一且名称精确匹配的可用记录时回填草稿。它不会保存。应优先使用；无法确定时再搜索候选。',
+      inputSchema: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['fieldName', 'title'],
+        properties: {
+          fieldName: { type: 'string', enum: fieldNames },
+          title: { type: 'string', minLength: 1, maxLength: 500 },
+        },
+      },
+    },
+    parseInput(input) {
+      if (
+        !isRecord(input) ||
+        typeof input.fieldName !== 'string' ||
+        !fieldNames.includes(input.fieldName) ||
+        typeof input.title !== 'string' ||
+        !input.title.trim() ||
+        input.title.length > 500
+      ) {
+        throw new Error('reference.resolve-and-patch requires a declared fieldName and title');
+      }
+      return { fieldName: input.fieldName, title: input.title.trim() };
+    },
+    async execute({ fieldName, title }, context) {
+      const field = assistantReferenceField(view, fieldName);
+      if (!field?.pickerConfig?.provider) throw new Error(`Reference field is not available: ${fieldName}`);
+      const searchRevision = ++state.searchRevision;
+      const page = await field.pickerConfig.provider.searchPage({
+        keyword: title,
+        pageNum: 1,
+        pageSize: MAX_ASSISTANT_REFERENCE_OPTIONS,
+        scope: { selections: [] },
+      });
+      if (!context.isCurrent() || state.searchRevision !== searchRevision) {
+        throw new Error('Reference resolution is no longer current; resolve again');
+      }
+      if (page.navigation?.length) {
+        throw new Error('Reference field requires scoped navigation and is not available to the assistant');
+      }
+      const candidate = page.records[0];
+      if (
+        page.total !== 1 ||
+        page.records.length !== 1 ||
+        !candidate ||
+        !isAssistantSelectableReference(candidate) ||
+        normalizeReferenceTitle(candidate.title) !== normalizeReferenceTitle(title)
+      ) {
+        throw new Error('Reference title is not a unique exact match; search reference options');
+      }
+      context.applyEffect(() => {
+        if (
+          state.searchRevision !== searchRevision ||
+          !context.isCurrent() ||
+          !assistantReferenceField(view, fieldName)
+        ) {
+          throw new Error('Reference resolution is no longer current; resolve again');
+        }
+        view.updateDraftReference(fieldName, candidate);
+        state.selections.clear();
+      });
+      return { changedField: fieldName, selectedTitle: candidate.title.slice(0, 500) };
+    },
+  };
 }
 
 function referenceSearchCapability(
@@ -119,18 +199,13 @@ function referenceSearchCapability(
       }
       const contextRevision = modulePageAssistantContextRevision(view);
       const options = page.records
-        .filter(
-          (candidate) =>
-            candidate.disabled !== true &&
-            candidate.unavailable !== true &&
-            candidate.identifierFallback !== true,
-        )
+        .filter((candidate) => isAssistantSelectableReference(candidate))
         .slice(0, MAX_ASSISTANT_REFERENCE_OPTIONS)
         .map((candidate) => {
           const selectionKey = crypto.randomUUID();
           return {
             selectionKey,
-            selection: { fieldName, contextRevision, candidate },
+            selection: { fieldName, contextRevision, searchRevision, candidate },
             title: candidate.title.slice(0, 500),
           };
         });
@@ -181,6 +256,7 @@ function referencePatchCapability(
       if (
         !selection ||
         selection.contextRevision !== modulePageAssistantContextRevision(view) ||
+        selection.searchRevision !== state.searchRevision ||
         !assistantReferenceField(view, selection.fieldName)
       ) {
         throw new Error('Reference selection is no longer available; search again');
@@ -190,6 +266,7 @@ function referencePatchCapability(
         if (
           !current ||
           current.contextRevision !== modulePageAssistantContextRevision(view) ||
+          current.searchRevision !== state.searchRevision ||
           !assistantReferenceField(view, current.fieldName)
         ) {
           throw new Error('Reference selection is no longer available; search again');
@@ -200,6 +277,16 @@ function referencePatchCapability(
       return { changedField: selection.fieldName, selectedTitle: selection.candidate.title.slice(0, 500) };
     },
   };
+}
+
+function isAssistantSelectableReference(candidate: ReferencePickerCandidate) {
+  return (
+    candidate.disabled !== true && candidate.unavailable !== true && candidate.identifierFallback !== true
+  );
+}
+
+function normalizeReferenceTitle(value: string) {
+  return value.trim().toLowerCase();
 }
 
 function recordEditorCapabilities(view: ModulePageSessionView): AssistantCapability[] {
