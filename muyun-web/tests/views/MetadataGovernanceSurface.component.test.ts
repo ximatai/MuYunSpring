@@ -1,6 +1,13 @@
 import { flushPromises, shallowMount } from '@vue/test-utils';
 import { afterEach, expect, it, vi } from 'vitest';
-import { configureModuleContext, type HttpClient, type HttpRequestOptions } from '@/web-core';
+import { defineComponent, h } from 'vue';
+import {
+  configureModuleContext,
+  createAssistantSurfaceRegistry,
+  provideAssistantSurfaceHost,
+  type HttpClient,
+  type HttpRequestOptions,
+} from '@/web-core';
 import MetadataGovernanceSurface from '@/views/MetadataGovernanceSurface.vue';
 import { confirmAction } from '@muyun/vue-ui-antdv';
 
@@ -15,6 +22,114 @@ afterEach(() => {
   mounted.forEach((wrapper) => wrapper.unmount());
   mounted.clear();
   vi.clearAllMocks();
+});
+
+it('registers the metadata surface only after a complete load and invalidates changed projections', async () => {
+  const relations = deferred<unknown>();
+  const http: HttpClient = {
+    request: <T>(options: HttpRequestOptions) => {
+      if (options.path === '/platform.module/education.exam/metadata-relations/query') {
+        return relations.promise as Promise<T>;
+      }
+      const response = responseFor(options);
+      if (options.path === '/platform.metadata/meta-main/fields/query') {
+        return Promise.resolve({
+          ...(response as object),
+          records: [
+            ...(response as { records: unknown[] }).records,
+            {
+              id: 'created-at',
+              fieldName: 'createdAt',
+              title: '创建时间',
+              fieldSpecAlias: 'datetime',
+              fieldOwnership: 'STANDARD',
+              systemManaged: true,
+              fieldForm: 'PHYSICAL',
+            },
+          ],
+        }) as Promise<T>;
+      }
+      return Promise.resolve(response as T);
+    },
+  };
+  configureModuleContext({ http });
+  const registry = createAssistantSurfaceRegistry();
+  registry.activate('page-1');
+  const Harness = defineComponent({
+    setup() {
+      provideAssistantSurfaceHost({
+        registry,
+        activePageInstanceKey: () => 'page-1',
+        capabilities: () => [],
+      });
+      return () => h(MetadataGovernanceSurface, { moduleAlias: 'education.exam', moduleTitle: '考试管理' });
+    },
+  });
+  const wrapper = shallowMount(Harness, {
+    global: { stubs: { ...governanceStubs(), MetadataGovernanceSurface: false } },
+  });
+  mounted.add(wrapper);
+  await flushPromises();
+
+  expect(registry.snapshot()).toBeUndefined();
+
+  relations.resolve(responseFor({ path: '/platform.module/education.exam/metadata-relations/query' }));
+  await flushPromises();
+  await flushPromises();
+
+  const before = registry.snapshot()!;
+  expect(before.context.surface).toBe('metadata-governance');
+  const describedBefore = await registry.invoke(
+    { id: 'describe-1', code: 'configuration.describe-metadata-model', input: {} },
+    before.token,
+  );
+  expect(describedBefore.value).toEqual(
+    expect.objectContaining({ selectedRelation: expect.objectContaining({ fieldCount: 1 }) }),
+  );
+
+  wrapper.findComponent({ name: 'UiSwitch' }).vm.$emit('update:checked', true);
+  await flushPromises();
+  const after = registry.snapshot()!;
+  expect(after.token.contextRevision).not.toBe(before.token.contextRevision);
+  await expect(
+    registry.invoke(
+      { id: 'describe-stale', code: 'configuration.describe-metadata-model', input: {} },
+      before.token,
+    ),
+  ).rejects.toThrow('Assistant invocation no longer matches the active page context');
+  const describedAfter = await registry.invoke(
+    { id: 'describe-2', code: 'configuration.describe-metadata-model', input: {} },
+    after.token,
+  );
+  expect(describedAfter.value).toEqual(
+    expect.objectContaining({ selectedRelation: expect.objectContaining({ fieldCount: 2 }) }),
+  );
+});
+
+it('keeps the workbench fallback active when metadata loading fails', async () => {
+  const http: HttpClient = {
+    request: <T>(options: HttpRequestOptions) =>
+      options.path === '/platform.module/education.exam/metadata-relations/query'
+        ? Promise.reject(new Error('load failed'))
+        : Promise.resolve(responseFor(options) as T),
+  };
+  configureModuleContext({ http });
+  const registry = createAssistantSurfaceRegistry();
+  registry.activate('page-1');
+  const Harness = defineComponent({
+    setup() {
+      provideAssistantSurfaceHost({ registry, activePageInstanceKey: () => 'page-1' });
+      return () => h(MetadataGovernanceSurface, { moduleAlias: 'education.exam' });
+    },
+  });
+  const wrapper = shallowMount(Harness, {
+    global: { stubs: { ...governanceStubs(), MetadataGovernanceSurface: false } },
+  });
+  mounted.add(wrapper);
+  await flushPromises();
+  await flushPromises();
+
+  expect(registry.snapshot()).toBeUndefined();
 });
 
 it('keeps main entity capabilities out of the data-model editor', async () => {

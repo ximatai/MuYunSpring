@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue';
+import { computed, onActivated, onDeactivated, onMounted, onUnmounted, ref, watch } from 'vue';
 import { generatedBusinessFieldName, generatedMetadataAlias, physicalNameOf } from './metadataNaming';
 import {
   ManagementExplorerColumn,
@@ -24,7 +24,12 @@ import type {
   Option,
   WebPageResponse,
 } from '@muyun/web-contracts';
-import { createStaticResourceCrudClient, useModuleContext } from '@muyun/web-core';
+import {
+  createAssistantTurnRequester,
+  createStaticResourceCrudClient,
+  useAssistantSurfaceHost,
+  useModuleContext,
+} from '@muyun/web-core';
 import {
   UiActionButton,
   UiButton,
@@ -68,6 +73,12 @@ import {
 } from './metadataModelEditSession';
 import type { MetadataModelChangeSetProposal } from './metadataModelEditSession';
 import {
+  applyMetadataModelChangeSet,
+  previewMetadataModelChangeSet,
+  type MetadataChangeSetPreview,
+} from './metadataModelChangeSetClient';
+import { createMetadataGovernanceAssistantSurface } from './metadataGovernanceAssistantSurface';
+import {
   buildMetadataModelTree,
   canReorderMetadataModelTree,
   metadataNodeKey,
@@ -90,10 +101,18 @@ const state = createMetadataOrchestrationState();
 const editSession = createMetadataModelWorkspaceEditSession();
 const sorting = ref(false);
 useWorkspaceViewUnsavedState('元数据', () => editSession.isDirty.value || state.mode.value !== 'view');
+const assistantHost = useAssistantSurfaceHost();
+const assistantContextRevision = ref(0);
+let assistantActive = false;
+let assistantPageInstanceKey: string | undefined;
+let unregisterAssistantSurface: (() => void) | undefined;
 const mainMetadataDraft = state.mainMetadataDraft;
 const fieldDraft = state.fieldDraft;
 const fieldPropertyDraft = state.fieldPropertyDraft;
 const loading = ref(false);
+const workspaceReady = ref(false);
+const workspaceLoadFailed = ref(false);
+let workspaceLoadRevision = 0;
 const saving = ref(false);
 const showSystemFields = ref(false);
 const capabilitySnapshot = ref<ModuleMetadataCapabilitySnapshot>();
@@ -152,38 +171,6 @@ type ModuleMetadataRelationRecordCount = { relationId: string; recordCount: numb
 type ModuleMetadataCapabilitySnapshot = {
   capabilities: ModuleMetadataCapabilityFact[];
 };
-type MetadataChangeSetIssue = {
-  severity: 'WARNING' | 'ERROR' | string;
-  code: string;
-  subject: string;
-  message: string;
-};
-type MetadataChangeSetPreview = {
-  proposalFingerprint: string;
-  fieldImpacts: Array<{
-    operation: string;
-    fieldName: string;
-    columnName: string;
-    platformManaged: boolean;
-    description: string;
-  }>;
-  schemaImpacts: Array<{
-    operation: string;
-    schemaName: string;
-    tableName: string;
-    columnName: string;
-    description: string;
-  }>;
-  orderImpacts: Array<{
-    operation: string;
-    relationId?: string;
-    parentMetadataId?: string;
-    orderedIds: string[];
-    description: string;
-  }>;
-  warnings: MetadataChangeSetIssue[];
-  errors: MetadataChangeSetIssue[];
-};
 type ReferenceTargetFieldCandidate = {
   fieldName: string;
   title?: string;
@@ -232,6 +219,97 @@ const selectedField = computed(() => {
   if (parsed?.kind !== 'FIELD' || parsed.relationId !== selectedRelationId.value) return undefined;
   return displayedFields.value.find((field) => (field.id ?? field.fieldName) === parsed.fieldId);
 });
+const ASSISTANT_METADATA_FIELD_LIMIT = 80;
+
+function assistantSummary() {
+  const relation = state.selectedRelation.value;
+  const fields = relation?.id
+    ? visibleFields(editSession.fieldsForDisplay(relation.id, state.allFields.value))
+    : [];
+  const projectedFields = fields.slice(0, ASSISTANT_METADATA_FIELD_LIMIT).map((field) => ({
+    fieldName: field.fieldName ?? '',
+    title: field.title,
+    fieldSpecAlias: field.fieldSpecAlias,
+    governance: metadataFieldGovernanceLabel(
+      metadataFieldGovernanceKind(field, relation, capabilityFieldNames.value),
+    ),
+  }));
+  return {
+    moduleAlias: props.moduleAlias,
+    moduleTitle: props.moduleTitle?.trim() || props.title?.trim() || props.moduleAlias,
+    relationCount: state.relations.value.length,
+    selectedRelation:
+      relation?.id == null
+        ? undefined
+        : {
+            relationId: relation.id,
+            title: state.selectedMetadata.value?.title,
+            fieldCount: fields.length,
+            fields: projectedFields,
+            truncated: projectedFields.length < fields.length,
+          },
+    draft: {
+      active: editSession.editing.value || state.mode.value !== 'view',
+      dirty: editSession.isDirty.value,
+    },
+  };
+}
+
+function clearAssistantSurface() {
+  unregisterAssistantSurface?.();
+  unregisterAssistantSurface = undefined;
+}
+
+function syncAssistantSurface() {
+  clearAssistantSurface();
+  if (
+    !assistantHost ||
+    !assistantActive ||
+    !assistantPageInstanceKey ||
+    loading.value ||
+    !workspaceReady.value ||
+    workspaceLoadFailed.value
+  )
+    return;
+  unregisterAssistantSurface = assistantHost.registry.register({
+    pageInstanceKey: assistantPageInstanceKey,
+    contextRevision: () => `${props.moduleAlias}:${assistantContextRevision.value}`,
+    surface: createMetadataGovernanceAssistantSurface(
+      {
+        summary: assistantSummary,
+        proposal: () => editSession.buildProposal(),
+        preview: (proposal, signal) =>
+          previewMetadataModelChangeSet(moduleContext.http, props.moduleAlias, proposal, signal),
+      },
+      createAssistantTurnRequester(moduleContext.http),
+      () => assistantHost.capabilities?.() ?? [],
+    ),
+  });
+}
+
+function activateAssistantSurface() {
+  assistantActive = true;
+  assistantPageInstanceKey = assistantHost?.activePageInstanceKey();
+  syncAssistantSurface();
+}
+
+function deactivateAssistantSurface() {
+  assistantActive = false;
+  clearAssistantSurface();
+}
+
+watch(
+  () => ({ summary: assistantSummary(), proposal: editSession.buildProposal() }),
+  () => {
+    assistantContextRevision.value += 1;
+  },
+  { deep: true, flush: 'sync' },
+);
+watch([loading, workspaceReady, workspaceLoadFailed], syncAssistantSurface, { flush: 'post' });
+onMounted(activateAssistantSurface);
+onActivated(activateAssistantSurface);
+onDeactivated(deactivateAssistantSurface);
+onUnmounted(deactivateAssistantSurface);
 const selectedNodeIsField = computed(() => Boolean(selectedField.value));
 const metadataTreeNodes = computed(() =>
   buildMetadataModelTree({
@@ -481,8 +559,11 @@ watch(
 onMounted(() => void loadFieldSpecs());
 
 async function loadWorkspace() {
+  const requestRevision = ++workspaceLoadRevision;
   const selectionBeforeRefresh = selectedTreeKey.value;
   loading.value = true;
+  workspaceReady.value = false;
+  workspaceLoadFailed.value = false;
   try {
     const moduleAlias = props.moduleAlias;
     const relations = await loadAllRecords<ModuleMetadataRelation>(relationPath('/query'));
@@ -514,7 +595,7 @@ async function loadWorkspace() {
         return { relationId: relation.id, fields, properties, capabilities, recordCount };
       }),
     );
-    if (moduleAlias !== props.moduleAlias) return;
+    if (requestRevision !== workspaceLoadRevision || moduleAlias !== props.moduleAlias) return;
     state.handleRelationsLoaded(relations);
     metadata.forEach((item) => {
       if (item) state.handleMetadataLoaded(item);
@@ -541,10 +622,13 @@ async function loadWorkspace() {
     );
     restoreTreeSelection(selectedTreeKey.value ?? selectionBeforeRefresh);
     if (sorting.value && !state.fieldEditorOpen.value && !state.mainEditorOpen.value) startNodeEditSession();
+    workspaceReady.value = true;
   } catch (cause) {
+    if (requestRevision !== workspaceLoadRevision) return;
+    workspaceLoadFailed.value = true;
     presentPlatformError(cause, { source: 'metadata-orchestration', phase: 'load' });
   } finally {
-    loading.value = false;
+    if (requestRevision === workspaceLoadRevision) loading.value = false;
   }
 }
 
@@ -708,11 +792,7 @@ async function previewAndApply(
   }
   saving.value = true;
   try {
-    const preview = await moduleContext.http.request<MetadataChangeSetPreview>({
-      method: 'POST',
-      path: `/platform.module/${encodeURIComponent(props.moduleAlias)}/metadata-model/change-set-preview`,
-      body: proposal,
-    });
+    const preview = await previewMetadataModelChangeSet(moduleContext.http, props.moduleAlias, proposal);
     if (preview.errors.length > 0) {
       presentPlatformMessage(preview.errors.map((item) => item.message).join('；'), {
         source: 'metadata-orchestration',
@@ -730,14 +810,12 @@ async function previewAndApply(
       }))
     )
       return;
-    await moduleContext.http.request({
-      method: 'POST',
-      path: `/platform.module/${encodeURIComponent(props.moduleAlias)}/metadata-model/change-set-apply`,
-      body: {
-        proposal: proposal as MetadataModelChangeSetProposal,
-        proposalFingerprint: preview.proposalFingerprint,
-      },
-    });
+    await applyMetadataModelChangeSet(
+      moduleContext.http,
+      props.moduleAlias,
+      proposal as MetadataModelChangeSetProposal,
+      preview.proposalFingerprint,
+    );
     if (mode === 'immediate-order') {
       // The write is committed. Keep its order even if the subsequent read fails.
       retainCommittedOrder(proposal);
