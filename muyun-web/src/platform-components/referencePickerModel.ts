@@ -25,6 +25,8 @@ export interface ReferencePickerSourceIdentity {
 export interface ReferencePickerCandidate {
   id: ReferencePickerId;
   title: string;
+  /** The UI is displaying the persisted identifier because no business title was available. */
+  identifierFallback?: boolean;
   subtitle?: string;
   disabled?: boolean;
   unavailable?: boolean;

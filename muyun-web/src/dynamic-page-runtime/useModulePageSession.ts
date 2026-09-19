@@ -31,6 +31,7 @@ import {
   type StandardCrudRowActionKey,
   type QueryListRecord,
   type RecordFormRecord,
+  type ReferencePickerCandidate,
 } from '@muyun/platform-components';
 import type {
   StandardModulePageDescriptor,
@@ -2757,6 +2758,22 @@ export function useModulePageSession(
     );
   }
 
+  function updateDraftReference(fieldName: string, candidate: ReferencePickerCandidate) {
+    const changes: Array<{
+      fieldName: string;
+      value: import('@muyun/platform-components').RecordFormFieldValue;
+    }> = [{ fieldName, value: candidate.id }];
+    for (const [patchField, patchValue] of Object.entries(candidate.affectPatch ?? {})) {
+      if (patchField !== fieldName) {
+        changes.push({
+          fieldName: patchField,
+          value: patchValue as import('@muyun/platform-components').RecordFormFieldValue,
+        });
+      }
+    }
+    updateDraftFields(changes);
+  }
+
   /**
    * Rules are attached to the resolved FORM view, not to a page/template. This
    * keeps the same calculation semantics for main details and managed
@@ -3626,6 +3643,7 @@ export function useModulePageSession(
     sessionDirty,
     updateDraftField,
     updateDraftFields,
+    updateDraftReference,
     showStatusSwitch,
     canToggleEnabled,
     toggleEnabledDisabledReason,

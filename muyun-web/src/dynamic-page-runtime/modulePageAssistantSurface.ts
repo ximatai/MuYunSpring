@@ -9,6 +9,7 @@ import {
   decodeDateTimeLocalEditorValue,
   decodeNumberEditorValue,
   resolveRecordFormFieldState,
+  type ReferencePickerCandidate,
   type RecordFormFieldState,
   type RecordFormFieldValue,
 } from '@muyun/platform-components';
@@ -16,6 +17,18 @@ import type { ModulePageSessionView } from './useModulePageSession';
 import { assistantEditableRecordIds, hasActiveRecordEditor } from './assistantRecordEditorPolicy';
 
 const MAX_ASSISTANT_FORM_CURRENT_VALUE_CHARS = 8_000;
+const MAX_ASSISTANT_REFERENCE_OPTIONS = 10;
+
+interface AssistantReferenceSelection {
+  fieldName: string;
+  contextRevision: string;
+  candidate: ReferencePickerCandidate;
+}
+
+interface AssistantReferenceSelectionState {
+  selections: Map<string, AssistantReferenceSelection>;
+  searchRevision: number;
+}
 
 export function modulePageAssistantContextRevision(view: ModulePageSessionView): string {
   return `${view.assistantContextRevision}:${view.listQueryController?.revision() ?? '-'}`;
@@ -26,6 +39,10 @@ export function createModulePageAssistantSurface(
   requestTurn: AssistantTurnRequester,
   contributedCapabilities: () => AssistantCapability[] = () => [],
 ): AssistantSurface {
+  const referenceSelections: AssistantReferenceSelectionState = {
+    selections: new Map(),
+    searchRevision: 0,
+  };
   const capabilities = (): AssistantCapability[] => [
     ...contributedCapabilities(),
     pageDescribeCapability(view),
@@ -33,11 +50,155 @@ export function createModulePageAssistantSurface(
     ...recordEditorCapabilities(view),
     formDescribeCapability(view),
     ...(hasEditableDraft(view) ? [formPatchCapability(view)] : []),
+    ...referenceCapabilities(view, referenceSelections),
   ];
   return {
     describe: () => surfaceContext(view),
     capabilities,
     requestTurn,
+  };
+}
+
+function referenceCapabilities(
+  view: ModulePageSessionView,
+  state: AssistantReferenceSelectionState,
+): AssistantCapability[] {
+  if (!hasEditableDraft(view)) return [];
+  const fieldNames = assistantReferenceFields(view).map(({ fieldName }) => fieldName);
+  if (fieldNames.length === 0) return [];
+  return [referenceSearchCapability(view, state, fieldNames), referencePatchCapability(view, state)];
+}
+
+function referenceSearchCapability(
+  view: ModulePageSessionView,
+  state: AssistantReferenceSelectionState,
+  fieldNames: string[],
+): AssistantCapability<{ fieldName: string; keyword: string }> {
+  return {
+    descriptor: {
+      code: 'reference.search-options',
+      description:
+        'Search the current form reference candidates through its authorized picker source. Use the returned opaque selectionKey; never invent an internal ID.',
+      inputSchema: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['fieldName', 'keyword'],
+        properties: {
+          fieldName: { type: 'string', enum: fieldNames },
+          keyword: { type: 'string', maxLength: 500 },
+        },
+      },
+    },
+    parseInput(input) {
+      if (
+        !isRecord(input) ||
+        typeof input.fieldName !== 'string' ||
+        !fieldNames.includes(input.fieldName) ||
+        typeof input.keyword !== 'string' ||
+        input.keyword.length > 500
+      ) {
+        throw new Error('reference.search-options requires a declared fieldName and keyword');
+      }
+      return { fieldName: input.fieldName, keyword: input.keyword };
+    },
+    async execute({ fieldName, keyword }, context) {
+      const field = assistantReferenceField(view, fieldName);
+      if (!field?.pickerConfig?.provider) throw new Error(`Reference field is not available: ${fieldName}`);
+      const searchRevision = ++state.searchRevision;
+      const page = await field.pickerConfig.provider.searchPage({
+        keyword,
+        pageNum: 1,
+        pageSize: MAX_ASSISTANT_REFERENCE_OPTIONS,
+        scope: { selections: [] },
+      });
+      if (!context.isCurrent() || state.searchRevision !== searchRevision) {
+        throw new Error('Reference search is no longer current; search again');
+      }
+      if (page.navigation?.length) {
+        throw new Error('Reference field requires scoped navigation and is not available to the assistant');
+      }
+      const contextRevision = modulePageAssistantContextRevision(view);
+      const options = page.records
+        .filter(
+          (candidate) =>
+            candidate.disabled !== true &&
+            candidate.unavailable !== true &&
+            candidate.identifierFallback !== true,
+        )
+        .slice(0, MAX_ASSISTANT_REFERENCE_OPTIONS)
+        .map((candidate) => {
+          const selectionKey = crypto.randomUUID();
+          return {
+            selectionKey,
+            selection: { fieldName, contextRevision, candidate },
+            title: candidate.title.slice(0, 500),
+          };
+        });
+      context.applyEffect(() => {
+        if (state.searchRevision !== searchRevision) {
+          throw new Error('Reference search is no longer current; search again');
+        }
+        state.selections.clear();
+        for (const option of options) {
+          state.selections.set(option.selectionKey, option.selection);
+        }
+      });
+      const projectedOptions = options.map(({ selectionKey, title }) => ({ selectionKey, title }));
+      return {
+        fieldName,
+        options: projectedOptions,
+        total: page.total,
+        truncated: page.total > projectedOptions.length,
+      };
+    },
+  };
+}
+
+function referencePatchCapability(
+  view: ModulePageSessionView,
+  state: AssistantReferenceSelectionState,
+): AssistantCapability<{ selectionKey: string }> {
+  return {
+    descriptor: {
+      code: 'reference.patch-draft',
+      description:
+        'Apply one previously searched opaque reference selection to the current unsaved form draft. It does not save.',
+      inputSchema: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['selectionKey'],
+        properties: { selectionKey: { type: 'string', minLength: 1 } },
+      },
+    },
+    parseInput(input) {
+      if (!isRecord(input) || typeof input.selectionKey !== 'string' || !input.selectionKey) {
+        throw new Error('reference.patch-draft requires a selectionKey returned by candidate search');
+      }
+      return { selectionKey: input.selectionKey };
+    },
+    async execute({ selectionKey }, context) {
+      const selection = state.selections.get(selectionKey);
+      if (
+        !selection ||
+        selection.contextRevision !== modulePageAssistantContextRevision(view) ||
+        !assistantReferenceField(view, selection.fieldName)
+      ) {
+        throw new Error('Reference selection is no longer available; search again');
+      }
+      context.applyEffect(() => {
+        const current = state.selections.get(selectionKey);
+        if (
+          !current ||
+          current.contextRevision !== modulePageAssistantContextRevision(view) ||
+          !assistantReferenceField(view, current.fieldName)
+        ) {
+          throw new Error('Reference selection is no longer available; search again');
+        }
+        view.updateDraftReference(current.fieldName, current.candidate);
+        state.selections.clear();
+      });
+      return { changedField: selection.fieldName, selectedTitle: selection.candidate.title.slice(0, 500) };
+    },
   };
 }
 
@@ -189,6 +350,7 @@ function formDescribeCapability(view: ModulePageSessionView): AssistantCapabilit
         .filter((field) => field.visible && !isSensitiveField(field))
         .map((field) => {
           const currentValue = assistantCurrentValue(view, field, valueBudget);
+          const writeMode = assistantFieldWriteMode(view, field);
           return {
             fieldName: field.fieldName,
             label: field.label,
@@ -196,7 +358,14 @@ function formDescribeCapability(view: ModulePageSessionView): AssistantCapabilit
             readOnly: field.readOnly,
             valueType: field.valueType,
             controlType: field.controlType,
-            assistantWritable: hasEditableDraft(view) && isAssistantWritableField(field),
+            assistantWritable: writeMode !== undefined,
+            ...(writeMode ? { assistantWriteMode: writeMode } : {}),
+            ...(field.reference
+              ? {
+                  referenceCardinality: field.reference.cardinality,
+                  referenceTargetModuleAlias: field.reference.targetModuleAlias,
+                }
+              : {}),
             ...(currentValue !== undefined ? { currentValue } : {}),
             options: assistantOptions(field),
           };
@@ -209,6 +378,15 @@ function formDescribeCapability(view: ModulePageSessionView): AssistantCapabilit
       };
     },
   };
+}
+
+function assistantFieldWriteMode(
+  view: ModulePageSessionView,
+  field: RecordFormFieldState,
+): 'value' | 'referenceSelection' | undefined {
+  if (!hasEditableDraft(view) || !field.visible || field.readOnly) return undefined;
+  if (isAssistantWritableField(field)) return 'value';
+  return assistantReferenceFieldState(field) ? 'referenceSelection' : undefined;
 }
 
 interface AssistantDraftChange {
@@ -336,6 +514,26 @@ function isAssistantWritableField(field: RecordFormFieldState) {
     'booleanStatus',
     'switch',
   ].includes(field.controlType);
+}
+
+function assistantReferenceFields(view: ModulePageSessionView) {
+  return formFieldStates(view).filter((field) => assistantReferenceFieldState(field));
+}
+
+function assistantReferenceField(view: ModulePageSessionView, fieldName: string) {
+  const field = formFieldState(view, fieldName);
+  return field && assistantReferenceFieldState(field) ? field : undefined;
+}
+
+function assistantReferenceFieldState(field: RecordFormFieldState) {
+  return (
+    field.visible &&
+    !field.readOnly &&
+    field.reference?.cardinality === 'ONE' &&
+    field.reference.pickerMode !== 'TREE' &&
+    field.pickerConfig?.scopedTree === undefined &&
+    field.pickerConfig?.provider !== undefined
+  );
 }
 
 function assistantFieldValue(field: RecordFormFieldState, value: unknown): RecordFormFieldValue {

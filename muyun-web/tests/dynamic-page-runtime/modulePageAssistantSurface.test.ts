@@ -46,6 +46,7 @@ function viewFixture(): ModulePageSessionView {
     ]),
     updateDraftField: vi.fn(),
     updateDraftFields: vi.fn(),
+    updateDraftReference: vi.fn(),
   } as unknown as ModulePageSessionView;
 }
 
@@ -68,9 +69,18 @@ describe('module page assistant surface', () => {
 
   it('rejects unknown and read-only fields before changing any draft value', async () => {
     const view = viewFixture();
-    const patch = createModulePageAssistantSurface(view, vi.fn())
+    const surface = createModulePageAssistantSurface(view, vi.fn());
+    const patch = surface
       .capabilities()
       .find((capability) => capability.descriptor.code === 'form.patch-draft')!;
+    const describe = surface.capabilities().find(({ descriptor }) => descriptor.code === 'form.describe')!;
+
+    const description = (await describe.execute(describe.parseInput({}), executionContext())) as {
+      fields: Array<{ fieldName: string; assistantWritable: boolean }>;
+    };
+    expect(description.fields).toContainEqual(
+      expect.objectContaining({ fieldName: 'computed', assistantWritable: false }),
+    );
 
     await expect(
       patch.execute(
@@ -483,6 +493,250 @@ describe('module page assistant surface', () => {
     ).rejects.toThrow('Form field is not editable by the assistant: ownerId');
   });
 
+  it('searches authorized reference candidates and applies only an opaque searched selection', async () => {
+    const view = viewFixture();
+    const candidate = {
+      id: 'tenant-1',
+      title: '示范租户',
+      affectPatch: { tenantName: '示范租户' },
+    };
+    const searchPage = vi.fn().mockResolvedValue({ records: [candidate], total: 1 });
+    view.formFields.set('tenantId', {
+      fieldName: 'tenantId',
+      label: 'Tenant',
+      required: false,
+      readOnly: false,
+      visible: true,
+      controlType: 'recordPicker',
+      reference: { cardinality: 'ONE', targetModuleAlias: 'iam.tenant' },
+      columnSpan: 1,
+      hasOption: false,
+    } as never);
+    view.referencePickerConfigs = {
+      tenantId: {
+        provider: {
+          identity: {
+            targetModuleAlias: 'iam.tenant',
+            source: { kind: 'targetReference', id: 'tenant-reference' },
+          },
+          searchPage,
+          resolve: vi.fn(),
+        },
+      },
+    } as never;
+    expect(view.referencePickerConfigs.tenantId).toBeDefined();
+    const surface = createModulePageAssistantSurface(view, vi.fn());
+    const describe = surface.capabilities().find(({ descriptor }) => descriptor.code === 'form.describe')!;
+    const search = surface
+      .capabilities()
+      .find(({ descriptor }) => descriptor.code === 'reference.search-options')!;
+    const patch = surface
+      .capabilities()
+      .find(({ descriptor }) => descriptor.code === 'reference.patch-draft')!;
+
+    const description = (await describe.execute(describe.parseInput({}), executionContext())) as {
+      fields: Array<Record<string, unknown>>;
+    };
+    expect(description.fields).toContainEqual(
+      expect.objectContaining({
+        fieldName: 'tenantId',
+        assistantWritable: true,
+        assistantWriteMode: 'referenceSelection',
+        referenceCardinality: 'ONE',
+        referenceTargetModuleAlias: 'iam.tenant',
+      }),
+    );
+
+    const result = (await search.execute(
+      search.parseInput({ fieldName: 'tenantId', keyword: '示范' }),
+      executionContext(),
+    )) as { options: Array<{ selectionKey: string; title: string }> };
+    const selectionKey = result.options[0]!.selectionKey;
+
+    expect(searchPage).toHaveBeenCalledWith({
+      keyword: '示范',
+      pageNum: 1,
+      pageSize: 10,
+      scope: { selections: [] },
+    });
+    expect(result.options).toEqual([{ selectionKey, title: '示范租户' }]);
+    expect(JSON.stringify(result)).not.toContain('tenant-1');
+    await expect(
+      patch.execute(patch.parseInput({ selectionKey: 'guessed-id' }), executionContext()),
+    ).rejects.toThrow('Reference selection is no longer available');
+
+    await patch.execute(patch.parseInput({ selectionKey }), executionContext());
+    expect(view.updateDraftReference).toHaveBeenCalledWith('tenantId', candidate);
+  });
+
+  it('invalidates searched reference selections when the page context changes', async () => {
+    const view = viewFixture();
+    view.formFields.set('tenantId', {
+      fieldName: 'tenantId',
+      label: 'Tenant',
+      required: false,
+      readOnly: false,
+      visible: true,
+      controlType: 'recordPicker',
+      reference: { cardinality: 'ONE', targetModuleAlias: 'iam.tenant' },
+      columnSpan: 1,
+      hasOption: false,
+    } as never);
+    view.referencePickerConfigs = {
+      tenantId: {
+        provider: {
+          identity: {
+            targetModuleAlias: 'iam.tenant',
+            source: { kind: 'targetReference', id: 'tenant-reference' },
+          },
+          searchPage: vi.fn().mockResolvedValue({
+            records: [{ id: 'tenant-1', title: '示范租户' }],
+            total: 1,
+          }),
+          resolve: vi.fn(),
+        },
+      },
+    } as never;
+    const surface = createModulePageAssistantSurface(view, vi.fn());
+    const search = surface
+      .capabilities()
+      .find(({ descriptor }) => descriptor.code === 'reference.search-options')!;
+    const patch = surface
+      .capabilities()
+      .find(({ descriptor }) => descriptor.code === 'reference.patch-draft')!;
+    const result = (await search.execute(
+      search.parseInput({ fieldName: 'tenantId', keyword: '示范' }),
+      executionContext(),
+    )) as { options: Array<{ selectionKey: string }> };
+
+    view.assistantContextRevision += 1;
+
+    await expect(
+      patch.execute(patch.parseInput({ selectionKey: result.options[0]!.selectionKey }), executionContext()),
+    ).rejects.toThrow('Reference selection is no longer available');
+    expect(view.updateDraftReference).not.toHaveBeenCalled();
+  });
+
+  it('does not expose identifier fallback titles as reference candidates', async () => {
+    const view = referenceViewFixture([
+      { id: 'internal-tenant-id', title: 'internal-tenant-id', identifierFallback: true },
+      { id: 'tenant-2', title: '安全标题' },
+    ]);
+    const search = createModulePageAssistantSurface(view, vi.fn())
+      .capabilities()
+      .find(({ descriptor }) => descriptor.code === 'reference.search-options')!;
+
+    const result = await search.execute(
+      search.parseInput({ fieldName: 'tenantId', keyword: '' }),
+      executionContext(),
+    );
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        options: [expect.objectContaining({ title: '安全标题' })],
+        truncated: true,
+      }),
+    );
+    expect(JSON.stringify(result)).not.toContain('internal-tenant-id');
+  });
+
+  it('does not let a late reference search replace selections from a newer search', async () => {
+    let resolveFirst!: (value: { records: Array<{ id: string; title: string }>; total: number }) => void;
+    let resolveSecond!: (value: { records: Array<{ id: string; title: string }>; total: number }) => void;
+    const first = new Promise<{ records: Array<{ id: string; title: string }>; total: number }>((resolve) => {
+      resolveFirst = resolve;
+    });
+    const second = new Promise<{ records: Array<{ id: string; title: string }>; total: number }>(
+      (resolve) => {
+        resolveSecond = resolve;
+      },
+    );
+    const view = referenceViewFixture([]);
+    const provider = view.referencePickerConfigs?.tenantId?.provider;
+    if (!provider) throw new Error('reference provider fixture is missing');
+    provider.searchPage = vi.fn().mockReturnValueOnce(first).mockReturnValueOnce(second);
+    const surface = createModulePageAssistantSurface(view, vi.fn());
+    const olderSearch = surface
+      .capabilities()
+      .find(({ descriptor }) => descriptor.code === 'reference.search-options')!;
+    const newerSearch = surface
+      .capabilities()
+      .find(({ descriptor }) => descriptor.code === 'reference.search-options')!;
+
+    const olderPending = olderSearch.execute(
+      olderSearch.parseInput({ fieldName: 'tenantId', keyword: '旧' }),
+      executionContext(),
+    );
+    const newerPending = newerSearch.execute(
+      newerSearch.parseInput({ fieldName: 'tenantId', keyword: '新' }),
+      executionContext(),
+    );
+    resolveSecond({ records: [{ id: 'new-id', title: '新候选' }], total: 1 });
+    const newerResult = (await newerPending) as { options: Array<{ selectionKey: string }> };
+    resolveFirst({ records: [{ id: 'old-id', title: '旧候选' }], total: 1 });
+
+    await expect(olderPending).rejects.toThrow('Reference search is no longer current');
+    const patch = surface
+      .capabilities()
+      .find(({ descriptor }) => descriptor.code === 'reference.patch-draft')!;
+    await patch.execute(
+      patch.parseInput({ selectionKey: newerResult.options[0]!.selectionKey }),
+      executionContext(),
+    );
+    expect(view.updateDraftReference).toHaveBeenCalledWith(
+      'tenantId',
+      expect.objectContaining({ id: 'new-id' }),
+    );
+  });
+
+  it('does not expose tree reference fields through the paged reference capability', () => {
+    const view = referenceViewFixture([]);
+    const tenantField = view.formFields.get('tenantId')!;
+    view.formFields.set('tenantId', {
+      ...tenantField,
+      reference: { ...tenantField.reference!, pickerMode: 'TREE' },
+    });
+
+    const capabilityCodes = createModulePageAssistantSurface(view, vi.fn())
+      .capabilities()
+      .map(({ descriptor }) => descriptor.code);
+
+    expect(capabilityCodes).not.toContain('reference.search-options');
+    expect(capabilityCodes).not.toContain('reference.patch-draft');
+
+    const regularView = referenceViewFixture([]);
+    regularView.referencePickerConfigs = {
+      ...regularView.referencePickerConfigs,
+      tenantId: {
+        ...regularView.referencePickerConfigs?.tenantId,
+        scopedTree: {} as never,
+      },
+    } as never;
+    const scopedCapabilityCodes = createModulePageAssistantSurface(regularView, vi.fn())
+      .capabilities()
+      .map(({ descriptor }) => descriptor.code);
+    expect(scopedCapabilityCodes).not.toContain('reference.search-options');
+    expect(scopedCapabilityCodes).not.toContain('reference.patch-draft');
+  });
+
+  it('rejects a provider response that introduces scoped navigation', async () => {
+    const view = referenceViewFixture([]);
+    const provider = view.referencePickerConfigs?.tenantId?.provider;
+    if (!provider) throw new Error('reference provider fixture is missing');
+    provider.searchPage = vi.fn().mockResolvedValue({
+      records: [],
+      total: 0,
+      navigation: [{ id: 'region', title: 'Region', items: [] }],
+    });
+    const search = createModulePageAssistantSurface(view, vi.fn())
+      .capabilities()
+      .find(({ descriptor }) => descriptor.code === 'reference.search-options')!;
+
+    await expect(
+      search.execute(search.parseInput({ fieldName: 'tenantId', keyword: '' }), executionContext()),
+    ).rejects.toThrow('Reference field requires scoped navigation');
+  });
+
   it('validates values with the standard field type and declared option candidates', async () => {
     const view = viewFixture();
     view.formFields.set('workDate', {
@@ -580,4 +834,38 @@ function executionContext() {
       return effect();
     },
   };
+}
+
+function referenceViewFixture(
+  records: Array<{
+    id: string;
+    title: string;
+    identifierFallback?: boolean;
+  }>,
+): ModulePageSessionView {
+  const view = viewFixture();
+  view.formFields.set('tenantId', {
+    fieldName: 'tenantId',
+    label: 'Tenant',
+    required: false,
+    readOnly: false,
+    visible: true,
+    controlType: 'recordPicker',
+    reference: { cardinality: 'ONE', targetModuleAlias: 'iam.tenant' },
+    columnSpan: 1,
+    hasOption: false,
+  } as never);
+  view.referencePickerConfigs = {
+    tenantId: {
+      provider: {
+        identity: {
+          targetModuleAlias: 'iam.tenant',
+          source: { kind: 'targetReference', id: 'tenant-reference' },
+        },
+        searchPage: vi.fn().mockResolvedValue({ records, total: records.length }),
+        resolve: vi.fn(),
+      },
+    },
+  } as never;
+  return view;
 }
