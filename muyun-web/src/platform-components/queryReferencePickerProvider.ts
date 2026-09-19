@@ -72,10 +72,12 @@ function candidateOf(reference: QuerySchemaReference) {
     const id = stringValue(record.id);
     if (!id) return [];
     const label = reference.labelField ? stringValue(record[reference.labelField]) : undefined;
+    const title = label ?? stringValue(record.title) ?? stringValue(record.code);
     return [
       {
         id,
-        title: label ?? stringValue(record.title) ?? stringValue(record.code) ?? id,
+        title: title ?? id,
+        ...(!title ? { identifierFallback: true } : {}),
         disabled: record.enabled === false,
         ...(reference.labelField && label ? { projections: { [reference.labelField]: label } } : {}),
       },

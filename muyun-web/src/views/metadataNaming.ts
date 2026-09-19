@@ -1,6 +1,26 @@
 import { pinyin } from 'pinyin-pro';
 import type { MetadataFieldPropertyKind } from './metadataOrchestrationState';
 
+export const PLATFORM_FIELD_NAME_PATTERN = '^[a-z][A-Za-z0-9]{0,62}$';
+export const DYNAMIC_RECORD_RESERVED_FIELD_NAMES = new Set([
+  'id',
+  'version',
+  'uiConfigId',
+  'values',
+  'children',
+  'attachments',
+  'originContext',
+  'record',
+]);
+
+export function isPlatformFieldName(value: string): boolean {
+  return new RegExp(PLATFORM_FIELD_NAME_PATTERN).test(value);
+}
+
+export function isDynamicRecordReservedFieldName(value: string): boolean {
+  return DYNAMIC_RECORD_RESERVED_FIELD_NAMES.has(value);
+}
+
 export function physicalNameOf(fieldName?: string): string {
   return (fieldName ?? '')
     .trim()
@@ -40,9 +60,15 @@ export function generatedBusinessFieldName(
   if (!title?.trim()) return '';
   const name = generatedFieldName(title);
   const role = name.charAt(0).toUpperCase() + name.slice(1);
-  if (kind === 'DICTIONARY') return `dict${role}`;
-  if (kind === 'MODULE_REFERENCE') return `ref${role}Id`;
-  return name;
+  const candidate =
+    kind === 'DICTIONARY'
+      ? `dict${role}`
+      : kind === 'MODULE_REFERENCE'
+        ? `ref${role}Id`
+        : /^[a-z]/.test(name)
+          ? name
+          : `field${role}`;
+  return candidate.slice(0, 63);
 }
 
 /** Metadata identifiers use lower snake case; they are stable after explicit editing. */

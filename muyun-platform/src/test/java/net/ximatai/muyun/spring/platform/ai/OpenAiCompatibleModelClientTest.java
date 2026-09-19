@@ -1,6 +1,7 @@
 package net.ximatai.muyun.spring.platform.ai;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.JsonNode;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
@@ -12,6 +13,8 @@ import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -104,6 +107,253 @@ class OpenAiCompatibleModelClientTest {
                 client.stream(route(), AiTextRequest.userText("hello"), delta -> {
                     throw new AssertionError("failed response must not produce deltas");
                 })).hasMessageContaining("HTTP status 429").hasNoCause().hasMessageNotContaining("private-provider-detail");
+    }
+
+    @Test
+    void mapsCapabilityCodesToProviderSafeNamesAndRestoresStructuredCalls() throws Exception {
+        AtomicReference<String> requestBody = new AtomicReference<>();
+        server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/v1/chat/completions", exchange -> {
+            requestBody.set(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
+            byte[] body = ("{\"choices\":[{\"message\":{\"content\":null,\"tool_calls\":["
+                    + "{\"id\":\"call-1\",\"type\":\"function\",\"function\":{"
+                    + "\"name\":\"capability_0\",\"arguments\":\"{\\\"query\\\":\\\"Alice\\\","
+                    + "\\\"optional\\\":null,\\\"error\\\":\\\"business fact\\\"}\"}}]},"
+                    + "\"finish_reason\":\"tool_calls\"}]}").getBytes(StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().add("x-request-id", "request-structured");
+            exchange.sendResponseHeaders(200, body.length);
+            exchange.getResponseBody().write(body);
+            exchange.close();
+        });
+        server.start();
+        AiTurnRequest request = new AiTurnRequest(
+                List.of(new AiChatMessage(AiChatMessage.Role.USER, "find Alice")),
+                List.of(new AiToolDefinition("workbench.find-menu", "Find a visible menu",
+                        Map.of("type", "object", "properties", Map.of("query", Map.of("type", "string"))))),
+                null, 512);
+
+        AiTurnResponse response = new OpenAiCompatibleModelClient(new ObjectMapper()).complete(route(), request);
+
+        assertThat(requestBody.get()).contains("\"name\":\"capability_0\"")
+                .doesNotContain("workbench.find-menu");
+        assertThat(response.toolCalls()).singleElement().satisfies(call -> {
+            assertThat(call.id()).isEqualTo("call-1");
+            assertThat(call.code()).isEqualTo("workbench.find-menu");
+            assertThat(call.arguments()).containsEntry("query", "Alice")
+                    .containsEntry("error", "business fact").containsKey("optional");
+            assertThat(call.arguments().get("optional")).isNull();
+        });
+        assertThat(response.finishReason()).isEqualTo("tool_calls");
+        assertThat(response.requestId()).isEqualTo("request-structured");
+    }
+
+    @Test
+    void streamsStructuredTextAndReassemblesFragmentedToolCallsBeforeCompletion() throws Exception {
+        AtomicReference<String> requestBody = new AtomicReference<>();
+        server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/v1/chat/completions", exchange -> {
+            requestBody.set(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
+            String body = "data: {\"choices\":[{\"delta\":{\"content\":\"正在\"},\"finish_reason\":null}]}\n\n"
+                    + "data: {\"choices\":[{\"delta\":{\"content\":\"处理\",\"tool_calls\":[{\"index\":0,"
+                    + "\"id\":\"call-1\",\"function\":{\"name\":\"capability_\",\"arguments\":\"{\\\"query\\\":\"}}]},"
+                    + "\"finish_reason\":null}]}\n\n"
+                    + "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"name\":\"0\","
+                    + "\"arguments\":\"\\\"Alice\\\"}\"}}]},\"finish_reason\":\"tool_calls\"}]}\n\n"
+                    + "data: [DONE]\n\n";
+            exchange.getResponseHeaders().add("Content-Type", "text/event-stream");
+            exchange.getResponseHeaders().add("x-request-id", "request-streamed");
+            byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(200, bytes.length);
+            exchange.getResponseBody().write(bytes);
+            exchange.close();
+        });
+        server.start();
+        AiTurnRequest request = new AiTurnRequest(List.of(new AiChatMessage(AiChatMessage.Role.USER, "find Alice")),
+                List.of(new AiToolDefinition("workbench.find-menu", "Find menu", Map.of("type", "object"))),
+                null, 512);
+        List<String> deltas = new ArrayList<>();
+        AtomicReference<AiTurnResponse> completed = new AtomicReference<>();
+
+        new OpenAiCompatibleModelClient(new ObjectMapper()).stream(route(), request, new AiTurnStreamConsumer() {
+            @Override
+            public void onTextDelta(String text) {
+                deltas.add(text);
+            }
+
+            @Override
+            public void onComplete(AiTurnResponse response) {
+                completed.set(response);
+            }
+        });
+
+        assertThat(requestBody.get()).contains("\"stream\":true", "\"name\":\"capability_0\"");
+        assertThat(deltas).containsExactly("正在", "处理");
+        assertThat(completed.get().text()).isEqualTo("正在处理");
+        assertThat(completed.get().finishReason()).isEqualTo("tool_calls");
+        assertThat(completed.get().requestId()).isEqualTo("request-streamed");
+        assertThat(completed.get().toolCalls()).containsExactly(
+                new AiToolCall("call-1", "workbench.find-menu", Map.of("query", "Alice")));
+    }
+
+    @Test
+    void rejectsStructuredStreamsThatEndWithoutTerminalMarker() throws Exception {
+        OpenAiCompatibleModelClient client = responseClient(200,
+                "data: {\"choices\":[{\"delta\":{\"content\":\"partial\"},\"finish_reason\":null}]}\n\n");
+        AiTurnRequest request = new AiTurnRequest(List.of(new AiChatMessage(AiChatMessage.Role.USER, "describe")),
+                List.of(), null, 512);
+        List<String> deltas = new ArrayList<>();
+
+        assertThatThrownBy(() -> client.stream(route(), request, new AiTurnStreamConsumer() {
+            @Override
+            public void onTextDelta(String text) {
+                deltas.add(text);
+            }
+
+            @Override
+            public void onComplete(AiTurnResponse response) {
+                throw new AssertionError("interrupted streams must not complete");
+            }
+        })).isInstanceOf(PlatformException.class).hasMessageContaining("ended before completion");
+        assertThat(deltas).containsExactly("partial");
+    }
+
+    @Test
+    void rejectsStructuredStreamHttpFailuresBeforeProducingEvents() throws Exception {
+        OpenAiCompatibleModelClient client = responseClient(429, "private-provider-detail");
+        AiTurnRequest request = new AiTurnRequest(List.of(new AiChatMessage(AiChatMessage.Role.USER, "describe")),
+                List.of(), null, 512);
+
+        assertThatThrownBy(() -> client.stream(route(), request, new AiTurnStreamConsumer() {
+            @Override
+            public void onTextDelta(String text) {
+                throw new AssertionError("failed responses must not produce deltas");
+            }
+
+            @Override
+            public void onComplete(AiTurnResponse response) {
+                throw new AssertionError("failed responses must not complete");
+            }
+        })).isInstanceOf(PlatformException.class)
+                .hasMessageContaining("HTTP status 429")
+                .hasNoCause()
+                .hasMessageNotContaining("private-provider-detail");
+    }
+
+    @Test
+    void rejectsOversizedStructuredStreamLinesWhileReading() throws Exception {
+        OpenAiCompatibleModelClient client = responseClient(200, "data: " + "x".repeat(131_073));
+        AiTurnRequest request = new AiTurnRequest(List.of(new AiChatMessage(AiChatMessage.Role.USER, "describe")),
+                List.of(), null, 512);
+
+        assertThatThrownBy(() -> client.stream(route(), request, new AiTurnStreamConsumer() {
+            @Override
+            public void onTextDelta(String text) {
+            }
+
+            @Override
+            public void onComplete(AiTurnResponse response) {
+            }
+        })).isInstanceOf(PlatformException.class).hasMessageContaining("oversized event");
+    }
+
+    @Test
+    void normalizesEmptyObjectSchemasForStrictOpenAiCompatibleProviders() throws Exception {
+        AtomicReference<String> requestBody = new AtomicReference<>();
+        server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/v1/chat/completions", exchange -> {
+            requestBody.set(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
+            byte[] body = "{\"choices\":[{\"message\":{\"content\":\"ready\"},\"finish_reason\":\"stop\"}]}"
+                    .getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(200, body.length);
+            exchange.getResponseBody().write(body);
+            exchange.close();
+        });
+        server.start();
+        AiTurnRequest request = new AiTurnRequest(
+                List.of(new AiChatMessage(AiChatMessage.Role.USER, "describe")),
+                List.of(new AiToolDefinition("page.describe", "Describe page",
+                        Map.of("type", "object", "additionalProperties", false))),
+                null, 512);
+
+        new OpenAiCompatibleModelClient(new ObjectMapper()).complete(route(), request);
+
+        JsonNode sent = new ObjectMapper().readTree(requestBody.get());
+        assertThat(sent.path("tools").path(0).path("function").path("parameters").path("properties").isObject())
+                .isTrue();
+    }
+
+    @Test
+    void preservesAnEmptyFinishedTurnForTheConversationLayerToInterpret() throws Exception {
+        OpenAiCompatibleModelClient client = responseClient(200,
+                "{\"choices\":[{\"message\":{\"content\":null},\"finish_reason\":\"stop\"}]}");
+
+        AiTurnResponse response = client.complete(route(), new AiTurnRequest(
+                List.of(new AiChatMessage(AiChatMessage.Role.USER, "continue")), List.of(), null, 512));
+
+        assertThat(response.text()).isNull();
+        assertThat(response.toolCalls()).isEmpty();
+        assertThat(response.finishReason()).isEqualTo("stop");
+    }
+
+    @Test
+    void rejectsStructuredResponsesWithoutAChoiceMessage() throws Exception {
+        OpenAiCompatibleModelClient client = responseClient(200, "{\"choices\":[]}");
+
+        assertThatThrownBy(() -> client.complete(route(), new AiTurnRequest(
+                List.of(new AiChatMessage(AiChatMessage.Role.USER, "continue")), List.of(), null, 512)))
+                .isInstanceOf(PlatformException.class)
+                .hasMessageContaining("invalid structured response");
+    }
+
+    @Test
+    void rejectsProviderToolCallsThatWereNotDeclared() throws Exception {
+        OpenAiCompatibleModelClient client = responseClient(200,
+                "{\"choices\":[{\"message\":{\"tool_calls\":[{\"id\":\"call-1\",\"function\":{"
+                        + "\"name\":\"capability_9\",\"arguments\":\"{}\"}}]},\"finish_reason\":\"tool_calls\"}]}");
+        AiTurnRequest request = new AiTurnRequest(List.of(new AiChatMessage(AiChatMessage.Role.USER, "find")),
+                List.of(new AiToolDefinition("workbench.find-menu", "Find menu", Map.of("type", "object"))),
+                null, null);
+
+        assertThatThrownBy(() -> client.complete(route(), request))
+                .isInstanceOf(PlatformException.class)
+                .hasMessageContaining("undeclared tool");
+    }
+
+    @Test
+    void rejectsExcessiveStructuredToolCallsBeforeReturningThemToTheBrowser() throws Exception {
+        String calls = java.util.stream.IntStream.range(0, 9)
+                .mapToObj(index -> "{\"id\":\"call-" + index
+                        + "\",\"function\":{\"name\":\"capability_0\",\"arguments\":\"{}\"}}")
+                .collect(java.util.stream.Collectors.joining(","));
+        OpenAiCompatibleModelClient client = responseClient(200,
+                "{\"choices\":[{\"message\":{\"tool_calls\":[" + calls
+                        + "]},\"finish_reason\":\"tool_calls\"}]}");
+        AiTurnRequest request = new AiTurnRequest(List.of(new AiChatMessage(AiChatMessage.Role.USER, "find")),
+                List.of(new AiToolDefinition("workbench.find-menu", "Find menu", Map.of("type", "object"))),
+                null, null);
+
+        assertThatThrownBy(() -> client.complete(route(), request))
+                .isInstanceOf(PlatformException.class)
+                .hasMessageContaining("too many tool calls");
+    }
+
+    @Test
+    void rejectsOversizedToolArguments() throws Exception {
+        String arguments = "x".repeat(65_537);
+        String encodedArguments = new ObjectMapper().writeValueAsString(Map.of("value", arguments));
+        OpenAiCompatibleModelClient client = responseClient(200,
+                new ObjectMapper().writeValueAsString(Map.of("choices", List.of(Map.of(
+                        "message", Map.of("tool_calls", List.of(Map.of(
+                                "id", "call-1",
+                                "function", Map.of("name", "capability_0", "arguments", encodedArguments)))),
+                        "finish_reason", "tool_calls")))));
+        AiTurnRequest request = new AiTurnRequest(List.of(new AiChatMessage(AiChatMessage.Role.USER, "find")),
+                List.of(new AiToolDefinition("workbench.find-menu", "Find menu", Map.of("type", "object"))),
+                null, null);
+
+        assertThatThrownBy(() -> client.complete(route(), request))
+                .isInstanceOf(PlatformException.class)
+                .hasMessageContaining("oversized tool arguments");
     }
 
     private OpenAiCompatibleModelClient responseClient(int status, String response) throws IOException {

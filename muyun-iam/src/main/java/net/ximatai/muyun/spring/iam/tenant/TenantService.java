@@ -10,7 +10,11 @@ import net.ximatai.muyun.spring.ability.child.ChildRelation;
 import net.ximatai.muyun.spring.ability.child.ChildrenAbility;
 import net.ximatai.muyun.spring.ability.deletion.DeletionRecoveryAbility;
 import net.ximatai.muyun.spring.ability.reference.ReferenceAbility;
+import net.ximatai.muyun.spring.ability.query.QueryAbility;
+import net.ximatai.muyun.spring.ability.query.QueryDescriptor;
+import net.ximatai.muyun.spring.ability.query.QueryDescriptors;
 import net.ximatai.muyun.database.core.orm.Criteria;
+import net.ximatai.muyun.database.core.orm.Sort;
 import net.ximatai.muyun.spring.common.tenant.ActiveTenantVerifier;
 import net.ximatai.muyun.spring.common.tenant.TenantCreationProvisioner;
 import net.ximatai.muyun.spring.common.exception.PlatformErrorCodes;
@@ -37,6 +41,7 @@ public class TenantService extends AbstractAbilityService<Tenant> implements
         EnableAbility<Tenant>,
         SortAbility<Tenant>,
         ReferenceAbility<Tenant>,
+        QueryAbility<Tenant>,
         ChildrenAbility<Tenant>,
         ActiveTenantVerifier {
 
@@ -77,6 +82,14 @@ public class TenantService extends AbstractAbilityService<Tenant> implements
         this.creationProvisioners = creationProvisioners;
         this.tenantApplicationService = tenantApplicationService;
         this.managedFileAssetService = managedFileAssetService;
+    }
+
+    @Override
+    public QueryDescriptor queryDescriptor() {
+        return QueryDescriptors.fromModel(MODULE_ALIAS, Tenant.class,
+                List.of("id", "title", "enabled", "sortOrder", "createdAt", "updatedAt"),
+                Sort.asc("sortOrder"),
+                Sort.asc("title"));
     }
 
     @Override

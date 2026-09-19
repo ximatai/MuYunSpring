@@ -4,12 +4,13 @@ import { useRecordEditingSession } from '@/dynamic-page-runtime/composables/useR
 
 function setup(view: ReturnType<typeof vi.fn>) {
   const detail = { beginLoad: vi.fn(), resolveLoad: vi.fn(), failLoad: vi.fn(), finishLoad: vi.fn() };
+  const onLoaded = vi.fn();
   const session = useRecordEditingSession(
     { crud: { view } } as unknown as ModuleContext<{ id: string }>,
     detail,
-    vi.fn(),
+    onLoaded,
   );
-  return { detail, session };
+  return { detail, onLoaded, session };
 }
 describe('record detail reload after an action', () => {
   it('discards an earlier response when another record is selected', async () => {
@@ -60,6 +61,19 @@ describe('record detail reload after an action', () => {
     expect(detail.failLoad).toHaveBeenCalledOnce();
     expect(onError).toHaveBeenCalledWith(error);
     expect(detail.resolveLoad).not.toHaveBeenCalled();
+    expect(detail.finishLoad).toHaveBeenCalledOnce();
+  });
+
+  it('commits a prepared record through the same detail lifecycle without another request', () => {
+    const view = vi.fn();
+    const { detail, onLoaded, session } = setup(view);
+
+    session.commitLoadedRecord({ id: 'prepared' }, 'edit', { cancelDestination: 'close' });
+
+    expect(view).not.toHaveBeenCalled();
+    expect(detail.beginLoad).toHaveBeenCalledWith({ id: 'prepared' }, 'edit', { cancelDestination: 'close' });
+    expect(detail.resolveLoad).toHaveBeenCalledWith({ id: 'prepared' });
+    expect(onLoaded).toHaveBeenCalledOnce();
     expect(detail.finishLoad).toHaveBeenCalledOnce();
   });
 });

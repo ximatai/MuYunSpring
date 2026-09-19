@@ -55,6 +55,7 @@
 | [平台实时通信设计](REALTIME_COMMUNICATION.md)                               | 说明 WebSocket/STOMP 实时通信底座、前后端封装边界、数据变化广播、双向通信预留和后续可靠性演进。                      |
 | [实时业务提醒后端接入](BUSINESS_NOTIFICATION_BACKEND_INTEGRATION.md)        | 说明业务服务发布在线提醒、按 IAM 范围接收、导航/命令动作和可靠性边界。                                               |
 | [MuYunFileServer 与文件引用生命周期](FILE_REFERENCE_LIFECYCLE.md)           | 说明关联文件服务、记录附件、字段文件引用、临时上传、转正和显式物理删除的职责边界。                                   |
+| [智能助手能力融合专项治理](AI_ASSISTANT_GOVERNANCE.md)                      | 说明面向终端用户的助手目标场景、前后端分层、前端 Surface 与能力贡献、动态配置路线和阶段验收口径。                    |
 
 ## 平台运行模式
 

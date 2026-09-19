@@ -143,6 +143,7 @@ async function send(
       signal: options.signal,
     });
   } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') throw error;
     throw new AppError('Network request failed', {
       code: platformErrorCodes.networkError,
       details: { cause: error instanceof Error ? error.message : String(error) },

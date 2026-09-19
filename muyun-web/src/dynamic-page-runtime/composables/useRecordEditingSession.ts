@@ -26,6 +26,19 @@ export function useRecordEditingSession<TRecord extends { id?: unknown }>(
     requestSequence += 1;
   }
 
+  /** Commits an already-authorized and loaded record through the standard detail controller. */
+  function commitLoadedRecord(
+    record: TRecord,
+    mode: 'edit' | 'view',
+    options: RecordDetailTransitionOptions = {},
+  ) {
+    requestSequence += 1;
+    detail.beginLoad(record, mode, options);
+    detail.resolveLoad(record);
+    onLoaded();
+    detail.finishLoad();
+  }
+
   async function openRecord(
     record: TRecord,
     mode: 'edit' | 'view',
@@ -77,5 +90,5 @@ export function useRecordEditingSession<TRecord extends { id?: unknown }>(
     }
   }
 
-  return { invalidatePendingRequests, openRecord, openRecycleBinRecord };
+  return { invalidatePendingRequests, commitLoadedRecord, openRecord, openRecycleBinRecord };
 }

@@ -26,10 +26,12 @@ import {
   type RecordExplorerItemDescriptor,
   type RecordActionItem,
   type RecordQueryListCellComponent,
+  type RecordQueryListQueryController,
   type ReferenceRecordDetailMutation,
   type StandardCrudRowActionKey,
   type QueryListRecord,
   type RecordFormRecord,
+  type ReferencePickerCandidate,
 } from '@muyun/platform-components';
 import type {
   StandardModulePageDescriptor,
@@ -62,6 +64,11 @@ import {
   type ModuleTreeClient,
 } from '@muyun/web-core';
 import { canMutateModuleDetail } from './moduleDetailStateModel';
+import {
+  assistantEditableRecordIds,
+  assistantEditCancelDestination,
+  hasAvailableRecordUpdate,
+} from './assistantRecordEditorPolicy';
 import { recordMutationPayload } from './recordMutationPayload';
 import { createSourceReferencePickerConfigAssembler } from './sourceReferencePickerConfig';
 import {
@@ -330,6 +337,7 @@ export function useModulePageSession(
   const detail = useRecordDetailController<QueryListRecord>();
   const {
     invalidatePendingRequests,
+    commitLoadedRecord,
     openRecord: loadRecord,
     openRecycleBinRecord,
   } = useRecordEditingSession(context, detail, () => {
@@ -359,6 +367,26 @@ export function useModulePageSession(
     loading: detailLoading,
     loadFailed: detailLoadFailed,
   } = detail;
+  const assistantContextRevision = ref(0);
+  const listQueryController = shallowRef<RecordQueryListQueryController>();
+  function bindListQueryController(controller: RecordQueryListQueryController | undefined) {
+    if (listQueryController.value === controller) return;
+    listQueryController.value = controller;
+    assistantContextRevision.value += 1;
+  }
+  watch(
+    [
+      () => selectedRecord.value?.id,
+      () => selectedRecord.value?.version,
+      editingRecord,
+      editorMode,
+      formSessionKey,
+    ],
+    () => {
+      assistantContextRevision.value += 1;
+    },
+    { deep: true, flush: 'sync' },
+  );
   // RecordFormFields owns parser and renderer diagnostics. Persist only its
   // validity fact here; the host remains responsible for the save boundary.
   const deleting = ref(false);
@@ -2708,14 +2736,42 @@ export function useModulePageSession(
     fieldName: string,
     value: import('@muyun/platform-components').RecordFormFieldValue,
   ) {
-    if (!editingRecord.value) {
-      return;
+    updateDraftFields([{ fieldName, value }]);
+  }
+
+  function updateDraftFields(
+    changes: Array<{
+      fieldName: string;
+      value: import('@muyun/platform-components').RecordFormFieldValue;
+    }>,
+  ) {
+    if (!editingRecord.value || changes.length === 0) return;
+    const rules = formComputeRulesOf(context.runtime.snapshot()?.uiDescriptor);
+    let next = editingRecord.value;
+    for (const { fieldName, value } of changes) {
+      next = applyReferenceDependencyClears(next, fieldName, value, formFields.value);
     }
-    editingRecord.value = applyFormComputeAfterChange(
-      applyReferenceDependencyClears(editingRecord.value, fieldName, value, formFields.value),
-      fieldName,
-      formComputeRulesOf(context.runtime.snapshot()?.uiDescriptor),
+    editingRecord.value = applyFormComputeAfterChanges(
+      next,
+      changes.map(({ fieldName }) => fieldName),
+      rules,
     );
+  }
+
+  function updateDraftReference(fieldName: string, candidate: ReferencePickerCandidate) {
+    const changes: Array<{
+      fieldName: string;
+      value: import('@muyun/platform-components').RecordFormFieldValue;
+    }> = [{ fieldName, value: candidate.id }];
+    for (const [patchField, patchValue] of Object.entries(candidate.affectPatch ?? {})) {
+      if (patchField !== fieldName) {
+        changes.push({
+          fieldName: patchField,
+          value: patchValue as import('@muyun/platform-components').RecordFormFieldValue,
+        });
+      }
+    }
+    updateDraftFields(changes);
   }
 
   /**
@@ -2784,10 +2840,14 @@ export function useModulePageSession(
   }
 
   async function createRecord(parentId?: string) {
-    if (context.can('create') !== true) return;
+    if (context.can('create') !== true) return false;
     await (resolvedSelectionFormDefaultsRequest ?? loadResolvedSelectionFormDefaults());
-    invalidatePendingRequests();
     const defaults = { ...navigatorCreateDefaults.value, ...(parentId ? { parentId } : {}) };
+    return commitCreateRecord(defaults);
+  }
+
+  function commitCreateRecord(defaults: QueryListRecord) {
+    invalidatePendingRequests();
     // Only a tree's persistent detail card has a meaningful record to restore.
     // A list drawer creates an independent draft: cancelling it must close the
     // drawer rather than reopen the row that happened to be selected.
@@ -2806,10 +2866,81 @@ export function useModulePageSession(
         ),
       );
     }
+    return editorMode.value === 'create' && Boolean(editingRecord.value);
   }
 
   function createRootRecord() {
-    createRecord();
+    return createRecord();
+  }
+
+  async function prepareAssistantCreate() {
+    if (editorMode.value !== 'view') throw new Error('A form draft is already active');
+    if (context.can('create') !== true) throw new Error('Record creation is unavailable');
+    await (resolvedSelectionFormDefaultsRequest ?? loadResolvedSelectionFormDefaults());
+    const defaults = { ...navigatorCreateDefaults.value };
+    return () => {
+      if (!commitCreateRecord(defaults)) throw new Error('Record creation is unavailable');
+      return assistantEditorState();
+    };
+  }
+
+  /**
+   * Exposes only the navigator scopes that the mounted page currently lets a user change.
+   * The assistant must not derive this from raw navigator descriptors because visibility,
+   * locked-entry policy and an active draft all belong to the page session.
+   */
+  function assistantNavigatorScopes() {
+    if (editorMode.value !== 'view' || interactionBusy.value || detailDirty.value) return [];
+    return visibleNavigatorLevels.value.filter(
+      (level) => !isLockedNavigator(level.descriptor.key) && navigatorManagementScopeReady(level),
+    );
+  }
+
+  function assistantNavigatorScopeRevision(levelKey: string) {
+    return JSON.stringify({
+      tenantId: tenantScopeId.value,
+      selections: navigatorLevels.value.map((level) => [
+        level.descriptor.key,
+        selectedNavigatorRecords.value[level.descriptor.key]?.id ?? null,
+      ]),
+      queryValues: navigatorExplorerQueryValues(levelKey) ?? null,
+    });
+  }
+
+  function applyAssistantNavigatorSelection(
+    levelKey: string,
+    record: QueryListRecord,
+    expectedRevision: string,
+  ) {
+    const level = assistantNavigatorScopes().find((candidate) => candidate.descriptor.key === levelKey);
+    if (
+      !level ||
+      record.id == null ||
+      assistantNavigatorScopeRevision(levelKey) !== expectedRevision ||
+      String(selectedNavigatorRecords.value[levelKey]?.id ?? '') === String(record.id)
+    ) {
+      return false;
+    }
+    selectNavigatorRecord(levelKey, record);
+    return String(selectedNavigatorRecords.value[levelKey]?.id ?? '') === String(record.id);
+  }
+
+  async function settleAssistantPageState(signal: AbortSignal) {
+    throwIfAssistantSettlementAborted(signal);
+    await nextTick();
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      throwIfAssistantSettlementAborted(signal);
+      const controller = listQueryController.value;
+      await controller?.settle?.(signal);
+      await nextTick();
+      throwIfAssistantSettlementAborted(signal);
+      if (controller === listQueryController.value) return;
+    }
+    throw new Error('Assistant page state did not settle on a stable page session');
+  }
+
+  function throwIfAssistantSettlementAborted(signal: AbortSignal) {
+    if (signal.aborted) throw new DOMException('Assistant invocation was cancelled', 'AbortError');
   }
 
   function createChildRecord() {
@@ -2848,6 +2979,53 @@ export function useModulePageSession(
     }
     if (selectedRecord.value?.id === record.id && detail.beginEdit({ cancelDestination })) return;
     await openRecord(record, 'edit', { cancelDestination });
+  }
+
+  async function prepareAssistantEdit(recordId: string) {
+    if (editorMode.value !== 'view' || detailLoading.value) throw new Error('A form draft is already active');
+    const normalizedId = recordId.trim();
+    const querySnapshot = listQueryController.value?.snapshot();
+    if (querySnapshot?.mode === 'recycleBin') {
+      throw new Error('Record editing is unavailable in recycle bin mode');
+    }
+    const visibleIds = new Set(assistantEditableRecordIds(selectedRecord.value?.id, querySnapshot));
+    if (!normalizedId || !visibleIds.has(normalizedId)) {
+      throw new Error(`Record is not available on the current page: ${recordId}`);
+    }
+    const selected = selectedRecord.value;
+    if (context.can('update') !== true) throw new Error('Record editing is unavailable');
+    if (!(await assistantRecordUpdateAvailable(normalizedId))) {
+      throw new Error('Record editing is unavailable');
+    }
+    const loaded =
+      selected?.id != null && String(selected.id) === normalizedId
+        ? selected
+        : await context.crud.view(normalizedId);
+    return () => {
+      commitLoadedRecord(loaded, 'edit', {
+        cancelDestination: assistantEditCancelDestination(detailOpen.value, selected?.id, normalizedId),
+      });
+      return assistantEditorState();
+    };
+  }
+
+  async function assistantRecordUpdateAvailable(recordId: string) {
+    try {
+      const availability = await context.recordActions(recordId);
+      return hasAvailableRecordUpdate(availability);
+    } catch (cause) {
+      presentPlatformError(cause, { source: 'module-assistant', phase: 'authorization' });
+      return false;
+    }
+  }
+
+  function assistantEditorState() {
+    return {
+      editorMode: editorMode.value,
+      recordId: editingRecord.value?.id == null ? undefined : String(editingRecord.value.id),
+      editable: Boolean(editingRecord.value),
+      dirty: detailDirty.value,
+    };
   }
 
   async function saveRecord(actionKey = 'save') {
@@ -3523,6 +3701,8 @@ export function useModulePageSession(
     detailDirty,
     sessionDirty,
     updateDraftField,
+    updateDraftFields,
+    updateDraftReference,
     showStatusSwitch,
     canToggleEnabled,
     toggleEnabledDisabledReason,
@@ -3535,6 +3715,9 @@ export function useModulePageSession(
     detailDisplayFields,
     formFields,
     formSessionKey,
+    assistantContextRevision,
+    listQueryController,
+    bindListQueryController,
     formValidationRequestKey,
     referencePickerConfigs,
     runtimeUiDescriptor,
@@ -3552,6 +3735,12 @@ export function useModulePageSession(
     placedPageActions,
     handlePlacedPageAction,
     createRootRecord,
+    prepareAssistantCreate,
+    prepareAssistantEdit,
+    assistantNavigatorScopes,
+    assistantNavigatorScopeRevision,
+    applyAssistantNavigatorSelection,
+    settleAssistantPageState,
     hasCardAssistantAt,
     enhancementCardAssistant,
     cardAssistantContext,

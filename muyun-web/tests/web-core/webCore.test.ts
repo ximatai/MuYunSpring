@@ -424,6 +424,21 @@ it('http client sends platform trace header', async () => {
   }
 });
 
+it('http client preserves request cancellation instead of reporting a network failure', async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => {
+    throw new DOMException('cancelled', 'AbortError');
+  };
+
+  try {
+    await expect(createHttpClient().request({ path: '/platform.slow' })).rejects.toMatchObject({
+      name: 'AbortError',
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 it('http client requests event-stream media type for authenticated streams', async () => {
   const requests: Request[] = [];
   const originalFetch = globalThis.fetch;
