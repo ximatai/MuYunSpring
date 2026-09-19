@@ -21,6 +21,7 @@ const proposal: MetadataModelChangeSetProposal = {
   relationOrders: [],
   fieldOrders: [],
 };
+const applyEffectSpy = vi.fn();
 
 describe('metadata governance assistant surface', () => {
   it('describes a bounded metadata context and keeps workbench capabilities', async () => {
@@ -42,6 +43,7 @@ describe('metadata governance assistant surface', () => {
     expect(surface.capabilities().map(({ descriptor }) => descriptor.code)).toEqual([
       'navigation.find-menu',
       'configuration.describe-metadata-model',
+      'configuration.add-metadata-field-draft',
       'configuration.preview-metadata-draft',
     ]);
 
@@ -52,6 +54,55 @@ describe('metadata governance assistant surface', () => {
       adapter.summary(),
     );
     expect(() => describe.parseInput({ unexpected: true })).toThrow('Capability input must be empty');
+  });
+
+  it('stages a validated ordinary field through the guarded page effect boundary', async () => {
+    const adapter = fixture();
+    const surface = createMetadataGovernanceAssistantSurface(adapter, vi.fn());
+    const add = surface
+      .capabilities()
+      .find(({ descriptor }) => descriptor.code === 'configuration.add-metadata-field-draft')!;
+    const context = executionContext();
+
+    await expect(
+      add.execute(
+        add.parseInput({
+          title: '考试备注',
+          fieldSpecAlias: 'string',
+          required: true,
+          indexed: false,
+        }),
+        context,
+      ),
+    ).resolves.toEqual({
+      relationId: 'relation-main',
+      fieldName: 'examRemark',
+      columnName: 'exam_remark',
+      title: '考试备注',
+      fieldSpecAlias: 'string',
+    });
+    expect(applyEffectSpy).toHaveBeenCalledOnce();
+    expect(adapter.addFieldDraft).toHaveBeenCalledWith({
+      title: '考试备注',
+      fieldSpecAlias: 'string',
+      required: true,
+      indexed: false,
+    });
+    expect(() => add.parseInput({ title: '未知', fieldSpecAlias: 'unknown' })).toThrow(
+      'Unknown metadata field specification',
+    );
+    expect(() =>
+      add.parseInput({ title: '备注', fieldName: 'customer_name', fieldSpecAlias: 'string' }),
+    ).toThrow('fieldName must use lower camel case');
+    expect(() => add.parseInput({ title: '值', fieldName: 'values', fieldSpecAlias: 'string' })).toThrow(
+      'fieldName is reserved by the dynamic record protocol',
+    );
+    expect(() =>
+      add.parseInput({ title: '备注', fieldName: `a${'b'.repeat(63)}`, fieldSpecAlias: 'string' }),
+    ).toThrow('no longer than 63 characters');
+    expect(() => add.parseInput({ title: '备注', fieldSpecAlias: 'string', systemManaged: true })).toThrow(
+      'unsupported metadata field properties',
+    );
   });
 
   it('previews the exact current candidate without exposing a publish capability', async () => {
@@ -98,7 +149,7 @@ describe('metadata governance assistant surface', () => {
       createMetadataGovernanceAssistantSurface(adapter, vi.fn())
         .capabilities()
         .map(({ descriptor }) => descriptor.code),
-    ).toEqual(['configuration.describe-metadata-model']);
+    ).toEqual(['configuration.describe-metadata-model', 'configuration.add-metadata-field-draft']);
 
     const current = fixture();
     const preview = createMetadataGovernanceAssistantSurface(current, vi.fn())
@@ -107,6 +158,35 @@ describe('metadata governance assistant surface', () => {
     await expect(
       preview.execute(preview.parseInput({}), { ...executionContext(), isCurrent: () => false }),
     ).rejects.toThrow('Metadata candidate preview is no longer current');
+  });
+
+  it('does not advertise field drafting while a metadata editor is already open', () => {
+    const adapter = fixture();
+    vi.mocked(adapter.summary).mockReturnValue({
+      ...adapter.summary(),
+      draft: { active: true, dirty: false, editorOpen: true },
+    });
+    expect(
+      createMetadataGovernanceAssistantSurface(adapter, vi.fn())
+        .capabilities()
+        .map(({ descriptor }) => descriptor.code),
+    ).not.toContain('configuration.add-metadata-field-draft');
+  });
+
+  it('keeps the complete field-spec catalog in the capability schema when the context summary is bounded', () => {
+    const adapter = fixture();
+    vi.mocked(adapter.fieldSpecAliases).mockReturnValue(['string', 'integer', 'custom_41']);
+    const add = createMetadataGovernanceAssistantSurface(adapter, vi.fn())
+      .capabilities()
+      .find(({ descriptor }) => descriptor.code === 'configuration.add-metadata-field-draft')!;
+
+    expect(
+      (add.descriptor.inputSchema.properties as Record<string, { enum?: string[] }>).fieldSpecAlias?.enum,
+    ).toEqual(['string', 'integer', 'custom_41']);
+    expect(add.parseInput({ title: '自定义', fieldSpecAlias: 'custom_41' })).toEqual({
+      title: '自定义',
+      fieldSpecAlias: 'custom_41',
+    });
   });
 });
 
@@ -132,7 +212,11 @@ function fixture(
         ],
         truncated: false,
       },
-      draft: { active: true, dirty: true },
+      draft: { active: true, dirty: true, editorOpen: false },
+      fieldSpecs: [
+        { alias: 'string', title: '短文本' },
+        { alias: 'integer', title: '整数' },
+      ],
     })),
     proposal: vi.fn(() => currentProposal),
     preview: vi.fn(async () => ({
@@ -159,6 +243,14 @@ function fixture(
       warnings: [],
       errors: [],
     })),
+    fieldSpecAliases: vi.fn(() => ['string', 'integer']),
+    addFieldDraft: vi.fn(() => ({
+      relationId: 'relation-main',
+      fieldName: 'examRemark',
+      columnName: 'exam_remark',
+      title: '考试备注',
+      fieldSpecAlias: 'string',
+    })),
   };
 }
 
@@ -178,6 +270,7 @@ function executionContext() {
       return commit();
     },
     applyEffect<T>(effect: () => T) {
+      applyEffectSpy();
       return effect();
     },
   };

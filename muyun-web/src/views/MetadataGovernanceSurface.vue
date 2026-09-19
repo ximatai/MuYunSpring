@@ -1,6 +1,12 @@
 <script setup lang="ts">
 import { computed, onActivated, onDeactivated, onMounted, onUnmounted, ref, watch } from 'vue';
-import { generatedBusinessFieldName, generatedMetadataAlias, physicalNameOf } from './metadataNaming';
+import {
+  generatedBusinessFieldName,
+  generatedMetadataAlias,
+  isDynamicRecordReservedFieldName,
+  isPlatformFieldName,
+  physicalNameOf,
+} from './metadataNaming';
 import {
   ManagementExplorerColumn,
   ManagementWorkspace,
@@ -78,6 +84,7 @@ import {
   type MetadataChangeSetPreview,
 } from './metadataModelChangeSetClient';
 import { createMetadataGovernanceAssistantSurface } from './metadataGovernanceAssistantSurface';
+import type { AddMetadataFieldDraftInput } from './metadataGovernanceAssistantSurface';
 import {
   buildMetadataModelTree,
   canReorderMetadataModelTree,
@@ -220,6 +227,7 @@ const selectedField = computed(() => {
   return displayedFields.value.find((field) => (field.id ?? field.fieldName) === parsed.fieldId);
 });
 const ASSISTANT_METADATA_FIELD_LIMIT = 80;
+const ASSISTANT_FIELD_SPEC_LIMIT = 40;
 
 function assistantSummary() {
   const relation = state.selectedRelation.value;
@@ -251,7 +259,15 @@ function assistantSummary() {
     draft: {
       active: editSession.editing.value || state.mode.value !== 'view',
       dirty: editSession.isDirty.value,
+      editorOpen: state.fieldEditorOpen.value || sorting.value,
     },
+    fieldSpecs: state.fieldSpecs.value
+      .filter((spec) => spec.enabled !== false)
+      .slice(0, ASSISTANT_FIELD_SPEC_LIMIT)
+      .flatMap((spec) => {
+        const alias = spec.alias ?? spec.id;
+        return alias ? [{ alias, title: spec.title }] : [];
+      }),
   };
 }
 
@@ -280,6 +296,12 @@ function syncAssistantSurface() {
         proposal: () => editSession.buildProposal(),
         preview: (proposal, signal) =>
           previewMetadataModelChangeSet(moduleContext.http, props.moduleAlias, proposal, signal),
+        fieldSpecAliases: () =>
+          state.fieldSpecs.value
+            .filter((spec) => spec.enabled !== false)
+            .map((spec) => spec.alias ?? spec.id ?? '')
+            .filter(Boolean),
+        addFieldDraft: addAssistantFieldDraft,
       },
       createAssistantTurnRequester(moduleContext.http),
       () => assistantHost.capabilities?.() ?? [],
@@ -674,6 +696,13 @@ function hydrateSelectedRelation(relationId: string) {
 }
 
 async function selectMetadataTreeNode(node: UiTreeNode) {
+  if (state.fieldEditorOpen.value) {
+    presentPlatformMessage('请先保存或取消当前字段候选，再切换元数据。', {
+      source: 'metadata-orchestration',
+      phase: 'validation',
+    });
+    return;
+  }
   const parsed = parseMetadataModelTreeKey(node.key);
   if (!parsed) return;
   const relationId = parsed.relationId;
@@ -722,6 +751,53 @@ function startCreateField(kind: MetadataFieldPropertyDraft['kind'] = 'BASIC') {
   stagedNewFieldKey.value = undefined;
   startNodeEditSession();
   state.startCreateField(kind);
+}
+
+function addAssistantFieldDraft(input: AddMetadataFieldDraftInput) {
+  const relationId = selectedRelationId.value;
+  if (!relationId || !state.selectedMetadata.value?.id) throw new Error('No metadata relation is selected');
+  if (state.fieldEditorOpen.value || sorting.value)
+    throw new Error('Finish or cancel the current metadata editor before adding another field');
+  const fieldSpec = state.fieldSpecs.value.find(
+    (spec) => spec.enabled !== false && (spec.alias ?? spec.id) === input.fieldSpecAlias,
+  );
+  if (!fieldSpec) throw new Error('The selected metadata field specification is unavailable');
+  const fieldName = input.fieldName?.trim() || generatedBusinessFieldName(input.title, 'BASIC');
+  if (!isPlatformFieldName(fieldName)) throw new Error('The metadata field name is invalid');
+  if (isDynamicRecordReservedFieldName(fieldName))
+    throw new Error('The metadata field name is reserved by the dynamic record protocol');
+  const fields = editSession.fieldsForDisplay(relationId, state.allFields.value);
+  if (fields.some((field) => field.fieldName?.toLowerCase() === fieldName.toLowerCase()))
+    throw new Error(`Metadata field “${fieldName}” already exists in the selected relation`);
+  const field: MetadataField = {
+    fieldName,
+    columnName: physicalNameOf(fieldName),
+    title: input.title,
+    fieldSpecAlias: input.fieldSpecAlias,
+    fieldOwnership: 'BUSINESS',
+    fieldForm: 'PHYSICAL',
+    required: input.required ?? false,
+    uniqueField: input.unique ?? false,
+    indexed: input.indexed ?? false,
+    sortableField: input.sortable ?? false,
+    titleField: input.titleField ?? false,
+    enabled: true,
+  };
+  if (!editSession.editing.value) startNodeEditSession();
+  editSession.stageField(relationId, field, { kind: 'BASIC' });
+  stagedNewFieldKey.value = fieldName;
+  fieldTitleManuallyEdited.value = true;
+  fieldNameManuallyEdited.value = Boolean(input.fieldName);
+  columnNameManuallyEdited.value = false;
+  editorMode.value = 'ADVANCED';
+  state.startEditField(field, { kind: 'BASIC' });
+  return {
+    relationId,
+    fieldName,
+    columnName: field.columnName!,
+    title: input.title,
+    fieldSpecAlias: input.fieldSpecAlias,
+  };
 }
 
 function startCreateMainMetadata() {
@@ -922,6 +998,13 @@ function stageFieldDraft() {
   }
   const draft = normalizeFieldDraft(state.fieldDraft.value);
   const property = normalizeFieldPropertyDraft(state.fieldPropertyDraft.value);
+  if (draft.fieldName && isDynamicRecordReservedFieldName(draft.fieldName)) {
+    presentPlatformMessage('字段名称与动态记录协议保留字段冲突，请调整。', {
+      source: 'metadata-orchestration',
+      phase: 'validation',
+    });
+    return;
+  }
   if (!isValidFieldDraft(draft)) {
     presentPlatformMessage('请填写字段名、物理列名和字段规格', {
       source: 'metadata-orchestration',

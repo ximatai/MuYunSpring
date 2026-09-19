@@ -88,6 +88,22 @@ class MetadataRelationChangeSetPreviewServiceTest {
     }
 
     @Test
+    void shouldRejectDynamicRecordProtocolFieldNamesDuringPreview() {
+        for (String fieldName : List.of("values", "attachments", "record")) {
+            Fixture fixture = fixture(RelationRole.MAIN, List.of());
+            MetadataField field = businessField(fieldName, fieldName, "string");
+
+            MetadataRelationChangeSetPreview result = fixture.service.preview("crm.customer", "main", command(3,
+                    Map.of(), List.of(new MetadataFieldChangeSetDraft(
+                            MetadataFieldChangeSetDraft.Operation.ADD, null, field))));
+
+            assertThat(result.valid()).as(fieldName).isFalse();
+            assertThat(result.errors()).extracting(MetadataChangeSetValidationIssue::code)
+                    .as(fieldName).contains("INVALID_FIELD_DRAFT");
+        }
+    }
+
+    @Test
     void shouldAllowAnyFieldSpecChangeWhenEntityHasNoData() {
         MetadataField existing = businessField("note", "note", "string");
         existing.setVersion(2);

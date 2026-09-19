@@ -5,6 +5,7 @@ import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.spring.common.platform.EntityCapability;
 import net.ximatai.muyun.spring.common.util.PlatformNameRules;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecordService;
+import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecordProtocolFields;
 import net.ximatai.muyun.spring.platform.module.ModuleKind;
 import net.ximatai.muyun.spring.platform.module.PlatformModule;
 import net.ximatai.muyun.spring.platform.module.PlatformModuleService;
@@ -486,6 +487,10 @@ public class MetadataRelationChangeSetPreviewService {
         }
         try {
             PlatformNameRules.requireFieldName(field.getFieldName(), "fieldName");
+            if (DynamicRecordProtocolFields.isReservedBusinessFieldName(field.getFieldName())) {
+                throw new IllegalArgumentException("dynamic record protocol field name is reserved: "
+                        + field.getFieldName());
+            }
             PlatformNameRules.requireDatabaseName(field.getColumnName(), "columnName");
             PlatformNameRules.requireIdentifier(field.getFieldSpecAlias(), "fieldSpecAlias");
             fieldSpecService.requireFieldType(field.getFieldSpecAlias());

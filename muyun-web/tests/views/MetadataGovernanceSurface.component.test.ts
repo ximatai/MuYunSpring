@@ -26,10 +26,19 @@ afterEach(() => {
 
 it('registers the metadata surface only after a complete load and invalidates changed projections', async () => {
   const relations = deferred<unknown>();
+  const requests: HttpRequestOptions[] = [];
   const http: HttpClient = {
     request: <T>(options: HttpRequestOptions) => {
+      requests.push(options);
       if (options.path === '/platform.module/education.exam/metadata-relations/query') {
         return relations.promise as Promise<T>;
+      }
+      if (options.path === '/platform.field_spec/query') {
+        return Promise.resolve({
+          records: [{ id: 'string', alias: 'string', title: '短文本', enabled: true }],
+          pages: 1,
+          totalKnown: true,
+        }) as Promise<T>;
       }
       const response = responseFor(options);
       if (options.path === '/platform.metadata/meta-main/fields/query') {
@@ -102,7 +111,64 @@ it('registers the metadata surface only after a complete load and invalidates ch
     after.token,
   );
   expect(describedAfter.value).toEqual(
-    expect.objectContaining({ selectedRelation: expect.objectContaining({ fieldCount: 2 }) }),
+    expect.objectContaining({
+      selectedRelation: expect.objectContaining({ fieldCount: 2 }),
+      fieldSpecs: [{ alias: 'string', title: '短文本' }],
+    }),
+  );
+
+  const added = await registry.invoke(
+    {
+      id: 'add-field',
+      code: 'configuration.add-metadata-field-draft',
+      input: { title: '考试备注', fieldSpecAlias: 'string', required: true },
+    },
+    after.token,
+  );
+  expect(added.value).toEqual({
+    relationId: 'rel-main',
+    fieldName: 'kaoShiBeiZhu',
+    columnName: 'kao_shi_bei_zhu',
+    title: '考试备注',
+    fieldSpecAlias: 'string',
+  });
+  await flushPromises();
+  const drafted = registry.snapshot()!;
+  expect(drafted.capabilities.map((capability) => capability.code)).not.toContain(
+    'configuration.add-metadata-field-draft',
+  );
+  expect(drafted.capabilities.map((capability) => capability.code)).toContain(
+    'configuration.preview-metadata-draft',
+  );
+  const draftedModel = await registry.invoke(
+    { id: 'describe-draft', code: 'configuration.describe-metadata-model', input: {} },
+    drafted.token,
+  );
+  expect(draftedModel.value).toEqual(
+    expect.objectContaining({
+      selectedRelation: expect.objectContaining({ fieldCount: 3 }),
+      draft: { active: true, dirty: true, editorOpen: true },
+    }),
+  );
+  expect(requests.some((options) => options.path.endsWith('change-set-preview'))).toBe(false);
+  expect(
+    wrapper.findAllComponents({ name: 'UiInput' }).some((input) => input.props('value') === '考试备注'),
+  ).toBe(true);
+
+  const tree = wrapper.findComponent({ name: 'UiTree' });
+  const nodes = tree.props('nodes') as Array<{ key: string }>;
+  tree.vm.$emit('select', nodes[1]);
+  await flushPromises();
+  const afterBlockedSwitch = registry.snapshot()!;
+  const modelAfterBlockedSwitch = await registry.invoke(
+    { id: 'describe-after-blocked-switch', code: 'configuration.describe-metadata-model', input: {} },
+    afterBlockedSwitch.token,
+  );
+  expect(modelAfterBlockedSwitch.value).toEqual(
+    expect.objectContaining({
+      selectedRelation: expect.objectContaining({ relationId: 'rel-main', fieldCount: 3 }),
+      draft: { active: true, dirty: true, editorOpen: true },
+    }),
   );
 });
 
