@@ -100,7 +100,7 @@ public class AssistantTurnService {
                     : "模型响应未完整结束，请重试";
             throw new PlatformException(message);
         }
-        if (response.text() == null && response.toolCalls().isEmpty()
+        if ((response.text() == null || response.text().isBlank()) && response.toolCalls().isEmpty()
                 && command.results().stream().noneMatch(result -> result.errorCode() == null)) {
             throw new PlatformException("模型未返回可执行内容，请重新描述后再试");
         }

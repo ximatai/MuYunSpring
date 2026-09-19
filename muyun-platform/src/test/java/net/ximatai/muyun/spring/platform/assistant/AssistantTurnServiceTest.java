@@ -271,10 +271,11 @@ class AssistantTurnServiceTest {
 
 
     @Test
-    void acceptsAnEmptyModelTurnOnlyAfterARecordedCapabilityResult() {
+    void acceptsAnEmptyOrBlankModelTurnOnlyAfterARecordedCapabilityResult() {
         AiModelGateway gateway = mock(AiModelGateway.class);
-        AiTurnResponse empty = new AiTurnResponse(null, List.of(), "stop", "request-3");
-        when(gateway.complete(org.mockito.ArgumentMatchers.any())).thenReturn(empty);
+        AiTurnResponse blank = new AiTurnResponse("\n\n", List.of(), "stop", "request-3");
+        AiTurnResponse empty = new AiTurnResponse(null, List.of(), "stop", "request-4");
+        when(gateway.complete(org.mockito.ArgumentMatchers.any())).thenReturn(blank);
         AssistantTurnService service = new AssistantTurnService(gateway, new ObjectMapper());
 
         try (CurrentUserContext.Scope ignored = CurrentUserContext.use(CurrentUser.systemUser("system", "System"))) {
@@ -286,15 +287,17 @@ class AssistantTurnServiceTest {
             AssistantTurnCommand continuation = new AssistantTurnCommand("continue", Map.of(), List.of(),
                     List.of(new AssistantCapabilityResult("call-1", "form.patch-draft",
                             Map.of("changedFields", List.of("title")), null, null)));
+            assertThat(service.turn(continuation)).isSameAs(blank);
+            when(gateway.complete(org.mockito.ArgumentMatchers.any())).thenReturn(empty);
             assertThat(service.turn(continuation)).isSameAs(empty);
 
             when(gateway.complete(org.mockito.ArgumentMatchers.any())).thenReturn(
-                    new AiTurnResponse(null, List.of(), "length", "request-4"));
+                    new AiTurnResponse(null, List.of(), "length", "request-5"));
             assertThatThrownBy(() -> service.turn(continuation))
                     .isInstanceOf(PlatformException.class)
                     .hasMessageContaining("截断");
 
-            when(gateway.complete(org.mockito.ArgumentMatchers.any())).thenReturn(empty);
+            when(gateway.complete(org.mockito.ArgumentMatchers.any())).thenReturn(blank);
             AssistantTurnCommand failedContinuation = new AssistantTurnCommand("continue", Map.of(), List.of(),
                     List.of(new AssistantCapabilityResult("call-2", "form.patch-draft", null,
                             "CAPABILITY_FAILED", "Capability execution failed")));
