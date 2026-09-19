@@ -7,6 +7,7 @@ import net.ximatai.muyun.spring.ability.security.FieldSigner;
 import net.ximatai.muyun.spring.ability.security.HmacSha256FieldSigner;
 import net.ximatai.muyun.spring.common.identity.CurrentUser;
 import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
+import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.tenant.TenantContext;
 import net.ximatai.muyun.spring.platform.support.PlatformPostgresIntegrationTest;
 import org.junit.jupiter.api.Test;
@@ -24,6 +25,7 @@ import javax.sql.DataSource;
 import java.nio.charset.StandardCharsets;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 @SpringBootTest(classes = AiModelConfigurationRepositoryIT.TestApplication.class)
 class AiModelConfigurationRepositoryIT extends PlatformPostgresIntegrationTest {
@@ -45,18 +47,36 @@ class AiModelConfigurationRepositoryIT extends PlatformPostgresIntegrationTest {
             provider.setTitle("Local contract provider");
             providers.update(provider);
             assertThat(providers.requireEnabled(provider.getId()).getTitle()).isEqualTo("Local contract provider");
-            String globalId = configurations.insert(input("global-key"));
-            exerciseCredentialUpdates(globalId);
+            AiModelConfiguration platform = input("platform-key");
+            platform.setTenantFallbackEnabled(Boolean.TRUE);
+            String platformId = configurations.insert(platform);
+            exerciseCredentialUpdates(platformId);
+
+            AiModelConfiguration platformOnly = configurations.select(platformId);
+            platformOnly.setTenantFallbackEnabled(Boolean.FALSE);
+            configurations.update(platformOnly);
+            try (var tenant = TenantContext.use("tenant-without-fallback")) {
+                assertThatThrownBy(configurations::requireEffectiveConfiguration)
+                        .isInstanceOf(PlatformException.class)
+                        .hasMessage("no usable tenant fallback AI model configuration exists");
+            }
+            AiModelConfiguration fallback = configurations.select(platformId);
+            fallback.setTenantFallbackEnabled(Boolean.TRUE);
+            configurations.update(fallback);
+
             try (var tenant = TenantContext.use("tenant-ai-contract")) {
-                assertThat(configurations.requireEffectiveConfiguration().getId()).isEqualTo(globalId);
+                assertThat(configurations.requireEffectiveConfiguration().getId()).isEqualTo(platformId);
                 String tenantId = configurations.insert(input("tenant-key"));
                 assertThat(configurations.requireEffectiveConfiguration().getId()).isEqualTo(tenantId);
+                try (var bypass = TenantContext.bypassTenantFilter("cross-tenant action contract")) {
+                    assertThat(configurations.requireEffectiveConfiguration().getId()).isEqualTo(tenantId);
+                }
                 exerciseCredentialUpdates(tenantId);
                 configurations.disable(tenantId);
                 AiModelConfiguration disabled = dao.findById(tenantId);
                 disabled.setApiKey("invalid-old-ciphertext");
                 dao.updateById(disabled);
-                assertThat(configurations.requireEffectiveConfiguration().getId()).isEqualTo(globalId);
+                assertThat(configurations.requireEffectiveConfiguration().getId()).isEqualTo(platformId);
             }
         }
     }
@@ -67,6 +87,7 @@ class AiModelConfigurationRepositoryIT extends PlatformPostgresIntegrationTest {
         update.setId(id);
         update.setVersion(configurations.select(id).getVersion());
         update.setTitle("Renamed configuration");
+        update.setTenantFallbackEnabled(configurations.select(id).getTenantFallbackEnabled());
         configurations.update(update);
         assertCredential(id, originalKey);
         configurations.disable(id);

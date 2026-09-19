@@ -911,7 +911,8 @@ public class StaticModuleDefinitionScanner implements StaticModuleRegistrationSo
                     net.ximatai.muyun.spring.dynamic.metadata.EntityActionAccessMode.valueOf(custom.accessMode().name()),
                     custom.actionAuth(),
                     custom.dataAuth(),
-                    net.ximatai.muyun.spring.common.platform.ActionDefaultGrantPolicy.NONE
+                    net.ximatai.muyun.spring.common.platform.ActionDefaultGrantPolicy.NONE,
+                    custom.formSupported()
             ));
         }
     }

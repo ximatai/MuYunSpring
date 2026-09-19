@@ -150,6 +150,8 @@ cp muyun-boot/src/main/resources/application-local.yml.example \
 
 `application-local.yml` 已被 Git 忽略，可通过环境变量覆盖数据库和初始管理员密码；它也包含本地 Vite 地址的 CORS 白名单。前端本地联调必须以 `local` profile 启动后端，或使用 `./scripts/dev-local.sh`，不要直接执行未带 profile/白名单参数的 `bootRun`，否则浏览器会因 CORS 预检失败而显示网络错误。完整学校演示使用 `:muyun-boot:demoBootRun`。前端在另一个终端启动：
 
+`./scripts/dev-local.sh` 会在仓库的 `.local/field-protection-key` 首次生成并持续复用本地字段保护密钥，避免重启后无法读取已加密字段。该目录不会提交到 Git。需要复用其他环境的本地数据时，应通过 `MUYUN_SECURITY_FIELD_PROTECTION_KEY_BASE64` 显式传入与数据匹配的密钥，或通过 `MUYUN_FIELD_PROTECTION_KEY_FILE` 指向已有密钥文件；不要为已有数据库重新生成密钥。
+
 ```bash
 npm ci --prefix muyun-web
 npm run dev:backend --prefix muyun-web

@@ -12,6 +12,8 @@ const props = withDefaults(
     record?: QueryListRecord;
     mode: 'create' | 'edit' | 'view';
     saving?: boolean;
+    /** The action currently owning the shared detail-operation session. */
+    activeActionKey?: string;
     detailLoading?: boolean;
     detailLoadFailed?: boolean;
     recycleBinActive?: boolean;
@@ -32,6 +34,7 @@ const props = withDefaults(
   {
     record: undefined,
     saving: false,
+    activeActionKey: undefined,
     detailLoading: false,
     detailLoadFailed: false,
     recycleBinActive: false,
@@ -90,7 +93,7 @@ const headerActions = computed<RecordActionItem[]>(() => {
         .filter((action) => action.actionCode === (props.mode === 'create' ? 'create' : 'update'))
         .map((action) => ({
           ...action,
-          loading: props.saving,
+          loading: action.loading || action.key === props.activeActionKey,
           disabled: props.saving || !saveAvailable.value || action.disabled,
         })),
     ];
@@ -107,8 +110,12 @@ const headerActions = computed<RecordActionItem[]>(() => {
           },
         ]
       : []),
-    ...props.actions,
-    ...props.configuredActions,
+    ...props.actions.map((action) => ({ ...action, disabled: props.saving || action.disabled })),
+    ...props.configuredActions.map((action) => ({
+      ...action,
+      loading: action.loading || action.key === props.activeActionKey,
+      disabled: props.saving || action.disabled,
+    })),
   ];
   if (props.createChildAvailable) {
     actions.push({
@@ -126,7 +133,7 @@ const headerActions = computed<RecordActionItem[]>(() => {
         actionCode: 'update',
         title: '编辑',
         actionLevel: 'standard',
-        disabled: !props.record,
+        disabled: !props.record || props.saving,
       },
       {
         key: '__platform-delete',
@@ -134,8 +141,8 @@ const headerActions = computed<RecordActionItem[]>(() => {
         title: '删除',
         actionLevel: 'secondary',
         danger: true,
-        loading: props.saving,
-        disabled: !props.record,
+        loading: props.activeActionKey === '__platform-delete' || props.activeActionKey === 'delete',
+        disabled: !props.record || props.saving,
       },
     );
   }

@@ -29,9 +29,14 @@ public class AiModelConfiguration extends StandardEnabledEntity {
     private String provider;
 
     @OptionField(type = OptionSourceType.ENUM)
-    @Column(name = "availability_scope", type = ColumnType.VARCHAR, length = 32, nullable = false,
-            comment = "Tenant availability scope")
-    private AiModelAvailabilityScope availabilityScope = AiModelAvailabilityScope.PLATFORM;
+    @Column(name = "configuration_level", type = ColumnType.VARCHAR, length = 32, nullable = false,
+            comment = "Configuration ownership level")
+    private AiModelConfigurationLevel configurationLevel = AiModelConfigurationLevel.PLATFORM;
+
+    @Column(name = "tenant_fallback_enabled", type = ColumnType.BOOLEAN, nullable = false,
+            comment = "Whether tenants without a private configuration may use this platform configuration",
+            defaultVal = @Default(bool = TrueOrFalse.FALSE))
+    private Boolean tenantFallbackEnabled = Boolean.FALSE;
 
     @Column(name = "model_id", type = ColumnType.VARCHAR, length = 128, nullable = false, comment = "Provider model id")
     private String modelId;

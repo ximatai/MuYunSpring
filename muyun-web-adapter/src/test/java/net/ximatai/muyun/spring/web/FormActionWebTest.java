@@ -1,6 +1,7 @@
 package net.ximatai.muyun.spring.web;
 
 import net.ximatai.muyun.spring.ability.action.FormActionResult;
+import net.ximatai.muyun.spring.ability.CrudAbility;
 import net.ximatai.muyun.spring.common.tenant.TenantContext;
 import org.junit.jupiter.api.Test;
 import org.springframework.web.bind.annotation.RestController;
@@ -10,6 +11,8 @@ import java.util.List;
 import java.util.Map;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 class FormActionWebTest {
     @Test
@@ -17,6 +20,25 @@ class FormActionWebTest {
         Draft record = new Draft();
         record.setId("existing");
         org.assertj.core.api.Assertions.assertThatThrownBy(() -> new FormController().requireFormRecordScope(
+                record, net.ximatai.muyun.spring.common.platform.PlatformAction.UPDATE.executionPolicy()))
+                .isInstanceOf(net.ximatai.muyun.spring.common.exception.PlatformAccessDeniedException.class);
+    }
+
+    @Test
+    void shouldUseThePersistedCrudRecordAsTheStaticFormScopeFallback() {
+        @SuppressWarnings("unchecked")
+        CrudAbility<Draft> service = mock(CrudAbility.class);
+        CrudFormController controller = new CrudFormController(service);
+        Draft record = new Draft();
+        record.setId("existing");
+        when(service.select("existing")).thenReturn(record);
+
+        org.assertj.core.api.Assertions.assertThatCode(() -> controller.requireFormRecordScope(
+                record, net.ximatai.muyun.spring.common.platform.PlatformAction.UPDATE.executionPolicy()))
+                .doesNotThrowAnyException();
+
+        when(service.select("existing")).thenReturn(null);
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> controller.requireFormRecordScope(
                 record, net.ximatai.muyun.spring.common.platform.PlatformAction.UPDATE.executionPolicy()))
                 .isInstanceOf(net.ximatai.muyun.spring.common.exception.PlatformAccessDeniedException.class);
     }
@@ -58,6 +80,13 @@ class FormActionWebTest {
         @Override public Object executeFormAction(String code, FormActionRequest<Draft> request) {
             return new FormActionResult<>(request.record(), "calculated");
         }
+    }
+
+    public static class CrudFormController implements FormActionWeb<CrudAbility<Draft>, Draft, Object> {
+        private final CrudAbility<Draft> service;
+        CrudFormController(CrudAbility<Draft> service) { this.service = service; }
+        @Override public CrudAbility<Draft> service() { return service; }
+        @Override public Object executeFormAction(String code, FormActionRequest<Draft> request) { return null; }
     }
 
     public static class Draft extends net.ximatai.muyun.spring.common.model.standard.StandardEntity {

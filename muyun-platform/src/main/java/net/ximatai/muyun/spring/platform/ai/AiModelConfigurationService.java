@@ -21,8 +21,9 @@ import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
+import java.util.Objects;
 
-/** Resolves the enabled tenant configuration, falling back to the enabled global configuration. */
+/** Resolves the enabled tenant configuration, then an explicitly exposed platform fallback. */
 @Service
 public class AiModelConfigurationService extends AbstractAbilityService<AiModelConfiguration> implements
         EnableAbility<AiModelConfiguration>,
@@ -60,8 +61,8 @@ public class AiModelConfigurationService extends AbstractAbilityService<AiModelC
     @Override
     public QueryDescriptor queryDescriptor() {
         return QueryDescriptors.fromModel(MODULE_ALIAS, AiModelConfiguration.class,
-                List.of("id", "tenantId", "title", "provider", "availabilityScope", "modelId", "apiKeyConfigured",
-                        "enabled", "createdAt", "updatedAt"));
+                List.of("id", "tenantId", "title", "provider", "configurationLevel", "tenantFallbackEnabled",
+                        "modelId", "apiKeyConfigured", "enabled", "createdAt", "updatedAt"));
     }
 
     @Override
@@ -77,15 +78,35 @@ public class AiModelConfigurationService extends AbstractAbilityService<AiModelC
             throw new PlatformException("AI model configuration does not exist");
         }
         normalize(configuration, existing);
+        if (!Objects.equals(configuration.getTenantId(), existing.getTenantId())) {
+            requireNoConfigurationForScope(configuration);
+        }
         applyNewApiKey(configuration, existing);
     }
 
-    /** Resolves the single enabled configuration in the current tenant, then the global scope. */
+    /**
+     * Ownership is selected explicitly by a system administrator for this platform configuration.
+     * Tenant callers remain confined to their current tenant by {@link #normalize}.
+     */
+    @Override
+    public boolean allowsTenantOwnershipChange(AiModelConfiguration existing, AiModelConfiguration incoming) {
+        return TenantContext.isSystem();
+    }
+
+    /** Resolves the enabled configuration for an explicit tenant or system execution context. */
     public AiModelConfiguration requireEffectiveConfiguration() {
+        if (!TenantContext.hasContext()) {
+            throw new PlatformConfigurationException(
+                    "AI model routing requires an explicit tenant or system context");
+        }
         String tenantId = TenantContext.currentTenantId().orElse(null);
         if (tenantId != null) {
-            AiModelConfiguration tenant = enabledConfiguration(Criteria.of());
+            // Routing identity comes from TenantContext itself.  Do not rely on the generic
+            // repository tenant filter, which may be bypassed inside authorized cross-tenant
+            // action execution while the caller's tenant identity remains present.
+            AiModelConfiguration tenant = enabledConfiguration(Criteria.of().eq("tenantId", tenantId));
             if (tenant != null) return requireUsable(tenant, "tenant");
+            return requireUsable(firstTenantFallbackConfiguration(), "tenant fallback");
         }
         return requireUsable(firstPlatformConfiguration(), "platform");
     }
@@ -109,19 +130,21 @@ public class AiModelConfigurationService extends AbstractAbilityService<AiModelC
         String currentTenantId = TenantContext.currentTenantId().orElse(null);
         if (currentTenantId != null) {
             configuration.setTenantId(currentTenantId);
-        } else if (existing == null) {
+        } else {
             String requestedTenantId = configuration.getTenantId();
             configuration.setTenantId(requestedTenantId == null || requestedTenantId.isBlank()
                     ? null : requestedTenantId.trim());
-        } else {
-            configuration.setTenantId(existing.getTenantId());
         }
         if (TenantContext.isSystem() && configuration.getTenantId() != null) {
             requireExistingTenant(configuration.getTenantId());
         }
-        configuration.setAvailabilityScope(configuration.getTenantId() == null
-                ? AiModelAvailabilityScope.PLATFORM : AiModelAvailabilityScope.TENANT_PRIVATE);
-        configuration.setOwnershipScopeKey(configuration.getTenantId() == null ? "G" : "T:" + configuration.getTenantId());
+        boolean platformLevel = configuration.getTenantId() == null;
+        configuration.setConfigurationLevel(platformLevel
+                ? AiModelConfigurationLevel.PLATFORM : AiModelConfigurationLevel.TENANT);
+        if (!platformLevel || configuration.getTenantFallbackEnabled() == null) {
+            configuration.setTenantFallbackEnabled(Boolean.FALSE);
+        }
+        configuration.setOwnershipScopeKey(configuration.getTenantId() == null ? "P" : "T:" + configuration.getTenantId());
         if (configuration.getEnabled() == null) {
             configuration.setEnabled(Boolean.TRUE);
         }
@@ -164,6 +187,14 @@ public class AiModelConfigurationService extends AbstractAbilityService<AiModelC
         }
     }
 
+    private AiModelConfiguration firstTenantFallbackConfiguration() {
+        try (TenantContext.Scope ignored = TenantContext.system("resolve tenant fallback AI model configuration")) {
+            return enabledConfiguration(Criteria.of()
+                    .isNull("tenantId")
+                    .eq("tenantFallbackEnabled", Boolean.TRUE));
+        }
+    }
+
     private AiModelConfiguration requireUsable(AiModelConfiguration configuration, String scope) {
         if (configuration == null) {
             throw new PlatformConfigurationException("no usable " + scope + " AI model configuration exists");
@@ -177,7 +208,7 @@ public class AiModelConfigurationService extends AbstractAbilityService<AiModelC
     private void requireNoConfigurationForScope(AiModelConfiguration configuration) {
         if (count(Criteria.of().eq("ownershipScopeKey", configuration.getOwnershipScopeKey())) > 0) {
             throw new PlatformException(configuration.getTenantId() == null
-                    ? "a global AI model configuration already exists"
+                    ? "a platform AI model configuration already exists"
                     : "an AI model configuration already exists for tenant: " + configuration.getTenantId());
         }
     }

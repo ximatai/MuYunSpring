@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest';
-import { formActionResult } from '@/dynamic-page-runtime/formActionResult';
+import { formActionResult, hasFormActionRecordPatch } from '@/dynamic-page-runtime/formActionResult';
 
 it.each([
   { recordPatch: { total: 42, id: 'other', version: 99 }, message: '已试算' },
@@ -23,6 +23,14 @@ it('rejects ordinary action data and malformed patches', () => {
     expect(() => formActionResult(response)).toThrow();
   }
   expect(formActionResult({ recordPatch: null }).recordPatch).toEqual({});
+});
+
+it('detects the patch protocol through every supported response envelope', () => {
+  expect(hasFormActionRecordPatch({ recordPatch: {} })).toBe(true);
+  expect(hasFormActionRecordPatch({ data: { recordPatch: {} } })).toBe(true);
+  expect(hasFormActionRecordPatch({ body: { value: { recordPatch: {} } } })).toBe(true);
+  expect(hasFormActionRecordPatch({ body: { value: { connected: true } } })).toBe(false);
+  expect(hasFormActionRecordPatch({ connected: true })).toBe(false);
 });
 
 it.each([null, 'existing-record'])('normalizes dynamic record patches and child drafts for id %s', (id) => {

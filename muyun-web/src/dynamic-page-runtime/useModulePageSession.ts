@@ -1,4 +1,5 @@
-import { formActionResult } from './formActionResult';
+import { formActionResult, hasFormActionRecordPatch } from './formActionResult';
+import { useInputValidationActionStatus } from './inputValidationActionStatus';
 import { invokePageAction } from './pageActionInvocation';
 import { resolvePlacedPageActions } from './pageActionPlacement';
 import { computed, nextTick, onMounted, onUnmounted, ref, shallowRef, toRaw, watch } from 'vue';
@@ -13,6 +14,7 @@ import {
   applyReferenceDependencyClears,
   presentPlatformError,
   presentPlatformMessage,
+  recordDraftFingerprint,
   recordPickerModeOf,
   resolveRecordFormFields,
   useRecycleBinExplorerMode,
@@ -360,7 +362,12 @@ export function useModulePageSession(
   // RecordFormFields owns parser and renderer diagnostics. Persist only its
   // validity fact here; the host remains responsible for the save boundary.
   const deleting = ref(false);
+  const activeDetailActionKey = ref<string>();
+  const inputValidationStatus = useInputValidationActionStatus();
   const detailEnhancementRunning = ref(false);
+  const detailActionBusy = computed(
+    () => saving.value || deleting.value || togglingEnabled.value || detailEnhancementRunning.value,
+  );
   const referenceRecordDetailInteraction = ref({ editing: false, busy: false, dirty: false });
   const mainFormValid = ref(true);
   const relationDraftValid = ref(true);
@@ -880,11 +887,8 @@ export function useModulePageSession(
   });
   const interactionBusy = computed(
     () =>
-      deleting.value ||
-      saving.value ||
-      togglingEnabled.value ||
+      detailActionBusy.value ||
       recordOnlyAuthorizing.value ||
-      detailEnhancementRunning.value ||
       localEditSaving.value ||
       navigatorManagementDetail.saving.value ||
       navigatorManagementTogglingEnabled.value ||
@@ -1343,7 +1347,7 @@ export function useModulePageSession(
   );
 
   function placedActionsAt(anchor: 'PAGE' | 'DETAIL' | 'FORM') {
-    return resolvePlacedPageActions(
+    const actions = resolvePlacedPageActions(
       runtimePage.value?.actions ?? [],
       anchor,
       (code) => context.runtimeAction(code),
@@ -1352,6 +1356,35 @@ export function useModulePageSession(
       managedPageActions.value,
       selectedRecord.value ?? undefined,
     );
+    if (anchor === 'DETAIL') {
+      const recordId = selectedRecord.value?.id == null ? undefined : String(selectedRecord.value.id);
+      const recordFingerprint =
+        selectedRecord.value == null ? undefined : recordDraftFingerprint(selectedRecord.value);
+      return actions.map((action) => {
+        const placement = placedAction(action.key);
+        if (!action.key || placement?.statusMode !== 'INPUT_VALIDATION') return action;
+        return {
+          ...action,
+          loading: action.key === activeDetailActionKey.value,
+          iconName: inputValidationStatus.isRecordValidated(action.key, recordId, recordFingerprint)
+            ? ('check' as const)
+            : ('reload' as const),
+        };
+      });
+    }
+    if (anchor !== 'FORM') return actions;
+    const draft = editingRecord.value;
+    const draftFingerprint = draft == null ? undefined : recordDraftFingerprint(draft);
+    return actions.map((action) => {
+      const placement = placedAction(action.key);
+      if (!action.key || placement?.statusMode !== 'INPUT_VALIDATION') return action;
+      return {
+        ...action,
+        iconName: inputValidationStatus.isDraftValidated(action.key, draftFingerprint)
+          ? ('check' as const)
+          : ('reload' as const),
+      };
+    });
   }
   const enhancementRowExpansion = computed(() => pageEnhancement.value?.list?.rowExpansion);
   const persistentListQueryControls = computed(() => runtimePage.value?.list?.persistentQueryControls ?? []);
@@ -1366,8 +1399,7 @@ export function useModulePageSession(
       return {
         ...action,
         ...resolvedState,
-        disabled:
-          detailEnhancementRunning.value || action.disabled === true || resolvedState?.disabled === true,
+        disabled: detailActionBusy.value || action.disabled === true || resolvedState?.disabled === true,
       };
     });
   });
@@ -1562,7 +1594,7 @@ export function useModulePageSession(
       editorMode.value !== 'view' ||
       detailLoading.value ||
       detailLoadFailed.value ||
-      togglingEnabled.value
+      detailActionBusy.value
     ) {
       return false;
     }
@@ -1591,34 +1623,41 @@ export function useModulePageSession(
     context,
     listReloadKey: flatManagementReloadKey,
     searchKeyword: flatManagementSearchKeyword,
-    canChange: () => !saving.value,
+    canChange: () => !detailActionBusy.value,
     resetSelection: resetFlatManagementSelection,
   });
   const flatManagementActions = computed<RecordActionItem[]>(() => {
     if (flatManagementRecycleBin.active.value) return [];
     if (managedPageActions.value)
-      return editorMode.value === 'view' ? [] : [{ key: 'cancel', title: '取消', disabled: saving.value }];
+      return editorMode.value === 'view'
+        ? []
+        : [{ key: 'cancel', title: '取消', disabled: detailActionBusy.value }];
     if (editorMode.value !== 'view') {
       return [
-        { key: 'cancel', title: '取消', disabled: saving.value },
+        { key: 'cancel', title: '取消', disabled: detailActionBusy.value },
         {
           key: 'save',
           actionCode: editorMode.value === 'create' ? 'create' : 'update',
-          title: saving.value ? '保存中' : '保存',
-          loading: saving.value,
-          disabled: saving.value,
+          title: saving.value && activeDetailActionKey.value === 'save' ? '保存中' : '保存',
+          loading: saving.value && activeDetailActionKey.value === 'save',
+          disabled: detailActionBusy.value,
           primary: true,
         },
       ];
     }
     return [
-      { key: 'edit', actionCode: 'update', title: '编辑', disabled: !selectedRecord.value },
+      {
+        key: 'edit',
+        actionCode: 'update',
+        title: '编辑',
+        disabled: !selectedRecord.value || detailActionBusy.value,
+      },
       {
         key: 'delete',
         actionCode: 'delete',
         title: '删除',
-        disabled: !selectedRecord.value,
-        loading: saving.value,
+        disabled: !selectedRecord.value || detailActionBusy.value,
+        loading: activeDetailActionKey.value === 'delete',
         danger: true,
       },
     ];
@@ -1648,8 +1687,9 @@ export function useModulePageSession(
     ...(!flatManagementRecycleBin.active.value && editorMode.value !== 'view'
       ? placedFormActions.value.map((action) => ({
           ...action,
-          disabled: saving.value || detailLoading.value || detailLoadFailed.value || action.disabled,
-          loading: saving.value,
+          disabled:
+            detailActionBusy.value || detailLoading.value || detailLoadFailed.value || action.disabled,
+          loading: action.loading || action.key === activeDetailActionKey.value,
         }))
       : []),
   ]);
@@ -1974,7 +2014,7 @@ export function useModulePageSession(
     contribution: ModulePageRecordActionContribution,
     record: QueryListRecord,
   ) {
-    if (detailEnhancementRunning.value) return;
+    if (detailActionBusy.value) return;
     detailEnhancementRunning.value = true;
     try {
       const succeeded = await runEnhancementAction(contribution, {
@@ -2810,7 +2850,7 @@ export function useModulePageSession(
     await openRecord(record, 'edit', { cancelDestination });
   }
 
-  async function saveRecord() {
+  async function saveRecord(actionKey = 'save') {
     const draft = editingRecord.value;
     if (!draft) return;
     if (!mainFormValid.value || !relationDraftValid.value) {
@@ -2829,7 +2869,7 @@ export function useModulePageSession(
     if (
       !canMutateModuleDetail({
         hasRecord: true,
-        saving: saving.value,
+        saving: detailActionBusy.value,
         loading: detailLoading.value,
         loadFailed: detailLoadFailed.value,
       })
@@ -2837,6 +2877,7 @@ export function useModulePageSession(
       return;
     }
     saving.value = true;
+    activeDetailActionKey.value = actionKey;
     try {
       const record = recordMutationPayload(draft, formFields.value.values());
       const id = record.id == null ? undefined : String(record.id);
@@ -2858,6 +2899,7 @@ export function useModulePageSession(
       }
       if (savedId) {
         context.invalidateRecordActions?.([savedId]);
+        inputValidationStatus.invalidateRecord(savedId);
         void context.recordActions(savedId).catch(() => undefined);
       }
       if (props.recordOnly && refreshFailure && isRecordOnlyAccessLoss(refreshFailure)) {
@@ -2883,14 +2925,15 @@ export function useModulePageSession(
     } catch (cause) {
       presentPlatformError(cause, { source: 'module-action', phase: 'action' });
     } finally {
+      activeDetailActionKey.value = undefined;
       saving.value = false;
     }
   }
 
-  async function deleteRecord(record: QueryListRecord) {
+  async function deleteRecord(record: QueryListRecord, actionKey = 'delete') {
     const id = record.id == null ? undefined : String(record.id);
     const version = typeof record.version === 'number' ? record.version : undefined;
-    if (!id || version === undefined || deleting.value) return;
+    if (!id || version === undefined || detailActionBusy.value) return;
     if (props.recordOnly) {
       if (!(await recordOnlyActionAvailable(id, 'delete'))) return;
     }
@@ -2906,6 +2949,7 @@ export function useModulePageSession(
       ) {
         return;
       }
+      activeDetailActionKey.value = actionKey;
       const result = await context.crud.delete(id, { version });
       context.invalidateRecordActions?.([id]);
       if (selectedRecord.value?.id === id) {
@@ -2918,6 +2962,7 @@ export function useModulePageSession(
     } catch (cause) {
       presentPlatformError(cause, { source: 'module-action', phase: 'action' });
     } finally {
+      activeDetailActionKey.value = undefined;
       deleting.value = false;
     }
   }
@@ -2954,12 +2999,14 @@ export function useModulePageSession(
     return cause instanceof AppError && (cause.status === 403 || cause.status === 404);
   }
 
-  async function reloadDetailAfterMutation(recordId: string): Promise<{ failure?: unknown }> {
+  async function reloadDetailAfterMutation(
+    recordId: string,
+  ): Promise<{ record?: QueryListRecord; failure?: unknown }> {
     try {
       const refreshed = await context.crud.view(recordId);
       detail.resolveLoad(refreshed);
       if (props.recordOnly) emit('record-only-change', { type: 'saved', record: refreshed });
-      return {};
+      return { record: refreshed };
     } catch (failure) {
       return { failure };
     }
@@ -3131,7 +3178,7 @@ export function useModulePageSession(
       return;
     }
     if (actionCode === 'delete') {
-      void deleteRecord(record);
+      void deleteRecord(record, action.key);
       return;
     }
     if (actionCode === 'enable' || actionCode === 'disable') {
@@ -3146,19 +3193,44 @@ export function useModulePageSession(
   }
 
   async function invokePlacedAction(key: string | undefined, recordId?: string) {
-    if (saving.value) return;
+    if (detailActionBusy.value) return;
     saving.value = true;
+    activeDetailActionKey.value = key;
     try {
       const placement = placedAction(key);
       const formContext = placement?.anchor === 'FORM';
       const draft = formContext && !recordId && editingRecord.value ? toRaw(editingRecord.value) : undefined;
+      const draftFingerprint = draft == null ? undefined : recordDraftFingerprint(draft);
+      const recordFingerprint =
+        recordId && selectedRecord.value && String(selectedRecord.value.id) === recordId
+          ? recordDraftFingerprint(selectedRecord.value)
+          : undefined;
+      const validationAttempt =
+        key && placement?.statusMode === 'INPUT_VALIDATION'
+          ? recordId && recordFingerprint
+            ? inputValidationStatus.begin(key, { kind: 'record', recordId, fingerprint: recordFingerprint })
+            : draftFingerprint
+              ? inputValidationStatus.begin(key, { kind: 'draft', fingerprint: draftFingerprint })
+              : undefined
+          : undefined;
       const result = await invokePageAction(context.http, placement?.invocation, { recordId, record: draft });
       let refreshFailure: unknown;
       if (recordId) {
-        refreshFailure = (await reloadDetailAfterMutation(recordId)).failure;
+        const refresh = await reloadDetailAfterMutation(recordId);
+        refreshFailure = refresh.failure;
+        if (validationAttempt?.target.kind === 'record' && refresh.record) {
+          inputValidationStatus.succeed(validationAttempt, recordDraftFingerprint(refresh.record));
+        }
       } else if (formContext && editingRecord.value) {
-        const { recordPatch } = formActionResult(result);
-        editingRecord.value = { ...editingRecord.value, ...recordPatch };
+        // Form actions may either calculate fields or run a read-only draft diagnostic.
+        // Only the former declares the record-patch protocol.
+        if (hasFormActionRecordPatch(result)) {
+          const { recordPatch } = formActionResult(result);
+          editingRecord.value = { ...editingRecord.value, ...recordPatch };
+        }
+        if (validationAttempt?.target.kind === 'draft') {
+          inputValidationStatus.succeed(validationAttempt);
+        }
       }
       if (!formContext) refreshList();
       await presentModuleActionSuccess(result, '操作成功');
@@ -3166,12 +3238,16 @@ export function useModulePageSession(
     } catch (cause) {
       presentPlatformError(cause, { source: 'module-page-action', phase: 'action' });
     } finally {
+      activeDetailActionKey.value = undefined;
       saving.value = false;
     }
   }
 
   function handlePlacedFormAction(action: { key?: string; actionCode?: string }) {
-    if (saving.value || !placedFormActions.value.some((item) => item.key === action.key && !item.disabled))
+    if (
+      detailActionBusy.value ||
+      !placedFormActions.value.some((item) => item.key === action.key && !item.disabled)
+    )
       return;
     const operation = placedOperation(action.key);
     const customFormInvoke =
@@ -3183,7 +3259,7 @@ export function useModulePageSession(
     )
       return;
     if (action.actionCode === 'create' || action.actionCode === 'update') {
-      void saveRecord();
+      void saveRecord(action.key);
       return;
     }
     if (customFormInvoke && action.actionCode) {
@@ -3290,7 +3366,7 @@ export function useModulePageSession(
   }
 
   function closeDetail() {
-    if (saving.value || detailEnhancementRunning.value) return;
+    if (detailActionBusy.value) return;
     invalidatePendingRequests();
     detail.close();
   }
@@ -3301,7 +3377,7 @@ export function useModulePageSession(
    * selection and independent workbench tabs as well.
    */
   async function mayLeaveDetailSession() {
-    if (saving.value || detailEnhancementRunning.value) return false;
+    if (detailActionBusy.value) return false;
     if (!detailDirty.value) return true;
     return confirmAction({
       title: '放弃未保存更改',
@@ -3442,6 +3518,8 @@ export function useModulePageSession(
     handleFlatManagementAction,
     editingRecord,
     saving,
+    detailActionBusy,
+    activeDetailActionKey,
     detailDirty,
     sessionDirty,
     updateDraftField,
@@ -3562,7 +3640,6 @@ export function useModulePageSession(
     recordViewContext,
     narrowDetailSurface,
     usePinnedDetailSurface,
-    deleting,
     referenceRecordDetailBrowser,
     handleReferenceRecordChange,
     referenceRecordDetailInteraction,

@@ -105,7 +105,7 @@ public class StaticReferenceResolveFacade {
         WebPageRequest page = request.page() == null ? WebPageRequest.DEFAULT : request.page();
         Criteria criteria = candidateCriteria(plan, request);
         if (request.fuzzy() != null && !request.fuzzy().isBlank()) {
-            criteria.like(titleField(plan), QueryLikePattern.containsLiteral(request.fuzzy().trim()));
+            criteria.likeIgnoreCase(titleField(plan), QueryLikePattern.containsLiteral(request.fuzzy().trim()));
         }
         PageRequest pageRequest = PageRequest.of(page.pageNum(), page.pageSize());
         PageResult<ReferenceOption> result = referenceOptions(plan, criteria, pageRequest);

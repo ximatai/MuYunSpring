@@ -666,7 +666,8 @@ public final class ModuleUiDescriptorCompiler {
     private static List<ResolvedPageActionDescriptor> resolvedPageActions(List<PageActionDefinition> actions, boolean managedActions) {
         return (actions == null ? List.<PageActionDefinition>of() : actions).stream()
                 .map(action -> new ResolvedPageActionDescriptor(action.actionCode(), action.anchor(), action.title(),
-                        managedActions ? PageActionOperation.resolve(action.actionCode(), action.anchor()) : null))
+                        managedActions ? PageActionOperation.resolve(action.actionCode(), action.anchor()) : null,
+                        null, action.statusMode()))
                 .toList();
     }
 

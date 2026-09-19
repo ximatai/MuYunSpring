@@ -31,14 +31,13 @@ class OpenAiCompatibleModelClientTest {
         server.createContext("/v1/chat/completions", exchange -> respond(exchange, authorization));
         server.start();
 
-        OpenAiCompatibleModelClient client = new OpenAiCompatibleModelClient(new ObjectMapper(),
-                ignored -> "http://127.0.0.1:" + server.getAddress().getPort() + "/v1");
-        AiModelConfiguration configuration = configuration();
+        OpenAiCompatibleModelClient client = new OpenAiCompatibleModelClient(new ObjectMapper());
+        ResolvedAiModelRoute route = route();
         AiTextRequest request = AiTextRequest.userText("hello");
 
-        AiTextResponse response = client.generate(configuration, request);
+        AiTextResponse response = client.generate(route, request);
         StringBuilder streamed = new StringBuilder();
-        client.stream(configuration, request, streamed::append);
+        client.stream(route, request, streamed::append);
 
         assertThat(response.text()).isEqualTo("hello");
         assertThat(response.finishReason()).isEqualTo("stop");
@@ -51,7 +50,7 @@ class OpenAiCompatibleModelClientTest {
         OpenAiCompatibleModelClient client = responseClient(200,
                 "{\"choices\": private-provider-detail}");
         assertThatThrownBy(() ->
-                client.generate(configuration(), AiTextRequest.userText("hello")))
+                client.generate(route(), AiTextRequest.userText("hello")))
                 .isInstanceOf(PlatformException.class)
                 .hasMessageContaining("invalid response").hasNoCause()
                 .hasMessageNotContaining("private-provider-detail");
@@ -62,7 +61,7 @@ class OpenAiCompatibleModelClientTest {
         OpenAiCompatibleModelClient client = responseClient(200,
                 "data: {\"error\":{\"message\":\"private-provider-detail\"}}\n\ndata: [DONE]\n\n");
         assertThatThrownBy(() ->
-                client.stream(configuration(), AiTextRequest.userText("hello"), delta -> {}))
+                client.stream(route(), AiTextRequest.userText("hello"), delta -> {}))
                 .isInstanceOf(PlatformException.class)
                 .hasMessageContaining("rejected by provider")
                 .hasNoCause().hasMessageNotContaining("private-provider-detail");
@@ -74,7 +73,7 @@ class OpenAiCompatibleModelClientTest {
                 "data: {\"choices\":[{\"delta\":{\"content\":\"partial\"}}]}\n\n");
         StringBuilder partial = new StringBuilder();
         assertThatThrownBy(() ->
-                client.stream(configuration(), AiTextRequest.userText("hello"), partial::append))
+                client.stream(route(), AiTextRequest.userText("hello"), partial::append))
                 .hasMessageContaining("ended before completion");
         assertThat(partial).hasToString("partial");
     }
@@ -86,7 +85,7 @@ class OpenAiCompatibleModelClientTest {
                         + "data: \"choices\":[{\"delta\":{\"content\":\"hello\"}}]}\n\n"
                         + "data: {\"choices\":[],\"usage\":{}}\n\ndata: [DONE]\n\n");
         StringBuilder text = new StringBuilder();
-        client.stream(configuration(), AiTextRequest.userText("hello"), text::append);
+        client.stream(route(), AiTextRequest.userText("hello"), text::append);
         assertThat(text).hasToString("hello");
     }
 
@@ -94,7 +93,7 @@ class OpenAiCompatibleModelClientTest {
     void shouldRejectInvalidEventsWithoutExposingResponseText() throws Exception {
         OpenAiCompatibleModelClient client = responseClient(200, "data: private-invalid-response\n\n");
         assertThatThrownBy(() ->
-                client.stream(configuration(), AiTextRequest.userText("hello"), delta -> {}))
+                client.stream(route(), AiTextRequest.userText("hello"), delta -> {}))
                 .hasMessageContaining("invalid event").hasNoCause().hasMessageNotContaining("private-invalid-response");
     }
 
@@ -102,7 +101,7 @@ class OpenAiCompatibleModelClientTest {
     void shouldRejectHttpFailuresBeforeConsumingStreamText() throws Exception {
         OpenAiCompatibleModelClient client = responseClient(429, "private-provider-detail");
         assertThatThrownBy(() ->
-                client.stream(configuration(), AiTextRequest.userText("hello"), delta -> {
+                client.stream(route(), AiTextRequest.userText("hello"), delta -> {
                     throw new AssertionError("failed response must not produce deltas");
                 })).hasMessageContaining("HTTP status 429").hasNoCause().hasMessageNotContaining("private-provider-detail");
     }
@@ -118,8 +117,7 @@ class OpenAiCompatibleModelClientTest {
             exchange.close();
         });
         server.start();
-        return new OpenAiCompatibleModelClient(new ObjectMapper(),
-                ignored -> "http://127.0.0.1:" + server.getAddress().getPort() + "/v1");
+        return new OpenAiCompatibleModelClient(new ObjectMapper());
     }
 
     private void respond(HttpExchange exchange, List<String> authorization) throws IOException {
@@ -138,11 +136,10 @@ class OpenAiCompatibleModelClientTest {
         exchange.close();
     }
 
-    private AiModelConfiguration configuration() {
-        AiModelConfiguration configuration = new AiModelConfiguration();
-        configuration.setProvider(AiModelProviderService.LM_STUDIO_ID);
-        configuration.setModelId("local-model");
-        configuration.setApiKey("model-secret");
-        return configuration;
+    private ResolvedAiModelRoute route() {
+        return new ResolvedAiModelRoute(AiModelProviderService.LM_STUDIO_ID,
+                AiModelProtocol.OPENAI_COMPATIBLE,
+                "http://127.0.0.1:" + server.getAddress().getPort() + "/v1",
+                "local-model", "model-secret");
     }
 }

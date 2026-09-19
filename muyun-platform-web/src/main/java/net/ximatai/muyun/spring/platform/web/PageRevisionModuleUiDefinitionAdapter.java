@@ -370,7 +370,9 @@ public final class PageRevisionModuleUiDefinitionAdapter {
                 for (JsonNode action : root.path("actions")) {
                     if (action.path("hidden").asBoolean(false)) continue;
                     pageActions.add(new PageActionDefinition(action.path("actionCode").asText(),
-                            PageActionAnchor.valueOf(action.path("anchor").asText().toUpperCase(java.util.Locale.ROOT)), action.path("title").asText(null)));
+                            PageActionAnchor.valueOf(action.path("anchor").asText().toUpperCase(java.util.Locale.ROOT)),
+                            action.path("title").asText(null),
+                            PageActionStatusMode.valueOf(action.path("statusMode").asText("NONE"))));
                 }
             }
             mode = DynamicModuleOverviewMode.valueOf(root.path("mode").asText());

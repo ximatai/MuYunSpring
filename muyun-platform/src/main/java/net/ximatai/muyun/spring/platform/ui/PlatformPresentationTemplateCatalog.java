@@ -176,6 +176,8 @@ public class PlatformPresentationTemplateCatalog {
             if (!managed) return false;
             if ("title".equals(name) && action.path(name).isTextual() && !action.path(name).asText().isBlank()) continue;
             if ("hidden".equals(name) && action.path(name).isBoolean()) continue;
+            if ("statusMode".equals(name) && action.path(name).isTextual()
+                    && Set.of("NONE", "INPUT_VALIDATION").contains(action.path(name).asText())) continue;
             return false;
         }
         return action.has("actionCode") && action.has("anchor");

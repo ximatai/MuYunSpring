@@ -79,10 +79,14 @@ public record ModuleUiDefinition(String moduleAlias,
 
         /** Places a declared module action into a platform-owned page, detail or form region. */
         public Builder pageAction(String actionCode, PageActionAnchor anchor) {
-            return pageAction(actionCode, anchor, null);
+            return pageAction(actionCode, anchor, (String) null);
         }
         public Builder pageAction(String actionCode, PageActionAnchor anchor, String title) {
             pageActions.add(new PageActionDefinition(actionCode, anchor, title));
+            return this;
+        }
+        public Builder pageAction(String actionCode, PageActionAnchor anchor, PageActionStatusMode statusMode) {
+            pageActions.add(new PageActionDefinition(actionCode, anchor, statusMode));
             return this;
         }
 

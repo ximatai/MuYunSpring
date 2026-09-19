@@ -127,7 +127,7 @@ public final class QueryCompiler {
                 throw new IllegalArgumentException("quick search field is not supported by "
                         + descriptor.scopeName() + ": " + fieldName);
             }
-            quick.orLike(fieldName, pattern);
+            quick.orLikeIgnoreCase(fieldName, pattern);
         }
         target.andGroup(quick.getRoot());
     }
