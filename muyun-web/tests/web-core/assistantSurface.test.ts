@@ -1,10 +1,29 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   createAssistantSurfaceRegistry,
+  emptyAssistantCapabilityInputSchema,
+  parseEmptyAssistantCapabilityInput,
   StaleAssistantInvocationError,
   type AssistantCapability,
   type AssistantSurface,
 } from '@muyun/web-core';
+
+describe('assistant capability input contracts', () => {
+  it('keeps parameterless capabilities on one strict empty-object contract', () => {
+    expect(emptyAssistantCapabilityInputSchema()).toEqual({
+      type: 'object',
+      additionalProperties: false,
+      properties: {},
+    });
+    expect(parseEmptyAssistantCapabilityInput({})).toEqual({});
+    expect(() => parseEmptyAssistantCapabilityInput(undefined)).toThrow(
+      'Assistant capability input must be an empty object',
+    );
+    expect(() => parseEmptyAssistantCapabilityInput({ unexpected: true })).toThrow(
+      'Assistant capability input must be an empty object',
+    );
+  });
+});
 
 function fixture(options: {
   pageInstanceKey: string;

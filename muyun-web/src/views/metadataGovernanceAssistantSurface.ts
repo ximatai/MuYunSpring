@@ -3,6 +3,8 @@ import {
   type AssistantCapability,
   type AssistantSurface,
   type AssistantTurnRequester,
+  emptyAssistantCapabilityInputSchema,
+  parseEmptyAssistantCapabilityInput,
 } from '@muyun/web-core';
 import type { MetadataModelChangeSetProposal } from './metadataModelEditSession';
 import type { MetadataChangeSetPreview } from './metadataModelChangeSetClient';
@@ -322,9 +324,9 @@ function describeMetadataModelCapability(
       code: 'configuration.describe-metadata-model',
       description:
         'Describe the current module metadata model, selected relation, visible fields and local draft state. It does not change configuration.',
-      inputSchema: emptyObjectSchema(),
+      inputSchema: emptyAssistantCapabilityInputSchema(),
     },
-    parseInput: parseEmptyObject,
+    parseInput: parseEmptyAssistantCapabilityInput,
     async execute() {
       return adapter.summary();
     },
@@ -339,9 +341,9 @@ function previewMetadataDraftCapability(
       code: 'configuration.preview-metadata-draft',
       description:
         'Validate and preview the current unsaved metadata candidate through the standard change-set preview contract. It never publishes the candidate.',
-      inputSchema: emptyObjectSchema(),
+      inputSchema: emptyAssistantCapabilityInputSchema(),
     },
-    parseInput: parseEmptyObject,
+    parseInput: parseEmptyAssistantCapabilityInput,
     async execute(_input, context) {
       const proposal = adapter.proposal();
       if (!hasChanges(proposal)) throw new Error('No metadata candidate is available to preview');
@@ -543,15 +545,6 @@ function optionalBooleanProperties<T extends string>(
     result[name] = value;
   }
   return result;
-}
-
-function emptyObjectSchema() {
-  return { type: 'object', additionalProperties: false, properties: {} };
-}
-
-function parseEmptyObject(input: unknown): Record<string, never> {
-  if (!isRecord(input) || Object.keys(input).length > 0) throw new Error('Capability input must be empty');
-  return {};
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

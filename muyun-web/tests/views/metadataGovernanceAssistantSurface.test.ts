@@ -56,7 +56,9 @@ describe('metadata governance assistant surface', () => {
     await expect(describe.execute(describe.parseInput({}), executionContext())).resolves.toEqual(
       adapter.summary(),
     );
-    expect(() => describe.parseInput({ unexpected: true })).toThrow('Capability input must be empty');
+    expect(() => describe.parseInput({ unexpected: true })).toThrow(
+      'Assistant capability input must be an empty object',
+    );
   });
 
   it('stages a validated ordinary field update through the guarded page effect boundary', async () => {

@@ -2939,8 +2939,6 @@ export function useModulePageSession(
     throw new Error('Assistant page state did not settle on a stable page session');
   }
 
-  const settleAssistantNavigatorSelection = settleAssistantPageState;
-
   function throwIfAssistantSettlementAborted(signal: AbortSignal) {
     if (signal.aborted) throw new DOMException('Assistant invocation was cancelled', 'AbortError');
   }
@@ -3743,7 +3741,6 @@ export function useModulePageSession(
     assistantNavigatorScopeRevision,
     applyAssistantNavigatorSelection,
     settleAssistantPageState,
-    settleAssistantNavigatorSelection,
     hasCardAssistantAt,
     enhancementCardAssistant,
     cardAssistantContext,

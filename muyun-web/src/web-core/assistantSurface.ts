@@ -14,6 +14,17 @@ export interface AssistantCapability<TInput = unknown, TOutput = unknown> {
   execute(input: TInput, context: AssistantCapabilityExecutionContext): Promise<TOutput>;
 }
 
+export function emptyAssistantCapabilityInputSchema(): Record<string, unknown> {
+  return { type: 'object', additionalProperties: false, properties: {} };
+}
+
+export function parseEmptyAssistantCapabilityInput(input: unknown): Record<string, never> {
+  if (input === null || typeof input !== 'object' || Array.isArray(input) || Object.keys(input).length > 0) {
+    throw new Error('Assistant capability input must be an empty object');
+  }
+  return {};
+}
+
 export interface AssistantCapabilityExecutionContext {
   signal: AbortSignal;
   /** Explicit caller cancellation; unlike signal, it is not aborted by an expected Surface replacement. */

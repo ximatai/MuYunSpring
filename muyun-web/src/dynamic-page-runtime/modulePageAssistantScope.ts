@@ -176,7 +176,7 @@ function navigatorScopeSelectionCapability(
           appliedRevision = view.assistantNavigatorScopeRevision(scopeKey);
         },
         async () => {
-          await view.settleAssistantNavigatorSelection(context.signal);
+          await view.settleAssistantPageState(context.signal);
           if (
             String(view.selectedNavigatorRecords[scopeKey]?.id ?? '') !== String(selected.id) ||
             view.assistantNavigatorScopeRevision(scopeKey) !== appliedRevision

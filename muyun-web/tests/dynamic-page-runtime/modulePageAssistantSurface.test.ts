@@ -293,7 +293,7 @@ describe('module page assistant surface', () => {
       selectedId.value = String(record.id);
       return true;
     });
-    view.settleAssistantNavigatorSelection = async () => {
+    view.settleAssistantPageState = async () => {
       await nextTick();
     };
     const registry = createAssistantSurfaceRegistry();
@@ -320,7 +320,7 @@ describe('module page assistant surface', () => {
     expect(listRevision).toBe(1);
 
     view.selectedNavigatorRecords = {};
-    view.settleAssistantNavigatorSelection = async () => {
+    view.settleAssistantPageState = async () => {
       await nextTick();
       view.selectedNavigatorRecords.organization = { id: 'org-b', title: '另一机构' };
     };

@@ -4,6 +4,8 @@ import {
   type AssistantCapabilityExecutionContext,
   type AssistantSurface,
   type AssistantTurnRequester,
+  emptyAssistantCapabilityInputSchema,
+  parseEmptyAssistantCapabilityInput,
 } from '@muyun/web-core';
 import {
   decodeDateTimeLocalEditorValue,
@@ -311,9 +313,9 @@ function recordEditorCapabilities(view: ModulePageSessionView): AssistantCapabil
       descriptor: {
         code: 'record.start-create',
         description: '打开当前模块的标准新增表单并建立未保存草稿；需要新建单据或记录时使用。它不会保存。',
-        inputSchema: emptyObjectSchema(),
+        inputSchema: emptyAssistantCapabilityInputSchema(),
       },
-      parseInput: parseEmptyObject,
+      parseInput: parseEmptyAssistantCapabilityInput,
       async execute(_input, context) {
         const commit = await view.prepareAssistantCreate();
         return context.applyEffect(commit);
@@ -397,9 +399,9 @@ function queryCapabilities(view: ModulePageSessionView): AssistantCapability[] {
       descriptor: {
         code: 'query.describe',
         description: '读取当前标准列表的查询状态和可见结果页；它不会筛选记录，仅在需要了解当前结果时使用。',
-        inputSchema: emptyObjectSchema(),
+        inputSchema: emptyAssistantCapabilityInputSchema(),
       },
-      parseInput: parseEmptyObject,
+      parseInput: parseEmptyAssistantCapabilityInput,
       async execute() {
         return controller.snapshot();
       },
@@ -426,9 +428,9 @@ function formDescribeCapability(view: ModulePageSessionView): AssistantCapabilit
     descriptor: {
       code: 'form.describe',
       description: 'Describe visible form fields and whether a draft is currently editable',
-      inputSchema: emptyObjectSchema(),
+      inputSchema: emptyAssistantCapabilityInputSchema(),
     },
-    parseInput: parseEmptyObject,
+    parseInput: parseEmptyAssistantCapabilityInput,
     async execute() {
       const valueBudget = { remaining: MAX_ASSISTANT_FORM_CURRENT_VALUE_CHARS, truncated: false };
       const fields = formFieldStates(view)
@@ -735,15 +737,6 @@ function formFieldState(view: ModulePageSessionView, fieldName: string) {
     pickerConfigs: view.referencePickerConfigs,
     record: view.editingRecord ?? view.selectedRecord,
   });
-}
-
-function emptyObjectSchema() {
-  return { type: 'object', additionalProperties: false };
-}
-
-function parseEmptyObject(input: unknown): Record<string, never> {
-  if (input === undefined || (isRecord(input) && Object.keys(input).length === 0)) return {};
-  throw new Error('capability input must be an empty object');
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
