@@ -174,6 +174,29 @@ class OpenAiCompatibleModelClientTest {
     }
 
     @Test
+    void preservesAnEmptyFinishedTurnForTheConversationLayerToInterpret() throws Exception {
+        OpenAiCompatibleModelClient client = responseClient(200,
+                "{\"choices\":[{\"message\":{\"content\":null},\"finish_reason\":\"stop\"}]}");
+
+        AiTurnResponse response = client.complete(route(), new AiTurnRequest(
+                List.of(new AiChatMessage(AiChatMessage.Role.USER, "continue")), List.of(), null, 512));
+
+        assertThat(response.text()).isNull();
+        assertThat(response.toolCalls()).isEmpty();
+        assertThat(response.finishReason()).isEqualTo("stop");
+    }
+
+    @Test
+    void rejectsStructuredResponsesWithoutAChoiceMessage() throws Exception {
+        OpenAiCompatibleModelClient client = responseClient(200, "{\"choices\":[]}");
+
+        assertThatThrownBy(() -> client.complete(route(), new AiTurnRequest(
+                List.of(new AiChatMessage(AiChatMessage.Role.USER, "continue")), List.of(), null, 512)))
+                .isInstanceOf(PlatformException.class)
+                .hasMessageContaining("invalid structured response");
+    }
+
+    @Test
     void rejectsProviderToolCallsThatWereNotDeclared() throws Exception {
         OpenAiCompatibleModelClient client = responseClient(200,
                 "{\"choices\":[{\"message\":{\"tool_calls\":[{\"id\":\"call-1\",\"function\":{"

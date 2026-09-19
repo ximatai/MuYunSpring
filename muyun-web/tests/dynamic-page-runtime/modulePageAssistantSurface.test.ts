@@ -45,6 +45,7 @@ function viewFixture(): ModulePageSessionView {
       ],
     ]),
     updateDraftField: vi.fn(),
+    updateDraftFields: vi.fn(),
   } as unknown as ModulePageSessionView;
 }
 
@@ -56,10 +57,10 @@ describe('module page assistant surface', () => {
       .capabilities()
       .find((capability) => capability.descriptor.code === 'form.patch-draft')!;
 
-    const input = patch.parseInput({ fieldName: 'summary', value: 'after' });
+    const input = patch.parseInput({ changes: [{ fieldName: 'summary', value: 'after' }] });
     await patch.execute(input, executionContext());
 
-    expect(view.updateDraftField).toHaveBeenCalledWith('summary', 'after');
+    expect(view.updateDraftFields).toHaveBeenCalledWith([{ fieldName: 'summary', value: 'after' }]);
     expect(surface.describe().facts).toEqual(
       expect.objectContaining({ moduleAlias: 'work.daily_report', editing: true }),
     );
@@ -72,9 +73,12 @@ describe('module page assistant surface', () => {
       .find((capability) => capability.descriptor.code === 'form.patch-draft')!;
 
     await expect(
-      patch.execute(patch.parseInput({ fieldName: 'computed', value: 'override' }), executionContext()),
+      patch.execute(
+        patch.parseInput({ changes: [{ fieldName: 'computed', value: 'override' }] }),
+        executionContext(),
+      ),
     ).rejects.toThrow('Form field is not editable by the assistant: computed');
-    expect(view.updateDraftField).not.toHaveBeenCalled();
+    expect(view.updateDraftFields).not.toHaveBeenCalled();
   });
 
   it('uses an opaque session revision instead of serializing draft values', () => {
@@ -345,11 +349,50 @@ describe('module page assistant surface', () => {
 
     expect(description.editable).toBe(false);
     expect(description.fields).toContainEqual(
-      expect.objectContaining({ fieldName: 'summary', assistantWritable: false }),
+      expect.objectContaining({
+        fieldName: 'summary',
+        assistantWritable: false,
+        currentValue: 'read-only detail',
+      }),
     );
     expect(surface.capabilities()).not.toContainEqual(
       expect.objectContaining({ descriptor: expect.objectContaining({ code: 'form.patch-draft' }) }),
     );
+  });
+
+  it('bounds the total current values projected for a large form', async () => {
+    const view = viewFixture();
+    const draft = { ...view.editingRecord } as Record<string, unknown>;
+    for (let index = 0; index < 5; index += 1) {
+      const fieldName = `longText${index}`;
+      draft[fieldName] = 'x'.repeat(2_000);
+      view.formFields.set(fieldName, {
+        fieldName,
+        label: `Long text ${index}`,
+        required: false,
+        readOnly: false,
+        visible: true,
+        controlType: 'text',
+        columnSpan: 1,
+        hasOption: false,
+      } as never);
+    }
+    view.editingRecord = draft;
+    const describe = createModulePageAssistantSurface(view, vi.fn())
+      .capabilities()
+      .find(({ descriptor }) => descriptor.code === 'form.describe')!;
+
+    const description = (await describe.execute(describe.parseInput({}), executionContext())) as {
+      currentValuesTruncated: boolean;
+      fields: Array<{ fieldName: string; currentValue?: unknown }>;
+    };
+
+    expect(description.currentValuesTruncated).toBe(true);
+    expect(
+      description.fields.filter(
+        ({ fieldName, currentValue }) => fieldName.startsWith('longText') && currentValue !== undefined,
+      ),
+    ).toHaveLength(3);
   });
 
   it('does not expose record editing while the list is in recycle-bin mode', () => {
@@ -433,7 +476,10 @@ describe('module page assistant surface', () => {
       expect.objectContaining({ fieldName: 'ownerId', assistantWritable: false }),
     );
     await expect(
-      patch.execute(patch.parseInput({ fieldName: 'ownerId', value: 'guessed-id' }), executionContext()),
+      patch.execute(
+        patch.parseInput({ changes: [{ fieldName: 'ownerId', value: 'guessed-id' }] }),
+        executionContext(),
+      ),
     ).rejects.toThrow('Form field is not editable by the assistant: ownerId');
   });
 
@@ -483,20 +529,46 @@ describe('module page assistant surface', () => {
       .capabilities()
       .find(({ descriptor }) => descriptor.code === 'form.patch-draft')!;
 
+    expect(() =>
+      patch.parseInput({
+        changes: [
+          { fieldName: 'status', value: 'DONE' },
+          { fieldName: 'status', value: 'DONE' },
+        ],
+      }),
+    ).toThrow('form.patch-draft field names must be unique');
+
     await expect(
-      patch.execute(patch.parseInput({ fieldName: 'workDate', value: '2026-02-30' }), executionContext()),
+      patch.execute(
+        patch.parseInput({ changes: [{ fieldName: 'workDate', value: '2026-02-30' }] }),
+        executionContext(),
+      ),
     ).rejects.toThrow('Invalid value for form field: workDate');
     await expect(
-      patch.execute(patch.parseInput({ fieldName: 'status', value: 'INVENTED' }), executionContext()),
+      patch.execute(
+        patch.parseInput({ changes: [{ fieldName: 'status', value: 'INVENTED' }] }),
+        executionContext(),
+      ),
     ).rejects.toThrow('Invalid value for form field: status');
     await expect(
       patch.execute(
-        patch.parseInput({ fieldName: 'submittedAt', value: '2026-02-30T12:00' }),
+        patch.parseInput({ changes: [{ fieldName: 'submittedAt', value: '2026-02-30T12:00' }] }),
         executionContext(),
       ),
     ).rejects.toThrow('Invalid value for form field: submittedAt');
-    await patch.execute(patch.parseInput({ fieldName: 'status', value: 'DONE' }), executionContext());
-    expect(view.updateDraftField).toHaveBeenCalledWith('status', 'DONE');
+    await patch.execute(
+      patch.parseInput({
+        changes: [
+          { fieldName: 'status', value: 'DONE' },
+          { fieldName: 'workDate', value: '2026-09-19' },
+        ],
+      }),
+      executionContext(),
+    );
+    expect(view.updateDraftFields).toHaveBeenCalledWith([
+      { fieldName: 'status', value: 'DONE' },
+      { fieldName: 'workDate', value: '2026-09-19' },
+    ]);
   });
 });
 

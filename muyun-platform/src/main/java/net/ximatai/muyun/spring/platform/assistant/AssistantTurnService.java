@@ -60,6 +60,11 @@ public class AssistantTurnService {
     }
 
     private void validateResponse(AiTurnResponse response, AssistantTurnCommand command) {
+        if (response.text() == null && response.toolCalls().isEmpty()
+                && (!"stop".equalsIgnoreCase(response.finishReason()) || command.results().stream()
+                .noneMatch(result -> result.errorCode() == null))) {
+            throw new PlatformException("模型未返回可执行内容，请重新描述后再试");
+        }
         if (response.toolCalls().size() > MAX_TOOL_CALLS) {
             throw new PlatformException("assistant model returned too many capability calls");
         }

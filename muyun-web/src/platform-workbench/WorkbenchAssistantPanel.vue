@@ -61,7 +61,7 @@ async function submit() {
     if (!result.completed) append('status', '本次任务步骤较多，已暂停。请重新完整描述后续目标。');
     else if (
       result.steps.every((step) => !step.output.text) &&
-      result.steps.some((step) => step.results.length > 0)
+      result.steps.some((step) => step.results.some((candidate) => !candidate.error))
     ) {
       append('assistant', '操作已完成，请检查当前页面。');
     }

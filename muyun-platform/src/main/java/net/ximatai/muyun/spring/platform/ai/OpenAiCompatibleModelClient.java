@@ -109,13 +109,15 @@ final class OpenAiCompatibleModelClient implements AiModelClient {
                 root = readResponseObject(readBoundedStructuredBody(body),
                         "AI model returned an invalid structured response");
             }
-            JsonNode choice = root.path("choices").path(0);
+            JsonNode choices = root.path("choices");
+            if (!choices.isArray() || choices.isEmpty() || !choices.path(0).isObject()
+                    || !choices.path(0).path("message").isObject()) {
+                throw new PlatformException("AI model returned an invalid structured response");
+            }
+            JsonNode choice = choices.path(0);
             JsonNode message = choice.path("message");
             List<AiToolCall> calls = toolCalls(message.path("tool_calls"), request.tools());
             String text = textOrNull(message.path("content"));
-            if ((text == null || text.isBlank()) && calls.isEmpty()) {
-                throw new PlatformException("AI model structured response contains neither text nor tool calls");
-            }
             return new AiTurnResponse(text, calls, textOrNull(choice.path("finish_reason")),
                     response.headers().firstValue("x-request-id").orElse(null));
         } catch (PlatformException exception) {

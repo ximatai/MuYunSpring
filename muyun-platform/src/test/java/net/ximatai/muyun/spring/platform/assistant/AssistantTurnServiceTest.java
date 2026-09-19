@@ -103,4 +103,39 @@ class AssistantTurnServiceTest {
         assertThat(request.getValue().messages().get(1).content())
                 .contains("other.capability", "call-1");
     }
+
+
+    @Test
+    void acceptsAnEmptyModelTurnOnlyAfterARecordedCapabilityResult() {
+        AiModelGateway gateway = mock(AiModelGateway.class);
+        AiTurnResponse empty = new AiTurnResponse(null, List.of(), "stop", "request-3");
+        when(gateway.complete(org.mockito.ArgumentMatchers.any())).thenReturn(empty);
+        AssistantTurnService service = new AssistantTurnService(gateway, new ObjectMapper());
+
+        try (CurrentUserContext.Scope ignored = CurrentUserContext.use(CurrentUser.systemUser("system", "System"))) {
+            assertThatThrownBy(() -> service.turn(
+                    new AssistantTurnCommand("start", Map.of(), List.of(), List.of())))
+                    .isInstanceOf(PlatformException.class)
+                    .hasMessageContaining("模型未返回可执行内容");
+
+            AssistantTurnCommand continuation = new AssistantTurnCommand("continue", Map.of(), List.of(),
+                    List.of(new AssistantCapabilityResult("call-1", "form.patch-draft",
+                            Map.of("changedFields", List.of("title")), null, null)));
+            assertThat(service.turn(continuation)).isSameAs(empty);
+
+            when(gateway.complete(org.mockito.ArgumentMatchers.any())).thenReturn(
+                    new AiTurnResponse(null, List.of(), "length", "request-4"));
+            assertThatThrownBy(() -> service.turn(continuation))
+                    .isInstanceOf(PlatformException.class)
+                    .hasMessageContaining("模型未返回可执行内容");
+
+            when(gateway.complete(org.mockito.ArgumentMatchers.any())).thenReturn(empty);
+            AssistantTurnCommand failedContinuation = new AssistantTurnCommand("continue", Map.of(), List.of(),
+                    List.of(new AssistantCapabilityResult("call-2", "form.patch-draft", null,
+                            "CAPABILITY_FAILED", "Capability execution failed")));
+            assertThatThrownBy(() -> service.turn(failedContinuation))
+                    .isInstanceOf(PlatformException.class)
+                    .hasMessageContaining("模型未返回可执行内容");
+        }
+    }
 }

@@ -15,6 +15,8 @@ import {
 import type { ModulePageSessionView } from './useModulePageSession';
 import { assistantEditableRecordIds, hasActiveRecordEditor } from './assistantRecordEditorPolicy';
 
+const MAX_ASSISTANT_FORM_CURRENT_VALUE_CHARS = 8_000;
+
 export function modulePageAssistantContextRevision(view: ModulePageSessionView): string {
   return `${view.assistantContextRevision}:${view.listQueryController?.revision() ?? '-'}`;
 }
@@ -182,12 +184,12 @@ function formDescribeCapability(view: ModulePageSessionView): AssistantCapabilit
     },
     parseInput: parseEmptyObject,
     async execute() {
-      return {
-        editorMode: view.editorMode,
-        editable: hasEditableDraft(view),
-        fields: formFieldStates(view)
-          .filter((field) => field.visible && !isSensitiveField(field))
-          .map((field) => ({
+      const valueBudget = { remaining: MAX_ASSISTANT_FORM_CURRENT_VALUE_CHARS, truncated: false };
+      const fields = formFieldStates(view)
+        .filter((field) => field.visible && !isSensitiveField(field))
+        .map((field) => {
+          const currentValue = assistantCurrentValue(view, field, valueBudget);
+          return {
             fieldName: field.fieldName,
             label: field.label,
             required: field.required,
@@ -195,55 +197,119 @@ function formDescribeCapability(view: ModulePageSessionView): AssistantCapabilit
             valueType: field.valueType,
             controlType: field.controlType,
             assistantWritable: hasEditableDraft(view) && isAssistantWritableField(field),
+            ...(currentValue !== undefined ? { currentValue } : {}),
             options: assistantOptions(field),
-          })),
+          };
+        });
+      return {
+        editorMode: view.editorMode,
+        editable: hasEditableDraft(view),
+        currentValuesTruncated: valueBudget.truncated,
+        fields,
       };
     },
   };
 }
 
+interface AssistantDraftChange {
+  fieldName: string;
+  value: unknown;
+}
+
 function formPatchCapability(
   view: ModulePageSessionView,
-): AssistantCapability<{ fieldName: string; value: unknown }> {
+): AssistantCapability<{ changes: AssistantDraftChange[] }> {
   return {
     descriptor: {
       code: 'form.patch-draft',
       description:
-        'Patch one assistant-writable field in the current unsaved form draft through the standard field pipeline',
+        'Atomically patch one or more assistant-writable fields in the current unsaved form draft through the standard field pipeline. It does not save.',
       inputSchema: {
         type: 'object',
         additionalProperties: false,
-        required: ['fieldName', 'value'],
+        required: ['changes'],
         properties: {
-          fieldName: { type: 'string', minLength: 1 },
-          value: {},
+          changes: {
+            type: 'array',
+            minItems: 1,
+            maxItems: 20,
+            items: {
+              type: 'object',
+              additionalProperties: false,
+              required: ['fieldName', 'value'],
+              properties: { fieldName: { type: 'string', minLength: 1 }, value: {} },
+            },
+          },
         },
       },
     },
     parseInput(input) {
-      if (!isRecord(input) || typeof input.fieldName !== 'string' || !input.fieldName.trim()) {
-        throw new Error('form.patch-draft requires a fieldName and value');
+      if (!isRecord(input) || !Array.isArray(input.changes) || input.changes.length === 0) {
+        throw new Error('form.patch-draft requires changes');
       }
-      if (!Object.hasOwn(input, 'value')) throw new Error('form.patch-draft requires a fieldName and value');
-      return { fieldName: input.fieldName.trim(), value: input.value };
+      if (input.changes.length > 20) throw new Error('form.patch-draft accepts at most 20 changes');
+      const changes = input.changes.map(parseDraftChange);
+      if (new Set(changes.map(({ fieldName }) => fieldName)).size !== changes.length) {
+        throw new Error('form.patch-draft field names must be unique');
+      }
+      return { changes };
     },
     async execute(input, context) {
       if (!hasEditableDraft(view)) throw new Error('No editable form draft is active');
-      const field = formFieldState(view, input.fieldName);
-      if (!field || !field.visible || field.readOnly || !isAssistantWritableField(field)) {
-        throw new Error(`Form field is not editable by the assistant: ${input.fieldName}`);
-      }
-      assistantFieldValue(field, input.value);
+      validateDraftChanges(view, input.changes);
       context.applyEffect(() => {
-        const current = formFieldState(view, input.fieldName);
-        if (!current || !current.visible || current.readOnly || !isAssistantWritableField(current)) {
-          throw new Error(`Form field is no longer editable by the assistant: ${input.fieldName}`);
-        }
-        view.updateDraftField(input.fieldName, assistantFieldValue(current, input.value));
+        view.updateDraftFields(validateDraftChanges(view, input.changes));
       });
-      return { changedField: input.fieldName };
+      return { changedFields: input.changes.map(({ fieldName }) => fieldName) };
     },
   };
+}
+
+function parseDraftChange(input: unknown): AssistantDraftChange {
+  if (!isRecord(input) || typeof input.fieldName !== 'string' || !input.fieldName.trim()) {
+    throw new Error('form.patch-draft changes require a fieldName and value');
+  }
+  if (!Object.hasOwn(input, 'value')) {
+    throw new Error('form.patch-draft changes require a fieldName and value');
+  }
+  return { fieldName: input.fieldName.trim(), value: input.value };
+}
+
+function validateDraftChanges(view: ModulePageSessionView, changes: AssistantDraftChange[]) {
+  return changes.map(({ fieldName, value }) => {
+    const field = formFieldState(view, fieldName);
+    if (!field || !field.visible || field.readOnly || !isAssistantWritableField(field)) {
+      throw new Error(`Form field is not editable by the assistant: ${fieldName}`);
+    }
+    return { fieldName, value: assistantFieldValue(field, value) };
+  });
+}
+
+function assistantCurrentValue(
+  view: ModulePageSessionView,
+  field: RecordFormFieldState,
+  budget: { remaining: number; truncated: boolean },
+) {
+  if (isSensitiveField(field) || field.reference || field.fileReference) return undefined;
+  const value = (view.editingRecord ?? view.selectedRecord)?.[field.fieldName];
+  let candidate: null | string | number | boolean | Array<string | number | boolean> | undefined;
+  if (value === undefined) return undefined;
+  if (value === null || typeof value === 'number' || typeof value === 'boolean') candidate = value;
+  else if (typeof value === 'string') candidate = value.slice(0, 2_000);
+  else if (
+    Array.isArray(value) &&
+    value.length <= 20 &&
+    value.every((item) => typeof item === 'string' || typeof item === 'number' || typeof item === 'boolean')
+  ) {
+    candidate = value.map((item) => (typeof item === 'string' ? item.slice(0, 200) : item));
+  } else return undefined;
+  const cost = JSON.stringify(candidate).length;
+  if (cost > budget.remaining) {
+    budget.truncated = true;
+    return undefined;
+  }
+  budget.remaining -= cost;
+  return candidate;
 }
 
 function isSensitiveField(field: RecordFormFieldState) {

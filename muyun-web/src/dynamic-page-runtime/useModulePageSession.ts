@@ -2735,13 +2735,25 @@ export function useModulePageSession(
     fieldName: string,
     value: import('@muyun/platform-components').RecordFormFieldValue,
   ) {
-    if (!editingRecord.value) {
-      return;
+    updateDraftFields([{ fieldName, value }]);
+  }
+
+  function updateDraftFields(
+    changes: Array<{
+      fieldName: string;
+      value: import('@muyun/platform-components').RecordFormFieldValue;
+    }>,
+  ) {
+    if (!editingRecord.value || changes.length === 0) return;
+    const rules = formComputeRulesOf(context.runtime.snapshot()?.uiDescriptor);
+    let next = editingRecord.value;
+    for (const { fieldName, value } of changes) {
+      next = applyReferenceDependencyClears(next, fieldName, value, formFields.value);
     }
-    editingRecord.value = applyFormComputeAfterChange(
-      applyReferenceDependencyClears(editingRecord.value, fieldName, value, formFields.value),
-      fieldName,
-      formComputeRulesOf(context.runtime.snapshot()?.uiDescriptor),
+    editingRecord.value = applyFormComputeAfterChanges(
+      next,
+      changes.map(({ fieldName }) => fieldName),
+      rules,
     );
   }
 
@@ -3613,6 +3625,7 @@ export function useModulePageSession(
     detailDirty,
     sessionDirty,
     updateDraftField,
+    updateDraftFields,
     showStatusSwitch,
     canToggleEnabled,
     toggleEnabledDisabledReason,
