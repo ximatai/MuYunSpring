@@ -140,6 +140,97 @@ describe('metadata governance assistant surface', () => {
     );
   });
 
+  it('resolves governed targets before staging a reference or dictionary field candidate', async () => {
+    const adapter = fixture();
+    adapter.findFieldTargets = vi.fn(async () => ({
+      targets: [{ target: 'iam.user', title: '用户' }],
+      truncated: false,
+    }));
+    adapter.preparePropertyFieldDraft = vi.fn(async (input) => ({
+      relationId: 'relation-main',
+      kind: input.kind,
+      title: input.title,
+      fieldName: 'ownerId',
+      columnName: 'owner_id',
+      fieldSpecAlias: 'string',
+      required: false,
+      reference: {
+        targetModuleAlias: 'iam.user',
+        targetMetadataId: 'metadata-user',
+        targetKeyField: 'id',
+        targetLabelField: 'displayName',
+      },
+    }));
+    adapter.commitPropertyFieldDraft = vi.fn((prepared) => ({
+      relationId: prepared.relationId,
+      kind: prepared.kind,
+      fieldName: prepared.fieldName,
+      columnName: prepared.columnName,
+      title: prepared.title,
+      fieldSpecAlias: prepared.fieldSpecAlias,
+      target: prepared.reference!.targetModuleAlias,
+    }));
+    const surface = createMetadataGovernanceAssistantSurface(adapter, vi.fn());
+    const lookup = surface
+      .capabilities()
+      .find(({ descriptor }) => descriptor.code === 'configuration.find-metadata-field-targets')!;
+    const add = surface
+      .capabilities()
+      .find(({ descriptor }) => descriptor.code === 'configuration.add-metadata-property-field-draft')!;
+    const context = executionContext();
+
+    await expect(
+      lookup.execute(lookup.parseInput({ kind: 'MODULE_REFERENCE', keyword: '用户' }), context),
+    ).resolves.toEqual({
+      kind: 'MODULE_REFERENCE',
+      targets: [{ target: 'iam.user', title: '用户' }],
+      truncated: false,
+    });
+    await expect(
+      add.execute(
+        add.parseInput({
+          kind: 'MODULE_REFERENCE',
+          title: '负责人',
+          target: 'iam.user',
+        }),
+        context,
+      ),
+    ).resolves.toEqual({
+      relationId: 'relation-main',
+      kind: 'MODULE_REFERENCE',
+      fieldName: 'ownerId',
+      columnName: 'owner_id',
+      title: '负责人',
+      fieldSpecAlias: 'string',
+      target: 'iam.user',
+    });
+    expect(adapter.preparePropertyFieldDraft).toHaveBeenCalledWith(
+      { kind: 'MODULE_REFERENCE', title: '负责人', target: 'iam.user' },
+      context.signal,
+    );
+    expect(applyEffectSpy).toHaveBeenCalledOnce();
+    expect(() =>
+      add.parseInput({
+        kind: 'MODULE_REFERENCE',
+        title: '负责人',
+        target: 'iam.user',
+        selectionMode: 'MULTIPLE',
+      }),
+    ).toThrow('selectionMode is only supported for dictionary fields');
+    expect(
+      add.parseInput({
+        kind: 'DICTIONARY',
+        title: '状态',
+        target: 'education.status',
+      }),
+    ).toEqual({
+      kind: 'DICTIONARY',
+      title: '状态',
+      target: 'education.status',
+      selectionMode: 'SINGLE',
+    });
+  });
+
   it('previews the exact current candidate without exposing a publish capability', async () => {
     const adapter = fixture();
     const surface = createMetadataGovernanceAssistantSurface(adapter, vi.fn());
@@ -251,6 +342,7 @@ function fixture(
             fieldName: 'title',
             title: '名称',
             fieldSpecAlias: 'string',
+            propertyKind: 'BASIC',
             governance: '业务',
           },
         ],

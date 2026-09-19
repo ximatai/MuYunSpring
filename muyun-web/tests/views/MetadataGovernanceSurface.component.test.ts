@@ -254,6 +254,215 @@ it('opens an existing ordinary field as a visible assistant update candidate wit
   );
 });
 
+it.each([
+  [
+    'MODULE_REFERENCE',
+    { kind: 'MODULE_REFERENCE', title: '负责人', target: 'iam.user' },
+    'iam.user',
+    'MODULE_REFERENCE',
+  ],
+  [
+    'DICTIONARY',
+    {
+      kind: 'DICTIONARY',
+      title: '考试状态',
+      target: 'education.status',
+      selectionMode: 'MULTIPLE',
+    },
+    'education.status',
+    'DICTIONARY',
+  ],
+] as const)(
+  'resolves and opens a governed %s field candidate without applying it',
+  async (_label, input, targetValue, propertyKind) => {
+    const http = fakeHttp();
+    const original = http.request;
+    vi.mocked(confirmAction).mockResolvedValue(false);
+    const impactDescription =
+      input.kind === 'MODULE_REFERENCE'
+        ? '新增模块引用字段，目标模块“iam.user”。'
+        : '新增字典字段，目标字典“education.status”，选择模式“MULTIPLE”。';
+    const request = vi.spyOn(http, 'request').mockImplementation((options) => {
+      if (options.path === '/platform.field_spec/query')
+        return Promise.resolve({
+          records: [
+            { id: 'string', alias: 'string', title: '短文本', enabled: true },
+            { id: 'json_set', alias: 'json_set', title: 'JSON 集合', enabled: true },
+          ],
+          pages: 1,
+          totalKnown: true,
+        }) as never;
+      if (options.path.endsWith('/metadata-model/change-set-preview'))
+        return Promise.resolve({
+          errors: [],
+          warnings: [],
+          fieldImpacts: [
+            {
+              operation: 'ADD',
+              fieldName: input.kind === 'MODULE_REFERENCE' ? 'refFuZeRenId' : 'dictKaoShiZhuangTai',
+              columnName: input.kind === 'MODULE_REFERENCE' ? 'ref_fu_ze_ren_id' : 'dict_kao_shi_zhuang_tai',
+              platformManaged: false,
+              description: impactDescription,
+            },
+          ],
+          schemaImpacts: [
+            {
+              operation: 'ADD_COLUMN',
+              schemaName: 'public',
+              tableName: 'exam',
+              columnName: input.kind === 'MODULE_REFERENCE' ? 'ref_fu_ze_ren_id' : 'dict_kao_shi_zhuang_tai',
+              description: '新增物理列。',
+            },
+          ],
+          orderImpacts: [],
+          proposalFingerprint: 'property-field-fingerprint',
+        }) as never;
+      return original(options);
+    });
+    configureModuleContext({ http });
+    const registry = createAssistantSurfaceRegistry();
+    registry.activate('page-1');
+    const Harness = defineComponent({
+      setup() {
+        provideAssistantSurfaceHost({ registry, activePageInstanceKey: () => 'page-1' });
+        return () => h(MetadataGovernanceSurface, { moduleAlias: 'education.exam' });
+      },
+    });
+    const wrapper = shallowMount(Harness, {
+      global: { stubs: { ...governanceStubs(), MetadataGovernanceSurface: false } },
+    });
+    mounted.add(wrapper);
+    await flushPromises();
+    await flushPromises();
+
+    const before = registry.snapshot()!;
+    const lookupKind = input.kind;
+    const targets = await registry.invoke(
+      {
+        id: `targets-${lookupKind}`,
+        code: 'configuration.find-metadata-field-targets',
+        input: { kind: lookupKind },
+      },
+      before.token,
+    );
+    expect(targets.value).toEqual(
+      expect.objectContaining({
+        kind: lookupKind,
+        truncated: false,
+        targets: expect.arrayContaining([expect.objectContaining({ target: targetValue })]),
+      }),
+    );
+    const candidate = await registry.invoke(
+      {
+        id: `add-${lookupKind}`,
+        code: 'configuration.add-metadata-property-field-draft',
+        input,
+      },
+      before.token,
+    );
+    expect(candidate.value).toEqual(
+      expect.objectContaining({ kind: lookupKind, target: targetValue, title: input.title }),
+    );
+    await flushPromises();
+
+    expect(request.mock.calls.some(([options]) => options.path.endsWith('change-set-apply'))).toBe(false);
+    expect(
+      wrapper.findAllComponents({ name: 'UiSelect' }).some((select) => select.props('value') === targetValue),
+    ).toBe(true);
+    const drafted = registry.snapshot()!;
+    await registry.invoke(
+      { id: `preview-${lookupKind}`, code: 'configuration.preview-metadata-draft', input: {} },
+      drafted.token,
+    );
+    const preview = [...request.mock.calls]
+      .reverse()
+      .find(([options]) => options.path.endsWith('change-set-preview'));
+    expect(preview?.[0].body).toEqual(
+      expect.objectContaining({
+        relationDrafts: [
+          expect.objectContaining({
+            fieldDrafts: [
+              expect.objectContaining({
+                operation: 'ADD',
+                property: expect.objectContaining({ kind: propertyKind }),
+              }),
+            ],
+          }),
+        ],
+      }),
+    );
+
+    await wrapper
+      .findAll('button')
+      .find((button) => button.text() === '保存')!
+      .trigger('click');
+    await flushPromises();
+    expect(confirmAction).toHaveBeenCalledWith(
+      expect.objectContaining({ content: expect.stringContaining(targetValue) }),
+    );
+    if (input.kind === 'DICTIONARY')
+      expect(confirmAction).toHaveBeenCalledWith(
+        expect.objectContaining({ content: expect.stringContaining('MULTIPLE') }),
+      );
+    expect(request.mock.calls.some(([options]) => options.path.endsWith('change-set-apply'))).toBe(false);
+  },
+);
+
+it('sorts metadata field targets deterministically and reports bounded results', async () => {
+  const http = fakeHttp();
+  const original = http.request;
+  vi.spyOn(http, 'request').mockImplementation((options) => {
+    if (options.path === '/platform.field_spec/query')
+      return Promise.resolve({
+        records: [{ id: 'string', alias: 'string', title: '短文本', enabled: true }],
+        pages: 1,
+        totalKnown: true,
+      }) as never;
+    if (options.path.endsWith('/reference-target-modules'))
+      return Promise.resolve(
+        Array.from({ length: 31 }, (_, index) => {
+          const sequence = String(31 - index).padStart(2, '0');
+          return { alias: `module.target${sequence}`, title: `目标 ${sequence}` };
+        }),
+      ) as never;
+    return original(options);
+  });
+  configureModuleContext({ http });
+  const registry = createAssistantSurfaceRegistry();
+  registry.activate('page-1');
+  const Harness = defineComponent({
+    setup() {
+      provideAssistantSurfaceHost({ registry, activePageInstanceKey: () => 'page-1' });
+      return () => h(MetadataGovernanceSurface, { moduleAlias: 'education.exam' });
+    },
+  });
+  const wrapper = shallowMount(Harness, {
+    global: { stubs: { ...governanceStubs(), MetadataGovernanceSurface: false } },
+  });
+  mounted.add(wrapper);
+  await flushPromises();
+  await flushPromises();
+
+  const snapshot = registry.snapshot()!;
+  const targets = await registry.invoke(
+    {
+      id: 'bounded-reference-targets',
+      code: 'configuration.find-metadata-field-targets',
+      input: { kind: 'MODULE_REFERENCE' },
+    },
+    snapshot.token,
+  );
+
+  expect(targets.value).toEqual({
+    kind: 'MODULE_REFERENCE',
+    truncated: true,
+    targets: Array.from({ length: 30 }, (_, index) => {
+      const sequence = String(index + 1).padStart(2, '0');
+      return { target: `module.target${sequence}`, title: `目标 ${sequence}` };
+    }),
+  });
+});
+
 it('keeps the workbench fallback active when metadata loading fails', async () => {
   const http: HttpClient = {
     request: <T>(options: HttpRequestOptions) =>
@@ -1022,7 +1231,15 @@ function responseFor(options: HttpRequestOptions) {
   if (options.path.endsWith('/metadata-model/change-set-preview'))
     return {
       errors: [],
-      fieldImpacts: [{ operation: 'UPDATE', fieldName: 'title', columnName: 'title' }],
+      fieldImpacts: [
+        {
+          operation: 'UPDATE',
+          fieldName: 'title',
+          columnName: 'title',
+          platformManaged: false,
+          description: '更新普通业务字段。',
+        },
+      ],
       schemaImpacts: [],
       orderImpacts: [],
       proposalFingerprint: 'fingerprint',

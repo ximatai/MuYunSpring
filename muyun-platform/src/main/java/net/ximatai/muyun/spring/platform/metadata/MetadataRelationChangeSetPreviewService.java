@@ -213,7 +213,8 @@ public class MetadataRelationChangeSetPreviewService {
         String syntheticId = "new:" + normalized.getFieldName();
         fields.put(syntheticId, normalized);
         mutations.add(new MetadataFieldChangeSetPlan(MetadataFieldChangeSetDraft.Operation.ADD, null, null, normalized, property));
-        impacts.add(new MetadataChangeSetFieldImpact("ADD", field.getFieldName(), field.getColumnName(), false, "新增业务字段。"));
+        impacts.add(new MetadataChangeSetFieldImpact("ADD", field.getFieldName(), field.getColumnName(), false,
+                fieldMutationDescription("新增", property)));
     }
 
     private void updateDraft(Context context, Map<String, MetadataField> fields, MetadataFieldChangeSetDraft draft,
@@ -262,7 +263,8 @@ public class MetadataRelationChangeSetPreviewService {
         fields.put(fieldId, normalized);
         mutations.add(new MetadataFieldChangeSetPlan(MetadataFieldChangeSetDraft.Operation.UPDATE, fieldId,
                 draft.expectedFieldVersion(), normalized, property));
-        impacts.add(new MetadataChangeSetFieldImpact("UPDATE", field.getFieldName(), field.getColumnName(), false, "更新字段元数据。"));
+        impacts.add(new MetadataChangeSetFieldImpact("UPDATE", field.getFieldName(), field.getColumnName(), false,
+                fieldMutationDescription("更新", property)));
     }
 
     /**
@@ -384,6 +386,22 @@ public class MetadataRelationChangeSetPreviewService {
                                                        String operation, String description) {
         return new MetadataChangeSetSchemaImpact(operation, metadata.getSchemaName(), metadata.getTableName(),
                 field.getColumnName(), description);
+    }
+
+    private String fieldMutationDescription(String operation, MetadataFieldPropertyChangeSetPlan property) {
+        if (property == null || property.kind() == MetadataFieldPropertyKind.BASIC) {
+            return operation + "普通业务字段。";
+        }
+        if (property.kind() == MetadataFieldPropertyKind.MODULE_REFERENCE && property.referenceConfig() != null) {
+            return operation + "模块引用字段，目标模块“"
+                    + property.referenceConfig().getTargetModuleAlias() + "”。";
+        }
+        if (property.kind() == MetadataFieldPropertyKind.DICTIONARY && property.dictionaryConfig() != null) {
+            MetadataFieldConfig dictionary = property.dictionaryConfig();
+            return operation + "字典字段，目标字典“" + dictionary.getDictionaryApplicationAlias() + "."
+                    + dictionary.getDictionaryCategoryAlias() + "”，选择模式“" + dictionary.getSelectionMode() + "”。";
+        }
+        return operation + "业务字段属性。";
     }
 
     private void validateFinalFieldNames(Iterable<MetadataField> fields, List<MetadataChangeSetValidationIssue> errors) {

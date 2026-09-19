@@ -202,7 +202,27 @@ class MetadataRelationChangeSetPreviewServiceTest {
         assertThat(property.kind()).isEqualTo(MetadataFieldPropertyKind.MODULE_REFERENCE);
         assertThat(property.referenceConfig()).extracting(MetadataFieldReferenceConfig::getTargetKeyField,
                 MetadataFieldReferenceConfig::getTargetLabelField).containsExactly("studentNo", "name");
+        assertThat(result.fieldImpacts().getFirst().description()).contains("模块引用", "education.student");
         assertThat(result.proposalFingerprint()).hasSize(64);
+    }
+
+    @Test
+    void shouldDescribeTheResolvedDictionaryBindingInTheFieldImpact() {
+        Fixture fixture = fixture(RelationRole.MAIN, List.of());
+        MetadataField field = businessField("attendanceStatus", "attendance_status", "string");
+        MetadataFieldConfig dictionary = new MetadataFieldConfig();
+        dictionary.setDictionaryApplicationAlias("education");
+        dictionary.setDictionaryCategoryAlias("status");
+        dictionary.setSelectionMode(net.ximatai.muyun.spring.common.option.OptionSelectionMode.SINGLE);
+
+        MetadataRelationChangeSetPreview result = fixture.service.preview("crm.customer", "main", command(3,
+                Map.of(), List.of(new MetadataFieldChangeSetDraft(MetadataFieldChangeSetDraft.Operation.ADD, null, null,
+                        field, new MetadataFieldPropertyDraft(MetadataFieldPropertyKind.DICTIONARY, null, null,
+                        dictionary)))));
+
+        assertThat(result.valid()).isTrue();
+        assertThat(result.fieldImpacts().getFirst().description())
+                .contains("字典字段", "education.status", "SINGLE");
     }
 
     @Test

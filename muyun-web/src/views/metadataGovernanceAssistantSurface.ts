@@ -24,6 +24,7 @@ export interface MetadataGovernanceAssistantModelSummary {
       fieldName: string;
       title?: string;
       fieldSpecAlias?: string;
+      propertyKind: string;
       governance: string;
     }>;
     truncated: boolean;
@@ -59,6 +60,43 @@ export interface UpdateMetadataFieldDraftInput {
   enabled?: boolean;
 }
 
+export type MetadataPropertyFieldKind = 'MODULE_REFERENCE' | 'DICTIONARY';
+
+export interface FindMetadataFieldTargetsInput {
+  kind: MetadataPropertyFieldKind;
+  keyword?: string;
+}
+
+export interface AddMetadataPropertyFieldDraftInput {
+  kind: MetadataPropertyFieldKind;
+  title: string;
+  fieldName?: string;
+  target: string;
+  selectionMode?: 'SINGLE' | 'MULTIPLE';
+  required?: boolean;
+}
+
+export interface PreparedMetadataPropertyFieldDraft {
+  relationId: string;
+  kind: MetadataPropertyFieldKind;
+  title: string;
+  fieldName: string;
+  columnName: string;
+  fieldSpecAlias: string;
+  required: boolean;
+  reference?: {
+    targetModuleAlias: string;
+    targetMetadataId?: string;
+    targetKeyField: string;
+    targetLabelField: string;
+  };
+  dictionary?: {
+    applicationAlias: string;
+    categoryAlias: string;
+    selectionMode: 'SINGLE' | 'MULTIPLE';
+  };
+}
+
 export interface MetadataGovernanceAssistantAdapter {
   summary(): MetadataGovernanceAssistantModelSummary;
   proposal(): MetadataModelChangeSetProposal | undefined;
@@ -78,6 +116,23 @@ export interface MetadataGovernanceAssistantAdapter {
     title?: string;
     fieldSpecAlias?: string;
   };
+  findFieldTargets?(
+    input: FindMetadataFieldTargetsInput,
+    signal: AbortSignal,
+  ): Promise<{ targets: Array<{ target: string; title?: string }>; truncated: boolean }>;
+  preparePropertyFieldDraft?(
+    input: AddMetadataPropertyFieldDraftInput,
+    signal: AbortSignal,
+  ): Promise<PreparedMetadataPropertyFieldDraft>;
+  commitPropertyFieldDraft?(prepared: PreparedMetadataPropertyFieldDraft): {
+    relationId: string;
+    kind: MetadataPropertyFieldKind;
+    fieldName: string;
+    columnName: string;
+    title: string;
+    fieldSpecAlias: string;
+    target: string;
+  };
 }
 
 export function createMetadataGovernanceAssistantSurface(
@@ -92,9 +147,83 @@ export function createMetadataGovernanceAssistantSurface(
       describeMetadataModelCapability(adapter),
       ...(canAddFieldDraft(adapter) ? [addMetadataFieldDraftCapability(adapter)] : []),
       ...(canUpdateFieldDraft(adapter) ? [updateMetadataFieldDraftCapability(adapter)] : []),
+      ...(canAddPropertyFieldDraft(adapter)
+        ? [findMetadataFieldTargetsCapability(adapter), addMetadataPropertyFieldDraftCapability(adapter)]
+        : []),
       ...(hasChanges(adapter.proposal()) ? [previewMetadataDraftCapability(adapter)] : []),
     ],
     requestTurn,
+  };
+}
+
+function findMetadataFieldTargetsCapability(
+  adapter: MetadataGovernanceAssistantAdapter,
+): AssistantCapability<FindMetadataFieldTargetsInput> {
+  return {
+    descriptor: {
+      code: 'configuration.find-metadata-field-targets',
+      description:
+        'Find valid target module aliases or dictionary identities before adding a reference or dictionary metadata field. Use a returned target exactly; do not guess internal identities.',
+      inputSchema: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['kind'],
+        properties: {
+          kind: { type: 'string', enum: ['MODULE_REFERENCE', 'DICTIONARY'] },
+          keyword: { type: 'string', minLength: 1, maxLength: 100 },
+        },
+      },
+    },
+    parseInput: parseFindFieldTargetsInput,
+    async execute(input, context) {
+      if (!adapter.findFieldTargets) throw new Error('Metadata field target lookup is unavailable');
+      const result = await adapter.findFieldTargets(input, context.signal);
+      if (!context.isCurrent()) throw new Error('Metadata field target lookup is no longer current');
+      return { kind: input.kind, ...result };
+    },
+  };
+}
+
+function addMetadataPropertyFieldDraftCapability(
+  adapter: MetadataGovernanceAssistantAdapter,
+): AssistantCapability<AddMetadataPropertyFieldDraftInput> {
+  const dictionarySelectionModes: Array<'SINGLE' | 'MULTIPLE'> = adapter
+    .fieldSpecAliases()
+    .includes('json_set')
+    ? ['SINGLE', 'MULTIPLE']
+    : ['SINGLE'];
+  return {
+    descriptor: {
+      code: 'configuration.add-metadata-property-field-draft',
+      description:
+        'Add a module-reference or dictionary field as a visible, unsaved metadata candidate. First resolve target with configuration.find-metadata-field-targets, then pass the exact returned target.',
+      inputSchema: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['kind', 'title', 'target'],
+        properties: {
+          kind: { type: 'string', enum: ['MODULE_REFERENCE', 'DICTIONARY'] },
+          title: { type: 'string', minLength: 1, maxLength: 100 },
+          fieldName: {
+            type: 'string',
+            minLength: 1,
+            maxLength: 63,
+            pattern: PLATFORM_FIELD_NAME_PATTERN,
+          },
+          target: { type: 'string', minLength: 1, maxLength: 255 },
+          selectionMode: { type: 'string', enum: dictionarySelectionModes },
+          required: { type: 'boolean' },
+        },
+      },
+    },
+    parseInput: (input) => parseAddPropertyFieldDraftInput(input, dictionarySelectionModes),
+    async execute(input, context) {
+      if (!adapter.preparePropertyFieldDraft || !adapter.commitPropertyFieldDraft)
+        throw new Error('Metadata property field drafting is unavailable');
+      const prepared = await adapter.preparePropertyFieldDraft(input, context.signal);
+      if (!context.isCurrent()) throw new Error('Metadata property field preparation is no longer current');
+      return context.applyEffect(() => adapter.commitPropertyFieldDraft!(prepared));
+    },
   };
 }
 
@@ -261,6 +390,18 @@ function canUpdateFieldDraft(adapter: MetadataGovernanceAssistantAdapter): boole
   );
 }
 
+function canAddPropertyFieldDraft(adapter: MetadataGovernanceAssistantAdapter): boolean {
+  const summary = adapter.summary();
+  return Boolean(
+    adapter.findFieldTargets &&
+    adapter.preparePropertyFieldDraft &&
+    adapter.commitPropertyFieldDraft &&
+    summary.selectedRelation &&
+    !summary.draft.editorOpen &&
+    adapter.fieldSpecAliases().includes('string'),
+  );
+}
+
 function parseAddFieldDraftInput(input: unknown, fieldSpecAliases: string[]): AddMetadataFieldDraftInput {
   if (!isRecord(input)) throw new Error('Capability input must be an object');
   const allowed = new Set([
@@ -330,6 +471,55 @@ function parseUpdateFieldDraftInput(
   };
   if (Object.keys(changes).length === 0) throw new Error('At least one metadata field change is required');
   return { fieldName, ...changes };
+}
+
+function parseFindFieldTargetsInput(input: unknown): FindMetadataFieldTargetsInput {
+  if (!isRecord(input)) throw new Error('Capability input must be an object');
+  if (Object.keys(input).some((key) => !['kind', 'keyword'].includes(key)))
+    throw new Error('Capability input contains unsupported target lookup properties');
+  const kind = metadataPropertyFieldKind(input.kind);
+  const keyword = boundedString(input.keyword, 'keyword', 100, false);
+  return { kind, ...(keyword ? { keyword } : {}) };
+}
+
+function parseAddPropertyFieldDraftInput(
+  input: unknown,
+  dictionarySelectionModes: Array<'SINGLE' | 'MULTIPLE'>,
+): AddMetadataPropertyFieldDraftInput {
+  if (!isRecord(input)) throw new Error('Capability input must be an object');
+  const allowed = new Set(['kind', 'title', 'fieldName', 'target', 'selectionMode', 'required']);
+  if (Object.keys(input).some((key) => !allowed.has(key)))
+    throw new Error('Capability input contains unsupported metadata property field properties');
+  const kind = metadataPropertyFieldKind(input.kind);
+  const title = boundedString(input.title, 'title', 100, true);
+  const fieldName = boundedString(input.fieldName, 'fieldName', 63, false);
+  if (fieldName && !isPlatformFieldName(fieldName))
+    throw new Error('fieldName must use lower camel case and start with a lower-case letter');
+  if (fieldName && isDynamicRecordReservedFieldName(fieldName))
+    throw new Error('fieldName is reserved by the dynamic record protocol');
+  const target = boundedString(input.target, 'target', 255, true);
+  const selectionMode = input.selectionMode;
+  if (selectionMode !== undefined && selectionMode !== 'SINGLE' && selectionMode !== 'MULTIPLE')
+    throw new Error('selectionMode must be SINGLE or MULTIPLE');
+  if (kind === 'MODULE_REFERENCE' && selectionMode !== undefined)
+    throw new Error('selectionMode is only supported for dictionary fields');
+  if (kind === 'DICTIONARY' && selectionMode && !dictionarySelectionModes.includes(selectionMode))
+    throw new Error('selectionMode is unavailable because its storage field specification is disabled');
+  const required = optionalBooleanProperties(input, ['required']).required;
+  return {
+    kind,
+    title,
+    ...(fieldName ? { fieldName } : {}),
+    target,
+    ...(kind === 'DICTIONARY' ? { selectionMode: selectionMode ?? 'SINGLE' } : {}),
+    ...(required !== undefined ? { required } : {}),
+  };
+}
+
+function metadataPropertyFieldKind(value: unknown): MetadataPropertyFieldKind {
+  if (value !== 'MODULE_REFERENCE' && value !== 'DICTIONARY')
+    throw new Error('kind must be MODULE_REFERENCE or DICTIONARY');
+  return value;
 }
 
 function boundedString(value: unknown, name: string, maxLength: number, required: true): string;
