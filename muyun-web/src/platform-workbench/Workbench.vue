@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { UiButton, UiDropdown, UiEmpty, UiError, UiIcon, UiSpin, UiTabs } from '@muyun/vue-ui-antdv';
 import type {
   MenuNavigationTarget,
@@ -9,10 +9,16 @@ import type {
   WorkbenchStartupState,
 } from '@muyun/web-contracts';
 import type { UiDropdownItem, UiTabItem } from '@muyun/vue-ui-antdv';
-import { userPreferences } from '@muyun/web-core';
+import {
+  createAssistantSurfaceRegistry,
+  provideAssistantSurfaceHost,
+  type AssistantTurnRequester,
+  userPreferences,
+} from '@muyun/web-core';
 import WorkbenchBrandControl from './WorkbenchBrandControl.vue';
 import WorkbenchMenu from './WorkbenchMenu.vue';
-import { resolvePageDescriptor } from './menuNavigation';
+import { getMenuNavigationTarget, resolvePageDescriptor } from './menuNavigation';
+import { createWorkbenchAssistantCapabilities } from './workbenchAssistantCapabilities';
 import type { WorkbenchRealtimeStatus } from './realtimeStatus';
 import {
   compactMenuTopOf,
@@ -31,6 +37,7 @@ const props = withDefaults(
     lockedTabKeys?: string[];
     realtimeStatus?: WorkbenchRealtimeStatus;
     themeAppearance?: 'light' | 'dark';
+    assistantRequestTurn?: AssistantTurnRequester;
   }>(),
   {
     loading: false,
@@ -40,6 +47,7 @@ const props = withDefaults(
     lockedTabKeys: () => [],
     realtimeStatus: 'unavailable',
     themeAppearance: 'light',
+    assistantRequestTurn: undefined,
   },
 );
 
@@ -62,6 +70,54 @@ const activeTabKey = computed(
   () => props.activeTabKey ?? props.startup?.activeTabKey ?? tabs.value[0]?.key ?? '',
 );
 const activeTab = computed(() => openedTabs.value.find((tab) => tab.key === activeTabKey.value));
+const activePageInstanceKey = computed(() => activeTab.value?.instanceKey ?? activeTab.value?.key);
+const assistantSurfaceRegistry = createAssistantSurfaceRegistry();
+function workbenchAssistantCapabilities() {
+  return createWorkbenchAssistantCapabilities(
+    () => props.startup?.menus ?? [],
+    (menu) => {
+      const target = getMenuNavigationTarget(menu);
+      if (!target) {
+        emit('invalidMenu', menu);
+        return false;
+      }
+      handleSelectMenu(menu, target);
+      return true;
+    },
+    () => nextTick(),
+  );
+}
+provideAssistantSurfaceHost({
+  registry: assistantSurfaceRegistry,
+  activePageInstanceKey: () => activePageInstanceKey.value,
+  capabilities: workbenchAssistantCapabilities,
+});
+watch(activePageInstanceKey, (key) => assistantSurfaceRegistry.activate(key), { immediate: true });
+let unregisterWorkbenchAssistantSurface: (() => void) | undefined;
+watch(
+  [activePageInstanceKey, () => props.assistantRequestTurn, () => props.startup?.menus],
+  ([pageInstanceKey, requestTurn]) => {
+    unregisterWorkbenchAssistantSurface?.();
+    unregisterWorkbenchAssistantSurface = undefined;
+    if (!pageInstanceKey || !requestTurn) return;
+    unregisterWorkbenchAssistantSurface = assistantSurfaceRegistry.register({
+      pageInstanceKey,
+      fallback: true,
+      contextRevision: () => 'workbench',
+      surface: {
+        describe: () => ({
+          surface: 'workbench',
+          title: activeTab.value?.title,
+          facts: { activeTabKey: activeTabKey.value },
+        }),
+        capabilities: workbenchAssistantCapabilities,
+        requestTurn,
+      },
+    });
+  },
+  { immediate: true, deep: true },
+);
+onUnmounted(() => unregisterWorkbenchAssistantSurface?.());
 const activePageDescriptor = computed(() => pageDescriptorOf(activeTab.value));
 const currentUser = computed(() => props.startup?.session.currentUser);
 const userDisplayName = computed(() => currentUser.value?.username ?? currentUser.value?.userId ?? '未登录');

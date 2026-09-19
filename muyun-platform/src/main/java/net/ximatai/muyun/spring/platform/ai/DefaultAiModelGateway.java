@@ -23,4 +23,9 @@ final class DefaultAiModelGateway implements AiModelGateway {
     public void stream(AiTextRequest request, AiTextStreamConsumer consumer) {
         client.stream(routeResolver.resolveCurrent(), request, consumer);
     }
+
+    @Override
+    public AiTurnResponse complete(AiTurnRequest request) {
+        return client.complete(routeResolver.resolveCurrent(), request);
+    }
 }

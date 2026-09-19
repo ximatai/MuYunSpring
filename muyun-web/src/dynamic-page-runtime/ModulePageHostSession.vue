@@ -1,12 +1,22 @@
 <script setup lang="ts">
-import { computed, ref, shallowRef, watch } from 'vue';
-import { ModuleHttpProvider, useModuleContext, withHttpHeaders } from '@muyun/web-core';
+import { computed, onActivated, onDeactivated, onMounted, onUnmounted, ref, shallowRef, watch } from 'vue';
+import {
+  createAssistantTurnRequester,
+  ModuleHttpProvider,
+  useAssistantSurfaceHost,
+  useModuleContext,
+  withHttpHeaders,
+} from '@muyun/web-core';
 import type { StandardModulePageDescriptor } from '@muyun/web-contracts';
 import { RecordPanelButton, RecordPanelState, type QueryListRecord } from '@muyun/platform-components';
 import ModulePageHostRuntime from './ModulePageHostRuntime.vue';
 import ModulePageBusinessSession from './ModulePageBusinessSession';
 import { useTenantScopeController } from './useTenantScopeController';
 import type { ModulePageSessionView } from './useModulePageSession';
+import {
+  createModulePageAssistantSurface,
+  modulePageAssistantContextRevision,
+} from './modulePageAssistantSurface';
 
 defineOptions({ name: 'ModulePageHostSession' });
 const props = defineProps<{
@@ -31,6 +41,10 @@ const generation = ref(0);
 const pending = ref(true);
 const failure = ref<string>();
 const view = shallowRef<ModulePageSessionView>();
+const assistantHost = useAssistantSurfaceHost();
+let assistantActive = false;
+let assistantPageInstanceKey: string | undefined;
+let unregisterAssistantSurface: (() => void) | undefined;
 const sessionHttp = computed(() => {
   // Every generation gets a fresh transport. Existing sessions retain the one
   // they captured, so late responses cannot bleed into the replacement session.
@@ -65,6 +79,47 @@ function refreshList() {
   if (pending.value || failure.value) return;
   view.value?.refreshList();
 }
+function clearAssistantSurface() {
+  unregisterAssistantSurface?.();
+  unregisterAssistantSurface = undefined;
+}
+function syncAssistantSurface() {
+  clearAssistantSurface();
+  if (
+    !assistantHost ||
+    !assistantActive ||
+    !assistantPageInstanceKey ||
+    !view.value ||
+    pending.value ||
+    failure.value
+  ) {
+    return;
+  }
+  const session = view.value;
+  unregisterAssistantSurface = assistantHost.registry.register({
+    pageInstanceKey: assistantPageInstanceKey,
+    contextRevision: () => modulePageAssistantContextRevision(session),
+    surface: createModulePageAssistantSurface(
+      session,
+      createAssistantTurnRequester(sessionHttp.value),
+      () => assistantHost.capabilities?.() ?? [],
+    ),
+  });
+}
+function activateAssistantSurface() {
+  assistantActive = true;
+  assistantPageInstanceKey = assistantHost?.activePageInstanceKey();
+  syncAssistantSurface();
+}
+function deactivateAssistantSurface() {
+  assistantActive = false;
+  clearAssistantSurface();
+}
+watch([view, generation, pending, failure], syncAssistantSurface, { flush: 'post' });
+onMounted(activateAssistantSurface);
+onActivated(activateAssistantSurface);
+onDeactivated(deactivateAssistantSurface);
+onUnmounted(deactivateAssistantSurface);
 defineExpose({ refreshList, retry: startBusinessSession });
 </script>
 

@@ -1,5 +1,7 @@
 export type Primitive = string | number | boolean | null | undefined;
 
+export * from './assistant';
+
 export type OptionValue = string | number;
 
 export type OptionValueList = OptionValue[];

@@ -1,0 +1,277 @@
+import { describe, expect, it, vi } from 'vitest';
+import {
+  createAssistantSurfaceRegistry,
+  StaleAssistantInvocationError,
+  type AssistantCapability,
+  type AssistantSurface,
+} from '@muyun/web-core';
+
+function fixture(options: {
+  pageInstanceKey: string;
+  revision: () => string;
+  execute?: (
+    input: string,
+    context: Parameters<AssistantCapability<string>['execute']>[1],
+  ) => Promise<unknown>;
+  requestTurn?: AssistantSurface['requestTurn'];
+}) {
+  const execute = options.execute ?? (async (input: string) => input);
+  const capability: AssistantCapability<string> = {
+    descriptor: {
+      code: 'form.patch-draft',
+      description: 'Patch the current form draft',
+      inputSchema: { type: 'string' },
+    },
+    parseInput(input) {
+      if (typeof input !== 'string') throw new Error('input must be a string');
+      return input;
+    },
+    execute,
+  };
+  const surface: AssistantSurface = {
+    describe: () => ({ surface: 'module-page', facts: { record: options.revision() } }),
+    capabilities: () => [capability],
+    requestTurn: options.requestTurn ?? (async () => ({ text: 'ok', toolCalls: [], finishReason: 'stop' })),
+  };
+  return {
+    pageInstanceKey: options.pageInstanceKey,
+    contextRevision: options.revision,
+    surface,
+  };
+}
+
+describe('assistant surface registry', () => {
+  it('selects a surface by active page instance instead of last registration', () => {
+    const registry = createAssistantSurfaceRegistry();
+    registry.register(fixture({ pageInstanceKey: 'tab-a', revision: () => 'record-a' }));
+    registry.register(fixture({ pageInstanceKey: 'tab-b', revision: () => 'record-b' }));
+
+    registry.activate('tab-a');
+
+    expect(registry.snapshot()?.token.pageInstanceKey).toBe('tab-a');
+    expect(registry.snapshot()?.context.facts.record).toBe('record-a');
+  });
+
+  it('restores the workbench fallback after a page-owned surface unregisters', () => {
+    const registry = createAssistantSurfaceRegistry();
+    registry.activate('tab-a');
+    const unregisterFallback = registry.register({
+      ...fixture({ pageInstanceKey: 'tab-a', revision: () => 'workbench' }),
+      fallback: true,
+    });
+    const fallbackGeneration = registry.snapshot()!.token.surfaceGeneration;
+    const unregisterPage = registry.register(
+      fixture({ pageInstanceKey: 'tab-a', revision: () => 'record-a' }),
+    );
+
+    expect(registry.snapshot()?.context.facts.record).toBe('record-a');
+    expect(registry.snapshot()?.token.surfaceGeneration).not.toBe(fallbackGeneration);
+
+    unregisterFallback();
+    registry.register({
+      ...fixture({ pageInstanceKey: 'tab-a', revision: () => 'workbench-new' }),
+      fallback: true,
+    });
+    expect(registry.snapshot()?.context.facts.record).toBe('record-a');
+
+    unregisterPage();
+
+    expect(registry.snapshot()?.context.facts.record).toBe('workbench-new');
+    expect(registry.snapshot()?.token.surfaceGeneration).not.toBe(fallbackGeneration);
+  });
+
+  it('rejects a capability call after the record context changes in the same surface', async () => {
+    let revision = 'record-a';
+    const execute = vi.fn(async () => undefined);
+    const registry = createAssistantSurfaceRegistry();
+    registry.register(fixture({ pageInstanceKey: 'tab-a', revision: () => revision, execute }));
+    registry.activate('tab-a');
+    const token = registry.snapshot()!.token;
+
+    revision = 'record-b';
+
+    await expect(
+      registry.invoke({ id: 'call-1', code: 'form.patch-draft', input: 'value' }, token),
+    ).rejects.toBeInstanceOf(StaleAssistantInvocationError);
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  it('aborts an in-flight call and discards its result when the active page changes', async () => {
+    let resolve!: (value: string) => void;
+    const observedSignal = vi.fn();
+    const registry = createAssistantSurfaceRegistry();
+    registry.register(
+      fixture({
+        pageInstanceKey: 'tab-a',
+        revision: () => 'record-a',
+        execute: (_input, context) => {
+          observedSignal(context.signal);
+          return new Promise<string>((accept) => {
+            resolve = accept;
+          });
+        },
+      }),
+    );
+    registry.register(fixture({ pageInstanceKey: 'tab-b', revision: () => 'record-b' }));
+    registry.activate('tab-a');
+    const token = registry.snapshot()!.token;
+    const pending = registry.invoke({ id: 'call-1', code: 'form.patch-draft', input: 'value' }, token);
+
+    registry.activate('tab-b');
+    resolve('late result');
+
+    await expect(pending).rejects.toMatchObject({ name: 'AbortError' });
+    expect(observedSignal.mock.calls[0][0].aborted).toBe(true);
+  });
+
+  it('discards an in-flight passive result when the same surface context changes', async () => {
+    let revision = 'record-a';
+    let resolve!: (value: string) => void;
+    const registry = createAssistantSurfaceRegistry();
+    registry.register(
+      fixture({
+        pageInstanceKey: 'tab-a',
+        revision: () => revision,
+        execute: () => new Promise<string>((accept) => (resolve = accept)),
+      }),
+    );
+    registry.activate('tab-a');
+    const pending = registry.invoke(
+      { id: 'call-1', code: 'form.patch-draft', input: 'value' },
+      registry.snapshot()!.token,
+    );
+
+    revision = 'record-b';
+    resolve('late result');
+
+    await expect(pending).rejects.toBeInstanceOf(StaleAssistantInvocationError);
+  });
+
+  it('accepts a context change produced through the guarded effect boundary', async () => {
+    let revision = 'draft-before';
+    const registry = createAssistantSurfaceRegistry();
+    registry.register(
+      fixture({
+        pageInstanceKey: 'tab-a',
+        revision: () => revision,
+        execute: async (_input, context) => {
+          context.applyEffect(() => {
+            revision = 'draft-after';
+          });
+          return 'changed';
+        },
+      }),
+    );
+    registry.activate('tab-a');
+
+    await expect(
+      registry.invoke({ id: 'call-1', code: 'form.patch-draft', input: 'value' }, registry.snapshot()!.token),
+    ).resolves.toEqual({ value: 'changed', contextChanged: true });
+  });
+
+  it('discards a result when context drifts again after the guarded effect', async () => {
+    let revision = 'draft-before';
+    let resolve!: (value: string) => void;
+    const registry = createAssistantSurfaceRegistry();
+    registry.register(
+      fixture({
+        pageInstanceKey: 'tab-a',
+        revision: () => revision,
+        execute: async (_input, context) => {
+          context.applyEffect(() => {
+            revision = 'draft-after-effect';
+          });
+          return new Promise<string>((accept) => (resolve = accept));
+        },
+      }),
+    );
+    registry.activate('tab-a');
+    const pending = registry.invoke(
+      { id: 'call-1', code: 'form.patch-draft', input: 'value' },
+      registry.snapshot()!.token,
+    );
+
+    revision = 'draft-after-user-edit';
+    resolve('stale result');
+
+    await expect(pending).rejects.toBeInstanceOf(StaleAssistantInvocationError);
+  });
+
+  it('discards a result when explicitly cancelled after the guarded effect', async () => {
+    let revision = 'draft-before';
+    let resolve!: (value: string) => void;
+    const registry = createAssistantSurfaceRegistry();
+    registry.register(
+      fixture({
+        pageInstanceKey: 'tab-a',
+        revision: () => revision,
+        execute: async (_input, context) => {
+          context.applyEffect(() => {
+            revision = 'draft-after-effect';
+          });
+          return new Promise<string>((accept) => (resolve = accept));
+        },
+      }),
+    );
+    registry.activate('tab-a');
+    const cancellation = new AbortController();
+    const pending = registry.invoke(
+      { id: 'call-1', code: 'form.patch-draft', input: 'value' },
+      registry.snapshot()!.token,
+      cancellation.signal,
+    );
+
+    cancellation.abort();
+    resolve('cancelled result');
+
+    await expect(pending).rejects.toMatchObject({ name: 'AbortError' });
+  });
+
+  it('uses the active surface opaque turn requester', async () => {
+    const requestTurn = vi.fn(async () => ({
+      text: 'tenant scoped',
+      toolCalls: [],
+      finishReason: 'stop',
+    }));
+    const registry = createAssistantSurfaceRegistry();
+    registry.register(fixture({ pageInstanceKey: 'tab-a', revision: () => 'record-a', requestTurn }));
+    registry.activate('tab-a');
+    const snapshot = registry.snapshot()!;
+
+    const result = await registry.requestTurn({ message: 'hello' }, snapshot.token);
+
+    expect(result.text).toBe('tenant scoped');
+    expect(requestTurn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: 'hello',
+        context: snapshot.context,
+        capabilities: snapshot.capabilities,
+      }),
+      expect.any(AbortSignal),
+    );
+  });
+
+  it('discards a completed operation after explicit cancellation', async () => {
+    let resolve!: (value: string) => void;
+    const registry = createAssistantSurfaceRegistry();
+    registry.register(
+      fixture({
+        pageInstanceKey: 'tab-a',
+        revision: () => 'record-a',
+        execute: () => new Promise<string>((accept) => (resolve = accept)),
+      }),
+    );
+    registry.activate('tab-a');
+    const cancellation = new AbortController();
+    const pending = registry.invoke(
+      { id: 'call-1', code: 'form.patch-draft', input: 'value' },
+      registry.snapshot()!.token,
+      cancellation.signal,
+    );
+
+    cancellation.abort();
+    resolve('late result');
+
+    await expect(pending).rejects.toMatchObject({ name: 'AbortError' });
+  });
+});

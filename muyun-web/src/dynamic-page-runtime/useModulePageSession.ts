@@ -359,6 +359,20 @@ export function useModulePageSession(
     loading: detailLoading,
     loadFailed: detailLoadFailed,
   } = detail;
+  const assistantContextRevision = ref(0);
+  watch(
+    [
+      () => selectedRecord.value?.id,
+      () => selectedRecord.value?.version,
+      editingRecord,
+      editorMode,
+      formSessionKey,
+    ],
+    () => {
+      assistantContextRevision.value += 1;
+    },
+    { deep: true, flush: 'sync' },
+  );
   // RecordFormFields owns parser and renderer diagnostics. Persist only its
   // validity fact here; the host remains responsible for the save boundary.
   const deleting = ref(false);
@@ -3535,6 +3549,7 @@ export function useModulePageSession(
     detailDisplayFields,
     formFields,
     formSessionKey,
+    assistantContextRevision,
     formValidationRequestKey,
     referencePickerConfigs,
     runtimeUiDescriptor,

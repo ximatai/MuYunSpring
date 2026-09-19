@@ -17,6 +17,8 @@ import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.LinkedHashMap;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
@@ -24,6 +26,9 @@ import java.util.Objects;
 @Service
 final class OpenAiCompatibleModelClient implements AiModelClient {
     private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(60);
+    private static final int MAX_STRUCTURED_RESPONSE_BYTES = 1_048_576;
+    private static final int MAX_TOOL_CALLS = 8;
+    private static final int MAX_TOOL_ARGUMENT_BYTES = 65_536;
 
     private final HttpClient httpClient;
     private final ObjectMapper objectMapper;
@@ -93,6 +98,36 @@ final class OpenAiCompatibleModelClient implements AiModelClient {
         }
     }
 
+    @Override
+    public AiTurnResponse complete(ResolvedAiModelRoute route, AiTurnRequest request) {
+        try {
+            HttpResponse<InputStream> response = httpClient.send(turnRequest(route, request),
+                    HttpResponse.BodyHandlers.ofInputStream());
+            final JsonNode root;
+            try (InputStream body = response.body()) {
+                requireSuccess(response.statusCode());
+                root = readResponseObject(readBoundedStructuredBody(body),
+                        "AI model returned an invalid structured response");
+            }
+            JsonNode choice = root.path("choices").path(0);
+            JsonNode message = choice.path("message");
+            List<AiToolCall> calls = toolCalls(message.path("tool_calls"), request.tools());
+            String text = textOrNull(message.path("content"));
+            if ((text == null || text.isBlank()) && calls.isEmpty()) {
+                throw new PlatformException("AI model structured response contains neither text nor tool calls");
+            }
+            return new AiTurnResponse(text, calls, textOrNull(choice.path("finish_reason")),
+                    response.headers().firstValue("x-request-id").orElse(null));
+        } catch (PlatformException exception) {
+            throw exception;
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new PlatformException("AI model structured request interrupted", exception);
+        } catch (Exception exception) {
+            throw new PlatformException("AI model structured request failed", exception);
+        }
+    }
+
     /** Error payloads may contain provider details; never expose them through platform exceptions. */
     private boolean consumeStreamEvent(StringBuilder data, AiTextStreamConsumer consumer) {
         String payload = data.toString().trim();
@@ -140,6 +175,93 @@ final class OpenAiCompatibleModelClient implements AiModelClient {
                 .header("Authorization", "Bearer " + route.apiKey())
                 .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(body), StandardCharsets.UTF_8))
                 .build();
+    }
+
+    private HttpRequest turnRequest(ResolvedAiModelRoute route, AiTurnRequest request) throws Exception {
+        if (route.protocol() != AiModelProtocol.OPENAI_COMPATIBLE) {
+            throw new PlatformException("AI model protocol is not supported: " + route.protocol());
+        }
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("model", route.modelId());
+        body.put("messages", request.messages().stream().map(message -> Map.of(
+                "role", message.role().name().toLowerCase(java.util.Locale.ROOT), "content", message.content())).toList());
+        if (!request.tools().isEmpty()) {
+            List<Map<String, Object>> tools = new ArrayList<>();
+            for (int index = 0; index < request.tools().size(); index++) {
+                AiToolDefinition tool = request.tools().get(index);
+                tools.add(Map.of("type", "function", "function", Map.of(
+                        "name", providerToolName(index),
+                        "description", tool.description(),
+                        "parameters", tool.inputSchema())));
+            }
+            body.put("tools", tools);
+        }
+        if (request.temperature() != null) body.put("temperature", request.temperature());
+        if (request.maxOutputTokens() != null) body.put("max_tokens", request.maxOutputTokens());
+        return HttpRequest.newBuilder(URI.create(route.chatCompletionsUrl()))
+                .timeout(REQUEST_TIMEOUT)
+                .header("Content-Type", "application/json")
+                .header("Authorization", "Bearer " + route.apiKey())
+                .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(body), StandardCharsets.UTF_8))
+                .build();
+    }
+
+    private List<AiToolCall> toolCalls(JsonNode nodes, List<AiToolDefinition> tools) {
+        if (nodes == null || nodes.isMissingNode() || nodes.isNull()) return List.of();
+        if (!nodes.isArray()) throw new PlatformException("AI model returned invalid tool calls");
+        if (nodes.size() > MAX_TOOL_CALLS) throw new PlatformException("AI model returned too many tool calls");
+        List<AiToolCall> result = new ArrayList<>();
+        for (JsonNode node : nodes) {
+            String id = textOrNull(node.path("id"));
+            JsonNode function = node.path("function");
+            String name = textOrNull(function.path("name"));
+            int index = providerToolIndex(name, tools.size());
+            String argumentsJson = textOrNull(function.path("arguments"));
+            if (id == null || argumentsJson == null) throw new PlatformException("AI model returned invalid tool calls");
+            if (argumentsJson.getBytes(StandardCharsets.UTF_8).length > MAX_TOOL_ARGUMENT_BYTES) {
+                throw new PlatformException("AI model returned oversized tool arguments");
+            }
+            JsonNode arguments = readJsonObject(argumentsJson, "AI model returned invalid tool arguments");
+            @SuppressWarnings("unchecked")
+            Map<String, Object> values = objectMapper.convertValue(arguments, Map.class);
+            result.add(new AiToolCall(id, tools.get(index).code(), values));
+        }
+        return List.copyOf(result);
+    }
+
+    private String readBoundedStructuredBody(InputStream input) throws IOException {
+        byte[] bytes = input.readNBytes(MAX_STRUCTURED_RESPONSE_BYTES + 1);
+        if (bytes.length > MAX_STRUCTURED_RESPONSE_BYTES) {
+            throw new PlatformException("AI model returned an oversized structured response");
+        }
+        return new String(bytes, StandardCharsets.UTF_8);
+    }
+
+    private String providerToolName(int index) {
+        return "capability_" + index;
+    }
+
+    private JsonNode readJsonObject(String payload, String invalidMessage) {
+        try {
+            JsonNode value = objectMapper.readTree(payload);
+            if (value != null && value.isObject()) return value;
+        } catch (IOException ignored) {
+            // Provider arguments are untrusted; diagnostics may contain their content.
+        }
+        throw new PlatformException(invalidMessage);
+    }
+
+    private int providerToolIndex(String name, int toolCount) {
+        if (name == null || !name.startsWith("capability_")) {
+            throw new PlatformException("AI model requested an undeclared tool");
+        }
+        try {
+            int index = Integer.parseInt(name.substring("capability_".length()));
+            if (index < 0 || index >= toolCount) throw new PlatformException("AI model requested an undeclared tool");
+            return index;
+        } catch (NumberFormatException exception) {
+            throw new PlatformException("AI model requested an undeclared tool");
+        }
     }
 
     private void requireSuccess(int statusCode) {

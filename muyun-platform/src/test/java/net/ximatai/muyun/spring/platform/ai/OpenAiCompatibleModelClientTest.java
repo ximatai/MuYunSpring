@@ -12,6 +12,8 @@ import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -104,6 +106,95 @@ class OpenAiCompatibleModelClientTest {
                 client.stream(route(), AiTextRequest.userText("hello"), delta -> {
                     throw new AssertionError("failed response must not produce deltas");
                 })).hasMessageContaining("HTTP status 429").hasNoCause().hasMessageNotContaining("private-provider-detail");
+    }
+
+    @Test
+    void mapsCapabilityCodesToProviderSafeNamesAndRestoresStructuredCalls() throws Exception {
+        AtomicReference<String> requestBody = new AtomicReference<>();
+        server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/v1/chat/completions", exchange -> {
+            requestBody.set(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
+            byte[] body = ("{\"choices\":[{\"message\":{\"content\":null,\"tool_calls\":["
+                    + "{\"id\":\"call-1\",\"type\":\"function\",\"function\":{"
+                    + "\"name\":\"capability_0\",\"arguments\":\"{\\\"query\\\":\\\"Alice\\\","
+                    + "\\\"optional\\\":null,\\\"error\\\":\\\"business fact\\\"}\"}}]},"
+                    + "\"finish_reason\":\"tool_calls\"}]}").getBytes(StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().add("x-request-id", "request-structured");
+            exchange.sendResponseHeaders(200, body.length);
+            exchange.getResponseBody().write(body);
+            exchange.close();
+        });
+        server.start();
+        AiTurnRequest request = new AiTurnRequest(
+                List.of(new AiChatMessage(AiChatMessage.Role.USER, "find Alice")),
+                List.of(new AiToolDefinition("workbench.find-menu", "Find a visible menu",
+                        Map.of("type", "object", "properties", Map.of("query", Map.of("type", "string"))))),
+                null, 512);
+
+        AiTurnResponse response = new OpenAiCompatibleModelClient(new ObjectMapper()).complete(route(), request);
+
+        assertThat(requestBody.get()).contains("\"name\":\"capability_0\"")
+                .doesNotContain("workbench.find-menu");
+        assertThat(response.toolCalls()).singleElement().satisfies(call -> {
+            assertThat(call.id()).isEqualTo("call-1");
+            assertThat(call.code()).isEqualTo("workbench.find-menu");
+            assertThat(call.arguments()).containsEntry("query", "Alice")
+                    .containsEntry("error", "business fact").containsKey("optional");
+            assertThat(call.arguments().get("optional")).isNull();
+        });
+        assertThat(response.finishReason()).isEqualTo("tool_calls");
+        assertThat(response.requestId()).isEqualTo("request-structured");
+    }
+
+    @Test
+    void rejectsProviderToolCallsThatWereNotDeclared() throws Exception {
+        OpenAiCompatibleModelClient client = responseClient(200,
+                "{\"choices\":[{\"message\":{\"tool_calls\":[{\"id\":\"call-1\",\"function\":{"
+                        + "\"name\":\"capability_9\",\"arguments\":\"{}\"}}]},\"finish_reason\":\"tool_calls\"}]}");
+        AiTurnRequest request = new AiTurnRequest(List.of(new AiChatMessage(AiChatMessage.Role.USER, "find")),
+                List.of(new AiToolDefinition("workbench.find-menu", "Find menu", Map.of("type", "object"))),
+                null, null);
+
+        assertThatThrownBy(() -> client.complete(route(), request))
+                .isInstanceOf(PlatformException.class)
+                .hasMessageContaining("undeclared tool");
+    }
+
+    @Test
+    void rejectsExcessiveStructuredToolCallsBeforeReturningThemToTheBrowser() throws Exception {
+        String calls = java.util.stream.IntStream.range(0, 9)
+                .mapToObj(index -> "{\"id\":\"call-" + index
+                        + "\",\"function\":{\"name\":\"capability_0\",\"arguments\":\"{}\"}}")
+                .collect(java.util.stream.Collectors.joining(","));
+        OpenAiCompatibleModelClient client = responseClient(200,
+                "{\"choices\":[{\"message\":{\"tool_calls\":[" + calls
+                        + "]},\"finish_reason\":\"tool_calls\"}]}");
+        AiTurnRequest request = new AiTurnRequest(List.of(new AiChatMessage(AiChatMessage.Role.USER, "find")),
+                List.of(new AiToolDefinition("workbench.find-menu", "Find menu", Map.of("type", "object"))),
+                null, null);
+
+        assertThatThrownBy(() -> client.complete(route(), request))
+                .isInstanceOf(PlatformException.class)
+                .hasMessageContaining("too many tool calls");
+    }
+
+    @Test
+    void rejectsOversizedToolArguments() throws Exception {
+        String arguments = "x".repeat(65_537);
+        String encodedArguments = new ObjectMapper().writeValueAsString(Map.of("value", arguments));
+        OpenAiCompatibleModelClient client = responseClient(200,
+                new ObjectMapper().writeValueAsString(Map.of("choices", List.of(Map.of(
+                        "message", Map.of("tool_calls", List.of(Map.of(
+                                "id", "call-1",
+                                "function", Map.of("name", "capability_0", "arguments", encodedArguments)))),
+                        "finish_reason", "tool_calls")))));
+        AiTurnRequest request = new AiTurnRequest(List.of(new AiChatMessage(AiChatMessage.Role.USER, "find")),
+                List.of(new AiToolDefinition("workbench.find-menu", "Find menu", Map.of("type", "object"))),
+                null, null);
+
+        assertThatThrownBy(() -> client.complete(route(), request))
+                .isInstanceOf(PlatformException.class)
+                .hasMessageContaining("oversized tool arguments");
     }
 
     private OpenAiCompatibleModelClient responseClient(int status, String response) throws IOException {

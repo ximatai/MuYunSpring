@@ -239,6 +239,8 @@ export type {
 export {
   applyReferenceDependencyClears,
   childResourceDefaultFormViewCode,
+  decodeDateTimeLocalEditorValue,
+  decodeNumberEditorValue,
   resolveRecordDetailFields,
   resolveRecordFormFieldNames,
   resolveRecordBooleanStatusValue,

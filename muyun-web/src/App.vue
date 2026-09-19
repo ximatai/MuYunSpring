@@ -30,6 +30,7 @@ import {
 import {
   configureModuleContext,
   createAuthClient,
+  createAssistantTurnRequester,
   createMenuClient,
   createLoginContextClient,
   invokeBusinessNotificationRecordAction,
@@ -181,6 +182,7 @@ configureUserPreferenceBackend({
 });
 
 const startup = ref<WorkbenchStartupState>();
+const assistantRequestTurn = createAssistantTurnRequester(createBackendHttpClient());
 const pageRefreshRevisions = ref<Record<string, number>>({});
 const pageCacheGenerations = ref<Record<string, number>>({});
 const pendingTabPageStateDiscards = new Set<string>();
@@ -1285,6 +1287,7 @@ function componentForCommittedRoute(route: RouteLocationNormalizedLoaded): VueCo
       :realtime-status="realtimeStatus"
       :theme-appearance="activeThemeSkin.theme.appearance"
       :locked-tab-keys="lockedTabKeys()"
+      :assistant-request-turn="assistantRequestTurn"
       @select-menu="handleSelectMenu"
       @change-tab="handleChangeTab"
       @close-tab="handleCloseTab"

@@ -1,0 +1,86 @@
+package net.ximatai.muyun.spring.platform.assistant;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import net.ximatai.muyun.spring.common.exception.PlatformException;
+import net.ximatai.muyun.spring.common.identity.CurrentUser;
+import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
+import net.ximatai.muyun.spring.platform.ai.AiModelGateway;
+import net.ximatai.muyun.spring.platform.ai.AiToolDefinition;
+import net.ximatai.muyun.spring.platform.ai.AiToolCall;
+import net.ximatai.muyun.spring.platform.ai.AiTurnRequest;
+import net.ximatai.muyun.spring.platform.ai.AiTurnResponse;
+import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
+
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+
+class AssistantTurnServiceTest {
+    @Test
+    void keepsSystemRulesServerOwnedAndForwardsOnlyDeclaredCapabilities() {
+        AiModelGateway gateway = mock(AiModelGateway.class);
+        AiTurnResponse response = new AiTurnResponse("ready", List.of(), "stop", "request-1");
+        when(gateway.complete(org.mockito.ArgumentMatchers.any())).thenReturn(response);
+        AssistantTurnService service = new AssistantTurnService(gateway, new ObjectMapper());
+        AiToolDefinition capability = new AiToolDefinition("workbench.find-menu", "Find visible menus",
+                Map.of("type", "object"));
+        AssistantTurnCommand command = new AssistantTurnCommand("find customers",
+                Map.of("surface", "workbench"), List.of(capability), List.of());
+
+        try (CurrentUserContext.Scope ignored = CurrentUserContext.use(
+                CurrentUser.tenantUser("user-1", "User", "tenant-1"))) {
+            assertThat(service.turn(command)).isSameAs(response);
+        }
+
+        ArgumentCaptor<AiTurnRequest> request = ArgumentCaptor.forClass(AiTurnRequest.class);
+        verify(gateway).complete(request.capture());
+        assertThat(request.getValue().messages()).hasSize(2);
+        assertThat(request.getValue().messages().getFirst().role().name()).isEqualTo("SYSTEM");
+        assertThat(request.getValue().messages().get(1).content()).contains("find customers", "workbench");
+        assertThat(request.getValue().tools()).containsExactly(capability);
+    }
+
+    @Test
+    void rejectsAnonymousAndUnboundedRequestsBeforeCallingTheModel() {
+        AiModelGateway gateway = mock(AiModelGateway.class);
+        AssistantTurnService service = new AssistantTurnService(gateway, new ObjectMapper());
+        AssistantTurnCommand command = new AssistantTurnCommand("hello", Map.of(), List.of(), List.of());
+
+        assertThatThrownBy(() -> service.turn(command))
+                .isInstanceOf(PlatformException.class)
+                .extracting(error -> ((PlatformException) error).httpStatus()).isEqualTo(401);
+
+        List<AiToolDefinition> tooMany = Collections.nCopies(AssistantTurnService.MAX_CAPABILITIES + 1,
+                new AiToolDefinition("duplicate-is-validated-later", "Capability", Map.of()));
+        try (CurrentUserContext.Scope ignored = CurrentUserContext.use(CurrentUser.systemUser("system", "System"))) {
+            assertThatThrownBy(() -> service.turn(new AssistantTurnCommand("hello", Map.of(), tooMany, List.of())))
+                    .isInstanceOf(PlatformException.class)
+                    .hasMessageContaining("too many capabilities");
+        }
+    }
+
+    @Test
+    void rejectsCapabilityCallsOutsideTheDeclaredBoundedCatalog() {
+        AiModelGateway gateway = mock(AiModelGateway.class);
+        when(gateway.complete(org.mockito.ArgumentMatchers.any())).thenReturn(
+                new AiTurnResponse(null,
+                        List.of(new AiToolCall("call-1", "undeclared.capability", Map.of())),
+                        "tool_calls", "request-1"));
+        AssistantTurnService service = new AssistantTurnService(gateway, new ObjectMapper());
+        AssistantTurnCommand command = new AssistantTurnCommand("find customers", Map.of(),
+                List.of(new AiToolDefinition("workbench.find-menu", "Find menus", Map.of())), List.of());
+
+        try (CurrentUserContext.Scope ignored = CurrentUserContext.use(CurrentUser.systemUser("system", "System"))) {
+            assertThatThrownBy(() -> service.turn(command))
+                    .isInstanceOf(PlatformException.class)
+                    .hasMessageContaining("undeclared capability call");
+        }
+    }
+}

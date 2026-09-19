@@ -1,4 +1,8 @@
 export { default as ModulePageHost } from './ModulePageHost.vue';
+export {
+  createModulePageAssistantSurface,
+  modulePageAssistantContextRevision,
+} from './modulePageAssistantSurface';
 export { default as DynamicModulePage } from './DynamicModulePage.vue';
 export { default as DynamicModuleWorkspaceDetailView } from './DynamicModuleWorkspaceDetailView.vue';
 export { default as ModuleReferenceRecordDetailBrowser } from './ModuleReferenceRecordDetailBrowser.vue';
