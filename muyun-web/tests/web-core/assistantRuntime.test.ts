@@ -131,6 +131,56 @@ it('continues from a fresh surface after an effect and stops on the final model 
   );
 });
 
+it('keeps prior dialogue on every tool step while refreshing page facts', async () => {
+  let revision = 'before';
+  const requestTurn = vi
+    .fn()
+    .mockResolvedValueOnce({
+      toolCalls: [{ id: 'call-1', code: 'page.change', input: {} }],
+      finishReason: 'tool_calls',
+    })
+    .mockResolvedValueOnce({ text: 'continued', toolCalls: [], finishReason: 'stop' });
+  const registry = createAssistantSurfaceRegistry();
+  registry.register({
+    pageInstanceKey: 'tab-a',
+    contextRevision: () => revision,
+    surface: {
+      describe: () => ({ surface: 'page', facts: { revision } }),
+      capabilities: () => [
+        {
+          descriptor: { code: 'page.change', description: 'Change page', inputSchema: {} },
+          parseInput: (input) => input,
+          async execute(_input, context) {
+            context.applyEffect(() => {
+              revision = 'after';
+            });
+            return { changed: true };
+          },
+        },
+      ],
+      requestTurn,
+    },
+  });
+  registry.activate('tab-a');
+  const history = [
+    { role: 'user' as const, text: '我要处理一项业务' },
+    { role: 'assistant' as const, text: '请补充目标范围。' },
+  ];
+
+  await runAssistantConversation(registry, '处理当前记录', { history });
+
+  expect(requestTurn).toHaveBeenNthCalledWith(
+    1,
+    expect.objectContaining({ history, context: expect.objectContaining({ facts: { revision: 'before' } }) }),
+    expect.any(AbortSignal),
+  );
+  expect(requestTurn).toHaveBeenNthCalledWith(
+    2,
+    expect.objectContaining({ history, context: expect.objectContaining({ facts: { revision: 'after' } }) }),
+    expect.any(AbortSignal),
+  );
+});
+
 it('preserves successful steps when a later model follow-up fails', async () => {
   const requestTurn = vi
     .fn()

@@ -45,6 +45,36 @@ it('submits a user request and renders the final assistant response', async () =
   expect(wrapper.text()).toContain('已经找到对应页面');
 });
 
+it('continues a broad user goal after clarification with bounded dialogue history', async () => {
+  const requestTurn = vi
+    .fn()
+    .mockResolvedValueOnce({ text: '请告诉我要在哪个租户新增职员。', toolCalls: [] })
+    .mockResolvedValueOnce({ text: '我会继续处理新增职员。', toolCalls: [] });
+  const wrapper = mount(WorkbenchAssistantPanel, {
+    props: { open: true, registry: createRegistry(requestTurn) },
+  });
+
+  await wrapper.get('textarea').setValue('我要新增一名职员，帮我做');
+  await wrapper.get('button.ant-btn-primary').trigger('click');
+  await flushPromises();
+  await wrapper.get('textarea').setValue('演示租户');
+  await wrapper.get('button.ant-btn-primary').trigger('click');
+  await flushPromises();
+
+  expect(requestTurn).toHaveBeenNthCalledWith(
+    2,
+    expect.objectContaining({
+      message: '演示租户',
+      history: [
+        { role: 'user', text: '我要新增一名职员，帮我做' },
+        { role: 'assistant', text: '请告诉我要在哪个租户新增职员。' },
+      ],
+    }),
+    expect.any(AbortSignal),
+    expect.any(Object),
+  );
+});
+
 it('renders streamed assistant text before the terminal turn arrives without duplicating it', async () => {
   let complete!: (value: { text: string; toolCalls: never[]; finishReason: string }) => void;
   const requestTurn: AssistantTurnRequester = vi.fn((_input, _signal, progress) => {
@@ -108,6 +138,38 @@ it('cancels an in-flight request from the panel', async () => {
   await flushPromises();
 
   expect(wrapper.text()).toContain('已停止本次操作');
+});
+
+it('does not carry a cancelled goal into the next user request', async () => {
+  const requestTurn = vi
+    .fn()
+    .mockImplementationOnce(
+      (_input, signal: AbortSignal) =>
+        new Promise<{ toolCalls: never[] }>((_resolve, reject) => {
+          signal.addEventListener('abort', () => reject(new DOMException('cancelled', 'AbortError')), {
+            once: true,
+          });
+        }),
+    )
+    .mockResolvedValueOnce({ text: '当前页面是职员管理。', toolCalls: [] });
+  const wrapper = mount(WorkbenchAssistantPanel, {
+    props: { open: true, registry: createRegistry(requestTurn) },
+  });
+
+  await wrapper.get('textarea').setValue('删除当前职员');
+  await wrapper.get('button.ant-btn-primary').trigger('click');
+  await wrapper.get('.assistant-panel__actions button').trigger('click');
+  await flushPromises();
+  await wrapper.get('textarea').setValue('当前是什么页面？');
+  await wrapper.get('button.ant-btn-primary').trigger('click');
+  await flushPromises();
+
+  expect(requestTurn).toHaveBeenNthCalledWith(
+    2,
+    expect.objectContaining({ message: '当前是什么页面？', history: [] }),
+    expect.any(AbortSignal),
+    expect.any(Object),
+  );
 });
 
 it('does not report a read-only result as a completed page operation', async () => {

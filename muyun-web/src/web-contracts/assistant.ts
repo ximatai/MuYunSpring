@@ -26,8 +26,14 @@ export interface AssistantCapabilityResult {
   };
 }
 
+export interface AssistantConversationMessage {
+  role: 'user' | 'assistant';
+  text: string;
+}
+
 export interface AssistantTurnInput {
   message: string;
+  history?: AssistantConversationMessage[];
   context: AssistantSurfaceContext;
   capabilities: AssistantCapabilityDescriptor[];
   results?: AssistantCapabilityResult[];

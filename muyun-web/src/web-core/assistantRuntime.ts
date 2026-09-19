@@ -1,4 +1,8 @@
-import type { AssistantCapabilityResult, AssistantTurnOutput } from '@muyun/web-contracts';
+import type {
+  AssistantCapabilityResult,
+  AssistantConversationMessage,
+  AssistantTurnOutput,
+} from '@muyun/web-contracts';
 import {
   StaleAssistantInvocationError,
   type AssistantInvocationToken,
@@ -24,6 +28,8 @@ interface InternalAssistantRuntimeStepResult extends AssistantRuntimeStepResult 
 export interface AssistantConversationOptions {
   signal?: AbortSignal;
   maxSteps?: number;
+  /** Completed dialogue before the current user message. */
+  history?: AssistantConversationMessage[];
   onStep?(step: AssistantRuntimeStepResult): void | Promise<void>;
   onTextDelta?(text: string, stepIndex: number): void;
   onTextDiscard?(stepIndex: number): void;
@@ -80,6 +86,7 @@ export async function runAssistantConversation(
       step = await runAssistantStepWithSuccessfulCalls(
         registry,
         message,
+        options.history ?? [],
         results,
         options.signal,
         successfulCalls,
@@ -154,7 +161,7 @@ export async function runAssistantStep(
   signal?: AbortSignal,
 ): Promise<AssistantRuntimeStepResult> {
   return toPublicStep(
-    await runAssistantStepWithSuccessfulCalls(registry, message, previousResults, signal, new Map()),
+    await runAssistantStepWithSuccessfulCalls(registry, message, [], previousResults, signal, new Map()),
   );
 }
 
@@ -170,6 +177,7 @@ function toPublicStep(step: InternalAssistantRuntimeStepResult): AssistantRuntim
 async function runAssistantStepWithSuccessfulCalls(
   registry: AssistantSurfaceRegistry,
   message: string,
+  history: AssistantConversationMessage[],
   previousResults: AssistantCapabilityResult[],
   signal: AbortSignal | undefined,
   successfulCalls: Map<string, AssistantCapabilityResult>,
@@ -180,10 +188,10 @@ async function runAssistantStepWithSuccessfulCalls(
   let output: AssistantTurnOutput;
   try {
     output = onTextDelta
-      ? await registry.requestTurn({ message, results: previousResults }, snapshot.token, signal, {
+      ? await registry.requestTurn({ message, history, results: previousResults }, snapshot.token, signal, {
           onTextDelta,
         })
-      : await registry.requestTurn({ message, results: previousResults }, snapshot.token, signal);
+      : await registry.requestTurn({ message, history, results: previousResults }, snapshot.token, signal);
   } catch (error) {
     if (!signal?.aborted && (error instanceof StaleAssistantInvocationError || isAbortError(error))) {
       throw new AssistantDecisionContextChangedError(snapshot.token);

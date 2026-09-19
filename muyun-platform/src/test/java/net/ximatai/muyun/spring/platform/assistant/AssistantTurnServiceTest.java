@@ -5,6 +5,7 @@ import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.identity.CurrentUser;
 import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
 import net.ximatai.muyun.spring.platform.ai.AiModelGateway;
+import net.ximatai.muyun.spring.platform.ai.AiChatMessage;
 import net.ximatai.muyun.spring.platform.ai.AiToolDefinition;
 import net.ximatai.muyun.spring.platform.ai.AiToolCall;
 import net.ximatai.muyun.spring.platform.ai.AiTurnRequest;
@@ -126,6 +127,59 @@ class AssistantTurnServiceTest {
         assertThat(request.getValue().messages().getFirst().role().name()).isEqualTo("SYSTEM");
         assertThat(request.getValue().messages().get(1).content()).contains("find customers", "workbench");
         assertThat(request.getValue().tools()).containsExactly(capability);
+    }
+
+    @Test
+    void preservesBoundedDialogueRolesBeforeTheCurrentPageAwareMessage() {
+        AiModelGateway gateway = mock(AiModelGateway.class);
+        when(gateway.complete(org.mockito.ArgumentMatchers.any())).thenReturn(
+                new AiTurnResponse("ready", List.of(), "stop", "request-history"));
+        AssistantTurnService service = new AssistantTurnService(gateway, new ObjectMapper());
+        AssistantTurnCommand command = new AssistantTurnCommand("演示租户",
+                List.of(
+                        new AssistantConversationMessage(AssistantConversationMessage.Role.USER,
+                                "我要新增一名职员，帮我做"),
+                        new AssistantConversationMessage(AssistantConversationMessage.Role.ASSISTANT,
+                                "请告诉我要在哪个租户新增职员。")
+                ),
+                Map.of("surface", "employee"), List.of(), List.of());
+
+        try (CurrentUserContext.Scope ignored = CurrentUserContext.use(CurrentUser.systemUser("system", "System"))) {
+            service.turn(command);
+        }
+
+        ArgumentCaptor<AiTurnRequest> request = ArgumentCaptor.forClass(AiTurnRequest.class);
+        verify(gateway).complete(request.capture());
+        assertThat(request.getValue().messages()).extracting(AiChatMessage::role)
+                .containsExactly(AiChatMessage.Role.SYSTEM, AiChatMessage.Role.USER,
+                        AiChatMessage.Role.ASSISTANT, AiChatMessage.Role.USER);
+        assertThat(request.getValue().messages().get(1).content()).isEqualTo("我要新增一名职员，帮我做");
+        assertThat(request.getValue().messages().get(2).content()).contains("在哪个租户");
+        assertThat(request.getValue().messages().get(3).content()).contains("演示租户", "employee");
+        assertThat(request.getValue().messages().getFirst().content())
+                .contains("goal without breaking it into operational steps", "ask one concise clarification");
+    }
+
+    @Test
+    void rejectsUnboundedDialogueHistory() {
+        AiModelGateway gateway = mock(AiModelGateway.class);
+        AssistantTurnService service = new AssistantTurnService(gateway, new ObjectMapper());
+        List<AssistantConversationMessage> tooMany = Collections.nCopies(
+                AssistantTurnService.MAX_HISTORY_MESSAGES + 1,
+                new AssistantConversationMessage(AssistantConversationMessage.Role.USER, "continue"));
+
+        try (CurrentUserContext.Scope ignored = CurrentUserContext.use(CurrentUser.systemUser("system", "System"))) {
+            assertThatThrownBy(() -> service.turn(
+                    new AssistantTurnCommand("continue", tooMany, Map.of(), List.of(), List.of())))
+                    .isInstanceOf(PlatformException.class)
+                    .hasMessageContaining("too many history messages");
+            assertThatThrownBy(() -> service.turn(new AssistantTurnCommand("continue",
+                    List.of(new AssistantConversationMessage(AssistantConversationMessage.Role.USER,
+                            "x".repeat(AssistantTurnService.MAX_HISTORY_MESSAGE_LENGTH + 1))),
+                    Map.of(), List.of(), List.of())))
+                    .isInstanceOf(PlatformException.class)
+                    .hasMessageContaining("history message is too long");
+        }
     }
 
     @Test

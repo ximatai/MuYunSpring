@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { nextTick, ref } from 'vue';
 import { UiButton, UiIcon, UiTextArea } from '@muyun/vue-ui-antdv';
+import type { AssistantConversationMessage } from '@muyun/web-contracts';
 import {
   AssistantConversationFollowUpError,
   runAssistantConversation,
@@ -27,11 +28,15 @@ interface ConversationItem {
 
 const draft = ref('');
 const items = ref<ConversationItem[]>([]);
+const completedHistory = ref<AssistantConversationMessage[]>([]);
 const busy = ref(false);
 let nextItemId = 0;
 let controller: AbortController | undefined;
 let streamingItemId: number | undefined;
 let pendingStreamText = '';
+const MAX_HISTORY_MESSAGES = 12;
+const MAX_HISTORY_MESSAGE_LENGTH = 4_000;
+const MAX_HISTORY_LENGTH = 16_000;
 
 function append(role: ConversationItem['role'], text: string) {
   const normalized = text.trim();
@@ -42,13 +47,16 @@ function append(role: ConversationItem['role'], text: string) {
 async function submit() {
   const message = draft.value.trim();
   if (!message || busy.value || !props.registry.snapshot()) return;
+  const history = conversationHistory();
   draft.value = '';
   append('user', message);
   busy.value = true;
   controller = new AbortController();
+  const assistantTexts: string[] = [];
   try {
     const result = await runAssistantConversation(props.registry, message, {
       signal: controller.signal,
+      history,
       onTextDelta(text) {
         if (!text) return;
         if (streamingItemId === undefined) {
@@ -72,7 +80,10 @@ async function submit() {
         pendingStreamText = '';
       },
       onStep(step) {
-        if (step.output.text && streamingItemId === undefined) append('assistant', step.output.text);
+        if (step.output.text) {
+          assistantTexts.push(step.output.text);
+          if (streamingItemId === undefined) append('assistant', step.output.text);
+        }
         streamingItemId = undefined;
         pendingStreamText = '';
         if (step.results.length > 0) {
@@ -86,9 +97,15 @@ async function submit() {
     else if (result.steps.every((step) => !step.output.text)) {
       const applied = result.steps.reduce((total, step) => total + step.appliedEffectCount, 0);
       const succeeded = result.steps.some((step) => step.results.some((candidate) => !candidate.error));
-      if (applied > 0) append('assistant', '页面操作已完成，请检查当前页面。');
-      else if (succeeded) append('assistant', '信息已读取，但未生成可展示的说明，请重新提问。');
+      if (applied > 0) {
+        append('assistant', '页面操作已完成，请检查当前页面。');
+        assistantTexts.push('页面操作已完成，请检查当前页面。');
+      } else if (succeeded) {
+        append('assistant', '信息已读取，但未生成可展示的说明，请重新提问。');
+        assistantTexts.push('信息已读取，但未生成可展示的说明，请重新提问。');
+      }
     }
+    if (result.completed) commitConversation(message, assistantTexts);
   } catch (error) {
     if (isAbortError(error)) append('status', '已停止本次操作。');
     else if (error instanceof StaleAssistantInvocationError) {
@@ -107,6 +124,34 @@ async function submit() {
     busy.value = false;
     await nextTick();
   }
+}
+
+function conversationHistory(): AssistantConversationMessage[] {
+  return boundedHistory(completedHistory.value);
+}
+
+function commitConversation(message: string, assistantTexts: string[]) {
+  completedHistory.value = boundedHistory([
+    ...completedHistory.value,
+    { role: 'user', text: message },
+    ...assistantTexts.map((text): AssistantConversationMessage => ({ role: 'assistant', text })),
+  ]);
+}
+
+function boundedHistory(history: AssistantConversationMessage[]): AssistantConversationMessage[] {
+  const candidates = history
+    .slice(-MAX_HISTORY_MESSAGES)
+    .map(({ role, text }) => ({ role, text: text.slice(0, MAX_HISTORY_MESSAGE_LENGTH) }));
+  const selected: AssistantConversationMessage[] = [];
+  let length = 0;
+  for (let index = candidates.length - 1; index >= 0; index -= 1) {
+    const candidate = candidates[index]!;
+    if (length + candidate.text.length > MAX_HISTORY_LENGTH) break;
+    selected.unshift(candidate);
+    length += candidate.text.length;
+  }
+  if (selected[0]?.role === 'assistant') selected.shift();
+  return selected;
 }
 
 function capabilityResultStatus(succeeded: number, failed: number, applied: number) {

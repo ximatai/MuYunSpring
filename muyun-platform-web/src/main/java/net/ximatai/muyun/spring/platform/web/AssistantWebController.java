@@ -8,6 +8,7 @@ import net.ximatai.muyun.spring.platform.ai.AiTurnStreamConsumer;
 import net.ximatai.muyun.spring.platform.ai.AiToolCall;
 import net.ximatai.muyun.spring.platform.ai.AiToolDefinition;
 import net.ximatai.muyun.spring.platform.assistant.AssistantCapabilityResult;
+import net.ximatai.muyun.spring.platform.assistant.AssistantConversationMessage;
 import net.ximatai.muyun.spring.platform.assistant.AssistantTurnCommand;
 import net.ximatai.muyun.spring.platform.assistant.AssistantTurnService;
 import net.ximatai.muyun.spring.web.WebRequestContext;
@@ -24,6 +25,7 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -126,7 +128,9 @@ public class AssistantWebController {
     }
 
     private static AssistantTurnCommand command(AssistantTurnWebRequest request) {
-        return new AssistantTurnCommand(request.message(), request.context(), request.capabilities(),
+        return new AssistantTurnCommand(request.message(),
+                request.history().stream().map(AssistantConversationMessageWeb::toDomain).toList(),
+                request.context(), request.capabilities(),
                 request.results().stream().map(AssistantCapabilityResultWeb::toDomain).toList());
     }
 
@@ -146,13 +150,36 @@ public class AssistantWebController {
 }
 
 record AssistantTurnWebRequest(String message,
+                               List<AssistantConversationMessageWeb> history,
                                Map<String, Object> context,
                                List<AiToolDefinition> capabilities,
                                List<AssistantCapabilityResultWeb> results) {
     AssistantTurnWebRequest {
+        if (history != null && history.stream().anyMatch(Objects::isNull)) {
+            throw new IllegalArgumentException("assistant history item must not be null");
+        }
+        history = history == null ? List.of() : List.copyOf(history);
         context = context == null ? Map.of() : Collections.unmodifiableMap(new LinkedHashMap<>(context));
         capabilities = capabilities == null ? List.of() : List.copyOf(capabilities);
         results = results == null ? List.of() : List.copyOf(results);
+    }
+
+    AssistantTurnWebRequest(String message, Map<String, Object> context,
+                            List<AiToolDefinition> capabilities,
+                            List<AssistantCapabilityResultWeb> results) {
+        this(message, List.of(), context, capabilities, results);
+    }
+}
+
+record AssistantConversationMessageWeb(String role, String text) {
+    AssistantConversationMessage toDomain() {
+        if (role == null) throw new IllegalArgumentException("assistant history role must not be null");
+        AssistantConversationMessage.Role domainRole = switch (role) {
+            case "user" -> AssistantConversationMessage.Role.USER;
+            case "assistant" -> AssistantConversationMessage.Role.ASSISTANT;
+            default -> throw new IllegalArgumentException("assistant history role is invalid");
+        };
+        return new AssistantConversationMessage(domainRole, text);
     }
 }
 

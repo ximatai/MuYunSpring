@@ -21,6 +21,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -28,6 +29,14 @@ import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 
 class AssistantWebControllerTest {
+    @Test
+    void rejectsNullDialogueItemsAsAValidationError() {
+        assertThatThrownBy(() -> new AssistantTurnWebRequest("continue",
+                java.util.Collections.singletonList(null), Map.of(), List.of(), List.of()))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("history item");
+    }
+
     @Test
     void treatsAnAlreadyDisconnectedEmitterAsACompletedStream() {
         SseEmitter emitter = mock(SseEmitter.class);
@@ -88,6 +97,10 @@ class AssistantWebControllerTest {
                 List.of(new AiToolCall("call-2", "form.patch-draft", Map.of("changes", Map.of("title", "Done")))),
                 "tool_calls", "request-1"));
         AssistantTurnWebRequest request = new AssistantTurnWebRequest("continue",
+                List.of(
+                        new AssistantConversationMessageWeb("user", "我要新增一名职员"),
+                        new AssistantConversationMessageWeb("assistant", "请补充租户")
+                ),
                 Map.of("surface", "module-page"),
                 List.of(new AiToolDefinition("form.patch-draft", "Patch form", Map.of("type", "object"))),
                 List.of(new AssistantCapabilityResultWeb("call-1", "workbench.open-menu",
@@ -100,5 +113,7 @@ class AssistantWebControllerTest {
         ArgumentCaptor<AssistantTurnCommand> command = ArgumentCaptor.forClass(AssistantTurnCommand.class);
         verify(service).turn(command.capture());
         assertThat(command.getValue().results().getFirst().output()).isEqualTo(Map.of("opened", true));
+        assertThat(command.getValue().history()).extracting(item -> item.role().name())
+                .containsExactly("USER", "ASSISTANT");
     }
 }
