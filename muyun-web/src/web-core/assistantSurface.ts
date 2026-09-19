@@ -16,6 +16,8 @@ export interface AssistantCapability<TInput = unknown, TOutput = unknown> {
 
 export interface AssistantCapabilityExecutionContext {
   signal: AbortSignal;
+  /** Explicit caller cancellation; unlike signal, it is not aborted by an expected Surface replacement. */
+  cancellationSignal?: AbortSignal;
   isCurrent(): boolean;
   /** Commit invocation-local guarded state without claiming a user-visible page effect. */
   commitInternalState<T>(commit: () => T): T;
@@ -208,13 +210,15 @@ export function createAssistantSurfaceRegistry(): AssistantSurfaceRegistry {
     async invoke(call, token, signal) {
       const registration = requireCurrent(token);
       const controller = new AbortController();
+      const cancellationController = new AbortController();
       let explicitlyCancelled = signal?.aborted === true;
       const abort = () => {
         explicitlyCancelled = true;
         controller.abort();
+        cancellationController.abort();
       };
       signal?.addEventListener('abort', abort, { once: true });
-      if (signal?.aborted) controller.abort();
+      if (signal?.aborted) abort();
       pending.add(controller);
       return (async () => {
         const capability = registration.surface
@@ -228,6 +232,7 @@ export function createAssistantSurfaceRegistry(): AssistantSurfaceRegistry {
         let effectApplied = false;
         const value = await capability.execute(input, {
           signal: controller.signal,
+          cancellationSignal: cancellationController.signal,
           isCurrent: () => {
             try {
               requireCurrent(token);

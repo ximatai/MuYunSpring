@@ -1,8 +1,15 @@
 import { flushPromises, mount } from '@vue/test-utils';
 import { describe, expect, it } from 'vitest';
+import { defineComponent, h } from 'vue';
 import ModulePageHost from '@/dynamic-page-runtime/ModulePageHost.vue';
 import ModuleBusinessPreview from '@/views/ModuleBusinessPreview.vue';
-import { configureModuleContext, type HttpClient, type HttpRequestOptions } from '@muyun/web-core';
+import {
+  configureModuleContext,
+  createAssistantSurfaceRegistry,
+  provideAssistantSurfaceHost,
+  type HttpClient,
+  type HttpRequestOptions,
+} from '@muyun/web-core';
 import type { MenuPageMode, StandardModulePageDescriptor } from '@muyun/web-contracts';
 
 function descriptor(
@@ -219,6 +226,125 @@ describe('ModulePageHost lifecycle boundaries', () => {
       await flushPromises();
       expect(wrapper.findComponent(queryListStub).exists()).toBe(true);
       expect(tenant.props('selectedId')).toBe('tenant-a');
+    } finally {
+      wrapper.unmount();
+    }
+  });
+
+  it('settles assistant tenant selection only after the replacement business surface is ready', async () => {
+    const http: HttpClient = {
+      async request(options) {
+        if (options.path === '/iam.tenant/navigator/reference/query') {
+          return {
+            records: [
+              { id: 'tenant-a', title: '甲租户' },
+              { id: 'tenant-b', title: '乙租户' },
+            ],
+            total: 2,
+            pageNum: 1,
+            pageSize: 20,
+            pages: 1,
+            totalKnown: true,
+          } as never;
+        }
+        if (options.path === '/crm.customer/query') {
+          return { records: [], total: 0, pageNum: 1, pageSize: 20, pages: 0, totalKnown: true } as never;
+        }
+        const moduleAlias = options.path.split('/')[2] ?? 'unknown';
+        return runtime(moduleAlias, { tenantRequired: moduleAlias === 'crm.customer' }) as never;
+      },
+    };
+    configureModuleContext({ http });
+    const registry = createAssistantSurfaceRegistry();
+    registry.activate('page-1');
+    const Harness = defineComponent({
+      setup() {
+        provideAssistantSurfaceHost({
+          registry,
+          activePageInstanceKey: () => 'page-1',
+        });
+        return () => h(ModulePageHost, { descriptor: descriptor('crm.customer') });
+      },
+    });
+    const wrapper = mount(Harness, { global: { stubs: hostStubs } });
+    try {
+      await flushPromises();
+      await flushPromises();
+      const before = registry.snapshot()!.token;
+      expect(registry.snapshot()!.capabilities.map(({ code }) => code)).toContain('scope.select-tenant');
+
+      await expect(
+        registry.invoke({ id: 'tenant-1', code: 'scope.select-tenant', input: { title: '甲租户' } }, before),
+      ).resolves.toEqual({
+        value: { scope: 'tenant', selectedTitle: '甲租户', changed: true },
+        contextChanged: true,
+      });
+
+      const after = registry.snapshot()!.token;
+      expect(after.pageInstanceKey).toBe('page-1');
+      expect(after.surfaceGeneration).not.toBe(before.surfaceGeneration);
+      expect(wrapper.findComponent(tenantExplorerStub).props('selectedId')).toBe('tenant-a');
+    } finally {
+      wrapper.unmount();
+    }
+  });
+
+  it('cancels assistant tenant settlement while the replacement business session is pending', async () => {
+    let resolveTenantSession!: () => void;
+    const http: HttpClient = {
+      async request(options) {
+        if (options.path === '/iam.tenant/navigator/reference/query') {
+          return {
+            records: [
+              { id: 'tenant-a', title: '甲租户' },
+              { id: 'tenant-b', title: '乙租户' },
+            ],
+            total: 2,
+            pageNum: 1,
+            pageSize: 20,
+            pages: 1,
+            totalKnown: true,
+          } as never;
+        }
+        if (
+          options.path === '/platform.module/crm.customer/context' &&
+          tenantHeader(options) === 'tenant-a'
+        ) {
+          await new Promise<void>((resolve) => {
+            resolveTenantSession = resolve;
+          });
+        }
+        const moduleAlias = options.path.split('/')[2] ?? 'unknown';
+        return runtime(moduleAlias, { tenantRequired: moduleAlias === 'crm.customer' }) as never;
+      },
+    };
+    configureModuleContext({ http });
+    const registry = createAssistantSurfaceRegistry();
+    registry.activate('page-1');
+    const Harness = defineComponent({
+      setup() {
+        provideAssistantSurfaceHost({ registry, activePageInstanceKey: () => 'page-1' });
+        return () => h(ModulePageHost, { descriptor: descriptor('crm.customer') });
+      },
+    });
+    const wrapper = mount(Harness, { global: { stubs: hostStubs } });
+    try {
+      await flushPromises();
+      await flushPromises();
+      const abort = new AbortController();
+      const invocation = registry.invoke(
+        { id: 'tenant-1', code: 'scope.select-tenant', input: { title: '甲租户' } },
+        registry.snapshot()!.token,
+        abort.signal,
+      );
+      const rejection = expect(invocation).rejects.toMatchObject({ name: 'AbortError' });
+      await flushPromises();
+      expect(resolveTenantSession).toBeTypeOf('function');
+      abort.abort();
+
+      await rejection;
+      resolveTenantSession();
+      await flushPromises();
     } finally {
       wrapper.unmount();
     }

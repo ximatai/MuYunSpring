@@ -45,6 +45,13 @@ const assistantHost = useAssistantSurfaceHost();
 let assistantActive = false;
 let assistantPageInstanceKey: string | undefined;
 let unregisterAssistantSurface: (() => void) | undefined;
+interface TenantScopeSettlement {
+  generation: number;
+  tenantId: string;
+  resolve(): void;
+  reject(cause: Error): void;
+}
+const tenantScopeSettlements = new Set<TenantScopeSettlement>();
 const sessionHttp = computed(() => {
   // Every generation gets a fresh transport. Existing sessions retain the one
   // they captured, so late responses cannot bleed into the replacement session.
@@ -57,6 +64,7 @@ function startBusinessSession() {
   generation.value += 1;
   pending.value = true;
   failure.value = undefined;
+  settleTenantScopeWaiters();
 }
 watch([tenantScope, () => props.reloadKey], startBusinessSession, { flush: 'sync' });
 function acceptSession(session: ModulePageSessionView) {
@@ -83,6 +91,65 @@ function clearAssistantSurface() {
   unregisterAssistantSurface?.();
   unregisterAssistantSurface = undefined;
 }
+function settleTenantScopeWaiters() {
+  for (const settlement of tenantScopeSettlements) {
+    if (
+      settlement.generation !== generation.value ||
+      settlement.tenantId !== tenantController.selectedId.value
+    ) {
+      tenantScopeSettlements.delete(settlement);
+      settlement.reject(new Error('Tenant scope selection was replaced before its session became ready'));
+      continue;
+    }
+    if (failure.value) {
+      tenantScopeSettlements.delete(settlement);
+      settlement.reject(new Error(`Tenant scope session failed: ${failure.value}`));
+      continue;
+    }
+    if (!pending.value && unregisterAssistantSurface) {
+      tenantScopeSettlements.delete(settlement);
+      settlement.resolve();
+    }
+  }
+}
+function settleAssistantTenantScopeChange(record: QueryListRecord, signal: AbortSignal) {
+  const tenantId = record.id == null ? '' : String(record.id);
+  const targetGeneration = generation.value;
+  if (!tenantId || tenantController.selectedId.value !== tenantId) {
+    return Promise.reject(new Error('Tenant scope selection is no longer current'));
+  }
+  if (signal.aborted) {
+    return Promise.reject(new DOMException('Assistant invocation was cancelled', 'AbortError'));
+  }
+  return new Promise<void>((resolve, reject) => {
+    let settlement!: TenantScopeSettlement;
+    const cleanup = () => signal.removeEventListener('abort', abort);
+    const abort = () => {
+      tenantScopeSettlements.delete(settlement);
+      cleanup();
+      reject(new DOMException('Assistant invocation was cancelled', 'AbortError'));
+    };
+    settlement = {
+      generation: targetGeneration,
+      tenantId,
+      resolve: () => {
+        cleanup();
+        resolve();
+      },
+      reject: (cause) => {
+        cleanup();
+        reject(cause);
+      },
+    };
+    tenantScopeSettlements.add(settlement);
+    signal.addEventListener('abort', abort, { once: true });
+    settleTenantScopeWaiters();
+  });
+}
+const assistantTenantScope = {
+  ...tenantController,
+  settleTenantScopeChange: settleAssistantTenantScopeChange,
+};
 function syncAssistantSurface() {
   clearAssistantSurface();
   if (
@@ -93,6 +160,7 @@ function syncAssistantSurface() {
     pending.value ||
     failure.value
   ) {
+    settleTenantScopeWaiters();
     return;
   }
   const session = view.value;
@@ -103,8 +171,10 @@ function syncAssistantSurface() {
       session,
       createAssistantTurnRequester(sessionHttp.value),
       () => assistantHost.capabilities?.() ?? [],
+      assistantTenantScope,
     ),
   });
+  settleTenantScopeWaiters();
 }
 function activateAssistantSurface() {
   assistantActive = true;
@@ -114,12 +184,18 @@ function activateAssistantSurface() {
 function deactivateAssistantSurface() {
   assistantActive = false;
   clearAssistantSurface();
+  for (const settlement of tenantScopeSettlements) {
+    tenantScopeSettlements.delete(settlement);
+    settlement.reject(new Error('Tenant scope session was deactivated before it became ready'));
+  }
 }
 watch([view, generation, pending, failure], syncAssistantSurface, { flush: 'post' });
 onMounted(activateAssistantSurface);
 onActivated(activateAssistantSurface);
 onDeactivated(deactivateAssistantSurface);
-onUnmounted(deactivateAssistantSurface);
+onUnmounted(() => {
+  deactivateAssistantSurface();
+});
 defineExpose({ refreshList, retry: startBusinessSession });
 </script>
 

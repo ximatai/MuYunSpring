@@ -15,6 +15,7 @@ import {
 } from '@muyun/platform-components';
 import type { ModulePageSessionView } from './useModulePageSession';
 import { assistantEditableRecordIds, hasActiveRecordEditor } from './assistantRecordEditorPolicy';
+import { modulePageScopeCapabilities, type ModulePageAssistantTenantScope } from './modulePageAssistantScope';
 
 const MAX_ASSISTANT_FORM_CURRENT_VALUE_CHARS = 8_000;
 const MAX_ASSISTANT_REFERENCE_OPTIONS = 10;
@@ -39,6 +40,7 @@ export function createModulePageAssistantSurface(
   view: ModulePageSessionView,
   requestTurn: AssistantTurnRequester,
   contributedCapabilities: () => AssistantCapability[] = () => [],
+  tenantScope?: ModulePageAssistantTenantScope,
 ): AssistantSurface {
   const referenceSelections: AssistantReferenceSelectionState = {
     selections: new Map(),
@@ -47,6 +49,7 @@ export function createModulePageAssistantSurface(
   const capabilities = (): AssistantCapability[] => [
     ...contributedCapabilities(),
     pageDescribeCapability(view),
+    ...modulePageScopeCapabilities(view, tenantScope),
     ...(view.listQueryController ? queryCapabilities(view) : []),
     ...recordEditorCapabilities(view),
     formDescribeCapability(view),

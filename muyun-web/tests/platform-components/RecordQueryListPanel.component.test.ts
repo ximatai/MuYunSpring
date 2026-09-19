@@ -91,6 +91,8 @@ describe('RecordQueryListPanel', () => {
       total: number;
       pageNum: number;
       pageSize: number;
+      pages: number;
+      totalKnown: boolean;
     }) => void;
     context.crud.query = vi
       .fn()
@@ -126,9 +128,58 @@ describe('RecordQueryListPanel', () => {
       total: 1,
       pageNum: 1,
       pageSize: 20,
+      pages: 1,
+      totalKnown: true,
     });
 
     await expect(assistantSearch).rejects.toThrow('Quick search failed');
+  });
+
+  it('cancels a pending query settlement without waiting for the list request', async () => {
+    const context = createContext({ id: 'note-1', title: 'Initial' });
+    const wrapper = shallowMount(RecordQueryListPanel, {
+      props: { context, title: 'Notes', columns: [{ key: 'title', title: 'Title' }] },
+    });
+    await flushPromises();
+    const controller = wrapper.emitted('queryControllerChange')?.[0]?.[0] as RecordQueryListQueryController;
+    let resolveReload!: (value: {
+      records: QueryListRecord[];
+      total: number;
+      pageNum: number;
+      pageSize: number;
+      pages: number;
+      totalKnown: boolean;
+    }) => void;
+    context.crud.query = vi.fn(
+      () =>
+        new Promise<{
+          records: QueryListRecord[];
+          total: number;
+          pageNum: number;
+          pageSize: number;
+          pages: number;
+          totalKnown: boolean;
+        }>((resolve) => {
+          resolveReload = resolve;
+        }),
+    );
+    (wrapper.vm as unknown as { refresh(): void }).refresh();
+    const abort = new AbortController();
+    const settlement = controller.settle!(abort.signal);
+    await Promise.resolve();
+    abort.abort();
+
+    await expect(settlement).rejects.toMatchObject({ name: 'AbortError' });
+    resolveReload({
+      records: [],
+      total: 0,
+      pageNum: 1,
+      pageSize: 20,
+      pages: 0,
+      totalKnown: true,
+    });
+    await flushPromises();
+    wrapper.unmount();
   });
 
   it('keeps a single row click as selection and exposes double click as semantic record activation', async () => {

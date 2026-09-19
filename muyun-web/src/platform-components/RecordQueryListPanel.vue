@@ -9,7 +9,7 @@ export type {
 </script>
 
 <script setup lang="ts">
-import { computed, inject, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { computed, inject, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { confirmAction, UiButton, UiCheckbox, UiDropdown, UiEmpty, UiSpin } from '@muyun/vue-ui-antdv';
 import type {
   UiDataTableColumn,
@@ -285,6 +285,19 @@ const queryOptionItemsByField = ref<Record<string, import('@muyun/web-contracts'
 let schemaRequestSeq = 0;
 let recordsRequestSeq = 0;
 let queryControllerRevision = 0;
+interface QueryControllerSettlement {
+  resolve(): void;
+  reject(cause: Error): void;
+}
+const queryControllerSettlements = new Set<QueryControllerSettlement>();
+
+watch(loading, (active) => {
+  if (active) return;
+  for (const settlement of queryControllerSettlements) {
+    queryControllerSettlements.delete(settlement);
+    settlement.resolve();
+  }
+});
 
 const pages = computed(() => Math.max(1, Math.ceil(total.value / pageSize.value)));
 const queryReady = computed(() => props.ready);
@@ -1395,6 +1408,36 @@ function assistantListValue(
 const queryController: RecordQueryListQueryController = {
   revision: () => queryControllerRevision,
   snapshot: queryControllerSnapshot,
+  async settle(signal?: AbortSignal) {
+    if (signal?.aborted) throw new DOMException('Assistant invocation was cancelled', 'AbortError');
+    await nextTick();
+    if (signal?.aborted) throw new DOMException('Assistant invocation was cancelled', 'AbortError');
+    if (loading.value) {
+      await new Promise<void>((resolve, reject) => {
+        let settlement!: QueryControllerSettlement;
+        const cleanup = () => signal?.removeEventListener('abort', abort);
+        const abort = () => {
+          queryControllerSettlements.delete(settlement);
+          cleanup();
+          reject(new DOMException('Assistant invocation was cancelled', 'AbortError'));
+        };
+        settlement = {
+          resolve: () => {
+            cleanup();
+            resolve();
+          },
+          reject: (cause) => {
+            cleanup();
+            reject(cause);
+          },
+        };
+        queryControllerSettlements.add(settlement);
+        signal?.addEventListener('abort', abort, { once: true });
+      });
+    }
+    if (signal?.aborted) throw new DOMException('Assistant invocation was cancelled', 'AbortError');
+    return queryControllerSnapshot();
+  },
   applyQuickSearch: applyControllerQuickSearch,
 };
 
@@ -1454,7 +1497,13 @@ function handlePageSizeChange(nextPageSize: number) {
 }
 
 onMounted(() => emit('queryControllerChange', queryController));
-onBeforeUnmount(() => emit('queryControllerChange', undefined));
+onBeforeUnmount(() => {
+  for (const settlement of queryControllerSettlements) {
+    queryControllerSettlements.delete(settlement);
+    settlement.resolve();
+  }
+  emit('queryControllerChange', undefined);
+});
 
 defineExpose({ clearSelection, refresh });
 </script>

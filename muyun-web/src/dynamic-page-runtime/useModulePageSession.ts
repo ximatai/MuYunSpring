@@ -2884,6 +2884,65 @@ export function useModulePageSession(
     };
   }
 
+  /**
+   * Exposes only the navigator scopes that the mounted page currently lets a user change.
+   * The assistant must not derive this from raw navigator descriptors because visibility,
+   * locked-entry policy and an active draft all belong to the page session.
+   */
+  function assistantNavigatorScopes() {
+    if (editorMode.value !== 'view' || interactionBusy.value || detailDirty.value) return [];
+    return visibleNavigatorLevels.value.filter(
+      (level) => !isLockedNavigator(level.descriptor.key) && navigatorManagementScopeReady(level),
+    );
+  }
+
+  function assistantNavigatorScopeRevision(levelKey: string) {
+    return JSON.stringify({
+      tenantId: tenantScopeId.value,
+      selections: navigatorLevels.value.map((level) => [
+        level.descriptor.key,
+        selectedNavigatorRecords.value[level.descriptor.key]?.id ?? null,
+      ]),
+      queryValues: navigatorExplorerQueryValues(levelKey) ?? null,
+    });
+  }
+
+  function applyAssistantNavigatorSelection(
+    levelKey: string,
+    record: QueryListRecord,
+    expectedRevision: string,
+  ) {
+    const level = assistantNavigatorScopes().find((candidate) => candidate.descriptor.key === levelKey);
+    if (
+      !level ||
+      record.id == null ||
+      assistantNavigatorScopeRevision(levelKey) !== expectedRevision ||
+      String(selectedNavigatorRecords.value[levelKey]?.id ?? '') === String(record.id)
+    ) {
+      return false;
+    }
+    selectNavigatorRecord(levelKey, record);
+    return String(selectedNavigatorRecords.value[levelKey]?.id ?? '') === String(record.id);
+  }
+
+  async function settleAssistantNavigatorSelection(signal: AbortSignal) {
+    throwIfAssistantSettlementAborted(signal);
+    await nextTick();
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      throwIfAssistantSettlementAborted(signal);
+      const controller = listQueryController.value;
+      await controller?.settle?.(signal);
+      await nextTick();
+      throwIfAssistantSettlementAborted(signal);
+      if (controller === listQueryController.value) return;
+    }
+    throw new Error('Navigator scope list did not settle on a stable page session');
+  }
+
+  function throwIfAssistantSettlementAborted(signal: AbortSignal) {
+    if (signal.aborted) throw new DOMException('Assistant invocation was cancelled', 'AbortError');
+  }
+
   function createChildRecord() {
     const parentId = selectedRecord.value?.id == null ? undefined : String(selectedRecord.value.id);
     if (parentId) createRecord(parentId);
@@ -3678,6 +3737,10 @@ export function useModulePageSession(
     createRootRecord,
     prepareAssistantCreate,
     prepareAssistantEdit,
+    assistantNavigatorScopes,
+    assistantNavigatorScopeRevision,
+    applyAssistantNavigatorSelection,
+    settleAssistantNavigatorSelection,
     hasCardAssistantAt,
     enhancementCardAssistant,
     cardAssistantContext,

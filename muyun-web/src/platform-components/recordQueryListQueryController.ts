@@ -33,5 +33,7 @@ export interface RecordQueryListQuerySnapshot {
 export interface RecordQueryListQueryController {
   revision(): number;
   snapshot(): RecordQueryListQuerySnapshot;
+  /** Waits until the current reactive query transition and any active load have settled. */
+  settle?(signal?: AbortSignal): Promise<RecordQueryListQuerySnapshot>;
   applyQuickSearch(keyword: string): Promise<RecordQueryListQuerySnapshot>;
 }

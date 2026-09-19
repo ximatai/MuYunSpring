@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { nextTick, ref, watch } from 'vue';
 import {
   createModulePageAssistantSurface,
   modulePageAssistantContextRevision,
@@ -140,6 +141,268 @@ describe('module page assistant surface', () => {
     );
     expect(view.listQueryController.applyQuickSearch).toHaveBeenCalledWith('daily');
     expect(modulePageAssistantContextRevision(view)).toBe('7:4');
+  });
+
+  it('selects an exact authorized tenant scope without exposing internal identifiers to the model', async () => {
+    const view = viewFixture();
+    const query = vi.fn().mockResolvedValue({
+      records: [{ id: 'tenant-secret-id', title: '演示租户', alias: 'demo', enabled: true }],
+      total: 1,
+    });
+    const changeTenantScope = vi.fn();
+    const surface = createModulePageAssistantSurface(view, vi.fn(), undefined, {
+      blocked: { value: false },
+      selected: { value: undefined },
+      tenantScopeContext: { value: { crud: { query } } },
+      tenantScopeExplorerVisible: { value: true },
+      changeTenantScope,
+    } as never);
+    const select = surface
+      .capabilities()
+      .find(({ descriptor }) => descriptor.code === 'scope.select-tenant')!;
+
+    await expect(
+      select.execute(select.parseInput({ title: '演示租户' }), executionContext()),
+    ).resolves.toEqual({ scope: 'tenant', selectedTitle: '演示租户', changed: true });
+    expect(query).toHaveBeenCalledWith(
+      expect.objectContaining({ quickSearch: '演示租户', page: { pageNum: 1, pageSize: 20 } }),
+    );
+    expect(changeTenantScope).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'tenant-secret-id', title: '演示租户' }),
+    );
+  });
+
+  it('selects an exact tree navigator scope through its authorized page-context transport', async () => {
+    const view = viewFixture();
+    const tree = vi.fn().mockResolvedValue({
+      records: [
+        {
+          record: { id: 'org-secret-id', title: '戏码台', code: 'DEMO', enabled: true },
+          children: [],
+        },
+      ],
+    });
+    const level = {
+      descriptor: { key: 'organization', title: '机构' },
+      tree: true,
+      context: { abilities: { tree: () => ({ tree }) } },
+    };
+    view.assistantNavigatorScopes = vi.fn(() => [level]) as never;
+    view.assistantNavigatorScopeRevision = vi.fn(() => 'scope-revision-1');
+    view.navigatorExplorerQueryValues = vi.fn(() => ({ tenantId: 'tenant-secret-id' }));
+    view.selectedNavigatorRecords = {};
+    view.applyAssistantNavigatorSelection = vi.fn(() => true);
+    const surface = createModulePageAssistantSurface(view, vi.fn());
+    const select = surface
+      .capabilities()
+      .find(({ descriptor }) => descriptor.code === 'scope.select-navigator')!;
+
+    await expect(
+      select.execute(
+        select.parseInput({ scopeKey: 'organization', title: '戏码台 DEMO' }),
+        executionContext(),
+      ),
+    ).resolves.toEqual({ scopeKey: 'organization', selectedTitle: '戏码台', changed: true });
+    expect(tree).toHaveBeenCalledWith({
+      externalQueryValues: { tenantId: 'tenant-secret-id' },
+      navigatorHostModuleAlias: 'work.daily_report',
+      navigatorTargetLevelKey: 'organization',
+    });
+    expect(view.applyAssistantNavigatorSelection).toHaveBeenCalledWith(
+      'organization',
+      expect.objectContaining({ id: 'org-secret-id', title: '戏码台', code: 'DEMO' }),
+      'scope-revision-1',
+    );
+  });
+
+  it('settles the reactive list revision produced by a navigator scope effect', async () => {
+    const view = viewFixture();
+    const selectedId = ref('');
+    let listRevision = 0;
+    const stop = watch(selectedId, () => {
+      listRevision += 1;
+    });
+    const snapshot = {
+      mode: 'normal' as const,
+      status: 'ready' as const,
+      quickSearchEnabled: true,
+      quickSearchFields: [],
+      pageNum: 1,
+      pageSize: 20,
+      total: 0,
+      totalKnown: true,
+      rows: [],
+      truncated: false,
+    };
+    view.listQueryController = {
+      revision: () => listRevision,
+      snapshot: () => snapshot,
+      applyQuickSearch: vi.fn(),
+    };
+    view.assistantNavigatorScopes = vi.fn(() => [
+      {
+        descriptor: { key: 'organization', title: '机构' },
+        tree: true,
+        context: {
+          abilities: {
+            tree: () => ({
+              tree: vi.fn().mockResolvedValue({
+                records: [{ record: { id: 'org-a', title: '戏码台' }, children: [] }],
+              }),
+            }),
+          },
+        },
+      },
+    ]) as never;
+    view.assistantNavigatorScopeRevision = vi.fn(() => 'scope-revision-1');
+    view.navigatorExplorerQueryValues = vi.fn(() => undefined);
+    view.selectedNavigatorRecords = {};
+    view.applyAssistantNavigatorSelection = vi.fn((_scopeKey, record) => {
+      view.selectedNavigatorRecords.organization = record;
+      selectedId.value = String(record.id);
+      return true;
+    });
+    view.settleAssistantNavigatorSelection = async () => {
+      await nextTick();
+    };
+    const registry = createAssistantSurfaceRegistry();
+    registry.register({
+      pageInstanceKey: 'page-1',
+      contextRevision: () => modulePageAssistantContextRevision(view),
+      surface: createModulePageAssistantSurface(view, vi.fn()),
+    });
+    registry.activate('page-1');
+
+    await expect(
+      registry.invoke(
+        {
+          id: 'scope-1',
+          code: 'scope.select-navigator',
+          input: { scopeKey: 'organization', title: '戏码台' },
+        },
+        registry.snapshot()!.token,
+      ),
+    ).resolves.toEqual({
+      value: { scopeKey: 'organization', selectedTitle: '戏码台', changed: true },
+      contextChanged: true,
+    });
+    expect(listRevision).toBe(1);
+    stop();
+  });
+
+  it('rejects a late tenant result after the business tenant scope changes', async () => {
+    const view = viewFixture();
+    let resolveQuery!: (value: unknown) => void;
+    const selected = { value: undefined as undefined | { id: string; title: string } };
+    const changeTenantScope = vi.fn();
+    const query = vi.fn(
+      () =>
+        new Promise((resolve) => {
+          resolveQuery = resolve;
+        }),
+    );
+    const surface = createModulePageAssistantSurface(view, vi.fn(), undefined, {
+      blocked: { value: false },
+      selected,
+      tenantScopeContext: { value: { crud: { query } } },
+      tenantScopeExplorerVisible: { value: true },
+      changeTenantScope,
+    } as never);
+    const capability = surface
+      .capabilities()
+      .find(({ descriptor }) => descriptor.code === 'scope.select-tenant')!;
+    const invocation = capability.execute(capability.parseInput({ title: '演示租户' }), executionContext());
+    selected.value = { id: 'another-tenant', title: '另一个租户' };
+    resolveQuery({ records: [{ id: 'tenant-a', title: '演示租户' }], total: 1 });
+
+    await expect(invocation).rejects.toThrow('Tenant scope selection is no longer current');
+    expect(changeTenantScope).not.toHaveBeenCalled();
+  });
+
+  it('uses the list navigator transport and rejects a late result from an old upstream scope', async () => {
+    const view = viewFixture();
+    let resolveQuery!: (value: unknown) => void;
+    let revision = 'scope-revision-1';
+    const query = vi.fn(
+      () =>
+        new Promise((resolve) => {
+          resolveQuery = resolve;
+        }),
+    );
+    const level = {
+      descriptor: { key: 'category', title: '分类' },
+      tree: false,
+      context: { crud: { query } },
+    };
+    view.assistantNavigatorScopes = vi.fn(() => [level]) as never;
+    view.assistantNavigatorScopeRevision = vi.fn(() => revision);
+    view.navigatorExplorerQueryValues = vi.fn(() => ({ organizationId: 'org-a' }));
+    view.selectedNavigatorRecords = {};
+    view.applyAssistantNavigatorSelection = vi.fn(() => true);
+    const surface = createModulePageAssistantSurface(view, vi.fn());
+    const capability = surface
+      .capabilities()
+      .find(({ descriptor }) => descriptor.code === 'scope.select-navigator')!;
+    const invocation = capability.execute(
+      capability.parseInput({ scopeKey: 'category', title: '常规分类' }),
+      executionContext(),
+    );
+    revision = 'scope-revision-2';
+    resolveQuery({ records: [{ id: 'category-a', title: '常规分类' }], total: 1 });
+
+    await expect(invocation).rejects.toThrow('Navigator scope selection is no longer current');
+    expect(query).toHaveBeenCalledWith({
+      externalQueryValues: { organizationId: 'org-a' },
+      navigatorHostModuleAlias: 'work.daily_report',
+      navigatorTargetLevelKey: 'category',
+      page: { pageNum: 1, pageSize: 20 },
+      quickSearch: '常规分类',
+    });
+    expect(view.applyAssistantNavigatorSelection).not.toHaveBeenCalled();
+  });
+
+  it('does not advertise navigator selection when the page session exposes no switchable scope', () => {
+    const view = viewFixture();
+    view.assistantNavigatorScopes = vi.fn(() => []);
+
+    expect(
+      createModulePageAssistantSurface(view, vi.fn())
+        .capabilities()
+        .map(({ descriptor }) => descriptor.code),
+    ).not.toContain('scope.select-navigator');
+  });
+
+  it('rejects a scope record whose only displayable value is its internal identifier', async () => {
+    const view = viewFixture();
+    const level = {
+      descriptor: { key: 'organization', title: '机构' },
+      tree: true,
+      context: {
+        abilities: {
+          tree: () => ({
+            tree: vi.fn().mockResolvedValue({
+              records: [{ record: { id: 'guessed-internal-id' }, children: [] }],
+            }),
+          }),
+        },
+      },
+    };
+    view.assistantNavigatorScopes = vi.fn(() => [level]) as never;
+    view.assistantNavigatorScopeRevision = vi.fn(() => 'scope-revision-1');
+    view.navigatorExplorerQueryValues = vi.fn(() => undefined);
+    view.selectedNavigatorRecords = {};
+    view.applyAssistantNavigatorSelection = vi.fn(() => true);
+    const capability = createModulePageAssistantSurface(view, vi.fn())
+      .capabilities()
+      .find(({ descriptor }) => descriptor.code === 'scope.select-navigator')!;
+
+    await expect(
+      capability.execute(
+        capability.parseInput({ scopeKey: 'organization', title: 'guessed-internal-id' }),
+        executionContext(),
+      ),
+    ).rejects.toThrow('title is not a unique exact match');
+    expect(view.applyAssistantNavigatorSelection).not.toHaveBeenCalled();
   });
 
   it('opens standard create and visible-record edit sessions without exposing save', async () => {
