@@ -1,4 +1,5 @@
-import { formActionResult } from './formActionResult';
+import { formActionResult, hasFormActionRecordPatch } from './formActionResult';
+import { useInputValidationActionStatus } from './inputValidationActionStatus';
 import { invokePageAction } from './pageActionInvocation';
 import { resolvePlacedPageActions } from './pageActionPlacement';
 import { computed, nextTick, onMounted, onUnmounted, ref, shallowRef, toRaw, watch } from 'vue';
@@ -361,11 +362,12 @@ export function useModulePageSession(
   // RecordFormFields owns parser and renderer diagnostics. Persist only its
   // validity fact here; the host remains responsible for the save boundary.
   const deleting = ref(false);
-  const detailActionBusy = computed(() => saving.value || deleting.value);
   const activeDetailActionKey = ref<string>();
-  const validatedDrafts = ref(new Map<string, string>());
-  const validatedRecords = ref(new Map<string, Map<string, string>>());
+  const inputValidationStatus = useInputValidationActionStatus();
   const detailEnhancementRunning = ref(false);
+  const detailActionBusy = computed(
+    () => saving.value || deleting.value || togglingEnabled.value || detailEnhancementRunning.value,
+  );
   const referenceRecordDetailInteraction = ref({ editing: false, busy: false, dirty: false });
   const mainFormValid = ref(true);
   const relationDraftValid = ref(true);
@@ -886,9 +888,7 @@ export function useModulePageSession(
   const interactionBusy = computed(
     () =>
       detailActionBusy.value ||
-      togglingEnabled.value ||
       recordOnlyAuthorizing.value ||
-      detailEnhancementRunning.value ||
       localEditSaving.value ||
       navigatorManagementDetail.saving.value ||
       navigatorManagementTogglingEnabled.value ||
@@ -1366,10 +1366,9 @@ export function useModulePageSession(
         return {
           ...action,
           loading: action.key === activeDetailActionKey.value,
-          iconName:
-            recordId && validatedRecords.value.get(action.key)?.get(recordId) === recordFingerprint
-              ? ('check' as const)
-              : ('reload' as const),
+          iconName: inputValidationStatus.isRecordValidated(action.key, recordId, recordFingerprint)
+            ? ('check' as const)
+            : ('reload' as const),
         };
       });
     }
@@ -1381,10 +1380,9 @@ export function useModulePageSession(
       if (!action.key || placement?.statusMode !== 'INPUT_VALIDATION') return action;
       return {
         ...action,
-        iconName:
-          validatedDrafts.value.get(action.key) === draftFingerprint
-            ? ('check' as const)
-            : ('reload' as const),
+        iconName: inputValidationStatus.isDraftValidated(action.key, draftFingerprint)
+          ? ('check' as const)
+          : ('reload' as const),
       };
     });
   }
@@ -1401,8 +1399,7 @@ export function useModulePageSession(
       return {
         ...action,
         ...resolvedState,
-        disabled:
-          detailEnhancementRunning.value || action.disabled === true || resolvedState?.disabled === true,
+        disabled: detailActionBusy.value || action.disabled === true || resolvedState?.disabled === true,
       };
     });
   });
@@ -1597,8 +1594,7 @@ export function useModulePageSession(
       editorMode.value !== 'view' ||
       detailLoading.value ||
       detailLoadFailed.value ||
-      detailActionBusy.value ||
-      togglingEnabled.value
+      detailActionBusy.value
     ) {
       return false;
     }
@@ -2018,7 +2014,7 @@ export function useModulePageSession(
     contribution: ModulePageRecordActionContribution,
     record: QueryListRecord,
   ) {
-    if (detailEnhancementRunning.value) return;
+    if (detailActionBusy.value) return;
     detailEnhancementRunning.value = true;
     try {
       const succeeded = await runEnhancementAction(contribution, {
@@ -2854,7 +2850,7 @@ export function useModulePageSession(
     await openRecord(record, 'edit', { cancelDestination });
   }
 
-  async function saveRecord() {
+  async function saveRecord(actionKey = 'save') {
     const draft = editingRecord.value;
     if (!draft) return;
     if (!mainFormValid.value || !relationDraftValid.value) {
@@ -2881,7 +2877,7 @@ export function useModulePageSession(
       return;
     }
     saving.value = true;
-    activeDetailActionKey.value = 'save';
+    activeDetailActionKey.value = actionKey;
     try {
       const record = recordMutationPayload(draft, formFields.value.values());
       const id = record.id == null ? undefined : String(record.id);
@@ -2903,13 +2899,7 @@ export function useModulePageSession(
       }
       if (savedId) {
         context.invalidateRecordActions?.([savedId]);
-        validatedRecords.value = new Map(
-          [...validatedRecords.value].map(([actionKey, records]) => {
-            const next = new Map(records);
-            next.delete(savedId);
-            return [actionKey, next];
-          }),
-        );
+        inputValidationStatus.invalidateRecord(savedId);
         void context.recordActions(savedId).catch(() => undefined);
       }
       if (props.recordOnly && refreshFailure && isRecordOnlyAccessLoss(refreshFailure)) {
@@ -2940,7 +2930,7 @@ export function useModulePageSession(
     }
   }
 
-  async function deleteRecord(record: QueryListRecord) {
+  async function deleteRecord(record: QueryListRecord, actionKey = 'delete') {
     const id = record.id == null ? undefined : String(record.id);
     const version = typeof record.version === 'number' ? record.version : undefined;
     if (!id || version === undefined || detailActionBusy.value) return;
@@ -2959,7 +2949,7 @@ export function useModulePageSession(
       ) {
         return;
       }
-      activeDetailActionKey.value = 'delete';
+      activeDetailActionKey.value = actionKey;
       const result = await context.crud.delete(id, { version });
       context.invalidateRecordActions?.([id]);
       if (selectedRecord.value?.id === id) {
@@ -3188,7 +3178,7 @@ export function useModulePageSession(
       return;
     }
     if (actionCode === 'delete') {
-      void deleteRecord(record);
+      void deleteRecord(record, action.key);
       return;
     }
     if (actionCode === 'enable' || actionCode === 'disable') {
@@ -3211,25 +3201,35 @@ export function useModulePageSession(
       const formContext = placement?.anchor === 'FORM';
       const draft = formContext && !recordId && editingRecord.value ? toRaw(editingRecord.value) : undefined;
       const draftFingerprint = draft == null ? undefined : recordDraftFingerprint(draft);
+      const recordFingerprint =
+        recordId && selectedRecord.value && String(selectedRecord.value.id) === recordId
+          ? recordDraftFingerprint(selectedRecord.value)
+          : undefined;
+      const validationAttempt =
+        key && placement?.statusMode === 'INPUT_VALIDATION'
+          ? recordId && recordFingerprint
+            ? inputValidationStatus.begin(key, { kind: 'record', recordId, fingerprint: recordFingerprint })
+            : draftFingerprint
+              ? inputValidationStatus.begin(key, { kind: 'draft', fingerprint: draftFingerprint })
+              : undefined
+          : undefined;
       const result = await invokePageAction(context.http, placement?.invocation, { recordId, record: draft });
-      if (key && placement?.statusMode === 'INPUT_VALIDATION' && draftFingerprint) {
-        validatedDrafts.value = new Map(validatedDrafts.value).set(key, draftFingerprint);
-      }
       let refreshFailure: unknown;
       if (recordId) {
         const refresh = await reloadDetailAfterMutation(recordId);
         refreshFailure = refresh.failure;
-        if (key && placement?.statusMode === 'INPUT_VALIDATION' && refresh.record) {
-          const next = new Map(validatedRecords.value);
-          next.set(key, new Map(next.get(key)).set(recordId, recordDraftFingerprint(refresh.record)));
-          validatedRecords.value = next;
+        if (validationAttempt?.target.kind === 'record' && refresh.record) {
+          inputValidationStatus.succeed(validationAttempt, recordDraftFingerprint(refresh.record));
         }
       } else if (formContext && editingRecord.value) {
         // Form actions may either calculate fields or run a read-only draft diagnostic.
         // Only the former declares the record-patch protocol.
-        if (result && typeof result === 'object' && 'recordPatch' in result) {
+        if (hasFormActionRecordPatch(result)) {
           const { recordPatch } = formActionResult(result);
           editingRecord.value = { ...editingRecord.value, ...recordPatch };
+        }
+        if (validationAttempt?.target.kind === 'draft') {
+          inputValidationStatus.succeed(validationAttempt);
         }
       }
       if (!formContext) refreshList();
@@ -3259,7 +3259,7 @@ export function useModulePageSession(
     )
       return;
     if (action.actionCode === 'create' || action.actionCode === 'update') {
-      void saveRecord();
+      void saveRecord(action.key);
       return;
     }
     if (customFormInvoke && action.actionCode) {
@@ -3366,7 +3366,7 @@ export function useModulePageSession(
   }
 
   function closeDetail() {
-    if (saving.value || detailEnhancementRunning.value) return;
+    if (detailActionBusy.value) return;
     invalidatePendingRequests();
     detail.close();
   }
@@ -3377,7 +3377,7 @@ export function useModulePageSession(
    * selection and independent workbench tabs as well.
    */
   async function mayLeaveDetailSession() {
-    if (saving.value || detailEnhancementRunning.value) return false;
+    if (detailActionBusy.value) return false;
     if (!detailDirty.value) return true;
     return confirmAction({
       title: '放弃未保存更改',

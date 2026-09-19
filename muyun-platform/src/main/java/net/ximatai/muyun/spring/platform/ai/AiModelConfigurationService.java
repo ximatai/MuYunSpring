@@ -101,7 +101,10 @@ public class AiModelConfigurationService extends AbstractAbilityService<AiModelC
         }
         String tenantId = TenantContext.currentTenantId().orElse(null);
         if (tenantId != null) {
-            AiModelConfiguration tenant = enabledConfiguration(Criteria.of());
+            // Routing identity comes from TenantContext itself.  Do not rely on the generic
+            // repository tenant filter, which may be bypassed inside authorized cross-tenant
+            // action execution while the caller's tenant identity remains present.
+            AiModelConfiguration tenant = enabledConfiguration(Criteria.of().eq("tenantId", tenantId));
             if (tenant != null) return requireUsable(tenant, "tenant");
             return requireUsable(firstTenantFallbackConfiguration(), "tenant fallback");
         }

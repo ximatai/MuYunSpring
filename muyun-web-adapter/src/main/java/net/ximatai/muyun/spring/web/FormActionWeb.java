@@ -6,6 +6,7 @@ import net.ximatai.muyun.spring.common.platform.ActionExecutionContextHolder;
 import net.ximatai.muyun.spring.common.platform.ActionExecutionPolicy;
 import net.ximatai.muyun.spring.common.model.contract.EntityContract;
 import net.ximatai.muyun.spring.ability.DataScopeAbility;
+import net.ximatai.muyun.spring.ability.CrudAbility;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -17,11 +18,18 @@ public interface FormActionWeb<S, T extends EntityContract, R> extends ScopedWeb
     /** Adapters may delegate to their existing record-scope runtime; draft fields are never scope criteria. */
     default void requireFormRecordScope(T record, ActionExecutionPolicy policy) {
         if (!policy.requiresDataScope()) return;
-        if (!(service() instanceof DataScopeAbility<?> dataScope)) {
-            throw new net.ximatai.muyun.spring.common.exception.PlatformAccessDeniedException(
-                    "form action requires record data scope support");
+        if (service() instanceof DataScopeAbility<?> dataScope) {
+            dataScope.requireRecordScope(policy, java.util.List.of(record.getId()));
+            return;
         }
-        dataScope.requireRecordScope(policy, java.util.List.of(record.getId()));
+        // Static abilities without a fine-grained data-scope capability still enforce their
+        // authoritative tenant/read scope through CrudAbility.select.  The editable draft is
+        // never used as a scope source.
+        if (service() instanceof CrudAbility<?> crud && crud.select(record.getId()) != null) {
+            return;
+        }
+        throw new net.ximatai.muyun.spring.common.exception.PlatformAccessDeniedException(
+                "form action record is outside the authorized data scope");
     }
 
     @PostMapping("/form-actions/" + PlatformWebPathRules.ACTION_CODE_PATH)

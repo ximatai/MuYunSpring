@@ -68,6 +68,9 @@ class AiModelConfigurationRepositoryIT extends PlatformPostgresIntegrationTest {
                 assertThat(configurations.requireEffectiveConfiguration().getId()).isEqualTo(platformId);
                 String tenantId = configurations.insert(input("tenant-key"));
                 assertThat(configurations.requireEffectiveConfiguration().getId()).isEqualTo(tenantId);
+                try (var bypass = TenantContext.bypassTenantFilter("cross-tenant action contract")) {
+                    assertThat(configurations.requireEffectiveConfiguration().getId()).isEqualTo(tenantId);
+                }
                 exerciseCredentialUpdates(tenantId);
                 configurations.disable(tenantId);
                 AiModelConfiguration disabled = dao.findById(tenantId);

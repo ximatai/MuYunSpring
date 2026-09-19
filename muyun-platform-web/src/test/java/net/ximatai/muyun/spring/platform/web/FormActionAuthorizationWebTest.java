@@ -2,6 +2,7 @@ package net.ximatai.muyun.spring.platform.web;
 
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.spring.ability.DataScopeAbility;
+import net.ximatai.muyun.spring.ability.CrudAbility;
 import net.ximatai.muyun.spring.common.identity.CurrentUser;
 import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
 import net.ximatai.muyun.spring.common.model.standard.StandardEntity;
@@ -101,6 +102,43 @@ class FormActionAuthorizationWebTest {
         assertThat(fixture.controller.executions).isEqualTo(1);
     }
 
+    @Test
+    void shouldUseTenantScopedCrudVisibilityWhenStaticServiceHasNoFineGrainedDataScope() throws Exception {
+        String module = "demo.crud-form";
+        RoleService roles = mock(RoleService.class);
+        PlatformModuleActionService actions = mock(PlatformModuleActionService.class);
+        PlatformModuleAction action = new PlatformModuleAction();
+        action.setModuleAlias(module);
+        action.setActionCode("calculate");
+        action.setActionLevel(EntityActionLevel.ANY);
+        action.setActionAuth(true);
+        action.setDataAuth(true);
+        action.setFormSupported(true);
+        action.setEnabled(true);
+        when(actions.findByModuleAliasAndActionCode(module, "calculate")).thenReturn(action);
+        when(roles.hasActionPermission("user", module, "calculate")).thenReturn(true);
+        @SuppressWarnings("unchecked")
+        CrudAbility<Draft> service = mock(CrudAbility.class);
+        Draft visible = new Draft();
+        visible.setId("visible");
+        when(service.select("visible")).thenReturn(visible);
+        CrudFormController controller = new CrudFormController(service);
+        MockMvc mvc = standaloneSetup(controller)
+                .setControllerAdvice(new PlatformWebExceptionHandler())
+                .addFilters(new CurrentUserWebFilter(() -> Optional.of(
+                        CurrentUser.tenantUser("user", "User", "tenant-a"))))
+                .addInterceptors(new ActionEndpointInterceptor(new RoleActionExecutionPolicyService(roles),
+                        new ActionEndpointContextResolver(actions))).build();
+
+        mvc.perform(post("/demo.crud-form/form-actions/calculate")
+                        .contentType("application/json").content("{\"record\":{\"id\":\"visible\"}}"))
+                .andExpect(status().isOk());
+        mvc.perform(post("/demo.crud-form/form-actions/calculate")
+                        .contentType("application/json").content("{\"record\":{\"id\":\"hidden\"}}"))
+                .andExpect(status().isForbidden());
+        assertThat(controller.executions).isEqualTo(1);
+    }
+
     @SuppressWarnings("unchecked")
     private Fixture fixture(String module) {
         RoleService roles = mock(RoleService.class);
@@ -161,5 +199,19 @@ class FormActionAuthorizationWebTest {
     @RequestMapping("/{moduleAlias}")
     public static class DynamicFormController extends FormController {
         DynamicFormController(DataScopeAbility<Draft> service) { super(service); }
+    }
+
+    @RestController
+    @RequestMapping("/demo.crud-form")
+    @PlatformStaticActionScope(module = "demo.crud-form")
+    public static class CrudFormController implements FormActionWeb<CrudAbility<Draft>, Draft, String> {
+        private final CrudAbility<Draft> service;
+        int executions;
+        CrudFormController(CrudAbility<Draft> service) { this.service = service; }
+        @Override public CrudAbility<Draft> service() { return service; }
+        @Override public String executeFormAction(String code, FormActionRequest<Draft> request) {
+            executions++;
+            return "calculated";
+        }
     }
 }
