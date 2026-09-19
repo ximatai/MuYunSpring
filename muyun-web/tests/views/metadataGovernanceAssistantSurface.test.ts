@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   createMetadataGovernanceAssistantSurface,
   type MetadataGovernanceAssistantAdapter,
@@ -24,6 +24,8 @@ const proposal: MetadataModelChangeSetProposal = {
 const applyEffectSpy = vi.fn();
 
 describe('metadata governance assistant surface', () => {
+  beforeEach(() => applyEffectSpy.mockClear());
+
   it('describes a bounded metadata context and keeps workbench capabilities', async () => {
     const adapter = fixture();
     const contributed = capability('navigation.find-menu');
@@ -44,6 +46,7 @@ describe('metadata governance assistant surface', () => {
       'navigation.find-menu',
       'configuration.describe-metadata-model',
       'configuration.add-metadata-field-draft',
+      'configuration.update-metadata-field-draft',
       'configuration.preview-metadata-draft',
     ]);
 
@@ -54,6 +57,38 @@ describe('metadata governance assistant surface', () => {
       adapter.summary(),
     );
     expect(() => describe.parseInput({ unexpected: true })).toThrow('Capability input must be empty');
+  });
+
+  it('stages a validated ordinary field update through the guarded page effect boundary', async () => {
+    const adapter = fixture();
+    const update = createMetadataGovernanceAssistantSurface(adapter, vi.fn())
+      .capabilities()
+      .find(({ descriptor }) => descriptor.code === 'configuration.update-metadata-field-draft')!;
+    const context = executionContext();
+
+    await expect(
+      update.execute(update.parseInput({ fieldName: 'title', title: '考试名称', indexed: true }), context),
+    ).resolves.toEqual({
+      relationId: 'relation-main',
+      fieldName: 'title',
+      title: '考试名称',
+      fieldSpecAlias: 'string',
+    });
+    expect(adapter.updateFieldDraft).toHaveBeenCalledWith({
+      fieldName: 'title',
+      title: '考试名称',
+      indexed: true,
+    });
+    expect(applyEffectSpy).toHaveBeenCalledOnce();
+    expect(() => update.parseInput({ fieldName: 'unknown', title: '未知' })).toThrow(
+      'Metadata field is unavailable for editing',
+    );
+    expect(() => update.parseInput({ fieldName: 'title', fieldSpecAlias: 'unknown' })).toThrow(
+      'Unknown metadata field specification',
+    );
+    expect(() => update.parseInput({ fieldName: 'title' })).toThrow(
+      'At least one metadata field change is required',
+    );
   });
 
   it('stages a validated ordinary field through the guarded page effect boundary', async () => {
@@ -149,7 +184,11 @@ describe('metadata governance assistant surface', () => {
       createMetadataGovernanceAssistantSurface(adapter, vi.fn())
         .capabilities()
         .map(({ descriptor }) => descriptor.code),
-    ).toEqual(['configuration.describe-metadata-model', 'configuration.add-metadata-field-draft']);
+    ).toEqual([
+      'configuration.describe-metadata-model',
+      'configuration.add-metadata-field-draft',
+      'configuration.update-metadata-field-draft',
+    ]);
 
     const current = fixture();
     const preview = createMetadataGovernanceAssistantSurface(current, vi.fn())
@@ -171,6 +210,11 @@ describe('metadata governance assistant surface', () => {
         .capabilities()
         .map(({ descriptor }) => descriptor.code),
     ).not.toContain('configuration.add-metadata-field-draft');
+    expect(
+      createMetadataGovernanceAssistantSurface(adapter, vi.fn())
+        .capabilities()
+        .map(({ descriptor }) => descriptor.code),
+    ).not.toContain('configuration.update-metadata-field-draft');
   });
 
   it('keeps the complete field-spec catalog in the capability schema when the context summary is bounded', () => {
@@ -244,11 +288,18 @@ function fixture(
       errors: [],
     })),
     fieldSpecAliases: vi.fn(() => ['string', 'integer']),
+    editableBasicFieldNames: vi.fn(() => ['title']),
     addFieldDraft: vi.fn(() => ({
       relationId: 'relation-main',
       fieldName: 'examRemark',
       columnName: 'exam_remark',
       title: '考试备注',
+      fieldSpecAlias: 'string',
+    })),
+    updateFieldDraft: vi.fn(() => ({
+      relationId: 'relation-main',
+      fieldName: 'title',
+      title: '考试名称',
       fieldSpecAlias: 'string',
     })),
   };

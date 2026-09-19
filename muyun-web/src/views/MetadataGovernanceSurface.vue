@@ -84,7 +84,10 @@ import {
   type MetadataChangeSetPreview,
 } from './metadataModelChangeSetClient';
 import { createMetadataGovernanceAssistantSurface } from './metadataGovernanceAssistantSurface';
-import type { AddMetadataFieldDraftInput } from './metadataGovernanceAssistantSurface';
+import type {
+  AddMetadataFieldDraftInput,
+  UpdateMetadataFieldDraftInput,
+} from './metadataGovernanceAssistantSurface';
 import {
   buildMetadataModelTree,
   canReorderMetadataModelTree,
@@ -293,7 +296,7 @@ function syncAssistantSurface() {
     surface: createMetadataGovernanceAssistantSurface(
       {
         summary: assistantSummary,
-        proposal: () => editSession.buildProposal(),
+        proposal: assistantProposal,
         preview: (proposal, signal) =>
           previewMetadataModelChangeSet(moduleContext.http, props.moduleAlias, proposal, signal),
         fieldSpecAliases: () =>
@@ -301,7 +304,9 @@ function syncAssistantSurface() {
             .filter((spec) => spec.enabled !== false)
             .map((spec) => spec.alias ?? spec.id ?? '')
             .filter(Boolean),
+        editableBasicFieldNames: assistantEditableBasicFieldNames,
         addFieldDraft: addAssistantFieldDraft,
+        updateFieldDraft: updateAssistantFieldDraft,
       },
       createAssistantTurnRequester(moduleContext.http),
       () => assistantHost.capabilities?.() ?? [],
@@ -321,7 +326,7 @@ function deactivateAssistantSurface() {
 }
 
 watch(
-  () => ({ summary: assistantSummary(), proposal: editSession.buildProposal() }),
+  () => ({ summary: assistantSummary(), proposal: assistantProposal() }),
   () => {
     assistantContextRevision.value += 1;
   },
@@ -800,6 +805,78 @@ function addAssistantFieldDraft(input: AddMetadataFieldDraftInput) {
   };
 }
 
+function assistantProposal(): MetadataModelChangeSetProposal | undefined {
+  const proposal = editSession.buildProposal();
+  if (!proposal || !state.fieldEditorOpen.value || childNodeType.value === 'CHILD_METADATA') return proposal;
+  const relationId = selectedRelationId.value;
+  if (!relationId) return undefined;
+  const relationDraft = editSession.relation(relationId);
+  const currentField = normalizeFieldDraft(state.fieldDraft.value);
+  const stagedKey = currentField.id ?? stagedNewFieldKey.value ?? currentField.fieldName;
+  const stagedField = stagedKey ? relationDraft?.fields[stagedKey] : undefined;
+  if (!stagedField || JSON.stringify(currentField) !== JSON.stringify(stagedField)) return undefined;
+  const currentProperty = normalizeFieldPropertyDraft(state.fieldPropertyDraft.value);
+  const stagedProperty = editSession.propertyForField(relationId, stagedField);
+  return JSON.stringify(currentProperty) === JSON.stringify(stagedProperty) ? proposal : undefined;
+}
+
+function assistantEditableBasicFieldNames() {
+  const relationId = selectedRelationId.value;
+  if (!relationId) return [];
+  return editSession
+    .fieldsForDisplay(relationId, state.allFields.value)
+    .filter(
+      (field) =>
+        Boolean(field.fieldName) && fieldEditableInSession(field) && fieldPropertyOf(field).kind === 'BASIC',
+    )
+    .map((field) => field.fieldName!);
+}
+
+function updateAssistantFieldDraft(input: UpdateMetadataFieldDraftInput) {
+  const relationId = selectedRelationId.value;
+  if (!relationId) throw new Error('No metadata relation is selected');
+  if (state.fieldEditorOpen.value || sorting.value)
+    throw new Error('Finish or cancel the current metadata editor before updating a field');
+  const field = state.allFields.value.find((candidate) => candidate.fieldName === input.fieldName);
+  if (!field || !fieldEditableInSession(field) || fieldPropertyOf(field).kind !== 'BASIC')
+    throw new Error('The selected metadata field is unavailable for editing');
+  if (input.fieldSpecAlias) {
+    const options = selectedRelationHasBusinessRecords.value
+      ? dataSafeFieldSpecOptions(state.fieldSpecs.value, field.fieldSpecAlias)
+      : state.fieldSpecOptions.value;
+    if (!options.some((option) => option.value === input.fieldSpecAlias))
+      throw new Error('The selected field specification is unsafe for the current metadata data');
+  }
+  const updated: MetadataField = {
+    ...field,
+    ...(input.title !== undefined ? { title: input.title } : {}),
+    ...(input.fieldSpecAlias !== undefined ? { fieldSpecAlias: input.fieldSpecAlias } : {}),
+    ...(input.required !== undefined ? { required: input.required } : {}),
+    ...(input.unique !== undefined ? { uniqueField: input.unique } : {}),
+    ...(input.indexed !== undefined ? { indexed: input.indexed } : {}),
+    ...(input.sortable !== undefined ? { sortableField: input.sortable } : {}),
+    ...(input.titleField !== undefined ? { titleField: input.titleField } : {}),
+    ...(input.enabled !== undefined ? { enabled: input.enabled } : {}),
+  };
+  if (JSON.stringify(updated) === JSON.stringify(field))
+    throw new Error('The requested metadata field update does not change the current value');
+  const property = fieldPropertyOf(field);
+  startNodeEditSession();
+  editSession.stageField(relationId, updated, property);
+  stagedNewFieldKey.value = undefined;
+  fieldTitleManuallyEdited.value = Boolean(updated.title?.trim());
+  fieldNameManuallyEdited.value = true;
+  columnNameManuallyEdited.value = true;
+  editorMode.value = 'ADVANCED';
+  state.startEditField(updated, property);
+  return {
+    relationId,
+    fieldName: updated.fieldName!,
+    title: updated.title,
+    fieldSpecAlias: updated.fieldSpecAlias,
+  };
+}
+
 function startCreateMainMetadata() {
   editorMode.value = 'SIMPLE';
   state.startCreateMain();
@@ -972,10 +1049,9 @@ function metadataChangeConfirmationText(preview: MetadataChangeSetPreview): stri
     if (item.operation === 'DELETE') return `删除字段「${item.fieldName}」及其物理列。`;
     return `保存字段「${item.fieldName}」的变更。`;
   });
-  if (fieldChanges.length > 0) return fieldChanges.join('\n');
-  if (preview.orderImpacts.length > 0) return '保存当前排序调整。';
-  if (preview.schemaImpacts.length > 0) return '同步数据库结构变更。';
-  return '';
+  const schemaChanges = preview.schemaImpacts.map((item) => item.description);
+  const orderChanges = preview.orderImpacts.length > 0 ? ['保存当前排序调整。'] : [];
+  return [...fieldChanges, ...schemaChanges, ...orderChanges].join('\n');
 }
 
 function stageFieldDraft() {

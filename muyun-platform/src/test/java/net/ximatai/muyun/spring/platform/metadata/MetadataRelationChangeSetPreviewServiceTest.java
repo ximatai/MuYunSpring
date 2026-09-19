@@ -139,6 +139,50 @@ class MetadataRelationChangeSetPreviewServiceTest {
     }
 
     @Test
+    void shouldDescribeEveryPhysicalSchemaEffectOfAFieldUpdate() {
+        MetadataField existing = businessField("note", "note", "string");
+        existing.setVersion(2);
+        Fixture fixture = fixture(RelationRole.MAIN, List.of(existing));
+        when(fixture.schemaFacts.countPhysicalRecords(anyString(), anyString(), any(Criteria.class))).thenReturn(0L);
+        MetadataField proposed = businessField("note", "note", "integer");
+        proposed.setRequired(true);
+        proposed.setUniqueField(true);
+        proposed.setIndexed(true);
+
+        MetadataRelationChangeSetPreview result = fixture.service.preview("crm.customer", "main", command(3,
+                Map.of(), List.of(new MetadataFieldChangeSetDraft(MetadataFieldChangeSetDraft.Operation.UPDATE,
+                        "field-0", 2, proposed))));
+
+        assertThat(result.valid()).isTrue();
+        assertThat(result.schemaImpacts()).extracting(MetadataChangeSetSchemaImpact::operation)
+                .containsExactly("ALTER_COLUMN_TYPE", "SET_NOT_NULL", "ADD_UNIQUE_INDEX", "ADD_INDEX");
+        assertThat(result.schemaImpacts()).allSatisfy(impact -> {
+            assertThat(impact.schemaName()).isEqualTo("public");
+            assertThat(impact.tableName()).isEqualTo("crm_customer");
+            assertThat(impact.columnName()).isEqualTo("note");
+        });
+    }
+
+    @Test
+    void shouldRejectStricterConstraintsWhenExistingRowsCannotBeProvenCompatible() {
+        MetadataField existing = businessField("note", "note", "string");
+        existing.setVersion(2);
+        Fixture fixture = fixture(RelationRole.MAIN, List.of(existing));
+        when(fixture.schemaFacts.countPhysicalRecords(anyString(), anyString(), any(Criteria.class))).thenReturn(7L);
+        MetadataField proposed = businessField("note", "note", "string");
+        proposed.setRequired(true);
+
+        MetadataRelationChangeSetPreview result = fixture.service.preview("crm.customer", "main", command(3,
+                Map.of(), List.of(new MetadataFieldChangeSetDraft(MetadataFieldChangeSetDraft.Operation.UPDATE,
+                        "field-0", 2, proposed))));
+
+        assertThat(result.valid()).isFalse();
+        assertThat(result.errors()).extracting(MetadataChangeSetValidationIssue::code)
+                .contains("FIELD_CONSTRAINT_CHANGE_WITH_DATA");
+        assertThat(result.schemaImpacts()).isEmpty();
+    }
+
+    @Test
     void shouldStageReferencePropertyInsideTheSameFieldPlanAndFingerprint() {
         Fixture fixture = fixture(RelationRole.MAIN, List.of());
         MetadataField field = businessField("studentId", "student_id", "string");

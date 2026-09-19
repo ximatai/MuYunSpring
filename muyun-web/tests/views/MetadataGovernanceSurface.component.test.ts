@@ -172,6 +172,88 @@ it('registers the metadata surface only after a complete load and invalidates ch
   );
 });
 
+it('opens an existing ordinary field as a visible assistant update candidate without applying it', async () => {
+  const http = fakeHttp();
+  const request = vi.spyOn(http, 'request');
+  configureModuleContext({ http });
+  const registry = createAssistantSurfaceRegistry();
+  registry.activate('page-1');
+  const Harness = defineComponent({
+    setup() {
+      provideAssistantSurfaceHost({ registry, activePageInstanceKey: () => 'page-1' });
+      return () => h(MetadataGovernanceSurface, { moduleAlias: 'education.exam' });
+    },
+  });
+  const wrapper = shallowMount(Harness, {
+    global: { stubs: { ...governanceStubs(), MetadataGovernanceSurface: false } },
+  });
+  mounted.add(wrapper);
+  await flushPromises();
+  await flushPromises();
+
+  const before = registry.snapshot()!;
+  expect(before.capabilities.map((capability) => capability.code)).toContain(
+    'configuration.update-metadata-field-draft',
+  );
+  const updated = await registry.invoke(
+    {
+      id: 'update-field',
+      code: 'configuration.update-metadata-field-draft',
+      input: { fieldName: 'title', title: '考试标题', indexed: true },
+    },
+    before.token,
+  );
+  expect(updated.value).toEqual({
+    relationId: 'rel-main',
+    fieldName: 'title',
+    title: '考试标题',
+    fieldSpecAlias: 'string',
+  });
+  await flushPromises();
+
+  expect(request.mock.calls.some(([options]) => options.path.endsWith('change-set-preview'))).toBe(false);
+  expect(request.mock.calls.some(([options]) => options.path.endsWith('change-set-apply'))).toBe(false);
+  expect(
+    wrapper.findAllComponents({ name: 'UiInput' }).some((input) => input.props('value') === '考试标题'),
+  ).toBe(true);
+  const candidate = registry.snapshot()!;
+  expect(candidate.capabilities.map((capability) => capability.code)).not.toContain(
+    'configuration.update-metadata-field-draft',
+  );
+  expect(candidate.capabilities.map((capability) => capability.code)).toContain(
+    'configuration.preview-metadata-draft',
+  );
+  await registry.invoke(
+    { id: 'preview-update', code: 'configuration.preview-metadata-draft', input: {} },
+    candidate.token,
+  );
+  const preview = request.mock.calls.find(([options]) => options.path.endsWith('change-set-preview'));
+  expect(preview?.[0].body).toEqual(
+    expect.objectContaining({
+      relationDrafts: [
+        expect.objectContaining({
+          fieldDrafts: [
+            expect.objectContaining({
+              operation: 'UPDATE',
+              field: expect.objectContaining({ title: '考试标题', indexed: true }),
+            }),
+          ],
+        }),
+      ],
+    }),
+  );
+  wrapper
+    .findAllComponents({ name: 'UiInput' })
+    .find((input) => input.props('value') === '考试标题')!
+    .vm.$emit('update:value', '再次修改的标题');
+  await flushPromises();
+  const manuallyChanged = registry.snapshot()!;
+  expect(manuallyChanged.token.contextRevision).not.toBe(candidate.token.contextRevision);
+  expect(manuallyChanged.capabilities.map((capability) => capability.code)).not.toContain(
+    'configuration.preview-metadata-draft',
+  );
+});
+
 it('keeps the workbench fallback active when metadata loading fails', async () => {
   const http: HttpClient = {
     request: <T>(options: HttpRequestOptions) =>
@@ -424,7 +506,25 @@ it('removes a child without clearing the surviving entity fields', async () => {
 it('keeps the field editor open while save confirmation is pending', async () => {
   const confirmation = deferred<boolean>();
   vi.mocked(confirmAction).mockReturnValue(confirmation.promise);
-  configureModuleContext({ http: fakeHttp() });
+  const http = fakeHttp();
+  const original = http.request;
+  vi.spyOn(http, 'request').mockImplementation((options) =>
+    options.path.endsWith('/metadata-model/change-set-preview')
+      ? (Promise.resolve({
+          ...responseFor(options),
+          schemaImpacts: [
+            {
+              operation: 'ADD_INDEX',
+              schemaName: 'public',
+              tableName: 'education_exam',
+              columnName: 'title',
+              description: '字段将增加普通索引。',
+            },
+          ],
+        }) as never)
+      : original(options),
+  );
+  configureModuleContext({ http });
   const wrapper = shallowMount(MetadataGovernanceSurface, {
     props: { moduleAlias: 'education.exam' },
     global: { stubs: governanceStubs() },
@@ -445,6 +545,9 @@ it('keeps the field editor open while save confirmation is pending', async () =>
   await flushPromises();
 
   expect(vi.mocked(confirmAction)).toHaveBeenCalledTimes(1);
+  expect(vi.mocked(confirmAction)).toHaveBeenCalledWith(
+    expect.objectContaining({ content: expect.stringContaining('字段将增加普通索引。') }),
+  );
   expect(wrapper.text()).toContain('存储字段规格');
   confirmation.resolve(false);
   await flushPromises();

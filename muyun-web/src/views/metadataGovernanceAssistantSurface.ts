@@ -47,17 +47,36 @@ export interface AddMetadataFieldDraftInput {
   titleField?: boolean;
 }
 
+export interface UpdateMetadataFieldDraftInput {
+  fieldName: string;
+  title?: string;
+  fieldSpecAlias?: string;
+  required?: boolean;
+  unique?: boolean;
+  indexed?: boolean;
+  sortable?: boolean;
+  titleField?: boolean;
+  enabled?: boolean;
+}
+
 export interface MetadataGovernanceAssistantAdapter {
   summary(): MetadataGovernanceAssistantModelSummary;
   proposal(): MetadataModelChangeSetProposal | undefined;
   preview(proposal: MetadataModelChangeSetProposal, signal: AbortSignal): Promise<MetadataChangeSetPreview>;
   fieldSpecAliases(): string[];
+  editableBasicFieldNames(): string[];
   addFieldDraft?(input: AddMetadataFieldDraftInput): {
     relationId: string;
     fieldName: string;
     columnName: string;
     title: string;
     fieldSpecAlias: string;
+  };
+  updateFieldDraft?(input: UpdateMetadataFieldDraftInput): {
+    relationId: string;
+    fieldName: string;
+    title?: string;
+    fieldSpecAlias?: string;
   };
 }
 
@@ -72,9 +91,45 @@ export function createMetadataGovernanceAssistantSurface(
       ...contributedCapabilities(),
       describeMetadataModelCapability(adapter),
       ...(canAddFieldDraft(adapter) ? [addMetadataFieldDraftCapability(adapter)] : []),
+      ...(canUpdateFieldDraft(adapter) ? [updateMetadataFieldDraftCapability(adapter)] : []),
       ...(hasChanges(adapter.proposal()) ? [previewMetadataDraftCapability(adapter)] : []),
     ],
     requestTurn,
+  };
+}
+
+function updateMetadataFieldDraftCapability(
+  adapter: MetadataGovernanceAssistantAdapter,
+): AssistantCapability<UpdateMetadataFieldDraftInput> {
+  const fieldNames = adapter.editableBasicFieldNames();
+  const fieldSpecAliases = adapter.fieldSpecAliases();
+  return {
+    descriptor: {
+      code: 'configuration.update-metadata-field-draft',
+      description:
+        'Update one editable ordinary business field in the selected metadata relation as a visible, unsaved candidate. The user can review, revise or cancel it before using the page save action.',
+      inputSchema: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['fieldName'],
+        properties: {
+          fieldName: { type: 'string', enum: fieldNames },
+          title: { type: 'string', minLength: 1, maxLength: 100 },
+          fieldSpecAlias: { type: 'string', enum: fieldSpecAliases },
+          required: { type: 'boolean' },
+          unique: { type: 'boolean' },
+          indexed: { type: 'boolean' },
+          sortable: { type: 'boolean' },
+          titleField: { type: 'boolean' },
+          enabled: { type: 'boolean' },
+        },
+      },
+    },
+    parseInput: (input) => parseUpdateFieldDraftInput(input, fieldNames, fieldSpecAliases),
+    async execute(input, context) {
+      if (!adapter.updateFieldDraft) throw new Error('Metadata field updating is unavailable');
+      return context.applyEffect(() => adapter.updateFieldDraft!(input));
+    },
   };
 }
 
@@ -196,6 +251,16 @@ function canAddFieldDraft(adapter: MetadataGovernanceAssistantAdapter): boolean 
   );
 }
 
+function canUpdateFieldDraft(adapter: MetadataGovernanceAssistantAdapter): boolean {
+  const summary = adapter.summary();
+  return Boolean(
+    adapter.updateFieldDraft &&
+    summary.selectedRelation &&
+    !summary.draft.editorOpen &&
+    adapter.editableBasicFieldNames().length > 0,
+  );
+}
+
 function parseAddFieldDraftInput(input: unknown, fieldSpecAliases: string[]): AddMetadataFieldDraftInput {
   if (!isRecord(input)) throw new Error('Capability input must be an object');
   const allowed = new Set([
@@ -224,6 +289,47 @@ function parseAddFieldDraftInput(input: unknown, fieldSpecAliases: string[]): Ad
     fieldSpecAlias,
     ...optionalBooleanProperties(input, ['required', 'unique', 'indexed', 'sortable', 'titleField']),
   };
+}
+
+function parseUpdateFieldDraftInput(
+  input: unknown,
+  fieldNames: string[],
+  fieldSpecAliases: string[],
+): UpdateMetadataFieldDraftInput {
+  if (!isRecord(input)) throw new Error('Capability input must be an object');
+  const allowed = new Set([
+    'fieldName',
+    'title',
+    'fieldSpecAlias',
+    'required',
+    'unique',
+    'indexed',
+    'sortable',
+    'titleField',
+    'enabled',
+  ]);
+  if (Object.keys(input).some((key) => !allowed.has(key)))
+    throw new Error('Capability input contains unsupported metadata field properties');
+  const fieldName = boundedString(input.fieldName, 'fieldName', 63, true);
+  if (!fieldNames.includes(fieldName)) throw new Error('Metadata field is unavailable for editing');
+  const title = boundedString(input.title, 'title', 100, false);
+  const fieldSpecAlias = boundedString(input.fieldSpecAlias, 'fieldSpecAlias', 100, false);
+  if (fieldSpecAlias && !fieldSpecAliases.includes(fieldSpecAlias))
+    throw new Error('Unknown metadata field specification');
+  const changes = {
+    ...(title ? { title } : {}),
+    ...(fieldSpecAlias ? { fieldSpecAlias } : {}),
+    ...optionalBooleanProperties(input, [
+      'required',
+      'unique',
+      'indexed',
+      'sortable',
+      'titleField',
+      'enabled',
+    ]),
+  };
+  if (Object.keys(changes).length === 0) throw new Error('At least one metadata field change is required');
+  return { fieldName, ...changes };
 }
 
 function boundedString(value: unknown, name: string, maxLength: number, required: true): string;
