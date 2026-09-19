@@ -140,6 +140,29 @@ it('cancels an in-flight request from the panel', async () => {
   expect(wrapper.text()).toContain('已停止本次操作');
 });
 
+it('cancels an in-flight request when the panel is closed', async () => {
+  const requestTurn = vi.fn(
+    (_input, signal: AbortSignal) =>
+      new Promise<{ toolCalls: never[] }>((_resolve, reject) => {
+        signal.addEventListener('abort', () => reject(new DOMException('cancelled', 'AbortError')), {
+          once: true,
+        });
+      }),
+  );
+  const wrapper = mount(WorkbenchAssistantPanel, {
+    props: { open: true, registry: createRegistry(requestTurn) },
+  });
+
+  await wrapper.get('textarea').setValue('打开职员管理');
+  await wrapper.get('textarea').trigger('keydown', { key: 'Enter' });
+  await vi.waitFor(() => expect(requestTurn).toHaveBeenCalledOnce());
+  await wrapper.get('[aria-label="关闭智能助手"]').trigger('click');
+  await flushPromises();
+
+  expect(wrapper.emitted('close')).toHaveLength(1);
+  expect(wrapper.text()).toContain('已停止本次操作');
+});
+
 it('does not carry a cancelled goal into the next user request', async () => {
   const requestTurn = vi
     .fn()

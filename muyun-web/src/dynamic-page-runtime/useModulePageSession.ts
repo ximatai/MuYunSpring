@@ -2925,7 +2925,7 @@ export function useModulePageSession(
     return String(selectedNavigatorRecords.value[levelKey]?.id ?? '') === String(record.id);
   }
 
-  async function settleAssistantNavigatorSelection(signal: AbortSignal) {
+  async function settleAssistantPageState(signal: AbortSignal) {
     throwIfAssistantSettlementAborted(signal);
     await nextTick();
     for (let attempt = 0; attempt < 3; attempt += 1) {
@@ -2936,8 +2936,10 @@ export function useModulePageSession(
       throwIfAssistantSettlementAborted(signal);
       if (controller === listQueryController.value) return;
     }
-    throw new Error('Navigator scope list did not settle on a stable page session');
+    throw new Error('Assistant page state did not settle on a stable page session');
   }
+
+  const settleAssistantNavigatorSelection = settleAssistantPageState;
 
   function throwIfAssistantSettlementAborted(signal: AbortSignal) {
     if (signal.aborted) throw new DOMException('Assistant invocation was cancelled', 'AbortError');
@@ -3740,6 +3742,7 @@ export function useModulePageSession(
     assistantNavigatorScopes,
     assistantNavigatorScopeRevision,
     applyAssistantNavigatorSelection,
+    settleAssistantPageState,
     settleAssistantNavigatorSelection,
     hasCardAssistantAt,
     enhancementCardAssistant,

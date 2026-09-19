@@ -232,8 +232,18 @@ describe('ModulePageHost lifecycle boundaries', () => {
   });
 
   it('settles assistant tenant selection only after the replacement business surface is ready', async () => {
-    let releaseListSettlement!: () => void;
-    const settleList = vi.fn(() => new Promise<void>((resolve) => (releaseListSettlement = resolve)));
+    const listSettlementReleases: Array<() => void> = [];
+    const settleList = vi.fn(
+      (signal?: AbortSignal) =>
+        new Promise<void>((resolve, reject) => {
+          const abort = () => reject(new DOMException('cancelled', 'AbortError'));
+          signal?.addEventListener('abort', abort, { once: true });
+          listSettlementReleases.push(() => {
+            signal?.removeEventListener('abort', abort);
+            resolve();
+          });
+        }),
+    );
     const settlingQueryListStub = defineComponent({
       name: 'RecordQueryListPanel',
       props: ['context'],
@@ -290,6 +300,9 @@ describe('ModulePageHost lifecycle boundaries', () => {
     try {
       await flushPromises();
       await flushPromises();
+      expect(registry.snapshot()).toBeUndefined();
+      listSettlementReleases.shift()?.();
+      await flushPromises();
       const before = registry.snapshot()!.token;
       expect(registry.snapshot()!.capabilities.map(({ code }) => code)).toContain('scope.select-tenant');
 
@@ -304,7 +317,7 @@ describe('ModulePageHost lifecycle boundaries', () => {
       await flushPromises();
       expect(settleList).toHaveBeenCalled();
       expect(invocationSettled).toBe(false);
-      releaseListSettlement();
+      listSettlementReleases.shift()?.();
       await expect(invocation).resolves.toEqual({
         value: { scope: 'tenant', selectedTitle: '甲租户', changed: true },
         contextChanged: true,
@@ -319,13 +332,13 @@ describe('ModulePageHost lifecycle boundaries', () => {
         { id: 'tenant-2', code: 'scope.select-tenant', input: { title: '乙租户' } },
         after,
       );
+      const replacedRejection = expect(replacedInvocation).rejects.toThrow(
+        'Tenant scope selection was replaced before its session became ready',
+      );
       await flushPromises();
       wrapper.findComponent(tenantExplorerStub).vm.$emit('select', { id: 'tenant-a', title: '甲租户' });
       await flushPromises();
-      releaseListSettlement();
-      await expect(replacedInvocation).rejects.toThrow(
-        'Tenant scope selection was replaced before its query settled',
-      );
+      await replacedRejection;
     } finally {
       wrapper.unmount();
     }

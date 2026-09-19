@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { nextTick, ref } from 'vue';
+import { nextTick, onBeforeUnmount, ref, watch } from 'vue';
 import { UiButton, UiIcon, UiTextArea } from '@muyun/vue-ui-antdv';
 import type { AssistantConversationMessage } from '@muyun/web-contracts';
 import {
@@ -168,6 +168,19 @@ function cancel() {
   controller?.abort();
 }
 
+function close() {
+  cancel();
+  emit('close');
+}
+
+watch(
+  () => props.open,
+  (open) => {
+    if (!open) cancel();
+  },
+);
+onBeforeUnmount(cancel);
+
 function handleKeydown(event: KeyboardEvent) {
   if (event.key !== 'Enter' || event.shiftKey || event.isComposing) return;
   event.preventDefault();
@@ -186,7 +199,7 @@ function isAbortError(error: unknown) {
         <strong>智能助手</strong>
         <span>基于当前页面提供帮助</span>
       </div>
-      <UiButton type="text" aria-label="关闭智能助手" @click="emit('close')">
+      <UiButton type="text" aria-label="关闭智能助手" @click="close">
         <UiIcon name="close" />
       </UiButton>
     </header>

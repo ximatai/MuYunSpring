@@ -46,6 +46,7 @@ const assistantHost = useAssistantSurfaceHost();
 let assistantActive = false;
 let assistantPageInstanceKey: string | undefined;
 let unregisterAssistantSurface: (() => void) | undefined;
+let assistantSurfaceSettlement: AbortController | undefined;
 interface TenantScopeSettlement {
   generation: number;
   tenantId: string;
@@ -89,6 +90,8 @@ function refreshList() {
   view.value?.refreshList();
 }
 function clearAssistantSurface() {
+  assistantSurfaceSettlement?.abort();
+  assistantSurfaceSettlement = undefined;
   unregisterAssistantSurface?.();
   unregisterAssistantSurface = undefined;
 }
@@ -135,18 +138,11 @@ function settleAssistantTenantScopeChange(record: QueryListRecord, signal: Abort
       tenantId,
       resolve: () => {
         cleanup();
-        const session = view.value;
-        if (!session) {
-          reject(new Error('Tenant scope session became unavailable before its query settled'));
+        if (targetGeneration !== generation.value || tenantId !== tenantController.selectedId.value) {
+          reject(new Error('Tenant scope selection was replaced before its query settled'));
           return;
         }
-        void session.settleAssistantNavigatorSelection(signal).then(() => {
-          if (targetGeneration !== generation.value || tenantId !== tenantController.selectedId.value) {
-            reject(new Error('Tenant scope selection was replaced before its query settled'));
-            return;
-          }
-          resolve();
-        }, reject);
+        resolve();
       },
       reject: (cause) => {
         cleanup();
@@ -176,18 +172,45 @@ function syncAssistantSurface() {
     return;
   }
   const session = view.value;
-  unregisterAssistantSurface = assistantHost.registry.register({
-    pageInstanceKey: assistantPageInstanceKey,
-    contextRevision: () => modulePageAssistantContextRevision(session),
-    interactionRevision: () => modulePageAssistantInteractionRevision(session),
-    surface: createModulePageAssistantSurface(
-      session,
-      createAssistantTurnRequester(sessionHttp.value),
-      () => assistantHost.capabilities?.() ?? [],
-      assistantTenantScope,
-    ),
-  });
-  settleTenantScopeWaiters();
+  const pageInstanceKey = assistantPageInstanceKey;
+  const controller = new AbortController();
+  assistantSurfaceSettlement = controller;
+  void session.settleAssistantPageState(controller.signal).then(
+    () => {
+      if (
+        controller.signal.aborted ||
+        assistantSurfaceSettlement !== controller ||
+        !assistantActive ||
+        pageInstanceKey !== assistantPageInstanceKey ||
+        session !== view.value ||
+        pending.value ||
+        failure.value
+      ) {
+        return;
+      }
+      assistantSurfaceSettlement = undefined;
+      unregisterAssistantSurface = assistantHost.registry.register({
+        pageInstanceKey,
+        contextRevision: () => modulePageAssistantContextRevision(session),
+        interactionRevision: () => modulePageAssistantInteractionRevision(session),
+        surface: createModulePageAssistantSurface(
+          session,
+          createAssistantTurnRequester(sessionHttp.value),
+          () => assistantHost.capabilities?.() ?? [],
+          assistantTenantScope,
+        ),
+      });
+      settleTenantScopeWaiters();
+    },
+    (cause) => {
+      if (assistantSurfaceSettlement === controller) assistantSurfaceSettlement = undefined;
+      if (cause instanceof DOMException && cause.name === 'AbortError') return;
+      for (const settlement of tenantScopeSettlements) {
+        tenantScopeSettlements.delete(settlement);
+        settlement.reject(cause instanceof Error ? cause : new Error(String(cause)));
+      }
+    },
+  );
 }
 function activateAssistantSurface() {
   assistantActive = true;
