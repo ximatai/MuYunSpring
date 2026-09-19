@@ -58,7 +58,6 @@ export function createModulePageAssistantSurface(
   };
   const capabilities = (): AssistantCapability[] => [
     ...contributedCapabilities(),
-    pageDescribeCapability(view),
     ...modulePageScopeCapabilities(view, tenantScope),
     ...(view.listQueryController ? queryCapabilities(view) : []),
     ...recordEditorCapabilities(view),
@@ -418,20 +417,6 @@ function surfaceContext(view: ModulePageSessionView): AssistantSurfaceContext {
       selectedRecordId: recordIdentity(view.selectedRecord),
       editing: hasEditableDraft(view),
       dirty: view.detailDirty,
-    },
-  };
-}
-
-function pageDescribeCapability(view: ModulePageSessionView): AssistantCapability<Record<string, never>> {
-  return {
-    descriptor: {
-      code: 'page.describe',
-      description: 'Describe the active standard page without reading the DOM',
-      inputSchema: emptyObjectSchema(),
-    },
-    parseInput: parseEmptyObject,
-    async execute() {
-      return surfaceContext(view);
     },
   };
 }

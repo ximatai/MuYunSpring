@@ -65,8 +65,13 @@ describe('module page assistant surface', () => {
 
     expect(view.updateDraftFields).toHaveBeenCalledWith([{ fieldName: 'summary', value: 'after' }]);
     expect(surface.describe().facts).toEqual(
-      expect.objectContaining({ moduleAlias: 'work.daily_report', editing: true }),
+      expect.objectContaining({
+        moduleAlias: 'work.daily_report',
+        editorMode: 'edit',
+        editing: true,
+      }),
     );
+    expect(surface.capabilities().map(({ descriptor }) => descriptor.code)).not.toContain('page.describe');
   });
 
   it('rejects unknown and read-only fields before changing any draft value', async () => {

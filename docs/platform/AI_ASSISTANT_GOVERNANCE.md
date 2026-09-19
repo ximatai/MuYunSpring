@@ -174,6 +174,8 @@ Workbench 按稳定的页签实例标识持有 Surface 注册，不以“最后�
 
 当前不持久化完整对话，也不在助手主循环中编码“新增职员”“填写日报”等业务流程。业务差异继续由 Surface 的上下文与能力表达，模型负责理解目标和组合能力。只有经过真实调用成本或偏航风险验证的少数场景，才可通过可插拔指导补充约束，并且不得改变通用调度主链。日志默认记录 trace、回合和能力执行事实，不默认持久化完整用户消息、模型内容或业务记录正文。
 
+平台大量页面由稳定范式生成，模型不应在每个回合从零推导这些公共操作关系。后端按已知 Surface 类型和已声明的公共能力组合，附加受平台控制的精简操作知识：Workbench 说明可见菜单检索与正式导航，标准记录页说明浏览、查询、新建或编辑草稿、表单描述、批量字段修改和引用解析，元数据治理说明候选、目标解析和预检。该知识只解释平台范式，不包含职员、部门、日报等业务流程，也不改变 Surface 实际声明的能力、参数或权限；未知 Surface 不获得推测性指导。标准页或治理页组合了 Workbench 导航能力时，会同时获得导航范式知识。
+
 ### 存量接入映射
 
 | 存量机制                            | 结论                                                  | 需要补齐的边界                                                |
@@ -315,6 +317,8 @@ Surface 只提供完成当前任务所需的最小上下文：
 
 Skill 不得包含可绕过平台的脚本、任意 URL 或任意 Bean 名。它只组织已注册能力，且不改变能力执行时的权限判断。
 
+稳定页面范式的操作知识由后端平台目录持有，并通过 Surface 类型与已声明能力组合选择；它是比 Skill 更基础的公共背景，不为某个业务目标编排步骤。页面仍只贡献当前事实和可执行能力，模型结合范式知识自行规划。这样可以减少重复描述和无效探测，同时避免把前端业务数据提升为系统 Prompt。
+
 ## 首批能力目录
 
 ### Workbench
@@ -322,7 +326,6 @@ Skill 不得包含可绕过平台的脚本、任意 URL 或任意 Bean 名。它
 ```text
 workbench.find-menu
 workbench.open-menu
-workbench.describe-active-page
 ```
 
 菜单候选来自当前用户已经获得的可见菜单树。模型不得构造未授权菜单或任意业务路径。
@@ -330,23 +333,24 @@ workbench.describe-active-page
 ### 标准页面
 
 ```text
-page.describe
-page.apply-query
-page.select-record
-page.open-record
-form.start-create
-form.start-edit
+query.describe
+query.apply-quick-search
+record.start-create
+record.start-edit
+scope.select-tenant
+scope.select-navigator
 ```
 
-查询条件必须由页面已声明的查询项编译；字段、操作符和值继续经过页面现有校验和后端数据范围。
+查询条件必须由页面已声明的查询项编译；字段、操作符和值继续经过页面现有校验和后端数据范围。作用域能力只在页面当前结构和权限允许时注册。到达用户要求的页面或记录即视为完成，只有用户明确要求创建或修改数据时才能进入对应草稿。
 
 ### 表单草稿
 
 ```text
 form.describe
 form.patch-draft
-reference.resolve-options
-form.read-validation
+reference.resolve-and-patch
+reference.search-options
+reference.patch-draft
 ```
 
 字段补丁逐字段进入正式变更管线。引用字段通过正式候选解析获得记录身份，不接受模型猜测的内部 ID。首期不向助手开放自动保存。

@@ -85,7 +85,8 @@ public class AssistantTurnService {
             throw new PlatformException("assistant turn payload is too large");
         }
         List<AiChatMessage> messages = new ArrayList<>();
-        messages.add(new AiChatMessage(AiChatMessage.Role.SYSTEM, SYSTEM_PROMPT));
+        messages.add(new AiChatMessage(AiChatMessage.Role.SYSTEM,
+                AssistantPlatformKnowledge.appendTo(SYSTEM_PROMPT, command.context(), command.capabilities())));
         command.history().stream().map(AssistantTurnService::toChatMessage).forEach(messages::add);
         messages.add(new AiChatMessage(AiChatMessage.Role.USER, payload));
         return new AiTurnRequest(messages, command.capabilities(), 0.1, 2_048);

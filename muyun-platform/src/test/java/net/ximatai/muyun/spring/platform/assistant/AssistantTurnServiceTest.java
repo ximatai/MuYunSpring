@@ -125,8 +125,38 @@ class AssistantTurnServiceTest {
         verify(gateway).complete(request.capture());
         assertThat(request.getValue().messages()).hasSize(2);
         assertThat(request.getValue().messages().getFirst().role().name()).isEqualTo("SYSTEM");
+        assertThat(normalizeWhitespace(request.getValue().messages().getFirst().content()))
+                .contains("MuYun workbench", "open only an exact", "returned menuId", "navigate manually")
+                .doesNotContain("employee", "department", "daily report");
         assertThat(request.getValue().messages().get(1).content()).contains("find customers", "workbench");
         assertThat(request.getValue().tools()).containsExactly(capability);
+    }
+
+    @Test
+    void suppliesStandardPageOperatingKnowledgeWithoutTurningItIntoBusinessWorkflow() {
+        AiModelGateway gateway = mock(AiModelGateway.class);
+        when(gateway.complete(org.mockito.ArgumentMatchers.any())).thenReturn(
+                new AiTurnResponse("ready", List.of(), "stop", "request-page-knowledge"));
+        AssistantTurnService service = new AssistantTurnService(gateway, new ObjectMapper());
+
+        try (CurrentUserContext.Scope ignored = CurrentUserContext.use(CurrentUser.systemUser("system", "System"))) {
+            service.turn(new AssistantTurnCommand("帮我新增一条记录",
+                    Map.of("surface", "module-page", "facts", Map.of("editorMode", "view")),
+                    List.of(new AiToolDefinition("workbench.find-menu", "Find visible menus", Map.of())), List.of()));
+        }
+
+        ArgumentCaptor<AiTurnRequest> request = ArgumentCaptor.forClass(AiTurnRequest.class);
+        verify(gateway).complete(request.capture());
+        String prompt = normalizeWhitespace(request.getValue().messages().getFirst().content());
+        assertThat(prompt)
+                .contains("standard MuYun record workspace", "patch known ordinary fields together",
+                        "only when the user asked to create or change", "already complete and must not start a draft",
+                        "Leave drafts unsaved", "ask one concise question", "workbench navigation")
+                .doesNotContain("employee", "department", "daily report");
+    }
+
+    private static String normalizeWhitespace(String value) {
+        return value.replaceAll("\\s+", " ").trim();
     }
 
     @Test
