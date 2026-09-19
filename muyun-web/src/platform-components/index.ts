@@ -202,6 +202,12 @@ export type {
 } from './RecordQueryListPanel.vue';
 export { resolveRecordQueryListColumns } from './recordQueryListColumnModel';
 export type {
+  RecordQueryListQueryController,
+  RecordQueryListQueryField,
+  RecordQueryListQuerySnapshot,
+  RecordQueryListResultRow,
+} from './recordQueryListQueryController';
+export type {
   RecordFormFieldDescriptor,
   RecordFormFieldFallback,
   RecordFormFieldPickerConfig,

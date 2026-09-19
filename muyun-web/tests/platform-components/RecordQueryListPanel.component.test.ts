@@ -8,6 +8,7 @@ import RecordQueryListPanel, {
 } from '@/platform-components/RecordQueryListPanel.vue';
 import type { HttpClient, ModuleContext } from '@muyun/web-core';
 import type { WebQueryRequest } from '@muyun/web-contracts';
+import type { RecordQueryListQueryController } from '@/platform-components/recordQueryListQueryController';
 
 const originalStubs = config.global.stubs;
 beforeEach(() => {
@@ -18,6 +19,118 @@ afterEach(() => {
 });
 
 describe('RecordQueryListPanel', () => {
+  it('publishes a standard query controller that applies quick search and projects visible rows', async () => {
+    const requests: WebQueryRequest[] = [];
+    const context = createContext({ id: 'note-1', title: 'Daily report', secret: 'hidden' }, requests);
+    context.crud.querySchema = async () => ({
+      scopeName: 'demo.note',
+      quickSearch: {
+        enabled: true,
+        fields: ['title'],
+        fieldSchemas: [{ name: 'title', title: 'Title', valueType: 'STRING', operators: ['CONTAINS'] }],
+      },
+      fields: [{ name: 'title', title: 'Title', valueType: 'STRING', operators: ['CONTAINS'] }],
+      externalCriteria: [],
+      defaultSorts: [],
+    });
+    const wrapper = shallowMount(RecordQueryListPanel, {
+      props: {
+        context,
+        title: 'Notes',
+        columns: [
+          { key: 'title', title: 'Title' },
+          { key: 'secret', title: 'Title', assistantReadable: false },
+        ],
+      },
+    });
+    await flushPromises();
+    const controller = wrapper.emitted('queryControllerChange')?.[0]?.[0] as RecordQueryListQueryController;
+
+    expect(controller.snapshot()).toEqual(
+      expect.objectContaining({
+        quickSearchEnabled: true,
+        quickSearchFields: [{ name: 'title', title: 'Title', valueType: 'STRING' }],
+        rows: [
+          {
+            id: 'note-1',
+            cells: [{ fieldName: 'title', title: 'Title', value: 'Daily report' }],
+          },
+        ],
+        truncated: false,
+      }),
+    );
+
+    await controller.applyQuickSearch(' daily ');
+
+    expect(requests.at(-1)).toEqual(expect.objectContaining({ quickSearch: 'daily' }));
+    expect(controller.snapshot().appliedQuickSearch).toBe('daily');
+    const readyRevision = controller.revision();
+    await wrapper.setProps({ ready: false });
+    await flushPromises();
+    expect(controller.revision()).toBeGreaterThan(readyRevision);
+    expect(controller.snapshot()).toEqual(expect.objectContaining({ status: 'waiting', rows: [] }));
+    wrapper.unmount();
+    expect(wrapper.emitted('queryControllerChange')?.at(-1)).toEqual([undefined]);
+  });
+
+  it('rejects a controller search superseded by a newer standard list request', async () => {
+    const context = createContext({ id: 'note-1', title: 'Initial' });
+    context.crud.querySchema = async () => ({
+      scopeName: 'demo.note',
+      quickSearch: {
+        enabled: true,
+        fields: ['title'],
+        fieldSchemas: [{ name: 'title', title: 'Title', valueType: 'STRING', operators: ['CONTAINS'] }],
+      },
+      fields: [{ name: 'title', title: 'Title', valueType: 'STRING', operators: ['CONTAINS'] }],
+      externalCriteria: [],
+      defaultSorts: [],
+    });
+    let resolveSuperseded!: (value: {
+      records: QueryListRecord[];
+      total: number;
+      pageNum: number;
+      pageSize: number;
+    }) => void;
+    context.crud.query = vi
+      .fn()
+      .mockResolvedValueOnce({
+        records: [{ id: 'note-1', title: 'Initial' }],
+        total: 1,
+        pageNum: 1,
+        pageSize: 20,
+      })
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveSuperseded = resolve;
+          }),
+      )
+      .mockResolvedValueOnce({ records: [], total: 0, pageNum: 1, pageSize: 20 });
+    const wrapper = shallowMount(RecordQueryListPanel, {
+      props: { context, title: 'Notes', columns: [{ key: 'title', title: 'Title' }] },
+    });
+    await flushPromises();
+    const controller = wrapper.emitted('queryControllerChange')?.[0]?.[0] as RecordQueryListQueryController;
+
+    const initialRevision = controller.revision();
+    const assistantSearch = controller.applyQuickSearch('superseded');
+    expect(controller.revision()).toBeGreaterThan(initialRevision);
+    await flushPromises();
+    const assistantRevision = controller.revision();
+    (wrapper.vm as unknown as { refresh(): void }).refresh();
+    expect(controller.revision()).toBeGreaterThan(assistantRevision);
+    await flushPromises();
+    resolveSuperseded({
+      records: [{ id: 'late', title: 'Late result' }],
+      total: 1,
+      pageNum: 1,
+      pageSize: 20,
+    });
+
+    await expect(assistantSearch).rejects.toThrow('Quick search failed');
+  });
+
   it('keeps a single row click as selection and exposes double click as semantic record activation', async () => {
     const record = { id: 'log-1', title: '异常日志' };
     const wrapper = shallowMount(RecordQueryListPanel, {

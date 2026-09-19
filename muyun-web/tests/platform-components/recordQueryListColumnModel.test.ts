@@ -1,5 +1,8 @@
 import { expect, it } from 'vitest';
-import { resolveRecordQueryListColumns } from '@/platform-components/recordQueryListColumnModel.ts';
+import {
+  resolveRecordQueryListColumns,
+  resolveRecordQueryListDisplayValue,
+} from '@/platform-components/recordQueryListColumnModel.ts';
 import type { QuerySchemaField, ResolvedViewDescriptor } from '@/web-contracts/index.ts';
 
 it('maps visible resolved list fields into the standard list presentation contract', () => {
@@ -166,6 +169,55 @@ it('preserves the compiled reference and prefers its explicit title field', () =
   expect(
     resolveRecordQueryListColumns(listView([{ fieldRef: { fieldName: 'classroomId' }, reference }])),
   ).toMatchObject([{ key: 'classroomId', titleField: 'classroomSummary', reference }]);
+});
+
+it('omits password controls from assistant projection and shares specialized display semantics', () => {
+  expect(
+    resolveRecordQueryListColumns(
+      listView([
+        {
+          fieldRef: { fieldName: 'secret' },
+          fieldControl: { alias: 'password', rendererType: 'PASSWORD', valueShape: 'SCALAR' },
+        },
+      ]),
+    ),
+  ).toMatchObject([{ key: 'secret', assistantReadable: false }]);
+
+  expect(
+    resolveRecordQueryListDisplayValue(
+      { tags: [{ id: 'one', title: '重要' }] },
+      { key: 'tags', title: '标签', type: 'tagList' },
+    ),
+  ).toBe('重要');
+  expect(
+    resolveRecordQueryListDisplayValue({ size: 1024 }, { key: 'size', title: '大小', type: 'fileSize' }),
+  ).toBe('1 KB');
+  expect(
+    resolveRecordQueryListDisplayValue(
+      { enabled: true },
+      {
+        key: 'enabled',
+        title: '状态',
+        type: 'booleanStatus',
+        booleanStatus: { trueLabel: '已启用', falseLabel: '已停用' },
+      },
+    ),
+  ).toBe('已启用');
+
+  expect(
+    resolveRecordQueryListDisplayValue(
+      { updatedAt: '2026-01-01T00:00:00Z' },
+      { key: 'updatedAt', title: '更新时间', type: 'datetime' },
+      {},
+      { timeZone: 'Asia/Shanghai' },
+    ),
+  ).toBe('2026-01-01 08:00:00');
+  expect(
+    resolveRecordQueryListDisplayValue(
+      { enabled: true },
+      { key: 'enabled', title: '状态', type: 'enabledStatus', render: () => '不应覆盖专用展示' },
+    ),
+  ).toBe('启用');
 });
 
 function listView(fields: ResolvedViewDescriptor['fields']): ResolvedViewDescriptor {

@@ -3,6 +3,7 @@ import {
   createModulePageAssistantSurface,
   modulePageAssistantContextRevision,
 } from '@muyun/dynamic-page-runtime';
+import { createAssistantSurfaceRegistry } from '@muyun/web-core';
 import type { ModulePageSessionView } from '@/dynamic-page-runtime/useModulePageSession';
 
 function viewFixture(): ModulePageSessionView {
@@ -82,11 +83,164 @@ describe('module page assistant surface', () => {
     view.editingRecord = { ...view.editingRecord!, summary: 'secret manual edit' };
 
     expect(modulePageAssistantContextRevision(view)).toBe(before);
-    expect(before).toBe('7');
+    expect(before).toBe('7:-');
 
     view.assistantContextRevision += 1;
 
     expect(modulePageAssistantContextRevision(view)).not.toBe(before);
+  });
+
+  it('adapts the mounted standard list query controller without owning query state', async () => {
+    const view = viewFixture();
+    const snapshot = {
+      mode: 'normal' as const,
+      status: 'ready' as const,
+      quickSearchEnabled: true,
+      quickSearchFields: [{ name: 'title', title: 'Title', valueType: 'STRING' as const }],
+      pageNum: 1,
+      pageSize: 20,
+      total: 1,
+      totalKnown: true,
+      rows: [
+        {
+          id: 'record-1',
+          cells: [{ fieldName: 'title', title: 'Title', value: 'Daily report' }],
+        },
+      ],
+      truncated: false,
+    };
+    view.listQueryController = {
+      revision: () => 4,
+      snapshot: () => snapshot,
+      applyQuickSearch: vi.fn(async () => ({ ...snapshot, appliedQuickSearch: 'daily' })),
+    };
+    const surface = createModulePageAssistantSurface(view, vi.fn());
+    const describe = surface.capabilities().find(({ descriptor }) => descriptor.code === 'query.describe')!;
+    const apply = surface
+      .capabilities()
+      .find(({ descriptor }) => descriptor.code === 'query.apply-quick-search')!;
+
+    await expect(describe.execute(describe.parseInput({}), executionContext())).resolves.toEqual(snapshot);
+    await expect(apply.execute(apply.parseInput({ keyword: 'daily' }), executionContext())).resolves.toEqual(
+      expect.objectContaining({ appliedQuickSearch: 'daily' }),
+    );
+    expect(view.listQueryController.applyQuickSearch).toHaveBeenCalledWith('daily');
+    expect(modulePageAssistantContextRevision(view)).toBe('7:4');
+  });
+
+  it('settles an asynchronous query effect before binding its post-effect revision', async () => {
+    const view = viewFixture();
+    let revision = 0;
+    const snapshot = {
+      mode: 'normal' as const,
+      status: 'ready' as const,
+      quickSearchEnabled: true,
+      quickSearchFields: [{ name: 'title', title: 'Title', valueType: 'STRING' as const }],
+      pageNum: 1,
+      pageSize: 20,
+      total: 0,
+      totalKnown: true,
+      rows: [],
+      truncated: false,
+    };
+    view.listQueryController = {
+      revision: () => revision,
+      snapshot: () => snapshot,
+      applyQuickSearch: vi.fn(async () => {
+        revision += 1;
+        await Promise.resolve();
+        return { ...snapshot, appliedQuickSearch: 'daily' };
+      }),
+    };
+    const registry = createAssistantSurfaceRegistry();
+    registry.register({
+      pageInstanceKey: 'page-1',
+      contextRevision: () => modulePageAssistantContextRevision(view),
+      surface: createModulePageAssistantSurface(view, vi.fn()),
+    });
+    registry.activate('page-1');
+    const token = registry.snapshot()!.token;
+
+    await expect(
+      registry.invoke(
+        { id: 'query-1', code: 'query.apply-quick-search', input: { keyword: 'daily' } },
+        token,
+      ),
+    ).resolves.toEqual({
+      value: expect.objectContaining({ appliedQuickSearch: 'daily' }),
+      contextChanged: true,
+    });
+  });
+
+  it('rejects a query result when another page context change happens while it is pending', async () => {
+    const view = viewFixture();
+    let revision = 0;
+    let resolveQuery!: () => void;
+    const snapshot = {
+      mode: 'normal' as const,
+      status: 'ready' as const,
+      quickSearchEnabled: true,
+      quickSearchFields: [{ name: 'title', title: 'Title', valueType: 'STRING' as const }],
+      pageNum: 1,
+      pageSize: 20,
+      total: 0,
+      totalKnown: true,
+      rows: [],
+      truncated: false,
+    };
+    view.listQueryController = {
+      revision: () => revision,
+      snapshot: () => snapshot,
+      applyQuickSearch: vi.fn(() => {
+        revision += 1;
+        return new Promise<typeof snapshot & { appliedQuickSearch: string }>((resolve) => {
+          resolveQuery = () => resolve({ ...snapshot, appliedQuickSearch: 'daily' });
+        });
+      }),
+    };
+    const registry = createAssistantSurfaceRegistry();
+    registry.register({
+      pageInstanceKey: 'page-1',
+      contextRevision: () => modulePageAssistantContextRevision(view),
+      surface: createModulePageAssistantSurface(view, vi.fn()),
+    });
+    registry.activate('page-1');
+    const invocation = registry.invoke(
+      { id: 'query-1', code: 'query.apply-quick-search', input: { keyword: 'daily' } },
+      registry.snapshot()!.token,
+    );
+    await Promise.resolve();
+    view.assistantContextRevision += 1;
+    resolveQuery();
+
+    await expect(invocation).rejects.toThrow('Assistant invocation no longer matches');
+  });
+
+  it('does not expose quick-search mutation when the standard list disables it', () => {
+    const view = viewFixture();
+    view.listQueryController = {
+      revision: () => 1,
+      snapshot: () => ({
+        mode: 'normal',
+        status: 'ready',
+        quickSearchEnabled: false,
+        quickSearchFields: [],
+        pageNum: 1,
+        pageSize: 20,
+        total: 0,
+        totalKnown: true,
+        rows: [],
+        truncated: false,
+      }),
+      applyQuickSearch: vi.fn(),
+    };
+
+    const capabilityCodes = createModulePageAssistantSurface(view, vi.fn())
+      .capabilities()
+      .map(({ descriptor }) => descriptor.code);
+
+    expect(capabilityCodes).toContain('query.describe');
+    expect(capabilityCodes).not.toContain('query.apply-quick-search');
   });
 
   it('does not advertise writable fields while the page is outside an edit session', async () => {

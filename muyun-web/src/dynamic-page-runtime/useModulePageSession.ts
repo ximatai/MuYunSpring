@@ -26,6 +26,7 @@ import {
   type RecordExplorerItemDescriptor,
   type RecordActionItem,
   type RecordQueryListCellComponent,
+  type RecordQueryListQueryController,
   type ReferenceRecordDetailMutation,
   type StandardCrudRowActionKey,
   type QueryListRecord,
@@ -360,6 +361,12 @@ export function useModulePageSession(
     loadFailed: detailLoadFailed,
   } = detail;
   const assistantContextRevision = ref(0);
+  const listQueryController = shallowRef<RecordQueryListQueryController>();
+  function bindListQueryController(controller: RecordQueryListQueryController | undefined) {
+    if (listQueryController.value === controller) return;
+    listQueryController.value = controller;
+    assistantContextRevision.value += 1;
+  }
   watch(
     [
       () => selectedRecord.value?.id,
@@ -3550,6 +3557,8 @@ export function useModulePageSession(
     formFields,
     formSessionKey,
     assistantContextRevision,
+    listQueryController,
+    bindListQueryController,
     formValidationRequestKey,
     referencePickerConfigs,
     runtimeUiDescriptor,

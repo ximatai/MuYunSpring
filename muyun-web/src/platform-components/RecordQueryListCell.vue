@@ -4,11 +4,14 @@ import DateTimeText from './DateTimeText.vue';
 import FileSizeText from './FileSizeText.vue';
 import RecordStatusTag from './RecordStatusTag.vue';
 import RecordTagList from './RecordTagList.vue';
-import { resolveRecordBooleanStatusValue } from './recordFormFieldModel';
-import { readonlyReferenceDisplay } from './readonlyReferenceDisplay';
 import ReadonlyReferenceValue from './ReadonlyReferenceValue.vue';
 import { useReferenceRecordDetailBrowser } from './referenceRecordDetailBrowser';
-import type { QueryListRecord, RecordQueryListColumn } from './recordQueryListColumnModel';
+import { usePlatformTimeZoneContext } from './platformTimeZoneContext';
+import {
+  resolveRecordQueryListDisplayValue,
+  type QueryListRecord,
+  type RecordQueryListColumn,
+} from './recordQueryListColumnModel';
 
 defineOptions({ name: 'RecordQueryListCell' });
 
@@ -22,81 +25,27 @@ const props = withDefaults(
   { cellRenderers: () => ({}) },
 );
 const referenceBrowser = useReferenceRecordDetailBrowser();
+const platformTimeZone = usePlatformTimeZoneContext();
 
 const renderedValue = computed<unknown>(
   () => props.column.render?.(props.record) ?? props.cellRenderers[props.column.key]?.(props.record),
 );
-const displayValue = computed(() => {
-  if (renderedValue.value !== undefined) return renderedValue.value;
-  if (props.column.reference) {
-    const display = readonlyReferenceDisplay(
-      props.column.reference,
-      props.record[props.column.key],
-      props.column.titleField
-        ? props.record[props.column.titleField]
-        : props.record[`${props.column.key}Title`],
-    );
-    if (display !== undefined) return display;
-  }
-  return displayRecordFieldValue(props.record, props.column.key, props.column.titleField);
-});
+const displayValue = computed(() =>
+  resolveRecordQueryListDisplayValue(props.record, props.column, props.cellRenderers, {
+    timeZone: platformTimeZone?.value,
+  }),
+);
 const dateTimeValue = computed(() =>
   scalarPresentationValue(renderedValue.value ?? props.record[props.column.key]),
 );
 const fileSizeValue = computed(() =>
   fileSizePresentationValue(renderedValue.value ?? props.record[props.column.key]),
 );
-const statusValue = computed(() =>
-  props.column.type === 'booleanStatus'
-    ? resolveRecordBooleanStatusValue(props.record[props.column.key])
-    : props.record[props.column.key] !== false,
-);
-
-function displayRecordFieldValue(record: QueryListRecord, fieldName: string, titleField?: string) {
-  const titleFields = [titleField, `${fieldName}Title`].filter(
-    (value, index, fields): value is string => Boolean(value) && fields.indexOf(value) === index,
-  );
-  for (const candidate of titleFields) {
-    const titleValue = record[candidate];
-    if (typeof titleValue === 'string' && titleValue.trim()) return titleValue;
-  }
-  const value = record[fieldName];
-  const optionTitles = optionTitlesOf(value, props.column.optionItems);
-  if (optionTitles.length > 0) return optionTitles.join('、');
-  if (typeof value === 'boolean') return value ? '是' : '否';
-  return String(value ?? '');
-}
-
-/**
- * Dictionary/reference selections may be transported as an array or as the JSON-set column
- * representation.  Keep this at the shared list-cell boundary so normal lists, cards and
- * managed relation tables render the same titles.
- */
-function optionTitlesOf(value: unknown, optionItems: typeof props.column.optionItems): string[] {
-  if (!optionItems?.length) return [];
-  const titles: string[] = [];
-  for (const code of selectionCodesOf(value)) {
-    const option = optionItems.find((item) => item.code === code);
-    titles.push(option?.title ?? code);
-  }
-  return titles;
-}
-
-function selectionCodesOf(value: unknown): string[] {
-  if (Array.isArray(value)) return value.map(String).filter(Boolean);
-  if (typeof value !== 'string') return value == null ? [] : [String(value)];
-  const trimmed = value.trim();
-  if (!trimmed) return [];
-  if (trimmed.startsWith('[')) {
-    try {
-      const parsed: unknown = JSON.parse(trimmed);
-      if (Array.isArray(parsed)) return parsed.map(String).filter(Boolean);
-    } catch {
-      // It is a scalar string beginning with "["; leave the persisted value visible.
-    }
-  }
-  return [value];
-}
+const statusValue = computed(() => {
+  if (props.column.type !== 'booleanStatus') return props.record[props.column.key] !== false;
+  const value = props.record[props.column.key];
+  return typeof value === 'boolean' ? value : undefined;
+});
 
 function scalarPresentationValue(value: unknown) {
   if (value === null || value === undefined) return undefined;

@@ -1,6 +1,7 @@
 import type { AssistantSurfaceContext } from '@muyun/web-contracts';
 import {
   type AssistantCapability,
+  type AssistantCapabilityExecutionContext,
   type AssistantSurface,
   type AssistantTurnRequester,
 } from '@muyun/web-core';
@@ -14,7 +15,7 @@ import {
 import type { ModulePageSessionView } from './useModulePageSession';
 
 export function modulePageAssistantContextRevision(view: ModulePageSessionView): string {
-  return String(view.assistantContextRevision);
+  return `${view.assistantContextRevision}:${view.listQueryController?.revision() ?? '-'}`;
 }
 
 export function createModulePageAssistantSurface(
@@ -25,6 +26,7 @@ export function createModulePageAssistantSurface(
   const capabilities = (): AssistantCapability[] => [
     ...contributedCapabilities(),
     pageDescribeCapability(view),
+    ...(view.listQueryController ? queryCapabilities(view) : []),
     formDescribeCapability(view),
     ...(view.editingRecord ? [formPatchCapability(view)] : []),
   ];
@@ -33,6 +35,55 @@ export function createModulePageAssistantSurface(
     capabilities,
     requestTurn,
   };
+}
+
+function queryCapabilities(view: ModulePageSessionView): AssistantCapability[] {
+  const controller = view.listQueryController!;
+  const snapshot = controller.snapshot();
+  return [
+    ...(snapshot.quickSearchEnabled
+      ? [
+          {
+            descriptor: {
+              code: 'query.apply-quick-search',
+              description:
+                '搜索或筛选当前列表：把用户给出的字面关键词交给平台标准快速搜索，并返回筛选后的当前页。用户要求查找、搜索或筛选记录时直接使用。',
+              inputSchema: {
+                type: 'object' as const,
+                additionalProperties: false,
+                required: ['keyword'],
+                properties: { keyword: { type: 'string', maxLength: 500 } },
+              },
+            },
+            parseInput(input: unknown) {
+              if (!isRecord(input) || typeof input.keyword !== 'string') {
+                throw new Error('query.apply-quick-search requires a keyword');
+              }
+              return { keyword: input.keyword };
+            },
+            async execute(input: unknown, context: AssistantCapabilityExecutionContext) {
+              const keyword = (input as { keyword: string }).keyword;
+              let pending!: Promise<ReturnType<typeof controller.snapshot>>;
+              context.applyEffect(() => {
+                pending = controller.applyQuickSearch(keyword);
+              });
+              return pending;
+            },
+          } satisfies AssistantCapability,
+        ]
+      : []),
+    {
+      descriptor: {
+        code: 'query.describe',
+        description: '读取当前标准列表的查询状态和可见结果页；它不会筛选记录，仅在需要了解当前结果时使用。',
+        inputSchema: emptyObjectSchema(),
+      },
+      parseInput: parseEmptyObject,
+      async execute() {
+        return controller.snapshot();
+      },
+    },
+  ];
 }
 
 function surfaceContext(view: ModulePageSessionView): AssistantSurfaceContext {
