@@ -63,6 +63,11 @@ import {
   type ModuleTreeClient,
 } from '@muyun/web-core';
 import { canMutateModuleDetail } from './moduleDetailStateModel';
+import {
+  assistantEditableRecordIds,
+  assistantEditCancelDestination,
+  hasAvailableRecordUpdate,
+} from './assistantRecordEditorPolicy';
 import { recordMutationPayload } from './recordMutationPayload';
 import { createSourceReferencePickerConfigAssembler } from './sourceReferencePickerConfig';
 import {
@@ -331,6 +336,7 @@ export function useModulePageSession(
   const detail = useRecordDetailController<QueryListRecord>();
   const {
     invalidatePendingRequests,
+    commitLoadedRecord,
     openRecord: loadRecord,
     openRecycleBinRecord,
   } = useRecordEditingSession(context, detail, () => {
@@ -2805,10 +2811,14 @@ export function useModulePageSession(
   }
 
   async function createRecord(parentId?: string) {
-    if (context.can('create') !== true) return;
+    if (context.can('create') !== true) return false;
     await (resolvedSelectionFormDefaultsRequest ?? loadResolvedSelectionFormDefaults());
-    invalidatePendingRequests();
     const defaults = { ...navigatorCreateDefaults.value, ...(parentId ? { parentId } : {}) };
+    return commitCreateRecord(defaults);
+  }
+
+  function commitCreateRecord(defaults: QueryListRecord) {
+    invalidatePendingRequests();
     // Only a tree's persistent detail card has a meaningful record to restore.
     // A list drawer creates an independent draft: cancelling it must close the
     // drawer rather than reopen the row that happened to be selected.
@@ -2827,10 +2837,22 @@ export function useModulePageSession(
         ),
       );
     }
+    return editorMode.value === 'create' && Boolean(editingRecord.value);
   }
 
   function createRootRecord() {
-    createRecord();
+    return createRecord();
+  }
+
+  async function prepareAssistantCreate() {
+    if (editorMode.value !== 'view') throw new Error('A form draft is already active');
+    if (context.can('create') !== true) throw new Error('Record creation is unavailable');
+    await (resolvedSelectionFormDefaultsRequest ?? loadResolvedSelectionFormDefaults());
+    const defaults = { ...navigatorCreateDefaults.value };
+    return () => {
+      if (!commitCreateRecord(defaults)) throw new Error('Record creation is unavailable');
+      return assistantEditorState();
+    };
   }
 
   function createChildRecord() {
@@ -2869,6 +2891,53 @@ export function useModulePageSession(
     }
     if (selectedRecord.value?.id === record.id && detail.beginEdit({ cancelDestination })) return;
     await openRecord(record, 'edit', { cancelDestination });
+  }
+
+  async function prepareAssistantEdit(recordId: string) {
+    if (editorMode.value !== 'view' || detailLoading.value) throw new Error('A form draft is already active');
+    const normalizedId = recordId.trim();
+    const querySnapshot = listQueryController.value?.snapshot();
+    if (querySnapshot?.mode === 'recycleBin') {
+      throw new Error('Record editing is unavailable in recycle bin mode');
+    }
+    const visibleIds = new Set(assistantEditableRecordIds(selectedRecord.value?.id, querySnapshot));
+    if (!normalizedId || !visibleIds.has(normalizedId)) {
+      throw new Error(`Record is not available on the current page: ${recordId}`);
+    }
+    const selected = selectedRecord.value;
+    if (context.can('update') !== true) throw new Error('Record editing is unavailable');
+    if (!(await assistantRecordUpdateAvailable(normalizedId))) {
+      throw new Error('Record editing is unavailable');
+    }
+    const loaded =
+      selected?.id != null && String(selected.id) === normalizedId
+        ? selected
+        : await context.crud.view(normalizedId);
+    return () => {
+      commitLoadedRecord(loaded, 'edit', {
+        cancelDestination: assistantEditCancelDestination(detailOpen.value, selected?.id, normalizedId),
+      });
+      return assistantEditorState();
+    };
+  }
+
+  async function assistantRecordUpdateAvailable(recordId: string) {
+    try {
+      const availability = await context.recordActions(recordId);
+      return hasAvailableRecordUpdate(availability);
+    } catch (cause) {
+      presentPlatformError(cause, { source: 'module-assistant', phase: 'authorization' });
+      return false;
+    }
+  }
+
+  function assistantEditorState() {
+    return {
+      editorMode: editorMode.value,
+      recordId: editingRecord.value?.id == null ? undefined : String(editingRecord.value.id),
+      editable: Boolean(editingRecord.value),
+      dirty: detailDirty.value,
+    };
   }
 
   async function saveRecord(actionKey = 'save') {
@@ -3576,6 +3645,8 @@ export function useModulePageSession(
     placedPageActions,
     handlePlacedPageAction,
     createRootRecord,
+    prepareAssistantCreate,
+    prepareAssistantEdit,
     hasCardAssistantAt,
     enhancementCardAssistant,
     cardAssistantContext,

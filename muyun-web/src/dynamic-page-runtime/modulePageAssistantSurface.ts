@@ -13,6 +13,7 @@ import {
   type RecordFormFieldValue,
 } from '@muyun/platform-components';
 import type { ModulePageSessionView } from './useModulePageSession';
+import { assistantEditableRecordIds, hasActiveRecordEditor } from './assistantRecordEditorPolicy';
 
 export function modulePageAssistantContextRevision(view: ModulePageSessionView): string {
   return `${view.assistantContextRevision}:${view.listQueryController?.revision() ?? '-'}`;
@@ -27,14 +28,72 @@ export function createModulePageAssistantSurface(
     ...contributedCapabilities(),
     pageDescribeCapability(view),
     ...(view.listQueryController ? queryCapabilities(view) : []),
+    ...recordEditorCapabilities(view),
     formDescribeCapability(view),
-    ...(view.editingRecord ? [formPatchCapability(view)] : []),
+    ...(hasEditableDraft(view) ? [formPatchCapability(view)] : []),
   ];
   return {
     describe: () => surfaceContext(view),
     capabilities,
     requestTurn,
   };
+}
+
+function recordEditorCapabilities(view: ModulePageSessionView): AssistantCapability[] {
+  if (view.editorMode !== 'view' || view.detailLoading || view.detailLoadFailed) return [];
+  const querySnapshot = view.listQueryController?.snapshot();
+  if (querySnapshot?.mode === 'recycleBin') return [];
+  const capabilities: AssistantCapability[] = [];
+  if (view.context.can('create') === true) {
+    capabilities.push({
+      descriptor: {
+        code: 'record.start-create',
+        description: '打开当前模块的标准新增表单并建立未保存草稿；需要新建单据或记录时使用。它不会保存。',
+        inputSchema: emptyObjectSchema(),
+      },
+      parseInput: parseEmptyObject,
+      async execute(_input, context) {
+        const commit = await view.prepareAssistantCreate();
+        return context.applyEffect(commit);
+      },
+    });
+  }
+  const editableRecordIds = assistantEditableRecordIds(view.selectedRecord?.id, querySnapshot);
+  if (view.context.can('update') === true && editableRecordIds.length > 0) {
+    capabilities.push({
+      descriptor: {
+        code: 'record.start-edit',
+        description:
+          '打开当前页面已选中或当前列表结果中某条记录的标准编辑表单；只能使用当前页面提供的 recordId。它不会保存。',
+        inputSchema: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['recordId'],
+          properties: { recordId: { type: 'string', enum: editableRecordIds } },
+        },
+      },
+      parseInput(input) {
+        if (
+          !isRecord(input) ||
+          typeof input.recordId !== 'string' ||
+          !editableRecordIds.includes(input.recordId)
+        ) {
+          throw new Error('record.start-edit requires a recordId from the current page');
+        }
+        return { recordId: input.recordId };
+      },
+      async execute(input, context) {
+        const { recordId } = input as { recordId: string };
+        const commit = await view.prepareAssistantEdit(recordId);
+        return context.applyEffect(commit);
+      },
+    });
+  }
+  return capabilities;
+}
+
+function hasEditableDraft(view: ModulePageSessionView) {
+  return hasActiveRecordEditor(view.editorMode, view.editingRecord);
 }
 
 function queryCapabilities(view: ModulePageSessionView): AssistantCapability[] {
@@ -94,7 +153,7 @@ function surfaceContext(view: ModulePageSessionView): AssistantSurfaceContext {
       moduleAlias: view.context.moduleAlias,
       editorMode: view.editorMode,
       selectedRecordId: recordIdentity(view.selectedRecord),
-      editing: Boolean(view.editingRecord),
+      editing: hasEditableDraft(view),
       dirty: view.detailDirty,
     },
   };
@@ -125,7 +184,7 @@ function formDescribeCapability(view: ModulePageSessionView): AssistantCapabilit
     async execute() {
       return {
         editorMode: view.editorMode,
-        editable: Boolean(view.editingRecord),
+        editable: hasEditableDraft(view),
         fields: formFieldStates(view)
           .filter((field) => field.visible && !isSensitiveField(field))
           .map((field) => ({
@@ -135,7 +194,7 @@ function formDescribeCapability(view: ModulePageSessionView): AssistantCapabilit
             readOnly: field.readOnly,
             valueType: field.valueType,
             controlType: field.controlType,
-            assistantWritable: Boolean(view.editingRecord) && isAssistantWritableField(field),
+            assistantWritable: hasEditableDraft(view) && isAssistantWritableField(field),
             options: assistantOptions(field),
           })),
       };
@@ -169,7 +228,7 @@ function formPatchCapability(
       return { fieldName: input.fieldName.trim(), value: input.value };
     },
     async execute(input, context) {
-      if (!view.editingRecord) throw new Error('No editable form draft is active');
+      if (!hasEditableDraft(view)) throw new Error('No editable form draft is active');
       const field = formFieldState(view, input.fieldName);
       if (!field || !field.visible || field.readOnly || !isAssistantWritableField(field)) {
         throw new Error(`Form field is not editable by the assistant: ${input.fieldName}`);

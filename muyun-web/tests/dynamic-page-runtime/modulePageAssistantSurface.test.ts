@@ -9,7 +9,7 @@ import type { ModulePageSessionView } from '@/dynamic-page-runtime/useModulePage
 function viewFixture(): ModulePageSessionView {
   return {
     modulePageTitle: 'Daily report',
-    context: { moduleAlias: 'work.daily_report' },
+    context: { moduleAlias: 'work.daily_report', can: vi.fn(() => false) },
     editorMode: 'edit',
     selectedRecord: { id: 'record-1', version: 2 },
     editingRecord: { id: 'record-1', version: 2, summary: 'before', computed: 'old' },
@@ -126,6 +126,94 @@ describe('module page assistant surface', () => {
     );
     expect(view.listQueryController.applyQuickSearch).toHaveBeenCalledWith('daily');
     expect(modulePageAssistantContextRevision(view)).toBe('7:4');
+  });
+
+  it('opens standard create and visible-record edit sessions without exposing save', async () => {
+    const view = viewFixture();
+    view.editingRecord = { id: 'record-1', version: 2 };
+    view.editorMode = 'view';
+    view.context.can = vi.fn(() => true);
+    view.prepareAssistantCreate = vi.fn(async () => () => ({
+      editorMode: 'create' as const,
+      recordId: undefined,
+      editable: true,
+      dirty: false,
+    }));
+    view.prepareAssistantEdit = vi.fn(async (recordId: string) => () => ({
+      editorMode: 'edit' as const,
+      recordId,
+      editable: true,
+      dirty: false,
+    }));
+    const snapshot = {
+      mode: 'normal' as const,
+      status: 'ready' as const,
+      quickSearchEnabled: false,
+      quickSearchFields: [],
+      pageNum: 1,
+      pageSize: 20,
+      total: 1,
+      totalKnown: true,
+      rows: [{ id: 'record-2', cells: [] }],
+      truncated: false,
+    };
+    view.listQueryController = {
+      revision: () => 0,
+      snapshot: () => snapshot,
+      applyQuickSearch: vi.fn(),
+    };
+    const capabilities = createModulePageAssistantSurface(view, vi.fn()).capabilities();
+    const create = capabilities.find(({ descriptor }) => descriptor.code === 'record.start-create')!;
+    const edit = capabilities.find(({ descriptor }) => descriptor.code === 'record.start-edit')!;
+
+    await expect(create.execute(create.parseInput({}), executionContext())).resolves.toMatchObject({
+      editorMode: 'create',
+      editable: true,
+    });
+    await expect(
+      edit.execute(edit.parseInput({ recordId: 'record-2' }), executionContext()),
+    ).resolves.toMatchObject({ editorMode: 'edit', recordId: 'record-2', editable: true });
+    expect(() => edit.parseInput({ recordId: 'record-outside-page' })).toThrow(
+      'record.start-edit requires a recordId from the current page',
+    );
+    expect(capabilities.map(({ descriptor }) => descriptor.code)).not.toContain('record.save');
+  });
+
+  it('invalidates a pending editor transition when the user changes context after it starts', async () => {
+    const view = viewFixture();
+    view.editingRecord = { id: 'record-1', version: 2 };
+    view.editorMode = 'view';
+    view.context.can = vi.fn((action: string) => action === 'create');
+    let resolveCreate!: () => void;
+    const commit = vi.fn(() => ({
+      editorMode: 'create' as const,
+      recordId: undefined,
+      editable: true,
+      dirty: false,
+    }));
+    view.prepareAssistantCreate = vi.fn(
+      () =>
+        new Promise<typeof commit>((resolve) => {
+          resolveCreate = () => resolve(commit);
+        }),
+    );
+    const registry = createAssistantSurfaceRegistry();
+    registry.register({
+      pageInstanceKey: 'page-1',
+      contextRevision: () => modulePageAssistantContextRevision(view),
+      surface: createModulePageAssistantSurface(view, vi.fn()),
+    });
+    registry.activate('page-1');
+    const invocation = registry.invoke(
+      { id: 'create-1', code: 'record.start-create', input: {} },
+      registry.snapshot()!.token,
+    );
+    await Promise.resolve();
+    view.assistantContextRevision += 1;
+    resolveCreate();
+
+    await expect(invocation).rejects.toThrow('Assistant invocation no longer matches');
+    expect(commit).not.toHaveBeenCalled();
   });
 
   it('settles an asynchronous query effect before binding its post-effect revision', async () => {
@@ -245,8 +333,8 @@ describe('module page assistant surface', () => {
 
   it('does not advertise writable fields while the page is outside an edit session', async () => {
     const view = viewFixture();
-    view.editingRecord = undefined;
     view.editorMode = 'view';
+    view.editingRecord = { id: 'record-1', version: 2, summary: 'read-only detail' };
     const surface = createModulePageAssistantSurface(view, vi.fn());
     const describe = surface.capabilities().find(({ descriptor }) => descriptor.code === 'form.describe')!;
 
@@ -262,6 +350,51 @@ describe('module page assistant surface', () => {
     expect(surface.capabilities()).not.toContainEqual(
       expect.objectContaining({ descriptor: expect.objectContaining({ code: 'form.patch-draft' }) }),
     );
+  });
+
+  it('does not expose record editing while the list is in recycle-bin mode', () => {
+    const view = viewFixture();
+    view.editorMode = 'view';
+    view.editingRecord = { id: 'deleted-record' };
+    view.context.can = vi.fn(() => true);
+    view.listQueryController = {
+      revision: () => 0,
+      snapshot: () => ({
+        mode: 'recycleBin',
+        status: 'ready',
+        quickSearchEnabled: false,
+        quickSearchFields: [],
+        pageNum: 1,
+        pageSize: 20,
+        total: 1,
+        totalKnown: true,
+        rows: [{ id: 'deleted-record', cells: [] }],
+        truncated: false,
+      }),
+      applyQuickSearch: vi.fn(),
+    };
+
+    const capabilityCodes = createModulePageAssistantSurface(view, vi.fn())
+      .capabilities()
+      .map(({ descriptor }) => descriptor.code);
+    expect(capabilityCodes).not.toContain('record.start-edit');
+    expect(capabilityCodes).not.toContain('record.start-create');
+  });
+
+  it('does not expose editor transitions from a failed edit session', () => {
+    const view = viewFixture();
+    view.editorMode = 'edit';
+    view.editingRecord = undefined;
+    view.detailLoading = false;
+    view.detailLoadFailed = true;
+    view.context.can = vi.fn(() => true);
+
+    const capabilityCodes = createModulePageAssistantSurface(view, vi.fn())
+      .capabilities()
+      .map(({ descriptor }) => descriptor.code);
+
+    expect(capabilityCodes).not.toContain('record.start-create');
+    expect(capabilityCodes).not.toContain('record.start-edit');
   });
 
   it('hides password fields and rejects direct reference identifiers', async () => {
