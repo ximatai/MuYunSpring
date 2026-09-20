@@ -52,7 +52,18 @@ it('keeps a workbench fallback surface under the active page surface', async () 
                 ...startup.value,
                 tabs: [
                   ...(startup.value.tabs ?? []),
-                  { key: 'customers', instanceKey: 'customers-instance', title: 'Customers' },
+                  {
+                    key: 'customers',
+                    instanceKey: 'customers-instance',
+                    title: 'Customers',
+                    pageDescriptor: {
+                      pageType: 'dynamic-module',
+                      openMode: 'dynamic-runner',
+                      hostType: 'module-page-host',
+                      tabPolicy: { identity: 'by-menu' },
+                      target: { moduleAlias: 'crm.customer', pageMode: 'LIST' },
+                    },
+                  },
                 ],
                 activeTabKey: 'customers',
               };
@@ -67,15 +78,11 @@ it('keeps a workbench fallback surface under the active page surface', async () 
 
   expect(host?.registry.snapshot()?.context.surface).toBe('workbench');
   const snapshot = host!.registry.snapshot()!;
-  await expect(
-    host!.registry.invoke(
-      { id: 'call-1', code: 'workbench.open-menu', input: { menuId: 'customers' } },
-      snapshot.token,
-    ),
-  ).resolves.toEqual({
-    value: { openedMenuId: 'customers', title: 'Customers' },
-    contextChanged: true,
-  });
+  const opening = host!.registry.invoke(
+    { id: 'call-1', code: 'workbench.open-menu', input: { menuId: 'customers' } },
+    snapshot.token,
+  );
+  await nextTick();
   expect(host?.registry.snapshot()?.token.pageInstanceKey).toBe('customers-instance');
   expect(waitForPageReady).toHaveBeenCalledOnce();
 
@@ -87,6 +94,10 @@ it('keeps a workbench fallback surface under the active page surface', async () 
       capabilities: () => [],
       requestTurn,
     },
+  });
+  await expect(opening).resolves.toEqual({
+    value: { openedMenuId: 'customers', title: 'Customers' },
+    contextChanged: true,
   });
   expect(host?.registry.snapshot()?.context.surface).toBe('static-page');
 

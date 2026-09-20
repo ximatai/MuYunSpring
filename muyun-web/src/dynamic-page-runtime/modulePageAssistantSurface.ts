@@ -4,6 +4,7 @@ import {
   type AssistantCapabilityExecutionContext,
   type AssistantSurface,
   type AssistantTurnRequester,
+  StaleAssistantInvocationError,
   emptyAssistantCapabilityInputSchema,
   parseEmptyAssistantCapabilityInput,
 } from '@muyun/web-core';
@@ -14,6 +15,7 @@ import {
   type ReferencePickerCandidate,
   type RecordFormFieldState,
   type RecordFormFieldValue,
+  type RecordQueryListQuerySnapshot,
 } from '@muyun/platform-components';
 import type { ModulePageSessionView } from './useModulePageSession';
 import { assistantEditableRecordIds, hasActiveRecordEditor } from './assistantRecordEditorPolicy';
@@ -35,17 +37,44 @@ interface AssistantReferenceSelectionState {
 }
 
 export function modulePageAssistantContextRevision(view: ModulePageSessionView): string {
-  return `${modulePageAssistantInteractionRevision(view)}:${view.listQueryController?.revision() ?? '-'}`;
+  const querySnapshot = view.listQueryController?.snapshot();
+  return JSON.stringify({
+    interaction: modulePageAssistantInteractionProjection(view),
+    query: querySnapshot ? assistantQueryProjectionDigest(querySnapshot) : null,
+  });
+}
+
+function assistantQueryProjectionDigest(snapshot: RecordQueryListQuerySnapshot) {
+  const projection = JSON.stringify({
+    mode: snapshot.mode,
+    quickSearchEnabled: snapshot.quickSearchEnabled,
+    rowIds: snapshot.rows.map((row) => row.id ?? null),
+  });
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < projection.length; index += 1) {
+    hash ^= projection.charCodeAt(index);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return `${projection.length}:${(hash >>> 0).toString(16)}`;
 }
 
 export function modulePageAssistantInteractionRevision(view: ModulePageSessionView): string {
-  return JSON.stringify({
+  return JSON.stringify(modulePageAssistantInteractionProjection(view));
+}
+
+function modulePageAssistantInteractionProjection(view: ModulePageSessionView) {
+  return {
     page: view.assistantContextRevision,
     navigators: Object.entries(view.selectedNavigatorRecords ?? {})
       .sort(([left], [right]) => left.localeCompare(right))
       .map(([key, record]) => [key, record?.id == null ? null : String(record.id)]),
     query: view.listQueryController?.interactionRevision?.() ?? null,
-  });
+  };
+}
+
+function modulePageAssistantNonQueryInteractionRevision(view: ModulePageSessionView) {
+  const projection = modulePageAssistantInteractionProjection(view);
+  return JSON.stringify({ page: projection.page, navigators: projection.navigators });
 }
 
 export function createModulePageAssistantSurface(
@@ -63,8 +92,7 @@ export function createModulePageAssistantSurface(
     ...modulePageScopeCapabilities(view, tenantScope),
     ...(view.listQueryController ? queryCapabilities(view) : []),
     ...recordEditorCapabilities(view),
-    formDescribeCapability(view),
-    ...(hasEditableDraft(view) ? [formPatchCapability(view)] : []),
+    ...(hasEditableDraft(view) ? [formDescribeCapability(view), formPatchCapability(view)] : []),
     ...referenceCapabilities(view, referenceSelections),
   ];
   return {
@@ -308,7 +336,7 @@ function recordEditorCapabilities(view: ModulePageSessionView): AssistantCapabil
   const querySnapshot = view.listQueryController?.snapshot();
   if (querySnapshot?.mode === 'recycleBin') return [];
   const capabilities: AssistantCapability[] = [];
-  if (view.context.can('create') === true) {
+  if (view.context.can('create') === true && view.assistantRecordCreationReady()) {
     capabilities.push({
       descriptor: {
         code: 'record.start-create',
@@ -318,7 +346,9 @@ function recordEditorCapabilities(view: ModulePageSessionView): AssistantCapabil
       parseInput: parseEmptyAssistantCapabilityInput,
       async execute(_input, context) {
         const commit = await view.prepareAssistantCreate();
-        return context.applyEffect(commit);
+        return context.applyEffect(commit, () =>
+          view.settleAssistantPageState(context.cancellationSignal ?? context.signal),
+        );
       },
     });
   }
@@ -349,7 +379,9 @@ function recordEditorCapabilities(view: ModulePageSessionView): AssistantCapabil
       async execute(input, context) {
         const { recordId } = input as { recordId: string };
         const commit = await view.prepareAssistantEdit(recordId);
-        return context.applyEffect(commit);
+        return context.applyEffect(commit, () =>
+          view.settleAssistantPageState(context.cancellationSignal ?? context.signal),
+        );
       },
     });
   }
@@ -387,9 +419,24 @@ function queryCapabilities(view: ModulePageSessionView): AssistantCapability[] {
             async execute(input: unknown, context: AssistantCapabilityExecutionContext) {
               const keyword = (input as { keyword: string }).keyword;
               let pending!: Promise<ReturnType<typeof controller.snapshot>>;
-              context.applyEffect(() => {
-                pending = controller.applyQuickSearch(keyword);
-              });
+              let expectedNonQueryRevision!: string;
+              context.applyEffect(
+                () => {
+                  pending = (async () => {
+                    const applied = await controller.applyQuickSearch(keyword);
+                    if (!controller.settle) return applied;
+                    await controller.settle(context.cancellationSignal ?? context.signal);
+                    return controller.snapshot();
+                  })();
+                  expectedNonQueryRevision = modulePageAssistantNonQueryInteractionRevision(view);
+                },
+                async () => {
+                  await pending;
+                  if (modulePageAssistantNonQueryInteractionRevision(view) !== expectedNonQueryRevision) {
+                    throw new StaleAssistantInvocationError();
+                  }
+                },
+              );
               return pending;
             },
           } satisfies AssistantCapability,
@@ -410,6 +457,15 @@ function queryCapabilities(view: ModulePageSessionView): AssistantCapability[] {
 }
 
 function surfaceContext(view: ModulePageSessionView): AssistantSurfaceContext {
+  const navigatorScopes = view.assistantNavigatorScopes().map((level) => {
+    const selected = view.selectedNavigatorRecords[level.descriptor.key];
+    const selectedTitle = selected ? recordTitle(selected) : undefined;
+    return {
+      key: level.descriptor.key,
+      title: level.descriptor.title,
+      selected: selectedTitle ?? null,
+    };
+  });
   return {
     surface: 'module-page',
     title: view.modulePageTitle,
@@ -419,8 +475,15 @@ function surfaceContext(view: ModulePageSessionView): AssistantSurfaceContext {
       selectedRecordId: recordIdentity(view.selectedRecord),
       editing: hasEditableDraft(view),
       dirty: view.detailDirty,
+      recordCreationReady: view.assistantRecordCreationReady(),
+      ...(navigatorScopes.length > 0 ? { navigatorScopes } : {}),
     },
   };
+}
+
+function recordTitle(record: Record<string, unknown>) {
+  const title = record.title ?? record.name ?? record.code ?? record.alias;
+  return title == null ? undefined : String(title).slice(0, 500);
 }
 
 function formDescribeCapability(view: ModulePageSessionView): AssistantCapability<Record<string, never>> {

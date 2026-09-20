@@ -77,6 +77,12 @@ export interface AssistantSurfaceRegistry {
   register(registration: AssistantSurfaceRegistration): () => void;
   activate(pageInstanceKey: string | undefined): void;
   snapshot(): AssistantSurfaceSnapshot | undefined;
+  waitForActiveSurface(options?: {
+    pageInstanceKey?: string;
+    requireFormal?: boolean;
+    signal?: AbortSignal;
+    timeoutMs?: number;
+  }): Promise<AssistantSurfaceSnapshot>;
   requestTurn(
     input: Omit<AssistantTurnInput, 'context' | 'capabilities'>,
     token: AssistantInvocationToken,
@@ -116,12 +122,17 @@ export class StaleAssistantInvocationError extends Error {
 export function createAssistantSurfaceRegistry(): AssistantSurfaceRegistry {
   const registrations = new Map<string, RegisteredAssistantSurface[]>();
   const pending = new Set<AbortController>();
+  const changeListeners = new Set<() => void>();
   let activePageInstanceKey: string | undefined;
   let nextSurfaceGeneration = 0;
 
   function cancelPending() {
     for (const controller of pending) controller.abort();
     pending.clear();
+  }
+
+  function notifyChange() {
+    for (const listener of changeListeners) listener();
   }
 
   function register(registration: AssistantSurfaceRegistration) {
@@ -131,6 +142,7 @@ export function createAssistantSurfaceRegistry(): AssistantSurfaceRegistry {
     else stack.push(registered);
     registrations.set(registration.pageInstanceKey, stack);
     if (activePageInstanceKey === registration.pageInstanceKey) cancelPending();
+    notifyChange();
     return () => {
       const current = registrations.get(registration.pageInstanceKey);
       if (!current?.includes(registered)) return;
@@ -138,6 +150,7 @@ export function createAssistantSurfaceRegistry(): AssistantSurfaceRegistry {
       if (remaining.length > 0) registrations.set(registration.pageInstanceKey, remaining);
       else registrations.delete(registration.pageInstanceKey);
       if (activePageInstanceKey === registration.pageInstanceKey) cancelPending();
+      notifyChange();
     };
   }
 
@@ -145,6 +158,7 @@ export function createAssistantSurfaceRegistry(): AssistantSurfaceRegistry {
     if (activePageInstanceKey === pageInstanceKey) return;
     activePageInstanceKey = pageInstanceKey;
     cancelPending();
+    notifyChange();
   }
 
   function active() {
@@ -209,6 +223,46 @@ export function createAssistantSurfaceRegistry(): AssistantSurfaceRegistry {
     register,
     activate,
     snapshot,
+    waitForActiveSurface(options = {}) {
+      const matches = () => {
+        const current = snapshot();
+        if (!current) return undefined;
+        if (options.pageInstanceKey && current.token.pageInstanceKey !== options.pageInstanceKey) {
+          return undefined;
+        }
+        if (options.requireFormal && current.token.fallback) return undefined;
+        return current;
+      };
+      const current = matches();
+      if (current) return Promise.resolve(current);
+      if (options.signal?.aborted) {
+        return Promise.reject(new DOMException('Assistant surface wait was cancelled', 'AbortError'));
+      }
+      return new Promise<AssistantSurfaceSnapshot>((resolve, reject) => {
+        const cleanup = () => {
+          changeListeners.delete(check);
+          options.signal?.removeEventListener('abort', abort);
+          clearTimeout(timeout);
+        };
+        const check = () => {
+          const ready = matches();
+          if (!ready) return;
+          cleanup();
+          resolve(ready);
+        };
+        const abort = () => {
+          cleanup();
+          reject(new DOMException('Assistant surface wait was cancelled', 'AbortError'));
+        };
+        const timeout = setTimeout(() => {
+          cleanup();
+          reject(new Error('Assistant target surface did not become ready in time'));
+        }, options.timeoutMs ?? 5_000);
+        changeListeners.add(check);
+        options.signal?.addEventListener('abort', abort, { once: true });
+        check();
+      });
+    },
     requestTurn(input, token, signal, progress) {
       return controlled(token, signal, true, (registration, controlledSignal) => {
         const current = requireCurrent(token);

@@ -68,7 +68,7 @@ function pageBootstrap(menuId: string, moduleAlias = 'crm.customer') {
 const tenantExplorerStub = {
   name: 'TenantScopeExplorer',
   props: ['selectedId'],
-  emits: ['select'],
+  emits: ['select', 'loaded'],
   template: '<section />',
 };
 const queryListStub = {
@@ -310,6 +310,16 @@ describe('ModulePageHost lifecycle boundaries', () => {
       await flushPromises();
       await flushPromises();
       expect(registry.snapshot()).toBeUndefined();
+      wrapper.findComponent(tenantExplorerStub).vm.$emit(
+        'loaded',
+        [
+          { id: 'tenant-a', title: '甲租户' },
+          { id: 'tenant-b', title: '乙租户' },
+        ],
+        true,
+        2,
+      );
+      await flushPromises();
       listSettlementReleases.shift()?.();
       await flushPromises();
       const before = registry.snapshot()!.token;
@@ -485,6 +495,16 @@ describe('ModulePageHost lifecycle boundaries', () => {
     const wrapper = mount(Harness, { global: { stubs: hostStubs } });
     try {
       await flushPromises();
+      await flushPromises();
+      wrapper.findComponent(tenantExplorerStub).vm.$emit(
+        'loaded',
+        [
+          { id: 'tenant-a', title: '甲租户' },
+          { id: 'tenant-b', title: '乙租户' },
+        ],
+        true,
+        2,
+      );
       await flushPromises();
       const abort = new AbortController();
       const invocation = registry.invoke(

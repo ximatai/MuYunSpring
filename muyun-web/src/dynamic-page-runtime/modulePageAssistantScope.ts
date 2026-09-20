@@ -98,7 +98,7 @@ function navigatorScopeSelectionCapability(
     descriptor: {
       code: 'scope.select-navigator',
       description:
-        '按名称选择当前页面的导航查询范围（例如机构、部门或分类）。先选择上游范围；仅在授权查询返回唯一精确匹配时应用。',
+        '按名称选择当前页面的导航查询范围（例如机构、部门或分类）。当 pageContext 的 recordCreationReady=false 且 navigatorScopes 中存在未选择项时，先向用户询问该范围的业务名称，再调用本能力；仅在授权查询返回唯一精确匹配时应用。',
       inputSchema: {
         type: 'object',
         additionalProperties: false,
@@ -176,7 +176,7 @@ function navigatorScopeSelectionCapability(
           appliedRevision = view.assistantNavigatorScopeRevision(scopeKey);
         },
         async () => {
-          await view.settleAssistantPageState(context.signal);
+          await view.settleAssistantPageState(context.cancellationSignal ?? context.signal);
           if (
             String(view.selectedNavigatorRecords[scopeKey]?.id ?? '') !== String(selected.id) ||
             view.assistantNavigatorScopeRevision(scopeKey) !== appliedRevision

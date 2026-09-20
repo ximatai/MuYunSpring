@@ -175,42 +175,45 @@ function syncAssistantSurface() {
   const pageInstanceKey = assistantPageInstanceKey;
   const controller = new AbortController();
   assistantSurfaceSettlement = controller;
-  void session.settleAssistantPageState(controller.signal).then(
-    () => {
-      if (
-        controller.signal.aborted ||
-        assistantSurfaceSettlement !== controller ||
-        !assistantActive ||
-        pageInstanceKey !== assistantPageInstanceKey ||
-        session !== view.value ||
-        pending.value ||
-        failure.value
-      ) {
-        return;
-      }
-      assistantSurfaceSettlement = undefined;
-      unregisterAssistantSurface = assistantHost.registry.register({
-        pageInstanceKey,
-        contextRevision: () => modulePageAssistantContextRevision(session),
-        interactionRevision: () => modulePageAssistantInteractionRevision(session),
-        surface: createModulePageAssistantSurface(
-          session,
-          createAssistantTurnRequester(sessionHttp.value),
-          () => assistantHost.capabilities?.() ?? [],
-          assistantTenantScope,
-        ),
-      });
-      settleTenantScopeWaiters();
-    },
-    (cause) => {
-      if (assistantSurfaceSettlement === controller) assistantSurfaceSettlement = undefined;
-      if (cause instanceof DOMException && cause.name === 'AbortError') return;
-      for (const settlement of tenantScopeSettlements) {
-        tenantScopeSettlements.delete(settlement);
-        settlement.reject(cause instanceof Error ? cause : new Error(String(cause)));
-      }
-    },
-  );
+  void tenantController
+    .waitForInitialScope(controller.signal)
+    .then(() => session.settleAssistantPageState(controller.signal))
+    .then(
+      () => {
+        if (
+          controller.signal.aborted ||
+          assistantSurfaceSettlement !== controller ||
+          !assistantActive ||
+          pageInstanceKey !== assistantPageInstanceKey ||
+          session !== view.value ||
+          pending.value ||
+          failure.value
+        ) {
+          return;
+        }
+        assistantSurfaceSettlement = undefined;
+        unregisterAssistantSurface = assistantHost.registry.register({
+          pageInstanceKey,
+          contextRevision: () => modulePageAssistantContextRevision(session),
+          interactionRevision: () => modulePageAssistantInteractionRevision(session),
+          surface: createModulePageAssistantSurface(
+            session,
+            createAssistantTurnRequester(sessionHttp.value),
+            () => assistantHost.capabilities?.() ?? [],
+            assistantTenantScope,
+          ),
+        });
+        settleTenantScopeWaiters();
+      },
+      (cause) => {
+        if (assistantSurfaceSettlement === controller) assistantSurfaceSettlement = undefined;
+        if (cause instanceof DOMException && cause.name === 'AbortError') return;
+        for (const settlement of tenantScopeSettlements) {
+          tenantScopeSettlements.delete(settlement);
+          settlement.reject(cause instanceof Error ? cause : new Error(String(cause)));
+        }
+      },
+    );
 }
 function activateAssistantSurface() {
   assistantActive = true;

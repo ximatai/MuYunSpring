@@ -5,7 +5,7 @@ import { getMenuNavigationTarget } from './menuNavigation';
 export function createWorkbenchAssistantCapabilities(
   menus: () => MenuTreeNode[],
   openMenu: (menu: MenuRecord) => boolean,
-  settleNavigation: () => Promise<void> = async () => {},
+  settleNavigation: (signal?: AbortSignal) => Promise<void> = async () => {},
 ): AssistantCapability[] {
   return [findMenuCapability(menus), openMenuCapability(menus, openMenu, settleNavigation)];
 }
@@ -50,7 +50,7 @@ function findMenuCapability(menus: () => MenuTreeNode[]): AssistantCapability<{ 
 function openMenuCapability(
   menus: () => MenuTreeNode[],
   openMenu: (menu: MenuRecord) => boolean,
-  settleNavigation: () => Promise<void>,
+  settleNavigation: (signal?: AbortSignal) => Promise<void>,
 ): AssistantCapability<{ menuId: string }> {
   return {
     descriptor: {
@@ -75,7 +75,10 @@ function openMenuCapability(
         (candidate) => candidate.menu.id === menuId && getMenuNavigationTarget(candidate.menu) !== undefined,
       )?.menu;
       if (!menu) throw new Error(`Visible menu is unavailable: ${menuId}`);
-      const opened = context.applyEffect(() => openMenu(menu), settleNavigation);
+      const opened = context.applyEffect(
+        () => openMenu(menu),
+        () => settleNavigation(context.cancellationSignal ?? signal),
+      );
       if (!opened) throw new Error(`Visible menu cannot be opened: ${menuId}`);
       return { openedMenuId: menu.id, title: menu.title };
     },

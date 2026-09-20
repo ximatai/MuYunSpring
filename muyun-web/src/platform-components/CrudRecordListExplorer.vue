@@ -312,8 +312,7 @@ function queryControllerSnapshot(): RecordQueryListQuerySnapshot {
   return {
     mode: props.mode,
     status: loading.value ? 'loading' : loadError.value ? 'error' : 'ready',
-    quickSearchEnabled:
-      props.mode === 'normal' && !loading.value && !loadError.value && props.queryQuickSearchEnabled,
+    quickSearchEnabled: props.mode === 'normal' && !loadError.value && props.queryQuickSearchEnabled,
     quickSearchFields: [
       { name: 'title', title: '标题', valueType: 'STRING' },
       { name: 'secondary', title: '辅助标识', valueType: 'STRING' },

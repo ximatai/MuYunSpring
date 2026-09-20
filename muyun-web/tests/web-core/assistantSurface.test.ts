@@ -60,6 +60,26 @@ function fixture(options: {
 }
 
 describe('assistant surface registry', () => {
+  it('waits for the active page to replace its workbench fallback surface', async () => {
+    const registry = createAssistantSurfaceRegistry();
+    registry.activate('tab-a');
+    registry.register({
+      ...fixture({ pageInstanceKey: 'tab-a', revision: () => 'workbench' }),
+      fallback: true,
+    });
+
+    const ready = registry.waitForActiveSurface({
+      pageInstanceKey: 'tab-a',
+      requireFormal: true,
+    });
+    registry.register(fixture({ pageInstanceKey: 'tab-a', revision: () => 'record-a' }));
+
+    await expect(ready).resolves.toMatchObject({
+      token: { pageInstanceKey: 'tab-a', fallback: false },
+      context: { surface: 'module-page' },
+    });
+  });
+
   it('selects a surface by active page instance instead of last registration', () => {
     const registry = createAssistantSurfaceRegistry();
     registry.register(fixture({ pageInstanceKey: 'tab-a', revision: () => 'record-a' }));

@@ -30,7 +30,13 @@ describe('CrudRecordListExplorer', () => {
       props: { context, queryQuickSearchEnabled: true },
     });
     const controller = wrapper.emitted('queryControllerChange')?.[0]?.[0] as {
-      snapshot(): { status: string; total: number; totalKnown: boolean; truncated: boolean };
+      snapshot(): {
+        status: string;
+        quickSearchEnabled: boolean;
+        total: number;
+        totalKnown: boolean;
+        truncated: boolean;
+      };
       settle(): Promise<{ status: string }>;
       applyQuickSearch(keyword: string): Promise<{
         appliedQuickSearch?: string;
@@ -41,6 +47,7 @@ describe('CrudRecordListExplorer', () => {
     };
 
     expect(controller.snapshot().status).toBe('loading');
+    expect(controller.snapshot().quickSearchEnabled).toBe(true);
     const settled = controller.settle();
     resolveQuery({
       records: [

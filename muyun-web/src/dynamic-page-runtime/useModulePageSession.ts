@@ -2873,13 +2873,25 @@ export function useModulePageSession(
     return createRecord();
   }
 
+  function assistantRecordCreationReady() {
+    return (
+      pageReady.value &&
+      !interactionBusy.value &&
+      (treeResource.value ? mainTreeScopeReady.value : navigatorListScopeReady.value)
+    );
+  }
+
   async function prepareAssistantCreate() {
     if (editorMode.value !== 'view') throw new Error('A form draft is already active');
-    if (context.can('create') !== true) throw new Error('Record creation is unavailable');
+    if (context.can('create') !== true || !assistantRecordCreationReady()) {
+      throw new Error('Record creation is unavailable');
+    }
     await (resolvedSelectionFormDefaultsRequest ?? loadResolvedSelectionFormDefaults());
     const defaults = { ...navigatorCreateDefaults.value };
     return () => {
-      if (!commitCreateRecord(defaults)) throw new Error('Record creation is unavailable');
+      if (!assistantRecordCreationReady() || !commitCreateRecord(defaults)) {
+        throw new Error('Record creation is unavailable');
+      }
       return assistantEditorState();
     };
   }
@@ -2928,13 +2940,15 @@ export function useModulePageSession(
   async function settleAssistantPageState(signal: AbortSignal) {
     throwIfAssistantSettlementAborted(signal);
     await nextTick();
-    for (let attempt = 0; attempt < 3; attempt += 1) {
+    for (let attempt = 0; attempt < 10; attempt += 1) {
       throwIfAssistantSettlementAborted(signal);
       const controller = listQueryController.value;
       await controller?.settle?.(signal);
       await nextTick();
       throwIfAssistantSettlementAborted(signal);
-      if (controller === listQueryController.value) return;
+      if (controller !== listQueryController.value) continue;
+      const status = controller?.snapshot().status;
+      if (!navigatorListScopeReady.value || (status !== 'waiting' && status !== 'loading')) return;
     }
     throw new Error('Assistant page state did not settle on a stable page session');
   }
@@ -3735,6 +3749,7 @@ export function useModulePageSession(
     placedPageActions,
     handlePlacedPageAction,
     createRootRecord,
+    assistantRecordCreationReady,
     prepareAssistantCreate,
     prepareAssistantEdit,
     assistantNavigatorScopes,

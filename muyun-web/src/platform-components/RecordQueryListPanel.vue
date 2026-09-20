@@ -1301,11 +1301,7 @@ function queryControllerSnapshot(): RecordQueryListQuerySnapshot {
     mode: props.mode,
     status,
     quickSearchEnabled:
-      queryReady.value &&
-      !loading.value &&
-      !descriptorLoadError.value &&
-      props.mode === 'normal' &&
-      quickSearchEnabled.value,
+      queryReady.value && !descriptorLoadError.value && props.mode === 'normal' && quickSearchEnabled.value,
     quickSearchFields: quickSearchFields.map((field) => ({
       name: field.name,
       title: field.title ?? field.name,

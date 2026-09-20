@@ -75,6 +75,7 @@ const activeTabKey = computed(
 const activeTab = computed(() => openedTabs.value.find((tab) => tab.key === activeTabKey.value));
 const activePageInstanceKey = computed(() => activeTab.value?.instanceKey ?? activeTab.value?.key);
 const assistantSurfaceRegistry = createAssistantSurfaceRegistry();
+const ASSISTANT_PAGE_READY_TIMEOUT_MS = 15_000;
 const assistantOpen = ref(false);
 function workbenchAssistantCapabilities() {
   return createWorkbenchAssistantCapabilities(
@@ -88,7 +89,18 @@ function workbenchAssistantCapabilities() {
       handleSelectMenu(menu, target);
       return true;
     },
-    () => props.assistantWaitForPageReady?.() ?? nextTick(),
+    async (signal) => {
+      await (props.assistantWaitForPageReady?.() ?? nextTick());
+      if (activePageDescriptor.value?.hostType !== 'module-page-host') return;
+      const pageInstanceKey = activePageInstanceKey.value;
+      if (!pageInstanceKey) throw new Error('Assistant target page is unavailable');
+      await assistantSurfaceRegistry.waitForActiveSurface({
+        pageInstanceKey,
+        requireFormal: true,
+        signal,
+        timeoutMs: ASSISTANT_PAGE_READY_TIMEOUT_MS,
+      });
+    },
   );
 }
 provideAssistantSurfaceHost({

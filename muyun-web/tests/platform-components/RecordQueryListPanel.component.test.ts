@@ -120,6 +120,7 @@ describe('RecordQueryListPanel', () => {
     const assistantSearch = controller.applyQuickSearch('superseded');
     expect(controller.revision()).toBeGreaterThan(initialRevision);
     expect(controller.interactionRevision?.()).not.toBe(initialInteractionRevision);
+    expect(controller.snapshot()).toMatchObject({ status: 'loading', quickSearchEnabled: true });
     await flushPromises();
     const assistantRevision = controller.revision();
     const assistantInteractionRevision = controller.interactionRevision?.();

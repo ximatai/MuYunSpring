@@ -18,6 +18,10 @@ function viewFixture(): ModulePageSessionView {
     detailDirty: false,
     formSessionKey: 3,
     assistantContextRevision: 7,
+    assistantRecordCreationReady: vi.fn(() => true),
+    assistantNavigatorScopes: vi.fn(() => []),
+    selectedNavigatorRecords: {},
+    settleAssistantPageState: vi.fn(async () => {}),
     formFields: new Map([
       [
         'summary',
@@ -112,6 +116,21 @@ describe('module page assistant surface', () => {
     expect(modulePageAssistantContextRevision(view)).not.toBe(before);
   });
 
+  it('describes an unmet navigator scope without exposing internal identifiers', () => {
+    const view = viewFixture();
+    view.editorMode = 'view';
+    view.assistantRecordCreationReady = vi.fn(() => false);
+    view.assistantNavigatorScopes = vi.fn(() => [
+      { descriptor: { key: 'organization', title: '机构' } },
+    ]) as never;
+    view.selectedNavigatorRecords = {};
+
+    expect(createModulePageAssistantSurface(view, vi.fn()).describe().facts).toMatchObject({
+      recordCreationReady: false,
+      navigatorScopes: [{ key: 'organization', title: '机构', selected: null }],
+    });
+  });
+
   it('separates user-controlled navigator and query changes from background list refreshes', () => {
     const view = viewFixture();
     let listRevision = 1;
@@ -171,7 +190,123 @@ describe('module page assistant surface', () => {
       expect.objectContaining({ appliedQuickSearch: 'daily' }),
     );
     expect(view.listQueryController.applyQuickSearch).toHaveBeenCalledWith('daily');
-    expect(modulePageAssistantContextRevision(view)).toMatch(/"page":7.*:4$/);
+    expect(modulePageAssistantContextRevision(view)).toContain('"page":7');
+  });
+
+  it('waits for a flat query controller to publish its final search result', async () => {
+    const view = viewFixture();
+    let snapshot = {
+      mode: 'normal' as const,
+      status: 'loading' as 'loading' | 'ready',
+      quickSearchEnabled: true,
+      quickSearchFields: [{ name: 'title', title: 'Title', valueType: 'STRING' as const }],
+      appliedQuickSearch: 'daily',
+      pageNum: 1,
+      pageSize: 20,
+      total: 0,
+      totalKnown: true,
+      rows: [] as Array<{ id?: string; cells: Array<{ fieldName: string; title: string; value: unknown }> }>,
+      truncated: false,
+    };
+    const settle = vi.fn(async () => {
+      snapshot = {
+        ...snapshot,
+        status: 'ready',
+        total: 1,
+        rows: [
+          {
+            id: 'record-1',
+            cells: [{ fieldName: 'title', title: 'Title', value: 'Daily report' }],
+          },
+        ],
+      };
+      return snapshot;
+    });
+    view.listQueryController = {
+      revision: () => 1,
+      snapshot: () => snapshot,
+      applyQuickSearch: vi.fn(async () => snapshot),
+      settle,
+    };
+    const surface = createModulePageAssistantSurface(view, vi.fn());
+    const apply = surface
+      .capabilities()
+      .find(({ descriptor }) => descriptor.code === 'query.apply-quick-search')!;
+
+    await expect(apply.execute(apply.parseInput({ keyword: 'daily' }), executionContext())).resolves.toEqual(
+      expect.objectContaining({ status: 'ready', rows: [expect.objectContaining({ id: 'record-1' })] }),
+    );
+    expect(settle).toHaveBeenCalledOnce();
+  });
+
+  it('keeps the assistant context stable when an internal query revision does not change its projection', () => {
+    const view = viewFixture();
+    let internalRevision = 1;
+    const snapshot = {
+      mode: 'normal' as const,
+      status: 'ready' as const,
+      quickSearchEnabled: false,
+      quickSearchFields: [],
+      pageNum: 1,
+      pageSize: 20,
+      total: 0,
+      totalKnown: true,
+      rows: [],
+      truncated: false,
+    };
+    view.listQueryController = {
+      revision: () => internalRevision,
+      snapshot: () => snapshot,
+      applyQuickSearch: vi.fn(),
+    };
+    const before = modulePageAssistantContextRevision(view);
+
+    internalRevision += 1;
+
+    expect(modulePageAssistantContextRevision(view)).toBe(before);
+  });
+
+  it('revises the assistant context only when the model-visible query projection changes', () => {
+    const view = viewFixture();
+    let status: 'ready' | 'loading' = 'ready';
+    let rows = [
+      {
+        id: 'record-1',
+        cells: [{ fieldName: 'title', title: 'Title', value: 'Before' }],
+      },
+    ];
+    const snapshot = () => ({
+      mode: 'normal' as const,
+      status,
+      quickSearchEnabled: true,
+      quickSearchFields: [{ name: 'title', title: 'Title', valueType: 'STRING' as const }],
+      pageNum: 1,
+      pageSize: 20,
+      total: 1,
+      totalKnown: true,
+      rows,
+      truncated: false,
+    });
+    view.listQueryController = {
+      revision: () => 1,
+      snapshot,
+      applyQuickSearch: vi.fn(),
+    };
+    const before = modulePageAssistantContextRevision(view);
+
+    status = 'loading';
+    expect(modulePageAssistantContextRevision(view)).toBe(before);
+
+    rows[0]!.cells[0]!.value = 'Enriched display value';
+    expect(modulePageAssistantContextRevision(view)).toBe(before);
+
+    rows = [
+      {
+        id: 'record-2',
+        cells: [{ fieldName: 'title', title: 'Title', value: 'After' }],
+      },
+    ];
+    expect(modulePageAssistantContextRevision(view)).not.toBe(before);
   });
 
   it('selects an exact authorized tenant scope without exposing internal identifiers to the model', async () => {
@@ -503,6 +638,51 @@ describe('module page assistant surface', () => {
     expect(capabilities.map(({ descriptor }) => descriptor.code)).not.toContain('record.save');
   });
 
+  it('settles editor transitions before exposing their post-effect page state', async () => {
+    const view = viewFixture();
+    view.editorMode = 'view';
+    view.context.can = vi.fn((action: string) => action === 'create');
+    view.prepareAssistantCreate = vi.fn(async () => () => ({
+      editorMode: 'create' as const,
+      recordId: undefined,
+      editable: true,
+      dirty: false,
+    }));
+    const settle = vi.fn(async () => {});
+    view.settleAssistantPageState = settle;
+    const create = createModulePageAssistantSurface(view, vi.fn())
+      .capabilities()
+      .find(({ descriptor }) => descriptor.code === 'record.start-create')!;
+    let pendingSettlement: (() => Promise<void>) | undefined;
+    const context = {
+      ...executionContext(),
+      cancellationSignal: new AbortController().signal,
+      applyEffect<T>(effect: () => T, settlement?: () => Promise<void>) {
+        const result = effect();
+        pendingSettlement = settlement;
+        return result;
+      },
+    };
+
+    await create.execute(create.parseInput({}), context);
+    await pendingSettlement?.();
+
+    expect(settle).toHaveBeenCalledWith(context.cancellationSignal);
+  });
+
+  it('does not expose create before the page business scope is ready', () => {
+    const view = viewFixture();
+    view.editorMode = 'view';
+    view.context.can = vi.fn(() => true);
+    view.assistantRecordCreationReady = vi.fn(() => false);
+
+    const capabilityCodes = createModulePageAssistantSurface(view, vi.fn())
+      .capabilities()
+      .map(({ descriptor }) => descriptor.code);
+
+    expect(capabilityCodes).not.toContain('record.start-create');
+  });
+
   it('invalidates a pending editor transition when the user changes context after it starts', async () => {
     const view = viewFixture();
     view.editingRecord = { id: 'record-1', version: 2 };
@@ -655,29 +835,15 @@ describe('module page assistant surface', () => {
     expect(capabilityCodes).not.toContain('query.apply-quick-search');
   });
 
-  it('does not advertise writable fields while the page is outside an edit session', async () => {
+  it('does not expose form capabilities while the page is outside an edit session', () => {
     const view = viewFixture();
     view.editorMode = 'view';
     view.editingRecord = { id: 'record-1', version: 2, summary: 'read-only detail' };
     const surface = createModulePageAssistantSurface(view, vi.fn());
-    const describe = surface.capabilities().find(({ descriptor }) => descriptor.code === 'form.describe')!;
 
-    const description = (await describe.execute(describe.parseInput({}), executionContext())) as {
-      editable: boolean;
-      fields: Array<{ fieldName: string; assistantWritable: boolean }>;
-    };
-
-    expect(description.editable).toBe(false);
-    expect(description.fields).toContainEqual(
-      expect.objectContaining({
-        fieldName: 'summary',
-        assistantWritable: false,
-        currentValue: 'read-only detail',
-      }),
-    );
-    expect(surface.capabilities()).not.toContainEqual(
-      expect.objectContaining({ descriptor: expect.objectContaining({ code: 'form.patch-draft' }) }),
-    );
+    const capabilityCodes = surface.capabilities().map(({ descriptor }) => descriptor.code);
+    expect(capabilityCodes).not.toContain('form.describe');
+    expect(capabilityCodes).not.toContain('form.patch-draft');
   });
 
   it('bounds the total current values projected for a large form', async () => {
