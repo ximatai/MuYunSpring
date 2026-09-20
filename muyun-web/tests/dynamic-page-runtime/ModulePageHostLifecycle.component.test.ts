@@ -27,7 +27,15 @@ function descriptor(
   };
 }
 
-function runtime(moduleAlias: string, options: { tenantRequired?: boolean; title?: string } = {}) {
+function runtime(
+  moduleAlias: string,
+  options: {
+    tenantRequired?: boolean;
+    title?: string;
+    template?: 'LIST_DETAIL_CARD' | 'FLAT_MANAGEMENT';
+    quickSearchFields?: string[];
+  } = {},
+) {
   return {
     moduleAlias,
     title: options.title,
@@ -39,7 +47,8 @@ function runtime(moduleAlias: string, options: { tenantRequired?: boolean; title
       schemaVersion: '1',
       moduleAlias,
       page: {
-        template: 'LIST_DETAIL_CARD',
+        template: options.template ?? 'LIST_DETAIL_CARD',
+        quickSearchFields: options.quickSearchFields,
         list: { fields: { viewCode: 'list', viewKind: 'LIST', fields: [] } },
         detail: { editor: { viewCode: 'form', viewKind: 'FORM', fields: [] } },
       },
@@ -339,6 +348,97 @@ describe('ModulePageHost lifecycle boundaries', () => {
       wrapper.findComponent(tenantExplorerStub).vm.$emit('select', { id: 'tenant-a', title: '甲租户' });
       await flushPromises();
       await replacedRejection;
+    } finally {
+      wrapper.unmount();
+    }
+  });
+
+  it('exposes the standard quick-search capability for flat management explorers', async () => {
+    const flatExplorerStub = defineComponent({
+      name: 'CrudRecordListExplorer',
+      props: ['keyword'],
+      emits: ['loaded', 'update:keyword', 'queryControllerChange'],
+      setup(props, { emit }) {
+        const records = [
+          { id: 'tenant-a', title: '演示租户' },
+          { id: 'tenant-b', title: '正式租户' },
+        ];
+        const snapshot = () => ({
+          mode: 'normal' as const,
+          status: 'ready' as const,
+          quickSearchEnabled: true,
+          quickSearchFields: [{ name: 'title', title: '标题', valueType: 'STRING' as const }],
+          ...(props.keyword ? { appliedQuickSearch: props.keyword } : {}),
+          pageNum: 1,
+          pageSize: props.keyword ? 1 : 2,
+          total: props.keyword ? 1 : 2,
+          totalKnown: true,
+          rows: (props.keyword ? records.slice(0, 1) : records).map((record) => ({
+            id: record.id,
+            cells: [{ fieldName: 'title', title: '标题', value: record.title }],
+          })),
+          truncated: false,
+        });
+        onMounted(() => {
+          emit('loaded', records);
+          emit('queryControllerChange', {
+            revision: () => 0,
+            snapshot,
+            async applyQuickSearch(keyword: string) {
+              emit('update:keyword', keyword);
+              await flushPromises();
+              return snapshot();
+            },
+          });
+        });
+        return () => h('section', props.keyword);
+      },
+    });
+    const http: HttpClient = {
+      async request() {
+        return runtime('iam.tenant', {
+          template: 'FLAT_MANAGEMENT',
+          quickSearchFields: ['title'],
+        }) as never;
+      },
+    };
+    configureModuleContext({ http });
+    const registry = createAssistantSurfaceRegistry();
+    registry.activate('page-1');
+    const Harness = defineComponent({
+      setup() {
+        provideAssistantSurfaceHost({ registry, activePageInstanceKey: () => 'page-1' });
+        return () => h(ModulePageHost, { descriptor: descriptor('iam.tenant') });
+      },
+    });
+    const wrapper = mount(Harness, {
+      global: {
+        stubs: {
+          ...hostStubs,
+          CrudRecordListExplorer: flatExplorerStub,
+          StaticManagementLayout: { template: '<section><slot name="explorer" /></section>' },
+        },
+      },
+    });
+    try {
+      await flushPromises();
+      await flushPromises();
+      const snapshot = registry.snapshot()!;
+      expect(snapshot.capabilities.map(({ code }) => code)).toContain('query.apply-quick-search');
+
+      await expect(
+        registry.invoke(
+          { id: 'query-1', code: 'query.apply-quick-search', input: { keyword: '演示' } },
+          snapshot.token,
+        ),
+      ).resolves.toEqual({
+        value: expect.objectContaining({
+          appliedQuickSearch: '演示',
+          total: 1,
+          rows: [expect.objectContaining({ id: 'tenant-a' })],
+        }),
+        contextChanged: true,
+      });
     } finally {
       wrapper.unmount();
     }

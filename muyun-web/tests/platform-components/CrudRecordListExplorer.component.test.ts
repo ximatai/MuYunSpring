@@ -5,6 +5,69 @@ import type { ModuleContext } from '@muyun/web-core';
 import type { WebQueryRequest } from '@muyun/web-contracts';
 
 describe('CrudRecordListExplorer', () => {
+  it('exposes query state from the owning explorer and does not overstate partial search results', async () => {
+    let resolveQuery!: (value: {
+      records: Array<{ id: string; title: string }>;
+      total: number;
+      pageNum: number;
+      pageSize: number;
+      pages: number;
+      totalKnown: boolean;
+    }) => void;
+    const query = new Promise<{
+      records: Array<{ id: string; title: string }>;
+      total: number;
+      pageNum: number;
+      pageSize: number;
+      pages: number;
+      totalKnown: boolean;
+    }>((resolve) => {
+      resolveQuery = resolve;
+    });
+    const context = createContext([]);
+    context.crud.query = async () => query;
+    const wrapper = shallowMount(CrudRecordListExplorer, {
+      props: { context, queryQuickSearchEnabled: true },
+    });
+    const controller = wrapper.emitted('queryControllerChange')?.[0]?.[0] as {
+      snapshot(): { status: string; total: number; totalKnown: boolean; truncated: boolean };
+      settle(): Promise<{ status: string }>;
+      applyQuickSearch(keyword: string): Promise<{
+        appliedQuickSearch?: string;
+        total: number;
+        totalKnown: boolean;
+        truncated: boolean;
+      }>;
+    };
+
+    expect(controller.snapshot().status).toBe('loading');
+    const settled = controller.settle();
+    resolveQuery({
+      records: [
+        { id: 'tenant-a', title: '演示租户' },
+        { id: 'tenant-b', title: '正式租户' },
+      ],
+      total: 201,
+      pageNum: 1,
+      pageSize: 200,
+      pages: 2,
+      totalKnown: true,
+    });
+    await flushPromises();
+
+    await expect(settled).resolves.toMatchObject({ status: 'ready' });
+    expect(controller.snapshot()).toMatchObject({ total: 201, totalKnown: true, truncated: true });
+
+    const search = controller.applyQuickSearch('演示');
+    await wrapper.setProps({ keyword: '演示' });
+    await expect(search).resolves.toMatchObject({
+      appliedQuickSearch: '演示',
+      total: 1,
+      totalKnown: false,
+      truncated: true,
+    });
+  });
+
   it('forwards upstream navigator criteria and reloads when they change', async () => {
     const requests: Array<WebQueryRequest | undefined> = [];
     const wrapper = shallowMount(CrudRecordListExplorer, {
