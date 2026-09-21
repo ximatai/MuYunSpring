@@ -46,6 +46,87 @@ it('submits a user request and renders the final assistant response', async () =
   expect(wrapper.text()).toContain('已经找到对应页面');
 });
 
+it('renders assistant Markdown as readable semantic content', async () => {
+  const requestTurn = vi.fn(async () => ({
+    text: [
+      '### 处理结果',
+      '',
+      '- 已找到职员管理',
+      '- 可以继续新增数据',
+      '',
+      '`employee.create`',
+      '',
+      '| 字段 | 值 |',
+      '| --- | --- |',
+      '| 姓名 | 张三 |',
+      '',
+      '[查看说明](https://example.com/help)',
+    ].join('\n'),
+    toolCalls: [] as never[],
+  }));
+  const wrapper = mount(WorkbenchAssistantPanel, {
+    props: { open: true, registry: createRegistry(requestTurn) },
+  });
+
+  await wrapper.get('textarea').setValue('告诉我处理结果');
+  await wrapper.get('button.ant-btn-primary').trigger('click');
+  await flushPromises();
+
+  const message = wrapper.get('.assistant-message--assistant');
+  expect(message.get('h3').text()).toBe('处理结果');
+  expect(message.findAll('li').map((item) => item.text())).toEqual(['已找到职员管理', '可以继续新增数据']);
+  expect(message.get('code').text()).toBe('employee.create');
+  expect(message.findAll('td').map((cell) => cell.text())).toEqual(['姓名', '张三']);
+  expect(message.get('a').attributes()).toMatchObject({
+    href: 'https://example.com/help',
+    rel: 'noopener noreferrer',
+    target: '_blank',
+  });
+});
+
+it('keeps assistant Markdown inside a non-executable rendering boundary', async () => {
+  const requestTurn = vi.fn(async () => ({
+    text: [
+      '<script>window.compromised = true</script>',
+      '',
+      '[危险链接](javascript:alert(1))',
+      '',
+      '![远程图片](https://example.com/tracker.png)',
+    ].join('\n'),
+    toolCalls: [] as never[],
+  }));
+  const wrapper = mount(WorkbenchAssistantPanel, {
+    props: { open: true, registry: createRegistry(requestTurn) },
+  });
+
+  await wrapper.get('textarea').setValue('展示不可信内容');
+  await wrapper.get('button.ant-btn-primary').trigger('click');
+  await flushPromises();
+
+  const message = wrapper.get('.assistant-message--assistant');
+  expect(message.find('script').exists()).toBe(false);
+  expect(message.find('img').exists()).toBe(false);
+  expect(message.find('a').exists()).toBe(false);
+  expect(message.text()).toContain('<script>window.compromised = true</script>');
+  expect(message.text()).toContain('危险链接');
+  expect(message.text()).toContain('远程图片');
+});
+
+it('keeps user-authored Markdown as plain text', async () => {
+  const requestTurn = vi.fn(async () => ({ text: '收到', toolCalls: [] as never[] }));
+  const wrapper = mount(WorkbenchAssistantPanel, {
+    props: { open: true, registry: createRegistry(requestTurn) },
+  });
+
+  await wrapper.get('textarea').setValue('**不要渲染我的输入**');
+  await wrapper.get('button.ant-btn-primary').trigger('click');
+  await flushPromises();
+
+  const userMessage = wrapper.get('.assistant-message--user');
+  expect(userMessage.text()).toBe('**不要渲染我的输入**');
+  expect(userMessage.find('strong').exists()).toBe(false);
+});
+
 it('continues a broad user goal after clarification with bounded dialogue history', async () => {
   const requestTurn = vi
     .fn()

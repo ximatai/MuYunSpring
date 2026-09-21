@@ -10,6 +10,7 @@ import {
   type AssistantSurfaceRegistry,
   userFacingErrorMessage,
 } from '@muyun/web-core';
+import AssistantMarkdownContent from './AssistantMarkdownContent.vue';
 
 defineOptions({ name: 'WorkbenchAssistantPanel' });
 
@@ -216,7 +217,8 @@ function isAbortError(error: unknown) {
         class="assistant-message"
         :class="`assistant-message--${item.role}`"
       >
-        {{ item.text }}
+        <AssistantMarkdownContent v-if="item.role === 'assistant'" :content="item.text" />
+        <template v-else>{{ item.text }}</template>
       </article>
       <div v-if="busy" class="assistant-panel__working">正在理解并执行…</div>
     </section>
@@ -305,8 +307,12 @@ function isAbortError(error: unknown) {
   padding: 9px 12px;
   border-radius: 10px;
   line-height: 1.6;
-  white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+
+.assistant-message--user,
+.assistant-message--status {
+  white-space: pre-wrap;
 }
 
 .assistant-message--user {

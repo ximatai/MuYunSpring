@@ -33,6 +33,7 @@
     "@tanstack/vue-query": "^5.101.0",
     "ant-design-vue": "^4.2.6",
     "lucide-vue-next": "^0.577.0",
+    "markdown-it": "^14.3.2",
     "pinia": "^3.0.4",
     "pinyin-pro": "^3.29.3",
     "vue": "^3.5.38",
@@ -41,6 +42,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@types/markdown-it": "^14.2.0",
     "@types/node": "^24.13.3",
     "@vitejs/plugin-vue": "^6.0.7",
     "@vitest/browser-playwright": "^4.1.11",
