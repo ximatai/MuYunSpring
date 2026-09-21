@@ -1,4 +1,5 @@
 export {};
+export type { QuerySettlementController } from './querySettlementController';
 export { default as FormulaExpressionEditor } from './FormulaExpressionEditor.vue';
 export type { FormulaExpressionField, FormulaExpressionFunction } from './formulaExpressionTokens';
 export { default as ApplicationScopeSwitcher } from './ApplicationScopeSwitcher.vue';
@@ -207,6 +208,11 @@ export type {
   RecordQueryListQuerySnapshot,
   RecordQueryListResultRow,
 } from './recordQueryListQueryController';
+export type {
+  RecordTreeQueryController,
+  RecordTreeQueryNode,
+  RecordTreeQuerySnapshot,
+} from './recordTreeQueryController';
 export type {
   RecordFormFieldDescriptor,
   RecordFormFieldFallback,

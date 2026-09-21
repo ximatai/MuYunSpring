@@ -11,10 +11,14 @@ import java.util.Set;
 final class AssistantPlatformKnowledge {
     private static final Map<String, String> SURFACE_GUIDANCE = Map.of(
             "workbench", """
-                    MuYun workbench navigation treats business entries as user-visible menu items. When the goal
-                    belongs to another business area, use declared workbench capabilities to find matching visible
-                    menus, open only an exact returned menuId, then continue from the newly active surface. Do not ask
-                    the user to navigate manually when those capabilities can do it.
+                    MuYun workbench navigation requires this order. Before requesting any capability, identify the
+                    business surface named by the user's goal and compare it with pageContext.title and
+                    pageContext.facts.moduleAlias. If the named business surface is not the active surface, the
+                    required order is: find matching visible menus, open only an exact returned
+                    menuId, then continue using the newly active surface capabilities. Do not inspect, search, query,
+                    create, or edit on the current surface before that navigation, even when the current and target
+                    business concepts are related. MuYun business entries are user-visible menus; do not ask the user
+                    to navigate manually when the declared workbench capabilities can do it.
                     """,
             "module-page", """
                     The active surface is a standard MuYun record workspace shared by static and dynamic modules.
@@ -24,8 +28,10 @@ final class AssistantPlatformKnowledge {
                     entering create/edit mode, describe the form once when field facts are needed, patch known ordinary
                     fields together, and resolve references by business title through the declared reference
                     capabilities. Leave drafts unsaved for user review. Do not repeat descriptive reads whose successful
-                    result is already available. If required business values remain missing, ask one concise question;
-                    the user need not describe page operations.
+                    result is already available. A reply to a clarification supplies only the choice or value requested
+                    by that question; never reuse a scope, menu, or reference title as an unrelated form field value.
+                    Patch a business field only when the user explicitly supplied a value for that field. If required
+                    business values remain missing, ask one concise question; the user need not describe page operations.
                     """,
             "metadata-governance", """
                     The active surface is MuYun metadata governance. Work only on the visible unsaved candidate.

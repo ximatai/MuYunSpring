@@ -10,6 +10,7 @@ function createSession() {
   const resetTreeSelection = vi.fn();
   const openRecord = vi.fn();
   const openRecycleBinRecord = vi.fn();
+  const markUserInteraction = vi.fn();
   const session = useModulePageListSession({
     selectedRecord,
     saving,
@@ -18,6 +19,7 @@ function createSession() {
     resetTreeSelection,
     openRecord,
     openRecycleBinRecord,
+    markUserInteraction,
   });
   return {
     session,
@@ -28,6 +30,7 @@ function createSession() {
     resetTreeSelection,
     openRecord,
     openRecycleBinRecord,
+    markUserInteraction,
   };
 }
 
@@ -53,6 +56,7 @@ describe('module page list session', () => {
       invalidateDetailLoad,
       resetTreeSelection,
       openRecycleBinRecord,
+      markUserInteraction,
     } = createSession();
 
     session.handleListModeChange('recycleBin');
@@ -61,10 +65,12 @@ describe('module page list session', () => {
     expect(invalidateDetailLoad).toHaveBeenCalledOnce();
     expect(resetDetail).toHaveBeenCalledOnce();
     expect(resetTreeSelection).toHaveBeenCalledOnce();
+    expect(markUserInteraction).toHaveBeenCalledOnce();
 
     const record = { id: 'deleted-1' };
     session.selectListDetailRecord(record, false);
     expect(openRecycleBinRecord).toHaveBeenCalledWith(record);
+    expect(markUserInteraction).toHaveBeenCalledTimes(2);
   });
 
   it('does not import request clients or authorization runtime', async () => {

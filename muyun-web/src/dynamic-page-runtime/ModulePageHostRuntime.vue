@@ -984,6 +984,7 @@ export default defineComponent({
               @select="selectTreeRecord"
               @deselect="clearTreeRecordSelection"
               @loaded="handleTreeLoaded"
+              @query-controller-change="bindTreeQueryController"
               @sorted="handleTreeSorted"
             />
             <RecordPanelState v-else :description="mainTreeScopeDescription" />

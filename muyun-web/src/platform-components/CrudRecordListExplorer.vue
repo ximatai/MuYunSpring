@@ -329,8 +329,7 @@ function queryControllerSnapshot(): RecordQueryListQuerySnapshot {
 
 const queryController: RecordQueryListQueryController = {
   revision: () => queryControllerRevision,
-  interactionRevision: () =>
-    JSON.stringify({ mode: props.mode, keyword: assistantKeyword.value, reloadKey: props.reloadKey }),
+  interactionRevision: () => JSON.stringify({ mode: props.mode, keyword: assistantKeyword.value }),
   snapshot: queryControllerSnapshot,
   async settle(signal?: AbortSignal) {
     for (let attempt = 0; attempt < 8; attempt += 1) {

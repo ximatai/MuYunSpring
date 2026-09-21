@@ -76,4 +76,61 @@ describe('record detail reload after an action', () => {
     expect(onLoaded).toHaveBeenCalledOnce();
     expect(detail.finishLoad).toHaveBeenCalledOnce();
   });
+
+  it('settles only after the latest serialized detail load completes', async () => {
+    let resolveFirst!: (record: { id: string }) => void;
+    let resolveLatest!: (record: { id: string }) => void;
+    const { session } = setup(
+      vi
+        .fn()
+        .mockImplementationOnce(
+          () =>
+            new Promise((resolve) => {
+              resolveFirst = resolve;
+            }),
+        )
+        .mockImplementationOnce(
+          () =>
+            new Promise((resolve) => {
+              resolveLatest = resolve;
+            }),
+        ),
+    );
+
+    const first = session.openRecord({ id: 'a' }, 'view');
+    const latest = session.openRecord({ id: 'b' }, 'view');
+    let settled = false;
+    const settlement = session.settlePendingRecord().then(() => {
+      settled = true;
+    });
+
+    resolveFirst({ id: 'a' });
+    await first;
+    expect(settled).toBe(false);
+    resolveLatest({ id: 'b' });
+    await latest;
+    await settlement;
+    expect(settled).toBe(true);
+  });
+
+  it('stops waiting promptly when assistant settlement is cancelled', async () => {
+    let resolveRequest!: (record: { id: string }) => void;
+    const { session } = setup(
+      vi.fn(
+        () =>
+          new Promise<{ id: string }>((resolve) => {
+            resolveRequest = resolve;
+          }),
+      ),
+    );
+    const pending = session.openRecord({ id: 'a' }, 'view');
+    const controller = new AbortController();
+    const settlement = session.settlePendingRecord(controller.signal);
+
+    controller.abort();
+
+    await expect(settlement).rejects.toMatchObject({ name: 'AbortError' });
+    resolveRequest({ id: 'a' });
+    await pending;
+  });
 });

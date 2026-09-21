@@ -4,7 +4,7 @@ import {
   type AssistantCapabilityExecutionContext,
   type AssistantSurface,
   type AssistantTurnRequester,
-  StaleAssistantInvocationError,
+  AssistantCapabilityUsageError,
   emptyAssistantCapabilityInputSchema,
   parseEmptyAssistantCapabilityInput,
 } from '@muyun/web-core';
@@ -23,6 +23,7 @@ import { modulePageScopeCapabilities, type ModulePageAssistantTenantScope } from
 
 const MAX_ASSISTANT_FORM_CURRENT_VALUE_CHARS = 8_000;
 const MAX_ASSISTANT_REFERENCE_OPTIONS = 10;
+const MAX_ASSISTANT_FIELD_EVIDENCE_CHARS = 500;
 
 interface AssistantReferenceSelection {
   fieldName: string;
@@ -40,8 +41,8 @@ export function modulePageAssistantContextRevision(view: ModulePageSessionView):
   const querySnapshot = view.listQueryController?.snapshot();
   return JSON.stringify({
     page: view.assistantContextRevision,
-    interaction: modulePageAssistantInteractionProjection(view),
     query: querySnapshot ? assistantQueryProjectionDigest(querySnapshot) : null,
+    tree: view.treeQueryController?.revision() ?? null,
   });
 }
 
@@ -60,22 +61,10 @@ function assistantQueryProjectionDigest(snapshot: RecordQueryListQuerySnapshot) 
 }
 
 export function modulePageAssistantInteractionRevision(view: ModulePageSessionView): string {
-  return JSON.stringify(modulePageAssistantInteractionProjection(view));
-}
-
-function modulePageAssistantInteractionProjection(view: ModulePageSessionView) {
-  return {
+  return JSON.stringify({
     page: view.assistantInteractionRevision,
-    navigators: Object.entries(view.selectedNavigatorRecords ?? {})
-      .sort(([left], [right]) => left.localeCompare(right))
-      .map(([key, record]) => [key, record?.id == null ? null : String(record.id)]),
     query: view.listQueryController?.interactionRevision?.() ?? null,
-  };
-}
-
-function modulePageAssistantNonQueryInteractionRevision(view: ModulePageSessionView) {
-  const projection = modulePageAssistantInteractionProjection(view);
-  return JSON.stringify({ page: projection.page, navigators: projection.navigators });
+  });
 }
 
 export function createModulePageAssistantSurface(
@@ -92,6 +81,7 @@ export function createModulePageAssistantSurface(
     ...contributedCapabilities(),
     ...modulePageScopeCapabilities(view, tenantScope),
     ...(view.listQueryController ? queryCapabilities(view) : []),
+    ...(view.treeQueryController ? treeQueryCapabilities(view) : []),
     ...recordEditorCapabilities(view),
     ...(hasEditableDraft(view) ? [formDescribeCapability(view), formPatchCapability(view)] : []),
     ...referenceCapabilities(view, referenceSelections),
@@ -184,7 +174,7 @@ function referenceResolveAndPatchCapability(
         ) {
           throw new Error('Reference resolution is no longer current; resolve again');
         }
-        view.updateDraftReference(fieldName, candidate);
+        view.updateDraftReference(fieldName, candidate, 'assistant');
         state.selections.clear();
       });
       return { changedField: fieldName, selectedTitle: candidate.title.slice(0, 500) };
@@ -314,7 +304,7 @@ function referencePatchCapability(
         ) {
           throw new Error('Reference selection is no longer available; search again');
         }
-        view.updateDraftReference(current.fieldName, current.candidate);
+        view.updateDraftReference(current.fieldName, current.candidate, 'assistant');
         state.selections.clear();
       });
       return { changedField: selection.fieldName, selectedTitle: selection.candidate.title.slice(0, 500) };
@@ -420,23 +410,14 @@ function queryCapabilities(view: ModulePageSessionView): AssistantCapability[] {
             async execute(input: unknown, context: AssistantCapabilityExecutionContext) {
               const keyword = (input as { keyword: string }).keyword;
               let pending!: Promise<ReturnType<typeof controller.snapshot>>;
-              let expectedNonQueryRevision!: string;
               context.applyEffect(
                 () => {
                   pending = (async () => {
-                    const applied = await controller.applyQuickSearch(keyword);
-                    if (!controller.settle) return applied;
-                    await controller.settle(context.cancellationSignal ?? context.signal);
-                    return controller.snapshot();
+                    await controller.applyQuickSearch(keyword);
+                    return controller.settle(context.cancellationSignal ?? context.signal);
                   })();
-                  expectedNonQueryRevision = modulePageAssistantNonQueryInteractionRevision(view);
                 },
-                async () => {
-                  await pending;
-                  if (modulePageAssistantNonQueryInteractionRevision(view) !== expectedNonQueryRevision) {
-                    throw new StaleAssistantInvocationError();
-                  }
-                },
+                () => pending.then(() => undefined),
               );
               return pending;
             },
@@ -452,6 +433,57 @@ function queryCapabilities(view: ModulePageSessionView): AssistantCapability[] {
       parseInput: parseEmptyAssistantCapabilityInput,
       async execute() {
         return controller.snapshot();
+      },
+    },
+  ];
+}
+
+function treeQueryCapabilities(view: ModulePageSessionView): AssistantCapability[] {
+  const controller = view.treeQueryController!;
+  const selectionKeys = controller.snapshot().nodes.map(({ selectionKey }) => selectionKey);
+  return [
+    {
+      descriptor: {
+        code: 'tree.describe',
+        description: '读取当前树形页面已加载的授权节点；需要了解或查找已有树节点时使用。',
+        inputSchema: emptyAssistantCapabilityInputSchema(),
+      },
+      parseInput: parseEmptyAssistantCapabilityInput,
+      async execute() {
+        return controller.snapshot();
+      },
+    },
+    {
+      descriptor: {
+        code: 'tree.select-record',
+        description:
+          '使用 tree.describe 返回的不透明 selectionKey 选中当前树中的记录；不得猜测 selectionKey。',
+        inputSchema: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['selectionKey'],
+          properties: { selectionKey: { type: 'string', enum: selectionKeys } },
+        },
+      },
+      parseInput(input) {
+        if (
+          !isRecord(input) ||
+          typeof input.selectionKey !== 'string' ||
+          !selectionKeys.includes(input.selectionKey)
+        ) {
+          throw new Error('tree.select-record requires a selectionKey from tree.describe');
+        }
+        return { selectionKey: input.selectionKey };
+      },
+      async execute({ selectionKey }, context) {
+        let selected!: ReturnType<typeof controller.select>;
+        context.applyEffect(
+          () => {
+            selected = controller.select(selectionKey);
+          },
+          () => view.settleAssistantPageState(context.cancellationSignal ?? context.signal),
+        );
+        return selected;
       },
     },
   ];
@@ -543,16 +575,20 @@ function assistantFieldWriteMode(
 interface AssistantDraftChange {
   fieldName: string;
   value: unknown;
+  evidence?: string;
 }
 
 function formPatchCapability(
   view: ModulePageSessionView,
 ): AssistantCapability<{ changes: AssistantDraftChange[] }> {
+  const writableFieldNames = formFieldStates(view)
+    .filter((field) => field.visible && !field.readOnly && isAssistantWritableField(field))
+    .map(({ fieldName }) => fieldName);
   return {
     descriptor: {
       code: 'form.patch-draft',
       description:
-        'Atomically patch one or more assistant-writable fields in the current unsaved form draft through the standard field pipeline. It does not save.',
+        'Atomically patch user-supplied values into assistant-writable fields in the current unsaved form draft. Every change must include evidence copied verbatim from a user message; the same message must explicitly associate the requested value with that field. The evidence may be the exact value text. Scope/menu/reference answers are not form values. It does not save.',
       inputSchema: {
         type: 'object',
         additionalProperties: false,
@@ -565,8 +601,12 @@ function formPatchCapability(
             items: {
               type: 'object',
               additionalProperties: false,
-              required: ['fieldName', 'value'],
-              properties: { fieldName: { type: 'string', minLength: 1 }, value: {} },
+              required: ['fieldName', 'value', 'evidence'],
+              properties: {
+                fieldName: { type: 'string', enum: writableFieldNames },
+                value: {},
+                evidence: { type: 'string', minLength: 1, maxLength: MAX_ASSISTANT_FIELD_EVIDENCE_CHARS },
+              },
             },
           },
         },
@@ -585,9 +625,12 @@ function formPatchCapability(
     },
     async execute(input, context) {
       if (!hasEditableDraft(view)) throw new Error('No editable form draft is active');
-      validateDraftChanges(view, input.changes);
+      validateDraftTargets(view, input.changes);
+      validateDraftEvidenceValueShapes(view, input.changes);
+      const validatedChanges = validateDraftChanges(view, input.changes);
+      validateDraftEvidence(view, input.changes, context.verifyUserEvidence);
       context.applyEffect(() => {
-        view.updateDraftFields(validateDraftChanges(view, input.changes));
+        view.updateDraftFields(validatedChanges, 'assistant');
       });
       return { changedFields: input.changes.map(({ fieldName }) => fieldName) };
     },
@@ -601,17 +644,91 @@ function parseDraftChange(input: unknown): AssistantDraftChange {
   if (!Object.hasOwn(input, 'value')) {
     throw new Error('form.patch-draft changes require a fieldName and value');
   }
-  return { fieldName: input.fieldName.trim(), value: input.value };
+  if (input.evidence !== undefined && (typeof input.evidence !== 'string' || !input.evidence.trim())) {
+    throw new Error('form.patch-draft evidence must be a non-empty string');
+  }
+  if (typeof input.evidence === 'string' && input.evidence.length > MAX_ASSISTANT_FIELD_EVIDENCE_CHARS) {
+    throw new Error('form.patch-draft evidence is too long');
+  }
+  return {
+    fieldName: input.fieldName.trim(),
+    value: input.value,
+    ...(typeof input.evidence === 'string' ? { evidence: input.evidence.trim() } : {}),
+  };
+}
+
+function validateDraftEvidence(
+  view: ModulePageSessionView,
+  changes: AssistantDraftChange[],
+  verify: AssistantCapabilityExecutionContext['verifyUserEvidence'],
+) {
+  for (const change of changes) {
+    const field = formFieldState(view, change.fieldName);
+    const evidence = change.evidence?.trim();
+    if (
+      !field ||
+      !evidence ||
+      !verify({
+        evidence,
+        fieldCues: fieldEvidenceCues(field),
+        valueTokens: typeof change.value === 'boolean' ? [] : fieldValueEvidenceTokens(field, change.value),
+        ...(typeof change.value === 'boolean' ? { booleanValue: change.value } : {}),
+      })
+    ) {
+      throw new AssistantCapabilityUsageError(
+        `Field ${change.fieldName} (${field?.label ?? 'unknown'}) was not changed: evidence must be copied from a user message that associates this field with the requested value.`,
+      );
+    }
+  }
+}
+
+function fieldEvidenceCues(field: RecordFormFieldState) {
+  return [field.label.trim(), field.fieldName].filter((cue) => cue.length >= 2);
+}
+
+function fieldValueEvidenceTokens(field: RecordFormFieldState, value: unknown): string[] {
+  const values = Array.isArray(value) ? value : [value];
+  if (values.length === 0 || values.some((item) => item == null || typeof item === 'object')) {
+    throw new AssistantCapabilityUsageError(
+      `Field ${field.fieldName} cannot be cleared or assigned a structured value by the assistant.`,
+    );
+  }
+  return values.map((item) => {
+    const option = assistantOptions(field).find((candidate) => candidate.value === item);
+    if (option) return option.label;
+    if (typeof item === 'string' || typeof item === 'number') return String(item);
+    if (typeof item === 'boolean') return String(item);
+    throw new AssistantCapabilityUsageError(
+      `Field ${field.fieldName} has a value type that cannot be verified from user evidence.`,
+    );
+  });
 }
 
 function validateDraftChanges(view: ModulePageSessionView, changes: AssistantDraftChange[]) {
   return changes.map(({ fieldName, value }) => {
+    const field = formFieldState(view, fieldName)!;
+    return { fieldName, value: assistantFieldValue(field, value) };
+  });
+}
+
+function validateDraftEvidenceValueShapes(view: ModulePageSessionView, changes: AssistantDraftChange[]) {
+  for (const { fieldName, value } of changes) {
+    const values = Array.isArray(value) ? value : [value];
+    if (values.length === 0 || values.some((item) => item == null || typeof item === 'object')) {
+      throw new AssistantCapabilityUsageError(
+        `Field ${formFieldState(view, fieldName)!.fieldName} cannot be cleared or assigned a structured value by the assistant.`,
+      );
+    }
+  }
+}
+
+function validateDraftTargets(view: ModulePageSessionView, changes: AssistantDraftChange[]) {
+  for (const { fieldName } of changes) {
     const field = formFieldState(view, fieldName);
     if (!field || !field.visible || field.readOnly || !isAssistantWritableField(field)) {
       throw new Error(`Form field is not editable by the assistant: ${fieldName}`);
     }
-    return { fieldName, value: assistantFieldValue(field, value) };
-  });
+  }
 }
 
 function assistantCurrentValue(
@@ -646,7 +763,14 @@ function isSensitiveField(field: RecordFormFieldState) {
 }
 
 function isAssistantWritableField(field: RecordFormFieldState) {
-  if (isSensitiveField(field) || field.reference || field.fileReference) return false;
+  if (
+    isSensitiveField(field) ||
+    field.reference ||
+    field.fileReference ||
+    field.fieldControl?.rendererType === 'JSON' ||
+    field.valueType === 'JSON'
+  )
+    return false;
   if (
     field.controlType === 'select' ||
     field.controlType === 'dictionaryPicker' ||

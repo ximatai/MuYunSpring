@@ -1,8 +1,119 @@
 import { flushPromises, mount } from '@vue/test-utils';
-import { assert, it } from 'vitest';
+import { assert, expect, it } from 'vitest';
 import type { ModuleContext } from '@/web-core/index.ts';
-import type { TreeRecordBase } from '@/platform-components/index.ts';
+import type { RecordTreeQueryController, TreeRecordBase } from '@/platform-components/index.ts';
 import TreeRecordExplorer from '@/platform-components/TreeRecordExplorer.vue';
+
+it('exposes a query settlement that waits for the active tree request', async () => {
+  const requests: Array<ReturnType<typeof deferredTreeResponse>> = [];
+  const wrapper = mount(TreeRecordExplorer, {
+    props: { context: createTreeContext(requests), searchMode: 'none' },
+    global: {
+      stubs: {
+        UiSpin: { template: '<div />' },
+        UiEmpty: { template: '<div />' },
+        UiTree: { template: '<div />' },
+      },
+    },
+  });
+  await flushPromises();
+  const controller = wrapper.emitted('queryControllerChange')?.[0]?.[0] as RecordTreeQueryController;
+  let settled = false;
+  const settlement = controller.settle().then(() => {
+    settled = true;
+  });
+
+  await flushPromises();
+  assert.isFalse(settled);
+  requests[0].resolve(treeResponse('record-a'));
+  await settlement;
+  assert.isTrue(settled);
+  wrapper.unmount();
+});
+
+it('rejects a pre-cancelled settlement and observes a queued reactive reload', async () => {
+  const requests: Array<ReturnType<typeof deferredTreeResponse>> = [];
+  const wrapper = mount(TreeRecordExplorer, {
+    props: { context: createTreeContext(requests), reloadKey: 0, searchMode: 'none' },
+    global: {
+      stubs: { UiSpin: true, UiEmpty: true, UiTree: { template: '<div />' } },
+    },
+  });
+  await flushPromises();
+  requests[0].resolve(treeResponse('before'));
+  await flushPromises();
+  const controller = wrapper.emitted('queryControllerChange')?.[0]?.[0] as RecordTreeQueryController;
+  const cancelled = new AbortController();
+  cancelled.abort();
+  await expect(controller.settle(cancelled.signal)).rejects.toMatchObject({ name: 'AbortError' });
+
+  void wrapper.setProps({ reloadKey: 1 });
+  let settled = false;
+  const settlement = controller.settle().then(() => {
+    settled = true;
+  });
+  await flushPromises();
+  assert.isFalse(settled);
+  requests[1].resolve(treeResponse('after'));
+  await settlement;
+  assert.equal(controller.snapshot().nodes[0]?.title, 'after');
+  wrapper.unmount();
+});
+
+it('exposes a bounded tree snapshot and selects one exact visible title through the page event', async () => {
+  const requests: Array<ReturnType<typeof deferredTreeResponse>> = [];
+  const wrapper = mount(TreeRecordExplorer, {
+    props: { context: createTreeContext(requests), searchMode: 'none' },
+    global: {
+      stubs: {
+        UiSpin: { template: '<div />' },
+        UiEmpty: { template: '<div />' },
+        UiTree: { template: '<div />' },
+      },
+    },
+  });
+  await flushPromises();
+  requests[0].resolve(treeResponse('综合管理部'));
+  await flushPromises();
+  const controller = wrapper.emitted('queryControllerChange')?.[0]?.[0] as RecordTreeQueryController;
+  const selectionKey = controller.snapshot().nodes[0]?.selectionKey;
+
+  assert.deepInclude(controller.snapshot(), {
+    status: 'ready',
+    nodes: [{ selectionKey, title: '综合管理部' }],
+    truncated: false,
+  });
+  assert.deepEqual(controller.select(selectionKey!), {
+    selectionKey,
+    title: '综合管理部',
+  });
+  assert.deepEqual(wrapper.emitted('select'), [[{ id: '综合管理部', title: '综合管理部' }, 'assistant']]);
+  assert.throws(() => controller.select('missing'), 'Tree record selection is no longer available');
+  wrapper.unmount();
+});
+
+it('keeps assistant selection and semantic revision stable across an equivalent reload', async () => {
+  const requests: Array<ReturnType<typeof deferredTreeResponse>> = [];
+  const wrapper = mount(TreeRecordExplorer, {
+    props: { context: createTreeContext(requests), reloadKey: 0, searchMode: 'none' },
+    global: { stubs: { UiSpin: true, UiEmpty: true, UiTree: { template: '<div />' } } },
+  });
+  await flushPromises();
+  requests[0].resolve(treeResponse('综合管理部'));
+  await flushPromises();
+  const controller = wrapper.emitted('queryControllerChange')?.[0]?.[0] as RecordTreeQueryController;
+  const before = controller.snapshot().nodes[0]?.selectionKey;
+  const revision = controller.revision();
+
+  await wrapper.setProps({ reloadKey: 1 });
+  await flushPromises();
+  requests[1].resolve(treeResponse('综合管理部'));
+  await flushPromises();
+
+  assert.equal(controller.revision(), revision);
+  assert.equal(controller.snapshot().nodes[0]?.selectionKey, before);
+  wrapper.unmount();
+});
 
 it('ignores stale tree responses after the explorer reloads', async () => {
   const requests: Array<ReturnType<typeof deferredTreeResponse>> = [];

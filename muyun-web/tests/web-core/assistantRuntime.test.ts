@@ -1,5 +1,6 @@
 import { expect, it, vi } from 'vitest';
 import {
+  AssistantCapabilityUsageError,
   AssistantConversationFollowUpError,
   createAssistantSurfaceRegistry,
   runAssistantConversation,
@@ -122,6 +123,7 @@ it('waits for background page transitions before asking the model to decide', as
 
 it('executes declared capabilities and ends the step when their effect changes context', async () => {
   let revision = 'draft-before';
+  let evidenceVerified = false;
   const patch: AssistantCapability = {
     descriptor: {
       code: 'form.patch-draft',
@@ -130,6 +132,11 @@ it('executes declared capabilities and ends the step when their effect changes c
     },
     parseInput: (input) => input,
     async execute(_input, context) {
+      evidenceVerified = context.verifyUserEvidence({
+        evidence: 'title',
+        fieldCues: ['title'],
+        valueTokens: ['title'],
+      });
       context.applyEffect(() => {
         revision = 'draft-after';
       });
@@ -159,6 +166,55 @@ it('executes declared capabilities and ends the step when their effect changes c
   ]);
   expect(result.contextChanged).toBe(true);
   expect(result.appliedEffectCount).toBe(1);
+  expect(evidenceVerified).toBe(true);
+});
+
+it('binds a direct clarification answer to the immediately preceding assistant question', async () => {
+  let revision = 'before';
+  let evidenceVerified = false;
+  const registry = createAssistantSurfaceRegistry();
+  const requestTurn = vi
+    .fn()
+    .mockResolvedValueOnce({
+      toolCalls: [{ id: 'call-1', code: 'form.patch-draft', input: {} }],
+      finishReason: 'tool_calls',
+    })
+    .mockResolvedValueOnce({ text: '已填写', toolCalls: [] });
+  registry.register({
+    pageInstanceKey: 'tab-a',
+    contextRevision: () => revision,
+    surface: {
+      describe: () => ({ surface: 'module-page', facts: {} }),
+      capabilities: () => [
+        {
+          descriptor: { code: 'form.patch-draft', description: 'Patch draft', inputSchema: {} },
+          parseInput: (input) => input,
+          async execute(_input, context) {
+            evidenceVerified = context.verifyUserEvidence({
+              evidence: '研发部',
+              fieldCues: ['部门名称'],
+              valueTokens: ['研发部'],
+            });
+            context.applyEffect(() => {
+              revision = 'after';
+            });
+            return { changed: true };
+          },
+        },
+      ],
+      requestTurn,
+    },
+  });
+  registry.activate('tab-a');
+
+  await runAssistantConversation(registry, '研发部', {
+    history: [
+      { role: 'user', text: '帮我新增一个部门' },
+      { role: 'assistant', text: '部门名称是什么？' },
+    ],
+  });
+
+  expect(evidenceVerified).toBe(true);
 });
 
 it('returns an ordinary capability failure as a structured result', async () => {
@@ -194,6 +250,34 @@ it('returns an ordinary capability failure as a structured result', async () => 
   ]);
   expect(result.contextChanged).toBe(false);
   expect(result.appliedEffectCount).toBe(0);
+});
+
+it('returns bounded capability usage feedback so the model can repair its next call', async () => {
+  const failing: AssistantCapability = {
+    descriptor: { code: 'form.patch', description: 'Patch', inputSchema: {} },
+    parseInput: (input) => input,
+    async execute() {
+      throw new AssistantCapabilityUsageError('Copy evidence from the user message');
+    },
+  };
+  const registry = createAssistantSurfaceRegistry();
+  registry.register({
+    pageInstanceKey: 'tab-a',
+    contextRevision: () => 'stable',
+    surface: {
+      describe: () => ({ surface: 'page', facts: {} }),
+      capabilities: () => [failing],
+      requestTurn: async () => ({ toolCalls: [{ id: 'call-1', code: 'form.patch', input: {} }] }),
+    },
+  });
+  registry.activate('tab-a');
+
+  const result = await runAssistantStep(registry, 'try');
+
+  expect(result.results[0]?.error).toEqual({
+    code: 'CAPABILITY_USAGE_INVALID',
+    message: 'Copy evidence from the user message',
+  });
 });
 
 it('continues from a fresh surface after an effect and stops on the final model answer', async () => {

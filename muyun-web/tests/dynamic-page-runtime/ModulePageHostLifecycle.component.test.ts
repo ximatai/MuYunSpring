@@ -399,6 +399,10 @@ describe('ModulePageHost lifecycle boundaries', () => {
               await flushPromises();
               return snapshot();
             },
+            async settle() {
+              await flushPromises();
+              return snapshot();
+            },
           });
         });
         return () => h('section', props.keyword);

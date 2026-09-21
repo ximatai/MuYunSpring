@@ -4,6 +4,7 @@ import type {
   AssistantTurnOutput,
 } from '@muyun/web-contracts';
 import {
+  AssistantCapabilityUsageError,
   StaleAssistantInvocationError,
   type AssistantInvocationToken,
   type AssistantSurfaceRegistry,
@@ -145,7 +146,7 @@ export async function runAssistantConversation(
     } catch (error) {
       if (streamedText) options.onTextDiscard?.(index);
       const replacement = registry.snapshot()?.token;
-      const contextRefreshedBeforeAnyEffect =
+      const backgroundContextRefreshed =
         !hasAppliedCapabilityEffect(steps) && isSamePageSurfaceContextRefresh(error, replacement);
       const expectedSurfaceReplaced =
         expectedReplacementToken !== undefined &&
@@ -154,7 +155,7 @@ export async function runAssistantConversation(
         isSamePageSurfaceReplacement(expectedReplacementToken, replacement);
       if (
         error instanceof AssistantDecisionContextChangedError &&
-        (contextRefreshedBeforeAnyEffect || expectedSurfaceReplaced) &&
+        (backgroundContextRefreshed || expectedSurfaceReplaced) &&
         decisionRestarts < MAX_DECISION_RESTARTS
       ) {
         decisionRestarts += 1;
@@ -327,7 +328,14 @@ async function runAssistantStepWithSuccessfulCalls(
     }
     attemptedCallCount += 1;
     try {
-      const invocation = await registry.invoke(call, snapshot.token, signal);
+      const precedingMessage = history.at(-1);
+      const invocation = await registry.invoke(call, snapshot.token, signal, {
+        userMessages: [...history.filter(({ role }) => role === 'user').map(({ text }) => text), message],
+        currentUserMessage: message,
+        ...(precedingMessage?.role === 'assistant'
+          ? { precedingAssistantMessage: precedingMessage.text }
+          : {}),
+      });
       const result = { callId: call.id, capabilityCode: call.code, output: invocation.value };
       results.push(result);
       replayableCalls.set(callKey, result);
@@ -372,8 +380,12 @@ async function runAssistantStepWithSuccessfulCalls(
         callId: call.id,
         capabilityCode: call.code,
         error: {
-          code: 'CAPABILITY_FAILED',
-          message: 'Capability execution failed',
+          code:
+            error instanceof AssistantCapabilityUsageError ? 'CAPABILITY_USAGE_INVALID' : 'CAPABILITY_FAILED',
+          message:
+            error instanceof AssistantCapabilityUsageError
+              ? error.message.slice(0, 500)
+              : 'Capability execution failed',
         },
       });
       emitDiagnostic(onDiagnostic, {

@@ -65,10 +65,15 @@ describe('module page assistant surface', () => {
       .capabilities()
       .find((capability) => capability.descriptor.code === 'form.patch-draft')!;
 
-    const input = patch.parseInput({ changes: [{ fieldName: 'summary', value: 'after' }] });
+    const input = patch.parseInput({
+      changes: [{ fieldName: 'summary', value: 'after', evidence: 'Summary after' }],
+    });
     await patch.execute(input, executionContext());
 
-    expect(view.updateDraftFields).toHaveBeenCalledWith([{ fieldName: 'summary', value: 'after' }]);
+    expect(view.updateDraftFields).toHaveBeenCalledWith(
+      [{ fieldName: 'summary', value: 'after' }],
+      'assistant',
+    );
     expect(surface.describe().facts).toEqual(
       expect.objectContaining({
         moduleAlias: 'work.daily_report',
@@ -77,6 +82,79 @@ describe('module page assistant surface', () => {
       }),
     );
     expect(surface.capabilities().map(({ descriptor }) => descriptor.code)).not.toContain('page.describe');
+  });
+
+  it('requires an explicit user quote that identifies the form field before patching it', async () => {
+    const view = viewFixture();
+    view.formFields.get('summary')!.label = '部门名称';
+    const surface = createModulePageAssistantSurface(view, vi.fn());
+    const patch = surface
+      .capabilities()
+      .find((capability) => capability.descriptor.code === 'form.patch-draft')!;
+
+    await expect(
+      patch.execute(
+        patch.parseInput({
+          changes: [{ fieldName: 'summary', value: '戏码台 DEMO', evidence: '戏码台 DEMO' }],
+        }),
+        executionContext(['我要新增一个部门，帮我做', '戏码台 DEMO']),
+      ),
+    ).rejects.toThrow('Field summary (部门名称) was not changed');
+    expect(view.updateDraftFields).not.toHaveBeenCalled();
+
+    await patch.execute(
+      patch.parseInput({
+        changes: [{ fieldName: 'summary', value: '研发部', evidence: '研发部' }],
+      }),
+      executionContext(['部门名称叫研发部']),
+    );
+
+    expect(view.updateDraftFields).toHaveBeenCalledWith(
+      [{ fieldName: 'summary', value: '研发部' }],
+      'assistant',
+    );
+
+    await expect(
+      patch.execute(
+        patch.parseInput({
+          changes: [{ fieldName: 'summary', value: '财务部', evidence: '部门名称叫研发部' }],
+        }),
+        executionContext(['部门名称叫研发部']),
+      ),
+    ).rejects.toThrow('Field summary (部门名称) was not changed');
+    await expect(
+      patch.execute(
+        patch.parseInput({
+          changes: [{ fieldName: 'summary', value: '甲', evidence: '公司名称叫甲' }],
+        }),
+        executionContext(['公司名称叫甲']),
+      ),
+    ).rejects.toThrow('Field summary (部门名称) was not changed');
+    await expect(
+      patch.execute(
+        patch.parseInput({
+          changes: [{ fieldName: 'summary', value: '研发部', evidence: '部门名称叫研发部' }],
+        }),
+        executionContext([]),
+      ),
+    ).rejects.toThrow('Field summary (部门名称) was not changed');
+
+    await expect(
+      patch.execute(
+        patch.parseInput({
+          changes: [{ fieldName: 'summary', value: [], evidence: '部门名称留空' }],
+        }),
+        executionContext(['部门名称留空']),
+      ),
+    ).rejects.toThrow('Field summary cannot be cleared or assigned a structured value');
+    await expect(
+      patch.execute(
+        patch.parseInput({
+          changes: [{ fieldName: 'summary', value: { guessed: true }, evidence: '部门名称研发部' }],
+        }),
+        executionContext(['部门名称研发部']),
+      ),
+    ).rejects.toThrow('Field summary cannot be cleared or assigned a structured value');
   });
 
   it('rejects unknown and read-only fields before changing any draft value', async () => {
@@ -101,6 +179,75 @@ describe('module page assistant surface', () => {
       ),
     ).rejects.toThrow('Form field is not editable by the assistant: computed');
     expect(view.updateDraftFields).not.toHaveBeenCalled();
+  });
+
+  it('keeps structured fields read-only and accepts visible boolean wording as evidence', async () => {
+    const view = viewFixture();
+    view.formFields.set('settings', {
+      fieldName: 'settings',
+      label: '配置',
+      required: false,
+      readOnly: false,
+      visible: true,
+      controlType: 'textarea',
+      valueType: 'JSON',
+      columnSpan: 1,
+      hasOption: false,
+    } as never);
+    view.formFields.set('enabled', {
+      fieldName: 'enabled',
+      label: '启用状态',
+      required: false,
+      readOnly: false,
+      visible: true,
+      controlType: 'switch',
+      valueType: 'BOOLEAN',
+      fieldControl: { alias: 'switch', rendererType: 'SWITCH', valueShape: 'SCALAR' },
+      columnSpan: 1,
+      hasOption: false,
+    } as never);
+    const surface = createModulePageAssistantSurface(view, vi.fn());
+    const describe = surface.capabilities().find(({ descriptor }) => descriptor.code === 'form.describe')!;
+    const patch = surface
+      .capabilities()
+      .find((capability) => capability.descriptor.code === 'form.patch-draft')!;
+
+    const description = (await describe.execute(describe.parseInput({}), executionContext())) as {
+      fields: Array<{ fieldName: string; assistantWritable: boolean }>;
+    };
+    expect(description.fields).toContainEqual(
+      expect.objectContaining({ fieldName: 'settings', assistantWritable: false }),
+    );
+
+    const registry = createAssistantSurfaceRegistry();
+    registry.register({
+      pageInstanceKey: 'page-1',
+      contextRevision: () => modulePageAssistantContextRevision(view),
+      surface,
+    });
+    registry.activate('page-1');
+    const token = registry.snapshot()!.token;
+    const call = (message: string, value = true) =>
+      registry.invoke(
+        {
+          id: message,
+          code: patch.descriptor.code,
+          input: { changes: [{ fieldName: 'enabled', value, evidence: message }] },
+        },
+        token,
+        undefined,
+        { userMessages: [message], currentUserMessage: message },
+      );
+
+    await expect(call('启用状态是什么？')).rejects.toThrow('Field enabled (启用状态) was not changed');
+    await expect(call('是否启用？')).rejects.toThrow('Field enabled (启用状态) was not changed');
+    await expect(call('启用状态不要启用')).rejects.toThrow('Field enabled (启用状态) was not changed');
+    await expect(call('启用状态设为启用吗')).rejects.toThrow('Field enabled (启用状态) was not changed');
+    await expect(call('启用状态能否设为关闭', false)).rejects.toThrow(
+      'Field enabled (启用状态) was not changed',
+    );
+    await call('启用状态设为启用');
+    expect(view.updateDraftFields).toHaveBeenCalledWith([{ fieldName: 'enabled', value: true }], 'assistant');
   });
 
   it('uses an opaque session revision instead of serializing draft values', () => {
@@ -132,7 +279,7 @@ describe('module page assistant surface', () => {
     });
   });
 
-  it('separates user-controlled navigator and query changes from background list refreshes', () => {
+  it('keeps same-page reactive changes inside the serialized assistant turn', () => {
     const view = viewFixture();
     let listRevision = 1;
     let queryInteraction = 'page-1';
@@ -142,6 +289,7 @@ describe('module page assistant surface', () => {
       interactionRevision: () => queryInteraction,
       snapshot: vi.fn(),
       applyQuickSearch: vi.fn(),
+      settle: vi.fn(),
     };
     const before = modulePageAssistantInteractionRevision(view);
 
@@ -152,15 +300,46 @@ describe('module page assistant surface', () => {
     expect(modulePageAssistantInteractionRevision(view)).toBe(before);
 
     view.assistantInteractionRevision += 1;
-    expect(modulePageAssistantInteractionRevision(view)).not.toBe(before);
     const afterPageInteraction = modulePageAssistantInteractionRevision(view);
+    expect(afterPageInteraction).not.toBe(before);
 
     view.selectedNavigatorRecords.organization = { id: 'org-a' };
-    expect(modulePageAssistantInteractionRevision(view)).not.toBe(afterPageInteraction);
     const afterNavigator = modulePageAssistantInteractionRevision(view);
+    expect(afterNavigator).toBe(afterPageInteraction);
 
     queryInteraction = 'page-2';
     expect(modulePageAssistantInteractionRevision(view)).not.toBe(afterNavigator);
+  });
+
+  it('describes and selects an exact record through the mounted tree controller', async () => {
+    const view = viewFixture();
+    view.editorMode = 'view';
+    let treeRevision = 1;
+    view.treeQueryController = {
+      revision: () => treeRevision,
+      settle: vi.fn(async () => {}),
+      snapshot: vi.fn(() => ({
+        status: 'ready' as const,
+        nodes: [{ selectionKey: '1:0', title: '综合管理部' }],
+        truncated: false,
+      })),
+      select: vi.fn(() => ({ selectionKey: '1:0', title: '综合管理部' })),
+    };
+    const capabilities = createModulePageAssistantSurface(view, vi.fn()).capabilities();
+    const describe = capabilities.find(({ descriptor }) => descriptor.code === 'tree.describe')!;
+    const select = capabilities.find(({ descriptor }) => descriptor.code === 'tree.select-record')!;
+
+    await expect(describe.execute(describe.parseInput({}), executionContext())).resolves.toMatchObject({
+      nodes: [{ selectionKey: '1:0', title: '综合管理部' }],
+    });
+    await expect(
+      select.execute(select.parseInput({ selectionKey: '1:0' }), executionContext()),
+    ).resolves.toEqual({ selectionKey: '1:0', title: '综合管理部' });
+    expect(view.treeQueryController.select).toHaveBeenCalledWith('1:0');
+
+    const beforeReload = modulePageAssistantContextRevision(view);
+    treeRevision += 1;
+    expect(modulePageAssistantContextRevision(view)).not.toBe(beforeReload);
   });
 
   it('adapts the mounted standard list query controller without owning query state', async () => {
@@ -186,6 +365,7 @@ describe('module page assistant surface', () => {
       revision: () => 4,
       snapshot: () => snapshot,
       applyQuickSearch: vi.fn(async () => ({ ...snapshot, appliedQuickSearch: 'daily' })),
+      settle: vi.fn(async () => ({ ...snapshot, appliedQuickSearch: 'daily' })),
     };
     const surface = createModulePageAssistantSurface(view, vi.fn());
     const describe = surface.capabilities().find(({ descriptor }) => descriptor.code === 'query.describe')!;
@@ -266,6 +446,7 @@ describe('module page assistant surface', () => {
       revision: () => internalRevision,
       snapshot: () => snapshot,
       applyQuickSearch: vi.fn(),
+      settle: vi.fn(async () => snapshot),
     };
     const before = modulePageAssistantContextRevision(view);
 
@@ -299,6 +480,7 @@ describe('module page assistant surface', () => {
       revision: () => 1,
       snapshot,
       applyQuickSearch: vi.fn(),
+      settle: vi.fn(async () => snapshot()),
     };
     const before = modulePageAssistantContextRevision(view);
 
@@ -412,6 +594,7 @@ describe('module page assistant surface', () => {
       revision: () => listRevision,
       snapshot: () => snapshot,
       applyQuickSearch: vi.fn(),
+      settle: vi.fn(async () => snapshot),
     };
     view.assistantNavigatorScopes = vi.fn(() => [
       {
@@ -628,6 +811,7 @@ describe('module page assistant surface', () => {
       revision: () => 0,
       snapshot: () => snapshot,
       applyQuickSearch: vi.fn(),
+      settle: vi.fn(async () => snapshot),
     };
     const capabilities = createModulePageAssistantSurface(view, vi.fn()).capabilities();
     const create = capabilities.find(({ descriptor }) => descriptor.code === 'record.start-create')!;
@@ -751,6 +935,7 @@ describe('module page assistant surface', () => {
         await Promise.resolve();
         return { ...snapshot, appliedQuickSearch: 'daily' };
       }),
+      settle: vi.fn(async () => ({ ...snapshot, appliedQuickSearch: 'daily' })),
     };
     const registry = createAssistantSurfaceRegistry();
     registry.register({
@@ -772,50 +957,6 @@ describe('module page assistant surface', () => {
     });
   });
 
-  it('rejects a query result when another page context change happens while it is pending', async () => {
-    const view = viewFixture();
-    let revision = 0;
-    let resolveQuery!: () => void;
-    const snapshot = {
-      mode: 'normal' as const,
-      status: 'ready' as const,
-      quickSearchEnabled: true,
-      quickSearchFields: [{ name: 'title', title: 'Title', valueType: 'STRING' as const }],
-      pageNum: 1,
-      pageSize: 20,
-      total: 0,
-      totalKnown: true,
-      rows: [],
-      truncated: false,
-    };
-    view.listQueryController = {
-      revision: () => revision,
-      snapshot: () => snapshot,
-      applyQuickSearch: vi.fn(() => {
-        revision += 1;
-        return new Promise<typeof snapshot & { appliedQuickSearch: string }>((resolve) => {
-          resolveQuery = () => resolve({ ...snapshot, appliedQuickSearch: 'daily' });
-        });
-      }),
-    };
-    const registry = createAssistantSurfaceRegistry();
-    registry.register({
-      pageInstanceKey: 'page-1',
-      contextRevision: () => modulePageAssistantContextRevision(view),
-      surface: createModulePageAssistantSurface(view, vi.fn()),
-    });
-    registry.activate('page-1');
-    const invocation = registry.invoke(
-      { id: 'query-1', code: 'query.apply-quick-search', input: { keyword: 'daily' } },
-      registry.snapshot()!.token,
-    );
-    await Promise.resolve();
-    view.assistantInteractionRevision += 1;
-    resolveQuery();
-
-    await expect(invocation).rejects.toThrow('Assistant invocation no longer matches');
-  });
-
   it('does not expose quick-search mutation when the standard list disables it', () => {
     const view = viewFixture();
     view.listQueryController = {
@@ -833,6 +974,7 @@ describe('module page assistant surface', () => {
         truncated: false,
       }),
       applyQuickSearch: vi.fn(),
+      settle: vi.fn(async () => view.listQueryController!.snapshot()),
     };
 
     const capabilityCodes = createModulePageAssistantSurface(view, vi.fn())
@@ -909,6 +1051,7 @@ describe('module page assistant surface', () => {
         truncated: false,
       }),
       applyQuickSearch: vi.fn(),
+      settle: vi.fn(async () => view.listQueryController!.snapshot()),
     };
 
     const capabilityCodes = createModulePageAssistantSurface(view, vi.fn())
@@ -1050,7 +1193,7 @@ describe('module page assistant surface', () => {
     ).rejects.toThrow('Reference selection is no longer available');
 
     await patch.execute(patch.parseInput({ selectionKey }), executionContext());
-    expect(view.updateDraftReference).toHaveBeenCalledWith('tenantId', candidate);
+    expect(view.updateDraftReference).toHaveBeenCalledWith('tenantId', candidate, 'assistant');
   });
 
   it('invalidates searched reference selections when the page context changes', async () => {
@@ -1125,7 +1268,7 @@ describe('module page assistant surface', () => {
       pageSize: 10,
       scope: { selections: [] },
     });
-    expect(view.updateDraftReference).toHaveBeenCalledWith('tenantId', candidate);
+    expect(view.updateDraftReference).toHaveBeenCalledWith('tenantId', candidate, 'assistant');
     expect(result).toEqual({ changedField: 'tenantId', selectedTitle: 'Demo Tenant' });
   });
 
@@ -1270,6 +1413,7 @@ describe('module page assistant surface', () => {
     expect(view.updateDraftReference).toHaveBeenCalledWith(
       'tenantId',
       expect.objectContaining({ id: 'new-id' }),
+      'assistant',
     );
   });
 
@@ -1397,22 +1541,41 @@ describe('module page assistant surface', () => {
     await patch.execute(
       patch.parseInput({
         changes: [
-          { fieldName: 'status', value: 'DONE' },
-          { fieldName: 'workDate', value: '2026-09-19' },
+          { fieldName: 'status', value: 'DONE', evidence: 'Status DONE' },
+          { fieldName: 'workDate', value: '2026-09-19', evidence: 'Work date 2026-09-19' },
         ],
       }),
       executionContext(),
     );
-    expect(view.updateDraftFields).toHaveBeenCalledWith([
-      { fieldName: 'status', value: 'DONE' },
-      { fieldName: 'workDate', value: '2026-09-19' },
-    ]);
+    expect(view.updateDraftFields).toHaveBeenCalledWith(
+      [
+        { fieldName: 'status', value: 'DONE' },
+        { fieldName: 'workDate', value: '2026-09-19' },
+      ],
+      'assistant',
+    );
   });
 });
 
-function executionContext() {
+function executionContext(userMessages?: readonly string[]) {
   return {
     signal: new AbortController().signal,
+    verifyUserEvidence(claim: {
+      evidence: string;
+      fieldCues: readonly string[];
+      valueTokens: readonly string[];
+    }) {
+      if (userMessages === undefined) return true;
+      const normalize = (value: string) => value.replace(/\s+/g, '').toLocaleLowerCase();
+      return userMessages.some((message) => {
+        const normalized = normalize(message);
+        return (
+          normalized.includes(normalize(claim.evidence)) &&
+          claim.fieldCues.some((cue) => normalized.includes(normalize(cue))) &&
+          claim.valueTokens.every((token) => normalized.includes(normalize(token)))
+        );
+      });
+    },
     isCurrent: () => true,
     commitInternalState<T>(commit: () => T) {
       return commit();

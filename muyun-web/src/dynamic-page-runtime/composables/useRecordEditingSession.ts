@@ -21,6 +21,7 @@ export function useRecordEditingSession<TRecord extends { id?: unknown }>(
   onLoaded: () => void,
 ) {
   let requestSequence = 0;
+  let pendingRecordLoad: Promise<void> | undefined;
 
   function invalidatePendingRequests() {
     requestSequence += 1;
@@ -39,7 +40,7 @@ export function useRecordEditingSession<TRecord extends { id?: unknown }>(
     detail.finishLoad();
   }
 
-  async function openRecord(
+  async function loadRecord(
     record: TRecord,
     mode: 'edit' | 'view',
     options: RecordDetailTransitionOptions = {},
@@ -69,7 +70,26 @@ export function useRecordEditingSession<TRecord extends { id?: unknown }>(
     }
   }
 
-  async function openRecycleBinRecord(record: TRecord) {
+  function trackRecordLoad(load: Promise<void>) {
+    pendingRecordLoad = load;
+    const clear = () => {
+      if (pendingRecordLoad === load) pendingRecordLoad = undefined;
+    };
+    void load.then(clear, clear);
+    return load;
+  }
+
+  function openRecord(
+    record: TRecord,
+    mode: 'edit' | 'view',
+    options: RecordDetailTransitionOptions = {},
+    skipLoad = false,
+    onLoadError?: (cause: unknown) => void,
+  ) {
+    return trackRecordLoad(loadRecord(record, mode, options, skipLoad, onLoadError));
+  }
+
+  async function loadRecycleBinRecord(record: TRecord) {
     const id = record.id == null ? undefined : String(record.id);
     if (!id) return;
     const sequence = ++requestSequence;
@@ -90,5 +110,36 @@ export function useRecordEditingSession<TRecord extends { id?: unknown }>(
     }
   }
 
-  return { invalidatePendingRequests, commitLoadedRecord, openRecord, openRecycleBinRecord };
+  function openRecycleBinRecord(record: TRecord) {
+    return trackRecordLoad(loadRecycleBinRecord(record));
+  }
+
+  /** Waits for the latest serialized detail load, including a replacement started while waiting. */
+  async function settlePendingRecord(signal?: AbortSignal) {
+    while (pendingRecordLoad) {
+      const pending = pendingRecordLoad;
+      await waitForRecordLoad(pending, signal);
+      if (pendingRecordLoad === pending) return;
+    }
+  }
+
+  function waitForRecordLoad(pending: Promise<void>, signal?: AbortSignal) {
+    if (!signal) return pending;
+    if (signal.aborted) {
+      return Promise.reject(new DOMException('Record detail settlement was cancelled', 'AbortError'));
+    }
+    return new Promise<void>((resolve, reject) => {
+      const abort = () => reject(new DOMException('Record detail settlement was cancelled', 'AbortError'));
+      signal.addEventListener('abort', abort, { once: true });
+      pending.then(resolve, reject).finally(() => signal.removeEventListener('abort', abort));
+    });
+  }
+
+  return {
+    invalidatePendingRequests,
+    commitLoadedRecord,
+    openRecord,
+    openRecycleBinRecord,
+    settlePendingRecord,
+  };
 }

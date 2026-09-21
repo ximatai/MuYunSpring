@@ -64,6 +64,7 @@ describe('workbench assistant capabilities', () => {
 function executionContext() {
   return {
     signal: new AbortController().signal,
+    verifyUserEvidence: () => false,
     isCurrent: () => true,
     commitInternalState<T>(commit: () => T) {
       return commit();

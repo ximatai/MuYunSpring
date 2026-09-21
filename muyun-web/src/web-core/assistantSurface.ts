@@ -27,6 +27,8 @@ export function parseEmptyAssistantCapabilityInput(input: unknown): Record<strin
 
 export interface AssistantCapabilityExecutionContext {
   signal: AbortSignal;
+  /** Verifies a bounded claim without exposing conversation text to page capabilities. */
+  verifyUserEvidence(claim: AssistantUserEvidenceClaim): boolean;
   /** Explicit caller cancellation; unlike signal, it is not aborted by an expected Surface replacement. */
   cancellationSignal?: AbortSignal;
   isCurrent(): boolean;
@@ -34,6 +36,20 @@ export interface AssistantCapabilityExecutionContext {
   commitInternalState<T>(commit: () => T): T;
   /** Apply a user-visible page effect. The runtime reports it separately from reads and internal state. */
   applyEffect<T>(effect: () => T, settle?: () => Promise<void>): T;
+}
+
+export interface AssistantUserEvidenceClaim {
+  evidence: string;
+  fieldCues: readonly string[];
+  valueTokens: readonly string[];
+  booleanValue?: boolean;
+}
+
+export interface AssistantEvidenceContext {
+  userMessages: readonly string[];
+  /** The immediately preceding assistant reply, when the current user message answers it. */
+  precedingAssistantMessage?: string;
+  currentUserMessage: string;
 }
 
 export interface AssistantSurface {
@@ -106,6 +122,7 @@ export interface AssistantSurfaceRegistry {
     call: AssistantCapabilityCall,
     token: AssistantInvocationToken,
     signal?: AbortSignal,
+    evidenceContext?: AssistantEvidenceContext,
   ): Promise<{ value: unknown; contextChanged: boolean }>;
 }
 
@@ -129,6 +146,14 @@ export class StaleAssistantInvocationError extends Error {
   constructor() {
     super('Assistant invocation no longer matches the active page context');
     this.name = 'StaleAssistantInvocationError';
+  }
+}
+
+/** Safe, bounded feedback that helps the model repair a rejected capability call. */
+export class AssistantCapabilityUsageError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'AssistantCapabilityUsageError';
   }
 }
 
@@ -314,7 +339,7 @@ export function createAssistantSurfaceRegistry(): AssistantSurfaceRegistry {
           : registration.surface.requestTurn(request, controlledSignal);
       });
     },
-    async invoke(call, token, signal) {
+    async invoke(call, token, signal, evidenceContext) {
       const registration = requireCurrent(token);
       const controller = new AbortController();
       const cancellationController = new AbortController();
@@ -339,6 +364,7 @@ export function createAssistantSurfaceRegistry(): AssistantSurfaceRegistry {
         let effectApplied = false;
         const value = await capability.execute(input, {
           signal: controller.signal,
+          verifyUserEvidence: (claim) => verifyUserEvidence(evidenceContext, claim),
           cancellationSignal: cancellationController.signal,
           isCurrent: () => {
             try {
@@ -394,6 +420,71 @@ export function createAssistantSurfaceRegistry(): AssistantSurfaceRegistry {
       });
     },
   };
+}
+
+function verifyUserEvidence(
+  context: AssistantEvidenceContext | undefined,
+  claim: AssistantUserEvidenceClaim,
+) {
+  const evidence = normalizeEvidence(claim.evidence);
+  const fieldCues = claim.fieldCues.map(normalizeEvidence).filter(Boolean);
+  const valueTokens = claim.valueTokens.map(normalizeEvidence).filter(Boolean);
+  if (
+    !context ||
+    !evidence ||
+    fieldCues.length === 0 ||
+    (valueTokens.length === 0 && claim.booleanValue === undefined)
+  )
+    return false;
+  const directlySupported = context.userMessages.some((message) => {
+    const normalized = normalizeEvidence(message);
+    return (
+      normalized.includes(evidence) &&
+      fieldCues.some((cue) => normalized.includes(cue)) &&
+      evidenceValueSupported(normalized, fieldCues, valueTokens, claim.booleanValue, false)
+    );
+  });
+  if (directlySupported) return true;
+  const clarification = normalizeEvidence(context.precedingAssistantMessage ?? '');
+  const reply = normalizeEvidence(context.currentUserMessage);
+  return (
+    clarification.length > 0 &&
+    fieldCues.some((cue) => clarification.includes(cue)) &&
+    reply.includes(evidence) &&
+    evidenceValueSupported(reply, fieldCues, valueTokens, claim.booleanValue, true)
+  );
+}
+
+function evidenceValueSupported(
+  message: string,
+  fieldCues: readonly string[],
+  valueTokens: readonly string[],
+  booleanValue: boolean | undefined,
+  clarificationReply: boolean,
+) {
+  if (booleanValue === undefined) return valueTokens.every((token) => message.includes(token));
+  if (/[?？吗么呢]/.test(message) || ['是否', '能否', '可否'].some((word) => message.includes(word))) {
+    return false;
+  }
+  const aliases = booleanValue
+    ? ['true', '是', '启用', '开启', '打开', '勾选']
+    : ['false', '否', '停用', '禁用', '关闭', '取消勾选'];
+  const oppositeAliases = booleanValue
+    ? ['false', '否', '停用', '禁用', '关闭', '取消勾选']
+    : ['true', '是', '启用', '开启', '打开', '勾选'];
+  const withoutCue = fieldCues.reduce((text, cue) => text.replace(cue, ''), message);
+  if (['不要', '不再', '别', '禁止'].some((word) => withoutCue.includes(word))) return false;
+  if (oppositeAliases.some((alias) => withoutCue.includes(alias))) return false;
+  if (clarificationReply) return aliases.includes(withoutCue);
+  return aliases.some(
+    (alias) =>
+      withoutCue === alias ||
+      ['设为', '设置为', '改为', '调整为', '选择'].some((verb) => withoutCue.includes(`${verb}${alias}`)),
+  );
+}
+
+function normalizeEvidence(value: string) {
+  return value.replace(/\s+/g, '').toLocaleLowerCase();
 }
 
 function sameToken(left: AssistantInvocationToken, right: AssistantInvocationToken) {

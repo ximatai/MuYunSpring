@@ -36,6 +36,12 @@ class AssistantPlatformKnowledgeTest {
 
         assertThat(AssistantPlatformKnowledge.appendTo(
                 "base", Map.of("surface", "module-page"), List.of(navigation)))
-                .contains("standard MuYun record workspace", "MuYun workbench navigation");
+                .contains("standard MuYun record workspace", "MuYun workbench navigation",
+                        "compare it with pageContext.title",
+                        "pageContext.facts.moduleAlias",
+                        "find matching visible menus, open only an exact returned",
+                        "Do not inspect, search, query",
+                        "supplies only the choice or value requested",
+                        "never reuse a scope, menu, or reference title");
     }
 }
