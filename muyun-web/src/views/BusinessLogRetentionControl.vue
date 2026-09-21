@@ -73,12 +73,12 @@ async function loadPolicies() {
 
 async function confirmClose() {
   if (operationPending.value) {
-    showInfoMessage('日志留存操作正在执行，请稍候。');
+    showInfoMessage('自动清理操作正在执行，请稍候。');
     return false;
   }
   if (!hasDirtyPolicy.value) return true;
   return confirmAction({
-    title: '放弃未保存的留存设置？',
+    title: '放弃未保存的自动清理设置？',
     content: '关闭后，本次未保存的自动清理和保留天数修改将丢失。',
   });
 }
@@ -89,7 +89,7 @@ async function save(policy: BusinessLogRetentionPolicy) {
   try {
     const updated = await client.update(policy);
     replacePolicy(updated);
-    showSuccessMessage(`${typeLabel(policy.eventType)}留存策略已保存`);
+    showSuccessMessage(`${typeLabel(policy.eventType)}自动清理设置已保存`);
   } catch (error) {
     presentPlatformError(error, { source: 'business-log-retention', phase: 'action' });
   } finally {
@@ -101,7 +101,7 @@ async function purge(policy: BusinessLogRetentionPolicy) {
   if (!validDays(policy.retentionDays) || operationPending.value) return;
   const confirmed = await confirmAction({
     title: `立即清理${typeLabel(policy.eventType)}`,
-    content: `将删除严格早于 ${policy.retentionDays} 天的日志。本次清理不会自动保存留存策略，且操作不可恢复。`,
+    content: `将删除严格早于 ${policy.retentionDays} 天的日志。本次清理不会保存对保留天数的修改，且操作不可恢复。`,
     requiredText: `清理${typeLabel(policy.eventType)}`,
     danger: true,
   });
@@ -159,25 +159,25 @@ function typeLabel(type: BusinessLogEventType) {
 }
 
 function errorMessage(error: unknown) {
-  return error instanceof Error ? error.message : '日志留存策略加载失败。';
+  return error instanceof Error ? error.message : '自动清理设置加载失败。';
 }
 </script>
 
 <template>
-  <UiActionButton v-if="canView" @click="openPanel">留存设置</UiActionButton>
+  <UiActionButton v-if="canView" @click="openPanel">自动清理</UiActionButton>
 
   <RecordDetailDrawer
     :open="open"
-    title="日志留存设置"
-    subtitle="设置当前日志页面对应类型的自动清理和保留期限。"
-    width="wide"
+    title="自动清理"
+    subtitle="配置当前日志类型的自动清理和保留期限。"
+    width="standard"
     scope="viewport"
     :before-close="confirmClose"
     @close="open = false"
   >
-    <UiSpin v-if="loading" tip="加载留存策略" />
-    <UiError v-else-if="loadError" title="留存策略不可用" :message="loadError" />
-    <UiEmpty v-else-if="visiblePolicies.length === 0" description="暂无可管理的留存策略" />
+    <UiSpin v-if="loading" tip="加载自动清理设置" />
+    <UiError v-else-if="loadError" title="自动清理设置不可用" :message="loadError" />
+    <UiEmpty v-else-if="visiblePolicies.length === 0" description="暂无可管理的自动清理设置" />
     <section v-else class="business-log-retention-control__policies">
       <article v-for="policy in visiblePolicies" :key="policy.eventType">
         <header>
