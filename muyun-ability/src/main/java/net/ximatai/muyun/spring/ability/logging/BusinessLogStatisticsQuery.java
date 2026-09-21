@@ -1,5 +1,7 @@
 package net.ximatai.muyun.spring.ability.logging;
 
+import net.ximatai.muyun.spring.ability.event.RuntimeMutationSource;
+
 import java.time.Instant;
 import java.util.Set;
 
@@ -12,6 +14,9 @@ public record BusinessLogStatisticsQuery(
         Set<String> operatorOrganizationIds,
         String moduleAlias,
         String actionCode,
+        ActionLogDetails.ActionOutcome actionOutcome,
+        String recordId,
+        RuntimeMutationSource mutationSource,
         int maximumEvents
 ) {
     public BusinessLogStatisticsQuery {
@@ -23,9 +28,18 @@ public record BusinessLogStatisticsQuery(
         operatorOrganizationIds = BusinessLogQuery.normalizeIds(operatorOrganizationIds, "operatorOrganizationIds");
         moduleAlias = BusinessLogContext.optional(moduleAlias, "moduleAlias", 192);
         actionCode = BusinessLogContext.optional(actionCode, "actionCode", 128);
+        recordId = BusinessLogContext.optional(recordId, "recordId", 128);
         if (maximumEvents < 1 || maximumEvents > 10_000) {
             throw new IllegalArgumentException("maximumEvents must be between 1 and 10000");
         }
+    }
+
+    /** Source-compatible statistics request without action-attribution filters. */
+    public BusinessLogStatisticsQuery(Instant occurredFrom, Instant occurredTo, String tenantId,
+                                      String operatorId, Set<String> operatorOrganizationIds,
+                                      String moduleAlias, String actionCode, int maximumEvents) {
+        this(occurredFrom, occurredTo, tenantId, operatorId, operatorOrganizationIds, moduleAlias, actionCode,
+                null, null, null, maximumEvents);
     }
 
     /** Source-compatible statistics request without operator or organization filters. */
@@ -35,6 +49,7 @@ public record BusinessLogStatisticsQuery(
     }
 
     public static BusinessLogStatisticsQuery recent(int maximumEvents) {
-        return new BusinessLogStatisticsQuery(null, null, null, null, null, null, null, maximumEvents);
+        return new BusinessLogStatisticsQuery(null, null, null, null, null, null, null,
+                null, null, null, maximumEvents);
     }
 }

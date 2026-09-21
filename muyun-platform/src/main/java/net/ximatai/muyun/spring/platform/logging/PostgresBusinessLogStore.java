@@ -16,6 +16,12 @@ import net.ximatai.muyun.spring.ability.logging.BusinessLogOperatorCandidateQuer
 import net.ximatai.muyun.spring.ability.logging.BusinessLogOperatorNavigation;
 import net.ximatai.muyun.spring.ability.logging.BusinessLogOperatorNavigationItem;
 import net.ximatai.muyun.spring.ability.logging.BusinessLogReadPage;
+import net.ximatai.muyun.spring.ability.logging.BusinessLogRetentionPolicy;
+import net.ximatai.muyun.spring.ability.logging.BusinessLogRetentionPolicyConflictException;
+import net.ximatai.muyun.spring.ability.logging.BusinessLogRetentionPolicyStore;
+import net.ximatai.muyun.spring.ability.logging.BusinessLogRetentionRequest;
+import net.ximatai.muyun.spring.ability.logging.BusinessLogRetentionResult;
+import net.ximatai.muyun.spring.ability.logging.BusinessLogRetentionStore;
 import net.ximatai.muyun.spring.ability.logging.BusinessLogStorageException;
 import net.ximatai.muyun.spring.ability.logging.BusinessLogStore;
 import net.ximatai.muyun.spring.ability.logging.BusinessLogWriteResult;
@@ -43,22 +49,28 @@ import java.util.Objects;
 import java.util.Optional;
 
 /**
- * PostgreSQL append-only store for the first business logging phase.
+ * PostgreSQL store for immutable business-log facts and explicit retention maintenance.
  *
- * <p>The adapter owns a small, independent {@code muyun_log} schema and intentionally has no
- * entity DAO, mutation API or web endpoint. Failures are propagated as
- * {@link BusinessLogStorageException}; policy decisions remain with the collector.</p>
+ * <p>The adapter owns a small, independent {@code muyun_log} schema. It exposes append/read plus
+ * the explicit bounded-retention contract, but no business entity DAO or web endpoint. Failures
+ * are propagated as {@link BusinessLogStorageException}; retention policy decisions remain above
+ * this adapter.</p>
  */
-public class PostgresBusinessLogStore implements BusinessLogStore, PlatformBootstrapTask {
+public class PostgresBusinessLogStore implements BusinessLogStore, BusinessLogRetentionStore,
+        BusinessLogRetentionPolicyStore, PlatformBootstrapTask {
+    static final long RETENTION_ADVISORY_LOCK_KEY = 0x4D_55_59_55_4E_4C_4F_47L;
     private static final String INSERT = """
             insert into muyun_log.business_log_event
                 (event_id, event_type, occurred_at, captured_at, trace_id, tenant_id, operator_id,
-                 operator_account, operator_organization_id, operator_department_id, module_alias, action_code, error_code, login_outcome, login_account, http_status, details_json)
-            values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, cast(? as jsonb))
+                 operator_account, operator_organization_id, operator_department_id, module_alias, action_code,
+                 error_code, login_outcome, login_account, http_status, action_outcome, entity_alias,
+                 record_id, mutation_source, details_json)
+            values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, cast(? as jsonb))
             on conflict (event_id) do nothing
             """;
     private static final String EVENT_COLUMNS = "event_id, event_type, occurred_at, captured_at, trace_id, "
-            + "tenant_id, operator_id, operator_account, operator_organization_id, operator_department_id, module_alias, action_code, details_json";
+            + "tenant_id, operator_id, operator_account, operator_organization_id, operator_department_id, "
+            + "module_alias, action_code, details_json";
 
     private final SqlConnectionExecutor connections;
     private final ObjectMapper objectMapper;
@@ -266,6 +278,191 @@ public class PostgresBusinessLogStore implements BusinessLogStore, PlatformBoots
         }
     }
 
+    @Override
+    public BusinessLogRetentionResult purge(BusinessLogRetentionRequest request) {
+        Objects.requireNonNull(request, "request must not be null");
+        try {
+            return connections.withConnection(connection -> purge(connection, request));
+        } catch (SQLException exception) {
+            throw storageFailure("purge retained business log events", exception);
+        }
+    }
+
+    @Override
+    public List<BusinessLogRetentionPolicy> findRetentionPolicies() {
+        String sql = """
+                select event_type, automatic_cleanup_enabled, retention_days, version, updated_at, updated_by
+                from muyun_log.business_log_retention_policy
+                order by event_type
+                """;
+        try {
+            return connections.withConnection(connection -> {
+                try (PreparedStatement statement = connection.prepareStatement(sql);
+                     ResultSet resultSet = statement.executeQuery()) {
+                    List<BusinessLogRetentionPolicy> policies = new ArrayList<>();
+                    while (resultSet.next()) {
+                        OffsetDateTime updatedAt = resultSet.getObject("updated_at", OffsetDateTime.class);
+                        policies.add(new BusinessLogRetentionPolicy(
+                                BusinessLogEventType.valueOf(resultSet.getString("event_type")),
+                                resultSet.getBoolean("automatic_cleanup_enabled"),
+                                resultSet.getInt("retention_days"),
+                                resultSet.getLong("version"),
+                                updatedAt == null ? null : updatedAt.toInstant(),
+                                resultSet.getString("updated_by")));
+                    }
+                    return List.copyOf(policies);
+                }
+            });
+        } catch (SQLException exception) {
+            throw storageFailure("read business-log retention policies", exception);
+        }
+    }
+
+    @Override
+    public BusinessLogRetentionPolicy saveRetentionPolicy(BusinessLogRetentionPolicy policy, long expectedVersion) {
+        Objects.requireNonNull(policy, "policy must not be null");
+        if (expectedVersion < 0 || policy.version() != expectedVersion + 1) {
+            throw new IllegalArgumentException("saved retention policy version must follow expectedVersion");
+        }
+        String sql = """
+                insert into muyun_log.business_log_retention_policy
+                    (event_type, automatic_cleanup_enabled, retention_days, version, updated_at, updated_by)
+                values (?, ?, ?, ?, ?, ?)
+                on conflict (event_type) do update set
+                    automatic_cleanup_enabled = excluded.automatic_cleanup_enabled,
+                    retention_days = excluded.retention_days,
+                    version = excluded.version,
+                    updated_at = excluded.updated_at,
+                    updated_by = excluded.updated_by
+                where muyun_log.business_log_retention_policy.version = ?
+                """;
+        try {
+            connections.withConnection(connection -> {
+                try (PreparedStatement statement = connection.prepareStatement(sql)) {
+                    statement.setString(1, policy.eventType().name());
+                    statement.setBoolean(2, policy.automaticCleanupEnabled());
+                    statement.setInt(3, policy.retentionDays());
+                    statement.setLong(4, policy.version());
+                    if (policy.updatedAt() == null) {
+                        statement.setNull(5, java.sql.Types.TIMESTAMP_WITH_TIMEZONE);
+                    } else {
+                        statement.setObject(5, OffsetDateTime.ofInstant(policy.updatedAt(), ZoneOffset.UTC));
+                    }
+                    statement.setString(6, policy.updatedBy());
+                    statement.setLong(7, expectedVersion);
+                    if (statement.executeUpdate() != 1) {
+                        throw new BusinessLogRetentionPolicyConflictException(policy.eventType());
+                    }
+                    return null;
+                }
+            });
+            return policy;
+        } catch (SQLException exception) {
+            throw storageFailure("save business-log retention policy", exception);
+        }
+    }
+
+    private static BusinessLogRetentionResult purge(Connection connection,
+                                                     BusinessLogRetentionRequest request) throws SQLException {
+        boolean locked = tryRetentionLock(connection);
+        if (!locked) {
+            return new BusinessLogRetentionResult(request.occurredBefore(), 0, 0,
+                    BusinessLogRetentionResult.Status.ALREADY_RUNNING);
+        }
+        SQLException failure = null;
+        try {
+            long deleted = 0;
+            for (int batch = 1; batch <= request.maximumBatches(); batch++) {
+                int batchDeleted = deleteRetentionBatch(connection, request);
+                deleted += batchDeleted;
+                if (batchDeleted < request.batchSize()) {
+                    return new BusinessLogRetentionResult(request.occurredBefore(), deleted, batch,
+                            BusinessLogRetentionResult.Status.COMPLETE);
+                }
+            }
+            return new BusinessLogRetentionResult(request.occurredBefore(), deleted, request.maximumBatches(),
+                    hasExpiredEvent(connection, request)
+                            ? BusinessLogRetentionResult.Status.BATCH_LIMIT_REACHED
+                            : BusinessLogRetentionResult.Status.COMPLETE);
+        } catch (SQLException exception) {
+            failure = exception;
+            throw exception;
+        } finally {
+            try {
+                releaseRetentionLock(connection);
+            } catch (SQLException unlockFailure) {
+                if (failure != null) {
+                    failure.addSuppressed(unlockFailure);
+                } else {
+                    throw unlockFailure;
+                }
+            }
+        }
+    }
+
+    private static boolean tryRetentionLock(Connection connection) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement("select pg_try_advisory_lock(?)")) {
+            statement.setLong(1, RETENTION_ADVISORY_LOCK_KEY);
+            try (ResultSet resultSet = statement.executeQuery()) {
+                return resultSet.next() && resultSet.getBoolean(1);
+            }
+        }
+    }
+
+    private static int deleteRetentionBatch(Connection connection,
+                                            BusinessLogRetentionRequest request) throws SQLException {
+        List<String> eventTypes = request.eventTypes() == null ? List.of()
+                : request.eventTypes().stream().map(Enum::name).sorted().toList();
+        String typeFilter = eventTypes.isEmpty() ? "" : " and event_type in ("
+                + "?, ".repeat(eventTypes.size()).substring(0, eventTypes.size() * 3 - 2) + ")";
+        String sql = """
+                delete from muyun_log.business_log_event
+                where event_id in (
+                    select event_id
+                    from muyun_log.business_log_event
+                    where occurred_at < ?%s
+                    order by occurred_at, event_id
+                    limit ?
+                )
+                """.formatted(typeFilter);
+        try (PreparedStatement statement = connection.prepareStatement(sql)) {
+            int parameter = 1;
+            statement.setObject(parameter++, OffsetDateTime.ofInstant(request.occurredBefore(), ZoneOffset.UTC));
+            for (String eventType : eventTypes) {
+                statement.setString(parameter++, eventType);
+            }
+            statement.setInt(parameter, request.batchSize());
+            return statement.executeUpdate();
+        }
+    }
+
+    private static boolean hasExpiredEvent(Connection connection,
+                                           BusinessLogRetentionRequest request) throws SQLException {
+        List<String> eventTypes = request.eventTypes() == null ? List.of()
+                : request.eventTypes().stream().map(Enum::name).sorted().toList();
+        String typeFilter = eventTypes.isEmpty() ? "" : " and event_type in ("
+                + "?, ".repeat(eventTypes.size()).substring(0, eventTypes.size() * 3 - 2) + ")";
+        String sql = "select 1 from muyun_log.business_log_event where occurred_at < ?"
+                + typeFilter + " limit 1";
+        try (PreparedStatement statement = connection.prepareStatement(sql)) {
+            int parameter = 1;
+            statement.setObject(parameter++, OffsetDateTime.ofInstant(request.occurredBefore(), ZoneOffset.UTC));
+            for (String eventType : eventTypes) {
+                statement.setString(parameter++, eventType);
+            }
+            try (ResultSet resultSet = statement.executeQuery()) {
+                return resultSet.next();
+            }
+        }
+    }
+
+    private static void releaseRetentionLock(Connection connection) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement("select pg_advisory_unlock(?)")) {
+            statement.setLong(1, RETENTION_ADVISORY_LOCK_KEY);
+            statement.executeQuery().close();
+        }
+    }
+
     private BusinessLogWriteResult append(PreparedStatement statement, BusinessLogEvent event) throws SQLException {
         BusinessLogContext context = event.context();
         statement.setString(1, context.eventId());
@@ -288,7 +485,11 @@ public class PostgresBusinessLogStore implements BusinessLogStore, PlatformBoots
         } else {
             statement.setInt(16, httpStatus(event));
         }
-        statement.setString(17, serialize(event.details()));
+        statement.setString(17, actionOutcome(event));
+        statement.setString(18, actionEntityAlias(event));
+        statement.setString(19, actionRecordId(event));
+        statement.setString(20, actionMutationSource(event));
+        statement.setString(21, serialize(event.details()));
         int updated = statement.executeUpdate();
         return new BusinessLogWriteResult(context.eventId(), updated == 1
                 ? BusinessLogWriteResult.Status.APPENDED : BusinessLogWriteResult.Status.DUPLICATE_IGNORED);
@@ -355,6 +556,11 @@ public class PostgresBusinessLogStore implements BusinessLogStore, PlatformBoots
                 : query.loginOutcome().name());
         appendFilter(sql, parameters, "login_account = ?", query.loginAccount());
         appendFilter(sql, parameters, "http_status = ?", query.httpStatus());
+        appendFilter(sql, parameters, "action_outcome = ?", query.actionOutcome() == null ? null
+                : query.actionOutcome().name());
+        appendFilter(sql, parameters, "record_id = ?", query.recordId());
+        appendFilter(sql, parameters, "mutation_source = ?", query.mutationSource() == null ? null
+                : query.mutationSource().name());
     }
 
     private static void appendCandidateFilters(StringBuilder sql, List<Object> parameters,
@@ -464,6 +670,23 @@ public class PostgresBusinessLogStore implements BusinessLogStore, PlatformBoots
 
     private static Integer httpStatus(BusinessLogEvent event) {
         return event instanceof RequestErrorLogEvent requestError ? requestError.details().httpStatus() : null;
+    }
+
+    private static String actionOutcome(BusinessLogEvent event) {
+        return event instanceof ActionLogEvent action ? action.details().outcome().name() : null;
+    }
+
+    private static String actionEntityAlias(BusinessLogEvent event) {
+        return event instanceof ActionLogEvent action ? action.details().entityAlias() : null;
+    }
+
+    private static String actionRecordId(BusinessLogEvent event) {
+        return event instanceof ActionLogEvent action ? action.details().recordId() : null;
+    }
+
+    private static String actionMutationSource(BusinessLogEvent event) {
+        return event instanceof ActionLogEvent action && action.details().mutationSource() != null
+                ? action.details().mutationSource().name() : null;
     }
 
     private static BusinessLogCursor cursorFor(BusinessLogEvent event) {

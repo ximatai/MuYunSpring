@@ -46,6 +46,9 @@ class RuntimeActionBusinessLogEventListenerTest {
             assertThat(logged.details().durationMillis()).isNull();
             assertThat(logged.details().affectedRecordCount()).isNull();
             assertThat(logged.details().message().value()).isEqualTo("submitted");
+            assertThat(logged.details().entityAlias()).isEqualTo("contract");
+            assertThat(logged.details().recordId()).isEqualTo("contract-1");
+            assertThat(logged.details().mutationSource()).isEqualTo(RuntimeMutationSource.ACTION);
         });
     }
 

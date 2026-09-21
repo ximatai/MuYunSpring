@@ -280,7 +280,7 @@ function errorMessage(error: unknown, fallback: string) {
       row-actions-title="操作"
       action-column-width="176"
     >
-      <template #toolbarActions>
+      <template #operations>
         <div class="runtime-log-view__header-actions">
           <UiButton type="primary" icon-name="eye" @click="openActiveLog"> 实时查看 </UiButton>
         </div>

@@ -1,8 +1,12 @@
 package net.ximatai.muyun.spring.starter.configuration.platform;
 
 import net.ximatai.muyun.spring.ability.logging.BusinessLogPublisher;
+import net.ximatai.muyun.spring.ability.logging.BusinessLogRetentionStore;
+import net.ximatai.muyun.spring.ability.logging.BusinessLogRetentionPolicyStore;
 import net.ximatai.muyun.spring.ability.logging.BusinessLogStore;
 import net.ximatai.muyun.spring.platform.logging.BusinessLogGovernanceService;
+import net.ximatai.muyun.spring.platform.logging.BusinessLogRetentionService;
+import net.ximatai.muyun.spring.platform.logging.BusinessLogRetentionExecutionLimits;
 import net.ximatai.muyun.spring.platform.logging.PostgresBusinessLogStore;
 import net.ximatai.muyun.spring.platform.logging.RuntimeActionBusinessLogEventListener;
 import net.ximatai.muyun.spring.iam.user.LoginAuditLogger;
@@ -33,6 +37,10 @@ class MuYunSpringBusinessLoggingConfigurationTest {
             assertThat(context).hasSingleBean(BusinessLogPageAccessRecorder.class);
             assertThat(context).hasSingleBean(BusinessLogStatisticsReader.class);
             assertThat(context).hasSingleBean(BusinessLogGovernanceService.class);
+            assertThat(context).hasSingleBean(BusinessLogRetentionService.class);
+            assertThat(context).hasSingleBean(BusinessLogRetentionPolicyStore.class);
+            assertThat(context).hasSingleBean(BusinessLogRetentionExecutionLimits.class);
+            assertThat(context).hasSingleBean(BusinessLogRetentionScheduler.class);
         });
     }
 
@@ -48,6 +56,9 @@ class MuYunSpringBusinessLoggingConfigurationTest {
                     assertThat(context).doesNotHaveBean(RequestErrorLogRecorder.class);
                     assertThat(context).doesNotHaveBean(BusinessLogStatisticsReader.class);
                     assertThat(context).doesNotHaveBean(BusinessLogGovernanceService.class);
+                    assertThat(context).doesNotHaveBean(BusinessLogRetentionService.class);
+                    assertThat(context).doesNotHaveBean(BusinessLogRetentionExecutionLimits.class);
+                    assertThat(context).doesNotHaveBean(BusinessLogRetentionScheduler.class);
                     assertThat(context).hasSingleBean(BusinessLogPageAccessRecorder.class);
                 });
     }
@@ -66,6 +77,47 @@ class MuYunSpringBusinessLoggingConfigurationTest {
                     assertThat(context).hasSingleBean(RequestErrorLogRecorder.class);
                     assertThat(context).hasSingleBean(BusinessLogStatisticsReader.class);
                     assertThat(context).hasSingleBean(BusinessLogGovernanceService.class);
+                    assertThat(context).doesNotHaveBean(BusinessLogRetentionService.class);
                 });
+    }
+
+    @Test
+    void shouldAllowOperationsToDisableOnlyTheScheduledExecutor() {
+        contextRunner
+                .withPropertyValues("muyun.platform.business-log.retention.scheduled-enabled=false")
+                .run(context -> {
+                    assertThat(context).hasSingleBean(BusinessLogRetentionService.class);
+                    assertThat(context).doesNotHaveBean(BusinessLogRetentionScheduler.class);
+                });
+    }
+
+    @Test
+    void shouldSupportAReplacementStoreWithAnExplicitRetentionCapability() {
+        new ApplicationContextRunner()
+                .withUserConfiguration(MuYunSpringBusinessLoggingConfiguration.class)
+                .withBean(BusinessLogStore.class, () -> mock(BusinessLogStore.class))
+                .withBean(BusinessLogRetentionStore.class, () -> mock(BusinessLogRetentionStore.class))
+                .withBean(BusinessLogRetentionPolicyStore.class, () -> mock(BusinessLogRetentionPolicyStore.class))
+                .run(context -> {
+                    assertThat(context).doesNotHaveBean(PostgresBusinessLogStore.class);
+                    assertThat(context).hasSingleBean(BusinessLogRetentionService.class);
+                    assertThat(context).hasSingleBean(BusinessLogRetentionScheduler.class);
+                });
+    }
+
+    @Test
+    void shouldFailFastWhenRetentionExecutionLimitsAreUnsafe() {
+        contextRunner
+                .withPropertyValues(
+                        "muyun.platform.business-log.retention.batch-size=10001")
+                .run(context -> assertThat(context).hasFailed());
+    }
+
+    @Test
+    void shouldFailFastWhenRetentionScheduleCouldFormATightLoop() {
+        contextRunner
+                .withPropertyValues(
+                        "muyun.platform.business-log.retention.scan-delay=0s")
+                .run(context -> assertThat(context).hasFailed());
     }
 }

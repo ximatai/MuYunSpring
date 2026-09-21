@@ -80,7 +80,7 @@ it('record explorer panel uses a single title contract', () => {
   assert.match(headerSource, /text-overflow: ellipsis/);
   assert.match(headerSource, /\.management-panel-header-subtitle \{\s*margin: 1px 0 0;/);
   assert.match(headerSource, /management-panel-header-title--with-subtitle/);
-  assert.match(headerSource, /max-width: 100%/);
+  assert.match(headerSource, /max-width: calc\(100% \+ 4px\)/);
   assert.match(
     headerSource,
     /\.management-panel-header-title \{\s*display: flex;[\s\S]*?align-items: center;/,
@@ -99,6 +99,22 @@ it('record explorer panel uses a single title contract', () => {
   assert.notMatch(headerSource, /position: absolute/);
   assert.match(layoutSource, /<RecordDetailPanel[\s\S]*<slot name="detail-status"/);
   assert.match(workspaceSource, /--muyun-management-panel-padding-block/);
+});
+
+it('record query lists expose a semantic operations region while preserving the legacy slot', () => {
+  const panelSource = readSource('src/platform-components/RecordQueryListPanel.vue');
+  const surfaceSource = readSource('src/platform-components/RecordQueryListSurface.vue');
+
+  assert.match(panelSource, /operations\?: \(props: \{ refresh: \(\) => void \}\) => unknown/);
+  assert.match(panelSource, /<slot name="operations" :refresh="refresh">/);
+  assert.match(panelSource, /<slot name="toolbarActions" :refresh="refresh" \/>/);
+  assert.match(surfaceSource, /<template #title-suffix>/);
+  assert.match(
+    surfaceSource,
+    /record-query-list-header:not\(\.record-query-list-header--untitled\)[\s\S]*?management-panel-header-title-group[\s\S]*?flex: 0 0 auto/,
+  );
+  assert.match(surfaceSource, /class="record-query-list-operation-actions"/);
+  assert.match(surfaceSource, /class="record-query-list-query-actions"/);
 });
 
 it('content sections share one semantic heading language so dark skins preserve hierarchy', () => {

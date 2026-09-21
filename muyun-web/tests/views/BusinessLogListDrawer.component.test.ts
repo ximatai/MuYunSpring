@@ -6,9 +6,18 @@ import { RecordQueryListPanel } from '@muyun/platform-components';
 import { configureModuleContext, type HttpClient } from '@/web-core';
 import BusinessLogListDrawer from '@/views/BusinessLogListDrawer.vue';
 
+const source = readFileSync(
+  resolve(import.meta.dirname, '../../src/views/BusinessLogListDrawer.vue'),
+  'utf8',
+);
+
 it.each([
   ['login', 'iam.login_audit_log', ['outcome', 'occurredAt', 'loginAccount']],
-  ['activity', 'platform.business_activity_log', ['occurredAt', 'username', 'moduleAlias', 'actionCode']],
+  [
+    'activity',
+    'platform.business_activity_log',
+    ['outcome', 'occurredAt', 'username', 'moduleAlias', 'actionCode', 'recordId', 'mutationSource'],
+  ],
   [
     'request-error',
     'platform.request_error_log',
@@ -22,9 +31,7 @@ it.each([
       props: { surface, moduleAlias, title: '日志' },
     });
     const list = wrapper.findComponent(RecordQueryListPanel);
-    expect(
-      readFileSync(resolve(import.meta.dirname, '../../src/views/BusinessLogListDrawer.vue'), 'utf8'),
-    ).toContain('@record-activate="openDetail"');
+    expect(source).toContain('@record-activate="openDetail"');
 
     expect((list.props('columns') as Array<{ key: string }>).map((column) => column.key)).toEqual(keys);
     const rowActionsOf = list.props('rowActionsOf') as
@@ -42,3 +49,16 @@ it.each([
     expect(referencePickerOf?.({ name: 'moduleAlias' })).toBeUndefined();
   },
 );
+
+it('maps each log surface to its contextual retention policies', () => {
+  expect(source).toContain("login: ['LOGIN']");
+  expect(source).toContain("activity: ['ACTION', 'PAGE_ACCESS']");
+  expect(source).toContain("'request-error': ['REQUEST_ERROR']");
+  expect(source).toContain('<BusinessLogRetentionControl :event-types="retentionEventTypes" />');
+});
+
+it('keeps the list title and separates business operations from query controls', () => {
+  expect(source).not.toContain(':show-title="false"');
+  expect(source).toContain('<template #operations>');
+  expect(source).not.toContain('<template #toolbarActions>');
+});

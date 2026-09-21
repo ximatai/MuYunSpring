@@ -152,22 +152,22 @@ defineSlots<{
       :title-action-disabled="titleActionDisabled"
       @title-action="emit('titleAction')"
     >
+      <template #title-suffix>
+        <div class="record-query-list-operation-actions"><slot name="operations" /></div>
+      </template>
       <template #actions>
-        <div class="record-query-list-actions">
-          <div class="record-query-list-operation-actions"><slot name="operations" /></div>
-          <div class="record-query-list-query-actions">
-            <slot name="persistentQueries" />
-            <UiSearchInput
-              v-if="quickSearchVisible"
-              :value="quickSearchValue"
-              class="record-query-list-search"
-              :disabled="quickSearchDisabled"
-              :placeholder="quickSearchPlaceholder"
-              @update:value="emit('update:quickSearchValue', $event)"
-              @search="emit('quickSearch', $event)"
-            />
-            <slot name="queryControls" />
-          </div>
+        <div class="record-query-list-query-actions">
+          <slot name="persistentQueries" />
+          <UiSearchInput
+            v-if="quickSearchVisible"
+            :value="quickSearchValue"
+            class="record-query-list-search"
+            :disabled="quickSearchDisabled"
+            :placeholder="quickSearchPlaceholder"
+            @update:value="emit('update:quickSearchValue', $event)"
+            @search="emit('quickSearch', $event)"
+          />
+          <slot name="queryControls" />
         </div>
       </template>
     </ManagementPanelHeader>
@@ -330,6 +330,16 @@ defineSlots<{
   gap: var(--muyun-management-panel-header-gap, 8px);
 }
 
+.record-query-list-header:not(.record-query-list-header--untitled)
+  :deep(.management-panel-header-title-group) {
+  flex: 0 0 auto;
+  max-width: min(48%, 480px);
+}
+
+.record-query-list-header:not(.record-query-list-header--untitled) .record-query-list-query-actions {
+  width: 100%;
+}
+
 .record-query-list-operation-actions {
   flex: 0 0 auto;
 }
@@ -438,6 +448,12 @@ defineSlots<{
     width: 100%;
     flex-wrap: wrap;
     justify-content: flex-start;
+  }
+
+  .record-query-list-header:not(.record-query-list-header--untitled)
+    :deep(.management-panel-header-title-group) {
+    width: 100%;
+    max-width: 100%;
   }
 
   .record-query-list-query-actions {

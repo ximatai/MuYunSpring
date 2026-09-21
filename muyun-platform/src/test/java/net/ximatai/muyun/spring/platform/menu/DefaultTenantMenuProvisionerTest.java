@@ -254,6 +254,35 @@ class DefaultTenantMenuProvisionerTest {
         }
     }
 
+    @Test
+    void shouldRetireManagedTenantCopyWhenPlatformContributionIsWithdrawn() {
+        when(moduleService.resolveVisibleModule("iam.user")).thenReturn(module("iam.user"));
+        createSystemAdminMenuTree();
+        provisioner.afterTenantCreated("demo");
+
+        try (TenantContext.Scope ignored = TenantContext.system("withdraw platform menu contribution")) {
+            Menu withdrawn = menuService.list(Criteria.of()
+                            .eq("schemeId", MenuSchemeService.ADMIN_SCHEME_ID)
+                            .eq("moduleAlias", "iam.user"))
+                    .getFirst();
+            // Platform contribution reconciliation preserves audit history by disabling the stale source.
+            menuService.disable(withdrawn.getId());
+        }
+
+        provisioner.reconcileTenantAdminMenus("demo");
+
+        try (TenantContext.Scope ignored = TenantContext.use("demo")) {
+            assertThat(menuService.list(Criteria.of().eq("schemeId",
+                            DefaultTenantMenuProvisioner.tenantAdminSchemeId("demo"))
+                            .eq("moduleAlias", "iam.user")))
+                    .singleElement()
+                    .satisfies(menu -> {
+                        assertThat(menu.getPlatformManaged()).isTrue();
+                        assertThat(menu.getEnabled()).isFalse();
+                    });
+        }
+    }
+
     private void createSystemAdminMenuTree() {
         try (TenantContext.Scope ignored = TenantContext.system("test")) {
             MenuScheme scheme = new MenuScheme();

@@ -12,6 +12,7 @@ import net.ximatai.muyun.spring.ability.logging.LoginLogDetails;
 import net.ximatai.muyun.spring.ability.logging.LoginLogEvent;
 import net.ximatai.muyun.spring.ability.logging.RequestErrorLogEvent;
 import net.ximatai.muyun.spring.ability.logging.RequestErrorLogDetails;
+import net.ximatai.muyun.spring.ability.event.RuntimeMutationSource;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
@@ -34,6 +35,20 @@ class BusinessLogEventResponseTest {
                 new LoginLogDetails("PASSWORD", LoginLogDetails.LoginOutcome.SUCCESS, null, null, null, null));
 
         assertThat(BusinessLogEventResponse.from(event).outcome()).isEqualTo("SUCCESS");
+    }
+
+    @Test
+    void shouldProjectActionTargetAndMutationSourceForListAndDetailViews() {
+        ActionLogEvent event = new ActionLogEvent(new BusinessLogContext("event", Instant.EPOCH, Instant.EPOCH,
+                "trace", "tenant", "operator", null, "sales.order", "submit"),
+                new ActionLogDetails(ActionLogDetails.ActionOutcome.SUCCESS, "ACTION", 12L, 1L,
+                        null, null, "order", "order-1", RuntimeMutationSource.ACTION));
+
+        BusinessLogEventResponse response = BusinessLogEventResponse.from(event);
+
+        assertThat(response.entityAlias()).isEqualTo("order");
+        assertThat(response.recordId()).isEqualTo("order-1");
+        assertThat(response.mutationSource()).isEqualTo(RuntimeMutationSource.ACTION);
     }
 
     @Test

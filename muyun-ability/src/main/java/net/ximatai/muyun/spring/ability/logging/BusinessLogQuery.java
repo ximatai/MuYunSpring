@@ -1,5 +1,7 @@
 package net.ximatai.muyun.spring.ability.logging;
 
+import net.ximatai.muyun.spring.ability.event.RuntimeMutationSource;
+
 import java.time.Instant;
 import java.util.Set;
 
@@ -17,6 +19,9 @@ public record BusinessLogQuery(
         String loginAccount,
         LoginLogDetails.LoginOutcome loginOutcome,
         Integer httpStatus,
+        ActionLogDetails.ActionOutcome actionOutcome,
+        String recordId,
+        RuntimeMutationSource mutationSource,
         BusinessLogCursor cursor,
         int limit
 ) {
@@ -37,6 +42,7 @@ public record BusinessLogQuery(
         actionCode = BusinessLogContext.optional(actionCode, "actionCode", 128);
         errorCode = BusinessLogContext.optional(errorCode, "errorCode", 128);
         loginAccount = BusinessLogContext.optional(loginAccount, "loginAccount", 256);
+        recordId = BusinessLogContext.optional(recordId, "recordId", 128);
         if (httpStatus != null && (httpStatus < 100 || httpStatus > 599)) {
             throw new IllegalArgumentException("httpStatus must be between 100 and 599");
         }
@@ -45,13 +51,24 @@ public record BusinessLogQuery(
         }
     }
 
+    /** Source-compatible constructor without action-attribution filters. */
+    public BusinessLogQuery(Instant occurredFrom, Instant occurredTo, String tenantId,
+                            Set<BusinessLogEventType> eventTypes, String operatorId,
+                            Set<String> operatorOrganizationIds, String moduleAlias, String actionCode,
+                            String errorCode, String loginAccount, LoginLogDetails.LoginOutcome loginOutcome,
+                            Integer httpStatus, BusinessLogCursor cursor, int limit) {
+        this(occurredFrom, occurredTo, tenantId, eventTypes, operatorId, operatorOrganizationIds,
+                moduleAlias, actionCode, errorCode, loginAccount, loginOutcome, httpStatus,
+                null, null, null, cursor, limit);
+    }
+
     /** Source-compatible query constructor without login-outcome or HTTP-status filters. */
     public BusinessLogQuery(Instant occurredFrom, Instant occurredTo, String tenantId,
                             Set<BusinessLogEventType> eventTypes, String operatorId,
                             Set<String> operatorOrganizationIds, String moduleAlias, String actionCode,
                             String errorCode, BusinessLogCursor cursor, int limit) {
         this(occurredFrom, occurredTo, tenantId, eventTypes, operatorId, operatorOrganizationIds,
-                moduleAlias, actionCode, errorCode, null, null, null, cursor, limit);
+                moduleAlias, actionCode, errorCode, null, null, null, null, null, null, cursor, limit);
     }
 
     /** Source-compatible query constructor without a login-account filter. */
@@ -61,19 +78,20 @@ public record BusinessLogQuery(
                             String errorCode, LoginLogDetails.LoginOutcome loginOutcome, Integer httpStatus,
                             BusinessLogCursor cursor, int limit) {
         this(occurredFrom, occurredTo, tenantId, eventTypes, operatorId, operatorOrganizationIds,
-                moduleAlias, actionCode, errorCode, null, loginOutcome, httpStatus, cursor, limit);
+                moduleAlias, actionCode, errorCode, null, loginOutcome, httpStatus,
+                null, null, null, cursor, limit);
     }
 
     /** Source-compatible query constructor without event, operator or organization filters. */
     public BusinessLogQuery(Instant occurredFrom, Instant occurredTo, String tenantId, String moduleAlias,
                             String actionCode, String errorCode, BusinessLogCursor cursor, int limit) {
         this(occurredFrom, occurredTo, tenantId, null, null, null, moduleAlias, actionCode, errorCode,
-                null, null, null, cursor, limit);
+                null, null, null, null, null, null, cursor, limit);
     }
 
     public static BusinessLogQuery newest(int limit) {
         return new BusinessLogQuery(null, null, null, null, null, null, null, null, null,
-                null, null, null, null, limit);
+                null, null, null, null, null, null, null, limit);
     }
 
     static Set<String> normalizeIds(Set<String> values, String name) {

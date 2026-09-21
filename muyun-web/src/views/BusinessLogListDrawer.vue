@@ -19,6 +19,8 @@ import {
   type BusinessLogStatistics,
   type BusinessLogSurface,
 } from './businessLogClient';
+import BusinessLogRetentionControl from './BusinessLogRetentionControl.vue';
+import type { BusinessLogEventType } from './businessLogRetentionClient';
 import type { RecordActionItem } from '@muyun/platform-components';
 
 defineOptions({ name: 'BusinessLogListDrawer' });
@@ -65,6 +67,13 @@ const lastQuery = ref<WebQueryRequest>();
 const surfaceConfig = computed(() => configBySurface[props.surface]);
 const isActivity = computed(() => props.surface === 'activity');
 const isRequestError = computed(() => props.surface === 'request-error');
+const retentionEventTypes = computed<BusinessLogEventType[]>(() => {
+  return {
+    login: ['LOGIN'],
+    activity: ['ACTION', 'PAGE_ACCESS'],
+    'request-error': ['REQUEST_ERROR'],
+  }[props.surface] as BusinessLogEventType[];
+});
 const canViewInternalDiagnostic = computed(() => moduleContext.can('viewInternalDiagnostic') === true);
 const tableColumns = computed<RecordQueryListColumn[]>(() => surfaceConfig.value.columns);
 const selectedDetailRows = computed(() => (selectedEvent.value ? detailRows(selectedEvent.value) : []));
@@ -150,6 +159,8 @@ function displayValue(column: string, event: BusinessLogEventView) {
   switch (column) {
     case 'outcome':
       return outcomeLabel(event.outcome);
+    case 'mutationSource':
+      return mutationSourceLabel(event.mutationSource);
     case 'employeeName':
       return event.operatorIdentity?.employeeName ?? '—';
     case 'username':
@@ -167,6 +178,19 @@ function displayValue(column: string, event: BusinessLogEventView) {
     default:
       return readableValue(event[column]);
   }
+}
+
+function mutationSourceLabel(value: string | undefined) {
+  return (
+    {
+      BUSINESS: '业务写入',
+      ACTION: '业务动作',
+      SYSTEM: '系统处理',
+      WRITE_BACK: '平台回写',
+    }[value ?? ''] ??
+    value ??
+    '—'
+  );
 }
 
 function outcomeLabel(value: string | undefined) {
@@ -196,8 +220,13 @@ function detailRows(event: BusinessLogEventView) {
     ['部门 ID', event.operatorIdentity?.departmentId],
     ['业务模块', event.moduleAlias],
     ['动作', event.actionCode],
+    ['实体', event.entityAlias],
+    ['记录 ID', event.recordId],
+    ['变更来源', mutationSourceLabel(event.mutationSource)],
     ['追踪 ID', event.traceId],
-    ...valueRows(event.details).map((item) => [item.key, item.value] as const),
+    ...valueRows(event.details, ['outcome', 'entityAlias', 'recordId', 'mutationSource']).map(
+      (item) => [item.key, item.value] as const,
+    ),
   ]
     .filter(([, value]) => value !== undefined && value !== null && value !== '')
     .map(([key, value]) => ({ key, value: readableValue(value) }));
@@ -231,8 +260,11 @@ function handleRowAction(action: RecordActionItem, record: Record<string, unknow
   }
 }
 
-function valueRows(value: Record<string, unknown> | undefined) {
-  return Object.entries(value ?? {}).map(([key, item]) => ({ key, value: readableValue(item) }));
+function valueRows(value: Record<string, unknown> | undefined, excludedKeys: string[] = []) {
+  const excluded = new Set(excludedKeys);
+  return Object.entries(value ?? {})
+    .filter(([key]) => !excluded.has(key))
+    .map(([key, item]) => ({ key, value: readableValue(item) }));
 }
 
 function textValue(value: unknown) {
@@ -258,10 +290,13 @@ const configBySurface: Record<BusinessLogSurface, { columns: RecordQueryListColu
   },
   activity: {
     columns: [
+      { key: 'outcome', title: '结果', width: '96px' },
       { key: 'occurredAt', title: '发生时间', width: '176px' },
       { key: 'username', title: '操作用户', width: '160px' },
       { key: 'moduleAlias', title: '业务模块', width: '190px' },
       { key: 'actionCode', title: '动作', width: '150px' },
+      { key: 'recordId', title: '记录 ID', width: '170px' },
+      { key: 'mutationSource', title: '变更来源', width: '120px' },
     ],
   },
   'request-error': {
@@ -295,10 +330,11 @@ const configBySurface: Record<BusinessLogSurface, { columns: RecordQueryListColu
     @row-action="handleRowAction"
     @queried="rememberQuery"
   >
-    <template #toolbarActions>
+    <template #operations>
       <UiActionButton v-if="isActivity" :loading="statisticsLoading" @click="openStatistics">
         使用统计
       </UiActionButton>
+      <BusinessLogRetentionControl :event-types="retentionEventTypes" />
     </template>
     <template #cell="{ column, record }">
       <DateTimeText v-if="column.key === 'occurredAt'" :value="(record as BusinessLogEventView).occurredAt" />

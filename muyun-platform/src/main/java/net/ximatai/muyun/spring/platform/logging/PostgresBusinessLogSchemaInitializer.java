@@ -11,9 +11,8 @@ import java.util.Objects;
 /**
  * Controlled schema bootstrap for the PostgreSQL business log store.
  *
- * <p>The initializer only creates absent append-only objects and applies safe additive columns.
- * It never drops or rewrites existing data, so historical facts remain available during schema
- * evolution.</p>
+ * <p>The initializer creates immutable fact storage, runtime retention policy storage and safe
+ * additive indexes or columns. It never drops or rewrites historical facts during schema evolution.</p>
  */
 public class PostgresBusinessLogSchemaInitializer {
     private final DataSource dataSource;
@@ -51,6 +50,10 @@ public class PostgresBusinessLogSchemaInitializer {
                         login_outcome varchar(32),
                         login_account varchar(256),
                         http_status integer,
+                        action_outcome varchar(32),
+                        entity_alias varchar(192),
+                        record_id varchar(128),
+                        mutation_source varchar(32),
                         details_json jsonb not null
                     )
                     """);
@@ -66,8 +69,18 @@ public class PostgresBusinessLogSchemaInitializer {
                     + "add column if not exists login_account varchar(256)");
             statement.execute("alter table muyun_log.business_log_event "
                     + "add column if not exists http_status integer");
+            statement.execute("alter table muyun_log.business_log_event "
+                    + "add column if not exists action_outcome varchar(32)");
+            statement.execute("alter table muyun_log.business_log_event "
+                    + "add column if not exists entity_alias varchar(192)");
+            statement.execute("alter table muyun_log.business_log_event "
+                    + "add column if not exists record_id varchar(128)");
+            statement.execute("alter table muyun_log.business_log_event "
+                    + "add column if not exists mutation_source varchar(32)");
             statement.execute("create index if not exists business_log_event_occurred_idx "
                     + "on muyun_log.business_log_event (occurred_at desc, event_id desc)");
+            statement.execute("create index if not exists business_log_event_type_occurred_idx "
+                    + "on muyun_log.business_log_event (event_type, occurred_at, event_id)");
             statement.execute("create index if not exists business_log_event_tenant_occurred_idx "
                     + "on muyun_log.business_log_event (tenant_id, occurred_at desc, event_id desc)");
             statement.execute("create index if not exists business_log_event_tenant_operator_organization_occurred_idx "
@@ -88,6 +101,36 @@ public class PostgresBusinessLogSchemaInitializer {
                     + "on muyun_log.business_log_event (login_account, occurred_at desc, event_id desc)");
             statement.execute("create index if not exists business_log_event_http_status_occurred_idx "
                     + "on muyun_log.business_log_event (http_status, occurred_at desc, event_id desc)");
+            statement.execute("create index if not exists business_log_event_action_outcome_occurred_idx "
+                    + "on muyun_log.business_log_event (action_outcome, occurred_at desc, event_id desc)");
+            statement.execute("create index if not exists business_log_event_module_record_occurred_idx "
+                    + "on muyun_log.business_log_event (module_alias, record_id, occurred_at desc, event_id desc)");
+            statement.execute("create index if not exists business_log_event_mutation_source_occurred_idx "
+                    + "on muyun_log.business_log_event (mutation_source, occurred_at desc, event_id desc)");
+            statement.execute("""
+                    create table if not exists muyun_log.business_log_retention_policy (
+                        event_type varchar(32) primary key,
+                        automatic_cleanup_enabled boolean not null default false,
+                        retention_days integer not null,
+                        version bigint not null default 0,
+                        updated_at timestamptz,
+                        updated_by varchar(128),
+                        constraint business_log_retention_days_check
+                            check (retention_days between 1 and 36500)
+                    )
+                    """);
+            statement.execute("alter table muyun_log.business_log_retention_policy "
+                    + "add column if not exists version bigint not null default 0");
+            statement.execute("""
+                    insert into muyun_log.business_log_retention_policy
+                        (event_type, automatic_cleanup_enabled, retention_days)
+                    values
+                        ('LOGIN', false, 180),
+                        ('ACTION', false, 180),
+                        ('REQUEST_ERROR', false, 180),
+                        ('PAGE_ACCESS', false, 180)
+                    on conflict (event_type) do nothing
+                    """);
         }
     }
 }

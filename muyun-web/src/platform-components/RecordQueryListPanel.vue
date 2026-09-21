@@ -234,6 +234,9 @@ const emit = defineEmits<{
   queried: [request: WebQueryRequest];
 }>();
 const slots = defineSlots<{
+  /** Page/list operations rendered left of query controls. */
+  operations?: (props: { refresh: () => void }) => unknown;
+  /** @deprecated Use operations so the slot names the semantic region instead of its visual container. */
   toolbarActions?: (props: { refresh: () => void }) => unknown;
   cell?: (props: { column: RecordQueryListColumn; record: QueryListRecord }) => unknown;
   rowActions?: (props: { record: QueryListRecord }) => unknown;
@@ -1396,7 +1399,9 @@ defineExpose({ clearSelection, refresh });
         :aria-label="sortingToggleTitle"
         @click="toggleSorting"
       />
-      <slot name="toolbarActions" :refresh="refresh" />
+      <slot name="operations" :refresh="refresh">
+        <slot name="toolbarActions" :refresh="refresh" />
+      </slot>
     </template>
     <template v-if="!sorting" #persistentQueries>
       <UiCheckbox
