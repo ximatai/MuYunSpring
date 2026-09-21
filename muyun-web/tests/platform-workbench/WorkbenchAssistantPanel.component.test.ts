@@ -1,5 +1,6 @@
 import { flushPromises, mount } from '@vue/test-utils';
 import { expect, it, vi } from 'vitest';
+import { ref } from 'vue';
 import WorkbenchAssistantPanel from '@/platform-workbench/WorkbenchAssistantPanel.vue';
 import type { AssistantTurnOutput } from '@muyun/web-contracts';
 import {
@@ -487,7 +488,8 @@ it('keeps successful operation feedback when the model follow-up fails', async (
   const requestTurn = vi
     .fn()
     .mockResolvedValueOnce({ toolCalls: [{ id: 'call-1', code: 'form.patch-draft', input: {} }] })
-    .mockRejectedValueOnce(new Error('model returned no executable content'));
+    .mockRejectedValueOnce(new Error('model returned no executable content'))
+    .mockResolvedValueOnce({ text: '继续填写剩余字段。', toolCalls: [] });
   const registry = createRegistryWithCapabilities(requestTurn, [
     {
       descriptor: { code: 'form.patch-draft', description: 'Patch draft', inputSchema: {} },
@@ -507,4 +509,100 @@ it('keeps successful operation feedback when the model follow-up fails', async (
   expect(wrapper.text()).toContain('已应用 1 项页面操作');
   expect(wrapper.text()).toContain('前面的 1 项页面操作已生效，但后续说明未能生成');
   expect(wrapper.text()).not.toContain('model returned no executable content');
+
+  await wrapper.get('textarea').setValue('继续');
+  await wrapper.get('.assistant-panel__actions button').trigger('click');
+  await flushPromises();
+  expect(requestTurn).toHaveBeenLastCalledWith(
+    expect.objectContaining({ message: '继续', history: [{ role: 'user', text: '填写当前草稿' }] }),
+    expect.any(AbortSignal),
+    expect.any(Object),
+  );
+});
+
+const requiredChoice: AssistantTurnOutput = {
+  toolCalls: [],
+  selection: {
+    interactionId: 'choose-tenant',
+    prompt: '请选择在哪个租户录入职员',
+    inputPolicy: 'selection_required',
+    presentation: 'options',
+    options: [
+      { id: 'a', label: '租户甲' },
+      { id: 'b', label: '租户乙' },
+    ],
+  },
+};
+
+it('lets the user abandon a required choice locally and express a new goal', async () => {
+  const requestTurn = vi
+    .fn()
+    .mockResolvedValueOnce(requiredChoice)
+    .mockResolvedValueOnce({ text: '收到', toolCalls: [] });
+  const wrapper = mount(WorkbenchAssistantPanel, {
+    props: { open: true, registry: createRegistry(requestTurn) },
+  });
+  await wrapper.get('textarea').setValue('录入职员');
+  await wrapper.get('.assistant-panel__actions button').trigger('click');
+  await flushPromises();
+  await wrapper
+    .findAll('button')
+    .find((button) => button.text() === '放弃本次提议')!
+    .trigger('click');
+  expect(requestTurn).toHaveBeenCalledOnce();
+  expect(wrapper.get('textarea').attributes('disabled')).toBeUndefined();
+  await wrapper.get('textarea').setValue('查看当前页面');
+  await wrapper.get('.assistant-panel__actions button').trigger('click');
+  await flushPromises();
+  expect(requestTurn.mock.calls[1]![0].history.at(-1)).toEqual({
+    role: 'user',
+    text: '放弃本次提议：请选择在哪个租户录入职员',
+  });
+});
+
+it.each(['navigation', 'unregister', 'context'] as const)(
+  'expires an unanswered choice after %s changes',
+  async (change) => {
+    const revision = ref('initial');
+    const requestTurn = vi.fn().mockResolvedValue(requiredChoice);
+    const registry = createAssistantSurfaceRegistry();
+    const unregister = registry.register({
+      pageInstanceKey: 'tab-a',
+      contextRevision: () => revision.value,
+      surface: { describe: () => ({ surface: 'workbench', facts: {} }), capabilities: () => [], requestTurn },
+    });
+    registry.activate('tab-a');
+    const wrapper = mount(WorkbenchAssistantPanel, { props: { open: true, registry } });
+    await wrapper.get('textarea').setValue('录入职员');
+    await wrapper.get('.assistant-panel__actions button').trigger('click');
+    await flushPromises();
+    expect(wrapper.get('textarea').attributes('disabled')).toBeDefined();
+    if (change === 'navigation') registry.activate('tab-b');
+    else if (change === 'unregister') unregister();
+    else revision.value = 'changed';
+    await flushPromises();
+    expect(wrapper.get('textarea').attributes('disabled')).toBeUndefined();
+    expect(wrapper.find('.assistant-selection__options').exists()).toBe(false);
+    expect(requestTurn).toHaveBeenCalledOnce();
+  },
+);
+
+it('does not append missing-response feedback after a selection-only follow-up', async () => {
+  const requestTurn = vi
+    .fn()
+    .mockResolvedValueOnce({ toolCalls: [{ id: 'inspect-1', code: 'page.inspect', input: {} }] })
+    .mockResolvedValueOnce(requiredChoice);
+  const registry = createRegistryWithCapabilities(requestTurn, [
+    {
+      descriptor: { code: 'page.inspect', description: 'Inspect', inputSchema: {} },
+      parseInput: (input) => input,
+      execute: async () => ({ inspected: true }),
+    },
+  ]);
+  const wrapper = mount(WorkbenchAssistantPanel, { props: { open: true, registry } });
+  await wrapper.get('textarea').setValue('录入职员');
+  await wrapper.get('.assistant-panel__actions button').trigger('click');
+  await flushPromises();
+  expect(wrapper.text()).toContain(requiredChoice.selection!.prompt);
+  expect(wrapper.text()).not.toContain('未生成可展示的说明');
 });

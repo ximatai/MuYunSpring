@@ -4,7 +4,6 @@ import {
   type AssistantCapabilityExecutionContext,
   type AssistantSurface,
   type AssistantTurnRequester,
-  AssistantCapabilityUsageError,
   emptyAssistantCapabilityInputSchema,
   parseEmptyAssistantCapabilityInput,
 } from '@muyun/web-core';
@@ -23,7 +22,6 @@ import { modulePageScopeCapabilities, type ModulePageAssistantTenantScope } from
 
 const MAX_ASSISTANT_FORM_CURRENT_VALUE_CHARS = 8_000;
 const MAX_ASSISTANT_REFERENCE_OPTIONS = 10;
-const MAX_ASSISTANT_FIELD_EVIDENCE_CHARS = 500;
 
 interface AssistantReferenceSelection {
   fieldName: string;
@@ -575,7 +573,6 @@ function assistantFieldWriteMode(
 interface AssistantDraftChange {
   fieldName: string;
   value: unknown;
-  evidence?: string;
 }
 
 function formPatchCapability(
@@ -588,7 +585,7 @@ function formPatchCapability(
     descriptor: {
       code: 'form.patch-draft',
       description:
-        'Atomically patch user-supplied values into assistant-writable fields in the current unsaved form draft. Every change must include evidence copied verbatim from a user message; the same message must explicitly associate the requested value with that field. The evidence may be the exact value text. Scope/menu/reference answers are not form values. It does not save.',
+        'Atomically patch values supplied or requested by the user into assistant-writable fields in the current unsaved form draft. Resolve meaning from the conversation and ask for clarification when a value or its field is ambiguous. Use the declared field types and option values. It does not save; the user reviews the draft before saving.',
       inputSchema: {
         type: 'object',
         additionalProperties: false,
@@ -601,11 +598,10 @@ function formPatchCapability(
             items: {
               type: 'object',
               additionalProperties: false,
-              required: ['fieldName', 'value', 'evidence'],
+              required: ['fieldName', 'value'],
               properties: {
                 fieldName: { type: 'string', enum: writableFieldNames },
                 value: {},
-                evidence: { type: 'string', minLength: 1, maxLength: MAX_ASSISTANT_FIELD_EVIDENCE_CHARS },
               },
             },
           },
@@ -626,9 +622,7 @@ function formPatchCapability(
     async execute(input, context) {
       if (!hasEditableDraft(view)) throw new Error('No editable form draft is active');
       validateDraftTargets(view, input.changes);
-      validateDraftEvidenceValueShapes(view, input.changes);
       const validatedChanges = validateDraftChanges(view, input.changes);
-      validateDraftEvidence(view, input.changes, context.verifyUserEvidence);
       context.applyEffect(() => {
         view.updateDraftFields(validatedChanges, 'assistant');
       });
@@ -644,64 +638,10 @@ function parseDraftChange(input: unknown): AssistantDraftChange {
   if (!Object.hasOwn(input, 'value')) {
     throw new Error('form.patch-draft changes require a fieldName and value');
   }
-  if (input.evidence !== undefined && (typeof input.evidence !== 'string' || !input.evidence.trim())) {
-    throw new Error('form.patch-draft evidence must be a non-empty string');
-  }
-  if (typeof input.evidence === 'string' && input.evidence.length > MAX_ASSISTANT_FIELD_EVIDENCE_CHARS) {
-    throw new Error('form.patch-draft evidence is too long');
-  }
   return {
     fieldName: input.fieldName.trim(),
     value: input.value,
-    ...(typeof input.evidence === 'string' ? { evidence: input.evidence.trim() } : {}),
   };
-}
-
-function validateDraftEvidence(
-  view: ModulePageSessionView,
-  changes: AssistantDraftChange[],
-  verify: AssistantCapabilityExecutionContext['verifyUserEvidence'],
-) {
-  for (const change of changes) {
-    const field = formFieldState(view, change.fieldName);
-    const evidence = change.evidence?.trim();
-    if (
-      !field ||
-      !evidence ||
-      !verify({
-        evidence,
-        fieldCues: fieldEvidenceCues(field),
-        valueTokens: typeof change.value === 'boolean' ? [] : fieldValueEvidenceTokens(field, change.value),
-        ...(typeof change.value === 'boolean' ? { booleanValue: change.value } : {}),
-      })
-    ) {
-      throw new AssistantCapabilityUsageError(
-        `Field ${change.fieldName} (${field?.label ?? 'unknown'}) was not changed: evidence must be copied from a user message that associates this field with the requested value.`,
-      );
-    }
-  }
-}
-
-function fieldEvidenceCues(field: RecordFormFieldState) {
-  return [field.label.trim(), field.fieldName].filter((cue) => cue.length >= 2);
-}
-
-function fieldValueEvidenceTokens(field: RecordFormFieldState, value: unknown): string[] {
-  const values = Array.isArray(value) ? value : [value];
-  if (values.length === 0 || values.some((item) => item == null || typeof item === 'object')) {
-    throw new AssistantCapabilityUsageError(
-      `Field ${field.fieldName} cannot be cleared or assigned a structured value by the assistant.`,
-    );
-  }
-  return values.map((item) => {
-    const option = assistantOptions(field).find((candidate) => candidate.value === item);
-    if (option) return option.label;
-    if (typeof item === 'string' || typeof item === 'number') return String(item);
-    if (typeof item === 'boolean') return String(item);
-    throw new AssistantCapabilityUsageError(
-      `Field ${field.fieldName} has a value type that cannot be verified from user evidence.`,
-    );
-  });
 }
 
 function validateDraftChanges(view: ModulePageSessionView, changes: AssistantDraftChange[]) {
@@ -709,17 +649,6 @@ function validateDraftChanges(view: ModulePageSessionView, changes: AssistantDra
     const field = formFieldState(view, fieldName)!;
     return { fieldName, value: assistantFieldValue(field, value) };
   });
-}
-
-function validateDraftEvidenceValueShapes(view: ModulePageSessionView, changes: AssistantDraftChange[]) {
-  for (const { fieldName, value } of changes) {
-    const values = Array.isArray(value) ? value : [value];
-    if (values.length === 0 || values.some((item) => item == null || typeof item === 'object')) {
-      throw new AssistantCapabilityUsageError(
-        `Field ${formFieldState(view, fieldName)!.fieldName} cannot be cleared or assigned a structured value by the assistant.`,
-      );
-    }
-  }
 }
 
 function validateDraftTargets(view: ModulePageSessionView, changes: AssistantDraftChange[]) {

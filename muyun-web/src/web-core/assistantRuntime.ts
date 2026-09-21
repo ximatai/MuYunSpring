@@ -352,14 +352,7 @@ async function runAssistantStepWithSuccessfulCalls(
     }
     attemptedCallCount += 1;
     try {
-      const precedingMessage = history.at(-1);
-      const invocation = await registry.invoke(call, snapshot.token, signal, {
-        userMessages: [...history.filter(({ role }) => role === 'user').map(({ text }) => text), message],
-        currentUserMessage: message,
-        ...(precedingMessage?.role === 'assistant'
-          ? { precedingAssistantMessage: precedingMessage.text }
-          : {}),
-      });
+      const invocation = await registry.invoke(call, snapshot.token, signal);
       const result = { callId: call.id, capabilityCode: call.code, output: invocation.value };
       results.push(result);
       replayableCalls.set(callKey, result);

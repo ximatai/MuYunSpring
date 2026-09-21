@@ -218,12 +218,14 @@ const renderedTabMatchesRoute = computed(() => {
 function waitForAssistantPageReady() {
   const expectedTabKey = activeTabKey.value;
   if (!expectedTabKey) return Promise.reject(new StaleAssistantInvocationError());
+  const expectedTab = startup.value?.tabs?.find((tab) => tab.key === expectedTabKey);
+  const expectedPageInstanceKey = expectedTab?.instanceKey ?? expectedTabKey;
   const targetReady = () =>
     activeTabKey.value === expectedTabKey &&
     renderedTabKey.value === expectedTabKey &&
     renderedTabMatchesRoute.value;
-  if (targetReady()) return nextTick();
-  return new Promise<void>((resolve, reject) => {
+  if (targetReady()) return nextTick(() => expectedPageInstanceKey);
+  return new Promise<string>((resolve, reject) => {
     let settled = false;
     const finish = (error?: Error) => {
       if (settled) return;
@@ -231,7 +233,7 @@ function waitForAssistantPageReady() {
       stop();
       window.clearTimeout(timeout);
       if (error) reject(error);
-      else void nextTick(resolve);
+      else void nextTick(() => resolve(expectedPageInstanceKey));
     };
     const stop = watch([activeTabKey, renderedTabKey, renderedTabMatchesRoute], () => {
       if (activeTabKey.value !== expectedTabKey) {

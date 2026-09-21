@@ -1,4 +1,4 @@
-import type { AssistantCapability } from '@muyun/web-core';
+import type { AssistantCapability, AssistantInvocationToken } from '@muyun/web-core';
 import { flattenTreeRecords, type QueryListRecord } from '@muyun/platform-components';
 import type { ModulePageSessionView } from './useModulePageSession';
 import type { TenantScopeController } from './useTenantScopeController';
@@ -9,7 +9,10 @@ export type ModulePageAssistantTenantScope = Pick<
   TenantScopeController,
   'blocked' | 'changeTenantScope' | 'selected' | 'tenantScopeContext' | 'tenantScopeExplorerVisible'
 > & {
-  settleTenantScopeChange(record: QueryListRecord, signal: AbortSignal): Promise<void>;
+  settleTenantScopeChange(
+    record: QueryListRecord,
+    signal: AbortSignal,
+  ): Promise<void | AssistantInvocationToken>;
 };
 
 export function modulePageScopeCapabilities(

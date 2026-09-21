@@ -13,6 +13,7 @@ import {
   StaleAssistantInvocationError,
   normalizeError,
   type AssistantSurfaceRegistry,
+  type AssistantInvocationToken,
   userFacingErrorMessage,
 } from '@muyun/web-core';
 import AssistantMarkdownContent from './AssistantMarkdownContent.vue';
@@ -36,6 +37,7 @@ interface ConversationItem {
 
 interface ConversationSelection {
   value: AssistantSelectionInteraction;
+  token?: AssistantInvocationToken;
   state: 'open' | 'submitting' | 'answered' | 'superseded';
   selectedOptionId?: string;
 }
@@ -84,7 +86,7 @@ function appendAssistant(text: string | undefined, selection?: AssistantSelectio
     id: ++nextItemId,
     role: 'assistant',
     text: normalized,
-    ...(selection ? { selection: { value: selection, state: 'open' as const } } : {}),
+    ...(selection ? { selection: newSelection(selection) } : {}),
   });
 }
 
@@ -145,7 +147,7 @@ async function submitMessage(
           if (streamingItemId === undefined) appendAssistant(step.output.text, step.output.selection);
           else if (step.output.selection) {
             const item = items.value.find(({ id }) => id === streamingItemId);
-            if (item) item.selection = { value: step.output.selection, state: 'open' };
+            if (item) item.selection = newSelection(step.output.selection);
           }
         }
         streamingItemId = undefined;
@@ -158,7 +160,7 @@ async function submitMessage(
       },
     });
     if (!result.completed) append('status', '本次任务步骤较多，已暂停。请重新完整描述后续目标。');
-    else if (result.steps.every((step) => !step.output.text)) {
+    else if (result.steps.every((step) => !step.output.text && !step.output.selection)) {
       const applied = result.steps.reduce((total, step) => total + step.appliedEffectCount, 0);
       const succeeded = result.steps.some((step) => step.results.some((candidate) => !candidate.error));
       if (applied > 0) {
@@ -181,6 +183,7 @@ async function submitMessage(
       append('status', '页面发生了与当前任务冲突的变化，本轮已暂停。请确认当前页面后告诉我继续或调整目标。');
     } else if (error instanceof AssistantConversationFollowUpError) {
       if (sourceSelection) sourceSelection.state = 'answered';
+      commitConversation(message, assistantTexts);
       const applied = error.steps.reduce((total, step) => total + step.appliedEffectCount, 0);
       append(
         'status',
@@ -202,13 +205,42 @@ async function submitMessage(
 
 function reopenSelection(selection?: ConversationSelection) {
   if (!selection) return;
-  selection.state = 'open';
+  selection.state = selectionIsCurrent(selection) ? 'open' : 'superseded';
   selection.selectedOptionId = undefined;
+}
+
+function newSelection(value: AssistantSelectionInteraction): ConversationSelection {
+  return { value, state: 'open', token: props.registry.snapshot()?.token };
+}
+
+function selectionIsCurrent(selection: ConversationSelection) {
+  const current = props.registry.snapshot()?.token;
+  return current !== undefined && JSON.stringify(current) === JSON.stringify(selection.token);
+}
+
+function expireStaleSelections() {
+  for (const item of items.value) {
+    if (item.selection?.state === 'open' && !selectionIsCurrent(item.selection)) {
+      item.selection.state = 'superseded';
+    }
+  }
+}
+
+function abandonSelection(item: ConversationItem) {
+  if (busy.value || item.selection?.state !== 'open') return;
+  item.selection.state = 'superseded';
+  const message = '放弃本次提议：' + item.selection.value.prompt;
+  append('user', message);
+  commitConversation(message, []);
 }
 
 function selectOption(item: ConversationItem, option: AssistantSelectionOption) {
   const selection = item.selection;
   if (!selection || selection.state !== 'open' || busy.value) return;
+  if (!selectionIsCurrent(selection)) {
+    selection.state = 'superseded';
+    return;
+  }
   const history = conversationHistory();
   supersedeOpenSelections(selection);
   selection.state = 'submitting';
@@ -295,6 +327,16 @@ watch(
 );
 onBeforeUnmount(cancel);
 
+watch(() => props.registry.snapshot()?.token, expireStaleSelections, { deep: true });
+watch(
+  () => props.registry,
+  (registry, _previous, onCleanup) => {
+    onCleanup(registry.subscribe(expireStaleSelections));
+    expireStaleSelections();
+  },
+  { immediate: true },
+);
+
 function handleKeydown(event: KeyboardEvent) {
   if (event.key !== 'Enter' || event.shiftKey || event.isComposing) return;
   event.preventDefault();
@@ -337,6 +379,7 @@ function isAbortError(error: unknown) {
             :state="item.selection.state"
             :selected-option-id="item.selection.selectedOptionId"
             @select="(option) => selectOption(item, option)"
+            @abandon="abandonSelection(item)"
           />
         </template>
         <template v-else>{{ item.text }}</template>

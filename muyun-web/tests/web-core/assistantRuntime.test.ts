@@ -162,7 +162,6 @@ it('waits for background page transitions before asking the model to decide', as
 
 it('executes declared capabilities and ends the step when their effect changes context', async () => {
   let revision = 'draft-before';
-  let evidenceVerified = false;
   const patch: AssistantCapability = {
     descriptor: {
       code: 'form.patch-draft',
@@ -171,11 +170,6 @@ it('executes declared capabilities and ends the step when their effect changes c
     },
     parseInput: (input) => input,
     async execute(_input, context) {
-      evidenceVerified = context.verifyUserEvidence({
-        evidence: 'title',
-        fieldCues: ['title'],
-        valueTokens: ['title'],
-      });
       context.applyEffect(() => {
         revision = 'draft-after';
       });
@@ -205,12 +199,10 @@ it('executes declared capabilities and ends the step when their effect changes c
   ]);
   expect(result.contextChanged).toBe(true);
   expect(result.appliedEffectCount).toBe(1);
-  expect(evidenceVerified).toBe(true);
 });
 
-it('binds a direct clarification answer to the immediately preceding assistant question', async () => {
+it('passes clarification history to the model without interpreting it in the executor', async () => {
   let revision = 'before';
-  let evidenceVerified = false;
   const registry = createAssistantSurfaceRegistry();
   const requestTurn = vi
     .fn()
@@ -229,11 +221,6 @@ it('binds a direct clarification answer to the immediately preceding assistant q
           descriptor: { code: 'form.patch-draft', description: 'Patch draft', inputSchema: {} },
           parseInput: (input) => input,
           async execute(_input, context) {
-            evidenceVerified = context.verifyUserEvidence({
-              evidence: '研发部',
-              fieldCues: ['部门名称'],
-              valueTokens: ['研发部'],
-            });
             context.applyEffect(() => {
               revision = 'after';
             });
@@ -253,7 +240,16 @@ it('binds a direct clarification answer to the immediately preceding assistant q
     ],
   });
 
-  expect(evidenceVerified).toBe(true);
+  expect(requestTurn).toHaveBeenCalledWith(
+    expect.objectContaining({
+      message: '研发部',
+      history: [
+        { role: 'user', text: '帮我新增一个部门' },
+        { role: 'assistant', text: '部门名称是什么？' },
+      ],
+    }),
+    expect.any(AbortSignal),
+  );
 });
 
 it('returns an ordinary capability failure as a structured result', async () => {
@@ -296,7 +292,7 @@ it('returns bounded capability usage feedback so the model can repair its next c
     descriptor: { code: 'form.patch', description: 'Patch', inputSchema: {} },
     parseInput: (input) => input,
     async execute() {
-      throw new AssistantCapabilityUsageError('Copy evidence from the user message');
+      throw new AssistantCapabilityUsageError('Choose a writable field from the current form');
     },
   };
   const registry = createAssistantSurfaceRegistry();
@@ -315,7 +311,7 @@ it('returns bounded capability usage feedback so the model can repair its next c
 
   expect(result.results[0]?.error).toEqual({
     code: 'CAPABILITY_USAGE_INVALID',
-    message: 'Copy evidence from the user message',
+    message: 'Choose a writable field from the current form',
   });
 });
 

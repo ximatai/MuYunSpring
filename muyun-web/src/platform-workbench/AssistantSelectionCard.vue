@@ -11,7 +11,7 @@ const props = defineProps<{
   selectedOptionId?: string;
 }>();
 
-const emit = defineEmits<{ select: [option: AssistantSelectionOption] }>();
+const emit = defineEmits<{ select: [option: AssistantSelectionOption]; abandon: [] }>();
 
 const selectedLabel = computed(
   () => props.selection.options.find(({ id }) => id === props.selectedOptionId)?.label,
@@ -48,6 +48,14 @@ const selectedLabel = computed(
           {{ option.label }}
         </UiButton>
       </div>
+      <UiButton
+        v-if="selection.inputPolicy === 'selection_required'"
+        type="text"
+        :disabled="state !== 'open'"
+        @click="emit('abandon')"
+      >
+        放弃本次提议
+      </UiButton>
       <span v-if="selection.inputPolicy === 'free_text_allowed'" class="assistant-selection__hint">
         也可以继续输入其他内容
       </span>

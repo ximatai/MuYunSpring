@@ -39,7 +39,7 @@ const props = withDefaults(
     realtimeStatus?: WorkbenchRealtimeStatus;
     themeAppearance?: 'light' | 'dark';
     assistantRequestTurn?: AssistantTurnRequester;
-    assistantWaitForPageReady?: () => Promise<void>;
+    assistantWaitForPageReady?: () => Promise<string>;
   }>(),
   {
     loading: false,
@@ -90,16 +90,42 @@ function workbenchAssistantCapabilities() {
       return true;
     },
     async (signal) => {
-      await (props.assistantWaitForPageReady?.() ?? nextTick());
-      if (activePageDescriptor.value?.hostType !== 'module-page-host') return;
-      const pageInstanceKey = activePageInstanceKey.value;
-      if (!pageInstanceKey) throw new Error('Assistant target page is unavailable');
-      await assistantSurfaceRegistry.waitForActiveSurface({
-        pageInstanceKey,
-        requireFormal: true,
-        signal,
-        timeoutMs: ASSISTANT_PAGE_READY_TIMEOUT_MS,
-      });
+      const expectedPageInstanceKey = props.assistantWaitForPageReady
+        ? await props.assistantWaitForPageReady()
+        : await nextTick(() => activePageInstanceKey.value);
+      if (!expectedPageInstanceKey || activePageInstanceKey.value !== expectedPageInstanceKey) {
+        throw new Error('Assistant target page changed before it became ready');
+      }
+      if (activePageDescriptor.value?.hostType !== 'module-page-host') {
+        return assistantSurfaceRegistry.snapshot()?.token;
+      }
+      const pageInstanceKey = expectedPageInstanceKey;
+      const controller = new AbortController();
+      const abort = () => controller.abort();
+      signal?.addEventListener('abort', abort, { once: true });
+      if (signal?.aborted) abort();
+      const stop = watch(
+        activePageInstanceKey,
+        (current) => {
+          if (current !== pageInstanceKey) abort();
+        },
+        { flush: 'sync' },
+      );
+      try {
+        const destination = await assistantSurfaceRegistry.waitForActiveSurface({
+          pageInstanceKey,
+          requireFormal: true,
+          signal: controller.signal,
+          timeoutMs: ASSISTANT_PAGE_READY_TIMEOUT_MS,
+        });
+        if (activePageInstanceKey.value !== pageInstanceKey || controller.signal.aborted) {
+          throw new Error('Assistant target page changed before it became ready');
+        }
+        return destination.token;
+      } finally {
+        stop();
+        signal?.removeEventListener('abort', abort);
+      }
     },
   );
 }

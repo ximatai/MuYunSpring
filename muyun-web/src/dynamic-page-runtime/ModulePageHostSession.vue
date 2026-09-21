@@ -6,6 +6,7 @@ import {
   useAssistantSurfaceHost,
   useModuleContext,
   withHttpHeaders,
+  type AssistantInvocationToken,
 } from '@muyun/web-core';
 import type { StandardModulePageDescriptor } from '@muyun/web-contracts';
 import { RecordPanelButton, RecordPanelState, type QueryListRecord } from '@muyun/platform-components';
@@ -125,7 +126,8 @@ function settleAssistantTenantScopeChange(record: QueryListRecord, signal: Abort
   if (signal.aborted) {
     return Promise.reject(new DOMException('Assistant invocation was cancelled', 'AbortError'));
   }
-  return new Promise<void>((resolve, reject) => {
+  const targetPageInstanceKey = assistantPageInstanceKey;
+  return new Promise<AssistantInvocationToken>((resolve, reject) => {
     let settlement!: TenantScopeSettlement;
     const cleanup = () => signal.removeEventListener('abort', abort);
     const abort = () => {
@@ -142,7 +144,16 @@ function settleAssistantTenantScopeChange(record: QueryListRecord, signal: Abort
           reject(new Error('Tenant scope selection was replaced before its query settled'));
           return;
         }
-        resolve();
+        const destination = assistantHost?.registry.snapshot();
+        if (
+          !destination ||
+          destination.token.pageInstanceKey !== targetPageInstanceKey ||
+          destination.token.fallback
+        ) {
+          reject(new Error('Tenant scope target surface is no longer active'));
+          return;
+        }
+        resolve(destination.token);
       },
       reject: (cause) => {
         cleanup();

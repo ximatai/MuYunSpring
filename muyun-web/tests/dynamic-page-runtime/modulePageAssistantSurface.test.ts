@@ -66,7 +66,7 @@ describe('module page assistant surface', () => {
       .find((capability) => capability.descriptor.code === 'form.patch-draft')!;
 
     const input = patch.parseInput({
-      changes: [{ fieldName: 'summary', value: 'after', evidence: 'Summary after' }],
+      changes: [{ fieldName: 'summary', value: 'after' }],
     });
     await patch.execute(input, executionContext());
 
@@ -84,77 +84,62 @@ describe('module page assistant surface', () => {
     expect(surface.capabilities().map(({ descriptor }) => descriptor.code)).not.toContain('page.describe');
   });
 
-  it('requires an explicit user quote that identifies the form field before patching it', async () => {
+  it('accepts normalized model values without requiring literal user quotes', async () => {
     const view = viewFixture();
-    view.formFields.get('summary')!.label = '部门名称';
+    view.formFields.set('hireDate', {
+      fieldName: 'hireDate',
+      label: '入职日期',
+      required: false,
+      readOnly: false,
+      visible: true,
+      controlType: 'dateInput',
+      valueType: 'DATE',
+      fieldControl: { alias: 'date', rendererType: 'DATE', valueShape: 'SCALAR' },
+      columnSpan: 1,
+      hasOption: false,
+    } as never);
     const surface = createModulePageAssistantSurface(view, vi.fn());
-    const patch = surface
-      .capabilities()
-      .find((capability) => capability.descriptor.code === 'form.patch-draft')!;
-
-    await expect(
-      patch.execute(
-        patch.parseInput({
-          changes: [{ fieldName: 'summary', value: '戏码台 DEMO', evidence: '戏码台 DEMO' }],
-        }),
-        executionContext(['我要新增一个部门，帮我做', '戏码台 DEMO']),
-      ),
-    ).rejects.toThrow('Field summary (部门名称) was not changed');
-    expect(view.updateDraftFields).not.toHaveBeenCalled();
-
+    const patch = surface.capabilities().find(({ descriptor }) => descriptor.code === 'form.patch-draft')!;
+    expect(JSON.stringify(patch.descriptor.inputSchema)).not.toContain('evidence');
+    // The model resolves a request such as “入职日期填明天”; the page validates its typed result.
     await patch.execute(
-      patch.parseInput({
-        changes: [{ fieldName: 'summary', value: '研发部', evidence: '研发部' }],
-      }),
-      executionContext(['部门名称叫研发部']),
+      patch.parseInput({ changes: [{ fieldName: 'hireDate', value: '2026-09-22' }] }),
+      executionContext(),
     );
-
     expect(view.updateDraftFields).toHaveBeenCalledWith(
-      [{ fieldName: 'summary', value: '研发部' }],
+      [{ fieldName: 'hireDate', value: '2026-09-22' }],
       'assistant',
     );
+  });
 
+  it('allows clearing optional fields but rejects invalid values before applying a batch', async () => {
+    const view = viewFixture();
+    view.formFields.get('summary')!.required = { constant: false };
+    const patch = createModulePageAssistantSurface(view, vi.fn())
+      .capabilities()
+      .find(({ descriptor }) => descriptor.code === 'form.patch-draft')!;
+    await patch.execute(
+      patch.parseInput({ changes: [{ fieldName: 'summary', value: null }] }),
+      executionContext(),
+    );
+    expect(view.updateDraftFields).toHaveBeenCalledWith(
+      [{ fieldName: 'summary', value: undefined }],
+      'assistant',
+    );
+    vi.mocked(view.updateDraftFields).mockClear();
+    for (const value of [[], { guessed: true }]) {
+      await expect(
+        patch.execute(patch.parseInput({ changes: [{ fieldName: 'summary', value }] }), executionContext()),
+      ).rejects.toThrow('Invalid value for form field: summary');
+    }
+    view.formFields.get('summary')!.required = { constant: true };
     await expect(
       patch.execute(
-        patch.parseInput({
-          changes: [{ fieldName: 'summary', value: '财务部', evidence: '部门名称叫研发部' }],
-        }),
-        executionContext(['部门名称叫研发部']),
+        patch.parseInput({ changes: [{ fieldName: 'summary', value: null }] }),
+        executionContext(),
       ),
-    ).rejects.toThrow('Field summary (部门名称) was not changed');
-    await expect(
-      patch.execute(
-        patch.parseInput({
-          changes: [{ fieldName: 'summary', value: '甲', evidence: '公司名称叫甲' }],
-        }),
-        executionContext(['公司名称叫甲']),
-      ),
-    ).rejects.toThrow('Field summary (部门名称) was not changed');
-    await expect(
-      patch.execute(
-        patch.parseInput({
-          changes: [{ fieldName: 'summary', value: '研发部', evidence: '部门名称叫研发部' }],
-        }),
-        executionContext([]),
-      ),
-    ).rejects.toThrow('Field summary (部门名称) was not changed');
-
-    await expect(
-      patch.execute(
-        patch.parseInput({
-          changes: [{ fieldName: 'summary', value: [], evidence: '部门名称留空' }],
-        }),
-        executionContext(['部门名称留空']),
-      ),
-    ).rejects.toThrow('Field summary cannot be cleared or assigned a structured value');
-    await expect(
-      patch.execute(
-        patch.parseInput({
-          changes: [{ fieldName: 'summary', value: { guessed: true }, evidence: '部门名称研发部' }],
-        }),
-        executionContext(['部门名称研发部']),
-      ),
-    ).rejects.toThrow('Field summary cannot be cleared or assigned a structured value');
+    ).rejects.toThrow('Form field is required: summary');
+    expect(view.updateDraftFields).not.toHaveBeenCalled();
   });
 
   it('rejects unknown and read-only fields before changing any draft value', async () => {
@@ -181,7 +166,7 @@ describe('module page assistant surface', () => {
     expect(view.updateDraftFields).not.toHaveBeenCalled();
   });
 
-  it('keeps structured fields read-only and accepts visible boolean wording as evidence', async () => {
+  it('keeps structured fields read-only and accepts typed boolean changes without language heuristics', async () => {
     const view = viewFixture();
     view.formFields.set('settings', {
       fieldName: 'settings',
@@ -227,27 +212,28 @@ describe('module page assistant surface', () => {
     });
     registry.activate('page-1');
     const token = registry.snapshot()!.token;
-    const call = (message: string, value = true) =>
-      registry.invoke(
+    // Both enable and “取消勾选” arrive as typed booleans, independent of wording.
+    for (const value of [true, false]) {
+      await registry.invoke(
         {
-          id: message,
+          id: String(value),
           code: patch.descriptor.code,
-          input: { changes: [{ fieldName: 'enabled', value, evidence: message }] },
+          input: { changes: [{ fieldName: 'enabled', value }] },
         },
         token,
-        undefined,
-        { userMessages: [message], currentUserMessage: message },
       );
-
-    await expect(call('启用状态是什么？')).rejects.toThrow('Field enabled (启用状态) was not changed');
-    await expect(call('是否启用？')).rejects.toThrow('Field enabled (启用状态) was not changed');
-    await expect(call('启用状态不要启用')).rejects.toThrow('Field enabled (启用状态) was not changed');
-    await expect(call('启用状态设为启用吗')).rejects.toThrow('Field enabled (启用状态) was not changed');
-    await expect(call('启用状态能否设为关闭', false)).rejects.toThrow(
-      'Field enabled (启用状态) was not changed',
-    );
-    await call('启用状态设为启用');
-    expect(view.updateDraftFields).toHaveBeenCalledWith([{ fieldName: 'enabled', value: true }], 'assistant');
+      expect(view.updateDraftFields).toHaveBeenLastCalledWith([{ fieldName: 'enabled', value }], 'assistant');
+    }
+    await expect(
+      registry.invoke(
+        {
+          id: 'invalid',
+          code: patch.descriptor.code,
+          input: { changes: [{ fieldName: 'enabled', value: '取消勾选' }] },
+        },
+        token,
+      ),
+    ).rejects.toThrow('Invalid value for form field: enabled');
   });
 
   it('uses an opaque session revision instead of serializing draft values', () => {
@@ -1541,8 +1527,8 @@ describe('module page assistant surface', () => {
     await patch.execute(
       patch.parseInput({
         changes: [
-          { fieldName: 'status', value: 'DONE', evidence: 'Status DONE' },
-          { fieldName: 'workDate', value: '2026-09-19', evidence: 'Work date 2026-09-19' },
+          { fieldName: 'status', value: 'DONE' },
+          { fieldName: 'workDate', value: '2026-09-19' },
         ],
       }),
       executionContext(),
@@ -1557,25 +1543,9 @@ describe('module page assistant surface', () => {
   });
 });
 
-function executionContext(userMessages?: readonly string[]) {
+function executionContext() {
   return {
     signal: new AbortController().signal,
-    verifyUserEvidence(claim: {
-      evidence: string;
-      fieldCues: readonly string[];
-      valueTokens: readonly string[];
-    }) {
-      if (userMessages === undefined) return true;
-      const normalize = (value: string) => value.replace(/\s+/g, '').toLocaleLowerCase();
-      return userMessages.some((message) => {
-        const normalized = normalize(message);
-        return (
-          normalized.includes(normalize(claim.evidence)) &&
-          claim.fieldCues.some((cue) => normalized.includes(normalize(cue))) &&
-          claim.valueTokens.every((token) => normalized.includes(normalize(token)))
-        );
-      });
-    },
     isCurrent: () => true,
     commitInternalState<T>(commit: () => T) {
       return commit();

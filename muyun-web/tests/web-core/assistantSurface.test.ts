@@ -60,6 +60,25 @@ function fixture(options: {
 }
 
 describe('assistant surface registry', () => {
+  it('notifies surface lifecycle changes and releases subscribers', () => {
+    const registry = createAssistantSurfaceRegistry();
+    const listener = vi.fn();
+    const unsubscribe = registry.subscribe(listener);
+    const unregister = registry.register(fixture({ pageInstanceKey: 'tab-a', revision: () => '1' }));
+    expect(listener).toHaveBeenCalledTimes(1);
+    registry.activate('tab-a');
+    expect(listener).toHaveBeenCalledTimes(2);
+    registry.activate('tab-a');
+    expect(listener).toHaveBeenCalledTimes(2);
+    unregister();
+    expect(listener).toHaveBeenCalledTimes(3);
+    expect(registry.snapshot()).toBeUndefined();
+    unsubscribe();
+    registry.register(fixture({ pageInstanceKey: 'tab-b', revision: () => '1' }));
+    registry.activate('tab-b');
+    expect(listener).toHaveBeenCalledTimes(3);
+  });
+
   it('settles background page work and returns the refreshed context snapshot', async () => {
     let contextRevision = 'loading';
     const settle = vi.fn(async () => {

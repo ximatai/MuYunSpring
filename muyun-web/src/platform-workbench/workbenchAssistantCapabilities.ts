@@ -1,11 +1,11 @@
 import type { MenuRecord, MenuTreeNode } from '@muyun/web-contracts';
-import type { AssistantCapability } from '@muyun/web-core';
+import type { AssistantCapability, AssistantInvocationToken } from '@muyun/web-core';
 import { getMenuNavigationTarget } from './menuNavigation';
 
 export function createWorkbenchAssistantCapabilities(
   menus: () => MenuTreeNode[],
   openMenu: (menu: MenuRecord) => boolean,
-  settleNavigation: (signal?: AbortSignal) => Promise<void> = async () => {},
+  settleNavigation: (signal?: AbortSignal) => Promise<void | AssistantInvocationToken> = async () => {},
 ): AssistantCapability[] {
   return [findMenuCapability(menus), openMenuCapability(menus, openMenu, settleNavigation)];
 }
@@ -50,7 +50,7 @@ function findMenuCapability(menus: () => MenuTreeNode[]): AssistantCapability<{ 
 function openMenuCapability(
   menus: () => MenuTreeNode[],
   openMenu: (menu: MenuRecord) => boolean,
-  settleNavigation: (signal?: AbortSignal) => Promise<void>,
+  settleNavigation: (signal?: AbortSignal) => Promise<void | AssistantInvocationToken>,
 ): AssistantCapability<{ menuId: string }> {
   return {
     descriptor: {
