@@ -5,10 +5,8 @@ import net.ximatai.muyun.spring.common.platform.ActionExecutionPolicyService;
 import net.ximatai.muyun.spring.common.platform.PlatformAction;
 import net.ximatai.muyun.spring.iam.tenant.TenantService;
 import net.ximatai.muyun.spring.web.RequestTenantVerifier;
-import org.springframework.stereotype.Component;
 
 /** Uses the same REFERENCE authorization as the global tenant navigator. */
-@Component
 public class BusinessRequestTenantVerifier implements RequestTenantVerifier {
     private final TenantService tenants;
     private final ActionExecutionPolicyService policies;

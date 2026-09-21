@@ -8,16 +8,23 @@ import net.ximatai.muyun.spring.common.identity.CurrentUser;
 import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
 import net.ximatai.muyun.spring.common.identity.CurrentUserProvider;
 import net.ximatai.muyun.spring.common.tenant.TenantContext;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
 import java.util.Optional;
 
 public class CurrentUserWebFilter extends OncePerRequestFilter {
+    private static final Logger LOGGER = LoggerFactory.getLogger(CurrentUserWebFilter.class);
     public static final String TENANT_HEADER = "X-MuYun-Tenant-Id";
     private final CurrentUserProvider currentUserProvider;
     private final RequestTenantVerifier requestTenantVerifier;
 
+    /**
+     * 仅供不接受业务租户请求的轻量装配使用。生产 Web 应用应使用双参数构造器，
+     * 否则携带 {@link #TENANT_HEADER} 的请求会按 fail-closed 规则被拒绝。
+     */
     @org.springframework.beans.factory.annotation.Autowired
     public CurrentUserWebFilter(CurrentUserProvider currentUserProvider) {
         this(currentUserProvider, null);
@@ -73,13 +80,19 @@ public class CurrentUserWebFilter extends OncePerRequestFilter {
         String requestedTenant = request.getHeader(TENANT_HEADER);
         if (requestedTenant != null) {
             try {
-                if (requestedTenant.isBlank() || java.util.Collections.list(request.getHeaders(TENANT_HEADER)).size() != 1
-                        || requestTenantVerifier == null
-                        || (!currentUser.system() && !requestedTenant.equals(currentUser.tenantId()))) {
-                    throw new IllegalArgumentException("invalid business tenant");
+                int tenantHeaderCount = java.util.Collections.list(request.getHeaders(TENANT_HEADER)).size();
+                boolean identityMatches = currentUser.system() || requestedTenant.equals(currentUser.tenantId());
+                if (requestedTenant.isBlank() || tenantHeaderCount != 1 || requestTenantVerifier == null
+                        || !identityMatches) {
+                    throw new IllegalArgumentException("invalid business tenant: blank=" + requestedTenant.isBlank()
+                            + ", headerCount=" + tenantHeaderCount
+                            + ", verifierAvailable=" + (requestTenantVerifier != null)
+                            + ", identityMatches=" + identityMatches);
                 }
                 requestTenantVerifier.verify(requestedTenant);
             } catch (net.ximatai.muyun.spring.common.exception.PlatformException | IllegalArgumentException denied) {
+                LOGGER.warn("Business tenant request rejected for identity tenant {}: {}",
+                        currentUser.tenantId(), denied.getMessage());
                 response.setStatus(HttpServletResponse.SC_FORBIDDEN);
                 response.setContentType("application/json");
                 response.setCharacterEncoding("UTF-8");
