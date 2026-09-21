@@ -33,7 +33,50 @@ export interface AssistantConversationOptions {
   onStep?(step: AssistantRuntimeStepResult): void | Promise<void>;
   onTextDelta?(text: string, stepIndex: number): void;
   onTextDiscard?(stepIndex: number): void;
+  /** Receives content-free execution facts for local diagnostics or a governed telemetry adapter. */
+  onDiagnostic?(event: AssistantRuntimeDiagnosticEvent): void | Promise<void>;
 }
+
+type AssistantDiagnosticSurface = 'workbench' | 'module-page' | 'metadata-governance' | 'other';
+type AssistantDiagnosticFinishReason = 'stop' | 'tool_calls' | 'length' | 'content_filter' | 'other';
+
+export type AssistantRuntimeDiagnosticEvent =
+  | {
+      type: 'decision.started';
+      stepIndex: number;
+      surface: AssistantDiagnosticSurface;
+      backgroundContextRefreshed: boolean;
+    }
+  | {
+      type: 'decision.completed';
+      stepIndex: number;
+      finishReason?: AssistantDiagnosticFinishReason;
+      toolCallCount: number;
+      hasText: boolean;
+    }
+  | {
+      type: 'decision.restarted';
+      stepIndex: number;
+      attempt: number;
+      reason: 'background-context-refresh' | 'formal-surface-ready';
+    }
+  | {
+      type: 'decision.failed';
+      stepIndex: number;
+      reason: 'context-changed' | 'cancelled' | 'surface-settlement-failed' | 'model-request-failed';
+    }
+  | {
+      type: 'capability.completed';
+      stepIndex: number;
+      capabilityCode: string;
+      outcome: 'succeeded' | 'failed' | 'replayed';
+      pageEffectApplied: boolean;
+    }
+  | {
+      type: 'conversation.completed';
+      stepCount: number;
+      bounded: boolean;
+    };
 
 export interface AssistantConversationResult {
   steps: AssistantRuntimeStepResult[];
@@ -90,6 +133,8 @@ export async function runAssistantConversation(
         results,
         options.signal,
         successfulCalls,
+        index,
+        options.onDiagnostic,
         options.onTextDelta
           ? (text) => {
               streamedText = true;
@@ -113,12 +158,23 @@ export async function runAssistantConversation(
         decisionRestarts < MAX_DECISION_RESTARTS
       ) {
         decisionRestarts += 1;
+        emitDiagnostic(options.onDiagnostic, {
+          type: 'decision.restarted',
+          stepIndex: index,
+          attempt: decisionRestarts,
+          reason: expectedSurfaceReplaced ? 'formal-surface-ready' : 'background-context-refresh',
+        });
         expectedReplacementToken = replacement;
         index -= 1;
         await delayForSurfaceReplacement(options.signal);
         continue;
       }
       if (error instanceof AssistantDecisionContextChangedError) {
+        emitDiagnostic(options.onDiagnostic, {
+          type: 'decision.failed',
+          stepIndex: index,
+          reason: 'context-changed',
+        });
         throw new StaleAssistantInvocationError();
       }
       if (error instanceof StaleAssistantInvocationError) throw error;
@@ -134,15 +190,30 @@ export async function runAssistantConversation(
     steps.push(publicStep);
     if (step.output.toolCalls.length === 0) {
       await options.onStep?.(publicStep);
+      emitDiagnostic(options.onDiagnostic, {
+        type: 'conversation.completed',
+        stepCount: steps.length,
+        bounded: false,
+      });
       return { steps, completed: true };
     }
     if (step.attemptedCallCount === 0) {
       await options.onStep?.({ ...publicStep, results: [] });
+      emitDiagnostic(options.onDiagnostic, {
+        type: 'conversation.completed',
+        stepCount: steps.length,
+        bounded: false,
+      });
       return { steps, completed: true };
     }
     await options.onStep?.(publicStep);
     results = step.results;
   }
+  emitDiagnostic(options.onDiagnostic, {
+    type: 'conversation.completed',
+    stepCount: steps.length,
+    bounded: true,
+  });
   return { steps, completed: false };
 }
 
@@ -181,6 +252,8 @@ async function runAssistantStepWithSuccessfulCalls(
   previousResults: AssistantCapabilityResult[],
   signal: AbortSignal | undefined,
   successfulCalls: Map<string, AssistantCapabilityResult>,
+  stepIndex = 0,
+  onDiagnostic?: AssistantConversationOptions['onDiagnostic'],
   onTextDelta?: (text: string) => void,
 ): Promise<InternalAssistantRuntimeStepResult> {
   const initialSnapshot = registry.snapshot();
@@ -192,8 +265,19 @@ async function runAssistantStepWithSuccessfulCalls(
     if (!signal?.aborted && (error instanceof StaleAssistantInvocationError || isAbortError(error))) {
       throw new AssistantDecisionContextChangedError(initialSnapshot.token);
     }
+    emitDiagnostic(onDiagnostic, {
+      type: 'decision.failed',
+      stepIndex,
+      reason: isAbortError(error) ? 'cancelled' : 'surface-settlement-failed',
+    });
     throw error;
   }
+  emitDiagnostic(onDiagnostic, {
+    type: 'decision.started',
+    stepIndex,
+    surface: diagnosticSurface(snapshot.context.surface),
+    backgroundContextRefreshed: initialSnapshot.token.contextRevision !== snapshot.token.contextRevision,
+  });
   let output: AssistantTurnOutput;
   try {
     output = onTextDelta
@@ -205,8 +289,20 @@ async function runAssistantStepWithSuccessfulCalls(
     if (!signal?.aborted && (error instanceof StaleAssistantInvocationError || isAbortError(error))) {
       throw new AssistantDecisionContextChangedError(snapshot.token);
     }
+    emitDiagnostic(onDiagnostic, {
+      type: 'decision.failed',
+      stepIndex,
+      reason: isAbortError(error) ? 'cancelled' : 'model-request-failed',
+    });
     throw error;
   }
+  emitDiagnostic(onDiagnostic, {
+    type: 'decision.completed',
+    stepIndex,
+    ...(output.finishReason ? { finishReason: diagnosticFinishReason(output.finishReason) } : {}),
+    toolCallCount: output.toolCalls.length,
+    hasText: Boolean(output.text?.trim()),
+  });
   if (output.toolCalls.length > MAX_CALLS_PER_STEP) {
     throw new Error(`Assistant returned more than ${MAX_CALLS_PER_STEP} capability calls`);
   }
@@ -220,6 +316,13 @@ async function runAssistantStepWithSuccessfulCalls(
     if (successful) {
       results.push({ ...successful, callId: call.id });
       replayableCalls.set(callKey, successful);
+      emitDiagnostic(onDiagnostic, {
+        type: 'capability.completed',
+        stepIndex,
+        capabilityCode: diagnosticCapabilityCode(call.code),
+        outcome: 'replayed',
+        pageEffectApplied: false,
+      });
       continue;
     }
     attemptedCallCount += 1;
@@ -230,6 +333,13 @@ async function runAssistantStepWithSuccessfulCalls(
       replayableCalls.set(callKey, result);
       if (invocation.contextChanged) {
         appliedEffectCount += 1;
+        emitDiagnostic(onDiagnostic, {
+          type: 'capability.completed',
+          stepIndex,
+          capabilityCode: diagnosticCapabilityCode(call.code),
+          outcome: 'succeeded',
+          pageEffectApplied: true,
+        });
         const continuationToken = registry.snapshot()?.token;
         if (continuationToken) {
           replayableCalls.set(capabilityCallKey(continuationToken, call.code, call.input), result);
@@ -244,6 +354,13 @@ async function runAssistantStepWithSuccessfulCalls(
           replayableCalls,
         };
       }
+      emitDiagnostic(onDiagnostic, {
+        type: 'capability.completed',
+        stepIndex,
+        capabilityCode: diagnosticCapabilityCode(call.code),
+        outcome: 'succeeded',
+        pageEffectApplied: false,
+      });
     } catch (error) {
       if (error instanceof StaleAssistantInvocationError || isAbortError(error)) {
         if (appliedEffectCount === 0 && !signal?.aborted) {
@@ -258,6 +375,13 @@ async function runAssistantStepWithSuccessfulCalls(
           code: 'CAPABILITY_FAILED',
           message: 'Capability execution failed',
         },
+      });
+      emitDiagnostic(onDiagnostic, {
+        type: 'capability.completed',
+        stepIndex,
+        capabilityCode: diagnosticCapabilityCode(call.code),
+        outcome: 'failed',
+        pageEffectApplied: false,
       });
     }
     if (!sameToken(snapshot.token, registry.snapshot()?.token)) {
@@ -279,6 +403,42 @@ async function runAssistantStepWithSuccessfulCalls(
     appliedEffectCount,
     replayableCalls,
   };
+}
+
+function emitDiagnostic(
+  observer: AssistantConversationOptions['onDiagnostic'],
+  event: AssistantRuntimeDiagnosticEvent,
+) {
+  if (!observer) return;
+  try {
+    void Promise.resolve(observer(event)).catch(() => undefined);
+  } catch {
+    // Diagnostics must never alter assistant execution.
+  }
+}
+
+function diagnosticSurface(surface: string): AssistantDiagnosticSurface {
+  if (surface === 'workbench' || surface === 'module-page' || surface === 'metadata-governance') {
+    return surface;
+  }
+  return 'other';
+}
+
+function diagnosticFinishReason(finishReason: string): AssistantDiagnosticFinishReason {
+  const normalized = finishReason.toLowerCase();
+  if (
+    normalized === 'stop' ||
+    normalized === 'tool_calls' ||
+    normalized === 'length' ||
+    normalized === 'content_filter'
+  ) {
+    return normalized;
+  }
+  return 'other';
+}
+
+function diagnosticCapabilityCode(code: string) {
+  return /^[a-z][a-z0-9_.-]{0,79}$/i.test(code) ? code : 'other';
 }
 
 function capabilityCallKey(token: AssistantInvocationToken, code: string, input: unknown) {

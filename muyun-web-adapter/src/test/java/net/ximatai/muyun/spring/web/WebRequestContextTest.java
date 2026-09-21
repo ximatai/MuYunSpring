@@ -9,6 +9,7 @@ import net.ximatai.muyun.spring.common.tenant.TenantContext;
 import net.ximatai.muyun.spring.common.web.RequestTraceContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.slf4j.MDC;
 
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -23,6 +24,7 @@ class WebRequestContextTest {
         TenantContext.clear();
         RequestTraceContext.clear();
         ActionExecutionContextHolder.clear();
+        MDC.clear();
     }
 
     @Test
@@ -45,15 +47,18 @@ class WebRequestContextTest {
                         CurrentUser.tenantUser("worker-user", "Worker", "tenant-worker"));
                      TenantContext.Scope ignoredTenant = TenantContext.use("tenant-worker");
                      RequestTraceContext.Scope ignoredTrace = RequestTraceContext.use("trace-worker")) {
+                    MDC.put("traceId", "mdc-worker");
                     WorkerObservation propagated = context.call(() -> new WorkerObservation(
                             CurrentUserContext.currentUser().orElseThrow().userId(),
                             TenantContext.currentTenantId().orElseThrow(),
                             RequestTraceContext.currentTraceId().orElseThrow(),
+                            MDC.get("traceId"),
                             ActionExecutionContextHolder.current().isPresent()));
                     WorkerObservation restored = new WorkerObservation(
                             CurrentUserContext.currentUser().orElseThrow().userId(),
                             TenantContext.currentTenantId().orElseThrow(),
                             RequestTraceContext.currentTraceId().orElseThrow(),
+                            MDC.get("traceId"),
                             ActionExecutionContextHolder.current().isPresent());
                     return new WorkerObservationPair(propagated, restored);
                 }
@@ -61,9 +66,9 @@ class WebRequestContextTest {
 
             WorkerObservationPair observations = result.get();
             assertThat(observations.propagated()).isEqualTo(
-                    new WorkerObservation("request-user", "tenant-a", "trace-request", false));
+                    new WorkerObservation("request-user", "tenant-a", "trace-request", "trace-request", false));
             assertThat(observations.restored()).isEqualTo(
-                    new WorkerObservation("worker-user", "tenant-worker", "trace-worker", false));
+                    new WorkerObservation("worker-user", "tenant-worker", "trace-worker", "mdc-worker", false));
         } finally {
             executor.shutdownNow();
         }
@@ -104,7 +109,8 @@ class WebRequestContextTest {
         assertThat(WebRequestContext.capture()).isEmpty();
     }
 
-    private record WorkerObservation(String userId, String tenantId, String traceId, boolean hasActionContext) {
+    private record WorkerObservation(String userId, String tenantId, String traceId, String mdcTraceId,
+                                     boolean hasActionContext) {
     }
 
     private record WorkerObservationPair(WorkerObservation propagated, WorkerObservation restored) {

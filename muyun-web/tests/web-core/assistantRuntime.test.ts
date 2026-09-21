@@ -6,7 +6,92 @@ import {
   runAssistantStep,
   StaleAssistantInvocationError,
   type AssistantCapability,
+  type AssistantRuntimeDiagnosticEvent,
 } from '@muyun/web-core';
+
+it('emits content-free structured diagnostics without affecting execution', async () => {
+  const diagnostics: AssistantRuntimeDiagnosticEvent[] = [];
+  const registry = createAssistantSurfaceRegistry();
+  registry.register({
+    pageInstanceKey: 'tab-a',
+    contextRevision: () => 'stable',
+    surface: {
+      describe: () => ({ surface: 'module-page', facts: { record: 'private-record' } }),
+      capabilities: () => [
+        {
+          descriptor: { code: 'page.inspect', description: 'Inspect', inputSchema: {} },
+          parseInput: (input) => input,
+          execute: async () => ({ detail: 'private-result' }),
+        },
+      ],
+      requestTurn: vi
+        .fn()
+        .mockResolvedValueOnce({
+          text: 'private-model-text',
+          requestId: 'request-1',
+          finishReason: 'tool_calls',
+          toolCalls: [{ id: 'call-1', code: 'page.inspect', input: { secret: 'private-input' } }],
+        })
+        .mockResolvedValueOnce({ text: 'done', finishReason: 'stop', toolCalls: [] }),
+    },
+  });
+  registry.activate('tab-a');
+
+  await runAssistantConversation(registry, 'private-user-message', {
+    onDiagnostic(event) {
+      diagnostics.push(event);
+    },
+  });
+
+  expect(diagnostics).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({ type: 'decision.started', surface: 'module-page' }),
+      expect.objectContaining({
+        type: 'decision.completed',
+        toolCallCount: 1,
+      }),
+      expect.objectContaining({
+        type: 'capability.completed',
+        capabilityCode: 'page.inspect',
+        outcome: 'succeeded',
+      }),
+      expect.objectContaining({ type: 'conversation.completed', bounded: false }),
+    ]),
+  );
+  expect(JSON.stringify(diagnostics)).not.toMatch(
+    /private-user-message|private-model-text|private-input|private-result|private-record|request-1/,
+  );
+});
+
+it('ignores synchronous and asynchronous diagnostic observer failures', async () => {
+  const registry = createAssistantSurfaceRegistry();
+  registry.register({
+    pageInstanceKey: 'tab-a',
+    contextRevision: () => 'stable',
+    surface: {
+      describe: () => ({ surface: 'workbench', facts: {} }),
+      capabilities: () => [],
+      requestTurn: async () => ({ text: 'done', toolCalls: [] }),
+    },
+  });
+  registry.activate('tab-a');
+
+  await expect(
+    runAssistantConversation(registry, 'hello', {
+      onDiagnostic() {
+        throw new Error('diagnostic adapter failed');
+      },
+    }),
+  ).resolves.toMatchObject({ completed: true });
+
+  await expect(
+    runAssistantConversation(registry, 'hello', {
+      async onDiagnostic() {
+        throw new Error('async diagnostic adapter failed');
+      },
+    }),
+  ).resolves.toMatchObject({ completed: true });
+});
 
 it('waits for background page transitions before asking the model to decide', async () => {
   let revision = 'loading';

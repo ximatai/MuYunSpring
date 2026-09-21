@@ -4,6 +4,7 @@ import net.ximatai.muyun.spring.common.identity.CurrentUser;
 import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
 import net.ximatai.muyun.spring.common.tenant.TenantContext;
 import net.ximatai.muyun.spring.common.exception.PlatformErrorCodes;
+import net.ximatai.muyun.spring.common.web.RequestTraceContext;
 import net.ximatai.muyun.spring.platform.ai.AiTurnStreamConsumer;
 import net.ximatai.muyun.spring.platform.ai.AiToolCall;
 import net.ximatai.muyun.spring.platform.ai.AiToolDefinition;
@@ -12,6 +13,7 @@ import net.ximatai.muyun.spring.platform.assistant.AssistantTurnCommand;
 import net.ximatai.muyun.spring.platform.assistant.AssistantTurnService;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.slf4j.MDC;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.util.List;
@@ -63,9 +65,11 @@ class AssistantWebControllerTest {
         CountDownLatch completed = new CountDownLatch(1);
         AtomicReference<String> tenant = new AtomicReference<>();
         AtomicReference<Boolean> system = new AtomicReference<>();
+        AtomicReference<String> trace = new AtomicReference<>();
         doAnswer(invocation -> {
             tenant.set(TenantContext.currentTenantId().orElse(null));
             system.set(TenantContext.isSystem());
+            trace.set(MDC.get("traceId"));
             AiTurnStreamConsumer consumer = invocation.getArgument(1);
             consumer.onComplete(new AiTurnResponse("ready", List.of(), "stop", "request-stream"));
             completed.countDown();
@@ -77,7 +81,8 @@ class AssistantWebControllerTest {
 
         try (CurrentUserContext.Scope ignoredUser = CurrentUserContext.use(
                 CurrentUser.tenantUser("user-1", "User", "tenant-1"));
-             TenantContext.Scope ignoredTenant = TenantContext.use("tenant-1")) {
+             TenantContext.Scope ignoredTenant = TenantContext.use("tenant-1");
+             RequestTraceContext.Scope ignoredTrace = RequestTraceContext.use("trace-assistant")) {
             controller.stream(request);
         }
 
@@ -85,6 +90,7 @@ class AssistantWebControllerTest {
             assertThat(completed.await(2, TimeUnit.SECONDS)).isTrue();
             assertThat(tenant.get()).isEqualTo("tenant-1");
             assertThat(system.get()).isFalse();
+            assertThat(trace.get()).isEqualTo("trace-assistant");
         } finally {
             controller.closeStreams();
         }

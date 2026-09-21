@@ -1,5 +1,8 @@
 package net.ximatai.muyun.spring.platform.assistant;
 
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.identity.CurrentUser;
@@ -13,6 +16,7 @@ import net.ximatai.muyun.spring.platform.ai.AiTurnResponse;
 import net.ximatai.muyun.spring.platform.ai.AiTurnStreamConsumer;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.slf4j.LoggerFactory;
 
 import java.util.Collections;
 import java.util.List;
@@ -26,6 +30,38 @@ import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.doAnswer;
 
 class AssistantTurnServiceTest {
+    @Test
+    void logsOnlyStructuredTurnFactsWithoutConversationOrBusinessContent() {
+        AiModelGateway gateway = mock(AiModelGateway.class);
+        when(gateway.complete(org.mockito.ArgumentMatchers.any())).thenReturn(
+                new AiTurnResponse("private model response", List.of(), "stop", "provider-request-secret"));
+        AssistantTurnService service = new AssistantTurnService(gateway, new ObjectMapper());
+        AssistantTurnCommand command = new AssistantTurnCommand("private user request",
+                List.of(new AssistantConversationMessage(AssistantConversationMessage.Role.USER,
+                        "private history")),
+                Map.of("surface", "module-page", "record", "private record"), List.of(), List.of());
+        Logger logger = (Logger) LoggerFactory.getLogger(AssistantTurnService.class);
+        ListAppender<ILoggingEvent> events = new ListAppender<>();
+        events.start();
+        logger.addAppender(events);
+        try (CurrentUserContext.Scope ignored = CurrentUserContext.use(
+                CurrentUser.systemUser("system", "System"))) {
+            service.turn(command);
+        } finally {
+            logger.detachAppender(events);
+            events.stop();
+        }
+
+        assertThat(events.list).extracting(ILoggingEvent::getFormattedMessage)
+                .anySatisfy(message -> assertThat(message)
+                        .contains("Assistant turn started", "historyCount=1", "capabilityCount=0"))
+                .anySatisfy(message -> assertThat(message)
+                        .contains("Assistant turn completed", "finishReason=stop", "toolCallCount=0"))
+                .allSatisfy(message -> assertThat(message)
+                        .doesNotContain("private user request", "private history", "private record",
+                                "private model response", "provider-request-secret"));
+    }
+
     @Test
     void validatesTheTerminalStructuredResponseBeforeCompletingAStream() {
         AiModelGateway gateway = mock(AiModelGateway.class);
@@ -55,6 +91,48 @@ class AssistantTurnServiceTest {
         }
 
         assertThat(events).containsExactly("delta:ready", "complete:request-stream");
+    }
+
+    @Test
+    void doesNotReportClientDeliveryFailureAsAModelFailure() {
+        AiModelGateway gateway = mock(AiModelGateway.class);
+        doAnswer(invocation -> {
+            AiTurnStreamConsumer consumer = invocation.getArgument(1);
+            try {
+                consumer.onComplete(new AiTurnResponse("ready", List.of(), "stop", "request-stream"));
+            } catch (RuntimeException callbackFailure) {
+                throw new PlatformException("model client wrapped the stream callback", callbackFailure);
+            }
+            return null;
+        }).when(gateway).stream(org.mockito.ArgumentMatchers.any(AiTurnRequest.class),
+                org.mockito.ArgumentMatchers.any(AiTurnStreamConsumer.class));
+        AssistantTurnService service = new AssistantTurnService(gateway, new ObjectMapper());
+        Logger logger = (Logger) LoggerFactory.getLogger(AssistantTurnService.class);
+        ListAppender<ILoggingEvent> events = new ListAppender<>();
+        events.start();
+        logger.addAppender(events);
+        try (CurrentUserContext.Scope ignored = CurrentUserContext.use(CurrentUser.systemUser("system", "System"))) {
+            assertThatThrownBy(() -> service.stream(
+                    new AssistantTurnCommand("describe", Map.of(), List.of(), List.of()),
+                    new AiTurnStreamConsumer() {
+                        @Override
+                        public void onTextDelta(String text) {
+                        }
+
+                        @Override
+                        public void onComplete(AiTurnResponse response) {
+                            throw new IllegalStateException("private browser disconnect");
+                        }
+                    })).isInstanceOf(IllegalStateException.class).hasMessage("private browser disconnect");
+        } finally {
+            logger.detachAppender(events);
+            events.stop();
+        }
+
+        assertThat(events.list).extracting(ILoggingEvent::getFormattedMessage)
+                .anySatisfy(message -> assertThat(message).contains("Assistant turn completed"))
+                .noneSatisfy(message -> assertThat(message)
+                        .contains("Assistant turn failed", "private browser disconnect"));
     }
 
     @Test

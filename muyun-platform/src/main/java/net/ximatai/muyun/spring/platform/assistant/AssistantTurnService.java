@@ -10,6 +10,8 @@ import net.ximatai.muyun.spring.platform.ai.AiModelGateway;
 import net.ximatai.muyun.spring.platform.ai.AiTurnRequest;
 import net.ximatai.muyun.spring.platform.ai.AiTurnResponse;
 import net.ximatai.muyun.spring.platform.ai.AiTurnStreamConsumer;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
@@ -23,6 +25,7 @@ import java.util.stream.Collectors;
 /** Bounded assistant orchestration. Browser capabilities remain browser-executed. */
 @Service
 public class AssistantTurnService {
+    private static final Logger log = LoggerFactory.getLogger(AssistantTurnService.class);
     static final int MAX_MESSAGE_LENGTH = 4_000;
     static final int MAX_HISTORY_MESSAGES = 12;
     static final int MAX_HISTORY_MESSAGE_LENGTH = 4_000;
@@ -54,27 +57,101 @@ public class AssistantTurnService {
     }
 
     public AiTurnResponse turn(AssistantTurnCommand command) {
-        AiTurnRequest request = request(command);
-        AiTurnResponse response = gateway.complete(request);
-        validateResponse(response, command);
-        return response;
+        logStarted("complete", command);
+        try {
+            AiTurnRequest request = request(command);
+            AiTurnResponse response = gateway.complete(request);
+            validateResponse(response, command);
+            logCompleted("complete", response);
+            return response;
+        } catch (RuntimeException error) {
+            logFailed("complete", error);
+            throw error;
+        }
     }
 
     public void stream(AssistantTurnCommand command, AiTurnStreamConsumer consumer) {
         Objects.requireNonNull(consumer, "consumer must not be null");
-        AiTurnRequest request = request(command);
-        gateway.stream(request, new AiTurnStreamConsumer() {
-            @Override
-            public void onTextDelta(String text) {
-                consumer.onTextDelta(text);
-            }
+        logStarted("stream", command);
+        try {
+            AiTurnRequest request = request(command);
+            gateway.stream(request, new AiTurnStreamConsumer() {
+                @Override
+                public void onTextDelta(String text) {
+                    deliver(() -> consumer.onTextDelta(text));
+                }
 
-            @Override
-            public void onComplete(AiTurnResponse response) {
-                validateResponse(response, command);
-                consumer.onComplete(response);
-            }
-        });
+                @Override
+                public void onComplete(AiTurnResponse response) {
+                    try {
+                        validateResponse(response, command);
+                        logCompleted("stream", response);
+                    } catch (RuntimeException error) {
+                        logFailed("stream", error);
+                        throw new AssistantTurnCallbackException(error);
+                    }
+                    deliver(() -> consumer.onComplete(response));
+                }
+            });
+        } catch (RuntimeException error) {
+            RuntimeException callbackFailure = callbackFailure(error);
+            if (callbackFailure != null) throw callbackFailure;
+            logFailed("stream", error);
+            throw error;
+        }
+    }
+
+    private static void logStarted(String transport, AssistantTurnCommand command) {
+        int historyCount = command == null || command.history() == null ? 0 : command.history().size();
+        int capabilityCount = command == null || command.capabilities() == null ? 0 : command.capabilities().size();
+        int resultCount = command == null || command.results() == null ? 0 : command.results().size();
+        log.info("Assistant turn started transport={} historyCount={} capabilityCount={} resultCount={}",
+                transport, historyCount, capabilityCount, resultCount);
+    }
+
+    private static void logCompleted(String transport, AiTurnResponse response) {
+        log.info("Assistant turn completed transport={} finishReason={} toolCallCount={} hasText={}",
+                transport, diagnosticFinishReason(response.finishReason()), response.toolCalls().size(),
+                response.text() != null && !response.text().isBlank());
+    }
+
+    private static void logFailed(String transport, RuntimeException error) {
+        log.warn("Assistant turn failed transport={} errorType={}", transport, error.getClass().getSimpleName());
+    }
+
+    private static String diagnosticFinishReason(String finishReason) {
+        if (finishReason == null) return "other";
+        return switch (finishReason.toLowerCase()) {
+            case "stop", "tool_calls", "length", "content_filter" -> finishReason.toLowerCase();
+            default -> "other";
+        };
+    }
+
+    private static void deliver(Runnable delivery) {
+        try {
+            delivery.run();
+        } catch (RuntimeException error) {
+            throw new AssistantTurnCallbackException(error);
+        }
+    }
+
+    private static RuntimeException callbackFailure(RuntimeException error) {
+        Throwable candidate = error;
+        while (candidate != null) {
+            if (candidate instanceof AssistantTurnCallbackException callback) return callback.original();
+            candidate = candidate.getCause();
+        }
+        return null;
+    }
+
+    private static final class AssistantTurnCallbackException extends RuntimeException {
+        private AssistantTurnCallbackException(RuntimeException original) {
+            super(original);
+        }
+
+        private RuntimeException original() {
+            return (RuntimeException) getCause();
+        }
     }
 
     private AiTurnRequest request(AssistantTurnCommand command) {
