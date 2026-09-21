@@ -56,3 +56,9 @@ it('maps each log surface to its contextual retention policies', () => {
   expect(source).toContain("'request-error': ['REQUEST_ERROR']");
   expect(source).toContain('<BusinessLogRetentionControl :event-types="retentionEventTypes" />');
 });
+
+it('uses the page-owned title and keeps business operations separate from query controls', () => {
+  expect(source).toContain(':show-title="false"');
+  expect(source).toContain('<template #operations>');
+  expect(source).not.toContain('<template #toolbarActions>');
+});

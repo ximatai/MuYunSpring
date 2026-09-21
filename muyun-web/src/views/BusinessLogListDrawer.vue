@@ -316,6 +316,7 @@ const configBySurface: Record<BusinessLogSurface, { columns: RecordQueryListColu
     class="business-log-list"
     :context="moduleContext"
     :title="title"
+    :show-title="false"
     :columns="tableColumns"
     row-key="eventId"
     :show-recycle-bin="false"
@@ -330,7 +331,7 @@ const configBySurface: Record<BusinessLogSurface, { columns: RecordQueryListColu
     @row-action="handleRowAction"
     @queried="rememberQuery"
   >
-    <template #toolbarActions>
+    <template #operations>
       <UiActionButton v-if="isActivity" :loading="statisticsLoading" @click="openStatistics">
         使用统计
       </UiActionButton>

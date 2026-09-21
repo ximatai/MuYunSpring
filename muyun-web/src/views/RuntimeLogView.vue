@@ -269,6 +269,7 @@ function errorMessage(error: unknown, fallback: string) {
       class="runtime-log-view__list"
       :context="moduleContext"
       title="程序日志"
+      :show-title="false"
       :columns="fileColumns"
       row-key="name"
       :show-recycle-bin="false"
@@ -280,7 +281,7 @@ function errorMessage(error: unknown, fallback: string) {
       row-actions-title="操作"
       action-column-width="176"
     >
-      <template #toolbarActions>
+      <template #operations>
         <div class="runtime-log-view__header-actions">
           <UiButton type="primary" icon-name="eye" @click="openActiveLog"> 实时查看 </UiButton>
         </div>

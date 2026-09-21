@@ -101,6 +101,17 @@ it('record explorer panel uses a single title contract', () => {
   assert.match(workspaceSource, /--muyun-management-panel-padding-block/);
 });
 
+it('record query lists expose a semantic operations region while preserving the legacy slot', () => {
+  const panelSource = readSource('src/platform-components/RecordQueryListPanel.vue');
+  const surfaceSource = readSource('src/platform-components/RecordQueryListSurface.vue');
+
+  assert.match(panelSource, /operations\?: \(props: \{ refresh: \(\) => void \}\) => unknown/);
+  assert.match(panelSource, /<slot name="operations" :refresh="refresh">/);
+  assert.match(panelSource, /<slot name="toolbarActions" :refresh="refresh" \/>/);
+  assert.match(surfaceSource, /class="record-query-list-operation-actions"/);
+  assert.match(surfaceSource, /class="record-query-list-query-actions"/);
+});
+
 it('content sections share one semantic heading language so dark skins preserve hierarchy', () => {
   const metaSource = readSource('src/platform-components/RecordMetaSection.vue');
   const extensionSource = readSource('src/platform-components/RecordDetailExtensionSection.vue');
