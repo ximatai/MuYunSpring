@@ -57,8 +57,8 @@ it('maps each log surface to its contextual retention policies', () => {
   expect(source).toContain('<BusinessLogRetentionControl :event-types="retentionEventTypes" />');
 });
 
-it('uses the page-owned title and keeps business operations separate from query controls', () => {
-  expect(source).toContain(':show-title="false"');
+it('keeps the list title and separates business operations from query controls', () => {
+  expect(source).not.toContain(':show-title="false"');
   expect(source).toContain('<template #operations>');
   expect(source).not.toContain('<template #toolbarActions>');
 });

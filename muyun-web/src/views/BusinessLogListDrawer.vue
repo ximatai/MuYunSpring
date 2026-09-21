@@ -316,7 +316,6 @@ const configBySurface: Record<BusinessLogSurface, { columns: RecordQueryListColu
     class="business-log-list"
     :context="moduleContext"
     :title="title"
-    :show-title="false"
     :columns="tableColumns"
     row-key="eventId"
     :show-recycle-bin="false"

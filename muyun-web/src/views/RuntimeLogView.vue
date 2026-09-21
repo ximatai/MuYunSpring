@@ -269,7 +269,6 @@ function errorMessage(error: unknown, fallback: string) {
       class="runtime-log-view__list"
       :context="moduleContext"
       title="程序日志"
-      :show-title="false"
       :columns="fileColumns"
       row-key="name"
       :show-recycle-bin="false"

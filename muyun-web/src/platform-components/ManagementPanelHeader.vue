@@ -170,7 +170,9 @@ const emit = defineEmits<{
 .management-panel-header-title-action {
   display: inline-flex;
   align-items: center;
-  max-width: 100%;
+  /* The control starts 4px before the title box to keep its hover surface aligned.
+     Give that borrowed width back to the button so its label is not ellipsized by its own padding. */
+  max-width: calc(100% + 4px);
   min-width: 0;
   height: 100%;
   margin-inline-start: -4px;
