@@ -75,7 +75,11 @@ function updateChildren(relationField: string, records: QueryListRecord[]) {
       v-for="section in extensionSections"
       :key="section.key"
       :title="section.title"
+      :subtitle="section.subtitle"
     >
+      <template v-if="section.subtitleComponent" #subtitle>
+        <component :is="section.subtitleComponent" :context="detailSectionContext(record)" />
+      </template>
       <component :is="section.component" :context="detailSectionContext(record)" />
     </RecordDetailExtensionSection>
   </template>

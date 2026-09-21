@@ -364,6 +364,10 @@ export interface ModulePageBatchActionContribution extends RecordActionItem {
 export interface ModulePageDetailSection {
   key: string;
   title: string;
+  /** Optional heading copy owned by the business section but rendered by the platform shell. */
+  subtitle?: string;
+  /** Reactive subtitle content; receives the same read-only context as the section body. */
+  subtitleComponent?: Component;
   component: Component;
 }
 

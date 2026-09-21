@@ -11,7 +11,9 @@ defineProps<{
   <header class="record-content-section-heading">
     <div class="record-content-section-heading__copy">
       <h3>{{ title }}</h3>
-      <p v-if="subtitle">{{ subtitle }}</p>
+      <div v-if="subtitle || $slots.subtitle" class="record-content-section-heading__subtitle">
+        <slot name="subtitle">{{ subtitle }}</slot>
+      </div>
     </div>
     <div v-if="$slots.actions" class="record-content-section-heading__actions">
       <slot name="actions" />
@@ -39,7 +41,7 @@ defineProps<{
 }
 
 h3,
-p {
+.record-content-section-heading__subtitle {
   margin: 0;
 }
 
@@ -53,7 +55,7 @@ h3 {
   white-space: nowrap;
 }
 
-p {
+.record-content-section-heading__subtitle {
   color: var(--muyun-content-section-subtitle-color, var(--muyun-text-muted));
   font-size: var(--muyun-content-section-subtitle-font-size, 12px);
   line-height: var(--muyun-content-section-subtitle-line-height, 18px);
@@ -77,7 +79,7 @@ p {
     gap: 4px;
   }
 
-  p {
+  .record-content-section-heading__subtitle {
     text-align: left;
   }
 }

@@ -1063,7 +1063,11 @@ export default defineComponent({
                 v-for="section in enhancementDetailSections"
                 :key="section.key"
                 :title="section.title"
+                :subtitle="section.subtitle"
               >
+                <template v-if="section.subtitleComponent" #subtitle>
+                  <component :is="section.subtitleComponent" :context="detailSectionContext(editingRecord)" />
+                </template>
                 <component :is="section.component" :context="detailSectionContext(editingRecord)" />
               </RecordDetailExtensionSection>
             </template>

@@ -419,7 +419,11 @@ async function toggleEnabled() {
             v-for="section in detailSections"
             :key="section.key"
             :title="section.title"
+            :subtitle="section.subtitle"
           >
+            <template v-if="section.subtitleComponent" #subtitle>
+              <component :is="section.subtitleComponent" :context="sectionContext(record)" />
+            </template>
             <component :is="section.component" :context="sectionContext(record)" />
           </RecordDetailExtensionSection>
         </template>

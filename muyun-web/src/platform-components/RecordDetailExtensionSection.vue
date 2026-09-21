@@ -6,16 +6,18 @@ defineOptions({ name: 'RecordDetailExtensionSection' });
 withDefaults(
   defineProps<{
     title: string;
+    subtitle?: string;
     headingAttributes?: Record<string, string | number | undefined>;
     kind?: 'default' | 'relation';
   }>(),
-  { kind: 'default', headingAttributes: undefined },
+  { kind: 'default', subtitle: undefined, headingAttributes: undefined },
 );
 </script>
 
 <template>
   <section class="record-detail-extension-section" :class="`record-detail-extension-section--${kind}`">
-    <RecordContentSectionHeading :title="title" v-bind="headingAttributes">
+    <RecordContentSectionHeading :title="title" :subtitle="subtitle" v-bind="headingAttributes">
+      <template v-if="$slots.subtitle" #subtitle><slot name="subtitle" /></template>
       <template v-if="$slots.actions" #actions><slot name="actions" /></template>
     </RecordContentSectionHeading>
     <div class="record-detail-extension-section-content"><slot /></div>
