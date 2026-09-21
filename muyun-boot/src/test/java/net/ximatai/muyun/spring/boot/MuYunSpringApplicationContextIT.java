@@ -20,6 +20,8 @@ import net.ximatai.muyun.spring.platform.web.StaticModuleDefinitionCatalog;
 import net.ximatai.muyun.spring.platform.web.StaticRecordReadProjectionService;
 import net.ximatai.muyun.spring.platform.reference.StaticAbilityCatalog;
 import net.ximatai.muyun.spring.platform.module.StaticServiceAbilityCompiler;
+import net.ximatai.muyun.spring.web.CurrentUserWebFilter;
+import net.ximatai.muyun.spring.web.RequestTenantVerifier;
 import net.ximatai.muyun.spring.web.ScopedWeb;
 import net.ximatai.muyun.spring.web.WebPageRequest;
 import net.ximatai.muyun.spring.web.WebPageResponse;
@@ -117,6 +119,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
@@ -355,6 +358,17 @@ class MuYunSpringApplicationContextIT {
                 .contains("/platform.measure_unit/categories/enable/{id}",
                         "/platform.measure_unit/categories/{categoryAlias}/units/enable/{id}",
                         "/platform.measure_unit/conversion-rules/enable/{id}");
+    }
+
+    @Test
+    void shouldWireSingleRequestTenantVerifierIntoDefaultCurrentUserWebFilter() {
+        Map<String, RequestTenantVerifier> verifiers = applicationContext.getBeansOfType(RequestTenantVerifier.class);
+        Map<String, CurrentUserWebFilter> filters = applicationContext.getBeansOfType(CurrentUserWebFilter.class);
+
+        assertThat(verifiers).hasSize(1);
+        assertThat(filters).hasSize(1);
+        assertThat(ReflectionTestUtils.getField(filters.values().iterator().next(), "requestTenantVerifier"))
+                .isSameAs(verifiers.values().iterator().next());
     }
 
     @Test

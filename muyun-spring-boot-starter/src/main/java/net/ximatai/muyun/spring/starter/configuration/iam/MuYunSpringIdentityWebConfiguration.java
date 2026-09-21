@@ -1,9 +1,13 @@
 package net.ximatai.muyun.spring.starter.configuration.iam;
 
 import net.ximatai.muyun.spring.common.identity.CurrentUserProvider;
+import net.ximatai.muyun.spring.common.platform.ActionExecutionPolicyService;
+import net.ximatai.muyun.spring.iam.tenant.TenantService;
 import net.ximatai.muyun.spring.iam.user.UserSessionService;
 import net.ximatai.muyun.spring.iam.web.security.BearerTokenCurrentUserProvider;
+import net.ximatai.muyun.spring.iam.web.security.BusinessRequestTenantVerifier;
 import net.ximatai.muyun.spring.web.CurrentUserWebFilter;
+import net.ximatai.muyun.spring.web.RequestTenantVerifier;
 import net.ximatai.muyun.spring.web.RequestTraceWebFilter;
 import net.ximatai.muyun.spring.web.RequestErrorLogRecorder;
 import org.springframework.beans.factory.ObjectProvider;
@@ -28,11 +32,29 @@ public class MuYunSpringIdentityWebConfiguration {
     }
 
     @Bean
+    @ConditionalOnMissingBean(RequestTenantVerifier.class)
+    /**
+     * 统一发布业务租户校验契约，供默认过滤器和业务自定义过滤器共同复用。
+     * 依赖保持延迟解析，避免 Starter 配置解析早于平台组件扫描时误判为缺失。
+     */
+    RequestTenantVerifier requestTenantVerifier(ObjectProvider<TenantService> tenantService,
+            ObjectProvider<ActionExecutionPolicyService> actionExecutionPolicyService) {
+        return tenantId -> {
+            TenantService tenants = tenantService.getIfAvailable();
+            ActionExecutionPolicyService policies = actionExecutionPolicyService.getIfAvailable();
+            if (tenants == null || policies == null) {
+                throw new IllegalArgumentException("business tenant verification is unavailable");
+            }
+            new BusinessRequestTenantVerifier(tenants, policies).verify(tenantId);
+        };
+    }
+
+    @Bean
     @ConditionalOnMissingBean(CurrentUserWebFilter.class)
     /** 在请求进入业务端点前绑定当前用户，离开请求后负责清理上下文。 */
     CurrentUserWebFilter currentUserWebFilter(CurrentUserProvider currentUserProvider,
-            ObjectProvider<net.ximatai.muyun.spring.web.RequestTenantVerifier> verifier) {
-        return new CurrentUserWebFilter(currentUserProvider, verifier.getIfAvailable());
+            RequestTenantVerifier requestTenantVerifier) {
+        return new CurrentUserWebFilter(currentUserProvider, requestTenantVerifier);
     }
 
     @Bean
