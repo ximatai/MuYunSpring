@@ -60,6 +60,60 @@ function fixture(options: {
 }
 
 describe('assistant surface registry', () => {
+  it('settles background page work and returns the refreshed context snapshot', async () => {
+    let contextRevision = 'loading';
+    const settle = vi.fn(async () => {
+      contextRevision = 'ready';
+    });
+    const registry = createAssistantSurfaceRegistry();
+    registry.register({
+      ...fixture({ pageInstanceKey: 'tab-a', revision: () => contextRevision }),
+      interactionRevision: () => 'same-user-scope',
+      settle,
+    });
+    registry.activate('tab-a');
+    const initial = registry.snapshot()!;
+
+    await expect(registry.settleActiveSurface(initial.token)).resolves.toMatchObject({
+      token: { contextRevision: 'ready', interactionRevision: 'same-user-scope' },
+      context: { facts: { record: 'ready' } },
+    });
+    expect(settle).toHaveBeenCalledOnce();
+  });
+
+  it('rejects settlement when the user-controlled execution scope changes', async () => {
+    let interactionRevision = 'record-a';
+    const registry = createAssistantSurfaceRegistry();
+    registry.register({
+      ...fixture({ pageInstanceKey: 'tab-a', revision: () => 'stable' }),
+      interactionRevision: () => interactionRevision,
+      settle: async () => {
+        interactionRevision = 'record-b';
+      },
+    });
+    registry.activate('tab-a');
+
+    await expect(registry.settleActiveSurface(registry.snapshot()!.token)).rejects.toBeInstanceOf(
+      StaleAssistantInvocationError,
+    );
+  });
+
+  it('does not absorb a context change when the surface declares no interaction scope', async () => {
+    let contextRevision = 'before';
+    const registry = createAssistantSurfaceRegistry();
+    registry.register({
+      ...fixture({ pageInstanceKey: 'tab-a', revision: () => contextRevision }),
+      settle: async () => {
+        contextRevision = 'after';
+      },
+    });
+    registry.activate('tab-a');
+
+    await expect(registry.settleActiveSurface(registry.snapshot()!.token)).rejects.toBeInstanceOf(
+      StaleAssistantInvocationError,
+    );
+  });
+
   it('waits for the active page to replace its workbench fallback surface', async () => {
     const registry = createAssistantSurfaceRegistry();
     registry.activate('tab-a');

@@ -39,6 +39,7 @@ interface AssistantReferenceSelectionState {
 export function modulePageAssistantContextRevision(view: ModulePageSessionView): string {
   const querySnapshot = view.listQueryController?.snapshot();
   return JSON.stringify({
+    page: view.assistantContextRevision,
     interaction: modulePageAssistantInteractionProjection(view),
     query: querySnapshot ? assistantQueryProjectionDigest(querySnapshot) : null,
   });
@@ -64,7 +65,7 @@ export function modulePageAssistantInteractionRevision(view: ModulePageSessionVi
 
 function modulePageAssistantInteractionProjection(view: ModulePageSessionView) {
   return {
-    page: view.assistantContextRevision,
+    page: view.assistantInteractionRevision,
     navigators: Object.entries(view.selectedNavigatorRecords ?? {})
       .sort(([left], [right]) => left.localeCompare(right))
       .map(([key, record]) => [key, record?.id == null ? null : String(record.id)]),

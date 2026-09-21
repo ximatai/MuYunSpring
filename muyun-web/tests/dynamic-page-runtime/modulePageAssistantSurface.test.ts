@@ -18,6 +18,7 @@ function viewFixture(): ModulePageSessionView {
     detailDirty: false,
     formSessionKey: 3,
     assistantContextRevision: 7,
+    assistantInteractionRevision: 3,
     assistantRecordCreationReady: vi.fn(() => true),
     assistantNavigatorScopes: vi.fn(() => []),
     selectedNavigatorRecords: {},
@@ -147,8 +148,15 @@ describe('module page assistant surface', () => {
     listRevision += 1;
     expect(modulePageAssistantInteractionRevision(view)).toBe(before);
 
-    view.selectedNavigatorRecords.organization = { id: 'org-a' };
+    view.assistantContextRevision += 1;
+    expect(modulePageAssistantInteractionRevision(view)).toBe(before);
+
+    view.assistantInteractionRevision += 1;
     expect(modulePageAssistantInteractionRevision(view)).not.toBe(before);
+    const afterPageInteraction = modulePageAssistantInteractionRevision(view);
+
+    view.selectedNavigatorRecords.organization = { id: 'org-a' };
+    expect(modulePageAssistantInteractionRevision(view)).not.toBe(afterPageInteraction);
     const afterNavigator = modulePageAssistantInteractionRevision(view);
 
     queryInteraction = 'page-2';
@@ -802,7 +810,7 @@ describe('module page assistant surface', () => {
       registry.snapshot()!.token,
     );
     await Promise.resolve();
-    view.assistantContextRevision += 1;
+    view.assistantInteractionRevision += 1;
     resolveQuery();
 
     await expect(invocation).rejects.toThrow('Assistant invocation no longer matches');

@@ -8,6 +8,33 @@ import {
   type AssistantCapability,
 } from '@muyun/web-core';
 
+it('waits for background page transitions before asking the model to decide', async () => {
+  let revision = 'loading';
+  const requestTurn = vi.fn(async () => ({ text: '页面已经就绪', toolCalls: [] }));
+  const registry = createAssistantSurfaceRegistry();
+  registry.register({
+    pageInstanceKey: 'tab-a',
+    contextRevision: () => revision,
+    interactionRevision: () => 'same-user-scope',
+    settle: async () => {
+      revision = 'ready';
+    },
+    surface: {
+      describe: () => ({ surface: 'module-page', facts: { revision } }),
+      capabilities: () => [],
+      requestTurn,
+    },
+  });
+  registry.activate('tab-a');
+
+  await runAssistantConversation(registry, '继续');
+
+  expect(requestTurn).toHaveBeenCalledWith(
+    expect.objectContaining({ context: expect.objectContaining({ facts: { revision: 'ready' } }) }),
+    expect.any(AbortSignal),
+  );
+});
+
 it('executes declared capabilities and ends the step when their effect changes context', async () => {
   let revision = 'draft-before';
   const patch: AssistantCapability = {

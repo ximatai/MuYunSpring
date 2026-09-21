@@ -4,6 +4,7 @@ import WorkbenchAssistantPanel from '@/platform-workbench/WorkbenchAssistantPane
 import type { AssistantTurnOutput } from '@muyun/web-contracts';
 import {
   createAssistantSurfaceRegistry,
+  StaleAssistantInvocationError,
   type AssistantCapability,
   type AssistantTurnRequester,
 } from '@muyun/web-core';
@@ -69,6 +70,35 @@ it('continues a broad user goal after clarification with bounded dialogue histor
         { role: 'user', text: '我要新增一名职员，帮我做' },
         { role: 'assistant', text: '请告诉我要在哪个租户新增职员。' },
       ],
+    }),
+    expect.any(AbortSignal),
+    expect.any(Object),
+  );
+});
+
+it('keeps the interrupted user goal so a short continuation can resume it', async () => {
+  const requestTurn = vi
+    .fn()
+    .mockRejectedValueOnce(new StaleAssistantInvocationError())
+    .mockResolvedValueOnce({ text: '我会基于当前页面继续录入。', toolCalls: [] });
+  const wrapper = mount(WorkbenchAssistantPanel, {
+    props: { open: true, registry: createRegistry(requestTurn) },
+  });
+
+  await wrapper.get('textarea').setValue('我要录入一名新职员，姓名是张三');
+  await wrapper.get('button.ant-btn-primary').trigger('click');
+  await flushPromises();
+  expect(wrapper.text()).toContain('请确认当前页面后告诉我继续或调整目标');
+
+  await wrapper.get('textarea').setValue('继续');
+  await wrapper.get('button.ant-btn-primary').trigger('click');
+  await flushPromises();
+
+  expect(requestTurn).toHaveBeenNthCalledWith(
+    2,
+    expect.objectContaining({
+      message: '继续',
+      history: [{ role: 'user', text: '我要录入一名新职员，姓名是张三' }],
     }),
     expect.any(AbortSignal),
     expect.any(Object),

@@ -368,6 +368,7 @@ export function useModulePageSession(
     loadFailed: detailLoadFailed,
   } = detail;
   const assistantContextRevision = ref(0);
+  const assistantInteractionRevision = ref(0);
   const listQueryController = shallowRef<RecordQueryListQueryController>();
   function bindListQueryController(controller: RecordQueryListQueryController | undefined) {
     if (listQueryController.value === controller) return;
@@ -375,15 +376,17 @@ export function useModulePageSession(
     assistantContextRevision.value += 1;
   }
   watch(
-    [
-      () => selectedRecord.value?.id,
-      () => selectedRecord.value?.version,
-      editingRecord,
-      editorMode,
-      formSessionKey,
-    ],
+    () => selectedRecord.value?.version,
     () => {
       assistantContextRevision.value += 1;
+    },
+    { flush: 'sync' },
+  );
+  watch(
+    [() => selectedRecord.value?.id, editingRecord, editorMode, formSessionKey],
+    () => {
+      assistantContextRevision.value += 1;
+      assistantInteractionRevision.value += 1;
     },
     { deep: true, flush: 'sync' },
   );
@@ -3730,6 +3733,7 @@ export function useModulePageSession(
     formFields,
     formSessionKey,
     assistantContextRevision,
+    assistantInteractionRevision,
     listQueryController,
     bindListQueryController,
     formValidationRequestKey,

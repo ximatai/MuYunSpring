@@ -183,8 +183,17 @@ async function runAssistantStepWithSuccessfulCalls(
   successfulCalls: Map<string, AssistantCapabilityResult>,
   onTextDelta?: (text: string) => void,
 ): Promise<InternalAssistantRuntimeStepResult> {
-  const snapshot = registry.snapshot();
-  if (!snapshot) throw new Error('No assistant surface is active');
+  const initialSnapshot = registry.snapshot();
+  if (!initialSnapshot) throw new Error('No assistant surface is active');
+  let snapshot: typeof initialSnapshot;
+  try {
+    snapshot = await registry.settleActiveSurface(initialSnapshot.token, signal);
+  } catch (error) {
+    if (!signal?.aborted && (error instanceof StaleAssistantInvocationError || isAbortError(error))) {
+      throw new AssistantDecisionContextChangedError(initialSnapshot.token);
+    }
+    throw error;
+  }
   let output: AssistantTurnOutput;
   try {
     output = onTextDelta

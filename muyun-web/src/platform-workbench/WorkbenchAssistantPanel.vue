@@ -109,7 +109,8 @@ async function submit() {
   } catch (error) {
     if (isAbortError(error)) append('status', '已停止本次操作。');
     else if (error instanceof StaleAssistantInvocationError) {
-      append('status', '页面状态已经变化，请基于当前页面重新发送。');
+      commitConversation(message, []);
+      append('status', '页面发生了与当前任务冲突的变化，本轮已暂停。请确认当前页面后告诉我继续或调整目标。');
     } else if (error instanceof AssistantConversationFollowUpError) {
       const applied = error.steps.reduce((total, step) => total + step.appliedEffectCount, 0);
       append(

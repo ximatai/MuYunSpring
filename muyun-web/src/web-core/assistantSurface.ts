@@ -49,8 +49,16 @@ export interface AssistantSurface {
 export interface AssistantSurfaceRegistration {
   pageInstanceKey: string;
   fallback?: boolean;
+  /**
+   * Waits for background page transitions to finish before the model receives a
+   * context snapshot. It must not wait for missing user input or mutate page state.
+   */
+  settle?(signal: AbortSignal): Promise<void>;
   contextRevision(): string;
-  /** User-controlled page state. Stable values let the runtime distinguish background refreshes. */
+  /**
+   * User-controlled execution scope. Background refreshes must leave this stable
+   * so the runtime can safely refresh context without discarding the user's goal.
+   */
   interactionRevision?(): string;
   surface: AssistantSurface;
 }
@@ -83,6 +91,11 @@ export interface AssistantSurfaceRegistry {
     signal?: AbortSignal;
     timeoutMs?: number;
   }): Promise<AssistantSurfaceSnapshot>;
+  /** Waits for the current page to settle and returns a fresh, execution-compatible snapshot. */
+  settleActiveSurface(
+    token: AssistantInvocationToken,
+    signal?: AbortSignal,
+  ): Promise<AssistantSurfaceSnapshot>;
   requestTurn(
     input: Omit<AssistantTurnInput, 'context' | 'capabilities'>,
     token: AssistantInvocationToken,
@@ -263,6 +276,31 @@ export function createAssistantSurfaceRegistry(): AssistantSurfaceRegistry {
         check();
       });
     },
+    async settleActiveSurface(token, signal) {
+      const registration = active();
+      if (!registration || !sameExecutionScope(token, tokenOf(registration))) {
+        throw new StaleAssistantInvocationError();
+      }
+      const controller = new AbortController();
+      const abort = () => controller.abort();
+      signal?.addEventListener('abort', abort, { once: true });
+      if (signal?.aborted) controller.abort();
+      pending.add(controller);
+      try {
+        await registration.settle?.(controller.signal);
+        if (controller.signal.aborted) {
+          throw new DOMException('Assistant invocation was cancelled', 'AbortError');
+        }
+        const current = snapshot();
+        if (!current || !sameExecutionScope(token, current.token)) {
+          throw new StaleAssistantInvocationError();
+        }
+        return current;
+      } finally {
+        pending.delete(controller);
+        signal?.removeEventListener('abort', abort);
+      }
+    },
     requestTurn(input, token, signal, progress) {
       return controlled(token, signal, true, (registration, controlledSignal) => {
         const current = requireCurrent(token);
@@ -365,6 +403,16 @@ function sameToken(left: AssistantInvocationToken, right: AssistantInvocationTok
     left.contextRevision === right.contextRevision &&
     left.interactionRevision === right.interactionRevision &&
     left.fallback === right.fallback
+  );
+}
+
+function sameExecutionScope(left: AssistantInvocationToken, right: AssistantInvocationToken) {
+  return (
+    left.pageInstanceKey === right.pageInstanceKey &&
+    left.surfaceGeneration === right.surfaceGeneration &&
+    left.interactionRevision === right.interactionRevision &&
+    left.fallback === right.fallback &&
+    (left.contextRevision === right.contextRevision || left.interactionRevision !== undefined)
   );
 }
 
