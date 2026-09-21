@@ -4,6 +4,7 @@ import net.ximatai.muyun.spring.ability.logging.ActionLogEvent;
 import net.ximatai.muyun.spring.ability.logging.ActionLogStatistics;
 import net.ximatai.muyun.spring.ability.logging.BusinessLogCursor;
 import net.ximatai.muyun.spring.ability.logging.BusinessLogEvent;
+import net.ximatai.muyun.spring.ability.logging.BusinessLogEventType;
 import net.ximatai.muyun.spring.ability.logging.BusinessLogQuery;
 import net.ximatai.muyun.spring.ability.logging.BusinessLogStatisticsQuery;
 import net.ximatai.muyun.spring.ability.logging.BusinessLogStatisticsReader;
@@ -16,6 +17,7 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 
 /**
  * Bounded in-process aggregation over the neutral cursor reader. It makes no authorization
@@ -33,7 +35,7 @@ public final class StoreBackedBusinessLogStatisticsReader implements BusinessLog
     public ActionLogStatistics actionStatistics(BusinessLogStatisticsQuery query) {
         Objects.requireNonNull(query, "query must not be null");
         ActionAccumulator accumulator = new ActionAccumulator();
-        boolean complete = read(query, event -> {
+        boolean complete = read(query, BusinessLogEventType.ACTION, event -> {
             if (event instanceof ActionLogEvent action) {
                 accumulator.add(action);
             }
@@ -46,7 +48,7 @@ public final class StoreBackedBusinessLogStatisticsReader implements BusinessLog
         Objects.requireNonNull(query, "query must not be null");
         Map<String, Long> counts = new LinkedHashMap<>();
         long[] total = {0};
-        boolean complete = read(query, event -> {
+        boolean complete = read(query, BusinessLogEventType.PAGE_ACCESS, event -> {
             if (event instanceof PageAccessLogEvent access) {
                 total[0]++;
                 counts.merge(access.details().pageKey(), 1L, Long::sum);
@@ -59,14 +61,16 @@ public final class StoreBackedBusinessLogStatisticsReader implements BusinessLog
                 .toList(), complete);
     }
 
-    private boolean read(BusinessLogStatisticsQuery query, java.util.function.Consumer<BusinessLogEvent> consumer) {
+    private boolean read(BusinessLogStatisticsQuery query, BusinessLogEventType eventType,
+                         java.util.function.Consumer<BusinessLogEvent> consumer) {
         BusinessLogCursor cursor = null;
         int scanned = 0;
         while (scanned < query.maximumEvents()) {
             int limit = Math.min(PAGE_SIZE, query.maximumEvents() - scanned);
             var page = store.read(new BusinessLogQuery(query.occurredFrom(), query.occurredTo(), query.tenantId(),
-                    null, query.operatorId(), query.operatorOrganizationIds(), query.moduleAlias(),
-                    query.actionCode(), null, cursor, limit));
+                    Set.of(eventType), query.operatorId(), query.operatorOrganizationIds(), query.moduleAlias(),
+                    query.actionCode(), null, null, null, null, query.actionOutcome(), query.recordId(),
+                    query.mutationSource(), cursor, limit));
             page.events().forEach(consumer);
             scanned += page.events().size();
             cursor = page.nextCursor();

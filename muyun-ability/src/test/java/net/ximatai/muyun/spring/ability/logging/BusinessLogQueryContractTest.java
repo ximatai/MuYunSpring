@@ -1,5 +1,6 @@
 package net.ximatai.muyun.spring.ability.logging;
 
+import net.ximatai.muyun.spring.ability.event.RuntimeMutationSource;
 import net.ximatai.muyun.spring.ability.query.QueryCondition;
 import net.ximatai.muyun.spring.ability.query.QueryCriteria;
 import net.ximatai.muyun.spring.ability.query.QueryCriteriaComposition;
@@ -22,7 +23,8 @@ class BusinessLogQueryContractTest {
         assertThat(BusinessLogQueryContract.forProfile(BusinessLogQueryProfile.LOGIN_AUDIT).schema().fields())
                 .extracting(field -> field.name()).containsExactly("occurredAt", "operatorId", "loginAccount", "loginOutcome");
         assertThat(BusinessLogQueryContract.forProfile(BusinessLogQueryProfile.BUSINESS_ACTIVITY).schema().fields())
-                .extracting(field -> field.name()).containsExactly("occurredAt", "operatorId", "moduleAlias", "actionCode");
+                .extracting(field -> field.name()).containsExactly("occurredAt", "operatorId", "moduleAlias", "actionCode",
+                        "actionOutcome", "recordId", "mutationSource");
         assertThat(BusinessLogQueryContract.forProfile(BusinessLogQueryProfile.REQUEST_ERROR).schema().fields())
                 .extracting(field -> field.name()).containsExactly("occurredAt", "operatorId", "moduleAlias", "actionCode",
                         "errorCode", "httpStatus");
@@ -93,12 +95,18 @@ class BusinessLogQueryContractTest {
         BusinessLogStatisticsQuery statistics = contract.toStatisticsQuery(request(List.of(
                 condition("operatorId", QueryOperator.EQ, "user-1"),
                 condition("moduleAlias", QueryOperator.EQ, "sales.order"),
-                condition("actionCode", QueryOperator.EQ, "submit")
+                condition("actionCode", QueryOperator.EQ, "submit"),
+                condition("actionOutcome", QueryOperator.EQ, "SUCCESS"),
+                condition("recordId", QueryOperator.EQ, "order-1"),
+                condition("mutationSource", QueryOperator.EQ, "ACTION")
         ), List.of()), 5_000);
 
         assertThat(statistics.operatorId()).isEqualTo("user-1");
         assertThat(statistics.moduleAlias()).isEqualTo("sales.order");
         assertThat(statistics.actionCode()).isEqualTo("submit");
+        assertThat(statistics.actionOutcome()).isEqualTo(ActionLogDetails.ActionOutcome.SUCCESS);
+        assertThat(statistics.recordId()).isEqualTo("order-1");
+        assertThat(statistics.mutationSource()).isEqualTo(RuntimeMutationSource.ACTION);
         assertThat(statistics.maximumEvents()).isEqualTo(5_000);
     }
 

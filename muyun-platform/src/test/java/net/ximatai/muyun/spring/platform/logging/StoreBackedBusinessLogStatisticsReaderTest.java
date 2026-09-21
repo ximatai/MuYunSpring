@@ -73,6 +73,19 @@ class StoreBackedBusinessLogStatisticsReaderTest {
         assertThat(result.totalDurationMillis()).isEqualTo(12);
     }
 
+    @Test
+    void shouldApplyTheScanLimitOnlyToTheRequestedStatisticType() {
+        StoreBackedBusinessLogStatisticsReader reader = new StoreBackedBusinessLogStatisticsReader(new FixedStore(List.of(
+                page("page-1", "sales.contract:LIST"),
+                action("action-1", ActionLogDetails.ActionOutcome.SUCCESS, 12L, 3L)
+        )));
+
+        var result = reader.actionStatistics(BusinessLogStatisticsQuery.recent(1));
+
+        assertThat(result.executionCount()).isEqualTo(1);
+        assertThat(result.complete()).isTrue();
+    }
+
     private ActionLogEvent action(String id, ActionLogDetails.ActionOutcome outcome, Long duration, Long affected) {
         return new ActionLogEvent(context(id), new ActionLogDetails(outcome, "SERVICE", duration, affected, null, null));
     }
@@ -107,6 +120,7 @@ class StoreBackedBusinessLogStatisticsReaderTest {
         }
         @Override public BusinessLogReadPage read(BusinessLogQuery query) {
             List<BusinessLogEvent> matching = events.stream()
+                    .filter(event -> query.eventTypes() == null || query.eventTypes().contains(event.eventType()))
                     .filter(event -> query.operatorOrganizationIds() == null
                             || query.operatorOrganizationIds().contains(event.context().operatorOrganizationId()))
                     .toList();

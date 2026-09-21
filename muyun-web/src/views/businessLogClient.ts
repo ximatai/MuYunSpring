@@ -24,6 +24,9 @@ export interface BusinessLogEventView {
   operatorIdentity?: BusinessLogOperatorIdentity;
   moduleAlias?: string;
   actionCode?: string;
+  entityAlias?: string;
+  recordId?: string;
+  mutationSource?: string;
   outcome?: string;
   /** The authentication account, independent from the event's authenticated operator identity. */
   loginAccount?: string;
@@ -236,6 +239,9 @@ function normalizeEvent(response: unknown): BusinessLogEventView {
     operatorIdentity: operatorIdentityOf(record),
     moduleAlias: stringOf(record.moduleAlias),
     actionCode: stringOf(record.actionCode),
+    entityAlias: stringOf(record.entityAlias ?? recordOf(record.details).entityAlias),
+    recordId: stringOf(record.recordId ?? recordOf(record.details).recordId),
+    mutationSource: stringOf(record.mutationSource ?? recordOf(record.details).mutationSource),
     outcome: stringOf(record.outcome ?? record.result ?? recordOf(record.details).outcome),
     loginAccount: loginAccountOf(record, recordOf(record.details)),
     summary: logSummary(record, recordOf(record.details)),

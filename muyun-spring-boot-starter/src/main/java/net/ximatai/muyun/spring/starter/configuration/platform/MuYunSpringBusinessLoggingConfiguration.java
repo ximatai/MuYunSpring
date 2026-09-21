@@ -1,33 +1,40 @@
 package net.ximatai.muyun.spring.starter.configuration.platform;
 
 import net.ximatai.muyun.spring.ability.logging.BusinessLogPublisher;
+import net.ximatai.muyun.spring.ability.logging.BusinessLogRetentionStore;
+import net.ximatai.muyun.spring.ability.logging.BusinessLogRetentionPolicyStore;
+import net.ximatai.muyun.spring.ability.logging.BusinessLogStatisticsReader;
 import net.ximatai.muyun.spring.ability.logging.BusinessLogStore;
 import net.ximatai.muyun.spring.ability.logging.StoreBackedBusinessLogPublisher;
+import net.ximatai.muyun.spring.common.identity.CurrentUserDepartmentResolver;
 import net.ximatai.muyun.spring.iam.user.BusinessLogLoginAuditLogger;
 import net.ximatai.muyun.spring.iam.user.LoginAuditLogger;
 import net.ximatai.muyun.spring.platform.logging.BusinessLogGovernanceService;
+import net.ximatai.muyun.spring.platform.logging.BusinessLogRetentionService;
+import net.ximatai.muyun.spring.platform.logging.BusinessLogRetentionExecutionLimits;
 import net.ximatai.muyun.spring.platform.logging.PostgresBusinessLogStore;
 import net.ximatai.muyun.spring.platform.logging.RuntimeActionBusinessLogEventListener;
-import net.ximatai.muyun.spring.common.identity.CurrentUserDepartmentResolver;
-import org.springframework.beans.factory.ObjectProvider;
 import net.ximatai.muyun.spring.platform.logging.StoreBackedBusinessLogStatisticsReader;
-import net.ximatai.muyun.spring.ability.logging.BusinessLogStatisticsReader;
 import net.ximatai.muyun.spring.platform.web.BusinessLogPageAccessRecorder;
 import net.ximatai.muyun.spring.platform.web.StaticCrudActionLogRecorder;
 import net.ximatai.muyun.spring.web.RequestErrorLogRecorder;
+import org.jdbi.v3.core.Jdbi;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
-import org.springframework.beans.factory.ObjectProvider;
-import org.jdbi.v3.core.Jdbi;
 
+import java.time.Clock;
 
 /** Assembles the neutral business-log publisher with the platform-owned Jdbi connection runtime. */
 @AutoConfiguration(afterName = {
         "org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration",
         "net.ximatai.muyun.database.spring.boot.MuYunDatabaseAutoConfiguration"
 }, beforeName = "net.ximatai.muyun.spring.starter.MuYunSpringAutoConfiguration")
+@EnableConfigurationProperties(MuYunSpringBusinessLogRetentionProperties.class)
 public class MuYunSpringBusinessLoggingConfiguration {
     @Bean
     @ConditionalOnBean(Jdbi.class)
@@ -91,6 +98,33 @@ public class MuYunSpringBusinessLoggingConfiguration {
     BusinessLogGovernanceService businessLogGovernanceService(BusinessLogStore store,
                                                               BusinessLogStatisticsReader statisticsReader) {
         return new BusinessLogGovernanceService(store, statisticsReader);
+    }
+
+    @Bean
+    @ConditionalOnBean({BusinessLogRetentionStore.class, BusinessLogRetentionPolicyStore.class})
+    @ConditionalOnMissingBean(BusinessLogRetentionService.class)
+    BusinessLogRetentionService businessLogRetentionService(BusinessLogRetentionStore store,
+                                                             BusinessLogRetentionPolicyStore policyStore,
+                                                             ObjectProvider<Clock> clock) {
+        return new BusinessLogRetentionService(store, policyStore, clock.getIfAvailable(Clock::systemUTC));
+    }
+
+    @Bean
+    @ConditionalOnBean(BusinessLogRetentionService.class)
+    @ConditionalOnMissingBean(BusinessLogRetentionExecutionLimits.class)
+    BusinessLogRetentionExecutionLimits businessLogRetentionExecutionLimits(
+            MuYunSpringBusinessLogRetentionProperties properties) {
+        return properties.executionLimits();
+    }
+
+    @Bean
+    @ConditionalOnBean(BusinessLogRetentionService.class)
+    @ConditionalOnMissingBean(BusinessLogRetentionScheduler.class)
+    @ConditionalOnProperty(prefix = "muyun.platform.business-log.retention", name = "scheduled-enabled",
+            havingValue = "true", matchIfMissing = true)
+    BusinessLogRetentionScheduler businessLogRetentionScheduler(BusinessLogRetentionService service,
+                                                                 BusinessLogRetentionExecutionLimits executionLimits) {
+        return new BusinessLogRetentionScheduler(service, executionLimits);
     }
 
 }

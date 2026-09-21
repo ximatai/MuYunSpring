@@ -13,6 +13,7 @@ import net.ximatai.muyun.spring.ability.logging.PageAccessLogDetails;
 import net.ximatai.muyun.spring.ability.logging.PageAccessLogEvent;
 import net.ximatai.muyun.spring.ability.logging.RequestErrorLogDetails;
 import net.ximatai.muyun.spring.ability.logging.RequestErrorLogEvent;
+import net.ximatai.muyun.spring.ability.event.RuntimeMutationSource;
 
 import java.time.Instant;
 import java.util.Map;
@@ -31,6 +32,9 @@ public record BusinessLogEventResponse(
         String operatorOrganizationId,
         String moduleAlias,
         String actionCode,
+        String entityAlias,
+        String recordId,
+        RuntimeMutationSource mutationSource,
         BusinessLogOperatorIdentity operatorIdentity,
         String outcome,
         Object details
@@ -53,8 +57,8 @@ public record BusinessLogEventResponse(
                 .orElse(null);
         return new BusinessLogEventResponse(context.eventId(), event.eventType(), context.occurredAt(),
                 context.capturedAt(), context.traceId(), context.tenantId(), context.operatorId(),
-                context.operatorOrganizationId(), context.moduleAlias(), context.actionCode(), identity,
-                outcome(event), safeDetails(event));
+                context.operatorOrganizationId(), context.moduleAlias(), context.actionCode(), entityAlias(event),
+                recordId(event), mutationSource(event), identity, outcome(event), safeDetails(event));
     }
 
     static Optional<BusinessLogOperatorIdentityKey> identityKey(BusinessLogEvent event) {
@@ -90,6 +94,18 @@ public record BusinessLogEventResponse(
             case PageAccessLogEvent ignored -> null;
             case RequestErrorLogEvent ignored -> "FAILURE";
         };
+    }
+
+    private static String entityAlias(BusinessLogEvent event) {
+        return event instanceof ActionLogEvent action ? action.details().entityAlias() : null;
+    }
+
+    private static String recordId(BusinessLogEvent event) {
+        return event instanceof ActionLogEvent action ? action.details().recordId() : null;
+    }
+
+    private static RuntimeMutationSource mutationSource(BusinessLogEvent event) {
+        return event instanceof ActionLogEvent action ? action.details().mutationSource() : null;
     }
 
     private static RequestErrorLogSafeDetails safeRequestErrorDetails(RequestErrorLogDetails details) {

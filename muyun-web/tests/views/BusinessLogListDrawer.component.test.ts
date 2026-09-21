@@ -8,7 +8,11 @@ import BusinessLogListDrawer from '@/views/BusinessLogListDrawer.vue';
 
 it.each([
   ['login', 'iam.login_audit_log', ['outcome', 'occurredAt', 'loginAccount']],
-  ['activity', 'platform.business_activity_log', ['occurredAt', 'username', 'moduleAlias', 'actionCode']],
+  [
+    'activity',
+    'platform.business_activity_log',
+    ['outcome', 'occurredAt', 'username', 'moduleAlias', 'actionCode', 'recordId', 'mutationSource'],
+  ],
   [
     'request-error',
     'platform.request_error_log',

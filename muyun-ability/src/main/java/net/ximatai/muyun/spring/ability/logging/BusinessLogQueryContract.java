@@ -12,6 +12,7 @@ import net.ximatai.muyun.spring.ability.query.QueryRequest;
 import net.ximatai.muyun.spring.ability.query.QuerySchema;
 import net.ximatai.muyun.spring.ability.query.QueryValueType;
 import net.ximatai.muyun.spring.ability.reference.ReferenceCardinality;
+import net.ximatai.muyun.spring.ability.event.RuntimeMutationSource;
 
 import java.time.Instant;
 import java.util.EnumSet;
@@ -36,6 +37,9 @@ public final class BusinessLogQueryContract {
     public static final String LOGIN_OUTCOME = "loginOutcome";
     public static final String ERROR_CODE = "errorCode";
     public static final String HTTP_STATUS = "httpStatus";
+    public static final String ACTION_OUTCOME = "actionOutcome";
+    public static final String RECORD_ID = "recordId";
+    public static final String MUTATION_SOURCE = "mutationSource";
 
     private final BusinessLogQueryProfile profile;
     private final QueryDescriptor descriptor;
@@ -71,6 +75,9 @@ public final class BusinessLogQueryContract {
         String loginAccount = null;
         LoginLogDetails.LoginOutcome loginOutcome = null;
         Integer httpStatus = null;
+        ActionLogDetails.ActionOutcome actionOutcome = null;
+        String recordId = null;
+        RuntimeMutationSource mutationSource = null;
         Map<String, Boolean> supplied = new LinkedHashMap<>();
 
         for (var condition : conditions(normalized)) {
@@ -103,12 +110,16 @@ public final class BusinessLogQueryContract {
                 case ERROR_CODE -> errorCode = text(field.fieldName(), values.getFirst());
                 case LOGIN_OUTCOME -> loginOutcome = loginOutcome(values.getFirst());
                 case HTTP_STATUS -> httpStatus = integer(field.fieldName(), values.getFirst());
+                case ACTION_OUTCOME -> actionOutcome = actionOutcome(values.getFirst());
+                case RECORD_ID -> recordId = text(field.fieldName(), values.getFirst());
+                case MUTATION_SOURCE -> mutationSource = mutationSource(values.getFirst());
                 default -> throw new IllegalArgumentException("query field is not supported by " + profile + ": "
                         + field.fieldName());
             }
         }
         return new BusinessLogQuery(occurredFrom, occurredTo, null, null, operatorId, null,
-                moduleAlias, actionCode, errorCode, loginAccount, loginOutcome, httpStatus, null, storagePageSize);
+                moduleAlias, actionCode, errorCode, loginAccount, loginOutcome, httpStatus,
+                actionOutcome, recordId, mutationSource, null, storagePageSize);
     }
 
     /** Reuses the activity list conditions for bounded action and page-access aggregations. */
@@ -119,7 +130,7 @@ public final class BusinessLogQueryContract {
         BusinessLogQuery query = toQuery(request, 200);
         return new BusinessLogStatisticsQuery(query.occurredFrom(), query.occurredTo(), query.tenantId(),
                 query.operatorId(), query.operatorOrganizationIds(), query.moduleAlias(), query.actionCode(),
-                maximumEvents);
+                query.actionOutcome(), query.recordId(), query.mutationSource(), maximumEvents);
     }
 
     private QueryField requireField(String fieldName) {
@@ -207,6 +218,24 @@ public final class BusinessLogQueryContract {
         }
     }
 
+    private static ActionLogDetails.ActionOutcome actionOutcome(Object value) {
+        try {
+            return ActionLogDetails.ActionOutcome.valueOf(
+                    text(ACTION_OUTCOME, value).trim().toUpperCase(java.util.Locale.ROOT));
+        } catch (IllegalArgumentException exception) {
+            throw new IllegalArgumentException("actionOutcome must be SUCCESS, FAILURE or REJECTED", exception);
+        }
+    }
+
+    private static RuntimeMutationSource mutationSource(Object value) {
+        try {
+            return RuntimeMutationSource.valueOf(
+                    text(MUTATION_SOURCE, value).trim().toUpperCase(java.util.Locale.ROOT));
+        } catch (IllegalArgumentException exception) {
+            throw new IllegalArgumentException("mutationSource is not supported", exception);
+        }
+    }
+
     private static IllegalArgumentException unsupportedOperator(String fieldName, QueryOperator operator) {
         return new IllegalArgumentException("query operator is not supported: " + fieldName + "." + operator);
     }
@@ -227,7 +256,10 @@ public final class BusinessLogQueryContract {
                     .field(enumField(LOGIN_OUTCOME, "登录结果"));
             case BUSINESS_ACTIVITY -> builder
                     .field(textField(MODULE_ALIAS, "业务模块"))
-                    .field(textField(ACTION_CODE, "动作"));
+                    .field(textField(ACTION_CODE, "动作"))
+                    .field(textField(ACTION_OUTCOME, "动作结果"))
+                    .field(textField(RECORD_ID, "业务记录 ID"))
+                    .field(textField(MUTATION_SOURCE, "变更来源"));
             case REQUEST_ERROR -> builder
                     .field(textField(MODULE_ALIAS, "业务模块"))
                     .field(textField(ACTION_CODE, "动作"))

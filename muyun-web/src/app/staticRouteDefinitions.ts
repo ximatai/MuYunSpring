@@ -32,6 +32,7 @@ const componentPathByRoute: Record<string, StaticRouteDefinition['componentPath'
   '/platform/logs/runtime': '/src/views/RuntimeLogView.vue',
   '/platform/logs/activity': '/src/views/BusinessActivityLogView.vue',
   '/platform/logs/errors': '/src/views/RequestErrorLogView.vue',
+  '/platform/logs/retention': '/src/views/BusinessLogRetentionView.vue',
   '/iam/logs/login': '/src/views/LoginAuditLogView.vue',
   '/iam/role/authorization': '/src/views/RoleAuthorizationView.vue',
 };

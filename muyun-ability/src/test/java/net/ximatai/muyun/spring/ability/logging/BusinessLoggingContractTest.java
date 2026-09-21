@@ -111,4 +111,38 @@ class BusinessLoggingContractTest {
                 null, null, null, null, null, 20));
         assertThatIllegalArgumentException().isThrownBy(() -> BusinessLogQuery.newest(201));
     }
+
+    @Test
+    void shouldKeepRetentionStorageWorkExplicitlyBounded() {
+        Instant cutoff = Instant.parse("2026-01-01T00:00:00Z");
+
+        assertThat(new BusinessLogRetentionRequest(cutoff, Set.of(BusinessLogEventType.LOGIN), 1_000, 20))
+                .satisfies(request -> {
+                    assertThat(request.occurredBefore()).isEqualTo(cutoff);
+                    assertThat(request.eventTypes()).containsExactly(BusinessLogEventType.LOGIN);
+                });
+        assertThatIllegalArgumentException().isThrownBy(() ->
+                new BusinessLogRetentionRequest(cutoff, 10_001, 20));
+        assertThatIllegalArgumentException().isThrownBy(() ->
+                new BusinessLogRetentionRequest(cutoff, 1_000, 1_001));
+        assertThatIllegalArgumentException().isThrownBy(() ->
+                new BusinessLogRetentionResult(cutoff, 1, 0,
+                        BusinessLogRetentionResult.Status.ALREADY_RUNNING));
+    }
+
+    @Test
+    void shouldModelRetentionPeriodAsAnEventTypeBusinessPolicy() {
+        BusinessLogRetentionPolicy policy = new BusinessLogRetentionPolicy(BusinessLogEventType.ACTION,
+                true, 90, Instant.parse("2026-09-21T00:00:00Z"), "admin");
+
+        assertThat(policy.automaticCleanupEnabled()).isTrue();
+        assertThat(policy.retentionDays()).isEqualTo(90);
+        assertThat(BusinessLogRetentionPolicy.defaultDisabled(BusinessLogEventType.PAGE_ACCESS))
+                .satisfies(defaultPolicy -> {
+                    assertThat(defaultPolicy.automaticCleanupEnabled()).isFalse();
+                    assertThat(defaultPolicy.retentionDays()).isEqualTo(180);
+                });
+        assertThatIllegalArgumentException().isThrownBy(() -> new BusinessLogRetentionPolicy(
+                BusinessLogEventType.ACTION, true, 0, null, null));
+    }
 }

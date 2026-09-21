@@ -34,6 +34,24 @@ it('keeps the log identity projection nested when loading a detail', async () =>
   });
 });
 
+it('normalizes action attribution from both the stable projection and historical details shape', async () => {
+  const request = vi.fn(async () => ({
+    event: {
+      eventId: 'event-1',
+      eventType: 'ACTION',
+      entityAlias: 'order',
+      details: { recordId: 'order-1', mutationSource: 'ACTION' },
+    },
+  }));
+  const client = createBusinessLogClient({ request } as HttpClient, 'activity');
+
+  const event = await client.detail('event-1');
+
+  expect(event.entityAlias).toBe('order');
+  expect(event.recordId).toBe('order-1');
+  expect(event.mutationSource).toBe('ACTION');
+});
+
 it('uses the safe error response summary and keeps the login account distinct from the operator', async () => {
   const request = vi
     .fn()

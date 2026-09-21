@@ -299,6 +299,9 @@ class ActionEndpointInterceptorTest {
         assertThat(publisher.events).singleElement().isInstanceOfSatisfying(ActionLogEvent.class, event -> {
             assertThat(event.context().operatorId()).isEqualTo("user-1");
             assertThat(event.context().operatorOrganizationId()).isEqualTo("organization-a");
+            assertThat(event.details().recordId()).isEqualTo("contract-1");
+            assertThat(event.details().mutationSource())
+                    .isEqualTo(net.ximatai.muyun.spring.ability.event.RuntimeMutationSource.BUSINESS);
         });
     }
 

@@ -65,7 +65,10 @@ public final class RuntimeActionBusinessLogEventListener implements RuntimeEvent
                 null,
                 failed ? ActionEventPayload.text(event.payload(), ActionEventPayload.FAILURE_STAGE) : null,
                 LogText.of(ActionEventPayload.text(event.payload(),
-                        failed ? ActionEventPayload.ERROR_MESSAGE : ActionEventPayload.MESSAGE)));
+                        failed ? ActionEventPayload.ERROR_MESSAGE : ActionEventPayload.MESSAGE)),
+                event.entityAlias(),
+                event.recordId(),
+                event.mutationSource());
         return new ActionLogEvent(context, details);
     }
 

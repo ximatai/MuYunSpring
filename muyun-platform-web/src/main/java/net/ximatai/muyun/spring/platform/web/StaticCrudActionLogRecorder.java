@@ -5,6 +5,7 @@ import net.ximatai.muyun.spring.ability.logging.ActionLogDetails;
 import net.ximatai.muyun.spring.ability.logging.ActionLogEvent;
 import net.ximatai.muyun.spring.ability.logging.BusinessLogContext;
 import net.ximatai.muyun.spring.ability.logging.BusinessLogPublisher;
+import net.ximatai.muyun.spring.ability.event.RuntimeMutationSource;
 import net.ximatai.muyun.spring.common.id.Ids;
 import net.ximatai.muyun.spring.common.tenant.TenantContext;
 import net.ximatai.muyun.spring.common.web.RequestTraceContext;
@@ -37,7 +38,13 @@ public final class StaticCrudActionLogRecorder {
                     context.currentUser().map(user -> user.organizationId()).orElse(null),
                     context.moduleAlias(), context.actionCode()),
                     new ActionLogDetails(failure == null ? ActionLogDetails.ActionOutcome.SUCCESS : ActionLogDetails.ActionOutcome.FAILURE,
-                            "STATIC_CRUD", duration, null, failure == null ? null : "CONTROLLER", null)));
+                            "STATIC_CRUD", duration, null, failure == null ? null : "CONTROLLER", null,
+                            null, singleRecordId(context), RuntimeMutationSource.BUSINESS)));
         } catch (RuntimeException ignored) { log.warn("Static CRUD action log publication failed"); }
+    }
+
+    private static String singleRecordId(
+            net.ximatai.muyun.spring.common.platform.ActionExecutionContext context) {
+        return context.recordIds().size() == 1 ? context.recordIds().iterator().next() : null;
     }
 }

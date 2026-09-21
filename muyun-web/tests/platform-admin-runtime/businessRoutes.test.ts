@@ -16,6 +16,7 @@ it('registers every static administration route and keeps role authorization int
     '/platform/logs/runtime',
     '/platform/logs/activity',
     '/platform/logs/errors',
+    '/platform/logs/retention',
     '/iam/logs/login',
     '/iam/role/authorization',
   ]);
@@ -23,6 +24,7 @@ it('registers every static administration route and keeps role authorization int
     'platform.runtime_log': '/platform/logs/runtime',
     'platform.business_activity_log': '/platform/logs/activity',
     'platform.request_error_log': '/platform/logs/errors',
+    'platform.business_log_retention': '/platform/logs/retention',
     'iam.login_audit_log': '/iam/logs/login',
   });
 });
