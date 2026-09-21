@@ -43,7 +43,7 @@ it('submits a user request and renders the final assistant response', async () =
 
   expect(requestTurn).toHaveBeenCalledOnce();
   expect(wrapper.text()).toContain('打开客户管理');
-  expect(wrapper.text()).toContain('已经找到对应页面');
+  expect(wrapper.get('.assistant-message--assistant').text()).toBe('已经找到对应页面');
 });
 
 it('renders assistant Markdown as readable semantic content', async () => {
@@ -127,6 +127,135 @@ it('keeps user-authored Markdown as plain text', async () => {
   expect(userMessage.find('strong').exists()).toBe(false);
 });
 
+it('renders optional suggestions and submits a structured selection response', async () => {
+  const requestTurn = vi
+    .fn()
+    .mockResolvedValueOnce({
+      toolCalls: [],
+      finishReason: 'tool_calls',
+      selection: {
+        interactionId: 'selection-1',
+        prompt: '你想先做哪一步？',
+        inputPolicy: 'free_text_allowed',
+        presentation: 'options',
+        options: [
+          { id: 'inspect', label: '查看当前页面' },
+          { id: 'create', label: '新增一条记录' },
+        ],
+      },
+    })
+    .mockResolvedValueOnce({ text: '我会继续新增记录。', toolCalls: [] });
+  const wrapper = mount(WorkbenchAssistantPanel, {
+    props: { open: true, registry: createRegistry(requestTurn) },
+  });
+
+  await wrapper.get('textarea').setValue('帮我处理当前业务');
+  await wrapper.get('button.ant-btn-primary').trigger('click');
+  await flushPromises();
+
+  expect(wrapper.text()).toContain('你想先做哪一步？');
+  expect(wrapper.get('textarea').attributes('disabled')).toBeUndefined();
+  const createButton = wrapper.findAll('button').find((button) => button.text().includes('新增一条记录'))!;
+  await createButton.trigger('click');
+  await flushPromises();
+
+  expect(requestTurn).toHaveBeenNthCalledWith(
+    2,
+    expect.objectContaining({
+      message: '新增一条记录',
+      selectionResponse: {
+        interactionId: 'selection-1',
+        optionId: 'create',
+        label: '新增一条记录',
+      },
+    }),
+    expect.any(AbortSignal),
+    expect.any(Object),
+  );
+  expect(wrapper.text()).toContain('已选择：新增一条记录');
+  expect(wrapper.text()).toContain('我会继续新增记录');
+});
+
+it('blocks free text until a required confirmation is answered', async () => {
+  const requestTurn = vi
+    .fn()
+    .mockResolvedValueOnce({
+      toolCalls: [],
+      finishReason: 'tool_calls',
+      selection: {
+        interactionId: 'confirmation-1',
+        prompt: '确认应用当前查询条件吗？',
+        inputPolicy: 'selection_required',
+        presentation: 'confirmation',
+        options: [
+          { id: 'confirm', label: '确认' },
+          { id: 'cancel', label: '取消' },
+        ],
+      },
+    })
+    .mockResolvedValueOnce({ text: '已取消本次提议。', toolCalls: [] });
+  const wrapper = mount(WorkbenchAssistantPanel, {
+    props: { open: true, registry: createRegistry(requestTurn) },
+  });
+
+  await wrapper.get('textarea').setValue('帮我调整查询');
+  await wrapper.get('button.ant-btn-primary').trigger('click');
+  await flushPromises();
+
+  expect(wrapper.get('textarea').attributes('disabled')).toBeDefined();
+  expect(wrapper.get('textarea').attributes('placeholder')).toBe('请先完成上方选择');
+  const cancelButton = wrapper.findAll('.assistant-selection__options button')[1]!;
+  await cancelButton.trigger('click');
+  await flushPromises();
+
+  expect(requestTurn).toHaveBeenNthCalledWith(
+    2,
+    expect.objectContaining({
+      selectionResponse: {
+        interactionId: 'confirmation-1',
+        optionId: 'cancel',
+        label: '取消',
+      },
+    }),
+    expect.any(AbortSignal),
+    expect.any(Object),
+  );
+  expect(wrapper.get('textarea').attributes('disabled')).toBeUndefined();
+  expect(wrapper.text()).toContain('已选择：取消');
+});
+
+it('expires optional suggestions when the user continues with free text', async () => {
+  const requestTurn = vi
+    .fn()
+    .mockResolvedValueOnce({
+      toolCalls: [],
+      selection: {
+        interactionId: 'selection-1',
+        prompt: '你可以继续：',
+        inputPolicy: 'free_text_allowed',
+        presentation: 'options',
+        options: [
+          { id: 'summary', label: '总结当前页面' },
+          { id: 'next', label: '执行下一步' },
+        ],
+      },
+    })
+    .mockResolvedValueOnce({ text: '我会按你的新描述继续。', toolCalls: [] });
+  const wrapper = mount(WorkbenchAssistantPanel, {
+    props: { open: true, registry: createRegistry(requestTurn) },
+  });
+
+  await wrapper.get('textarea').setValue('给我几个建议');
+  await wrapper.get('button.ant-btn-primary').trigger('click');
+  await flushPromises();
+  await wrapper.get('textarea').setValue('我想换一个处理方式');
+  await wrapper.get('button.ant-btn-primary').trigger('click');
+  await flushPromises();
+
+  expect(wrapper.text()).toContain('此选择已更新');
+  expect(wrapper.findAll('button').some((button) => button.text().includes('总结当前页面'))).toBe(false);
+});
+
 it('continues a broad user goal after clarification with bounded dialogue history', async () => {
   const requestTurn = vi
     .fn()
@@ -204,13 +333,13 @@ it('renders streamed assistant text before the terminal turn arrives without dup
   await flushPromises();
 
   expect(wrapper.text()).toContain('正在处理');
-  expect(wrapper.text()).toContain('正在理解并执行');
+  expect(wrapper.text()).toContain('正在组织回复');
 
   complete({ text: '正在处理', toolCalls: [], finishReason: 'stop' });
   await flushPromises();
 
   expect(wrapper.findAll('.assistant-message--assistant')).toHaveLength(1);
-  expect(wrapper.text()).not.toContain('正在理解并执行');
+  expect(wrapper.text()).not.toContain('正在组织回复');
 });
 
 it('removes an uncommitted partial response when its stream fails', async () => {

@@ -7,8 +7,47 @@ import {
   runAssistantStep,
   StaleAssistantInvocationError,
   type AssistantCapability,
+  type AssistantActivityPhase,
   type AssistantRuntimeDiagnosticEvent,
 } from '@muyun/web-core';
+
+it('reports user-facing activity phases from runtime facts', async () => {
+  const phases: AssistantActivityPhase[] = [];
+  const registry = createAssistantSurfaceRegistry();
+  registry.register({
+    pageInstanceKey: 'tab-a',
+    contextRevision: () => 'stable',
+    surface: {
+      describe: () => ({ surface: 'module-page', facts: {} }),
+      capabilities: () => [
+        {
+          descriptor: { code: 'page.inspect', description: 'Inspect', inputSchema: {} },
+          parseInput: (input) => input,
+          execute: async () => ({ inspected: true }),
+        },
+      ],
+      requestTurn: vi
+        .fn()
+        .mockResolvedValueOnce({
+          toolCalls: [{ id: 'call-1', code: 'page.inspect', input: {} }],
+        })
+        .mockImplementationOnce(async (_input, _signal, progress) => {
+          progress?.onTextDelta?.('完成');
+          return { text: '完成', toolCalls: [] };
+        }),
+    },
+  });
+  registry.activate('tab-a');
+
+  await runAssistantConversation(registry, '检查当前页面', {
+    onTextDelta() {},
+    onActivity(phase) {
+      phases.push(phase);
+    },
+  });
+
+  expect(phases).toEqual(['understanding', 'executing', 'understanding', 'responding']);
+});
 
 it('emits content-free structured diagnostics without affecting execution', async () => {
   const diagnostics: AssistantRuntimeDiagnosticEvent[] = [];

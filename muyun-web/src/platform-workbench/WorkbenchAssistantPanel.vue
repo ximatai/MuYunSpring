@@ -1,7 +1,12 @@
 <script setup lang="ts">
-import { nextTick, onBeforeUnmount, ref, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
 import { UiButton, UiIcon, UiTextArea } from '@muyun/vue-ui-antdv';
-import type { AssistantConversationMessage } from '@muyun/web-contracts';
+import type {
+  AssistantConversationMessage,
+  AssistantSelectionInteraction,
+  AssistantSelectionOption,
+  AssistantSelectionResponse,
+} from '@muyun/web-contracts';
 import {
   AssistantConversationFollowUpError,
   runAssistantConversation,
@@ -11,6 +16,7 @@ import {
   userFacingErrorMessage,
 } from '@muyun/web-core';
 import AssistantMarkdownContent from './AssistantMarkdownContent.vue';
+import AssistantSelectionCard from './AssistantSelectionCard.vue';
 
 defineOptions({ name: 'WorkbenchAssistantPanel' });
 
@@ -25,12 +31,38 @@ interface ConversationItem {
   id: number;
   role: 'user' | 'assistant' | 'status';
   text: string;
+  selection?: ConversationSelection;
+}
+
+interface ConversationSelection {
+  value: AssistantSelectionInteraction;
+  state: 'open' | 'submitting' | 'answered' | 'superseded';
+  selectedOptionId?: string;
 }
 
 const draft = ref('');
 const items = ref<ConversationItem[]>([]);
 const completedHistory = ref<AssistantConversationMessage[]>([]);
 const busy = ref(false);
+const activity = ref<'idle' | 'understanding' | 'executing' | 'responding' | 'cancelling'>('idle');
+const activityText = computed(() => {
+  switch (activity.value) {
+    case 'executing':
+      return '正在执行页面操作…';
+    case 'responding':
+      return '正在组织回复…';
+    case 'cancelling':
+      return '正在取消…';
+    case 'understanding':
+    default:
+      return '正在理解你的目标…';
+  }
+});
+const activeRequiredSelection = computed(() =>
+  items.value.find(
+    ({ selection }) => selection?.state === 'open' && selection.value.inputPolicy === 'selection_required',
+  ),
+);
 let nextItemId = 0;
 let controller: AbortController | undefined;
 let streamingItemId: number | undefined;
@@ -45,19 +77,46 @@ function append(role: ConversationItem['role'], text: string) {
   items.value.push({ id: ++nextItemId, role, text: normalized });
 }
 
-async function submit() {
+function appendAssistant(text: string | undefined, selection?: AssistantSelectionInteraction) {
+  const normalized = text?.trim() ?? '';
+  if (!normalized && !selection) return;
+  items.value.push({
+    id: ++nextItemId,
+    role: 'assistant',
+    text: normalized,
+    ...(selection ? { selection: { value: selection, state: 'open' as const } } : {}),
+  });
+}
+
+function submit() {
   const message = draft.value.trim();
-  if (!message || busy.value || !props.registry.snapshot()) return;
+  if (!message || busy.value || activeRequiredSelection.value || !props.registry.snapshot()) return;
   const history = conversationHistory();
   draft.value = '';
+  supersedeOpenSelections();
+  void submitMessage(message, history);
+}
+
+async function submitMessage(
+  message: string,
+  history: AssistantConversationMessage[],
+  selectionResponse?: AssistantSelectionResponse,
+  sourceSelection?: ConversationSelection,
+) {
+  if (!message || busy.value || !props.registry.snapshot()) return;
   append('user', message);
   busy.value = true;
+  activity.value = 'understanding';
   controller = new AbortController();
   const assistantTexts: string[] = [];
   try {
     const result = await runAssistantConversation(props.registry, message, {
       signal: controller.signal,
       history,
+      ...(selectionResponse ? { selectionResponse } : {}),
+      onActivity(phase) {
+        activity.value = phase;
+      },
       onTextDelta(text) {
         if (!text) return;
         if (streamingItemId === undefined) {
@@ -81,9 +140,13 @@ async function submit() {
         pendingStreamText = '';
       },
       onStep(step) {
-        if (step.output.text) {
-          assistantTexts.push(step.output.text);
-          if (streamingItemId === undefined) append('assistant', step.output.text);
+        if (step.output.text || step.output.selection) {
+          assistantTexts.push(assistantHistoryText(step.output.text, step.output.selection));
+          if (streamingItemId === undefined) appendAssistant(step.output.text, step.output.selection);
+          else if (step.output.selection) {
+            const item = items.value.find(({ id }) => id === streamingItemId);
+            if (item) item.selection = { value: step.output.selection, state: 'open' };
+          }
         }
         streamingItemId = undefined;
         pendingStreamText = '';
@@ -107,25 +170,73 @@ async function submit() {
       }
     }
     if (result.completed) commitConversation(message, assistantTexts);
+    if (sourceSelection) sourceSelection.state = 'answered';
   } catch (error) {
-    if (isAbortError(error)) append('status', '已停止本次操作。');
-    else if (error instanceof StaleAssistantInvocationError) {
+    if (isAbortError(error)) {
+      reopenSelection(sourceSelection);
+      append('status', '已停止本次操作。');
+    } else if (error instanceof StaleAssistantInvocationError) {
+      reopenSelection(sourceSelection);
       commitConversation(message, []);
       append('status', '页面发生了与当前任务冲突的变化，本轮已暂停。请确认当前页面后告诉我继续或调整目标。');
     } else if (error instanceof AssistantConversationFollowUpError) {
+      if (sourceSelection) sourceSelection.state = 'answered';
       const applied = error.steps.reduce((total, step) => total + step.appliedEffectCount, 0);
       append(
         'status',
         `前面的 ${applied} 项页面操作已生效，但后续说明未能生成。请检查当前页面，必要时继续告诉我下一步。`,
       );
-    } else append('status', userFacingErrorMessage(normalizeError(error)));
+    } else {
+      reopenSelection(sourceSelection);
+      append('status', userFacingErrorMessage(normalizeError(error)));
+    }
   } finally {
     streamingItemId = undefined;
     pendingStreamText = '';
     controller = undefined;
     busy.value = false;
+    activity.value = 'idle';
     await nextTick();
   }
+}
+
+function reopenSelection(selection?: ConversationSelection) {
+  if (!selection) return;
+  selection.state = 'open';
+  selection.selectedOptionId = undefined;
+}
+
+function selectOption(item: ConversationItem, option: AssistantSelectionOption) {
+  const selection = item.selection;
+  if (!selection || selection.state !== 'open' || busy.value) return;
+  const history = conversationHistory();
+  supersedeOpenSelections(selection);
+  selection.state = 'submitting';
+  selection.selectedOptionId = option.id;
+  void submitMessage(
+    option.label,
+    history,
+    {
+      interactionId: selection.value.interactionId,
+      optionId: option.id,
+      label: option.label,
+    },
+    selection,
+  );
+}
+
+function supersedeOpenSelections(except?: ConversationSelection) {
+  for (const item of items.value) {
+    if (item.selection && item.selection !== except && item.selection.state === 'open') {
+      item.selection.state = 'superseded';
+    }
+  }
+}
+
+function assistantHistoryText(text: string | undefined, selection?: AssistantSelectionInteraction) {
+  return [text?.trim(), selection?.prompt, selection?.options.map(({ label }) => `- ${label}`).join('\n')]
+    .filter(Boolean)
+    .join('\n');
 }
 
 function conversationHistory(): AssistantConversationMessage[] {
@@ -167,6 +278,7 @@ function capabilityResultStatus(succeeded: number, failed: number, applied: numb
 }
 
 function cancel() {
+  if (controller) activity.value = 'cancelling';
   controller?.abort();
 }
 
@@ -217,10 +329,19 @@ function isAbortError(error: unknown) {
         class="assistant-message"
         :class="`assistant-message--${item.role}`"
       >
-        <AssistantMarkdownContent v-if="item.role === 'assistant'" :content="item.text" />
+        <template v-if="item.role === 'assistant'">
+          <AssistantMarkdownContent v-if="item.text" :content="item.text" />
+          <AssistantSelectionCard
+            v-if="item.selection"
+            :selection="item.selection.value"
+            :state="item.selection.state"
+            :selected-option-id="item.selection.selectedOptionId"
+            @select="(option) => selectOption(item, option)"
+          />
+        </template>
         <template v-else>{{ item.text }}</template>
       </article>
-      <div v-if="busy" class="assistant-panel__working">正在理解并执行…</div>
+      <div v-if="busy" class="assistant-panel__working">{{ activityText }}</div>
     </section>
 
     <footer class="assistant-panel__composer">
@@ -228,14 +349,19 @@ function isAbortError(error: unknown) {
         v-model:value="draft"
         :rows="3"
         :maxlength="4000"
-        :disabled="busy"
-        placeholder="描述你想完成的事情"
+        :disabled="busy || Boolean(activeRequiredSelection)"
+        :placeholder="activeRequiredSelection ? '请先完成上方选择' : '描述你想完成的事情'"
         @keydown="handleKeydown"
       />
       <div class="assistant-panel__actions">
         <span>Enter 发送，Shift + Enter 换行</span>
         <UiButton v-if="busy" @click="cancel">停止</UiButton>
-        <UiButton v-else type="primary" :disabled="!draft.trim() || !registry.snapshot()" @click="submit">
+        <UiButton
+          v-else
+          type="primary"
+          :disabled="!draft.trim() || Boolean(activeRequiredSelection) || !registry.snapshot()"
+          @click="submit"
+        >
           发送
         </UiButton>
       </div>

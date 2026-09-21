@@ -1,6 +1,7 @@
 import type {
   AssistantCapabilityResult,
   AssistantConversationMessage,
+  AssistantSelectionResponse,
   AssistantTurnOutput,
 } from '@muyun/web-contracts';
 import {
@@ -31,12 +32,17 @@ export interface AssistantConversationOptions {
   maxSteps?: number;
   /** Completed dialogue before the current user message. */
   history?: AssistantConversationMessage[];
+  /** Structured answer to a selection shown by the immediately preceding assistant message. */
+  selectionResponse?: AssistantSelectionResponse;
   onStep?(step: AssistantRuntimeStepResult): void | Promise<void>;
   onTextDelta?(text: string, stepIndex: number): void;
   onTextDiscard?(stepIndex: number): void;
+  onActivity?(phase: AssistantActivityPhase, stepIndex: number): void;
   /** Receives content-free execution facts for local diagnostics or a governed telemetry adapter. */
   onDiagnostic?(event: AssistantRuntimeDiagnosticEvent): void | Promise<void>;
 }
+
+export type AssistantActivityPhase = 'understanding' | 'executing' | 'responding';
 
 type AssistantDiagnosticSurface = 'workbench' | 'module-page' | 'metadata-governance' | 'other';
 type AssistantDiagnosticFinishReason = 'stop' | 'tool_calls' | 'length' | 'content_filter' | 'other';
@@ -135,6 +141,8 @@ export async function runAssistantConversation(
         options.signal,
         successfulCalls,
         index,
+        index === 0 ? options.selectionResponse : undefined,
+        options.onActivity,
         options.onDiagnostic,
         options.onTextDelta
           ? (text) => {
@@ -254,6 +262,8 @@ async function runAssistantStepWithSuccessfulCalls(
   signal: AbortSignal | undefined,
   successfulCalls: Map<string, AssistantCapabilityResult>,
   stepIndex = 0,
+  selectionResponse?: AssistantSelectionResponse,
+  onActivity?: AssistantConversationOptions['onActivity'],
   onDiagnostic?: AssistantConversationOptions['onDiagnostic'],
   onTextDelta?: (text: string) => void,
 ): Promise<InternalAssistantRuntimeStepResult> {
@@ -279,13 +289,26 @@ async function runAssistantStepWithSuccessfulCalls(
     surface: diagnosticSurface(snapshot.context.surface),
     backgroundContextRefreshed: initialSnapshot.token.contextRevision !== snapshot.token.contextRevision,
   });
+  onActivity?.('understanding', stepIndex);
   let output: AssistantTurnOutput;
   try {
     output = onTextDelta
-      ? await registry.requestTurn({ message, history, results: previousResults }, snapshot.token, signal, {
-          onTextDelta,
-        })
-      : await registry.requestTurn({ message, history, results: previousResults }, snapshot.token, signal);
+      ? await registry.requestTurn(
+          { message, history, results: previousResults, ...(selectionResponse ? { selectionResponse } : {}) },
+          snapshot.token,
+          signal,
+          {
+            onTextDelta(text) {
+              onActivity?.('responding', stepIndex);
+              onTextDelta(text);
+            },
+          },
+        )
+      : await registry.requestTurn(
+          { message, history, results: previousResults, ...(selectionResponse ? { selectionResponse } : {}) },
+          snapshot.token,
+          signal,
+        );
   } catch (error) {
     if (!signal?.aborted && (error instanceof StaleAssistantInvocationError || isAbortError(error))) {
       throw new AssistantDecisionContextChangedError(snapshot.token);
@@ -307,6 +330,7 @@ async function runAssistantStepWithSuccessfulCalls(
   if (output.toolCalls.length > MAX_CALLS_PER_STEP) {
     throw new Error(`Assistant returned more than ${MAX_CALLS_PER_STEP} capability calls`);
   }
+  if (output.toolCalls.length > 0) onActivity?.('executing', stepIndex);
   const results: AssistantCapabilityResult[] = [];
   const replayableCalls = new Map<string, AssistantCapabilityResult>();
   let attemptedCallCount = 0;

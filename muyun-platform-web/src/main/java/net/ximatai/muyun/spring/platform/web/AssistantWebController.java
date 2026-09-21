@@ -3,14 +3,16 @@ package net.ximatai.muyun.spring.platform.web;
 import jakarta.annotation.PreDestroy;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.exception.PlatformErrorCodes;
-import net.ximatai.muyun.spring.platform.ai.AiTurnResponse;
-import net.ximatai.muyun.spring.platform.ai.AiTurnStreamConsumer;
 import net.ximatai.muyun.spring.platform.ai.AiToolCall;
 import net.ximatai.muyun.spring.platform.ai.AiToolDefinition;
 import net.ximatai.muyun.spring.platform.assistant.AssistantCapabilityResult;
 import net.ximatai.muyun.spring.platform.assistant.AssistantConversationMessage;
+import net.ximatai.muyun.spring.platform.assistant.AssistantSelectionInteraction;
+import net.ximatai.muyun.spring.platform.assistant.AssistantSelectionResponse;
 import net.ximatai.muyun.spring.platform.assistant.AssistantTurnCommand;
+import net.ximatai.muyun.spring.platform.assistant.AssistantTurnResult;
 import net.ximatai.muyun.spring.platform.assistant.AssistantTurnService;
+import net.ximatai.muyun.spring.platform.assistant.AssistantTurnStreamConsumer;
 import net.ximatai.muyun.spring.web.WebRequestContext;
 import net.ximatai.muyun.spring.web.PlatformWebError;
 import org.springframework.http.MediaType;
@@ -76,14 +78,14 @@ public class AssistantWebController {
 
     private void stream(AssistantTurnCommand command, SseEmitter emitter, AtomicBoolean closed) {
         try {
-            service.stream(command, new AiTurnStreamConsumer() {
+            service.stream(command, new AssistantTurnStreamConsumer() {
                 @Override
                 public void onTextDelta(String text) {
                     send(emitter, "text", Map.of("text", text), closed);
                 }
 
                 @Override
-                public void onComplete(AiTurnResponse response) {
+                public void onComplete(AssistantTurnResult response) {
                     send(emitter, "complete", response(response), closed);
                 }
             });
@@ -131,12 +133,14 @@ public class AssistantWebController {
         return new AssistantTurnCommand(request.message(),
                 request.history().stream().map(AssistantConversationMessageWeb::toDomain).toList(),
                 request.context(), request.capabilities(),
-                request.results().stream().map(AssistantCapabilityResultWeb::toDomain).toList());
+                request.results().stream().map(AssistantCapabilityResultWeb::toDomain).toList(),
+                request.selectionResponse() == null ? null : request.selectionResponse().toDomain());
     }
 
-    private static AssistantTurnWebResponse response(AiTurnResponse response) {
+    private static AssistantTurnWebResponse response(AssistantTurnResult response) {
         return new AssistantTurnWebResponse(response.text(),
                 response.toolCalls().stream().map(AssistantCapabilityCallWeb::from).toList(),
+                AssistantSelectionWeb.from(response.selection()),
                 response.finishReason(), response.requestId());
     }
 
@@ -153,7 +157,8 @@ record AssistantTurnWebRequest(String message,
                                List<AssistantConversationMessageWeb> history,
                                Map<String, Object> context,
                                List<AiToolDefinition> capabilities,
-                               List<AssistantCapabilityResultWeb> results) {
+                               List<AssistantCapabilityResultWeb> results,
+                               AssistantSelectionResponseWeb selectionResponse) {
     AssistantTurnWebRequest {
         if (history != null && history.stream().anyMatch(Objects::isNull)) {
             throw new IllegalArgumentException("assistant history item must not be null");
@@ -167,7 +172,19 @@ record AssistantTurnWebRequest(String message,
     AssistantTurnWebRequest(String message, Map<String, Object> context,
                             List<AiToolDefinition> capabilities,
                             List<AssistantCapabilityResultWeb> results) {
-        this(message, List.of(), context, capabilities, results);
+        this(message, List.of(), context, capabilities, results, null);
+    }
+
+    AssistantTurnWebRequest(String message, List<AssistantConversationMessageWeb> history,
+                            Map<String, Object> context, List<AiToolDefinition> capabilities,
+                            List<AssistantCapabilityResultWeb> results) {
+        this(message, history, context, capabilities, results, null);
+    }
+}
+
+record AssistantSelectionResponseWeb(String interactionId, String optionId, String label) {
+    AssistantSelectionResponse toDomain() {
+        return new AssistantSelectionResponse(interactionId, optionId, label);
     }
 }
 
@@ -196,8 +213,33 @@ record AssistantCapabilityErrorWeb(String code, String message) {
 
 record AssistantTurnWebResponse(String text,
                                 List<AssistantCapabilityCallWeb> toolCalls,
+                                AssistantSelectionWeb selection,
                                 String finishReason,
                                 String requestId) {
+}
+
+record AssistantSelectionWeb(String interactionId,
+                             String prompt,
+                             String inputPolicy,
+                             String presentation,
+                             List<AssistantSelectionOptionWeb> options) {
+    static AssistantSelectionWeb from(AssistantSelectionInteraction selection) {
+        if (selection == null) return null;
+        return new AssistantSelectionWeb(
+                selection.interactionId(),
+                selection.prompt(),
+                selection.inputPolicy() == AssistantSelectionInteraction.InputPolicy.FREE_TEXT_ALLOWED
+                        ? "free_text_allowed" : "selection_required",
+                selection.presentation() == AssistantSelectionInteraction.Presentation.CONFIRMATION
+                        ? "confirmation" : "options",
+                selection.options().stream().map(AssistantSelectionOptionWeb::from).toList());
+    }
+}
+
+record AssistantSelectionOptionWeb(String id, String label) {
+    static AssistantSelectionOptionWeb from(AssistantSelectionInteraction.Option option) {
+        return new AssistantSelectionOptionWeb(option.id(), option.label());
+    }
 }
 
 record AssistantCapabilityCallWeb(String id, String code, Map<String, Object> input) {

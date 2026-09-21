@@ -5,12 +5,14 @@ import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
 import net.ximatai.muyun.spring.common.tenant.TenantContext;
 import net.ximatai.muyun.spring.common.exception.PlatformErrorCodes;
 import net.ximatai.muyun.spring.common.web.RequestTraceContext;
-import net.ximatai.muyun.spring.platform.ai.AiTurnStreamConsumer;
 import net.ximatai.muyun.spring.platform.ai.AiToolCall;
 import net.ximatai.muyun.spring.platform.ai.AiToolDefinition;
 import net.ximatai.muyun.spring.platform.ai.AiTurnResponse;
 import net.ximatai.muyun.spring.platform.assistant.AssistantTurnCommand;
+import net.ximatai.muyun.spring.platform.assistant.AssistantTurnResult;
 import net.ximatai.muyun.spring.platform.assistant.AssistantTurnService;
+import net.ximatai.muyun.spring.platform.assistant.AssistantTurnStreamConsumer;
+import net.ximatai.muyun.spring.platform.assistant.AssistantSelectionInteraction;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.slf4j.MDC;
@@ -70,12 +72,13 @@ class AssistantWebControllerTest {
             tenant.set(TenantContext.currentTenantId().orElse(null));
             system.set(TenantContext.isSystem());
             trace.set(MDC.get("traceId"));
-            AiTurnStreamConsumer consumer = invocation.getArgument(1);
-            consumer.onComplete(new AiTurnResponse("ready", List.of(), "stop", "request-stream"));
+            AssistantTurnStreamConsumer consumer = invocation.getArgument(1);
+            consumer.onComplete(new AssistantTurnResult("ready", List.of(), null,
+                    "stop", "request-stream"));
             completed.countDown();
             return null;
         }).when(service).stream(org.mockito.ArgumentMatchers.any(),
-                org.mockito.ArgumentMatchers.any(AiTurnStreamConsumer.class));
+                org.mockito.ArgumentMatchers.any(AssistantTurnStreamConsumer.class));
         AssistantWebController controller = new AssistantWebController(service);
         AssistantTurnWebRequest request = new AssistantTurnWebRequest("describe", Map.of(), List.of(), List.of());
 
@@ -99,9 +102,9 @@ class AssistantWebControllerTest {
     @Test
     void adaptsBrowserResultsAndModelToolArgumentsWithoutLeakingTransportTypesIntoTheService() {
         AssistantTurnService service = mock(AssistantTurnService.class);
-        when(service.turn(org.mockito.ArgumentMatchers.any())).thenReturn(new AiTurnResponse(null,
+        when(service.turn(org.mockito.ArgumentMatchers.any())).thenReturn(new AssistantTurnResult(null,
                 List.of(new AiToolCall("call-2", "form.patch-draft", Map.of("changes", Map.of("title", "Done")))),
-                "tool_calls", "request-1"));
+                null, "tool_calls", "request-1"));
         AssistantTurnWebRequest request = new AssistantTurnWebRequest("continue",
                 List.of(
                         new AssistantConversationMessageWeb("user", "我要新增一名职员"),
@@ -121,5 +124,35 @@ class AssistantWebControllerTest {
         assertThat(command.getValue().results().getFirst().output()).isEqualTo(Map.of("opened", true));
         assertThat(command.getValue().history()).extracting(item -> item.role().name())
                 .containsExactly("USER", "ASSISTANT");
+    }
+
+    @Test
+    void mapsSelectionInteractionsAndStructuredAnswersAcrossTheWebBoundary() {
+        AssistantTurnService service = mock(AssistantTurnService.class);
+        var selection = new AssistantSelectionInteraction(
+                "selection-1",
+                "请选择环境",
+                AssistantSelectionInteraction.InputPolicy.SELECTION_REQUIRED,
+                AssistantSelectionInteraction.Presentation.OPTIONS,
+                List.of(
+                        new AssistantSelectionInteraction.Option("production", "生产环境"),
+                        new AssistantSelectionInteraction.Option("staging", "预发布环境")));
+        when(service.turn(org.mockito.ArgumentMatchers.any())).thenReturn(
+                new AssistantTurnResult(null, List.of(), selection, "tool_calls", "request-selection"));
+        AssistantTurnWebRequest request = new AssistantTurnWebRequest(
+                "生产环境", List.of(), Map.of(), List.of(), List.of(),
+                new AssistantSelectionResponseWeb("selection-1", "production", "生产环境"));
+
+        AssistantTurnWebResponse response = new AssistantWebController(service).turn(request);
+
+        assertThat(response.selection()).satisfies(value -> {
+            assertThat(value.interactionId()).isEqualTo("selection-1");
+            assertThat(value.inputPolicy()).isEqualTo("selection_required");
+            assertThat(value.options()).extracting(AssistantSelectionOptionWeb::id)
+                    .containsExactly("production", "staging");
+        });
+        ArgumentCaptor<AssistantTurnCommand> command = ArgumentCaptor.forClass(AssistantTurnCommand.class);
+        verify(service).turn(command.capture());
+        assertThat(command.getValue().selectionResponse().optionId()).isEqualTo("production");
     }
 }

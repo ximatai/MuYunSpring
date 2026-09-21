@@ -14,7 +14,8 @@ public record AssistantTurnCommand(
         List<AssistantConversationMessage> history,
         Map<String, Object> context,
         List<AiToolDefinition> capabilities,
-        List<AssistantCapabilityResult> results
+        List<AssistantCapabilityResult> results,
+        AssistantSelectionResponse selectionResponse
 ) {
     public AssistantTurnCommand {
         if (history != null && history.stream().anyMatch(Objects::isNull)) {
@@ -29,6 +30,12 @@ public record AssistantTurnCommand(
     public AssistantTurnCommand(String message, Map<String, Object> context,
                                 List<AiToolDefinition> capabilities,
                                 List<AssistantCapabilityResult> results) {
-        this(message, List.of(), context, capabilities, results);
+        this(message, List.of(), context, capabilities, results, null);
+    }
+
+    public AssistantTurnCommand(String message, List<AssistantConversationMessage> history,
+                                Map<String, Object> context, List<AiToolDefinition> capabilities,
+                                List<AssistantCapabilityResult> results) {
+        this(message, history, context, capabilities, results, null);
     }
 }

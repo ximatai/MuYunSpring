@@ -77,14 +77,14 @@ class AssistantTurnServiceTest {
 
         try (CurrentUserContext.Scope ignored = CurrentUserContext.use(CurrentUser.systemUser("system", "System"))) {
             service.stream(new AssistantTurnCommand("describe", Map.of(), List.of(), List.of()),
-                    new AiTurnStreamConsumer() {
+                    new AssistantTurnStreamConsumer() {
                         @Override
                         public void onTextDelta(String text) {
                             events.add("delta:" + text);
                         }
 
                         @Override
-                        public void onComplete(AiTurnResponse response) {
+                        public void onComplete(AssistantTurnResult response) {
                             events.add("complete:" + response.requestId());
                         }
                     });
@@ -114,13 +114,13 @@ class AssistantTurnServiceTest {
         try (CurrentUserContext.Scope ignored = CurrentUserContext.use(CurrentUser.systemUser("system", "System"))) {
             assertThatThrownBy(() -> service.stream(
                     new AssistantTurnCommand("describe", Map.of(), List.of(), List.of()),
-                    new AiTurnStreamConsumer() {
+                    new AssistantTurnStreamConsumer() {
                         @Override
                         public void onTextDelta(String text) {
                         }
 
                         @Override
-                        public void onComplete(AiTurnResponse response) {
+                        public void onComplete(AssistantTurnResult response) {
                             throw new IllegalStateException("private browser disconnect");
                         }
                     })).isInstanceOf(IllegalStateException.class).hasMessage("private browser disconnect");
@@ -154,13 +154,13 @@ class AssistantTurnServiceTest {
             assertThatThrownBy(() -> service.turn(command))
                     .isInstanceOf(PlatformException.class)
                     .hasMessageContaining("截断");
-            assertThatThrownBy(() -> service.stream(command, new AiTurnStreamConsumer() {
+            assertThatThrownBy(() -> service.stream(command, new AssistantTurnStreamConsumer() {
                 @Override
                 public void onTextDelta(String text) {
                 }
 
                 @Override
-                public void onComplete(AiTurnResponse response) {
+                public void onComplete(AssistantTurnResult response) {
                     throw new AssertionError("truncated responses must not complete");
                 }
             })).isInstanceOf(PlatformException.class).hasMessageContaining("截断");
@@ -196,7 +196,7 @@ class AssistantTurnServiceTest {
 
         try (CurrentUserContext.Scope ignored = CurrentUserContext.use(
                 CurrentUser.tenantUser("user-1", "User", "tenant-1"))) {
-            assertThat(service.turn(command)).isSameAs(response);
+            assertThat(service.turn(command).text()).isEqualTo("ready");
         }
 
         ArgumentCaptor<AiTurnRequest> request = ArgumentCaptor.forClass(AiTurnRequest.class);
@@ -207,7 +207,120 @@ class AssistantTurnServiceTest {
                 .contains("MuYun workbench", "open only an exact", "returned menuId", "navigate manually")
                 .doesNotContain("employee", "department", "daily report");
         assertThat(request.getValue().messages().get(1).content()).contains("find customers", "workbench");
-        assertThat(request.getValue().tools()).containsExactly(capability);
+        assertThat(request.getValue().tools()).extracting(AiToolDefinition::code)
+                .containsExactly(capability.code(), AssistantTurnService.PRESENT_SELECTION_CODE);
+    }
+
+    @Test
+    void convertsTheReservedSelectionToolIntoAnAssistantInteraction() {
+        AiModelGateway gateway = mock(AiModelGateway.class);
+        when(gateway.complete(org.mockito.ArgumentMatchers.any())).thenReturn(new AiTurnResponse(null,
+                List.of(new AiToolCall("selection-1", AssistantTurnService.PRESENT_SELECTION_CODE, Map.of(
+                        "prompt", "你想先做哪一步？",
+                        "inputPolicy", "free_text_allowed",
+                        "presentation", "options",
+                        "options", List.of(
+                                Map.of("id", "inspect", "label", "查看当前页面"),
+                                Map.of("id", "create", "label", "新增一条记录"))))),
+                "tool_calls", "request-selection"));
+        AssistantTurnService service = new AssistantTurnService(gateway, new ObjectMapper());
+
+        AssistantTurnResult result;
+        try (CurrentUserContext.Scope ignored = CurrentUserContext.use(CurrentUser.systemUser("system", "System"))) {
+            result = service.turn(new AssistantTurnCommand("帮我处理当前业务", Map.of(), List.of(), List.of()));
+        }
+
+        assertThat(result.toolCalls()).isEmpty();
+        assertThat(result.selection()).satisfies(selection -> {
+            assertThat(selection.interactionId()).isEqualTo("selection-1");
+            assertThat(selection.prompt()).isEqualTo("你想先做哪一步？");
+            assertThat(selection.inputPolicy())
+                    .isEqualTo(AssistantSelectionInteraction.InputPolicy.FREE_TEXT_ALLOWED);
+            assertThat(selection.options()).extracting(AssistantSelectionInteraction.Option::id)
+                    .containsExactly("inspect", "create");
+        });
+    }
+
+    @Test
+    void rejectsInvalidOrMixedSelectionCalls() {
+        AiModelGateway gateway = mock(AiModelGateway.class);
+        AssistantTurnService service = new AssistantTurnService(gateway, new ObjectMapper());
+        AiToolCall invalidConfirmation = new AiToolCall("selection-1",
+                AssistantTurnService.PRESENT_SELECTION_CODE, Map.of(
+                "prompt", "确认继续吗？",
+                "inputPolicy", "free_text_allowed",
+                "presentation", "confirmation",
+                "options", List.of(
+                        Map.of("id", "confirm", "label", "确认"),
+                        Map.of("id", "cancel", "label", "取消"))));
+        AiToolCall pageCall = new AiToolCall("call-1", "page.describe", Map.of());
+        AssistantTurnCommand command = new AssistantTurnCommand("continue", Map.of(),
+                List.of(new AiToolDefinition("page.describe", "Describe page", Map.of())), List.of());
+
+        try (CurrentUserContext.Scope ignored = CurrentUserContext.use(CurrentUser.systemUser("system", "System"))) {
+            when(gateway.complete(org.mockito.ArgumentMatchers.any())).thenReturn(
+                    new AiTurnResponse(null, List.of(invalidConfirmation), "tool_calls", "request-1"));
+            assertThatThrownBy(() -> service.turn(command))
+                    .isInstanceOf(PlatformException.class)
+                    .hasMessageContaining("confirmation");
+
+            when(gateway.complete(org.mockito.ArgumentMatchers.any())).thenReturn(
+                    new AiTurnResponse(null, List.of(invalidConfirmation, pageCall),
+                            "tool_calls", "request-2"));
+            assertThatThrownBy(() -> service.turn(command))
+                    .isInstanceOf(PlatformException.class)
+                    .hasMessageContaining("cannot be combined");
+        }
+    }
+
+    @Test
+    void suppliesStandardConfirmationChoicesInsteadOfTrustingModelOptionIdsAndLabels() {
+        AiModelGateway gateway = mock(AiModelGateway.class);
+        when(gateway.complete(org.mockito.ArgumentMatchers.any())).thenReturn(new AiTurnResponse(null,
+                List.of(new AiToolCall("confirmation-1", AssistantTurnService.PRESENT_SELECTION_CODE, Map.of(
+                        "prompt", "确认新增根部门吗？",
+                        "inputPolicy", "selection_required",
+                        "presentation", "confirmation",
+                        "options", List.of(
+                                Map.of("id", "yes", "label", "继续创建"),
+                                Map.of("id", "no", "label", "先不创建"))))),
+                "tool_calls", "request-confirmation"));
+        AssistantTurnService service = new AssistantTurnService(gateway, new ObjectMapper());
+
+        AssistantTurnResult result;
+        try (CurrentUserContext.Scope ignored = CurrentUserContext.use(CurrentUser.systemUser("system", "System"))) {
+            result = service.turn(new AssistantTurnCommand("新增前让我确认", Map.of(), List.of(), List.of()));
+        }
+
+        assertThat(result.selection().inputPolicy())
+                .isEqualTo(AssistantSelectionInteraction.InputPolicy.SELECTION_REQUIRED);
+        assertThat(result.selection().presentation())
+                .isEqualTo(AssistantSelectionInteraction.Presentation.CONFIRMATION);
+        assertThat(result.selection().options())
+                .extracting(AssistantSelectionInteraction.Option::id)
+                .containsExactly("confirm", "cancel");
+        assertThat(result.selection().options())
+                .extracting(AssistantSelectionInteraction.Option::label)
+                .containsExactly("确认", "取消");
+    }
+
+    @Test
+    void carriesAStructuredSelectionResponseInTheCurrentModelPayload() {
+        AiModelGateway gateway = mock(AiModelGateway.class);
+        when(gateway.complete(org.mockito.ArgumentMatchers.any())).thenReturn(
+                new AiTurnResponse("继续处理", List.of(), "stop", "request-answer"));
+        AssistantTurnService service = new AssistantTurnService(gateway, new ObjectMapper());
+        AssistantTurnCommand command = new AssistantTurnCommand("新增一条记录", List.of(), Map.of(), List.of(),
+                List.of(), new AssistantSelectionResponse("selection-1", "create", "新增一条记录"));
+
+        try (CurrentUserContext.Scope ignored = CurrentUserContext.use(CurrentUser.systemUser("system", "System"))) {
+            service.turn(command);
+        }
+
+        ArgumentCaptor<AiTurnRequest> request = ArgumentCaptor.forClass(AiTurnRequest.class);
+        verify(gateway).complete(request.capture());
+        assertThat(request.getValue().messages().getLast().content())
+                .contains("selectionResponse", "selection-1", "create", "新增一条记录");
     }
 
     @Test
@@ -365,9 +478,9 @@ class AssistantTurnServiceTest {
             AssistantTurnCommand continuation = new AssistantTurnCommand("continue", Map.of(), List.of(),
                     List.of(new AssistantCapabilityResult("call-1", "form.patch-draft",
                             Map.of("changedFields", List.of("title")), null, null)));
-            assertThat(service.turn(continuation)).isSameAs(blank);
+            assertThat(service.turn(continuation).text()).isNull();
             when(gateway.complete(org.mockito.ArgumentMatchers.any())).thenReturn(empty);
-            assertThat(service.turn(continuation)).isSameAs(empty);
+            assertThat(service.turn(continuation).text()).isNull();
 
             when(gateway.complete(org.mockito.ArgumentMatchers.any())).thenReturn(
                     new AiTurnResponse(null, List.of(), "length", "request-5"));

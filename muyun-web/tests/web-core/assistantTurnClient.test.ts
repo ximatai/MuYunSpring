@@ -20,6 +20,30 @@ it('sends a turn through the supplied scoped client without adding identity fact
   });
 });
 
+it('validates selections returned by the non-streaming compatibility endpoint', async () => {
+  const request = vi.fn(async () => ({
+    toolCalls: [],
+    selection: {
+      interactionId: 'selection-1',
+      prompt: '确认吗？',
+      inputPolicy: 'free_text_allowed',
+      presentation: 'confirmation',
+      options: [
+        { id: 'confirm', label: '确认' },
+        { id: 'cancel', label: '取消' },
+      ],
+    },
+  }));
+  const requester = createAssistantTurnRequester({ request } as HttpClient);
+
+  await expect(
+    requester(
+      { message: 'continue', context: { surface: 'workbench', facts: {} }, capabilities: [] },
+      new AbortController().signal,
+    ),
+  ).rejects.toThrow('无效响应');
+});
+
 it('streams text deltas and resolves only the terminal structured turn', async () => {
   const encoder = new TextEncoder();
   const stream = vi.fn(
@@ -64,6 +88,65 @@ it('streams text deltas and resolves only the terminal structured turn', async (
   );
 });
 
+it('accepts a bounded selection interaction in the terminal turn', async () => {
+  const encoder = new TextEncoder();
+  const stream = vi.fn(
+    async () =>
+      new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(
+            encoder.encode(
+              'event: complete\ndata: {"toolCalls":[],"selection":{"interactionId":"selection-1","prompt":"请选择环境","inputPolicy":"selection_required","presentation":"options","options":[{"id":"production","label":"生产环境"},{"id":"staging","label":"预发布环境"}]},"finishReason":"tool_calls"}\n\n',
+            ),
+          );
+          controller.close();
+        },
+      }),
+  );
+  const requester = createAssistantTurnRequester({ request: vi.fn(), stream } as StreamingHttpClient);
+
+  await expect(
+    requester(
+      { message: '继续', context: { surface: 'workbench', facts: {} }, capabilities: [] },
+      new AbortController().signal,
+    ),
+  ).resolves.toMatchObject({
+    selection: {
+      interactionId: 'selection-1',
+      inputPolicy: 'selection_required',
+      options: [
+        { id: 'production', label: '生产环境' },
+        { id: 'staging', label: '预发布环境' },
+      ],
+    },
+  });
+});
+
+it('rejects malformed or unsafe selection interactions', async () => {
+  const encoder = new TextEncoder();
+  const stream = vi.fn(
+    async () =>
+      new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(
+            encoder.encode(
+              'event: complete\ndata: {"toolCalls":[],"selection":{"interactionId":"selection-1","prompt":"确认吗","inputPolicy":"free_text_allowed","presentation":"confirmation","options":[{"id":"confirm","label":"确认"},{"id":"cancel","label":"取消"}]},"finishReason":"tool_calls"}\n\n',
+            ),
+          );
+          controller.close();
+        },
+      }),
+  );
+  const requester = createAssistantTurnRequester({ request: vi.fn(), stream } as StreamingHttpClient);
+
+  await expect(
+    requester(
+      { message: '继续', context: { surface: 'workbench', facts: {} }, capabilities: [] },
+      new AbortController().signal,
+    ),
+  ).rejects.toThrow('无效响应');
+});
+
 it('rejects an assistant stream that ends without a terminal event', async () => {
   const encoder = new TextEncoder();
   const stream = vi.fn(
@@ -82,7 +165,7 @@ it('rejects an assistant stream that ends without a terminal event', async () =>
       { message: 'describe', context: { surface: 'workbench', facts: {} }, capabilities: [] },
       new AbortController().signal,
     ),
-  ).rejects.toThrow('无效的流式响应');
+  ).rejects.toThrow('无效响应');
 });
 
 it('cancels the response body when an assistant stream is malformed', async () => {
@@ -104,7 +187,7 @@ it('cancels the response body when an assistant stream is malformed', async () =
       { message: 'describe', context: { surface: 'workbench', facts: {} }, capabilities: [] },
       new AbortController().signal,
     ),
-  ).rejects.toThrow('无效的流式响应');
+  ).rejects.toThrow('无效响应');
   expect(cancel).toHaveBeenCalledOnce();
 });
 
