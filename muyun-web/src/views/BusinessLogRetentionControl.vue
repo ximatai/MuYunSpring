@@ -190,14 +190,7 @@ function errorMessage(error: unknown) {
             </small>
             <small v-else>尚未人工调整，使用平台安全默认值。</small>
           </div>
-          <span class="business-log-retention-control__summary">
-            {{ policy.automaticCleanupEnabled ? '自动清理已启用' : '自动清理已停用' }} · 保留
-            {{ policy.retentionDays }} 天
-          </span>
-        </header>
-
-        <div class="business-log-retention-control__fields">
-          <label>
+          <label class="business-log-retention-control__automatic-cleanup">
             <span>自动清理</span>
             <UiSwitch
               v-model:checked="policy.automaticCleanupEnabled"
@@ -206,15 +199,30 @@ function errorMessage(error: unknown) {
               unchecked-text="停用"
             />
           </label>
-          <label>
+        </header>
+
+        <div class="business-log-retention-control__content">
+          <label class="business-log-retention-control__retention-days">
             <span>保留天数</span>
-            <UiInput
-              :value="policy.retentionDays"
-              type="number"
-              :disabled="!canConfigure || operationPending"
-              :aria-label="`${typeLabel(policy.eventType)}保留天数`"
-              @update:value="updateDays(policy, $event)"
-            />
+            <span class="business-log-retention-control__retention-row">
+              <UiInput
+                :value="policy.retentionDays"
+                type="number"
+                :disabled="!canConfigure || operationPending"
+                :aria-label="`${typeLabel(policy.eventType)}保留天数`"
+                @update:value="updateDays(policy, $event)"
+              />
+              <UiActionButton
+                v-if="canPurge"
+                intent="danger"
+                :disabled="operationPending || !validDays(policy.retentionDays) || isDirty(policy)"
+                :loading="purgingType === policy.eventType"
+                :title="isDirty(policy) ? '请先保存当前策略，再执行清理' : undefined"
+                @click="purge(policy)"
+              >
+                立即清理
+              </UiActionButton>
+            </span>
             <small v-if="!validDays(policy.retentionDays)" class="business-log-retention-control__validation">
               请输入 1 至 36500 之间的整数。
             </small>
@@ -229,17 +237,7 @@ function errorMessage(error: unknown) {
             :loading="savingType === policy.eventType"
             @click="save(policy)"
           >
-            保存策略
-          </UiActionButton>
-          <UiActionButton
-            v-if="canPurge"
-            intent="danger"
-            :disabled="operationPending || !validDays(policy.retentionDays) || isDirty(policy)"
-            :loading="purgingType === policy.eventType"
-            :title="isDirty(policy) ? '请先保存当前策略，再执行清理' : undefined"
-            @click="purge(policy)"
-          >
-            立即清理
+            保存
           </UiActionButton>
         </footer>
       </article>
@@ -270,18 +268,31 @@ function errorMessage(error: unknown) {
 .business-log-retention-control__policies h3 {
   margin: 0;
 }
-.business-log-retention-control__policies small,
-.business-log-retention-control__summary {
+.business-log-retention-control__policies small {
   color: var(--muyun-text-muted);
 }
-.business-log-retention-control__fields {
-  display: grid;
-  grid-template-columns: minmax(180px, 0.45fr) minmax(240px, 0.55fr);
-  gap: 20px;
+.business-log-retention-control__automatic-cleanup {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 10px;
 }
-.business-log-retention-control__fields label {
+.business-log-retention-control__content,
+.business-log-retention-control__retention-days {
   display: grid;
   gap: 8px;
+}
+.business-log-retention-control__retention-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.business-log-retention-control__retention-row :deep(.ui-input) {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.business-log-retention-control__retention-row :deep(.ui-action-button) {
+  flex: 0 0 auto;
 }
 .business-log-retention-control__policies footer {
   justify-content: flex-end;
@@ -290,10 +301,12 @@ function errorMessage(error: unknown) {
   color: var(--muyun-danger-text) !important;
 }
 @media (max-width: 720px) {
-  .business-log-retention-control__policies header,
-  .business-log-retention-control__fields {
+  .business-log-retention-control__policies header {
     display: grid;
     grid-template-columns: 1fr;
+  }
+  .business-log-retention-control__automatic-cleanup {
+    justify-self: start;
   }
 }
 </style>

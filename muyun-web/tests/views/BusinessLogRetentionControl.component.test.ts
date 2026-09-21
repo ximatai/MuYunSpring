@@ -14,6 +14,13 @@ it('embeds retention as a permission-aware control instead of a standalone page'
   expect(source).toContain('visibleTypes.has(policy.eventType)');
 });
 
+it('presents each retention policy as a card with distinct header, content, and save regions', () => {
+  expect(source).toContain('class="business-log-retention-control__automatic-cleanup"');
+  expect(source).toContain('class="business-log-retention-control__retention-row"');
+  expect(source).toMatch(/business-log-retention-control__retention-row[\s\S]*?<UiInput[\s\S]*?立即清理/);
+  expect(source).toMatch(/<footer>[\s\S]*?>\s*保存\s*<\/UiActionButton>/);
+});
+
 it('prevents a retention draft from changing the destructive cleanup contract', () => {
   expect(source).toContain('if (!persisted || isDirty(policy) || operationPending.value) return;');
   expect(source).toContain('${persisted.retentionDays} 天');
