@@ -9,6 +9,7 @@ export interface ModulePageListSessionOptions {
   resetTreeSelection(): void;
   openRecord(record: QueryListRecord): void;
   openRecycleBinRecord(record: QueryListRecord): void;
+  markUserInteraction(): void;
 }
 
 /**
@@ -46,6 +47,7 @@ export function useModulePageListSession(options: ModulePageListSessionOptions) 
   }
 
   function resetFlatManagementSelection() {
+    options.markUserInteraction();
     options.invalidateDetailLoad();
     options.resetDetail();
     options.selectedRecord.value = undefined;
@@ -53,6 +55,7 @@ export function useModulePageListSession(options: ModulePageListSessionOptions) 
 
   function handleListModeChange(mode: RecordQueryListMode) {
     if (options.saving.value || listMode.value === mode) return;
+    options.markUserInteraction();
     listMode.value = mode;
     options.invalidateDetailLoad();
     options.resetDetail();
@@ -65,6 +68,8 @@ export function useModulePageListSession(options: ModulePageListSessionOptions) 
   }
 
   function selectRecord(record: QueryListRecord) {
+    if (options.selectedRecord.value?.id === record.id) return;
+    options.markUserInteraction();
     options.selectedRecord.value = record;
   }
 

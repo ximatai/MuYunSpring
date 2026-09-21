@@ -76,6 +76,26 @@ describe('query reference picker provider', () => {
     ]);
   });
 
+  it('marks an identifier used as the display title as a fallback', async () => {
+    const request = vi.fn().mockResolvedValue({
+      records: [{ id: 'internal-id' }],
+      total: 1,
+      pageNum: 1,
+      pageSize: 20,
+    });
+    const provider = createQueryReferencePickerProvider({
+      http: { request } as unknown as HttpClient,
+      reference: { targetModuleAlias: 'sales.customer', cardinality: 'ONE' },
+    });
+
+    await expect(
+      provider.searchPage({ keyword: '', pageNum: 1, pageSize: 20, scope: { selections: [] } }),
+    ).resolves.toEqual({
+      records: [{ id: 'internal-id', title: 'internal-id', identifierFallback: true, disabled: false }],
+      total: 1,
+    });
+  });
+
   it('rejects unsupported browse axes rather than widening the target query', async () => {
     const provider = createQueryReferencePickerProvider({
       http: { request: vi.fn() } as unknown as HttpClient,

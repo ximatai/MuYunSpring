@@ -16,6 +16,7 @@ import net.ximatai.muyun.spring.ability.security.FieldProtectionAbility;
 import net.ximatai.muyun.spring.ability.security.FieldSigner;
 import net.ximatai.muyun.spring.common.exception.PlatformConfigurationException;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
+import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
 import net.ximatai.muyun.spring.common.tenant.TenantContext;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
@@ -98,6 +99,11 @@ public class AiModelConfigurationService extends AbstractAbilityService<AiModelC
         if (!TenantContext.hasContext()) {
             throw new PlatformConfigurationException(
                     "AI model routing requires an explicit tenant or system context");
+        }
+        // A platform operator may select a tenant as the business data scope.  That request
+        // scope must not turn the caller into a tenant identity for model routing.
+        if (CurrentUserContext.isSystem()) {
+            return requireUsable(firstPlatformConfiguration(), "platform");
         }
         String tenantId = TenantContext.currentTenantId().orElse(null);
         if (tenantId != null) {

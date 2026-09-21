@@ -1,4 +1,5 @@
 export { default as Workbench } from './Workbench.vue';
+export { default as WorkbenchAssistantPanel } from './WorkbenchAssistantPanel.vue';
 export { default as WorkbenchMenu } from './WorkbenchMenu.vue';
 export { default as WorkbenchOutlet } from './WorkbenchOutlet.vue';
 export { default as WorkspaceViewOutlet } from './WorkspaceViewOutlet.vue';

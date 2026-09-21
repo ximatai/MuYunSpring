@@ -1,6 +1,12 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue';
-import { generatedBusinessFieldName, generatedMetadataAlias, physicalNameOf } from './metadataNaming';
+import { computed, onActivated, onDeactivated, onMounted, onUnmounted, ref, watch } from 'vue';
+import {
+  generatedBusinessFieldName,
+  generatedMetadataAlias,
+  isDynamicRecordReservedFieldName,
+  isPlatformFieldName,
+  physicalNameOf,
+} from './metadataNaming';
 import {
   ManagementExplorerColumn,
   ManagementWorkspace,
@@ -24,7 +30,12 @@ import type {
   Option,
   WebPageResponse,
 } from '@muyun/web-contracts';
-import { createStaticResourceCrudClient, useModuleContext } from '@muyun/web-core';
+import {
+  createAssistantTurnRequester,
+  createStaticResourceCrudClient,
+  useAssistantSurfaceHost,
+  useModuleContext,
+} from '@muyun/web-core';
 import {
   UiActionButton,
   UiButton,
@@ -68,6 +79,19 @@ import {
 } from './metadataModelEditSession';
 import type { MetadataModelChangeSetProposal } from './metadataModelEditSession';
 import {
+  applyMetadataModelChangeSet,
+  previewMetadataModelChangeSet,
+  type MetadataChangeSetPreview,
+} from './metadataModelChangeSetClient';
+import { createMetadataGovernanceAssistantSurface } from './metadataGovernanceAssistantSurface';
+import type {
+  AddMetadataFieldDraftInput,
+  AddMetadataPropertyFieldDraftInput,
+  FindMetadataFieldTargetsInput,
+  PreparedMetadataPropertyFieldDraft,
+  UpdateMetadataFieldDraftInput,
+} from './metadataGovernanceAssistantSurface';
+import {
   buildMetadataModelTree,
   canReorderMetadataModelTree,
   metadataNodeKey,
@@ -90,10 +114,18 @@ const state = createMetadataOrchestrationState();
 const editSession = createMetadataModelWorkspaceEditSession();
 const sorting = ref(false);
 useWorkspaceViewUnsavedState('元数据', () => editSession.isDirty.value || state.mode.value !== 'view');
+const assistantHost = useAssistantSurfaceHost();
+const assistantContextRevision = ref(0);
+let assistantActive = false;
+let assistantPageInstanceKey: string | undefined;
+let unregisterAssistantSurface: (() => void) | undefined;
 const mainMetadataDraft = state.mainMetadataDraft;
 const fieldDraft = state.fieldDraft;
 const fieldPropertyDraft = state.fieldPropertyDraft;
 const loading = ref(false);
+const workspaceReady = ref(false);
+const workspaceLoadFailed = ref(false);
+let workspaceLoadRevision = 0;
 const saving = ref(false);
 const showSystemFields = ref(false);
 const capabilitySnapshot = ref<ModuleMetadataCapabilitySnapshot>();
@@ -152,38 +184,6 @@ type ModuleMetadataRelationRecordCount = { relationId: string; recordCount: numb
 type ModuleMetadataCapabilitySnapshot = {
   capabilities: ModuleMetadataCapabilityFact[];
 };
-type MetadataChangeSetIssue = {
-  severity: 'WARNING' | 'ERROR' | string;
-  code: string;
-  subject: string;
-  message: string;
-};
-type MetadataChangeSetPreview = {
-  proposalFingerprint: string;
-  fieldImpacts: Array<{
-    operation: string;
-    fieldName: string;
-    columnName: string;
-    platformManaged: boolean;
-    description: string;
-  }>;
-  schemaImpacts: Array<{
-    operation: string;
-    schemaName: string;
-    tableName: string;
-    columnName: string;
-    description: string;
-  }>;
-  orderImpacts: Array<{
-    operation: string;
-    relationId?: string;
-    parentMetadataId?: string;
-    orderedIds: string[];
-    description: string;
-  }>;
-  warnings: MetadataChangeSetIssue[];
-  errors: MetadataChangeSetIssue[];
-};
 type ReferenceTargetFieldCandidate = {
   fieldName: string;
   title?: string;
@@ -232,6 +232,118 @@ const selectedField = computed(() => {
   if (parsed?.kind !== 'FIELD' || parsed.relationId !== selectedRelationId.value) return undefined;
   return displayedFields.value.find((field) => (field.id ?? field.fieldName) === parsed.fieldId);
 });
+const ASSISTANT_METADATA_FIELD_LIMIT = 80;
+const ASSISTANT_FIELD_SPEC_LIMIT = 40;
+
+function assistantSummary() {
+  const relation = state.selectedRelation.value;
+  const fields = relation?.id
+    ? visibleFields(editSession.fieldsForDisplay(relation.id, state.allFields.value))
+    : [];
+  const projectedFields = fields.slice(0, ASSISTANT_METADATA_FIELD_LIMIT).map((field) => ({
+    fieldName: field.fieldName ?? '',
+    title: field.title,
+    fieldSpecAlias: field.fieldSpecAlias,
+    propertyKind: fieldPropertyOf(field).kind,
+    governance: metadataFieldGovernanceLabel(
+      metadataFieldGovernanceKind(field, relation, capabilityFieldNames.value),
+    ),
+  }));
+  return {
+    moduleAlias: props.moduleAlias,
+    moduleTitle: props.moduleTitle?.trim() || props.title?.trim() || props.moduleAlias,
+    relationCount: state.relations.value.length,
+    selectedRelation:
+      relation?.id == null
+        ? undefined
+        : {
+            relationId: relation.id,
+            title: state.selectedMetadata.value?.title,
+            fieldCount: fields.length,
+            fields: projectedFields,
+            truncated: projectedFields.length < fields.length,
+          },
+    draft: {
+      active: editSession.editing.value || state.mode.value !== 'view',
+      dirty: editSession.isDirty.value,
+      editorOpen: state.fieldEditorOpen.value || sorting.value,
+    },
+    fieldSpecs: state.fieldSpecs.value
+      .filter((spec) => spec.enabled !== false)
+      .slice(0, ASSISTANT_FIELD_SPEC_LIMIT)
+      .flatMap((spec) => {
+        const alias = spec.alias ?? spec.id;
+        return alias ? [{ alias, title: spec.title }] : [];
+      }),
+  };
+}
+
+function clearAssistantSurface() {
+  unregisterAssistantSurface?.();
+  unregisterAssistantSurface = undefined;
+}
+
+function syncAssistantSurface() {
+  clearAssistantSurface();
+  if (
+    !assistantHost ||
+    !assistantActive ||
+    !assistantPageInstanceKey ||
+    loading.value ||
+    !workspaceReady.value ||
+    workspaceLoadFailed.value
+  )
+    return;
+  unregisterAssistantSurface = assistantHost.registry.register({
+    pageInstanceKey: assistantPageInstanceKey,
+    contextRevision: () => `${props.moduleAlias}:${assistantContextRevision.value}`,
+    surface: createMetadataGovernanceAssistantSurface(
+      {
+        summary: assistantSummary,
+        proposal: assistantProposal,
+        preview: (proposal, signal) =>
+          previewMetadataModelChangeSet(moduleContext.http, props.moduleAlias, proposal, signal),
+        fieldSpecAliases: () =>
+          state.fieldSpecs.value
+            .filter((spec) => spec.enabled !== false)
+            .map((spec) => spec.alias ?? spec.id ?? '')
+            .filter(Boolean),
+        editableBasicFieldNames: assistantEditableBasicFieldNames,
+        addFieldDraft: addAssistantFieldDraft,
+        updateFieldDraft: updateAssistantFieldDraft,
+        findFieldTargets: findAssistantFieldTargets,
+        preparePropertyFieldDraft: prepareAssistantPropertyFieldDraft,
+        commitPropertyFieldDraft: commitAssistantPropertyFieldDraft,
+      },
+      createAssistantTurnRequester(moduleContext.http),
+      () => assistantHost.capabilities?.() ?? [],
+    ),
+  });
+}
+
+function activateAssistantSurface() {
+  assistantActive = true;
+  assistantPageInstanceKey = assistantHost?.activePageInstanceKey();
+  syncAssistantSurface();
+}
+
+function deactivateAssistantSurface() {
+  assistantActive = false;
+  clearAssistantSurface();
+}
+
+watch(
+  () => ({ summary: assistantSummary(), proposal: assistantProposal() }),
+  () => {
+    assistantContextRevision.value += 1;
+  },
+  { deep: true, flush: 'sync' },
+);
+watch([loading, workspaceReady, workspaceLoadFailed], syncAssistantSurface, { flush: 'post' });
+onMounted(activateAssistantSurface);
+onActivated(activateAssistantSurface);
+onDeactivated(deactivateAssistantSurface);
+onUnmounted(deactivateAssistantSurface);
 const selectedNodeIsField = computed(() => Boolean(selectedField.value));
 const metadataTreeNodes = computed(() =>
   buildMetadataModelTree({
@@ -481,8 +593,11 @@ watch(
 onMounted(() => void loadFieldSpecs());
 
 async function loadWorkspace() {
+  const requestRevision = ++workspaceLoadRevision;
   const selectionBeforeRefresh = selectedTreeKey.value;
   loading.value = true;
+  workspaceReady.value = false;
+  workspaceLoadFailed.value = false;
   try {
     const moduleAlias = props.moduleAlias;
     const relations = await loadAllRecords<ModuleMetadataRelation>(relationPath('/query'));
@@ -514,7 +629,7 @@ async function loadWorkspace() {
         return { relationId: relation.id, fields, properties, capabilities, recordCount };
       }),
     );
-    if (moduleAlias !== props.moduleAlias) return;
+    if (requestRevision !== workspaceLoadRevision || moduleAlias !== props.moduleAlias) return;
     state.handleRelationsLoaded(relations);
     metadata.forEach((item) => {
       if (item) state.handleMetadataLoaded(item);
@@ -541,10 +656,13 @@ async function loadWorkspace() {
     );
     restoreTreeSelection(selectedTreeKey.value ?? selectionBeforeRefresh);
     if (sorting.value && !state.fieldEditorOpen.value && !state.mainEditorOpen.value) startNodeEditSession();
+    workspaceReady.value = true;
   } catch (cause) {
+    if (requestRevision !== workspaceLoadRevision) return;
+    workspaceLoadFailed.value = true;
     presentPlatformError(cause, { source: 'metadata-orchestration', phase: 'load' });
   } finally {
-    loading.value = false;
+    if (requestRevision === workspaceLoadRevision) loading.value = false;
   }
 }
 
@@ -590,6 +708,13 @@ function hydrateSelectedRelation(relationId: string) {
 }
 
 async function selectMetadataTreeNode(node: UiTreeNode) {
+  if (state.fieldEditorOpen.value) {
+    presentPlatformMessage('请先保存或取消当前字段候选，再切换元数据。', {
+      source: 'metadata-orchestration',
+      phase: 'validation',
+    });
+    return;
+  }
   const parsed = parseMetadataModelTreeKey(node.key);
   if (!parsed) return;
   const relationId = parsed.relationId;
@@ -638,6 +763,297 @@ function startCreateField(kind: MetadataFieldPropertyDraft['kind'] = 'BASIC') {
   stagedNewFieldKey.value = undefined;
   startNodeEditSession();
   state.startCreateField(kind);
+}
+
+function addAssistantFieldDraft(input: AddMetadataFieldDraftInput) {
+  const relationId = selectedRelationId.value;
+  if (!relationId || !state.selectedMetadata.value?.id) throw new Error('No metadata relation is selected');
+  if (state.fieldEditorOpen.value || sorting.value)
+    throw new Error('Finish or cancel the current metadata editor before adding another field');
+  requireEnabledFieldSpec(input.fieldSpecAlias);
+  const fieldName = input.fieldName?.trim() || generatedBusinessFieldName(input.title, 'BASIC');
+  validateAssistantNewFieldName(relationId, fieldName);
+  const field: MetadataField = {
+    fieldName,
+    columnName: physicalNameOf(fieldName),
+    title: input.title,
+    fieldSpecAlias: input.fieldSpecAlias,
+    fieldOwnership: 'BUSINESS',
+    fieldForm: 'PHYSICAL',
+    required: input.required ?? false,
+    uniqueField: input.unique ?? false,
+    indexed: input.indexed ?? false,
+    sortableField: input.sortable ?? false,
+    titleField: input.titleField ?? false,
+    enabled: true,
+  };
+  if (!editSession.editing.value) startNodeEditSession();
+  editSession.stageField(relationId, field, { kind: 'BASIC' });
+  stagedNewFieldKey.value = fieldName;
+  fieldTitleManuallyEdited.value = true;
+  fieldNameManuallyEdited.value = Boolean(input.fieldName);
+  columnNameManuallyEdited.value = false;
+  editorMode.value = 'ADVANCED';
+  state.startEditField(field, { kind: 'BASIC' });
+  return {
+    relationId,
+    fieldName,
+    columnName: field.columnName!,
+    title: input.title,
+    fieldSpecAlias: input.fieldSpecAlias,
+  };
+}
+
+function assistantProposal(): MetadataModelChangeSetProposal | undefined {
+  const proposal = editSession.buildProposal();
+  if (!proposal || !state.fieldEditorOpen.value || childNodeType.value === 'CHILD_METADATA') return proposal;
+  const relationId = selectedRelationId.value;
+  if (!relationId) return undefined;
+  const relationDraft = editSession.relation(relationId);
+  const currentField = normalizeFieldDraft(state.fieldDraft.value);
+  const stagedKey = currentField.id ?? stagedNewFieldKey.value ?? currentField.fieldName;
+  const stagedField = stagedKey ? relationDraft?.fields[stagedKey] : undefined;
+  if (!stagedField || JSON.stringify(currentField) !== JSON.stringify(stagedField)) return undefined;
+  const currentProperty = normalizeFieldPropertyDraft(state.fieldPropertyDraft.value);
+  const stagedProperty = editSession.propertyForField(relationId, stagedField);
+  return JSON.stringify(currentProperty) === JSON.stringify(stagedProperty) ? proposal : undefined;
+}
+
+function assistantEditableBasicFieldNames() {
+  const relationId = selectedRelationId.value;
+  if (!relationId) return [];
+  return editSession
+    .fieldsForDisplay(relationId, state.allFields.value)
+    .filter(
+      (field) =>
+        Boolean(field.fieldName) && fieldEditableInSession(field) && fieldPropertyOf(field).kind === 'BASIC',
+    )
+    .map((field) => field.fieldName!);
+}
+
+function updateAssistantFieldDraft(input: UpdateMetadataFieldDraftInput) {
+  const relationId = selectedRelationId.value;
+  if (!relationId) throw new Error('No metadata relation is selected');
+  if (state.fieldEditorOpen.value || sorting.value)
+    throw new Error('Finish or cancel the current metadata editor before updating a field');
+  const field = state.allFields.value.find((candidate) => candidate.fieldName === input.fieldName);
+  if (!field || !fieldEditableInSession(field) || fieldPropertyOf(field).kind !== 'BASIC')
+    throw new Error('The selected metadata field is unavailable for editing');
+  if (input.fieldSpecAlias) {
+    const options = selectedRelationHasBusinessRecords.value
+      ? dataSafeFieldSpecOptions(state.fieldSpecs.value, field.fieldSpecAlias)
+      : state.fieldSpecOptions.value;
+    if (!options.some((option) => option.value === input.fieldSpecAlias))
+      throw new Error('The selected field specification is unsafe for the current metadata data');
+  }
+  const updated: MetadataField = {
+    ...field,
+    ...(input.title !== undefined ? { title: input.title } : {}),
+    ...(input.fieldSpecAlias !== undefined ? { fieldSpecAlias: input.fieldSpecAlias } : {}),
+    ...(input.required !== undefined ? { required: input.required } : {}),
+    ...(input.unique !== undefined ? { uniqueField: input.unique } : {}),
+    ...(input.indexed !== undefined ? { indexed: input.indexed } : {}),
+    ...(input.sortable !== undefined ? { sortableField: input.sortable } : {}),
+    ...(input.titleField !== undefined ? { titleField: input.titleField } : {}),
+    ...(input.enabled !== undefined ? { enabled: input.enabled } : {}),
+  };
+  if (JSON.stringify(updated) === JSON.stringify(field))
+    throw new Error('The requested metadata field update does not change the current value');
+  const property = fieldPropertyOf(field);
+  startNodeEditSession();
+  editSession.stageField(relationId, updated, property);
+  stagedNewFieldKey.value = undefined;
+  fieldTitleManuallyEdited.value = Boolean(updated.title?.trim());
+  fieldNameManuallyEdited.value = true;
+  columnNameManuallyEdited.value = true;
+  editorMode.value = 'ADVANCED';
+  state.startEditField(updated, property);
+  return {
+    relationId,
+    fieldName: updated.fieldName!,
+    title: updated.title,
+    fieldSpecAlias: updated.fieldSpecAlias,
+  };
+}
+
+async function findAssistantFieldTargets(input: FindMetadataFieldTargetsInput, signal: AbortSignal) {
+  const relationId = selectedRelationId.value;
+  if (!relationId) throw new Error('No metadata relation is selected');
+  const keyword = input.keyword?.trim().toLowerCase() ?? '';
+  const targets =
+    input.kind === 'MODULE_REFERENCE'
+      ? await loadAssistantReferenceTargets(relationId, signal)
+      : await loadAssistantDictionaryTargets(signal);
+  const matches = targets
+    .filter((item) => !keyword || `${item.title ?? ''} ${item.target}`.toLowerCase().includes(keyword))
+    .sort((left, right) => left.target.localeCompare(right.target));
+  return { targets: matches.slice(0, 30), truncated: matches.length > 30 };
+}
+
+async function loadAssistantReferenceTargets(relationId: string, signal: AbortSignal) {
+  const targets = await moduleContext.http.request<Array<{ alias: string; title?: string }>>({
+    method: 'GET',
+    path: relationPath(`/${encodeURIComponent(relationId)}/reference-target-modules`),
+    signal,
+  });
+  return targets.map((item) => ({ target: item.alias, title: item.title }));
+}
+
+async function loadAssistantDictionaryTargets(signal: AbortSignal) {
+  const categories = await loadAllRecords<DictionaryCategory>('/platform.dictionary_category/query', signal);
+  return [
+    ...new Map(
+      categories
+        .filter(
+          (item) => item.categoryKind?.toUpperCase() === 'DICTIONARY' && item.applicationAlias && item.alias,
+        )
+        .map((item) => {
+          const target = `${item.applicationAlias}.${item.alias}`;
+          return [target, { target, title: item.title }] as const;
+        }),
+    ).values(),
+  ];
+}
+
+async function prepareAssistantPropertyFieldDraft(
+  input: AddMetadataPropertyFieldDraftInput,
+  signal: AbortSignal,
+): Promise<PreparedMetadataPropertyFieldDraft> {
+  const relationId = selectedRelationId.value;
+  if (!relationId) throw new Error('No metadata relation is selected');
+  if (state.fieldEditorOpen.value || sorting.value)
+    throw new Error('Finish or cancel the current metadata editor before adding another field');
+  const fieldName = input.fieldName?.trim() || generatedBusinessFieldName(input.title, input.kind);
+  validateAssistantNewFieldName(relationId, fieldName);
+  if (input.kind === 'MODULE_REFERENCE') {
+    const targets = await loadAssistantReferenceTargets(relationId, signal);
+    if (!targets.some((item) => item.target === input.target))
+      throw new Error('The requested reference target is unavailable');
+    const catalog = await requestReferenceTargetFieldCatalog(relationId, input.target, undefined, signal);
+    const targetKeyField = defaultCandidateField(catalog.keyFields);
+    const targetLabelField = defaultCandidateField(catalog.labelFields);
+    if (!targetKeyField || !targetLabelField)
+      throw new Error('The reference target does not expose selectable key and label fields');
+    requireEnabledFieldSpec('string');
+    return {
+      relationId,
+      kind: input.kind,
+      title: input.title,
+      fieldName,
+      columnName: physicalNameOf(fieldName),
+      fieldSpecAlias: 'string',
+      required: input.required ?? false,
+      reference: {
+        targetModuleAlias: input.target,
+        targetMetadataId: catalog.targetMetadataId,
+        targetKeyField,
+        targetLabelField,
+      },
+    };
+  }
+  const dictionaries = await loadAssistantDictionaryTargets(signal);
+  if (!dictionaries.some((item) => item.target === input.target))
+    throw new Error('The requested dictionary target is unavailable');
+  const separator = input.target.indexOf('.');
+  if (separator <= 0 || separator === input.target.length - 1)
+    throw new Error('The requested dictionary target is invalid');
+  const selectionMode = input.selectionMode ?? 'SINGLE';
+  const fieldSpecAlias = storageFieldSpecAliasOf(input.kind, selectionMode)!;
+  requireEnabledFieldSpec(fieldSpecAlias);
+  return {
+    relationId,
+    kind: input.kind,
+    title: input.title,
+    fieldName,
+    columnName: physicalNameOf(fieldName),
+    fieldSpecAlias,
+    required: input.required ?? false,
+    dictionary: {
+      applicationAlias: input.target.slice(0, separator),
+      categoryAlias: input.target.slice(separator + 1),
+      selectionMode,
+    },
+  };
+}
+
+function commitAssistantPropertyFieldDraft(prepared: PreparedMetadataPropertyFieldDraft) {
+  const relationId = selectedRelationId.value;
+  if (!relationId || relationId !== prepared.relationId)
+    throw new Error('The selected metadata relation changed before the candidate could be opened');
+  if (state.fieldEditorOpen.value || sorting.value)
+    throw new Error('Finish or cancel the current metadata editor before adding another field');
+  validateAssistantNewFieldName(relationId, prepared.fieldName);
+  requireEnabledFieldSpec(prepared.fieldSpecAlias);
+  const field: MetadataField = {
+    fieldName: prepared.fieldName,
+    columnName: prepared.columnName,
+    title: prepared.title,
+    fieldSpecAlias: prepared.fieldSpecAlias,
+    fieldOwnership: 'BUSINESS',
+    fieldForm: 'PHYSICAL',
+    required: prepared.required,
+    uniqueField: false,
+    indexed: false,
+    sortableField: false,
+    titleField: false,
+    enabled: true,
+  };
+  const property: MetadataFieldPropertyDraft =
+    prepared.kind === 'MODULE_REFERENCE'
+      ? {
+          kind: prepared.kind,
+          referenceConfig: {
+            ...prepared.reference!,
+            cardinality: 'ONE',
+            targetUnavailablePolicy: 'PRESERVE_HISTORY',
+            projectionMappings: [],
+          },
+        }
+      : {
+          kind: prepared.kind,
+          dictionaryConfig: {
+            dictionaryApplicationAlias: prepared.dictionary!.applicationAlias,
+            dictionaryCategoryAlias: prepared.dictionary!.categoryAlias,
+            selectionMode: prepared.dictionary!.selectionMode,
+          },
+        };
+  startNodeEditSession();
+  editSession.stageField(relationId, field, property);
+  stagedNewFieldKey.value = prepared.fieldName;
+  fieldTitleManuallyEdited.value = true;
+  fieldNameManuallyEdited.value = Boolean(prepared.fieldName);
+  columnNameManuallyEdited.value = false;
+  editorMode.value = 'ADVANCED';
+  state.startEditField(field, property);
+  return {
+    relationId,
+    kind: prepared.kind,
+    fieldName: prepared.fieldName,
+    columnName: prepared.columnName,
+    title: prepared.title,
+    fieldSpecAlias: prepared.fieldSpecAlias,
+    target:
+      prepared.kind === 'MODULE_REFERENCE'
+        ? prepared.reference!.targetModuleAlias
+        : `${prepared.dictionary!.applicationAlias}.${prepared.dictionary!.categoryAlias}`,
+  };
+}
+
+function validateAssistantNewFieldName(relationId: string, fieldName: string) {
+  if (!isPlatformFieldName(fieldName)) throw new Error('The metadata field name is invalid');
+  if (isDynamicRecordReservedFieldName(fieldName))
+    throw new Error('The metadata field name is reserved by the dynamic record protocol');
+  if (
+    editSession
+      .fieldsForDisplay(relationId, state.allFields.value)
+      .some((field) => field.fieldName?.toLowerCase() === fieldName.toLowerCase())
+  )
+    throw new Error(`Metadata field “${fieldName}” already exists in the selected relation`);
+}
+
+function requireEnabledFieldSpec(alias: string) {
+  if (!state.fieldSpecs.value.some((spec) => spec.enabled !== false && (spec.alias ?? spec.id) === alias))
+    throw new Error(`The required metadata field specification is unavailable: ${alias}`);
 }
 
 function startCreateMainMetadata() {
@@ -708,11 +1124,7 @@ async function previewAndApply(
   }
   saving.value = true;
   try {
-    const preview = await moduleContext.http.request<MetadataChangeSetPreview>({
-      method: 'POST',
-      path: `/platform.module/${encodeURIComponent(props.moduleAlias)}/metadata-model/change-set-preview`,
-      body: proposal,
-    });
+    const preview = await previewMetadataModelChangeSet(moduleContext.http, props.moduleAlias, proposal);
     if (preview.errors.length > 0) {
       presentPlatformMessage(preview.errors.map((item) => item.message).join('；'), {
         source: 'metadata-orchestration',
@@ -730,14 +1142,12 @@ async function previewAndApply(
       }))
     )
       return;
-    await moduleContext.http.request({
-      method: 'POST',
-      path: `/platform.module/${encodeURIComponent(props.moduleAlias)}/metadata-model/change-set-apply`,
-      body: {
-        proposal: proposal as MetadataModelChangeSetProposal,
-        proposalFingerprint: preview.proposalFingerprint,
-      },
-    });
+    await applyMetadataModelChangeSet(
+      moduleContext.http,
+      props.moduleAlias,
+      proposal as MetadataModelChangeSetProposal,
+      preview.proposalFingerprint,
+    );
     if (mode === 'immediate-order') {
       // The write is committed. Keep its order even if the subsequent read fails.
       retainCommittedOrder(proposal);
@@ -812,16 +1222,10 @@ async function synchronizeOrder(proposal: MetadataModelChangeSetProposal) {
 }
 
 function metadataChangeConfirmationText(preview: MetadataChangeSetPreview): string {
-  const fieldChanges = preview.fieldImpacts.map((item) => {
-    if (item.operation === 'ADD') return `新增字段「${item.fieldName}」并创建对应物理列。`;
-    if (item.operation === 'UPDATE') return `更新字段「${item.fieldName}」的配置。`;
-    if (item.operation === 'DELETE') return `删除字段「${item.fieldName}」及其物理列。`;
-    return `保存字段「${item.fieldName}」的变更。`;
-  });
-  if (fieldChanges.length > 0) return fieldChanges.join('\n');
-  if (preview.orderImpacts.length > 0) return '保存当前排序调整。';
-  if (preview.schemaImpacts.length > 0) return '同步数据库结构变更。';
-  return '';
+  const fieldChanges = preview.fieldImpacts.map((item) => `字段「${item.fieldName}」：${item.description}`);
+  const schemaChanges = preview.schemaImpacts.map((item) => item.description);
+  const orderChanges = preview.orderImpacts.length > 0 ? ['保存当前排序调整。'] : [];
+  return [...fieldChanges, ...schemaChanges, ...orderChanges].join('\n');
 }
 
 function stageFieldDraft() {
@@ -844,6 +1248,13 @@ function stageFieldDraft() {
   }
   const draft = normalizeFieldDraft(state.fieldDraft.value);
   const property = normalizeFieldPropertyDraft(state.fieldPropertyDraft.value);
+  if (draft.fieldName && isDynamicRecordReservedFieldName(draft.fieldName)) {
+    presentPlatformMessage('字段名称与动态记录协议保留字段冲突，请调整。', {
+      source: 'metadata-orchestration',
+      phase: 'validation',
+    });
+    return;
+  }
   if (!isValidFieldDraft(draft)) {
     presentPlatformMessage('请填写字段名、物理列名和字段规格', {
       source: 'metadata-orchestration',
@@ -1002,14 +1413,7 @@ async function loadReferenceTargetFieldCatalog(
   referenceTargetFieldCatalogLoading.value = true;
   referenceTargetFieldCatalogError.value = undefined;
   try {
-    const query = new URLSearchParams({ targetModuleAlias: requestedTarget });
-    if (targetMetadataId?.trim()) query.set('targetMetadataId', targetMetadataId.trim());
-    const catalog = await moduleContext.http.request<ReferenceTargetFieldCatalog>({
-      method: 'GET',
-      path: relationPath(
-        `/${encodeURIComponent(relationId)}/reference-target-field-catalog?${query.toString()}`,
-      ),
-    });
+    const catalog = await requestReferenceTargetFieldCatalog(relationId, requestedTarget, targetMetadataId);
     // Do not let an earlier request overwrite the catalog for a subsequently selected target.
     const reference = fieldPropertyDraft.value.referenceConfig;
     if (
@@ -1042,6 +1446,23 @@ async function loadReferenceTargetFieldCatalog(
       referenceTargetFieldCatalogLoading.value = false;
     }
   }
+}
+
+function requestReferenceTargetFieldCatalog(
+  relationId: string,
+  targetModuleAlias: string,
+  targetMetadataId?: string,
+  signal?: AbortSignal,
+) {
+  const query = new URLSearchParams({ targetModuleAlias: targetModuleAlias.trim() });
+  if (targetMetadataId?.trim()) query.set('targetMetadataId', targetMetadataId.trim());
+  return moduleContext.http.request<ReferenceTargetFieldCatalog>({
+    method: 'GET',
+    path: relationPath(
+      `/${encodeURIComponent(relationId)}/reference-target-field-catalog?${query.toString()}`,
+    ),
+    signal,
+  });
 }
 
 function referenceFieldOptions(
@@ -1113,13 +1534,14 @@ function relationPath(suffix: string) {
   return `/platform.module/${encodeURIComponent(props.moduleAlias)}/metadata-relations${suffix}`;
 }
 
-async function loadAllRecords<T>(path: string): Promise<T[]> {
+async function loadAllRecords<T>(path: string, signal?: AbortSignal): Promise<T[]> {
   const records: T[] = [];
   for (let pageNum = 1; ; pageNum += 1) {
     const response = await moduleContext.http.request<WebPageResponse<T>>({
       method: 'POST',
       path,
       body: { page: { pageNum, pageSize: ORCHESTRATION_QUERY_PAGE_SIZE } },
+      signal,
     });
     records.push(...response.records);
     if (

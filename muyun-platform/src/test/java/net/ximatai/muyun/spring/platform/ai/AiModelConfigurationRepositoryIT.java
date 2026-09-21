@@ -55,7 +55,9 @@ class AiModelConfigurationRepositoryIT extends PlatformPostgresIntegrationTest {
             AiModelConfiguration platformOnly = configurations.select(platformId);
             platformOnly.setTenantFallbackEnabled(Boolean.FALSE);
             configurations.update(platformOnly);
-            try (var tenant = TenantContext.use("tenant-without-fallback")) {
+            try (var tenantUser = CurrentUserContext.use(CurrentUser.tenantUser(
+                    "tenant-user", "Tenant User", "tenant-without-fallback"));
+                 var tenant = TenantContext.use("tenant-without-fallback")) {
                 assertThatThrownBy(configurations::requireEffectiveConfiguration)
                         .isInstanceOf(PlatformException.class)
                         .hasMessage("no usable tenant fallback AI model configuration exists");
@@ -64,7 +66,9 @@ class AiModelConfigurationRepositoryIT extends PlatformPostgresIntegrationTest {
             fallback.setTenantFallbackEnabled(Boolean.TRUE);
             configurations.update(fallback);
 
-            try (var tenant = TenantContext.use("tenant-ai-contract")) {
+            try (var tenantUser = CurrentUserContext.use(CurrentUser.tenantUser(
+                    "tenant-user", "Tenant User", "tenant-ai-contract"));
+                 var tenant = TenantContext.use("tenant-ai-contract")) {
                 assertThat(configurations.requireEffectiveConfiguration().getId()).isEqualTo(platformId);
                 String tenantId = configurations.insert(input("tenant-key"));
                 assertThat(configurations.requireEffectiveConfiguration().getId()).isEqualTo(tenantId);

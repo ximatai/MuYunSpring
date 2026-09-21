@@ -30,6 +30,7 @@ const emit = defineEmits<{
   'update:value': [value: string];
   selection: [selection: { start: number; end: number }];
   drop: [event: { source: UiDragSource; selection: { start: number; end: number }; nativeEvent?: Event }];
+  keydown: [event: KeyboardEvent];
 }>();
 
 const textarea = ref<HTMLTextAreaElement>();
@@ -206,6 +207,7 @@ defineExpose({ selection, focusSelection });
       @click="rememberTextarea"
       @input="rememberTextarea"
       @update:value="emit('update:value', $event)"
+      @keydown="emit('keydown', $event)"
     />
     <span
       v-if="dropHovered && !dropRejected && dropCaretStyle"

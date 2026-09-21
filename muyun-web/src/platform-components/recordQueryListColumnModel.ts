@@ -6,6 +6,10 @@ import type {
   ResolvedReferenceFieldDescriptor,
 } from '@muyun/web-contracts';
 import type { Component } from 'vue';
+import { readonlyReferenceDisplay } from './readonlyReferenceDisplay';
+import { resolveRecordBooleanStatusValue } from './recordFormFieldModel';
+import { formatPlatformDateTime } from './platformDateTime';
+import { formatPlatformFileSize } from './platformFileSize';
 
 export type QueryListRecord = Record<string, unknown> & { id?: string; enabled?: boolean };
 export type RecordQueryListMode = 'normal' | 'recycleBin';
@@ -34,11 +38,17 @@ export interface RecordQueryListColumn {
   /** Maximum visible lines for text cells. Defaults to one line. */
   maxDisplayLines?: number;
   render?: (record: QueryListRecord) => string;
+  /** Explicit list-presentation policy for excluding a visible column from assistant projection. */
+  assistantReadable?: boolean;
 }
 
 export interface RecordQueryListCellComponent {
   key: string;
   component: Component;
+}
+
+export interface RecordQueryListDisplayContext {
+  timeZone?: string;
 }
 
 /**
@@ -72,11 +82,98 @@ export function resolveRecordQueryListColumns(
           queryField?.optionTitleField ??
           (field.reference ? `${field.fieldRef.fieldName}Title` : undefined),
         ...(field.reference ? { reference: field.reference } : {}),
-        optionBinding: field.option ? true : undefined,
+        ...(field.option ? { optionBinding: true } : {}),
         booleanStatus: field.booleanStatus,
         maxDisplayLines: field.maxDisplayLines,
+        ...(field.fieldControl?.alias === 'password' ? { assistantReadable: false } : {}),
       };
     });
+}
+
+/** Pure standard-cell projection shared by the rendered list and assistant-visible result summary. */
+export function resolveRecordQueryListDisplayValue(
+  record: QueryListRecord,
+  column: RecordQueryListColumn,
+  cellRenderers: Record<string, (record: QueryListRecord) => string> = {},
+  context: RecordQueryListDisplayContext = {},
+) {
+  const rendered = column.render?.(record) ?? cellRenderers[column.key]?.(record);
+  const rawValue = record[column.key];
+  const presentationValue = rendered ?? rawValue;
+  if (column.type === 'enabledStatus' || column.type === 'booleanStatus') {
+    const enabled =
+      column.type === 'booleanStatus'
+        ? resolveRecordBooleanStatusValue(record[column.key])
+        : record[column.key] !== false;
+    if (enabled === true) return column.booleanStatus?.trueLabel ?? '启用';
+    if (enabled === false) return column.booleanStatus?.falseLabel ?? '停用';
+    return '-';
+  }
+  if (column.type === 'tagList') {
+    return (Array.isArray(rawValue) ? rawValue : [])
+      .filter((item): item is Record<string, unknown> => typeof item === 'object' && item !== null)
+      .map((item) => String(item.title ?? '').trim())
+      .filter(Boolean)
+      .join('、');
+  }
+  if (
+    column.type === 'datetime' &&
+    (typeof presentationValue === 'string' ||
+      typeof presentationValue === 'number' ||
+      rawValue instanceof Date)
+  ) {
+    return formatPlatformDateTime(presentationValue, { timeZone: context.timeZone }).text;
+  }
+  if (
+    column.type === 'fileSize' &&
+    (typeof presentationValue === 'string' ||
+      typeof presentationValue === 'number' ||
+      typeof presentationValue === 'bigint')
+  ) {
+    return formatPlatformFileSize(presentationValue).text;
+  }
+  if (rendered !== undefined) return rendered;
+  if (column.reference) {
+    const display = readonlyReferenceDisplay(
+      column.reference,
+      record[column.key],
+      column.titleField ? record[column.titleField] : record[`${column.key}Title`],
+    );
+    if (display !== undefined) return display;
+  }
+  const titleFields = [column.titleField, `${column.key}Title`].filter(
+    (value, index, fields): value is string => Boolean(value) && fields.indexOf(value) === index,
+  );
+  for (const candidate of titleFields) {
+    const titleValue = record[candidate];
+    if (typeof titleValue === 'string' && titleValue.trim()) return titleValue;
+  }
+  const value = rawValue;
+  const optionTitles = optionTitlesOf(value, column.optionItems);
+  if (optionTitles.length > 0) return optionTitles.join('、');
+  if (typeof value === 'boolean') return value ? '是' : '否';
+  return String(value ?? '');
+}
+
+function optionTitlesOf(value: unknown, optionItems: RecordQueryListColumn['optionItems']): string[] {
+  if (!optionItems?.length) return [];
+  return selectionCodesOf(value).map((code) => optionItems.find((item) => item.code === code)?.title ?? code);
+}
+
+function selectionCodesOf(value: unknown): string[] {
+  if (Array.isArray(value)) return value.map(String).filter(Boolean);
+  if (typeof value !== 'string') return value == null ? [] : [String(value)];
+  const trimmed = value.trim();
+  if (!trimmed) return [];
+  if (trimmed.startsWith('[')) {
+    try {
+      const parsed: unknown = JSON.parse(trimmed);
+      if (Array.isArray(parsed)) return parsed.map(String).filter(Boolean);
+    } catch {
+      // A scalar string may begin with "[".
+    }
+  }
+  return [value];
 }
 
 function columnType(

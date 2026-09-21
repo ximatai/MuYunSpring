@@ -4,6 +4,7 @@ import net.ximatai.muyun.spring.common.identity.CurrentUser;
 import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
 import net.ximatai.muyun.spring.common.tenant.TenantContext;
 import net.ximatai.muyun.spring.common.web.RequestTraceContext;
+import org.slf4j.MDC;
 
 import java.util.Objects;
 import java.util.Optional;
@@ -65,7 +66,8 @@ public final class WebRequestContext {
         Objects.requireNonNull(task, "task must not be null");
         try (CurrentUserContext.Scope ignoredUser = CurrentUserContext.use(currentUser);
              TenantContext.Scope ignoredTenant = tenantScope();
-             RequestTraceContext.Scope ignoredTrace = traceScope()) {
+             RequestTraceContext.Scope ignoredTrace = traceScope();
+             MdcScope ignoredMdc = mdcScope()) {
             return task.call();
         }
     }
@@ -79,5 +81,27 @@ public final class WebRequestContext {
 
     private RequestTraceContext.Scope traceScope() {
         return traceId == null ? () -> { } : RequestTraceContext.use(traceId);
+    }
+
+    private MdcScope mdcScope() {
+        return new MdcScope("traceId", traceId);
+    }
+
+    private static final class MdcScope implements AutoCloseable {
+        private final String key;
+        private final String previous;
+
+        private MdcScope(String key, String value) {
+            this.key = key;
+            this.previous = MDC.get(key);
+            if (value == null) MDC.remove(key);
+            else MDC.put(key, value);
+        }
+
+        @Override
+        public void close() {
+            if (previous == null) MDC.remove(key);
+            else MDC.put(key, previous);
+        }
     }
 }

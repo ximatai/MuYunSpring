@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { useWorkspaceSortActivity } from './managementWorkspaceContext';
-import { computed, onMounted, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import {
   UiButton,
   UiEmpty,
@@ -26,6 +26,7 @@ import {
   type TreeRecordBase,
 } from './treeRecordModel';
 import { presentPlatformError } from './platformErrorFeedback';
+import type { RecordTreeQueryController } from './recordTreeQueryController';
 
 defineOptions({ name: 'TreeRecordExplorer' });
 
@@ -88,10 +89,11 @@ const props = withDefaults(
 );
 
 const emit = defineEmits<{
-  select: [record: TreeRecordBase];
+  select: [record: TreeRecordBase, source?: 'assistant'];
   deselect: [];
   action: [action: UiRecordInlineAction, record: TreeRecordBase];
   loaded: [records: TreeRecordBase[]];
+  queryControllerChange: [controller: RecordTreeQueryController | undefined];
   sorted: [];
 }>();
 
@@ -105,6 +107,11 @@ const searchExpanded = ref(false);
 const tree = ref<WebTreeNode<TreeRecordBase>[]>([]);
 const expandedKeys = ref<string[]>([]);
 let treeRequestSeq = 0;
+let treeSemanticRevision = 0;
+let nextAssistantSelectionKey = 0;
+let treeSemanticFingerprint = '';
+const assistantSelectionKeys = new Map<string, string>();
+const querySettlements = new Set<{ resolve(): void; reject(cause: Error): void }>();
 
 const currentKeyword = computed(() => props.keyword ?? localKeyword.value);
 const effectiveKeyword = computed(() =>
@@ -136,7 +143,78 @@ const dragOrderingEnabled = computed(
     !effectiveKeyword.value.trim(),
 );
 
-onMounted(loadTree);
+const queryController: RecordTreeQueryController = {
+  revision: () => treeSemanticRevision,
+  snapshot: () => {
+    const visible = records.value.slice(0, 200);
+    return {
+      status: loading.value ? 'loading' : loadError.value ? 'error' : 'ready',
+      ...(props.selectedId
+        ? {
+            selectedTitle: (() => {
+              const selected = records.value.find((record) => String(record.id) === props.selectedId);
+              return selected ? recordTitle(selected).slice(0, 500) : undefined;
+            })(),
+          }
+        : {}),
+      nodes: visible.flatMap((record) => {
+        if (record.id == null) return [];
+        const selectionKey = assistantSelectionKeys.get(String(record.id));
+        if (!selectionKey) return [];
+        const secondary = props.secondaryOf?.(record);
+        return [
+          {
+            selectionKey,
+            title: recordTitle(record).slice(0, 500),
+            ...(secondary ? { secondary: secondary.slice(0, 500) } : {}),
+          },
+        ];
+      }),
+      truncated: records.value.length > visible.length,
+    };
+  },
+  select(selectionKey) {
+    const recordId = [...assistantSelectionKeys].find(([, key]) => key === selectionKey)?.[0];
+    const record = recordId
+      ? records.value.slice(0, 200).find((candidate) => String(candidate.id) === recordId)
+      : undefined;
+    if (!record) {
+      throw new Error('Tree record selection is no longer available');
+    }
+    if (record.id == null) throw new Error('Tree record has no selectable identity');
+    emit('select', record, 'assistant');
+    const secondary = props.secondaryOf?.(record);
+    return {
+      selectionKey,
+      title: recordTitle(record).slice(0, 500),
+      ...(secondary ? { secondary: secondary.slice(0, 500) } : {}),
+    };
+  },
+  async settle(signal) {
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      if (signal?.aborted) throw new DOMException('Tree query was cancelled', 'AbortError');
+      await nextTick();
+      if (signal?.aborted) throw new DOMException('Tree query was cancelled', 'AbortError');
+      const revision = treeRequestSeq;
+      if (!loading.value) return;
+      await waitForQuerySettlement(signal);
+      if (!loading.value && revision === treeRequestSeq) return;
+    }
+    throw new Error('Tree query did not settle on a stable revision');
+  },
+};
+
+onMounted(() => {
+  emit('queryControllerChange', queryController);
+  void loadTree();
+});
+onUnmounted(() => {
+  emit('queryControllerChange', undefined);
+  for (const settlement of querySettlements) {
+    settlement.reject(new DOMException('Tree query was disposed', 'AbortError'));
+  }
+  querySettlements.clear();
+});
 
 watch(
   () => props.reloadKey,
@@ -196,6 +274,7 @@ async function loadTree(reason: UiTreeChangeReason = 'reset', expandParentId?: s
     const previousIds = new Set(flattenTreeRecords(tree.value).map((record) => String(record.id)));
     treeChangeReason.value = reason;
     tree.value = response.records;
+    commitTreeSemanticState(response.records, false);
     const keys = new Set(flattenTreeRecords(response.records).map((record) => String(record.id)));
     expandedKeys.value =
       reason === 'interaction'
@@ -224,12 +303,66 @@ async function loadTree(reason: UiTreeChangeReason = 'reset', expandParentId?: s
       expandedKeys.value = [];
       emit('loaded', []);
     }
+    commitTreeSemanticState(tree.value, true);
     presentPlatformError(cause, { source: 'tree-record-explorer', phase: 'load' });
   } finally {
     if (requestSeq === treeRequestSeq) {
       loading.value = false;
+      for (const settlement of querySettlements) settlement.resolve();
+      querySettlements.clear();
     }
   }
+}
+
+function commitTreeSemanticState(records: WebTreeNode<TreeRecordBase>[], failed: boolean) {
+  const flattened = flattenTreeRecords(records);
+  const currentIds = new Set<string>();
+  for (const record of flattened) {
+    if (record.id == null) continue;
+    const recordId = String(record.id);
+    currentIds.add(recordId);
+    if (!assistantSelectionKeys.has(recordId)) {
+      assistantSelectionKeys.set(recordId, `tree-selection-${++nextAssistantSelectionKey}`);
+    }
+  }
+  for (const recordId of assistantSelectionKeys.keys()) {
+    if (!currentIds.has(recordId)) assistantSelectionKeys.delete(recordId);
+  }
+  const fingerprint = JSON.stringify({
+    failed,
+    nodes: flattened.map((record) => ({
+      id: record.id == null ? null : String(record.id),
+      title: recordTitle(record),
+      secondary: props.secondaryOf?.(record) ?? null,
+    })),
+  });
+  if (fingerprint === treeSemanticFingerprint) return;
+  treeSemanticFingerprint = fingerprint;
+  treeSemanticRevision += 1;
+}
+
+function waitForQuerySettlement(signal?: AbortSignal) {
+  if (signal?.aborted) return Promise.reject(new DOMException('Tree query was cancelled', 'AbortError'));
+  return new Promise<void>((resolve, reject) => {
+    const cleanup = () => signal?.removeEventListener('abort', abort);
+    const abort = () => {
+      querySettlements.delete(settlement);
+      cleanup();
+      reject(new DOMException('Tree query was cancelled', 'AbortError'));
+    };
+    const settlement = {
+      resolve: () => {
+        cleanup();
+        resolve();
+      },
+      reject: (cause: Error) => {
+        cleanup();
+        reject(cause);
+      },
+    };
+    querySettlements.add(settlement);
+    signal?.addEventListener('abort', abort, { once: true });
+  });
 }
 
 function recordTitle(record: TreeRecordBase) {

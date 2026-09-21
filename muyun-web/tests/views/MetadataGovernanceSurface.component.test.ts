@@ -1,6 +1,13 @@
 import { flushPromises, shallowMount } from '@vue/test-utils';
 import { afterEach, expect, it, vi } from 'vitest';
-import { configureModuleContext, type HttpClient, type HttpRequestOptions } from '@/web-core';
+import { defineComponent, h } from 'vue';
+import {
+  configureModuleContext,
+  createAssistantSurfaceRegistry,
+  provideAssistantSurfaceHost,
+  type HttpClient,
+  type HttpRequestOptions,
+} from '@/web-core';
 import MetadataGovernanceSurface from '@/views/MetadataGovernanceSurface.vue';
 import { confirmAction } from '@muyun/vue-ui-antdv';
 
@@ -15,6 +22,471 @@ afterEach(() => {
   mounted.forEach((wrapper) => wrapper.unmount());
   mounted.clear();
   vi.clearAllMocks();
+});
+
+it('registers the metadata surface only after a complete load and invalidates changed projections', async () => {
+  const relations = deferred<unknown>();
+  const requests: HttpRequestOptions[] = [];
+  const http: HttpClient = {
+    request: <T>(options: HttpRequestOptions) => {
+      requests.push(options);
+      if (options.path === '/platform.module/education.exam/metadata-relations/query') {
+        return relations.promise as Promise<T>;
+      }
+      if (options.path === '/platform.field_spec/query') {
+        return Promise.resolve({
+          records: [{ id: 'string', alias: 'string', title: '短文本', enabled: true }],
+          pages: 1,
+          totalKnown: true,
+        }) as Promise<T>;
+      }
+      const response = responseFor(options);
+      if (options.path === '/platform.metadata/meta-main/fields/query') {
+        return Promise.resolve({
+          ...(response as object),
+          records: [
+            ...(response as { records: unknown[] }).records,
+            {
+              id: 'created-at',
+              fieldName: 'createdAt',
+              title: '创建时间',
+              fieldSpecAlias: 'datetime',
+              fieldOwnership: 'STANDARD',
+              systemManaged: true,
+              fieldForm: 'PHYSICAL',
+            },
+          ],
+        }) as Promise<T>;
+      }
+      return Promise.resolve(response as T);
+    },
+  };
+  configureModuleContext({ http });
+  const registry = createAssistantSurfaceRegistry();
+  registry.activate('page-1');
+  const Harness = defineComponent({
+    setup() {
+      provideAssistantSurfaceHost({
+        registry,
+        activePageInstanceKey: () => 'page-1',
+        capabilities: () => [],
+      });
+      return () => h(MetadataGovernanceSurface, { moduleAlias: 'education.exam', moduleTitle: '考试管理' });
+    },
+  });
+  const wrapper = shallowMount(Harness, {
+    global: { stubs: { ...governanceStubs(), MetadataGovernanceSurface: false } },
+  });
+  mounted.add(wrapper);
+  await flushPromises();
+
+  expect(registry.snapshot()).toBeUndefined();
+
+  relations.resolve(responseFor({ path: '/platform.module/education.exam/metadata-relations/query' }));
+  await flushPromises();
+  await flushPromises();
+
+  const before = registry.snapshot()!;
+  expect(before.context.surface).toBe('metadata-governance');
+  const describedBefore = await registry.invoke(
+    { id: 'describe-1', code: 'configuration.describe-metadata-model', input: {} },
+    before.token,
+  );
+  expect(describedBefore.value).toEqual(
+    expect.objectContaining({ selectedRelation: expect.objectContaining({ fieldCount: 1 }) }),
+  );
+
+  wrapper.findComponent({ name: 'UiSwitch' }).vm.$emit('update:checked', true);
+  await flushPromises();
+  const after = registry.snapshot()!;
+  expect(after.token.contextRevision).not.toBe(before.token.contextRevision);
+  await expect(
+    registry.invoke(
+      { id: 'describe-stale', code: 'configuration.describe-metadata-model', input: {} },
+      before.token,
+    ),
+  ).rejects.toThrow('Assistant invocation no longer matches the active page context');
+  const describedAfter = await registry.invoke(
+    { id: 'describe-2', code: 'configuration.describe-metadata-model', input: {} },
+    after.token,
+  );
+  expect(describedAfter.value).toEqual(
+    expect.objectContaining({
+      selectedRelation: expect.objectContaining({ fieldCount: 2 }),
+      fieldSpecs: [{ alias: 'string', title: '短文本' }],
+    }),
+  );
+
+  const added = await registry.invoke(
+    {
+      id: 'add-field',
+      code: 'configuration.add-metadata-field-draft',
+      input: { title: '考试备注', fieldSpecAlias: 'string', required: true },
+    },
+    after.token,
+  );
+  expect(added.value).toEqual({
+    relationId: 'rel-main',
+    fieldName: 'kaoShiBeiZhu',
+    columnName: 'kao_shi_bei_zhu',
+    title: '考试备注',
+    fieldSpecAlias: 'string',
+  });
+  await flushPromises();
+  const drafted = registry.snapshot()!;
+  expect(drafted.capabilities.map((capability) => capability.code)).not.toContain(
+    'configuration.add-metadata-field-draft',
+  );
+  expect(drafted.capabilities.map((capability) => capability.code)).toContain(
+    'configuration.preview-metadata-draft',
+  );
+  const draftedModel = await registry.invoke(
+    { id: 'describe-draft', code: 'configuration.describe-metadata-model', input: {} },
+    drafted.token,
+  );
+  expect(draftedModel.value).toEqual(
+    expect.objectContaining({
+      selectedRelation: expect.objectContaining({ fieldCount: 3 }),
+      draft: { active: true, dirty: true, editorOpen: true },
+    }),
+  );
+  expect(requests.some((options) => options.path.endsWith('change-set-preview'))).toBe(false);
+  expect(
+    wrapper.findAllComponents({ name: 'UiInput' }).some((input) => input.props('value') === '考试备注'),
+  ).toBe(true);
+
+  const tree = wrapper.findComponent({ name: 'UiTree' });
+  const nodes = tree.props('nodes') as Array<{ key: string }>;
+  tree.vm.$emit('select', nodes[1]);
+  await flushPromises();
+  const afterBlockedSwitch = registry.snapshot()!;
+  const modelAfterBlockedSwitch = await registry.invoke(
+    { id: 'describe-after-blocked-switch', code: 'configuration.describe-metadata-model', input: {} },
+    afterBlockedSwitch.token,
+  );
+  expect(modelAfterBlockedSwitch.value).toEqual(
+    expect.objectContaining({
+      selectedRelation: expect.objectContaining({ relationId: 'rel-main', fieldCount: 3 }),
+      draft: { active: true, dirty: true, editorOpen: true },
+    }),
+  );
+});
+
+it('opens an existing ordinary field as a visible assistant update candidate without applying it', async () => {
+  const http = fakeHttp();
+  const request = vi.spyOn(http, 'request');
+  configureModuleContext({ http });
+  const registry = createAssistantSurfaceRegistry();
+  registry.activate('page-1');
+  const Harness = defineComponent({
+    setup() {
+      provideAssistantSurfaceHost({ registry, activePageInstanceKey: () => 'page-1' });
+      return () => h(MetadataGovernanceSurface, { moduleAlias: 'education.exam' });
+    },
+  });
+  const wrapper = shallowMount(Harness, {
+    global: { stubs: { ...governanceStubs(), MetadataGovernanceSurface: false } },
+  });
+  mounted.add(wrapper);
+  await flushPromises();
+  await flushPromises();
+
+  const before = registry.snapshot()!;
+  expect(before.capabilities.map((capability) => capability.code)).toContain(
+    'configuration.update-metadata-field-draft',
+  );
+  const updated = await registry.invoke(
+    {
+      id: 'update-field',
+      code: 'configuration.update-metadata-field-draft',
+      input: { fieldName: 'title', title: '考试标题', indexed: true },
+    },
+    before.token,
+  );
+  expect(updated.value).toEqual({
+    relationId: 'rel-main',
+    fieldName: 'title',
+    title: '考试标题',
+    fieldSpecAlias: 'string',
+  });
+  await flushPromises();
+
+  expect(request.mock.calls.some(([options]) => options.path.endsWith('change-set-preview'))).toBe(false);
+  expect(request.mock.calls.some(([options]) => options.path.endsWith('change-set-apply'))).toBe(false);
+  expect(
+    wrapper.findAllComponents({ name: 'UiInput' }).some((input) => input.props('value') === '考试标题'),
+  ).toBe(true);
+  const candidate = registry.snapshot()!;
+  expect(candidate.capabilities.map((capability) => capability.code)).not.toContain(
+    'configuration.update-metadata-field-draft',
+  );
+  expect(candidate.capabilities.map((capability) => capability.code)).toContain(
+    'configuration.preview-metadata-draft',
+  );
+  await registry.invoke(
+    { id: 'preview-update', code: 'configuration.preview-metadata-draft', input: {} },
+    candidate.token,
+  );
+  const preview = request.mock.calls.find(([options]) => options.path.endsWith('change-set-preview'));
+  expect(preview?.[0].body).toEqual(
+    expect.objectContaining({
+      relationDrafts: [
+        expect.objectContaining({
+          fieldDrafts: [
+            expect.objectContaining({
+              operation: 'UPDATE',
+              field: expect.objectContaining({ title: '考试标题', indexed: true }),
+            }),
+          ],
+        }),
+      ],
+    }),
+  );
+  wrapper
+    .findAllComponents({ name: 'UiInput' })
+    .find((input) => input.props('value') === '考试标题')!
+    .vm.$emit('update:value', '再次修改的标题');
+  await flushPromises();
+  const manuallyChanged = registry.snapshot()!;
+  expect(manuallyChanged.token.contextRevision).not.toBe(candidate.token.contextRevision);
+  expect(manuallyChanged.capabilities.map((capability) => capability.code)).not.toContain(
+    'configuration.preview-metadata-draft',
+  );
+});
+
+it.each([
+  [
+    'MODULE_REFERENCE',
+    { kind: 'MODULE_REFERENCE', title: '负责人', target: 'iam.user' },
+    'iam.user',
+    'MODULE_REFERENCE',
+  ],
+  [
+    'DICTIONARY',
+    {
+      kind: 'DICTIONARY',
+      title: '考试状态',
+      target: 'education.status',
+      selectionMode: 'MULTIPLE',
+    },
+    'education.status',
+    'DICTIONARY',
+  ],
+] as const)(
+  'resolves and opens a governed %s field candidate without applying it',
+  async (_label, input, targetValue, propertyKind) => {
+    const http = fakeHttp();
+    const original = http.request;
+    vi.mocked(confirmAction).mockResolvedValue(false);
+    const impactDescription =
+      input.kind === 'MODULE_REFERENCE'
+        ? '新增模块引用字段，目标模块“iam.user”。'
+        : '新增字典字段，目标字典“education.status”，选择模式“MULTIPLE”。';
+    const request = vi.spyOn(http, 'request').mockImplementation((options) => {
+      if (options.path === '/platform.field_spec/query')
+        return Promise.resolve({
+          records: [
+            { id: 'string', alias: 'string', title: '短文本', enabled: true },
+            { id: 'json_set', alias: 'json_set', title: 'JSON 集合', enabled: true },
+          ],
+          pages: 1,
+          totalKnown: true,
+        }) as never;
+      if (options.path.endsWith('/metadata-model/change-set-preview'))
+        return Promise.resolve({
+          errors: [],
+          warnings: [],
+          fieldImpacts: [
+            {
+              operation: 'ADD',
+              fieldName: input.kind === 'MODULE_REFERENCE' ? 'refFuZeRenId' : 'dictKaoShiZhuangTai',
+              columnName: input.kind === 'MODULE_REFERENCE' ? 'ref_fu_ze_ren_id' : 'dict_kao_shi_zhuang_tai',
+              platformManaged: false,
+              description: impactDescription,
+            },
+          ],
+          schemaImpacts: [
+            {
+              operation: 'ADD_COLUMN',
+              schemaName: 'public',
+              tableName: 'exam',
+              columnName: input.kind === 'MODULE_REFERENCE' ? 'ref_fu_ze_ren_id' : 'dict_kao_shi_zhuang_tai',
+              description: '新增物理列。',
+            },
+          ],
+          orderImpacts: [],
+          proposalFingerprint: 'property-field-fingerprint',
+        }) as never;
+      return original(options);
+    });
+    configureModuleContext({ http });
+    const registry = createAssistantSurfaceRegistry();
+    registry.activate('page-1');
+    const Harness = defineComponent({
+      setup() {
+        provideAssistantSurfaceHost({ registry, activePageInstanceKey: () => 'page-1' });
+        return () => h(MetadataGovernanceSurface, { moduleAlias: 'education.exam' });
+      },
+    });
+    const wrapper = shallowMount(Harness, {
+      global: { stubs: { ...governanceStubs(), MetadataGovernanceSurface: false } },
+    });
+    mounted.add(wrapper);
+    await flushPromises();
+    await flushPromises();
+
+    const before = registry.snapshot()!;
+    const lookupKind = input.kind;
+    const targets = await registry.invoke(
+      {
+        id: `targets-${lookupKind}`,
+        code: 'configuration.find-metadata-field-targets',
+        input: { kind: lookupKind },
+      },
+      before.token,
+    );
+    expect(targets.value).toEqual(
+      expect.objectContaining({
+        kind: lookupKind,
+        truncated: false,
+        targets: expect.arrayContaining([expect.objectContaining({ target: targetValue })]),
+      }),
+    );
+    const candidate = await registry.invoke(
+      {
+        id: `add-${lookupKind}`,
+        code: 'configuration.add-metadata-property-field-draft',
+        input,
+      },
+      before.token,
+    );
+    expect(candidate.value).toEqual(
+      expect.objectContaining({ kind: lookupKind, target: targetValue, title: input.title }),
+    );
+    await flushPromises();
+
+    expect(request.mock.calls.some(([options]) => options.path.endsWith('change-set-apply'))).toBe(false);
+    expect(
+      wrapper.findAllComponents({ name: 'UiSelect' }).some((select) => select.props('value') === targetValue),
+    ).toBe(true);
+    const drafted = registry.snapshot()!;
+    await registry.invoke(
+      { id: `preview-${lookupKind}`, code: 'configuration.preview-metadata-draft', input: {} },
+      drafted.token,
+    );
+    const preview = [...request.mock.calls]
+      .reverse()
+      .find(([options]) => options.path.endsWith('change-set-preview'));
+    expect(preview?.[0].body).toEqual(
+      expect.objectContaining({
+        relationDrafts: [
+          expect.objectContaining({
+            fieldDrafts: [
+              expect.objectContaining({
+                operation: 'ADD',
+                property: expect.objectContaining({ kind: propertyKind }),
+              }),
+            ],
+          }),
+        ],
+      }),
+    );
+
+    await wrapper
+      .findAll('button')
+      .find((button) => button.text() === '保存')!
+      .trigger('click');
+    await flushPromises();
+    expect(confirmAction).toHaveBeenCalledWith(
+      expect.objectContaining({ content: expect.stringContaining(targetValue) }),
+    );
+    if (input.kind === 'DICTIONARY')
+      expect(confirmAction).toHaveBeenCalledWith(
+        expect.objectContaining({ content: expect.stringContaining('MULTIPLE') }),
+      );
+    expect(request.mock.calls.some(([options]) => options.path.endsWith('change-set-apply'))).toBe(false);
+  },
+);
+
+it('sorts metadata field targets deterministically and reports bounded results', async () => {
+  const http = fakeHttp();
+  const original = http.request;
+  vi.spyOn(http, 'request').mockImplementation((options) => {
+    if (options.path === '/platform.field_spec/query')
+      return Promise.resolve({
+        records: [{ id: 'string', alias: 'string', title: '短文本', enabled: true }],
+        pages: 1,
+        totalKnown: true,
+      }) as never;
+    if (options.path.endsWith('/reference-target-modules'))
+      return Promise.resolve(
+        Array.from({ length: 31 }, (_, index) => {
+          const sequence = String(31 - index).padStart(2, '0');
+          return { alias: `module.target${sequence}`, title: `目标 ${sequence}` };
+        }),
+      ) as never;
+    return original(options);
+  });
+  configureModuleContext({ http });
+  const registry = createAssistantSurfaceRegistry();
+  registry.activate('page-1');
+  const Harness = defineComponent({
+    setup() {
+      provideAssistantSurfaceHost({ registry, activePageInstanceKey: () => 'page-1' });
+      return () => h(MetadataGovernanceSurface, { moduleAlias: 'education.exam' });
+    },
+  });
+  const wrapper = shallowMount(Harness, {
+    global: { stubs: { ...governanceStubs(), MetadataGovernanceSurface: false } },
+  });
+  mounted.add(wrapper);
+  await flushPromises();
+  await flushPromises();
+
+  const snapshot = registry.snapshot()!;
+  const targets = await registry.invoke(
+    {
+      id: 'bounded-reference-targets',
+      code: 'configuration.find-metadata-field-targets',
+      input: { kind: 'MODULE_REFERENCE' },
+    },
+    snapshot.token,
+  );
+
+  expect(targets.value).toEqual({
+    kind: 'MODULE_REFERENCE',
+    truncated: true,
+    targets: Array.from({ length: 30 }, (_, index) => {
+      const sequence = String(index + 1).padStart(2, '0');
+      return { target: `module.target${sequence}`, title: `目标 ${sequence}` };
+    }),
+  });
+});
+
+it('keeps the workbench fallback active when metadata loading fails', async () => {
+  const http: HttpClient = {
+    request: <T>(options: HttpRequestOptions) =>
+      options.path === '/platform.module/education.exam/metadata-relations/query'
+        ? Promise.reject(new Error('load failed'))
+        : Promise.resolve(responseFor(options) as T),
+  };
+  configureModuleContext({ http });
+  const registry = createAssistantSurfaceRegistry();
+  registry.activate('page-1');
+  const Harness = defineComponent({
+    setup() {
+      provideAssistantSurfaceHost({ registry, activePageInstanceKey: () => 'page-1' });
+      return () => h(MetadataGovernanceSurface, { moduleAlias: 'education.exam' });
+    },
+  });
+  const wrapper = shallowMount(Harness, {
+    global: { stubs: { ...governanceStubs(), MetadataGovernanceSurface: false } },
+  });
+  mounted.add(wrapper);
+  await flushPromises();
+  await flushPromises();
+
+  expect(registry.snapshot()).toBeUndefined();
 });
 
 it('keeps main entity capabilities out of the data-model editor', async () => {
@@ -243,7 +715,25 @@ it('removes a child without clearing the surviving entity fields', async () => {
 it('keeps the field editor open while save confirmation is pending', async () => {
   const confirmation = deferred<boolean>();
   vi.mocked(confirmAction).mockReturnValue(confirmation.promise);
-  configureModuleContext({ http: fakeHttp() });
+  const http = fakeHttp();
+  const original = http.request;
+  vi.spyOn(http, 'request').mockImplementation((options) =>
+    options.path.endsWith('/metadata-model/change-set-preview')
+      ? (Promise.resolve({
+          ...responseFor(options),
+          schemaImpacts: [
+            {
+              operation: 'ADD_INDEX',
+              schemaName: 'public',
+              tableName: 'education_exam',
+              columnName: 'title',
+              description: '字段将增加普通索引。',
+            },
+          ],
+        }) as never)
+      : original(options),
+  );
+  configureModuleContext({ http });
   const wrapper = shallowMount(MetadataGovernanceSurface, {
     props: { moduleAlias: 'education.exam' },
     global: { stubs: governanceStubs() },
@@ -264,6 +754,9 @@ it('keeps the field editor open while save confirmation is pending', async () =>
   await flushPromises();
 
   expect(vi.mocked(confirmAction)).toHaveBeenCalledTimes(1);
+  expect(vi.mocked(confirmAction)).toHaveBeenCalledWith(
+    expect.objectContaining({ content: expect.stringContaining('字段将增加普通索引。') }),
+  );
   expect(wrapper.text()).toContain('存储字段规格');
   confirmation.resolve(false);
   await flushPromises();
@@ -738,7 +1231,15 @@ function responseFor(options: HttpRequestOptions) {
   if (options.path.endsWith('/metadata-model/change-set-preview'))
     return {
       errors: [],
-      fieldImpacts: [{ operation: 'UPDATE', fieldName: 'title', columnName: 'title' }],
+      fieldImpacts: [
+        {
+          operation: 'UPDATE',
+          fieldName: 'title',
+          columnName: 'title',
+          platformManaged: false,
+          description: '更新普通业务字段。',
+        },
+      ],
       schemaImpacts: [],
       orderImpacts: [],
       proposalFingerprint: 'fingerprint',

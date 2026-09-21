@@ -88,6 +88,22 @@ class MetadataRelationChangeSetPreviewServiceTest {
     }
 
     @Test
+    void shouldRejectDynamicRecordProtocolFieldNamesDuringPreview() {
+        for (String fieldName : List.of("values", "attachments", "record")) {
+            Fixture fixture = fixture(RelationRole.MAIN, List.of());
+            MetadataField field = businessField(fieldName, fieldName, "string");
+
+            MetadataRelationChangeSetPreview result = fixture.service.preview("crm.customer", "main", command(3,
+                    Map.of(), List.of(new MetadataFieldChangeSetDraft(
+                            MetadataFieldChangeSetDraft.Operation.ADD, null, field))));
+
+            assertThat(result.valid()).as(fieldName).isFalse();
+            assertThat(result.errors()).extracting(MetadataChangeSetValidationIssue::code)
+                    .as(fieldName).contains("INVALID_FIELD_DRAFT");
+        }
+    }
+
+    @Test
     void shouldAllowAnyFieldSpecChangeWhenEntityHasNoData() {
         MetadataField existing = businessField("note", "note", "string");
         existing.setVersion(2);
@@ -123,6 +139,50 @@ class MetadataRelationChangeSetPreviewServiceTest {
     }
 
     @Test
+    void shouldDescribeEveryPhysicalSchemaEffectOfAFieldUpdate() {
+        MetadataField existing = businessField("note", "note", "string");
+        existing.setVersion(2);
+        Fixture fixture = fixture(RelationRole.MAIN, List.of(existing));
+        when(fixture.schemaFacts.countPhysicalRecords(anyString(), anyString(), any(Criteria.class))).thenReturn(0L);
+        MetadataField proposed = businessField("note", "note", "integer");
+        proposed.setRequired(true);
+        proposed.setUniqueField(true);
+        proposed.setIndexed(true);
+
+        MetadataRelationChangeSetPreview result = fixture.service.preview("crm.customer", "main", command(3,
+                Map.of(), List.of(new MetadataFieldChangeSetDraft(MetadataFieldChangeSetDraft.Operation.UPDATE,
+                        "field-0", 2, proposed))));
+
+        assertThat(result.valid()).isTrue();
+        assertThat(result.schemaImpacts()).extracting(MetadataChangeSetSchemaImpact::operation)
+                .containsExactly("ALTER_COLUMN_TYPE", "SET_NOT_NULL", "ADD_UNIQUE_INDEX", "ADD_INDEX");
+        assertThat(result.schemaImpacts()).allSatisfy(impact -> {
+            assertThat(impact.schemaName()).isEqualTo("public");
+            assertThat(impact.tableName()).isEqualTo("crm_customer");
+            assertThat(impact.columnName()).isEqualTo("note");
+        });
+    }
+
+    @Test
+    void shouldRejectStricterConstraintsWhenExistingRowsCannotBeProvenCompatible() {
+        MetadataField existing = businessField("note", "note", "string");
+        existing.setVersion(2);
+        Fixture fixture = fixture(RelationRole.MAIN, List.of(existing));
+        when(fixture.schemaFacts.countPhysicalRecords(anyString(), anyString(), any(Criteria.class))).thenReturn(7L);
+        MetadataField proposed = businessField("note", "note", "string");
+        proposed.setRequired(true);
+
+        MetadataRelationChangeSetPreview result = fixture.service.preview("crm.customer", "main", command(3,
+                Map.of(), List.of(new MetadataFieldChangeSetDraft(MetadataFieldChangeSetDraft.Operation.UPDATE,
+                        "field-0", 2, proposed))));
+
+        assertThat(result.valid()).isFalse();
+        assertThat(result.errors()).extracting(MetadataChangeSetValidationIssue::code)
+                .contains("FIELD_CONSTRAINT_CHANGE_WITH_DATA");
+        assertThat(result.schemaImpacts()).isEmpty();
+    }
+
+    @Test
     void shouldStageReferencePropertyInsideTheSameFieldPlanAndFingerprint() {
         Fixture fixture = fixture(RelationRole.MAIN, List.of());
         MetadataField field = businessField("studentId", "student_id", "string");
@@ -142,7 +202,27 @@ class MetadataRelationChangeSetPreviewServiceTest {
         assertThat(property.kind()).isEqualTo(MetadataFieldPropertyKind.MODULE_REFERENCE);
         assertThat(property.referenceConfig()).extracting(MetadataFieldReferenceConfig::getTargetKeyField,
                 MetadataFieldReferenceConfig::getTargetLabelField).containsExactly("studentNo", "name");
+        assertThat(result.fieldImpacts().getFirst().description()).contains("模块引用", "education.student");
         assertThat(result.proposalFingerprint()).hasSize(64);
+    }
+
+    @Test
+    void shouldDescribeTheResolvedDictionaryBindingInTheFieldImpact() {
+        Fixture fixture = fixture(RelationRole.MAIN, List.of());
+        MetadataField field = businessField("attendanceStatus", "attendance_status", "string");
+        MetadataFieldConfig dictionary = new MetadataFieldConfig();
+        dictionary.setDictionaryApplicationAlias("education");
+        dictionary.setDictionaryCategoryAlias("status");
+        dictionary.setSelectionMode(net.ximatai.muyun.spring.common.option.OptionSelectionMode.SINGLE);
+
+        MetadataRelationChangeSetPreview result = fixture.service.preview("crm.customer", "main", command(3,
+                Map.of(), List.of(new MetadataFieldChangeSetDraft(MetadataFieldChangeSetDraft.Operation.ADD, null, null,
+                        field, new MetadataFieldPropertyDraft(MetadataFieldPropertyKind.DICTIONARY, null, null,
+                        dictionary)))));
+
+        assertThat(result.valid()).isTrue();
+        assertThat(result.fieldImpacts().getFirst().description())
+                .contains("字典字段", "education.status", "SINGLE");
     }
 
     @Test

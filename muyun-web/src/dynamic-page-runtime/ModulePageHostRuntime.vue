@@ -383,6 +383,7 @@ export default defineComponent({
             :mode="flatManagementRecycleBin.mode.value"
             :sorting="flatManagementSorting"
             :keyword="flatManagementSearchKeyword"
+            :query-quick-search-enabled="runtimePage?.quickSearchFields?.length !== 0"
             :external-query-values="navigatorListQueryValues"
             :empty-description="
               flatManagementRecycleBin.active.value ? '回收站为空' : flatManagementContent?.emptyDescription
@@ -392,6 +393,8 @@ export default defineComponent({
             :filter-option="runtimePage?.quickSearchFields != null ? matchesPageQuickSearch : undefined"
             @recycle-bin-summary="flatManagementRecycleBin.updateSummary"
             @loaded="(records) => handleFlatManagementLoaded(records)"
+            @update:keyword="flatManagementSearchKeyword = $event"
+            @query-controller-change="bindListQueryController"
             @restored="refreshList"
             @select="(record) => openFlatManagementRecord(record)"
             @deselect="resetFlatManagementSelection"
@@ -645,6 +648,7 @@ export default defineComponent({
           :quick-search-placeholder="listSearchPlaceholder"
           :empty-description="listEmptyDescription"
           @loaded="handleLoaded"
+          @query-controller-change="bindListQueryController"
           @mode-change="handleListModeChange"
           @page-size-change="setListPageSize"
           @restored="handleRecycleBinRestore"
@@ -980,6 +984,7 @@ export default defineComponent({
               @select="selectTreeRecord"
               @deselect="clearTreeRecordSelection"
               @loaded="handleTreeLoaded"
+              @query-controller-change="bindTreeQueryController"
               @sorted="handleTreeSorted"
             />
             <RecordPanelState v-else :description="mainTreeScopeDescription" />
@@ -1152,6 +1157,7 @@ export default defineComponent({
           :quick-search-placeholder="listSearchPlaceholder"
           :empty-description="listEmptyDescription"
           @loaded="handleLoaded"
+          @query-controller-change="bindListQueryController"
           @mode-change="handleListModeChange"
           @page-size-change="setListPageSize"
           @restored="handleRecycleBinRestore"

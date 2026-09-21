@@ -81,6 +81,33 @@ describe('source reference picker provider', () => {
     });
   });
 
+  it('marks a missing source title when the picker falls back to the identifier', async () => {
+    const resolve = vi.fn().mockResolvedValue({ options: [{ id: 'student-internal' }], total: 1 });
+    const provider = createSourceReferencePickerProvider({
+      sourceModuleAlias: 'education.enrollment',
+      fieldName: 'studentId',
+      reference,
+      resolver: () => ({ resolve }),
+      formValues: () => ({ classId: 'class-1' }),
+      source: () => undefined,
+    });
+
+    await expect(
+      provider.searchPage({ keyword: '', pageNum: 1, pageSize: 20, scope: { selections: [] } }),
+    ).resolves.toEqual({
+      records: [
+        {
+          id: 'student-internal',
+          title: 'student-internal',
+          identifierFallback: true,
+          projections: undefined,
+          affectPatch: undefined,
+        },
+      ],
+      total: 1,
+    });
+  });
+
   it('invalidates only record scope and declared candidate dependencies', () => {
     const base = { id: 'enrollment-1', tenantId: 'tenant-1', classId: 'class-1', note: 'old' };
     const sameScope = { ...base, note: 'edited without changing candidates' };

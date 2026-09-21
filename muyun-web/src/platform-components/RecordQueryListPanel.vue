@@ -9,7 +9,7 @@ export type {
 </script>
 
 <script setup lang="ts">
-import { computed, inject, onMounted, ref, watch } from 'vue';
+import { computed, inject, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { confirmAction, UiButton, UiCheckbox, UiDropdown, UiEmpty, UiSpin } from '@muyun/vue-ui-antdv';
 import type {
   UiDataTableColumn,
@@ -61,6 +61,7 @@ import {
 import { recycleBinRestoreUnavailableReason, useRecycleBinState } from './recycleBinState';
 import {
   resolveRecordQueryListColumns,
+  resolveRecordQueryListDisplayValue,
   type QueryListRecord,
   type RecordQueryListCellComponent,
   type RecordQueryListColumn,
@@ -70,11 +71,17 @@ import {
 import { reconcileSelectedKeys } from './selectionRefresh';
 import { loadOptionFieldItems } from './optionFieldOptionCache';
 import { sortPartitionKey } from './sortPartitionKey';
+import { usePlatformTimeZoneContext } from './platformTimeZoneContext';
+import type {
+  RecordQueryListQueryController,
+  RecordQueryListQuerySnapshot,
+} from './recordQueryListQueryController';
 
 const navigationDisabled = inject(
   WORKSPACE_NAVIGATION_DISABLED,
   computed(() => false),
 );
+const platformTimeZone = usePlatformTimeZoneContext();
 
 defineOptions({ name: 'RecordQueryListPanel' });
 
@@ -232,6 +239,7 @@ const emit = defineEmits<{
   restored: [];
   /** The exact standard request that produced the currently displayed records. */
   queried: [request: WebQueryRequest];
+  queryControllerChange: [controller: RecordQueryListQueryController | undefined];
 }>();
 const slots = defineSlots<{
   /** Page/list operations rendered left of query controls. */
@@ -279,6 +287,20 @@ const queryOptionItemsByField = ref<Record<string, import('@muyun/web-contracts'
 );
 let schemaRequestSeq = 0;
 let recordsRequestSeq = 0;
+let queryControllerRevision = 0;
+interface QueryControllerSettlement {
+  resolve(): void;
+  reject(cause: Error): void;
+}
+const queryControllerSettlements = new Set<QueryControllerSettlement>();
+
+watch(loading, (active) => {
+  if (active) return;
+  for (const settlement of queryControllerSettlements) {
+    queryControllerSettlements.delete(settlement);
+    settlement.resolve();
+  }
+});
 
 const pages = computed(() => Math.max(1, Math.ceil(total.value / pageSize.value)));
 const queryReady = computed(() => props.ready);
@@ -536,6 +558,7 @@ watch(
     total.value = 0;
     totalKnown.value = true;
     querySummaryValues.value = [];
+    queryControllerRevision += 1;
     emit('loaded', []);
   },
 );
@@ -605,6 +628,7 @@ async function loadSchemaAndRecords() {
   if (!queryReady.value) {
     return;
   }
+  queryControllerRevision += 1;
   const requestSeq = ++schemaRequestSeq;
   loading.value = true;
   descriptorLoadError.value = false;
@@ -691,6 +715,7 @@ async function loadRuntimeListView(): Promise<ResolvedViewDescriptor | undefined
 }
 
 async function loadRecords(updateLoading = true) {
+  queryControllerRevision += 1;
   const requestSeq = ++recordsRequestSeq;
   if (!queryReady.value) {
     records.value = [];
@@ -701,13 +726,23 @@ async function loadRecords(updateLoading = true) {
     if (updateLoading) {
       loading.value = false;
     }
-    return;
+    return true;
   }
   if (props.mode === 'recycleBin') {
     if (updateLoading) loading.value = true;
+    recordsLoadError.value = undefined;
     try {
-      await recycleBinState.load(buildQueryRequest());
-      if (requestSeq !== recordsRequestSeq) return;
+      const loaded = await recycleBinState.load(buildQueryRequest());
+      if (requestSeq !== recordsRequestSeq) return false;
+      if (!loaded) {
+        records.value = [];
+        total.value = 0;
+        totalKnown.value = true;
+        querySummaryValues.value = [];
+        recordsLoadError.value = '回收站加载失败，请稍后重试';
+        emit('loaded', []);
+        return false;
+      }
       recycleBinItems.clear();
       records.value = recycleBinState.items.value.map((item) => {
         const record = { ...item.record, deletedAt: item.deletedAt };
@@ -721,10 +756,10 @@ async function loadRecords(updateLoading = true) {
       pageNum.value = recycleBinState.pageNum.value;
       pageSize.value = recycleBinState.pageSize.value;
       emit('loaded', records.value);
+      return true;
     } finally {
       if (updateLoading && requestSeq === recordsRequestSeq) loading.value = false;
     }
-    return;
   }
   if (updateLoading) {
     loading.value = true;
@@ -734,7 +769,7 @@ async function loadRecords(updateLoading = true) {
     const request = buildQueryRequest();
     const response = await props.context.crud.query(request);
     if (requestSeq !== recordsRequestSeq) {
-      return;
+      return false;
     }
     records.value = response.records;
     preloadRecordActionAvailability(response.records);
@@ -750,9 +785,10 @@ async function loadRecords(updateLoading = true) {
     emit('loaded', response.records);
     emit('queried', request);
     refreshRecycleBinSummary();
+    return true;
   } catch (cause) {
     if (requestSeq !== recordsRequestSeq) {
-      return;
+      return false;
     }
     records.value = [];
     total.value = 0;
@@ -761,6 +797,7 @@ async function loadRecords(updateLoading = true) {
     emit('loaded', []);
     recordsLoadError.value = normalizeError(cause).message;
     presentPlatformError(cause, { source: 'record-query-list-panel', phase: 'load' });
+    return false;
   } finally {
     if (updateLoading && requestSeq === recordsRequestSeq) {
       loading.value = false;
@@ -1253,7 +1290,172 @@ function submitQuickSearch(value = quickSearchKeyword.value) {
   void loadRecords();
 }
 
+function queryControllerSnapshot(): RecordQueryListQuerySnapshot {
+  const quickSearchFields = schema.value?.quickSearch.fieldSchemas ?? [];
+  const result = assistantResultRows();
+  const status = !queryReady.value
+    ? 'waiting'
+    : loading.value
+      ? 'loading'
+      : descriptorLoadError.value || recordsLoadError.value
+        ? 'error'
+        : 'ready';
+  return {
+    mode: props.mode,
+    status,
+    quickSearchEnabled:
+      queryReady.value && !descriptorLoadError.value && props.mode === 'normal' && quickSearchEnabled.value,
+    quickSearchFields: quickSearchFields.map((field) => ({
+      name: field.name,
+      title: field.title ?? field.name,
+      valueType: field.valueType,
+    })),
+    ...(appliedQuickSearch.value.trim() ? { appliedQuickSearch: appliedQuickSearch.value.trim() } : {}),
+    pageNum: pageNum.value,
+    pageSize: pageSize.value,
+    total: total.value,
+    totalKnown: totalKnown.value,
+    rows: result.rows,
+    truncated: result.truncated,
+  };
+}
+
+async function applyControllerQuickSearch(keyword: string) {
+  const normalized = keyword.trim();
+  if (!queryReady.value || props.mode !== 'normal' || !quickSearchEnabled.value) {
+    throw new Error('Quick search is unavailable for the current list');
+  }
+  if (normalized.length > 500) throw new Error('Quick search keyword is too long');
+  quickSearchKeyword.value = normalized;
+  appliedQuickSearch.value = normalized;
+  pageNum.value = 1;
+  const loaded = await loadRecords();
+  if (!loaded || recordsLoadError.value) throw new Error('Quick search failed');
+  return queryControllerSnapshot();
+}
+
+function assistantResultRows() {
+  const maxRows = 20;
+  const maxColumns = 12;
+  const maxBytes = 24_000;
+  const componentKeys = new Set(props.cellComponents.map(({ key }) => key));
+  const readableColumns = tableColumns.value.filter(
+    (column) =>
+      column.assistantReadable !== false &&
+      (!componentKeys.has(column.key) || Boolean(column.render ?? props.cellRenderers[column.key])),
+  );
+  const columns = readableColumns.slice(0, maxColumns);
+  const sourceRows = records.value.slice(0, maxRows);
+  let truncated = readableColumns.length > columns.length || records.value.length > sourceRows.length;
+  let bytes = 0;
+  const rows: RecordQueryListQuerySnapshot['rows'] = [];
+  for (const record of sourceRows) {
+    const row = {
+      ...(record.id == null ? {} : { id: String(record.id) }),
+      cells: columns.map((column) => ({
+        fieldName: column.key,
+        title: column.title,
+        value: assistantListValue(column, record, () => {
+          truncated = true;
+        }),
+      })),
+    };
+    const rowBytes = new TextEncoder().encode(JSON.stringify(row)).byteLength;
+    if (bytes + rowBytes > maxBytes) {
+      truncated = true;
+      break;
+    }
+    bytes += rowBytes;
+    rows.push(row);
+  }
+  return { rows, truncated };
+}
+
+function assistantListValue(
+  column: RecordQueryListColumn,
+  record: QueryListRecord,
+  markTruncated: () => void,
+) {
+  let value: unknown;
+  try {
+    value = resolveRecordQueryListDisplayValue(record, column, props.cellRenderers, {
+      timeZone: platformTimeZone?.value,
+    });
+  } catch {
+    value = record[column.titleField ?? column.key] ?? record[column.key];
+  }
+  if (value == null || typeof value === 'boolean' || typeof value === 'number') return value;
+  if (typeof value === 'string') {
+    if (value.length > 500) markTruncated();
+    return value.slice(0, 500);
+  }
+  if (Array.isArray(value)) {
+    if (value.length > 20) markTruncated();
+    return value.slice(0, 20).map((item) => {
+      if (typeof item === 'string') {
+        if (item.length > 200) markTruncated();
+        return item.slice(0, 200);
+      }
+      return typeof item === 'number' || typeof item === 'boolean' ? item : String(item).slice(0, 200);
+    });
+  }
+  const text = String(value);
+  if (text.length > 500) markTruncated();
+  return text.slice(0, 500);
+}
+
+const queryController: RecordQueryListQueryController = {
+  revision: () => queryControllerRevision,
+  interactionRevision: () => JSON.stringify(buildQueryRequest()),
+  snapshot: queryControllerSnapshot,
+  async settle(signal?: AbortSignal) {
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      throwIfQuerySettlementAborted(signal);
+      await nextTick();
+      throwIfQuerySettlementAborted(signal);
+      if (loading.value) await waitForQueryControllerLoad(signal);
+      const settledRevision = queryControllerRevision;
+      await nextTick();
+      throwIfQuerySettlementAborted(signal);
+      if (!loading.value && queryControllerRevision === settledRevision) {
+        return queryControllerSnapshot();
+      }
+    }
+    throw new Error('List query did not settle on a stable revision');
+  },
+  applyQuickSearch: applyControllerQuickSearch,
+};
+
+function waitForQueryControllerLoad(signal?: AbortSignal) {
+  return new Promise<void>((resolve, reject) => {
+    let settlement!: QueryControllerSettlement;
+    const cleanup = () => signal?.removeEventListener('abort', abort);
+    const abort = () => {
+      queryControllerSettlements.delete(settlement);
+      cleanup();
+      reject(new DOMException('Assistant invocation was cancelled', 'AbortError'));
+    };
+    settlement = {
+      resolve: () => {
+        cleanup();
+        resolve();
+      },
+      reject: (cause) => {
+        cleanup();
+        reject(cause);
+      },
+    };
+    queryControllerSettlements.add(settlement);
+    signal?.addEventListener('abort', abort, { once: true });
+  });
+}
+
+function throwIfQuerySettlementAborted(signal?: AbortSignal) {
+  if (signal?.aborted) throw new DOMException('Assistant invocation was cancelled', 'AbortError');
+}
+
 function handleQuickSearchInput(value: string) {
+  if (quickSearchKeyword.value !== value) queryControllerRevision += 1;
   quickSearchKeyword.value = value;
 }
 
@@ -1306,6 +1508,15 @@ function handlePageSizeChange(nextPageSize: number) {
   pageNum.value = 1;
   void loadRecords();
 }
+
+onMounted(() => emit('queryControllerChange', queryController));
+onBeforeUnmount(() => {
+  for (const settlement of queryControllerSettlements) {
+    queryControllerSettlements.delete(settlement);
+    settlement.resolve();
+  }
+  emit('queryControllerChange', undefined);
+});
 
 defineExpose({ clearSelection, refresh });
 </script>

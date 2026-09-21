@@ -26,10 +26,13 @@ import {
   type RecordExplorerItemDescriptor,
   type RecordActionItem,
   type RecordQueryListCellComponent,
+  type RecordQueryListQueryController,
+  type RecordTreeQueryController,
   type ReferenceRecordDetailMutation,
   type StandardCrudRowActionKey,
   type QueryListRecord,
   type RecordFormRecord,
+  type ReferencePickerCandidate,
 } from '@muyun/platform-components';
 import type {
   StandardModulePageDescriptor,
@@ -62,6 +65,11 @@ import {
   type ModuleTreeClient,
 } from '@muyun/web-core';
 import { canMutateModuleDetail } from './moduleDetailStateModel';
+import {
+  assistantEditableRecordIds,
+  assistantEditCancelDestination,
+  hasAvailableRecordUpdate,
+} from './assistantRecordEditorPolicy';
 import { recordMutationPayload } from './recordMutationPayload';
 import { createSourceReferencePickerConfigAssembler } from './sourceReferencePickerConfig';
 import {
@@ -334,8 +342,10 @@ export function useModulePageSession(
   const detail = useRecordDetailController<QueryListRecord>();
   const {
     invalidatePendingRequests,
+    commitLoadedRecord,
     openRecord: loadRecord,
     openRecycleBinRecord,
+    settlePendingRecord,
   } = useRecordEditingSession(context, detail, () => {
     detailRelationReloadKey.value += 1;
   });
@@ -363,6 +373,37 @@ export function useModulePageSession(
     loading: detailLoading,
     loadFailed: detailLoadFailed,
   } = detail;
+  const assistantContextRevision = ref(0);
+  const assistantInteractionRevision = ref(0);
+  const markAssistantUserInteraction = () => {
+    assistantInteractionRevision.value += 1;
+  };
+  const listQueryController = shallowRef<RecordQueryListQueryController>();
+  const treeQueryController = shallowRef<RecordTreeQueryController>();
+  function bindListQueryController(controller: RecordQueryListQueryController | undefined) {
+    if (listQueryController.value === controller) return;
+    listQueryController.value = controller;
+    assistantContextRevision.value += 1;
+  }
+  function bindTreeQueryController(controller: RecordTreeQueryController | undefined) {
+    if (treeQueryController.value === controller) return;
+    treeQueryController.value = controller;
+    assistantContextRevision.value += 1;
+  }
+  watch(
+    () => selectedRecord.value?.version,
+    () => {
+      assistantContextRevision.value += 1;
+    },
+    { flush: 'sync' },
+  );
+  watch(
+    [() => selectedRecord.value?.id, editingRecord, editorMode, formSessionKey],
+    () => {
+      assistantContextRevision.value += 1;
+    },
+    { deep: true, flush: 'sync' },
+  );
   // RecordFormFields owns parser and renderer diagnostics. Persist only its
   // validity fact here; the host remains responsible for the save boundary.
   const deleting = ref(false);
@@ -557,7 +598,11 @@ export function useModulePageSession(
       selectedTreeRecord.value = undefined;
     },
     openRecord: (record) => void openRecordView(record),
-    openRecycleBinRecord: (record) => void openRecycleBinRecord(record),
+    openRecycleBinRecord: (record) => {
+      markAssistantUserInteraction();
+      void openRecycleBinRecord(record);
+    },
+    markUserInteraction: markAssistantUserInteraction,
   });
   const navigatorManagementDetail = useRecordDetailController<QueryListRecord>();
   const navigatorManagementLevel = ref<NavigatorLevelRuntime>();
@@ -1971,6 +2016,7 @@ export function useModulePageSession(
   }
 
   function openFlatManagementRecord(record: QueryListRecord) {
+    markAssistantUserInteraction();
     if (flatManagementRecycleBin.active.value) {
       void openRecycleBinRecord(record);
       return;
@@ -1979,6 +2025,7 @@ export function useModulePageSession(
   }
 
   function handleFlatManagementAction(action: RecordActionItem) {
+    markAssistantUserInteraction();
     if (placedFormActions.value.some((item) => item.key === action.key)) {
       handlePlacedFormAction(action);
       return;
@@ -2040,11 +2087,14 @@ export function useModulePageSession(
 
   async function selectListDetailRecord(record: QueryListRecord) {
     if (selectedRecord.value?.id !== record.id && !(await mayLeaveDetailSession())) return;
+    if (selectedRecord.value?.id === record.id) return;
+    assistantInteractionRevision.value += 1;
     selectListDetail(record, detailSurfaceUsesDrawer.value);
   }
 
   async function openListRecord(record: QueryListRecord) {
     if (selectedRecord.value?.id !== record.id && !(await mayLeaveDetailSession())) return;
+    assistantInteractionRevision.value += 1;
     openListRecordSurface(record);
   }
 
@@ -2055,13 +2105,15 @@ export function useModulePageSession(
   function selectNavigatorRecord(
     levelKey: string,
     record: { id?: string },
-    source: 'user' | 'entry' = 'user',
+    source: 'user' | 'assistant' | 'entry' = 'user',
   ) {
     if (!navigatorLevels.value.some((level) => level.descriptor.key === levelKey)) return;
     if (source !== 'entry' && isLockedNavigator(levelKey)) return;
     const previous = selectedNavigatorRecords.value[levelKey];
+    const clearing = previous?.id != null && String(previous.id) === String(record.id);
+    if (clearing && source !== 'user') return;
+    if (source === 'user') assistantInteractionRevision.value += 1;
     const next = { ...selectedNavigatorRecords.value };
-    const clearing = previous?.id === record.id;
     next[levelKey] = clearing ? undefined : (record as QueryListRecord);
     const descendantKeys = navigatorDescendantKeys(levelKey);
     for (const descendantKey of descendantKeys) {
@@ -2078,6 +2130,7 @@ export function useModulePageSession(
     if (isLockedNavigator(levelKey)) return;
     const selected = selectedNavigatorRecords.value[levelKey];
     if (!selected) return;
+    assistantInteractionRevision.value += 1;
     navigatorDismissedSelectionKeys.value = [
       ...new Set([...navigatorDismissedSelectionKeys.value, levelKey]),
     ];
@@ -2150,7 +2203,7 @@ export function useModulePageSession(
       selectedNavigatorRecords.value[key]?.id == null &&
       !navigatorDismissedSelectionKeys.value.includes(key)
     ) {
-      selectNavigatorRecord(key, records[0]);
+      selectNavigatorRecord(key, records[0], 'entry');
     }
   }
 
@@ -2388,6 +2441,7 @@ export function useModulePageSession(
       level.context.can('create') !== true
     )
       return;
+    markAssistantUserInteraction();
     navigatorManagementSession += 1;
     navigatorManagementTogglingEnabled.value = false;
     navigatorManagementFormValid.value = true;
@@ -2482,6 +2536,7 @@ export function useModulePageSession(
     )
       return;
 
+    markAssistantUserInteraction();
     const session = navigatorManagementSession;
     const pendingDraft = { ...record };
     navigatorManagementTogglingEnabled.value = true;
@@ -2518,6 +2573,7 @@ export function useModulePageSession(
   ) {
     const draft = navigatorManagementDetail.draft.value;
     if (!draft) return;
+    markAssistantUserInteraction();
     const level = navigatorManagementLevel.value;
     navigatorManagementDetail.draft.value = applyFormComputeAfterChange(
       applyReferenceDependencyClears(draft, fieldName, value, navigatorManagementFormFields.value),
@@ -2532,6 +2588,7 @@ export function useModulePageSession(
   async function editNavigatorRecord(level: NavigatorLevelRuntime, record: NavigatorRecord) {
     const id = record.id == null ? undefined : String(record.id);
     if (!navigatorManagementAvailable(level) || !id || level.context.can('update') !== true) return;
+    markAssistantUserInteraction();
     const session = ++navigatorManagementSession;
     navigatorManagementTogglingEnabled.value = false;
     navigatorManagementFormValid.value = true;
@@ -2590,6 +2647,7 @@ export function useModulePageSession(
       return;
     const creating = navigatorManagementDetail.mode.value === 'create';
     if (level.context.can(creating ? 'create' : 'update') !== true) return;
+    markAssistantUserInteraction();
     navigatorManagementDetail.saving.value = true;
     try {
       const record = recordMutationPayload(draft, navigatorManagementFormFields.value.values());
@@ -2617,7 +2675,7 @@ export function useModulePageSession(
       await presentModuleActionSuccess(result, '保存成功');
       // This is an in-panel, single-record editing session. Once persistence succeeds,
       // returning to the navigator keeps the workspace focused and avoids stale drafts.
-      closeNavigatorManagementEditor();
+      closeNavigatorManagementEditor('background');
       if (refreshFailure) {
         presentPlatformError(refreshFailure, { source: 'navigator-management', phase: 'load' });
       }
@@ -2648,6 +2706,7 @@ export function useModulePageSession(
         }))
       )
         return;
+      markAssistantUserInteraction();
       const result = await level.context.crud.delete(id, { version });
       level.context.invalidateRecordActions?.([id]);
       if (selectedNavigatorRecords.value[level.descriptor.key]?.id === id) {
@@ -2662,7 +2721,7 @@ export function useModulePageSession(
 
   /** A scope selection immediately constrains the list; its former detail may no longer be in range. */
   function clearSelectionForScopeChange() {
-    closeNavigatorManagementEditor();
+    closeNavigatorManagementEditor('background');
     invalidatePendingRequests();
     detailLoading.value = false;
     detailLoadFailed.value = false;
@@ -2673,7 +2732,8 @@ export function useModulePageSession(
     selectedTreeRecord.value = undefined;
   }
 
-  function closeNavigatorManagementEditor() {
+  function closeNavigatorManagementEditor(source: 'user' | 'background' = 'user') {
+    if (source === 'user') markAssistantUserInteraction();
     navigatorManagementSession += 1;
     navigatorManagementTogglingEnabled.value = false;
     navigatorManagementFormValid.value = true;
@@ -2681,13 +2741,19 @@ export function useModulePageSession(
     navigatorManagementLevel.value = undefined;
   }
 
-  function selectTreeRecord(record: unknown) {
-    selectedTreeRecord.value = record as QueryListRecord;
+  function selectTreeRecord(record: unknown, source: 'user' | 'assistant' | 'background' = 'user') {
+    const next = record as QueryListRecord;
+    if (selectedTreeRecord.value?.id != null && String(selectedTreeRecord.value.id) === String(next.id))
+      return;
+    if (source === 'user') assistantInteractionRevision.value += 1;
+    selectedTreeRecord.value = next;
     void openRecord(selectedTreeRecord.value, 'view');
   }
 
   function clearTreeRecordSelection() {
     if (saving.value) return;
+    if (!selectedTreeRecord.value && !selectedRecord.value) return;
+    assistantInteractionRevision.value += 1;
     invalidatePendingRequests();
     selectedTreeRecord.value = undefined;
     detail.close();
@@ -2705,21 +2771,55 @@ export function useModulePageSession(
     setCardAssistantRecords(records as QueryListRecord[]);
     if (selectedTreeRecord.value || editorMode.value !== 'view') return;
     const firstRecord = records.at(0);
-    if (firstRecord) selectTreeRecord(firstRecord);
+    if (firstRecord) selectTreeRecord(firstRecord, 'background');
   }
 
   function updateDraftField(
     fieldName: string,
     value: import('@muyun/platform-components').RecordFormFieldValue,
   ) {
-    if (!editingRecord.value) {
-      return;
+    updateDraftFields([{ fieldName, value }], 'user');
+  }
+
+  function updateDraftFields(
+    changes: Array<{
+      fieldName: string;
+      value: import('@muyun/platform-components').RecordFormFieldValue;
+    }>,
+    source: 'user' | 'assistant' = 'user',
+  ) {
+    if (!editingRecord.value || changes.length === 0) return;
+    if (source === 'user') assistantInteractionRevision.value += 1;
+    const rules = formComputeRulesOf(context.runtime.snapshot()?.uiDescriptor);
+    let next = editingRecord.value;
+    for (const { fieldName, value } of changes) {
+      next = applyReferenceDependencyClears(next, fieldName, value, formFields.value);
     }
-    editingRecord.value = applyFormComputeAfterChange(
-      applyReferenceDependencyClears(editingRecord.value, fieldName, value, formFields.value),
-      fieldName,
-      formComputeRulesOf(context.runtime.snapshot()?.uiDescriptor),
+    editingRecord.value = applyFormComputeAfterChanges(
+      next,
+      changes.map(({ fieldName }) => fieldName),
+      rules,
     );
+  }
+
+  function updateDraftReference(
+    fieldName: string,
+    candidate: ReferencePickerCandidate,
+    source: 'user' | 'assistant' = 'user',
+  ) {
+    const changes: Array<{
+      fieldName: string;
+      value: import('@muyun/platform-components').RecordFormFieldValue;
+    }> = [{ fieldName, value: candidate.id }];
+    for (const [patchField, patchValue] of Object.entries(candidate.affectPatch ?? {})) {
+      if (patchField !== fieldName) {
+        changes.push({
+          fieldName: patchField,
+          value: patchValue as import('@muyun/platform-components').RecordFormFieldValue,
+        });
+      }
+    }
+    updateDraftFields(changes, source);
   }
 
   /**
@@ -2788,10 +2888,16 @@ export function useModulePageSession(
   }
 
   async function createRecord(parentId?: string) {
-    if (context.can('create') !== true) return;
+    if (context.can('create') !== true) return false;
     await (resolvedSelectionFormDefaultsRequest ?? loadResolvedSelectionFormDefaults());
-    invalidatePendingRequests();
     const defaults = { ...navigatorCreateDefaults.value, ...(parentId ? { parentId } : {}) };
+    const created = commitCreateRecord(defaults);
+    if (created) assistantInteractionRevision.value += 1;
+    return created;
+  }
+
+  function commitCreateRecord(defaults: QueryListRecord) {
+    invalidatePendingRequests();
     // Only a tree's persistent detail card has a meaningful record to restore.
     // A list drawer creates an independent draft: cancelling it must close the
     // drawer rather than reopen the row that happened to be selected.
@@ -2810,10 +2916,110 @@ export function useModulePageSession(
         ),
       );
     }
+    return editorMode.value === 'create' && Boolean(editingRecord.value);
   }
 
   function createRootRecord() {
-    createRecord();
+    return createRecord();
+  }
+
+  function assistantRecordCreationReady() {
+    return (
+      pageReady.value &&
+      !interactionBusy.value &&
+      (treeResource.value ? mainTreeScopeReady.value : navigatorListScopeReady.value)
+    );
+  }
+
+  async function prepareAssistantCreate() {
+    if (editorMode.value !== 'view') throw new Error('A form draft is already active');
+    if (context.can('create') !== true || !assistantRecordCreationReady()) {
+      throw new Error('Record creation is unavailable');
+    }
+    await (resolvedSelectionFormDefaultsRequest ?? loadResolvedSelectionFormDefaults());
+    const defaults = { ...navigatorCreateDefaults.value };
+    return () => {
+      if (!assistantRecordCreationReady() || !commitCreateRecord(defaults)) {
+        throw new Error('Record creation is unavailable');
+      }
+      return assistantEditorState();
+    };
+  }
+
+  /**
+   * Exposes only the navigator scopes that the mounted page currently lets a user change.
+   * The assistant must not derive this from raw navigator descriptors because visibility,
+   * locked-entry policy and an active draft all belong to the page session.
+   */
+  function assistantNavigatorScopes() {
+    if (editorMode.value !== 'view' || interactionBusy.value || detailDirty.value) return [];
+    return visibleNavigatorLevels.value.filter(
+      (level) => !isLockedNavigator(level.descriptor.key) && navigatorManagementScopeReady(level),
+    );
+  }
+
+  function assistantNavigatorScopeRevision(levelKey: string) {
+    return JSON.stringify({
+      tenantId: tenantScopeId.value,
+      selections: navigatorLevels.value.map((level) => [
+        level.descriptor.key,
+        selectedNavigatorRecords.value[level.descriptor.key]?.id ?? null,
+      ]),
+      queryValues: navigatorExplorerQueryValues(levelKey) ?? null,
+    });
+  }
+
+  function applyAssistantNavigatorSelection(
+    levelKey: string,
+    record: QueryListRecord,
+    expectedRevision: string,
+  ) {
+    const level = assistantNavigatorScopes().find((candidate) => candidate.descriptor.key === levelKey);
+    if (
+      !level ||
+      record.id == null ||
+      assistantNavigatorScopeRevision(levelKey) !== expectedRevision ||
+      String(selectedNavigatorRecords.value[levelKey]?.id ?? '') === String(record.id)
+    ) {
+      return false;
+    }
+    selectNavigatorRecord(levelKey, record, 'assistant');
+    return String(selectedNavigatorRecords.value[levelKey]?.id ?? '') === String(record.id);
+  }
+
+  async function settleAssistantPageState(signal: AbortSignal) {
+    throwIfAssistantSettlementAborted(signal);
+    await nextTick();
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      throwIfAssistantSettlementAborted(signal);
+      const contextRevision = assistantContextRevision.value;
+      const controller = listQueryController.value;
+      const treeController = treeQueryController.value;
+      await controller?.settle(signal);
+      await nextTick();
+      await treeController?.settle(signal);
+      await nextTick();
+      await settlePendingRecord(signal);
+      await nextTick();
+      throwIfAssistantSettlementAborted(signal);
+      if (
+        controller !== listQueryController.value ||
+        treeController !== treeQueryController.value ||
+        contextRevision !== assistantContextRevision.value
+      )
+        continue;
+      const status = controller?.snapshot().status;
+      if (
+        !detailLoading.value &&
+        (!navigatorListScopeReady.value || (status !== 'waiting' && status !== 'loading'))
+      )
+        return;
+    }
+    throw new Error('Assistant page state did not settle on a stable page session');
+  }
+
+  function throwIfAssistantSettlementAborted(signal: AbortSignal) {
+    if (signal.aborted) throw new DOMException('Assistant invocation was cancelled', 'AbortError');
   }
 
   function createChildRecord() {
@@ -2850,8 +3056,59 @@ export function useModulePageSession(
       if (!recordId) return;
       if (!(await recordOnlyActionAvailable(recordId, 'update'))) return;
     }
-    if (selectedRecord.value?.id === record.id && detail.beginEdit({ cancelDestination })) return;
+    if (selectedRecord.value?.id === record.id && detail.beginEdit({ cancelDestination })) {
+      assistantInteractionRevision.value += 1;
+      return;
+    }
     await openRecord(record, 'edit', { cancelDestination });
+    if (editorMode.value === 'edit') assistantInteractionRevision.value += 1;
+  }
+
+  async function prepareAssistantEdit(recordId: string) {
+    if (editorMode.value !== 'view' || detailLoading.value) throw new Error('A form draft is already active');
+    const normalizedId = recordId.trim();
+    const querySnapshot = listQueryController.value?.snapshot();
+    if (querySnapshot?.mode === 'recycleBin') {
+      throw new Error('Record editing is unavailable in recycle bin mode');
+    }
+    const visibleIds = new Set(assistantEditableRecordIds(selectedRecord.value?.id, querySnapshot));
+    if (!normalizedId || !visibleIds.has(normalizedId)) {
+      throw new Error(`Record is not available on the current page: ${recordId}`);
+    }
+    const selected = selectedRecord.value;
+    if (context.can('update') !== true) throw new Error('Record editing is unavailable');
+    if (!(await assistantRecordUpdateAvailable(normalizedId))) {
+      throw new Error('Record editing is unavailable');
+    }
+    const loaded =
+      selected?.id != null && String(selected.id) === normalizedId
+        ? selected
+        : await context.crud.view(normalizedId);
+    return () => {
+      commitLoadedRecord(loaded, 'edit', {
+        cancelDestination: assistantEditCancelDestination(detailOpen.value, selected?.id, normalizedId),
+      });
+      return assistantEditorState();
+    };
+  }
+
+  async function assistantRecordUpdateAvailable(recordId: string) {
+    try {
+      const availability = await context.recordActions(recordId);
+      return hasAvailableRecordUpdate(availability);
+    } catch (cause) {
+      presentPlatformError(cause, { source: 'module-assistant', phase: 'authorization' });
+      return false;
+    }
+  }
+
+  function assistantEditorState() {
+    return {
+      editorMode: editorMode.value,
+      recordId: editingRecord.value?.id == null ? undefined : String(editingRecord.value.id),
+      editable: Boolean(editingRecord.value),
+      dirty: detailDirty.value,
+    };
   }
 
   async function saveRecord(actionKey = 'save') {
@@ -2880,6 +3137,7 @@ export function useModulePageSession(
     ) {
       return;
     }
+    assistantInteractionRevision.value += 1;
     saving.value = true;
     activeDetailActionKey.value = actionKey;
     try {
@@ -2953,6 +3211,7 @@ export function useModulePageSession(
       ) {
         return;
       }
+      assistantInteractionRevision.value += 1;
       activeDetailActionKey.value = actionKey;
       const result = await context.crud.delete(id, { version });
       context.invalidateRecordActions?.([id]);
@@ -2981,6 +3240,7 @@ export function useModulePageSession(
       if (!(await recordOnlyActionAvailable(id, actionCode))) return;
     }
 
+    assistantInteractionRevision.value += 1;
     togglingEnabled.value = true;
     try {
       const enabling = record.enabled === false;
@@ -3030,6 +3290,7 @@ export function useModulePageSession(
   }
 
   function handleListAction(action: { key?: string }) {
+    markAssistantUserInteraction();
     if (action.key === 'create') {
       createRecord();
       return;
@@ -3055,6 +3316,7 @@ export function useModulePageSession(
   function handlePlacedPageAction(action: { key?: string; actionCode?: string }) {
     if (saving.value || !placedPageActions.value.some((item) => item.key === action.key && !item.disabled))
       return;
+    markAssistantUserInteraction();
     if (managedPageActions.value) {
       const operation = placedOperation(action.key);
       if (operation === 'OPEN_CREATE') createRecord();
@@ -3070,6 +3332,7 @@ export function useModulePageSession(
   }
 
   function handleRowAction(action: { key?: string }, record: QueryListRecord) {
+    markAssistantUserInteraction();
     if (action.key === 'view') {
       void openRecordView(record);
       return;
@@ -3090,6 +3353,7 @@ export function useModulePageSession(
 
   /** The sole dispatch point for standard view actions, double-clicks and list-detail selection. */
   async function openRecordView(record: QueryListRecord) {
+    markAssistantUserInteraction();
     const viewActionCode = pageEnhancement.value?.recordView?.authorizationActionCode;
     const recordId = record.id == null ? undefined : String(record.id);
     if (viewActionCode && recordId) {
@@ -3110,6 +3374,7 @@ export function useModulePageSession(
 
   const permissionsOpen = ref(false);
   async function permissionsChanged() {
+    markAssistantUserInteraction();
     const record = selectedRecord.value;
     if (record?.id) {
       const recordId = String(record.id);
@@ -3137,6 +3402,7 @@ export function useModulePageSession(
   }
 
   function handleDetailAction(action: { key?: string }) {
+    markAssistantUserInteraction();
     if (detailPageActions.value.some((item) => item.key === action.key)) {
       handleConfiguredAction(action);
       return;
@@ -3198,6 +3464,7 @@ export function useModulePageSession(
 
   async function invokePlacedAction(key: string | undefined, recordId?: string) {
     if (detailActionBusy.value) return;
+    assistantInteractionRevision.value += 1;
     saving.value = true;
     activeDetailActionKey.value = key;
     try {
@@ -3253,6 +3520,7 @@ export function useModulePageSession(
       !placedFormActions.value.some((item) => item.key === action.key && !item.disabled)
     )
       return;
+    markAssistantUserInteraction();
     const operation = placedOperation(action.key);
     const customFormInvoke =
       operation === 'INVOKE' && action.actionCode !== 'create' && action.actionCode !== 'update';
@@ -3280,6 +3548,7 @@ export function useModulePageSession(
   ) {
     const contribution = enhancementBatchActions.value.find((item) => item.key === action.key);
     if (contribution) {
+      markAssistantUserInteraction();
       void runEnhancementAction(contribution, { ...modulePageActionContext(), records, clearSelection });
     }
   }
@@ -3290,6 +3559,7 @@ export function useModulePageSession(
     const record = selectedRecord.value;
     const recordId = record?.id == null ? undefined : String(record.id);
     if (!view || !recordId || !detailWorkspaceAvailable.value || !modulePageNavigation) return;
+    markAssistantUserInteraction();
     modulePageNavigation.openWorkspaceTab(view, { recordId }, recordTitle(record) ?? undefined);
   }
 
@@ -3371,6 +3641,7 @@ export function useModulePageSession(
 
   function closeDetail() {
     if (detailActionBusy.value) return;
+    assistantInteractionRevision.value += 1;
     invalidatePendingRequests();
     detail.close();
   }
@@ -3398,6 +3669,7 @@ export function useModulePageSession(
   /** The reference browser owns the record-only session and releases this Host on close. */
   function closeRecordOnlyDetail() {
     if (interactionBusy.value || recordOnlyClosePending.value) return;
+    assistantInteractionRevision.value += 1;
     recordOnlyClosePending.value = true;
     detail.close();
   }
@@ -3411,6 +3683,7 @@ export function useModulePageSession(
   /** Returns to a detail only when the state machine retained that surface. */
   async function cancelDetailEditing() {
     if (saving.value) return;
+    assistantInteractionRevision.value += 1;
     invalidatePendingRequests();
     detail.cancelEdit();
     if (!detailOpen.value) return;
@@ -3422,6 +3695,7 @@ export function useModulePageSession(
 
   async function closeTreeCardEditor() {
     if (saving.value) return;
+    assistantInteractionRevision.value += 1;
     invalidatePendingRequests();
     // Tree management uses a persistent card rather than a drawer, but its
     // cancellation semantics are the same as every other detail surface.
@@ -3439,6 +3713,7 @@ export function useModulePageSession(
     const record = selectedRecord.value;
     if (!record || editorMode.value === 'create') return;
     if (flatManagementRecycleBin.active.value || listMode.value === 'recycleBin') {
+      markAssistantUserInteraction();
       void openRecycleBinRecord(record);
       return;
     }
@@ -3527,6 +3802,8 @@ export function useModulePageSession(
     detailDirty,
     sessionDirty,
     updateDraftField,
+    updateDraftFields,
+    updateDraftReference,
     showStatusSwitch,
     canToggleEnabled,
     toggleEnabledDisabledReason,
@@ -3539,6 +3816,12 @@ export function useModulePageSession(
     detailDisplayFields,
     formFields,
     formSessionKey,
+    assistantContextRevision,
+    assistantInteractionRevision,
+    listQueryController,
+    treeQueryController,
+    bindListQueryController,
+    bindTreeQueryController,
     formValidationRequestKey,
     referencePickerConfigs,
     runtimeUiDescriptor,
@@ -3556,6 +3839,13 @@ export function useModulePageSession(
     placedPageActions,
     handlePlacedPageAction,
     createRootRecord,
+    assistantRecordCreationReady,
+    prepareAssistantCreate,
+    prepareAssistantEdit,
+    assistantNavigatorScopes,
+    assistantNavigatorScopeRevision,
+    applyAssistantNavigatorSelection,
+    settleAssistantPageState,
     hasCardAssistantAt,
     enhancementCardAssistant,
     cardAssistantContext,

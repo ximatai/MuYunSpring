@@ -1,12 +1,24 @@
 <script setup lang="ts">
-import { computed, ref, shallowRef, watch } from 'vue';
-import { ModuleHttpProvider, useModuleContext, withHttpHeaders } from '@muyun/web-core';
+import { computed, onActivated, onDeactivated, onMounted, onUnmounted, ref, shallowRef, watch } from 'vue';
+import {
+  createAssistantTurnRequester,
+  ModuleHttpProvider,
+  useAssistantSurfaceHost,
+  useModuleContext,
+  withHttpHeaders,
+  type AssistantInvocationToken,
+} from '@muyun/web-core';
 import type { StandardModulePageDescriptor } from '@muyun/web-contracts';
 import { RecordPanelButton, RecordPanelState, type QueryListRecord } from '@muyun/platform-components';
 import ModulePageHostRuntime from './ModulePageHostRuntime.vue';
 import ModulePageBusinessSession from './ModulePageBusinessSession';
 import { useTenantScopeController } from './useTenantScopeController';
 import type { ModulePageSessionView } from './useModulePageSession';
+import {
+  createModulePageAssistantSurface,
+  modulePageAssistantContextRevision,
+  modulePageAssistantInteractionRevision,
+} from './modulePageAssistantSurface';
 
 defineOptions({ name: 'ModulePageHostSession' });
 const props = defineProps<{
@@ -31,6 +43,18 @@ const generation = ref(0);
 const pending = ref(true);
 const failure = ref<string>();
 const view = shallowRef<ModulePageSessionView>();
+const assistantHost = useAssistantSurfaceHost();
+let assistantActive = false;
+let assistantPageInstanceKey: string | undefined;
+let unregisterAssistantSurface: (() => void) | undefined;
+let assistantSurfaceSettlement: AbortController | undefined;
+interface TenantScopeSettlement {
+  generation: number;
+  tenantId: string;
+  resolve(): void;
+  reject(cause: Error): void;
+}
+const tenantScopeSettlements = new Set<TenantScopeSettlement>();
 const sessionHttp = computed(() => {
   // Every generation gets a fresh transport. Existing sessions retain the one
   // they captured, so late responses cannot bleed into the replacement session.
@@ -43,6 +67,7 @@ function startBusinessSession() {
   generation.value += 1;
   pending.value = true;
   failure.value = undefined;
+  settleTenantScopeWaiters();
 }
 watch([tenantScope, () => props.reloadKey], startBusinessSession, { flush: 'sync' });
 function acceptSession(session: ModulePageSessionView) {
@@ -65,6 +90,163 @@ function refreshList() {
   if (pending.value || failure.value) return;
   view.value?.refreshList();
 }
+function clearAssistantSurface() {
+  assistantSurfaceSettlement?.abort();
+  assistantSurfaceSettlement = undefined;
+  unregisterAssistantSurface?.();
+  unregisterAssistantSurface = undefined;
+}
+function settleTenantScopeWaiters() {
+  for (const settlement of tenantScopeSettlements) {
+    if (
+      settlement.generation !== generation.value ||
+      settlement.tenantId !== tenantController.selectedId.value
+    ) {
+      tenantScopeSettlements.delete(settlement);
+      settlement.reject(new Error('Tenant scope selection was replaced before its session became ready'));
+      continue;
+    }
+    if (failure.value) {
+      tenantScopeSettlements.delete(settlement);
+      settlement.reject(new Error(`Tenant scope session failed: ${failure.value}`));
+      continue;
+    }
+    if (!pending.value && unregisterAssistantSurface) {
+      tenantScopeSettlements.delete(settlement);
+      settlement.resolve();
+    }
+  }
+}
+function settleAssistantTenantScopeChange(record: QueryListRecord, signal: AbortSignal) {
+  const tenantId = record.id == null ? '' : String(record.id);
+  const targetGeneration = generation.value;
+  if (!tenantId || tenantController.selectedId.value !== tenantId) {
+    return Promise.reject(new Error('Tenant scope selection is no longer current'));
+  }
+  if (signal.aborted) {
+    return Promise.reject(new DOMException('Assistant invocation was cancelled', 'AbortError'));
+  }
+  const targetPageInstanceKey = assistantPageInstanceKey;
+  return new Promise<AssistantInvocationToken>((resolve, reject) => {
+    let settlement!: TenantScopeSettlement;
+    const cleanup = () => signal.removeEventListener('abort', abort);
+    const abort = () => {
+      tenantScopeSettlements.delete(settlement);
+      cleanup();
+      reject(new DOMException('Assistant invocation was cancelled', 'AbortError'));
+    };
+    settlement = {
+      generation: targetGeneration,
+      tenantId,
+      resolve: () => {
+        cleanup();
+        if (targetGeneration !== generation.value || tenantId !== tenantController.selectedId.value) {
+          reject(new Error('Tenant scope selection was replaced before its query settled'));
+          return;
+        }
+        const destination = assistantHost?.registry.snapshot();
+        if (
+          !destination ||
+          destination.token.pageInstanceKey !== targetPageInstanceKey ||
+          destination.token.fallback
+        ) {
+          reject(new Error('Tenant scope target surface is no longer active'));
+          return;
+        }
+        resolve(destination.token);
+      },
+      reject: (cause) => {
+        cleanup();
+        reject(cause);
+      },
+    };
+    tenantScopeSettlements.add(settlement);
+    signal.addEventListener('abort', abort, { once: true });
+    settleTenantScopeWaiters();
+  });
+}
+const assistantTenantScope = {
+  ...tenantController,
+  settleTenantScopeChange: settleAssistantTenantScopeChange,
+};
+function syncAssistantSurface() {
+  clearAssistantSurface();
+  if (
+    !assistantHost ||
+    !assistantActive ||
+    !assistantPageInstanceKey ||
+    !view.value ||
+    pending.value ||
+    failure.value
+  ) {
+    settleTenantScopeWaiters();
+    return;
+  }
+  const session = view.value;
+  const pageInstanceKey = assistantPageInstanceKey;
+  const controller = new AbortController();
+  assistantSurfaceSettlement = controller;
+  void tenantController
+    .waitForInitialScope(controller.signal)
+    .then(() => session.settleAssistantPageState(controller.signal))
+    .then(
+      () => {
+        if (
+          controller.signal.aborted ||
+          assistantSurfaceSettlement !== controller ||
+          !assistantActive ||
+          pageInstanceKey !== assistantPageInstanceKey ||
+          session !== view.value ||
+          pending.value ||
+          failure.value
+        ) {
+          return;
+        }
+        assistantSurfaceSettlement = undefined;
+        unregisterAssistantSurface = assistantHost.registry.register({
+          pageInstanceKey,
+          settle: (signal) => session.settleAssistantPageState(signal),
+          contextRevision: () => modulePageAssistantContextRevision(session),
+          interactionRevision: () => modulePageAssistantInteractionRevision(session),
+          surface: createModulePageAssistantSurface(
+            session,
+            createAssistantTurnRequester(sessionHttp.value),
+            () => assistantHost.capabilities?.() ?? [],
+            assistantTenantScope,
+          ),
+        });
+        settleTenantScopeWaiters();
+      },
+      (cause) => {
+        if (assistantSurfaceSettlement === controller) assistantSurfaceSettlement = undefined;
+        if (cause instanceof DOMException && cause.name === 'AbortError') return;
+        for (const settlement of tenantScopeSettlements) {
+          tenantScopeSettlements.delete(settlement);
+          settlement.reject(cause instanceof Error ? cause : new Error(String(cause)));
+        }
+      },
+    );
+}
+function activateAssistantSurface() {
+  assistantActive = true;
+  assistantPageInstanceKey = assistantHost?.activePageInstanceKey();
+  syncAssistantSurface();
+}
+function deactivateAssistantSurface() {
+  assistantActive = false;
+  clearAssistantSurface();
+  for (const settlement of tenantScopeSettlements) {
+    tenantScopeSettlements.delete(settlement);
+    settlement.reject(new Error('Tenant scope session was deactivated before it became ready'));
+  }
+}
+watch([view, generation, pending, failure], syncAssistantSurface, { flush: 'post' });
+onMounted(activateAssistantSurface);
+onActivated(activateAssistantSurface);
+onDeactivated(deactivateAssistantSurface);
+onUnmounted(() => {
+  deactivateAssistantSurface();
+});
 defineExpose({ refreshList, retry: startBusinessSession });
 </script>
 

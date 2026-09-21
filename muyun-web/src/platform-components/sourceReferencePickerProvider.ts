@@ -44,12 +44,16 @@ export function createSourceReferencePickerProvider({
     title?: string;
     projections?: Record<string, unknown>;
     affectPatch?: Record<string, unknown>;
-  }): ReferencePickerCandidate => ({
-    id: item.id,
-    title: item.title ?? item.id,
-    projections: item.projections,
-    affectPatch: item.affectPatch,
-  });
+  }): ReferencePickerCandidate => {
+    const title = item.title?.trim() || undefined;
+    return {
+      id: item.id,
+      title: title ?? item.id,
+      ...(!title ? { identifierFallback: true } : {}),
+      projections: item.projections,
+      affectPatch: item.affectPatch,
+    };
+  };
   const treeNodeOf = (node: WebTreeNode<WebReferenceResolveItem>): ReferencePickerTreeNode => ({
     record: candidateOf(node.record),
     ...(node.children.length ? { children: node.children.map(treeNodeOf) } : {}),

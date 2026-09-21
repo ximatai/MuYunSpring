@@ -26,16 +26,18 @@ export function useTenantScopeController(
   );
   const tenantScopeExplorerVisible = computed(() => required.value && currentUser?.value?.system !== false);
   const tenantScopeExplorerCount = computed(() => (tenantScopeExplorerVisible.value ? 1 : 0));
-  let initialized = false;
+  const initialScopeLoaded = ref(false);
   function changeTenantScope(record: QueryListRecord | undefined) {
     if (blocked.value || recordOnly) return;
     if (String(record?.id ?? '') === selectedId.value) return;
     selected.value = record;
   }
   function handleTenantScopeLoaded(records: QueryListRecord[], initialFullResult = false, total?: number) {
-    if (!initialFullResult || total !== 1 || initialized || selectedId.value) return;
-    initialized = true;
-    if (records.length === 1 && records[0]?.id != null) changeTenantScope(records[0]);
+    if (!initialFullResult) return;
+    if (total === 1 && !selectedId.value && records.length === 1 && records[0]?.id != null) {
+      changeTenantScope(records[0]);
+    }
+    initialScopeLoaded.value = true;
   }
   function setRequired(next: boolean) {
     businessRequired.value = next;
@@ -58,6 +60,31 @@ export function useTenantScopeController(
     },
     { immediate: true },
   );
+  const initialScopeReady = computed(
+    () => !tenantScopeExplorerVisible.value || Boolean(selectedId.value) || initialScopeLoaded.value,
+  );
+  function waitForInitialScope(signal: AbortSignal) {
+    if (signal.aborted) {
+      return Promise.reject(new DOMException('Assistant invocation was cancelled', 'AbortError'));
+    }
+    if (initialScopeReady.value) return Promise.resolve();
+    return new Promise<void>((resolve, reject) => {
+      const cleanup = () => {
+        stop();
+        signal.removeEventListener('abort', abort);
+      };
+      const abort = () => {
+        cleanup();
+        reject(new DOMException('Assistant invocation was cancelled', 'AbortError'));
+      };
+      const stop = watch(initialScopeReady, (ready) => {
+        if (!ready) return;
+        cleanup();
+        resolve();
+      });
+      signal.addEventListener('abort', abort, { once: true });
+    });
+  }
   return {
     selected,
     selectedId,
@@ -69,6 +96,7 @@ export function useTenantScopeController(
     tenantScopeExplorerCount,
     changeTenantScope,
     handleTenantScopeLoaded,
+    waitForInitialScope,
     setRequired,
   };
 }

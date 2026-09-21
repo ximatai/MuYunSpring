@@ -10,6 +10,7 @@ import net.ximatai.muyun.spring.dynamic.metadata.FieldDefinition;
 import net.ximatai.muyun.spring.dynamic.metadata.FieldCompanionRules;
 import net.ximatai.muyun.spring.dynamic.metadata.FieldType;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecord;
+import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecordProtocolFields;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecordService;
 
 import java.io.IOException;
@@ -244,12 +245,6 @@ final class DynamicRecordJsonDeserializer extends JsonDeserializer<DynamicRecord
     }
 
     private boolean isEnvelopeField(String fieldName) {
-        return "id".equals(fieldName)
-                || "version".equals(fieldName)
-                || "uiConfigId".equals(fieldName)
-                || "values".equals(fieldName)
-                || "children".equals(fieldName)
-                || "attachments".equals(fieldName)
-                || "originContext".equals(fieldName);
+        return DynamicRecordProtocolFields.isEnvelopeField(fieldName);
     }
 }

@@ -725,7 +725,7 @@ it('role management enters the standard runner while keeping IAM scope and actio
   const roleAuthorizationViewSource = readSource('src/views/RoleAuthorizationView.vue');
   const roleAuthorizationWorkspaceViewSource = readSource('src/views/roleAuthorizationWorkspaceView.ts');
   const workspaceDrawerSource = readSource('src/platform-admin-runtime/WorkspaceViewDrawer.vue');
-  const queryListCellSource = readSource('src/platform-components/RecordQueryListCell.vue');
+  const queryListColumnModelSource = readSource('src/platform-components/recordQueryListColumnModel.ts');
   assert.match(roleAuthorizationViewSource, /角色组不独立授权/);
   assert.match(roleAuthorizationDrawerSurfaceSource, /:module-context="roleContext"/);
   assert.match(roleAuthorizationViewSource, /props\.moduleContext \?\? defaultRoleContext/);
@@ -774,7 +774,7 @@ it('role management enters the standard runner while keeping IAM scope and actio
   assert.match(workspaceDrawerSource, /props\.profile === 'wide-work' \? 'wide' : 'standard'/);
   assert.match(workspaceDrawerSource, /dismissal\?: UiDrawerDismissal/);
   assert.match(workspaceDrawerSource, /:before-close="beforeClose"/);
-  assert.match(queryListCellSource, /\[titleField, `\$\{fieldName\}Title`\]/);
+  assert.match(queryListColumnModelSource, /\[column\.titleField, `\$\{column\.key\}Title`\]/);
   assert.match(contractsSource, /export type RoleAssignmentType = 'account' \| 'employment'/);
   assert.match(contractsSource, /export type RoleOwnerScopeType = 'platform' \| 'tenant' \| 'organization'/);
   assert.match(

@@ -10,6 +10,8 @@ import net.ximatai.muyun.spring.ability.security.FieldCryptoProvider;
 import net.ximatai.muyun.spring.ability.security.FieldSigner;
 import net.ximatai.muyun.spring.ability.security.HmacSha256FieldSigner;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
+import net.ximatai.muyun.spring.common.identity.CurrentUser;
+import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
 import net.ximatai.muyun.spring.common.tenant.TenantContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -33,6 +35,7 @@ class AiModelConfigurationServiceTest {
 
     @AfterEach
     void clearContexts() {
+        CurrentUserContext.clear();
         TenantContext.clear();
         PlatformAbilityRuntime.resetReferenceTargetResolver();
     }
@@ -80,6 +83,22 @@ class AiModelConfigurationServiceTest {
     }
 
     @Test
+    void platformAdministratorUsesPlatformConfigurationWhileManagingTenantData() {
+        BaseDao<AiModelConfiguration, String> dao = mock(BaseDao.class);
+        AiModelConfiguration platform = configuration("platform", "platform-key");
+        platform.setTenantFallbackEnabled(Boolean.FALSE);
+        when(dao.query(any(), any(PageRequest.class), any(Sort[].class))).thenAnswer(invocation ->
+                TenantContext.isSystem() ? List.of(platform) : List.of());
+        AiModelConfigurationService service = service(dao);
+
+        try (CurrentUserContext.Scope ignoredUser = CurrentUserContext.use(
+                CurrentUser.systemUser("platform-admin", "admin"));
+             TenantContext.Scope ignoredTenant = TenantContext.use("tenant-a")) {
+            assertThat(service.requireEffectiveConfiguration().getId()).isEqualTo("platform");
+        }
+    }
+
+    @Test
     void platformOnlyConfigurationIsNotAvailableAsTenantFallback() {
         BaseDao<AiModelConfiguration, String> dao = mock(BaseDao.class);
         AiModelConfiguration platformOnly = configuration("platform", "platform-key");
@@ -103,6 +122,19 @@ class AiModelConfigurationServiceTest {
         assertThatThrownBy(service::requireEffectiveConfiguration)
                 .isInstanceOf(PlatformException.class)
                 .hasMessage("AI model routing requires an explicit tenant or system context");
+    }
+
+    @Test
+    void platformAdministratorStillRequiresAnExplicitExecutionContext() {
+        BaseDao<AiModelConfiguration, String> dao = mock(BaseDao.class);
+        AiModelConfigurationService service = service(dao);
+
+        try (CurrentUserContext.Scope ignored = CurrentUserContext.use(
+                CurrentUser.systemUser("platform-admin", "admin"))) {
+            assertThatThrownBy(service::requireEffectiveConfiguration)
+                    .isInstanceOf(PlatformException.class)
+                    .hasMessage("AI model routing requires an explicit tenant or system context");
+        }
     }
 
     @Test

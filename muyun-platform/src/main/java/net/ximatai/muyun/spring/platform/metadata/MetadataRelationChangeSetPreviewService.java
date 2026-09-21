@@ -5,6 +5,7 @@ import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.spring.common.platform.EntityCapability;
 import net.ximatai.muyun.spring.common.util.PlatformNameRules;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecordService;
+import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecordProtocolFields;
 import net.ximatai.muyun.spring.platform.module.ModuleKind;
 import net.ximatai.muyun.spring.platform.module.PlatformModule;
 import net.ximatai.muyun.spring.platform.module.PlatformModuleService;
@@ -111,11 +112,12 @@ public class MetadataRelationChangeSetPreviewService {
         Set<EntityCapability> effective = proposedCapabilities(context, savedFields, command.capabilitySelections(), errors);
         LinkedHashMap<String, MetadataField> finalFields = fieldsById(savedFields);
         List<MetadataChangeSetFieldImpact> fieldImpacts = new ArrayList<>();
+        List<MetadataChangeSetSchemaImpact> schemaImpacts = new ArrayList<>();
         List<MetadataFieldChangeSetPlan> fieldMutations = new ArrayList<>();
-        applyDrafts(context, finalFields, command.fieldDrafts(), fieldImpacts, fieldMutations, errors);
+        applyDrafts(context, finalFields, command.fieldDrafts(), fieldImpacts, schemaImpacts, fieldMutations, errors);
         appendCapabilityFieldPlan(metadata, effective, finalFields, fieldImpacts, errors);
         validateFinalFieldNames(finalFields.values(), errors);
-        List<MetadataChangeSetSchemaImpact> schemaImpacts = schemaImpacts(metadata, fieldImpacts);
+        schemaImpacts.addAll(addColumnSchemaImpacts(metadata, fieldImpacts));
         MetadataRelationChangeSetPlan plan = new MetadataRelationChangeSetPlan(metadata.getId(), metadata.getVersion(),
                 Set.copyOf(effective), command.capabilitySelections() != null && !command.capabilitySelections().isEmpty(),
                 List.copyOf(fieldMutations));
@@ -167,6 +169,7 @@ public class MetadataRelationChangeSetPreviewService {
     private void applyDrafts(Context context, LinkedHashMap<String, MetadataField> finalFields,
                              List<MetadataFieldChangeSetDraft> drafts,
                              List<MetadataChangeSetFieldImpact> impacts,
+                             List<MetadataChangeSetSchemaImpact> schemaImpacts,
                              List<MetadataFieldChangeSetPlan> mutations,
                              List<MetadataChangeSetValidationIssue> errors) {
         if (drafts == null) return;
@@ -179,7 +182,8 @@ public class MetadataRelationChangeSetPreviewService {
             String key = draft.fieldId();
             switch (draft.operation()) {
                 case ADD -> addDraft(context, finalFields, draft, impacts, mutations, errors);
-                case UPDATE -> updateDraft(context, finalFields, draft, impacts, mutations, errors, touched, key);
+                case UPDATE -> updateDraft(context, finalFields, draft, impacts, schemaImpacts, mutations, errors,
+                        touched, key);
                 case DELETE -> deleteDraft(context, finalFields, draft, impacts, errors, touched, key);
             }
         }
@@ -209,11 +213,14 @@ public class MetadataRelationChangeSetPreviewService {
         String syntheticId = "new:" + normalized.getFieldName();
         fields.put(syntheticId, normalized);
         mutations.add(new MetadataFieldChangeSetPlan(MetadataFieldChangeSetDraft.Operation.ADD, null, null, normalized, property));
-        impacts.add(new MetadataChangeSetFieldImpact("ADD", field.getFieldName(), field.getColumnName(), false, "新增业务字段。"));
+        impacts.add(new MetadataChangeSetFieldImpact("ADD", field.getFieldName(), field.getColumnName(), false,
+                fieldMutationDescription("新增", property)));
     }
 
     private void updateDraft(Context context, Map<String, MetadataField> fields, MetadataFieldChangeSetDraft draft,
-                             List<MetadataChangeSetFieldImpact> impacts, List<MetadataFieldChangeSetPlan> mutations,
+                             List<MetadataChangeSetFieldImpact> impacts,
+                             List<MetadataChangeSetSchemaImpact> schemaImpacts,
+                             List<MetadataFieldChangeSetPlan> mutations,
                              List<MetadataChangeSetValidationIssue> errors,
                              Set<String> touched, String fieldId) {
         MetadataField existing = fields.get(fieldId);
@@ -249,12 +256,15 @@ public class MetadataRelationChangeSetPreviewService {
         if (!same(existing.getFieldSpecAlias(), field.getFieldSpecAlias())
                 && !validateFieldSpecChange(context, existing, field, errors)) return;
         MetadataField normalized = overlayBusinessAttributes(existing, field);
+        if (!validateStricterConstraints(context, existing, normalized, errors)) return;
         MetadataFieldPropertyChangeSetPlan property = propertyPlan(context, normalized, draft.property(), existing, errors);
         if (draft.property() != null && property == null) return;
+        appendUpdateSchemaImpacts(context.metadata(), existing, normalized, schemaImpacts);
         fields.put(fieldId, normalized);
         mutations.add(new MetadataFieldChangeSetPlan(MetadataFieldChangeSetDraft.Operation.UPDATE, fieldId,
                 draft.expectedFieldVersion(), normalized, property));
-        impacts.add(new MetadataChangeSetFieldImpact("UPDATE", field.getFieldName(), field.getColumnName(), false, "更新字段元数据。"));
+        impacts.add(new MetadataChangeSetFieldImpact("UPDATE", field.getFieldName(), field.getColumnName(), false,
+                fieldMutationDescription("更新", property)));
     }
 
     /**
@@ -277,6 +287,25 @@ public class MetadataRelationChangeSetPreviewService {
         error(errors, "FIELD_SPEC_CHANGE_WITH_DATA", existing.getFieldName(),
                 "字段“" + existing.getTitle() + "”已有 " + records
                         + " 条业务数据；目标字段规格不在当前规格声明的数据安全转换范围内。");
+        return false;
+    }
+
+    private boolean validateStricterConstraints(Context context, MetadataField existing, MetadataField proposed,
+                                                List<MetadataChangeSetValidationIssue> errors) {
+        boolean addsRequired = !Boolean.TRUE.equals(existing.getRequired()) && Boolean.TRUE.equals(proposed.getRequired());
+        boolean addsUnique = !Boolean.TRUE.equals(existing.getUniqueField()) && Boolean.TRUE.equals(proposed.getUniqueField());
+        if (!addsRequired && !addsUnique) return true;
+        if (recordService == null) {
+            error(errors, "FIELD_CONSTRAINT_CHANGE_UNAVAILABLE", existing.getFieldName(),
+                    "当前环境未配置数据预检，不能收紧字段约束。");
+            return false;
+        }
+        long records = recordService.schemaGovernanceFacts().countPhysicalRecords(
+                context.relation().getModuleAlias(), context.metadata().getAlias(), Criteria.of());
+        if (records == 0) return true;
+        error(errors, "FIELD_CONSTRAINT_CHANGE_WITH_DATA", existing.getFieldName(),
+                "字段“" + existing.getTitle() + "”已有 " + records
+                        + " 条业务数据；当前发布链不能证明存量值满足新增的必填或唯一约束。");
         return false;
     }
 
@@ -319,11 +348,60 @@ public class MetadataRelationChangeSetPreviewService {
         }
     }
 
-    private List<MetadataChangeSetSchemaImpact> schemaImpacts(Metadata metadata, List<MetadataChangeSetFieldImpact> fields) {
+    private List<MetadataChangeSetSchemaImpact> addColumnSchemaImpacts(Metadata metadata,
+                                                                       List<MetadataChangeSetFieldImpact> fields) {
         return fields.stream().filter(field -> "ADD".equals(field.operation())).map(field ->
                 new MetadataChangeSetSchemaImpact("ADD_COLUMN", metadata.getSchemaName(), metadata.getTableName(),
                         field.columnName(), field.platformManaged() ? "能力派生平台字段。" : "新增业务字段。"))
                 .toList();
+    }
+
+    private void appendUpdateSchemaImpacts(Metadata metadata, MetadataField existing, MetadataField proposed,
+                                           List<MetadataChangeSetSchemaImpact> impacts) {
+        if (!same(existing.getFieldSpecAlias(), proposed.getFieldSpecAlias())) {
+            impacts.add(schemaImpact(metadata, proposed, "ALTER_COLUMN_TYPE",
+                    "字段规格由“" + existing.getFieldSpecAlias() + "”调整为“" + proposed.getFieldSpecAlias() + "”。"));
+        }
+        if (!same(existing.getRequired(), proposed.getRequired())) {
+            impacts.add(schemaImpact(metadata, proposed,
+                    Boolean.TRUE.equals(proposed.getRequired()) ? "SET_NOT_NULL" : "DROP_NOT_NULL",
+                    Boolean.TRUE.equals(proposed.getRequired()) ? "字段将改为非空约束。" : "字段将取消非空约束。"));
+        }
+        if (!same(existing.getUniqueField(), proposed.getUniqueField())) {
+            impacts.add(schemaImpact(metadata, proposed,
+                    Boolean.TRUE.equals(proposed.getUniqueField()) ? "ADD_UNIQUE_INDEX" : "DROP_UNIQUE_INDEX",
+                    Boolean.TRUE.equals(proposed.getUniqueField()) ? "字段将增加唯一索引。" : "字段将取消唯一索引。"));
+        }
+        boolean existingIndexed = Boolean.TRUE.equals(existing.getIndexed())
+                || Boolean.TRUE.equals(existing.getSortableField());
+        boolean proposedIndexed = Boolean.TRUE.equals(proposed.getIndexed())
+                || Boolean.TRUE.equals(proposed.getSortableField());
+        if (existingIndexed != proposedIndexed) {
+            impacts.add(schemaImpact(metadata, proposed, proposedIndexed ? "ADD_INDEX" : "DROP_INDEX",
+                    proposedIndexed ? "字段将增加普通索引。" : "字段将取消普通索引。"));
+        }
+    }
+
+    private MetadataChangeSetSchemaImpact schemaImpact(Metadata metadata, MetadataField field,
+                                                       String operation, String description) {
+        return new MetadataChangeSetSchemaImpact(operation, metadata.getSchemaName(), metadata.getTableName(),
+                field.getColumnName(), description);
+    }
+
+    private String fieldMutationDescription(String operation, MetadataFieldPropertyChangeSetPlan property) {
+        if (property == null || property.kind() == MetadataFieldPropertyKind.BASIC) {
+            return operation + "普通业务字段。";
+        }
+        if (property.kind() == MetadataFieldPropertyKind.MODULE_REFERENCE && property.referenceConfig() != null) {
+            return operation + "模块引用字段，目标模块“"
+                    + property.referenceConfig().getTargetModuleAlias() + "”。";
+        }
+        if (property.kind() == MetadataFieldPropertyKind.DICTIONARY && property.dictionaryConfig() != null) {
+            MetadataFieldConfig dictionary = property.dictionaryConfig();
+            return operation + "字典字段，目标字典“" + dictionary.getDictionaryApplicationAlias() + "."
+                    + dictionary.getDictionaryCategoryAlias() + "”，选择模式“" + dictionary.getSelectionMode() + "”。";
+        }
+        return operation + "业务字段属性。";
     }
 
     private void validateFinalFieldNames(Iterable<MetadataField> fields, List<MetadataChangeSetValidationIssue> errors) {
@@ -486,6 +564,10 @@ public class MetadataRelationChangeSetPreviewService {
         }
         try {
             PlatformNameRules.requireFieldName(field.getFieldName(), "fieldName");
+            if (DynamicRecordProtocolFields.isReservedBusinessFieldName(field.getFieldName())) {
+                throw new IllegalArgumentException("dynamic record protocol field name is reserved: "
+                        + field.getFieldName());
+            }
             PlatformNameRules.requireDatabaseName(field.getColumnName(), "columnName");
             PlatformNameRules.requireIdentifier(field.getFieldSpecAlias(), "fieldSpecAlias");
             fieldSpecService.requireFieldType(field.getFieldSpecAlias());

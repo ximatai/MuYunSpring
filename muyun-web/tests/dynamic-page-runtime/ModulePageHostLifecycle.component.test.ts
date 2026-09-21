@@ -1,8 +1,15 @@
 import { flushPromises, mount } from '@vue/test-utils';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import { defineComponent, h, onMounted } from 'vue';
 import ModulePageHost from '@/dynamic-page-runtime/ModulePageHost.vue';
 import ModuleBusinessPreview from '@/views/ModuleBusinessPreview.vue';
-import { configureModuleContext, type HttpClient, type HttpRequestOptions } from '@muyun/web-core';
+import {
+  configureModuleContext,
+  createAssistantSurfaceRegistry,
+  provideAssistantSurfaceHost,
+  type HttpClient,
+  type HttpRequestOptions,
+} from '@muyun/web-core';
 import type { MenuPageMode, StandardModulePageDescriptor } from '@muyun/web-contracts';
 
 function descriptor(
@@ -20,7 +27,15 @@ function descriptor(
   };
 }
 
-function runtime(moduleAlias: string, options: { tenantRequired?: boolean; title?: string } = {}) {
+function runtime(
+  moduleAlias: string,
+  options: {
+    tenantRequired?: boolean;
+    title?: string;
+    template?: 'LIST_DETAIL_CARD' | 'FLAT_MANAGEMENT';
+    quickSearchFields?: string[];
+  } = {},
+) {
   return {
     moduleAlias,
     title: options.title,
@@ -32,7 +47,8 @@ function runtime(moduleAlias: string, options: { tenantRequired?: boolean; title
       schemaVersion: '1',
       moduleAlias,
       page: {
-        template: 'LIST_DETAIL_CARD',
+        template: options.template ?? 'LIST_DETAIL_CARD',
+        quickSearchFields: options.quickSearchFields,
         list: { fields: { viewCode: 'list', viewKind: 'LIST', fields: [] } },
         detail: { editor: { viewCode: 'form', viewKind: 'FORM', fields: [] } },
       },
@@ -52,7 +68,7 @@ function pageBootstrap(menuId: string, moduleAlias = 'crm.customer') {
 const tenantExplorerStub = {
   name: 'TenantScopeExplorer',
   props: ['selectedId'],
-  emits: ['select'],
+  emits: ['select', 'loaded'],
   template: '<section />',
 };
 const queryListStub = {
@@ -219,6 +235,295 @@ describe('ModulePageHost lifecycle boundaries', () => {
       await flushPromises();
       expect(wrapper.findComponent(queryListStub).exists()).toBe(true);
       expect(tenant.props('selectedId')).toBe('tenant-a');
+    } finally {
+      wrapper.unmount();
+    }
+  });
+
+  it('settles assistant tenant selection only after the replacement business surface is ready', async () => {
+    const listSettlementReleases: Array<() => void> = [];
+    const settleList = vi.fn(
+      (signal?: AbortSignal) =>
+        new Promise<void>((resolve, reject) => {
+          const abort = () => reject(new DOMException('cancelled', 'AbortError'));
+          signal?.addEventListener('abort', abort, { once: true });
+          listSettlementReleases.push(() => {
+            signal?.removeEventListener('abort', abort);
+            resolve();
+          });
+        }),
+    );
+    const settlingQueryListStub = defineComponent({
+      name: 'RecordQueryListPanel',
+      props: ['context'],
+      emits: ['query-controller-change'],
+      setup(_props, { emit }) {
+        onMounted(() => {
+          emit('query-controller-change', {
+            revision: () => 0,
+            snapshot: () => ({ rows: [], truncated: false }),
+            applyQuickSearch: vi.fn(),
+            settle: settleList,
+          });
+        });
+        return () => h('section');
+      },
+    });
+    const http: HttpClient = {
+      async request(options) {
+        if (options.path === '/iam.tenant/navigator/reference/query') {
+          return {
+            records: [
+              { id: 'tenant-a', title: '甲租户' },
+              { id: 'tenant-b', title: '乙租户' },
+            ],
+            total: 2,
+            pageNum: 1,
+            pageSize: 20,
+            pages: 1,
+            totalKnown: true,
+          } as never;
+        }
+        if (options.path === '/crm.customer/query') {
+          return { records: [], total: 0, pageNum: 1, pageSize: 20, pages: 0, totalKnown: true } as never;
+        }
+        const moduleAlias = options.path.split('/')[2] ?? 'unknown';
+        return runtime(moduleAlias, { tenantRequired: moduleAlias === 'crm.customer' }) as never;
+      },
+    };
+    configureModuleContext({ http });
+    const registry = createAssistantSurfaceRegistry();
+    registry.activate('page-1');
+    const Harness = defineComponent({
+      setup() {
+        provideAssistantSurfaceHost({
+          registry,
+          activePageInstanceKey: () => 'page-1',
+        });
+        return () => h(ModulePageHost, { descriptor: descriptor('crm.customer') });
+      },
+    });
+    const wrapper = mount(Harness, {
+      global: { stubs: { ...hostStubs, RecordQueryListPanel: settlingQueryListStub } },
+    });
+    try {
+      await flushPromises();
+      await flushPromises();
+      expect(registry.snapshot()).toBeUndefined();
+      wrapper.findComponent(tenantExplorerStub).vm.$emit(
+        'loaded',
+        [
+          { id: 'tenant-a', title: '甲租户' },
+          { id: 'tenant-b', title: '乙租户' },
+        ],
+        true,
+        2,
+      );
+      await flushPromises();
+      listSettlementReleases.shift()?.();
+      await flushPromises();
+      const before = registry.snapshot()!.token;
+      expect(registry.snapshot()!.capabilities.map(({ code }) => code)).toContain('scope.select-tenant');
+
+      const invocation = registry.invoke(
+        { id: 'tenant-1', code: 'scope.select-tenant', input: { title: '甲租户' } },
+        before,
+      );
+      let invocationSettled = false;
+      void invocation.finally(() => {
+        invocationSettled = true;
+      });
+      await flushPromises();
+      expect(settleList).toHaveBeenCalled();
+      expect(invocationSettled).toBe(false);
+      listSettlementReleases.shift()?.();
+      await expect(invocation).resolves.toEqual({
+        value: { scope: 'tenant', selectedTitle: '甲租户', changed: true },
+        contextChanged: true,
+      });
+
+      const after = registry.snapshot()!.token;
+      expect(after.pageInstanceKey).toBe('page-1');
+      expect(after.surfaceGeneration).not.toBe(before.surfaceGeneration);
+      expect(wrapper.findComponent(tenantExplorerStub).props('selectedId')).toBe('tenant-a');
+
+      const replacedInvocation = registry.invoke(
+        { id: 'tenant-2', code: 'scope.select-tenant', input: { title: '乙租户' } },
+        after,
+      );
+      const replacedRejection = expect(replacedInvocation).rejects.toThrow(
+        'Tenant scope selection was replaced before its session became ready',
+      );
+      await flushPromises();
+      wrapper.findComponent(tenantExplorerStub).vm.$emit('select', { id: 'tenant-a', title: '甲租户' });
+      await flushPromises();
+      await replacedRejection;
+    } finally {
+      wrapper.unmount();
+    }
+  });
+
+  it('exposes the standard quick-search capability for flat management explorers', async () => {
+    const flatExplorerStub = defineComponent({
+      name: 'CrudRecordListExplorer',
+      props: ['keyword'],
+      emits: ['loaded', 'update:keyword', 'queryControllerChange'],
+      setup(props, { emit }) {
+        const records = [
+          { id: 'tenant-a', title: '演示租户' },
+          { id: 'tenant-b', title: '正式租户' },
+        ];
+        const snapshot = () => ({
+          mode: 'normal' as const,
+          status: 'ready' as const,
+          quickSearchEnabled: true,
+          quickSearchFields: [{ name: 'title', title: '标题', valueType: 'STRING' as const }],
+          ...(props.keyword ? { appliedQuickSearch: props.keyword } : {}),
+          pageNum: 1,
+          pageSize: props.keyword ? 1 : 2,
+          total: props.keyword ? 1 : 2,
+          totalKnown: true,
+          rows: (props.keyword ? records.slice(0, 1) : records).map((record) => ({
+            id: record.id,
+            cells: [{ fieldName: 'title', title: '标题', value: record.title }],
+          })),
+          truncated: false,
+        });
+        onMounted(() => {
+          emit('loaded', records);
+          emit('queryControllerChange', {
+            revision: () => 0,
+            snapshot,
+            async applyQuickSearch(keyword: string) {
+              emit('update:keyword', keyword);
+              await flushPromises();
+              return snapshot();
+            },
+            async settle() {
+              await flushPromises();
+              return snapshot();
+            },
+          });
+        });
+        return () => h('section', props.keyword);
+      },
+    });
+    const http: HttpClient = {
+      async request() {
+        return runtime('iam.tenant', {
+          template: 'FLAT_MANAGEMENT',
+          quickSearchFields: ['title'],
+        }) as never;
+      },
+    };
+    configureModuleContext({ http });
+    const registry = createAssistantSurfaceRegistry();
+    registry.activate('page-1');
+    const Harness = defineComponent({
+      setup() {
+        provideAssistantSurfaceHost({ registry, activePageInstanceKey: () => 'page-1' });
+        return () => h(ModulePageHost, { descriptor: descriptor('iam.tenant') });
+      },
+    });
+    const wrapper = mount(Harness, {
+      global: {
+        stubs: {
+          ...hostStubs,
+          CrudRecordListExplorer: flatExplorerStub,
+          StaticManagementLayout: { template: '<section><slot name="explorer" /></section>' },
+        },
+      },
+    });
+    try {
+      await flushPromises();
+      await flushPromises();
+      const snapshot = registry.snapshot()!;
+      expect(snapshot.capabilities.map(({ code }) => code)).toContain('query.apply-quick-search');
+
+      await expect(
+        registry.invoke(
+          { id: 'query-1', code: 'query.apply-quick-search', input: { keyword: '演示' } },
+          snapshot.token,
+        ),
+      ).resolves.toEqual({
+        value: expect.objectContaining({
+          appliedQuickSearch: '演示',
+          total: 1,
+          rows: [expect.objectContaining({ id: 'tenant-a' })],
+        }),
+        contextChanged: true,
+      });
+    } finally {
+      wrapper.unmount();
+    }
+  });
+
+  it('cancels assistant tenant settlement while the replacement business session is pending', async () => {
+    let resolveTenantSession!: () => void;
+    const http: HttpClient = {
+      async request(options) {
+        if (options.path === '/iam.tenant/navigator/reference/query') {
+          return {
+            records: [
+              { id: 'tenant-a', title: '甲租户' },
+              { id: 'tenant-b', title: '乙租户' },
+            ],
+            total: 2,
+            pageNum: 1,
+            pageSize: 20,
+            pages: 1,
+            totalKnown: true,
+          } as never;
+        }
+        if (
+          options.path === '/platform.module/crm.customer/context' &&
+          tenantHeader(options) === 'tenant-a'
+        ) {
+          await new Promise<void>((resolve) => {
+            resolveTenantSession = resolve;
+          });
+        }
+        const moduleAlias = options.path.split('/')[2] ?? 'unknown';
+        return runtime(moduleAlias, { tenantRequired: moduleAlias === 'crm.customer' }) as never;
+      },
+    };
+    configureModuleContext({ http });
+    const registry = createAssistantSurfaceRegistry();
+    registry.activate('page-1');
+    const Harness = defineComponent({
+      setup() {
+        provideAssistantSurfaceHost({ registry, activePageInstanceKey: () => 'page-1' });
+        return () => h(ModulePageHost, { descriptor: descriptor('crm.customer') });
+      },
+    });
+    const wrapper = mount(Harness, { global: { stubs: hostStubs } });
+    try {
+      await flushPromises();
+      await flushPromises();
+      wrapper.findComponent(tenantExplorerStub).vm.$emit(
+        'loaded',
+        [
+          { id: 'tenant-a', title: '甲租户' },
+          { id: 'tenant-b', title: '乙租户' },
+        ],
+        true,
+        2,
+      );
+      await flushPromises();
+      const abort = new AbortController();
+      const invocation = registry.invoke(
+        { id: 'tenant-1', code: 'scope.select-tenant', input: { title: '甲租户' } },
+        registry.snapshot()!.token,
+        abort.signal,
+      );
+      const rejection = expect(invocation).rejects.toMatchObject({ name: 'AbortError' });
+      await flushPromises();
+      expect(resolveTenantSession).toBeTypeOf('function');
+      abort.abort();
+
+      await rejection;
+      resolveTenantSession();
+      await flushPromises();
     } finally {
       wrapper.unmount();
     }

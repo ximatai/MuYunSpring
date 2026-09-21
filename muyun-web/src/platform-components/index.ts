@@ -1,4 +1,5 @@
 export {};
+export type { QuerySettlementController } from './querySettlementController';
 export { default as FormulaExpressionEditor } from './FormulaExpressionEditor.vue';
 export type { FormulaExpressionField, FormulaExpressionFunction } from './formulaExpressionTokens';
 export { default as ApplicationScopeSwitcher } from './ApplicationScopeSwitcher.vue';
@@ -202,6 +203,17 @@ export type {
 } from './RecordQueryListPanel.vue';
 export { resolveRecordQueryListColumns } from './recordQueryListColumnModel';
 export type {
+  RecordQueryListQueryController,
+  RecordQueryListQueryField,
+  RecordQueryListQuerySnapshot,
+  RecordQueryListResultRow,
+} from './recordQueryListQueryController';
+export type {
+  RecordTreeQueryController,
+  RecordTreeQueryNode,
+  RecordTreeQuerySnapshot,
+} from './recordTreeQueryController';
+export type {
   RecordFormFieldDescriptor,
   RecordFormFieldFallback,
   RecordFormFieldPickerConfig,
@@ -239,6 +251,8 @@ export type {
 export {
   applyReferenceDependencyClears,
   childResourceDefaultFormViewCode,
+  decodeDateTimeLocalEditorValue,
+  decodeNumberEditorValue,
   resolveRecordDetailFields,
   resolveRecordFormFieldNames,
   resolveRecordBooleanStatusValue,

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { useWorkspaceSortActivity } from './managementWorkspaceContext';
-import { computed, onMounted, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import {
   confirmAction,
   UiSpin,
@@ -19,6 +19,10 @@ import {
 import { presentPlatformError } from './platformErrorFeedback';
 import { recycleBinRestoreUnavailableReason, useRecycleBinState } from './recycleBinState';
 import { sortPartitionKey } from './sortPartitionKey';
+import type {
+  RecordQueryListQueryController,
+  RecordQueryListQuerySnapshot,
+} from './recordQueryListQueryController';
 
 defineOptions({ name: 'CrudRecordListExplorer' });
 
@@ -52,6 +56,8 @@ const props = withDefaults(
     mode?: CrudRecordListMode;
     /** Enables standard flat-list drag ordering when the result is unfiltered. */
     sorting?: boolean;
+    /** Exposes the rendered explorer search through the standard assistant query port. */
+    queryQuickSearchEnabled?: boolean;
   }>(),
   {
     selectedId: undefined,
@@ -73,6 +79,7 @@ const props = withDefaults(
     mutedOf: undefined,
     mode: 'normal',
     sorting: false,
+    queryQuickSearchEnabled: false,
   },
 );
 
@@ -84,15 +91,26 @@ const emit = defineEmits<{
   restored: [];
   recycleBinSummary: [total: number | undefined];
   sorted: [];
+  'update:keyword': [value: string];
+  queryControllerChange: [controller: RecordQueryListQueryController | undefined];
 }>();
 
 const loading = ref(false);
 const loadError = ref(false);
+const assistantKeyword = ref(props.keyword.trim());
 const changeReason = ref<UiTreeChangeReason>('reset');
 const sortingRequest = ref(false);
 useWorkspaceSortActivity(sortingRequest);
 const records = ref<CrudRecordListBase[]>([]);
 let recordsRequestSeq = 0;
+let queryControllerRevision = 0;
+const loadedTotal = ref<number>();
+const loadedTotalKnown = ref(false);
+interface QueryControllerSettlement {
+  resolve(): void;
+  reject(cause: Error): void;
+}
+const queryControllerSettlements = new Set<QueryControllerSettlement>();
 const recycleBinState = useRecycleBinState({
   context: () => props.context,
   recordTitle: (record) => recordTitle(record),
@@ -130,7 +148,26 @@ function sortPartitionOf(record: CrudRecordListBase) {
   return sortPartitionKey(fields.map((field) => values[field]));
 }
 
-onMounted(loadRecords);
+onMounted(() => {
+  emit('queryControllerChange', queryController);
+  void loadRecords();
+});
+
+onUnmounted(() => {
+  emit('queryControllerChange', undefined);
+  for (const settlement of queryControllerSettlements) {
+    queryControllerSettlements.delete(settlement);
+    settlement.reject(new DOMException('List query was disposed', 'AbortError'));
+  }
+});
+
+watch(loading, (active) => {
+  if (active) return;
+  for (const settlement of queryControllerSettlements) {
+    queryControllerSettlements.delete(settlement);
+    settlement.resolve();
+  }
+});
 
 watch(
   () => recycleBinState.summaryTotal.value,
@@ -166,7 +203,18 @@ watch(
   () => loadRecords(),
 );
 
+watch(
+  () => props.keyword,
+  (value) => {
+    const normalized = value.trim();
+    if (assistantKeyword.value === normalized) return;
+    assistantKeyword.value = normalized;
+    queryControllerRevision += 1;
+  },
+);
+
 async function loadRecords(reason: UiTreeChangeReason = 'reset') {
+  queryControllerRevision += 1;
   const requestSeq = ++recordsRequestSeq;
   loading.value = true;
   loadError.value = false;
@@ -177,6 +225,8 @@ async function loadRecords(reason: UiTreeChangeReason = 'reset') {
       await recycleBinState.load();
       if (requestSeq !== recordsRequestSeq) return;
       records.value = recycleBinState.items.value.map((item) => item.record);
+      loadedTotal.value = records.value.length;
+      loadedTotalKnown.value = false;
       emit('loaded', records.value);
       return;
     }
@@ -196,11 +246,15 @@ async function loadRecords(reason: UiTreeChangeReason = 'reset') {
     if (requestSeq !== recordsRequestSeq) return;
     changeReason.value = reason;
     records.value = response.records;
+    loadedTotal.value = response.total;
+    loadedTotalKnown.value = response.totalKnown !== false;
     emit('loaded', response.records, response.totalKnown === false ? undefined : response.total);
     if (canQueryRecycleBin(props.context)) void recycleBinState.refreshSummary();
   } catch (cause) {
     if (requestSeq !== recordsRequestSeq) return;
     loadError.value = true;
+    loadedTotal.value = undefined;
+    loadedTotalKnown.value = false;
     if (reason === 'reset') {
       records.value = [];
       emit('loaded', []);
@@ -230,6 +284,116 @@ function matchesKeyword(record: CrudRecordListBase, normalized: string) {
     props.filterOption?.(record, normalized) ??
     defaultCrudRecordListMatches(record, normalized, recordTitle, recordCode)
   );
+}
+
+function queryControllerSnapshot(): RecordQueryListQuerySnapshot {
+  const keyword = assistantKeyword.value;
+  const matchingRecords = keyword
+    ? records.value.filter((record) => matchesKeyword(record, keyword.toLowerCase()))
+    : records.value;
+  const cacheComplete = loadedTotalKnown.value && (loadedTotal.value ?? 0) <= records.value.length;
+  const rows = matchingRecords.slice(0, 20).map((record) => ({
+    ...(record.id == null ? {} : { id: String(record.id) }),
+    cells: [
+      { fieldName: 'title', title: '标题', value: recordTitle(record).slice(0, 500) },
+      ...(recordCode(record)
+        ? [
+            {
+              fieldName: 'secondary',
+              title: '辅助标识',
+              value: String(recordCode(record)).slice(0, 500),
+            },
+          ]
+        : []),
+    ],
+  }));
+  const totalKnown = keyword ? cacheComplete : loadedTotalKnown.value;
+  const total = keyword ? matchingRecords.length : (loadedTotal.value ?? records.value.length);
+  return {
+    mode: props.mode,
+    status: loading.value ? 'loading' : loadError.value ? 'error' : 'ready',
+    quickSearchEnabled: props.mode === 'normal' && !loadError.value && props.queryQuickSearchEnabled,
+    quickSearchFields: [
+      { name: 'title', title: '标题', valueType: 'STRING' },
+      { name: 'secondary', title: '辅助标识', valueType: 'STRING' },
+    ],
+    ...(keyword ? { appliedQuickSearch: keyword } : {}),
+    pageNum: 1,
+    pageSize: rows.length,
+    total,
+    totalKnown,
+    rows,
+    truncated: (totalKnown ? total : matchingRecords.length) > rows.length || !totalKnown,
+  };
+}
+
+const queryController: RecordQueryListQueryController = {
+  revision: () => queryControllerRevision,
+  interactionRevision: () => JSON.stringify({ mode: props.mode, keyword: assistantKeyword.value }),
+  snapshot: queryControllerSnapshot,
+  async settle(signal?: AbortSignal) {
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      throwIfQuerySettlementAborted(signal);
+      await nextTick();
+      throwIfQuerySettlementAborted(signal);
+      if (loading.value) await waitForQueryControllerLoad(signal);
+      const settledRevision = queryControllerRevision;
+      await nextTick();
+      throwIfQuerySettlementAborted(signal);
+      if (!loading.value && queryControllerRevision === settledRevision) return queryControllerSnapshot();
+    }
+    throw new Error('List query did not settle on a stable revision');
+  },
+  async applyQuickSearch(keyword: string) {
+    const normalized = keyword.trim();
+    if (props.mode !== 'normal' || !props.queryQuickSearchEnabled) {
+      throw new Error('Quick search is unavailable for the current list');
+    }
+    if (normalized.length > 500) throw new Error('Quick search keyword is too long');
+    const previous = assistantKeyword.value;
+    if (previous !== normalized) {
+      assistantKeyword.value = normalized;
+      queryControllerRevision += 1;
+    }
+    emit('update:keyword', normalized);
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      await nextTick();
+      if (props.keyword.trim() === normalized) return queryControllerSnapshot();
+    }
+    if (assistantKeyword.value === normalized) {
+      assistantKeyword.value = previous;
+      queryControllerRevision += 1;
+    }
+    throw new Error('Quick search did not reach the rendered explorer');
+  },
+};
+
+function waitForQueryControllerLoad(signal?: AbortSignal) {
+  return new Promise<void>((resolve, reject) => {
+    let settlement!: QueryControllerSettlement;
+    const cleanup = () => signal?.removeEventListener('abort', abort);
+    const abort = () => {
+      queryControllerSettlements.delete(settlement);
+      cleanup();
+      reject(new DOMException('Assistant invocation was cancelled', 'AbortError'));
+    };
+    settlement = {
+      resolve: () => {
+        cleanup();
+        resolve();
+      },
+      reject: (cause) => {
+        cleanup();
+        reject(cause);
+      },
+    };
+    queryControllerSettlements.add(settlement);
+    signal?.addEventListener('abort', abort, { once: true });
+  });
+}
+
+function throwIfQuerySettlementAborted(signal?: AbortSignal) {
+  if (signal?.aborted) throw new DOMException('Assistant invocation was cancelled', 'AbortError');
 }
 
 function recordActions(record: CrudRecordListBase): UiRecordInlineAction[] {
