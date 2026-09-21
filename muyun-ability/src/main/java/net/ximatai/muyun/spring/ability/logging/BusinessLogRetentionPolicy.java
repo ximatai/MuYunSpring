@@ -8,6 +8,7 @@ public record BusinessLogRetentionPolicy(
         BusinessLogEventType eventType,
         boolean automaticCleanupEnabled,
         int retentionDays,
+        long version,
         Instant updatedAt,
         String updatedBy
 ) {
@@ -19,10 +20,13 @@ public record BusinessLogRetentionPolicy(
         if (retentionDays < 1 || retentionDays > MAXIMUM_RETENTION_DAYS) {
             throw new IllegalArgumentException("retentionDays must be between 1 and " + MAXIMUM_RETENTION_DAYS);
         }
+        if (version < 0) {
+            throw new IllegalArgumentException("version must not be negative");
+        }
         updatedBy = BusinessLogContext.optional(updatedBy, "updatedBy", 128);
     }
 
     public static BusinessLogRetentionPolicy defaultDisabled(BusinessLogEventType eventType) {
-        return new BusinessLogRetentionPolicy(eventType, false, DEFAULT_RETENTION_DAYS, null, null);
+        return new BusinessLogRetentionPolicy(eventType, false, DEFAULT_RETENTION_DAYS, 0, null, null);
     }
 }

@@ -3,11 +3,13 @@ package net.ximatai.muyun.spring.platform.logging;
 import net.ximatai.muyun.spring.ability.logging.BusinessLogEventType;
 import net.ximatai.muyun.spring.ability.logging.BusinessLogReadScope;
 import net.ximatai.muyun.spring.ability.logging.BusinessLogRetentionPolicy;
+import net.ximatai.muyun.spring.ability.logging.BusinessLogRetentionPolicyConflictException;
 import net.ximatai.muyun.spring.ability.logging.BusinessLogRetentionPolicyStore;
 import net.ximatai.muyun.spring.ability.logging.BusinessLogRetentionRequest;
 import net.ximatai.muyun.spring.ability.logging.BusinessLogRetentionResult;
 import net.ximatai.muyun.spring.ability.logging.BusinessLogRetentionStore;
 import net.ximatai.muyun.spring.common.exception.PlatformAccessDeniedException;
+import net.ximatai.muyun.spring.common.exception.PlatformErrors;
 
 import java.time.Clock;
 import java.time.Duration;
@@ -45,11 +47,22 @@ public final class BusinessLogRetentionService {
     public BusinessLogRetentionPolicy updatePolicy(BusinessLogEventType eventType,
                                                     boolean automaticCleanupEnabled,
                                                     int retentionDays,
+                                                    long expectedVersion,
                                                     String updatedBy,
                                                     BusinessLogReadScope scope) {
         requirePlatformScope(scope);
-        return policyStore.saveRetentionPolicy(new BusinessLogRetentionPolicy(eventType,
-                automaticCleanupEnabled, retentionDays, clock.instant(), updatedBy));
+        if (expectedVersion < 0) {
+            throw new IllegalArgumentException("expectedVersion must not be negative");
+        }
+        try {
+            return policyStore.saveRetentionPolicy(new BusinessLogRetentionPolicy(eventType,
+                    automaticCleanupEnabled, retentionDays, expectedVersion + 1, clock.instant(), updatedBy),
+                    expectedVersion);
+        } catch (BusinessLogRetentionPolicyConflictException conflict) {
+            throw PlatformErrors.conflict("BUSINESS_LOG_RETENTION_POLICY_CONFLICT",
+                    "日志留存策略已被其他管理员修改，请刷新后重试",
+                    java.util.Map.of("eventType", conflict.eventType().name()));
+        }
     }
 
     /** Executes every currently enabled policy; intended for the scheduler adapter. */

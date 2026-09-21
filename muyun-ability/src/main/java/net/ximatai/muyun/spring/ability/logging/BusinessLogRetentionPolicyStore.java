@@ -7,5 +7,7 @@ public interface BusinessLogRetentionPolicyStore {
     /** Returns persisted overrides; callers supply safe defaults for missing event types. */
     List<BusinessLogRetentionPolicy> findRetentionPolicies();
 
-    BusinessLogRetentionPolicy saveRetentionPolicy(BusinessLogRetentionPolicy policy);
+    /** Saves {@code policy} only when the persisted row still has {@code expectedVersion}. */
+    BusinessLogRetentionPolicy saveRetentionPolicy(BusinessLogRetentionPolicy policy, long expectedVersion)
+            throws BusinessLogRetentionPolicyConflictException;
 }

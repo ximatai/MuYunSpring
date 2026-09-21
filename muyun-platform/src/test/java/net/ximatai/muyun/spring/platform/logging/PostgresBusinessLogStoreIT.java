@@ -13,6 +13,7 @@ import net.ximatai.muyun.spring.ability.logging.BusinessLogQuery;
 import net.ximatai.muyun.spring.ability.logging.BusinessLogRetentionRequest;
 import net.ximatai.muyun.spring.ability.logging.BusinessLogRetentionResult;
 import net.ximatai.muyun.spring.ability.logging.BusinessLogRetentionPolicy;
+import net.ximatai.muyun.spring.ability.logging.BusinessLogRetentionPolicyConflictException;
 import net.ximatai.muyun.spring.ability.logging.BusinessLogWriteResult;
 import net.ximatai.muyun.spring.ability.logging.LoginLogDetails;
 import net.ximatai.muyun.spring.ability.logging.LoginLogEvent;
@@ -38,6 +39,7 @@ import java.util.List;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 @SpringBootTest(classes = PostgresBusinessLogStoreIT.TestApplication.class)
 class PostgresBusinessLogStoreIT extends PlatformPostgresIntegrationTest {
@@ -57,6 +59,7 @@ class PostgresBusinessLogStoreIT extends PlatformPostgresIntegrationTest {
                     update muyun_log.business_log_retention_policy
                     set automatic_cleanup_enabled = false,
                         retention_days = 180,
+                        version = 0,
                         updated_at = null,
                         updated_by = null
                     """);
@@ -222,6 +225,24 @@ class PostgresBusinessLogStoreIT extends PlatformPostgresIntegrationTest {
     }
 
     @Test
+    void shouldReportCompleteWhenTheLastAllowedBatchDeletesTheFinalExpiredEvent() {
+        LoginLogEvent firstExpired = new LoginLogEvent(context("retention-exact-1", "retention-exact-trace-1",
+                "retention-tenant", "iam.login", "login", "2000-01-01T00:00:00Z"),
+                new LoginLogDetails("password", LoginLogDetails.LoginOutcome.SUCCESS, null, null, null, null));
+        LoginLogEvent secondExpired = new LoginLogEvent(context("retention-exact-2", "retention-exact-trace-2",
+                "retention-tenant", "iam.login", "login", "2000-01-02T00:00:00Z"),
+                new LoginLogDetails("password", LoginLogDetails.LoginOutcome.SUCCESS, null, null, null, null));
+        store.appendAll(List.of(firstExpired, secondExpired));
+
+        BusinessLogRetentionResult result = store.purge(new BusinessLogRetentionRequest(
+                Instant.parse("2001-01-01T00:00:00Z"), Set.of(BusinessLogEventType.LOGIN), 1, 2));
+
+        assertThat(result.deletedCount()).isEqualTo(2);
+        assertThat(result.executedBatches()).isEqualTo(2);
+        assertThat(result.status()).isEqualTo(BusinessLogRetentionResult.Status.COMPLETE);
+    }
+
+    @Test
     void shouldSkipRetentionWhenAnotherApplicationInstanceOwnsTheDatabaseLock() throws Exception {
         try (Connection connection = dataSource.getConnection();
              var lock = connection.prepareStatement("select pg_advisory_lock(?)");
@@ -268,9 +289,9 @@ class PostgresBusinessLogStoreIT extends PlatformPostgresIntegrationTest {
                         BusinessLogEventType.REQUEST_ERROR, BusinessLogEventType.PAGE_ACCESS);
 
         BusinessLogRetentionPolicy updated = new BusinessLogRetentionPolicy(BusinessLogEventType.ACTION,
-                true, 45, Instant.parse("2026-09-21T01:02:03Z"), "system-admin");
+                true, 45, 1, Instant.parse("2026-09-21T01:02:03Z"), "system-admin");
 
-        assertThat(store.saveRetentionPolicy(updated)).isEqualTo(updated);
+        assertThat(store.saveRetentionPolicy(updated, 0)).isEqualTo(updated);
         assertThat(store.findRetentionPolicies())
                 .filteredOn(policy -> policy.eventType() == BusinessLogEventType.ACTION)
                 .containsExactly(updated);
@@ -280,6 +301,10 @@ class PostgresBusinessLogStoreIT extends PlatformPostgresIntegrationTest {
                 .extracting(BusinessLogRetentionPolicy::automaticCleanupEnabled,
                         BusinessLogRetentionPolicy::retentionDays)
                 .containsExactly(false, 180);
+        assertThatThrownBy(() -> store.saveRetentionPolicy(new BusinessLogRetentionPolicy(
+                BusinessLogEventType.ACTION, false, 90, 1,
+                Instant.parse("2026-09-21T01:03:03Z"), "stale-admin"), 0))
+                .isInstanceOf(BusinessLogRetentionPolicyConflictException.class);
     }
 
     @Test

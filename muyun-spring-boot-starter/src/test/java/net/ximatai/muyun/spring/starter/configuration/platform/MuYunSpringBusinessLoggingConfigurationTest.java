@@ -112,4 +112,12 @@ class MuYunSpringBusinessLoggingConfigurationTest {
                         "muyun.platform.business-log.retention.batch-size=10001")
                 .run(context -> assertThat(context).hasFailed());
     }
+
+    @Test
+    void shouldFailFastWhenRetentionScheduleCouldFormATightLoop() {
+        contextRunner
+                .withPropertyValues(
+                        "muyun.platform.business-log.retention.scan-delay=0s")
+                .run(context -> assertThat(context).hasFailed());
+    }
 }

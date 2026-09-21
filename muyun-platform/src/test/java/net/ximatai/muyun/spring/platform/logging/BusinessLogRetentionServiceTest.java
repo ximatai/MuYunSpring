@@ -64,13 +64,17 @@ class BusinessLogRetentionServiceTest {
                 .containsExactly(180, false);
 
         BusinessLogRetentionPolicy updated = service.updatePolicy(BusinessLogEventType.ACTION,
-                true, 45, "admin", BusinessLogReadScope.platform());
+                true, 45, 0, "admin", BusinessLogReadScope.platform());
 
         assertThat(updated.updatedAt()).isEqualTo(CLOCK.instant());
         assertThat(updated.updatedBy()).isEqualTo("admin");
+        assertThat(updated.version()).isEqualTo(1);
         assertThat(policies.saved).isEqualTo(updated);
         assertThatThrownBy(() -> service.updatePolicy(BusinessLogEventType.ACTION,
-                true, 45, "tenant-admin", BusinessLogReadScope.tenant("t1")))
+                false, 60, 0, "stale-admin", BusinessLogReadScope.platform()))
+                .hasMessageContaining("已被其他管理员修改");
+        assertThatThrownBy(() -> service.updatePolicy(BusinessLogEventType.ACTION,
+                true, 45, 0, "tenant-admin", BusinessLogReadScope.tenant("t1")))
                 .isInstanceOf(PlatformAccessDeniedException.class);
     }
 
@@ -106,7 +110,7 @@ class BusinessLogRetentionServiceTest {
     }
 
     private static BusinessLogRetentionPolicy policy(BusinessLogEventType type, boolean enabled, int days) {
-        return new BusinessLogRetentionPolicy(type, enabled, days, CLOCK.instant(), "admin");
+        return new BusinessLogRetentionPolicy(type, enabled, days, 0, CLOCK.instant(), "admin");
     }
 
     private static BusinessLogRetentionResult complete(BusinessLogRetentionRequest request) {
@@ -128,7 +132,16 @@ class BusinessLogRetentionServiceTest {
         }
 
         @Override
-        public BusinessLogRetentionPolicy saveRetentionPolicy(BusinessLogRetentionPolicy policy) {
+        public BusinessLogRetentionPolicy saveRetentionPolicy(BusinessLogRetentionPolicy policy,
+                                                                long expectedVersion) {
+            BusinessLogRetentionPolicy current = policies.stream()
+                    .filter(candidate -> candidate.eventType() == policy.eventType())
+                    .findFirst()
+                    .orElse(BusinessLogRetentionPolicy.defaultDisabled(policy.eventType()));
+            if (expectedVersion != current.version() || policy.version() != expectedVersion + 1) {
+                throw new net.ximatai.muyun.spring.ability.logging.BusinessLogRetentionPolicyConflictException(
+                        policy.eventType());
+            }
             saved = policy;
             policies.removeIf(candidate -> candidate.eventType() == policy.eventType());
             policies.add(policy);

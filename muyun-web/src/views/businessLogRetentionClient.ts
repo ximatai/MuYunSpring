@@ -6,6 +6,7 @@ export interface BusinessLogRetentionPolicy {
   eventType: BusinessLogEventType;
   automaticCleanupEnabled: boolean;
   retentionDays: number;
+  version: number;
   updatedAt?: string;
   updatedBy?: string;
 }
@@ -35,6 +36,7 @@ export function createBusinessLogRetentionClient(http: HttpClient) {
         body: {
           automaticCleanupEnabled: policy.automaticCleanupEnabled,
           retentionDays: policy.retentionDays,
+          version: policy.version,
         },
       })) as BusinessLogRetentionPolicy;
     },

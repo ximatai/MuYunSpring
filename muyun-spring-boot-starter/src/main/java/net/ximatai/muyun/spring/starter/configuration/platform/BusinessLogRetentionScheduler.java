@@ -14,7 +14,9 @@ public final class BusinessLogRetentionScheduler {
     private final BusinessLogRetentionExecutionLimits executionLimits;
 
     public BusinessLogRetentionScheduler(BusinessLogRetentionService service,
-                                         BusinessLogRetentionExecutionLimits executionLimits) {
+                                         BusinessLogRetentionExecutionLimits executionLimits,
+                                         MuYunSpringBusinessLogRetentionProperties properties) {
+        properties.validateSchedule();
         this.service = service;
         this.executionLimits = executionLimits;
     }

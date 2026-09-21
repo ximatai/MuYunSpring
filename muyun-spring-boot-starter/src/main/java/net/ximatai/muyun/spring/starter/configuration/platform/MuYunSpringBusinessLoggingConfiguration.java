@@ -123,8 +123,9 @@ public class MuYunSpringBusinessLoggingConfiguration {
     @ConditionalOnProperty(prefix = "muyun.platform.business-log.retention", name = "scheduled-enabled",
             havingValue = "true", matchIfMissing = true)
     BusinessLogRetentionScheduler businessLogRetentionScheduler(BusinessLogRetentionService service,
-                                                                 BusinessLogRetentionExecutionLimits executionLimits) {
-        return new BusinessLogRetentionScheduler(service, executionLimits);
+                                                                 BusinessLogRetentionExecutionLimits executionLimits,
+                                                                 MuYunSpringBusinessLogRetentionProperties properties) {
+        return new BusinessLogRetentionScheduler(service, executionLimits, properties);
     }
 
 }

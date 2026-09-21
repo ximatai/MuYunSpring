@@ -112,12 +112,15 @@ public class PostgresBusinessLogSchemaInitializer {
                         event_type varchar(32) primary key,
                         automatic_cleanup_enabled boolean not null default false,
                         retention_days integer not null,
+                        version bigint not null default 0,
                         updated_at timestamptz,
                         updated_by varchar(128),
                         constraint business_log_retention_days_check
                             check (retention_days between 1 and 36500)
                     )
                     """);
+            statement.execute("alter table muyun_log.business_log_retention_policy "
+                    + "add column if not exists version bigint not null default 0");
             statement.execute("""
                     insert into muyun_log.business_log_retention_policy
                         (event_type, automatic_cleanup_enabled, retention_days)

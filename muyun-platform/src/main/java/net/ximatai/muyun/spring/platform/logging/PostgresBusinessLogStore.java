@@ -17,6 +17,7 @@ import net.ximatai.muyun.spring.ability.logging.BusinessLogOperatorNavigation;
 import net.ximatai.muyun.spring.ability.logging.BusinessLogOperatorNavigationItem;
 import net.ximatai.muyun.spring.ability.logging.BusinessLogReadPage;
 import net.ximatai.muyun.spring.ability.logging.BusinessLogRetentionPolicy;
+import net.ximatai.muyun.spring.ability.logging.BusinessLogRetentionPolicyConflictException;
 import net.ximatai.muyun.spring.ability.logging.BusinessLogRetentionPolicyStore;
 import net.ximatai.muyun.spring.ability.logging.BusinessLogRetentionRequest;
 import net.ximatai.muyun.spring.ability.logging.BusinessLogRetentionResult;
@@ -290,7 +291,7 @@ public class PostgresBusinessLogStore implements BusinessLogStore, BusinessLogRe
     @Override
     public List<BusinessLogRetentionPolicy> findRetentionPolicies() {
         String sql = """
-                select event_type, automatic_cleanup_enabled, retention_days, updated_at, updated_by
+                select event_type, automatic_cleanup_enabled, retention_days, version, updated_at, updated_by
                 from muyun_log.business_log_retention_policy
                 order by event_type
                 """;
@@ -305,6 +306,7 @@ public class PostgresBusinessLogStore implements BusinessLogStore, BusinessLogRe
                                 BusinessLogEventType.valueOf(resultSet.getString("event_type")),
                                 resultSet.getBoolean("automatic_cleanup_enabled"),
                                 resultSet.getInt("retention_days"),
+                                resultSet.getLong("version"),
                                 updatedAt == null ? null : updatedAt.toInstant(),
                                 resultSet.getString("updated_by")));
                     }
@@ -317,17 +319,22 @@ public class PostgresBusinessLogStore implements BusinessLogStore, BusinessLogRe
     }
 
     @Override
-    public BusinessLogRetentionPolicy saveRetentionPolicy(BusinessLogRetentionPolicy policy) {
+    public BusinessLogRetentionPolicy saveRetentionPolicy(BusinessLogRetentionPolicy policy, long expectedVersion) {
         Objects.requireNonNull(policy, "policy must not be null");
+        if (expectedVersion < 0 || policy.version() != expectedVersion + 1) {
+            throw new IllegalArgumentException("saved retention policy version must follow expectedVersion");
+        }
         String sql = """
                 insert into muyun_log.business_log_retention_policy
-                    (event_type, automatic_cleanup_enabled, retention_days, updated_at, updated_by)
-                values (?, ?, ?, ?, ?)
+                    (event_type, automatic_cleanup_enabled, retention_days, version, updated_at, updated_by)
+                values (?, ?, ?, ?, ?, ?)
                 on conflict (event_type) do update set
                     automatic_cleanup_enabled = excluded.automatic_cleanup_enabled,
                     retention_days = excluded.retention_days,
+                    version = excluded.version,
                     updated_at = excluded.updated_at,
                     updated_by = excluded.updated_by
+                where muyun_log.business_log_retention_policy.version = ?
                 """;
         try {
             connections.withConnection(connection -> {
@@ -335,13 +342,17 @@ public class PostgresBusinessLogStore implements BusinessLogStore, BusinessLogRe
                     statement.setString(1, policy.eventType().name());
                     statement.setBoolean(2, policy.automaticCleanupEnabled());
                     statement.setInt(3, policy.retentionDays());
+                    statement.setLong(4, policy.version());
                     if (policy.updatedAt() == null) {
-                        statement.setNull(4, java.sql.Types.TIMESTAMP_WITH_TIMEZONE);
+                        statement.setNull(5, java.sql.Types.TIMESTAMP_WITH_TIMEZONE);
                     } else {
-                        statement.setObject(4, OffsetDateTime.ofInstant(policy.updatedAt(), ZoneOffset.UTC));
+                        statement.setObject(5, OffsetDateTime.ofInstant(policy.updatedAt(), ZoneOffset.UTC));
                     }
-                    statement.setString(5, policy.updatedBy());
-                    statement.executeUpdate();
+                    statement.setString(6, policy.updatedBy());
+                    statement.setLong(7, expectedVersion);
+                    if (statement.executeUpdate() != 1) {
+                        throw new BusinessLogRetentionPolicyConflictException(policy.eventType());
+                    }
                     return null;
                 }
             });
@@ -370,7 +381,9 @@ public class PostgresBusinessLogStore implements BusinessLogStore, BusinessLogRe
                 }
             }
             return new BusinessLogRetentionResult(request.occurredBefore(), deleted, request.maximumBatches(),
-                    BusinessLogRetentionResult.Status.BATCH_LIMIT_REACHED);
+                    hasExpiredEvent(connection, request)
+                            ? BusinessLogRetentionResult.Status.BATCH_LIMIT_REACHED
+                            : BusinessLogRetentionResult.Status.COMPLETE);
         } catch (SQLException exception) {
             failure = exception;
             throw exception;
@@ -420,6 +433,26 @@ public class PostgresBusinessLogStore implements BusinessLogStore, BusinessLogRe
             }
             statement.setInt(parameter, request.batchSize());
             return statement.executeUpdate();
+        }
+    }
+
+    private static boolean hasExpiredEvent(Connection connection,
+                                           BusinessLogRetentionRequest request) throws SQLException {
+        List<String> eventTypes = request.eventTypes() == null ? List.of()
+                : request.eventTypes().stream().map(Enum::name).sorted().toList();
+        String typeFilter = eventTypes.isEmpty() ? "" : " and event_type in ("
+                + "?, ".repeat(eventTypes.size()).substring(0, eventTypes.size() * 3 - 2) + ")";
+        String sql = "select 1 from muyun_log.business_log_event where occurred_at < ?"
+                + typeFilter + " limit 1";
+        try (PreparedStatement statement = connection.prepareStatement(sql)) {
+            int parameter = 1;
+            statement.setObject(parameter++, OffsetDateTime.ofInstant(request.occurredBefore(), ZoneOffset.UTC));
+            for (String eventType : eventTypes) {
+                statement.setString(parameter++, eventType);
+            }
+            try (ResultSet resultSet = statement.executeQuery()) {
+                return resultSet.next();
+            }
         }
     }
 

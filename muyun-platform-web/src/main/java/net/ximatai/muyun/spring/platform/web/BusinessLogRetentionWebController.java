@@ -60,7 +60,8 @@ public class BusinessLogRetentionWebController extends WebSupport<BusinessLogRet
     public BusinessLogRetentionPolicy updatePolicy(@PathVariable BusinessLogEventType eventType,
                                                    @RequestBody BusinessLogRetentionPolicyRequest request) {
         return webScope(() -> service().updatePolicy(eventType, request.automaticCleanupEnabled(),
-                request.retentionDays(), currentUserId(), scopeResolver.resolve(MODULE_ALIAS, CONFIGURE_POLICY)));
+                request.retentionDays(), request.version(), currentUserId(),
+                scopeResolver.resolve(MODULE_ALIAS, CONFIGURE_POLICY)));
     }
 
     @PostMapping("/policies/{eventType}/purge")

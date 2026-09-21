@@ -133,7 +133,7 @@ class BusinessLoggingContractTest {
     @Test
     void shouldModelRetentionPeriodAsAnEventTypeBusinessPolicy() {
         BusinessLogRetentionPolicy policy = new BusinessLogRetentionPolicy(BusinessLogEventType.ACTION,
-                true, 90, Instant.parse("2026-09-21T00:00:00Z"), "admin");
+                true, 90, 3, Instant.parse("2026-09-21T00:00:00Z"), "admin");
 
         assertThat(policy.automaticCleanupEnabled()).isTrue();
         assertThat(policy.retentionDays()).isEqualTo(90);
@@ -143,6 +143,6 @@ class BusinessLoggingContractTest {
                     assertThat(defaultPolicy.retentionDays()).isEqualTo(180);
                 });
         assertThatIllegalArgumentException().isThrownBy(() -> new BusinessLogRetentionPolicy(
-                BusinessLogEventType.ACTION, true, 0, null, null));
+                BusinessLogEventType.ACTION, true, 0, 0, null, null));
     }
 }

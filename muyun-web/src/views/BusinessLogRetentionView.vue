@@ -10,6 +10,7 @@ import {
   UiSpin,
   UiSwitch,
   confirmAction,
+  showInfoMessage,
   showSuccessMessage,
 } from '@muyun/vue-ui-antdv';
 import {
@@ -25,6 +26,7 @@ const moduleContext = useModuleContext<Record<string, unknown>>({
 });
 const client = createBusinessLogRetentionClient(moduleContext.http);
 const policies = ref<BusinessLogRetentionPolicy[]>([]);
+const persistedPolicies = ref<Partial<Record<BusinessLogEventType, BusinessLogRetentionPolicy>>>({});
 const loading = ref(false);
 const loadError = ref<string>();
 const savingType = ref<BusinessLogEventType>();
@@ -39,7 +41,9 @@ async function loadPolicies() {
   loading.value = true;
   loadError.value = undefined;
   try {
-    policies.value = await client.policies();
+    const loaded = await client.policies();
+    policies.value = loaded.map((policy) => ({ ...policy }));
+    persistedPolicies.value = Object.fromEntries(loaded.map((policy) => [policy.eventType, { ...policy }]));
   } catch (error) {
     loadError.value = errorMessage(error);
     presentPlatformError(error, { source: 'business-log-retention', phase: 'load' });
@@ -63,10 +67,11 @@ async function save(policy: BusinessLogRetentionPolicy) {
 }
 
 async function purge(policy: BusinessLogRetentionPolicy) {
-  if (purgingType.value) return;
+  const persisted = persistedPolicies.value[policy.eventType];
+  if (!persisted || isDirty(policy) || purgingType.value) return;
   const confirmed = await confirmAction({
     title: `立即清理${typeLabel(policy.eventType)}`,
-    content: `将删除严格早于 ${policy.retentionDays} 天的日志。该操作不可恢复。`,
+    content: `将删除严格早于 ${persisted.retentionDays} 天的日志。该操作不可恢复。`,
     requiredText: `清理${typeLabel(policy.eventType)}`,
     danger: true,
   });
@@ -74,6 +79,10 @@ async function purge(policy: BusinessLogRetentionPolicy) {
   purgingType.value = policy.eventType;
   try {
     const run = await client.purge(policy.eventType);
+    if (run.result.status === 'ALREADY_RUNNING') {
+      showInfoMessage('已有日志清理任务正在运行，本次未执行。');
+      return;
+    }
     showSuccessMessage(
       run.result.status === 'BATCH_LIMIT_REACHED'
         ? `本轮已清理 ${run.result.deletedCount} 条，剩余数据将在后续批次继续处理`
@@ -87,8 +96,18 @@ async function purge(policy: BusinessLogRetentionPolicy) {
 }
 
 function replacePolicy(updated: BusinessLogRetentionPolicy) {
+  persistedPolicies.value = { ...persistedPolicies.value, [updated.eventType]: { ...updated } };
   policies.value = policies.value.map((policy) =>
-    policy.eventType === updated.eventType ? updated : policy,
+    policy.eventType === updated.eventType ? { ...updated } : policy,
+  );
+}
+
+function isDirty(policy: BusinessLogRetentionPolicy) {
+  const persisted = persistedPolicies.value[policy.eventType];
+  return (
+    !persisted ||
+    persisted.retentionDays !== policy.retentionDays ||
+    persisted.automaticCleanupEnabled !== policy.automaticCleanupEnabled
   );
 }
 
@@ -172,8 +191,9 @@ function errorMessage(error: unknown) {
           <UiActionButton
             v-if="canPurge"
             intent="danger"
-            :disabled="!validDays(policy.retentionDays)"
+            :disabled="!validDays(policy.retentionDays) || isDirty(policy)"
             :loading="purgingType === policy.eventType"
+            :title="isDirty(policy) ? '请先保存当前策略，再执行清理' : undefined"
             @click="purge(policy)"
           >
             立即清理
