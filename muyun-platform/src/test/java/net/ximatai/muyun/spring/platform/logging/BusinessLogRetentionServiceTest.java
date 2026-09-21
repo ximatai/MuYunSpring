@@ -100,6 +100,27 @@ class BusinessLogRetentionServiceTest {
     }
 
     @Test
+    void shouldRunOneOffCleanupWithDraftCutoffWithoutPersistingThePolicy() {
+        List<BusinessLogRetentionRequest> captured = new ArrayList<>();
+        InMemoryPolicyStore policies = new InMemoryPolicyStore(List.of(
+                policy(BusinessLogEventType.ACTION, false, 180)));
+        var service = new BusinessLogRetentionService(request -> {
+            captured.add(request);
+            return complete(request);
+        }, policies, CLOCK);
+
+        BusinessLogRetentionRunResult run = service.purgeNow(BusinessLogEventType.ACTION, 45, LIMITS,
+                BusinessLogReadScope.platform());
+
+        assertThat(run.retentionDays()).isEqualTo(45);
+        assertThat(captured).singleElement().satisfies(request ->
+                assertThat(request.occurredBefore()).isEqualTo(Instant.parse("2026-08-07T00:00:00Z")));
+        assertThat(policies.saved).isNull();
+        assertThatThrownBy(() -> service.purgeNow(BusinessLogEventType.ACTION, 0, LIMITS,
+                BusinessLogReadScope.platform())).isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
     void shouldRejectUnsafeBusinessAndExecutionSettings() {
         assertThatThrownBy(() -> policy(BusinessLogEventType.LOGIN, true, 0))
                 .isInstanceOf(IllegalArgumentException.class);

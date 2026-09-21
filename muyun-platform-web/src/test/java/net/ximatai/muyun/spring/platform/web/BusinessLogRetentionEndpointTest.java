@@ -26,7 +26,8 @@ class BusinessLogRetentionEndpointTest {
         Method policies = BusinessLogRetentionWebController.class.getMethod("policies");
         Method update = BusinessLogRetentionWebController.class.getMethod("updatePolicy",
                 BusinessLogEventType.class, BusinessLogRetentionPolicyRequest.class);
-        Method purge = BusinessLogRetentionWebController.class.getMethod("purge", BusinessLogEventType.class);
+        Method purge = BusinessLogRetentionWebController.class.getMethod("purge", BusinessLogEventType.class,
+                BusinessLogRetentionPurgeRequest.class);
 
         assertThat(policies.getAnnotation(GetMapping.class).value()).containsExactly("/policies");
         assertThat(policies.getAnnotation(CustomActionEndpoint.class).value()).isEqualTo("viewRetentionPolicies");

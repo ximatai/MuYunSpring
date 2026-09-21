@@ -90,14 +90,34 @@ public final class BusinessLogRetentionService {
         return purge(policy, Objects.requireNonNull(limits, "limits must not be null"));
     }
 
+    /** Executes a one-off cleanup with an explicit cutoff without changing the scheduled policy. */
+    public BusinessLogRetentionRunResult purgeNow(BusinessLogEventType eventType,
+                                                  int retentionDays,
+                                                  BusinessLogRetentionExecutionLimits limits,
+                                                  BusinessLogReadScope scope) {
+        requirePlatformScope(scope);
+        if (retentionDays < 1 || retentionDays > BusinessLogRetentionPolicy.MAXIMUM_RETENTION_DAYS) {
+            throw new IllegalArgumentException("retentionDays must be between 1 and "
+                    + BusinessLogRetentionPolicy.MAXIMUM_RETENTION_DAYS);
+        }
+        return purge(Objects.requireNonNull(eventType, "eventType must not be null"), retentionDays,
+                Objects.requireNonNull(limits, "limits must not be null"));
+    }
+
     private BusinessLogRetentionRunResult purge(BusinessLogRetentionPolicy policy,
                                                 BusinessLogRetentionExecutionLimits limits) {
+        return purge(policy.eventType(), policy.retentionDays(), limits);
+    }
+
+    private BusinessLogRetentionRunResult purge(BusinessLogEventType eventType,
+                                                int retentionDays,
+                                                BusinessLogRetentionExecutionLimits limits) {
         BusinessLogRetentionResult result = retentionStore.purge(new BusinessLogRetentionRequest(
-                clock.instant().minus(Duration.ofDays(policy.retentionDays())),
-                Set.of(policy.eventType()),
+                clock.instant().minus(Duration.ofDays(retentionDays)),
+                Set.of(eventType),
                 limits.batchSize(),
                 limits.maximumBatchesPerPolicy()));
-        return new BusinessLogRetentionRunResult(policy.eventType(), policy.retentionDays(), result);
+        return new BusinessLogRetentionRunResult(eventType, retentionDays, result);
     }
 
     private List<BusinessLogRetentionPolicy> effectivePolicies() {

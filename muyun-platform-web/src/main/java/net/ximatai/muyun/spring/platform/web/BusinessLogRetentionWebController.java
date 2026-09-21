@@ -66,8 +66,9 @@ public class BusinessLogRetentionWebController extends WebSupport<BusinessLogRet
     @PostMapping("/policies/{eventType}/purge")
     @CustomActionEndpoint(value = PURGE_EXPIRED, title = "立即清理超期日志",
             level = PlatformActionLevel.RECORD, recordIdPathVariable = "eventType", dataAuth = false)
-    public BusinessLogRetentionRunResult purge(@PathVariable BusinessLogEventType eventType) {
-        return webScope(() -> service().purgeNow(eventType, executionLimits,
+    public BusinessLogRetentionRunResult purge(@PathVariable BusinessLogEventType eventType,
+                                               @RequestBody BusinessLogRetentionPurgeRequest request) {
+        return webScope(() -> service().purgeNow(eventType, request.retentionDays(), executionLimits,
                 scopeResolver.resolve(MODULE_ALIAS, PURGE_EXPIRED)));
     }
 

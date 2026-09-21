@@ -98,18 +98,17 @@ async function save(policy: BusinessLogRetentionPolicy) {
 }
 
 async function purge(policy: BusinessLogRetentionPolicy) {
-  const persisted = persistedPolicies.value[policy.eventType];
-  if (!persisted || isDirty(policy) || operationPending.value) return;
+  if (!validDays(policy.retentionDays) || operationPending.value) return;
   const confirmed = await confirmAction({
     title: `立即清理${typeLabel(policy.eventType)}`,
-    content: `将删除严格早于 ${persisted.retentionDays} 天的日志。该操作不可恢复。`,
+    content: `将删除严格早于 ${policy.retentionDays} 天的日志。本次清理不会自动保存留存策略，且操作不可恢复。`,
     requiredText: `清理${typeLabel(policy.eventType)}`,
     danger: true,
   });
   if (!confirmed) return;
   purgingType.value = policy.eventType;
   try {
-    const run = await client.purge(policy.eventType);
+    const run = await client.purge(policy.eventType, policy.retentionDays);
     if (run.result.status === 'ALREADY_RUNNING') {
       showInfoMessage('已有日志清理任务正在运行，本次未执行。');
       return;
@@ -188,7 +187,6 @@ function errorMessage(error: unknown) {
               最近更新：{{ policy.updatedAt
               }}<template v-if="policy.updatedBy"> · {{ policy.updatedBy }}</template>
             </small>
-            <small v-else>尚未人工调整，使用平台安全默认值。</small>
           </div>
           <label class="business-log-retention-control__automatic-cleanup">
             <span>自动清理</span>
@@ -215,9 +213,8 @@ function errorMessage(error: unknown) {
               <UiActionButton
                 v-if="canPurge"
                 intent="danger"
-                :disabled="operationPending || !validDays(policy.retentionDays) || isDirty(policy)"
+                :disabled="operationPending || !validDays(policy.retentionDays)"
                 :loading="purgingType === policy.eventType"
-                :title="isDirty(policy) ? '请先保存当前策略，再执行清理' : undefined"
                 @click="purge(policy)"
               >
                 立即清理

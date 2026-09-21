@@ -37,11 +37,12 @@ it('uses a distinct destructive endpoint for immediate bounded cleanup', async (
   }));
   const client = createBusinessLogRetentionClient({ request } as HttpClient);
 
-  const result = await client.purge('REQUEST_ERROR');
+  const result = await client.purge('REQUEST_ERROR', 30);
 
   expect(request).toHaveBeenCalledWith({
     method: 'POST',
     path: '/platform.business_log_retention/policies/REQUEST_ERROR/purge',
+    body: { retentionDays: 30 },
   });
   expect(result.result.deletedCount).toBe(12);
 });

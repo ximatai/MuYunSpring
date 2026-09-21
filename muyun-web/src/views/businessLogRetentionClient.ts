@@ -40,10 +40,14 @@ export function createBusinessLogRetentionClient(http: HttpClient) {
         },
       })) as BusinessLogRetentionPolicy;
     },
-    async purge(eventType: BusinessLogEventType): Promise<BusinessLogRetentionRunResult> {
+    async purge(
+      eventType: BusinessLogEventType,
+      retentionDays: number,
+    ): Promise<BusinessLogRetentionRunResult> {
       return (await http.request<unknown>({
         method: 'POST',
         path: `${endpoint}/policies/${eventType}/purge`,
+        body: { retentionDays },
       })) as BusinessLogRetentionRunResult;
     },
   };

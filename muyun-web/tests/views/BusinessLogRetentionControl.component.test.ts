@@ -21,13 +21,13 @@ it('presents each retention policy as a card with distinct header, content, and 
   expect(source).toMatch(/<footer>[\s\S]*?>\s*保存\s*<\/UiActionButton>/);
 });
 
-it('prevents a retention draft from changing the destructive cleanup contract', () => {
-  expect(source).toContain('if (!persisted || isDirty(policy) || operationPending.value) return;');
-  expect(source).toContain('${persisted.retentionDays} 天');
-  expect(source).toContain(
-    ':disabled="operationPending || !validDays(policy.retentionDays) || isDirty(policy)"',
-  );
-  expect(source).toContain('请先保存当前策略，再执行清理');
+it('runs one-off cleanup with the current draft cutoff without requiring a policy save', () => {
+  expect(source).toContain('if (!validDays(policy.retentionDays) || operationPending.value) return;');
+  expect(source).toContain('${policy.retentionDays} 天');
+  expect(source).toContain('本次清理不会自动保存留存策略');
+  expect(source).toContain('client.purge(policy.eventType, policy.retentionDays)');
+  expect(source).toContain(':disabled="operationPending || !validDays(policy.retentionDays)"');
+  expect(source).not.toContain('请先保存当前策略，再执行清理');
 });
 
 it('locks every policy card and the drawer while one retention operation is in flight', () => {
@@ -39,9 +39,7 @@ it('locks every policy card and the drawer while one retention operation is in f
   expect(source).toContain(
     ':disabled="operationPending || !validDays(policy.retentionDays) || !isDirty(policy)"',
   );
-  expect(source).toContain(
-    ':disabled="operationPending || !validDays(policy.retentionDays) || isDirty(policy)"',
-  );
+  expect(source).toContain(':disabled="operationPending || !validDays(policy.retentionDays)"');
 });
 
 it('reports an already-running cleanup as a non-successful informational outcome', () => {
