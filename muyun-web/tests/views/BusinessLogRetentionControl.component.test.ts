@@ -15,10 +15,26 @@ it('embeds retention as a permission-aware control instead of a standalone page'
 });
 
 it('prevents a retention draft from changing the destructive cleanup contract', () => {
-  expect(source).toContain('if (!persisted || isDirty(policy) || purgingType.value) return;');
+  expect(source).toContain('if (!persisted || isDirty(policy) || operationPending.value) return;');
   expect(source).toContain('${persisted.retentionDays} 天');
-  expect(source).toContain(':disabled="!validDays(policy.retentionDays) || isDirty(policy)"');
+  expect(source).toContain(
+    ':disabled="operationPending || !validDays(policy.retentionDays) || isDirty(policy)"',
+  );
   expect(source).toContain('请先保存当前策略，再执行清理');
+});
+
+it('locks every policy card and the drawer while one retention operation is in flight', () => {
+  expect(source).toContain(
+    'const operationPending = computed(() => savingType.value !== undefined || purgingType.value !== undefined)',
+  );
+  expect(source).toContain("showInfoMessage('日志留存操作正在执行，请稍候。')");
+  expect(source).toContain(':disabled="!canConfigure || operationPending"');
+  expect(source).toContain(
+    ':disabled="operationPending || !validDays(policy.retentionDays) || !isDirty(policy)"',
+  );
+  expect(source).toContain(
+    ':disabled="operationPending || !validDays(policy.retentionDays) || isDirty(policy)"',
+  );
 });
 
 it('reports an already-running cleanup as a non-successful informational outcome', () => {

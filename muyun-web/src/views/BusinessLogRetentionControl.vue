@@ -41,6 +41,7 @@ const purgingType = ref<BusinessLogEventType>();
 const canView = computed(() => retentionContext.can('viewRetentionPolicies') === true);
 const canConfigure = computed(() => retentionContext.can('configureRetentionPolicy') === true);
 const canPurge = computed(() => retentionContext.can('purgeExpiredLogs') === true);
+const operationPending = computed(() => savingType.value !== undefined || purgingType.value !== undefined);
 const visiblePolicies = computed(() => {
   const visibleTypes = new Set(props.eventTypes);
   return policies.value.filter((policy) => visibleTypes.has(policy.eventType));
@@ -71,6 +72,10 @@ async function loadPolicies() {
 }
 
 async function confirmClose() {
+  if (operationPending.value) {
+    showInfoMessage('日志留存操作正在执行，请稍候。');
+    return false;
+  }
   if (!hasDirtyPolicy.value) return true;
   return confirmAction({
     title: '放弃未保存的留存设置？',
@@ -79,7 +84,7 @@ async function confirmClose() {
 }
 
 async function save(policy: BusinessLogRetentionPolicy) {
-  if (!validDays(policy.retentionDays) || !isDirty(policy) || savingType.value) return;
+  if (!validDays(policy.retentionDays) || !isDirty(policy) || operationPending.value) return;
   savingType.value = policy.eventType;
   try {
     const updated = await client.update(policy);
@@ -94,7 +99,7 @@ async function save(policy: BusinessLogRetentionPolicy) {
 
 async function purge(policy: BusinessLogRetentionPolicy) {
   const persisted = persistedPolicies.value[policy.eventType];
-  if (!persisted || isDirty(policy) || purgingType.value) return;
+  if (!persisted || isDirty(policy) || operationPending.value) return;
   const confirmed = await confirmAction({
     title: `立即清理${typeLabel(policy.eventType)}`,
     content: `将删除严格早于 ${persisted.retentionDays} 天的日志。该操作不可恢复。`,
@@ -196,7 +201,7 @@ function errorMessage(error: unknown) {
             <span>自动清理</span>
             <UiSwitch
               v-model:checked="policy.automaticCleanupEnabled"
-              :disabled="!canConfigure"
+              :disabled="!canConfigure || operationPending"
               checked-text="启用"
               unchecked-text="停用"
             />
@@ -206,7 +211,7 @@ function errorMessage(error: unknown) {
             <UiInput
               :value="policy.retentionDays"
               type="number"
-              :disabled="!canConfigure"
+              :disabled="!canConfigure || operationPending"
               :aria-label="`${typeLabel(policy.eventType)}保留天数`"
               @update:value="updateDays(policy, $event)"
             />
@@ -220,7 +225,7 @@ function errorMessage(error: unknown) {
           <UiActionButton
             v-if="canConfigure"
             emphasis="primary"
-            :disabled="!validDays(policy.retentionDays) || !isDirty(policy)"
+            :disabled="operationPending || !validDays(policy.retentionDays) || !isDirty(policy)"
             :loading="savingType === policy.eventType"
             @click="save(policy)"
           >
@@ -229,7 +234,7 @@ function errorMessage(error: unknown) {
           <UiActionButton
             v-if="canPurge"
             intent="danger"
-            :disabled="!validDays(policy.retentionDays) || isDirty(policy)"
+            :disabled="operationPending || !validDays(policy.retentionDays) || isDirty(policy)"
             :loading="purgingType === policy.eventType"
             :title="isDirty(policy) ? '请先保存当前策略，再执行清理' : undefined"
             @click="purge(policy)"
