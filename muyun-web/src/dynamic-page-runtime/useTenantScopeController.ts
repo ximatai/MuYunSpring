@@ -21,6 +21,9 @@ export function useTenantScopeController(
   const required = computed(
     () => !recordOnly && (businessRequired.value ?? context.runtime.snapshot()?.tenantRequired) === true,
   );
+  const tenantScopeFixedByIdentity = computed(
+    () => required.value && currentUser?.value?.system === false && Boolean(currentUser?.value?.tenantId),
+  );
   const tenantScopeExplorerVisible = computed(() => required.value && currentUser?.value?.system !== false);
   const tenantScopeExplorerCount = computed(() => (tenantScopeExplorerVisible.value ? 1 : 0));
   let initialized = false;
@@ -61,6 +64,7 @@ export function useTenantScopeController(
     blocked,
     tenantScopeContext,
     tenantScopeReloadKey,
+    tenantScopeFixedByIdentity,
     tenantScopeExplorerVisible,
     tenantScopeExplorerCount,
     changeTenantScope,

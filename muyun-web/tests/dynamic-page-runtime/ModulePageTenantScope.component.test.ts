@@ -20,6 +20,12 @@ const tenantExplorerStub = defineComponent({
   emits: ['select', 'deselect', 'loaded', 'refresh'],
   template: '<section />',
 });
+const pageNavigatorStub = defineComponent({
+  name: 'PageNavigatorExplorer',
+  props: ['level', 'scopeSubtitle'],
+  emits: ['select', 'deselect', 'loaded'],
+  template: '<section />',
+});
 const listStub = defineComponent({
   name: 'RecordQueryListPanel',
   props: ['context', 'ready'],
@@ -64,7 +70,11 @@ const detailActionsStub = defineComponent({
 const pageTemplates = ['LIST_DETAIL_CARD', 'FLAT_MANAGEMENT', 'TREE_MANAGEMENT'] as const;
 type PageTemplate = (typeof pageTemplates)[number];
 
-function runtime(template: PageTemplate = 'LIST_DETAIL_CARD', actions: Array<Record<string, unknown>> = []) {
+function runtime(
+  template: PageTemplate = 'LIST_DETAIL_CARD',
+  actions: Array<Record<string, unknown>> = [],
+  navigator: 'NONE' | 'SINGLE' | 'NESTED' = 'NONE',
+) {
   return {
     moduleAlias: 'crm.customer',
     tenantRequired: true,
@@ -76,6 +86,42 @@ function runtime(template: PageTemplate = 'LIST_DETAIL_CARD', actions: Array<Rec
       moduleAlias: 'crm.customer',
       page: {
         template,
+        ...(navigator !== 'NONE'
+          ? {
+              navigator: {
+                contextBindings:
+                  navigator === 'NESTED'
+                    ? [
+                        {
+                          source: 'NAVIGATOR',
+                          sourceKey: 'project',
+                          target: 'NAVIGATOR_QUERY',
+                          targetKey: 'projectId',
+                          targetNavigatorLevelKey: 'task',
+                        },
+                      ]
+                    : [],
+                levels: [
+                  {
+                    key: 'project',
+                    kind: 'MICRO_LIST',
+                    sourceModuleAlias: 'pm.project',
+                    title: '项目',
+                  },
+                  ...(navigator === 'NESTED'
+                    ? [
+                        {
+                          key: 'task',
+                          kind: 'MICRO_LIST',
+                          sourceModuleAlias: 'pm.task',
+                          title: '任务',
+                        },
+                      ]
+                    : []),
+                ],
+              },
+            }
+          : {}),
         list: { fields: { viewCode: 'list', viewKind: 'LIST', fields: [] } },
         detail: { editor: { viewCode: 'form', viewKind: 'FORM', fields: [] } },
       },
@@ -98,6 +144,7 @@ function render(currentUser: CurrentUser) {
           ManagementExplorerColumn: explorerColumnStub,
           StaticManagementLayout: flatLayoutStub,
           TenantScopeExplorer: tenantExplorerStub,
+          PageNavigatorExplorer: pageNavigatorStub,
           RecordQueryListPanel: listStub,
           CrudRecordListExplorer: flatListStub,
           TreeRecordExplorer: treeListStub,
@@ -195,6 +242,80 @@ describe('ModulePageHost tenant scope', () => {
       wrapper.unmount();
     },
   );
+
+  it('omits the fixed login tenant while preserving upstream navigator subtitles', async () => {
+    globalThis.fetch = async (input) => {
+      const request = new Request(input);
+      if (request.url.endsWith('/platform.module/crm.customer/context'))
+        return Response.json(runtime('LIST_DETAIL_CARD', [], 'NESTED'));
+      if (request.url.endsWith('/platform.module/pm.project/reference-context'))
+        return Response.json({ moduleAlias: 'pm.project', capabilities: [], actions: [] });
+      if (request.url.endsWith('/platform.module/pm.task/reference-context'))
+        return Response.json({ moduleAlias: 'pm.task', capabilities: [], actions: [] });
+      throw new Error(`Unexpected request: ${request.url}`);
+    };
+    configureModuleContext({ httpFactory: () => createHttpClient({ baseUrl: 'http://api.local' }) });
+
+    const wrapper = render({
+      userId: 'tenant-user-1',
+      username: 'tenant-user',
+      tenantId: 'tenant-login',
+      system: false,
+    });
+    await flushPromises();
+
+    let navigators = wrapper.findAllComponents(pageNavigatorStub);
+    expect(navigators).toHaveLength(2);
+    expect(navigators[0]!.props('scopeSubtitle')).toBeUndefined();
+    expect(navigators[1]!.props('scopeSubtitle')).toBeUndefined();
+
+    navigators[0]!.vm.$emit('select', { id: 'project-a', title: '甲项目' });
+    await flushPromises();
+
+    navigators = wrapper.findAllComponents(pageNavigatorStub);
+    expect(navigators[1]!.props('scopeSubtitle')).toBe('项目：甲项目');
+    wrapper.unmount();
+  });
+
+  it('does not expose tenant selection to a non-system identity without a tenant id', async () => {
+    globalThis.fetch = async (input) => {
+      const request = new Request(input);
+      if (request.url.endsWith('/platform.module/crm.customer/context')) return Response.json(runtime());
+      throw new Error(`Unexpected request: ${request.url}`);
+    };
+    configureModuleContext({ httpFactory: () => createHttpClient({ baseUrl: 'http://api.local' }) });
+
+    const wrapper = render({ userId: 'tenant-user-1', username: 'tenant-user', system: false });
+    await flushPromises();
+
+    expect(wrapper.findComponent(tenantExplorerStub).exists()).toBe(false);
+    expect(wrapper.findComponent(workspaceStub).props('explorerCount')).toBe(0);
+    wrapper.unmount();
+  });
+
+  it('keeps the selected tenant visible for a system identity', async () => {
+    globalThis.fetch = async (input) => {
+      const request = new Request(input);
+      if (request.url.endsWith('/platform.module/crm.customer/context'))
+        return Response.json(runtime('LIST_DETAIL_CARD', [], 'SINGLE'));
+      if (request.url.endsWith('/platform.module/iam.tenant/reference-context'))
+        return Response.json({ moduleAlias: 'iam.tenant', capabilities: [], actions: [] });
+      if (request.url.endsWith('/platform.module/pm.project/reference-context'))
+        return Response.json({ moduleAlias: 'pm.project', capabilities: [], actions: [] });
+      throw new Error(`Unexpected request: ${request.url}`);
+    };
+    configureModuleContext({ httpFactory: () => createHttpClient({ baseUrl: 'http://api.local' }) });
+
+    const wrapper = render({ userId: 'system-user-1', username: 'system-user', system: true });
+    await flushPromises();
+    wrapper.findComponent(tenantExplorerStub).vm.$emit('select', { id: 'tenant-a', title: '甲租户' });
+    await flushPromises();
+
+    const navigator = wrapper.findComponent(pageNavigatorStub);
+    expect(navigator.exists()).toBe(true);
+    expect(navigator.props('scopeSubtitle')).toBe('租户：甲租户');
+    wrapper.unmount();
+  });
 
   it('does not replace an editing tenant session and allows the next selection after cancel', async () => {
     globalThis.fetch = async (input) => {

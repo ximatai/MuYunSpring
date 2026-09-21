@@ -128,7 +128,10 @@ import type { TenantScopeController } from './useTenantScopeController';
 
 /** Business sessions report only tenant policy and consume only layout count.
  * Tenant selection and explorer interaction remain page-lifetime controls. */
-type ModulePageSessionTenantPolicy = Pick<TenantScopeController, 'tenantScopeExplorerCount' | 'setRequired'>;
+type ModulePageSessionTenantPolicy = Pick<
+  TenantScopeController,
+  'tenantScopeExplorerCount' | 'tenantScopeFixedByIdentity' | 'setRequired'
+>;
 
 export interface ModulePageSessionProps {
   descriptor: StandardModulePageDescriptor;
@@ -229,10 +232,11 @@ export function useModulePageSession(
   const referenceRecordDetailBrowser = createReferenceRecordDetailBrowser(rawContext.http);
   onUnmounted(referenceRecordDetailBrowser.dispose);
 
-  const { tenantScopeExplorerCount } = props.tenantController;
+  const { tenantScopeExplorerCount, tenantScopeFixedByIdentity } = props.tenantController;
   const tenantScopeRequired = computed(() => rawContext.runtime.snapshot()?.tenantRequired === true);
   const tenantScopeReady = computed(() => !tenantScopeRequired.value || Boolean(tenantScopeId.value));
   const tenantScopeSubtitle = computed(() => {
+    if (tenantScopeFixedByIdentity.value) return undefined;
     const title = props.tenantScope?.title ?? props.tenantScope?.name ?? tenantScopeId.value;
     return tenantScopeReady.value && title ? `租户：${title}` : undefined;
   });
