@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { UiButton, UiIcon, UiTextArea } from '@muyun/vue-ui-antdv';
 import type {
   AssistantConversationMessage,
@@ -10,6 +10,7 @@ import type {
 import {
   AssistantConversationFollowUpError,
   runAssistantConversation,
+  sameAssistantInvocationToken,
   StaleAssistantInvocationError,
   normalizeError,
   type AssistantSurfaceRegistry,
@@ -199,7 +200,6 @@ async function submitMessage(
     controller = undefined;
     busy.value = false;
     activity.value = 'idle';
-    await nextTick();
   }
 }
 
@@ -215,7 +215,7 @@ function newSelection(value: AssistantSelectionInteraction): ConversationSelecti
 
 function selectionIsCurrent(selection: ConversationSelection) {
   const current = props.registry.snapshot()?.token;
-  return current !== undefined && JSON.stringify(current) === JSON.stringify(selection.token);
+  return current !== undefined && sameAssistantInvocationToken(current, selection.token);
 }
 
 function expireStaleSelections() {

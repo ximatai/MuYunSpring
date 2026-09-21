@@ -6,6 +6,7 @@ import type {
 } from '@muyun/web-contracts';
 import {
   AssistantCapabilityUsageError,
+  sameAssistantInvocationToken,
   StaleAssistantInvocationError,
   type AssistantInvocationToken,
   type AssistantSurfaceRegistry,
@@ -159,7 +160,7 @@ export async function runAssistantConversation(
       const expectedSurfaceReplaced =
         expectedReplacementToken !== undefined &&
         error instanceof AssistantDecisionContextChangedError &&
-        sameToken(error.token, expectedReplacementToken) &&
+        sameAssistantInvocationToken(error.token, expectedReplacementToken) &&
         isSamePageSurfaceReplacement(expectedReplacementToken, replacement);
       if (
         error instanceof AssistantDecisionContextChangedError &&
@@ -413,7 +414,7 @@ async function runAssistantStepWithSuccessfulCalls(
         pageEffectApplied: false,
       });
     }
-    if (!sameToken(snapshot.token, registry.snapshot()?.token)) {
+    if (!sameAssistantInvocationToken(snapshot.token, registry.snapshot()?.token)) {
       return {
         output,
         results,
@@ -483,17 +484,6 @@ function canonicalCapabilityInput(input: unknown): unknown {
     Object.entries(input as Record<string, unknown>)
       .sort(([left], [right]) => left.localeCompare(right))
       .map(([key, value]) => [key, canonicalCapabilityInput(value)]),
-  );
-}
-
-function sameToken(left: AssistantInvocationToken, right: AssistantInvocationToken | undefined) {
-  return (
-    right !== undefined &&
-    left.pageInstanceKey === right.pageInstanceKey &&
-    left.surfaceGeneration === right.surfaceGeneration &&
-    left.contextRevision === right.contextRevision &&
-    left.interactionRevision === right.interactionRevision &&
-    left.fallback === right.fallback
   );
 }
 

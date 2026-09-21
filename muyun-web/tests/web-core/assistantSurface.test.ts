@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   createAssistantSurfaceRegistry,
+  sameAssistantInvocationToken,
   emptyAssistantCapabilityInputSchema,
   parseEmptyAssistantCapabilityInput,
   StaleAssistantInvocationError,
@@ -23,6 +24,37 @@ describe('assistant capability input contracts', () => {
       'Assistant capability input must be an empty object',
     );
   });
+});
+
+it('compares every invocation boundary without depending on property order', () => {
+  const token = {
+    pageInstanceKey: 'page-a',
+    surfaceGeneration: 1,
+    contextRevision: 'context-a',
+    interactionRevision: 'interaction-a',
+    fallback: false,
+  };
+  const reordered = {
+    fallback: token.fallback,
+    interactionRevision: token.interactionRevision,
+    contextRevision: token.contextRevision,
+    surfaceGeneration: token.surfaceGeneration,
+    pageInstanceKey: token.pageInstanceKey,
+  };
+  expect(sameAssistantInvocationToken(token, reordered)).toBe(true);
+  for (const change of [
+    { pageInstanceKey: 'page-b' },
+    { surfaceGeneration: 2 },
+    { contextRevision: 'context-b' },
+    { interactionRevision: 'interaction-b' },
+    { interactionRevision: undefined },
+    { fallback: true },
+  ]) {
+    expect(sameAssistantInvocationToken(token, { ...token, ...change })).toBe(false);
+  }
+  expect(sameAssistantInvocationToken(token, undefined)).toBe(false);
+  expect(sameAssistantInvocationToken(undefined, token)).toBe(false);
+  expect(sameAssistantInvocationToken(undefined, undefined)).toBe(true);
 });
 
 function fixture(options: {

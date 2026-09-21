@@ -214,7 +214,7 @@ export function createAssistantSurfaceRegistry(): AssistantSurfaceRegistry {
 
   function requireCurrent(token: AssistantInvocationToken) {
     const registration = active();
-    if (!registration || !sameToken(token, tokenOf(registration))) {
+    if (!registration || !sameAssistantInvocationToken(token, tokenOf(registration))) {
       throw new StaleAssistantInvocationError();
     }
     return registration;
@@ -397,7 +397,11 @@ export function createAssistantSurfaceRegistry(): AssistantSurfaceRegistry {
                   if (!sameExecutionScope(effectScope, settledToken)) {
                     throw new StaleAssistantInvocationError();
                   }
-                } else if (!replacement || !settledToken || !sameToken(replacement, settledToken)) {
+                } else if (
+                  !replacement ||
+                  !settledToken ||
+                  !sameAssistantInvocationToken(replacement, settledToken)
+                ) {
                   throw new StaleAssistantInvocationError();
                 }
                 postEffectToken = settledToken;
@@ -413,7 +417,7 @@ export function createAssistantSurfaceRegistry(): AssistantSurfaceRegistry {
           throw new DOMException('Assistant invocation was cancelled', 'AbortError');
         }
         if (effectApplied) {
-          if (!sameOptionalToken(postEffectToken, currentToken)) {
+          if (!sameAssistantInvocationToken(postEffectToken, currentToken)) {
             throw new StaleAssistantInvocationError();
           }
           return { value, contextChanged: true };
@@ -421,7 +425,8 @@ export function createAssistantSurfaceRegistry(): AssistantSurfaceRegistry {
         if (controller.signal.aborted) {
           throw new DOMException('Assistant invocation was cancelled', 'AbortError');
         }
-        if (!currentToken || !sameToken(token, currentToken)) throw new StaleAssistantInvocationError();
+        if (!currentToken || !sameAssistantInvocationToken(token, currentToken))
+          throw new StaleAssistantInvocationError();
         return { value, contextChanged: false };
       })().finally(() => {
         pending.delete(controller);
@@ -431,7 +436,12 @@ export function createAssistantSurfaceRegistry(): AssistantSurfaceRegistry {
   };
 }
 
-function sameToken(left: AssistantInvocationToken, right: AssistantInvocationToken) {
+/** Compares page identity and revisions, independently of object property order. */
+export function sameAssistantInvocationToken(
+  left: AssistantInvocationToken | undefined,
+  right: AssistantInvocationToken | undefined,
+) {
+  if (!left || !right) return left === right;
   return (
     left.pageInstanceKey === right.pageInstanceKey &&
     left.surfaceGeneration === right.surfaceGeneration &&
@@ -449,12 +459,4 @@ function sameExecutionScope(left: AssistantInvocationToken, right: AssistantInvo
     left.fallback === right.fallback &&
     (left.contextRevision === right.contextRevision || left.interactionRevision !== undefined)
   );
-}
-
-function sameOptionalToken(
-  left: AssistantInvocationToken | undefined,
-  right: AssistantInvocationToken | undefined,
-) {
-  if (!left || !right) return left === right;
-  return sameToken(left, right);
 }
