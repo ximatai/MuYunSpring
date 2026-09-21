@@ -26,8 +26,7 @@ import java.util.List;
 @RestController
 @ConditionalOnBean({BusinessLogRetentionService.class, BusinessLogRetentionExecutionLimits.class})
 @PlatformStaticModule(application = PlatformApplication.class,
-        alias = BusinessLogRetentionWebController.MODULE_ALIAS, title = "日志留存", route = "/platform/logs/retention")
-@PlatformMenu(parent = PlatformMenuGroups.LOG_MANAGEMENT, title = "日志留存", order = 40)
+        alias = BusinessLogRetentionWebController.MODULE_ALIAS, title = "日志留存")
 @PlatformStaticWebScope(PlatformStaticWebScope.Scope.CUSTOM)
 @RequestMapping("/platform.business_log_retention")
 public class BusinessLogRetentionWebController extends WebSupport<BusinessLogRetentionService> {

@@ -19,6 +19,8 @@ import {
   type BusinessLogStatistics,
   type BusinessLogSurface,
 } from './businessLogClient';
+import BusinessLogRetentionControl from './BusinessLogRetentionControl.vue';
+import type { BusinessLogEventType } from './businessLogRetentionClient';
 import type { RecordActionItem } from '@muyun/platform-components';
 
 defineOptions({ name: 'BusinessLogListDrawer' });
@@ -65,6 +67,13 @@ const lastQuery = ref<WebQueryRequest>();
 const surfaceConfig = computed(() => configBySurface[props.surface]);
 const isActivity = computed(() => props.surface === 'activity');
 const isRequestError = computed(() => props.surface === 'request-error');
+const retentionEventTypes = computed<BusinessLogEventType[]>(() => {
+  return {
+    login: ['LOGIN'],
+    activity: ['ACTION', 'PAGE_ACCESS'],
+    'request-error': ['REQUEST_ERROR'],
+  }[props.surface] as BusinessLogEventType[];
+});
 const canViewInternalDiagnostic = computed(() => moduleContext.can('viewInternalDiagnostic') === true);
 const tableColumns = computed<RecordQueryListColumn[]>(() => surfaceConfig.value.columns);
 const selectedDetailRows = computed(() => (selectedEvent.value ? detailRows(selectedEvent.value) : []));
@@ -325,6 +334,7 @@ const configBySurface: Record<BusinessLogSurface, { columns: RecordQueryListColu
       <UiActionButton v-if="isActivity" :loading="statisticsLoading" @click="openStatistics">
         使用统计
       </UiActionButton>
+      <BusinessLogRetentionControl :event-types="retentionEventTypes" />
     </template>
     <template #cell="{ column, record }">
       <DateTimeText v-if="column.key === 'occurredAt'" :value="(record as BusinessLogEventView).occurredAt" />

@@ -10,7 +10,6 @@ const BusinessActivityLogView = defineAsyncComponent(() => import('../views/Busi
 const RequestErrorLogView = defineAsyncComponent(() => import('../views/RequestErrorLogView.vue'));
 const LoginAuditLogView = defineAsyncComponent(() => import('../views/LoginAuditLogView.vue'));
 const RuntimeLogView = defineAsyncComponent(() => import('../views/RuntimeLogView.vue'));
-const BusinessLogRetentionView = defineAsyncComponent(() => import('../views/BusinessLogRetentionView.vue'));
 
 export interface PlatformAdminRoute {
   route: string;
@@ -39,12 +38,6 @@ export const platformAdminRoutes: PlatformAdminRoute[] = [
     route: '/platform/logs/errors',
     moduleAlias: 'platform.request_error_log',
     component: RequestErrorLogView,
-    layout: 'workspace',
-  },
-  {
-    route: '/platform/logs/retention',
-    moduleAlias: 'platform.business_log_retention',
-    component: BusinessLogRetentionView,
     layout: 'workspace',
   },
   {

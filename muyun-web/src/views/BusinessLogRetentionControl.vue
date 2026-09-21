@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue';
-import { presentPlatformError } from '@muyun/platform-components';
+import { computed, ref } from 'vue';
+import { presentPlatformError, RecordDetailDrawer } from '@muyun/platform-components';
 import { useModuleContext } from '@muyun/web-core';
 import {
   UiActionButton,
@@ -19,12 +19,18 @@ import {
   type BusinessLogRetentionPolicy,
 } from './businessLogRetentionClient';
 
-defineOptions({ name: 'BusinessLogRetentionView' });
+defineOptions({ name: 'BusinessLogRetentionControl' });
 
-const moduleContext = useModuleContext<Record<string, unknown>>({
+const props = defineProps<{
+  eventTypes: BusinessLogEventType[];
+}>();
+
+const retentionContext = useModuleContext<Record<string, unknown>>({
   moduleAlias: 'platform.business_log_retention',
+  runtimeAccess: 'VIEW',
 });
-const client = createBusinessLogRetentionClient(moduleContext.http);
+const client = createBusinessLogRetentionClient(retentionContext.http);
+const open = ref(false);
 const policies = ref<BusinessLogRetentionPolicy[]>([]);
 const persistedPolicies = ref<Partial<Record<BusinessLogEventType, BusinessLogRetentionPolicy>>>({});
 const loading = ref(false);
@@ -32,18 +38,30 @@ const loadError = ref<string>();
 const savingType = ref<BusinessLogEventType>();
 const purgingType = ref<BusinessLogEventType>();
 
-const canConfigure = computed(() => moduleContext.can('configureRetentionPolicy') === true);
-const canPurge = computed(() => moduleContext.can('purgeExpiredLogs') === true);
+const canView = computed(() => retentionContext.can('viewRetentionPolicies') === true);
+const canConfigure = computed(() => retentionContext.can('configureRetentionPolicy') === true);
+const canPurge = computed(() => retentionContext.can('purgeExpiredLogs') === true);
+const visiblePolicies = computed(() => {
+  const visibleTypes = new Set(props.eventTypes);
+  return policies.value.filter((policy) => visibleTypes.has(policy.eventType));
+});
+const hasDirtyPolicy = computed(() => visiblePolicies.value.some(isDirty));
 
-onMounted(loadPolicies);
+async function openPanel() {
+  if (!canView.value) return;
+  open.value = true;
+  await loadPolicies();
+}
 
 async function loadPolicies() {
   loading.value = true;
   loadError.value = undefined;
   try {
     const loaded = await client.policies();
-    policies.value = loaded.map((policy) => ({ ...policy }));
-    persistedPolicies.value = Object.fromEntries(loaded.map((policy) => [policy.eventType, { ...policy }]));
+    const visibleTypes = new Set(props.eventTypes);
+    const visible = loaded.filter((policy) => visibleTypes.has(policy.eventType));
+    policies.value = visible.map((policy) => ({ ...policy }));
+    persistedPolicies.value = Object.fromEntries(visible.map((policy) => [policy.eventType, { ...policy }]));
   } catch (error) {
     loadError.value = errorMessage(error);
     presentPlatformError(error, { source: 'business-log-retention', phase: 'load' });
@@ -52,8 +70,16 @@ async function loadPolicies() {
   }
 }
 
+async function confirmClose() {
+  if (!hasDirtyPolicy.value) return true;
+  return confirmAction({
+    title: '放弃未保存的留存设置？',
+    content: '关闭后，本次未保存的自动清理和保留天数修改将丢失。',
+  });
+}
+
 async function save(policy: BusinessLogRetentionPolicy) {
-  if (!validDays(policy.retentionDays) || savingType.value) return;
+  if (!validDays(policy.retentionDays) || !isDirty(policy) || savingType.value) return;
   savingType.value = policy.eventType;
   try {
     const updated = await client.update(policy);
@@ -134,55 +160,67 @@ function errorMessage(error: unknown) {
 </script>
 
 <template>
-  <main class="retention-governance">
-    <header>
-      <div>
-        <h1>日志留存</h1>
-        <p>按日志类型管理自动清理和保留天数。调度器会读取最新策略并分批执行。</p>
-      </div>
-      <UiActionButton :loading="loading" @click="loadPolicies">刷新</UiActionButton>
-    </header>
+  <UiActionButton v-if="canView" @click="openPanel">留存设置</UiActionButton>
 
+  <RecordDetailDrawer
+    :open="open"
+    title="日志留存设置"
+    subtitle="设置当前日志页面对应类型的自动清理和保留期限。"
+    width="wide"
+    scope="viewport"
+    :before-close="confirmClose"
+    @close="open = false"
+  >
     <UiSpin v-if="loading" tip="加载留存策略" />
     <UiError v-else-if="loadError" title="留存策略不可用" :message="loadError" />
-    <UiEmpty v-else-if="policies.length === 0" description="暂无日志留存策略" />
-    <section v-else class="retention-governance__policies">
-      <article v-for="policy in policies" :key="policy.eventType">
-        <div class="retention-governance__identity">
-          <h2>{{ typeLabel(policy.eventType) }}</h2>
-          <small v-if="policy.updatedAt">
-            最近更新：{{ policy.updatedAt
-            }}<template v-if="policy.updatedBy"> · {{ policy.updatedBy }}</template>
-          </small>
-          <small v-else>尚未人工调整，使用平台安全默认值。</small>
+    <UiEmpty v-else-if="visiblePolicies.length === 0" description="暂无可管理的留存策略" />
+    <section v-else class="business-log-retention-control__policies">
+      <article v-for="policy in visiblePolicies" :key="policy.eventType">
+        <header>
+          <div>
+            <h3>{{ typeLabel(policy.eventType) }}</h3>
+            <small v-if="policy.updatedAt">
+              最近更新：{{ policy.updatedAt
+              }}<template v-if="policy.updatedBy"> · {{ policy.updatedBy }}</template>
+            </small>
+            <small v-else>尚未人工调整，使用平台安全默认值。</small>
+          </div>
+          <span class="business-log-retention-control__summary">
+            {{ policy.automaticCleanupEnabled ? '自动清理已启用' : '自动清理已停用' }} · 保留
+            {{ policy.retentionDays }} 天
+          </span>
+        </header>
+
+        <div class="business-log-retention-control__fields">
+          <label>
+            <span>自动清理</span>
+            <UiSwitch
+              v-model:checked="policy.automaticCleanupEnabled"
+              :disabled="!canConfigure"
+              checked-text="启用"
+              unchecked-text="停用"
+            />
+          </label>
+          <label>
+            <span>保留天数</span>
+            <UiInput
+              :value="policy.retentionDays"
+              type="number"
+              :disabled="!canConfigure"
+              :aria-label="`${typeLabel(policy.eventType)}保留天数`"
+              @update:value="updateDays(policy, $event)"
+            />
+            <small v-if="!validDays(policy.retentionDays)" class="business-log-retention-control__validation">
+              请输入 1 至 36500 之间的整数。
+            </small>
+          </label>
         </div>
-        <label>
-          <span>自动清理</span>
-          <UiSwitch
-            v-model:checked="policy.automaticCleanupEnabled"
-            :disabled="!canConfigure"
-            checked-text="启用"
-            unchecked-text="停用"
-          />
-        </label>
-        <label>
-          <span>保留天数</span>
-          <UiInput
-            :value="policy.retentionDays"
-            type="number"
-            :disabled="!canConfigure"
-            :aria-label="`${typeLabel(policy.eventType)}保留天数`"
-            @update:value="updateDays(policy, $event)"
-          />
-          <small v-if="!validDays(policy.retentionDays)" class="retention-governance__validation">
-            请输入 1 至 36500 之间的整数。
-          </small>
-        </label>
-        <div class="retention-governance__actions">
+
+        <footer>
           <UiActionButton
             v-if="canConfigure"
             emphasis="primary"
-            :disabled="!validDays(policy.retentionDays)"
+            :disabled="!validDays(policy.retentionDays) || !isDirty(policy)"
             :loading="savingType === policy.eventType"
             @click="save(policy)"
           >
@@ -198,68 +236,59 @@ function errorMessage(error: unknown) {
           >
             立即清理
           </UiActionButton>
-        </div>
+        </footer>
       </article>
     </section>
-  </main>
+  </RecordDetailDrawer>
 </template>
 
 <style scoped>
-.retention-governance {
+.business-log-retention-control__policies {
   display: grid;
-  gap: 20px;
-  min-height: 100%;
-  padding: 24px;
-  background: var(--muyun-surface-page);
-}
-.retention-governance > header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
   gap: 16px;
 }
-.retention-governance h1,
-.retention-governance h2,
-.retention-governance p {
-  margin: 0;
-}
-.retention-governance header p,
-.retention-governance small {
-  color: var(--muyun-text-muted);
-}
-.retention-governance__policies {
+.business-log-retention-control__policies article {
   display: grid;
-  gap: 12px;
-}
-.retention-governance__policies article {
-  display: grid;
-  grid-template-columns: minmax(240px, 1fr) minmax(160px, 0.45fr) minmax(220px, 0.55fr) auto;
-  gap: 20px;
-  align-items: center;
-  padding: 18px 20px;
+  gap: 18px;
+  padding: 20px;
   border: 1px solid var(--muyun-border-subtle);
   border-radius: 10px;
   background: var(--muyun-surface-container);
 }
-.retention-governance__identity,
-.retention-governance label {
-  display: grid;
-  gap: 7px;
-}
-.retention-governance__actions {
+.business-log-retention-control__policies header,
+.business-log-retention-control__policies footer {
   display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.business-log-retention-control__policies h3 {
+  margin: 0;
+}
+.business-log-retention-control__policies small,
+.business-log-retention-control__summary {
+  color: var(--muyun-text-muted);
+}
+.business-log-retention-control__fields {
+  display: grid;
+  grid-template-columns: minmax(180px, 0.45fr) minmax(240px, 0.55fr);
+  gap: 20px;
+}
+.business-log-retention-control__fields label {
+  display: grid;
   gap: 8px;
+}
+.business-log-retention-control__policies footer {
   justify-content: flex-end;
 }
-.retention-governance__validation {
+.business-log-retention-control__validation {
   color: var(--muyun-danger-text) !important;
 }
-@media (max-width: 960px) {
-  .retention-governance__policies article {
+@media (max-width: 720px) {
+  .business-log-retention-control__policies header,
+  .business-log-retention-control__fields {
+    display: grid;
     grid-template-columns: 1fr;
-  }
-  .retention-governance__actions {
-    justify-content: flex-start;
   }
 }
 </style>

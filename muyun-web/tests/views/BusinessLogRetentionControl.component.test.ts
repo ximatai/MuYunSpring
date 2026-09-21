@@ -3,9 +3,16 @@ import { resolve } from 'node:path';
 import { expect, it } from 'vitest';
 
 const source = readFileSync(
-  resolve(import.meta.dirname, '../../src/views/BusinessLogRetentionView.vue'),
+  resolve(import.meta.dirname, '../../src/views/BusinessLogRetentionControl.vue'),
   'utf8',
 );
+
+it('embeds retention as a permission-aware control instead of a standalone page', () => {
+  expect(source).toContain("moduleAlias: 'platform.business_log_retention'");
+  expect(source).toContain("runtimeAccess: 'VIEW'");
+  expect(source).toContain('<UiActionButton v-if="canView" @click="openPanel">留存设置</UiActionButton>');
+  expect(source).toContain('visibleTypes.has(policy.eventType)');
+});
 
 it('prevents a retention draft from changing the destructive cleanup contract', () => {
   expect(source).toContain('if (!persisted || isDirty(policy) || purgingType.value) return;');
