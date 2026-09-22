@@ -16,10 +16,14 @@ import {
   type RecordFormFieldValue,
   type RecordQueryListQuerySnapshot,
 } from '@muyun/platform-components';
-import { createAssistantQueryCapabilities } from './assistantQueryCapabilities';
+import { assistantQueryResult, createAssistantQueryCapabilities } from './assistantQueryCapabilities';
 import type { ModulePageSessionView } from './useModulePageSession';
 import { assistantEditableRecordIds, hasActiveRecordEditor } from './assistantRecordEditorPolicy';
-import { modulePageScopeCapabilities, type ModulePageAssistantTenantScope } from './modulePageAssistantScope';
+import {
+  modulePageScopeCapabilities,
+  type ModulePageAssistantTenantScope,
+  type AssistantScopeCandidate,
+} from './modulePageAssistantScope';
 
 const MAX_ASSISTANT_FORM_CURRENT_VALUE_CHARS = 8_000;
 const MAX_ASSISTANT_REFERENCE_OPTIONS = 10;
@@ -62,7 +66,7 @@ function assistantQueryProjectionDigest(snapshot: RecordQueryListQuerySnapshot) 
 export function modulePageAssistantInteractionRevision(view: ModulePageSessionView): string {
   return JSON.stringify({
     page: view.assistantInteractionRevision,
-    query: view.listQueryController?.interactionRevision?.() ?? null,
+    query: view.listQueryController?.interactionRevision?.() ?? '0',
   });
 }
 
@@ -76,9 +80,10 @@ export function createModulePageAssistantSurface(
     selections: new Map(),
     searchRevision: 0,
   };
+  const scopeCandidates = new Map<string, AssistantScopeCandidate>();
   const capabilities = (): AssistantCapability[] => [
     ...contributedCapabilities(),
-    ...modulePageScopeCapabilities(view, tenantScope),
+    ...modulePageScopeCapabilities(view, tenantScope, scopeCandidates),
     ...(view.listQueryController ? queryCapabilities(view) : []),
     ...(view.treeQueryController ? treeQueryCapabilities(view) : []),
     ...recordEditorCapabilities(view),
@@ -86,7 +91,7 @@ export function createModulePageAssistantSurface(
     ...referenceCapabilities(view, referenceSelections),
   ];
   return {
-    describe: () => surfaceContext(view),
+    describe: () => surfaceContext(view, tenantScope),
     capabilities,
     requestTurn,
   };
@@ -326,7 +331,7 @@ function recordEditorCapabilities(view: ModulePageSessionView): AssistantCapabil
   const querySnapshot = view.listQueryController?.snapshot();
   if (querySnapshot?.mode === 'recycleBin') return [];
   const capabilities: AssistantCapability[] = [];
-  if (view.context.can('create') === true && view.assistantRecordCreationReady()) {
+  if (view.recordCreationState().ready) {
     capabilities.push({
       descriptor: {
         code: 'record.start-create',
@@ -425,7 +430,7 @@ function queryCapabilities(view: ModulePageSessionView): AssistantCapability[] {
                 },
                 () => pending.then(() => undefined),
               );
-              return pending;
+              return pending.then(assistantQueryResult);
             },
           } satisfies AssistantCapability,
         ]
@@ -438,7 +443,7 @@ function queryCapabilities(view: ModulePageSessionView): AssistantCapability[] {
       },
       parseInput: parseEmptyAssistantCapabilityInput,
       async execute() {
-        return controller.snapshot();
+        return assistantQueryResult(controller.snapshot());
       },
     },
   ];
@@ -510,7 +515,10 @@ function treeQueryCapabilities(view: ModulePageSessionView): AssistantCapability
   ];
 }
 
-function surfaceContext(view: ModulePageSessionView): AssistantSurfaceContext {
+function surfaceContext(
+  view: ModulePageSessionView,
+  tenantScope?: ModulePageAssistantTenantScope,
+): AssistantSurfaceContext {
   const navigatorScopes = view.assistantNavigatorScopes().map((level) => {
     const selected = view.selectedNavigatorRecords[level.descriptor.key];
     const selectedTitle = selected ? recordTitle(selected) : undefined;
@@ -529,7 +537,10 @@ function surfaceContext(view: ModulePageSessionView): AssistantSurfaceContext {
       selectedRecordId: recordIdentity(view.selectedRecord),
       editing: hasEditableDraft(view),
       dirty: view.detailDirty,
-      recordCreationReady: view.assistantRecordCreationReady(),
+      creation: view.recordCreationState(),
+      ...(tenantScope?.tenantScopeExplorerVisible.value
+        ? { tenant: tenantScope.selected.value ? recordTitle(tenantScope.selected.value) : null }
+        : {}),
       ...(navigatorScopes.length > 0 ? { navigatorScopes } : {}),
     },
   };
@@ -794,8 +805,7 @@ function assistantReferenceFieldState(field: RecordFormFieldState) {
     (field.assistantPolicy === undefined || field.assistantPolicy === 'READ_WRITE') &&
     !field.readOnly &&
     field.reference?.cardinality === 'ONE' &&
-    field.reference.pickerMode !== 'TREE' &&
-    field.pickerConfig?.scopedTree === undefined &&
+    field.pickerConfig?.scopedTree?.disabled !== true &&
     field.pickerConfig?.provider !== undefined
   );
 }

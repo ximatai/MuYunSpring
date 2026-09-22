@@ -60,7 +60,14 @@ describe('RecordQueryListPanel', () => {
       }),
     );
 
+    const interactionBeforeScope = controller.interactionRevision!();
+    await wrapper.setProps({ externalQueryValues: { organizationId: 'organization-b' } });
+    await flushPromises();
+    expect(controller.interactionRevision!()).toBe(interactionBeforeScope);
+    expect(requests.at(-1)?.externalQueryValues).toMatchObject({ organizationId: 'organization-b' });
+
     await controller.applyQuickSearch(' daily ');
+    expect(controller.interactionRevision!()).not.toBe(interactionBeforeScope);
 
     expect(requests.at(-1)).toEqual(expect.objectContaining({ quickSearch: 'daily' }));
     expect(controller.snapshot().appliedQuickSearch).toBe('daily');

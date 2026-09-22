@@ -859,6 +859,7 @@ function updatePersistentQueryValue(
   control: ResolvedPageListExternalPersistentQueryControlDescriptor,
   value: boolean,
 ) {
+  queryInteractionRevision.value += 1;
   persistentExternalQueryValues.value = {
     ...persistentExternalQueryValues.value,
     [control.externalCriteriaKey]: value,
@@ -908,6 +909,7 @@ function updatePersistentFieldDraftValue(
   control: ResolvedPageListFieldPersistentQueryControlDescriptor,
   values: unknown[],
 ) {
+  queryInteractionRevision.value += 1;
   persistentFieldDraftValues.value = { ...persistentFieldDraftValues.value, [control.id]: values };
 }
 
@@ -922,6 +924,7 @@ function updatePersistentFieldReferenceValidity(
 }
 
 function applyPersistentFieldQueries() {
+  queryInteractionRevision.value += 1;
   if (!queryReady.value || !persistentFieldDraftValid.value) return;
   appliedPersistentFieldValues.value = Object.fromEntries(
     persistentFieldQueryControls.value.map((control) => [control.id, persistentFieldDraftValue(control)]),
@@ -1216,6 +1219,7 @@ function handleTableRowExpand(row: QueryListRow, expanded: boolean) {
 }
 
 function toggleSorting() {
+  queryInteractionRevision.value += 1;
   if (sortingToggleDisabled.value) return;
   sorting.value = !sorting.value;
   void loadRecords();
@@ -1289,6 +1293,7 @@ function sortRecordId(record: QueryListRecord | undefined) {
 }
 
 function submitQuickSearch(value = quickSearchKeyword.value) {
+  queryInteractionRevision.value += 1;
   quickSearchKeyword.value = value;
   appliedQuickSearch.value = value;
   pageNum.value = 1;
@@ -1387,6 +1392,7 @@ function queryControllerSnapshot(): RecordQueryListQuerySnapshot {
 }
 
 async function applyControllerQuickSearch(keyword: string) {
+  queryInteractionRevision.value += 1;
   const normalized = keyword.trim();
   if (!queryReady.value || props.mode !== 'normal' || !quickSearchEnabled.value) {
     throw new Error('Quick search is unavailable for the current list');
@@ -1472,9 +1478,12 @@ function assistantListValue(
   return text.slice(0, 500);
 }
 
+const queryInteractionRevision = ref(0);
+
 const queryController: RecordQueryListQueryController = {
   revision: () => queryControllerRevision,
-  interactionRevision: () => JSON.stringify(buildQueryRequest()),
+  // Only explicit controls advance this clock; schema loading and host scope propagation do not.
+  interactionRevision: () => String(queryInteractionRevision.value),
   snapshot: queryControllerSnapshot,
   async settle(signal?: AbortSignal) {
     for (let attempt = 0; attempt < 8; attempt += 1) {
@@ -1493,6 +1502,7 @@ const queryController: RecordQueryListQueryController = {
   },
   applyQuickSearch: applyControllerQuickSearch,
   async applyStandardQuery(input: RecordQueryListStandardQuery) {
+    queryInteractionRevision.value += 1;
     if (!standardQueryAvailable()) throw new Error('Standard query is unavailable');
     const query = parseRecordQueryListStandardQuery(input, standardQueryFields());
     activeCriteria.value = query.conditions.length
@@ -1537,6 +1547,7 @@ function throwIfQuerySettlementAborted(signal?: AbortSignal) {
 }
 
 function handleQuickSearchInput(value: string) {
+  queryInteractionRevision.value += 1;
   if (quickSearchKeyword.value !== value) queryControllerRevision += 1;
   quickSearchKeyword.value = value;
 }
@@ -1550,6 +1561,7 @@ function toggleConditions() {
 }
 
 function applyCriteria(criteria: QueryCriteriaGroup | undefined) {
+  queryInteractionRevision.value += 1;
   if (!queryReady.value || !advancedCriteriaDraftValid.value) return;
   activeCriteria.value = criteria;
   pageNum.value = 1;
@@ -1557,6 +1569,7 @@ function applyCriteria(criteria: QueryCriteriaGroup | undefined) {
 }
 
 function clearCriteria() {
+  queryInteractionRevision.value += 1;
   activeCriteria.value = undefined;
   advancedReferenceValidity.value = {};
   pageNum.value = 1;
@@ -1580,11 +1593,13 @@ function recordKey(record: QueryListRecord) {
 }
 
 function goPage(nextPage: number) {
+  queryInteractionRevision.value += 1;
   pageNum.value = Math.min(Math.max(1, nextPage), pages.value);
   void loadRecords();
 }
 
 function handlePageSizeChange(nextPageSize: number) {
+  queryInteractionRevision.value += 1;
   pageSize.value = nextPageSize;
   emit('pageSizeChange', nextPageSize);
   pageNum.value = 1;

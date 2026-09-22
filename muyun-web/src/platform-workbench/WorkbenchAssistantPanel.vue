@@ -44,6 +44,8 @@ interface ConversationSelection {
 }
 
 const draft = ref('');
+const resumableRequest = ref('');
+let lastTypedRequest = '';
 const items = ref<ConversationItem[]>([]);
 const completedHistory = ref<AssistantConversationMessage[]>([]);
 const busy = ref(false);
@@ -94,10 +96,17 @@ function appendAssistant(text: string | undefined, selection?: AssistantSelectio
   });
 }
 
+function reusePreviousRequest() {
+  draft.value = resumableRequest.value;
+  resumableRequest.value = '';
+}
+
 function submit() {
   const message = draft.value.trim();
   if (!message || busy.value || activeRequiredSelection.value || !props.registry.snapshot()) return;
   const history = conversationHistory();
+  lastTypedRequest = message;
+  resumableRequest.value = '';
   draft.value = '';
   supersedeOpenSelections();
   void submitMessage(message, history);
@@ -190,7 +199,11 @@ async function submitMessage(
       },
     });
     if (epoch !== conversationEpoch) return;
-    if (!result.completed) append('status', '本次任务步骤较多，已暂停。请重新完整描述后续目标。');
+    if (!result.completed)
+      append(
+        'status',
+        '本轮已达到步骤上限，已完成的草稿修改会保留。请检查当前页面，仍有未完成项时可告诉我继续。',
+      );
     else if (result.steps.every((step) => !step.output.text && !step.output.selection)) {
       const applied = result.steps.reduce((total, step) => total + step.appliedEffectCount, 0);
       const succeeded = result.steps.some((step) => step.results.some((candidate) => !candidate.error));
@@ -219,7 +232,7 @@ async function submitMessage(
       const applied = error.steps.reduce((total, step) => total + step.appliedEffectCount, 0);
       append(
         'status',
-        `前面的 ${applied} 项页面操作已生效，但后续说明未能生成。请检查当前页面，必要时继续告诉我下一步。`,
+        `前面的 ${applied} 项页面操作已生效，但后续处理失败，目标可能尚未完成。请检查草稿和待填项，再告诉我继续。`,
       );
     } else {
       reopenSelection(sourceSelection);
@@ -263,6 +276,8 @@ function expireStaleSelections() {
     (scope !== undefined && scope !== conversationScope)
   ) {
     const previous = conversationScope;
+    resumableRequest.value = identity === identityScope && previous !== undefined ? lastTypedRequest : '';
+    lastTypedRequest = '';
     identityScope = identity;
     conversationScope = scope;
     conversationEpoch += 1;
@@ -447,6 +462,10 @@ function isAbortError(error: unknown) {
         </template>
         <template v-else>{{ item.text }}</template>
       </article>
+      <div v-if="resumableRequest && !busy" class="assistant-panel__welcome">
+        <span>范围已变更。可将上一条输入带回编辑框，检查后重新发送。</span>
+        <UiButton @click="reusePreviousRequest">复用上一条输入</UiButton>
+      </div>
       <div v-if="busy" class="assistant-panel__working">{{ activityText }}</div>
     </section>
 
@@ -477,17 +496,15 @@ function isAbortError(error: unknown) {
 
 <style scoped>
 .assistant-panel {
-  position: absolute;
-  z-index: 7;
-  top: 0;
-  right: 0;
-  bottom: 0;
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
   display: grid;
-  width: min(400px, calc(100vw - 24px));
+  width: 100%;
   grid-template-rows: auto minmax(0, 1fr) auto;
   border-left: 1px solid var(--muyun-support-border);
   background: var(--muyun-support-surface);
-  box-shadow: -10px 0 28px rgb(15 23 42 / 12%);
 }
 
 .assistant-panel__header,

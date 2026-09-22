@@ -1,6 +1,7 @@
 import {
   parseRecordQueryListStandardQuery,
   type RecordQueryListQueryController,
+  type RecordQueryListQuerySnapshot,
 } from '@muyun/platform-components';
 import type { AssistantCapability } from '@muyun/web-core';
 
@@ -25,16 +26,19 @@ export function createAssistantQueryCapabilities(
               type: 'array',
               maxItems: 20,
               items: {
+                type: 'object',
+                additionalProperties: false,
+                required: ['fieldName', 'operator', 'values'],
+                properties: {
+                  fieldName: { type: 'string' },
+                  operator: { type: 'string' },
+                  values: { type: 'array', maxItems: 100 },
+                },
                 anyOf: query.fields.map((field) => ({
-                  type: 'object',
-                  additionalProperties: false,
-                  required: ['fieldName', 'operator', 'values'],
                   properties: {
                     fieldName: { const: field.name, description: field.title },
                     operator: { type: 'string', enum: field.operators },
                     values: {
-                      type: 'array',
-                      maxItems: 100,
                       items: field.options
                         ? { enum: field.options }
                         : {
@@ -89,8 +93,40 @@ export function createAssistantQueryCapabilities(
           },
           () => pending.then(() => undefined),
         );
-        return pending;
+        return pending.then(assistantQueryResult);
       },
     },
   ];
+}
+
+/** Column metadata is shared once per result, not repeated in every record. */
+export function assistantQueryResult(snapshot: RecordQueryListQuerySnapshot) {
+  const columns: Array<{ fieldName: string; title: string }> = [];
+  const indexes = new Map<string, number>();
+  for (const row of snapshot.rows) {
+    for (const cell of row.cells) {
+      if (!indexes.has(cell.fieldName)) {
+        indexes.set(cell.fieldName, columns.length);
+        columns.push({ fieldName: cell.fieldName, title: cell.title });
+      }
+    }
+  }
+  return {
+    ...snapshot,
+    // Field contracts already live in query.apply-standard's schema; results carry only applied state.
+    ...(snapshot.standardQuery
+      ? {
+          standardQuery: {
+            conditions: snapshot.standardQuery.conditions,
+            sorts: snapshot.standardQuery.sorts,
+          },
+        }
+      : {}),
+    columns,
+    rows: snapshot.rows.map(({ id, cells }) => {
+      const values: unknown[] = Array(columns.length).fill(null);
+      for (const cell of cells) values[indexes.get(cell.fieldName)!] = cell.value;
+      return { ...(id === undefined ? {} : { id }), values };
+    }),
+  };
 }

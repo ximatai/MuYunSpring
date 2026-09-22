@@ -1094,3 +1094,46 @@ it('does not send the previous goal or results after a capability changes tenant
   await expect(runAssistantConversation(registry, 'old goal')).rejects.toThrow(StaleAssistantInvocationError);
   expect(requestTurn).toHaveBeenCalledOnce();
 });
+
+it('retains compact effect receipts without accumulating old read payloads', async () => {
+  let revision = 'before';
+  const requestTurn = vi
+    .fn()
+    .mockResolvedValueOnce({ toolCalls: [{ id: 'effect', code: 'page.change', input: {} }] })
+    .mockResolvedValueOnce({ toolCalls: [{ id: 'read', code: 'page.inspect', input: {} }] })
+    .mockResolvedValueOnce({ text: 'Done', toolCalls: [] });
+  const registry = createAssistantSurfaceRegistry();
+  registry.register({
+    pageInstanceKey: 'page',
+    contextRevision: () => revision,
+    surface: {
+      describe: () => ({ surface: 'module-page', facts: {} }),
+      requestTurn,
+      capabilities: () => [
+        {
+          descriptor: { code: 'page.change', description: 'Change', inputSchema: {} },
+          parseInput: (input) => input,
+          async execute(_input, context) {
+            context.applyEffect(() => {
+              revision = 'after';
+            });
+            return { largeValue: 'x'.repeat(2000) };
+          },
+        },
+        {
+          descriptor: { code: 'page.inspect', description: 'Inspect', inputSchema: {} },
+          parseInput: (input) => input,
+          async execute() {
+            return { current: true };
+          },
+        },
+      ],
+    },
+  });
+  registry.activate('page');
+  await runAssistantConversation(registry, 'change and inspect');
+  expect(requestTurn.mock.calls[2]?.[0].results).toEqual([
+    { callId: 'effect', capabilityCode: 'page.change', output: { completed: true } },
+    { callId: 'read', capabilityCode: 'page.inspect', output: { current: true } },
+  ]);
+});

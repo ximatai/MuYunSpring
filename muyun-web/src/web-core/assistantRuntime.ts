@@ -140,6 +140,7 @@ export async function runAssistantConversation(
   }
   const steps: AssistantRuntimeStepResult[] = [];
   let results: AssistantCapabilityResult[] = [];
+  const completedEffects: AssistantCapabilityResult[] = [];
   let successfulCalls = new Map<string, AssistantCapabilityResult>();
   let expectedReplacementToken: AssistantInvocationToken | undefined;
   let decisionRestarts = 0;
@@ -238,7 +239,16 @@ export async function runAssistantConversation(
       return { steps, completed: true };
     }
     await options.onStep?.(publicStep);
-    results = step.results;
+    if (step.appliedEffectCount > 0) {
+      const effect = step.results.at(-1);
+      if (effect && !effect.error) completedEffects.push({ ...effect, output: { completed: true } });
+    }
+    // Keep a bounded receipt of effects, not old query payloads or repeated form snapshots.
+    const latestIds = new Set(step.results.map((result) => result.callId));
+    results = [
+      ...completedEffects.filter((result) => !latestIds.has(result.callId)).slice(-8),
+      ...step.results,
+    ];
   }
   emitDiagnostic(options.onDiagnostic, {
     type: 'conversation.completed',

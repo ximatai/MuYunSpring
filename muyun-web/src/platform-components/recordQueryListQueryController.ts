@@ -48,7 +48,7 @@ export interface RecordQueryListStandardQuery {
 
 /** Public list-query port used by orchestration adapters without owning list state. */
 export interface RecordQueryListQueryController extends QuerySettlementController<RecordQueryListQuerySnapshot> {
-  /** Stable signature of user-controlled scope, filters, sorting and pagination. */
+  /** Stable signature of list-owned filters, sorting and pagination; the host owns navigation scope. */
   interactionRevision?(): string;
   applyStandardQuery?(query: RecordQueryListStandardQuery): Promise<RecordQueryListQuerySnapshot>;
   snapshot(): RecordQueryListQuerySnapshot;

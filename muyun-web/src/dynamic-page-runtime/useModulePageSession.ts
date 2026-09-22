@@ -1,3 +1,4 @@
+import { recordCreationReadiness } from './recordCreationReadiness';
 import { formActionResult, hasFormActionRecordPatch } from './formActionResult';
 import { useInputValidationActionStatus } from './inputValidationActionStatus';
 import { invokePageAction } from './pageActionInvocation';
@@ -2888,7 +2889,7 @@ export function useModulePageSession(
   }
 
   async function createRecord(parentId?: string) {
-    if (context.can('create') !== true) return false;
+    if (!recordCreationState().ready) return false;
     await (resolvedSelectionFormDefaultsRequest ?? loadResolvedSelectionFormDefaults());
     const defaults = { ...navigatorCreateDefaults.value, ...(parentId ? { parentId } : {}) };
     const created = commitCreateRecord(defaults);
@@ -2923,23 +2924,24 @@ export function useModulePageSession(
     return createRecord();
   }
 
-  function assistantRecordCreationReady() {
-    return (
-      pageReady.value &&
-      !interactionBusy.value &&
-      (treeResource.value ? mainTreeScopeReady.value : navigatorListScopeReady.value)
-    );
+  function recordCreationState() {
+    return recordCreationReadiness({
+      tenantReady: tenantScopeReady.value,
+      pageReady: pageReady.value,
+      permitted: context.can('create') === true,
+      editing: editorMode.value !== 'view',
+      busy: interactionBusy.value,
+      scopeReady: treeResource.value ? mainTreeScopeReady.value : navigatorListScopeReady.value,
+    });
   }
 
   async function prepareAssistantCreate() {
-    if (editorMode.value !== 'view') throw new Error('A form draft is already active');
-    if (context.can('create') !== true || !assistantRecordCreationReady()) {
-      throw new Error('Record creation is unavailable');
-    }
+    const readiness = recordCreationState();
+    if (!readiness.ready) throw new Error(readiness.message);
     await (resolvedSelectionFormDefaultsRequest ?? loadResolvedSelectionFormDefaults());
     const defaults = { ...navigatorCreateDefaults.value };
     return () => {
-      if (!assistantRecordCreationReady() || !commitCreateRecord(defaults)) {
+      if (!recordCreationState().ready || !commitCreateRecord(defaults)) {
         throw new Error('Record creation is unavailable');
       }
       return assistantEditorState();
@@ -3839,7 +3841,7 @@ export function useModulePageSession(
     placedPageActions,
     handlePlacedPageAction,
     createRootRecord,
-    assistantRecordCreationReady,
+    recordCreationState,
     prepareAssistantCreate,
     prepareAssistantEdit,
     assistantNavigatorScopes,

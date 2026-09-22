@@ -507,7 +507,7 @@ it('keeps successful operation feedback when the model follow-up fails', async (
   await flushPromises();
 
   expect(wrapper.text()).toContain('已应用 1 项页面操作');
-  expect(wrapper.text()).toContain('前面的 1 项页面操作已生效，但后续说明未能生成');
+  expect(wrapper.text()).toContain('前面的 1 项页面操作已生效，但后续处理失败，目标可能尚未完成');
   expect(wrapper.text()).not.toContain('model returned no executable content');
 
   await wrapper.get('textarea').setValue('继续');
@@ -635,6 +635,11 @@ it('clears history and input across tenant scopes and discards an old in-flight 
   expect(wrapper.text()).not.toContain('tenant-a secret');
   expect(wrapper.text()).not.toContain('old answer');
   expect(wrapper.text()).toContain('已开始新会话');
+  expect(requestTurn).toHaveBeenCalledTimes(1);
+  const reuse = wrapper.findAll('button').find((button) => button.text() === '复用上一条输入')!;
+  await reuse.trigger('click');
+  expect((wrapper.get('textarea').element as HTMLTextAreaElement).value).toBe('tenant-a secret');
+  expect(requestTurn).toHaveBeenCalledTimes(1);
   requestTurn.mockResolvedValue({ text: 'new answer', toolCalls: [] });
   await wrapper.get('textarea').setValue('new request');
   await wrapper.get('button.ant-btn-primary').trigger('click');

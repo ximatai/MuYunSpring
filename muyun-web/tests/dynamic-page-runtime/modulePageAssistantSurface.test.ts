@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { assistantQueryResult } from '@/dynamic-page-runtime/assistantQueryCapabilities';
 import { nextTick, ref, watch } from 'vue';
 import {
   createModulePageAssistantSurface,
@@ -19,7 +20,7 @@ function viewFixture(): ModulePageSessionView {
     formSessionKey: 3,
     assistantContextRevision: 7,
     assistantInteractionRevision: 3,
-    assistantRecordCreationReady: vi.fn(() => true),
+    recordCreationState: vi.fn(() => ({ ready: true })),
     assistantNavigatorScopes: vi.fn(() => []),
     selectedNavigatorRecords: {},
     settleAssistantPageState: vi.fn(async () => {}),
@@ -253,14 +254,18 @@ describe('module page assistant surface', () => {
   it('describes an unmet navigator scope without exposing internal identifiers', () => {
     const view = viewFixture();
     view.editorMode = 'view';
-    view.assistantRecordCreationReady = vi.fn(() => false);
+    view.recordCreationState = vi.fn(() => ({
+      ready: false,
+      reason: 'SCOPE_REQUIRED',
+      message: '请选择机构',
+    }));
     view.assistantNavigatorScopes = vi.fn(() => [
       { descriptor: { key: 'organization', title: '机构' } },
     ]) as never;
     view.selectedNavigatorRecords = {};
 
     expect(createModulePageAssistantSurface(view, vi.fn()).describe().facts).toMatchObject({
-      recordCreationReady: false,
+      creation: { ready: false, reason: 'SCOPE_REQUIRED' },
       navigatorScopes: [{ key: 'organization', title: '机构', selected: null }],
     });
   });
@@ -359,7 +364,9 @@ describe('module page assistant surface', () => {
       .capabilities()
       .find(({ descriptor }) => descriptor.code === 'query.apply-quick-search')!;
 
-    await expect(describe.execute(describe.parseInput({}), executionContext())).resolves.toEqual(snapshot);
+    await expect(describe.execute(describe.parseInput({}), executionContext())).resolves.toEqual(
+      assistantQueryResult(snapshot),
+    );
     await expect(apply.execute(apply.parseInput({ keyword: 'daily' }), executionContext())).resolves.toEqual(
       expect.objectContaining({ appliedQuickSearch: 'daily' }),
     );
@@ -852,7 +859,11 @@ describe('module page assistant surface', () => {
     const view = viewFixture();
     view.editorMode = 'view';
     view.context.can = vi.fn(() => true);
-    view.assistantRecordCreationReady = vi.fn(() => false);
+    view.recordCreationState = vi.fn(() => ({
+      ready: false,
+      reason: 'SCOPE_REQUIRED',
+      message: '请选择机构',
+    }));
 
     const capabilityCodes = createModulePageAssistantSurface(view, vi.fn())
       .capabilities()
@@ -1403,7 +1414,7 @@ describe('module page assistant surface', () => {
     );
   });
 
-  it('does not expose tree reference fields through the paged reference capability', () => {
+  it('exposes authorized tree queries and blocks scoped trees missing their dependency', () => {
     const view = referenceViewFixture([]);
     const tenantField = view.formFields.get('tenantId')!;
     view.formFields.set('tenantId', {
@@ -1415,15 +1426,15 @@ describe('module page assistant surface', () => {
       .capabilities()
       .map(({ descriptor }) => descriptor.code);
 
-    expect(capabilityCodes).not.toContain('reference.search-options');
-    expect(capabilityCodes).not.toContain('reference.patch-draft');
+    expect(capabilityCodes).toContain('reference.search-options');
+    expect(capabilityCodes).toContain('reference.patch-draft');
 
     const regularView = referenceViewFixture([]);
     regularView.referencePickerConfigs = {
       ...regularView.referencePickerConfigs,
       tenantId: {
         ...regularView.referencePickerConfigs?.tenantId,
-        scopedTree: {} as never,
+        scopedTree: { disabled: true } as never,
       },
     } as never;
     const scopedCapabilityCodes = createModulePageAssistantSurface(regularView, vi.fn())
@@ -1626,4 +1637,42 @@ it('reports actual direct and derived draft changes without exposing hidden valu
       ],
     },
   });
+});
+
+it('lists tenant candidates without selecting one or exposing record identifiers', async () => {
+  const view = viewFixture();
+  view.recordCreationState = () => ({ ready: false, reason: 'TENANT_REQUIRED', message: '请先选择租户' });
+  const query = vi.fn().mockResolvedValue({
+    records: [{ id: 'private-id', title: 'Demo', alias: 'demo', secret: 'hidden' }],
+    total: 25,
+  });
+  const changeTenantScope = vi.fn();
+  const selected = { value: undefined as { id: string } | undefined };
+  const surface = createModulePageAssistantSurface(view, vi.fn(), undefined, {
+    blocked: { value: false },
+    selected,
+    tenantScopeExplorerVisible: { value: true },
+    tenantScopeContext: { value: { crud: { query } } },
+    changeTenantScope,
+  } as never);
+  expect(surface.describe().facts).toMatchObject({ creation: { reason: 'TENANT_REQUIRED' }, tenant: null });
+  const search = surface.capabilities().find(({ descriptor }) => descriptor.code === 'scope.search')!;
+  const result = await search.execute(search.parseInput({ scopeKey: 'tenant', page: 2 }), executionContext());
+  expect(query).toHaveBeenCalledWith({ page: { pageNum: 2, pageSize: 20 } });
+  expect(result).toMatchObject({ candidates: [{ title: 'Demo', label: 'Demo demo' }], hasMore: false });
+  expect(JSON.stringify(result)).not.toMatch(/private-id|hidden/);
+  expect(changeTenantScope).not.toHaveBeenCalled();
+  expect(() => search.parseInput({ scopeKey: 'unknown' })).toThrow();
+  const select = surface
+    .capabilities()
+    .find(({ descriptor }) => descriptor.code === 'scope.select-candidate')!;
+  const key = (result as { candidates: Array<{ selectionKey: string }> }).candidates[0]!.selectionKey;
+  await select.execute(select.parseInput({ selectionKey: key }), executionContext());
+  expect(query).toHaveBeenCalledTimes(1);
+  expect(changeTenantScope).toHaveBeenCalledWith(expect.objectContaining({ id: 'private-id' }));
+  selected.value = { id: 'different-tenant' };
+  await expect(select.execute(select.parseInput({ selectionKey: key }), executionContext())).rejects.toThrow(
+    'expired',
+  );
+  expect(changeTenantScope).toHaveBeenCalledTimes(1);
 });

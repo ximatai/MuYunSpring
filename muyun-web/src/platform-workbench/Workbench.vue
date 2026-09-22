@@ -422,163 +422,187 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
 </script>
 
 <template>
-  <main
-    ref="workbenchRoot"
-    class="workbench"
-    :class="{
-      'workbench--menu-expanded': effectiveMenuPresentation === 'expanded',
-      'workbench--compact-menu-open': effectiveMenuPresentation === 'compact' && compactMenuOpen,
-    }"
-  >
-    <WorkbenchMenu
-      :menus="startup?.menus ?? []"
-      :selected-menu-id="activeTab?.target?.menuId"
-      :tenant-label="tenantLabel"
-      :logo-src="tenantLogo"
-      :show-title-area="showTenantTitleArea"
-      :brand-title="tenantBrandTitle"
-      :brand-subtitle="tenantBrandSubtitle"
-      :realtime-status="realtimeStatus"
-      :presentation="effectiveMenuPresentation"
-      :expanded-menu-depth="expandedMenuDepth"
-      :compact-open="compactMenuOpen"
-      :compact-top="compactMenuTop"
-      :compact-anchor="compactMenuAnchor"
-      @select-menu="handleSelectMenu"
-      @invalid-menu="emit('invalidMenu', $event)"
-      @compact-menu-enter="openCompactMenu"
-      @compact-menu-leave="scheduleCompactMenuClose"
-      @compact-menu-close="closeCompactMenu"
-      @change-presentation="setMenuPresentation"
-      @change-expanded-menu-depth="setExpandedMenuDepth"
-    />
+  <div class="workbench-layout" :class="{ 'workbench-layout--assistant': assistantOpen }">
+    <main
+      ref="workbenchRoot"
+      class="workbench"
+      :class="{
+        'workbench--menu-expanded': effectiveMenuPresentation === 'expanded',
+        'workbench--compact-menu-open': effectiveMenuPresentation === 'compact' && compactMenuOpen,
+      }"
+    >
+      <WorkbenchMenu
+        :menus="startup?.menus ?? []"
+        :selected-menu-id="activeTab?.target?.menuId"
+        :tenant-label="tenantLabel"
+        :logo-src="tenantLogo"
+        :show-title-area="showTenantTitleArea"
+        :brand-title="tenantBrandTitle"
+        :brand-subtitle="tenantBrandSubtitle"
+        :realtime-status="realtimeStatus"
+        :presentation="effectiveMenuPresentation"
+        :expanded-menu-depth="expandedMenuDepth"
+        :compact-open="compactMenuOpen"
+        :compact-top="compactMenuTop"
+        :compact-anchor="compactMenuAnchor"
+        @select-menu="handleSelectMenu"
+        @invalid-menu="emit('invalidMenu', $event)"
+        @compact-menu-enter="openCompactMenu"
+        @compact-menu-leave="scheduleCompactMenuClose"
+        @compact-menu-close="closeCompactMenu"
+        @change-presentation="setMenuPresentation"
+        @change-expanded-menu-depth="setExpandedMenuDepth"
+      />
 
-    <section class="app-main">
-      <header ref="appTopbar" class="app-topbar">
-        <div class="topbar-identity">
-          <Transition name="workbench-brand">
-            <WorkbenchBrandControl
-              v-if="effectiveMenuPresentation === 'compact'"
-              presentation="compact"
-              :compact-open="compactMenuOpen"
-              :tenant-label="tenantLabel"
-              :logo-src="tenantLogo"
-              :show-title-area="showTenantTitleArea"
-              :brand-title="tenantBrandTitle"
-              :brand-subtitle="tenantBrandSubtitle"
-              :presentation-toggle-visible="!narrowViewport"
-              @open-compact-menu="openCompactMenu"
-              @schedule-compact-menu-close="scheduleCompactMenuClose"
-              @close-compact-menu="closeCompactMenu"
-              @change-presentation="setMenuPresentation"
-            />
-          </Transition>
-          <Transition name="workbench-divider">
-            <span
-              v-if="effectiveMenuPresentation === 'compact'"
-              class="header-title-divider"
-              aria-hidden="true"
-            />
-          </Transition>
-          <div class="topbar-title">
-            <div class="topbar-title-heading">
-              <h1>{{ activeTab?.title ?? '控制台' }}</h1>
-              <UiButton
-                class="title-refresh-action"
-                aria-label="刷新当前页"
-                icon-name="reload"
-                type="text"
-                title="刷新当前页"
-                :disabled="!activeTab"
-                @click="refreshActivePage"
+      <section class="app-main">
+        <header ref="appTopbar" class="app-topbar">
+          <div class="topbar-identity">
+            <Transition name="workbench-brand">
+              <WorkbenchBrandControl
+                v-if="effectiveMenuPresentation === 'compact'"
+                presentation="compact"
+                :compact-open="compactMenuOpen"
+                :tenant-label="tenantLabel"
+                :logo-src="tenantLogo"
+                :show-title-area="showTenantTitleArea"
+                :brand-title="tenantBrandTitle"
+                :brand-subtitle="tenantBrandSubtitle"
+                :presentation-toggle-visible="!narrowViewport"
+                @open-compact-menu="openCompactMenu"
+                @schedule-compact-menu-close="scheduleCompactMenuClose"
+                @close-compact-menu="closeCompactMenu"
+                @change-presentation="setMenuPresentation"
               />
+            </Transition>
+            <Transition name="workbench-divider">
+              <span
+                v-if="effectiveMenuPresentation === 'compact'"
+                class="header-title-divider"
+                aria-hidden="true"
+              />
+            </Transition>
+            <div class="topbar-title">
+              <div class="topbar-title-heading">
+                <h1>{{ activeTab?.title ?? '控制台' }}</h1>
+                <UiButton
+                  class="title-refresh-action"
+                  aria-label="刷新当前页"
+                  icon-name="reload"
+                  type="text"
+                  title="刷新当前页"
+                  :disabled="!activeTab"
+                  @click="refreshActivePage"
+                />
+              </div>
+              <span>{{ activePageTypeLabel }} / {{ activeTargetLabel }}</span>
             </div>
-            <span>{{ activePageTypeLabel }} / {{ activeTargetLabel }}</span>
           </div>
-        </div>
 
-        <div class="topbar-actions" aria-label="全局工具">
-          <UiButton
-            v-if="assistantRequestTurn"
-            class="assistant-toggle"
-            :type="assistantOpen ? 'primary' : 'default'"
-            @click="assistantOpen = !assistantOpen"
-          >
-            AI 助手
-          </UiButton>
-          <button
-            class="icon-button skin-button"
-            type="button"
-            aria-label="皮肤切换"
-            title="切换皮肤"
-            @click="emit('userCommand', 'themeSkin')"
-          >
-            <UiIcon name="skin" />
-          </button>
-          <UiDropdown v-slot="{ toggle }" :items="userMenuItems" @select="handleUserCommand">
-            <button class="user-button" type="button" @click.stop="toggle">
-              <span class="avatar">{{ userInitial }}</span>
-              <span class="user-meta">
-                <strong>{{ userDisplayName }}</strong>
-                <small>{{ currentUser?.system ? '系统管理员' : '业务用户' }}</small>
-              </span>
-              <UiIcon class="user-caret" name="down" />
-            </button>
-          </UiDropdown>
-        </div>
-      </header>
-
-      <section class="workbench-mega-surface">
-        <div class="tab-strip">
-          <UiTabs
-            v-if="tabs.length > 0"
-            :tabs="tabs"
-            :active-key="activeTabKey"
-            @toggle-pin="emit('toggleTabLock', $event)"
-            @update:active-key="handleTabChange"
-            @close="emit('closeTab', $event)"
-            @close-tabs="emit('closeTabs', $event)"
-            @reorder="emit('reorderTabs', $event)"
-          />
-          <div v-else class="empty-tabs">暂无打开页面</div>
-        </div>
-
-        <section class="app-content">
-          <UiSpin v-if="loading" />
-          <UiError v-else-if="error" :message="error" />
-          <div v-else-if="activeTab" class="tab-panel-host">
-            <div
-              class="tab-page"
-              :class="{ 'tab-page--workspace': activePageDescriptor?.layout === 'workspace' }"
+          <div class="topbar-actions" aria-label="全局工具">
+            <UiButton
+              v-if="assistantRequestTurn"
+              class="assistant-toggle"
+              :type="assistantOpen ? 'primary' : 'default'"
+              @click="assistantOpen = !assistantOpen"
             >
-              <slot
-                :active-tab="activeTab"
-                :target="activeTab.target"
-                :page-descriptor="activePageDescriptor"
-              />
-            </div>
+              AI 助手
+            </UiButton>
+            <button
+              class="icon-button skin-button"
+              type="button"
+              aria-label="皮肤切换"
+              title="切换皮肤"
+              @click="emit('userCommand', 'themeSkin')"
+            >
+              <UiIcon name="skin" />
+            </button>
+            <UiDropdown v-slot="{ toggle }" :items="userMenuItems" @select="handleUserCommand">
+              <button class="user-button" type="button" @click.stop="toggle">
+                <span class="avatar">{{ userInitial }}</span>
+                <span class="user-meta">
+                  <strong>{{ userDisplayName }}</strong>
+                  <small>{{ currentUser?.system ? '系统管理员' : '业务用户' }}</small>
+                </span>
+                <UiIcon class="user-caret" name="down" />
+              </button>
+            </UiDropdown>
           </div>
-          <UiEmpty v-else description="暂无页面" />
+        </header>
+
+        <section class="workbench-mega-surface">
+          <div class="tab-strip">
+            <UiTabs
+              v-if="tabs.length > 0"
+              :tabs="tabs"
+              :active-key="activeTabKey"
+              @toggle-pin="emit('toggleTabLock', $event)"
+              @update:active-key="handleTabChange"
+              @close="emit('closeTab', $event)"
+              @close-tabs="emit('closeTabs', $event)"
+              @reorder="emit('reorderTabs', $event)"
+            />
+            <div v-else class="empty-tabs">暂无打开页面</div>
+          </div>
+
+          <section class="app-content">
+            <UiSpin v-if="loading" />
+            <UiError v-else-if="error" :message="error" />
+            <div v-else-if="activeTab" class="tab-panel-host">
+              <div
+                class="tab-page"
+                :class="{ 'tab-page--workspace': activePageDescriptor?.layout === 'workspace' }"
+              >
+                <slot
+                  :active-tab="activeTab"
+                  :target="activeTab.target"
+                  :page-descriptor="activePageDescriptor"
+                />
+              </div>
+            </div>
+            <UiEmpty v-else description="暂无页面" />
+          </section>
         </section>
       </section>
-      <WorkbenchAssistantPanel
-        :open="assistantOpen"
-        :registry="assistantSurfaceRegistry"
-        @close="assistantOpen = false"
-      />
-    </section>
-  </main>
+    </main>
+    <WorkbenchAssistantPanel
+      :open="assistantOpen"
+      :registry="assistantSurfaceRegistry"
+      @close="assistantOpen = false"
+    />
+  </div>
 </template>
 
 <style scoped>
+.workbench-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
+}
+
+.workbench-layout--assistant {
+  grid-template-columns: minmax(0, 1fr) 380px;
+}
+
+@media (max-width: 900px) {
+  .workbench-layout--assistant {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .workbench-layout--assistant > .workbench {
+    display: none;
+  }
+}
+
 .workbench {
   position: relative;
   display: grid;
   grid-template-columns: 0 minmax(0, 1fr);
   grid-template-rows: minmax(0, 1fr);
+  min-width: 0;
   min-height: 0;
-  height: 100vh;
-  height: 100dvh;
+  height: 100%;
   overflow: hidden;
   background: var(--muyun-support-canvas);
   transition: grid-template-columns 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
@@ -1040,6 +1064,12 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
 /* The menu compacts below 980px, but tablet and narrow desktop workspaces remain viewport-bound.
  * Only handset layouts fall back to document scrolling. */
 @media (max-width: 720px) {
+  .workbench-layout:not(.workbench-layout--assistant) {
+    height: auto;
+    min-height: 100dvh;
+    overflow: visible;
+  }
+
   .workbench {
     grid-template-columns: 1fr;
     grid-template-rows: auto auto;
