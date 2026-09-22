@@ -4,6 +4,11 @@ import { dirname, join, relative } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import vue from '@vitejs/plugin-vue';
 import { build } from 'vite';
+import {
+  assertAlignedVersionState,
+  consumerPackageVersion,
+  readVersionState,
+} from '../../scripts/version-lib.mjs';
 
 const webRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 const repositoryRoot = dirname(webRoot);
@@ -11,8 +16,8 @@ const outputDirectory = join(repositoryRoot, 'build', 'consumer-npm');
 const stagingDirectory = join(outputDirectory, 'staging', 'web-app');
 const consumerEntry = join(webRoot, 'src', 'consumer', 'index.ts');
 const rootPackage = JSON.parse(readFileSync(join(webRoot, 'package.json'), 'utf8'));
-
-assertVersionAlignment(rootPackage.version);
+const developmentVersion = assertAlignedVersionState(readVersionState(repositoryRoot));
+const packageVersion = consumerPackageVersion(developmentVersion, process.env.MUYUN_RELEASE_VERSION?.trim());
 
 rmSync(outputDirectory, { recursive: true, force: true });
 mkdirSync(stagingDirectory, { recursive: true });
@@ -22,7 +27,7 @@ writeFileSync(
   `${JSON.stringify(
     {
       name: '@ximatai/muyun-web-app',
-      version: rootPackage.version,
+      version: packageVersion,
       description: 'MuYunSpring workbench and standard module runtime for business applications',
       type: 'module',
       files: ['dist'],
@@ -151,14 +156,4 @@ function collectFiles(directory) {
 function relativeModuleSpecifier(fromDirectory, destination) {
   const specifier = relative(fromDirectory, destination).replaceAll('\\', '/');
   return specifier.startsWith('.') ? specifier : `./${specifier}`;
-}
-
-function assertVersionAlignment(packageVersion) {
-  const gradleProperties = readFileSync(join(repositoryRoot, 'gradle.properties'), 'utf8');
-  const match = gradleProperties.match(/^muyunVersion=(.+)-SNAPSHOT$/m);
-  if (!match || match[1] !== packageVersion) {
-    throw new Error(
-      `前端包版本 ${packageVersion} 必须与 gradle.properties 的 muyunVersion 正式版本保持一致。`,
-    );
-  }
 }

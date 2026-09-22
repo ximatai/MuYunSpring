@@ -3,10 +3,16 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { execFileSync } from 'node:child_process';
+import {
+  assertAlignedVersionState,
+  consumerPackageVersion,
+  readVersionState,
+} from '../../scripts/version-lib.mjs';
 
 const webRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 const repositoryRoot = dirname(webRoot);
-const version = JSON.parse(readFileSync(join(webRoot, 'package.json'), 'utf8')).version;
+const developmentVersion = assertAlignedVersionState(readVersionState(repositoryRoot));
+const version = consumerPackageVersion(developmentVersion, process.env.MUYUN_RELEASE_VERSION?.trim());
 const tarball = join(repositoryRoot, 'build', 'consumer-npm', `ximatai-muyun-web-app-${version}.tgz`);
 const exampleRoot = join(webRoot, 'examples', 'business-web');
 

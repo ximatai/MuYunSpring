@@ -1,7 +1,7 @@
 {
   "name": "muyun-web",
   "private": true,
-  "version": "0.26.14",
+  "version": "0.26.14-SNAPSHOT",
   "type": "module",
   "engines": {
     "node": ">=22.23.0"
@@ -11,9 +11,11 @@
     "dev:backend": "vite --host 127.0.0.1 --mode backend",
     "typecheck": "vue-tsc --noEmit",
     "build": "npm run typecheck && vite build",
+    "version:check": "node ../scripts/version.mjs check",
+    "version:test": "node --test ../scripts/version.test.mjs",
     "pack:consumer": "node scripts/pack-consumer.mjs",
     "verify:consumer": "npm run pack:consumer && node scripts/verify-consumer.mjs",
-    "check": "npm run lint && npm run format:check && npm run test && npm run build",
+    "check": "npm run version:check && npm run version:test && npm run lint && npm run format:check && npm run test && npm run build",
     "check:boundaries": "node scripts/check-boundaries.mjs",
     "test": "vitest run",
     "lint": "eslint . && npm run check:boundaries",

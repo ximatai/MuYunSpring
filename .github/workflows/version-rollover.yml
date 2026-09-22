@@ -1,0 +1,55 @@
+name: Development Version Rollover
+
+on:
+  schedule:
+    # Daily shortly after midnight in Asia/Shanghai. Repetition makes the rollover self-healing.
+    - cron: "17 16 * * *"
+  workflow_dispatch:
+    inputs:
+      released_version:
+        description: "Optional X.Y.Z version already completed through manual channel compensation"
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: development-version-maintenance
+  cancel-in-progress: false
+
+jobs:
+  rollover:
+    name: Align development version year
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v7
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Advance stale development year
+        shell: bash
+        env:
+          RELEASED_VERSION: ${{ inputs.released_version }}
+        run: |
+          set -euo pipefail
+          if [[ -n "${RELEASED_VERSION:-}" ]]; then
+            node scripts/version.mjs advance "$RELEASED_VERSION"
+          else
+            node scripts/version.mjs ensure-current-year
+          fi
+          node scripts/version.mjs check
+
+          if git diff --quiet -- gradle.properties muyun-web/package.json muyun-web/package-lock.json; then
+            echo "Development version already uses the current year."
+            exit 0
+          fi
+
+          next_version="$(sed -n 's/^muyunVersion=//p' gradle.properties)"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add gradle.properties muyun-web/package.json muyun-web/package-lock.json
+          git commit -m "chore: 推进 ${next_version} 开发版本"
+          git push origin HEAD:main

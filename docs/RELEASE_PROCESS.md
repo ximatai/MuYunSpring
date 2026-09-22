@@ -14,7 +14,8 @@ MuYunSpring 将平台基础能力、Web 交付和 Spring Boot 自动装配发布
 
 全部公共 artifact 会写入根目录 `build/consumer-repo`。`verifyPublishedConsumer` 随后构建并启动
 `samples/published-consumer`；该工程只以 Maven 坐标解析 BOM 与 Starter，并使用独立 PostgreSQL。
-这验证 POM 的传递依赖和 Spring Boot 自动装配，而不依赖 Gradle project dependency。
+这验证 POM 的传递依赖和 Spring Boot 自动装配，而不依赖 Gradle project dependency。该仓库只服务本地消费，
+不会加载或要求 Maven Central 的 PGP 签名材料；`publishToMavenLocal` 采用相同边界。
 
 首次正式发布或发布链路发生调整后，可人工运行 `verifyMavenCentralConsumer`。它会等待 BOM 出现在 Maven
 Central，再以远端仓库运行同一个消费者，用于确认公开仓库解析与运行。该检查不进入 Release workflow，避免
@@ -28,7 +29,8 @@ MUYUN_RELEASE_VERSION=<released-version> ./gradlew verifyMavenCentralConsumer
 
 ## Maven Central 发布
 
-`gradle.properties` 的 `muyunVersion` 只表示下一开发版本，必须保持 `-SNAPSHOT`。发布使用与其去掉
+`gradle.properties`、`muyun-web/package.json` 和 `muyun-web/package-lock.json` 共同表示下一开发版本，必须完全一致并
+保持 `X.Y.Z-SNAPSHOT`。其中 `Y` 是上海时区当前年份的后两位，`Z` 是该年的发布流水号并从 1 开始。发布使用与其去掉
 `-SNAPSHOT` 后一致的 `v<version>` tag 触发 `.github/workflows/release.yml`；workflow 从 tag 推导正式构件版本，
 再依次执行发布 gate、工作区清理、后端与消费者验证，以及远端发布任务。清理必须发生在验证之前：npm 消费者
 验证会生成正式发布使用的 staging 包，之后不得再次清理该目录。
@@ -45,29 +47,64 @@ MUYUN_RELEASE_VERSION=<released-version> ./gradlew verifyMavenCentralConsumer
 本地预检：
 
 ```bash
+node scripts/version.mjs check
+node scripts/version.mjs verify-release v<version>
 ./gradlew verifyReleaseTagVersion verifyReleaseCredentials -Prelease.tag=v<version>
 ```
 
 每次正式发布按以下顺序进行：
 
-1. 在 `main` 更新 [变更记录](CHANGELOG.md)；`muyunVersion` 保持待发布版本的 `-SNAPSHOT`。
-2. 推送匹配该版本的 tag，例如 `muyunVersion=0.26.2-SNAPSHOT` 时推送 `git tag v0.26.2 && git push origin v0.26.2`。
-3. 发布成功后，Release workflow 不修改 `main`；开始下一轮开发时，在正常业务 PR 中将 `muyunVersion` 推进到下一个目标版本，例如 `0.26.3-SNAPSHOT`。
+1. 在 `main` 更新 [变更记录](CHANGELOG.md)，并确认 `node scripts/version.mjs check` 通过。
+2. 推送匹配开发版本的 tag，例如三处版本均为 `0.26.2-SNAPSHOT` 时执行
+   `git tag v0.26.2 && git push origin v0.26.2`。
+3. Maven Central 与 npm 都发布成功后，Release workflow 自动将三处版本推进到 `0.26.3-SNAPSHOT`，提交并非强制地
+   推送到 `main`。如果发布时已经跨年，则推进到新年份的 `0.<新年份>.1-SNAPSHOT`。
 
 tag 必须与当前 `muyunVersion` 去掉 `-SNAPSHOT` 后完全一致。发布任务自身依赖 tag/version 与凭证 gate；Release workflow
 按以下顺序执行：
 
-1. 校验 tag、版本和发布凭据。
+1. 校验三处开发版本完全一致、年份正确、tag 匹配，并校验发布凭据。
 2. 清理工作区。
 3. 执行 `verifyAll`、本地 Maven 消费者验证、npm 消费者验证和 npm publish dry-run。
-4. 执行 `./gradlew publishReleaseToSonatype`。
+4. 执行 `./gradlew publishReleaseToSonatype -Pmuyun.mavenCentralRelease=true`。
 5. 从 npm 消费者验证生成的 staging 包发布同一 tag 对应的 npm 包。
+6. 两个 registry 都成功后，在独立的最小写权限 job 中推进下一开发版本并推送 `main`。
 
 Maven Central 与 npm 都发布成功才代表一次完整发布。Maven Central 的索引可见性检查保留为发布后的轻量人工验证，
 不阻塞 Release workflow。
 
-前端 npm 包使用同一个正式版本：`muyun-web/package.json` 的 `version` 必须等于 `muyunVersion` 去掉
-`-SNAPSHOT` 的结果，`pack:consumer` 会在构建前强制校验。这样 Maven tag、npm tarball 与源代码版本保持可追溯一致。
+`muyun.mavenCentralRelease` 是正式发布意图，只允许在 Maven Central staging 和上传步骤启用。签名 staging 会强制
+校验 release tag 和完整 PGP 签名材料，并将构件写入各公共模块的 `build/repo`；远程上传还会额外校验 Sonatype
+凭据。需要只生成签名 staging、不执行上传时，使用：
+
+```bash
+./gradlew stageMavenCentralRelease \
+  -Pmuyun.mavenCentralRelease=true \
+  -Prelease.tag=v<version>
+```
+
+`publishReleaseToLocalRepository` 暂时保留为 `stageMavenCentralRelease` 的兼容别名。`build/repo` 属于正式发布 staging，
+不是普通开发消费仓库；本地依赖供应应使用 Maven Local 或 `build/consumer-repo`。Release workflow 只在凭据预检和
+对应 registry 的最终发布步骤注入秘密，常规测试与消费者验证不得接触发布私钥或 token。
+
+开发分支上的前端版本同样保留 `-SNAPSHOT`，本地 npm 消费者包因此也是快照版本。Release workflow 将 tag 对应的
+`MUYUN_RELEASE_VERSION` 注入 staging 构建，只有待发布 npm 包去掉 `-SNAPSHOT`；`pack:consumer` 会同时校验三处开发
+版本和正式版本映射。这样开发态与生产态都能在前后端之间精确对齐。
+
+## 年份与开发版本维护
+
+版本只通过 `scripts/version.mjs` 修改，避免 Gradle、npm manifest 和 lockfile 分别维护：
+
+```bash
+node scripts/version.mjs check
+node scripts/version.mjs advance 0.26.14
+node scripts/version.mjs ensure-current-year
+```
+
+同一年内，发布 `0.26.14` 后得到 `0.26.15-SNAPSHOT`；进入 2027 年后则得到 `0.27.1-SNAPSHOT`。按上海时区每日运行的
+`version-rollover.yml` 会幂等检查跨年状态；旧年份版本不能触发正式发布。workflow 使用 `GITHUB_TOKEN` 推送的版本提交
+不会递归触发普通 CI，因此推进 job 在写入前后运行版本校验，并且只允许三份版本文件发生变化。若仓库以后启用禁止
+Actions 直接推送的分支保护，应将该 job 改为 GitHub App 或自动 PR，而不要放宽发布校验。
 
 ## 单通道发布补偿
 
@@ -76,14 +113,16 @@ Maven Central 与 npm 都发布成功才代表一次完整发布。Maven Central
 
 ```bash
 npm ci --prefix muyun-web
-npm run pack:consumer --prefix muyun-web
+MUYUN_RELEASE_VERSION=<released-version> npm run pack:consumer --prefix muyun-web
 cd build/consumer-npm/staging/web-app
 npm publish --dry-run --access public --registry=https://registry.npmjs.org/
 npm publish --access public --registry=https://registry.npmjs.org/
 ```
 
 补偿只允许发布 registry 中尚不存在的同版本包，并应在发布后回读该版本与 `latest` tag。该路径是异常恢复，不替代
-GitHub Actions 的常规发布；恢复完成后应修正对应的 CI 或凭据配置，避免下一次 tag 重复进入补偿流程。
+GitHub Actions 的常规发布；恢复完成后应修正对应的 CI 或凭据配置，避免下一次 tag 重复进入补偿流程。补偿使两个
+registry 都完整后，手动运行 `Development Version Rollover` workflow 并填写 `released_version=X.Y.Z`，以同一套
+CAS 校验推进开发版本；不要直接编辑三份版本文件。
 
 ## pre-FieldSpec schema 升级
 

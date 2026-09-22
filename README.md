@@ -73,6 +73,7 @@ docs              架构原则、平台专题、前端路线和技术债记录
 业务二开应用应依赖 `muyun-spring-bom` 和 `muyun-spring-boot-starter`，并保留自己的
 `@SpringBootApplication`、业务模型和 Web 交付；不复制或依赖 `muyun-boot`。本仓库可通过
 `./gradlew publishReleaseToConsumerRepository` 生成统一本地 Maven 仓库，用于验证外部消费者。
+该本地消费链路不加载或要求 Maven Central 签名材料；正式签名只由 Release CI 的 Central 发布模式启用。
 
 ## 技术栈
 
@@ -182,6 +183,8 @@ npm run dev:backend --prefix muyun-web
 ```
 
 `verifyPublishedConsumer` 会将当前构建发布到本地消费者仓库，再构建并启动只依赖 Maven 坐标的独立消费者。首次正式发布或发布链路调整后，可人工运行 `MUYUN_RELEASE_VERSION=<released-version> ./gradlew verifyMavenCentralConsumer`，确认 Maven Central 中的 BOM 与 Starter 可被真实解析和启动；该远端检查不阻塞 Release CI。
+
+开发版本在 Gradle 与前端 npm manifest/lockfile 中统一使用 `X.Y.Z-SNAPSHOT`；正式版仍通过匹配的 `vX.Y.Z` tag 触发，发布成功后 CI 自动推进下一开发版本。年份流水号规则与操作方式见 [发布流程](docs/RELEASE_PROCESS.md)。
 
 前端验证：
 

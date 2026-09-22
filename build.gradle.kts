@@ -1,7 +1,13 @@
 import java.io.File
+import java.time.Year
+import java.time.ZoneId
 import java.util.Base64
 import org.gradle.api.component.AdhocComponentWithVariants
+import org.gradle.api.provider.Property
+import org.gradle.api.tasks.Input
+import org.gradle.api.tasks.Optional
 import org.gradle.api.tasks.PathSensitivity
+import org.gradle.api.tasks.TaskAction
 
 plugins {
     alias(libs.plugins.spring.boot) apply false
@@ -9,6 +15,40 @@ plugins {
     signing
     id("io.github.jeadyx.sonatype-uploader") version "2.8" apply false
     java
+}
+
+abstract class VerifyReleaseTagVersionTask : DefaultTask() {
+    @get:Input
+    abstract val developmentVersionInput: Property<String>
+
+    @get:Input
+    @get:Optional
+    abstract val releaseTagInput: Property<String>
+
+    @get:Input
+    abstract val effectiveVersionInput: Property<String>
+
+    @TaskAction
+    fun verify() {
+        val development = developmentVersionInput.get()
+        val match = Regex("^(\\d+)\\.(\\d{2})\\.([1-9]\\d*)-SNAPSHOT$").matchEntire(development)
+        require(match != null) {
+            "muyunVersion '$development' must use X.Y.Z-SNAPSHOT with a two-digit year and Z starting at 1."
+        }
+        val currentYear = (Year.now(ZoneId.of("Asia/Shanghai")).value % 100).toString().padStart(2, '0')
+        require(match.groupValues[2] == currentYear) {
+            "muyunVersion '$development' must use current Asia/Shanghai year '$currentYear'."
+        }
+        val tag = releaseTagInput.orNull
+            ?: error("Missing release tag. Provide -Prelease.tag=v${development.removeSuffix("-SNAPSHOT")} or set GITHUB_REF_NAME.")
+        val expectedTag = "v${development.removeSuffix("-SNAPSHOT")}"
+        require(tag == expectedTag) {
+            "Release tag '$tag' must match development version '$development' (expected '$expectedTag')."
+        }
+        require(effectiveVersionInput.get() == tag.removePrefix("v")) {
+            "Release build version '${effectiveVersionInput.get()}' must be derived from tag '$tag'."
+        }
+    }
 }
 
 val publicArtifactProjectNames = listOf(
@@ -42,6 +82,12 @@ fun Project.releaseVersion(): String? = releaseTag()
 
 val developmentVersion = providers.gradleProperty("muyunVersion").get()
 val effectiveVersion = releaseVersion() ?: developmentVersion
+val mavenCentralReleaseMode = providers.gradleProperty("muyun.mavenCentralRelease")
+    .map { value ->
+        value.toBooleanStrictOrNull()
+            ?: error("muyun.mavenCentralRelease must be either 'true' or 'false'.")
+    }
+    .orElse(false)
 
 allprojects {
     group = "net.ximatai.muyun.spring"
@@ -55,16 +101,31 @@ fun Project.releaseSigningSecretKey(): String? {
     }
 }
 
-fun Project.requireReleaseCredentials() {
-    val credentials = mapOf(
-        "sonatype.token or SONATYPE_TOKEN" to releaseValue("sonatype.token", "SONATYPE_TOKEN"),
-        "sonatype.password or SONATYPE_PASSWORD" to releaseValue("sonatype.password", "SONATYPE_PASSWORD"),
-        "signing.keyId or SIGNING_KEY_ID" to releaseValue("signing.keyId", "SIGNING_KEY_ID"),
-        "signing.secretKey/signing.secretKeyBase64 or SIGNING_SECRET_KEY/SIGNING_SECRET_KEY_BASE64" to releaseSigningSecretKey(),
-        "signing.password or SIGNING_PASSWORD" to releaseValue("signing.password", "SIGNING_PASSWORD")
-    )
+fun Project.releaseSigningCredentials(): Map<String, String?> = mapOf(
+    "signing.keyId or SIGNING_KEY_ID" to releaseValue("signing.keyId", "SIGNING_KEY_ID"),
+    "signing.secretKey/signing.secretKeyBase64 or SIGNING_SECRET_KEY/SIGNING_SECRET_KEY_BASE64" to releaseSigningSecretKey(),
+    "signing.password or SIGNING_PASSWORD" to releaseValue("signing.password", "SIGNING_PASSWORD")
+)
+
+fun Project.sonatypeCredentials(): Map<String, String?> = mapOf(
+    "sonatype.token or SONATYPE_TOKEN" to releaseValue("sonatype.token", "SONATYPE_TOKEN"),
+    "sonatype.password or SONATYPE_PASSWORD" to releaseValue("sonatype.password", "SONATYPE_PASSWORD")
+)
+
+fun requireCredentials(description: String, credentials: Map<String, String?>) {
     val missing = credentials.filterValues { it.isNullOrBlank() }.keys
-    require(missing.isEmpty()) { "Missing required Maven Central release credentials: ${missing.joinToString(", ")}" }
+    require(missing.isEmpty()) { "Missing required $description: ${missing.joinToString(", ")}" }
+}
+
+fun Project.requireReleaseSigningCredentials() {
+    requireCredentials("Maven Central signing credentials", releaseSigningCredentials())
+}
+
+fun Project.requireReleaseCredentials() {
+    requireCredentials(
+        "Maven Central release credentials",
+        sonatypeCredentials() + releaseSigningCredentials()
+    )
 }
 
 tasks.register("verifyReleaseCredentials") {
@@ -73,29 +134,44 @@ tasks.register("verifyReleaseCredentials") {
     doLast { requireReleaseCredentials() }
 }
 
-tasks.register("verifyReleaseTagVersion") {
+tasks.register("verifyReleaseSigningCredentials") {
     group = LifecycleBasePlugin.VERIFICATION_GROUP
-    description = "Verifies that the release tag matches the current development version."
+    description = "Verifies that Maven Central signing keys are available for local release staging."
+    doLast { requireReleaseSigningCredentials() }
+}
+
+tasks.register("verifyMavenCentralReleaseMode") {
+    group = LifecycleBasePlugin.VERIFICATION_GROUP
+    description = "Verifies that the build explicitly opted into Maven Central release mode."
     doLast {
-        require(developmentVersion.endsWith("-SNAPSHOT")) {
-            "muyunVersion '$developmentVersion' must describe the next development version."
-        }
-        val tag = releaseTag()
-            ?: error("Missing release tag. Provide -Prelease.tag=v${developmentVersion.removeSuffix("-SNAPSHOT")} or set GITHUB_REF_NAME.")
-        val expectedTag = "v${developmentVersion.removeSuffix("-SNAPSHOT")}"
-        require(tag == expectedTag) {
-            "Release tag '$tag' must match development version '$developmentVersion' (expected '$expectedTag')."
-        }
-        require(version.toString() == tag.removePrefix("v")) {
-            "Release build version '${project.version}' must be derived from tag '$tag'."
+        require(mavenCentralReleaseMode.get()) {
+            "Maven Central publishing requires -Pmuyun.mavenCentralRelease=true. " +
+                "Local Maven publishing and consumer verification must not enable this mode."
         }
     }
 }
 
+tasks.register<VerifyReleaseTagVersionTask>("verifyReleaseTagVersion") {
+    group = LifecycleBasePlugin.VERIFICATION_GROUP
+    description = "Verifies that the release tag matches the current development version."
+    developmentVersionInput.set(developmentVersion)
+    releaseTag()?.let(releaseTagInput::set)
+    effectiveVersionInput.set(effectiveVersion)
+}
+
+tasks.register("stageMavenCentralRelease") {
+    group = "publishing"
+    description = "Stages signed public artifacts for Maven Central without uploading them."
+    dependsOn("verifyMavenCentralReleaseMode")
+    dependsOn("verifyReleaseSigningCredentials")
+    dependsOn("verifyReleaseTagVersion")
+    dependsOn(publicArtifactProjectNames.map { ":$it:publishAllPublicationsToSonatypeStagingRepository" })
+}
+
 tasks.register("publishReleaseToLocalRepository") {
     group = "publishing"
-    description = "Publishes all public MuYunSpring artifacts to their local staging repositories."
-    dependsOn(publicArtifactProjectNames.map { ":$it:publishAllPublicationsToMavenRepository" })
+    description = "Compatibility alias for stageMavenCentralRelease."
+    dependsOn("stageMavenCentralRelease")
 }
 
 tasks.register("publishReleaseToConsumerRepository") {
@@ -121,22 +197,25 @@ tasks.register<Exec>("verifyMavenCentralConsumer") {
 tasks.register("publishReleaseToSonatype") {
     group = "publishing"
     description = "Publishes all public MuYunSpring artifacts to Maven Central through Sonatype."
+    dependsOn("verifyMavenCentralReleaseMode")
     dependsOn("verifyReleaseCredentials")
     dependsOn("verifyReleaseTagVersion")
     dependsOn(publicArtifactProjectNames.map { ":$it:publishToSonatype" })
     doFirst { requireReleaseCredentials() }
 }
 
+val releaseModeVerification = tasks.named("verifyMavenCentralReleaseMode")
 val releaseTagVerification = tasks.named("verifyReleaseTagVersion")
 val releaseCredentialVerification = tasks.named("verifyReleaseCredentials")
+val releaseSigningCredentialVerification = tasks.named("verifyReleaseSigningCredentials")
 gradle.projectsEvaluated {
     publicArtifactProjectNames.forEach { projectName ->
         val artifactProject = project(":$projectName")
         artifactProject.tasks.named("publishToSonatype") {
-            mustRunAfter(releaseTagVerification, releaseCredentialVerification)
+            dependsOn(releaseModeVerification, releaseTagVerification, releaseCredentialVerification)
         }
         artifactProject.tasks.named("2.uploadDeploymentDir") {
-            mustRunAfter(releaseTagVerification, releaseCredentialVerification)
+            dependsOn(releaseModeVerification, releaseTagVerification, releaseCredentialVerification)
         }
     }
 
@@ -265,7 +344,10 @@ configure(subprojects.filter { it.name in publicArtifactProjectNames }) {
                 }
             }
             repositories {
-                maven { url = uri(layout.buildDirectory.dir("repo")) }
+                maven {
+                    name = "sonatypeStaging"
+                    url = uri(layout.buildDirectory.dir("repo"))
+                }
                 maven {
                     name = "consumer"
                     url = uri(rootProject.layout.buildDirectory.dir("consumer-repo"))
@@ -274,12 +356,22 @@ configure(subprojects.filter { it.name in publicArtifactProjectNames }) {
         }
 
         extensions.configure<SigningExtension> {
-            useInMemoryPgpKeys(
-                releaseValue("signing.keyId", "SIGNING_KEY_ID").orEmpty(),
-                releaseSigningSecretKey().orEmpty(),
-                releaseValue("signing.password", "SIGNING_PASSWORD").orEmpty()
-            )
-            sign(extensions.getByType<PublishingExtension>().publications["mavenJava"])
+            if (mavenCentralReleaseMode.get()) {
+                isRequired = true
+                val keyId = releaseValue("signing.keyId", "SIGNING_KEY_ID")
+                val secretKey = releaseSigningSecretKey()
+                val password = releaseValue("signing.password", "SIGNING_PASSWORD")
+                if (keyId != null && secretKey != null && password != null) {
+                    useInMemoryPgpKeys(keyId, secretKey, password)
+                }
+                sign(extensions.getByType<PublishingExtension>().publications["mavenJava"])
+            }
+        }
+
+        if (mavenCentralReleaseMode.get()) {
+            tasks.named("signMavenJavaPublication") {
+                dependsOn(releaseModeVerification, releaseTagVerification, releaseSigningCredentialVerification)
+            }
         }
 
         extensions.configure<io.github.jeadyx.UploaderExtension> {
@@ -293,11 +385,18 @@ configure(subprojects.filter { it.name in publicArtifactProjectNames }) {
             options.addStringOption("Xdoclint:none", "-quiet")
             options.addBooleanOption("Xwerror", false)
         }
+        tasks.matching {
+            it.name == "publishMavenJavaPublicationToSonatypeStagingRepository" ||
+                it.name == "publishAllPublicationsToSonatypeStagingRepository"
+        }.configureEach {
+            dependsOn(releaseModeVerification, releaseTagVerification, releaseSigningCredentialVerification)
+        }
         tasks.matching { it.name == "publishToSonatype" }.configureEach {
-            dependsOn("publishAllPublicationsToMavenRepository")
+            dependsOn("publishAllPublicationsToSonatypeStagingRepository")
         }
         tasks.matching { it.name == "1.createDeploymentDir" || it.name == "2.uploadDeploymentDir" }.configureEach {
-            dependsOn("publishAllPublicationsToMavenRepository")
+            dependsOn("publishAllPublicationsToSonatypeStagingRepository")
+            dependsOn(releaseModeVerification, releaseTagVerification, releaseCredentialVerification)
         }
     }
 }
