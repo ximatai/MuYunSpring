@@ -441,14 +441,18 @@ public class PlatformPresentationTemplateCatalog {
             throw invalidManagementTree();
         }
         Set<String> allowed = "list".equals(slot)
-                ? Set.of("label", "width", "align")
-                : Set.of("label", "columnSpan", "readOnly", "fieldUiControlAlias");
+                ? Set.of("label", "width", "align", "assistantPolicy")
+                : Set.of("label", "columnSpan", "readOnly", "fieldUiControlAlias", "assistantPolicy");
         java.util.Iterator<String> names = properties.fieldNames();
         while (names.hasNext()) {
             String name = names.next();
             if (!allowed.contains(name)) {
                 throw invalidManagementTree();
             }
+        }
+        if (properties.has("assistantPolicy") && (!properties.path("assistantPolicy").isTextual()
+                || !Set.of("HIDDEN", "DESCRIBE", "READ", "READ_WRITE").contains(properties.path("assistantPolicy").asText()))) {
+            throw invalidManagementTree();
         }
         if (properties.has("label") && (!properties.path("label").isTextual()
                 || properties.path("label").asText().isBlank())) {

@@ -25,6 +25,9 @@ public class AiModelConnectionTester {
         if (configuration == null) {
             throw new PlatformException("AI model configuration does not exist: " + configurationId);
         }
+        if (configuration.getCredentialSource() == AiModelCredentialSource.ENVIRONMENT) {
+            AiModelCredentialResolver.requireEnvironmentManagementAccess();
+        }
         return testCandidate(configuration);
     }
 
@@ -33,6 +36,16 @@ public class AiModelConnectionTester {
         if (draft == null || draft.getProvider() == null || draft.getProvider().isBlank()
                 || draft.getModelId() == null || draft.getModelId().isBlank()) {
             throw new PlatformException("AI model provider and model id must be provided before testing");
+        }
+        if (draft.getCredentialSource() == AiModelCredentialSource.ENVIRONMENT) {
+            AiModelCredentialResolver.requireEnvironmentManagementAccess();
+            AiModelConfiguration candidate = new AiModelConfiguration();
+            candidate.setProvider(draft.getProvider().trim());
+            candidate.setModelId(draft.getModelId().trim());
+            candidate.setCredentialSource(AiModelCredentialSource.ENVIRONMENT);
+            String name = draft.getApiKeyEnvironmentVariable();
+            candidate.setApiKeyEnvironmentVariable(name == null ? null : name.trim());
+            return testCandidate(candidate);
         }
         String apiKey = draft.getApiKeyInput();
         if ((apiKey == null || apiKey.isBlank()) && draft.getId() != null) {

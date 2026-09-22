@@ -261,7 +261,18 @@ describe('ModulePageHost lifecycle boundaries', () => {
         onMounted(() => {
           emit('query-controller-change', {
             revision: () => 0,
-            snapshot: () => ({ rows: [], truncated: false }),
+            snapshot: () => ({
+              rows: [],
+              truncated: false,
+              quickSearchFields: [],
+              quickSearchEnabled: false,
+              mode: 'normal',
+              status: 'ready',
+              pageNum: 1,
+              pageSize: 20,
+              total: 0,
+              totalKnown: true,
+            }),
             applyQuickSearch: vi.fn(),
             settle: settleList,
           });

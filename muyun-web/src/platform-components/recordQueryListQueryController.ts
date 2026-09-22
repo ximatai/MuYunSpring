@@ -1,4 +1,4 @@
-import type { QueryValueType } from '@muyun/web-contracts';
+import type { QueryValueType, QueryOperator, QueryCriteriaCondition, WebSort } from '@muyun/web-contracts';
 import type { QuerySettlementController } from './querySettlementController';
 
 export interface RecordQueryListQueryField {
@@ -28,12 +28,29 @@ export interface RecordQueryListQuerySnapshot {
   totalKnown: boolean;
   rows: RecordQueryListResultRow[];
   truncated: boolean;
+  standardQuery?: {
+    fields: RecordQueryListFilterField[];
+    sorts: WebSort[];
+    conditions: QueryCriteriaCondition[];
+  };
+}
+
+export interface RecordQueryListFilterField extends RecordQueryListQueryField {
+  operators: QueryOperator[];
+  sortable: boolean;
+  options?: Array<string | number | boolean>;
+}
+
+export interface RecordQueryListStandardQuery {
+  conditions: QueryCriteriaCondition[];
+  sorts: WebSort[];
 }
 
 /** Public list-query port used by orchestration adapters without owning list state. */
 export interface RecordQueryListQueryController extends QuerySettlementController<RecordQueryListQuerySnapshot> {
-  /** Stable signature of user-controlled scope, filters, sorting and pagination. */
+  /** Stable signature of list-owned filters, sorting and pagination; the host owns navigation scope. */
   interactionRevision?(): string;
+  applyStandardQuery?(query: RecordQueryListStandardQuery): Promise<RecordQueryListQuerySnapshot>;
   snapshot(): RecordQueryListQuerySnapshot;
   /** Waits until the current reactive query transition and any active load have settled. */
   applyQuickSearch(keyword: string): Promise<RecordQueryListQuerySnapshot>;

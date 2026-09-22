@@ -22,7 +22,7 @@ class DefaultAiModelRouteResolverTest {
         when(configurations.requireEffectiveConfiguration()).thenReturn(configuration);
         when(providers.requireEnabled("lm_studio")).thenReturn(provider);
 
-        ResolvedAiModelRoute route = new DefaultAiModelRouteResolver(configurations, providers).resolveCurrent();
+        ResolvedAiModelRoute route = new DefaultAiModelRouteResolver(configurations, providers, new AiModelCredentialResolver()).resolveCurrent();
 
         assertThat(route.provider()).isEqualTo("lm_studio");
         assertThat(route.protocol()).isEqualTo(AiModelProtocol.OPENAI_COMPATIBLE);

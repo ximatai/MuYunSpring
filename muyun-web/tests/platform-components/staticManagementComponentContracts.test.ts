@@ -956,7 +956,7 @@ it('workbench exposes own password change through auth boundary', () => {
 
   assert.match(workbenchSource, /key: 'changePassword'/);
   assert.match(workbenchSource, /title: '修改密码'/);
-  assert.match(workbenchSource, /\.workbench \{[\s\S]*height: 100dvh;[\s\S]*overflow: hidden;/);
+  assert.match(workbenchSource, /\.workbench-layout \{[\s\S]*height: 100dvh;[\s\S]*overflow: hidden;/);
   assert.match(workbenchSource, /\.app-main \{[\s\S]*min-height: 0;[\s\S]*overflow: hidden;/);
   assert.match(workbenchSource, /\.app-content \{[\s\S]*position: relative;[\s\S]*overflow: hidden;/);
   assert.match(

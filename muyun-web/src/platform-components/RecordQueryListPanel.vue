@@ -72,7 +72,9 @@ import { reconcileSelectedKeys } from './selectionRefresh';
 import { loadOptionFieldItems } from './optionFieldOptionCache';
 import { sortPartitionKey } from './sortPartitionKey';
 import { usePlatformTimeZoneContext } from './platformTimeZoneContext';
+import { parseRecordQueryListStandardQuery } from './recordQueryListStandardQuery';
 import type {
+  RecordQueryListStandardQuery,
   RecordQueryListQueryController,
   RecordQueryListQuerySnapshot,
 } from './recordQueryListQueryController';
@@ -272,6 +274,7 @@ const conditionsExpanded = ref(false);
 /** Once opened, retain the draft editor while collapsed so reference resolution cannot be discarded. */
 const criteriaComposerMounted = ref(false);
 const activeCriteria = ref<QueryCriteriaGroup>();
+const appliedSorts = ref<WebSort[]>();
 const criteriaComposerResetKey = ref(0);
 const selectedRowKeys = ref<UiDataTableKey[]>([]);
 const persistentExternalQueryValues = ref<Record<string, boolean>>({});
@@ -659,6 +662,7 @@ async function loadSchemaAndRecords() {
       return;
     }
     activeCriteria.value = undefined;
+    appliedSorts.value = undefined;
     conditionsExpanded.value = false;
     criteriaComposerMounted.value = false;
     advancedReferenceValidity.value = {};
@@ -679,6 +683,7 @@ async function loadSchemaAndRecords() {
         return;
       }
       activeCriteria.value = undefined;
+      appliedSorts.value = undefined;
       conditionsExpanded.value = false;
       criteriaComposerMounted.value = false;
       advancedReferenceValidity.value = {};
@@ -815,7 +820,7 @@ function buildQueryRequest(): WebQueryRequest {
   const quickSearch = appliedQuickSearch.value.trim();
   const request: WebQueryRequest = {
     page: { pageNum: pageNum.value, pageSize: pageSize.value },
-    sorts: sorting.value ? [{ field: 'sortOrder', desc: false }] : defaultSorts(),
+    sorts: sorting.value ? [{ field: 'sortOrder', desc: false }] : (appliedSorts.value ?? defaultSorts()),
   };
   const criteriaChildren = [...persistentFieldCriteria(), ...activeCriteriaChildren()];
   if (criteriaChildren.length > 0) {
@@ -854,6 +859,7 @@ function updatePersistentQueryValue(
   control: ResolvedPageListExternalPersistentQueryControlDescriptor,
   value: boolean,
 ) {
+  queryInteractionRevision.value += 1;
   persistentExternalQueryValues.value = {
     ...persistentExternalQueryValues.value,
     [control.externalCriteriaKey]: value,
@@ -903,6 +909,7 @@ function updatePersistentFieldDraftValue(
   control: ResolvedPageListFieldPersistentQueryControlDescriptor,
   values: unknown[],
 ) {
+  queryInteractionRevision.value += 1;
   persistentFieldDraftValues.value = { ...persistentFieldDraftValues.value, [control.id]: values };
 }
 
@@ -917,6 +924,7 @@ function updatePersistentFieldReferenceValidity(
 }
 
 function applyPersistentFieldQueries() {
+  queryInteractionRevision.value += 1;
   if (!queryReady.value || !persistentFieldDraftValid.value) return;
   appliedPersistentFieldValues.value = Object.fromEntries(
     persistentFieldQueryControls.value.map((control) => [control.id, persistentFieldDraftValue(control)]),
@@ -1211,6 +1219,7 @@ function handleTableRowExpand(row: QueryListRow, expanded: boolean) {
 }
 
 function toggleSorting() {
+  queryInteractionRevision.value += 1;
   if (sortingToggleDisabled.value) return;
   sorting.value = !sorting.value;
   void loadRecords();
@@ -1284,15 +1293,62 @@ function sortRecordId(record: QueryListRecord | undefined) {
 }
 
 function submitQuickSearch(value = quickSearchKeyword.value) {
+  queryInteractionRevision.value += 1;
   quickSearchKeyword.value = value;
   appliedQuickSearch.value = value;
   pageNum.value = 1;
   void loadRecords();
 }
 
+function standardQueryAvailable() {
+  return (
+    queryReady.value &&
+    props.mode === 'normal' &&
+    !sorting.value &&
+    !conditionsDisabled.value &&
+    !descriptorLoadError.value
+  );
+}
+
+function standardQueryFields() {
+  return advancedCriteriaFields.value
+    .filter((field) => {
+      const column = tableColumns.value.find((column) => column.key === field.name);
+      const descriptor = runtimeListView.value?.fields.find((item) => item.fieldRef.fieldName === field.name);
+      if (
+        descriptor?.assistantPolicy === 'HIDDEN' ||
+        descriptor?.assistantPolicy === 'DESCRIBE' ||
+        descriptor?.fieldControl?.alias === 'password'
+      )
+        return false;
+      return (
+        column?.assistantReadable !== false &&
+        column?.assistantPolicy !== 'HIDDEN' &&
+        column?.assistantPolicy !== 'DESCRIBE' &&
+        !field.reference &&
+        field.valueType !== 'JSON'
+      );
+    })
+    .map((field) => ({
+      name: field.name,
+      title: field.title ?? field.name,
+      valueType: field.valueType,
+      operators: field.operators,
+      sortable: field.sortable === true,
+      ...(field.optionBinding
+        ? {
+            options: (queryOptionItemsByField.value[field.name] ?? [])
+              .filter((option) => option.enabled)
+              .map((option) => option.code),
+          }
+        : {}),
+    }));
+}
+
 function queryControllerSnapshot(): RecordQueryListQuerySnapshot {
   const quickSearchFields = schema.value?.quickSearch.fieldSchemas ?? [];
   const result = assistantResultRows();
+  const standardFields = standardQueryFields();
   const status = !queryReady.value
     ? 'waiting'
     : loading.value
@@ -1315,12 +1371,28 @@ function queryControllerSnapshot(): RecordQueryListQuerySnapshot {
     pageSize: pageSize.value,
     total: total.value,
     totalKnown: totalKnown.value,
+    ...(standardQueryAvailable()
+      ? {
+          standardQuery: {
+            fields: standardFields,
+            conditions:
+              activeCriteria.value?.children.filter(
+                (node): node is QueryCriteriaCondition =>
+                  node.kind === 'CONDITION' && standardFields.some((field) => field.name === node.fieldName),
+              ) ?? [],
+            sorts: (appliedSorts.value ?? defaultSorts()).filter((sort) =>
+              standardFields.some((field) => field.name === sort.field && field.sortable),
+            ),
+          },
+        }
+      : {}),
     rows: result.rows,
-    truncated: result.truncated,
+    truncated: result.truncated || totalKnown.value === false || total.value > result.rows.length,
   };
 }
 
 async function applyControllerQuickSearch(keyword: string) {
+  queryInteractionRevision.value += 1;
   const normalized = keyword.trim();
   if (!queryReady.value || props.mode !== 'normal' || !quickSearchEnabled.value) {
     throw new Error('Quick search is unavailable for the current list');
@@ -1342,6 +1414,8 @@ function assistantResultRows() {
   const readableColumns = tableColumns.value.filter(
     (column) =>
       column.assistantReadable !== false &&
+      column.assistantPolicy !== 'HIDDEN' &&
+      column.assistantPolicy !== 'DESCRIBE' &&
       (!componentKeys.has(column.key) || Boolean(column.render ?? props.cellRenderers[column.key])),
   );
   const columns = readableColumns.slice(0, maxColumns);
@@ -1404,9 +1478,12 @@ function assistantListValue(
   return text.slice(0, 500);
 }
 
+const queryInteractionRevision = ref(0);
+
 const queryController: RecordQueryListQueryController = {
   revision: () => queryControllerRevision,
-  interactionRevision: () => JSON.stringify(buildQueryRequest()),
+  // Only explicit controls advance this clock; schema loading and host scope propagation do not.
+  interactionRevision: () => String(queryInteractionRevision.value),
   snapshot: queryControllerSnapshot,
   async settle(signal?: AbortSignal) {
     for (let attempt = 0; attempt < 8; attempt += 1) {
@@ -1424,6 +1501,21 @@ const queryController: RecordQueryListQueryController = {
     throw new Error('List query did not settle on a stable revision');
   },
   applyQuickSearch: applyControllerQuickSearch,
+  async applyStandardQuery(input: RecordQueryListStandardQuery) {
+    queryInteractionRevision.value += 1;
+    if (!standardQueryAvailable()) throw new Error('Standard query is unavailable');
+    const query = parseRecordQueryListStandardQuery(input, standardQueryFields());
+    activeCriteria.value = query.conditions.length
+      ? { kind: 'GROUP', operator: 'AND', children: query.conditions }
+      : undefined;
+    appliedSorts.value = query.sorts;
+    advancedReferenceValidity.value = {};
+    criteriaComposerResetKey.value += 1;
+    pageNum.value = 1;
+    const loaded = await loadRecords();
+    if (!loaded || recordsLoadError.value) throw new Error('Standard query failed');
+    return queryControllerSnapshot();
+  },
 };
 
 function waitForQueryControllerLoad(signal?: AbortSignal) {
@@ -1455,6 +1547,7 @@ function throwIfQuerySettlementAborted(signal?: AbortSignal) {
 }
 
 function handleQuickSearchInput(value: string) {
+  queryInteractionRevision.value += 1;
   if (quickSearchKeyword.value !== value) queryControllerRevision += 1;
   quickSearchKeyword.value = value;
 }
@@ -1468,6 +1561,7 @@ function toggleConditions() {
 }
 
 function applyCriteria(criteria: QueryCriteriaGroup | undefined) {
+  queryInteractionRevision.value += 1;
   if (!queryReady.value || !advancedCriteriaDraftValid.value) return;
   activeCriteria.value = criteria;
   pageNum.value = 1;
@@ -1475,6 +1569,7 @@ function applyCriteria(criteria: QueryCriteriaGroup | undefined) {
 }
 
 function clearCriteria() {
+  queryInteractionRevision.value += 1;
   activeCriteria.value = undefined;
   advancedReferenceValidity.value = {};
   pageNum.value = 1;
@@ -1498,11 +1593,13 @@ function recordKey(record: QueryListRecord) {
 }
 
 function goPage(nextPage: number) {
+  queryInteractionRevision.value += 1;
   pageNum.value = Math.min(Math.max(1, nextPage), pages.value);
   void loadRecords();
 }
 
 function handlePageSizeChange(nextPageSize: number) {
+  queryInteractionRevision.value += 1;
   pageSize.value = nextPageSize;
   emit('pageSizeChange', nextPageSize);
   pageNum.value = 1;

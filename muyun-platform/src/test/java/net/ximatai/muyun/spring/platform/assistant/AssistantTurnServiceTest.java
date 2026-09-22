@@ -1,9 +1,11 @@
 package net.ximatai.muyun.spring.platform.assistant;
 
 import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.core.JsonProcessingException;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.identity.CurrentUser;
 import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
@@ -30,6 +32,44 @@ import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.doAnswer;
 
 class AssistantTurnServiceTest {
+    @Test
+    void validatesAndForwardsTheConfiguredOutputBudget() {
+        AiModelGateway gateway = mock(AiModelGateway.class);
+        when(gateway.complete(org.mockito.ArgumentMatchers.any())).thenReturn(
+                new AiTurnResponse("完成", List.of(), "stop", "request"));
+        AssistantTurnService service = new AssistantTurnService(gateway, new ObjectMapper(), 4_096);
+        try (CurrentUserContext.Scope ignored = CurrentUserContext.use(CurrentUser.systemUser("system", "System"))) {
+            service.turn(new AssistantTurnCommand("你好", List.of(), Map.of(), List.of(), List.of()));
+        }
+        ArgumentCaptor<AiTurnRequest> request = ArgumentCaptor.forClass(AiTurnRequest.class);
+        verify(gateway).complete(request.capture());
+        assertThat(request.getValue().maxOutputTokens()).isEqualTo(4_096);
+        assertThatThrownBy(() -> new AssistantTurnService(gateway, new ObjectMapper(), 0))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new AssistantTurnService(gateway, new ObjectMapper(), 32_769))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void diagnosticSerializationFailureDoesNotBlockTheModelCall() throws Exception {
+        AiModelGateway gateway = mock(AiModelGateway.class);
+        when(gateway.complete(org.mockito.ArgumentMatchers.any())).thenReturn(
+                new AiTurnResponse("完成", List.of(), "stop", "request"));
+        ObjectMapper mapper = org.mockito.Mockito.spy(new ObjectMapper());
+        org.mockito.Mockito.doThrow(new JsonProcessingException("diagnostic failure") {})
+                .when(mapper).writeValueAsString(org.mockito.ArgumentMatchers.isA(List.class));
+        AssistantTurnService service = new AssistantTurnService(gateway, mapper);
+        Logger logger = (Logger) LoggerFactory.getLogger(AssistantTurnService.class);
+        Level originalLevel = logger.getLevel();
+        logger.setLevel(Level.DEBUG);
+        try (CurrentUserContext.Scope ignored = CurrentUserContext.use(CurrentUser.systemUser("system", "System"))) {
+            service.turn(new AssistantTurnCommand("你好", List.of(), Map.of(), List.of(), List.of()));
+            verify(gateway).complete(org.mockito.ArgumentMatchers.any());
+        } finally {
+            logger.setLevel(originalLevel);
+        }
+    }
+
     @Test
     void logsOnlyStructuredTurnFactsWithoutConversationOrBusinessContent() {
         AiModelGateway gateway = mock(AiModelGateway.class);
@@ -339,10 +379,12 @@ class AssistantTurnServiceTest {
         ArgumentCaptor<AiTurnRequest> request = ArgumentCaptor.forClass(AiTurnRequest.class);
         verify(gateway).complete(request.capture());
         String prompt = normalizeWhitespace(request.getValue().messages().getFirst().content());
+        assertThat(prompt.length()).isLessThan(3000);
         assertThat(prompt)
                 .contains("standard MuYun record workspace", "patch known ordinary fields together",
                         "only when the user asked to create or change", "already complete and must not start a draft",
-                        "Leave drafts unsaved", "ask one concise question", "workbench navigation")
+                        "Leave drafts unsaved", "ask one concise question", "workbench navigation",
+                        "creation.reason", "scope.search", "missing capabilities alone do not prove denied permission")
                 .doesNotContain("employee", "department", "daily report");
     }
 
@@ -378,7 +420,7 @@ class AssistantTurnServiceTest {
         assertThat(request.getValue().messages().get(2).content()).contains("在哪个租户");
         assertThat(request.getValue().messages().get(3).content()).contains("演示租户", "employee");
         assertThat(request.getValue().messages().getFirst().content())
-                .contains("goal without breaking it into operational steps", "ask one concise clarification");
+                .contains("do not ask users to repeat explicit goals", "Ask one concise clarification");
     }
 
     @Test

@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { assistantQueryResult } from '@/dynamic-page-runtime/assistantQueryCapabilities';
 import { nextTick, ref, watch } from 'vue';
 import {
   createModulePageAssistantSurface,
@@ -19,7 +20,7 @@ function viewFixture(): ModulePageSessionView {
     formSessionKey: 3,
     assistantContextRevision: 7,
     assistantInteractionRevision: 3,
-    assistantRecordCreationReady: vi.fn(() => true),
+    recordCreationState: vi.fn(() => ({ ready: true })),
     assistantNavigatorScopes: vi.fn(() => []),
     selectedNavigatorRecords: {},
     settleAssistantPageState: vi.fn(async () => {}),
@@ -253,14 +254,18 @@ describe('module page assistant surface', () => {
   it('describes an unmet navigator scope without exposing internal identifiers', () => {
     const view = viewFixture();
     view.editorMode = 'view';
-    view.assistantRecordCreationReady = vi.fn(() => false);
+    view.recordCreationState = vi.fn(() => ({
+      ready: false,
+      reason: 'SCOPE_REQUIRED',
+      message: '请选择机构',
+    }));
     view.assistantNavigatorScopes = vi.fn(() => [
       { descriptor: { key: 'organization', title: '机构' } },
     ]) as never;
     view.selectedNavigatorRecords = {};
 
     expect(createModulePageAssistantSurface(view, vi.fn()).describe().facts).toMatchObject({
-      recordCreationReady: false,
+      creation: { ready: false, reason: 'SCOPE_REQUIRED' },
       navigatorScopes: [{ key: 'organization', title: '机构', selected: null }],
     });
   });
@@ -359,7 +364,9 @@ describe('module page assistant surface', () => {
       .capabilities()
       .find(({ descriptor }) => descriptor.code === 'query.apply-quick-search')!;
 
-    await expect(describe.execute(describe.parseInput({}), executionContext())).resolves.toEqual(snapshot);
+    await expect(describe.execute(describe.parseInput({}), executionContext())).resolves.toEqual(
+      assistantQueryResult(snapshot),
+    );
     await expect(apply.execute(apply.parseInput({ keyword: 'daily' }), executionContext())).resolves.toEqual(
       expect.objectContaining({ appliedQuickSearch: 'daily' }),
     );
@@ -852,7 +859,11 @@ describe('module page assistant surface', () => {
     const view = viewFixture();
     view.editorMode = 'view';
     view.context.can = vi.fn(() => true);
-    view.assistantRecordCreationReady = vi.fn(() => false);
+    view.recordCreationState = vi.fn(() => ({
+      ready: false,
+      reason: 'SCOPE_REQUIRED',
+      message: '请选择机构',
+    }));
 
     const capabilityCodes = createModulePageAssistantSurface(view, vi.fn())
       .capabilities()
@@ -1403,7 +1414,7 @@ describe('module page assistant surface', () => {
     );
   });
 
-  it('does not expose tree reference fields through the paged reference capability', () => {
+  it('exposes authorized tree queries and blocks scoped trees missing their dependency', () => {
     const view = referenceViewFixture([]);
     const tenantField = view.formFields.get('tenantId')!;
     view.formFields.set('tenantId', {
@@ -1415,15 +1426,15 @@ describe('module page assistant surface', () => {
       .capabilities()
       .map(({ descriptor }) => descriptor.code);
 
-    expect(capabilityCodes).not.toContain('reference.search-options');
-    expect(capabilityCodes).not.toContain('reference.patch-draft');
+    expect(capabilityCodes).toContain('reference.search-options');
+    expect(capabilityCodes).toContain('reference.patch-draft');
 
     const regularView = referenceViewFixture([]);
     regularView.referencePickerConfigs = {
       ...regularView.referencePickerConfigs,
       tenantId: {
         ...regularView.referencePickerConfigs?.tenantId,
-        scopedTree: {} as never,
+        scopedTree: { disabled: true } as never,
       },
     } as never;
     const scopedCapabilityCodes = createModulePageAssistantSurface(regularView, vi.fn())
@@ -1589,3 +1600,160 @@ function referenceViewFixture(
   } as never;
   return view;
 }
+
+it('separates field description, value projection and draft writing policies', async () => {
+  const view = viewFixture();
+  view.formFields.set('summary', { ...view.formFields.get('summary')!, assistantPolicy: 'DESCRIBE' });
+  view.formFields.set('computed', { ...view.formFields.get('computed')!, assistantPolicy: 'HIDDEN' });
+  const surface = createModulePageAssistantSurface(view, vi.fn());
+  const describe = surface.capabilities().find(({ descriptor }) => descriptor.code === 'form.describe')!;
+  const result = await describe.execute({}, executionContext());
+  expect(JSON.stringify(result)).toContain('summary');
+  expect(JSON.stringify(result)).not.toContain('before');
+  expect(JSON.stringify(result)).not.toContain('computed');
+  const patch = surface.capabilities().find(({ descriptor }) => descriptor.code === 'form.patch-draft')!;
+  await expect(
+    patch.execute({ changes: [{ fieldName: 'summary', value: 'no' }] }, executionContext()),
+  ).rejects.toThrow('not editable');
+});
+
+it('reports actual direct and derived draft changes without exposing hidden values', async () => {
+  const view = viewFixture();
+  view.updateDraftFields = vi.fn(() => {
+    view.editingRecord = { ...view.editingRecord, summary: 'after', computed: 'derived' };
+  });
+  const surface = createModulePageAssistantSurface(view, vi.fn());
+  const patch = surface.capabilities().find(({ descriptor }) => descriptor.code === 'form.patch-draft')!;
+  const result = await patch.execute(
+    { changes: [{ fieldName: 'summary', value: 'after' }] },
+    executionContext(),
+  );
+  expect(result).toMatchObject({
+    draftSummary: {
+      saved: false,
+      changes: [
+        { fieldName: 'summary', source: 'assistant', before: 'before', after: 'after' },
+        { fieldName: 'computed', source: 'derived', before: 'old', after: 'derived' },
+      ],
+    },
+  });
+});
+
+it('lists tenant candidates without selecting one or exposing record identifiers', async () => {
+  const view = viewFixture();
+  view.recordCreationState = () => ({ ready: false, reason: 'TENANT_REQUIRED', message: '请先选择租户' });
+  const query = vi.fn().mockResolvedValue({
+    records: [{ id: 'private-id', title: 'Demo', alias: 'demo', secret: 'hidden' }],
+    total: 25,
+  });
+  const changeTenantScope = vi.fn();
+  const selected = { value: undefined as { id: string } | undefined };
+  const surface = createModulePageAssistantSurface(view, vi.fn(), undefined, {
+    blocked: { value: false },
+    selected,
+    tenantScopeExplorerVisible: { value: true },
+    tenantScopeContext: { value: { crud: { query } } },
+    changeTenantScope,
+  } as never);
+  expect(surface.describe().facts).toMatchObject({ creation: { reason: 'TENANT_REQUIRED' }, tenant: null });
+  const search = surface.capabilities().find(({ descriptor }) => descriptor.code === 'scope.search')!;
+  const result = await search.execute(search.parseInput({ scopeKey: 'tenant', page: 2 }), executionContext());
+  expect(query).toHaveBeenCalledWith({ page: { pageNum: 2, pageSize: 20 } });
+  expect(result).toMatchObject({ candidates: [{ title: 'Demo', label: 'Demo demo' }], hasMore: false });
+  expect(JSON.stringify(result)).not.toMatch(/private-id|hidden/);
+  expect(changeTenantScope).not.toHaveBeenCalled();
+  expect(() => search.parseInput({ scopeKey: 'unknown' })).toThrow();
+  const select = surface
+    .capabilities()
+    .find(({ descriptor }) => descriptor.code === 'scope.select-candidate')!;
+  const key = (result as { candidates: Array<{ selectionKey: string }> }).candidates[0]!.selectionKey;
+  await select.execute(select.parseInput({ selectionKey: key }), executionContext());
+  expect(query).toHaveBeenCalledTimes(1);
+  expect(changeTenantScope).toHaveBeenCalledWith(expect.objectContaining({ id: 'private-id' }));
+  selected.value = { id: 'different-tenant' };
+  await expect(select.execute(select.parseInput({ selectionKey: key }), executionContext())).rejects.toThrow(
+    'expired',
+  );
+  expect(changeTenantScope).toHaveBeenCalledTimes(1);
+});
+
+it.each(['HIDDEN', 'DESCRIBE'] as const)(
+  'protects display-only explorer values with %s policy in list and tree capabilities',
+  async (assistantPolicy) => {
+    const view = viewFixture();
+    view.editorMode = 'view';
+    view.runtimePage = {
+      explorer: { titleField: 'summary', secondaryField: 'privateValue' },
+      detail: {
+        display: { fields: [{ fieldRef: { fieldName: 'privateValue' }, assistantPolicy }] },
+        editor: { fields: [{ fieldRef: { fieldName: 'summary' } }] },
+      },
+    } as NonNullable<ModulePageSessionView['runtimePage']>;
+    expect(view.formFields.has('privateValue')).toBe(false);
+    const snapshot = {
+      mode: 'normal' as const,
+      status: 'ready' as const,
+      quickSearchEnabled: true,
+      quickSearchFields: [{ name: 'privateValue', title: 'Private', valueType: 'STRING' as const }],
+      pageNum: 1,
+      pageSize: 20,
+      total: 1,
+      totalKnown: true,
+      rows: [
+        {
+          id: 'record-1',
+          cells: [
+            { fieldName: 'title', title: 'Title', value: 'Public' },
+            { fieldName: 'secondary', title: 'Private', value: 'protected-value' },
+          ],
+        },
+      ],
+      truncated: false,
+      standardQuery: {
+        fields: [
+          {
+            name: 'privateValue',
+            title: 'Private',
+            valueType: 'STRING' as const,
+            operators: ['EQ' as const],
+            sortable: true,
+          },
+        ],
+        conditions: [
+          {
+            kind: 'CONDITION' as const,
+            fieldName: 'privateValue',
+            operator: 'EQ' as const,
+            values: ['protected-value'],
+          },
+        ],
+        sorts: [{ field: 'privateValue', desc: false }],
+      },
+    };
+    view.listQueryController = {
+      revision: () => 1,
+      snapshot: () => snapshot,
+      applyQuickSearch: vi.fn(async () => snapshot),
+      settle: vi.fn(async () => snapshot),
+    };
+    const node = { selectionKey: 'node-1', title: 'Public', secondary: 'protected-value' };
+    view.treeQueryController = {
+      revision: () => 1,
+      snapshot: () => ({ status: 'ready', nodes: [node], truncated: false }),
+      settle: vi.fn(async () => {}),
+      select: vi.fn(() => node),
+    };
+    const surface = createModulePageAssistantSurface(view, vi.fn());
+    const list = surface.capabilities().find(({ descriptor }) => descriptor.code === 'query.describe')!;
+    const result = await list.execute({}, executionContext());
+    expect(JSON.stringify(result)).not.toMatch(/protected-value|privateValue/);
+    expect(result).toMatchObject({ rows: [{ values: ['Public'] }] });
+    const tree = surface.capabilities().find(({ descriptor }) => descriptor.code === 'tree.describe')!;
+    expect(await tree.execute({}, executionContext())).toMatchObject({
+      nodes: [{ selectionKey: 'node-1', title: 'Public' }],
+    });
+    expect(JSON.stringify(await tree.execute({}, executionContext()))).not.toContain('protected-value');
+    view.runtimePage!.explorer!.titleField = 'privateValue';
+    expect(surface.capabilities().map(({ descriptor }) => descriptor.code)).not.toContain('tree.describe');
+  },
+);

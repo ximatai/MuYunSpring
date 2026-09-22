@@ -41,10 +41,19 @@ public class AiModelConfiguration extends StandardEnabledEntity {
     @Column(name = "model_id", type = ColumnType.VARCHAR, length = 128, nullable = false, comment = "Provider model id")
     private String modelId;
 
+    @OptionField(type = OptionSourceType.ENUM)
+    @Column(name = "credential_source", type = ColumnType.VARCHAR, length = 32, nullable = false,
+            defaultVal = @Default(varchar = "direct"), comment = "API key source")
+    private AiModelCredentialSource credentialSource = AiModelCredentialSource.DIRECT;
+
+    @Column(name = "api_key_environment_variable", type = ColumnType.VARCHAR, length = 128,
+            comment = "Server environment variable containing the API key")
+    private String apiKeyEnvironmentVariable;
+
     @JsonIgnore
     @EncryptedField
     @SignedField
-    @Column(name = "api_key", type = ColumnType.TEXT, nullable = false, comment = "Encrypted provider API key")
+    @Column(name = "api_key", type = ColumnType.TEXT, comment = "Encrypted provider API key")
     private String apiKey;
 
     @JsonIgnore

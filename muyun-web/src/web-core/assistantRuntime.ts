@@ -121,16 +121,38 @@ export async function runAssistantConversation(
   message: string,
   options: AssistantConversationOptions = {},
 ): Promise<AssistantConversationResult> {
+  function waitForFormalSurface(token: AssistantInvocationToken) {
+    return registry.waitForActiveSurface({
+      pageInstanceKey: token.pageInstanceKey,
+      requireFormal: true,
+      signal: options.signal,
+      timeoutMs: 15_000,
+    });
+  }
+  let initial = registry.snapshot();
+  const identityScope = initial?.token.identityScopeKey;
+  if (initial?.token.conversationScopePending) initial = await waitForFormalSurface(initial.token);
+  if (initial?.token.identityScopeKey !== identityScope) throw new StaleAssistantInvocationError();
+  const conversationScope = initial?.token.conversationScopeKey;
   const maxSteps = options.maxSteps ?? DEFAULT_MAX_STEPS;
   if (!Number.isInteger(maxSteps) || maxSteps < 1 || maxSteps > DEFAULT_MAX_STEPS) {
     throw new Error(`Assistant conversation maxSteps must be between 1 and ${DEFAULT_MAX_STEPS}`);
   }
   const steps: AssistantRuntimeStepResult[] = [];
   let results: AssistantCapabilityResult[] = [];
+  const completedEffects: AssistantCapabilityResult[] = [];
   let successfulCalls = new Map<string, AssistantCapabilityResult>();
   let expectedReplacementToken: AssistantInvocationToken | undefined;
   let decisionRestarts = 0;
   for (let index = 0; index < maxSteps; index += 1) {
+    let current = registry.snapshot();
+    if (current?.token.conversationScopePending) current = await waitForFormalSurface(current.token);
+    if (
+      current?.token.identityScopeKey !== identityScope ||
+      current?.token.conversationScopeKey !== conversationScope
+    ) {
+      throw new StaleAssistantInvocationError();
+    }
     let step: InternalAssistantRuntimeStepResult;
     let streamedText = false;
     try {
@@ -217,7 +239,16 @@ export async function runAssistantConversation(
       return { steps, completed: true };
     }
     await options.onStep?.(publicStep);
-    results = step.results;
+    if (step.appliedEffectCount > 0) {
+      const effect = step.results.at(-1);
+      if (effect && !effect.error) completedEffects.push({ ...effect, output: { completed: true } });
+    }
+    // Keep a bounded receipt of effects, not old query payloads or repeated form snapshots.
+    const latestIds = new Set(step.results.map((result) => result.callId));
+    results = [
+      ...completedEffects.filter((result) => !latestIds.has(result.callId)).slice(-8),
+      ...step.results,
+    ];
   }
   emitDiagnostic(options.onDiagnostic, {
     type: 'conversation.completed',

@@ -44,6 +44,8 @@ interface ConversationSelection {
 }
 
 const draft = ref('');
+const resumableRequest = ref('');
+let lastTypedRequest = '';
 const items = ref<ConversationItem[]>([]);
 const completedHistory = ref<AssistantConversationMessage[]>([]);
 const busy = ref(false);
@@ -68,6 +70,9 @@ const activeRequiredSelection = computed(() =>
 );
 let nextItemId = 0;
 let controller: AbortController | undefined;
+let conversationEpoch = 0;
+let conversationScope: string | undefined;
+let identityScope: string | undefined;
 let streamingItemId: number | undefined;
 let pendingStreamText = '';
 const MAX_HISTORY_MESSAGES = 12;
@@ -91,10 +96,17 @@ function appendAssistant(text: string | undefined, selection?: AssistantSelectio
   });
 }
 
+function reusePreviousRequest() {
+  draft.value = resumableRequest.value;
+  resumableRequest.value = '';
+}
+
 function submit() {
   const message = draft.value.trim();
   if (!message || busy.value || activeRequiredSelection.value || !props.registry.snapshot()) return;
   const history = conversationHistory();
+  lastTypedRequest = message;
+  resumableRequest.value = '';
   draft.value = '';
   supersedeOpenSelections();
   void submitMessage(message, history);
@@ -106,7 +118,11 @@ async function submitMessage(
   selectionResponse?: AssistantSelectionResponse,
   sourceSelection?: ConversationSelection,
 ) {
+  const beforeSync = conversationEpoch;
+  expireStaleSelections();
+  if (beforeSync !== conversationEpoch) return;
   if (!message || busy.value || !props.registry.snapshot()) return;
+  const epoch = conversationEpoch;
   append('user', message);
   busy.value = true;
   activity.value = 'understanding';
@@ -118,9 +134,11 @@ async function submitMessage(
       history,
       ...(selectionResponse ? { selectionResponse } : {}),
       onActivity(phase) {
+        if (epoch !== conversationEpoch) return;
         activity.value = phase;
       },
       onTextDelta(text) {
+        if (epoch !== conversationEpoch) return;
         if (!text) return;
         if (streamingItemId === undefined) {
           pendingStreamText += text;
@@ -136,6 +154,7 @@ async function submitMessage(
         if (item) item.text += text;
       },
       onTextDiscard() {
+        if (epoch !== conversationEpoch) return;
         if (streamingItemId !== undefined) {
           items.value = items.value.filter(({ id }) => id !== streamingItemId);
         }
@@ -143,6 +162,7 @@ async function submitMessage(
         pendingStreamText = '';
       },
       onStep(step) {
+        if (epoch !== conversationEpoch) return;
         if (step.output.text || step.output.selection) {
           assistantTexts.push(assistantHistoryText(step.output.text, step.output.selection));
           if (streamingItemId === undefined) appendAssistant(step.output.text, step.output.selection);
@@ -157,10 +177,33 @@ async function submitMessage(
           const succeeded = step.results.filter((candidate) => !candidate.error).length;
           const failed = step.results.length - succeeded;
           append('status', capabilityResultStatus(succeeded, failed, step.appliedEffectCount));
+          for (const result of step.results) {
+            if (result.error || result.capabilityCode !== 'form.patch-draft') continue;
+            const summary = (
+              result.output as {
+                draftSummary?: {
+                  changes: Array<{ label: string; source: string; before?: unknown; after?: unknown }>;
+                  missingRequired: string[];
+                };
+              }
+            )?.draftSummary;
+            if (!summary) continue;
+            const lines = summary.changes.map(
+              (change) =>
+                `${change.label}${change.source === 'derived' ? '（联动）' : ''}：${summaryValue(change.before)} → ${summaryValue(change.after)}`,
+            );
+            if (summary.missingRequired.length) lines.push(`待填写：${summary.missingRequired.join('、')}`);
+            append('status', ['草稿变更（尚未保存）', ...lines].join('\n'));
+          }
         }
       },
     });
-    if (!result.completed) append('status', '本次任务步骤较多，已暂停。请重新完整描述后续目标。');
+    if (epoch !== conversationEpoch) return;
+    if (!result.completed)
+      append(
+        'status',
+        '本轮已达到步骤上限，已完成的草稿修改会保留。请检查当前页面，仍有未完成项时可告诉我继续。',
+      );
     else if (result.steps.every((step) => !step.output.text && !step.output.selection)) {
       const applied = result.steps.reduce((total, step) => total + step.appliedEffectCount, 0);
       const succeeded = result.steps.some((step) => step.results.some((candidate) => !candidate.error));
@@ -175,6 +218,7 @@ async function submitMessage(
     if (result.completed) commitConversation(message, assistantTexts);
     if (sourceSelection) sourceSelection.state = 'answered';
   } catch (error) {
+    if (epoch !== conversationEpoch) return;
     if (isAbortError(error)) {
       reopenSelection(sourceSelection);
       append('status', '已停止本次操作。');
@@ -188,18 +232,20 @@ async function submitMessage(
       const applied = error.steps.reduce((total, step) => total + step.appliedEffectCount, 0);
       append(
         'status',
-        `前面的 ${applied} 项页面操作已生效，但后续说明未能生成。请检查当前页面，必要时继续告诉我下一步。`,
+        `前面的 ${applied} 项页面操作已生效，但后续处理失败，目标可能尚未完成。请检查草稿和待填项，再告诉我继续。`,
       );
     } else {
       reopenSelection(sourceSelection);
       append('status', userFacingErrorMessage(normalizeError(error)));
     }
   } finally {
-    streamingItemId = undefined;
-    pendingStreamText = '';
-    controller = undefined;
-    busy.value = false;
-    activity.value = 'idle';
+    if (epoch === conversationEpoch) {
+      streamingItemId = undefined;
+      pendingStreamText = '';
+      controller = undefined;
+      busy.value = false;
+      activity.value = 'idle';
+    }
   }
 }
 
@@ -219,6 +265,33 @@ function selectionIsCurrent(selection: ConversationSelection) {
 }
 
 function expireStaleSelections() {
+  const token = props.registry.snapshot()?.token;
+  const scope = token?.conversationScopeKey;
+  const identity = token?.identityScopeKey;
+  if (identity === identityScope && conversationScope === undefined && scope !== undefined) {
+    conversationScope = scope;
+  }
+  if (
+    (identity !== undefined && identity !== identityScope) ||
+    (scope !== undefined && scope !== conversationScope)
+  ) {
+    const previous = conversationScope;
+    resumableRequest.value = identity === identityScope && previous !== undefined ? lastTypedRequest : '';
+    lastTypedRequest = '';
+    identityScope = identity;
+    conversationScope = scope;
+    conversationEpoch += 1;
+    controller?.abort();
+    controller = undefined;
+    items.value = [];
+    completedHistory.value = [];
+    draft.value = '';
+    busy.value = false;
+    activity.value = 'idle';
+    streamingItemId = undefined;
+    pendingStreamText = '';
+    if (previous !== undefined) append('status', '业务身份或租户范围已变化，已开始新会话。');
+  }
   for (const item of items.value) {
     if (item.selection?.state === 'open' && !selectionIsCurrent(item.selection)) {
       item.selection.state = 'superseded';
@@ -299,6 +372,11 @@ function boundedHistory(history: AssistantConversationMessage[]): AssistantConve
   return selected;
 }
 
+function summaryValue(value: unknown): string {
+  if (value === undefined || value === null || value === '') return '空';
+  return String(value).slice(0, 200);
+}
+
 function capabilityResultStatus(succeeded: number, failed: number, applied: number) {
   const successfulText =
     applied === 0
@@ -327,7 +405,7 @@ watch(
 );
 onBeforeUnmount(cancel);
 
-watch(() => props.registry.snapshot()?.token, expireStaleSelections, { deep: true });
+watch(() => props.registry.snapshot()?.token, expireStaleSelections, { deep: true, flush: 'sync' });
 watch(
   () => props.registry,
   (registry, _previous, onCleanup) => {
@@ -384,6 +462,10 @@ function isAbortError(error: unknown) {
         </template>
         <template v-else>{{ item.text }}</template>
       </article>
+      <div v-if="resumableRequest && !busy" class="assistant-panel__welcome">
+        <span>范围已变更。可将上一条输入带回编辑框，检查后重新发送。</span>
+        <UiButton @click="reusePreviousRequest">复用上一条输入</UiButton>
+      </div>
       <div v-if="busy" class="assistant-panel__working">{{ activityText }}</div>
     </section>
 
@@ -414,17 +496,15 @@ function isAbortError(error: unknown) {
 
 <style scoped>
 .assistant-panel {
-  position: absolute;
-  z-index: 7;
-  top: 0;
-  right: 0;
-  bottom: 0;
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
   display: grid;
-  width: min(400px, calc(100vw - 24px));
+  width: 100%;
   grid-template-rows: auto minmax(0, 1fr) auto;
   border-left: 1px solid var(--muyun-support-border);
   background: var(--muyun-support-surface);
-  box-shadow: -10px 0 28px rgb(15 23 42 / 12%);
 }
 
 .assistant-panel__header,

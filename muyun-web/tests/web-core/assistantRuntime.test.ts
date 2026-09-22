@@ -1032,3 +1032,108 @@ it('discards streamed text when its structured turn fails before completion', as
   expect(onTextDelta).toHaveBeenCalledWith('partial', 0);
   expect(onTextDiscard).toHaveBeenCalledWith(0);
 });
+
+it('waits for a pending fallback to resolve before sending history to its transport', async () => {
+  const registry = createAssistantSurfaceRegistry(() => 'user');
+  const fallback = vi.fn();
+  const formal = vi.fn(async () => ({ text: 'ok', toolCalls: [] }));
+  registry.register({
+    pageInstanceKey: 'a',
+    fallback: true,
+    conversationScopePending: true,
+    contextRevision: () => '',
+    surface: {
+      describe: () => ({ surface: 'workbench', facts: {} }),
+      capabilities: () => [],
+      requestTurn: fallback,
+    },
+  });
+  registry.activate('a');
+  const pending = runAssistantConversation(registry, 'hello');
+  registry.register({
+    pageInstanceKey: 'a',
+    conversationScopeKey: () => 'tenant-a',
+    contextRevision: () => '',
+    surface: {
+      describe: () => ({ surface: 'test', facts: {} }),
+      capabilities: () => [],
+      requestTurn: formal,
+    },
+  });
+  await expect(pending).resolves.toMatchObject({ completed: true });
+  expect(fallback).not.toHaveBeenCalled();
+  expect(formal).toHaveBeenCalledOnce();
+});
+
+it('does not send the previous goal or results after a capability changes tenant scope', async () => {
+  let scope = 'tenant-a';
+  const registry = createAssistantSurfaceRegistry(() => 'user');
+  const requestTurn = vi.fn(async () => ({ toolCalls: [{ id: 'call', code: 'scope.change', input: {} }] }));
+  registry.register({
+    pageInstanceKey: 'a',
+    conversationScopeKey: () => scope,
+    contextRevision: () => '',
+    surface: {
+      describe: () => ({ surface: 'test', facts: {} }),
+      requestTurn,
+      capabilities: () => [
+        {
+          descriptor: { code: 'scope.change', description: 'change', inputSchema: {} },
+          parseInput: (value) => value,
+          execute: async (_input, context) => {
+            context.applyEffect(() => {
+              scope = 'tenant-b';
+            });
+            return { changed: true };
+          },
+        },
+      ],
+    },
+  });
+  registry.activate('a');
+  await expect(runAssistantConversation(registry, 'old goal')).rejects.toThrow(StaleAssistantInvocationError);
+  expect(requestTurn).toHaveBeenCalledOnce();
+});
+
+it('retains compact effect receipts without accumulating old read payloads', async () => {
+  let revision = 'before';
+  const requestTurn = vi
+    .fn()
+    .mockResolvedValueOnce({ toolCalls: [{ id: 'effect', code: 'page.change', input: {} }] })
+    .mockResolvedValueOnce({ toolCalls: [{ id: 'read', code: 'page.inspect', input: {} }] })
+    .mockResolvedValueOnce({ text: 'Done', toolCalls: [] });
+  const registry = createAssistantSurfaceRegistry();
+  registry.register({
+    pageInstanceKey: 'page',
+    contextRevision: () => revision,
+    surface: {
+      describe: () => ({ surface: 'module-page', facts: {} }),
+      requestTurn,
+      capabilities: () => [
+        {
+          descriptor: { code: 'page.change', description: 'Change', inputSchema: {} },
+          parseInput: (input) => input,
+          async execute(_input, context) {
+            context.applyEffect(() => {
+              revision = 'after';
+            });
+            return { largeValue: 'x'.repeat(2000) };
+          },
+        },
+        {
+          descriptor: { code: 'page.inspect', description: 'Inspect', inputSchema: {} },
+          parseInput: (input) => input,
+          async execute() {
+            return { current: true };
+          },
+        },
+      ],
+    },
+  });
+  registry.activate('page');
+  await runAssistantConversation(registry, 'change and inspect');
+  expect(requestTurn.mock.calls[2]?.[0].results).toEqual([
+    { callId: 'effect', capabilityCode: 'page.change', output: { completed: true } },
+    { callId: 'read', capabilityCode: 'page.inspect', output: { current: true } },
+  ]);
+});

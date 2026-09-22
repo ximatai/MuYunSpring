@@ -71,6 +71,10 @@ public class AiModelConfigurationWebController
                                             .visible(UiRule.formula(UiFormula.booleanExpression("!(PRESENT({tenantId}))")))
                                             .readOnly().booleanStatus("已开放", "仅平台使用"))
                                     .field("tenantId", field -> field.label("绑定租户（平台级无需绑定）").readOnly())
+                                    .field("credentialSource", field -> field.label("凭据来源").readOnly())
+                                    .field("apiKeyEnvironmentVariable", field -> field.label("API Key 环境变量名")
+                                            .visible(UiRule.formula(UiFormula.booleanExpression("{credentialSource} == 'environment'")))
+                                            .readOnly())
                                     .field("apiKeyConfigured", field -> field.label("API Key")
                                             .readOnly().booleanStatus("已配置", "未配置")))
                             .editor(form -> form
@@ -82,9 +86,14 @@ public class AiModelConfigurationWebController
                                             .recordPickerDialog())
                                     .field("tenantFallbackEnabled", field -> field.label("面向租户共享")
                                             .visible(UiRule.formula(UiFormula.booleanExpression("!(PRESENT({tenantId}))"))))
+                                    .field("credentialSource", field -> field.label("凭据来源").required().select())
+                                    .field("apiKeyEnvironmentVariable", field -> field.label("API Key 环境变量名")
+                                            .visible(UiRule.formula(UiFormula.booleanExpression("{credentialSource} == 'environment'")))
+                                            .required(UiRule.formula(UiFormula.booleanExpression("{credentialSource} == 'environment'"))))
                                     .field("apiKeyInput", field -> field.label("API Key（已配置时留空不修改）")
+                                            .visible(UiRule.formula(UiFormula.booleanExpression("{credentialSource} != 'environment'")))
                                             .secretInput()
-                                            .required(UiRule.formula(UiFormula.booleanExpression("!(PRESENT({id}))"))))
+                                            .required(UiRule.formula(UiFormula.booleanExpression("{credentialSource} != 'environment' && !(PRESENT({id}))"))))
                                     .field("enabled", field -> field.label("启用状态").enabledStatus())));
                     page.traits(traits -> traits.operations(operations -> operations.standardCrud().enabledLifecycle()));
                 }))

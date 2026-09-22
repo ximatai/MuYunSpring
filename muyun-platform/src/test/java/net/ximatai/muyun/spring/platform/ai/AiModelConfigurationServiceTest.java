@@ -301,6 +301,19 @@ class AiModelConfigurationServiceTest {
         assertThat(configuration.getApiKeyConfigured()).isTrue();
     }
 
+    @Test
+    void tenantCannotSaveEnvironmentReferencesEvenWhenTenantFilteringIsBypassed() {
+        var service = service(mock(BaseDao.class));
+        var configuration = input("model", null);
+        configuration.setCredentialSource(AiModelCredentialSource.ENVIRONMENT);
+        configuration.setApiKeyEnvironmentVariable("MUYUN_AI_TEST_KEY");
+        try (var user = CurrentUserContext.use(CurrentUser.tenantUser("u", "u", "tenant"));
+             var tenant = TenantContext.use("tenant");
+             var bypass = TenantContext.bypassTenantFilter("contract")) {
+            assertThatThrownBy(() -> service.beforeInsert(configuration)).hasMessageContaining("只有平台管理员");
+        }
+    }
+
     private AiModelConfigurationService service(BaseDao<AiModelConfiguration, String> dao) {
         DefaultListableBeanFactory beans = new DefaultListableBeanFactory();
         beans.registerSingleton("crypto", crypto);

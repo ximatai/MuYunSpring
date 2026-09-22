@@ -205,6 +205,7 @@ function syncAssistantSurface() {
         assistantSurfaceSettlement = undefined;
         unregisterAssistantSurface = assistantHost.registry.register({
           pageInstanceKey,
+          conversationScopeKey: () => tenantController.selectedId.value ?? '',
           settle: (signal) => session.settleAssistantPageState(signal),
           contextRevision: () => modulePageAssistantContextRevision(session),
           interactionRevision: () => modulePageAssistantInteractionRevision(session),

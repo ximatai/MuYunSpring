@@ -15,9 +15,27 @@ export type ModulePageAssistantTenantScope = Pick<
   ): Promise<void | AssistantInvocationToken>;
 };
 
+export interface AssistantScopeCandidate {
+  scopeKey: string;
+  record: QueryListRecord;
+  revision: string;
+}
+
+function scopeRevision(
+  view: ModulePageSessionView,
+  tenantScope: ModulePageAssistantTenantScope | undefined,
+  scopeKey: string,
+) {
+  return JSON.stringify([
+    tenantScope?.selected.value?.id ?? null,
+    scopeKey === 'tenant' ? null : view.assistantNavigatorScopeRevision(scopeKey),
+  ]);
+}
+
 export function modulePageScopeCapabilities(
   view: ModulePageSessionView,
   tenantScope: ModulePageAssistantTenantScope | undefined,
+  candidates: Map<string, AssistantScopeCandidate>,
 ): AssistantCapability[] {
   const capabilities: AssistantCapability[] = [];
   if (
@@ -29,11 +47,166 @@ export function modulePageScopeCapabilities(
   }
   const navigatorKeys = (view.assistantNavigatorScopes?.() ?? []).map((level) => level.descriptor.key);
   if (navigatorKeys.length > 0) capabilities.push(navigatorScopeSelectionCapability(view, navigatorKeys));
+  const scopeKeys = [
+    ...(capabilities.some(({ descriptor }) => descriptor.code === 'scope.select-tenant') ? ['tenant'] : []),
+    ...navigatorKeys,
+  ];
+  if (scopeKeys.length) {
+    capabilities.push(scopeSearchCapability(view, tenantScope, scopeKeys, candidates));
+    capabilities.push({
+      descriptor: {
+        code: 'scope.select-candidate',
+        description: '应用 scope.search 返回的 selectionKey。使用候选凭据，不把展示标签当作名称重新搜索。',
+        inputSchema: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['selectionKey'],
+          properties: { selectionKey: { type: 'string' } },
+        },
+      },
+      parseInput(input) {
+        if (!isRecord(input) || typeof input.selectionKey !== 'string')
+          throw new Error('Scope candidate key is required');
+        return input.selectionKey;
+      },
+      async execute(input, context) {
+        const candidate = candidates.get(String(input));
+        if (
+          !candidate ||
+          !scopeKeys.includes(candidate.scopeKey) ||
+          candidate.revision !== scopeRevision(view, tenantScope, candidate.scopeKey)
+        ) {
+          throw new Error('Scope candidate expired; search again');
+        }
+        const capability =
+          candidate.scopeKey === 'tenant'
+            ? tenantScopeSelectionCapability(tenantScope!, candidate.record)
+            : navigatorScopeSelectionCapability(view, navigatorKeys, candidate.record);
+        return capability.execute(
+          capability.parseInput({ scopeKey: candidate.scopeKey, title: scopeRecordTitle(candidate.record) }),
+          context,
+        );
+      },
+    });
+  }
   return capabilities;
+}
+
+function scopeSearchCapability(
+  view: ModulePageSessionView,
+  tenantScope: ModulePageAssistantTenantScope | undefined,
+  scopeKeys: string[],
+  candidates: Map<string, AssistantScopeCandidate>,
+): AssistantCapability<{ scopeKey: string; keyword: string; page: number }> {
+  return {
+    descriptor: {
+      code: 'scope.search',
+      description:
+        '查询当前授权范围内的租户或导航候选。缺少范围名称时先查询，再让用户选择；不自动选择。使用返回的 selectionKey 调用 scope.select-candidate。',
+      inputSchema: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['scopeKey'],
+        properties: {
+          scopeKey: { type: 'string', enum: scopeKeys },
+          keyword: { type: 'string', maxLength: 500 },
+          page: { type: 'integer', minimum: 1, maximum: 1000 },
+        },
+      },
+    },
+    parseInput(input) {
+      if (
+        !isRecord(input) ||
+        typeof input.scopeKey !== 'string' ||
+        !scopeKeys.includes(input.scopeKey) ||
+        (input.keyword !== undefined && (typeof input.keyword !== 'string' || input.keyword.length > 500)) ||
+        (input.page !== undefined &&
+          (!Number.isInteger(input.page) || Number(input.page) < 1 || Number(input.page) > 1000))
+      ) {
+        throw new Error('Invalid scope search');
+      }
+      return {
+        scopeKey: input.scopeKey,
+        keyword: String(input.keyword ?? '').trim(),
+        page: Number(input.page ?? 1),
+      };
+    },
+    async execute({ scopeKey, keyword, page }, context) {
+      const revision = scopeRevision(view, tenantScope, scopeKey);
+      let records: QueryListRecord[];
+      let total: number;
+      let secondary: string | undefined;
+      if (scopeKey === 'tenant') {
+        const source = tenantScope?.tenantScopeContext.value;
+        if (!source || tenantScope?.blocked.value) throw new Error('Tenant scope is unavailable');
+        const response = await source.crud.query({
+          page: { pageNum: page, pageSize: MAX_ASSISTANT_SCOPE_OPTIONS },
+          ...(keyword ? { quickSearch: keyword } : {}),
+        });
+        records = response.records;
+        total = response.total;
+        secondary = 'alias';
+      } else {
+        const level = view.assistantNavigatorScopes().find((item) => item.descriptor.key === scopeKey);
+        if (!level) throw new Error('Navigator scope is unavailable');
+        secondary = level.descriptor.secondaryField;
+        const request = {
+          externalQueryValues: view.navigatorExplorerQueryValues(scopeKey),
+          navigatorHostModuleAlias: view.context.moduleAlias,
+          navigatorTargetLevelKey: scopeKey,
+        };
+        if (level.tree) {
+          const response = await level.context.abilities.tree().tree(request);
+          const matches = flattenTreeRecords(response.records).filter(
+            (record) =>
+              !keyword ||
+              normalizeScopeTitle(scopeRecordDisplayTitle(record, secondary) ?? '').includes(
+                normalizeScopeTitle(keyword),
+              ),
+          );
+          total = matches.length;
+          records = matches.slice(
+            (page - 1) * MAX_ASSISTANT_SCOPE_OPTIONS,
+            page * MAX_ASSISTANT_SCOPE_OPTIONS,
+          );
+        } else {
+          const response = await level.context.crud.query({
+            ...request,
+            page: { pageNum: page, pageSize: MAX_ASSISTANT_SCOPE_OPTIONS },
+            ...(keyword ? { quickSearch: keyword } : {}),
+          });
+          records = response.records;
+          total = response.total;
+        }
+      }
+      if (!context.isCurrent() || revision !== scopeRevision(view, tenantScope, scopeKey))
+        throw new Error('Scope search is no longer current');
+      const options = records
+        .filter((record) => record.id != null && scopeRecordTitle(record))
+        .map((record) => ({ selectionKey: crypto.randomUUID(), record }));
+      context.commitInternalState(() => {
+        candidates.clear();
+        for (const option of options)
+          candidates.set(option.selectionKey, { scopeKey, record: option.record, revision });
+      });
+      return {
+        scopeKey,
+        page,
+        total,
+        hasMore: page * MAX_ASSISTANT_SCOPE_OPTIONS < total,
+        candidates: options.map(({ selectionKey, record }) => ({
+          selectionKey,
+          title: scopeRecordTitle(record),
+          label: scopeRecordDisplayTitle(record, secondary),
+        })),
+      };
+    },
+  };
 }
 
 function tenantScopeSelectionCapability(
   tenantScope: ModulePageAssistantTenantScope,
+  candidate?: QueryListRecord,
 ): AssistantCapability<{ title: string }> {
   return {
     descriptor: {
@@ -52,17 +225,15 @@ function tenantScopeSelectionCapability(
       const scopeContext = tenantScope.tenantScopeContext.value;
       if (!scopeContext || tenantScope.blocked.value) throw new Error('Tenant scope is not available');
       const initialTenantId = String(tenantScope.selected.value?.id ?? '');
-      const response = await scopeContext.crud.query({
-        page: { pageNum: 1, pageSize: MAX_ASSISTANT_SCOPE_OPTIONS },
-        quickSearch: title,
-      });
-      const selected = requireUniqueExactScopeRecord(
-        response.records,
-        response.total,
-        title,
-        'tenant',
-        'alias',
-      );
+      const response = candidate
+        ? { records: [candidate], total: 1 }
+        : await scopeContext.crud.query({
+            page: { pageNum: 1, pageSize: MAX_ASSISTANT_SCOPE_OPTIONS },
+            quickSearch: title,
+          });
+      const selected =
+        candidate ??
+        requireUniqueExactScopeRecord(response.records, response.total, title, 'tenant', 'alias');
       if (!context.isCurrent() || String(tenantScope.selected.value?.id ?? '') !== initialTenantId) {
         throw new Error('Tenant scope selection is no longer current');
       }
@@ -94,6 +265,7 @@ function tenantScopeSelectionCapability(
 function navigatorScopeSelectionCapability(
   view: ModulePageSessionView,
   navigatorKeys: string[],
+  candidate?: QueryListRecord,
 ): AssistantCapability<{ scopeKey: string; title: string }> {
   const levels = view.assistantNavigatorScopes?.() ?? [];
   const titles = Object.fromEntries(levels.map((level) => [level.descriptor.key, level.descriptor.title]));
@@ -101,7 +273,7 @@ function navigatorScopeSelectionCapability(
     descriptor: {
       code: 'scope.select-navigator',
       description:
-        '按名称选择当前页面的导航查询范围（例如机构、部门或分类）。当 pageContext 的 recordCreationReady=false 且 navigatorScopes 中存在未选择项时，先向用户询问该范围的业务名称，再调用本能力；仅在授权查询返回唯一精确匹配时应用。',
+        '按已知名称选择当前页面的导航范围，仅在授权查询返回唯一精确匹配时应用。名称未知时先用 scope.search 查询候选。',
       inputSchema: {
         type: 'object',
         additionalProperties: false,
@@ -140,7 +312,10 @@ function navigatorScopeSelectionCapability(
       };
       let records: QueryListRecord[];
       let total: number;
-      if (level.tree) {
+      if (candidate) {
+        records = [candidate];
+        total = 1;
+      } else if (level.tree) {
         const response = await level.context.abilities.tree().tree(request);
         records = flattenTreeRecords(response.records);
         total = records.length;
@@ -153,13 +328,15 @@ function navigatorScopeSelectionCapability(
         records = response.records;
         total = response.total;
       }
-      const selected = requireUniqueExactScopeRecord(
-        records,
-        total,
-        title,
-        titles[scopeKey] ?? scopeKey,
-        level.descriptor.secondaryField,
-      );
+      const selected =
+        candidate ??
+        requireUniqueExactScopeRecord(
+          records,
+          total,
+          title,
+          titles[scopeKey] ?? scopeKey,
+          level.descriptor.secondaryField,
+        );
       if (!context.isCurrent() || view.assistantNavigatorScopeRevision(scopeKey) !== scopeRevision) {
         throw new Error('Navigator scope selection is no longer current');
       }

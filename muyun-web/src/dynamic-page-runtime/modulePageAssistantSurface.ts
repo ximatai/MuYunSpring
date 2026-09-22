@@ -16,9 +16,14 @@ import {
   type RecordFormFieldValue,
   type RecordQueryListQuerySnapshot,
 } from '@muyun/platform-components';
+import { assistantQueryResult, createAssistantQueryCapabilities } from './assistantQueryCapabilities';
 import type { ModulePageSessionView } from './useModulePageSession';
 import { assistantEditableRecordIds, hasActiveRecordEditor } from './assistantRecordEditorPolicy';
-import { modulePageScopeCapabilities, type ModulePageAssistantTenantScope } from './modulePageAssistantScope';
+import {
+  modulePageScopeCapabilities,
+  type ModulePageAssistantTenantScope,
+  type AssistantScopeCandidate,
+} from './modulePageAssistantScope';
 
 const MAX_ASSISTANT_FORM_CURRENT_VALUE_CHARS = 8_000;
 const MAX_ASSISTANT_REFERENCE_OPTIONS = 10;
@@ -61,7 +66,7 @@ function assistantQueryProjectionDigest(snapshot: RecordQueryListQuerySnapshot) 
 export function modulePageAssistantInteractionRevision(view: ModulePageSessionView): string {
   return JSON.stringify({
     page: view.assistantInteractionRevision,
-    query: view.listQueryController?.interactionRevision?.() ?? null,
+    query: view.listQueryController?.interactionRevision?.() ?? '0',
   });
 }
 
@@ -75,9 +80,10 @@ export function createModulePageAssistantSurface(
     selections: new Map(),
     searchRevision: 0,
   };
+  const scopeCandidates = new Map<string, AssistantScopeCandidate>();
   const capabilities = (): AssistantCapability[] => [
     ...contributedCapabilities(),
-    ...modulePageScopeCapabilities(view, tenantScope),
+    ...modulePageScopeCapabilities(view, tenantScope, scopeCandidates),
     ...(view.listQueryController ? queryCapabilities(view) : []),
     ...(view.treeQueryController ? treeQueryCapabilities(view) : []),
     ...recordEditorCapabilities(view),
@@ -85,7 +91,7 @@ export function createModulePageAssistantSurface(
     ...referenceCapabilities(view, referenceSelections),
   ];
   return {
-    describe: () => surfaceContext(view),
+    describe: () => surfaceContext(view, tenantScope),
     capabilities,
     requestTurn,
   };
@@ -325,7 +331,7 @@ function recordEditorCapabilities(view: ModulePageSessionView): AssistantCapabil
   const querySnapshot = view.listQueryController?.snapshot();
   if (querySnapshot?.mode === 'recycleBin') return [];
   const capabilities: AssistantCapability[] = [];
-  if (view.context.can('create') === true && view.assistantRecordCreationReady()) {
+  if (view.recordCreationState().ready) {
     capabilities.push({
       descriptor: {
         code: 'record.start-create',
@@ -382,9 +388,16 @@ function hasEditableDraft(view: ModulePageSessionView) {
 }
 
 function queryCapabilities(view: ModulePageSessionView): AssistantCapability[] {
-  const controller = view.listQueryController!;
+  const source = view.listQueryController!;
+  const controller = {
+    ...source,
+    snapshot: () => assistantQuerySnapshot(view, source.snapshot()),
+    settle: async (...args: Parameters<typeof source.settle>) =>
+      assistantQuerySnapshot(view, await source.settle(...args)),
+  };
   const snapshot = controller.snapshot();
   return [
+    ...createAssistantQueryCapabilities(controller),
     ...(snapshot.quickSearchEnabled
       ? [
           {
@@ -417,7 +430,7 @@ function queryCapabilities(view: ModulePageSessionView): AssistantCapability[] {
                 },
                 () => pending.then(() => undefined),
               );
-              return pending;
+              return pending.then(assistantQueryResult);
             },
           } satisfies AssistantCapability,
         ]
@@ -430,14 +443,29 @@ function queryCapabilities(view: ModulePageSessionView): AssistantCapability[] {
       },
       parseInput: parseEmptyAssistantCapabilityInput,
       async execute() {
-        return controller.snapshot();
+        return assistantQueryResult(controller.snapshot());
       },
     },
   ];
 }
 
 function treeQueryCapabilities(view: ModulePageSessionView): AssistantCapability[] {
-  const controller = view.treeQueryController!;
+  const source = view.treeQueryController!;
+  const primary = view.runtimePage?.explorer?.titleField ?? 'title';
+  const secondary = view.runtimePage?.explorer?.secondaryField;
+  if (!assistantReadableName(view, primary)) return [];
+  const safeNode = (node: ReturnType<typeof source.select>) =>
+    secondary && !assistantReadableName(view, secondary)
+      ? { selectionKey: node.selectionKey, title: node.title }
+      : node;
+  const controller = {
+    ...source,
+    select: (key: string) => safeNode(source.select(key)),
+    snapshot: () => {
+      const snapshot = source.snapshot();
+      return { ...snapshot, nodes: snapshot.nodes.map(safeNode) };
+    },
+  };
   const selectionKeys = controller.snapshot().nodes.map(({ selectionKey }) => selectionKey);
   return [
     {
@@ -487,7 +515,10 @@ function treeQueryCapabilities(view: ModulePageSessionView): AssistantCapability
   ];
 }
 
-function surfaceContext(view: ModulePageSessionView): AssistantSurfaceContext {
+function surfaceContext(
+  view: ModulePageSessionView,
+  tenantScope?: ModulePageAssistantTenantScope,
+): AssistantSurfaceContext {
   const navigatorScopes = view.assistantNavigatorScopes().map((level) => {
     const selected = view.selectedNavigatorRecords[level.descriptor.key];
     const selectedTitle = selected ? recordTitle(selected) : undefined;
@@ -506,7 +537,10 @@ function surfaceContext(view: ModulePageSessionView): AssistantSurfaceContext {
       selectedRecordId: recordIdentity(view.selectedRecord),
       editing: hasEditableDraft(view),
       dirty: view.detailDirty,
-      recordCreationReady: view.assistantRecordCreationReady(),
+      creation: view.recordCreationState(),
+      ...(tenantScope?.tenantScopeExplorerVisible.value
+        ? { tenant: tenantScope.selected.value ? recordTitle(tenantScope.selected.value) : null }
+        : {}),
       ...(navigatorScopes.length > 0 ? { navigatorScopes } : {}),
     },
   };
@@ -548,7 +582,7 @@ function formDescribeCapability(view: ModulePageSessionView): AssistantCapabilit
                 }
               : {}),
             ...(currentValue !== undefined ? { currentValue } : {}),
-            options: assistantOptions(field),
+            options: field.assistantPolicy === 'DESCRIBE' ? [] : assistantOptions(field),
           };
         });
       return {
@@ -623,10 +657,38 @@ function formPatchCapability(
       if (!hasEditableDraft(view)) throw new Error('No editable form draft is active');
       validateDraftTargets(view, input.changes);
       const validatedChanges = validateDraftChanges(view, input.changes);
+      const before = draftSummaryValues(view);
       context.applyEffect(() => {
         view.updateDraftFields(validatedChanges, 'assistant');
       });
-      return { changedFields: input.changes.map(({ fieldName }) => fieldName) };
+      const after = draftSummaryValues(view);
+      const requested = new Set(input.changes.map(({ fieldName }) => fieldName));
+      const changes = formFieldStates(view)
+        .filter((field) => after.has(field.fieldName))
+        .filter(
+          (field) =>
+            JSON.stringify(before.get(field.fieldName)) !== JSON.stringify(after.get(field.fieldName)),
+        )
+        .map((field) => ({
+          fieldName: field.fieldName,
+          label: field.label,
+          source: requested.has(field.fieldName) ? 'assistant' : 'derived',
+          before: before.get(field.fieldName),
+          after: after.get(field.fieldName),
+        }));
+      const missingRequired = formFieldStates(view)
+        .filter((field) => field.visible && field.required && !isSensitiveField(field))
+        .filter((field) => {
+          const value = view.editingRecord?.[field.fieldName];
+          return (
+            value === undefined ||
+            value === null ||
+            value === '' ||
+            (Array.isArray(value) && value.length === 0)
+          );
+        })
+        .map((field) => field.label);
+      return { changedFields: [...requested], draftSummary: { saved: false, changes, missingRequired } };
     },
   };
 }
@@ -665,7 +727,13 @@ function assistantCurrentValue(
   field: RecordFormFieldState,
   budget: { remaining: number; truncated: boolean },
 ) {
-  if (isSensitiveField(field) || field.reference || field.fileReference) return undefined;
+  if (
+    isSensitiveField(field) ||
+    field.assistantPolicy === 'DESCRIBE' ||
+    field.reference ||
+    field.fileReference
+  )
+    return undefined;
   const value = (view.editingRecord ?? view.selectedRecord)?.[field.fieldName];
   let candidate: null | string | number | boolean | Array<string | number | boolean> | undefined;
   if (value === undefined) return undefined;
@@ -688,12 +756,13 @@ function assistantCurrentValue(
 }
 
 function isSensitiveField(field: RecordFormFieldState) {
-  return field.fieldControl?.alias === 'password';
+  return field.fieldControl?.alias === 'password' || field.assistantPolicy === 'HIDDEN';
 }
 
 function isAssistantWritableField(field: RecordFormFieldState) {
   if (
     isSensitiveField(field) ||
+    (field.assistantPolicy !== undefined && field.assistantPolicy !== 'READ_WRITE') ||
     field.reference ||
     field.fileReference ||
     field.fieldControl?.rendererType === 'JSON' ||
@@ -732,10 +801,11 @@ function assistantReferenceField(view: ModulePageSessionView, fieldName: string)
 function assistantReferenceFieldState(field: RecordFormFieldState) {
   return (
     field.visible &&
+    !isSensitiveField(field) &&
+    (field.assistantPolicy === undefined || field.assistantPolicy === 'READ_WRITE') &&
     !field.readOnly &&
     field.reference?.cardinality === 'ONE' &&
-    field.reference.pickerMode !== 'TREE' &&
-    field.pickerConfig?.scopedTree === undefined &&
+    field.pickerConfig?.scopedTree?.disabled !== true &&
     field.pickerConfig?.provider !== undefined
   );
 }
@@ -863,4 +933,70 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function recordIdentity(record: { id?: unknown; version?: unknown } | undefined) {
   if (record?.id === undefined || record.id === null) return undefined;
   return { id: String(record.id), version: record.version };
+}
+
+function draftSummaryValues(view: ModulePageSessionView): Map<string, unknown> {
+  const budget = { remaining: MAX_ASSISTANT_FORM_CURRENT_VALUE_CHARS, truncated: false };
+  return new Map(
+    formFieldStates(view)
+      .filter((field) => field.visible && !isSensitiveField(field) && field.assistantPolicy !== 'DESCRIBE')
+      .map((field) => [field.fieldName, assistantCurrentValue(view, field, budget)]),
+  );
+}
+
+function assistantReadableName(view: ModulePageSessionView, name: string): boolean {
+  if (name.includes('.')) return false;
+  const field = formFieldState(view, name);
+  if (field && (isSensitiveField(field) || field.assistantPolicy === 'DESCRIBE')) return false;
+  // Display-only fields need the same protection ceiling as editor fields.
+  const descriptor = view.context.runtime?.snapshot()?.uiDescriptor;
+  const page = view.runtimePage ?? descriptor?.page;
+  const views = [
+    page?.detail?.display,
+    page?.detail?.editor,
+    page?.list?.fields,
+    descriptor?.defaultEditor,
+    ...(descriptor?.editorSurfaces?.map((surface) => surface.editor) ?? []),
+  ];
+  return !views.some((source) =>
+    source?.fields.some(
+      (candidate) =>
+        !candidate.fieldRef.relationCode &&
+        candidate.fieldRef.fieldName === name &&
+        (candidate.assistantPolicy === 'HIDDEN' ||
+          candidate.assistantPolicy === 'DESCRIBE' ||
+          candidate.fieldControl?.alias === 'password'),
+    ),
+  );
+}
+
+function assistantQuerySnapshot(
+  view: ModulePageSessionView,
+  snapshot: RecordQueryListQuerySnapshot,
+): RecordQueryListQuerySnapshot {
+  const sourceName = (name: string) =>
+    name === 'title'
+      ? (view.runtimePage?.explorer?.titleField ?? name)
+      : name === 'secondary'
+        ? (view.runtimePage?.explorer?.secondaryField ?? name)
+        : name;
+  return {
+    ...snapshot,
+    quickSearchFields: snapshot.quickSearchFields.filter((field) => assistantReadableName(view, field.name)),
+    rows: snapshot.rows.map((row) => ({
+      ...row,
+      cells: row.cells.filter((cell) => assistantReadableName(view, sourceName(cell.fieldName))),
+    })),
+    ...(snapshot.standardQuery
+      ? {
+          standardQuery: {
+            fields: snapshot.standardQuery.fields.filter((field) => assistantReadableName(view, field.name)),
+            conditions: snapshot.standardQuery.conditions.filter((condition) =>
+              assistantReadableName(view, condition.fieldName),
+            ),
+            sorts: snapshot.standardQuery.sorts.filter((sort) => assistantReadableName(view, sort.field)),
+          },
+        }
+      : {}),
+  };
 }

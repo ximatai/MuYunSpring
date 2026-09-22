@@ -442,3 +442,50 @@ describe('assistant surface registry', () => {
     await expect(pending).rejects.toMatchObject({ name: 'AbortError' });
   });
 });
+
+it('rejects duplicate composed capabilities instead of executing the first match', () => {
+  const registry = createAssistantSurfaceRegistry();
+  const capability: AssistantCapability = {
+    descriptor: { code: 'read', description: 'read', inputSchema: {} },
+    parseInput: (input) => input,
+    execute: vi.fn(),
+  };
+  expect(() =>
+    registry.register({
+      pageInstanceKey: 'a',
+      contextRevision: () => '',
+      surface: {
+        describe: () => ({ surface: 'test', facts: {} }),
+        capabilities: () => [capability, capability],
+        requestTurn: vi.fn(),
+      },
+    }),
+  ).toThrow('duplicate');
+});
+
+it('invalidates both requests and effects when identity or execution tenant changes', async () => {
+  let identity = 'user-a';
+  let tenant = 'tenant-a';
+  const registry = createAssistantSurfaceRegistry(() => identity);
+  registry.register({
+    pageInstanceKey: 'a',
+    contextRevision: () => '',
+    conversationScopeKey: () => tenant,
+    surface: {
+      describe: () => ({ surface: 'test', facts: {} }),
+      capabilities: () => [],
+      requestTurn: vi.fn(),
+    },
+  });
+  registry.activate('a');
+  const token = registry.snapshot()!.token;
+  tenant = 'tenant-b';
+  await expect(registry.requestTurn({ message: 'old', history: [] }, token)).rejects.toThrow(
+    StaleAssistantInvocationError,
+  );
+  const next = registry.snapshot()!.token;
+  identity = 'user-b';
+  await expect(registry.requestTurn({ message: 'old', history: [] }, next)).rejects.toThrow(
+    StaleAssistantInvocationError,
+  );
+});

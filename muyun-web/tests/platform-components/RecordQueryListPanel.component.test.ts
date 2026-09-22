@@ -60,7 +60,14 @@ describe('RecordQueryListPanel', () => {
       }),
     );
 
+    const interactionBeforeScope = controller.interactionRevision!();
+    await wrapper.setProps({ externalQueryValues: { organizationId: 'organization-b' } });
+    await flushPromises();
+    expect(controller.interactionRevision!()).toBe(interactionBeforeScope);
+    expect(requests.at(-1)?.externalQueryValues).toMatchObject({ organizationId: 'organization-b' });
+
     await controller.applyQuickSearch(' daily ');
+    expect(controller.interactionRevision!()).not.toBe(interactionBeforeScope);
 
     expect(requests.at(-1)).toEqual(expect.objectContaining({ quickSearch: 'daily' }));
     expect(controller.snapshot().appliedQuickSearch).toBe('daily');
@@ -71,6 +78,110 @@ describe('RecordQueryListPanel', () => {
     expect(controller.snapshot()).toEqual(expect.objectContaining({ status: 'waiting', rows: [] }));
     wrapper.unmount();
     expect(wrapper.emitted('queryControllerChange')?.at(-1)).toEqual([undefined]);
+  });
+
+  it('applies validated standard filters and sorts through the normal request and preserves state on rejection', async () => {
+    const requests: WebQueryRequest[] = [];
+    const context = createContext({ id: 'note-1', title: 'Daily report', secret: 'hidden' }, requests);
+    context.crud.querySchema = async () => ({
+      scopeName: 'demo.note',
+      quickSearch: { enabled: false, fields: [], fieldSchemas: [] },
+      fields: [
+        { name: 'title', title: 'Title', valueType: 'STRING', operators: ['EQ'], sortable: true },
+        { name: 'secret', valueType: 'STRING', operators: ['EQ'], sortable: true },
+      ],
+      externalCriteria: [],
+      defaultSorts: [],
+    });
+    const wrapper = shallowMount(RecordQueryListPanel, {
+      props: {
+        context,
+        title: 'Notes',
+        columns: [
+          { key: 'title', title: 'Title' },
+          { key: 'secret', title: 'Secret', assistantPolicy: 'DESCRIBE' },
+        ],
+      },
+    });
+    await flushPromises();
+    const controller = wrapper.emitted('queryControllerChange')?.[0]?.[0] as RecordQueryListQueryController;
+    expect(controller.snapshot().standardQuery?.fields.map((field) => field.name)).toEqual(['title']);
+    await controller.applyStandardQuery!({
+      conditions: [{ kind: 'CONDITION', fieldName: 'title', operator: 'EQ', values: ['Daily report'] }],
+      sorts: [{ field: 'title', desc: true }],
+    });
+    expect(requests.at(-1)).toMatchObject({
+      criteria: {
+        children: [
+          {
+            kind: 'GROUP',
+            operator: 'AND',
+            children: [{ fieldName: 'title', operator: 'EQ', values: ['Daily report'] }],
+          },
+        ],
+      },
+      sorts: [{ field: 'title', desc: true }],
+      page: { pageNum: 1 },
+    });
+    const previous = controller.snapshot();
+    const count = requests.length;
+    await expect(
+      controller.applyStandardQuery!({
+        conditions: [{ kind: 'CONDITION', fieldName: 'secret', operator: 'EQ', values: ['hidden'] }],
+        sorts: [],
+      }),
+    ).rejects.toThrow();
+    expect(requests).toHaveLength(count);
+    expect(controller.snapshot()).toEqual(previous);
+    expect(JSON.stringify(previous.rows)).not.toContain('hidden');
+    wrapper.unmount();
+  });
+
+  it('rejects unsupported timestamps before changing filters or querying', async () => {
+    const requests: WebQueryRequest[] = [];
+    const context = createContext({ id: 'note-1', createdAt: '2026-09-22T00:00:00Z' }, requests);
+    context.crud.querySchema = async () => ({
+      scopeName: 'demo.note',
+      quickSearch: { enabled: false, fields: [], fieldSchemas: [] },
+      fields: [{ name: 'createdAt', title: 'Created', valueType: 'INSTANT', operators: ['EQ', 'BETWEEN'] }],
+      externalCriteria: [],
+      defaultSorts: [],
+    });
+    const wrapper = shallowMount(RecordQueryListPanel, {
+      props: { context, title: 'Notes', columns: [{ key: 'createdAt', title: 'Created' }] },
+    });
+    await flushPromises();
+    const controller = wrapper.emitted('queryControllerChange')?.[0]?.[0] as RecordQueryListQueryController;
+    await controller.applyStandardQuery!({
+      conditions: [
+        {
+          kind: 'CONDITION',
+          fieldName: 'createdAt',
+          operator: 'BETWEEN',
+          values: ['2026-09-22', '2026-09-23'],
+        },
+      ],
+      sorts: [],
+    });
+    expect(JSON.stringify(requests.at(-1)?.criteria)).toContain('2026-09-22');
+    const before = controller.snapshot();
+    const count = requests.length;
+    await expect(
+      controller.applyStandardQuery!({
+        conditions: [
+          {
+            kind: 'CONDITION',
+            fieldName: 'createdAt',
+            operator: 'EQ',
+            values: ['2026-09-22T00:00:00+08:00'],
+          },
+        ],
+        sorts: [],
+      }),
+    ).rejects.toThrow();
+    expect(requests).toHaveLength(count);
+    expect(controller.snapshot()).toEqual(before);
+    wrapper.unmount();
   });
 
   it('rejects a controller search superseded by a newer standard list request', async () => {

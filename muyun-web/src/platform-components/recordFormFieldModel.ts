@@ -247,6 +247,7 @@ export interface RecordFormFieldPickerConfig {
 }
 
 export interface RecordFormFieldState {
+  assistantPolicy?: import('@muyun/web-contracts').AssistantFieldPolicy;
   fieldName: string;
   label: string;
   required: boolean;
@@ -460,6 +461,7 @@ export function resolveRecordFormFieldState(
       : undefined;
   const baseState: RecordFormFieldState = {
     fieldName,
+    ...(field?.assistantPolicy ? { assistantPolicy: field.assistantPolicy } : {}),
     label,
     required,
     readOnly,

@@ -11,27 +11,20 @@ import java.util.Set;
 final class AssistantPlatformKnowledge {
     private static final Map<String, String> SURFACE_GUIDANCE = Map.of(
             "workbench", """
-                    MuYun workbench navigation requires this order. Before requesting any capability, identify the
-                    business surface named by the user's goal and compare it with pageContext.title and
-                    pageContext.facts.moduleAlias. If the named business surface is not the active surface, the
-                    required order is: find matching visible menus, open only an exact returned
-                    menuId, then continue using the newly active surface capabilities. Do not inspect, search, query,
-                    create, or edit on the current surface before that navigation, even when the current and target
-                    business concepts are related. MuYun business entries are user-visible menus; do not ask the user
-                    to navigate manually when the declared workbench capabilities can do it.
+                    MuYun workbench navigation: compare the requested business surface with pageContext.title and
+                    facts.moduleAlias. If different, find visible menus, open only an exact returned menuId, then use
+                    the target surface capabilities. Do not operate on a related but different module. Do not ask users
+                    to navigate manually when workbench capabilities can do it. Stay on the page when it already matches.
                     """,
             "module-page", """
-                    The active surface is a standard MuYun record workspace shared by static and dynamic modules.
-                    Declared capabilities already reflect the current page mode and permissions. In browse mode,
-                    search or inspect records. Start a create/edit draft only when the user asked to create or change
-                    data; reaching a requested page or record is already complete and must not start a draft. After
-                    entering create/edit mode, describe the form once when field facts are needed, patch known ordinary
-                    fields together, and resolve references by business title through the declared reference
-                    capabilities. Leave drafts unsaved for user review. Do not repeat descriptive reads whose successful
-                    result is already available. A reply to a clarification supplies only the choice or value requested
-                    by that question; never reuse a scope, menu, or reference title as an unrelated form field value.
-                    Patch a business field only when the user explicitly supplied a value for that field. If required
-                    business values remain missing, ask one concise question; the user need not describe page operations.
+                    This is a standard MuYun record workspace for static and dynamic modules. Capabilities reflect
+                    mode and permissions. Start drafts only when the user asked to create or change data; navigation
+                    is already complete and must not start a draft. Resolve creation prerequisites before creating.
+                    Read form facts once when needed, patch known ordinary fields together and resolve references
+                    through declared capabilities. Leave drafts unsaved for review. Never ask for save confirmation when no
+                    save capability exists; directly hand the draft to the user for the page save action. A clarification answer supplies
+                    only the requested choice; never copy a scope or reference title into unrelated fields.
+                    For missing required values, ask one concise question based on actual form facts.
                     """,
             "metadata-governance", """
                     The active surface is MuYun metadata governance. Work only on the visible unsaved candidate.
