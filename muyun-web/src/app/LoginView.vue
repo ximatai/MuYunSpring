@@ -85,12 +85,15 @@ async function submit() {
 
 function loginErrorMessage(cause: unknown) {
   if (cause instanceof AppError) {
+    if (cause.status === 403) {
+      return '当前站点未获后端授权，请联系管理员配置访问来源';
+    }
     if (
       cause.code === platformErrorCodes.networkError ||
       cause.code === platformErrorCodes.httpError ||
       (cause.status ?? 0) >= 500
     ) {
-      return '无法连接后端服务，请确认服务已启动后重试';
+      return '无法访问后端，请检查服务状态或站点授权配置';
     }
     if (cause.code === platformErrorCodes.loginBadCredentials) {
       return '用户名或密码错误';
