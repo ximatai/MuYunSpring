@@ -56,3 +56,42 @@ describe('standard query validation', () => {
       expect(() => parseRecordQueryListStandardQuery({ conditions: [], sorts }, fields)).toThrow();
   });
 });
+
+const instantFields: RecordQueryListFilterField[] = [
+  {
+    name: 'createdAt',
+    title: 'Created',
+    valueType: 'INSTANT',
+    operators: ['EQ', 'BETWEEN', 'NULL'],
+    sortable: true,
+  },
+];
+
+it.each([
+  ['EQ', ['2026-09-22T00:00:00Z']],
+  ['BETWEEN', ['2026-09-22T00:00:00Z', '2026-09-23T00:00:00Z']],
+  ['BETWEEN', ['2026-09-22', '2026-09-23']],
+  ['NULL', []],
+])('preserves server-supported instant condition %s %j', (operator, values) => {
+  const parsed = parseRecordQueryListStandardQuery(
+    { conditions: [{ fieldName: 'createdAt', operator, values }], sorts: [] },
+    instantFields,
+  );
+  expect(parsed.conditions[0]?.values).toEqual(values);
+});
+
+it.each([
+  ['EQ', ['2026-09-22T00:00:00+08:00']],
+  ['EQ', ['2026-09-22T00:00:00.123Z']],
+  ['EQ', ['2026-02-30T00:00:00Z']],
+  ['EQ', ['2026-09-22']],
+  ['BETWEEN', ['2026-09-22', '2026-09-23T00:00:00Z']],
+  ['BETWEEN', ['2026-02-30', '2026-03-01']],
+])('rejects unsupported instant condition before mutation: %s %j', (operator, values) => {
+  expect(() =>
+    parseRecordQueryListStandardQuery(
+      { conditions: [{ fieldName: 'createdAt', operator, values }], sorts: [] },
+      instantFields,
+    ),
+  ).toThrow();
+});

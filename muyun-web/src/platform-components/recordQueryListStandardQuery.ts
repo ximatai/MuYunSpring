@@ -44,7 +44,10 @@ export function parseRecordQueryListStandardQuery(
         : collection
           ? values.length > 0 && values.length <= 100
           : values.length === 1;
-    if (!validCount || values.some((value) => !validValue(value, field)))
+    // Date-only BETWEEN values are interpreted in the server's business timezone.
+    const instantDateRange =
+      field.valueType === 'INSTANT' && operator === 'BETWEEN' && values.every(validDate);
+    if (!validCount || (!instantDateRange && values.some((value) => !validValue(value, field))))
       throw new Error(`Invalid query values for ${field.name}`);
     return { kind: 'CONDITION' as const, fieldName: field.name, operator, values: [...values] };
   });
@@ -80,17 +83,13 @@ function validValue(value: unknown, field: RecordQueryListFilterField): boolean 
     case 'DECIMAL':
       return typeof value === 'number' && Number.isFinite(value);
     case 'DATE':
-      return (
-        typeof value === 'string' &&
-        /^\d{4}-\d{2}-\d{2}$/.test(value) &&
-        !Number.isNaN(Date.parse(value)) &&
-        new Date(value).toISOString().slice(0, 10) === value
-      );
+      return validDate(value);
     case 'INSTANT':
       return (
         typeof value === 'string' &&
-        /^\d{4}-\d{2}-\d{2}T.*(?:Z|[+-]\d{2}:\d{2})$/.test(value) &&
-        !Number.isNaN(Date.parse(value))
+        /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/.test(value) &&
+        !Number.isNaN(Date.parse(value)) &&
+        new Date(value).toISOString() === value.replace('Z', '.000Z')
       );
     case 'STRING':
     case 'TEXT':
@@ -98,4 +97,13 @@ function validValue(value: unknown, field: RecordQueryListFilterField): boolean 
     default:
       return false;
   }
+}
+
+function validDate(value: unknown): value is string {
+  return (
+    typeof value === 'string' &&
+    /^\d{4}-\d{2}-\d{2}$/.test(value) &&
+    !Number.isNaN(Date.parse(value)) &&
+    new Date(value).toISOString().slice(0, 10) === value
+  );
 }

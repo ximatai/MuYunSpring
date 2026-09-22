@@ -137,6 +137,53 @@ describe('RecordQueryListPanel', () => {
     wrapper.unmount();
   });
 
+  it('rejects unsupported timestamps before changing filters or querying', async () => {
+    const requests: WebQueryRequest[] = [];
+    const context = createContext({ id: 'note-1', createdAt: '2026-09-22T00:00:00Z' }, requests);
+    context.crud.querySchema = async () => ({
+      scopeName: 'demo.note',
+      quickSearch: { enabled: false, fields: [], fieldSchemas: [] },
+      fields: [{ name: 'createdAt', title: 'Created', valueType: 'INSTANT', operators: ['EQ', 'BETWEEN'] }],
+      externalCriteria: [],
+      defaultSorts: [],
+    });
+    const wrapper = shallowMount(RecordQueryListPanel, {
+      props: { context, title: 'Notes', columns: [{ key: 'createdAt', title: 'Created' }] },
+    });
+    await flushPromises();
+    const controller = wrapper.emitted('queryControllerChange')?.[0]?.[0] as RecordQueryListQueryController;
+    await controller.applyStandardQuery!({
+      conditions: [
+        {
+          kind: 'CONDITION',
+          fieldName: 'createdAt',
+          operator: 'BETWEEN',
+          values: ['2026-09-22', '2026-09-23'],
+        },
+      ],
+      sorts: [],
+    });
+    expect(JSON.stringify(requests.at(-1)?.criteria)).toContain('2026-09-22');
+    const before = controller.snapshot();
+    const count = requests.length;
+    await expect(
+      controller.applyStandardQuery!({
+        conditions: [
+          {
+            kind: 'CONDITION',
+            fieldName: 'createdAt',
+            operator: 'EQ',
+            values: ['2026-09-22T00:00:00+08:00'],
+          },
+        ],
+        sorts: [],
+      }),
+    ).rejects.toThrow();
+    expect(requests).toHaveLength(count);
+    expect(controller.snapshot()).toEqual(before);
+    wrapper.unmount();
+  });
+
   it('rejects a controller search superseded by a newer standard list request', async () => {
     const context = createContext({ id: 'note-1', title: 'Initial' });
     context.crud.querySchema = async () => ({

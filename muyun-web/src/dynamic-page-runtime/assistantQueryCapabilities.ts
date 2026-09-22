@@ -50,7 +50,10 @@ export function createAssistantQueryCapabilities(
                                   : field.valueType === 'DECIMAL'
                                     ? 'number'
                                     : 'string',
-                            description: field.valueType,
+                            description:
+                              field.valueType === 'INSTANT'
+                                ? 'UTC seconds: YYYY-MM-DDTHH:mm:ssZ; BETWEEN also accepts two YYYY-MM-DD dates in the business timezone.'
+                                : field.valueType,
                           },
                     },
                   },

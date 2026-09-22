@@ -1676,3 +1676,84 @@ it('lists tenant candidates without selecting one or exposing record identifiers
   );
   expect(changeTenantScope).toHaveBeenCalledTimes(1);
 });
+
+it.each(['HIDDEN', 'DESCRIBE'] as const)(
+  'protects display-only explorer values with %s policy in list and tree capabilities',
+  async (assistantPolicy) => {
+    const view = viewFixture();
+    view.editorMode = 'view';
+    view.runtimePage = {
+      explorer: { titleField: 'summary', secondaryField: 'privateValue' },
+      detail: {
+        display: { fields: [{ fieldRef: { fieldName: 'privateValue' }, assistantPolicy }] },
+        editor: { fields: [{ fieldRef: { fieldName: 'summary' } }] },
+      },
+    } as NonNullable<ModulePageSessionView['runtimePage']>;
+    expect(view.formFields.has('privateValue')).toBe(false);
+    const snapshot = {
+      mode: 'normal' as const,
+      status: 'ready' as const,
+      quickSearchEnabled: true,
+      quickSearchFields: [{ name: 'privateValue', title: 'Private', valueType: 'STRING' as const }],
+      pageNum: 1,
+      pageSize: 20,
+      total: 1,
+      totalKnown: true,
+      rows: [
+        {
+          id: 'record-1',
+          cells: [
+            { fieldName: 'title', title: 'Title', value: 'Public' },
+            { fieldName: 'secondary', title: 'Private', value: 'protected-value' },
+          ],
+        },
+      ],
+      truncated: false,
+      standardQuery: {
+        fields: [
+          {
+            name: 'privateValue',
+            title: 'Private',
+            valueType: 'STRING' as const,
+            operators: ['EQ' as const],
+            sortable: true,
+          },
+        ],
+        conditions: [
+          {
+            kind: 'CONDITION' as const,
+            fieldName: 'privateValue',
+            operator: 'EQ' as const,
+            values: ['protected-value'],
+          },
+        ],
+        sorts: [{ field: 'privateValue', desc: false }],
+      },
+    };
+    view.listQueryController = {
+      revision: () => 1,
+      snapshot: () => snapshot,
+      applyQuickSearch: vi.fn(async () => snapshot),
+      settle: vi.fn(async () => snapshot),
+    };
+    const node = { selectionKey: 'node-1', title: 'Public', secondary: 'protected-value' };
+    view.treeQueryController = {
+      revision: () => 1,
+      snapshot: () => ({ status: 'ready', nodes: [node], truncated: false }),
+      settle: vi.fn(async () => {}),
+      select: vi.fn(() => node),
+    };
+    const surface = createModulePageAssistantSurface(view, vi.fn());
+    const list = surface.capabilities().find(({ descriptor }) => descriptor.code === 'query.describe')!;
+    const result = await list.execute({}, executionContext());
+    expect(JSON.stringify(result)).not.toMatch(/protected-value|privateValue/);
+    expect(result).toMatchObject({ rows: [{ values: ['Public'] }] });
+    const tree = surface.capabilities().find(({ descriptor }) => descriptor.code === 'tree.describe')!;
+    expect(await tree.execute({}, executionContext())).toMatchObject({
+      nodes: [{ selectionKey: 'node-1', title: 'Public' }],
+    });
+    expect(JSON.stringify(await tree.execute({}, executionContext()))).not.toContain('protected-value');
+    view.runtimePage!.explorer!.titleField = 'privateValue';
+    expect(surface.capabilities().map(({ descriptor }) => descriptor.code)).not.toContain('tree.describe');
+  },
+);

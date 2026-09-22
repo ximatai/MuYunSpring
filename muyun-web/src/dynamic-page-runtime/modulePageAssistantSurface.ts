@@ -947,7 +947,27 @@ function draftSummaryValues(view: ModulePageSessionView): Map<string, unknown> {
 function assistantReadableName(view: ModulePageSessionView, name: string): boolean {
   if (name.includes('.')) return false;
   const field = formFieldState(view, name);
-  return !field || (!isSensitiveField(field) && field.assistantPolicy !== 'DESCRIBE');
+  if (field && (isSensitiveField(field) || field.assistantPolicy === 'DESCRIBE')) return false;
+  // Display-only fields need the same protection ceiling as editor fields.
+  const descriptor = view.context.runtime?.snapshot()?.uiDescriptor;
+  const page = view.runtimePage ?? descriptor?.page;
+  const views = [
+    page?.detail?.display,
+    page?.detail?.editor,
+    page?.list?.fields,
+    descriptor?.defaultEditor,
+    ...(descriptor?.editorSurfaces?.map((surface) => surface.editor) ?? []),
+  ];
+  return !views.some((source) =>
+    source?.fields.some(
+      (candidate) =>
+        !candidate.fieldRef.relationCode &&
+        candidate.fieldRef.fieldName === name &&
+        (candidate.assistantPolicy === 'HIDDEN' ||
+          candidate.assistantPolicy === 'DESCRIBE' ||
+          candidate.fieldControl?.alias === 'password'),
+    ),
+  );
 }
 
 function assistantQuerySnapshot(
