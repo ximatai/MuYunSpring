@@ -68,6 +68,9 @@ const activeRequiredSelection = computed(() =>
 );
 let nextItemId = 0;
 let controller: AbortController | undefined;
+let conversationEpoch = 0;
+let conversationScope: string | undefined;
+let identityScope: string | undefined;
 let streamingItemId: number | undefined;
 let pendingStreamText = '';
 const MAX_HISTORY_MESSAGES = 12;
@@ -106,7 +109,11 @@ async function submitMessage(
   selectionResponse?: AssistantSelectionResponse,
   sourceSelection?: ConversationSelection,
 ) {
+  const beforeSync = conversationEpoch;
+  expireStaleSelections();
+  if (beforeSync !== conversationEpoch) return;
   if (!message || busy.value || !props.registry.snapshot()) return;
+  const epoch = conversationEpoch;
   append('user', message);
   busy.value = true;
   activity.value = 'understanding';
@@ -118,9 +125,11 @@ async function submitMessage(
       history,
       ...(selectionResponse ? { selectionResponse } : {}),
       onActivity(phase) {
+        if (epoch !== conversationEpoch) return;
         activity.value = phase;
       },
       onTextDelta(text) {
+        if (epoch !== conversationEpoch) return;
         if (!text) return;
         if (streamingItemId === undefined) {
           pendingStreamText += text;
@@ -136,6 +145,7 @@ async function submitMessage(
         if (item) item.text += text;
       },
       onTextDiscard() {
+        if (epoch !== conversationEpoch) return;
         if (streamingItemId !== undefined) {
           items.value = items.value.filter(({ id }) => id !== streamingItemId);
         }
@@ -143,6 +153,7 @@ async function submitMessage(
         pendingStreamText = '';
       },
       onStep(step) {
+        if (epoch !== conversationEpoch) return;
         if (step.output.text || step.output.selection) {
           assistantTexts.push(assistantHistoryText(step.output.text, step.output.selection));
           if (streamingItemId === undefined) appendAssistant(step.output.text, step.output.selection);
@@ -157,9 +168,28 @@ async function submitMessage(
           const succeeded = step.results.filter((candidate) => !candidate.error).length;
           const failed = step.results.length - succeeded;
           append('status', capabilityResultStatus(succeeded, failed, step.appliedEffectCount));
+          for (const result of step.results) {
+            if (result.error || result.capabilityCode !== 'form.patch-draft') continue;
+            const summary = (
+              result.output as {
+                draftSummary?: {
+                  changes: Array<{ label: string; source: string; before?: unknown; after?: unknown }>;
+                  missingRequired: string[];
+                };
+              }
+            )?.draftSummary;
+            if (!summary) continue;
+            const lines = summary.changes.map(
+              (change) =>
+                `${change.label}${change.source === 'derived' ? '（联动）' : ''}：${summaryValue(change.before)} → ${summaryValue(change.after)}`,
+            );
+            if (summary.missingRequired.length) lines.push(`待填写：${summary.missingRequired.join('、')}`);
+            append('status', ['草稿变更（尚未保存）', ...lines].join('\n'));
+          }
         }
       },
     });
+    if (epoch !== conversationEpoch) return;
     if (!result.completed) append('status', '本次任务步骤较多，已暂停。请重新完整描述后续目标。');
     else if (result.steps.every((step) => !step.output.text && !step.output.selection)) {
       const applied = result.steps.reduce((total, step) => total + step.appliedEffectCount, 0);
@@ -175,6 +205,7 @@ async function submitMessage(
     if (result.completed) commitConversation(message, assistantTexts);
     if (sourceSelection) sourceSelection.state = 'answered';
   } catch (error) {
+    if (epoch !== conversationEpoch) return;
     if (isAbortError(error)) {
       reopenSelection(sourceSelection);
       append('status', '已停止本次操作。');
@@ -195,11 +226,13 @@ async function submitMessage(
       append('status', userFacingErrorMessage(normalizeError(error)));
     }
   } finally {
-    streamingItemId = undefined;
-    pendingStreamText = '';
-    controller = undefined;
-    busy.value = false;
-    activity.value = 'idle';
+    if (epoch === conversationEpoch) {
+      streamingItemId = undefined;
+      pendingStreamText = '';
+      controller = undefined;
+      busy.value = false;
+      activity.value = 'idle';
+    }
   }
 }
 
@@ -219,6 +252,31 @@ function selectionIsCurrent(selection: ConversationSelection) {
 }
 
 function expireStaleSelections() {
+  const token = props.registry.snapshot()?.token;
+  const scope = token?.conversationScopeKey;
+  const identity = token?.identityScopeKey;
+  if (identity === identityScope && conversationScope === undefined && scope !== undefined) {
+    conversationScope = scope;
+  }
+  if (
+    (identity !== undefined && identity !== identityScope) ||
+    (scope !== undefined && scope !== conversationScope)
+  ) {
+    const previous = conversationScope;
+    identityScope = identity;
+    conversationScope = scope;
+    conversationEpoch += 1;
+    controller?.abort();
+    controller = undefined;
+    items.value = [];
+    completedHistory.value = [];
+    draft.value = '';
+    busy.value = false;
+    activity.value = 'idle';
+    streamingItemId = undefined;
+    pendingStreamText = '';
+    if (previous !== undefined) append('status', '业务身份或租户范围已变化，已开始新会话。');
+  }
   for (const item of items.value) {
     if (item.selection?.state === 'open' && !selectionIsCurrent(item.selection)) {
       item.selection.state = 'superseded';
@@ -299,6 +357,11 @@ function boundedHistory(history: AssistantConversationMessage[]): AssistantConve
   return selected;
 }
 
+function summaryValue(value: unknown): string {
+  if (value === undefined || value === null || value === '') return '空';
+  return String(value).slice(0, 200);
+}
+
 function capabilityResultStatus(succeeded: number, failed: number, applied: number) {
   const successfulText =
     applied === 0
@@ -327,7 +390,7 @@ watch(
 );
 onBeforeUnmount(cancel);
 
-watch(() => props.registry.snapshot()?.token, expireStaleSelections, { deep: true });
+watch(() => props.registry.snapshot()?.token, expireStaleSelections, { deep: true, flush: 'sync' });
 watch(
   () => props.registry,
   (registry, _previous, onCleanup) => {

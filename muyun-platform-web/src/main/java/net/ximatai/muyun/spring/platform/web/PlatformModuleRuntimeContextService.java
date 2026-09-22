@@ -578,6 +578,16 @@ public class PlatformModuleRuntimeContextService {
                 optionFields, referenceFields,
                 dynamicRecordLabelField(dynamicDescriptor), fieldTypes, dynamicFieldControls(definition),
                 relationOptionFields, relationReferenceFields, dynamicSortPartitionFields(dynamicDescriptor));
+        Set<ViewFieldRef> protectedFields = new java.util.LinkedHashSet<>();
+        dynamicDescriptor.entities().forEach(entity -> entity.fields().stream()
+                .filter(field -> field.encrypted() || field.signed() || field.maskingPolicy() != null)
+                .forEach(field -> protectedFields.add(new ViewFieldRef(
+                        entity.entityAlias().equals(dynamicDescriptor.mainEntityAlias()) ? null : entity.entityAlias(),
+                        field.fieldName(), null))));
+        relationTargets.forEach(target -> target.entity().fields().stream()
+                .filter(field -> field.encrypted() || field.signed() || field.maskingPolicy() != null)
+                .forEach(field -> protectedFields.add(ViewFieldRef.relation(target.entity().entityAlias(), field.fieldName()))));
+        descriptor = AssistantFieldPolicyProjection.protect(descriptor, protectedFields);
         // Formula projection needs the resolved aggregate-child relation code and its child editor
         // fields. Attach them before compiling browser-visible business rules.
         descriptor = descriptor.withDetailRelations(dynamicDetailRelations(moduleAlias, relationTargets));

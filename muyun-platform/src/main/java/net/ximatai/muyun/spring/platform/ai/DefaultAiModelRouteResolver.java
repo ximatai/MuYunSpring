@@ -9,11 +9,13 @@ import java.util.Objects;
 final class DefaultAiModelRouteResolver implements AiModelRouteResolver {
     private final AiModelConfigurationService configurationService;
     private final AiModelProviderService providerService;
+    private final AiModelCredentialResolver credentialResolver;
 
     DefaultAiModelRouteResolver(AiModelConfigurationService configurationService,
-                                AiModelProviderService providerService) {
+                                AiModelProviderService providerService, AiModelCredentialResolver credentialResolver) {
         this.configurationService = Objects.requireNonNull(configurationService,
                 "configurationService must not be null");
+        this.credentialResolver = Objects.requireNonNull(credentialResolver);
         this.providerService = Objects.requireNonNull(providerService, "providerService must not be null");
     }
 
@@ -29,6 +31,6 @@ final class DefaultAiModelRouteResolver implements AiModelRouteResolver {
         }
         AiModelProvider provider = providerService.requireEnabled(configuration.getProvider());
         return new ResolvedAiModelRoute(provider.getId(), provider.getProtocol(), provider.getBaseUrl(),
-                configuration.getModelId(), configuration.getApiKey());
+                configuration.getModelId(), credentialResolver.resolve(configuration));
     }
 }

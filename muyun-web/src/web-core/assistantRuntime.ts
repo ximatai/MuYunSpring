@@ -121,6 +121,19 @@ export async function runAssistantConversation(
   message: string,
   options: AssistantConversationOptions = {},
 ): Promise<AssistantConversationResult> {
+  function waitForFormalSurface(token: AssistantInvocationToken) {
+    return registry.waitForActiveSurface({
+      pageInstanceKey: token.pageInstanceKey,
+      requireFormal: true,
+      signal: options.signal,
+      timeoutMs: 15_000,
+    });
+  }
+  let initial = registry.snapshot();
+  const identityScope = initial?.token.identityScopeKey;
+  if (initial?.token.conversationScopePending) initial = await waitForFormalSurface(initial.token);
+  if (initial?.token.identityScopeKey !== identityScope) throw new StaleAssistantInvocationError();
+  const conversationScope = initial?.token.conversationScopeKey;
   const maxSteps = options.maxSteps ?? DEFAULT_MAX_STEPS;
   if (!Number.isInteger(maxSteps) || maxSteps < 1 || maxSteps > DEFAULT_MAX_STEPS) {
     throw new Error(`Assistant conversation maxSteps must be between 1 and ${DEFAULT_MAX_STEPS}`);
@@ -131,6 +144,14 @@ export async function runAssistantConversation(
   let expectedReplacementToken: AssistantInvocationToken | undefined;
   let decisionRestarts = 0;
   for (let index = 0; index < maxSteps; index += 1) {
+    let current = registry.snapshot();
+    if (current?.token.conversationScopePending) current = await waitForFormalSurface(current.token);
+    if (
+      current?.token.identityScopeKey !== identityScope ||
+      current?.token.conversationScopeKey !== conversationScope
+    ) {
+      throw new StaleAssistantInvocationError();
+    }
     let step: InternalAssistantRuntimeStepResult;
     let streamedText = false;
     try {

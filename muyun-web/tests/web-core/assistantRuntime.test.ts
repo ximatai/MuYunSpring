@@ -1032,3 +1032,65 @@ it('discards streamed text when its structured turn fails before completion', as
   expect(onTextDelta).toHaveBeenCalledWith('partial', 0);
   expect(onTextDiscard).toHaveBeenCalledWith(0);
 });
+
+it('waits for a pending fallback to resolve before sending history to its transport', async () => {
+  const registry = createAssistantSurfaceRegistry(() => 'user');
+  const fallback = vi.fn();
+  const formal = vi.fn(async () => ({ text: 'ok', toolCalls: [] }));
+  registry.register({
+    pageInstanceKey: 'a',
+    fallback: true,
+    conversationScopePending: true,
+    contextRevision: () => '',
+    surface: {
+      describe: () => ({ surface: 'workbench', facts: {} }),
+      capabilities: () => [],
+      requestTurn: fallback,
+    },
+  });
+  registry.activate('a');
+  const pending = runAssistantConversation(registry, 'hello');
+  registry.register({
+    pageInstanceKey: 'a',
+    conversationScopeKey: () => 'tenant-a',
+    contextRevision: () => '',
+    surface: {
+      describe: () => ({ surface: 'test', facts: {} }),
+      capabilities: () => [],
+      requestTurn: formal,
+    },
+  });
+  await expect(pending).resolves.toMatchObject({ completed: true });
+  expect(fallback).not.toHaveBeenCalled();
+  expect(formal).toHaveBeenCalledOnce();
+});
+
+it('does not send the previous goal or results after a capability changes tenant scope', async () => {
+  let scope = 'tenant-a';
+  const registry = createAssistantSurfaceRegistry(() => 'user');
+  const requestTurn = vi.fn(async () => ({ toolCalls: [{ id: 'call', code: 'scope.change', input: {} }] }));
+  registry.register({
+    pageInstanceKey: 'a',
+    conversationScopeKey: () => scope,
+    contextRevision: () => '',
+    surface: {
+      describe: () => ({ surface: 'test', facts: {} }),
+      requestTurn,
+      capabilities: () => [
+        {
+          descriptor: { code: 'scope.change', description: 'change', inputSchema: {} },
+          parseInput: (value) => value,
+          execute: async (_input, context) => {
+            context.applyEffect(() => {
+              scope = 'tenant-b';
+            });
+            return { changed: true };
+          },
+        },
+      ],
+    },
+  });
+  registry.activate('a');
+  await expect(runAssistantConversation(registry, 'old goal')).rejects.toThrow(StaleAssistantInvocationError);
+  expect(requestTurn).toHaveBeenCalledOnce();
+});

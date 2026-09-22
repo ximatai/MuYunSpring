@@ -606,3 +606,38 @@ it('does not append missing-response feedback after a selection-only follow-up',
   expect(wrapper.text()).toContain(requiredChoice.selection!.prompt);
   expect(wrapper.text()).not.toContain('未生成可展示的说明');
 });
+
+it('clears history and input across tenant scopes and discards an old in-flight response', async () => {
+  const scope = ref('tenant-a');
+  const registry = createAssistantSurfaceRegistry();
+  let finish!: (value: AssistantTurnOutput) => void;
+  const requestTurn = vi.fn<AssistantTurnRequester>(
+    () =>
+      new Promise<AssistantTurnOutput>((resolve) => {
+        finish = resolve;
+      }),
+  );
+  registry.register({
+    pageInstanceKey: 'a',
+    contextRevision: () => 'stable',
+    conversationScopeKey: () => scope.value,
+    surface: { describe: () => ({ surface: 'test', facts: {} }), capabilities: () => [], requestTurn },
+  });
+  registry.activate('a');
+  const wrapper = mount(WorkbenchAssistantPanel, { props: { open: true, registry } });
+  await wrapper.get('textarea').setValue('tenant-a secret');
+  await wrapper.get('button.ant-btn-primary').trigger('click');
+  await flushPromises();
+  scope.value = 'tenant-b';
+  await flushPromises();
+  finish({ text: 'old answer', toolCalls: [] });
+  await flushPromises();
+  expect(wrapper.text()).not.toContain('tenant-a secret');
+  expect(wrapper.text()).not.toContain('old answer');
+  expect(wrapper.text()).toContain('已开始新会话');
+  requestTurn.mockResolvedValue({ text: 'new answer', toolCalls: [] });
+  await wrapper.get('textarea').setValue('new request');
+  await wrapper.get('button.ant-btn-primary').trigger('click');
+  await flushPromises();
+  expect(requestTurn.mock.calls.at(-1)?.[0]).toMatchObject({ history: [] });
+});

@@ -19,6 +19,29 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class PageRevisionModuleUiDefinitionAdapterTest {
     @Test
+    void publishesTheSameAssistantPolicyForDynamicListAndFormFields() {
+        String tree = """
+                {"template":"management","templateVersion":1,"nodes":[
+                  {"slot":"list","title":"列表","fields":[{"field":"title","props":{"assistantPolicy":"READ"}}]},
+                  {"slot":"form","title":"详情","fields":[{"field":"title","props":{"assistantPolicy":"DESCRIBE"}}]}
+                ]}
+                """;
+        var catalog = new PlatformPresentationTemplateCatalog();
+        var template = catalog.require("management", 1,
+                net.ximatai.muyun.spring.platform.ui.PlatformPresentationClientType.WEB,
+                PlatformPageContractType.MANAGEMENT);
+        catalog.validateUiTree(tree, template);
+        var definition = PageRevisionModuleUiDefinitionAdapter.fromPublishedRevision(page(), revision(tree),
+                new DynamicPageCompilationContext(DynamicModuleOverviewMode.LIST_CARD,
+                        Map.of("title", "名称"), java.util.Set.of(), Map.of()));
+        var resolved = ModuleUiDescriptorCompiler.compile(definition);
+        assertThat(resolved.page().list().fields().fields().getFirst().assistantPolicy().name()).isEqualTo("READ");
+        assertThat(resolved.page().detail().editor().fields().getFirst().assistantPolicy().name()).isEqualTo("DESCRIBE");
+        assertThatThrownBy(() -> catalog.validateUiTree(tree.replace("DESCRIBE", "UNRESTRICTED"), template))
+                .isInstanceOf(RuntimeException.class);
+    }
+
+    @Test
     void shouldMapManagementFormFieldUiControlAliasIntoTheSourceNeutralDefinition() {
         ModuleUiDefinition definition = PageRevisionModuleUiDefinitionAdapter.fromPublishedRevision(page(), revision("""
                 {"template":"management","templateVersion":1,"nodes":[

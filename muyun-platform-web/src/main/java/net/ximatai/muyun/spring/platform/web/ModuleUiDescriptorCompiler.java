@@ -124,6 +124,7 @@ public final class ModuleUiDescriptorCompiler {
         descriptor = descriptor.withEditorContributions(resolvedContributions);
         List<ResolvedDetailRelationDescriptor> detailRelations = staticDetailRelations(definition, descriptor);
         validateListRelationExpansions(descriptor.page(), detailRelations);
+        descriptor = AssistantFieldPolicyProjection.protectStatic(descriptor, definition);
         return new ModuleUiCompilationResult(
                 descriptor.withFileReferences(fileReferences(definition.entities(), uiDefinition))
                         .withDetailRelations(detailRelations),
@@ -1126,7 +1127,8 @@ public final class ModuleUiDescriptorCompiler {
                 referenceSummary,
                 field.maxDisplayLines(),
                 field.treeRootTitle(),
-                field.overrideOf()
+                field.overrideOf(),
+                field.assistantPolicy()
         );
     }
 

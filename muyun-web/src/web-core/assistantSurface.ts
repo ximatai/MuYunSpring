@@ -51,6 +51,10 @@ export interface AssistantSurface {
 
 export interface AssistantSurfaceRegistration {
   pageInstanceKey: string;
+  /** Opaque execution-data boundary, never sent to the model. */
+  conversationScopeKey?(): string;
+  /** A fallback awaiting its real page transport must not issue model requests. */
+  conversationScopePending?: boolean;
   fallback?: boolean;
   /**
    * Waits for background page transitions to finish before the model receives a
@@ -71,6 +75,9 @@ interface RegisteredAssistantSurface extends AssistantSurfaceRegistration {
 }
 
 export interface AssistantInvocationToken {
+  identityScopeKey?: string;
+  conversationScopePending?: boolean;
+  conversationScopeKey?: string;
   pageInstanceKey: string;
   surfaceGeneration: number;
   contextRevision: string;
@@ -145,9 +152,12 @@ export class AssistantCapabilityUsageError extends Error {
   }
 }
 
-export function createAssistantSurfaceRegistry(): AssistantSurfaceRegistry {
+export function createAssistantSurfaceRegistry(
+  identityScope: () => string = () => '',
+): AssistantSurfaceRegistry {
   const registrations = new Map<string, RegisteredAssistantSurface[]>();
   const pending = new Set<AbortController>();
+  const pageScopes = new Map<string, string>();
   const changeListeners = new Set<() => void>();
   let activePageInstanceKey: string | undefined;
   let nextSurfaceGeneration = 0;
@@ -162,6 +172,7 @@ export function createAssistantSurfaceRegistry(): AssistantSurfaceRegistry {
   }
 
   function register(registration: AssistantSurfaceRegistration) {
+    validateAssistantCapabilities(registration.surface.capabilities());
     const registered = { ...registration, surfaceGeneration: ++nextSurfaceGeneration };
     const stack = registrations.get(registration.pageInstanceKey) ?? [];
     if (registration.fallback) stack.unshift(registered);
@@ -174,7 +185,10 @@ export function createAssistantSurfaceRegistry(): AssistantSurfaceRegistry {
       if (!current?.includes(registered)) return;
       const remaining = current.filter((candidate) => candidate !== registered);
       if (remaining.length > 0) registrations.set(registration.pageInstanceKey, remaining);
-      else registrations.delete(registration.pageInstanceKey);
+      else {
+        registrations.delete(registration.pageInstanceKey);
+        pageScopes.delete(registration.pageInstanceKey);
+      }
       if (activePageInstanceKey === registration.pageInstanceKey) cancelPending();
       notifyChange();
     };
@@ -193,7 +207,15 @@ export function createAssistantSurfaceRegistry(): AssistantSurfaceRegistry {
   }
 
   function tokenOf(registration: RegisteredAssistantSurface): AssistantInvocationToken {
+    const identity = identityScope();
+    const scope = registration.conversationScopeKey?.() ?? pageScopes.get(registration.pageInstanceKey) ?? '';
+    if (registration.conversationScopeKey) pageScopes.set(registration.pageInstanceKey, scope);
     return {
+      identityScopeKey: identity,
+      conversationScopePending: registration.conversationScopePending,
+      conversationScopeKey: registration.conversationScopePending
+        ? undefined
+        : JSON.stringify([identity, scope]),
       pageInstanceKey: registration.pageInstanceKey,
       surfaceGeneration: registration.surfaceGeneration,
       contextRevision: registration.contextRevision(),
@@ -208,7 +230,9 @@ export function createAssistantSurfaceRegistry(): AssistantSurfaceRegistry {
     return {
       token: tokenOf(registration),
       context: registration.surface.describe(),
-      capabilities: registration.surface.capabilities().map(({ descriptor }) => descriptor),
+      capabilities: validateAssistantCapabilities(registration.surface.capabilities()).map(
+        ({ descriptor }) => descriptor,
+      ),
     };
   }
 
@@ -321,12 +345,15 @@ export function createAssistantSurfaceRegistry(): AssistantSurfaceRegistry {
       }
     },
     requestTurn(input, token, signal, progress) {
+      if (token.conversationScopePending) return Promise.reject(new StaleAssistantInvocationError());
       return controlled(token, signal, true, (registration, controlledSignal) => {
         const current = requireCurrent(token);
         const request = {
           ...input,
           context: current.surface.describe(),
-          capabilities: current.surface.capabilities().map(({ descriptor }) => descriptor),
+          capabilities: validateAssistantCapabilities(current.surface.capabilities()).map(
+            ({ descriptor }) => descriptor,
+          ),
         };
         return progress
           ? registration.surface.requestTurn(request, controlledSignal, progress)
@@ -347,9 +374,9 @@ export function createAssistantSurfaceRegistry(): AssistantSurfaceRegistry {
       if (signal?.aborted) abort();
       pending.add(controller);
       return (async () => {
-        const capability = registration.surface
-          .capabilities()
-          .find(({ descriptor }) => descriptor.code === call.code);
+        const capability = validateAssistantCapabilities(registration.surface.capabilities()).find(
+          ({ descriptor }) => descriptor.code === call.code,
+        );
         if (!capability) throw new Error(`Assistant capability is unavailable: ${call.code}`);
         const input = capability.parseInput(call.input);
         requireCurrent(token);
@@ -443,6 +470,9 @@ export function sameAssistantInvocationToken(
 ) {
   if (!left || !right) return left === right;
   return (
+    left.identityScopeKey === right.identityScopeKey &&
+    left.conversationScopePending === right.conversationScopePending &&
+    left.conversationScopeKey === right.conversationScopeKey &&
     left.pageInstanceKey === right.pageInstanceKey &&
     left.surfaceGeneration === right.surfaceGeneration &&
     left.contextRevision === right.contextRevision &&
@@ -453,10 +483,26 @@ export function sameAssistantInvocationToken(
 
 function sameExecutionScope(left: AssistantInvocationToken, right: AssistantInvocationToken) {
   return (
+    left.identityScopeKey === right.identityScopeKey &&
+    left.conversationScopePending === right.conversationScopePending &&
+    left.conversationScopeKey === right.conversationScopeKey &&
     left.pageInstanceKey === right.pageInstanceKey &&
     left.surfaceGeneration === right.surfaceGeneration &&
     left.interactionRevision === right.interactionRevision &&
     left.fallback === right.fallback &&
     (left.contextRevision === right.contextRevision || left.interactionRevision !== undefined)
   );
+}
+
+/** Composition must never silently shadow another capability with the same code. */
+function validateAssistantCapabilities(capabilities: AssistantCapability[]): AssistantCapability[] {
+  const codes = new Set<string>();
+  for (const capability of capabilities) {
+    const code = capability.descriptor.code;
+    if (!code || codes.has(code) || code.startsWith('assistant.')) {
+      throw new Error(`Invalid or duplicate assistant capability code: ${code}`);
+    }
+    codes.add(code);
+  }
+  return capabilities;
 }

@@ -1,5 +1,7 @@
 package net.ximatai.muyun.spring.platform.web;
 
+import net.ximatai.muyun.spring.common.security.AssistantFieldPolicy;
+
 public record ViewFieldDefinition(ViewFieldRef fieldRef,
                                   String label,
                                   UiRule<Boolean> visible,
@@ -15,7 +17,30 @@ public record ViewFieldDefinition(ViewFieldRef fieldRef,
                                   BooleanStatusPresentation booleanStatus,
                                   Integer maxDisplayLines,
                                   String treeRootTitle,
+                                  String overrideOf,
+                                  AssistantFieldPolicy assistantPolicy) {
+    /** Compatible constructor for callers predating assistant projection policies. */
+    public ViewFieldDefinition(ViewFieldRef fieldRef,
+                                  String label,
+                                  UiRule<Boolean> visible,
+                                  UiRule<Boolean> required,
+                                  UiRule<Boolean> readOnly,
+                                  String uiType,
+                                  boolean secretInput,
+                                  FieldValuePresentation valuePresentation,
+                                  String width,
+                                  Integer columnSpan,
+                                  String align,
+                                  Boolean fixed,
+                                  BooleanStatusPresentation booleanStatus,
+                                  Integer maxDisplayLines,
+                                  String treeRootTitle,
                                   String overrideOf) {
+        this(fieldRef, label, visible, required, readOnly, uiType, secretInput, valuePresentation,
+                width, columnSpan, align, fixed, booleanStatus,
+                maxDisplayLines, treeRootTitle, overrideOf, AssistantFieldPolicy.READ_WRITE);
+    }
+
     public ViewFieldDefinition {
         if (fieldRef == null) {
             throw new IllegalArgumentException("view field ref must not be null");
@@ -25,6 +50,9 @@ public record ViewFieldDefinition(ViewFieldRef fieldRef,
         required = required == null ? UiRule.constant(Boolean.FALSE) : required;
         readOnly = readOnly == null ? UiRule.constant(Boolean.FALSE) : readOnly;
         uiType = uiType == null || uiType.isBlank() ? null : uiType.trim();
+        assistantPolicy = "password".equals(uiType) || secretInput
+                ? AssistantFieldPolicy.HIDDEN
+                : assistantPolicy == null ? AssistantFieldPolicy.READ_WRITE : assistantPolicy;
         if (secretInput && !"password".equals(uiType)) {
             throw new IllegalArgumentException("secret input requires uiType password");
         }
@@ -102,6 +130,7 @@ public record ViewFieldDefinition(ViewFieldRef fieldRef,
         private UiRule<Boolean> readOnly = UiRule.constant(Boolean.FALSE);
         private String uiType;
         private boolean secretInput;
+        private AssistantFieldPolicy assistantPolicy = AssistantFieldPolicy.READ_WRITE;
         private FieldValuePresentation valuePresentation;
         private String width;
         private Integer columnSpan = 1;
@@ -279,10 +308,15 @@ public record ViewFieldDefinition(ViewFieldRef fieldRef,
             return this;
         }
 
+        public Builder assistantPolicy(AssistantFieldPolicy value) {
+            this.assistantPolicy = java.util.Objects.requireNonNull(value, "assistant policy must not be null");
+            return this;
+        }
+
         public ViewFieldDefinition build() {
             return new ViewFieldDefinition(fieldRef, label, visible, required, readOnly,
                     uiType, secretInput, valuePresentation, width, columnSpan, align, fixed, booleanStatus, maxDisplayLines,
-                    treeRootTitle, overrideOf);
+                    treeRootTitle, overrideOf, assistantPolicy);
         }
     }
 

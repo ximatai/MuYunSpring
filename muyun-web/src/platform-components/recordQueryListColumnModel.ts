@@ -40,6 +40,7 @@ export interface RecordQueryListColumn {
   render?: (record: QueryListRecord) => string;
   /** Explicit list-presentation policy for excluding a visible column from assistant projection. */
   assistantReadable?: boolean;
+  assistantPolicy?: ResolvedViewFieldDescriptor['assistantPolicy'];
 }
 
 export interface RecordQueryListCellComponent {
@@ -85,6 +86,7 @@ export function resolveRecordQueryListColumns(
         ...(field.option ? { optionBinding: true } : {}),
         booleanStatus: field.booleanStatus,
         maxDisplayLines: field.maxDisplayLines,
+        ...(field.assistantPolicy ? { assistantPolicy: field.assistantPolicy } : {}),
         ...(field.fieldControl?.alias === 'password' ? { assistantReadable: false } : {}),
       };
     });

@@ -203,6 +203,8 @@ export type {
 } from './RecordQueryListPanel.vue';
 export { resolveRecordQueryListColumns } from './recordQueryListColumnModel';
 export type {
+  RecordQueryListFilterField,
+  RecordQueryListStandardQuery,
   RecordQueryListQueryController,
   RecordQueryListQueryField,
   RecordQueryListQuerySnapshot,
@@ -330,3 +332,5 @@ export { default as RecordPermissionDialog } from './RecordPermissionDialog.vue'
 
 export { ReferencePickerReadError } from './referencePickerReadError';
 export type { ReferencePickerReadErrorKind } from './referencePickerReadError';
+
+export { parseRecordQueryListStandardQuery } from './recordQueryListStandardQuery';

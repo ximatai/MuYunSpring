@@ -1589,3 +1589,41 @@ function referenceViewFixture(
   } as never;
   return view;
 }
+
+it('separates field description, value projection and draft writing policies', async () => {
+  const view = viewFixture();
+  view.formFields.set('summary', { ...view.formFields.get('summary')!, assistantPolicy: 'DESCRIBE' });
+  view.formFields.set('computed', { ...view.formFields.get('computed')!, assistantPolicy: 'HIDDEN' });
+  const surface = createModulePageAssistantSurface(view, vi.fn());
+  const describe = surface.capabilities().find(({ descriptor }) => descriptor.code === 'form.describe')!;
+  const result = await describe.execute({}, executionContext());
+  expect(JSON.stringify(result)).toContain('summary');
+  expect(JSON.stringify(result)).not.toContain('before');
+  expect(JSON.stringify(result)).not.toContain('computed');
+  const patch = surface.capabilities().find(({ descriptor }) => descriptor.code === 'form.patch-draft')!;
+  await expect(
+    patch.execute({ changes: [{ fieldName: 'summary', value: 'no' }] }, executionContext()),
+  ).rejects.toThrow('not editable');
+});
+
+it('reports actual direct and derived draft changes without exposing hidden values', async () => {
+  const view = viewFixture();
+  view.updateDraftFields = vi.fn(() => {
+    view.editingRecord = { ...view.editingRecord, summary: 'after', computed: 'derived' };
+  });
+  const surface = createModulePageAssistantSurface(view, vi.fn());
+  const patch = surface.capabilities().find(({ descriptor }) => descriptor.code === 'form.patch-draft')!;
+  const result = await patch.execute(
+    { changes: [{ fieldName: 'summary', value: 'after' }] },
+    executionContext(),
+  );
+  expect(result).toMatchObject({
+    draftSummary: {
+      saved: false,
+      changes: [
+        { fieldName: 'summary', source: 'assistant', before: 'before', after: 'after' },
+        { fieldName: 'computed', source: 'derived', before: 'old', after: 'derived' },
+      ],
+    },
+  });
+});

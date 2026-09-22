@@ -1,5 +1,7 @@
 package net.ximatai.muyun.spring.platform.web;
 
+import net.ximatai.muyun.spring.common.security.AssistantFieldPolicy;
+
 public record ResolvedViewFieldDescriptor(ViewFieldRef fieldRef,
                                           String label,
                                           UiRule<Boolean> visible,
@@ -19,7 +21,34 @@ public record ResolvedViewFieldDescriptor(ViewFieldRef fieldRef,
                                           ResolvedReferenceSummaryFieldDescriptor referenceSummary,
                                           Integer maxDisplayLines,
                                           String treeRootTitle,
+                                          String overrideOf,
+                                          AssistantFieldPolicy assistantPolicy) {
+    /** Compatible constructor for callers predating assistant projection policies. */
+    public ResolvedViewFieldDescriptor(ViewFieldRef fieldRef,
+                                          String label,
+                                          UiRule<Boolean> visible,
+                                          UiRule<Boolean> required,
+                                          UiRule<Boolean> readOnly,
+                                          String uiType,
+                                          ResolvedFieldControlDescriptor fieldControl,
+                                          FieldValueType valueType,
+                                          FieldValuePresentation valuePresentation,
+                                          String width,
+                                          Integer columnSpan,
+                                          String align,
+                                          Boolean fixed,
+                                          BooleanStatusPresentation booleanStatus,
+                                          ResolvedOptionFieldDescriptor option,
+                                          ResolvedReferenceFieldDescriptor reference,
+                                          ResolvedReferenceSummaryFieldDescriptor referenceSummary,
+                                          Integer maxDisplayLines,
+                                          String treeRootTitle,
                                           String overrideOf) {
+        this(fieldRef, label, visible, required, readOnly, uiType, fieldControl, valueType, valuePresentation, width,
+                columnSpan, align, fixed, booleanStatus, option, reference, referenceSummary,
+                maxDisplayLines, treeRootTitle, overrideOf, AssistantFieldPolicy.READ_WRITE);
+    }
+
     public ResolvedViewFieldDescriptor {
         if (fieldRef == null) {
             throw new IllegalArgumentException("resolved view field ref must not be null");
@@ -29,6 +58,9 @@ public record ResolvedViewFieldDescriptor(ViewFieldRef fieldRef,
         required = required == null ? UiRule.constant(Boolean.FALSE) : required;
         readOnly = readOnly == null ? UiRule.constant(Boolean.FALSE) : readOnly;
         uiType = uiType == null || uiType.isBlank() ? null : uiType.trim();
+        assistantPolicy = "password".equals(uiType) || (fieldControl != null && "password".equals(fieldControl.alias()))
+                ? AssistantFieldPolicy.HIDDEN
+                : assistantPolicy == null ? AssistantFieldPolicy.READ_WRITE : assistantPolicy;
         if (fieldControl != null && uiType != null && !uiType.equals(fieldControl.alias())) {
             throw new IllegalArgumentException("resolved field control alias must match uiType");
         }
@@ -168,15 +200,21 @@ public record ResolvedViewFieldDescriptor(ViewFieldRef fieldRef,
         return value;
     }
 
+    public ResolvedViewFieldDescriptor withAssistantPolicy(AssistantFieldPolicy value) {
+        return new ResolvedViewFieldDescriptor(fieldRef, label, visible, required, readOnly, uiType, fieldControl, valueType, valuePresentation, width,
+                columnSpan, align, fixed, booleanStatus, option, reference, referenceSummary,
+                maxDisplayLines, treeRootTitle, overrideOf, value);
+    }
+
     public ResolvedViewFieldDescriptor withUiState(UiRule<Boolean> visible, UiRule<Boolean> readOnly) {
         return new ResolvedViewFieldDescriptor(fieldRef, label, visible, required, readOnly, uiType, fieldControl,
                 valueType, valuePresentation, width, columnSpan, align, fixed, booleanStatus, option, reference,
-                referenceSummary, maxDisplayLines, treeRootTitle, overrideOf);
+                referenceSummary, maxDisplayLines, treeRootTitle, overrideOf, assistantPolicy);
     }
 
     public ResolvedViewFieldDescriptor withReadOnly(UiRule<Boolean> value) {
         return new ResolvedViewFieldDescriptor(fieldRef, label, visible, required, value, uiType, fieldControl,
                 valueType, valuePresentation, width, columnSpan, align, fixed, booleanStatus, option, reference,
-                referenceSummary, maxDisplayLines, treeRootTitle, overrideOf);
+                referenceSummary, maxDisplayLines, treeRootTitle, overrideOf, assistantPolicy);
     }
 }

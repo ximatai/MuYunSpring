@@ -981,7 +981,10 @@ export interface ViewFieldRef {
   fieldId?: string;
 }
 
+export type AssistantFieldPolicy = 'HIDDEN' | 'DESCRIBE' | 'READ' | 'READ_WRITE';
+
 export interface ViewFieldDefinition {
+  assistantPolicy?: AssistantFieldPolicy;
   fieldRef: ViewFieldRef;
   label?: string;
   visible?: UiRule<boolean>;
@@ -1051,6 +1054,7 @@ export interface ResolvedFieldControlBindingDescriptor {
 }
 
 export interface ResolvedViewFieldDescriptor {
+  assistantPolicy?: AssistantFieldPolicy;
   fieldRef: ViewFieldRef;
   label?: string;
   visible?: UiRule<boolean>;

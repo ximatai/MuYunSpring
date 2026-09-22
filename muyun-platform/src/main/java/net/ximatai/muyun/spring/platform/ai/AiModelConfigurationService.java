@@ -63,7 +63,7 @@ public class AiModelConfigurationService extends AbstractAbilityService<AiModelC
     public QueryDescriptor queryDescriptor() {
         return QueryDescriptors.fromModel(MODULE_ALIAS, AiModelConfiguration.class,
                 List.of("id", "tenantId", "title", "provider", "configurationLevel", "tenantFallbackEnabled",
-                        "modelId", "apiKeyConfigured", "enabled", "createdAt", "updatedAt"));
+                        "modelId", "credentialSource", "apiKeyEnvironmentVariable", "apiKeyConfigured", "enabled", "createdAt", "updatedAt"));
     }
 
     @Override
@@ -170,6 +170,21 @@ public class AiModelConfigurationService extends AbstractAbilityService<AiModelC
     }
 
     private void applyNewApiKey(AiModelConfiguration configuration, AiModelConfiguration existing) {
+        if (configuration.getCredentialSource() == null) {
+            configuration.setCredentialSource(AiModelCredentialSource.DIRECT);
+        }
+        if (configuration.getCredentialSource() == AiModelCredentialSource.ENVIRONMENT) {
+            AiModelCredentialResolver.requireEnvironmentManagementAccess();
+            String name = configuration.getApiKeyEnvironmentVariable();
+            configuration.setApiKeyEnvironmentVariable(AiModelCredentialResolver.requireEnvironmentVariable(
+                    name == null ? null : name.trim()));
+            configuration.setApiKey(null);
+            configuration.setApiKeySignature(null);
+            configuration.setApiKeyInput(null);
+            configuration.setApiKeyConfigured(Boolean.TRUE);
+            return;
+        }
+        configuration.setApiKeyEnvironmentVariable(null);
         String input = configuration.getApiKeyInput();
         configuration.setApiKeyInput(null);
         if (input == null || input.isBlank()) {
@@ -205,7 +220,8 @@ public class AiModelConfigurationService extends AbstractAbilityService<AiModelC
         if (configuration == null) {
             throw new PlatformConfigurationException("no usable " + scope + " AI model configuration exists");
         }
-        if (configuration.getApiKey() == null || configuration.getApiKey().isBlank()) {
+        if (configuration.getCredentialSource() != AiModelCredentialSource.ENVIRONMENT
+                && (configuration.getApiKey() == null || configuration.getApiKey().isBlank())) {
             throw new PlatformConfigurationException(scope + " AI model configuration has no API key");
         }
         return configuration;

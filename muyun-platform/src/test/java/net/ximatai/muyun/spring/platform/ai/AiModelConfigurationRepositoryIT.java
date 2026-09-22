@@ -32,6 +32,7 @@ class AiModelConfigurationRepositoryIT extends PlatformPostgresIntegrationTest {
     @Autowired AiModelConfigurationService configurations;
     @Autowired AiModelProviderService providers;
     @Autowired AiModelConfigurationDao dao;
+    @Autowired DataSource dataSource;
 
     @DynamicPropertySource
     static void databaseProperties(DynamicPropertyRegistry registry) {
@@ -47,10 +48,61 @@ class AiModelConfigurationRepositoryIT extends PlatformPostgresIntegrationTest {
             provider.setTitle("Local contract provider");
             providers.update(provider);
             assertThat(providers.requireEnabled(provider.getId()).getTitle()).isEqualTo("Local contract provider");
-            AiModelConfiguration platform = input("platform-key");
+            // Reproduce a retained column from the retired availability-scope model.
+            var jdbc = new org.springframework.jdbc.core.JdbcTemplate(dataSource);
+            jdbc.execute("ALTER TABLE platform_ai_model_configuration ADD COLUMN availability_scope varchar(32) NOT NULL");
+            AiModelConfiguration rejected = environmentInput();
+            assertThatThrownBy(() -> configurations.insert(rejected))
+                    .hasStackTraceContaining("availability_scope");
+            // The documented non-destructive upgrade retains old values but removes the obsolete constraint.
+            jdbc.execute("ALTER TABLE platform_ai_model_configuration ALTER COLUMN availability_scope DROP NOT NULL");
+            AiModelConfiguration platform = environmentInput();
             platform.setTenantFallbackEnabled(Boolean.TRUE);
             String platformId = configurations.insert(platform);
+            assertThat(dao.findById(platformId).getApiKey()).isNull();
+            assertThat(dao.findById(platformId).getApiKeySignature()).isNull();
+            var credential = new java.util.concurrent.atomic.AtomicReference<>("environment-key");
+            var resolver = new DefaultAiModelRouteResolver(configurations, providers,
+                    new AiModelCredentialResolver(name -> credential.get()));
+            var client = org.mockito.Mockito.mock(AiModelClient.class);
+            var gateway = new DefaultAiModelGateway(resolver, client);
+            gateway.generate(AiTextRequest.userText("contract"));
+            credential.set("rotated-environment-key");
+            gateway.stream(AiTextRequest.userText("contract"), delta -> {});
+            var captured = org.mockito.ArgumentCaptor.forClass(ResolvedAiModelRoute.class);
+            org.mockito.Mockito.verify(client).generate(captured.capture(), org.mockito.ArgumentMatchers.any(AiTextRequest.class));
+            assertThat(captured.getValue().apiKey()).isEqualTo("environment-key");
+            org.mockito.Mockito.verify(client).stream(captured.capture(), org.mockito.ArgumentMatchers.any(AiTextRequest.class),
+                    org.mockito.ArgumentMatchers.any(AiTextStreamConsumer.class));
+            assertThat(captured.getValue().apiKey()).isEqualTo("rotated-environment-key");
+            try (var tenantUser = CurrentUserContext.use(CurrentUser.tenantUser("u", "u", "env-fallback"));
+                 var tenant = TenantContext.use("env-fallback")) {
+                assertThat(resolver.resolveCurrent().apiKey()).isEqualTo("rotated-environment-key");
+            }
+            assertThat(configurations.select(platformId).getApiKey()).isNull();
+            AiModelConfiguration initialDirect = configurations.select(platformId);
+            initialDirect.setCredentialSource(AiModelCredentialSource.DIRECT);
+            initialDirect.setApiKeyInput("platform-key");
+            configurations.update(initialDirect);
             exerciseCredentialUpdates(platformId);
+            AiModelConfiguration environment = configurations.select(platformId);
+            environment.setCredentialSource(AiModelCredentialSource.ENVIRONMENT);
+            environment.setApiKeyEnvironmentVariable("MUYUN_AI_CONTRACT_KEY");
+            configurations.update(environment);
+            assertThat(dao.findById(platformId).getApiKey()).isNull();
+            assertThat(dao.findById(platformId).getApiKeySignature()).isNull();
+            assertThat(configurations.select(platformId).getApiKeyEnvironmentVariable())
+                    .isEqualTo("MUYUN_AI_CONTRACT_KEY");
+            configurations.disable(platformId);
+            configurations.enable(platformId);
+            AiModelConfiguration direct = configurations.select(platformId);
+            direct.setCredentialSource(AiModelCredentialSource.DIRECT);
+            assertThatThrownBy(() -> configurations.update(direct)).hasMessage("AI model API key must not be blank");
+            direct.setVersion(configurations.select(platformId).getVersion());
+            direct.setApiKeyInput("restored-key");
+            configurations.update(direct);
+            assertCredential(platformId, "restored-key");
+            assertThat(dao.findById(platformId).getApiKeyEnvironmentVariable()).isNull();
 
             AiModelConfiguration platformOnly = configurations.select(platformId);
             platformOnly.setTenantFallbackEnabled(Boolean.FALSE);
@@ -110,6 +162,14 @@ class AiModelConfigurationRepositoryIT extends PlatformPostgresIntegrationTest {
         assertThat(stored.getApiKeySignature()).isNotBlank();
         assertThat(configurations.select(id).getApiKey()).isEqualTo(expected);
         assertThat(configurations.select(id).getApiKey()).isEqualTo(expected); // cache hit
+    }
+
+    private static AiModelConfiguration environmentInput() {
+        AiModelConfiguration record = input(null);
+        record.setCredentialSource(AiModelCredentialSource.ENVIRONMENT);
+        record.setApiKeyEnvironmentVariable("SHARED_MODEL_KEY");
+        record.setTenantFallbackEnabled(Boolean.TRUE);
+        return record;
     }
 
     private static AiModelConfiguration input(String key) {

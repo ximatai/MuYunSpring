@@ -59,6 +59,25 @@ class AiModelConfigurationJsonTest {
     }
 
     @Test
+    void credentialSourceSelectsTheVisibleAndRequiredInput() {
+        var definition = new AiModelConfigurationWebController(org.mockito.Mockito.mock(AiModelConnectionTester.class))
+                .moduleUiDefinition();
+        var page = (FlatManagementPageDefinition) definition.page();
+        var engine = new FormulaEngine();
+        for (String source : List.of("direct", "environment")) {
+            var values = FormulaRuntimeData.of(Map.of("credentialSource", source));
+            for (var field : page.detail().editor().fields()) {
+                String name = field.fieldRef().fieldName();
+                if (name.equals("apiKeyInput") || name.equals("apiKeyEnvironmentVariable")) {
+                    boolean active = name.equals("apiKeyInput") == source.equals("direct");
+                    assertThat(engine.evaluateBoolean(field.visible().formula().expression(), values)).isEqualTo(active);
+                    assertThat(engine.evaluateBoolean(field.required().formula().expression(), values)).isEqualTo(active);
+                }
+            }
+        }
+    }
+
+    @Test
     void publishesConnectionTestingThroughTheManagedDetailActionContract() throws Exception {
         ModuleUiDefinition definition = new AiModelConfigurationWebController(org.mockito.Mockito.mock(AiModelConnectionTester.class))
                 .moduleUiDefinition();

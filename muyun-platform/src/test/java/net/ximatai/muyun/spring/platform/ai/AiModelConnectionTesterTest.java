@@ -66,6 +66,36 @@ class AiModelConnectionTesterTest {
                 .hasMessage("AI model API key must be provided before testing");
     }
 
+    @Test
+    void environmentDraftUsesTheSameRuntimeResolverWithoutPersistingTheSecret() {
+        AiModelConfigurationService configurations = mock(AiModelConfigurationService.class);
+        AiModelProviderService providers = mock(AiModelProviderService.class);
+        AiModelProvider provider = new AiModelProvider();
+        provider.setId("test");
+        provider.setProtocol(AiModelProtocol.OPENAI_COMPATIBLE);
+        provider.setBaseUrl("https://example.test/v1");
+        when(providers.requireEnabled("test")).thenReturn(provider);
+        AiModelRouteResolver routes = new DefaultAiModelRouteResolver(configurations, providers,
+                new AiModelCredentialResolver(name -> "environment-secret"));
+        AiModelClient client = mock(AiModelClient.class);
+        AiModelConnectionTester tester = new AiModelConnectionTester(configurations, routes, client);
+        AiModelConfiguration draft = new AiModelConfiguration();
+        draft.setProvider("test");
+        draft.setModelId("test-model");
+        draft.setCredentialSource(AiModelCredentialSource.ENVIRONMENT);
+        draft.setApiKeyEnvironmentVariable("MUYUN_AI_TEST_KEY");
+        assertThatThrownBy(() -> tester.testDraft(draft)).hasMessageContaining("只有平台管理员");
+        try (var user = net.ximatai.muyun.spring.common.identity.CurrentUserContext.use(
+                net.ximatai.muyun.spring.common.identity.CurrentUser.systemUser("root", "root"))) {
+            assertThat(tester.testDraft(draft).connected()).isTrue();
+        }
+        ArgumentCaptor<ResolvedAiModelRoute> route = ArgumentCaptor.forClass(ResolvedAiModelRoute.class);
+        verify(client).generate(route.capture(), any(AiTextRequest.class));
+        assertThat(route.getValue().apiKey()).isEqualTo("environment-secret");
+        assertThat(draft.getApiKey()).isNull();
+        org.mockito.Mockito.verifyNoInteractions(configurations);
+    }
+
     private AiModelRouteResolver passthroughRouteResolver() {
         return new AiModelRouteResolver() {
             @Override

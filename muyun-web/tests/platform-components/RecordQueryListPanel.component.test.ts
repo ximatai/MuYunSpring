@@ -73,6 +73,63 @@ describe('RecordQueryListPanel', () => {
     expect(wrapper.emitted('queryControllerChange')?.at(-1)).toEqual([undefined]);
   });
 
+  it('applies validated standard filters and sorts through the normal request and preserves state on rejection', async () => {
+    const requests: WebQueryRequest[] = [];
+    const context = createContext({ id: 'note-1', title: 'Daily report', secret: 'hidden' }, requests);
+    context.crud.querySchema = async () => ({
+      scopeName: 'demo.note',
+      quickSearch: { enabled: false, fields: [], fieldSchemas: [] },
+      fields: [
+        { name: 'title', title: 'Title', valueType: 'STRING', operators: ['EQ'], sortable: true },
+        { name: 'secret', valueType: 'STRING', operators: ['EQ'], sortable: true },
+      ],
+      externalCriteria: [],
+      defaultSorts: [],
+    });
+    const wrapper = shallowMount(RecordQueryListPanel, {
+      props: {
+        context,
+        title: 'Notes',
+        columns: [
+          { key: 'title', title: 'Title' },
+          { key: 'secret', title: 'Secret', assistantPolicy: 'DESCRIBE' },
+        ],
+      },
+    });
+    await flushPromises();
+    const controller = wrapper.emitted('queryControllerChange')?.[0]?.[0] as RecordQueryListQueryController;
+    expect(controller.snapshot().standardQuery?.fields.map((field) => field.name)).toEqual(['title']);
+    await controller.applyStandardQuery!({
+      conditions: [{ kind: 'CONDITION', fieldName: 'title', operator: 'EQ', values: ['Daily report'] }],
+      sorts: [{ field: 'title', desc: true }],
+    });
+    expect(requests.at(-1)).toMatchObject({
+      criteria: {
+        children: [
+          {
+            kind: 'GROUP',
+            operator: 'AND',
+            children: [{ fieldName: 'title', operator: 'EQ', values: ['Daily report'] }],
+          },
+        ],
+      },
+      sorts: [{ field: 'title', desc: true }],
+      page: { pageNum: 1 },
+    });
+    const previous = controller.snapshot();
+    const count = requests.length;
+    await expect(
+      controller.applyStandardQuery!({
+        conditions: [{ kind: 'CONDITION', fieldName: 'secret', operator: 'EQ', values: ['hidden'] }],
+        sorts: [],
+      }),
+    ).rejects.toThrow();
+    expect(requests).toHaveLength(count);
+    expect(controller.snapshot()).toEqual(previous);
+    expect(JSON.stringify(previous.rows)).not.toContain('hidden');
+    wrapper.unmount();
+  });
+
   it('rejects a controller search superseded by a newer standard list request', async () => {
     const context = createContext({ id: 'note-1', title: 'Initial' });
     context.crud.querySchema = async () => ({

@@ -73,8 +73,12 @@ const activeTabKey = computed(
   () => props.activeTabKey ?? props.startup?.activeTabKey ?? tabs.value[0]?.key ?? '',
 );
 const activeTab = computed(() => openedTabs.value.find((tab) => tab.key === activeTabKey.value));
+const activePageDescriptor = computed(() => pageDescriptorOf(activeTab.value));
 const activePageInstanceKey = computed(() => activeTab.value?.instanceKey ?? activeTab.value?.key);
-const assistantSurfaceRegistry = createAssistantSurfaceRegistry();
+const assistantSurfaceRegistry = createAssistantSurfaceRegistry(() => {
+  const user = props.startup?.session.currentUser;
+  return JSON.stringify([user?.userId, user?.tenantId, user?.organizationId, user?.system]);
+});
 const ASSISTANT_PAGE_READY_TIMEOUT_MS = 15_000;
 const assistantOpen = ref(false);
 function workbenchAssistantCapabilities() {
@@ -145,6 +149,7 @@ watch(
     unregisterWorkbenchAssistantSurface = assistantSurfaceRegistry.register({
       pageInstanceKey,
       fallback: true,
+      conversationScopePending: activePageDescriptor.value?.hostType === 'module-page-host',
       contextRevision: () => 'workbench',
       surface: {
         describe: () => ({
@@ -160,7 +165,6 @@ watch(
   { immediate: true, deep: true },
 );
 onUnmounted(() => unregisterWorkbenchAssistantSurface?.());
-const activePageDescriptor = computed(() => pageDescriptorOf(activeTab.value));
 const currentUser = computed(() => props.startup?.session.currentUser);
 const userDisplayName = computed(() => currentUser.value?.username ?? currentUser.value?.userId ?? '未登录');
 const userInitial = computed(() => userDisplayName.value.trim().slice(0, 1).toUpperCase() || 'M');
