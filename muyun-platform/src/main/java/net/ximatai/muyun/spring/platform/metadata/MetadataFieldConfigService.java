@@ -17,6 +17,7 @@ import net.ximatai.muyun.spring.platform.runtime.PlatformDynamicRuntimeRefreshCo
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
+import java.util.Objects;
 import java.util.Optional;
 
 @Service
@@ -31,16 +32,6 @@ public class MetadataFieldConfigService extends StandardBusinessService<Metadata
     private final ModuleMetadataRelationService relationService;
     private final MetadataFieldProtectionConfigService protectionConfigService;
     private final Optional<PlatformDynamicRuntimeRefreshCoordinator> runtimeRefreshCoordinator;
-
-    public MetadataFieldConfigService(BaseDao<MetadataFieldConfig, String> configDao,
-                                      MetadataFieldService fieldService,
-                                      MetadataService metadataService,
-                                      FieldSpecService fieldTypeService,
-                                      DictionaryCategoryService categoryService,
-                                      ModuleMetadataRelationService relationService) {
-        this(configDao, fieldService, metadataService, fieldTypeService, categoryService, relationService, null,
-                Optional.empty());
-    }
 
     public MetadataFieldConfigService(BaseDao<MetadataFieldConfig, String> configDao,
                                       MetadataFieldService fieldService,
@@ -63,13 +54,13 @@ public class MetadataFieldConfigService extends StandardBusinessService<Metadata
                                       MetadataFieldProtectionConfigService protectionConfigService,
                                       Optional<PlatformDynamicRuntimeRefreshCoordinator> runtimeRefreshCoordinator) {
         super(MODULE_ALIAS, MetadataFieldConfig.class, configDao);
-        this.fieldService = fieldService;
-        this.metadataService = metadataService;
-        this.fieldTypeService = fieldTypeService;
-        this.categoryService = categoryService;
-        this.relationService = relationService;
-        this.protectionConfigService = protectionConfigService;
-        this.runtimeRefreshCoordinator = runtimeRefreshCoordinator == null ? Optional.empty() : runtimeRefreshCoordinator;
+        this.fieldService = Objects.requireNonNull(fieldService, "fieldService must not be null");
+        this.metadataService = Objects.requireNonNull(metadataService, "metadataService must not be null");
+        this.fieldTypeService = Objects.requireNonNull(fieldTypeService, "fieldTypeService must not be null");
+        this.categoryService = Objects.requireNonNull(categoryService, "categoryService must not be null");
+        this.relationService = Objects.requireNonNull(relationService, "relationService must not be null");
+        this.protectionConfigService = Objects.requireNonNull(protectionConfigService, "protectionConfigService must not be null");
+        this.runtimeRefreshCoordinator = Objects.requireNonNull(runtimeRefreshCoordinator, "runtimeRefreshCoordinator must not be null");
     }
 
     @Override
@@ -113,6 +104,30 @@ public class MetadataFieldConfigService extends StandardBusinessService<Metadata
         validateVirtualBehaviorBoundary(config, field);
         rejectDuplicate(config, scopeCriteria(config.getMetadataFieldId(), config.getRelationId()),
                 "metadata field config must be unique in scope: " + config.getMetadataFieldId());
+    }
+
+    @Override
+    protected void validateBeforeUpdate(MetadataFieldConfig config, MetadataFieldConfig existing) {
+        rejectChanged(existing, config, "Metadata field", MetadataFieldConfig::getMetadataFieldId);
+        rejectChanged(existing, config, "Relation scope", MetadataFieldConfig::getRelationId);
+    }
+
+    @Override
+    public void beforeRestore(String id) {
+        MetadataFieldConfig config = selectIgnoreSoftDelete(id);
+        if (config != null) validateBeforeSave(config);
+    }
+
+    @Override
+    public void beforeSoftDelete(MetadataFieldConfig config) {
+        if (config.getRelationId() == null
+                && protectionConfigService.definition(config.getMetadataFieldId()).hasStorageProtection()) {
+            MetadataField field = requireField(config.getMetadataFieldId());
+            if (fieldTypeService.requireFieldType(field.getFieldSpecAlias()).queryDefinition().queryable()) {
+                throw new PlatformException("Protected storage field cannot become queryable after removing its default config: "
+                        + config.getMetadataFieldId());
+            }
+        }
     }
 
     /**
@@ -240,14 +255,13 @@ public class MetadataFieldConfigService extends StandardBusinessService<Metadata
     }
 
     private void validateProtectionQueryBoundary(MetadataFieldConfig config, FieldSpec fieldType) {
-        if (protectionConfigService == null) {
-            return;
-        }
         FieldProtectionDefinition protection = protectionConfigService.definition(config.getMetadataFieldId());
         if (!protection.hasStorageProtection()) {
             return;
         }
-        if (config.queryDefinition(fieldType).queryable()) {
+        MetadataFieldConfig defaultConfig = config.getRelationId() == null
+                ? config : findByMetadataFieldId(config.getMetadataFieldId());
+        if (MetadataFieldConfig.effectiveQueryDefinition(fieldType, defaultConfig, config).queryable()) {
             throw new PlatformException("Protected storage field cannot be queryable: "
                     + config.getMetadataFieldId());
         }

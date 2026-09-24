@@ -1,5 +1,7 @@
 package net.ximatai.muyun.spring.iam.tenant;
 
+import org.springframework.beans.factory.support.StaticListableBeanFactory;
+import net.ximatai.muyun.spring.common.exception.PlatformAccessDeniedException;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.database.core.orm.PageResult;
@@ -222,9 +224,41 @@ class TenantServiceContractTest {
         try (TenantContext.Scope ignored = TenantContext.system("test system context")) {
             service.insert(tenant("ximatai", "Ximatai"));
         }
-        service.provisionTenant("ximatai");
+        when(dao.query(any(Criteria.class), any(PageRequest.class)))
+                .thenReturn(List.of(tenant("ximatai", "Ximatai")));
+        try (TenantContext.Scope ignored = TenantContext.system("replay tenant initialization")) {
+            service.provisionTenant("ximatai");
+        }
 
         verify(provisioner, times(2)).afterTenantCreated("ximatai");
+    }
+
+    @Test
+    void provisioningRequiresSystemContextEvenWithoutExtensions() {
+        TenantService service = new TenantService(mock(TenantDao.class));
+        assertThatThrownBy(() -> service.provisionTenant("active"))
+                .isInstanceOf(PlatformAccessDeniedException.class);
+        try (var ignored = TenantContext.use("active")) {
+            assertThatThrownBy(() -> service.provisionTenant("active"))
+                    .isInstanceOf(PlatformAccessDeniedException.class);
+        }
+    }
+
+    @Test
+    void provisioningRejectsInvalidTargetsBeforeCallingExtensions() {
+        TenantDao dao = mock(TenantDao.class);
+        TenantCreationProvisioner extension = mock(TenantCreationProvisioner.class);
+        var beans = new StaticListableBeanFactory();
+        beans.addBean("extension", extension);
+        TenantService service = new TenantService(dao, beans.getBeanProvider(TenantCreationProvisioner.class));
+        when(dao.query(any(Criteria.class), any(PageRequest.class)))
+                .thenReturn(List.of()).thenReturn(List.of(disabledTenant("disabled", "Disabled")));
+        try (var ignored = TenantContext.system("validate initialization target")) {
+            assertThatThrownBy(() -> service.provisionTenant(" ")).isInstanceOf(IllegalArgumentException.class);
+            assertThatThrownBy(() -> service.provisionTenant("missing")).hasMessageContaining("not active");
+            assertThatThrownBy(() -> service.provisionTenant("disabled")).hasMessageContaining("not active");
+        }
+        org.mockito.Mockito.verifyNoInteractions(extension);
     }
 
     private Tenant tenant(String alias, String title) {

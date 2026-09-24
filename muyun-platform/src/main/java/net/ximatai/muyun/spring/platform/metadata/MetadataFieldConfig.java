@@ -79,6 +79,15 @@ public class MetadataFieldConfig extends StandardEntity {
         return FieldQueryDefinition.enabled(fieldType.getFieldType(), operator, operators);
     }
 
+    /** Relation declarations inherit the field default before falling back to the field specification. */
+    public static FieldQueryDefinition effectiveQueryDefinition(FieldSpec fieldType,
+                                                                MetadataFieldConfig defaultConfig,
+                                                                MetadataFieldConfig relationConfig) {
+        MetadataFieldConfig queryConfig = relationConfig != null && relationConfig.getQueryable() != null
+                ? relationConfig : defaultConfig;
+        return queryConfig == null ? fieldType.queryDefinition() : queryConfig.queryDefinition(fieldType);
+    }
+
     public boolean hasDictionaryBinding() {
         return dictionaryCategoryAlias != null && !dictionaryCategoryAlias.isBlank();
     }

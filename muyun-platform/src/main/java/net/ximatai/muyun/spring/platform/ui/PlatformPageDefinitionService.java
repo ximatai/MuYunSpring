@@ -1,9 +1,10 @@
 package net.ximatai.muyun.spring.platform.ui;
 
 import net.ximatai.muyun.database.core.orm.Criteria;
-import net.ximatai.muyun.spring.ability.StandardBusinessService;
+import net.ximatai.muyun.spring.ability.SystemStandardBusinessService;
 import net.ximatai.muyun.spring.ability.BaseDao;
 import net.ximatai.muyun.spring.ability.EnableAbility;
+import net.ximatai.muyun.spring.ability.GlobalScopedAbility;
 import net.ximatai.muyun.spring.ability.SoftDeleteAbility;
 import net.ximatai.muyun.spring.ability.SortAbility;
 import net.ximatai.muyun.spring.ability.action.BusinessExceptions;
@@ -11,7 +12,6 @@ import net.ximatai.muyun.spring.ability.query.QueryAbility;
 import net.ximatai.muyun.spring.ability.query.QueryDescriptor;
 import net.ximatai.muyun.spring.ability.query.QueryDescriptors;
 import net.ximatai.muyun.spring.common.schema.StandardEntitySchema;
-import net.ximatai.muyun.spring.common.tenant.TenantContext;
 import net.ximatai.muyun.spring.common.util.PlatformNameRules;
 import net.ximatai.muyun.spring.platform.metadata.ModuleMetadataRelation;
 import net.ximatai.muyun.spring.platform.metadata.ModuleMetadataRelationService;
@@ -20,10 +20,12 @@ import net.ximatai.muyun.spring.platform.module.PlatformModuleService;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 
+import java.util.Objects;
 import java.util.Optional;
 
 @Service
-public class PlatformPageDefinitionService extends StandardBusinessService<PlatformPageDefinition> implements
+public class PlatformPageDefinitionService extends SystemStandardBusinessService<PlatformPageDefinition> implements
+        GlobalScopedAbility<PlatformPageDefinition>,
         SoftDeleteAbility<PlatformPageDefinition>,
         EnableAbility<PlatformPageDefinition>,
         SortAbility<PlatformPageDefinition>,
@@ -46,8 +48,8 @@ public class PlatformPageDefinitionService extends StandardBusinessService<Platf
                                          ModuleMetadataRelationService relationService,
                                          ObjectProvider<PublishedPageExecutionCoordinator> pageExecutionCoordinator) {
         this(pageDao, moduleService, relationService,
-                pageExecutionCoordinator == null ? PublishedPageExecutionCoordinator.noop()
-                        : pageExecutionCoordinator.getIfAvailable(PublishedPageExecutionCoordinator::noop));
+                Objects.requireNonNull(pageExecutionCoordinator, "pageExecutionCoordinator provider must not be null")
+                        .getIfAvailable(PublishedPageExecutionCoordinator::noop));
     }
 
     PlatformPageDefinitionService(BaseDao<PlatformPageDefinition, String> pageDao,
@@ -55,10 +57,9 @@ public class PlatformPageDefinitionService extends StandardBusinessService<Platf
                                   ModuleMetadataRelationService relationService,
                                   PublishedPageExecutionCoordinator pageExecutionCoordinator) {
         super(MODULE_ALIAS, PlatformPageDefinition.class, pageDao);
-        this.moduleService = moduleService;
-        this.relationService = relationService;
-        this.pageExecutionCoordinator = pageExecutionCoordinator == null
-                ? PublishedPageExecutionCoordinator.noop() : pageExecutionCoordinator;
+        this.moduleService = Objects.requireNonNull(moduleService, "moduleService must not be null");
+        this.relationService = Objects.requireNonNull(relationService, "relationService must not be null");
+        this.pageExecutionCoordinator = Objects.requireNonNull(pageExecutionCoordinator, "pageExecutionCoordinator must not be null");
     }
 
     @Override
@@ -90,11 +91,6 @@ public class PlatformPageDefinitionService extends StandardBusinessService<Platf
 
     public PlatformPageDefinition requireVisiblePage(String id) {
         PlatformPageDefinition page = id == null || id.isBlank() ? null : select(id);
-        if (page == null && id != null && !id.isBlank() && TenantContext.currentTenantId().isPresent()) {
-            try (TenantContext.Scope ignored = TenantContext.bypassTenantFilter("resolve global page definition")) {
-                page = select(id);
-            }
-        }
         if (page == null) {
             throw BusinessExceptions.warning("platform.page-definition.not-found",
                     "Page definition requires existing page: " + id);
@@ -104,16 +100,7 @@ public class PlatformPageDefinitionService extends StandardBusinessService<Platf
 
     /** Resolves the stable page identity before client/scope-specific presentation resolution. */
     public Optional<PlatformPageDefinition> resolveVisiblePage(String moduleAlias, String alias) {
-        String normalizedModuleAlias = PlatformNameRules.requireModuleAlias(moduleAlias);
-        String normalizedAlias = PlatformNameRules.requireIdentifier(alias, "pageAlias");
-        Criteria criteria = Criteria.of().eq("moduleAlias", normalizedModuleAlias).eq("alias", normalizedAlias);
-        PlatformPageDefinition page = list(enabledCriteria(criteria)).stream().findFirst().orElse(null);
-        if (page == null && TenantContext.currentTenantId().isPresent()) {
-            try (TenantContext.Scope ignored = TenantContext.bypassTenantFilter("resolve global page definition")) {
-                page = list(enabledCriteria(criteria)).stream().findFirst().orElse(null);
-            }
-        }
-        return Optional.ofNullable(page);
+        return resolveGlobalPage(moduleAlias, alias);
     }
 
     /** Resolves the global page identity for a source that is explicitly global by contract. */
@@ -123,17 +110,11 @@ public class PlatformPageDefinitionService extends StandardBusinessService<Platf
         Criteria criteria = Criteria.of().eq("moduleAlias", normalizedModuleAlias)
                 .eq("alias", normalizedAlias)
                 .isNull(StandardEntitySchema.TENANT_ID_FIELD);
-        try (TenantContext.Scope ignored = TenantContext.bypassTenantFilter("resolve global page definition")) {
-            return Optional.ofNullable(list(enabledCriteria(criteria)).stream().findFirst().orElse(null));
-        }
+        return list(enabledCriteria(criteria)).stream().findFirst();
     }
 
     @Override
     protected void validateBeforeSave(PlatformPageDefinition page) {
-        if (!TenantContext.isSystem()) {
-            throw BusinessExceptions.warning("platform.page-definition.global-system-context-required",
-                    "Stable page definition requires system context; tenant and organization differences belong to variants");
-        }
         String moduleAlias = PlatformNameRules.requireModuleAlias(page.getModuleAlias());
         if (moduleService.resolveVisibleModule(moduleAlias) == null) {
             throw BusinessExceptions.warning("platform.page-definition.module-not-found",
@@ -166,11 +147,6 @@ public class PlatformPageDefinitionService extends StandardBusinessService<Platf
                     "Page definition requires mainRelationId");
         }
         ModuleMetadataRelation relation = relationService.select(relationId.trim());
-        if (relation == null && TenantContext.currentTenantId().isPresent()) {
-            try (TenantContext.Scope ignored = TenantContext.bypassTenantFilter("resolve global module metadata relation")) {
-                relation = relationService.select(relationId.trim());
-            }
-        }
         if (relation == null) {
             throw BusinessExceptions.warning("platform.page-definition.main-relation-not-found",
                     "Page definition requires existing main relation: " + relationId);

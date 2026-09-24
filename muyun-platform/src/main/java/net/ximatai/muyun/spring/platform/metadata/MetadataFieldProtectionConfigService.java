@@ -33,12 +33,6 @@ public class MetadataFieldProtectionConfigService extends AbstractAbilityService
 
     public MetadataFieldProtectionConfigService(BaseDao<MetadataFieldProtectionConfig, String> configDao,
                                                 MetadataFieldService fieldService,
-                                                FieldSpecService fieldTypeService) {
-        this(configDao, fieldService, fieldTypeService, null, Optional.empty());
-    }
-
-    public MetadataFieldProtectionConfigService(BaseDao<MetadataFieldProtectionConfig, String> configDao,
-                                                MetadataFieldService fieldService,
                                                 FieldSpecService fieldTypeService,
                                                 BaseDao<MetadataFieldConfig, String> fieldConfigDao) {
         this(configDao, fieldService, fieldTypeService, fieldConfigDao, Optional.empty());
@@ -51,9 +45,9 @@ public class MetadataFieldProtectionConfigService extends AbstractAbilityService
                                                 BaseDao<MetadataFieldConfig, String> fieldConfigDao,
                                                 Optional<PlatformDynamicRuntimeRefreshCoordinator> runtimeRefreshCoordinator) {
         super(MODULE_ALIAS, MetadataFieldProtectionConfig.class, configDao);
-        this.fieldService = fieldService;
-        this.fieldTypeService = fieldTypeService;
-        this.fieldConfigDao = fieldConfigDao;
+        this.fieldService = Objects.requireNonNull(fieldService, "fieldService must not be null");
+        this.fieldTypeService = Objects.requireNonNull(fieldTypeService, "fieldTypeService must not be null");
+        this.fieldConfigDao = Objects.requireNonNull(fieldConfigDao, "fieldConfigDao must not be null");
         this.runtimeRefreshCoordinator = Objects.requireNonNull(runtimeRefreshCoordinator,
                 "runtimeRefreshCoordinator must not be null");
     }
@@ -147,28 +141,21 @@ public class MetadataFieldProtectionConfigService extends AbstractAbilityService
             return;
         }
         FieldSpec fieldType = fieldTypeService.requireFieldType(field.getFieldSpecAlias());
-        MetadataFieldConfig config = fieldConfig(field.getId());
-        if (config == null) {
-            if (fieldType.queryDefinition().queryable()) {
-                throw new PlatformException("Protected storage field cannot be queryable: " + field.getId());
-            }
-            return;
-        }
-        if (config.queryDefinition(fieldType).queryable()) {
+        // Use the same active/tenant scope as field configuration reads without a service dependency cycle.
+        var configs = fieldConfigDao.list(activeCriteria(Criteria.of().eq("metadataFieldId", field.getId())));
+        MetadataFieldConfig defaultConfig = configs.stream().filter(config -> config.getRelationId() == null)
+                .findFirst().orElse(null);
+        if (MetadataFieldConfig.effectiveQueryDefinition(fieldType, defaultConfig, null).queryable()
+                || configs.stream().filter(config -> config.getRelationId() != null)
+                .anyMatch(config -> MetadataFieldConfig.effectiveQueryDefinition(fieldType, defaultConfig, config).queryable())) {
             throw new PlatformException("Protected storage field cannot be queryable: " + field.getId());
         }
     }
 
-    private MetadataFieldConfig fieldConfig(String metadataFieldId) {
-        if (fieldConfigDao == null) {
-            return null;
-        }
-        return fieldConfigDao.query(Criteria.of()
-                        .eq("metadataFieldId", metadataFieldId)
-                        .isNull("relationId"),
-                net.ximatai.muyun.database.core.orm.PageRequest.of(1, 1)).stream()
-                .findFirst()
-                .orElse(null);
+    @Override
+    public void beforeRestore(String id) {
+        MetadataFieldProtectionConfig config = selectIgnoreSoftDelete(id);
+        if (config != null) normalizeAndValidate(config);
     }
 
     private MetadataField requireField(String metadataFieldId) {

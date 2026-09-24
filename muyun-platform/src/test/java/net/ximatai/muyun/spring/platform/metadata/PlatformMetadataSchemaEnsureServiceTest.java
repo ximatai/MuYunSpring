@@ -189,7 +189,8 @@ class PlatformMetadataSchemaEnsureServiceTest {
                 new TestMemoryDao<>(), metadataService, fieldTypeService);
         MetadataFieldConfigService configService = mock(MetadataFieldConfigService.class);
         MetadataFieldDefinitionCompiler fieldCompiler =
-                new MetadataFieldDefinitionCompiler(fieldTypeService, configService, null, fieldService);
+                new MetadataFieldDefinitionCompiler(fieldTypeService, configService,
+                        new MetadataFieldProtectionConfigService(new TestMemoryDao<>(), fieldService, fieldTypeService, new TestMemoryDao<>()), fieldService);
         PlatformMetadataEntityDefinitionCompiler compiler =
                 new PlatformMetadataEntityDefinitionCompiler(metadataService, fieldService, fieldCompiler);
         return new TestContext(metadataService, fieldService, compiler);

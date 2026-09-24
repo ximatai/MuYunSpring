@@ -1,5 +1,9 @@
 package net.ximatai.muyun.spring.starter.configuration.platform;
 
+import net.ximatai.muyun.spring.iam.tenant.Tenant;
+import net.ximatai.muyun.spring.iam.tenant.TenantDao;
+import net.ximatai.muyun.spring.iam.tenant.TenantService;
+import net.ximatai.muyun.spring.common.tenant.TenantCreationProvisioner;
 import net.ximatai.muyun.database.spring.boot.sql.annotation.EnableMuYunRepositories;
 import net.ximatai.muyun.database.core.IDatabaseOperations;
 import net.ximatai.muyun.database.core.orm.Criteria;
@@ -54,6 +58,7 @@ import static org.assertj.core.api.Assertions.*;
 class StandardMutationRepositoryIT {
     @Container static final PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:16-alpine");
     @Autowired MutationContractDao dao;
+    @Autowired TenantDao tenantDao;
     @Autowired Records records;
     @Autowired FailingLogService log;
     @Autowired SoftDeleteRestoreCoordinator restores;
@@ -91,6 +96,32 @@ class StandardMutationRepositoryIT {
                 beans.getBeanProvider(net.ximatai.muyun.spring.common.tenant.OrganizationCreationProvisioner.class));
         try (var tenant = TenantContext.use("tenant-replay")) {
             assertThatThrownBy(() -> service.provisionOrganization(organization.getId())).hasMessage("reject provisioning");
+            assertThat(dao.findById(created.getId())).isNull();
+        }
+    }
+
+    @Test
+    void directTenantProvisioningRollsBackEarlierExtensionWrites() {
+        var tenant = new Tenant();
+        tenant.setAlias("replay_" + UUID.randomUUID().toString().replace("-", "").substring(0, 20));
+        tenant.setTitle("Replay tenant");
+        try (var ignored = TenantContext.system("create initialization target")) {
+            new TenantService(tenantDao).insert(tenant);
+        }
+        var created = record("tenant-provision-" + UUID.randomUUID());
+        var beans = new org.springframework.beans.factory.support.StaticListableBeanFactory();
+        beans.addBean("extension", (TenantCreationProvisioner) id -> {
+            records.insert(created);
+            throw new IllegalArgumentException("reject tenant provisioning");
+        });
+        var service = new TenantService(tenantDao,
+                beans.getBeanProvider(TenantCreationProvisioner.class));
+        try (var ignored = TenantContext.system("initialize tenant")) {
+            assertThatThrownBy(() -> service.provisionTenant(tenant.getId())).hasMessage("reject tenant provisioning");
+            assertThat(dao.findById(created.getId())).isNull();
+            tenant.setDeleted(true);
+            tenantDao.updateById(tenant);
+            assertThatThrownBy(() -> service.provisionTenant(tenant.getId())).hasMessageContaining("not active");
             assertThat(dao.findById(created.getId())).isNull();
         }
     }
@@ -692,7 +723,7 @@ class StandardMutationRepositoryIT {
     @SpringBootConfiguration
     @EnableAutoConfiguration(exclude = {MuYunSpringAutoConfiguration.class, MuYunSpringBusinessLoggingConfiguration.class})
     @EnableTransactionManagement(proxyTargetClass = true)
-    @EnableMuYunRepositories(basePackageClasses = {MutationContractDao.class, DeletionOperationDao.class})
+    @EnableMuYunRepositories(basePackageClasses = {MutationContractDao.class, DeletionOperationDao.class, TenantDao.class})
     @Import({MuYunSpringMutationConfiguration.class, MuYunSpringDatabaseConfiguration.class,
             DeletionRecoveryExecutor.class, SoftDeleteRestoreCoordinator.class, RecycleBinPurgeCoordinator.class,
             DeletionLogLifecycleListener.class})

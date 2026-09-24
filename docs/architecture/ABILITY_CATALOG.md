@@ -17,6 +17,8 @@
 
 **继承标准基类不等于启用所有业务能力。** 软删除、回收站、启停、缓存均需显式选择；未接入软删除的 CRUD 使用硬删除。普通可维护资料推荐软删除，绑定表等是否保留历史由业务决定。动态实体定义目前默认归一 CRUD、生命周期、软删除和缓存；这不表示静态 Service 自动实现同名接口，也不表示所有读取都命中缓存。
 
+页面定义使用 `SystemStandardBusinessService` + `GlobalScopedAbility`，普通查询可读取全局定义，写入（含删除、启停）统一要求系统态。具有租户覆盖语义的模块目录使用 `TenantLayerAbility` 显式读取各层，覆盖规则由模块业务决定，不因读取全局配置而获得系统态写入权限。
+
 学校示例见 [StudentService](../../muyun-demo/src/main/java/net/ximatai/muyun/spring/demo/school/student/StudentService.java)；租户业务见 [OrganizationService](../../muyun-iam/src/main/java/net/ximatai/muyun/spring/iam/organization/OrganizationService.java) 和 [DepartmentService](../../muyun-iam/src/main/java/net/ximatai/muyun/spring/iam/department/DepartmentService.java)。示例中的每个可选能力都表达业务选择，不要求照搬整组。
 
 ## 按业务需要选择能力
@@ -121,6 +123,8 @@ private transient String organizationTitle;
 - `@ModuleExtension` / `@RuntimeEventHandler` 承接运行事件扩展。默认 after 事件提交后执行、失败告警，其余事件事务内执行、失败阻断；handler phase 不能把已提交后发布的事件搬回事务内，也不能绕过权限或审计。工作流等专题保留自己的业务流水。
 
 ## 平台维护者索引
+
+业务不变量依赖必须在构造时完整提供，缺失时立即拒绝装配；例如字段保护的写入校验与字段编译不能因依赖缺失而降级。可选适配器使用显式 `Optional` 或有明确语义的空实现：无 Web 宿主可以不安装页面执行协调器，但仍执行完整的页面配置校验。
 
 以下组件负责装配与执行，不是普通业务必须逐项选择的能力：
 

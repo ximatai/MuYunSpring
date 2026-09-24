@@ -5,6 +5,7 @@ import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.spring.ability.AbstractAbilityService;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.ability.BaseDao;
+import net.ximatai.muyun.spring.ability.TenantLayerAbility;
 import net.ximatai.muyun.spring.ability.EnableAbility;
 import net.ximatai.muyun.spring.ability.PlatformManagedProtectionAbility;
 import net.ximatai.muyun.spring.ability.SoftDeleteAbility;
@@ -27,6 +28,7 @@ import net.ximatai.muyun.spring.ability.reference.ReferenceAbility;
 
 @Service
 public class PlatformModuleService extends AbstractAbilityService<PlatformModule> implements
+        TenantLayerAbility<PlatformModule>,
         SoftDeleteAbility<PlatformModule>,
         EnableAbility<PlatformModule>,
         TreeAbility<PlatformModule>,
@@ -153,36 +155,17 @@ public class PlatformModuleService extends AbstractAbilityService<PlatformModule
     }
 
     public List<PlatformModule> listSystemManagedStaticModules() {
-        try (TenantContext.Scope ignored = TenantContext.system("select system managed static modules")) {
-            return list(Criteria.of()
-                    .eq("moduleKind", ModuleKind.STATIC)
-                    .eq("systemManaged", Boolean.TRUE)
-                    .isNull(StandardEntitySchema.TENANT_ID_FIELD),
-                    new PageRequest(0, Integer.MAX_VALUE));
-        }
+        return listGlobal(Criteria.of()
+                .eq("moduleKind", ModuleKind.STATIC)
+                .eq("systemManaged", Boolean.TRUE));
     }
 
     private List<PlatformModule> listGlobalEnabledModules() {
-        try (TenantContext.Scope ignored = TenantContext.system("select global visible platform modules")) {
-            return list(Criteria.of()
-                    .eq("enabled", Boolean.TRUE)
-                    .isNull(StandardEntitySchema.TENANT_ID_FIELD), new PageRequest(0, Integer.MAX_VALUE))
-                    .stream()
-                    .filter(module -> module.getTenantId() == null || module.getTenantId().isBlank())
-                    .toList();
-        }
+        return listGlobal(Criteria.of().eq("enabled", Boolean.TRUE));
     }
 
     private PlatformModule selectGlobalModule(String moduleAlias) {
-        try (TenantContext.Scope ignored = TenantContext.system("select global platform module")) {
-            return getDao().query(activeCriteria(Criteria.of()
-                            .eq("id", moduleAlias)),
-                    new PageRequest(0, 1))
-                    .stream()
-                    .filter(module -> module.getTenantId() == null || module.getTenantId().isBlank())
-                    .findFirst()
-                    .orElse(null);
-        }
+        return listGlobal(Criteria.of().eq("id", moduleAlias)).stream().findFirst().orElse(null);
     }
 
     private void normalizeAndValidate(PlatformModule module) {

@@ -36,6 +36,7 @@ import net.ximatai.muyun.spring.platform.metadata.MetadataField;
 import net.ximatai.muyun.spring.platform.metadata.MetadataFieldDefinitionCompiler;
 import net.ximatai.muyun.spring.platform.metadata.MetadataFieldConfig;
 import net.ximatai.muyun.spring.platform.metadata.MetadataFieldConfigService;
+import net.ximatai.muyun.spring.platform.metadata.MetadataFieldProtectionConfigService;
 import net.ximatai.muyun.spring.platform.metadata.MetadataFieldReferenceConfig;
 import net.ximatai.muyun.spring.platform.metadata.MetadataFieldReferenceConfigService;
 import net.ximatai.muyun.spring.platform.metadata.MetadataFieldService;
@@ -326,11 +327,13 @@ class PlatformDynamicRuntimeRefresherIT extends PlatformPostgresIntegrationTest 
         MetadataFieldService fieldService = new MetadataFieldService(fieldDao, metadataService, fieldTypeService);
         ModuleMetadataRelationService relationService =
                 new ModuleMetadataRelationService(relationDao, moduleService, metadataService);
+        MetadataFieldProtectionConfigService protectionConfigService =
+                new MetadataFieldProtectionConfigService(new TestMemoryDao<>(), fieldService, fieldTypeService, fieldConfigDao);
         MetadataFieldConfigService fieldConfigService =
                 new MetadataFieldConfigService(fieldConfigDao, fieldService, metadataService, fieldTypeService,
-                        categoryService, relationService);
+                        categoryService, relationService, protectionConfigService);
         MetadataFieldDefinitionCompiler fieldDefinitionCompiler =
-                new MetadataFieldDefinitionCompiler(fieldTypeService, fieldConfigService);
+                new MetadataFieldDefinitionCompiler(fieldTypeService, fieldConfigService, protectionConfigService, fieldService);
         MetadataFieldReferenceConfigService referenceConfigService =
                 new MetadataFieldReferenceConfigService(referenceConfigDao, fieldService, metadataService,
                         fieldTypeService, moduleService, relationService);

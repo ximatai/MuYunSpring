@@ -1,5 +1,7 @@
 package net.ximatai.muyun.spring.platform.ui;
 
+import net.ximatai.muyun.database.core.orm.Criteria;
+import net.ximatai.muyun.spring.common.exception.PlatformAccessDeniedException;
 import net.ximatai.muyun.spring.ability.TreeAbility;
 import net.ximatai.muyun.spring.ability.action.BusinessException;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
@@ -130,9 +132,23 @@ class PlatformPageCompositionDomainContractTest {
 
         try (TenantContext.Scope ignored = TenantContext.use("tenant-a")) {
             assertThatThrownBy(() -> pageService.insert(page("crm.customer", "management", mainRelationId)))
-                    .isInstanceOfSatisfying(BusinessException.class, exception ->
-                            assertThat(exception.actionMessage().code())
-                                    .isEqualTo("platform.page-definition.global-system-context-required"));
+                    .isInstanceOf(PlatformAccessDeniedException.class);
+        }
+    }
+
+    @Test
+    void ordinaryPageReadsAreGlobalAndAllMutationsRequireSystemContext() {
+        String id = seedPage();
+        try (var ignored = TenantContext.use("tenant-a")) {
+            assertThat(pageService.select(id)).isNotNull();
+            assertThat(pageService.list(Criteria.of())).extracting(PlatformPageDefinition::getId).contains(id);
+            assertThat(pageService.requireVisiblePage(id).getId()).isEqualTo(id);
+            assertThatThrownBy(() -> pageService.delete(id))
+                    .isInstanceOf(PlatformAccessDeniedException.class);
+            assertThatThrownBy(() -> pageService.disable(id))
+                    .isInstanceOf(PlatformAccessDeniedException.class);
+            assertThat(TenantContext.isSystem()).isFalse();
+            assertThat(TenantContext.tenantFilterBypassed()).isFalse();
         }
     }
 
