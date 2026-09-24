@@ -57,12 +57,12 @@ public interface RecycleBinWeb<T extends EntityContract, S extends RecycleBinAbi
                 DataScopeCriteriaResult scope = dataScopeAbility.readScopeByPolicy(
                         StaticStandardMutationSupport.actionPolicy(this, PlatformAction.RECYCLE_BIN_QUERY), criteria);
                 WebPageResponse<T> response = dataScopeAbility.withDataScopeTenant(scope,
-                        () -> WebPageResponse.from(service().pageRecycleBin(
-                                scope.criteria(), pageRequest, sorts)));
+                        () -> WebPageResponse.from(WebOutputSupport.page(service(), service().pageRecycleBin(
+                                scope.criteria(), pageRequest, sorts), FieldOutputContext.LIST)));
                 return decorateProjected(projectStaticFallback(response));
             }
             WebPageResponse<T> response = WebPageResponse.from(
-                    service().pageRecycleBin(criteria, pageRequest, sorts));
+                    WebOutputSupport.page(service(), service().pageRecycleBin(criteria, pageRequest, sorts), FieldOutputContext.LIST));
             return decorateProjected(projectStaticFallback(response));
         });
     }

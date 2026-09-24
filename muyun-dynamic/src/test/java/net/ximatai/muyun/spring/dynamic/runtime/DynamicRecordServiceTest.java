@@ -396,16 +396,71 @@ class DynamicRecordServiceTest {
                 actionRow("contract-1", "C-001", "draft"),
                 actionRow("contract-2", "C-002", "submitted")
         ));
-        DynamicRecordService service = actionService(operations);
+        DynamicRecordService service = actionServiceWithActions(operations,
+                new EntityActionDefinition("contract", "submit", "提交", true)
+                        .availableWhen("{status} == 'draft'", "only draft"),
+                new EntityActionDefinition("contract", "archive", "归档", true));
 
         List<DynamicRecordActionAvailability> availability = service.recordActionAvailability(
-                MODULE, "contract", List.of("submit"), List.of("contract-1", "contract-2"));
+                MODULE, "contract", List.of("submit", "archive"), List.of("contract-1", "contract-2"));
 
         assertThat(availability).extracting(DynamicRecordActionAvailability::recordId)
                 .containsExactly("contract-1", "contract-2");
         assertThat(availability.get(0).actions().get("submit").available()).isTrue();
         assertThat(availability.get(1).actions().get("submit").available()).isFalse();
         verify(operations, times(1)).query(anyString(), anyMap());
+    }
+
+    @Test
+    void recordAvailabilityKeepsEachActionsTenantScopeAndLoadedRecordTogether() {
+        IDatabaseOperations<Object> operations = operations();
+        List<Boolean> bypasses = new ArrayList<>();
+        when(operations.query(anyString(), anyMap())).thenAnswer(call -> {
+            bypasses.add(TenantContext.tenantFilterBypassed());
+            Map<String, Object> parameters = call.getArgument(1);
+            return parameters.containsValue("tenant-a")
+                    ? List.of(actionRow("contract-a", "A", "draft"))
+                    : List.of(actionRow("contract-b", "B", "submitted"));
+        });
+        var scopes = new net.ximatai.muyun.spring.common.platform.AllowAllDataScopeCriteriaService() {
+            @Override public DataScopeCriteriaResult resolveReadScope(String module, ActionExecutionPolicy policy,
+                    Criteria criteria, java.util.Optional<CurrentUser> user) {
+                return policy.actionCode().equals("cross")
+                        ? DataScopeCriteriaResult.crossTenantUnrestricted(criteria.eq("tenantId", "tenant-b"))
+                        : DataScopeCriteriaResult.unrestricted(criteria);
+            }
+        };
+        var permissions = new net.ximatai.muyun.spring.common.platform.AllowAllActionExecutionPolicyService() {
+            @Override public net.ximatai.muyun.spring.common.platform.ActionAuthorizationResult authorizeAction(
+                    String module, ActionExecutionPolicy policy, java.util.Optional<CurrentUser> user) {
+                if (policy.actionCode().equals("denied")) throw new PlatformException("action denied");
+                return super.authorizeAction(module, policy, user);
+            }
+        };
+        var actions = List.of("cross", "local", "denied").stream().map(code -> new EntityActionDefinition(
+                "contract", code, code, true, EntityActionLevel.RECORD, EntityActionCategory.CUSTOM,
+                net.ximatai.muyun.spring.dynamic.metadata.EntityActionAccessMode.AUTH_REQUIRED, true, true,
+                null, null, null, EntityActionExecutorType.SERVICE, code)
+                .availableWhen("{status} == 'draft'", "only draft")).toList();
+        var runtime = DynamicRecordRuntime.builder(operations).fieldValueValidator(DynamicFieldValueValidator.NONE)
+                .build().register(ModuleDefinition.builder(MODULE, "Contract")
+                        .entities(List.of(dataScopedActionEntity())).actions(actions).build());
+        var service = new DynamicRecordService(runtime, permissions, scopes);
+
+        try (var tenant = TenantContext.use("tenant-a")) {
+            var results = service.recordActionAvailability(MODULE, "contract", List.of("cross", "local", "denied"),
+                    List.of("contract-a", "contract-b", "hidden"));
+            assertThat(results.get(0).actions().get("local").available()).isTrue();
+            assertThat(results.get(0).actions().get("cross").message()).isEqualTo("no data auth");
+            assertThat(results.get(1).actions().get("cross").message()).isEqualTo("only draft");
+            assertThat(results.get(1).actions().get("local").message()).isEqualTo("no data auth");
+            assertThat(results.get(2).actions().values()).allMatch(value -> !value.available());
+            assertThat(results).allSatisfy(result -> assertThat(result.actions().get("denied").message()).isEqualTo("action denied"));
+            assertThat(TenantContext.tenantFilterBypassed()).isFalse();
+            assertThat(TenantContext.currentTenantId()).contains("tenant-a");
+        }
+        assertThat(bypasses).containsExactly(true, false);
+        verify(operations, times(2)).query(anyString(), anyMap());
     }
 
     @Test

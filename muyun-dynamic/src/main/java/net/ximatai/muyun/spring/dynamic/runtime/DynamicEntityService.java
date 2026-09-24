@@ -522,19 +522,6 @@ public class DynamicEntityService implements
         return records;
     }
 
-    /**
-     * Applies the entity-owned read pipeline to children already selected through an authorised
-     * parent aggregate. It deliberately does not execute a new child query: aggregate VIEW
-     * visibility is owned by the parent relation, while reference and option presentation still
-     * belongs to the child entity's metadata.
-     */
-    List<DynamicRecord> enrichAggregateViewChildren(List<DynamicRecord> records) {
-        if (records == null || records.isEmpty()) return List.of();
-        List<DynamicRecord> copies = records.stream().map(DynamicRecord::copy).toList();
-        applyReadPipeline(copies);
-        return List.copyOf(copies);
-    }
-
     public List<DynamicRecord> sortedList(Criteria criteria) {
         capabilityRuntimes.require(EntityCapability.SORT);
         List<DynamicRecord> records;
@@ -598,14 +585,16 @@ public class DynamicEntityService implements
 
     @Override
     public List<DynamicRecord> selectChildRows(Criteria criteria) {
-        List<DynamicRecord> rows;
-        if (dao.getEntity().supports(EntityCapability.SORT)) {
-            return sortedList(criteria);
-        } else {
-            rows = ChildAbility.super.selectChildRows(criteria);
-        }
-        rows.forEach(this::applyReadPipeline);
-        return rows;
+        return dao.getEntity().supports(EntityCapability.SORT)
+                ? sortedList(criteria) : ChildAbility.super.selectChildRows(criteria);
+    }
+
+    @Override
+    public List<DynamicRecord> selectDeletedChildRows(Criteria criteria) {
+        List<DynamicRecord> records = ChildAbility.super.selectDeletedChildRows(criteria);
+        populateReferenceReadFields(records);
+        optionLoadPopulator.populate(dao.getEntity(), records);
+        return records;
     }
 
     public List<String> ancestorIds(String id) {

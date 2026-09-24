@@ -24,7 +24,6 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
-import java.util.function.Function;
 
 /**
  * Execution boundary for the dynamic action directory.
@@ -79,19 +78,20 @@ final class DynamicRecordActionRuntime {
         if (failures.values().stream().allMatch(Objects::nonNull)) {
             return ids.stream().map(id -> unavailable(id, actions, failures)).toList();
         }
-        Map<String, Set<String>> visibleByAction = new LinkedHashMap<>();
-        Set<String> visibleUnion = new LinkedHashSet<>();
+        Map<String, Map<String, DynamicRecord>> recordsByAction = new LinkedHashMap<>();
+        Map<String, DynamicRecord> unscopedRecords = null;
         for (DynamicActionDescriptor action : actions) {
-            Set<String> visible = failures.get(action.code()) == null
-                    ? access.visibleActionRecordIds(moduleAlias, entityAlias, access.actionPolicy(action), ids) : Set.of();
-            visibleByAction.put(action.code(), visible);
-            visibleUnion.addAll(visible);
-        }
-        Map<String, DynamicRecord> persisted = visibleUnion.isEmpty() ? Map.of()
-                : access.entityService(moduleAlias, entityAlias).list(access.idsCriteria(visibleUnion)).stream()
-                .collect(java.util.stream.Collectors.toMap(DynamicRecord::getId, Function.identity()));
-        if (persisted.size() != visibleUnion.size()) {
-            throw new IllegalArgumentException("dynamic record does not exist in requested scope: " + moduleAlias);
+            if (failures.get(action.code()) != null) {
+                recordsByAction.put(action.code(), Map.of());
+                continue;
+            }
+            ActionExecutionPolicy policy = access.actionPolicy(action);
+            if (policy.requiresDataScope() && entity.capabilities().contains(EntityCapability.DATA_SCOPE.name())) {
+                recordsByAction.put(action.code(), access.visibleActionRecords(moduleAlias, entityAlias, policy, ids));
+            } else {
+                if (unscopedRecords == null) unscopedRecords = access.visibleActionRecords(moduleAlias, entityAlias, policy, ids);
+                recordsByAction.put(action.code(), unscopedRecords);
+            }
         }
         return ids.stream().map(id -> {
             Map<String, DynamicActionAvailability> availability = new LinkedHashMap<>();
@@ -99,10 +99,10 @@ final class DynamicRecordActionRuntime {
                 String failure = failures.get(action.code());
                 availability.put(action.code(), failure != null
                         ? DynamicActionAvailability.unavailable(action.code(), failure)
-                        : !visibleByAction.get(action.code()).contains(id)
+                        : !recordsByAction.get(action.code()).containsKey(id)
                         ? DynamicActionAvailability.unavailable(action.code(), "no data auth")
                         : access.entityService(moduleAlias, entityAlias)
-                        .actionAvailabilityPersisted(action.code(), persisted.get(id)));
+                        .actionAvailabilityPersisted(action.code(), recordsByAction.get(action.code()).get(id)));
             }
             return new DynamicRecordActionAvailability(id, availability);
         }).toList();

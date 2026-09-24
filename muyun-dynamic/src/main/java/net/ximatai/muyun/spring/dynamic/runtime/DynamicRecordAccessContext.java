@@ -342,19 +342,31 @@ final class DynamicRecordAccessContext {
                 CurrentUserContext.currentUser());
     }
 
-    Set<String> visibleActionRecordIds(String moduleAlias,
-                                                       String entityAlias,
-                                                       ActionExecutionPolicy policy,
-                                                       Set<String> recordIds) {
+    Map<String, DynamicRecord> visibleActionRecords(String moduleAlias, String entityAlias,
+                                                     ActionExecutionPolicy policy, Set<String> recordIds) {
+        Criteria criteria = idsCriteria(recordIds);
         if (!policy.requiresDataScope() || !supportsCapability(moduleAlias, entityAlias, EntityCapability.DATA_SCOPE)) {
-            return recordIds;
+            Map<String, DynamicRecord> records = actionRecords(moduleAlias, entityAlias,
+                    DataScopeCriteriaResult.unrestricted(criteria), recordIds);
+            if (records.size() != recordIds.size()) {
+                throw new IllegalArgumentException("dynamic record does not exist in requested scope: " + moduleAlias);
+            }
+            return records;
         }
         try {
-            DataScopeCriteriaResult scope = readScope(moduleAlias, policy, idsCriteria(recordIds));
-            return visibleRecordIds(moduleAlias, entityAlias, scope, recordIds);
+            return actionRecords(moduleAlias, entityAlias, readScope(moduleAlias, policy, criteria), recordIds);
         } catch (PlatformException | IllegalArgumentException ignored) {
-            return Set.of();
+            return Map.of();
         }
+    }
+
+    /** Keep each action's authorised scope and its records together; never reload their union in another tenant. */
+    private Map<String, DynamicRecord> actionRecords(String moduleAlias, String entityAlias,
+                                                     DataScopeCriteriaResult scope, Set<String> recordIds) {
+        return withTenantScope(scope, () -> entityService(moduleAlias, entityAlias)
+                .list(scope.criteria(), new PageRequest(0, recordIds.size())).stream()
+                .filter(record -> recordIds.contains(record.getId()))
+                .collect(java.util.stream.Collectors.toMap(DynamicRecord::getId, java.util.function.Function.identity())));
     }
 
     private PlatformActionLevel toPlatformLevel(net.ximatai.muyun.spring.dynamic.metadata.EntityActionLevel level) {

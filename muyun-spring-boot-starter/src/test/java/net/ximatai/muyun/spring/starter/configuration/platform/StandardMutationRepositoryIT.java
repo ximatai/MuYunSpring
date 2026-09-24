@@ -20,6 +20,8 @@ import net.ximatai.muyun.spring.starter.configuration.platform.fixture.MutationC
 import net.ximatai.muyun.spring.starter.configuration.platform.fixture.MutationContractRecord;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.SpringBootConfiguration;
 import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
@@ -68,6 +70,50 @@ class StandardMutationRepositoryIT {
         records.committed.clear();
         log.rejectSuccessFor(null);
         records.purgeGate = ignored -> {};
+    }
+
+    @Test
+    void directReorderRollsBackEarlierRowsWhenALaterWriteFails() {
+        try (var tenant = TenantContext.use("sort-" + UUID.randomUUID())) {
+            SortingRecords sorting = new SortingRecords(dao);
+            MutationContractRecord first = sorting.create("first", TreeAbility.ROOT_ID, 100);
+            MutationContractRecord second = sorting.create("second", TreeAbility.ROOT_ID, 200);
+            sorting.rejectUpdate = row -> row.getId().equals(first.getId());
+
+            assertThatThrownBy(() -> sorting.reorder(List.of(second.getId(), first.getId())))
+                    .hasMessageContaining("sort validation failed");
+            assertThat(dao.findById(second.getId()).getSortOrder()).isEqualTo(200);
+            assertThat(dao.findById(second.getId()).getVersion()).isEqualTo(second.getVersion());
+            assertThat(dao.findById(first.getId()).getSortOrder()).isEqualTo(100);
+            sorting.rejectUpdate = row -> false;
+            sorting.reorder(List.of(second.getId(), first.getId()));
+            assertThat(sorting.sortedList(Criteria.of())).extracting(MutationContractRecord::getId)
+                    .containsExactly(second.getId(), first.getId());
+        }
+    }
+
+    @ParameterizedTest
+    @CsvSource({"false,false", "true,false", "false,true", "true,true"})
+    void movingTreeParentAndSortingAreOneTransaction(boolean scoped, boolean rebalance) {
+        try (var tenant = TenantContext.use("tree-" + UUID.randomUUID())) {
+            SortingRecords sorting = new SortingRecords(dao);
+            var oldParent = sorting.create("old-parent", TreeAbility.ROOT_ID, 100);
+            var newParent = sorting.create("new-parent", TreeAbility.ROOT_ID, 200);
+            var moving = sorting.create("moving", oldParent.getId(), 100);
+            var previous = sorting.create("previous", newParent.getId(), rebalance ? 1 : 200);
+            var next = sorting.create("next", newParent.getId(), rebalance ? 2 : 400);
+            sorting.rejectUpdate = row -> row.getId().equals(moving.getId()) && row.getSortOrder() != 100;
+
+            assertThatThrownBy(() -> {
+                if (scoped) sorting.moveInTree(Criteria.of(), moving.getId(), previous.getId(), next.getId(), newParent.getId());
+                else sorting.moveInTree(moving.getId(), previous.getId(), next.getId(), newParent.getId());
+            }).hasMessageContaining("sort validation failed");
+            assertThat(dao.findById(moving.getId()).getParentId()).isEqualTo(oldParent.getId());
+            assertThat(dao.findById(moving.getId()).getVersion()).isEqualTo(moving.getVersion());
+            assertThat(dao.findById(previous.getId()).getSortOrder()).isEqualTo(previous.getSortOrder());
+            assertThat(dao.findById(previous.getId()).getVersion()).isEqualTo(previous.getVersion());
+            assertThat(dao.findById(next.getId()).getVersion()).isEqualTo(next.getVersion());
+        }
     }
 
     @Test
@@ -421,6 +467,21 @@ class StandardMutationRepositoryIT {
     }
 
     record Source(String operationId, String rootEntryId, MutationContractRecord root, MutationContractRecord child) {}
+
+    static class SortingRecords extends AbstractAbilityService<MutationContractRecord> implements TreeAbility<MutationContractRecord> {
+        java.util.function.Predicate<MutationContractRecord> rejectUpdate = row -> false;
+        SortingRecords(MutationContractDao dao) { super("test.sorting", MutationContractRecord.class, dao); }
+        MutationContractRecord create(String code, String parentId, int sortOrder) {
+            var record = record(code);
+            record.setParentId(parentId);
+            record.setSortOrder(sortOrder);
+            insert(record);
+            return record;
+        }
+        @Override public void beforeUpdate(MutationContractRecord row) {
+            if (rejectUpdate.test(row)) throw new IllegalArgumentException("sort validation failed");
+        }
+    }
 
     static class Records extends AbstractAbilityService<MutationContractRecord> implements RecycleBinAbility<MutationContractRecord> {
         final Set<String> failRestore = new HashSet<>(), failPurge = new HashSet<>();

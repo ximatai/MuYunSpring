@@ -156,6 +156,12 @@ public class DynamicRuntimeActivationService {
                 });
             } catch (RuntimeException failure) {
                 if (rejectStale && attemptedVersion.get() == null && failure instanceof OptimisticLockException) throw failure;
+                // Commit can fail after installation. Withdraw while publication is still exclusive,
+                // even when the database cannot open the following diagnostic transaction.
+                if (attemptedVersion.get() != null && installed.remove(alias) != null) {
+                    try { withdrawRuntime(alias); }
+                    catch (RuntimeException cleanupFailure) { failure.addSuppressed(cleanupFailure); }
+                }
                 LOG.warn("Committed configuration activation failed for {} revision {}", alias, revision, failure);
                 try {
                     independent.executeWithoutResult(tx -> {
@@ -163,8 +169,6 @@ public class DynamicRuntimeActivationService {
                         DynamicRuntimeActivation state = find(alias);
                         if (state == null || state.getDesiredRevision() != revision
                                 || !Objects.equals(state.getVersion(), attemptedVersion.get())) return;
-                        // A commit failure can occur after the complete pair was installed.
-                        if (installed.remove(alias) != null) withdrawRuntime(alias);
                         state.setStatus("FAILED");
                         state.setFailureMessage("运行态激活失败，请查看服务日志并重试（" + failure.getClass().getSimpleName() + "）");
                         state.setAttemptedAt(Instant.now());

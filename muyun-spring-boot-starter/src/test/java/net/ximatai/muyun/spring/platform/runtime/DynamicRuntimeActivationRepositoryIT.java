@@ -20,6 +20,8 @@ import net.ximatai.muyun.spring.starter.configuration.platform.MuYunSpringMutati
 import net.ximatai.muyun.spring.starter.configuration.platform.MuYunSpringBusinessLoggingConfiguration;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.SpringBootConfiguration;
@@ -304,6 +306,48 @@ class DynamicRuntimeActivationRepositoryIT {
             }
             assertThat(terminated).as("all publication and database waiters were released").isTrue();
         }
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void failedCommitWithdrawsInstalledProjectionsEvenWhenDiagnosticsCannotStart(boolean diagnosticsUnavailable) {
+        String alias = alias();
+        activation.schedule(alias);
+        clearInvocations(refresh, pages);
+        AtomicInteger opened = new AtomicInteger();
+        PlatformTransactionManager failingCommit = new PlatformTransactionManager() {
+            @Override public org.springframework.transaction.TransactionStatus getTransaction(
+                    org.springframework.transaction.TransactionDefinition definition) {
+                if (opened.incrementAndGet() == 2 && diagnosticsUnavailable) {
+                    throw new org.springframework.transaction.CannotCreateTransactionException("database unavailable");
+                }
+                return manager.getTransaction(definition);
+            }
+            @Override public void commit(org.springframework.transaction.TransactionStatus transaction) {
+                if (opened.get() == 1) {
+                    manager.rollback(transaction);
+                    throw new org.springframework.transaction.TransactionSystemException("activation commit failed");
+                }
+                manager.commit(transaction);
+            }
+            @Override public void rollback(org.springframework.transaction.TransactionStatus transaction) {
+                manager.rollback(transaction);
+            }
+        };
+        var restarted = new DynamicRuntimeActivationService(dao, refresh, relationProvider, pageProvider,
+                orchestrationProvider, eventProvider, failingCommit, runtime);
+
+        var status = restarted.retry(alias, 1);
+
+        assertThat(status.installedRevision()).isNull();
+        assertThat(status.status()).isEqualTo(diagnosticsUnavailable ? "ACTIVE" : "FAILED");
+        assertThat(status.lastSuccessfulRevision()).isEqualTo(1);
+        verify(refresh).activateNow(alias);
+        verify(pages).installCurrentPublishedConfiguration(alias);
+        verify(refresh).deactivateNow(alias);
+        verify(pages).removeInstalledConfiguration(alias);
+        // The failed attempt released its transaction and publication locks; ordinary retry still works.
+        assertThat(activation.retry(alias, 1).installedRevision()).isEqualTo(1);
     }
 
     @Test void newExecutionWaitsUntilTheActivationTransactionHasCommitted() throws Exception {

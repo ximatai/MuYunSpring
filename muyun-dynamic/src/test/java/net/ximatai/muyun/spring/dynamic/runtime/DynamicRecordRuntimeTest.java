@@ -127,8 +127,8 @@ class DynamicRecordRuntimeTest {
     }
 
     @org.junit.jupiter.params.ParameterizedTest
-    @org.junit.jupiter.params.provider.ValueSource(booleans = {false, true})
-    void shouldPopulateOptionLoadOnActiveCachedSelectAndRetainedPage(boolean retained) {
+    @org.junit.jupiter.params.provider.CsvSource({"false,false", "true,false", "false,true", "true,true"})
+    void shouldPopulateOptionLoadOnActiveAndRetainedReads(boolean retained, boolean childRead) {
         CacheRegistry.clearAll();
         IDatabaseOperations<Object> operations = operations();
         when(operations.query(anyString(), anyMap())).thenReturn(List.of(Map.of(
@@ -152,8 +152,14 @@ class DynamicRecordRuntimeTest {
         DynamicEntityService service = runtime.entityService("education.teacher", "teacher");
 
         for (int i = 0; i < 2; i++) {
-            DynamicRecord record = retained ? service.pageRecycleBin(Criteria.of(), PageRequest.of(1, 10))
-                    .getRecords().getFirst() : service.select("teacher-1");
+            DynamicRecord record;
+            if (childRead) {
+                record = (retained ? service.selectDeletedChildRows(Criteria.of())
+                        : service.selectChildRows(Criteria.of())).getFirst();
+            } else {
+                record = retained ? service.pageRecycleBin(Criteria.of(), PageRequest.of(1, 10))
+                        .getRecords().getFirst() : service.select("teacher-1");
+            }
             assertThat(record.getValue("subjectTitle")).isEqualTo("数学");
         }
     }
@@ -392,6 +398,40 @@ class DynamicRecordRuntimeTest {
 
     private ModuleDefinition contractModule() {
         return new ModuleDefinition("sales.contract", "Contract", List.of(contractEntity()));
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {false, true})
+    void protectedAggregateChildReadsMustDecryptExactlyOnce(boolean sorted) {
+        IDatabaseOperations<Object> operations = operations();
+        Map<String, Object> row = new java.util.LinkedHashMap<>(Map.of(
+                "id", "contract-1", "secret", "enc:sensitive-value",
+                "secret_signature", "sig:secret:sensitive-value", "deleted", false, "version", 1,
+                "parent_id", "parent-1"));
+        when(operations.query(anyString(), anyMap())).thenAnswer(call -> call.<String>getArgument(0).contains("app_parent")
+                ? List.of(Map.of("id", "parent-1", "deleted", row.get("deleted"), "version", 1))
+                : List.of(new java.util.LinkedHashMap<>(row)));
+        EntityDefinition base = (sorted ? protectedSortableContractModule() : protectedContractModule()).entities().getFirst();
+        var fields = new java.util.ArrayList<>(base.fields());
+        fields.add(FieldDefinition.string("parentId", "Parent").column("parent_id"));
+        var child = new EntityDefinition(base.alias(), base.tableName(), base.name(), fields, base.capabilities());
+        var parent = new EntityDefinition("parent", "app_parent", "Parent", List.of(), java.util.Set.of(EntityCapability.RECYCLE_BIN));
+        var module = ModuleDefinition.builder("sales.contract", "Contract").entities(List.of(parent, child))
+                .relations(List.of(net.ximatai.muyun.spring.dynamic.metadata.EntityRelationDefinition.child(
+                        "contracts", "parent", "contract", "parentId"))).build();
+        var runtime = protectedRuntime(operations).register(module);
+        var service = runtime.entityService("sales.contract", "contract");
+        var facade = new DynamicRecordService(runtime);
+        assertThat(service.selectChildRows(Criteria.of()).getFirst().getValue("secret")).isEqualTo("sensitive-value");
+        assertThat(facade.aggregateChildrenForView("sales.contract", "parent-1", "contracts").getFirst().getValue("secret"))
+                .isEqualTo("sensitive-value");
+        row.put("deleted", true);
+        assertThat(service.selectDeletedChildRows(Criteria.of()).getFirst().getValue("secret")).isEqualTo("sensitive-value");
+        assertThat(facade.aggregateChildrenForRecycleBin("sales.contract", "parent-1", "contracts").getFirst().getValue("secret"))
+                .isEqualTo("sensitive-value");
+        row.put("secret_signature", "tampered");
+        assertThatThrownBy(() -> facade.aggregateChildrenForRecycleBin("sales.contract", "parent-1", "contracts"))
+                .isInstanceOf(FieldProtectionException.class);
     }
 
     private DynamicRecordRuntime protectedRuntime(IDatabaseOperations<Object> operations) {

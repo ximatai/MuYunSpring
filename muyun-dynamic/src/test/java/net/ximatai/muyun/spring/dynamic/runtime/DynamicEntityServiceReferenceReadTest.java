@@ -77,8 +77,9 @@ class DynamicEntityServiceReferenceReadTest {
         verify(target, times(1)).projections(List.of("user-1"), List.of("title"));
     }
 
-    @Test
-    void shouldBatchDynamicListReferenceReadsFromAStaticTarget() {
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {false, true})
+    void shouldBatchDynamicListAndRetainedChildReferenceReadsFromAStaticTarget(boolean retained) {
         EntityDefinition contract = new EntityDefinition("contract", "sales_contract", "合同",
                 List.of(FieldDefinition.string("title", "标题")), java.util.Set.of(EntityCapability.REFERENCE));
         EntityDefinition line = new EntityDefinition("line", "sales_line", "明细",
@@ -91,6 +92,8 @@ class DynamicEntityServiceReferenceReadTest {
                 .build();
         DynamicRecord first = new DynamicRecord(line).setValue("contractId", "contract-1");
         DynamicRecord second = new DynamicRecord(line).setValue("contractId", "contract-2");
+        first.setDeleted(retained);
+        second.setDeleted(retained);
         DynamicRecordDao sourceDao = mock(DynamicRecordDao.class);
         when(sourceDao.getEntity()).thenReturn(line);
         when(sourceDao.query(any(Criteria.class), any(PageRequest.class), any(Sort[].class)))
@@ -111,7 +114,8 @@ class DynamicEntityServiceReferenceReadTest {
                 ignored -> { throw new IllegalStateException("target is static"); }, null, DynamicFieldValueValidator.NONE,
                 FieldCryptoProvider.UNAVAILABLE, FieldSigner.UNAVAILABLE, new PlatformTimeService());
 
-        List<DynamicRecord> records = service.list(Criteria.of(), PageRequest.of(1, 20));
+        List<DynamicRecord> records = retained ? service.selectDeletedChildRows(Criteria.of())
+                : service.list(Criteria.of(), PageRequest.of(1, 20));
 
         assertThat(records).extracting(record -> record.getValue("contractTitle"))
                 .containsExactly("合同一", "合同二");

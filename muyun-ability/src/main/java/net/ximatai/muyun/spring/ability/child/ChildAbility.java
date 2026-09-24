@@ -8,6 +8,7 @@ import net.ximatai.muyun.spring.ability.DataScopeAbility;
 import net.ximatai.muyun.spring.ability.PageRequests;
 import net.ximatai.muyun.spring.ability.SoftDeleteAbility;
 import net.ximatai.muyun.spring.ability.SortAbility;
+import net.ximatai.muyun.spring.ability.security.FieldProtectionAbility;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.spring.common.model.contract.EntityContract;
 
@@ -93,11 +94,9 @@ public interface ChildAbility<C extends EntityContract> extends CrudAbility<C> {
 
     default List<C> selectChildRows(Criteria criteria) {
         requireGenericChildReadWithoutIndependentDataScope();
-        List<C> records = this instanceof SortAbility<?> sortAbility
+        return this instanceof SortAbility<?> sortAbility
                 ? sortedChildRows(sortAbility, criteria)
-                : getDao().query(activeCriteria(criteria), PageRequests.all());
-        populateDeclaredReferenceLoads(records);
-        return records;
+                : list(criteria, PageRequests.all());
     }
 
     /** Complete retained children for a parent-scoped, platform-declared recycle-bin view. */
@@ -109,6 +108,10 @@ public interface ChildAbility<C extends EntityContract> extends CrudAbility<C> {
         @SuppressWarnings("unchecked")
         SoftDeleteAbility<C> typed = (SoftDeleteAbility<C>) softDeleteAbility;
         List<C> records = getDao().query(typed.deletedCriteria(criteria), PageRequests.all());
+        if (this instanceof FieldProtectionAbility<?> protectedAbility) {
+            @SuppressWarnings("unchecked") FieldProtectionAbility<C> protection = (FieldProtectionAbility<C>) protectedAbility;
+            records.forEach(protection::restoreProtectedFieldsFromStorage);
+        }
         populateDeclaredReferenceLoads(records);
         return records;
     }

@@ -439,10 +439,10 @@ public class DynamicRecordService {
                 throw new IllegalArgumentException("aggregate relation expansion parent is not visible: " + parentId);
             }
             ChildRelation relation = requireAggregateChildRelation(moduleAlias, relationCode);
-            if (!(relation.childAbility() instanceof DynamicEntityService childService)) {
+            if (!(relation.childAbility() instanceof DynamicEntityService)) {
                 throw new IllegalStateException("dynamic aggregate child relation must use a dynamic child service: " + relationCode);
             }
-            return childService.enrichAggregateViewChildren((List<DynamicRecord>) (retained
+            return List.copyOf((List<DynamicRecord>) (retained
                     ? relation.selectDeletedChildren(parentId) : relation.selectChildren(parentId)));
         });
     }
