@@ -625,6 +625,74 @@ class PlatformMetadataServiceContractTest {
     }
 
     @Test
+    void protectionChecksActiveRelationOverridesAndAllowsInheritedQuerySettings() {
+        moduleService.insert(module("crm.customer", "crm", ModuleKind.DYNAMIC));
+        String metadataId = metadataService.insert(metadata("crm", "customer"));
+        MetadataField field = field(metadataId, "mobile", "mobile", FieldType.STRING);
+        fieldService.insert(field);
+        String relationId = relationService.insert(mainRelation("crm.customer", metadataId));
+        MetadataFieldConfig defaults = fieldConfig(field.getId());
+        defaults.setQueryable(false);
+        fieldConfigService.insert(defaults);
+        MetadataFieldConfig override = fieldConfig(field.getId());
+        override.setRelationId(relationId);
+        override.setQueryable(true);
+        fieldConfigService.insert(override);
+        MetadataFieldProtectionConfig protection = protectionConfig(field.getId());
+        protection.setEncryptionMode(FieldEncryptionMode.ENCRYPTED);
+
+        assertThatThrownBy(() -> protectionConfigService.insert(protection)).hasMessageContaining("cannot be queryable");
+        fieldConfigService.delete(override.getId());
+        protectionConfigService.insert(protection);
+        assertThatThrownBy(() -> fieldConfigService.restore(override.getId())).hasMessageContaining("cannot be queryable");
+
+        MetadataFieldConfig inherited = fieldConfig(field.getId());
+        inherited.setRelationId(relationId);
+        inherited.setCopyable(false);
+        fieldConfigService.insert(inherited);
+        FieldDefinition compiled = fieldDefinitionCompiler.compile(field, relationId);
+        assertThat(compiled.queryDefinition().queryable()).isFalse();
+        assertThat(compiled.protection().hasStorageProtection()).isTrue();
+        assertThatThrownBy(() -> fieldConfigService.delete(defaults.getId()))
+                .hasMessageContaining("cannot become queryable");
+        assertThat(fieldConfigService.select(defaults.getId())).isNotNull();
+    }
+
+    @Test
+    void deletedDefaultQueryConfigMustNotPermitStorageProtection() {
+        String metadataId = metadataService.insert(metadata("crm", "customer"));
+        MetadataField field = field(metadataId, "mobile", "mobile", FieldType.STRING);
+        fieldService.insert(field);
+        MetadataFieldConfig defaults = fieldConfig(field.getId());
+        defaults.setQueryable(false);
+        fieldConfigService.insert(defaults);
+        fieldConfigService.delete(defaults.getId());
+        MetadataFieldProtectionConfig protection = protectionConfig(field.getId());
+        protection.setEncryptionMode(FieldEncryptionMode.ENCRYPTED);
+
+        assertThat(fieldDefinitionCompiler.compile(field).queryDefinition().queryable()).isTrue();
+        assertThatThrownBy(() -> protectionConfigService.insert(protection)).hasMessageContaining("cannot be queryable");
+    }
+
+    @Test
+    void restoringProtectionMustRevalidateCurrentQuerySettings() {
+        String metadataId = metadataService.insert(metadata("crm", "customer"));
+        MetadataField field = field(metadataId, "mobile", "mobile", FieldType.STRING);
+        fieldService.insert(field);
+        MetadataFieldConfig defaults = fieldConfig(field.getId());
+        defaults.setQueryable(false);
+        fieldConfigService.insert(defaults);
+        MetadataFieldProtectionConfig protection = protectionConfig(field.getId());
+        protection.setEncryptionMode(FieldEncryptionMode.ENCRYPTED);
+        protectionConfigService.insert(protection);
+        protectionConfigService.delete(protection.getId());
+        fieldConfigService.delete(defaults.getId());
+
+        assertThatThrownBy(() -> protectionConfigService.restore(protection.getId())).hasMessageContaining("cannot be queryable");
+        assertThat(protectionConfigService.select(protection.getId())).isNull();
+    }
+
+    @Test
     void shouldRejectQueryableProtectedStorageFieldRegardlessOfSaveOrder() {
         String metadataId = metadataService.insert(metadata("crm", "customer"));
         MetadataField mobile = field(metadataId, "mobile", "mobile", FieldType.STRING);

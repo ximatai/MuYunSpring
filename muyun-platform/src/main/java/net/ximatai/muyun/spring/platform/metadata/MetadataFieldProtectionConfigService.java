@@ -141,25 +141,21 @@ public class MetadataFieldProtectionConfigService extends AbstractAbilityService
             return;
         }
         FieldSpec fieldType = fieldTypeService.requireFieldType(field.getFieldSpecAlias());
-        MetadataFieldConfig config = fieldConfig(field.getId());
-        if (config == null) {
-            if (fieldType.queryDefinition().queryable()) {
-                throw new PlatformException("Protected storage field cannot be queryable: " + field.getId());
-            }
-            return;
-        }
-        if (config.queryDefinition(fieldType).queryable()) {
+        // Use the same active/tenant scope as field configuration reads without a service dependency cycle.
+        var configs = fieldConfigDao.list(activeCriteria(Criteria.of().eq("metadataFieldId", field.getId())));
+        MetadataFieldConfig defaultConfig = configs.stream().filter(config -> config.getRelationId() == null)
+                .findFirst().orElse(null);
+        if (MetadataFieldConfig.effectiveQueryDefinition(fieldType, defaultConfig, null).queryable()
+                || configs.stream().filter(config -> config.getRelationId() != null)
+                .anyMatch(config -> MetadataFieldConfig.effectiveQueryDefinition(fieldType, defaultConfig, config).queryable())) {
             throw new PlatformException("Protected storage field cannot be queryable: " + field.getId());
         }
     }
 
-    private MetadataFieldConfig fieldConfig(String metadataFieldId) {
-        return fieldConfigDao.query(Criteria.of()
-                        .eq("metadataFieldId", metadataFieldId)
-                        .isNull("relationId"),
-                net.ximatai.muyun.database.core.orm.PageRequest.of(1, 1)).stream()
-                .findFirst()
-                .orElse(null);
+    @Override
+    public void beforeRestore(String id) {
+        MetadataFieldProtectionConfig config = selectIgnoreSoftDelete(id);
+        if (config != null) normalizeAndValidate(config);
     }
 
     private MetadataField requireField(String metadataFieldId) {

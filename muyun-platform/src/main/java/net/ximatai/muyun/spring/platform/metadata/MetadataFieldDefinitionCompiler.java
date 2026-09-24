@@ -51,7 +51,7 @@ public class MetadataFieldDefinitionCompiler {
                 && !moduleField.getDictionaryCategoryAlias().isBlank();
         FieldQueryDefinition queryDefinition = field.getFieldForm() == MetadataFieldForm.VIRTUAL
                 ? FieldQueryDefinition.disabled()
-                : queryDefinition(fieldType, defaultConfig, relationConfig);
+                : MetadataFieldConfig.effectiveQueryDefinition(fieldType, defaultConfig, relationConfig);
         Integer length = shapeConfig == null ? fieldType.getDefaultLength() : shapeConfig.effectiveLength(fieldType);
         Integer precision = shapeConfig == null ? fieldType.getDefaultPrecision() : shapeConfig.effectivePrecision(fieldType);
         Integer scale = shapeConfig == null ? fieldType.getDefaultScale() : shapeConfig.effectiveScale(fieldType);
@@ -104,18 +104,7 @@ public class MetadataFieldDefinitionCompiler {
         FieldSpec fieldType = fieldTypeService.requireFieldType(field.getFieldSpecAlias());
         MetadataFieldConfig defaultConfig = configService.findByMetadataFieldId(field.getId());
         MetadataFieldConfig relationConfig = configService.findRelationOverride(field.getId(), relationId);
-        return queryDefinition(fieldType, defaultConfig, relationConfig);
-    }
-
-    private FieldQueryDefinition queryDefinition(FieldSpec fieldType,
-                                                 MetadataFieldConfig defaultConfig,
-                                                 MetadataFieldConfig relationConfig) {
-        MetadataFieldConfig queryConfig = relationConfig != null && relationConfig.getQueryable() != null
-                ? relationConfig
-                : defaultConfig;
-        return queryConfig == null
-                ? fieldType.queryDefinition()
-                : queryConfig.queryDefinition(fieldType);
+        return MetadataFieldConfig.effectiveQueryDefinition(fieldType, defaultConfig, relationConfig);
     }
 
     private FieldStorageForm storageForm(MetadataField field) {

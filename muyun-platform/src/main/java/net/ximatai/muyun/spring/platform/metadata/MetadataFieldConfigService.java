@@ -106,6 +106,30 @@ public class MetadataFieldConfigService extends StandardBusinessService<Metadata
                 "metadata field config must be unique in scope: " + config.getMetadataFieldId());
     }
 
+    @Override
+    protected void validateBeforeUpdate(MetadataFieldConfig config, MetadataFieldConfig existing) {
+        rejectChanged(existing, config, "Metadata field", MetadataFieldConfig::getMetadataFieldId);
+        rejectChanged(existing, config, "Relation scope", MetadataFieldConfig::getRelationId);
+    }
+
+    @Override
+    public void beforeRestore(String id) {
+        MetadataFieldConfig config = selectIgnoreSoftDelete(id);
+        if (config != null) validateBeforeSave(config);
+    }
+
+    @Override
+    public void beforeSoftDelete(MetadataFieldConfig config) {
+        if (config.getRelationId() == null
+                && protectionConfigService.definition(config.getMetadataFieldId()).hasStorageProtection()) {
+            MetadataField field = requireField(config.getMetadataFieldId());
+            if (fieldTypeService.requireFieldType(field.getFieldSpecAlias()).queryDefinition().queryable()) {
+                throw new PlatformException("Protected storage field cannot become queryable after removing its default config: "
+                        + config.getMetadataFieldId());
+            }
+        }
+    }
+
     /**
      * Validates the physical shape and dictionary binding of a field proposal without requiring
      * that the field itself has been inserted.  Query/behavior validation remains part of the
@@ -235,7 +259,9 @@ public class MetadataFieldConfigService extends StandardBusinessService<Metadata
         if (!protection.hasStorageProtection()) {
             return;
         }
-        if (config.queryDefinition(fieldType).queryable()) {
+        MetadataFieldConfig defaultConfig = config.getRelationId() == null
+                ? config : findByMetadataFieldId(config.getMetadataFieldId());
+        if (MetadataFieldConfig.effectiveQueryDefinition(fieldType, defaultConfig, config).queryable()) {
             throw new PlatformException("Protected storage field cannot be queryable: "
                     + config.getMetadataFieldId());
         }
