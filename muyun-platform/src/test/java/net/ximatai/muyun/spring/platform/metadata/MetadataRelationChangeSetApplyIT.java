@@ -1,5 +1,6 @@
 package net.ximatai.muyun.spring.platform.metadata;
 
+import net.ximatai.muyun.spring.platform.support.TestMemoryDao;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.database.spring.boot.sql.annotation.EnableMuYunRepositories;
@@ -583,8 +584,10 @@ class MetadataRelationChangeSetApplyIT extends PlatformPostgresIntegrationTest {
         }
         @Bean ModuleMetadataFieldService moduleFieldService() { return mock(ModuleMetadataFieldService.class); }
         @Bean MetadataFieldConfigService metadataFieldConfigService() { return mock(MetadataFieldConfigService.class); }
-        @Bean MetadataFieldDefinitionCompiler fieldCompiler(FieldSpecService specs, MetadataFieldConfigService configs) {
-            return new MetadataFieldDefinitionCompiler(specs, configs);
+        @Bean MetadataFieldDefinitionCompiler fieldCompiler(FieldSpecService specs, MetadataFieldConfigService configs, MetadataFieldService fields) {
+            return new MetadataFieldDefinitionCompiler(specs, configs,
+                    new MetadataFieldProtectionConfigService(new TestMemoryDao<>(), fields, specs,
+                            new TestMemoryDao<>()), fields);
         }
         @Bean PlatformMetadataEntityDefinitionCompiler entityCompiler(MetadataService metadata, MetadataFieldService fields,
                                                                        MetadataFieldDefinitionCompiler compiler) {

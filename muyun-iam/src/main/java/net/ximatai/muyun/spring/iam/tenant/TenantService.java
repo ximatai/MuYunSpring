@@ -121,10 +121,20 @@ public class TenantService extends AbstractAbilityService<Tenant> implements
 
     @Override
     public void afterInsert(String id, Tenant tenant) {
-        provisionTenant(id);
+        notifyTenantCreated(id);
     }
 
+    /** Replays idempotent initialization for an active tenant in a system mutation transaction. */
     public void provisionTenant(String tenantId) {
+        inMutationTransaction(() -> {
+            requireSystemMutationContext();
+            Tenant tenant = requireActiveTenant(tenantId);
+            notifyTenantCreated(tenant.getId());
+            return null;
+        });
+    }
+
+    private void notifyTenantCreated(String tenantId) {
         if (creationProvisioners != null) {
             creationProvisioners.orderedStream().forEach(provisioner -> provisioner.afterTenantCreated(tenantId));
         }

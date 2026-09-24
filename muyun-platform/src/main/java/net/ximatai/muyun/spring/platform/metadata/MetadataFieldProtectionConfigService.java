@@ -33,12 +33,6 @@ public class MetadataFieldProtectionConfigService extends AbstractAbilityService
 
     public MetadataFieldProtectionConfigService(BaseDao<MetadataFieldProtectionConfig, String> configDao,
                                                 MetadataFieldService fieldService,
-                                                FieldSpecService fieldTypeService) {
-        this(configDao, fieldService, fieldTypeService, null, Optional.empty());
-    }
-
-    public MetadataFieldProtectionConfigService(BaseDao<MetadataFieldProtectionConfig, String> configDao,
-                                                MetadataFieldService fieldService,
                                                 FieldSpecService fieldTypeService,
                                                 BaseDao<MetadataFieldConfig, String> fieldConfigDao) {
         this(configDao, fieldService, fieldTypeService, fieldConfigDao, Optional.empty());
@@ -51,9 +45,9 @@ public class MetadataFieldProtectionConfigService extends AbstractAbilityService
                                                 BaseDao<MetadataFieldConfig, String> fieldConfigDao,
                                                 Optional<PlatformDynamicRuntimeRefreshCoordinator> runtimeRefreshCoordinator) {
         super(MODULE_ALIAS, MetadataFieldProtectionConfig.class, configDao);
-        this.fieldService = fieldService;
-        this.fieldTypeService = fieldTypeService;
-        this.fieldConfigDao = fieldConfigDao;
+        this.fieldService = Objects.requireNonNull(fieldService, "fieldService must not be null");
+        this.fieldTypeService = Objects.requireNonNull(fieldTypeService, "fieldTypeService must not be null");
+        this.fieldConfigDao = Objects.requireNonNull(fieldConfigDao, "fieldConfigDao must not be null");
         this.runtimeRefreshCoordinator = Objects.requireNonNull(runtimeRefreshCoordinator,
                 "runtimeRefreshCoordinator must not be null");
     }
@@ -160,9 +154,6 @@ public class MetadataFieldProtectionConfigService extends AbstractAbilityService
     }
 
     private MetadataFieldConfig fieldConfig(String metadataFieldId) {
-        if (fieldConfigDao == null) {
-            return null;
-        }
         return fieldConfigDao.query(Criteria.of()
                         .eq("metadataFieldId", metadataFieldId)
                         .isNull("relationId"),

@@ -203,6 +203,22 @@ class PlatformMetadataServiceContractTest {
     }
 
     @Test
+    void fieldProtectionDependenciesMustBePresentAtAssembly() {
+        assertThatThrownBy(() -> new MetadataFieldConfigService(fieldConfigDao, fieldService,
+                metadataService, fieldTypeService, categoryService, relationService, null))
+                .isInstanceOf(NullPointerException.class).hasMessageContaining("protectionConfigService");
+        assertThatThrownBy(() -> new MetadataFieldProtectionConfigService(protectionConfigDao,
+                fieldService, fieldTypeService, null))
+                .isInstanceOf(NullPointerException.class).hasMessageContaining("fieldConfigDao");
+        assertThatThrownBy(() -> new MetadataFieldDefinitionCompiler(fieldTypeService,
+                fieldConfigService, null, fieldService))
+                .isInstanceOf(NullPointerException.class).hasMessageContaining("protectionConfigService");
+        assertThatThrownBy(() -> new MetadataFieldDefinitionCompiler(fieldTypeService,
+                fieldConfigService, protectionConfigService, null))
+                .isInstanceOf(NullPointerException.class).hasMessageContaining("fieldService");
+    }
+
+    @Test
     void shouldCreateMetadataWithApplicationScopedAliasAndPhysicalLocation() {
         Metadata metadata = metadata("crm", "customer");
 

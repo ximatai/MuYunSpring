@@ -39,6 +39,7 @@ import net.ximatai.muyun.spring.platform.metadata.MetadataField;
 import net.ximatai.muyun.spring.platform.metadata.MetadataFieldDefinitionCompiler;
 import net.ximatai.muyun.spring.platform.metadata.MetadataFieldConfig;
 import net.ximatai.muyun.spring.platform.metadata.MetadataFieldConfigService;
+import net.ximatai.muyun.spring.platform.metadata.MetadataFieldProtectionConfigService;
 import net.ximatai.muyun.spring.platform.metadata.MetadataFieldReferenceConfig;
 import net.ximatai.muyun.spring.platform.metadata.MetadataFieldReferenceConfigService;
 import net.ximatai.muyun.spring.platform.metadata.MetadataFieldForm;
@@ -104,11 +105,13 @@ class PlatformModuleDefinitionCompilerTest {
     private final MetadataFieldService fieldService = new MetadataFieldService(fieldDao, metadataService, fieldTypeService);
     private final ModuleMetadataRelationService relationService =
             new ModuleMetadataRelationService(relationDao, moduleService, metadataService);
+    private final MetadataFieldProtectionConfigService protectionConfigService =
+            new MetadataFieldProtectionConfigService(new TestMemoryDao<>(), fieldService, fieldTypeService, fieldConfigDao);
     private final MetadataFieldConfigService fieldConfigService =
             new MetadataFieldConfigService(fieldConfigDao, fieldService, metadataService, fieldTypeService,
-                    categoryService, relationService);
+                    categoryService, relationService, protectionConfigService);
     private final MetadataFieldDefinitionCompiler fieldDefinitionCompiler =
-            new MetadataFieldDefinitionCompiler(fieldTypeService, fieldConfigService, null, fieldService);
+            new MetadataFieldDefinitionCompiler(fieldTypeService, fieldConfigService, protectionConfigService, fieldService);
     private final MetadataFieldReferenceConfigService referenceConfigService =
             new MetadataFieldReferenceConfigService(referenceConfigDao, fieldService, metadataService,
                     fieldTypeService, moduleService, relationService);

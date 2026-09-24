@@ -10,6 +10,8 @@ import net.ximatai.muyun.spring.dynamic.metadata.FieldType;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
+import java.util.Objects;
+
 @Service
 public class MetadataFieldDefinitionCompiler {
     private final FieldSpecService fieldTypeService;
@@ -17,26 +19,15 @@ public class MetadataFieldDefinitionCompiler {
     private final MetadataFieldProtectionConfigService protectionConfigService;
     private final MetadataFieldService fieldService;
 
-    public MetadataFieldDefinitionCompiler(FieldSpecService fieldTypeService,
-                                           MetadataFieldConfigService configService) {
-        this(fieldTypeService, configService, null, null);
-    }
-
-    public MetadataFieldDefinitionCompiler(FieldSpecService fieldTypeService,
-                                           MetadataFieldConfigService configService,
-                                           MetadataFieldProtectionConfigService protectionConfigService) {
-        this(fieldTypeService, configService, protectionConfigService, null);
-    }
-
     @Autowired
     public MetadataFieldDefinitionCompiler(FieldSpecService fieldTypeService,
                                            MetadataFieldConfigService configService,
                                            MetadataFieldProtectionConfigService protectionConfigService,
                                            MetadataFieldService fieldService) {
-        this.fieldTypeService = fieldTypeService;
-        this.configService = configService;
-        this.protectionConfigService = protectionConfigService;
-        this.fieldService = fieldService;
+        this.fieldTypeService = Objects.requireNonNull(fieldTypeService, "fieldTypeService must not be null");
+        this.configService = Objects.requireNonNull(configService, "configService must not be null");
+        this.protectionConfigService = Objects.requireNonNull(protectionConfigService, "protectionConfigService must not be null");
+        this.fieldService = Objects.requireNonNull(fieldService, "fieldService must not be null");
     }
 
     public FieldDefinition compile(MetadataField field) {
@@ -81,9 +72,7 @@ public class MetadataFieldDefinitionCompiler {
                 queryDefinition,
                 fieldType.getDefaultUiControlAlias(),
                 behavior(fieldType, defaultConfig, relationConfig, moduleField, field.getId()),
-                protectionConfigService == null
-                        ? net.ximatai.muyun.spring.common.security.FieldProtectionDefinition.NONE
-                        : protectionConfigService.definition(field.getId()),
+                protectionConfigService.definition(field.getId()),
                 measureUnit(moduleField),
                 money(moduleField),
                 storageForm(field)
@@ -105,9 +94,6 @@ public class MetadataFieldDefinitionCompiler {
     }
 
     public FieldQueryDefinition compileQueryDefinition(String metadataFieldId, String relationId) {
-        if (fieldService == null) {
-            throw new IllegalArgumentException("field query definition compilation requires MetadataFieldService");
-        }
         MetadataField field = fieldService.select(metadataFieldId);
         if (field == null) {
             throw new IllegalArgumentException("field query definition points to missing field: " + metadataFieldId);
@@ -239,9 +225,6 @@ public class MetadataFieldDefinitionCompiler {
     private String fieldName(String fieldId) {
         if (fieldId == null || fieldId.isBlank()) {
             return null;
-        }
-        if (fieldService == null) {
-            throw new IllegalArgumentException("module field config requires MetadataFieldService");
         }
         MetadataField field = fieldService.select(fieldId);
         if (field == null) {

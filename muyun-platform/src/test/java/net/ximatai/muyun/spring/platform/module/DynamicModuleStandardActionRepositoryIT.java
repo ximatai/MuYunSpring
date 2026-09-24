@@ -3,6 +3,7 @@ package net.ximatai.muyun.spring.platform.module;
 import net.ximatai.muyun.database.spring.boot.sql.annotation.EnableMuYunRepositories;
 import net.ximatai.muyun.spring.platform.support.PlatformPostgresIntegrationTest;
 import org.junit.jupiter.api.Test;
+import net.ximatai.muyun.spring.common.tenant.TenantContext;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.SpringBootConfiguration;
 import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
@@ -50,6 +51,34 @@ class DynamicModuleStandardActionRepositoryIT extends PlatformPostgresIntegratio
         assertThat(actions.findByModuleAliasAndActionCode(module.getAlias(), "view")).isNull();
         assertThat(actions.findByModuleAliasAndActionCode(module.getAlias(), "update").getTitle())
                 .isEqualTo("已有业务动作");
+    }
+
+    @Test
+    void globalModuleReadsExcludeTenantRowsInTheDatabase() {
+        PlatformModule global = new PlatformModule();
+        global.setAlias("education.global_scope");
+        global.setApplicationAlias("education");
+        global.setTitle("Global module");
+        try (var ignored = TenantContext.system("create global module")) {
+            modules.insert(global);
+        }
+        PlatformModule local = new PlatformModule();
+        local.setAlias("education.tenant_scope");
+        local.setApplicationAlias("education");
+        local.setTitle("Tenant module");
+        try (var ignored = TenantContext.use("owner")) {
+            modules.insert(local);
+        }
+        try (var ignored = TenantContext.use("reader")) {
+            assertThat(modules.resolveVisibleModule(global.getId())).isNotNull();
+            assertThat(modules.resolveVisibleModule(local.getId())).isNull();
+            assertThat(modules.listVisibleModules()).extracting(PlatformModule::getId)
+                    .contains(global.getId()).doesNotContain(local.getId());
+            assertThat(modules.select(global.getId())).isNull();
+            assertThat(TenantContext.isSystem()).isFalse();
+            assertThat(TenantContext.tenantFilterBypassed()).isFalse();
+        }
+        assertThat(modules.resolveVisibleModule(local.getId())).isNull();
     }
 
     @SpringBootConfiguration
