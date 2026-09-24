@@ -150,6 +150,11 @@ public class DynamicModuleStandardActionRegistrar implements PlatformBootstrapTa
             actions.add(PlatformAction.ENABLE);
             actions.add(PlatformAction.DISABLE);
         }
+        if (capabilities.contains(EntityCapability.RECYCLE_BIN.name())) {
+            actions.add(PlatformAction.RECYCLE_BIN_QUERY);
+            actions.add(PlatformAction.RECYCLE_BIN_RESTORE);
+            actions.add(PlatformAction.RECYCLE_BIN_PURGE);
+        }
         if (capabilities.contains(EntityCapability.DATA_SCOPE.name())) actions.add(PlatformAction.MANAGE_PERMISSIONS);
         List<ModuleActionContribution> contributions = actions.stream()
                 .map(action -> contribution(module, action))
@@ -206,7 +211,8 @@ public class DynamicModuleStandardActionRegistrar implements PlatformBootstrapTa
     private static ModuleActionContribution contribution(PlatformModule module, PlatformAction action) {
         return new ModuleActionContribution(
                 module.getAlias(), null, action.code(), action.permissionActionCode(), action.title(),
-                null, null, null, action.actionAuth(), action == PlatformAction.MANAGE_PERMISSIONS, action.defaultGrantPolicy(),
+                null, null, null, action.actionAuth(), (action == PlatformAction.MANAGE_PERMISSIONS
+                        || action == PlatformAction.RECYCLE_BIN_QUERY), action.defaultGrantPolicy(),
                 null, null, null, null,
                 ModuleActionSourceType.DYNAMIC_MODULE, module.getAlias(), null,
                 null, null, null, true

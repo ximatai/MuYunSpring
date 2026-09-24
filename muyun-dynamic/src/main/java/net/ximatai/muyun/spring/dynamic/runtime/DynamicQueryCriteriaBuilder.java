@@ -1,5 +1,6 @@
 package net.ximatai.muyun.spring.dynamic.runtime;
 
+import net.ximatai.muyun.spring.ability.PlatformAbilityRuntime;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.spring.common.time.BusinessTimeContext;
 import net.ximatai.muyun.spring.common.time.PlatformTimeService;
@@ -24,7 +25,7 @@ public final class DynamicQueryCriteriaBuilder {
     private final BusinessTimeContext timeContext;
 
     public DynamicQueryCriteriaBuilder(EntityDefinition entity) {
-        this(entity, new PlatformTimeService(), BusinessTimeContext.empty());
+        this(entity, PlatformAbilityRuntime.timeService(), BusinessTimeContext.empty());
     }
 
     public DynamicQueryCriteriaBuilder(EntityDefinition entity,
@@ -34,7 +35,7 @@ public final class DynamicQueryCriteriaBuilder {
         this.fields = java.util.stream.Stream.concat(entity.fields().stream(),
                 net.ximatai.muyun.spring.dynamic.descriptor.DynamicAuditFields.definitions().stream())
                 .collect(Collectors.toUnmodifiableMap(FieldDefinition::fieldName, Function.identity()));
-        this.timeService = timeService == null ? new PlatformTimeService() : timeService;
+        this.timeService = java.util.Objects.requireNonNull(timeService, "timeService");
         this.timeContext = timeContext == null ? BusinessTimeContext.empty() : timeContext;
     }
 

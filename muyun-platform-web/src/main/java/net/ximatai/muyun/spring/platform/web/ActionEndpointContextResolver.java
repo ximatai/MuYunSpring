@@ -12,11 +12,9 @@ import net.ximatai.muyun.spring.common.platform.ActionEndpoint;
 import net.ximatai.muyun.spring.common.platform.ActionExecutionContext;
 import net.ximatai.muyun.spring.common.platform.ActionExecutionPolicy;
 import net.ximatai.muyun.spring.common.platform.CustomActionEndpoint;
-import net.ximatai.muyun.spring.common.platform.PlatformActionLevel;
 import net.ximatai.muyun.spring.common.util.PlatformNameRules;
 import net.ximatai.muyun.spring.platform.module.PlatformStaticModule;
 import net.ximatai.muyun.spring.web.endpoint.ResolvedWebEndpoint;
-import net.ximatai.muyun.spring.dynamic.metadata.EntityActionLevel;
 import net.ximatai.muyun.spring.platform.module.PlatformModuleAction;
 import net.ximatai.muyun.spring.platform.module.PlatformModuleActionService;
 import net.ximatai.muyun.spring.platform.module.StaticModuleActionDefinition;
@@ -90,7 +88,7 @@ public class ActionEndpointContextResolver {
                     .filter(value -> !endpoint.formContext() || Boolean.TRUE.equals(value.getFormSupported()))
                     .orElseThrow(() -> new PlatformException(PlatformErrorCodes.RESOURCE_NOT_FOUND, 404,
                             "module action is not published for this transport: " + moduleAlias + "." + actionCode));
-            return Optional.of(ActionExecutionContext.ofPolicy(moduleAlias, toPolicy(action),
+            return Optional.of(ActionExecutionContext.ofPolicy(moduleAlias, action.executionPolicy(),
                     customRecordIds(request, endpoint), CurrentUserContext.currentUser()));
         }
         String actionCode = contribution == null
@@ -241,7 +239,7 @@ public class ActionEndpointContextResolver {
     }
 
     private Optional<ActionExecutionPolicy> registeredPolicy(String moduleAlias, String actionCode) {
-        return registeredAction(moduleAlias, actionCode).map(this::toPolicy);
+        return registeredAction(moduleAlias, actionCode).map(PlatformModuleAction::executionPolicy);
     }
 
     /**
@@ -277,38 +275,6 @@ public class ActionEndpointContextResolver {
                 configured.getDefaultGrantPolicyOverride() == null ? declaration.defaultGrantPolicy() : configured.getDefaultGrantPolicyOverride(),
                 (configured.getActionAuthOverride() == null ? declaration.actionAuth() : configured.getActionAuthOverride())
                         ? declaration.inheritActionCode() : null);
-    }
-
-    private ActionExecutionPolicy toPolicy(PlatformModuleAction action) {
-        String actionCode = PlatformNameRules.requireActionCode(action.getActionCode(), "actionCode");
-        String permissionActionCode = action.getPermissionActionCode();
-        String inheritActionCode = permissionActionCode == null || permissionActionCode.isBlank()
-                || permissionActionCode.equals(actionCode)
-                ? null
-                : PlatformNameRules.requireActionCode(permissionActionCode, "permissionActionCode");
-        return new ActionExecutionPolicy(
-                actionCode,
-                toPlatformLevel(action.getActionLevel()),
-                action.effectiveAccessMode() == null
-                        ? ActionAccessMode.AUTH_REQUIRED
-                        : ActionAccessMode.valueOf(action.effectiveAccessMode().name()),
-                action.effectiveActionAuth(),
-                action.effectiveDataAuth(),
-                action.effectiveDefaultGrantPolicy(),
-                inheritActionCode
-        );
-    }
-
-    private PlatformActionLevel toPlatformLevel(EntityActionLevel level) {
-        if (level == null) {
-            return PlatformActionLevel.ANY;
-        }
-        return switch (level) {
-            case LIST -> PlatformActionLevel.LIST;
-            case RECORD -> PlatformActionLevel.RECORD;
-            case BATCH -> PlatformActionLevel.BATCH;
-            case ANY -> PlatformActionLevel.ANY;
-        };
     }
 
     private Set<String> recordIds(HttpServletRequest request) {

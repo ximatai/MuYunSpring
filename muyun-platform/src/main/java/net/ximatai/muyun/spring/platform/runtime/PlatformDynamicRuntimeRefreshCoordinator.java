@@ -3,13 +3,10 @@ package net.ximatai.muyun.spring.platform.runtime;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.database.core.orm.Sort;
-import net.ximatai.muyun.spring.ability.TransactionScopeSupport;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.schema.PlatformAbilityFields;
 import net.ximatai.muyun.spring.common.util.PlatformNameRules;
-import net.ximatai.muyun.spring.common.tenant.TenantContext;
 import net.ximatai.muyun.spring.platform.metadata.RelationRole;
-import net.ximatai.muyun.spring.dynamic.refresh.DynamicModuleRefreshResult;
 import net.ximatai.muyun.spring.platform.metadata.MetadataField;
 import net.ximatai.muyun.spring.platform.metadata.MetadataView;
 import net.ximatai.muyun.spring.platform.metadata.MetadataViewField;
@@ -25,10 +22,7 @@ import net.ximatai.muyun.spring.platform.module.PlatformModuleAction;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.support.TransactionSynchronization;
-import org.springframework.transaction.support.TransactionSynchronizationManager;
 
-import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
@@ -38,27 +32,27 @@ import java.util.Set;
 public class PlatformDynamicRuntimeRefreshCoordinator {
     private static final PageRequest ALL = new PageRequest(0, Integer.MAX_VALUE);
 
-    private final ObjectProvider<PlatformDynamicRuntimeRefreshService> refreshServiceProvider;
+    private final ObjectProvider<DynamicRuntimeActivationService> activationProvider;
     private final ObjectProvider<ModuleMetadataRelationService> relationServiceProvider;
     private final ObjectProvider<ModuleMetadataFieldService> moduleFieldServiceProvider;
     private final ObjectProvider<MetadataViewService> viewServiceProvider;
 
     public PlatformDynamicRuntimeRefreshCoordinator(
-            PlatformDynamicRuntimeRefreshService refreshService,
+            DynamicRuntimeActivationService activation,
             ObjectProvider<ModuleMetadataRelationService> relationServiceProvider,
             ObjectProvider<ModuleMetadataFieldService> moduleFieldServiceProvider,
             ObjectProvider<MetadataViewService> viewServiceProvider) {
-        this(provider(refreshService), relationServiceProvider, moduleFieldServiceProvider, viewServiceProvider);
+        this(provider(activation), relationServiceProvider, moduleFieldServiceProvider, viewServiceProvider);
     }
 
     @Autowired
     public PlatformDynamicRuntimeRefreshCoordinator(
-            ObjectProvider<PlatformDynamicRuntimeRefreshService> refreshServiceProvider,
+            ObjectProvider<DynamicRuntimeActivationService> activationProvider,
             ObjectProvider<ModuleMetadataRelationService> relationServiceProvider,
             ObjectProvider<ModuleMetadataFieldService> moduleFieldServiceProvider,
             ObjectProvider<MetadataViewService> viewServiceProvider) {
-        this.refreshServiceProvider = Objects.requireNonNull(refreshServiceProvider,
-                "refreshServiceProvider must not be null");
+        this.activationProvider = Objects.requireNonNull(activationProvider,
+                "activationProvider must not be null");
         this.relationServiceProvider = Objects.requireNonNull(relationServiceProvider,
                 "relationServiceProvider must not be null");
         this.moduleFieldServiceProvider = Objects.requireNonNull(moduleFieldServiceProvider,
@@ -67,100 +61,93 @@ public class PlatformDynamicRuntimeRefreshCoordinator {
     }
 
     public PlatformDynamicRuntimeRefreshCoordinator(
-            PlatformDynamicRuntimeRefreshService refreshService,
+            DynamicRuntimeActivationService activation,
             ModuleMetadataRelationService relationService,
             ModuleMetadataFieldService moduleFieldService,
             MetadataViewService viewService) {
-        this(refreshService, provider(relationService), provider(moduleFieldService), provider(viewService));
+        this(activation, provider(relationService), provider(moduleFieldService), provider(viewService));
     }
 
-    public List<DynamicModuleRefreshResult> refreshModule(String moduleAlias) {
-        return refreshModules(List.of(PlatformNameRules.requireModuleAlias(moduleAlias)));
+    public void refreshModule(String moduleAlias) {
+        refreshModules(List.of(PlatformNameRules.requireModuleAlias(moduleAlias)));
     }
 
     /** Action catalogues exist before MAIN metadata; compile only once the module is configured. */
     public void refreshConfiguredModule(String moduleAlias) {
         String alias = PlatformNameRules.requireModuleAlias(moduleAlias);
-        String tenantId = TenantContext.currentTenantId().orElse(null);
-        String systemReason = TenantContext.systemReason().orElse(null);
-        TransactionScopeSupport.afterCommitOrNow(() -> {
-            try (TenantContext.Scope ignored = systemReason == null
-                    ? TenantContext.use(tenantId) : TenantContext.system(systemReason)) {
-                if (!relationService().list(Criteria.of().eq("moduleAlias", alias)
-                        .eq("relationRole", RelationRole.MAIN).isNull("tenantId"), new PageRequest(0, 1)).isEmpty()) {
-                    activateOnceNow(alias);
-                }
-            }
-        });
+        if (!relationService().list(Criteria.of().eq("moduleAlias", alias)
+                .eq("relationRole", RelationRole.MAIN).isNull("tenantId"), new PageRequest(0, 1)).isEmpty()) {
+            activation().schedule(alias);
+        }
     }
 
-    public List<DynamicModuleRefreshResult> refreshByRelation(ModuleMetadataRelation relation) {
+    public void refreshByRelation(ModuleMetadataRelation relation) {
         if (relation == null) {
-            return List.of();
+            return;
         }
-        return refreshModule(relation.getModuleAlias());
+        refreshModule(relation.getModuleAlias());
     }
 
-    public List<DynamicModuleRefreshResult> refreshByModuleField(ModuleMetadataField moduleField) {
+    public void refreshByModuleField(ModuleMetadataField moduleField) {
         if (moduleField == null) {
-            return List.of();
+            return;
         }
-        return refreshByRelationId(moduleField.getRelationId());
+        refreshByRelationId(moduleField.getRelationId());
     }
 
-    public List<DynamicModuleRefreshResult> refreshByFieldFilter(ModuleMetadataFieldFilter filter) {
+    public void refreshByFieldFilter(ModuleMetadataFieldFilter filter) {
         if (filter == null) {
-            return List.of();
+            return;
         }
-        return refreshByModuleFieldId(filter.getModuleMetadataFieldId());
+        refreshByModuleFieldId(filter.getModuleMetadataFieldId());
     }
 
-    public List<DynamicModuleRefreshResult> refreshByFieldAffect(ModuleMetadataFieldAffect affect) {
+    public void refreshByFieldAffect(ModuleMetadataFieldAffect affect) {
         if (affect == null) {
-            return List.of();
+            return;
         }
-        return refreshByModuleFieldId(affect.getModuleMetadataFieldId());
+        refreshByModuleFieldId(affect.getModuleMetadataFieldId());
     }
 
-    public List<DynamicModuleRefreshResult> refreshByFormulaRule(ModuleMetadataFormulaRule rule) {
+    public void refreshByFormulaRule(ModuleMetadataFormulaRule rule) {
         if (rule == null) {
-            return List.of();
+            return;
         }
-        return refreshByRelationId(rule.getRelationId());
+        refreshByRelationId(rule.getRelationId());
     }
 
-    public List<DynamicModuleRefreshResult> refreshByMetadataView(MetadataView view) {
+    public void refreshByMetadataView(MetadataView view) {
         if (view == null) {
-            return List.of();
+            return;
         }
-        return refreshByRelationId(view.getRelationId());
+        refreshByRelationId(view.getRelationId());
     }
 
-    public List<DynamicModuleRefreshResult> refreshByMetadataViewField(MetadataViewField viewField) {
+    public void refreshByMetadataViewField(MetadataViewField viewField) {
         if (viewField == null) {
-            return List.of();
+            return;
         }
         MetadataView view = requireView(viewField.getViewId());
-        return refreshByMetadataView(view);
+        refreshByMetadataView(view);
     }
 
-    public List<DynamicModuleRefreshResult> refreshByModuleAction(PlatformModuleAction action) {
+    public void refreshByModuleAction(PlatformModuleAction action) {
         if (action == null) {
-            return List.of();
+            return;
         }
-        return refreshModule(action.getModuleAlias());
+        refreshModule(action.getModuleAlias());
     }
 
-    public List<DynamicModuleRefreshResult> refreshByMetadataField(MetadataField field) {
+    public void refreshByMetadataField(MetadataField field) {
         if (field == null) {
-            return List.of();
+            return;
         }
-        return refreshByMetadataId(field.getMetadataId());
+        refreshByMetadataId(field.getMetadataId());
     }
 
-    public List<DynamicModuleRefreshResult> refreshByMetadataId(String metadataId) {
+    public void refreshByMetadataId(String metadataId) {
         if (metadataId == null || metadataId.isBlank()) {
-            return List.of();
+            return;
         }
         Set<String> moduleAliases = new LinkedHashSet<>();
         for (ModuleMetadataRelation relation : relationService().list(
@@ -171,104 +158,36 @@ public class PlatformDynamicRuntimeRefreshCoordinator {
                 moduleAliases.add(relation.getModuleAlias());
             }
         }
-        return refreshModules(moduleAliases);
+        refreshModules(moduleAliases);
     }
 
-    /** Synchronously activates affected module snapshots; callers must already be after commit. */
-    public List<DynamicModuleRefreshResult> activateByMetadataIdNow(String metadataId) {
-        if (metadataId == null || metadataId.isBlank()) return List.of();
-        Set<String> moduleAliases = new LinkedHashSet<>();
-        for (ModuleMetadataRelation relation : relationService().list(Criteria.of().eq("metadataId", metadataId),
-                ALL, Sort.asc(PlatformAbilityFields.SORT_FIELD))) {
-            if (relation.getModuleAlias() != null && !relation.getModuleAlias().isBlank()) {
-                moduleAliases.add(PlatformNameRules.requireModuleAlias(relation.getModuleAlias()));
-            }
-        }
-        List<DynamicModuleRefreshResult> results = new ArrayList<>();
-        for (String moduleAlias : moduleAliases) results.add(activateOnceNow(moduleAlias));
-        return results;
+    /** Registers intent in the same transaction as the metadata change. */
+    public void scheduleByMetadataId(String metadataId) {
+        refreshByMetadataId(metadataId);
     }
 
-    /** Synchronously activates a deduplicated module set; callers must already be after commit. */
-    public List<DynamicModuleRefreshResult> activateModulesNow(Iterable<String> moduleAliases) {
-        Set<String> distinctAliases = new LinkedHashSet<>();
-        for (String moduleAlias : moduleAliases) {
-            if (moduleAlias != null && !moduleAlias.isBlank()) {
-                distinctAliases.add(PlatformNameRules.requireModuleAlias(moduleAlias));
-            }
-        }
-        List<DynamicModuleRefreshResult> results = new ArrayList<>();
-        for (String moduleAlias : distinctAliases) results.add(activateOnceNow(moduleAlias));
-        return results;
+    public void scheduleModules(Iterable<String> moduleAliases) {
+        refreshModules(moduleAliases);
     }
 
-    /**
-     * Metadata and presentation can both publish activation callbacks in one transaction.
-     * At commit they observe the same final configuration, so compile each module only once.
-     * The memo belongs to Spring's synchronization list and expires with that transaction.
-     */
-    private DynamicModuleRefreshResult activateOnceNow(String moduleAlias) {
-        if (!TransactionSynchronizationManager.isActualTransactionActive()
-                || !TransactionSynchronizationManager.isSynchronizationActive()) {
-            return refreshService().activateNow(moduleAlias);
-        }
-        ActivationMemo memo = TransactionSynchronizationManager.getSynchronizations().stream()
-                .filter(ActivationMemo.class::isInstance).map(ActivationMemo.class::cast)
-                .filter(candidate -> candidate.owner == this).findFirst().orElseGet(() -> {
-                    ActivationMemo created = new ActivationMemo(this);
-                    TransactionSynchronizationManager.registerSynchronization(created);
-                    return created;
-                });
-        if (!memo.results.containsKey(moduleAlias)) {
-            memo.results.put(moduleAlias, refreshService().activateNow(moduleAlias));
-        }
-        return memo.results.get(moduleAlias);
-    }
-
-    private static final class ActivationMemo implements TransactionSynchronization {
-        private final PlatformDynamicRuntimeRefreshCoordinator owner;
-        private final java.util.Map<String, DynamicModuleRefreshResult> results = new java.util.LinkedHashMap<>();
-
-        private ActivationMemo(PlatformDynamicRuntimeRefreshCoordinator owner) {
-            this.owner = owner;
-        }
-    }
-
-    /** Removes active runtime projections for modules whose MAIN metadata was deleted. */
-    public void deactivateModulesNow(Iterable<String> moduleAliases) {
-        Set<String> distinctAliases = new LinkedHashSet<>();
-        for (String moduleAlias : moduleAliases) {
-            if (moduleAlias != null && !moduleAlias.isBlank()) {
-                distinctAliases.add(PlatformNameRules.requireModuleAlias(moduleAlias));
-            }
-        }
-        for (String moduleAlias : distinctAliases) refreshService().deactivateNow(moduleAlias);
-    }
-
-    public List<DynamicModuleRefreshResult> refreshByRelationId(String relationId) {
+    public void refreshByRelationId(String relationId) {
         ModuleMetadataRelation relation = requireRelation(relationId);
-        return refreshByRelation(relation);
+        refreshByRelation(relation);
     }
 
-    public List<DynamicModuleRefreshResult> refreshByModuleFieldId(String moduleFieldId) {
+    public void refreshByModuleFieldId(String moduleFieldId) {
         ModuleMetadataField moduleField = requireModuleField(moduleFieldId);
-        return refreshByModuleField(moduleField);
+        refreshByModuleField(moduleField);
     }
 
-    private List<DynamicModuleRefreshResult> refreshModules(Iterable<String> moduleAliases) {
+    private void refreshModules(Iterable<String> moduleAliases) {
         Set<String> distinctAliases = new LinkedHashSet<>();
         for (String moduleAlias : moduleAliases) {
             if (moduleAlias != null && !moduleAlias.isBlank()) {
                 distinctAliases.add(PlatformNameRules.requireModuleAlias(moduleAlias));
             }
         }
-        List<DynamicModuleRefreshResult> results = new ArrayList<>();
-        TransactionScopeSupport.afterCommitOrNow(() -> {
-            for (String moduleAlias : distinctAliases) {
-                results.add(refreshService().refresh(moduleAlias));
-            }
-        });
-        return results;
+        distinctAliases.stream().sorted().forEach(alias -> activation().schedule(alias));
     }
 
     private ModuleMetadataRelation requireRelation(String relationId) {
@@ -311,8 +230,8 @@ public class PlatformDynamicRuntimeRefreshCoordinator {
         return viewServiceProvider.getObject();
     }
 
-    private PlatformDynamicRuntimeRefreshService refreshService() {
-        return refreshServiceProvider.getObject();
+    private DynamicRuntimeActivationService activation() {
+        return activationProvider.getObject();
     }
 
     private static <T> ObjectProvider<T> provider(T value) {

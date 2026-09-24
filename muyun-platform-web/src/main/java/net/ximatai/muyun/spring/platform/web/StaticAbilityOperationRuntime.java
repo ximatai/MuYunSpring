@@ -397,10 +397,11 @@ public final class StaticAbilityOperationRuntime {
                 DataScopeCriteriaResult dataScopeResult = dataScope.readScopeByPolicy(
                         StaticStandardMutationSupport.actionPolicy(scope, PlatformAction.RECYCLE_BIN_QUERY), criteria);
                 response = (WebPageResponse<?>) dataScope.withDataScopeTenant(dataScopeResult,
-                        () -> WebPageResponse.from(ability.pageRecycleBin(
-                                dataScopeResult.criteria(), pageRequest, sorts)));
+                        () -> WebPageResponse.from(WebOutputSupport.page(ability, ability.pageRecycleBin(
+                                dataScopeResult.criteria(), pageRequest, sorts), FieldOutputContext.LIST)));
             } else {
-                response = WebPageResponse.from(ability.pageRecycleBin(criteria, pageRequest, sorts));
+                response = WebPageResponse.from(WebOutputSupport.page(ability,
+                        ability.pageRecycleBin(criteria, pageRequest, sorts), FieldOutputContext.LIST));
             }
             return decorateRecycleBin(ability, projectStaticFallback(scope, response));
         });

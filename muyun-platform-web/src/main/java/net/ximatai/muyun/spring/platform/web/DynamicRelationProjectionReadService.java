@@ -96,6 +96,12 @@ public class DynamicRelationProjectionReadService {
                                                          Criteria criteria,
                                                          PageRequest pageRequest,
                                                          Sort... sorts) {
+        return queryList(moduleAlias, recordService, outputFields, criteria, pageRequest, RecordReadVisibility.ACTIVE, sorts);
+    }
+
+    public Optional<PageResult<DynamicRecord>> queryList(String moduleAlias, DynamicRecordService recordService,
+            Set<String> outputFields, Criteria criteria, PageRequest pageRequest,
+            RecordReadVisibility visibility, Sort... sorts) {
         if (moduleAlias == null || moduleAlias.isBlank()
                 || recordService == null
                 || outputFields == null
@@ -116,7 +122,7 @@ public class DynamicRelationProjectionReadService {
             return Optional.empty();
         }
         RecordReadProjection projection = projection(moduleAlias, resolvedOutputFields);
-        PageResult<Map<String, Object>> page = recordService.withQueryReadScope(moduleAlias, criteria,
+        java.util.function.Function<Criteria, PageResult<Map<String, Object>>> read =
                 scopedCriteria -> relationProjectionReadService.queryListWithInternalFields(
                         definitions,
                         definition,
@@ -124,7 +130,10 @@ public class DynamicRelationProjectionReadService {
                         scopedCriteria,
                         pageRequest,
                         sorts
-                ).orElse(null));
+                ).orElse(null);
+        PageResult<Map<String, Object>> page = visibility == RecordReadVisibility.RETAINED
+                ? recordService.withRecycleBinReadScope(moduleAlias, criteria, read)
+                : recordService.withQueryReadScope(moduleAlias, criteria, read);
         if (page == null) {
             return Optional.empty();
         }

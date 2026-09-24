@@ -1139,6 +1139,27 @@ async function handleSecondaryRowAction(row: QueryListRow, key: string) {
   emit('rowAction', action, row.record);
 }
 
+async function retryRecycleBinAction(pending: (typeof recycleBinState.pendingActions.value)[number]) {
+  const item = pending.item;
+  if (pending.action === 'restore') {
+    if (!props.context.can('recycleBinRestore')) return;
+    if (await recycleBinState.restore(item, false)) {
+      emit('restored');
+      await loadRecords();
+    }
+  } else {
+    if (!props.context.can('recycleBinPurge')) return;
+    const confirmed = await confirmAction({
+      title: '重试彻底删除',
+      content: '确认继续清理尚未完成的记录？',
+      okText: '继续清理',
+      danger: true,
+      requiredText: recycleBinState.recordTitleOf(item),
+    });
+    if (confirmed && (await recycleBinState.purge(item, false))) await loadRecords();
+  }
+}
+
 async function handleRecycleBinAction(row: QueryListRow, action: ResolvedRecordActionItem) {
   if (props.mode !== 'recycleBin') return false;
   const item = recycleBinItems.get(row.key);
@@ -1871,7 +1892,11 @@ defineExpose({ clearSelection, refresh });
     </template>
 
     <template
-      v-if="(showRecycleBin && recycleBinEnabled) || (mode !== 'recycleBin' && querySummaries.length > 0)"
+      v-if="
+        (showRecycleBin && recycleBinEnabled) ||
+        (mode === 'recycleBin' && recycleBinState.pendingActions.value.length > 0) ||
+        (mode !== 'recycleBin' && querySummaries.length > 0)
+      "
       #footer
     >
       <RecycleBinModeButton
@@ -1881,6 +1906,35 @@ defineExpose({ clearSelection, refresh });
         :count="recycleBinState.summaryTotal.value"
         @click="emit('modeChange', mode === 'normal' ? 'recycleBin' : 'normal')"
       />
+      <div v-if="mode === 'recycleBin'" class="recycle-bin-pending-actions" aria-live="polite">
+        <div
+          v-for="pending in recycleBinState.pendingActions.value"
+          :key="`${pending.action}:${pending.item.sourceDeleteOperationId}`"
+        >
+          <span
+            >{{ recycleBinState.recordTitleOf(pending.item) }}：{{
+              pending.action === 'restore' ? '恢复' : '清理'
+            }}尚未全部完成</span
+          >
+          <details>
+            <summary>查看处理结果</summary>
+            <p v-for="entry in pending.report.entries" :key="entry.sourceEntryId">
+              {{
+                entry.message ||
+                (entry.status === 'RESTORED' || entry.status === 'PURGED' ? '已完成' : '未完成')
+              }}
+            </p>
+          </details>
+          <UiButton
+            :disabled="
+              recycleBinState.acting.value ||
+              !context.can(pending.action === 'restore' ? 'recycleBinRestore' : 'recycleBinPurge')
+            "
+            @click="retryRecycleBinAction(pending)"
+            >{{ pending.action === 'restore' ? '重试恢复' : '重试清理' }}</UiButton
+          >
+        </div>
+      </div>
       <div v-if="mode !== 'recycleBin' && querySummaries.length > 0" class="record-query-list-summaries">
         <span v-for="summary in querySummaries" :key="summary.key" class="record-query-list-summary">
           <span v-if="summary.source !== 'GROUPED'" class="record-query-list-summary-title">{{

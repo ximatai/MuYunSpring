@@ -92,6 +92,13 @@ public interface TreeAbility<T extends TreeCapable> extends SortAbility<T> {
     }
 
     default void moveInTree(String id, String previousId, String nextId, String parentId) {
+        PlatformAbilityDispatcher.inMutationTransaction(() -> {
+            moveInTreeInTransaction(id, previousId, nextId, parentId);
+            return null;
+        });
+    }
+
+    private void moveInTreeInTransaction(String id, String previousId, String nextId, String parentId) {
         T moving = select(id);
         if (moving == null) {
             throw new PlatformException("Cannot move missing tree record: " + id);
@@ -127,6 +134,13 @@ public interface TreeAbility<T extends TreeCapable> extends SortAbility<T> {
     }
 
     default void moveInTree(Criteria scopeCriteria, String id, String previousId, String nextId, String parentId) {
+        PlatformAbilityDispatcher.inMutationTransaction(() -> {
+            moveInTreeInTransaction(scopeCriteria, id, previousId, nextId, parentId);
+            return null;
+        });
+    }
+
+    private void moveInTreeInTransaction(Criteria scopeCriteria, String id, String previousId, String nextId, String parentId) {
         T moving = selectInScope(scopeCriteria, id);
         if (moving == null) {
             throw new PlatformException("Cannot move missing tree record: " + id);

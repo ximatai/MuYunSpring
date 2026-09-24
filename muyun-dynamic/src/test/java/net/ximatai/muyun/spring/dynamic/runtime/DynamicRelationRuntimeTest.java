@@ -366,7 +366,7 @@ class DynamicRelationRuntimeTest {
         stubInvoiceRows(operations);
         DynamicRecordRuntime runtime = new DynamicRecordRuntime(operations).register(restrictInvoiceModule());
 
-        assertThatThrownBy(() -> runtime.validateReferenceTargetDeletion(
+        assertThatThrownBy(() -> runtime.validateReferenceTargetUnavailable(
                 ReferenceTarget.of(MODULE, "invoice"), "invoice-1"))
                 .isInstanceOf(PlatformException.class)
                 .hasMessageContaining("该记录仍被其他记录引用");
@@ -391,7 +391,7 @@ class DynamicRelationRuntimeTest {
                 .build();
         DynamicRecordRuntime runtime = new DynamicRecordRuntime(operations).register(module);
 
-        assertThatThrownBy(() -> runtime.validateReferenceTargetDeletion(
+        assertThatThrownBy(() -> runtime.validateReferenceTargetUnavailable(
                 ReferenceTarget.of("education", "student"), "student-1"))
                 .isInstanceOf(PlatformException.class)
                 .hasMessageContaining("该记录仍被其他记录引用");
@@ -446,12 +446,11 @@ class DynamicRelationRuntimeTest {
         ArgumentCaptor<Map<String, Object>> where = mapCaptor();
         verify(operations, times(3)).patchUpdateItemWhere(eq(SCHEMA), table.capture(), body.capture(), where.capture(), eq("id"));
         assertThat(table.getAllValues()).containsExactly("app_invoice", "app_invoice_line", "app_invoice_line");
-        assertThat(body.getAllValues().get(1))
+        assertThat(body.getAllValues().get(1)).containsEntry("deleted", Boolean.TRUE);
+        assertThat(where.getAllValues().get(1)).containsEntry("id", "line-2");
+        assertThat(body.getAllValues().get(2))
                 .containsEntry("title", "L-001-updated")
                 .containsEntry("invoice_id", "invoice-1");
-        assertThat(body.getAllValues().get(2))
-                .containsEntry("deleted", Boolean.TRUE);
-        assertThat(where.getAllValues().get(2)).containsEntry("id", "line-2");
 
         ArgumentCaptor<Map<String, Object>> inserted = mapCaptor();
         verify(operations).insertItem(eq(SCHEMA), eq("app_invoice_line"), inserted.capture(), eq("id"));

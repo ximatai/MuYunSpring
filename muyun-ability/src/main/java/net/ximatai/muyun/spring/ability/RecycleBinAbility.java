@@ -10,6 +10,7 @@ import net.ximatai.muyun.spring.common.platform.ActionExecutionPolicy;
 import net.ximatai.muyun.spring.common.platform.PlatformAction;
 import net.ximatai.muyun.spring.common.platform.DataScopeCriteriaResult;
 import net.ximatai.muyun.spring.ability.deletion.DeletionRecoveryAbility;
+import net.ximatai.muyun.spring.ability.security.FieldProtectionAbility;
 
 import java.util.List;
 import java.util.function.Function;
@@ -22,7 +23,7 @@ import java.util.function.Function;
  * recycle-bin lifecycle. Recovery execution and lifecycle audit remain
  * platform concerns.</p>
  */
-public interface RecycleBinAbility<T extends EntityContract> extends SoftDeleteAbility<T>, DeletionRecoveryAbility<T> {
+public interface RecycleBinAbility<T extends EntityContract> extends DeletionRecoveryAbility<T> {
     /** Lists retained records visible to the current recycle-bin boundary. */
     default List<T> listRecycleBin(PageRequest pageRequest) {
         return pageRecycleBin(Criteria.of(), pageRequest).getRecords();
@@ -31,9 +32,13 @@ public interface RecycleBinAbility<T extends EntityContract> extends SoftDeleteA
     /** Executes recycle-bin reads with the same criteria, sorting and paging shape as a standard query. */
     default PageResult<T> pageRecycleBin(Criteria criteria, PageRequest pageRequest, Sort... sorts) {
         PageRequest effectivePage = pageRequest == null ? PageRequest.of(1, 20) : pageRequest;
-        return withRecycleBinScope(PlatformAction.RECYCLE_BIN_QUERY.executionPolicy(),
-                criteria, scoped -> getDao().pageQuery(
-                        recycleBinReadCriteria(scoped), effectivePage, sorts));
+        PageResult<T> page = withRecycleBinScope(PlatformAction.RECYCLE_BIN_QUERY.executionPolicy(),
+                criteria, scoped -> getDao().pageQuery(recycleBinReadCriteria(scoped), effectivePage, sorts));
+        if (this instanceof FieldProtectionAbility<?> protectedAbility) {
+            @SuppressWarnings("unchecked") FieldProtectionAbility<T> typed = (FieldProtectionAbility<T>) protectedAbility;
+            page.getRecords().forEach(typed::restoreProtectedFieldsFromStorage);
+        }
+        return page;
     }
 
     /** Applies the single data-range fork used by both entity and projected recycle-bin queries. */
@@ -112,30 +117,20 @@ public interface RecycleBinAbility<T extends EntityContract> extends SoftDeleteA
      * purge coordinator owns source-tree validation, ordering and audit entries.
      */
     default int purge(String id) {
-        return PlatformAbilityDispatcher.inMutationTransaction(() -> purgeInTransaction(id));
+        return purge(id, null);
     }
 
-    private int purgeInTransaction(String id) {
-        if (id == null || id.isBlank()) {
-            return 0;
-        }
+    default int purge(String id, Integer expectedVersion) {
+        if (id == null || id.isBlank()) return 0;
         if (!isRecycleBinPurgeEnabled()) {
             throw new UnsupportedOperationException("Recycle-bin purge is not enabled for " + getModuleAlias());
         }
-        T entity = selectIgnoreSoftDelete(id);
-        PlatformAbilityDispatcher.requireMutationContext(this, entity);
-        beforeRecycleBinPurge(id);
-        if (entity == null || !Boolean.TRUE.equals(entity.getDeleted())) {
-            return 0;
-        }
-        int purged = getDao().deleteByIdAndVersion(id, entity.getVersion());
-        if (purged <= 0) {
-            throw new OptimisticLockException("record version conflict: " + id);
-        }
+        return RetainedRecordPurgeSupport.purge(this, id, expectedVersion, () -> beforeRecycleBinPurge(id));
+    }
+
+    @Override
+    default void afterRetainedRecordPurge(String id, T entity, int purged) {
         afterRecycleBinPurge(id, entity, purged);
-        afterChanged(entity);
-        CacheInvalidationSupport.clearAfterChanged(this, entity);
-        return purged;
     }
 
     /** Defaults to deny: irreversible deletion requires an explicit business decision. */

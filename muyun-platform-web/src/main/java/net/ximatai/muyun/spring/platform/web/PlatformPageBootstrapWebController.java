@@ -18,6 +18,7 @@ import java.util.Set;
 /**
  * Delivers one permission-scoped page entry for either a static or dynamic module.
  */
+@DynamicRuntimeRead
 @RestController
 @RequestMapping("/platform.menu")
 public class PlatformPageBootstrapWebController {

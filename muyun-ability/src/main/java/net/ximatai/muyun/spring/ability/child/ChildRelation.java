@@ -127,6 +127,21 @@ public final class ChildRelation<C extends EntityContract, P extends EntityContr
         return java.util.Collections.unmodifiableMap(grouped);
     }
 
+    /** Proves current ownership from the same foreign-key declaration used by aggregate writes. */
+    public boolean ownsRetainedChild(String parentId, EntityContract child) {
+        if (parentId == null || child == null) return false;
+        if (extractParentId != null) {
+            @SuppressWarnings("unchecked")
+            C typedChild = (C) child;
+            return parentId.equals(extractParentId.apply(typedChild));
+        }
+        // Manually assembled relations without an inverse reader retain their exact scoped query contract.
+        return selectDeletedChildren(parentId).stream().anyMatch(current ->
+                java.util.Objects.equals(current.getId(), child.getId())
+                        && java.util.Objects.equals(current.getVersion(), child.getVersion())
+                        && java.util.Objects.equals(current.getTenantId(), child.getTenantId()));
+    }
+
     public List<C> selectDeletedChildren(String parentId) {
         return childAbility.selectDeletedChildRows(Criteria.of().eq(childForeignKeyField, parentId));
     }
@@ -136,6 +151,7 @@ public final class ChildRelation<C extends EntityContract, P extends EntityContr
         if (children == null || children.isEmpty()) {
             return;
         }
+        childAbility.lockParentMutation(parentId);
         synchronizeBeforeWrite(parent, children, List.of());
         validateIncomingChildren(parentId, children, List.of());
         for (C child : children) {
@@ -149,10 +165,16 @@ public final class ChildRelation<C extends EntityContract, P extends EntityContr
         if (children == null) {
             return;
         }
+        childAbility.lockParentMutation(parentId);
         List<C> existing = selectChildren(parentId);
         synchronizeBeforeWrite(parent, children, existing);
         validateIncomingChildren(parentId, children, existing);
         List<String> remainingIds = new ArrayList<>(existing.stream().map(EntityContract::getId).toList());
+        Set<String> incomingIds = children.stream().map(EntityContract::getId)
+                .filter(java.util.Objects::nonNull).collect(java.util.stream.Collectors.toSet());
+        // Remove absent rows before additions so constraints can be transferred within this transaction.
+        deleteChildren(remainingIds.stream().filter(id -> !incomingIds.contains(id)).toList());
+        remainingIds.retainAll(incomingIds);
         for (C child : childAbility.orderForReplacement(children, existing)) {
             setParentId.accept(child, parentId);
             if (child.getId() == null || child.getId().isBlank()) {
@@ -167,14 +189,15 @@ public final class ChildRelation<C extends EntityContract, P extends EntityContr
                 childAbility.insert(child);
             }
         }
-        deleteChildren(remainingIds);
     }
 
     public void clearChildren(String parentId) {
+        childAbility.lockParentMutation(parentId);
         deleteChildren(selectChildren(parentId).stream().map(EntityContract::getId).toList());
     }
 
     public void clearChildren(String parentId, DeletionContext deletionContext, DeletionNode deletionNode) {
+        childAbility.lockParentMutation(parentId);
         deleteChildren(selectChildren(parentId).stream().map(EntityContract::getId).toList(), deletionContext, deletionNode);
     }
 

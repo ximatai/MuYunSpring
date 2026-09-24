@@ -217,7 +217,9 @@ class EmployeePositionServiceContractTest {
     private EmployeePositionService service(EmployeePositionDao dao, ActiveTenantVerifier tenantVerifier) {
         EmployeeService employeeService = mock(EmployeeService.class);
         when(employeeService.requireEnabledOrThrow(eq("employee-1"), any())).thenReturn(employee("employee-1", "org-1", "dept-1"));
-        return new EmployeePositionService(dao, tenantVerifier, employeeService);
+        return new EmployeePositionService(dao, tenantVerifier, employeeService) {
+            @Override public void lockParentMutation(String parentId) { }
+        };
     }
 
     private EmployeePosition relation(String employeeId, String organizationId, String departmentId,

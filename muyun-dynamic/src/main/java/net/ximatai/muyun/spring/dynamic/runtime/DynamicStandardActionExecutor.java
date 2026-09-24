@@ -4,20 +4,23 @@ import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.database.core.orm.Sort;
 import net.ximatai.muyun.spring.common.platform.PlatformAction;
+import net.ximatai.muyun.spring.ability.event.RuntimeMutationSource;
+import java.util.Map;
 import net.ximatai.muyun.spring.dynamic.capability.CapabilityModuleRegistry;
 
 final class DynamicStandardActionExecutor {
-    private final DynamicRecordService service;
+    private final DynamicRecordQueryRuntime queries;
+    private final DynamicRecordMutationRuntime mutations;
     private final String moduleAlias;
     private final String entityAlias;
-    private final DynamicEntityOperations operations;
     private final String traceId;
 
-    DynamicStandardActionExecutor(DynamicRecordService service, String moduleAlias, String entityAlias, String traceId) {
-        this.service = service;
+    DynamicStandardActionExecutor(DynamicRecordQueryRuntime queries, DynamicRecordMutationRuntime mutations,
+                                  String moduleAlias, String entityAlias, String traceId) {
+        this.queries = queries;
+        this.mutations = mutations;
         this.moduleAlias = moduleAlias;
         this.entityAlias = entityAlias;
-        this.operations = service.entity(moduleAlias, entityAlias);
         this.traceId = traceId;
     }
 
@@ -30,24 +33,23 @@ final class DynamicStandardActionExecutor {
             throw new IllegalArgumentException("请通过标准权限管理入口执行该动作：" + actionCode);
         if (capabilityAction.filter(DynamicCapabilityActionRuntimeAdapter::supports).isPresent()) {
             int count = DynamicCapabilityActionRuntimeAdapter.execute(capabilityAction.orElseThrow(), action,
-                    service, moduleAlias, entityAlias, request, traceId);
+                    mutations, moduleAlias, entityAlias, request, traceId);
             return action == PlatformAction.SORT ? DynamicActionResultBody.refreshed() : countResult(count);
         }
         return switch (action) {
             case CREATE -> DynamicActionResultBody.createdRecordId(
-                    service.createFromAction(moduleAlias, entityAlias, requireRecord(request, actionCode), traceId));
-            case VIEW -> DynamicActionResultBody.of(operations.select(requireRecordId(request, actionCode)));
-            case UPDATE -> countResult(service.updateFromAction(moduleAlias, entityAlias, requireRecord(request, actionCode), traceId));
-            case DELETE -> countResult(service.deleteFromAction(moduleAlias, entityAlias, requireRecordId(request, actionCode), traceId));
-            case BATCH_DELETE -> countResult(service.deleteBatchFromAction(moduleAlias, entityAlias, requireIds(request, actionCode), traceId));
-            case QUERY -> DynamicActionResultBody.of(operations.page(criteria(request), requirePageRequest(request, actionCode), sorts(request)));
+                    mutations.create(moduleAlias, entityAlias, requireRecord(request, actionCode), RuntimeMutationSource.ACTION, traceId, Map.of()));
+            case VIEW -> DynamicActionResultBody.of(queries.select(moduleAlias, entityAlias, requireRecordId(request, actionCode)));
+            case UPDATE -> countResult(mutations.update(moduleAlias, entityAlias, requireRecord(request, actionCode), RuntimeMutationSource.ACTION, traceId, Map.of()));
+            case DELETE -> countResult(mutations.delete(moduleAlias, entityAlias, requireRecordId(request, actionCode), null, RuntimeMutationSource.ACTION, traceId));
+            case BATCH_DELETE -> countResult(mutations.deleteBatch(moduleAlias, entityAlias, requireIds(request, actionCode), RuntimeMutationSource.ACTION, traceId));
+            case QUERY -> DynamicActionResultBody.of(queries.page(moduleAlias, entityAlias, criteria(request), requirePageRequest(request, actionCode), sorts(request)));
             case MENU, TREE, REFERENCE, IMPORT, EXPORT,
                     RECYCLE_BIN_QUERY, RECYCLE_BIN_RESTORE, RECYCLE_BIN_PURGE -> throw new IllegalArgumentException(
                     "standard action is only exposed through web endpoint: " + actionCode);
             default -> throw new IllegalStateException("registered capability action was not dispatched: " + actionCode);
         };
     }
-
 
     private DynamicActionResultBody countResult(int count) {
         return DynamicActionResultBody.changedCount(count);

@@ -71,7 +71,7 @@ class MetadataModelDeletionServiceTest {
         schemaMutation.verify(schemaFacts).lockExistingTableForSchemaMutation("public", "education_exam");
         schemaMutation.verify(schemaFacts).countPhysicalRecords(eq("education.exam"), eq("exam"), any(Criteria.class));
         schemaMutation.verify(schema).dropNow(metadataRecord);
-        verify(refresh).deactivateModulesNow(List.of("education.exam"));
+        verify(refresh).scheduleModules(List.of("education.exam"));
     }
 
     @Test
@@ -132,6 +132,6 @@ class MetadataModelDeletionServiceTest {
         schemaMutation.verify(schemaFacts).lockExistingTableForSchemaMutation("public", "education_exam");
         schemaMutation.verify(schemaFacts).countPhysicalRecords(eq("education.exam"), eq("exam"), any(Criteria.class));
         schemaMutation.verify(schema).ensureNow("metadata-1", previous);
-        verify(refresh).activateModulesNow(List.of("education.exam"));
+        verify(refresh).scheduleModules(List.of("education.exam"));
     }
 }

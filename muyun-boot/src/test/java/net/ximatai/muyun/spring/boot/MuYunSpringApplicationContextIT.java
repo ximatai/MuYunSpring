@@ -1160,6 +1160,208 @@ class MuYunSpringApplicationContextIT {
     }
 
     @Test
+    void committedDynamicConfigurationHasQueryableActivationAndVersionBoundRetry() {
+        String suffix = Long.toUnsignedString(System.nanoTime(), 36);
+        String application = "actdyn" + suffix, module = application + ".record";
+        installDynamicReferenceTarget(application, module, "target");
+        String token = issueSuperAdminSessionToken();
+        try {
+            HttpHeaders headers = bearerHeaders(token);
+            String path = "/platform.module/" + module + "/runtime/activation";
+            ResponseEntity<JsonNode> status = restTemplate.exchange(path, HttpMethod.GET, new HttpEntity<>(headers), JsonNode.class);
+            assertThat(status.getStatusCode()).withFailMessage("activation status: %s", status.getBody()).isEqualTo(HttpStatus.OK);
+            int revision = status.getBody().path("desiredRevision").asInt();
+            assertThat(revision).isPositive();
+            assertThat(status.getBody().path("status").asText()).isEqualTo("ACTIVE");
+            assertThat(status.getBody().path("installedRevision").asInt()).isEqualTo(revision);
+            ResponseEntity<JsonNode> stale = restTemplate.exchange(path + "/retry?expectedRevision=" + (revision - 1),
+                    HttpMethod.POST, new HttpEntity<>(headers), JsonNode.class);
+            assertThat(stale.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+            ResponseEntity<JsonNode> retried = restTemplate.exchange(path + "/retry?expectedRevision=" + revision,
+                    HttpMethod.POST, new HttpEntity<>(headers), JsonNode.class);
+            assertThat(retried.getStatusCode()).withFailMessage("activation retry: %s", retried.getBody()).isEqualTo(HttpStatus.OK);
+            // Simulate an incompatible persisted page after an upgrade: entity compilation succeeds, page compilation fails.
+            Map<String, Object> pageRevision = jdbcTemplate.queryForMap("""
+                    select r.id, r.ui_tree_json from platform_presentation_revision r
+                    join platform_presentation_variant v on v.id = r.variant_id
+                    join platform_page_definition p on p.id = v.page_id
+                    where p.module_alias = ? and r.status = 'published'
+                    """, module);
+            jdbcTemplate.update("update platform_presentation_revision set ui_tree_json = ? where id = ?",
+                    "{invalid-page}", pageRevision.get("id"));
+            var plans = applicationContext.getBean(net.ximatai.muyun.spring.platform.web.ModuleExecutionPlanCatalog.class);
+            try {
+                ResponseEntity<JsonNode> failed = restTemplate.exchange(path + "/retry?expectedRevision=" + revision,
+                        HttpMethod.POST, new HttpEntity<>(headers), JsonNode.class);
+                assertThat(failed.getStatusCode()).isEqualTo(HttpStatus.OK);
+                ResponseEntity<JsonNode> failedStatus = restTemplate.exchange(path, HttpMethod.GET, new HttpEntity<>(headers), JsonNode.class);
+                assertThat(failedStatus.getBody().path("status").asText()).withFailMessage("failed activation: %s", failed.getBody()).isEqualTo("FAILED");
+                assertThat(plans.find(module)).isEmpty();
+                assertThatThrownBy(() -> dynamicRecordService.mainEntity(module).newRecord()).hasMessageContaining("unknown module alias");
+            } finally {
+                jdbcTemplate.update("update platform_presentation_revision set ui_tree_json = ? where id = ?",
+                        pageRevision.get("ui_tree_json"), pageRevision.get("id"));
+            }
+            restTemplate.exchange(path + "/retry?expectedRevision=" + revision, HttpMethod.POST, new HttpEntity<>(headers), JsonNode.class);
+            assertThat(plans.find(module)).isPresent();
+            assertThat(dynamicRecordService.mainEntity(module).newRecord()).isNotNull();
+            String tenant = insertActiveTenant("activation_" + suffix), user = "actuser_" + suffix;
+            insertUser(tenant, user, user);
+            jdbcTemplate.update("update iam_user set password_status = 'NORMAL' where id = ?", user);
+            HttpHeaders denied = bearerHeaders(issueActiveSessionToken(tenant, user, "activation-denied"));
+            assertThat(restTemplate.exchange(path + "/retry?expectedRevision=" + revision, HttpMethod.POST,
+                    new HttpEntity<>(denied), JsonNode.class).getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        } finally { userSessionService.logout(token); }
+    }
+
+    @Test
+    void dynamicAggregateRecycleBinRestoresActualCascadeChildrenFromTheSameDeletion() {
+        String suffix = Long.toUnsignedString(System.nanoTime(), 36);
+        String application = "aggdyn" + suffix, module = application + ".record";
+        String tenant = insertActiveTenant("aggregate_" + suffix), user = "agguser_" + suffix;
+        installDynamicReferenceTarget(application, module, "target", true);
+        openTenantApplication(tenant, application);
+        insertUser(tenant, user, user);
+        jdbcTemplate.update("update iam_user set password_status = 'NORMAL' where id = ?", user);
+        ModuleMetadataRelation child;
+        try (var ignored = TenantContext.system("configure aggregate deletion fixture")) {
+            child = moduleMetadataRelationService.list(Criteria.of().eq("moduleAlias", module)
+                    .eq("relationRole", RelationRole.CHILD), ALL).getFirst();
+            var fields = applicationContext.getBean(net.ximatai.muyun.spring.platform.metadata.MetadataFieldService.class);
+            var foreignKey = fields.list(Criteria.of().eq("metadataId", child.getMetadataId())
+                    .eq("fieldName", child.getForeignKey()), ALL).getFirst();
+            var config = new net.ximatai.muyun.spring.platform.metadata.MetadataFieldReferenceConfig();
+            config.setMetadataFieldId(foreignKey.getId());
+            config.setRelationId(child.getId());
+            config.setTargetMetadataId(child.getParentMetadataId());
+            config.setTargetUnavailablePolicy(net.ximatai.muyun.spring.ability.reference.ReferenceTargetUnavailablePolicy.CASCADE_DELETE);
+            applicationContext.getBean(net.ximatai.muyun.spring.platform.metadata.MetadataFieldReferenceConfigService.class).insert(config);
+        }
+        String root = insertDynamicReferenceTarget(module, "target", tenant, user, "Aggregate root");
+        String childId, operation;
+        try (var actor = CurrentUserContext.use(CurrentUser.systemUser("fixture", "Fixture"));
+             var ignored = TenantContext.use(tenant)) {
+            var line = dynamicRecordService.newRecord(module, "line").setValue(child.getForeignKey(), root);
+            childId = dynamicRecordService.entity(module, "line").create(line);
+            dynamicRecordService.mainEntity(module).delete(root);
+            operation = recycleBinFacade.list(dynamicRecordService.mainEntity(module), ALL).getFirst().sourceDeleteOperationId();
+        }
+        assertThat(jdbcTemplate.queryForObject("select deleted from " + application + "_line where id = ?", Boolean.class, childId)).isTrue();
+        grantTenantScopedEmploymentAction(tenant, user, suffix, module, PlatformAction.RECYCLE_BIN_QUERY, DataScopePolicy.OWNER);
+        try (var ignored = TenantContext.use(tenant)) {
+            roleService.grantAction("rv_act_role_" + suffix, module, PlatformAction.RECYCLE_BIN_RESTORE.code());
+        }
+        HttpHeaders headers = bearerHeaders(issueActiveSessionToken(tenant, user, "aggregate"));
+        ResponseEntity<JsonNode> restored = restTemplate.exchange("/" + module + "/recycle-bin/" + operation + "/restore",
+                HttpMethod.POST, new HttpEntity<>(headers), JsonNode.class);
+        assertThat(restored.getStatusCode()).withFailMessage("aggregate restore: %s", restored.getBody()).isEqualTo(HttpStatus.OK);
+        assertThat(jdbcTemplate.queryForObject("select deleted from " + application + "_target where id = ?", Boolean.class, root)).isFalse();
+        assertThat(jdbcTemplate.queryForObject("select deleted from " + application + "_line where id = ?", Boolean.class, childId))
+                .withFailMessage("aggregate restore: %s", restored.getBody()).isFalse();
+        try (var actor = CurrentUserContext.use(CurrentUser.systemUser("fixture", "Fixture"));
+             var ignored = TenantContext.use(tenant)) {
+            dynamicRecordService.mainEntity(module).delete(root);
+            operation = recycleBinFacade.list(dynamicRecordService.mainEntity(module), ALL).getFirst().sourceDeleteOperationId();
+            String relationCode = dynamicRecordService.relations(module).getFirst().code();
+            assertThat(dynamicRecordService.aggregateChildrenForRecycleBin(module, root, relationCode))
+                    .extracting(net.ximatai.muyun.spring.dynamic.runtime.DynamicRecord::getId).containsExactly(childId);
+            assertThatThrownBy(() -> dynamicRecordService.entity(module, "line").purge(childId))
+                    .isInstanceOf(UnsupportedOperationException.class);
+            roleService.grantAction("rv_act_role_" + suffix, module, PlatformAction.RECYCLE_BIN_PURGE.code());
+        }
+        ResponseEntity<JsonNode> purged = restTemplate.exchange("/" + module + "/recycle-bin/" + operation + "/purge",
+                HttpMethod.POST, new HttpEntity<>(headers), JsonNode.class);
+        assertThat(purged.getStatusCode()).withFailMessage("aggregate purge: %s", purged.getBody()).isEqualTo(HttpStatus.OK);
+        assertThat(jdbcTemplate.queryForObject("select count(*) from " + application + "_target where id = ?", Integer.class, root)).isZero();
+        assertThat(jdbcTemplate.queryForObject("select count(*) from " + application + "_line where id = ?", Integer.class, childId)).isZero();
+    }
+
+    @Test
+    void dynamicRecycleBinMustUsePublishedCapabilitiesRealStorageAndIndependentPermissions() {
+        String suffix = Long.toUnsignedString(System.nanoTime(), 36);
+        String application = "recdyn" + suffix;
+        String module = application + ".record";
+        String tenant = insertActiveTenant("recycle_" + suffix);
+        String otherTenant = insertActiveTenant("recycle_other_" + suffix);
+        installDynamicReferenceTarget(application, module, "target", true);
+        openTenantApplication(tenant, application);
+        String operator = "recycle_user_" + suffix;
+        insertUser(tenant, operator, operator);
+        jdbcTemplate.update("update iam_user set password_status = 'NORMAL' where id = ?", operator);
+        String visible = insertDynamicReferenceTarget(module, "target", tenant, operator, "Retained visible");
+        String hidden = insertDynamicReferenceTarget(module, "target", tenant, "another", "Retained hidden");
+        String outside = insertDynamicReferenceTarget(module, "target", otherTenant, operator, "Retained outside");
+        Map<String, String> operations = new java.util.HashMap<>();
+        try (var actor = CurrentUserContext.use(CurrentUser.systemUser("recycle-fixture", "Fixture"))) {
+            for (String id : List.of(visible, hidden, outside)) {
+                try (var ignored = TenantContext.use(id.equals(outside) ? otherTenant : tenant)) {
+                    dynamicRecordService.mainEntity(module).delete(id);
+                    recycleBinFacade.list(dynamicRecordService.mainEntity(module), ALL)
+                            .forEach(item -> operations.put(item.record().getId(), item.sourceDeleteOperationId()));
+                }
+            }
+        }
+        grantTenantScopedEmploymentAction(tenant, operator, suffix, module,
+                PlatformAction.RECYCLE_BIN_QUERY, DataScopePolicy.OWNER);
+        HttpHeaders headers = bearerHeaders(issueActiveSessionToken(tenant, operator, "recycle"));
+        ResponseEntity<JsonNode> query = restTemplate.exchange("/" + module + "/recycle-bin/query", HttpMethod.POST,
+                new HttpEntity<>(Map.of(), headers), JsonNode.class);
+        assertThat(query.getStatusCode()).withFailMessage("recycle query: %s", query.getBody()).isEqualTo(HttpStatus.OK);
+        assertThat(query.getBody().path("records")).hasSize(1);
+        JsonNode item = query.getBody().path("records").get(0);
+        assertThat(item.path("record").path("id").asText()).isEqualTo(visible);
+        assertThat(item.path("sourceDeleteOperationId").asText()).isEqualTo(operations.get(visible));
+        assertThat(item.path("restorable").asBoolean()).isTrue();
+        try (var ignored = TenantContext.use(tenant)) {
+            roleService.replaceDataGrantActions("rv_data_role_" + suffix, List.of(
+                    new RoleService.DataGrantActionCommand(PlatformAction.RECYCLE_BIN_QUERY.code(), DataScopePolicy.ALL, true)));
+        }
+        ResponseEntity<JsonNode> all = restTemplate.exchange("/" + module + "/recycle-bin/query", HttpMethod.POST,
+                new HttpEntity<>(Map.of(), headers), JsonNode.class);
+        assertThat(all.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(all.getBody().path("records")).hasSize(2);
+        try (var ignored = TenantContext.use(tenant)) {
+            roleService.replaceDataGrantActions("rv_data_role_" + suffix, List.of(
+                    new RoleService.DataGrantActionCommand(PlatformAction.RECYCLE_BIN_QUERY.code(), DataScopePolicy.OWNER, true)));
+        }
+        ResponseEntity<JsonNode> view = restTemplate.exchange("/" + module + "/recycle-bin/view/" + visible,
+                HttpMethod.GET, new HttpEntity<>(headers), JsonNode.class);
+        assertThat(view.getStatusCode()).withFailMessage("recycle view: %s", view.getBody()).isEqualTo(HttpStatus.OK);
+        assertThat(view.getBody().path("values").path("title").asText()).isEqualTo("Retained visible");
+        assertThat(restTemplate.exchange("/" + module + "/recycle-bin/" + operations.get(visible) + "/restore",
+                HttpMethod.POST, new HttpEntity<>(headers), JsonNode.class).getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        try (var ignored = TenantContext.use(tenant)) {
+            roleService.grantAction("rv_act_role_" + suffix, module, PlatformAction.RECYCLE_BIN_RESTORE.code());
+        }
+        for (String inaccessible : List.of(hidden, outside)) {
+            assertThat(restTemplate.exchange("/" + module + "/recycle-bin/" + operations.get(inaccessible) + "/restore",
+                    HttpMethod.POST, new HttpEntity<>(headers), JsonNode.class).getStatusCode().is4xxClientError()).isTrue();
+        }
+        ResponseEntity<JsonNode> restored = restTemplate.exchange("/" + module + "/recycle-bin/" + operations.get(visible) + "/restore",
+                HttpMethod.POST, new HttpEntity<>(headers), JsonNode.class);
+        assertThat(restored.getStatusCode()).withFailMessage("recycle restore: %s", restored.getBody()).isEqualTo(HttpStatus.OK);
+        assertThat(jdbcTemplate.queryForObject("select deleted from " + application + "_target where id = ?", Boolean.class, visible)).isFalse();
+        try (var actor = CurrentUserContext.use(CurrentUser.systemUser("recycle-fixture", "Fixture"));
+             var ignored = TenantContext.use(tenant)) {
+            dynamicRecordService.mainEntity(module).delete(visible);
+            recycleBinFacade.list(dynamicRecordService.mainEntity(module), ALL)
+                    .forEach(row -> operations.put(row.record().getId(), row.sourceDeleteOperationId()));
+        }
+        String purgePath = "/" + module + "/recycle-bin/" + operations.get(visible) + "/purge";
+        assertThat(restTemplate.exchange(purgePath, HttpMethod.POST, new HttpEntity<>(headers), JsonNode.class)
+                .getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        try (var ignored = TenantContext.use(tenant)) {
+            roleService.grantAction("rv_act_role_" + suffix, module, PlatformAction.RECYCLE_BIN_PURGE.code());
+        }
+        ResponseEntity<JsonNode> purged = restTemplate.exchange(purgePath, HttpMethod.POST,
+                new HttpEntity<>(headers), JsonNode.class);
+        assertThat(purged.getStatusCode()).withFailMessage("recycle purge: %s", purged.getBody()).isEqualTo(HttpStatus.OK);
+        assertThat(jdbcTemplate.queryForObject("select count(*) from " + application + "_target where id = ?", Integer.class, visible))
+                .withFailMessage("purge outcome: %s", purged.getBody()).isZero();
+        assertThat(jdbcTemplate.queryForObject("select count(*) from " + application + "_target where deleted = true", Integer.class)).isEqualTo(2);
+    }
+
+    @Test
     void shouldOpenDynamicReferenceDetailWithViewButWithoutMenuPermission() {
         String suffix = Long.toUnsignedString(System.nanoTime(), 36);
         String applicationAlias = "refdyn" + suffix;
@@ -1711,6 +1913,10 @@ class MuYunSpringApplicationContextIT {
     }
 
     private void installDynamicReferenceTarget(String applicationAlias, String moduleAlias, String entityAlias) {
+        installDynamicReferenceTarget(applicationAlias, moduleAlias, entityAlias, false);
+    }
+
+    private void installDynamicReferenceTarget(String applicationAlias, String moduleAlias, String entityAlias, boolean recycleBin) {
         try (CurrentUserContext.Scope user = CurrentUserContext.use(
                 CurrentUser.systemUser("dynamic-reference-fixture", "Dynamic reference fixture"));
              TenantContext.Scope ignored = TenantContext.system("install dynamic reference target fixture")) {
@@ -1734,6 +1940,11 @@ class MuYunSpringApplicationContextIT {
                 ModuleMainMetadataCreationResult main = metadataOrchestrationService.createMainMetadata(moduleAlias,
                         new ModuleMainMetadataCreateCommand(entityAlias, "Dynamic reference target", null,
                                 applicationAlias + "_" + entityAlias, true));
+                if (recycleBin) {
+                    metadataOrchestrationService.createChildMetadata(moduleAlias, main.relation().getId(),
+                            new net.ximatai.muyun.spring.platform.metadata.ModuleChildMetadataCreateCommand(
+                                    "line", "Retained child", null, applicationAlias + "_line"));
+                }
                 MetadataField title = new MetadataField();
                 title.setFieldName("title");
                 title.setColumnName("title");
@@ -1745,7 +1956,7 @@ class MuYunSpringApplicationContextIT {
                 title.setTitleField(Boolean.TRUE);
                 title.setEnabled(Boolean.TRUE);
                 MetadataRelationChangeSetPreviewCommand proposal = new MetadataRelationChangeSetPreviewCommand(
-                        main.metadata().getVersion(), Map.of(), List.of(new MetadataFieldChangeSetDraft(
+                        main.metadata().getVersion(), recycleBin ? Map.of(net.ximatai.muyun.spring.common.platform.EntityCapability.RECYCLE_BIN, true) : Map.of(), List.of(new MetadataFieldChangeSetDraft(
                                 MetadataFieldChangeSetDraft.Operation.ADD, null, null, title)));
                 MetadataRelationChangeSetPreview preview = metadataChangeSetPreviewService.preview(moduleAlias,
                         main.relation().getId(), proposal);

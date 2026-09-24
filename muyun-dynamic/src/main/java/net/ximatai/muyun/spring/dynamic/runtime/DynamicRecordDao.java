@@ -119,7 +119,13 @@ public class DynamicRecordDao implements BaseDao<DynamicRecord, String> {
 
     @Override
     public int deleteByIdAndCondition(String id, Map<String, Object> conditions) {
-        throw new UnsupportedOperationException("dynamic record delete must go through DynamicEntityService");
+        if (id == null || id.isBlank() || conditions == null || conditions.get("version") == null) {
+            throw new IllegalArgumentException("dynamic purge requires record id and expected version");
+        }
+        Map<String, Object> where = new LinkedHashMap<>(toConditionColumnMap(conditions));
+        where.put(StandardEntitySchema.ID_COLUMN, id);
+        where.put(StandardEntitySchema.DELETED_COLUMN, Boolean.TRUE);
+        return tableGateway.deleteWhere(where);
     }
 
     public boolean existsById(String id) {

@@ -2,7 +2,6 @@ package net.ximatai.muyun.spring.ability;
 
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
-import net.ximatai.muyun.spring.ability.reference.ReferenceDependencyRegistry;
 import net.ximatai.muyun.spring.common.model.contract.EntityContract;
 import net.ximatai.muyun.spring.common.schema.StandardEntitySchema;
 import net.ximatai.muyun.spring.common.tenant.TenantContext;
@@ -19,8 +18,7 @@ public interface CacheAbility<T extends EntityContract> extends CrudAbility<T> {
     }
 
     default T copyForCache(T entity) {
-        return EntityRecordCopies.shallowCopy(entity,
-                "cache copy requires a no-arg constructor or custom copyForCache");
+        return EntityRecordCopies.forCache(entity);
     }
 
     @SuppressWarnings("unchecked")
@@ -39,11 +37,11 @@ public interface CacheAbility<T extends EntityContract> extends CrudAbility<T> {
             }
             T copied = copyForCache(cached);
             PlatformAbilityDispatcher.afterSelect(this, copied);
-            ReferenceDependencyRegistry.refresh(this, copied);
             afterSelect(copied);
             return copied;
         }
 
+        long generation = CacheRegistry.generation();
         T loaded = getDao().query(activeCriteria(Criteria.of().eq(StandardEntitySchema.ID_FIELD, id)), new PageRequest(0, 1))
                 .stream()
                 .findFirst()
@@ -51,10 +49,9 @@ public interface CacheAbility<T extends EntityContract> extends CrudAbility<T> {
         if (!isCacheVisible(loaded)) {
             return null;
         }
-        CacheRegistry.putItem(cacheNamespace(), id, copyForCache(loaded));
+        CacheRegistry.putItem(this, id, copyForCache(loaded), generation);
         T copied = copyForCache(loaded);
         PlatformAbilityDispatcher.afterSelect(this, copied);
-        ReferenceDependencyRegistry.refresh(this, copied);
         afterSelect(copied);
         return copied;
     }
@@ -66,15 +63,15 @@ public interface CacheAbility<T extends EntityContract> extends CrudAbility<T> {
         }
         List<T> cached = CacheRegistry.allCache(allCacheNamespace());
         if (cached == null) {
+            long generation = CacheRegistry.generation();
             cached = getDao().query(activeCriteria(Criteria.of()), PageRequests.all()).stream()
                     .map(this::copyForCache)
                     .toList();
-            CacheRegistry.putAllCache(allCacheNamespace(), cached);
+            CacheRegistry.putAllCache(this, allCacheNamespace(), cached, generation);
         }
         return cached.stream()
                 .map(this::copyForCache)
                 .peek(record -> PlatformAbilityDispatcher.afterSelect(this, record))
-                .peek(record -> ReferenceDependencyRegistry.refresh(this, record))
                 .peek(this::afterSelect)
                 .toList();
     }
@@ -82,7 +79,6 @@ public interface CacheAbility<T extends EntityContract> extends CrudAbility<T> {
     default void clearItemCache(String id) {
         CacheRegistry.removeItem(cacheNamespace(), id);
         clearAllCache();
-        ReferenceDependencyRegistry.removeReferrer(cacheNamespace(), id);
     }
 
     default void clearAllCache() {

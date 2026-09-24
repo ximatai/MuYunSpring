@@ -3,7 +3,6 @@ package net.ximatai.muyun.spring.dynamic.capability;
 import net.ximatai.muyun.spring.ability.PlatformOperationDefinition;
 import net.ximatai.muyun.spring.common.platform.PlatformAction;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicActionExecutionRequest;
-import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecordService;
 
 import java.util.List;
 import java.util.Map;
@@ -38,12 +37,12 @@ public final class EnableCapabilityActionFacet implements CapabilityActionContri
         return Optional.of((execution, action) -> execution.executeEnable(action));
     }
 
-    private int executeDynamic(PlatformAction action, DynamicRecordService service, String moduleAlias,
-                               String entityAlias, DynamicActionExecutionRequest request, String traceId) {
+    private int executeDynamic(PlatformAction action, DynamicCapabilityActionExecution execution,
+                               DynamicActionExecutionRequest request) {
         String recordId = requireRecordId(request, action);
         return switch (action) {
-            case ENABLE -> service.enableFromAction(moduleAlias, entityAlias, recordId, traceId);
-            case DISABLE -> service.disableFromAction(moduleAlias, entityAlias, recordId, traceId);
+            case ENABLE -> execution.enable(recordId);
+            case DISABLE -> execution.disable(recordId);
             default -> throw new IllegalArgumentException("ENABLE runtime handler does not own: " + action.code());
         };
     }

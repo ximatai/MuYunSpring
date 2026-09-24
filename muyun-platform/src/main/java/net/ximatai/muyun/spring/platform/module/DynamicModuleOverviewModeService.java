@@ -190,6 +190,10 @@ public class DynamicModuleOverviewModeService {
                                                            DynamicModuleOverviewModeSaveCommand command,
                                                            Set<EntityCapability> effectiveCapabilities) {
         if (command.capabilitySelections() == null) return effectiveCapabilities;
+        if (Boolean.FALSE.equals(command.capabilitySelections().get(EntityCapability.RECYCLE_BIN))
+                && main.capabilities().contains(EntityCapability.RECYCLE_BIN)) {
+            throw new PlatformException("回收站启用后暂不支持关闭，请保留已有删除记录的恢复入口。");
+        }
         Set<EntityCapability> result = new java.util.LinkedHashSet<>(effectiveCapabilities);
         // JSON object member order is not a dependency order.  Remove dependent contracts first.
         for (EntityCapability capability : List.of(EntityCapability.TREE, EntityCapability.SORT, EntityCapability.ENABLE)) {

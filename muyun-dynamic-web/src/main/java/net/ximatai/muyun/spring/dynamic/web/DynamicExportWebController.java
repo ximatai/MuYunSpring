@@ -1,5 +1,7 @@
 package net.ximatai.muyun.spring.dynamic.web;
 
+import net.ximatai.muyun.spring.platform.web.DynamicRuntimeRead;
+
 import jakarta.servlet.http.HttpServletResponse;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.CriteriaOperator;
@@ -49,6 +51,7 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.function.Supplier;
 
+@DynamicRuntimeRead
 @RestController
 @RequestMapping("/{moduleAlias:[a-z][a-z0-9_]*(?:\\.[a-z][a-z0-9_]*)+}/export")
 public class DynamicExportWebController {

@@ -12,6 +12,10 @@ import net.ximatai.muyun.spring.ability.security.FieldOutputRenderer;
 import net.ximatai.muyun.spring.ability.security.FieldProtectionAbility;
 import net.ximatai.muyun.spring.ability.security.FieldSigner;
 import net.ximatai.muyun.spring.common.model.capability.TitledCapable;
+import net.ximatai.muyun.spring.common.model.capability.SortCapable;
+import net.ximatai.muyun.spring.ability.child.ChildAbility;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import net.ximatai.muyun.spring.common.model.standard.StandardEntity;
 import net.ximatai.muyun.spring.common.platform.PlatformAction;
 import net.ximatai.muyun.spring.common.security.EncryptedField;
@@ -61,6 +65,28 @@ class FieldProtectionAbilityTest {
         assertThat(selected.getPhoneSignature()).isEqualTo("sig:phone:13812345678");
         assertThat(service.maskProtectedValue("phone", selected.getPhone(), FieldOutputContext.VIEW))
                 .isEqualTo("138****5678");
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void childReadsRestoreStorageProtectionWithoutInvokingBusinessReadHooks(boolean sorted) {
+        CopyingProtectedRecordDao dao = new CopyingProtectedRecordDao();
+        ProtectedChildService service = sorted ? new SortedProtectedChildService(dao) : new ProtectedChildService(dao);
+        ProtectedDemoRecord record = new ProtectedDemoRecord();
+        record.setPhone("13812345678");
+        String id = service.insert(record);
+
+        assertThat(service.selectChildRows(Criteria.of()).getFirst().getPhone()).isEqualTo("13812345678");
+        assertThat(service.readHooks).isZero();
+        dao.stored(id).setPhoneSignature("tampered");
+        assertThatThrownBy(() -> service.selectChildRows(Criteria.of())).isInstanceOf(FieldProtectionException.class);
+        dao.stored(id).setPhoneSignature("sig:phone:13812345678");
+        service.delete(id);
+        assertThat(service.selectDeletedChildRows(Criteria.of()).getFirst().getPhone()).isEqualTo("13812345678");
+        assertThat(service.readHooks).isZero();
+        assertThat(dao.stored(id).getPhone()).isEqualTo("enc:13812345678");
+        dao.stored(id).setPhoneSignature("tampered");
+        assertThatThrownBy(() -> service.selectDeletedChildRows(Criteria.of())).isInstanceOf(FieldProtectionException.class);
     }
 
     @Test
@@ -284,6 +310,16 @@ class FieldProtectionAbilityTest {
         assertThat(dao.stored(id).getPhoneSignature()).isEqualTo("tampered");
     }
 
+    private static class ProtectedChildService extends ProtectedRecordService implements ChildAbility<ProtectedDemoRecord> {
+        int readHooks;
+        ProtectedChildService(BaseDao<ProtectedDemoRecord, String> dao) { super(dao); }
+        @Override public void afterSelect(ProtectedDemoRecord record) { readHooks++; }
+    }
+
+    private static final class SortedProtectedChildService extends ProtectedChildService implements SortAbility<ProtectedDemoRecord> {
+        SortedProtectedChildService(BaseDao<ProtectedDemoRecord, String> dao) { super(dao); }
+    }
+
     private static final class CommandProtectedRecordService extends ProtectedRecordService {
         CommandProtectedRecordService(BaseDao<ProtectedDemoRecord, String> dao) { super(dao); }
 
@@ -336,7 +372,8 @@ class FieldProtectionAbilityTest {
 
     @Getter
     @Setter
-    private static final class ProtectedDemoRecord extends StandardEntity implements TitledCapable {
+    private static final class ProtectedDemoRecord extends StandardEntity implements TitledCapable, SortCapable {
+        private Integer sortOrder;
         @MaskedField(FieldMaskingPolicy.MIDDLE)
         private String title;
         @EncryptedField
@@ -434,6 +471,7 @@ class FieldProtectionAbilityTest {
             copy.setCreatedAt(source.getCreatedAt());
             copy.setUpdatedBy(source.getUpdatedBy());
             copy.setUpdatedAt(source.getUpdatedAt());
+            copy.setSortOrder(source.getSortOrder());
             copy.setTitle(source.getTitle());
             copy.setPhone(source.getPhone());
             copy.setPhoneSignature(source.getPhoneSignature());

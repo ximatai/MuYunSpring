@@ -31,6 +31,13 @@ public interface SortAbility<T extends SortCapable> extends CrudAbility<T> {
      * the entity's declared sort partition.
      */
     default void reorder(Criteria additionalScope, List<String> orderedIds) {
+        PlatformAbilityDispatcher.inMutationTransaction(() -> {
+            reorderInTransaction(additionalScope, orderedIds);
+            return null;
+        });
+    }
+
+    private void reorderInTransaction(Criteria additionalScope, List<String> orderedIds) {
         if (orderedIds == null || orderedIds.isEmpty()) {
             throw new PlatformException("Cannot reorder empty records");
         }
@@ -78,7 +85,7 @@ public interface SortAbility<T extends SortCapable> extends CrudAbility<T> {
     }
 
     default List<T> sortedList(Criteria criteria) {
-        return getDao().query(activeCriteria(criteria), PageRequests.all(), Sort.asc(PlatformAbilityFields.SORT_FIELD));
+        return list(criteria, PageRequests.all(), Sort.asc(PlatformAbilityFields.SORT_FIELD));
     }
 
     /**
@@ -163,6 +170,13 @@ public interface SortAbility<T extends SortCapable> extends CrudAbility<T> {
     }
 
     private void moveRelative(String id, String targetId, boolean before) {
+        PlatformAbilityDispatcher.inMutationTransaction(() -> {
+            moveRelativeInTransaction(id, targetId, before);
+            return null;
+        });
+    }
+
+    private void moveRelativeInTransaction(String id, String targetId, boolean before) {
         T moving = select(id);
         T target = select(targetId);
         if (moving == null || target == null) {

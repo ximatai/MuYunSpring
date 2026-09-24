@@ -25,6 +25,11 @@ import java.util.Collection;
 import java.util.List;
 
 public interface CrudAbility<T extends EntityContract> {
+    /** Internal scope binding must identify the same service through both its proxy and lifecycle callbacks. */
+    default MutationServiceIdentity mutationServiceIdentity() {
+        return new MutationServiceIdentity(this);
+    }
+
     BaseDao<T, String> getDao();
 
     String getModuleAlias();
@@ -44,6 +49,7 @@ public interface CrudAbility<T extends EntityContract> {
         beforePrepareInsert(entity);
         EntityLifecycle.prepareInsert(entity, Instant.now());
         prepareAbilityDefaults(entity);
+        PlatformAbilityDispatcher.lockMutationParents(this, null, entity);
         beforeInsert(entity);
         PlatformManagedMutationGuard.beforeInsert(this, entity);
         prepareSortDefault(entity);
@@ -125,6 +131,7 @@ public interface CrudAbility<T extends EntityContract> {
                 entity.setDeletedBy(null);
             }
             normalizeBeforeMutation(entity);
+            PlatformAbilityDispatcher.lockMutationParents(this, existing, entity);
             Integer expectedVersion = expectedVersionForUpdate(entity, existing);
             EntityLifecycle.prepareUpdate(entity, Instant.now(), EntityLifecycle.nextVersion(expectedVersion));
             T platformManagedExisting = existing == null && this instanceof PlatformManagedProtectionAbility<?>
@@ -186,6 +193,7 @@ public interface CrudAbility<T extends EntityContract> {
             return MutationScopeSupport.withTenantScope(mutationScope, () -> {
             T entity = selectActiveRaw(id);
             PlatformAbilityDispatcher.requireMutationContext(this, entity);
+            PlatformAbilityDispatcher.lockMutationParents(this, entity, null);
             beforeDelete(id, context);
             if (entity == null) {
                 return 0;
@@ -407,6 +415,7 @@ public interface CrudAbility<T extends EntityContract> {
             return null;
         }
         return TenantContext.currentTenantId().isPresent() || TenantContext.isSystem() || this instanceof SoftDeleteAbility<?>
+                || (this instanceof net.ximatai.muyun.spring.ability.child.ChildAbility<?> child && child.mutationParentKey() != null)
                 ? selectActiveRaw(entity.getId())
                 : null;
     }

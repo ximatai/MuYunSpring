@@ -1,5 +1,7 @@
 package net.ximatai.muyun.spring.dynamic.web;
 
+import net.ximatai.muyun.spring.platform.web.DynamicRuntimeRead;
+
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
 import net.ximatai.muyun.spring.common.platform.ActionEndpoint;
@@ -23,6 +25,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
 
+@DynamicRuntimeRead
 @RestController
 @RequestMapping("/{moduleAlias:[a-z][a-z0-9_]*(?:\\.[a-z][a-z0-9_]*)+}")
 public class DynamicModuleTaskWebController {

@@ -6,8 +6,8 @@ import net.ximatai.muyun.spring.ability.action.ActionMessageReporter;
 import net.ximatai.muyun.spring.ability.action.BusinessExceptions;
 import net.ximatai.muyun.spring.ability.action.DataChangeRecorder;
 import net.ximatai.muyun.spring.ability.TenantActiveScopedService;
-import net.ximatai.muyun.spring.common.identity.CurrentUser;
-import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
+import net.ximatai.muyun.spring.ability.RelatedRecordDeletion;
+import net.ximatai.muyun.spring.platform.deletion.RelatedRecordDeletionService;
 import net.ximatai.muyun.spring.common.tenant.ActiveTenantVerifier;
 import net.ximatai.muyun.spring.common.util.Preconditions;
 import net.ximatai.muyun.spring.iam.user.UserAccount;
@@ -22,12 +22,13 @@ import java.util.List;
 @Service
 public class EmployeeAccountService extends TenantActiveScopedService<EmployeeAccount> {
     public static final String MODULE_ALIAS = "iam.employee_account";
-    private static final String ACCOUNT_REMOVAL_OPERATOR_ID = "employee-account-removal";
 
     private final EmployeeService employeeService;
     private final UserAccountService userAccountService;
     private final ActionMessageReporter actionMessageReporter;
     private final DataChangeRecorder dataChangeRecorder;
+    @Autowired
+    private RelatedRecordDeletionService relatedRecordDeletion;
 
     public EmployeeAccountService(EmployeeAccountDao employeeAccountDao,
                                   ActiveTenantVerifier activeTenantVerifier,
@@ -104,27 +105,25 @@ public class EmployeeAccountService extends TenantActiveScopedService<EmployeeAc
     @Transactional
     public int removeAccount(String employeeId) {
         String validEmployeeId = Preconditions.requireText(employeeId, "employeeId");
-        EmployeeAccount binding = accountOfEmployee(validEmployeeId);
-        if (binding == null) {
-            return 0;
+        if (relatedRecordDeletion == null) {
+            throw new IllegalStateException("account removal requires action authorization services");
         }
-        String userId = binding.getUserId();
-        int deleted = delete(binding);
-        if (deleted > 0 && userAccountService.select(userId) == null) {
+        var relation = new RelatedRecordDeletion<>(employeeService, this, EmployeeAccount::getEmployeeId,
+                userAccountService, EmployeeAccount::getUserId);
+        var outcome = relatedRecordDeletion.delete(relation, validEmployeeId, "employeeAccounts", () -> {
+            EmployeeAccount binding = accountOfEmployee(validEmployeeId);
+            return binding == null ? null : binding.getId();
+        });
+        if (outcome.binding() == null) return 0;
+        String userId = outcome.targetId();
+        if (outcome.targetDeleted() == 0) {
             userAccountService.cleanupDeletedUserReferences(userId);
-        } else if (deleted > 0) {
-            try (CurrentUserContext.Scope ignored = CurrentUserContext.use(CurrentUser.systemUser(
-                    ACCOUNT_REMOVAL_OPERATOR_ID, "Employee Account Removal"))) {
-                userAccountService.delete(userId);
-            }
         }
-        if (deleted > 0) {
-            actionMessageReporter.success("iam.employee-account.removed", "账户已移除");
-            dataChangeRecorder.deleted(EmployeeAccountService.class, binding.getId());
-            dataChangeRecorder.deleted(UserAccountService.class, userId);
-            dataChangeRecorder.updated(EmployeeService.class, validEmployeeId);
-        }
-        return deleted;
+        actionMessageReporter.success("iam.employee-account.removed", "账户已移除");
+        dataChangeRecorder.deleted(EmployeeAccountService.class, outcome.binding().getId());
+        dataChangeRecorder.deleted(UserAccountService.class, userId);
+        dataChangeRecorder.updated(EmployeeService.class, validEmployeeId);
+        return 1;
     }
 
     public String employeeIdOfUser(String userId) {

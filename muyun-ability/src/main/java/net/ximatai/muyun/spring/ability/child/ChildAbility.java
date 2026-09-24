@@ -2,10 +2,13 @@ package net.ximatai.muyun.spring.ability.child;
 
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.ability.CrudAbility;
+import net.ximatai.muyun.spring.ability.PlatformAbilityRuntime;
+import net.ximatai.muyun.spring.common.util.Preconditions;
 import net.ximatai.muyun.spring.ability.DataScopeAbility;
 import net.ximatai.muyun.spring.ability.PageRequests;
 import net.ximatai.muyun.spring.ability.SoftDeleteAbility;
 import net.ximatai.muyun.spring.ability.SortAbility;
+import net.ximatai.muyun.spring.ability.security.FieldProtectionAbility;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.spring.common.model.contract.EntityContract;
 
@@ -14,6 +17,19 @@ import java.util.function.BiConsumer;
 import java.util.function.Function;
 
 public interface ChildAbility<C extends EntityContract> extends CrudAbility<C> {
+    /** Opts into parent-scoped serialization for cross-child invariants. Return a persisted parent-ID reader. */
+    default Function<C, String> mutationParentKey() {
+        return null;
+    }
+
+    /** Custom commands acquire this same lock before reading their child collection. Standard writes do so automatically. */
+    default void lockParentMutation(String parentId) {
+        if (mutationParentKey() != null) {
+            PlatformAbilityRuntime.lockMutationPartition(
+                    getModuleAlias() + ":children", Preconditions.requireText(parentId, "parentId"));
+        }
+    }
+
     /**
      * Lets a domain child relation establish a deterministic write sequence when several rows
      * together express one business invariant. The default preserves the submitted row order.
@@ -78,11 +94,9 @@ public interface ChildAbility<C extends EntityContract> extends CrudAbility<C> {
 
     default List<C> selectChildRows(Criteria criteria) {
         requireGenericChildReadWithoutIndependentDataScope();
-        List<C> records = this instanceof SortAbility<?> sortAbility
+        return this instanceof SortAbility<?> sortAbility
                 ? sortedChildRows(sortAbility, criteria)
-                : getDao().query(activeCriteria(criteria), PageRequests.all());
-        populateDeclaredReferenceLoads(records);
-        return records;
+                : list(criteria, PageRequests.all());
     }
 
     /** Complete retained children for a parent-scoped, platform-declared recycle-bin view. */
@@ -94,6 +108,10 @@ public interface ChildAbility<C extends EntityContract> extends CrudAbility<C> {
         @SuppressWarnings("unchecked")
         SoftDeleteAbility<C> typed = (SoftDeleteAbility<C>) softDeleteAbility;
         List<C> records = getDao().query(typed.deletedCriteria(criteria), PageRequests.all());
+        if (this instanceof FieldProtectionAbility<?> protectedAbility) {
+            @SuppressWarnings("unchecked") FieldProtectionAbility<C> protection = (FieldProtectionAbility<C>) protectedAbility;
+            records.forEach(protection::restoreProtectedFieldsFromStorage);
+        }
         populateDeclaredReferenceLoads(records);
         return records;
     }

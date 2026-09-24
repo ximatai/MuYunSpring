@@ -37,6 +37,10 @@ public class SoftDeleteRestoreCoordinator {
 
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public RestoreReport restore(String sourceOperationId) {
+        return recovery.withSourceOperation(sourceOperationId, () -> restoreSource(sourceOperationId));
+    }
+
+    private RestoreReport restoreSource(String sourceOperationId) {
         DeletionOperation sourceOperation = deletionLogService.operation(sourceOperationId);
         if (sourceOperation.getOperationType() != DeletionOperationType.DELETE
                 || sourceOperation.getStatus() != DeletionOperationStatus.SUCCEEDED) {
@@ -100,7 +104,7 @@ public class SoftDeleteRestoreCoordinator {
         }
         final int restored;
         try {
-            restored = recovery.restore(ability, entry.getResourceRecordId(), restoreEntryId);
+            restored = recovery.restore(ability, entry, restoreEntryId);
         } catch (RuntimeException exception) {
             failedBranch(entry, children, results, restoreOperationId, restoreEntryIds, restoreEntryId,
                     exception.getMessage());

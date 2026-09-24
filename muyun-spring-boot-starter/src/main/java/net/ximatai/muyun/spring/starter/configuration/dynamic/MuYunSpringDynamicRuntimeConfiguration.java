@@ -1,7 +1,6 @@
 package net.ximatai.muyun.spring.starter.configuration.dynamic;
 
 import net.ximatai.muyun.spring.starter.configuration.database.MuYunSpringDatabaseValueConversionConfiguration;
-import net.ximatai.muyun.spring.starter.configuration.runtime.MuYunSpringPlatformTimeProperties;
 import net.ximatai.muyun.spring.starter.configuration.runtime.MuYunSpringRuntimeConfiguration;
 
 import net.ximatai.muyun.database.core.IDatabaseOperations;
@@ -18,9 +17,6 @@ import net.ximatai.muyun.spring.common.platform.DataScopeCriteriaService;
 import net.ximatai.muyun.spring.common.option.OptionSourceRegistry;
 import net.ximatai.muyun.spring.common.runtime.PlatformRuntimeModeProvider;
 import net.ximatai.muyun.spring.common.schema.PlatformSchemaMigrationPolicy;
-import net.ximatai.muyun.spring.common.time.BusinessCalendarService;
-import net.ximatai.muyun.spring.common.time.BusinessTimeZoneResolver;
-import net.ximatai.muyun.spring.common.time.NaturalBusinessCalendarService;
 import net.ximatai.muyun.spring.common.time.PlatformTimeService;
 import net.ximatai.muyun.spring.dynamic.metadata.ModuleDefinitionValidator;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicActionExecutor;
@@ -43,7 +39,6 @@ import net.ximatai.muyun.spring.platform.dictionary.DictionaryItemService;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.beans.factory.ObjectProvider;
-import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Import;
@@ -51,14 +46,12 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.Clock;
-import java.time.ZoneId;
 
 /**
  * 动态运行时装配：把动态元数据、记录运行时、Schema、动作、时间和事件接入
  * 与静态业务相同的数据库、权限、字段保护和生命周期基础能力。
  */
 @Configuration(proxyBeanMethods = false)
-@EnableConfigurationProperties(MuYunSpringPlatformTimeProperties.class)
 @Import({MuYunSpringDatabaseValueConversionConfiguration.class, MuYunSpringRuntimeConfiguration.class})
 public class MuYunSpringDynamicRuntimeConfiguration {
     @Bean
@@ -74,43 +67,6 @@ public class MuYunSpringDynamicRuntimeConfiguration {
     /** 未接入任何字段校验器时保留空实现，保证动态运行时可按能力组合启动。 */
     DynamicFieldValueValidator dynamicFieldValueValidator() {
         return DynamicFieldValueValidator.NONE;
-    }
-
-    @Bean
-    @ConditionalOnMissingBean
-    /** 允许宿主注入测试时钟或业务时钟；默认保持 JVM 本地时钟。 */
-    Clock clock() {
-        return Clock.systemDefaultZone();
-    }
-
-    @Bean
-    @ConditionalOnMissingBean
-    /** 统一业务时区解析，供动态记录日期语义和工作日计算复用。 */
-    PlatformTimeService platformTimeService(ObjectProvider<Clock> clockProvider,
-                                            ObjectProvider<BusinessTimeZoneResolver> zoneResolvers,
-                                            MuYunSpringPlatformTimeProperties timeProperties) {
-        Clock clock = clockProvider == null ? null : clockProvider.getIfAvailable();
-        ZoneId defaultZoneId = defaultZoneId(timeProperties);
-        return new PlatformTimeService(
-                clock,
-                defaultZoneId,
-                zoneResolvers == null ? null : zoneResolvers.orderedStream().toList()
-        );
-    }
-
-    private ZoneId defaultZoneId(MuYunSpringPlatformTimeProperties timeProperties) {
-        String configured = timeProperties == null ? null : timeProperties.getDefaultZoneId();
-        if (configured == null || configured.isBlank()) {
-            return null;
-        }
-        return PlatformTimeService.requireIanaZoneId(configured);
-    }
-
-    @Bean
-    @ConditionalOnMissingBean
-    /** 默认日历服务只解释时间语义；节假日等业务规则可由领域覆盖。 */
-    BusinessCalendarService businessCalendarService(PlatformTimeService platformTimeService) {
-        return new NaturalBusinessCalendarService(platformTimeService);
     }
 
     @Bean

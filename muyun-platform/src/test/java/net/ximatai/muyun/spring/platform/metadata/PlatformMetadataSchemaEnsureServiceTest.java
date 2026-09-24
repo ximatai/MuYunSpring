@@ -135,7 +135,7 @@ class PlatformMetadataSchemaEnsureServiceTest {
     }
 
     @Test
-    void shouldRunSchemaEnsureAfterCommitWhenTransactionIsActive() {
+    void shouldEnsureSchemaBeforeCommitSoFailureCanAbortPublication() {
         clearTransactionState();
         try {
             TestContext context = testContext();
@@ -149,9 +149,12 @@ class PlatformMetadataSchemaEnsureServiceTest {
 
             ensureService.ensure(metadataId);
 
+            ensureService.ensure(metadataId);
             assertThat(schemaService.ensuredEntities).isEmpty();
-            TransactionSynchronizationManager.getSynchronizations()
-                    .forEach(TransactionSynchronization::afterCommit);
+            assertThat(TransactionSynchronizationManager.getSynchronizations()).hasSize(1);
+            TransactionSynchronizationManager.getSynchronizations().forEach(sync -> sync.beforeCommit(false));
+            assertThat(schemaService.ensuredEntities).hasSize(1);
+            TransactionSynchronizationManager.getSynchronizations().forEach(TransactionSynchronization::afterCommit);
             assertThat(schemaService.ensuredEntities).hasSize(1);
         } finally {
             clearTransactionState();

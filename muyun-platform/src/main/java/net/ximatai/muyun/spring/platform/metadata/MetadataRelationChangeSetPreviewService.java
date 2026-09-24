@@ -139,6 +139,7 @@ public class MetadataRelationChangeSetPreviewService {
             return proposed;
         }
         boolean changed = false;
+        boolean structureChanged = false;
         for (Map.Entry<EntityCapability, Boolean> entry : selections.entrySet()) {
             EntityCapability capability = entry.getKey();
             if (!MetadataCapabilityCatalog.isMutableInFirstRelease(capability)) {
@@ -153,6 +154,7 @@ public class MetadataRelationChangeSetPreviewService {
             if (enabled && !current.contains(capability)) {
                 proposed.add(capability);
                 changed = true;
+                structureChanged |= !MetadataCapabilityCatalog.plan(Set.of(capability)).metadataFields().isEmpty();
             }
         }
         if (Boolean.TRUE.equals(selections.get(EntityCapability.TREE))
@@ -160,7 +162,9 @@ public class MetadataRelationChangeSetPreviewService {
             error(errors, "CAPABILITY_DEPENDENCY", "TREE", "树能力依赖排序能力，不能同时关闭排序。");
         }
         if (proposed.contains(EntityCapability.TREE)) proposed.add(EntityCapability.SORT);
-        if (changed && metadataHasChildUsage(context.metadata().getId())) {
+        boolean usedAsChild = relationService.count(Criteria.of().eq("metadataId", context.metadata().getId())
+                .eq("relationRole", RelationRole.CHILD)) > 0;
+        if ((changed && usedAsChild) || (structureChanged && metadataHasChildUsage(context.metadata().getId()))) {
             error(errors, "CHILD_RELATION_BLOCK", "capabilities", "元数据参与子关系时，不能变更结构能力。");
         }
         return proposed;

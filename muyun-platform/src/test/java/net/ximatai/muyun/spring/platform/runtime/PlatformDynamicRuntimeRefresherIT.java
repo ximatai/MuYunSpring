@@ -172,7 +172,8 @@ class PlatformDynamicRuntimeRefresherIT extends PlatformPostgresIntegrationTest 
         PlatformDynamicRuntimeRefresher refresher = new PlatformDynamicRuntimeRefresher(
                 compiler, new DynamicModuleRuntimeRefresher(schemaService, runtime));
 
-        refresher.refresh("crm.customer");
+        refresher.prepareSchema("crm.customer", null);
+        refresher.activateNow("crm.customer");
         DynamicRecordService runtimeService = new DynamicRecordService(runtime);
         DynamicEntityOperations customer = runtimeService.entity("crm.customer", "customer");
         DynamicRecord contact = runtime.newRecord("crm.customer", "customer_contact")
@@ -191,7 +192,7 @@ class PlatformDynamicRuntimeRefresherIT extends PlatformPostgresIntegrationTest 
 
         DynamicRecord selected = customer.select(id);
 
-        assertThatThrownBy(() -> runtime.validateReferenceTargetDeletion(
+        assertThatThrownBy(() -> runtime.validateReferenceTargetUnavailable(
                 ReferenceTarget.of("crm.customer", "customer"), id))
                 .isInstanceOf(net.ximatai.muyun.spring.common.exception.PlatformException.class)
                 .hasMessageContaining("该记录仍被其他记录引用");
@@ -263,9 +264,11 @@ class PlatformDynamicRuntimeRefresherIT extends PlatformPostgresIntegrationTest 
                 .fieldValueValidator(new DictionaryFieldValueValidator(services.itemService)).build();
         var restoredRefresher = new PlatformDynamicRuntimeRefresher(compiler,
                 new DynamicModuleRuntimeRefresher(schemaService, restarted));
+        var restoredActivation = org.mockito.Mockito.mock(DynamicRuntimeActivationService.class);
+        org.mockito.Mockito.doAnswer(invocation -> restoredRefresher.activateNow(invocation.getArgument(0)))
+                .when(restoredActivation).restoreAtStartup(org.mockito.ArgumentMatchers.anyString());
         new DynamicModuleRuntimeStartupActivationTask(services.moduleService, services.relationService,
-                new PlatformDynamicRuntimeRefreshService(restoredRefresher),
-                org.mockito.Mockito.mock(net.ximatai.muyun.spring.platform.metadata.ModuleMetadataOrchestrationService.class)).run();
+                restoredActivation).run();
         assertThat(restarted.registry().findModule("crm.unconfigured")).isEmpty();
         DynamicRecord restored = new DynamicRecordService(restarted).mainEntity("crm.customer").select(selected.getId());
         assertThat(restored.getValue("title")).isEqualTo("客户A");

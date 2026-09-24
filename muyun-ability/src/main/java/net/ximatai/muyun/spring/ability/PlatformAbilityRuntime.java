@@ -10,11 +10,17 @@ import net.ximatai.muyun.spring.ability.reference.ReferenceLoadResolver;
 import net.ximatai.muyun.spring.ability.reference.ReferenceReadObserver;
 
 import net.ximatai.muyun.spring.common.platform.DataScopeCriteriaService;
+import net.ximatai.muyun.spring.common.time.PlatformTimeService;
 
 import java.util.Objects;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
 
 public final class PlatformAbilityRuntime {
+    /** Infrastructure bridge for declared domain partitions; requires a host transaction lock implementation. */
+    public static void lockMutationPartition(String scope, String key) {
+        PlatformAbilityDispatcher.lockMutation(scope, key);
+    }
     private static volatile Supplier<DataScopeCriteriaService>
             dataScopeCriteriaService;
 
@@ -33,6 +39,20 @@ public final class PlatformAbilityRuntime {
             throw new IllegalStateException("DataScopeAbility requires an installed DataScopeCriteriaService");
         }
         return Objects.requireNonNull(service.get(), "DataScopeCriteriaService");
+    }
+
+    private static final AtomicReference<Supplier<PlatformTimeService>> TIME_SERVICE = new AtomicReference<>();
+
+    /** Installs the host's time policy for standard queries and standalone capability adapters. */
+    public static AutoCloseable configureTimeService(Supplier<PlatformTimeService> service) {
+        TIME_SERVICE.set(Objects.requireNonNull(service, "timeService"));
+        return () -> TIME_SERVICE.compareAndSet(service, null);
+    }
+
+    /** Without a host, callers use the standalone JVM policy or explicitly supply their own service. */
+    public static PlatformTimeService timeService() {
+        Supplier<PlatformTimeService> service = TIME_SERVICE.get();
+        return service == null ? new PlatformTimeService() : Objects.requireNonNull(service.get(), "timeService");
     }
 
     private PlatformAbilityRuntime() {

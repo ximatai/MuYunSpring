@@ -1,5 +1,6 @@
 package net.ximatai.muyun.spring.dynamic.runtime;
 
+import net.ximatai.muyun.spring.ability.PlatformAbilityRuntime;
 import net.ximatai.muyun.database.core.IDatabaseOperations;
 import net.ximatai.muyun.database.core.orm.DatabaseValueConverter;
 import net.ximatai.muyun.spring.ability.CacheRegistry;
@@ -32,6 +33,7 @@ public class DynamicRecordRuntime implements AutoCloseable {
 
     private final IDatabaseOperations<?> operations;
     private final DynamicModuleRegistry registry;
+    private final DynamicRuntimePublication publication = new DynamicRuntimePublication();
     private volatile Map<ReferenceTarget, List<DynamicInboundReference>> inboundReferences = Map.of();
     private final String cacheNamespacePrefix;
     private final DynamicFieldValueValidator fieldValueValidator;
@@ -81,7 +83,7 @@ public class DynamicRecordRuntime implements AutoCloseable {
         private DynamicActionTransactionOperator actionTransactionOperator = DynamicActionTransactionOperator.none();
         private FieldCryptoProvider fieldCryptoProvider = FieldCryptoProvider.UNAVAILABLE;
         private FieldSigner fieldSigner = FieldSigner.UNAVAILABLE;
-        private PlatformTimeService timeService = new PlatformTimeService();
+        private PlatformTimeService timeService = PlatformAbilityRuntime.timeService();
         private DatabaseValueConverter valueConverter = DatabaseValueConverter.DEFAULT;
         private DynamicOptionLoadPopulator optionLoadPopulator = DynamicOptionLoadPopulator.NONE;
 
@@ -128,7 +130,7 @@ public class DynamicRecordRuntime implements AutoCloseable {
         }
 
         public Builder timeService(PlatformTimeService timeService) {
-            this.timeService = timeService == null ? new PlatformTimeService() : timeService;
+            this.timeService = java.util.Objects.requireNonNull(timeService, "timeService");
             return this;
         }
 
@@ -147,16 +149,32 @@ public class DynamicRecordRuntime implements AutoCloseable {
         }
     }
 
+    public DynamicRuntimePublication publication() { return publication; }
+
     public DynamicRecordRuntime register(ModuleDefinition module) {
-        registry.register(module);
-        rebuildInboundReferenceIndex();
-        return this;
+        try (var ignored = publication.publication()) {
+            registry.register(module);
+            rebuildInboundReferenceIndex();
+            return this;
+        }
     }
 
     public DynamicRecordRuntime refresh(ModuleDefinition module) {
-        registry.refresh(module);
-        rebuildInboundReferenceIndex();
-        return this;
+        try (var ignored = publication.publication()) {
+            registry.refresh(module);
+            rebuildInboundReferenceIndex();
+            clearCache();
+            return this;
+        }
+    }
+
+    /** Removes one module's projections, cache entries and inbound reference contributions. */
+    public void deactivate(String moduleAlias) {
+        try (var ignored = publication.publication()) {
+            registry.unregister(moduleAlias).ifPresent(module -> module.entities().forEach(entity ->
+                    CacheRegistry.clearNamespace(cacheNamespacePrefix + "::" + moduleAlias + "." + entity.alias())));
+            rebuildInboundReferenceIndex();
+        }
     }
 
     public void requireNotRegistered(String moduleAlias) {
@@ -226,15 +244,24 @@ public class DynamicRecordRuntime implements AutoCloseable {
     }
 
     public DynamicEntityService entityService(String moduleAlias, String entityAlias, DynamicRecordLifecycle lifecycle) {
-        ModuleDefinition module = registry.requireModule(moduleAlias);
-        EntityDefinition entity = registry.requireEntity(moduleAlias, entityAlias);
+        // Snapshot lookup never waits for publication: schema governance may already hold database locks.
+        // Hosts pin a complete execution outside its transaction, rather than taking a read lock here.
+        return entityService(registry.snapshot(), moduleAlias, entityAlias, lifecycle);
+    }
+
+    private DynamicEntityService entityService(Map<String, ModuleDefinition> definitions, String moduleAlias,
+                                                String entityAlias, DynamicRecordLifecycle lifecycle) {
+        ModuleDefinition module = definitions.get(moduleAlias);
+        if (module == null) throw new ModuleDefinitionException("unknown module alias: " + moduleAlias);
+        EntityDefinition entity = module.entities().stream().filter(value -> value.alias().equals(entityAlias))
+                .findFirst().orElseThrow(() -> new ModuleDefinitionException("unknown entity: " + moduleAlias + "." + entityAlias));
         return new DynamicEntityService(
                 new DynamicRecordDao(operations, entity, valueConverter),
                 moduleAlias,
                 lifecycle,
                 module,
-                childEntityAliasCode -> entityService(moduleAlias, childEntityAliasCode),
-                target -> entityService(target.moduleAlias(), target.entityAlias()),
+                childEntityAliasCode -> entityService(definitions, moduleAlias, childEntityAliasCode, DynamicRecordLifecycle.NONE),
+                target -> entityService(definitions, target.moduleAlias(), target.entityAlias(), DynamicRecordLifecycle.NONE),
                 cacheNamespacePrefix,
                 fieldValueValidator,
                 fieldCryptoProvider,
@@ -261,16 +288,6 @@ public class DynamicRecordRuntime implements AutoCloseable {
                         target, targetId, inbound.moduleAlias(), reference.sourceField(), count);
             }
         }
-    }
-
-    /**
-     * Compatibility entry point for the delete guard.
-     *
-     * <p>Reference integrity applies whenever the target becomes unavailable, including
-     * soft deletion and disabling.</p>
-     */
-    public void validateReferenceTargetDeletion(ReferenceTarget target, String targetId) {
-        validateReferenceTargetUnavailable(target, targetId);
     }
 
     /**

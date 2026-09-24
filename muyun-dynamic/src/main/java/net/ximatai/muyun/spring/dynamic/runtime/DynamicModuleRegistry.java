@@ -15,6 +15,7 @@ import java.util.Optional;
 public class DynamicModuleRegistry {
     private final ModuleDefinitionValidator validator;
     private final Map<String, ModuleDefinition> modules = new LinkedHashMap<>();
+    private Map<String, ModuleDefinition> snapshot = Map.of();
     private final Map<String, Long> revisions = new LinkedHashMap<>();
 
     public DynamicModuleRegistry() {
@@ -25,58 +26,64 @@ public class DynamicModuleRegistry {
         this.validator = Objects.requireNonNull(validator, "validator must not be null");
     }
 
-    public void register(ModuleDefinition module) {
+    public synchronized void register(ModuleDefinition module) {
         validator.validate(module);
         if (modules.containsKey(module.moduleAlias())) {
             throw new ModuleDefinitionException("duplicate module alias: " + module.moduleAlias());
         }
         modules.put(module.moduleAlias(), module);
+        snapshot = Map.copyOf(modules);
         revisions.merge(module.moduleAlias(), 1L, Long::sum);
     }
 
-    public void refresh(ModuleDefinition module) {
+    public synchronized void refresh(ModuleDefinition module) {
         validator.validate(module);
         modules.put(module.moduleAlias(), module);
+        snapshot = Map.copyOf(modules);
         revisions.merge(module.moduleAlias(), 1L, Long::sum);
     }
 
     /** Removes a runtime definition when its source module no longer has a MAIN entity. */
-    public Optional<ModuleDefinition> unregister(String moduleAlias) {
-        revisions.remove(moduleAlias);
-        return Optional.ofNullable(modules.remove(moduleAlias));
+    public synchronized Optional<ModuleDefinition> unregister(String moduleAlias) {
+        ModuleDefinition removed = modules.remove(moduleAlias);
+        snapshot = Map.copyOf(modules);
+        return Optional.ofNullable(removed);
     }
 
-    public Optional<ModuleDefinition> findModule(String moduleAlias) {
+    public synchronized Optional<ModuleDefinition> findModule(String moduleAlias) {
         return Optional.ofNullable(modules.get(moduleAlias));
     }
 
-    public boolean containsModule(String moduleAlias) {
+    public synchronized boolean containsModule(String moduleAlias) {
         return modules.containsKey(moduleAlias);
     }
 
     /** Monotonic per-module runtime revision, advanced only after a runtime install or refresh. */
-    public long revision(String moduleAlias) {
+    public synchronized long revision(String moduleAlias) {
         requireModule(moduleAlias);
         return revisions.getOrDefault(moduleAlias, 0L);
     }
 
-    public ModuleDefinition requireModule(String moduleAlias) {
+    public synchronized ModuleDefinition requireModule(String moduleAlias) {
         return findModule(moduleAlias)
                 .orElseThrow(() -> new ModuleDefinitionException("unknown module alias: " + moduleAlias));
     }
 
-    public EntityDefinition requireEntity(String moduleAlias, String entityAlias) {
+    public synchronized EntityDefinition requireEntity(String moduleAlias, String entityAlias) {
         return requireModule(moduleAlias).entities().stream()
                 .filter(entity -> entity.alias().equals(entityAlias))
                 .findFirst()
                 .orElseThrow(() -> new ModuleDefinitionException("unknown entity: " + moduleAlias + "." + entityAlias));
     }
 
-    public List<ModuleDefinition> modules() {
+    /** Immutable definitions for one operation, including its nested references and children. */
+    synchronized Map<String, ModuleDefinition> snapshot() { return snapshot; }
+
+    public synchronized List<ModuleDefinition> modules() {
         return List.copyOf(modules.values());
     }
 
-    public DynamicModuleDescriptor describe(String moduleAlias) {
+    public synchronized DynamicModuleDescriptor describe(String moduleAlias) {
         return DynamicModuleDescriptor.from(requireModule(moduleAlias));
     }
 }

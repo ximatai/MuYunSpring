@@ -1,6 +1,6 @@
 package net.ximatai.muyun.spring.platform.web;
 
-import net.ximatai.muyun.spring.ability.TransactionScopeSupport;
+import net.ximatai.muyun.spring.platform.runtime.DynamicRuntimeActivationService;
 import net.ximatai.muyun.spring.platform.ui.PublishedPageExecutionCoordinator;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.ObjectProvider;
@@ -14,20 +14,19 @@ import java.util.function.Supplier;
 public class DynamicPublishedPageExecutionCoordinator implements PublishedPageExecutionCoordinator {
     private final Supplier<PlatformModuleRuntimeContextService> runtimeContextService;
     private final ModuleExecutionPlanCatalog executionPlanCatalog;
+    private final Supplier<DynamicRuntimeActivationService> activation;
 
     @Autowired
     public DynamicPublishedPageExecutionCoordinator(ObjectProvider<PlatformModuleRuntimeContextService> runtimeContextService,
-                                                    ModuleExecutionPlanCatalog executionPlanCatalog) {
-        this(() -> runtimeContextService.getObject(), executionPlanCatalog);
+                                                    ModuleExecutionPlanCatalog executionPlanCatalog,
+                                                    ObjectProvider<DynamicRuntimeActivationService> activation) {
+        this(runtimeContextService::getObject, executionPlanCatalog, activation::getObject);
     }
 
-    DynamicPublishedPageExecutionCoordinator(PlatformModuleRuntimeContextService runtimeContextService,
-                                             ModuleExecutionPlanCatalog executionPlanCatalog) {
-        this(() -> runtimeContextService, executionPlanCatalog);
-    }
-
-    private DynamicPublishedPageExecutionCoordinator(Supplier<PlatformModuleRuntimeContextService> runtimeContextService,
-                                                      ModuleExecutionPlanCatalog executionPlanCatalog) {
+    DynamicPublishedPageExecutionCoordinator(Supplier<PlatformModuleRuntimeContextService> runtimeContextService,
+                                             ModuleExecutionPlanCatalog executionPlanCatalog,
+                                             Supplier<DynamicRuntimeActivationService> activation) {
+        this.activation = activation;
         this.runtimeContextService = runtimeContextService;
         this.executionPlanCatalog = executionPlanCatalog;
     }
@@ -39,7 +38,18 @@ public class DynamicPublishedPageExecutionCoordinator implements PublishedPageEx
         // incomplete page. Any compilation failure intentionally escapes and rolls back publish.
         Optional<ModuleExecutionPlan> candidate = runtimeContextService.get().dynamicExecutionPlan(moduleAlias);
         candidate.ifPresent(executionPlanCatalog::validateCandidate);
-        TransactionScopeSupport.afterCommitOrNow(
-                () -> executionPlanCatalog.replaceDynamicPlan(moduleAlias, candidate));
+        activation.get().schedule(moduleAlias);
+    }
+
+    @Override
+    public void installCurrentPublishedConfiguration(String moduleAlias) {
+        Optional<ModuleExecutionPlan> candidate = runtimeContextService.get().dynamicExecutionPlan(moduleAlias);
+        candidate.ifPresent(executionPlanCatalog::validateCandidate);
+        executionPlanCatalog.replaceDynamicPlan(moduleAlias, candidate);
+    }
+
+    @Override
+    public void removeInstalledConfiguration(String moduleAlias) {
+        executionPlanCatalog.replaceDynamicPlan(moduleAlias, Optional.empty());
     }
 }

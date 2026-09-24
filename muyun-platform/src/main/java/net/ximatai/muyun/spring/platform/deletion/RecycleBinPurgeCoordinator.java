@@ -1,6 +1,5 @@
 package net.ximatai.muyun.spring.platform.deletion;
 
-import net.ximatai.muyun.spring.ability.RecycleBinAbility;
 import net.ximatai.muyun.spring.ability.SoftDeleteAbility;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
@@ -32,6 +31,10 @@ public class RecycleBinPurgeCoordinator {
 
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public PurgeReport purge(String sourceOperationId) {
+        return recovery.withSourceOperation(sourceOperationId, () -> purgeSource(sourceOperationId));
+    }
+
+    private PurgeReport purgeSource(String sourceOperationId) {
         DeletionOperation source = deletionLogService.operation(sourceOperationId);
         if (source.getOperationType() != DeletionOperationType.DELETE
                 || source.getStatus() != DeletionOperationStatus.SUCCEEDED) {
@@ -46,14 +49,14 @@ public class RecycleBinPurgeCoordinator {
         Map<String, String> purgeEntryIds = new HashMap<>();
         List<PurgeEntryResult> results = new ArrayList<>();
         sourceEntries.stream().filter(entry -> entry.getParentEntryId() == null)
-                .forEach(entry -> purgeEntry(entry, children, purgeOperationId,
+                .forEach(entry -> purgeEntry(entry, null, children, purgeOperationId,
                         sourceOperationId, purgeEntryIds, results));
         results.sort(Comparator.comparingInt(result -> sourceEntryOrder(sourceEntries, result.sourceEntryId())));
         deletionLogService.completeOperation(purgeOperationId, status(results), message(results));
         return new PurgeReport(sourceOperationId, purgeOperationId, results);
     }
 
-    private boolean purgeEntry(DeletionEntry source, Map<String, List<DeletionEntry>> children,
+    private boolean purgeEntry(DeletionEntry source, DeletionEntry parent, Map<String, List<DeletionEntry>> children,
                                String operationId, String sourceOperationId,
                                Map<String, String> purgeEntryIds, List<PurgeEntryResult> results) {
         String entryId = startEntry(source, operationId, purgeEntryIds);
@@ -67,7 +70,7 @@ public class RecycleBinPurgeCoordinator {
                 latest, source, DeletionOperationType.PURGE, sourceOperationId)) {
             boolean descendantsComplete = true;
             for (DeletionEntry child : children.getOrDefault(source.getId(), List.of())) {
-                descendantsComplete &= purgeEntry(child, children, operationId, sourceOperationId,
+                descendantsComplete &= purgeEntry(child, source, children, operationId, sourceOperationId,
                         purgeEntryIds, results);
             }
             if (!descendantsComplete) {
@@ -85,8 +88,10 @@ public class RecycleBinPurgeCoordinator {
                     "resource lifecycle changed after the source deletion");
         }
         SoftDeleteAbility<?> resolved;
+        DeletionRecoveryResourceResolver resolver;
         try {
-            resolved = resolve(source);
+            resolver = resolve(source);
+            resolved = resolver == null ? null : resolver.resolve(source).orElseThrow();
         } catch (RuntimeException exception) {
             return failed(source, children, operationId, purgeEntryIds, results, entryId, exception.getMessage());
         }
@@ -94,29 +99,24 @@ public class RecycleBinPurgeCoordinator {
             return skip(source, children, operationId, purgeEntryIds, results, entryId,
                     "no deletion recovery resolver for this resource");
         }
-        if (!(resolved instanceof RecycleBinAbility<?> ability)) {
-            return skip(source, children, operationId, purgeEntryIds, results, entryId,
-                    "recycle-bin purge is unavailable for this resource");
-        }
         try {
-            if (!ability.isRecycleBinPurgeEnabled()) {
-                throw new UnsupportedOperationException(
-                        "Recycle-bin purge is not enabled for " + ability.getModuleAlias());
+            if (!recovery.validatePurge(resolved, source, parent, resolver)) {
+                return skip(source, children, operationId, purgeEntryIds, results, entryId,
+                        "recycle-bin purge is unavailable for this resource");
             }
-            ability.beforeRecycleBinPurge(source.getResourceRecordId());
         } catch (RuntimeException exception) {
             return failed(source, children, operationId, purgeEntryIds, results, entryId, exception.getMessage());
         }
         boolean descendantsComplete = true;
         for (DeletionEntry child : children.getOrDefault(source.getId(), List.of())) {
-            descendantsComplete &= purgeEntry(child, children, operationId, sourceOperationId,
+            descendantsComplete &= purgeEntry(child, source, children, operationId, sourceOperationId,
                     purgeEntryIds, results);
         }
         if (!descendantsComplete) {
             return skipCurrent(source, results, entryId, "a descendant resource was not purged");
         }
         try {
-            if (recovery.purge(ability, source.getResourceRecordId(), entryId) <= 0) {
+            if (recovery.purge(resolved, source, parent, resolver, entryId) <= 0) {
                 return skipCurrent(source, results, entryId, "resource is no longer purgeable");
             }
         } catch (RuntimeException exception) {
@@ -164,7 +164,7 @@ public class RecycleBinPurgeCoordinator {
         return false;
     }
 
-    private SoftDeleteAbility<?> resolve(DeletionEntry entry) {
+    private DeletionRecoveryResourceResolver resolve(DeletionEntry entry) {
         List<DeletionRecoveryResourceResolver> matches = resourceResolvers.stream()
                 .filter(resolver -> resolver.supports(entry))
                 .toList();
@@ -173,9 +173,7 @@ public class RecycleBinPurgeCoordinator {
                     + resource(entry) + ": " + matches.stream()
                     .map(resolver -> resolver.getClass().getName()).toList());
         }
-        return matches.isEmpty() ? null : matches.getFirst().resolve(entry).orElseThrow(() ->
-                new IllegalStateException("Deletion recovery resolver claimed but could not resolve "
-                        + resource(entry)));
+        return matches.isEmpty() ? null : matches.getFirst();
     }
 
     private String startEntry(DeletionEntry source, String operationId, Map<String, String> ids) {

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
+import ModuleRuntimeActivationStatus from './ModuleRuntimeActivationStatus.vue';
 import {
   RecordContentSectionHeading,
   RecordDetailPanel,
@@ -26,6 +27,7 @@ type ExperienceProfile = {
 };
 
 const moduleContext = useModuleContext({ moduleAlias: 'platform.module' });
+const activationReloadKey = ref(0);
 const loading = ref(false);
 const saving = ref(false);
 const editing = ref(false);
@@ -49,6 +51,11 @@ const modes: Array<{ mode: ExperienceMode; title: string; description: string }>
     description: '适合记录量较少、以快速选择和轻量维护为主的配置对象。',
   },
 ];
+const recycleBinCapability: CapabilityFact = {
+  code: 'RECYCLE_BIN',
+  title: '回收站',
+  description: '查询和恢复已删除记录；彻底清理需要独立授权。启用后暂不支持关闭。',
+};
 const fallbackCapabilities: Record<ExperienceMode, Record<CapabilityGroup, CapabilityFact[]>> = {
   TREE_CARD: {
     required: [
@@ -62,7 +69,10 @@ const fallbackCapabilities: Record<ExperienceMode, Record<CapabilityGroup, Capab
         description: '适用于需要按组织、角色或负责人控制数据可见范围的业务。',
       },
     ],
-    optional: [{ code: 'ENABLE', title: '启停', description: '允许按记录控制可用状态。' }],
+    optional: [
+      { code: 'ENABLE', title: '启停', description: '允许按记录控制可用状态。' },
+      recycleBinCapability,
+    ],
   },
   LIST_CARD: {
     required: [],
@@ -76,6 +86,7 @@ const fallbackCapabilities: Record<ExperienceMode, Record<CapabilityGroup, Capab
     optional: [
       { code: 'SORT', title: '排序', description: '允许维护列表展示顺序。' },
       { code: 'ENABLE', title: '启停', description: '允许按记录控制可用状态。' },
+      recycleBinCapability,
     ],
   },
   MICRO_LIST_CARD: {
@@ -87,7 +98,10 @@ const fallbackCapabilities: Record<ExperienceMode, Record<CapabilityGroup, Capab
         description: '适用于需要按组织、角色或负责人控制数据可见范围的业务。',
       },
     ],
-    optional: [{ code: 'ENABLE', title: '启停', description: '允许按记录控制可用状态。' }],
+    optional: [
+      { code: 'ENABLE', title: '启停', description: '允许按记录控制可用状态。' },
+      recycleBinCapability,
+    ],
   },
 };
 const selectedModeDefinition = computed(() => modes.find((item) => item.mode === selectedMode.value)!);
@@ -95,6 +109,7 @@ const selectedCapabilitySet = computed(() => new Set(selectedCapabilities.value)
 const requiredCapabilityCodes = computed(() => [
   ...capabilityGroups.value.required.map((fact) => fact.code),
   ...(profile.value?.publishedRequiredCapabilities ?? []),
+  ...(profile.value?.mainCapabilities.includes('RECYCLE_BIN') ? ['RECYCLE_BIN'] : []),
 ]);
 const requiredCapabilities = computed(() => {
   const modeOwned = new Set(['TREE']);
@@ -188,6 +203,7 @@ async function saveProfile() {
           : {}),
       },
     });
+    activationReloadKey.value++;
     profile.value = normalizeProfile(result, selectedMode.value);
     selectedMode.value = profile.value.mode;
     selectedCapabilities.value = [...profile.value.mainCapabilities];
@@ -308,6 +324,7 @@ function normalizeCapabilities(value: unknown): CapabilityFact[] | undefined {
         >
       </template>
     </template>
+    <ModuleRuntimeActivationStatus :module-alias="moduleAlias" :reload-key="activationReloadKey" />
     <UiSpin v-if="loading" tip="加载业务呈现方式" />
     <template v-else>
       <section class="module-experience-section">

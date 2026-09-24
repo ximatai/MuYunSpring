@@ -19,11 +19,17 @@ final class EntityRecordCopies {
     /** A field command owns its value graph and never submits aggregate child collections. */
     @SuppressWarnings("unchecked")
     static <T> T forFieldMutation(T entity) {
-        return (T) detachedValue(entity, new IdentityHashMap<>());
+        return (T) detachedValue(entity, new IdentityHashMap<>(), "field mutation value requires a no-arg constructor");
     }
 
     @SuppressWarnings("unchecked")
-    private static Object detachedValue(Object value, IdentityHashMap<Object, Object> copies) {
+    static <T> T forCache(T entity) {
+        return (T) detachedValue(entity, new IdentityHashMap<>(),
+                "cache copy requires a no-arg constructor or custom copyForCache");
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Object detachedValue(Object value, IdentityHashMap<Object, Object> copies, String constructorRequirement) {
         if (value == null) return null;
         Class<?> type = value.getClass();
         if (value instanceof Enum<?> || type == String.class || type == Boolean.class || type == Character.class
@@ -41,14 +47,14 @@ final class EntityRecordCopies {
         if (type.isArray()) {
             Object copy = Array.newInstance(type.componentType(), Array.getLength(value));
             copies.put(value, copy);
-            for (int i = 0; i < Array.getLength(value); i++) Array.set(copy, i, detachedValue(Array.get(value, i), copies));
+            for (int i = 0; i < Array.getLength(value); i++) Array.set(copy, i, detachedValue(Array.get(value, i), copies, constructorRequirement));
             return copy;
         }
         if (value instanceof Map<?, ?> map) {
             Map<Object, Object> copy = map instanceof SortedMap<?, ?> sorted
                     ? new TreeMap<>((Comparator<Object>) sorted.comparator()) : new LinkedHashMap<>();
             copies.put(value, copy);
-            map.forEach((key, item) -> copy.put(detachedValue(key, copies), detachedValue(item, copies)));
+            map.forEach((key, item) -> copy.put(detachedValue(key, copies, constructorRequirement), detachedValue(item, copies, constructorRequirement)));
             return copy;
         }
         if (value instanceof Collection<?> collection) {
@@ -57,7 +63,7 @@ final class EntityRecordCopies {
                     : collection instanceof Set<?> ? new LinkedHashSet<>()
                     : collection instanceof Queue<?> ? new LinkedList<>() : new ArrayList<>();
             copies.put(value, copy);
-            collection.forEach(item -> copy.add(detachedValue(item, copies)));
+            collection.forEach(item -> copy.add(detachedValue(item, copies, constructorRequirement)));
             return copy;
         }
         if (type.isRecord()) {
@@ -69,7 +75,7 @@ final class EntityRecordCopies {
                     types[i] = components[i].getType();
                     var accessor = components[i].getAccessor();
                     accessor.setAccessible(true);
-                    values[i] = detachedValue(accessor.invoke(value), copies);
+                    values[i] = detachedValue(accessor.invoke(value), copies, constructorRequirement);
                 }
                 Constructor<?> constructor = type.getDeclaredConstructor(types);
                 constructor.setAccessible(true);
@@ -80,7 +86,7 @@ final class EntityRecordCopies {
                 throw new PlatformException("cannot copy record value: " + type.getName(), e);
             }
         }
-        Object copy = newInstance(value, "field mutation value requires a no-arg constructor");
+        Object copy = newInstance(value, constructorRequirement);
         copies.put(value, copy);
         for (Class<?> owner = type; owner != null && owner != Object.class; owner = owner.getSuperclass()) {
             for (Field field : owner.getDeclaredFields()) {
@@ -90,7 +96,7 @@ final class EntityRecordCopies {
                     // Constructors commonly initialize children to an empty list. Empty means replace,
                     // whereas null means the command did not participate in this relation.
                     field.set(copy, field.isAnnotationPresent(Children.class)
-                            ? null : detachedValue(field.get(value), copies));
+                            ? null : detachedValue(field.get(value), copies, constructorRequirement));
                 } catch (IllegalAccessException e) {
                     throw new PlatformException("cannot copy mutation field: " + field.getName(), e);
                 }

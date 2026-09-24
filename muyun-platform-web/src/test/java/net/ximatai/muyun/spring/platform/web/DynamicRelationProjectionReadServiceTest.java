@@ -38,8 +38,9 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 class DynamicRelationProjectionReadServiceTest {
-    @Test
-    void shouldQueryDynamicUiListThroughUnifiedRelationProjection() {
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.EnumSource(RecordReadVisibility.class)
+    void shouldQueryDynamicUiListThroughUnifiedRelationProjection(RecordReadVisibility visibility) {
         NamedParameterJdbcOperations jdbcOperations = mock(NamedParameterJdbcOperations.class);
         DynamicRelationProjectionReadService service = new DynamicRelationProjectionReadService(
                 new RelationProjectionReadService(
@@ -65,7 +66,7 @@ class DynamicRelationProjectionReadServiceTest {
                 recordService,
                 Set.of("orderNo", "customerId"),
                 Criteria.of(),
-                PageRequest.of(1, 20)
+                PageRequest.of(1, 20), visibility
         ).orElseThrow();
 
         assertThat(page.getTotal()).isEqualTo(1);
@@ -83,7 +84,7 @@ class DynamicRelationProjectionReadServiceTest {
                 .contains("left join \"public\".\"crm_customer\" \"customer_id\"")
                 .contains("\"tenantId\"", "\"version\"")
                 .contains("\"main\".\"customer_id\" as \"customerId\"")
-                .contains("\"deleted\" IS NULL")
+                .contains(visibility == RecordReadVisibility.ACTIVE ? "\"deleted\" IS NULL" : "where \"deleted\" = :")
                 .contains("\"customer_id\".\"title\" as \"customerTitle\"");
     }
 
@@ -209,8 +210,9 @@ class DynamicRelationProjectionReadServiceTest {
         ).fallbackReason()).isEqualTo(ProjectionQueryFallbackReason.PROTECTED_FIELD);
     }
 
-    @Test
-    void shouldApplyDynamicReadScopeBeforeRelationProjectionSqlExecution() {
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.EnumSource(RecordReadVisibility.class)
+    void shouldApplyDynamicReadScopeBeforeRelationProjectionSqlExecution(RecordReadVisibility visibility) {
         NamedParameterJdbcOperations jdbcOperations = mock(NamedParameterJdbcOperations.class);
         DynamicRelationProjectionReadService service = new DynamicRelationProjectionReadService(
                 new RelationProjectionReadService(
@@ -233,7 +235,7 @@ class DynamicRelationProjectionReadServiceTest {
                 scopedDynamicRecordService(),
                 Set.of("orderNo", "customerTitle"),
                 Criteria.of(),
-                PageRequest.of(1, 20)
+                PageRequest.of(1, 20), visibility
         ).orElseThrow();
 
         ArgumentCaptor<String> sqlCaptor = ArgumentCaptor.captor();
@@ -242,8 +244,10 @@ class DynamicRelationProjectionReadServiceTest {
         org.mockito.Mockito.verify(jdbcOperations).queryForList(sqlCaptor.capture(), paramsCaptor.capture());
         assertThat(sqlCaptor.getValue())
                 .contains("\"main\".\"tenant_id\" as \"tenantId\"")
-                .contains("where (\"tenantId\" = :", "\"deleted\" IS NULL");
+                .contains("where (\"tenantId\" = :")
+                .contains(visibility == RecordReadVisibility.ACTIVE ? "\"deleted\" IS NULL" : "AND \"deleted\" = :");
         assertThat(paramsCaptor.getValue()).containsValue("tenant_a");
+        if (visibility == RecordReadVisibility.RETAINED) assertThat(paramsCaptor.getValue()).containsValue(true);
     }
 
     private DynamicRecordService dynamicRecordService() {
@@ -328,7 +332,7 @@ class DynamicRelationProjectionReadServiceTest {
                                 FieldDefinition.string("customerId", "客户").column("customer_id"),
                                 FieldDefinition.string("orderNo", "订单号").column("order_no")
                                         .protection(orderNoProtection)
-                        )
+                        ), Set.of(net.ximatai.muyun.spring.common.platform.EntityCapability.RECYCLE_BIN)
                 )))
                 .relations(List.of())
                 .references(List.of(new EntityReferenceDefinition(

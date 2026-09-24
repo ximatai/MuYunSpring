@@ -150,16 +150,10 @@ public class MetadataModelDeletionService {
     private static final PageRequest ALL = new PageRequest(0, Integer.MAX_VALUE);
 
     private void activateAfterCommit(String moduleAlias) {
-        TransactionScopeSupport.afterCommitOrNow(() -> refreshCoordinator.activateModulesNow(List.of(moduleAlias)));
+        refreshCoordinator.scheduleModules(List.of(moduleAlias));
     }
 
     private void refreshAfterMetadataDelete(String moduleAlias, RelationRole relationRole) {
-        TransactionScopeSupport.afterCommitOrNow(() -> {
-            if (relationRole == RelationRole.MAIN) {
-                refreshCoordinator.deactivateModulesNow(List.of(moduleAlias));
-            } else {
-                refreshCoordinator.activateModulesNow(List.of(moduleAlias));
-            }
-        });
+        refreshCoordinator.scheduleModules(List.of(moduleAlias));
     }
 }

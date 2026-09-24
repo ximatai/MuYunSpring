@@ -86,7 +86,7 @@ OpenAPI 链路以 descriptor 为输入，经来源无关的内部文档模型投
 
 平台业务时间服务的默认时区由 `muyun.platform.time.default-zone-id` 配置，必须是 IANA `ZoneId`，例如 `Asia/Shanghai`。运行态解析顺序是显式上下文时区、业务时区 resolver、平台默认时区；未配置平台默认时区时才回落到 `Clock`/JVM 默认时区。
 
-当前阶段只收口平台默认时区、显式上下文时区和 resolver 扩展点，没有建设完整租户、组织、用户时区主数据模型。Spring 生产路径通过同一个 `PlatformTimeService` bean 承接业务默认时区；当前用户展示时区单独通过 `CurrentUserTimeZoneResolver` 扩展，避免把业务默认时区误当成用户本地展示偏好。测试或非 Spring 手工构造路径不承诺读取 boot 配置，必要时应显式传入平台时间服务。
+当前阶段只收口平台默认时区、显式上下文时区和 resolver 扩展点，没有建设完整租户、组织、用户时区主数据模型。静态和动态 Spring 宿主通过同一个 `PlatformTimeService` bean 承接业务默认时区；标准查询编译器及其静态查询、投影、摘要和 navigator 调用会自动采用宿主时间策略。独立手工构造可显式传入时间服务；没有宿主且未显式指定时采用 JVM 独立运行策略，不读取 boot 配置。当前用户展示时区单独通过 `CurrentUserTimeZoneResolver` 扩展，避免把业务默认时区误当成用户本地展示偏好。
 
 ## 边界说明
 

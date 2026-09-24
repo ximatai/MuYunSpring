@@ -19,9 +19,9 @@ import java.util.Set;
  */
 public final class MetadataCapabilityCatalog {
     private static final Set<EntityCapability> DECLARABLE = Set.copyOf(EnumSet.of(
-            EntityCapability.TREE, EntityCapability.SORT, EntityCapability.ENABLE));
+            EntityCapability.TREE, EntityCapability.SORT, EntityCapability.ENABLE, EntityCapability.RECYCLE_BIN));
     private static final Set<EntityCapability> MUTABLE_IN_FIRST_RELEASE = Set.copyOf(EnumSet.of(
-            EntityCapability.TREE, EntityCapability.SORT, EntityCapability.ENABLE));
+            EntityCapability.TREE, EntityCapability.SORT, EntityCapability.ENABLE, EntityCapability.RECYCLE_BIN));
 
     private MetadataCapabilityCatalog() {
     }

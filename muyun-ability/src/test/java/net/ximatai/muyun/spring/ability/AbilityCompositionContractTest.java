@@ -48,6 +48,28 @@ class AbilityCompositionContractTest {
     }
 
     @Test
+    void purgeChecksMutationContextBeforeCallingBusinessPolicy() {
+        var hooks = new java.util.ArrayList<String>();
+        ScopedService service = new ScopedService() {
+            @Override public void beforeRecycleBinPurge(String id) { hooks.add("recycle"); }
+            @Override public void beforeRetainedRecordPurge(String id) { hooks.add("retained"); }
+        };
+        DemoPlainRecord record = new DemoPlainRecord("Retained");
+        try (var ignored = TenantContext.use("tenant-a")) {
+            service.insert(record);
+            service.delete(record);
+        }
+        assertThat(service.purge(null)).isZero();
+        assertThat(service.purge(" ")).isZero();
+        assertThatThrownBy(() -> service.purge(record.getId())).isInstanceOf(PlatformAccessDeniedException.class);
+        assertThat(hooks).isEmpty();
+        try (var ignored = TenantContext.use("tenant-a")) {
+            assertThat(service.purge(record.getId(), record.getVersion())).isEqualTo(1);
+        }
+        assertThat(hooks).containsExactly("recycle", "retained");
+    }
+
+    @Test
     void systemGuardMustSurviveAllBusinessHookOverrides() {
         SystemService service = new SystemService();
         DemoPlainRecord record = new DemoPlainRecord("System");

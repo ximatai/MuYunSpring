@@ -21,6 +21,7 @@ defineProps<{
   crossModuleHttp?: HttpClient;
   uiDescriptor: ResolvedModuleUiDescriptor;
   record: QueryListRecord;
+  retained?: boolean;
   relationEntries: readonly RelationExpansionEntry[];
   extension?: ModulePageListRowExpansion;
   extensionContext?: ModulePageListRowExpansionContext;
@@ -35,6 +36,7 @@ defineProps<{
       :cross-module-http="crossModuleHttp"
       :ui-descriptor="uiDescriptor"
       :record="record"
+      :retained="retained"
       :entries="relationEntries"
     />
     <component :is="extension?.component" v-if="extension && extensionContext" :context="extensionContext" />

@@ -8,6 +8,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 /** Runtime descriptor transport for opening record details independently of a menu entry. */
+@DynamicRuntimeRead
 @RestController
 @RequestMapping("/platform.module/{moduleAlias}/view-context")
 public class PlatformModuleViewRuntimeContextWebController {

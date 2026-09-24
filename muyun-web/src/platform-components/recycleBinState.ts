@@ -1,4 +1,4 @@
-import { computed, ref, toValue, watch, type MaybeRefOrGetter, type Ref } from 'vue';
+import { computed, ref, shallowRef, toValue, watch, type MaybeRefOrGetter, type Ref } from 'vue';
 import type {
   PurgeReport,
   RecycleBinItem,
@@ -34,8 +34,34 @@ export function recycleBinRestoreUnavailableReason(item: RecycleBinItem<unknown>
   }
 }
 
+type RecycleBinReports = { restore: RestoreReport; purge: PurgeReport };
+type RecycleBinAction = keyof RecycleBinReports;
+
 export function useRecycleBinState<TRecord>(options: RecycleBinStateOptions<TRecord>) {
   const items = ref<RecycleBinItem<TRecord>[]>([]);
+  const pendingActions = shallowRef<
+    Array<{
+      action: RecycleBinAction;
+      item: RecycleBinItem<TRecord>;
+      report: RestoreReport | PurgeReport;
+    }>
+  >([]);
+
+  function rememberOutcome(
+    action: RecycleBinAction,
+    item: RecycleBinItem<TRecord>,
+    report: RestoreReport | PurgeReport,
+  ) {
+    const remaining = pendingActions.value.filter(
+      (entry) =>
+        entry.item.sourceDeleteOperationId !== item.sourceDeleteOperationId || entry.action !== action,
+    );
+    if (report.entries.some((entry) => entry.status !== (action === 'restore' ? 'RESTORED' : 'PURGED'))) {
+      remaining.push({ action, item, report });
+    }
+    pendingActions.value = remaining;
+  }
+
   const loading = ref(false);
   const acting = ref(false);
   const actingOperationId = ref<string>();
@@ -46,6 +72,26 @@ export function useRecycleBinState<TRecord>(options: RecycleBinStateOptions<TRec
   let lastRequest: WebQueryRequest = defaultQueryRequest();
   let loadRequestSeq = 0;
   let summaryRequestSeq = 0;
+  let contextGeneration = 0;
+  watch(
+    () => toValue(options.context),
+    () => {
+      contextGeneration++;
+      acting.value = false;
+      actingOperationId.value = undefined;
+      lastRequest = defaultQueryRequest();
+      pageNum.value = 1;
+      pageSize.value = 200;
+      pendingActions.value = [];
+      items.value = [];
+      total.value = 0;
+      summaryTotal.value = undefined;
+      loadRequestSeq++;
+      summaryRequestSeq++;
+      loading.value = false;
+    },
+    { flush: 'sync' },
+  );
 
   if (options.reloadKey) {
     watch(options.reloadKey, () => void load());
@@ -74,7 +120,7 @@ export function useRecycleBinState<TRecord>(options: RecycleBinStateOptions<TRec
         path: `/${context.moduleAlias}/recycle-bin/query`,
         body: request,
       });
-      if (requestSeq !== loadRequestSeq) return false;
+      if (requestSeq !== loadRequestSeq || context !== toValue(options.context)) return false;
       items.value = response.records;
       total.value = response.total;
       summaryTotal.value = response.total;
@@ -82,7 +128,7 @@ export function useRecycleBinState<TRecord>(options: RecycleBinStateOptions<TRec
       pageSize.value = response.pageSize;
       return true;
     } catch (cause) {
-      if (requestSeq !== loadRequestSeq) return false;
+      if (requestSeq !== loadRequestSeq || context !== toValue(options.context)) return false;
       items.value = [];
       total.value = 0;
       presentPlatformError(cause, { source: 'recycle-bin', phase: 'load' });
@@ -101,7 +147,7 @@ export function useRecycleBinState<TRecord>(options: RecycleBinStateOptions<TRec
         path: `/${context.moduleAlias}/recycle-bin/query`,
         body: { page: { pageNum: 1, pageSize: 1 }, conditions: [], sorts: [] },
       });
-      if (requestSeq !== summaryRequestSeq) return undefined;
+      if (requestSeq !== summaryRequestSeq || context !== toValue(options.context)) return undefined;
       summaryTotal.value = response.total;
       return response.total;
     } catch {
@@ -110,61 +156,58 @@ export function useRecycleBinState<TRecord>(options: RecycleBinStateOptions<TRec
     }
   }
 
-  async function restore(item: RecycleBinItem<TRecord>, reload = true): Promise<RestoreReport | undefined> {
-    if (acting.value || !item.restorable || !item.sourceDeleteOperationId) return undefined;
-    acting.value = true;
-    actingOperationId.value = item.sourceDeleteOperationId;
-    const context = toValue(options.context);
-    try {
-      const result = await context.http.request<RestoreReport | WebActionResultEnvelope<RestoreReport>>({
-        method: 'POST',
-        path: `/${context.moduleAlias}/recycle-bin/${encodeURIComponent(item.sourceDeleteOperationId)}/restore`,
-      });
-      const report = actionResultData(result);
-      await handlePlatformActionSuccess(result, {
-        fallbackMessage: restoreFallbackMessage(report, recordTitleOf(item)),
-        source: 'recycle-bin',
-        phase: 'action',
-      });
-      if (reload) await load();
-      return report;
-    } catch (cause) {
-      presentPlatformError(cause, { source: 'recycle-bin', phase: 'action' });
-      return undefined;
-    } finally {
-      acting.value = false;
-      actingOperationId.value = undefined;
-    }
+  function restore(item: RecycleBinItem<TRecord>, reload = true) {
+    return executeAction('restore', item, reload);
   }
 
-  async function purge(item: RecycleBinItem<TRecord>, reload = true): Promise<PurgeReport | undefined> {
-    if (acting.value || !item.purgeable || !item.sourceDeleteOperationId) return undefined;
+  function purge(item: RecycleBinItem<TRecord>, reload = true) {
+    return executeAction('purge', item, reload);
+  }
+
+  async function executeAction<A extends RecycleBinAction>(
+    action: A,
+    item: RecycleBinItem<TRecord>,
+    reload: boolean,
+  ): Promise<RecycleBinReports[A] | undefined> {
+    const available = action === 'restore' ? item.restorable : item.purgeable;
+    if (acting.value || !available || !item.sourceDeleteOperationId) return undefined;
+    const generation = contextGeneration;
+    const context = toValue(options.context);
+    const isCurrent = () => generation === contextGeneration && context === toValue(options.context);
     acting.value = true;
     actingOperationId.value = item.sourceDeleteOperationId;
-    const context = toValue(options.context);
     try {
-      const result = await context.http.request<PurgeReport | WebActionResultEnvelope<PurgeReport>>({
+      const result = await context.http.request<
+        RecycleBinReports[A] | WebActionResultEnvelope<RecycleBinReports[A]>
+      >({
         method: 'POST',
-        path: `/${context.moduleAlias}/recycle-bin/${encodeURIComponent(item.sourceDeleteOperationId)}/purge`,
+        path: `/${context.moduleAlias}/recycle-bin/${encodeURIComponent(item.sourceDeleteOperationId)}/${action}`,
       });
+      if (!isCurrent()) return undefined;
       const report = actionResultData(result);
+      rememberOutcome(action, item, report);
       await handlePlatformActionSuccess(result, {
-        fallbackMessage: purgeFallbackMessage(report, recordTitleOf(item)),
+        fallbackMessage: actionFallbackMessage(action, report, recordTitleOf(item)),
         source: 'recycle-bin',
         phase: 'action',
       });
+      if (!isCurrent()) return undefined;
       if (reload) await load();
-      return report;
+      return isCurrent() ? report : undefined;
     } catch (cause) {
+      if (!isCurrent()) return undefined;
       presentPlatformError(cause, { source: 'recycle-bin', phase: 'action' });
       return undefined;
     } finally {
-      acting.value = false;
-      actingOperationId.value = undefined;
+      if (generation === contextGeneration) {
+        acting.value = false;
+        actingOperationId.value = undefined;
+      }
     }
   }
 
   return {
+    pendingActions,
     items,
     loading,
     acting,
@@ -190,28 +233,17 @@ function defaultQueryRequest(): WebQueryRequest {
   };
 }
 
-function restoreFallbackMessage(report: RestoreReport, title: string) {
-  const restored = report.entries.filter((entry) => entry.status === 'RESTORED').length;
+function actionFallbackMessage(action: RecycleBinAction, report: RestoreReport | PurgeReport, title: string) {
+  const verb = action === 'restore' ? '恢复' : '彻底删除';
+  const successStatus = action === 'restore' ? 'RESTORED' : 'PURGED';
+  const completed = report.entries.filter((entry) => entry.status === successStatus).length;
   const skipped = report.entries.filter((entry) => entry.status === 'SKIPPED').length;
   const failed = report.entries.filter((entry) => entry.status === 'FAILED').length;
-  if (restored === 0) {
-    return `「${title}」恢复未完成：成功 0，跳过 ${skipped}，失败 ${failed}`;
+  if (completed === 0) {
+    return `「${title}」${verb}未完成：成功 0，跳过 ${skipped}，失败 ${failed}`;
   }
   if (failed > 0 || skipped > 0) {
-    return `「${title}」恢复完成：成功 ${restored}，跳过 ${skipped}，失败 ${failed}`;
+    return `「${title}」${verb}完成：成功 ${completed}，跳过 ${skipped}，失败 ${failed}`;
   }
-  return `「${title}」恢复成功`;
-}
-
-function purgeFallbackMessage(report: PurgeReport, title: string) {
-  const purged = report.entries.filter((entry) => entry.status === 'PURGED').length;
-  const skipped = report.entries.filter((entry) => entry.status === 'SKIPPED').length;
-  const failed = report.entries.filter((entry) => entry.status === 'FAILED').length;
-  if (purged === 0) {
-    return `「${title}」彻底删除未完成：成功 0，跳过 ${skipped}，失败 ${failed}`;
-  }
-  if (failed > 0 || skipped > 0) {
-    return `「${title}」彻底删除完成：成功 ${purged}，跳过 ${skipped}，失败 ${failed}`;
-  }
-  return `「${title}」彻底删除成功`;
+  return `「${title}」${verb}成功`;
 }

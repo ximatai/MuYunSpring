@@ -17,6 +17,7 @@ const props = defineProps<{
   crossModuleHttp?: HttpClient;
   uiDescriptor: ResolvedModuleUiDescriptor;
   record: QueryListRecord;
+  retained?: boolean;
   relation: ResolvedDetailRelationDescriptor;
   expansion: ResolvedPageListRelationExpansionDescriptor;
 }>();
@@ -46,17 +47,20 @@ const displayRelation = computed<ResolvedDetailRelationDescriptor>(() => ({
 }));
 
 async function load() {
+  const sequence = ++requestSequence;
+  parentRecord.value = undefined;
+  failed.value = false;
+  loading.value = false;
   const id = props.record.id == null ? undefined : String(props.record.id);
   if (!id || !props.relation.embeddedField) {
     parentRecord.value = undefined;
     return;
   }
-  const sequence = ++requestSequence;
   loading.value = true;
   failed.value = false;
   try {
     const response = await props.sourceContext.http.request<WebListResponse<QueryListRecord>>({
-      path: `/${encodeURIComponent(props.sourceContext.moduleAlias)}/view/${encodeURIComponent(id)}/relations/${encodeURIComponent(props.relation.code)}/expansion`,
+      path: `/${encodeURIComponent(props.sourceContext.moduleAlias)}/${props.retained ? 'recycle-bin/' : ''}view/${encodeURIComponent(id)}/relations/${encodeURIComponent(props.relation.code)}/expansion`,
     });
     if (sequence === requestSequence) {
       parentRecord.value = { id, [props.relation.embeddedField]: response.records };
@@ -69,7 +73,13 @@ async function load() {
 }
 
 watch(
-  () => props.record.id,
+  () => [
+    props.sourceContext,
+    props.sourceContext.moduleAlias,
+    props.record.id,
+    props.relation.code,
+    props.retained,
+  ],
   () => void load(),
   { immediate: true },
 );

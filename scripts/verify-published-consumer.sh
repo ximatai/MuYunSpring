@@ -16,6 +16,12 @@ if [[ -z "$consumer_version" ]]; then
   exit 1
 fi
 
+probe_url="http://127.0.0.1:$consumer_port$api_context_path/iam.auth/profile"
+if (exec 3<>/dev/tcp/127.0.0.1/"$consumer_port") 2>/dev/null; then
+  echo "Consumer port $consumer_port is already occupied. Set MUYUN_CONSUMER_PORT to a free port." >&2
+  exit 1
+fi
+
 cleanup() {
   if [[ -n "${consumer_pid:-}" ]] && kill -0 "$consumer_pid" 2>/dev/null; then
     kill "$consumer_pid" || true
@@ -31,14 +37,14 @@ consumer_args=(-PmuyunRepository="$consumer_repo" "-PmuyunVersion=$consumer_vers
 
 "$repository_root/gradlew" -p "$consumer_root" bootRun \
   "${consumer_args[@]}" \
-  --args="--spring.profiles.active=smoke" \
+  --args="--spring.profiles.active=smoke --server.address=127.0.0.1" \
   --no-daemon >"$log_file" 2>&1 &
 consumer_pid=$!
 
 for _ in {1..60}; do
   # A protected endpoint must return 401 without a bearer token. This proves
   # both that Spring is ready and that the configured API context is mounted.
-  status="$(curl --silent --output /dev/null --write-out '%{http_code}' "http://127.0.0.1:$consumer_port$api_context_path/iam.auth/profile" || true)"
+  status="$(curl --noproxy '*' --connect-timeout 2 --max-time 3 --silent --output /dev/null --write-out '%{http_code}' "$probe_url" || true)"
   if [[ "$status" == "401" ]]; then
     exit 0
   fi
@@ -50,5 +56,5 @@ for _ in {1..60}; do
 done
 
 cat "$log_file"
-echo "Published consumer did not expose its protected API within 120 seconds." >&2
+echo "Published consumer did not expose its protected API within 120 seconds: $probe_url (last HTTP status: $status)." >&2
 exit 1

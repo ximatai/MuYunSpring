@@ -78,20 +78,28 @@ class DynamicModuleStandardActionRegistrarTest {
         module.setTitle("项目任务");
         module.setModuleKind(ModuleKind.DYNAMIC);
         module.setMainCapabilityDeclarations(Set.of(
-                EntityCapability.TREE.name(), EntityCapability.SORT.name(), EntityCapability.ENABLE.name()));
+                EntityCapability.TREE.name(), EntityCapability.SORT.name(), EntityCapability.ENABLE.name(), EntityCapability.RECYCLE_BIN.name()));
         moduleService.insert(module);
 
         registrar.register(module);
 
         assertThat(actionService.list(Criteria.of()).stream().map(PlatformModuleAction::getActionCode))
                 .containsExactlyInAnyOrder("menu", "create", "view", "update", "delete", "batchDelete", "query", "reference",
-                        "tree", "sort", "enable", "disable");
+                        "tree", "sort", "enable", "disable", "recycleBinQuery", "recycleBinRestore", "recycleBinPurge");
         assertThat(actionService.list(Criteria.of())).allSatisfy(action -> {
             assertThat(action.getSourceType()).isEqualTo(ModuleActionSourceType.DYNAMIC_MODULE);
             assertThat(action.getSourceId()).isEqualTo("education.project");
             assertThat(action.getSystemManaged()).isTrue();
         });
         assertThat(actionService.findByModuleAliasAndActionCode("education.project", "view").getDataAuth()).isFalse();
+        var query = actionService.requireExecutionPolicy("education.project", "recycleBinQuery");
+        var restore = actionService.requireExecutionPolicy("education.project", "recycleBinRestore");
+        var purge = actionService.requireExecutionPolicy("education.project", "recycleBinPurge");
+        assertThat(query.requiresDataScope()).isTrue();
+        assertThat(restore.permissionActionCode()).isEqualTo("recycleBinRestore");
+        assertThat(purge.permissionActionCode()).isEqualTo("recycleBinPurge");
+        assertThat(restore.requiresDataScope()).isFalse();
+        assertThat(purge.requiresDataScope()).isFalse();
     }
 
     @Test

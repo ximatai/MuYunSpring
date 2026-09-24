@@ -5,23 +5,14 @@ import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.spring.ability.OptimisticLockException;
 import net.ximatai.muyun.spring.ability.event.RuntimeMutationSource;
 import net.ximatai.muyun.spring.ability.permission.RecordPermissionWrite;
-import net.ximatai.muyun.spring.ability.reference.ReferenceTarget;
 import net.ximatai.muyun.spring.ability.TreeAbility;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
-import net.ximatai.muyun.spring.common.exception.PlatformAccessDeniedException;
-import net.ximatai.muyun.spring.common.exception.ErrorScope;
 import net.ximatai.muyun.spring.common.id.Ids;
-import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
-import net.ximatai.muyun.spring.common.platform.ActionExecutionContext;
-import net.ximatai.muyun.spring.common.platform.ActionExecutionPolicyService;
 import net.ximatai.muyun.spring.common.platform.DataScopeCriteriaResult;
-import net.ximatai.muyun.spring.common.platform.DataScopeCriteriaService;
 import net.ximatai.muyun.spring.common.platform.EntityCapability;
 import net.ximatai.muyun.spring.common.platform.PlatformAction;
 import net.ximatai.muyun.spring.common.tenant.TenantContext;
-import net.ximatai.muyun.spring.dynamic.descriptor.DynamicEntityDescriptor;
 import net.ximatai.muyun.spring.dynamic.descriptor.DynamicRelationDescriptor;
-import net.ximatai.muyun.spring.dynamic.metadata.ModuleDefinitionException;
 
 import java.time.Clock;
 import java.util.ArrayList;
@@ -40,23 +31,17 @@ import java.util.function.Supplier;
  * Entity lifecycle, field protection and DAO behavior remain owned by {@link DynamicEntityService}.
  */
 final class DynamicRecordMutationRuntime {
-    private final DynamicRecordRuntime runtime;
     private final DynamicRecordEventPublisher eventPublisher;
-    private final ActionExecutionPolicyService actionPolicy;
-    private final DataScopeCriteriaService dataScope;
+    private final DynamicRecordAccessContext access;
     private final DynamicRecordMutationCoordinator coordinator;
     private final Clock clock;
 
-    DynamicRecordMutationRuntime(DynamicRecordRuntime runtime,
-                                 DynamicRecordEventPublisher eventPublisher,
-                                 ActionExecutionPolicyService actionPolicy,
-                                 DataScopeCriteriaService dataScope,
+    DynamicRecordMutationRuntime(DynamicRecordEventPublisher eventPublisher,
+                                 DynamicRecordAccessContext access,
                                  DynamicRecordMutationCoordinator coordinator,
                                  Clock clock) {
-        this.runtime = Objects.requireNonNull(runtime, "runtime must not be null");
         this.eventPublisher = Objects.requireNonNull(eventPublisher, "eventPublisher must not be null");
-        this.actionPolicy = Objects.requireNonNull(actionPolicy, "actionPolicy must not be null");
-        this.dataScope = Objects.requireNonNull(dataScope, "dataScope must not be null");
+        this.access = Objects.requireNonNull(access, "access must not be null");
         this.coordinator = coordinator == null ? DynamicRecordMutationCoordinator.NONE : coordinator;
         this.clock = clock == null ? Clock.systemDefaultZone() : clock;
     }
@@ -65,14 +50,13 @@ final class DynamicRecordMutationRuntime {
                   RuntimeMutationSource source, String traceId, Map<String, Object> metadata) {
         try (DynamicMutationContext context = DynamicMutationContext.open(clock, source, traceId, metadata)) {
             if (source == RuntimeMutationSource.BUSINESS) {
-                actionPolicy.requireAuthorized(ActionExecutionContext.ofPlatformAction(moduleAlias, PlatformAction.CREATE,
-                        Set.of(), CurrentUserContext.currentUser()));
+                access.requireAction(moduleAlias, PlatformAction.CREATE);
             }
             coordinator.beforeCreate(moduleAlias, entityAlias, record);
             List<ChildMutation> children = prepareChildrenForCreate(moduleAlias, entityAlias, record);
             children.forEach(item -> coordinator.beforeRelationChildCreate(moduleAlias, entityAlias,
                     item.relation.code(), item.relation.childEntityAlias(), record, item.incoming));
-            String id = entityService(moduleAlias, entityAlias).insert(record);
+            String id = access.entityService(moduleAlias, entityAlias).insert(record);
             coordinator.afterCreate(moduleAlias, entityAlias, record, id);
             coordinator.afterMutation(event(DynamicRecordMutationEventType.AFTER_SAVE, moduleAlias, entityAlias, id,
                     DynamicRecordSaveOperation.CREATE, null, record, context));
@@ -90,14 +74,14 @@ final class DynamicRecordMutationRuntime {
                 throw new PlatformException("dynamic record must not be null");
             }
             DataScopeCriteriaResult scope = source == RuntimeMutationSource.BUSINESS
-                    ? requireBusinessMutation(moduleAlias, entityAlias, PlatformAction.UPDATE, ids(record.getId()))
+                    ? access.requireBusinessRecordMutation(moduleAlias, entityAlias, PlatformAction.UPDATE, ids(record.getId()))
                     : DataScopeCriteriaResult.unrestricted(Criteria.of());
-            DynamicRecord before = withTenantScope(scope,
-                    () -> entityService(moduleAlias, entityAlias).selectActiveRaw(record.getId()));
+            DynamicRecord before = access.withTenantScope(scope,
+                    () -> access.entityService(moduleAlias, entityAlias).selectActiveRaw(record.getId()));
             coordinator.beforeUpdate(moduleAlias, entityAlias, before, record);
             List<ChildMutation> children = prepareChildrenForUpdate(moduleAlias, entityAlias, before, record);
             beforeChildren(moduleAlias, entityAlias, before, record, children);
-            int updated = withTenantScope(scope, () -> entityService(moduleAlias, entityAlias).update(record));
+            int updated = access.withTenantScope(scope, () -> access.entityService(moduleAlias, entityAlias).update(record));
             if (updated > 0) {
                 coordinator.afterUpdate(moduleAlias, entityAlias, before, record);
                 coordinator.afterMutation(event(DynamicRecordMutationEventType.AFTER_SAVE, moduleAlias, entityAlias,
@@ -113,15 +97,15 @@ final class DynamicRecordMutationRuntime {
                RuntimeMutationSource source, String traceId) {
         try (DynamicMutationContext context = DynamicMutationContext.open(clock, source, traceId, Map.of())) {
             DataScopeCriteriaResult scope = source == RuntimeMutationSource.BUSINESS
-                    ? requireBusinessMutation(moduleAlias, entityAlias, PlatformAction.DELETE, ids(id))
+                    ? access.requireBusinessRecordMutation(moduleAlias, entityAlias, PlatformAction.DELETE, ids(id))
                     : DataScopeCriteriaResult.unrestricted(Criteria.of());
-            DynamicRecord before = withTenantScope(scope,
-                    () -> entityService(moduleAlias, entityAlias).selectActiveRaw(id));
+            DynamicRecord before = access.withTenantScope(scope,
+                    () -> access.entityService(moduleAlias, entityAlias).selectActiveRaw(id));
             coordinator.beforeDelete(moduleAlias, entityAlias, before);
             List<ChildMutation> children = cascadeChildren(moduleAlias, entityAlias, before);
             children.forEach(item -> coordinator.beforeRelationChildDelete(moduleAlias, entityAlias,
                     item.relation.code(), item.relation.childEntityAlias(), before, item.before));
-            int deleted = withTenantScope(scope, () -> entityService(moduleAlias, entityAlias).delete(id, expectedVersion));
+            int deleted = access.withTenantScope(scope, () -> access.entityService(moduleAlias, entityAlias).delete(id, expectedVersion));
             if (deleted > 0) {
                 coordinator.afterDelete(moduleAlias, entityAlias, before);
                 coordinator.afterMutation(event(DynamicRecordMutationEventType.AFTER_DELETE, moduleAlias, entityAlias,
@@ -142,16 +126,16 @@ final class DynamicRecordMutationRuntime {
                 return 0;
             }
             DataScopeCriteriaResult scope = source == RuntimeMutationSource.BUSINESS
-                    ? requireBusinessMutation(moduleAlias, entityAlias, PlatformAction.DELETE, ids)
+                    ? access.requireBusinessRecordMutation(moduleAlias, entityAlias, PlatformAction.DELETE, ids)
                     : DataScopeCriteriaResult.unrestricted(Criteria.of());
-            List<DynamicRecord> before = withTenantScope(scope, () -> entityService(moduleAlias, entityAlias)
+            List<DynamicRecord> before = access.withTenantScope(scope, () -> access.entityService(moduleAlias, entityAlias)
                     .list(Criteria.of().in("id", List.copyOf(ids)), PageRequest.of(1, ids.size())));
             List<ChildMutation> children = before.stream().flatMap(record -> cascadeChildren(moduleAlias, entityAlias, record)
                     .stream().map(item -> item.withParentBefore(record))).toList();
             before.forEach(record -> coordinator.beforeDelete(moduleAlias, entityAlias, record));
             children.forEach(item -> coordinator.beforeRelationChildDelete(moduleAlias, entityAlias,
                     item.relation.code(), item.relation.childEntityAlias(), item.parentBefore, item.before));
-            int deleted = withTenantScope(scope, () -> entityService(moduleAlias, entityAlias).deleteBatch(ids));
+            int deleted = access.withTenantScope(scope, () -> access.entityService(moduleAlias, entityAlias).deleteBatch(ids));
             if (deleted > 0) {
                 before.forEach(record -> {
                     coordinator.afterDelete(moduleAlias, entityAlias, record);
@@ -185,9 +169,9 @@ final class DynamicRecordMutationRuntime {
     int enable(String moduleAlias, String entityAlias, String id, Integer expectedVersion,
                RuntimeMutationSource source, String traceId) {
         DataScopeCriteriaResult scope = source == RuntimeMutationSource.BUSINESS
-                ? requireBusinessMutation(moduleAlias, entityAlias, PlatformAction.ENABLE, ids(id))
+                ? access.requireBusinessRecordMutation(moduleAlias, entityAlias, PlatformAction.ENABLE, ids(id))
                 : DataScopeCriteriaResult.unrestricted(Criteria.of());
-        int updated = withTenantScope(scope, () -> entityService(moduleAlias, entityAlias).enable(id, expectedVersion));
+        int updated = access.withTenantScope(scope, () -> access.entityService(moduleAlias, entityAlias).enable(id, expectedVersion));
         if (updated > 0) {
             eventPublisher.enabled(eventContext(moduleAlias, entityAlias, source, traceId), id);
         }
@@ -197,12 +181,9 @@ final class DynamicRecordMutationRuntime {
     int disable(String moduleAlias, String entityAlias, String id, Integer expectedVersion,
                 RuntimeMutationSource source, String traceId) {
         DataScopeCriteriaResult scope = source == RuntimeMutationSource.BUSINESS
-                ? requireBusinessMutation(moduleAlias, entityAlias, PlatformAction.DISABLE, ids(id))
+                ? access.requireBusinessRecordMutation(moduleAlias, entityAlias, PlatformAction.DISABLE, ids(id))
                 : DataScopeCriteriaResult.unrestricted(Criteria.of());
-        int updated = withTenantScope(scope, () -> {
-            runtime.validateReferenceTargetUnavailable(ReferenceTarget.of(moduleAlias, entityAlias), id);
-            return entityService(moduleAlias, entityAlias).disable(id, expectedVersion);
-        });
+        int updated = access.withTenantScope(scope, () -> access.entityService(moduleAlias, entityAlias).disable(id, expectedVersion));
         if (updated > 0) {
             eventPublisher.disabled(eventContext(moduleAlias, entityAlias, source, traceId), id);
         }
@@ -215,8 +196,8 @@ final class DynamicRecordMutationRuntime {
         DataScopeCriteriaResult scope = requiresSortScope(source)
                 ? sortMutationScope(moduleAlias, entityAlias, ids, Criteria.of(), () -> ids)
                 : DataScopeCriteriaResult.unrestricted(Criteria.of());
-        withTenantScope(scope, () -> {
-            entityService(moduleAlias, entityAlias).reorder(orderedIds);
+        access.withTenantScope(scope, () -> {
+            access.entityService(moduleAlias, entityAlias).reorder(orderedIds);
             return null;
         });
         eventPublisher.reordered(eventContext(moduleAlias, entityAlias, source, traceId), orderedIds);
@@ -228,8 +209,8 @@ final class DynamicRecordMutationRuntime {
                 ? sortMutationScope(moduleAlias, entityAlias, ids(Arrays.asList(id, beforeId)), Criteria.of(),
                 () -> sortScopeRecordIds(moduleAlias, entityAlias, id, beforeId))
                 : DataScopeCriteriaResult.unrestricted(Criteria.of());
-        withTenantScope(scope, () -> {
-            entityService(moduleAlias, entityAlias).moveBefore(id, beforeId);
+        access.withTenantScope(scope, () -> {
+            access.entityService(moduleAlias, entityAlias).moveBefore(id, beforeId);
             return null;
         });
         eventPublisher.movedBefore(eventContext(moduleAlias, entityAlias, source, traceId), id, beforeId);
@@ -241,8 +222,8 @@ final class DynamicRecordMutationRuntime {
                 ? sortMutationScope(moduleAlias, entityAlias, ids(Arrays.asList(id, afterId)), Criteria.of(),
                 () -> sortScopeRecordIds(moduleAlias, entityAlias, id, afterId))
                 : DataScopeCriteriaResult.unrestricted(Criteria.of());
-        withTenantScope(scope, () -> {
-            entityService(moduleAlias, entityAlias).moveAfter(id, afterId);
+        access.withTenantScope(scope, () -> {
+            access.entityService(moduleAlias, entityAlias).moveAfter(id, afterId);
             return null;
         });
         eventPublisher.movedAfter(eventContext(moduleAlias, entityAlias, source, traceId), id, afterId);
@@ -259,8 +240,8 @@ final class DynamicRecordMutationRuntime {
                 ? sortMutationScope(moduleAlias, entityAlias, treeExplicitIds(id, previousId, nextId, parentId), sortScope,
                 () -> treeSortScopeRecordIds(moduleAlias, entityAlias, id, previousId, nextId, parentId, sortScope))
                 : DataScopeCriteriaResult.unrestricted(Criteria.of());
-        withTenantScope(scope, () -> {
-            entityService(moduleAlias, entityAlias).moveInTree(sortScope, id, previousId, nextId, parentId);
+        access.withTenantScope(scope, () -> {
+            access.entityService(moduleAlias, entityAlias).moveInTree(sortScope, id, previousId, nextId, parentId);
             return null;
         });
         eventPublisher.movedInTree(eventContext(moduleAlias, entityAlias, source, traceId),
@@ -321,13 +302,13 @@ final class DynamicRecordMutationRuntime {
     }
 
     private List<DynamicRelationDescriptor> childRelations(String module, String entity) {
-        return runtime.describe(module).relations().stream().filter(item -> entity.equals(item.parentEntityAlias())).toList();
+        return access.describe(module).relations().stream().filter(item -> entity.equals(item.parentEntityAlias())).toList();
     }
 
     private Map<String, DynamicRecord> childrenById(String module, DynamicRelationDescriptor relation, String parentId) {
         if (parentId == null || parentId.isBlank()) return Map.of();
         LinkedHashMap<String, DynamicRecord> result = new LinkedHashMap<>();
-        entityService(module, relation.childEntityAlias()).selectChildRows(Criteria.of().eq(relation.childForeignKeyField(), parentId))
+        access.entityService(module, relation.childEntityAlias()).selectChildRows(Criteria.of().eq(relation.childForeignKeyField(), parentId))
                 .forEach(child -> { if (child.getId() != null && !child.getId().isBlank()) result.put(child.getId(), child); });
         return result;
     }
@@ -338,16 +319,16 @@ final class DynamicRecordMutationRuntime {
     }
 
     int updatePermissions(String module, String entity, RecordPermissionWrite write) {
-        if (!supportsCapability(module, entity, EntityCapability.DATA_SCOPE)) {
+        if (!access.supportsCapability(module, entity, EntityCapability.DATA_SCOPE)) {
             throw new PlatformException("数据权限能力未启用");
         }
         if (write == null || write.id() == null || write.id().isBlank()) {
             throw new IllegalArgumentException("permission write requires record id");
         }
-        DataScopeCriteriaResult scope = requireBusinessMutation(module, entity,
+        DataScopeCriteriaResult scope = access.requireBusinessRecordMutation(module, entity,
                 PlatformAction.MANAGE_PERMISSIONS, ids(write.id()));
-        DynamicRecord permissionRecord = withTenantScope(scope, () -> {
-            DynamicRecord persisted = entityService(module, entity).selectActiveRaw(write.id());
+        DynamicRecord permissionRecord = access.withTenantScope(scope, () -> {
+            DynamicRecord persisted = access.entityService(module, entity).selectActiveRaw(write.id());
             if (persisted == null) {
                 throw new PlatformException("记录不存在或无权限管理");
             }
@@ -359,45 +340,27 @@ final class DynamicRecordMutationRuntime {
             persisted.setAuthMemberIds(write.memberIds());
             return persisted;
         });
-        return withTenantScope(scope, () -> update(module, entity, permissionRecord,
+        return access.withTenantScope(scope, () -> update(module, entity, permissionRecord,
                 RuntimeMutationSource.ACTION, null, Map.of()));
-    }
-
-    private DataScopeCriteriaResult requireBusinessMutation(String module, String entity, PlatformAction action, Set<String> recordIds) {
-        actionPolicy.requireRecordAction(ActionExecutionContext.ofPlatformAction(module, action, recordIds, CurrentUserContext.currentUser()));
-        if (!supportsCapability(module, entity, EntityCapability.DATA_SCOPE)) return DataScopeCriteriaResult.unrestricted(Criteria.of());
-        if (recordIds.isEmpty()) throw new IllegalArgumentException("record action requires record ids: " + module + "." + action.code());
-        var policy = ActionExecutionContext.ofPlatformAction(module, action, recordIds, CurrentUserContext.currentUser()).actionPolicy();
-        if (!policy.requiresDataScope()) return DataScopeCriteriaResult.unrestricted(Criteria.of());
-        Criteria criteria = recordIds.size() == 1 ? Criteria.of().eq("id", recordIds.iterator().next()) : Criteria.of().in("id", List.copyOf(recordIds));
-        DataScopeCriteriaResult scope = dataScope.resolveReadScope(module, policy, criteria, CurrentUserContext.currentUser());
-        long visible = withTenantScope(scope, () -> entityService(module, entity).list(scope.criteria(), new PageRequest(0, recordIds.size())).stream()
-                .map(DynamicRecord::getId).filter(recordIds::contains).distinct().count());
-        if (visible != recordIds.size()) {
-            throw new PlatformAccessDeniedException("record data permission denied: " + module + "." + policy.actionCode(),
-                    ErrorScope.module(module).action(policy.actionCode()));
-        }
-        return scope;
     }
 
     private DataScopeCriteriaResult sortMutationScope(String module, String entity, Set<String> explicitIds,
                                                        Criteria sortScope,
                                                        Supplier<Set<String>> collector) {
-        actionPolicy.requireRecordAction(ActionExecutionContext.ofPlatformAction(module, PlatformAction.SORT,
-                explicitIds, CurrentUserContext.currentUser()));
-        DataScopeCriteriaResult explicitScope = requireRecordScope(module, entity, PlatformAction.SORT, explicitIds);
-        Set<String> allIds = withTenantScope(explicitScope, () -> {
+        access.requireRecordAction(module, PlatformAction.SORT, explicitIds);
+        DataScopeCriteriaResult explicitScope = access.requireRecordDataScope(module, entity, PlatformAction.SORT, explicitIds);
+        Set<String> allIds = access.withTenantScope(explicitScope, () -> {
             requirePageSortScope(module, entity, sortScope, explicitIds);
             return collector.get();
         });
-        return requireRecordScope(module, entity, PlatformAction.SORT, allIds);
+        return access.requireRecordDataScope(module, entity, PlatformAction.SORT, allIds);
     }
 
     private void requirePageSortScope(String module, String entity, Criteria sortScope,
                                       Set<String> explicitIds) {
         // Reject out-of-scope placement records before collecting affected siblings.
         if (sortScope == null || sortScope.isEmpty() || explicitIds.isEmpty()) return;
-        DynamicEntityService service = entityService(module, entity);
+        DynamicEntityService service = access.entityService(module, entity);
         Criteria idsCriteria = explicitIds.size() == 1 ? Criteria.of().eq("id", explicitIds.iterator().next())
                 : Criteria.of().in("id", List.copyOf(explicitIds));
         long visible = service.list(and(sortScope, idsCriteria), new PageRequest(0, explicitIds.size())).stream()
@@ -407,39 +370,9 @@ final class DynamicRecordMutationRuntime {
         }
     }
 
-    private DataScopeCriteriaResult requireRecordScope(String module, String entity, PlatformAction action,
-                                                        Set<String> recordIds) {
-        if (!supportsCapability(module, entity, EntityCapability.DATA_SCOPE)) {
-            return DataScopeCriteriaResult.unrestricted(Criteria.of());
-        }
-        if (recordIds.isEmpty()) {
-            throw new IllegalArgumentException("record action requires record ids: " + module + "." + action.code());
-        }
-        var policy = ActionExecutionContext.ofPlatformAction(module, action, recordIds,
-                CurrentUserContext.currentUser()).actionPolicy();
-        if (!policy.requiresDataScope()) {
-            return DataScopeCriteriaResult.unrestricted(Criteria.of());
-        }
-        Criteria criteria = recordIds.size() == 1
-                ? Criteria.of().eq("id", recordIds.iterator().next())
-                : Criteria.of().in("id", List.copyOf(recordIds));
-        DataScopeCriteriaResult scope = dataScope.resolveReadScope(module, policy, criteria, CurrentUserContext.currentUser());
-        long visible = withTenantScope(scope, () -> entityService(module, entity)
-                .list(scope.criteria(), new PageRequest(0, recordIds.size())).stream()
-                .map(DynamicRecord::getId)
-                .filter(recordIds::contains)
-                .distinct()
-                .count());
-        if (visible != recordIds.size()) {
-            throw new PlatformAccessDeniedException("record data permission denied: " + module + "." + policy.actionCode(),
-                    ErrorScope.module(module).action(policy.actionCode()));
-        }
-        return scope;
-    }
-
     private Set<String> sortScopeRecordIds(String module, String entity, String id, String targetId) {
         Set<String> result = new LinkedHashSet<>(ids(Arrays.asList(id, targetId)));
-        DynamicEntityService service = entityService(module, entity);
+        DynamicEntityService service = access.entityService(module, entity);
         DynamicRecord moving = service.select(id);
         DynamicRecord target = targetId == null || targetId.isBlank() ? null : service.select(targetId);
         if (moving == null || target == null) {
@@ -453,7 +386,7 @@ final class DynamicRecordMutationRuntime {
     private Set<String> treeSortScopeRecordIds(String module, String entity, String id, String previousId,
                                                 String nextId, String parentId, Criteria sortScope) {
         Set<String> result = new LinkedHashSet<>(ids(Arrays.asList(id, previousId, nextId)));
-        DynamicEntityService service = entityService(module, entity);
+        DynamicEntityService service = access.entityService(module, entity);
         DynamicRecord moving = service.select(id);
         if (moving == null) {
             return result;
@@ -497,17 +430,6 @@ final class DynamicRecordMutationRuntime {
         return source == RuntimeMutationSource.BUSINESS || source == RuntimeMutationSource.ACTION;
     }
 
-    private boolean supportsCapability(String module, String entity, EntityCapability capability) {
-        return runtime.describe(module).entities().stream().filter(item -> item.entityAlias().equals(entity)).findFirst()
-                .orElseThrow(() -> new ModuleDefinitionException("unknown dynamic entity: " + module + "." + entity))
-                .capabilities().contains(capability.name());
-    }
-
-    private DynamicEntityService entityService(String module, String entity) { return runtime.entityService(module, entity); }
-    private <T> T withTenantScope(DataScopeCriteriaResult scope, Supplier<T> supplier) {
-        if (scope.crossTenant()) try (TenantContext.Scope ignored = TenantContext.bypassTenantFilter("data scope allows cross-tenant read")) { return supplier.get(); }
-        return supplier.get();
-    }
     private Set<String> ids(String id) { return ids(id == null ? List.of() : List.of(id)); }
     private Set<String> ids(Collection<String> values) { if (values == null || values.isEmpty()) return Set.of(); LinkedHashSet<String> result = new LinkedHashSet<>(); values.stream().filter(value -> value != null && !value.isBlank()).map(String::trim).forEach(result::add); return java.util.Collections.unmodifiableSet(result); }
     private void ensureId(DynamicRecord record) { if (record != null && (record.getId() == null || record.getId().isBlank())) record.setId(Ids.newId()); }

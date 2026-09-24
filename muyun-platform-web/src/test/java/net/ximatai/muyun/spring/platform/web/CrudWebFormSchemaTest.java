@@ -270,13 +270,13 @@ class CrudWebFormSchemaTest {
     @Test
     void shouldProjectStaticModuleQueryThroughQueryViewEndpointWithoutPublishingMutations() throws Exception {
         DemoRecordQueryViewController controller = new DemoRecordQueryViewController(new DemoRecordService());
-        controller.setStaticRecordReadProjectionService(new StaticRecordReadProjectionService(
-                new StaticModuleDefinitionCatalog(List.of(demoStaticModuleDefinition()))
-        ));
+        var catalog = new StaticModuleDefinitionCatalog(List.of(demoStaticModuleDefinition()));
+        controller.setStandardModuleWebRuntime(new StandardModuleWebRuntime(
+                new ModuleExecutionPlanCatalog(catalog), new StaticRecordReadProjectionService(catalog)));
         MockMvc mvc = MockMvcBuilders.standaloneSetup(controller).build();
 
         try (TenantContext.Scope ignored = TenantContext.use("tenant-a")) {
-            mvc.perform(post("/demo.record.query-view/query")
+            mvc.perform(post("/demo.record.ui/query")
                             .contentType(MediaType.APPLICATION_JSON)
                             .content("{}"))
                     .andExpect(status().isOk())
@@ -284,6 +284,97 @@ class CrudWebFormSchemaTest {
                     .andExpect(jsonPath("$.records[0].title").value("Demo One"))
                     .andExpect(jsonPath("$.records[0].status").doesNotExist());
         }
+    }
+
+    @Test
+    void shouldUseLosslessWireValuesForReadOnlyQueryAndDetail() throws Exception {
+        DemoRecordQueryViewController controller = readOnlyController(false);
+        ObjectMapper objectMapper = new ObjectMapper();
+        MockMvc mvc = MockMvcBuilders.standaloneSetup(controller)
+                .setMessageConverters(new MappingJackson2HttpMessageConverter(objectMapper))
+                .setControllerAdvice(new StandardModuleWireResponseAdvice(objectMapper))
+                .build();
+
+        try (TenantContext.Scope ignored = TenantContext.use("tenant-a")) {
+            mvc.perform(post("/demo.record.ui/query").contentType(MediaType.APPLICATION_JSON).content("{}"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.records[0].longValue").value("9007199254740993"))
+                    .andExpect(jsonPath("$.records[0].amount").value("9999999999999999.99"));
+            mvc.perform(get("/demo.record.ui/view/demo-1"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.longValue").value("9007199254740993"))
+                    .andExpect(jsonPath("$.amount").value("9999999999999999.99"));
+            mvc.perform(post("/demo.record.ui/insert").contentType(MediaType.APPLICATION_JSON).content("{}"))
+                    .andExpect(status().isNotFound());
+            mvc.perform(post("/demo.record.ui/update/demo-1").contentType(MediaType.APPLICATION_JSON).content("{}"))
+                    .andExpect(status().isNotFound());
+            mvc.perform(post("/demo.record.ui/delete/demo-1").contentType(MediaType.APPLICATION_JSON).content("{}"))
+                    .andExpect(status().isNotFound());
+        }
+    }
+
+    @Test
+    void shouldApplyRequiredNavigatorScopeToReadOnlyListAndDetail() throws Exception {
+        MockMvc mvc = MockMvcBuilders.standaloneSetup(readOnlyController(true))
+                .setControllerAdvice(new PlatformWebExceptionHandler())
+                .build();
+
+        try (TenantContext.Scope ignored = TenantContext.use("tenant-a")) {
+            mvc.perform(post("/demo.record.ui/query").contentType(MediaType.APPLICATION_JSON).content("{}"))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.message").value("Page navigator scope is required: tenant"));
+            mvc.perform(post("/demo.record.ui/query").contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"externalQueryValues\":{\"tenantId\":\"tenant-a\"}}"))
+                    .andExpect(status().isOk());
+            mvc.perform(get("/demo.record.ui/view/demo-1"))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.message").value("Page navigator scope is required: tenant"));
+            mvc.perform(get("/demo.record.ui/view/demo-1")
+                            .header(PageContextScopePolicy.CONTEXT_HEADER, "{\"tenant\":\"tenant-b\"}"))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.message").value("Record does not belong to the current page scope: tenantId"));
+            mvc.perform(get("/demo.record.ui/view/demo-1")
+                            .header(PageContextScopePolicy.CONTEXT_HEADER, "{\"tenant\":\"tenant-a\"}"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.id").value("demo-1"));
+        }
+    }
+
+    @Test
+    void shouldRequireAnExecutionPlanForReadOnlyDetail() {
+        DemoRecordQueryViewController controller = new DemoRecordQueryViewController(new DemoRecordService());
+        try (TenantContext.Scope ignored = TenantContext.use("tenant-a")) {
+            assertThatThrownBy(() -> controller.view("demo-1"))
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("requires StandardModuleWebRuntime");
+        }
+    }
+
+    private static DemoRecordQueryViewController readOnlyController(boolean requiredScope) {
+        var definition = StaticModuleDefinition.builder("demo", "demo.record.ui", "Read-only demo")
+                .entities(List.of(new EntityDefinition("demo_record", "demo_record", "Record", List.of(
+                        FieldDefinition.string("title", "名称"),
+                        FieldDefinition.string("status", "状态"),
+                        FieldDefinition.longInteger("longValue", "长整型"),
+                        FieldDefinition.decimal("amount", "金额")))))
+                .uiDefinition(ModuleUiDefinition.builder("demo.record.ui")
+                        .page(PageTemplates.listDetailCard(page -> {
+                            page.list(list -> list.fields(fields -> fields
+                                            .field("title").field("longValue").field("amount")))
+                                    .detail(detail -> detail.display(display -> display.field("title")));
+                            if (requiredScope) page.navigator(navigator -> navigator
+                                    .level("tenant", level -> level.microList("iam.tenant", "租户", "搜索租户"))
+                                    .filterListByNavigator("tenant", "tenantId", NavigatorListQueryMode.REQUIRED_SCOPE));
+                        })).build())
+                .build();
+        var catalog = new StaticModuleDefinitionCatalog(List.of(definition));
+        DemoRecordService service = new DemoRecordService();
+        service.persisted = DemoRecordService.defaultRecord();
+        service.persisted.setTenantId("tenant-a");
+        DemoRecordQueryViewController controller = new DemoRecordQueryViewController(service);
+        controller.setStandardModuleWebRuntime(new StandardModuleWebRuntime(
+                new ModuleExecutionPlanCatalog(catalog), new StaticRecordReadProjectionService(catalog)));
+        return controller;
     }
 
     @RestController
@@ -413,31 +504,16 @@ class CrudWebFormSchemaTest {
     }
 
     @RestController
-    @RequestMapping("/demo.record.query-view")
-    private static final class DemoRecordQueryViewController extends WebSupport<DemoRecordService>
+    @RequestMapping("/demo.record.ui")
+    private static final class DemoRecordQueryViewController extends StaticModuleWebControllerAdapter<DemoRecordService>
             implements StaticQueryViewWeb<DemoRecord, DemoRecordService>, StaticModuleUiContributor {
-        private StaticRecordReadProjectionService staticRecordReadProjectionService;
-
         private DemoRecordQueryViewController(DemoRecordService service) {
             this.service = service;
         }
 
-        private void setStaticRecordReadProjectionService(StaticRecordReadProjectionService service) {
-            this.staticRecordReadProjectionService = service;
-        }
-
-        @Override
-        public StaticRecordReadProjectionService staticRecordReadProjectionService() {
-            return staticRecordReadProjectionService;
-        }
-
         @Override
         public ModuleUiDefinition moduleUiDefinition() {
-            return ModuleUiDefinition.builder("demo.record.ui")
-                    .page(PageTemplates.listDetailCard(page -> page
-                            .list(list -> list.fields(fields -> fields.field("title")))
-                            .detail(detail -> detail.display(display -> display.field("title")))))
-                    .build();
+            throw new AssertionError("read-only requests must consume the compiled plan");
         }
     }
 

@@ -1,8 +1,8 @@
 package net.ximatai.muyun.spring.ability.reference;
 
 /**
- * Defines whether an active referrer can tolerate its target no longer being
- * available for normal reference resolution.
+ * Defines deletion behavior for active referrers. Disabling a target does not delete it
+ * or invoke this policy; enabled-state write requirements are declared separately.
  */
 public enum ReferenceTargetUnavailablePolicy {
     PRESERVE_HISTORY,

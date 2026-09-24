@@ -44,6 +44,19 @@ class ModuleActionContributionRegistrarTest {
     }
 
     @Test
+    void domainPolicyLookupMustRejectMissingOrDisabledActions() {
+        moduleService.insert(module("sales.contract"));
+        assertThatThrownBy(() -> actionService.requireExecutionPolicy("sales.contract", "syncWorkflow"))
+                .isInstanceOf(net.ximatai.muyun.spring.common.exception.PlatformAccessDeniedException.class);
+        registrar.register(contribution("syncWorkflow", "def-1", "ver-1", "sync"));
+        PlatformModuleAction action = actionService.findByModuleAliasAndActionCode("sales.contract", "syncWorkflow");
+        action.setEnabled(false);
+        actionDao.updateById(action);
+        assertThatThrownBy(() -> actionService.requireExecutionPolicy("sales.contract", "syncWorkflow"))
+                .isInstanceOf(net.ximatai.muyun.spring.common.exception.PlatformAccessDeniedException.class);
+    }
+
+    @Test
     void shouldUpdateExistingContributedModuleAction() {
         moduleService.insert(module("sales.contract"));
         registrar.register(contribution("syncWorkflow", "def-1", "ver-1", "sync"));
@@ -74,6 +87,11 @@ class ModuleActionContributionRegistrarTest {
         assertThat(reloaded.effectiveActionAuth()).isFalse();
         assertThat(reloaded.effectiveDefaultGrantPolicy()).isEqualTo(ActionDefaultGrantPolicy.ANY_LOGIN_USER);
         assertThat(reloaded.getSourceVersionId()).isEqualTo("ver-2");
+        var policy = actionService.requireExecutionPolicy("sales.contract", "syncWorkflow");
+        assertThat(policy.actionAuth()).isFalse();
+        assertThat(policy.dataAuth()).isFalse();
+        assertThat(policy.accessMode()).isEqualTo(net.ximatai.muyun.spring.common.platform.ActionAccessMode.ANONYMOUS_ALLOWED);
+        assertThat(policy.defaultGrantPolicy()).isEqualTo(ActionDefaultGrantPolicy.ANY_LOGIN_USER);
     }
 
     @Test

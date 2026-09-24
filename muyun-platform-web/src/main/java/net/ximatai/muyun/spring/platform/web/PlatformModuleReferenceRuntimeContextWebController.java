@@ -8,6 +8,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 /** Runtime descriptor transport for a module consumed as a navigator reference source. */
+@DynamicRuntimeRead
 @RestController
 @RequestMapping("/platform.module/{moduleAlias}/reference-context")
 public class PlatformModuleReferenceRuntimeContextWebController {

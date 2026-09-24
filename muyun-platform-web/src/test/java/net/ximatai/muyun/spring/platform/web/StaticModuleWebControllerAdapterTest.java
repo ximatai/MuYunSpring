@@ -41,6 +41,8 @@ class StaticModuleWebControllerAdapterTest {
                     () -> mock(PlatformDynamicRuntimeRefreshService.class));
             context.registerBean(PlatformOpenApiCatalogService.class,
                     () -> mock(PlatformOpenApiCatalogService.class));
+            context.registerBean(net.ximatai.muyun.spring.platform.runtime.DynamicRuntimeActivationService.class,
+                    () -> mock(net.ximatai.muyun.spring.platform.runtime.DynamicRuntimeActivationService.class));
             context.registerBean(PlatformModuleWebController.class);
             context.refresh();
 

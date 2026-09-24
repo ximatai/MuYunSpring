@@ -39,7 +39,7 @@ class MetadataRelationChangeSetApplyServiceTest {
         verify(fixture.fieldService).insert(org.mockito.ArgumentMatchers.argThat(field ->
                 "subject".equals(field.getFieldName()) && "subject".equals(field.getColumnName())));
         verify(fixture.schemaEnsureService).ensureNow(fixture.metadata);
-        verify(fixture.refreshCoordinator).activateByMetadataIdNow("metadata-1");
+        verify(fixture.refreshCoordinator).scheduleByMetadataId("metadata-1");
     }
 
     @Test
@@ -50,7 +50,7 @@ class MetadataRelationChangeSetApplyServiceTest {
                 .isInstanceOf(PlatformException.class).hasMessageContaining("fingerprint");
         verify(fixture.metadataService, never()).update(any());
         verify(fixture.schemaEnsureService, never()).ensureNow(any(Metadata.class));
-        verify(fixture.refreshCoordinator, never()).activateByMetadataIdNow(anyString());
+        verify(fixture.refreshCoordinator, never()).scheduleByMetadataId(anyString());
     }
 
     @Test
@@ -63,7 +63,7 @@ class MetadataRelationChangeSetApplyServiceTest {
         assertThatThrownBy(() -> fixture.service.apply("crm.customer", "main", command("fingerprint", List.of())))
                 .isInstanceOf(PlatformException.class).hasMessageContaining("validation");
         verify(fixture.metadataService, never()).update(any());
-        verify(fixture.refreshCoordinator, never()).activateByMetadataIdNow(anyString());
+        verify(fixture.refreshCoordinator, never()).scheduleByMetadataId(anyString());
     }
 
     @Test
@@ -73,7 +73,7 @@ class MetadataRelationChangeSetApplyServiceTest {
 
         assertThatThrownBy(() -> fixture.service.apply("crm.customer", "main", command("fingerprint", List.of())))
                 .isInstanceOf(IllegalStateException.class).hasMessageContaining("ddl failed");
-        verify(fixture.refreshCoordinator, never()).activateByMetadataIdNow(anyString());
+        verify(fixture.refreshCoordinator, never()).scheduleByMetadataId(anyString());
     }
 
     @Test
@@ -188,7 +188,7 @@ class MetadataRelationChangeSetApplyServiceTest {
         assertThat(fixture.metadata.getDataScopeEnabled()).isFalse();
         verify(fixture.metadataService).update(fixture.metadata);
         verify(fixture.schemaEnsureService).ensureNow("metadata-1", previous);
-        verify(fixture.refreshCoordinator).activateByMetadataIdNow("metadata-1");
+        verify(fixture.refreshCoordinator).scheduleByMetadataId("metadata-1");
     }
 
     @Test

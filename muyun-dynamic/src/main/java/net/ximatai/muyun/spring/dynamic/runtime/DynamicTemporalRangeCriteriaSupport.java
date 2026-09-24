@@ -1,5 +1,6 @@
 package net.ximatai.muyun.spring.dynamic.runtime;
 
+import net.ximatai.muyun.spring.ability.PlatformAbilityRuntime;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.spring.common.time.BusinessTimeContext;
 import net.ximatai.muyun.spring.common.time.BusinessTimeRange;
@@ -23,7 +24,7 @@ public final class DynamicTemporalRangeCriteriaSupport {
                 || !PlatformTimeService.isLocalDateValue(endInclusive)) {
             return false;
         }
-        PlatformTimeService effectiveTimeService = timeService == null ? new PlatformTimeService() : timeService;
+        PlatformTimeService effectiveTimeService = java.util.Objects.requireNonNull(timeService, "timeService");
         BusinessTimeRange range = effectiveTimeService.localDateClosedRangeToInstantRange(
                 startInclusive,
                 endInclusive,

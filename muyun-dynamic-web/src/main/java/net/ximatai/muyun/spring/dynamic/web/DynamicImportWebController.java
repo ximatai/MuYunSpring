@@ -1,5 +1,7 @@
 package net.ximatai.muyun.spring.dynamic.web;
 
+import net.ximatai.muyun.spring.platform.web.DynamicRuntimeRead;
+
 import jakarta.servlet.http.HttpServletResponse;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.platform.ActionEndpoint;
@@ -34,6 +36,7 @@ import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.function.Supplier;
 
+@DynamicRuntimeRead
 @RestController
 @RequestMapping("/{moduleAlias:[a-z][a-z0-9_]*(?:\\.[a-z][a-z0-9_]*)+}/import")
 public class DynamicImportWebController {

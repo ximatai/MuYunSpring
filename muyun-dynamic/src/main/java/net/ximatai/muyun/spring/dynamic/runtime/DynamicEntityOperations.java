@@ -178,6 +178,16 @@ public final class DynamicEntityOperations implements
         return service.selectIgnoreSoftDelete(moduleAlias, entityAlias, id);
     }
 
+    @Override
+    public int restore(String id, Integer expectedVersion) {
+        return service.entityService(moduleAlias, entityAlias).restore(id, expectedVersion);
+    }
+
+    @Override
+    public int purge(String id, Integer expectedVersion) {
+        return service.entityService(moduleAlias, entityAlias).purge(id, expectedVersion);
+    }
+
     public boolean supportsRecordPermissions() {
         return describe().capabilities().contains(EntityCapability.DATA_SCOPE.name());
     }
