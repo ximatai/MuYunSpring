@@ -313,7 +313,7 @@ class RoleServiceContractTest {
         organization.setId("org-1");
         organization.setTenantId("tenant_b");
         organization.setEnabled(Boolean.TRUE);
-        when(organizationService.requireEnabled("org-1", "role owner organization is not active: org-1"))
+        when(organizationService.selectActiveRaw("org-1"))
                 .thenReturn(organization);
         RoleService service = new RoleService(mock(RoleDao.class), mock(AccountRoleGrantDao.class),
                 mock(EmploymentRoleGrantDao.class), mock(RoleActionDao.class), activeTenantVerifier(),

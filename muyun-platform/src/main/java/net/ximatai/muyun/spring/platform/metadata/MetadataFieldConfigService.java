@@ -1,7 +1,7 @@
 package net.ximatai.muyun.spring.platform.metadata;
 
 import net.ximatai.muyun.database.core.orm.Criteria;
-import net.ximatai.muyun.spring.ability.AbstractAbilityService;
+import net.ximatai.muyun.spring.ability.StandardBusinessService;
 import net.ximatai.muyun.spring.ability.BaseDao;
 import net.ximatai.muyun.spring.ability.SoftDeleteAbility;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
@@ -17,11 +17,10 @@ import net.ximatai.muyun.spring.platform.runtime.PlatformDynamicRuntimeRefreshCo
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
-import java.util.Objects;
 import java.util.Optional;
 
 @Service
-public class MetadataFieldConfigService extends AbstractAbilityService<MetadataFieldConfig> implements
+public class MetadataFieldConfigService extends StandardBusinessService<MetadataFieldConfig> implements
         SoftDeleteAbility<MetadataFieldConfig> {
     public static final String MODULE_ALIAS = "platform.metadata_field_config";
 
@@ -74,16 +73,6 @@ public class MetadataFieldConfigService extends AbstractAbilityService<MetadataF
     }
 
     @Override
-    public void beforeInsert(MetadataFieldConfig config) {
-        normalizeAndValidate(config);
-    }
-
-    @Override
-    public void beforeUpdate(MetadataFieldConfig config) {
-        normalizeAndValidate(config);
-    }
-
-    @Override
     public void afterChanged(MetadataFieldConfig config) {
         if (!MetadataFieldPropertyMutationContext.active()) {
             refreshByMetadataFieldId(config.getMetadataFieldId());
@@ -111,7 +100,8 @@ public class MetadataFieldConfigService extends AbstractAbilityService<MetadataF
         return null;
     }
 
-    private void normalizeAndValidate(MetadataFieldConfig config) {
+    @Override
+    protected void validateBeforeSave(MetadataFieldConfig config) {
         MetadataField field = requireField(config.getMetadataFieldId());
         normalizeRelation(config, field);
         validateDictionaryDraft(config, field);

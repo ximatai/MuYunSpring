@@ -1,8 +1,8 @@
 package net.ximatai.muyun.spring.iam.organization;
 
 import net.ximatai.muyun.spring.ability.DataScopeAbility;
-import net.ximatai.muyun.spring.ability.DataScopeFieldMappingAbility;
 import net.ximatai.muyun.spring.ability.EnableAbility;
+import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.ability.reference.ReferenceAbility;
 import net.ximatai.muyun.spring.ability.SoftDeleteAbility;
 import net.ximatai.muyun.spring.ability.TenantActiveScopedService;
@@ -11,7 +11,6 @@ import net.ximatai.muyun.spring.common.platform.DataScopeFieldMapping;
 import net.ximatai.muyun.spring.common.platform.OrganizationHierarchyService;
 import net.ximatai.muyun.spring.common.tenant.ActiveTenantVerifier;
 import net.ximatai.muyun.spring.common.tenant.OrganizationCreationProvisioner;
-import net.ximatai.muyun.spring.common.tenant.TenantContext;
 import net.ximatai.muyun.spring.common.util.Preconditions;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.ObjectProvider;
@@ -26,7 +25,6 @@ public class OrganizationService extends TenantActiveScopedService<Organization>
         TreeAbility<Organization>,
         ReferenceAbility<Organization>,
         DataScopeAbility<Organization>,
-        DataScopeFieldMappingAbility,
         OrganizationHierarchyService {
 
     public static final String MODULE_ALIAS = "iam.organization";
@@ -56,19 +54,28 @@ public class OrganizationService extends TenantActiveScopedService<Organization>
 
     @Override
     public void afterInsert(String id, Organization organization) {
-        provisionOrganization(id);
+        notifyCreationProvisioners(organization.getTenantId(), id);
     }
 
+    /** Reconciles default resources for an existing, non-deleted organization in the current active tenant. */
     public void provisionOrganization(String organizationId) {
-        if (creationProvisioners == null) {
-            return;
+        String id = Preconditions.requireText(organizationId, "organizationId");
+        inMutationTransaction(() -> {
+            String tenantId = requireActiveTenantMutationContext();
+            Organization organization = selectActiveRaw(id);
+            if (organization == null || !tenantId.equals(organization.getTenantId())) {
+                throw new PlatformException("Organization does not exist in current tenant: " + id);
+            }
+            notifyCreationProvisioners(tenantId, id);
+            return null;
+        });
+    }
+
+    private void notifyCreationProvisioners(String tenantId, String organizationId) {
+        if (creationProvisioners != null) {
+            creationProvisioners.orderedStream()
+                    .forEach(provisioner -> provisioner.afterOrganizationCreated(tenantId, organizationId));
         }
-        Organization organization = selectIgnoreSoftDelete(organizationId);
-        String tenantId = TenantContext.currentTenantId()
-                .orElseGet(() -> Preconditions.requireText(organization == null ? null : organization.getTenantId(),
-                        "tenantId"));
-        creationProvisioners.orderedStream()
-                .forEach(provisioner -> provisioner.afterOrganizationCreated(tenantId, organizationId));
     }
 
     @Override

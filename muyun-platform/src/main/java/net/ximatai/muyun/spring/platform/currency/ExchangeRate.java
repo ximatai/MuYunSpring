@@ -1,6 +1,7 @@
 package net.ximatai.muyun.spring.platform.currency;
 
 import lombok.Getter;
+import net.ximatai.muyun.spring.ability.SortPartitionBy;
 import lombok.Setter;
 import net.ximatai.muyun.database.core.annotation.Column;
 import net.ximatai.muyun.database.core.annotation.Table;
@@ -15,6 +16,8 @@ import java.time.LocalDate;
 @Setter
 @Table(name = "platform_exchange_rate", comment = "Platform exchange rate")
 @TenantUniqueConstraint(fields = {"fromCurrencyCode", "toCurrencyCode", "rateTypeCode", "effectiveDate"})
+@SortPartitionBy(fields = {"tenantId", "fromCurrencyCode", "toCurrencyCode", "rateTypeCode"},
+        message = "Exchange rate sort can only move records within the same currency pair and rate type")
 public class ExchangeRate extends StandardEnabledSortableEntity {
     @Column(name = "from_currency_code", type = ColumnType.VARCHAR, length = 3, nullable = false,
             comment = "Source currency code")

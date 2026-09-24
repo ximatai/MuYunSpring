@@ -73,6 +73,106 @@ class StandardMutationRepositoryIT {
     }
 
     @Test
+    void directOrganizationProvisioningRollsBackWritesWhenAnExtensionFails() {
+        var organization = new net.ximatai.muyun.spring.iam.organization.Organization();
+        organization.setId("org-replay"); organization.setTenantId("tenant-replay");
+        var orgDao = org.mockito.Mockito.mock(net.ximatai.muyun.spring.iam.organization.OrganizationDao.class);
+        org.mockito.Mockito.when(orgDao.query(org.mockito.ArgumentMatchers.any(Criteria.class),
+                        org.mockito.ArgumentMatchers.any(PageRequest.class),
+                        org.mockito.ArgumentMatchers.any(net.ximatai.muyun.database.core.orm.Sort[].class)))
+                .thenReturn(List.of(organization));
+        var created = record("provision-" + UUID.randomUUID());
+        var beans = new org.springframework.beans.factory.support.StaticListableBeanFactory();
+        beans.addBean("extension", (net.ximatai.muyun.spring.common.tenant.OrganizationCreationProvisioner) (tenant, id) -> {
+            records.insert(created);
+            throw new IllegalArgumentException("reject provisioning");
+        });
+        var service = new net.ximatai.muyun.spring.iam.organization.OrganizationService(orgDao, tenant -> {},
+                beans.getBeanProvider(net.ximatai.muyun.spring.common.tenant.OrganizationCreationProvisioner.class));
+        try (var tenant = TenantContext.use("tenant-replay")) {
+            assertThatThrownBy(() -> service.provisionOrganization(organization.getId())).hasMessage("reject provisioning");
+            assertThat(dao.findById(created.getId())).isNull();
+        }
+    }
+
+    @Test
+    void batchInsertRollsBackEarlierRowsWhenALaterRecordConflicts() {
+        try (var tenant = TenantContext.use("batch-" + UUID.randomUUID())) {
+            var first = record("duplicate");
+            var second = record("duplicate");
+            assertThatThrownBy(() -> records.insertBatch(List.of(first, second))).isInstanceOf(PlatformException.class);
+            assertThat(dao.findById(first.getId())).isNull();
+            assertThat(dao.findById(second.getId())).isNull();
+        }
+    }
+
+    @ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {false, true})
+    void batchDeleteRollsBackEarlierRowsWhenALaterCallbackFails(boolean explicitContext) {
+        try (var tenant = TenantContext.use("batch-" + UUID.randomUUID())) {
+            var first = record("first");
+            var second = record("second");
+            var batch = new Records(dao, records.jdbc) {
+                @Override public void afterDelete(String id, MutationContractRecord row, int deleted) {
+                    if (id.equals(second.getId())) throw new IllegalArgumentException("reject batch delete");
+                }
+            };
+            var ids = batch.insertBatch(List.of(first, second));
+            assertThatThrownBy(() -> {
+                if (explicitContext) batch.deleteBatch(ids, null);
+                else batch.deleteBatch(ids);
+            }).hasMessage("reject batch delete");
+            assertThat(batch.select(first.getId())).isNotNull();
+            assertThat(batch.select(second.getId())).isNotNull();
+            assertThat(dao.findById(first.getId()).getVersion()).isEqualTo(first.getVersion());
+        }
+    }
+
+    @Test
+    void tenantLayerReadsRestrictStorageScopeWithoutChangingOrdinaryReads() {
+        var layers = new LayerRecords(dao);
+        String code = "layers-" + UUID.randomUUID();
+        var global = record(code);
+        var tenantRow = record(code);
+        var other = record(code);
+        records.insert(global);
+        try (var tenant = TenantContext.use("tenant-layer-a")) { records.insert(tenantRow); }
+        try (var tenant = TenantContext.use("tenant-layer-b")) { records.insert(other); }
+        Criteria filter = Criteria.of().eq("code", code);
+        assertThat(layers.listTenantAndGlobal(filter)).extracting(MutationContractRecord::getId)
+                .containsExactly(global.getId());
+        try (var tenant = TenantContext.use("tenant-layer-a")) {
+            assertThat(layers.listTenantAndGlobal(filter)).extracting(MutationContractRecord::getId)
+                    .containsExactly(tenantRow.getId(), global.getId());
+            assertThat(layers.list(filter)).extracting(MutationContractRecord::getId).containsExactly(tenantRow.getId());
+            assertThat(TenantContext.currentTenantId()).contains("tenant-layer-a");
+            assertThat(TenantContext.tenantFilterBypassed()).isFalse();
+            try (var bypass = TenantContext.bypassTenantFilter("test outer scope")) {
+                assertThat(layers.listCurrentTenant(filter)).extracting(MutationContractRecord::getId)
+                        .containsExactly(tenantRow.getId());
+            }
+        }
+        try (var system = TenantContext.system("verify explicit global layer")) {
+            assertThat(layers.listCurrentTenant(filter)).isEmpty();
+            assertThat(layers.listGlobal(filter)).extracting(MutationContractRecord::getId).containsExactly(global.getId());
+        }
+        records.delete(global.getId());
+        assertThat(layers.listGlobal(filter)).isEmpty();
+    }
+
+    @Test
+    void declaredNullPartitionDoesNotIncludeTenantRecords() {
+        var sorting = new LayerRecords(dao);
+        String code = "partition-" + UUID.randomUUID();
+        var global = record(code);
+        var tenantRow = record(code);
+        records.insert(global);
+        try (var tenant = TenantContext.use("sort-layer")) { records.insert(tenantRow); }
+        Criteria partition = SortPartitions.byFields("tenantId").criteriaFor(global).eq("code", code);
+        assertThat(sorting.list(partition)).extracting(MutationContractRecord::getId).containsExactly(global.getId());
+    }
+
+    @Test
     void directReorderRollsBackEarlierRowsWhenALaterWriteFails() {
         try (var tenant = TenantContext.use("sort-" + UUID.randomUUID())) {
             SortingRecords sorting = new SortingRecords(dao);
@@ -467,6 +567,11 @@ class StandardMutationRepositoryIT {
     }
 
     record Source(String operationId, String rootEntryId, MutationContractRecord root, MutationContractRecord child) {}
+
+    static class LayerRecords extends AbstractAbilityService<MutationContractRecord>
+            implements SoftDeleteAbility<MutationContractRecord>, TenantLayerAbility<MutationContractRecord> {
+        LayerRecords(MutationContractDao dao) { super("test.layers", MutationContractRecord.class, dao); }
+    }
 
     static class SortingRecords extends AbstractAbilityService<MutationContractRecord> implements TreeAbility<MutationContractRecord> {
         java.util.function.Predicate<MutationContractRecord> rejectUpdate = row -> false;

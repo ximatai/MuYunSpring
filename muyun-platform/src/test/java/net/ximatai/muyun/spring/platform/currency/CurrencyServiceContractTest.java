@@ -12,6 +12,7 @@ import java.time.LocalDate;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.*;
 
 class CurrencyServiceContractTest {
     private final TestMemoryDao<Currency> currencyDao = new TestMemoryDao<>();
@@ -49,6 +50,24 @@ class CurrencyServiceContractTest {
         assertThatThrownBy(() -> currencyService.insert(currency("USD", "840", "Duplicate", "$", 2)))
                 .isInstanceOf(PlatformException.class)
                 .hasMessageContaining("unique");
+    }
+
+    @Test
+    void updateUsesTheMutationSnapshotAndStillProtectsCurrencyIdentity() {
+        var service = spy(new CurrencyService(currencyDao));
+        Currency original = currency("USD", "840", "Dollar", "$", 2);
+        service.insert(original);
+        Currency update = currency(" usd ", "840", "Updated Dollar", "$", 2);
+        update.setId(original.getId()); update.setVersion(original.getVersion());
+        clearInvocations(service);
+        assertThat(service.update(update)).isEqualTo(1);
+        verify(service).selectActiveRaw(original.getId());
+        verify(service, never()).selectIgnoreSoftDelete(original.getId());
+        assertThat(update.getCode()).isEqualTo("USD");
+        Currency changedIdentity = currency("EUR", "978", "Euro", "€", 2);
+        changedIdentity.setId(update.getId()); changedIdentity.setVersion(update.getVersion());
+        assertThatThrownBy(() -> service.update(changedIdentity)).hasMessageContaining("cannot be changed");
+        assertThat(currencyDao.findById(original.getId()).getCode()).isEqualTo("USD");
     }
 
     @Test

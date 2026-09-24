@@ -3,8 +3,9 @@ package net.ximatai.muyun.spring.platform.measure;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.database.core.orm.Sort;
-import net.ximatai.muyun.spring.ability.AbstractAbilityService;
+import net.ximatai.muyun.spring.ability.StandardBusinessService;
 import net.ximatai.muyun.spring.ability.BaseDao;
+import net.ximatai.muyun.spring.ability.TenantLayerAbility;
 import net.ximatai.muyun.spring.ability.EnableAbility;
 import net.ximatai.muyun.spring.ability.SoftDeleteAbility;
 import net.ximatai.muyun.spring.ability.SortAbility;
@@ -12,13 +13,13 @@ import net.ximatai.muyun.spring.ability.reference.ReferenceAbility;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.schema.PlatformAbilityFields;
 import net.ximatai.muyun.spring.common.schema.StandardEntitySchema;
-import net.ximatai.muyun.spring.common.tenant.TenantContext;
 import net.ximatai.muyun.spring.common.util.PlatformNameRules;
 import net.ximatai.muyun.spring.platform.application.ApplicationReferenceContributor;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import net.ximatai.muyun.spring.ability.query.QueryAbility;
@@ -26,7 +27,8 @@ import net.ximatai.muyun.spring.ability.query.QueryDescriptor;
 import net.ximatai.muyun.spring.ability.query.QueryDescriptors;
 
 @Service
-public class MeasureUnitConversionRuleService extends AbstractAbilityService<MeasureUnitConversionRule> implements
+public class MeasureUnitConversionRuleService extends StandardBusinessService<MeasureUnitConversionRule> implements
+        TenantLayerAbility<MeasureUnitConversionRule>,
         SoftDeleteAbility<MeasureUnitConversionRule>,
         EnableAbility<MeasureUnitConversionRule>,
         SortAbility<MeasureUnitConversionRule>,
@@ -67,34 +69,9 @@ public class MeasureUnitConversionRuleService extends AbstractAbilityService<Mea
     }
 
     @Override
-    public void beforeInsert(MeasureUnitConversionRule rule) {
-        normalizeAndValidate(rule);
-    }
-
-    @Override
-    public void beforeUpdate(MeasureUnitConversionRule rule) {
-        normalizeAndValidate(rule);
-        validateImmutableIdentity(rule);
-    }
-
-    @Override
-    public net.ximatai.muyun.spring.ability.SortPartition<MeasureUnitConversionRule> sortPartition() {
-        return net.ximatai.muyun.spring.ability.SortPartitions.of(rule -> Criteria.of()
-                        .eqNullable(StandardEntitySchema.TENANT_ID_FIELD, rule.getTenantId())
-                        .eq("applicationAlias", rule.getApplicationAlias())
-                        .eq("scopeType", rule.getScopeType())
-                        .eq("moduleAlias", rule.getModuleAlias())
-                        .eq("contextObjectType", rule.getContextObjectType())
-                        .eq("contextObjectId", rule.getContextObjectId()),
-                net.ximatai.muyun.spring.ability.SortPartitions.byFieldsWithMessage(
-                "Measure unit conversion rule sort can only move records within the same tenant and scope",
-                "tenantId", "applicationAlias", "scopeType", "moduleAlias", "contextObjectType", "contextObjectId"));
-    }
-
-    @Override
-    public List<String> sortPartitionFields() {
-        return List.of("tenantId", "applicationAlias", "scopeType", "moduleAlias", "contextObjectType",
-                "contextObjectId");
+    public void beforeUpdate(MeasureUnitConversionRule rule, MeasureUnitConversionRule existing) {
+        super.beforeUpdate(rule);
+        validateImmutableIdentity(rule, existing);
     }
 
     public List<MeasureUnitConversionRule> applicableRules(MeasureUnitConversionContext context) {
@@ -106,7 +83,8 @@ public class MeasureUnitConversionRuleService extends AbstractAbilityService<Mea
                 .toList();
     }
 
-    private void normalizeAndValidate(MeasureUnitConversionRule rule) {
+    @Override
+    protected void validateBeforeSave(MeasureUnitConversionRule rule) {
         rule.setApplicationAlias(PlatformNameRules.requireApplicationAlias(rule.getApplicationAlias()));
         if (rule.getScopeType() == null) {
             rule.setScopeType(MeasureUnitConversionScopeType.GLOBAL);
@@ -160,8 +138,7 @@ public class MeasureUnitConversionRuleService extends AbstractAbilityService<Mea
         }
     }
 
-    private void validateImmutableIdentity(MeasureUnitConversionRule rule) {
-        MeasureUnitConversionRule existing = selectIncludingDeleted(rule.getId());
+    private void validateImmutableIdentity(MeasureUnitConversionRule rule, MeasureUnitConversionRule existing) {
         rejectChanged(existing, rule, "Measure conversion rule application", MeasureUnitConversionRule::getApplicationAlias);
         rejectChanged(existing, rule, "Measure conversion rule scope type", MeasureUnitConversionRule::getScopeType);
         rejectChanged(existing, rule, "Measure conversion rule module", MeasureUnitConversionRule::getModuleAlias);
@@ -192,33 +169,16 @@ public class MeasureUnitConversionRuleService extends AbstractAbilityService<Mea
     }
 
     private List<MeasureUnitConversionRule> listVisibleRules(MeasureUnitConversionContext context) {
-        List<MeasureUnitConversionRule> rules = new java.util.ArrayList<>();
+        List<MeasureUnitConversionRule> tenantRules = new ArrayList<>();
+        List<MeasureUnitConversionRule> globalRules = new ArrayList<>();
         for (String applicationAlias : applicationCandidates(context.applicationAlias())) {
-            Criteria criteria = Criteria.of()
-                    .eq("applicationAlias", applicationAlias)
-                    .eq("enabled", Boolean.TRUE);
-            rules.addAll(list(criteria, new PageRequest(0, Integer.MAX_VALUE),
-                    Sort.desc("priority"), Sort.asc(PlatformAbilityFields.SORT_FIELD)));
+            Criteria criteria = Criteria.of().eq("applicationAlias", applicationAlias).eq("enabled", Boolean.TRUE);
+            Sort[] order = {Sort.desc("priority"), Sort.asc(PlatformAbilityFields.SORT_FIELD)};
+            tenantRules.addAll(listCurrentTenant(criteria, order));
+            globalRules.addAll(listGlobal(criteria, order));
         }
-        if (TenantContext.currentTenantId().isPresent()) {
-            for (String applicationAlias : applicationCandidates(context.applicationAlias())) {
-                Criteria criteria = Criteria.of()
-                        .eq("applicationAlias", applicationAlias)
-                        .eq("enabled", Boolean.TRUE);
-                rules.addAll(listGlobalRules(criteria));
-            }
-        }
-        return List.copyOf(rules);
-    }
-
-    private List<MeasureUnitConversionRule> listGlobalRules(Criteria criteria) {
-        try (TenantContext.Scope ignored = TenantContext.system("select global measure unit conversion rules")) {
-            return list(criteria, new PageRequest(0, Integer.MAX_VALUE),
-                    Sort.desc("priority"), Sort.asc(PlatformAbilityFields.SORT_FIELD))
-                    .stream()
-                    .filter(rule -> rule.getTenantId() == null || rule.getTenantId().isBlank())
-                    .toList();
-        }
+        tenantRules.addAll(globalRules);
+        return List.copyOf(tenantRules);
     }
 
     private List<String> applicationCandidates(String applicationAlias) {

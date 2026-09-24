@@ -2,7 +2,6 @@ package net.ximatai.muyun.spring.iam.employee;
 
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.spring.ability.DataScopeAbility;
-import net.ximatai.muyun.spring.ability.DataScopeFieldMappingAbility;
 import net.ximatai.muyun.spring.ability.EnableAbility;
 import net.ximatai.muyun.spring.ability.SoftDeleteAbility;
 import net.ximatai.muyun.spring.ability.RecycleBinAbility;
@@ -39,7 +38,6 @@ public class EmployeeService extends TenantActiveScopedService<Employee> impleme
         ChildrenAbility<Employee>,
         ReferenceAbility<Employee>,
         DataScopeAbility<Employee>,
-        DataScopeFieldMappingAbility,
         QueryAbility<Employee>,
         ModuleReadProjectionContributor {
     public static final String MODULE_ALIAS = "iam.employee";

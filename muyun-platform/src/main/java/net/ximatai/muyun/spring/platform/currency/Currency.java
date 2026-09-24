@@ -1,6 +1,7 @@
 package net.ximatai.muyun.spring.platform.currency;
 
 import lombok.Getter;
+import net.ximatai.muyun.spring.ability.SortPartitionBy;
 import lombok.Setter;
 import net.ximatai.muyun.database.core.annotation.Column;
 import net.ximatai.muyun.database.core.annotation.Default;
@@ -15,6 +16,8 @@ import java.math.RoundingMode;
 @Setter
 @Table(name = "platform_currency", comment = "Platform currency")
 @TenantUniqueConstraint(fields = "code")
+@SortPartitionBy(fields = {"tenantId"},
+        message = "Currency sort can only move records within the same tenant scope")
 public class Currency extends StandardEnabledSortableEntity {
     @Column(name = "code", type = ColumnType.VARCHAR, length = 3, nullable = false,
             comment = "ISO 4217 currency code")

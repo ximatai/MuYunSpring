@@ -330,19 +330,30 @@ public interface TreeAbility<T extends TreeCapable> extends SortAbility<T> {
     }
 
     default List<String> ancestorIds(String id) {
-        T current = select(id);
+        return resolveAncestorIds(id, false);
+    }
+
+    default List<String> ancestorIdsAndSelf(String id) {
+        return resolveAncestorIds(id, true);
+    }
+
+    private List<String> resolveAncestorIds(String id, boolean includeSelf) {
+        T current = selectActiveRaw(id);
         if (current == null) {
             return List.of();
         }
-
         List<String> ancestors = new ArrayList<>();
+        if (includeSelf) {
+            ancestors.add(current.getId());
+        }
         Set<String> visited = new LinkedHashSet<>();
+        visited.add(current.getId());
         String parentId = current.getParentId();
         while (parentId != null && !parentId.isBlank() && !ROOT_ID.equals(parentId)) {
             if (!visited.add(parentId)) {
                 throw new PlatformException("Tree cycle detected while resolving ancestors: " + id);
             }
-            T parent = select(parentId);
+            T parent = selectActiveRaw(parentId);
             if (parent == null) {
                 break;
             }
@@ -350,15 +361,6 @@ public interface TreeAbility<T extends TreeCapable> extends SortAbility<T> {
             parentId = parent.getParentId();
         }
         return ancestors;
-    }
-
-    default List<String> ancestorIdsAndSelf(String id) {
-        if (select(id) == null) {
-            return List.of();
-        }
-        List<String> ids = new ArrayList<>(ancestorIds(id));
-        ids.add(id);
-        return ids;
     }
 
     default List<String> descendantIds(String id) {

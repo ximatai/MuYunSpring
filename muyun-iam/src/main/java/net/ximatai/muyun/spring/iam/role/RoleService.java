@@ -1310,9 +1310,10 @@ public class RoleService extends TenantActiveScopedService<Role> implements
         if (role.getOwnerScopeType() != RoleOwnerScopeType.ORGANIZATION || organizationService == null) {
             return;
         }
-        Organization organization = organizationService.requireEnabled(
-                role.getOwnerScopeId(),
-                "role owner organization is not active: " + role.getOwnerScopeId());
+        Organization organization = organizationService.selectActiveRaw(role.getOwnerScopeId());
+        if (organization == null) {
+            throw new PlatformException("role owner organization does not exist: " + role.getOwnerScopeId());
+        }
         String currentTenantId = TenantContext.currentTenantId()
                 .orElseThrow(() -> BusinessExceptions.warning("iam.role.tenant-context-required",
                         "组织角色管理需要租户上下文"));

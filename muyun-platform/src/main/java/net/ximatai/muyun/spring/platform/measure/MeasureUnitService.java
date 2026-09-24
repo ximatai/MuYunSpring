@@ -3,8 +3,9 @@ package net.ximatai.muyun.spring.platform.measure;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.database.core.orm.Sort;
-import net.ximatai.muyun.spring.ability.AbstractAbilityService;
+import net.ximatai.muyun.spring.ability.StandardBusinessService;
 import net.ximatai.muyun.spring.ability.BaseDao;
+import net.ximatai.muyun.spring.ability.TenantLayerAbility;
 import net.ximatai.muyun.spring.ability.CacheAbility;
 import net.ximatai.muyun.spring.ability.EnableAbility;
 import net.ximatai.muyun.spring.ability.SoftDeleteAbility;
@@ -13,7 +14,6 @@ import net.ximatai.muyun.spring.ability.reference.ReferenceAbility;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.schema.PlatformAbilityFields;
 import net.ximatai.muyun.spring.common.schema.StandardEntitySchema;
-import net.ximatai.muyun.spring.common.tenant.TenantContext;
 import net.ximatai.muyun.spring.common.util.PlatformNameRules;
 import net.ximatai.muyun.spring.platform.application.ApplicationReferenceContributor;
 import org.springframework.stereotype.Service;
@@ -27,7 +27,8 @@ import net.ximatai.muyun.spring.ability.query.QueryDescriptor;
 import net.ximatai.muyun.spring.ability.query.QueryDescriptors;
 
 @Service
-public class MeasureUnitService extends AbstractAbilityService<MeasureUnit> implements
+public class MeasureUnitService extends StandardBusinessService<MeasureUnit> implements
+        TenantLayerAbility<MeasureUnit>,
         SoftDeleteAbility<MeasureUnit>,
         EnableAbility<MeasureUnit>,
         SortAbility<MeasureUnit>,
@@ -68,29 +69,9 @@ public class MeasureUnitService extends AbstractAbilityService<MeasureUnit> impl
     }
 
     @Override
-    public void beforeInsert(MeasureUnit unit) {
-        normalizeAndValidate(unit);
-    }
-
-    @Override
-    public void beforeUpdate(MeasureUnit unit) {
-        normalizeAndValidate(unit);
-        validateImmutableIdentity(unit);
-    }
-
-    @Override
-    public net.ximatai.muyun.spring.ability.SortPartition<MeasureUnit> sortPartition() {
-        return net.ximatai.muyun.spring.ability.SortPartitions.of(unit -> categoryScope(
-                        unit.getApplicationAlias(), unit.getCategoryAlias())
-                        .eqNullable(StandardEntitySchema.TENANT_ID_FIELD, unit.getTenantId()),
-                net.ximatai.muyun.spring.ability.SortPartitions.byFieldsWithMessage(
-                "Measure unit sort can only move records within the same category",
-                "tenantId", "applicationAlias", "categoryAlias"));
-    }
-
-    @Override
-    public List<String> sortPartitionFields() {
-        return List.of("tenantId", "applicationAlias", "categoryAlias");
+    public void beforeUpdate(MeasureUnit unit, MeasureUnit existing) {
+        super.beforeUpdate(unit);
+        validateImmutableIdentity(unit, existing);
     }
 
     public MeasureUnit resolveUnit(String applicationAlias, String categoryAlias, String unitCode) {
@@ -187,7 +168,8 @@ public class MeasureUnitService extends AbstractAbilityService<MeasureUnit> impl
         return listInCategoryScope(category, criteria);
     }
 
-    private void normalizeAndValidate(MeasureUnit unit) {
+    @Override
+    protected void validateBeforeSave(MeasureUnit unit) {
         String applicationAlias = PlatformNameRules.requireApplicationAlias(unit.getApplicationAlias());
         String categoryAlias = requireCategoryAlias(unit.getCategoryAlias());
         MeasureUnitCategory category = categoryService.requireCategory(applicationAlias, categoryAlias);
@@ -213,14 +195,9 @@ public class MeasureUnitService extends AbstractAbilityService<MeasureUnit> impl
         if (unit.getRoundingMode() == null) {
             unit.setRoundingMode(RoundingMode.HALF_UP);
         }
-        rejectDuplicate(unit, categoryScope(unit.getApplicationAlias(), unit.getCategoryAlias())
-                        .eqNullable(StandardEntitySchema.TENANT_ID_FIELD, unit.getTenantId())
-                        .eq("code", unit.getCode()),
-                "measure unit code must be unique within category: " + unit.getCode());
     }
 
-    private void validateImmutableIdentity(MeasureUnit unit) {
-        MeasureUnit existing = selectIncludingDeleted(unit.getId());
+    private void validateImmutableIdentity(MeasureUnit unit, MeasureUnit existing) {
         rejectChanged(existing, unit, "Measure unit application", MeasureUnit::getApplicationAlias);
         rejectChanged(existing, unit, "Measure unit category", MeasureUnit::getCategoryAlias);
         rejectChanged(existing, unit, "Measure unit code", MeasureUnit::getCode);
@@ -242,12 +219,7 @@ public class MeasureUnitService extends AbstractAbilityService<MeasureUnit> impl
 
     private List<MeasureUnit> listInCategoryScope(MeasureUnitCategory category, Criteria criteria) {
         if (category.getTenantId() == null || category.getTenantId().isBlank()) {
-            try (TenantContext.Scope ignored = TenantContext.system("select global measure units")) {
-                return list(criteria, new PageRequest(0, Integer.MAX_VALUE), Sort.asc(PlatformAbilityFields.SORT_FIELD))
-                        .stream()
-                        .filter(unit -> unit.getTenantId() == null || unit.getTenantId().isBlank())
-                        .toList();
-            }
+            return listGlobal(criteria, Sort.asc(PlatformAbilityFields.SORT_FIELD));
         }
         return list(criteria.eqNullable(StandardEntitySchema.TENANT_ID_FIELD, category.getTenantId()),
                 new PageRequest(0, Integer.MAX_VALUE), Sort.asc(PlatformAbilityFields.SORT_FIELD))
