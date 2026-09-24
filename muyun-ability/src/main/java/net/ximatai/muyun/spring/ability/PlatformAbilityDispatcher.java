@@ -320,7 +320,6 @@ final class PlatformAbilityDispatcher {
     private static <T extends EntityContract> void runReferenceAfterSelect(CrudAbility<T> ability, T entity) {
         if (ability instanceof ReferencerAbility referencerAbility) {
             referencerAbility.afterReferenceSelect(entity);
-            referencerAbility.refreshReferenceDependencies(entity);
         }
     }
 

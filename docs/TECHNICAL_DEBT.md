@@ -90,7 +90,7 @@
 
 | 编号 | 问题 | 风险 | 回收条件 |
 | --- | --- | --- | --- |
-| TD-005 | 引用依赖缓存失效已有本地进程内索引和动静态路径闭环，但还不是跨节点治理能力 | 多实例部署和复杂批量刷新仍需要更完整的依赖生命周期管理 | 进入缓存治理或动态发布中心时，补跨节点事件和批量重建策略 |
+| TD-005 | 引用依赖缓存失效已有本地进程内索引和动静态路径闭环，但还不是完整的缓存生命周期与跨节点治理能力 | Service/runtime 整体清理、缓存策略重置已统一回收依赖；单条容量淘汰和列表 TTL 到期尚未同步回收索引，长期读取大量不同记录可能留下无缓存的依赖。多实例部署仍无跨节点失效 | 进入缓存容量治理时，将依赖生命周期与实际缓存条目统一管理，覆盖同一记录的单条/列表多份缓存和并发替换；多实例部署或动态发布中心另补跨节点事件和批量重建策略 |
 | TD-006 | `CacheAbility` 仍使用进程内 Caffeine 本地缓存 | 当前已有默认容量、全量列表 TTL 和 runtime namespace 清理，但还不是可观测、可替换的缓存管理器 | 当缓存需要监控、跨节点一致性或业务级策略时，引入运行态缓存管理器 |
 | TD-030 | 实时数据变化广播仍是第一阶段通道能力 | 当前已通过 WebSocket/STOMP 打通 `CommittedChangeSet` 广播和前端 data change 订阅，但仍是 simple broker + 尽力投递；尚未治理租户/作用域精准过滤、多实例 broker relay、outbox 补偿、消息 offset、SockJS fallback、连接监控和限流 | 进入多实例部署、生产网关代理、跨租户高安全场景、通知中心/IM 产品化或数据变化可靠补发时，按 [平台实时通信设计](platform/REALTIME_COMMUNICATION.md) 回收对应可靠性、隔离和运维能力 |
 | TD-044 | 实时 Presence 治理仍由 IAM Web 维护 | 当前 `RealtimeConnectionRegistry` 同时承接 WebSocket 连接登记、会话 presence、闲置检测、既有业务 fan-out 和在线业务提醒投递。通知能力已将业务 Service 与 IAM 人员范围解析下沉到核心层，但连接状态仍由 Web 适配层持有，跨传输协议或统一在线治理时会继续耦合 WebSocket 细节 | 出现第二种实时传输、统一连接治理、跨节点 presence 或需要由核心服务主动管理在线状态时，在 Platform 建立中性 `RealtimePresenceService`；Web adapter 只上报连接生命周期，逐步迁移 session presence、闲置治理和 fan-out |

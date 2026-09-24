@@ -2,6 +2,8 @@ package net.ximatai.muyun.spring.starter.configuration.platform;
 
 import net.ximatai.muyun.database.spring.boot.sql.annotation.EnableMuYunRepositories;
 import net.ximatai.muyun.database.core.IDatabaseOperations;
+import net.ximatai.muyun.database.core.orm.Criteria;
+import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.spring.ability.*;
 import net.ximatai.muyun.spring.common.exception.PlatformErrorCodes;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
@@ -66,6 +68,34 @@ class StandardMutationRepositoryIT {
     @Test
     void concurrentInsertConflictMustBeTranslatedAfterStatementRollback() {
         assertConcurrentConflict(false, false);
+    }
+
+    @Test
+    void globalReadsMustComposeCacheAndRecycleBinWithoutLosingTenantIsolationElsewhere() {
+        GlobalRecords global = new GlobalRecords(dao, records.jdbc);
+        MutationContractRecord record = record("global-" + UUID.randomUUID());
+        try (var ignored = TenantContext.system("global fixture")) {
+            global.insert(record);
+        }
+        try (var ignored = TenantContext.use("another-tenant")) {
+            assertThat(records.select(record.getId())).isNull();
+            assertThat(global.select(record.getId())).isNotNull();
+            assertThat(global.select(record.getId())).isNotNull();
+            global.delete(record.getId());
+            assertThat(global.select(record.getId())).isNull();
+            assertThat(global.selectIgnoreSoftDelete(record.getId()).getDeleted()).isTrue();
+            Criteria onlyRecord = Criteria.of().eq("id", record.getId());
+            assertThat(global.pageRecycleBin(onlyRecord, PageRequest.of(1, 20)).getRecords())
+                    .extracting(MutationContractRecord::getId).containsExactly(record.getId());
+            assertThat(records.pageRecycleBin(onlyRecord, PageRequest.of(1, 20)).getRecords()).isEmpty();
+            assertThat(global.canAccessRecycleBinSourceRecord(record.getId())).isTrue();
+            assertThat(records.canAccessRecycleBinSourceRecord(record.getId())).isFalse();
+            global.restore(record.getId());
+            assertThat(global.select(record.getId()).getDeleted()).isFalse();
+            assertThat(records.select(record.getId())).isNull();
+        } finally {
+            global.clearCache();
+        }
     }
 
     @Test
@@ -268,6 +298,10 @@ class StandardMutationRepositoryIT {
             TransactionScopeSupport.afterCommitOrNow(() -> committed.add(id));
             if (failPurge.contains(id)) throw new IllegalArgumentException("reject purge after write");
         }
+    }
+
+    static class GlobalRecords extends Records implements GlobalScopedAbility<MutationContractRecord>, CacheAbility<MutationContractRecord> {
+        GlobalRecords(BaseDao<MutationContractRecord, String> dao, JdbcTemplate jdbc) { super(dao, jdbc); }
     }
 
     static class FailingLogService extends DeletionLogService {

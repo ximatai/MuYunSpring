@@ -655,6 +655,37 @@ class DynamicRelationRuntimeTest {
     }
 
     @Test
+    void uncachedDynamicListMustNotReplaceDependenciesOfCachedRecords() {
+        IDatabaseOperations<Object> operations = operations();
+        AtomicReference<Map<String, Object>> storedLine = new AtomicReference<>(lineRow());
+        when(operations.query(anyString(), anyMap())).thenAnswer(invocation -> {
+            String sql = invocation.getArgument(0);
+            if (sql.contains("\"app_invoice_line\"")) return List.of(storedLine.get());
+            if (sql.contains("\"app_invoice\"")) return List.of(invoiceRow());
+            return List.of();
+        });
+        when(operations.patchUpdateItemWhere(eq(SCHEMA), anyString(), anyMap(), anyMap(), eq("id"))).thenReturn(1);
+        try (DynamicRecordRuntime runtime = new DynamicRecordRuntime(operations).register(invoiceModule())) {
+            DynamicEntityService invoices = runtime.entityService(MODULE, "invoice");
+            DynamicEntityService lines = runtime.entityService(MODULE, "invoice_line");
+            assertThat(lines.select("line-1").getValue("title")).isEqualTo("L-001");
+
+            Map<String, Object> changed = new java.util.LinkedHashMap<>(lineRow("L-002"));
+            changed.put("invoice_id", null);
+            storedLine.set(changed);
+            assertThat(lines.list(net.ximatai.muyun.database.core.orm.Criteria.of()))
+                    .singleElement().satisfies(line -> assertThat(line.getValue("title")).isEqualTo("L-002"));
+
+            DynamicRecord invoice = new DynamicRecord(invoiceEntity()).setValue("title", "I-002");
+            invoice.setId("invoice-1");
+            invoice.setVersion(1);
+            invoices.update(invoice);
+
+            assertThat(lines.select("line-1").getValue("title")).isEqualTo("L-002");
+        }
+    }
+
+    @Test
     void shouldResolveDynamicReferenceDependencyScopePlan() {
         DynamicRecordRuntime runtime = new DynamicRecordRuntime(operations())
                 .register(scoreModule())

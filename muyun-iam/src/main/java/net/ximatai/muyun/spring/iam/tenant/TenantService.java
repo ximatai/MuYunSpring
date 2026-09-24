@@ -151,11 +151,6 @@ public class TenantService extends AbstractAbilityService<Tenant> implements
     }
 
     @Override
-    public Criteria recycleBinCriteria(Criteria criteria) {
-        return globalCriteria(criteria);
-    }
-
-    @Override
     public void beforeRecycleBinRestore() {
         requireSystemMutationContext();
     }

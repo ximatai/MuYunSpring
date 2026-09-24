@@ -376,11 +376,16 @@ public interface CrudAbility<T extends EntityContract> {
     }
 
     default Criteria activeCriteria(Criteria criteria) {
+        return tenantCriteria(criteria);
+    }
+
+    /** Ownership scope shared by active reads, retained records and recovery sources. */
+    default Criteria tenantCriteria(Criteria criteria) {
         Criteria scoped = Criteria.of();
         if (criteria != null && !criteria.isEmpty()) {
             scoped.andGroup(criteria.getRoot());
         }
-        if (!TenantContext.tenantFilterBypassed()) {
+        if (!(this instanceof GlobalScopedAbility<?>) && !TenantContext.tenantFilterBypassed()) {
             TenantContext.currentTenantId()
                     .ifPresent(tenantId -> scoped.eq(StandardEntitySchema.TENANT_ID_FIELD, tenantId));
         }

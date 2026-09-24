@@ -13,6 +13,7 @@ dependencies {
     testImplementation(project(":muyun-boot"))
     testImplementation(project(":muyun-iam"))
     testImplementation(libs.spring.boot.starter.test)
+    testImplementation(libs.spring.tx)
     testImplementation(libs.testcontainers.junit.jupiter)
     testImplementation(libs.testcontainers.postgresql)
     testRuntimeOnly(libs.junit.platform.launcher)

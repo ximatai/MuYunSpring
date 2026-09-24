@@ -99,6 +99,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doCallRealMethod;
+import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
@@ -961,8 +962,10 @@ class PlatformConfigurationWebControllerTest {
         DictionaryCategoryWebController controller = new DictionaryCategoryWebController();
         ReflectionTestUtils.setField(controller, "service", service);
 
-        abilityAwareMvc(controller)
-                .perform(post("/platform.dictionary_category/navigator/reference/tree/query")
+        MockMvc mvc = abilityAwareMvc(controller);
+        // Capability compilation reads model declarations during registration, not this request.
+        clearInvocations(service);
+        mvc.perform(post("/platform.dictionary_category/navigator/reference/tree/query")
                         .contentType(MediaType.APPLICATION_JSON))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.records").isEmpty());

@@ -4,7 +4,6 @@ import net.ximatai.muyun.database.core.IDatabaseOperations;
 import net.ximatai.muyun.database.core.orm.DatabaseValueConverter;
 import net.ximatai.muyun.spring.ability.CacheRegistry;
 import net.ximatai.muyun.spring.ability.event.RuntimeEventPublisher;
-import net.ximatai.muyun.spring.ability.reference.ReferenceDependencyRegistry;
 import net.ximatai.muyun.spring.ability.deletion.DeletionContext;
 import net.ximatai.muyun.spring.ability.deletion.DeletionNode;
 import net.ximatai.muyun.spring.ability.security.FieldCryptoProvider;
@@ -334,7 +333,6 @@ public class DynamicRecordRuntime implements AutoCloseable {
 
     public void clearCache() {
         CacheRegistry.clearNamespacePrefix(cacheNamespacePrefix);
-        ReferenceDependencyRegistry.clearNamespacePrefix(cacheNamespacePrefix);
     }
 
     @Override

@@ -2,6 +2,7 @@ package net.ximatai.muyun.spring.ability;
 
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
+import net.ximatai.muyun.spring.ability.reference.ReferenceDependencyRegistry;
 import net.ximatai.muyun.spring.common.model.contract.EntityContract;
 import net.ximatai.muyun.spring.common.schema.StandardEntitySchema;
 import net.ximatai.muyun.spring.common.tenant.TenantContext;
@@ -38,6 +39,7 @@ public interface CacheAbility<T extends EntityContract> extends CrudAbility<T> {
             }
             T copied = copyForCache(cached);
             PlatformAbilityDispatcher.afterSelect(this, copied);
+            ReferenceDependencyRegistry.refresh(this, copied);
             afterSelect(copied);
             return copied;
         }
@@ -52,6 +54,7 @@ public interface CacheAbility<T extends EntityContract> extends CrudAbility<T> {
         CacheRegistry.putItem(cacheNamespace(), id, copyForCache(loaded));
         T copied = copyForCache(loaded);
         PlatformAbilityDispatcher.afterSelect(this, copied);
+        ReferenceDependencyRegistry.refresh(this, copied);
         afterSelect(copied);
         return copied;
     }
@@ -71,6 +74,7 @@ public interface CacheAbility<T extends EntityContract> extends CrudAbility<T> {
         return cached.stream()
                 .map(this::copyForCache)
                 .peek(record -> PlatformAbilityDispatcher.afterSelect(this, record))
+                .peek(record -> ReferenceDependencyRegistry.refresh(this, record))
                 .peek(this::afterSelect)
                 .toList();
     }
@@ -78,6 +82,7 @@ public interface CacheAbility<T extends EntityContract> extends CrudAbility<T> {
     default void clearItemCache(String id) {
         CacheRegistry.removeItem(cacheNamespace(), id);
         clearAllCache();
+        ReferenceDependencyRegistry.removeReferrer(cacheNamespace(), id);
     }
 
     default void clearAllCache() {
@@ -95,7 +100,7 @@ public interface CacheAbility<T extends EntityContract> extends CrudAbility<T> {
         if (this instanceof SoftDeleteAbility<?> && Boolean.TRUE.equals(entity.getDeleted())) {
             return false;
         }
-        return TenantContext.matchesCurrentTenant(entity);
+        return this instanceof GlobalScopedAbility<?> || TenantContext.matchesCurrentTenant(entity);
     }
 
     private T selectWithoutCache(String id) {
@@ -129,6 +134,9 @@ public interface CacheAbility<T extends EntityContract> extends CrudAbility<T> {
     }
 
     private String tenantScopeKey() {
+        if (this instanceof GlobalScopedAbility<?>) {
+            return "global";
+        }
         if (TenantContext.tenantFilterBypassed()) {
             return "all-tenants";
         }

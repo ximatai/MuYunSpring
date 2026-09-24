@@ -182,7 +182,27 @@ class FieldProtectionAbilityTest {
         assertThat(rendered).isEqualTo("138****5678");
     }
 
-    private static final class ProtectedRecordService extends AbstractAbilityService<ProtectedDemoRecord>
+    @Test
+    void globalRetainedReadMustStillDecryptAndVerifyFields() {
+        CopyingProtectedRecordDao dao = new CopyingProtectedRecordDao();
+        GlobalProtectedRecordService service = new GlobalProtectedRecordService(dao);
+        ProtectedDemoRecord record = new ProtectedDemoRecord();
+        record.setPhone("13812345678");
+        String id = service.insert(record);
+        service.delete(id);
+
+        assertThat(service.selectIgnoreSoftDelete(id).getPhone()).isEqualTo("13812345678");
+        assertThat(dao.stored(id).getPhone()).isEqualTo("enc:13812345678");
+        dao.stored(id).setPhoneSignature("tampered");
+        assertThatThrownBy(() -> service.selectIgnoreSoftDelete(id)).isInstanceOf(FieldProtectionException.class);
+    }
+
+    private static final class GlobalProtectedRecordService extends ProtectedRecordService
+            implements GlobalScopedAbility<ProtectedDemoRecord> {
+        GlobalProtectedRecordService(BaseDao<ProtectedDemoRecord, String> dao) { super(dao); }
+    }
+
+    private static class ProtectedRecordService extends AbstractAbilityService<ProtectedDemoRecord>
             implements FieldProtectionAbility<ProtectedDemoRecord>,
             SoftDeleteAbility<ProtectedDemoRecord>,
             ReferenceAbility<ProtectedDemoRecord> {

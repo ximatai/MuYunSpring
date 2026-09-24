@@ -34,7 +34,7 @@ public interface SoftDeleteAbility<T extends EntityContract> extends CrudAbility
         if (id == null || id.isBlank()) {
             return null;
         }
-        T entity = getDao().query(CrudAbility.super.activeCriteria(Criteria.of().eq(StandardEntitySchema.ID_FIELD, id)), new PageRequest(0, 1))
+        T entity = getDao().query(tenantCriteria(Criteria.of().eq(StandardEntitySchema.ID_FIELD, id)), new PageRequest(0, 1))
                 .stream()
                 .findFirst()
                 .orElse(null);
@@ -167,7 +167,7 @@ public interface SoftDeleteAbility<T extends EntityContract> extends CrudAbility
 
     @Override
     default Criteria activeCriteria(Criteria criteria) {
-        Criteria scoped = CrudAbility.super.activeCriteria(criteria);
+        Criteria scoped = tenantCriteria(criteria);
         scoped.andGroup(group -> group
                 .eq(StandardEntitySchema.DELETED_FIELD, Boolean.FALSE)
                 .orIsNull(StandardEntitySchema.DELETED_FIELD));
@@ -176,7 +176,7 @@ public interface SoftDeleteAbility<T extends EntityContract> extends CrudAbility
 
     /** Tenant-aware retained-row scope for platform-owned recycle-bin projections. */
     default Criteria deletedCriteria(Criteria criteria) {
-        Criteria scoped = CrudAbility.super.activeCriteria(criteria);
+        Criteria scoped = tenantCriteria(criteria);
         scoped.eq(StandardEntitySchema.DELETED_FIELD, Boolean.TRUE);
         return scoped;
     }

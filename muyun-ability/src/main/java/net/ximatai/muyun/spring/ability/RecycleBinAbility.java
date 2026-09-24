@@ -6,7 +6,6 @@ import net.ximatai.muyun.database.core.orm.PageResult;
 import net.ximatai.muyun.database.core.orm.Sort;
 import net.ximatai.muyun.spring.common.model.contract.EntityContract;
 import net.ximatai.muyun.spring.common.schema.StandardEntitySchema;
-import net.ximatai.muyun.spring.common.tenant.TenantContext;
 import net.ximatai.muyun.spring.common.platform.ActionExecutionPolicy;
 import net.ximatai.muyun.spring.common.platform.PlatformAction;
 import net.ximatai.muyun.spring.common.platform.DataScopeCriteriaResult;
@@ -51,15 +50,7 @@ public interface RecycleBinAbility<T extends EntityContract> extends SoftDeleteA
      * retained records have opposite deleted-state predicates.
      */
     default Criteria recycleBinCriteria(Criteria criteria) {
-        Criteria scoped = Criteria.of();
-        if (criteria != null && !criteria.isEmpty()) {
-            scoped.andGroup(criteria.getRoot());
-        }
-        if (!TenantContext.tenantFilterBypassed()) {
-            TenantContext.currentTenantId()
-                    .ifPresent(tenantId -> scoped.eq(StandardEntitySchema.TENANT_ID_FIELD, tenantId));
-        }
-        return scoped;
+        return tenantCriteria(criteria);
     }
 
     /** Hook for the resource owner to enforce its query boundary. */

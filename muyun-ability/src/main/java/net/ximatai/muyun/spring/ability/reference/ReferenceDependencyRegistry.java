@@ -18,14 +18,9 @@ public final class ReferenceDependencyRegistry {
     private ReferenceDependencyRegistry() {
     }
 
-    static void refresh(Object ability, EntityContract entity) {
-        TransactionScopeSupport.afterCommitOrNow(() -> refreshNow(ability, entity));
-    }
-
-    private static void refreshNow(Object ability, EntityContract entity) {
-        if (!(ability instanceof CacheAbility<?> cacheAbility)
-                || !(ability instanceof ReferencerAbility<?> referencerAbility)
-                || entity == null
+    /** Internal cache integration; transaction reads bypass both cache and dependencies. */
+    public static void refresh(CacheAbility<?> cacheAbility, EntityContract entity) {
+        if (entity == null
                 || entity.getId() == null
                 || entity.getId().isBlank()) {
             return;
@@ -34,7 +29,10 @@ public final class ReferenceDependencyRegistry {
         removeReferrer(referrer);
 
         @SuppressWarnings({"rawtypes", "unchecked"})
-        Map<ReferenceTarget, Set<String>> references = ((ReferencerAbility) referencerAbility).collectReferenceIdsByTarget(entity);
+        Map<ReferenceTarget, Set<String>> references = cacheAbility instanceof ReferencerAbility referencerAbility
+                ? referencerAbility.collectReferenceIdsByTarget(entity)
+                : StaticReferenceResolver.collect(cacheAbility.modelClass() == null
+                        ? entity.getClass() : cacheAbility.modelClass(), entity);
         for (Map.Entry<ReferenceTarget, Set<String>> entry : references.entrySet()) {
             for (String targetId : entry.getValue()) {
                 TargetKey target = new TargetKey(entry.getKey(), targetId);
@@ -44,11 +42,11 @@ public final class ReferenceDependencyRegistry {
         }
     }
 
-    static void removeReferrer(String namespace, String id) {
+    public static void removeReferrer(String namespace, String id) {
         if (namespace == null || namespace.isBlank() || id == null || id.isBlank()) {
             return;
         }
-        TransactionScopeSupport.afterCommitOrNow(() -> removeReferrer(new ReferrerKey(namespace, id)));
+        removeReferrer(new ReferrerKey(namespace, id));
     }
 
     static void clearReferrers(ReferenceTarget target, String id) {
@@ -70,7 +68,7 @@ public final class ReferenceDependencyRegistry {
         }
     }
 
-    static void clearAll() {
+    public static void clearAll() {
         REFERRERS.clear();
         TARGETS_BY_REFERRER.clear();
     }

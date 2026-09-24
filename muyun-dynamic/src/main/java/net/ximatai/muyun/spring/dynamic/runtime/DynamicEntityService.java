@@ -768,7 +768,6 @@ public class DynamicEntityService implements
         restoreProtectedFieldsFromStorage(record);
         populateReferenceReadFields(record == null ? List.of() : List.of(record));
         optionLoadPopulator.populate(dao.getEntity(), record == null ? List.of() : List.of(record));
-        refreshReferenceDependencies(record);
     }
 
     private void applyReadPipeline(List<DynamicRecord> records) {
@@ -778,7 +777,6 @@ public class DynamicEntityService implements
         records.forEach(this::restoreProtectedFieldsFromStorage);
         populateReferenceReadFields(records);
         optionLoadPopulator.populate(dao.getEntity(), records);
-        records.forEach(this::refreshReferenceDependencies);
     }
 
     private void populateReferenceReadFields(List<DynamicRecord> records) {

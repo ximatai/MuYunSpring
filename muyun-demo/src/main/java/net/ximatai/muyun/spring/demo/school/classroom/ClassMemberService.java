@@ -1,25 +1,19 @@
 package net.ximatai.muyun.spring.demo.school.classroom;
 
-import net.ximatai.muyun.spring.ability.AbstractAbilityService;
+import net.ximatai.muyun.spring.ability.StandardBusinessService;
 import net.ximatai.muyun.spring.ability.SoftDeleteAbility;
 import net.ximatai.muyun.spring.ability.SortAbility;
 import net.ximatai.muyun.spring.ability.child.ChildAbility;
-import net.ximatai.muyun.spring.ability.reference.ReferencerAbility;
 import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Service;
 
-/**
- * 班级成员子表的标准 Service：{@link ChildAbility} 使其可被班级聚合装配，
- * {@link SortAbility} 与 {@link SoftDeleteAbility} 分别提供班内排序和成员历史保留。
- * {@link ReferencerAbility} 将班级、学生引用纳入统一的写入完整性校验与引用依赖缓存失效链路。
- */
+/** 班级成员子表：班内排序、历史保留与引用完整性由平台能力和模型声明提供。 */
 @Service
 @Profile("school-demo")
-public class ClassMemberService extends AbstractAbilityService<ClassMember> implements
+public class ClassMemberService extends StandardBusinessService<ClassMember> implements
         SoftDeleteAbility<ClassMember>,
         SortAbility<ClassMember>,
-        ChildAbility<ClassMember>,
-        ReferencerAbility<ClassMember> {
+        ChildAbility<ClassMember> {
 
     public ClassMemberService(ClassMemberDao dao) {
         super("education.class_member", ClassMember.class, dao);

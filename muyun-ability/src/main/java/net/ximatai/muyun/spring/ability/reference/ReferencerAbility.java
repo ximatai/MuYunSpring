@@ -1,7 +1,6 @@
 package net.ximatai.muyun.spring.ability.reference;
 
 import net.ximatai.muyun.spring.common.exception.PlatformException;
-import net.ximatai.muyun.spring.ability.CacheAbility;
 import net.ximatai.muyun.spring.ability.CrudAbility;
 import net.ximatai.muyun.spring.common.model.contract.EntityContract;
 
@@ -11,19 +10,10 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 
+/** Custom/dynamic reference behavior. Ordinary static services use model annotations directly. */
 public interface ReferencerAbility<T extends EntityContract> extends CrudAbility<T> {
     default Map<ReferenceTarget, Set<String>> collectReferenceIdsByTarget(T entity) {
-        Class<?> modelClass = referenceModelClass(entity);
-        if (modelClass == null || entity == null) {
-            return Map.of();
-        }
-        Map<ReferenceTarget, Set<String>> result = new java.util.LinkedHashMap<>();
-        for (ReferencePlan plan : StaticReferenceResolver.plans(modelClass)) {
-            List<String> values = StaticReferenceResolver.values(entity, plan);
-            if (values.isEmpty()) continue;
-            result.computeIfAbsent(plan.target(), ignored -> new java.util.LinkedHashSet<>()).addAll(values);
-        }
-        return result.isEmpty() ? Map.of() : java.util.Collections.unmodifiableMap(result);
+        return StaticReferenceResolver.collect(referenceModelClass(entity), entity);
     }
 
     default void afterReferenceSelect(T entity) {
@@ -46,16 +36,6 @@ public interface ReferencerAbility<T extends EntityContract> extends CrudAbility
      */
     default void validateReferenceIntegrity(T existing, T entity) {
         ReferenceWriteValidator.validateStatic(referenceModelClass(entity), existing, entity);
-    }
-
-    default void refreshReferenceDependencies(T entity) {
-        ReferenceDependencyRegistry.refresh(this, entity);
-    }
-
-    default void clearReferenceDependency(String id) {
-        if (this instanceof CacheAbility<?> cacheAbility) {
-            ReferenceDependencyRegistry.removeReferrer(cacheAbility.cacheNamespace(), id);
-        }
     }
 
     default void populateStaticReferenceTitles(T entity) {

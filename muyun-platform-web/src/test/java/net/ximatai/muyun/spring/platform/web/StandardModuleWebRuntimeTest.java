@@ -137,6 +137,7 @@ class StandardModuleWebRuntimeTest {
         when(service.getDao()).thenReturn(dao);
         when(service.count(any())).thenCallRealMethod();
         when(service.activeCriteria(any())).thenCallRealMethod();
+        when(service.tenantCriteria(any())).thenCallRealMethod();
         DataScopeAbility<?> scoped = (DataScopeAbility<?>) service;
         ActionExecutionPolicy standard = ActionExecutionPolicy.standard(
                 net.ximatai.muyun.spring.common.platform.PlatformAction.QUERY);
