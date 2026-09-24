@@ -52,7 +52,7 @@ public abstract class AbstractAbilityService<T extends EntityContract> implement
         return RecordFieldMutation.update(this, policy, id, mutation, Set.of(fields));
     }
 
-    /** Ordinary saves retain these fields; an exact field command may explicitly update them. */
+    /** Retains RAW snapshot values in business form, including decryption/verification; an exact field command may update them. */
     protected final void retainCommandFields(T incoming, T existing, String... fields) {
         RecordFieldMutation.retain(this, incoming, existing, fields);
     }

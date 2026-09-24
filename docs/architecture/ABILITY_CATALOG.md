@@ -105,7 +105,7 @@ private transient String organizationTitle;
 
 ## 领域动作、输出与扩展
 
-- `mutateFields(policy, id, mutation, fields...)` 适用于具备无参构造器的静态模型，声明少量字段变更并保留正常更新的作用域、版本、校验、缓存和生命周期。动作专用字段在普通更新 hook 中使用 `retainCommandFields` 保留；字段白名单由服务端声明。动态动作仍按动态输入契约编译。
+- `mutateFields(policy, id, mutation, fields...)` 适用于具备无参构造器的静态模型，声明少量字段变更并保留正常更新的作用域、版本、校验、缓存和生命周期。动作专用字段在普通更新 hook 中使用 `retainCommandFields` 保留；组合字段保护时自动解密、验签后保留业务值，业务无需增加分支。字段白名单由服务端声明。动态动作仍按动态输入契约编译。
 - `FieldProtectionAbility` 写入时临时转换存储态并恢复业务对象；从 RAW 快照保留受保护字段使用 `retainProtectedFieldFromStorage`。加密、签名与脱敏可以独立声明，不为每种策略新增能力接口。
 - `PlatformRecordOutput` 是标准对外输出门面，承接选项标题、脱敏等转换。领域默认读取不做展示脱敏；Web、导出、推送和自定义展示在交付边界选择输出上下文。新增转换实现 `RecordOutputTransformer`，不新增专项 `XxxOutputAbility`。
 - Ability 规范动作通过 `PlatformOperation` 进入统一交付；具体 Service 用 `DisablePlatformOperations` 停用少量不适用动作。Ability 不声明 HTTP。标准静态启停、排序、树和回收站端点由平台投射；CRUD 仍由标准 Web adapter 接入。

@@ -13,6 +13,7 @@ import net.ximatai.muyun.spring.ability.security.FieldProtectionAbility;
 import net.ximatai.muyun.spring.ability.security.FieldSigner;
 import net.ximatai.muyun.spring.common.model.capability.TitledCapable;
 import net.ximatai.muyun.spring.common.model.standard.StandardEntity;
+import net.ximatai.muyun.spring.common.platform.PlatformAction;
 import net.ximatai.muyun.spring.common.security.EncryptedField;
 import net.ximatai.muyun.spring.common.security.FieldMaskingPolicy;
 import net.ximatai.muyun.spring.common.security.FieldOutputContext;
@@ -28,6 +29,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Consumer;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -195,6 +197,104 @@ class FieldProtectionAbilityTest {
         assertThat(dao.stored(id).getPhone()).isEqualTo("enc:13812345678");
         dao.stored(id).setPhoneSignature("tampered");
         assertThatThrownBy(() -> service.selectIgnoreSoftDelete(id)).isInstanceOf(FieldProtectionException.class);
+    }
+
+    @Test
+    void ordinarySaveMustRetainProtectedCommandFieldInBusinessForm() {
+        CopyingProtectedRecordDao dao = new CopyingProtectedRecordDao();
+        CommandProtectedRecordService service = new CommandProtectedRecordService(dao);
+        ProtectedDemoRecord record = new ProtectedDemoRecord();
+        record.setPhone("13812345678");
+        String id = service.insert(record);
+        ProtectedDemoRecord incoming = service.select(id);
+        incoming.setTitle("Updated");
+        incoming.setPhone("ordinary overwrite");
+
+        service.update(incoming);
+
+        assertThat(incoming.getPhone()).isEqualTo("13812345678");
+        assertThat(service.select(id).getPhone()).isEqualTo("13812345678");
+        assertThat(dao.stored(id).getTitle()).isEqualTo("Updated");
+        assertThat(dao.stored(id).getPhone()).isEqualTo("enc:13812345678");
+        assertThat(dao.stored(id).getPhoneSignature()).isEqualTo("sig:phone:13812345678");
+    }
+
+    @Test
+    void anotherFieldCommandMustNotEncryptRetainedCiphertextAgain() {
+        CopyingProtectedRecordDao dao = new CopyingProtectedRecordDao();
+        CommandProtectedRecordService service = new CommandProtectedRecordService(dao);
+        ProtectedDemoRecord record = new ProtectedDemoRecord();
+        record.setPhone("13812345678");
+        String id = service.insert(record);
+
+        service.command(id, draft -> draft.setTitle("Updated"), "title");
+
+        assertThat(service.select(id).getPhone()).isEqualTo("13812345678");
+        assertThat(dao.stored(id).getTitle()).isEqualTo("Updated");
+        assertThat(dao.stored(id).getPhone()).isEqualTo("enc:13812345678");
+        assertThat(dao.stored(id).getPhoneSignature()).isEqualTo("sig:phone:13812345678");
+    }
+
+    @Test
+    void declaredProtectedFieldCommandMustStillReplaceAndClearTheValue() {
+        CopyingProtectedRecordDao dao = new CopyingProtectedRecordDao();
+        CommandProtectedRecordService service = new CommandProtectedRecordService(dao);
+        ProtectedDemoRecord record = new ProtectedDemoRecord();
+        record.setPhone("13812345678");
+        String id = service.insert(record);
+
+        service.command(id, draft -> {
+            assertThat(draft.getPhone()).isEqualTo("13812345678");
+            draft.setPhone("13912345678");
+        }, "phone");
+
+        assertThat(service.select(id).getPhone()).isEqualTo("13912345678");
+        assertThat(dao.stored(id).getPhone()).isEqualTo("enc:13912345678");
+        assertThat(dao.stored(id).getPhoneSignature()).isEqualTo("sig:phone:13912345678");
+
+        service.command(id, draft -> draft.setPhone(null), "phone");
+        service.command(id, draft -> draft.setTitle("After clear"), "title");
+        assertThat(service.select(id).getPhone()).isNull();
+        assertThat(dao.stored(id).getPhone()).isNull();
+        assertThat(dao.stored(id).getPhoneSignature()).isNull();
+    }
+
+    @Test
+    void ordinarySaveMustRejectTamperedRetainedCommandFieldBeforePersistence() {
+        CopyingProtectedRecordDao dao = new CopyingProtectedRecordDao();
+        CommandProtectedRecordService service = new CommandProtectedRecordService(dao);
+        ProtectedDemoRecord record = new ProtectedDemoRecord();
+        record.setTitle("Original");
+        record.setPhone("13812345678");
+        String id = service.insert(record);
+        Integer version = dao.stored(id).getVersion();
+        dao.stored(id).setPhoneSignature("tampered");
+        ProtectedDemoRecord incoming = new ProtectedDemoRecord();
+        incoming.setId(id);
+        incoming.setVersion(version);
+        incoming.setTitle("Rejected");
+        incoming.setPhone("ordinary overwrite");
+
+        assertThatThrownBy(() -> service.update(incoming)).isInstanceOf(FieldProtectionException.class);
+
+        assertThat(incoming.getPhone()).isEqualTo("ordinary overwrite");
+        assertThat(dao.stored(id).getTitle()).isEqualTo("Original");
+        assertThat(dao.stored(id).getVersion()).isEqualTo(version);
+        assertThat(dao.stored(id).getPhone()).isEqualTo("enc:13812345678");
+        assertThat(dao.stored(id).getPhoneSignature()).isEqualTo("tampered");
+    }
+
+    private static final class CommandProtectedRecordService extends ProtectedRecordService {
+        CommandProtectedRecordService(BaseDao<ProtectedDemoRecord, String> dao) { super(dao); }
+
+        @Override
+        public void beforeUpdate(ProtectedDemoRecord incoming, ProtectedDemoRecord existing) {
+            retainCommandFields(incoming, existing, "phone");
+        }
+
+        int command(String id, Consumer<ProtectedDemoRecord> mutation, String... fields) {
+            return mutateFields(PlatformAction.UPDATE.executionPolicy(), id, mutation, fields);
+        }
     }
 
     private static final class GlobalProtectedRecordService extends ProtectedRecordService

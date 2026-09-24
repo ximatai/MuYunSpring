@@ -70,13 +70,22 @@ final class RecordFieldMutation {
         }
     }
 
-    static void retain(CrudAbility<?> service, EntityContract draft, EntityContract existing, String... fields) {
+    static <T extends EntityContract> void retain(CrudAbility<T> service, T draft, T existing, String... fields) {
         if (existing == null) return;
         Binding binding = CURRENT.get();
         for (String name : fields) {
             if (binding != null && binding.service == service && binding.record == draft
                     && binding.fields.contains(name)) continue;
-            copy(field(draft.getClass(), name, false), existing, draft, UnaryOperator.identity());
+            Field retainedField = field(draft.getClass(), name, false);
+            if (service instanceof FieldProtectionAbility<?> protection
+                    && protection.fieldProtectionPlan().fields().stream().anyMatch(accessor ->
+                    accessor.fieldName().equals(name) && accessor.protection().hasStorageProtection())) {
+                @SuppressWarnings("unchecked")
+                var typed = (FieldProtectionAbility<T>) protection;
+                typed.retainProtectedFieldFromStorage(draft, existing, name);
+            } else {
+                copy(retainedField, existing, draft, UnaryOperator.identity());
+            }
         }
     }
 
