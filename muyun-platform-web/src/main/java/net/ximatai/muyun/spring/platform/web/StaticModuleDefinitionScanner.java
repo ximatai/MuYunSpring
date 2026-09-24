@@ -230,8 +230,7 @@ public class StaticModuleDefinitionScanner implements StaticModuleRegistrationSo
         }
         LinkedHashMap<String, Class<?>> models = new LinkedHashMap<>();
         models.put(entities.getFirst().alias(), modelClass);
-        if (service(bean) instanceof ChildrenAbility<?> childrenAbility
-                && !childrenAbility.usesAutomaticChildRelations()) {
+        if (service(bean) instanceof ChildrenAbility<?>) {
             for (StaticChildResolver.ChildRule child : StaticChildResolver.rules(modelClass)) {
                 models.put(child.plan().relationCode(), child.childModel());
             }
@@ -388,8 +387,7 @@ public class StaticModuleDefinitionScanner implements StaticModuleRegistrationSo
             }
             entities.put(target.alias(), target);
         }
-        if (service(bean) instanceof ChildrenAbility<?> childrenAbility
-                && !childrenAbility.usesAutomaticChildRelations()) {
+        if (service(bean) instanceof ChildrenAbility<?>) {
             for (StaticChildResolver.ChildRule child : StaticChildResolver.rules(modelClass)) {
                 EntityDefinition target = new StaticEntityDefinitionCompiler().compile(
                         child.plan().relationCode(), child.childModel().getSimpleName(), child.childModel());

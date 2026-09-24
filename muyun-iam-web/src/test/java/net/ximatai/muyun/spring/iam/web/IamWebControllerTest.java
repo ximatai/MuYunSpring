@@ -126,6 +126,17 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 class IamWebControllerTest {
+    @org.junit.jupiter.api.BeforeEach
+    void installDataScopeRuntime() {
+        net.ximatai.muyun.spring.ability.PlatformAbilityRuntime.configureDataScopeCriteriaService(
+                net.ximatai.muyun.spring.common.platform.AllowAllDataScopeCriteriaService::new);
+    }
+
+    @org.junit.jupiter.api.AfterEach
+    void resetDataScopeRuntime() {
+        net.ximatai.muyun.spring.ability.PlatformAbilityRuntime.resetDataScopeCriteriaService();
+    }
+
     private final ObjectMapper objectMapper = new ObjectMapper();
     private TenantDao tenantDao;
     private OrganizationDao organizationDao;
@@ -144,8 +155,7 @@ class IamWebControllerTest {
     void shouldUsePositionCategoryToEstablishTenantScopeWithoutASessionMutationConstraint() {
         PositionDao dao = mock(PositionDao.class);
         PositionCategoryService categoryService = mock(PositionCategoryService.class);
-        PositionService positionService = new PositionService(dao, mock(ActiveTenantVerifier.class), categoryService,
-                mock(EmployeePositionDao.class));
+        PositionService positionService = new PositionService(dao, mock(ActiveTenantVerifier.class));
         PlanOnlyPositionWebController controller = new PlanOnlyPositionWebController();
         ReflectionTestUtils.setField(controller, "service", positionService);
         controller.setPositionCategoryService(categoryService);
@@ -291,9 +301,8 @@ class IamWebControllerTest {
         tenantService = new TenantService(tenantDao);
         OrganizationService organizationService = new OrganizationService(organizationDao, tenantService);
         PositionCategoryService positionCategoryService = new PositionCategoryService(
-                positionCategoryDao, tenantService, positionDao);
-        PositionService positionService = new PositionService(positionDao, tenantService, positionCategoryService,
-                employeePositionDao);
+                positionCategoryDao, tenantService);
+        PositionService positionService = new PositionService(positionDao, tenantService);
         UserAccountService userAccountService = net.ximatai.muyun.spring.iam.support.UserAccountServiceTestFactory.create(
                 userAccountDao, tenantService, new PasswordHashingService());
         TenantWebController tenantController = new TenantWebController();
@@ -1023,14 +1032,18 @@ class IamWebControllerTest {
         currentUser = CurrentUser.systemUser("admin", "Admin");
         UserAccount existing = user("user-1", "alice", "Alice");
         existing.setTenantId("demo");
+        existing.setVersion(3);
         existing.setPasswordHash(new PasswordHashingService().hash("old-secret"));
         when(tenantDao.query(any(Criteria.class), any(PageRequest.class))).thenReturn(List.of(tenant("demo", "Demo")));
         when(userAccountDao.count(any(Criteria.class))).thenReturn(1L);
         when(userAccountDao.query(any(Criteria.class), any(PageRequest.class)))
                 .thenReturn(List.of(existing));
-        when(userAccountDao.updateById(any(UserAccount.class))).thenAnswer(invocation -> {
+        when(userAccountDao.updateByIdAndVersion(any(UserAccount.class), any())).thenAnswer(invocation -> {
             assertThat(TenantContext.currentTenantId()).contains("demo");
             UserAccount updated = invocation.getArgument(0);
+            assertThat((Integer) invocation.getArgument(1)).isEqualTo(3);
+            assertThat(updated.getVersion()).isEqualTo(4);
+            assertThat(updated.getUpdatedBy()).isEqualTo("admin");
             assertThat(new PasswordHashingService().matches("new-secret", updated.getPasswordHash())).isTrue();
             return 1;
         });
@@ -2005,9 +2018,7 @@ class IamWebControllerTest {
                     mock(UserAccountDao.class),
                     mock(ActiveTenantVerifier.class),
                     new PasswordHashingService(),
-                    new net.ximatai.muyun.spring.iam.user.UserAccountAuthorizationServices(
-                            net.ximatai.muyun.spring.common.platform.AllowAllDataScopeCriteriaService::new,
-                            mock(net.ximatai.muyun.spring.iam.role.AccountRoleGrantDao.class)),
+                    mock(net.ximatai.muyun.spring.iam.role.AccountRoleGrantDao.class),
                     new net.ximatai.muyun.spring.iam.user.UserAccountSecurityServices(
                             java.util.Optional.empty(),
                             net.ximatai.muyun.spring.iam.user.UserSecurityEventPublisher.NOOP,

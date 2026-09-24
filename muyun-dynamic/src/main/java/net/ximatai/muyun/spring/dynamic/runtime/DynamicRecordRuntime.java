@@ -256,13 +256,11 @@ public class DynamicRecordRuntime implements AutoCloseable {
                 continue;
             }
             DynamicEntityService source = entityService(inbound.moduleAlias(), reference.sourceEntityAlias());
-                boolean referenced = !source.list(Criteria.of().eq(reference.sourceField(), targetId),
-                        PageRequest.of(1, 1)).isEmpty();
-                if (referenced) {
-                    throw new PlatformException("cannot make reference target unavailable " + target.qualifiedName()
-                            + ": active records in " + inbound.moduleAlias()
-                            + "." + reference.sourceField() + " still reference it");
-                }
+            long count = source.count(Criteria.of().eq(reference.sourceField(), targetId));
+            if (count > 0) {
+                throw net.ximatai.muyun.spring.ability.reference.ReferenceDeletionGuard.referencedTarget(
+                        target, targetId, inbound.moduleAlias(), reference.sourceField(), count);
+            }
         }
     }
 

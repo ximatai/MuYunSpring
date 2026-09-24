@@ -49,6 +49,17 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class OrganizationRepositoryContractTest {
+    @org.junit.jupiter.api.BeforeEach
+    void installDataScope() {
+        net.ximatai.muyun.spring.ability.PlatformAbilityRuntime.configureDataScopeCriteriaService(
+                net.ximatai.muyun.spring.common.platform.AllowAllDataScopeCriteriaService::new);
+    }
+
+    @org.junit.jupiter.api.AfterEach
+    void resetDataScope() {
+        net.ximatai.muyun.spring.ability.PlatformAbilityRuntime.resetDataScopeCriteriaService();
+    }
+
     private static final String SCHEMA = "public";
     private static final String TABLE = "iam_organization";
     private static final String DEMO_TABLE = "demo_static_repository_entity";

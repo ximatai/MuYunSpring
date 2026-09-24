@@ -18,7 +18,8 @@ public interface CacheAbility<T extends EntityContract> extends CrudAbility<T> {
     }
 
     default T copyForCache(T entity) {
-        return EntityCacheCopies.shallowCopy(entity);
+        return EntityRecordCopies.shallowCopy(entity,
+                "cache copy requires a no-arg constructor or custom copyForCache");
     }
 
     @SuppressWarnings("unchecked")

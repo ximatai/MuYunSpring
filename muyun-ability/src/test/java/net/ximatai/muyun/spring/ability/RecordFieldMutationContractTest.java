@@ -1,0 +1,119 @@
+package net.ximatai.muyun.spring.ability;
+
+import lombok.Getter;
+import lombok.Setter;
+import net.ximatai.muyun.database.core.orm.Criteria;
+import net.ximatai.muyun.spring.common.identity.CurrentUser;
+import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
+import net.ximatai.muyun.spring.common.model.standard.StandardEntity;
+import net.ximatai.muyun.spring.common.platform.*;
+import net.ximatai.muyun.spring.common.tenant.TenantContext;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Test;
+
+import java.util.Optional;
+import java.util.function.Consumer;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
+class RecordFieldMutationContractTest {
+    private static final ActionExecutionPolicy POLICY = new ActionExecutionPolicy("changeSecret",
+            PlatformActionLevel.RECORD, ActionAccessMode.AUTH_REQUIRED, true, true,
+            ActionDefaultGrantPolicy.NONE, null);
+
+    @AfterEach
+    void reset() {
+        PlatformAbilityRuntime.resetDataScopeCriteriaService();
+        TenantContext.clear();
+        CurrentUserContext.clear();
+        CacheRegistry.clearAll();
+    }
+
+    @Test
+    void commandMustKeepActorVersionHooksAndCacheWhileRestrictingWrittenFields() {
+        PlatformAbilityRuntime.configureDataScopeCriteriaService(AllowAllDataScopeCriteriaService::new);
+        CommandService service = new CommandService();
+        try (var tenant = TenantContext.use("tenant-a");
+             var actor = CurrentUserContext.use(CurrentUser.tenantUser("operator", "Operator", "tenant-a"))) {
+            CommandRecord record = new CommandRecord();
+            record.setTitle("Original"); record.setSecret("old");
+            String id = service.insert(record);
+            assertThat(service.select(id).getSecret()).isEqualTo("old");
+            int version = record.getVersion();
+            assertThat(service.command(id, changed -> {
+                changed.setSecret("new");
+                changed.setTitle("Unrequested");
+                changed.setTenantId("foreign");
+            })).isEqualTo(1);
+            CommandRecord saved = service.select(id);
+            assertThat(saved.getSecret()).isEqualTo("new");
+            assertThat(saved.getTitle()).isEqualTo("Original");
+            assertThat(saved.getTenantId()).isEqualTo("tenant-a");
+            assertThat(saved.getVersion()).isEqualTo(version + 1);
+            assertThat(saved.getUpdatedBy()).isEqualTo("operator");
+            assertThat(service.hooks).isEqualTo(1);
+            assertThat(ActionExecutionContextHolder.current()).isEmpty();
+            saved.setSecret("ordinary overwrite");
+            service.update(saved);
+            assertThat(service.select(id).getSecret()).isEqualTo("new");
+        }
+    }
+
+    @Test
+    void denialMustHappenBeforeDomainMutationAndStandardFieldsMustBeRejected() {
+        CommandService service = new CommandService();
+        CommandRecord record = new CommandRecord();
+        record.setSecret("old");
+        String id = service.insert(record);
+        PlatformAbilityRuntime.configureDataScopeCriteriaService(() -> new AllowAllDataScopeCriteriaService() {
+            @Override
+            public DataScopeCriteriaResult resolveReadScope(String module, ActionExecutionPolicy policy,
+                                                            Criteria criteria, Optional<CurrentUser> user) {
+                return DataScopeCriteriaResult.restricted(criteria.eq("id", "unavailable"));
+            }
+        });
+        assertThatThrownBy(() -> service.command(id, value -> { throw new AssertionError("must not execute"); }))
+                .hasMessageContaining("record data permission denied");
+        PlatformAbilityRuntime.configureDataScopeCriteriaService(AllowAllDataScopeCriteriaService::new);
+        assertThatThrownBy(() -> service.systemFieldCommand(id)).isInstanceOf(IllegalArgumentException.class);
+        assertThat(ActionExecutionContextHolder.current()).isEmpty();
+    }
+
+    @Test
+    void failingBusinessHookMustNotLeakCommandFieldPermission() {
+        PlatformAbilityRuntime.configureDataScopeCriteriaService(AllowAllDataScopeCriteriaService::new);
+        CommandService service = new CommandService();
+        CommandRecord record = new CommandRecord();
+        record.setSecret("old");
+        String id = service.insert(record);
+        service.reject = true;
+        assertThatThrownBy(() -> service.command(id, value -> value.setSecret("failed")))
+                .hasMessage("business rejection");
+        service.reject = false;
+        CommandRecord ordinary = service.select(id);
+        ordinary.setSecret("ordinary");
+        service.update(ordinary);
+        assertThat(service.select(id).getSecret()).isEqualTo("old");
+    }
+
+    @Getter @Setter
+    static class CommandRecord extends StandardEntity {
+        private String title;
+        private String secret;
+    }
+
+    static class CommandService extends AbstractAbilityService<CommandRecord>
+            implements DataScopeAbility<CommandRecord>, CacheAbility<CommandRecord> {
+        int hooks;
+        boolean reject;
+        CommandService() { super("test.command", CommandRecord.class, new InMemoryBaseDao<>()); }
+        int command(String id, Consumer<CommandRecord> mutation) { return mutateFields(POLICY, id, mutation, "secret"); }
+        int systemFieldCommand(String id) { return mutateFields(POLICY, id, value -> {}, "tenantId"); }
+        @Override public void beforeUpdate(CommandRecord record, CommandRecord existing) {
+            if (reject) throw new IllegalArgumentException("business rejection");
+            retainCommandFields(record, existing == null ? selectActiveRaw(record.getId()) : existing, "secret");
+        }
+        @Override public void afterUpdate(CommandRecord record, int count) { hooks++; }
+    }
+}

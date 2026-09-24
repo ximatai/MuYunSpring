@@ -4,7 +4,6 @@ import net.ximatai.muyun.spring.common.platform.AllowAllDataScopeCriteriaService
 import net.ximatai.muyun.spring.common.tenant.ActiveTenantVerifier;
 import net.ximatai.muyun.spring.iam.role.AccountRoleGrantDao;
 import net.ximatai.muyun.spring.iam.user.PasswordHashingService;
-import net.ximatai.muyun.spring.iam.user.UserAccountAuthorizationServices;
 import net.ximatai.muyun.spring.iam.user.UserAccountDao;
 import net.ximatai.muyun.spring.iam.user.UserAccountSecurityServices;
 import net.ximatai.muyun.spring.iam.user.UserAccountService;
@@ -27,13 +26,16 @@ public final class UserAccountServiceTestFactory {
                 dao,
                 activeTenantVerifier,
                 passwordHashingService,
-                new UserAccountAuthorizationServices(
-                        AllowAllDataScopeCriteriaService::new,
-                        mock(AccountRoleGrantDao.class)),
+                mock(AccountRoleGrantDao.class),
                 new UserAccountSecurityServices(
                         Optional.empty(),
                         UserSecurityEventPublisher.NOOP,
                         mock(UserSessionRevocationService.class),
-                        mock(UserSessionPresenceService.class)));
+                        mock(UserSessionPresenceService.class))) {
+            @Override
+            public net.ximatai.muyun.spring.common.platform.DataScopeCriteriaService getDataScopeCriteriaService() {
+                return new AllowAllDataScopeCriteriaService();
+            }
+        };
     }
 }

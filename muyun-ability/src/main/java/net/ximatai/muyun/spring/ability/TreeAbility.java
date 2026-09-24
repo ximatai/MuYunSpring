@@ -348,23 +348,38 @@ public interface TreeAbility<T extends TreeCapable> extends SortAbility<T> {
     }
 
     default List<String> descendantIds(String id) {
+        return descendantIds(Criteria.of(), id);
+    }
+
+    default List<String> descendantIds(Criteria scope, String id) {
+        if (selectInScope(scope, id) == null) {
+            return List.of();
+        }
         List<String> result = new ArrayList<>();
-        collectDescendantIds(id, result, new LinkedHashSet<>());
-        return result;
+        collectDescendantIds(scope, id, result, new LinkedHashSet<>());
+        return List.copyOf(result);
     }
 
     default List<String> selfAndDescendantIds(String id) {
-        if (id == null || id.isBlank()) {
+        return selfAndDescendantIds(Criteria.of(), id);
+    }
+
+    default List<String> selfAndDescendantIds(Criteria scope, String id) {
+        if (selectInScope(scope, id) == null) {
             return List.of();
         }
         List<String> ids = new ArrayList<>();
         ids.add(id);
-        ids.addAll(descendantIds(id));
+        collectDescendantIds(scope, id, ids, new LinkedHashSet<>());
         return List.copyOf(ids);
     }
 
     default void validateTreePlacement(T entity) {
         validateTreePlacementBase(entity);
+        String parentId = entity.getParentId();
+        if (parentId != null && !parentId.isBlank() && !ROOT_ID.equals(parentId)) {
+            validateTreeMoveBusinessPartition(entity, selectActiveRaw(parentId));
+        }
     }
 
     default void validateTreePlacementBase(T entity) {
@@ -376,7 +391,8 @@ public interface TreeAbility<T extends TreeCapable> extends SortAbility<T> {
         if (parentId.equals(id)) {
             throw new PlatformException("Tree node cannot use itself as parent: " + id);
         }
-        if (select(parentId) == null) {
+        T parent = selectActiveRaw(parentId);
+        if (parent == null) {
             throw new PlatformException("Tree node cannot use missing parent: " + parentId);
         }
         if (ancestorIds(parentId).contains(id)) {
@@ -413,16 +429,16 @@ public interface TreeAbility<T extends TreeCapable> extends SortAbility<T> {
                 .orElse(null);
     }
 
-    private void collectDescendantIds(String parentId, List<String> result, Set<String> visited) {
+    private void collectDescendantIds(Criteria scope, String parentId, List<String> result, Set<String> visited) {
         if (!visited.add(parentId)) {
             throw new PlatformException("Tree cycle detected while resolving descendants: " + parentId);
         }
-        for (T child : children(parentId)) {
+        for (T child : children(scope, parentId)) {
             if (visited.contains(child.getId())) {
                 throw new PlatformException("Tree cycle detected while resolving descendants: " + parentId);
             }
             result.add(child.getId());
-            collectDescendantIds(child.getId(), result, visited);
+            collectDescendantIds(scope, child.getId(), result, visited);
         }
         visited.remove(parentId);
     }

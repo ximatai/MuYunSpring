@@ -54,7 +54,7 @@ public class ModuleMetadataFieldPropertySummaryService {
                     new ModuleMetadataFieldPropertySummary.Reference(policy.referenceModuleAlias(), null, "id", "title",
                             net.ximatai.muyun.spring.ability.reference.ReferenceCardinality.ONE,
                             net.ximatai.muyun.spring.ability.reference.ReferenceTargetUnavailablePolicy.PRESERVE_HISTORY,
-                            List.of()), null);
+                            List.of(), false), null);
         }
         if (legacy != null && legacyBinding(legacy)) {
             return legacySummary(field, legacy);
@@ -71,7 +71,8 @@ public class ModuleMetadataFieldPropertySummaryService {
                     new ModuleMetadataFieldPropertySummary.Reference(reference.getTargetModuleAlias(),
                             reference.getTargetMetadataId(), reference.getTargetKeyField(), reference.getTargetLabelField(),
                             reference.getCardinality(), reference.getTargetUnavailablePolicy(),
-                            reference.projections().stream().map(item -> item.targetField() + ":" + item.outputField()).toList()), null);
+                            reference.projections().stream().map(item -> item.targetField() + ":" + item.outputField()).toList(),
+                            Boolean.TRUE.equals(reference.getRequireEnabled())), null);
         }
         if (dictionary != null && dictionary.hasDictionaryBinding()) {
             return new ModuleMetadataFieldPropertySummary(field.getId(), field.getFieldName(), field.getFieldSpecAlias(),
@@ -91,7 +92,7 @@ public class ModuleMetadataFieldPropertySummaryService {
         ModuleMetadataFieldPropertySummary.Reference reference = hasText(legacy.getReferenceModuleAlias())
                 ? new ModuleMetadataFieldPropertySummary.Reference(legacy.getReferenceModuleAlias(), null,
                 legacy.getReferenceModuleKeyField(), legacy.getReferenceModuleLabelField(), null,
-                legacy.getReferenceTargetUnavailablePolicy(), List.of()) : null;
+                legacy.getReferenceTargetUnavailablePolicy(), List.of(), Boolean.TRUE.equals(legacy.getReferenceRequireEnabled())) : null;
         ModuleMetadataFieldPropertySummary.Dictionary dictionary = hasText(legacy.getDictionaryCategoryAlias())
                 ? new ModuleMetadataFieldPropertySummary.Dictionary(legacy.getDictionaryApplicationAlias(),
                 legacy.getDictionaryCategoryAlias(), null) : null;

@@ -54,6 +54,11 @@ public class ModuleMetadataField extends StandardSortableEntity {
             defaultVal = @Default(varchar = "PRESERVE_HISTORY"))
     private ReferenceTargetUnavailablePolicy referenceTargetUnavailablePolicy = ReferenceTargetUnavailablePolicy.PRESERVE_HISTORY;
 
+    @Column(name = "reference_require_enabled", type = ColumnType.BOOLEAN, nullable = false,
+            comment = "Require an enabled reference target on every save",
+            defaultVal = @Default(bool = net.ximatai.muyun.database.core.annotation.TrueOrFalse.FALSE))
+    private Boolean referenceRequireEnabled = false;
+
     @Column(name = "reference_module_key_field", type = ColumnType.VARCHAR, length = 64, comment = "Reference module key field")
     private String referenceModuleKeyField;
 

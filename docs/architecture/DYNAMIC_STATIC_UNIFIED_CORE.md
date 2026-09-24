@@ -62,7 +62,7 @@ Definition 和 Web DSL 只负责声明，不能成为请求期重复解释的第
 5. `SortAbility`：统一排序字段、列表排序和相邻移动。
 6. `TreeAbility`：统一父子关系、祖先、后代、环保护和树位置校验；树天然具备同级排序语义。
 7. `ReferenceAbility`：统一标题解析和引用选项读取，保留 RAW 读取入口。
-8. `ChildAbility` / `ChildrenAbility`：统一父子聚合的子表插入、更新替换、自动装配和父删联动；父子写链路必须由调用方事务包裹。
+8. `ChildAbility` / `ChildrenAbility`：统一父子聚合的子表插入、更新替换、自动装配和父删联动；标准 CRUD 经宿主安装的 `MutationTransactionOperator` 包裹，父子写链路共享事务；跨多个独立 Service 的业务编排仍由领域服务声明外层事务。
 9. `CacheAbility`：统一按 ID 和全量列表的本地缓存、写后失效和缓存对象副本隔离。
 10. `ReferencerAbility`：声明当前模型引用了哪些来源模型，为后续引用依赖失效提供稳定入口。
 
@@ -84,6 +84,12 @@ DynamicRecordService
 `DynamicRecordDao` 只负责动态表 SQL 映射和数据访问，不承接生命周期、权限或业务编排。
 
 生命周期分为平台内部链和业务扩展 hook。CRUD 标准入口先调度平台内部链，再调用业务 hook；父子聚合等平台能力挂在内部链上，业务覆盖 `afterInsert`、`afterUpdate`、`afterDelete`、`afterSelect` 时不需要手动调用 `super` 来维持平台能力正确性。业务 `after*` hook 是平台能力完成后的扩展点，不用于观察或拦截平台内部链执行前的 RAW 对象状态。
+
+写入门禁独立于业务 hook：`MutationScopeAbility` 在标准插入、更新、删除、恢复和清理中由内部链调用。更新与删除基于库内归属判断，不信任请求中的租户或所有者。`normalizeBeforeMutation` 在标准插入、更新中各执行一次；业务覆盖保存钩子无需补调门禁或规范化。租户静态业务统一继承 `TenantActiveScopedService`，同时获得标准保存校验模板。
+
+`DataScopeAbility` 默认解析宿主安装的权限运行时，未装配时明确拒绝使用；轻量测试需要显式提供测试策略。回收站与数据范围的组合由能力层承担。普通业务不再复制权限 provider、回收站权限分支或组织树递归；树能力支持带业务范围的后代遍历，并按模型分区声明校验父节点。
+
+静态聚合的 `@Children` / `@ChildOf` 同时进入运行时关系解析与模块实体编译。业务不必为让页面识别子表而重复注入子 Service、手写相同关系；带事务代理的 Service 也必须能通过基类访问器正确报告模型身份。确需读取持久化事实时使用 `selectActiveRaw` / `listRaw`，避免内部权限解析触发引用展示装配。
 
 乐观锁由 Ability 层统一表达：更新和带实体删除以当前记录 `version` 作为 expected version，写入时递增到下一版本；冲突时抛出 `OptimisticLockException`。动态 DAO 和静态 Repository 都通过 MuYunDatabase 条件写入口执行 `id + version` 约束写入；静态删除走条件删除，动态软删走条件更新，避免在业务层手写并发控制。
 

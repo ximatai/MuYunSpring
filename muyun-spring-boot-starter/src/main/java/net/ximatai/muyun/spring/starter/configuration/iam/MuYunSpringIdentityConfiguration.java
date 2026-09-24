@@ -23,6 +23,10 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Primary;
+import org.springframework.beans.factory.DisposableBean;
+import org.springframework.beans.factory.ObjectProvider;
+import net.ximatai.muyun.spring.common.platform.DataScopeCriteriaService;
+import net.ximatai.muyun.spring.ability.PlatformAbilityRuntime;
 
 /**
  * IAM 宿主装配：提供租户有效性、系统菜单访问和租户初始化所需的默认协作对象。
@@ -31,6 +35,13 @@ import org.springframework.context.annotation.Primary;
 @Configuration(proxyBeanMethods = false)
 @EnableConfigurationProperties(MuYunSpringInitialAdminProperties.class)
 public class MuYunSpringIdentityConfiguration {
+    @Bean
+    DisposableBean dataScopeAbilityRuntime(
+            ObjectProvider<DataScopeCriteriaService> service) {
+        PlatformAbilityRuntime.configureDataScopeCriteriaService(service::getObject);
+        return PlatformAbilityRuntime::resetDataScopeCriteriaService;
+    }
+
     @Bean
     @Primary
     @ConditionalOnMissingBean(value = ActiveTenantVerifier.class,

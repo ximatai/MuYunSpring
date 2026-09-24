@@ -61,7 +61,7 @@ class DiscriminatedCrudAbilityTest {
         record.setRegionCode("US");
         assertThatThrownBy(() -> service.update(record))
                 .isInstanceOf(PlatformException.class)
-                .hasMessageContaining("reference target does not satisfy dependency: regionCode");
+                .hasMessageContaining("所选关联记录与当前填写的关联条件不一致");
     }
 
     private enum Scope implements CodeTitleEnum {

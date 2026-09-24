@@ -148,7 +148,11 @@ class UserAccountServiceContractTest {
                 List.of(user),
                 List.of(user)
         );
-        when(dao.updateById(any(UserAccount.class))).thenReturn(1);
+        when(dao.updateByIdAndVersion(any(UserAccount.class), any())).thenAnswer(call -> {
+            UserAccount updated = call.getArgument(0);
+            org.springframework.beans.BeanUtils.copyProperties(updated, user);
+            return 1;
+        });
         PasswordPolicyRuleService passwordPolicyRuleService = mock(PasswordPolicyRuleService.class);
         UserAccountService service = userAccountServiceFixture(dao, tenantId -> {
         }, passwordHashingService).passwordPolicy(passwordPolicyRuleService).build();
@@ -299,7 +303,11 @@ class UserAccountServiceContractTest {
         UserAccount user = activeUser();
         when(dao.count(any(Criteria.class))).thenReturn(1L);
         when(dao.query(any(Criteria.class), any(PageRequest.class))).thenReturn(List.of(user));
-        when(dao.updateById(any(UserAccount.class))).thenReturn(1);
+        when(dao.updateByIdAndVersion(any(UserAccount.class), any())).thenAnswer(call -> {
+            UserAccount updated = call.getArgument(0);
+            org.springframework.beans.BeanUtils.copyProperties(updated, user);
+            return 1;
+        });
         DataScopeCriteriaService dataScope = mock(DataScopeCriteriaService.class);
         when(dataScope.resolveReadScope(eq(UserAccountService.MODULE_ALIAS),
                 any(ActionExecutionPolicy.class), any(Criteria.class),
@@ -347,7 +355,11 @@ class UserAccountServiceContractTest {
         UserAccount user = activeUser();
         when(dao.count(any(Criteria.class))).thenReturn(1L);
         when(dao.query(any(Criteria.class), any(PageRequest.class))).thenReturn(List.of(user));
-        when(dao.updateById(any(UserAccount.class))).thenReturn(1);
+        when(dao.updateByIdAndVersion(any(UserAccount.class), any())).thenAnswer(call -> {
+            UserAccount updated = call.getArgument(0);
+            org.springframework.beans.BeanUtils.copyProperties(updated, user);
+            return 1;
+        });
         DataScopeCriteriaService dataScope = mock(DataScopeCriteriaService.class);
         when(dataScope.resolveReadScope(eq(UserAccountService.MODULE_ALIAS),
                 any(ActionExecutionPolicy.class), any(Criteria.class),
@@ -390,7 +402,7 @@ class UserAccountServiceContractTest {
                     .hasMessageContaining("record data permission denied");
         }
 
-        verify(dao, never()).updateById(any(UserAccount.class));
+        verify(dao, never()).updateByIdAndVersion(any(UserAccount.class), any());
     }
 
     @Test
@@ -399,7 +411,11 @@ class UserAccountServiceContractTest {
         UserAccount user = activeUser();
         when(dao.count(any(Criteria.class))).thenReturn(1L);
         when(dao.query(any(Criteria.class), any(PageRequest.class))).thenReturn(List.of(user));
-        when(dao.updateById(any(UserAccount.class))).thenReturn(1);
+        when(dao.updateByIdAndVersion(any(UserAccount.class), any())).thenAnswer(call -> {
+            UserAccount updated = call.getArgument(0);
+            org.springframework.beans.BeanUtils.copyProperties(updated, user);
+            return 1;
+        });
         PasswordPolicyRuleService passwordPolicyRuleService = mock(PasswordPolicyRuleService.class);
         UserAccountService service = userAccountServiceFixture(dao, tenantId -> {
         }, passwordHashingService).passwordPolicy(passwordPolicyRuleService).build();
@@ -424,7 +440,11 @@ class UserAccountServiceContractTest {
         UserAccount user = activeUser();
         when(dao.count(any(Criteria.class))).thenReturn(1L);
         when(dao.query(any(Criteria.class), any(PageRequest.class))).thenReturn(List.of(user));
-        when(dao.updateById(any(UserAccount.class))).thenReturn(1);
+        when(dao.updateByIdAndVersion(any(UserAccount.class), any())).thenAnswer(call -> {
+            UserAccount updated = call.getArgument(0);
+            org.springframework.beans.BeanUtils.copyProperties(updated, user);
+            return 1;
+        });
         RecordingUserSecurityEventPublisher eventPublisher = new RecordingUserSecurityEventPublisher();
         UserSessionRevocationService revocationService = mock(UserSessionRevocationService.class);
         UserAccountService service = userAccountServiceFixture(dao, tenantId -> {
@@ -464,7 +484,7 @@ class UserAccountServiceContractTest {
 
         assertThat(eventPublisher.events).containsExactly(UserSecurityEvent.forceLogout("user-1"));
         verify(revocationService).revokeUserSessions("user-1", "force logout");
-        verify(dao, never()).updateById(any(UserAccount.class));
+        verify(dao, never()).updateByIdAndVersion(any(UserAccount.class), any());
     }
 
     @Test
@@ -488,7 +508,7 @@ class UserAccountServiceContractTest {
                             .isEqualTo("iam.user.password-admin-current-user"));
         }
 
-        verify(dao, never()).updateById(any(UserAccount.class));
+        verify(dao, never()).updateByIdAndVersion(any(UserAccount.class), any());
     }
 
     @Test
@@ -551,7 +571,7 @@ class UserAccountServiceContractTest {
         profile.setPasswordStatus(PasswordStatus.NORMAL);
         when(dao.query(any(Criteria.class), any(PageRequest.class))).thenReturn(List.of(existing));
 
-        service.beforeUpdate(profile);
+        service.beforeUpdate(profile, existing);
 
         assertThat(profile.getPasswordStatus()).isEqualTo(PasswordStatus.RESET_REQUIRED);
         assertThat(profile.getPasswordExpiresAt()).isEqualTo(existing.getPasswordExpiresAt());
@@ -657,9 +677,14 @@ class UserAccountServiceContractTest {
                     dao,
                     activeTenantVerifier,
                     passwordHashingService,
-                    new UserAccountAuthorizationServices(() -> dataScopeCriteriaService, accountRoleGrantDao),
+                    accountRoleGrantDao,
                     new UserAccountSecurityServices(Optional.ofNullable(passwordPolicyRuleService),
-                            securityEventPublisher, sessionRevocationService, sessionPresenceService));
+                            securityEventPublisher, sessionRevocationService, sessionPresenceService)) {
+                @Override
+                public DataScopeCriteriaService getDataScopeCriteriaService() {
+                    return dataScopeCriteriaService;
+                }
+            };
         }
     }
 

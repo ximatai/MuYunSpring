@@ -1,5 +1,16 @@
 package net.ximatai.muyun.spring.boot;
 
+import net.ximatai.muyun.spring.common.exception.PlatformException;
+import net.ximatai.muyun.spring.iam.employee.EmployeePositionService;
+import net.ximatai.muyun.spring.iam.employee.EmployeePosition;
+import net.ximatai.muyun.spring.iam.position.PositionCategoryService;
+import net.ximatai.muyun.spring.iam.position.PositionCategory;
+import net.ximatai.muyun.spring.iam.position.PositionService;
+import net.ximatai.muyun.spring.iam.position.Position;
+import net.ximatai.muyun.spring.iam.organization.OrganizationService;
+import net.ximatai.muyun.spring.iam.organization.Organization;
+import net.ximatai.muyun.spring.iam.department.DepartmentService;
+import net.ximatai.muyun.spring.iam.department.Department;
 import com.fasterxml.jackson.databind.JsonNode;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
@@ -47,6 +58,7 @@ import net.ximatai.muyun.spring.platform.deletion.RestoreReport;
 import net.ximatai.muyun.spring.platform.deletion.StaticDeletionRecoveryResourceResolver;
 import net.ximatai.muyun.spring.iam.employee.EmployeeAccountService;
 import net.ximatai.muyun.spring.iam.employee.EmployeeService;
+import net.ximatai.muyun.spring.iam.employee.Employee;
 import net.ximatai.muyun.spring.platform.module.ModuleActionContribution;
 import net.ximatai.muyun.spring.platform.module.ModuleActionContributionRegistrar;
 import net.ximatai.muyun.spring.platform.module.ModuleActionSourceType;
@@ -88,6 +100,9 @@ import net.ximatai.muyun.spring.iam.tenant.TenantApplicationService;
 import net.ximatai.muyun.spring.iam.tenant.TenantService;
 import net.ximatai.muyun.spring.iam.user.LoginResult;
 import net.ximatai.muyun.spring.iam.user.UserAccountService;
+import net.ximatai.muyun.spring.iam.user.UserAccount;
+import net.ximatai.muyun.spring.iam.user.PasswordHashingService;
+import net.ximatai.muyun.spring.ability.OptimisticLockException;
 import net.ximatai.muyun.spring.iam.user.UserSession;
 import net.ximatai.muyun.spring.iam.user.UserSessionDao;
 import net.ximatai.muyun.spring.iam.user.UserSessionService;
@@ -688,6 +703,123 @@ class MuYunSpringApplicationContextIT {
                     .containsExactlyInAnyOrder(TenantService.MODULE_ALIAS, TenantApplicationService.MODULE_ALIAS);
             assertThat(tenantService.select(tenantId)).isNotNull();
             assertThat(tenantApplicationService.isApplicationOpened(tenantId, "iam")).isTrue();
+        }
+    }
+
+    @Test
+    void declaredIamReferencesMustEnforceIntegrityThroughActualServiceWrites() {
+        String suffix = java.util.UUID.randomUUID().toString().substring(0, 8);
+        String tenantId = insertActiveTenant("ref_contract_" + suffix);
+        OrganizationService organizations = applicationContext.getBean(OrganizationService.class);
+        DepartmentService departments = applicationContext.getBean(DepartmentService.class);
+        PositionCategoryService categories = applicationContext.getBean(PositionCategoryService.class);
+        PositionService positions = applicationContext.getBean(PositionService.class);
+        EmployeePositionService employment = applicationContext.getBean(EmployeePositionService.class);
+        try (var actor = CurrentUserContext.use(CurrentUser.systemUser("reference-contract", "Reference contract"));
+             var scope = TenantContext.use(tenantId)) {
+            Organization organization = new Organization();
+            organization.setCode("ORG");
+            organization.setTitle("Organization");
+            organizations.insert(organization);
+            Organization other = new Organization();
+            other.setCode("OTHER");
+            other.setTitle("Other organization");
+            organizations.insert(other);
+
+            Department department = new Department();
+            department.setCode("DEPT");
+            department.setTitle("Department");
+            department.setOrganizationId("missing-organization");
+            assertThatThrownBy(() -> departments.insert(department))
+                    .isInstanceOf(PlatformException.class).hasMessageContaining("所选关联记录不存在或已删除");
+            department.setOrganizationId(organization.getId());
+            departments.insert(department);
+            organizations.disable(organization.getId());
+            assertThatThrownBy(() -> departments.update(department))
+                    .isInstanceOf(PlatformException.class).hasMessageContaining("所选关联记录已停用");
+            organizations.enable(organization.getId());
+
+            PositionCategory category = new PositionCategory();
+            category.setCode("CATEGORY");
+            category.setTitle("Category");
+            categories.insert(category);
+            Position position = new Position();
+            position.setCode("POSITION");
+            position.setTitle("Position");
+            position.setCategoryId(category.getId());
+            categories.disable(category.getId());
+            assertThatThrownBy(() -> positions.insert(position))
+                    .isInstanceOf(PlatformException.class).hasMessageContaining("所选关联记录已停用");
+            categories.enable(category.getId());
+            positions.insert(position);
+
+            Employee employee = new Employee();
+            employee.setEmployeeNo("EMPLOYEE");
+            employee.setTitle("Employee");
+            employee.setDepartmentId(department.getId());
+            employee.setOrganizationId(other.getId());
+            assertThatThrownBy(() -> employeeService.insert(employee))
+                    .isInstanceOf(PlatformException.class).hasMessageContaining("所选关联记录与当前填写的关联条件不一致");
+            employee.setOrganizationId(organization.getId());
+            employeeService.insert(employee);
+
+            EmployeePosition relation = new EmployeePosition();
+            relation.setEmployeeId(employee.getId());
+            relation.setOrganizationId(other.getId());
+            relation.setDepartmentId(department.getId());
+            relation.setPositionId(position.getId());
+            assertThatThrownBy(() -> employment.insert(relation))
+                    .isInstanceOf(PlatformException.class).hasMessageContaining("所选关联记录与当前填写的关联条件不一致");
+            relation.setOrganizationId(organization.getId());
+            employment.insert(relation);
+            relation.setOrganizationId(other.getId());
+            assertThatThrownBy(() -> employment.update(relation))
+                    .isInstanceOf(PlatformException.class).hasMessageContaining("所选关联记录与当前填写的关联条件不一致");
+            assertThat(employment.selectActiveRaw(relation.getId()).getOrganizationId())
+                    .isEqualTo(organization.getId());
+
+            assertThatThrownBy(() -> positions.delete(position.getId(), position.getVersion()))
+                    .isInstanceOf(PlatformException.class).hasMessageContaining("该记录仍被其他记录引用");
+            assertThatThrownBy(() -> categories.delete(category.getId(), categories.selectActiveRaw(category.getId()).getVersion()))
+                    .isInstanceOf(PlatformException.class).hasMessageContaining("该记录仍被其他记录引用");
+
+            String foreignOrganizationId = "foreign_org_" + suffix;
+            insertOrganization("different-tenant", foreignOrganizationId, "FOREIGN", "Foreign organization");
+            EmployeePosition foreign = new EmployeePosition();
+            foreign.setEmployeeId(employee.getId());
+            foreign.setOrganizationId(foreignOrganizationId);
+            foreign.setDepartmentId(department.getId());
+            foreign.setPositionId(position.getId());
+            assertThatThrownBy(() -> employment.insert(foreign))
+                    .isInstanceOf(PlatformException.class).hasMessageContaining("所选关联记录不存在或已删除");
+        }
+    }
+
+    @Test
+    void passwordCommandMustAdvanceVersionAndRejectStaleProfileWithRealDatabase() {
+        String operatorId = UserAccountService.PLATFORM_SUPER_ADMIN_USER_ID;
+        try (var tenant = TenantContext.system("password command contract");
+             var actor = CurrentUserContext.use(CurrentUser.systemUser(operatorId, "Admin"))) {
+            UserAccount user = new UserAccount();
+            user.setUsername("password-command-version");
+            user.setEnabled(true);
+            String id = userAccountService.createUser(user, "OriginalPassword123!");
+            UserAccount stale = userAccountService.select(id);
+
+            assertThat(userAccountService.changePassword(id, "ChangedPassword123!")).isEqualTo(1);
+
+            UserAccount changed = userAccountService.select(id);
+            assertThat(changed.getVersion()).isEqualTo(stale.getVersion() + 1);
+            assertThat(changed.getUpdatedBy()).isEqualTo(operatorId);
+            assertThat(new PasswordHashingService().matches("ChangedPassword123!", changed.getPasswordHash())).isTrue();
+            stale.setEnabled(false);
+            assertThatThrownBy(() -> userAccountService.update(stale)).isInstanceOf(OptimisticLockException.class);
+            assertThat(userAccountService.select(id).getEnabled()).isTrue();
+
+            changed.setPasswordHash("ordinary-profile-overwrite");
+            assertThat(userAccountService.update(changed)).isEqualTo(1);
+            assertThat(new PasswordHashingService().matches("ChangedPassword123!",
+                    userAccountService.select(id).getPasswordHash())).isTrue();
         }
     }
 

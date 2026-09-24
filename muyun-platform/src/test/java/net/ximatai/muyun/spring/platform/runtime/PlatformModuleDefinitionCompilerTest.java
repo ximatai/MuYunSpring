@@ -303,6 +303,7 @@ class PlatformModuleDefinitionCompilerTest {
         String orderRelationId = relationService.insert(mainRelation("crm.order", orderMetadataId));
 
         String customerMetadataId = metadataService.insert(metadata("crm", "customer"));
+        fieldService.insert(field(customerMetadataId, "enabled", "enabled", FieldType.BOOLEAN));
         MetadataField id = field(customerMetadataId, "id", "id", FieldType.STRING);
         fieldService.insert(id);
         MetadataField title = titleField(customerMetadataId);
@@ -316,6 +317,7 @@ class PlatformModuleDefinitionCompilerTest {
         ModuleMetadataField formRegion = moduleField(orderFields, customerRegion.getId());
         customerField.setReferenceModuleAlias("crm.customer");
         customerField.setReferenceTargetUnavailablePolicy(ReferenceTargetUnavailablePolicy.RESTRICT);
+        customerField.setReferenceRequireEnabled(true);
         customerField.setReferenceModuleKeyField("id");
         customerField.setReferenceModuleLabelField("title");
         customerField.setReferenceGenerateRuleId("generate-order");
@@ -344,6 +346,7 @@ class PlatformModuleDefinitionCompilerTest {
         assertThat(reference.sourceField()).isEqualTo("customerId");
         assertThat(reference.targetQualifiedName()).isEqualTo("crm.customer.customer");
         assertThat(reference.integrity().onTargetUnavailable()).isEqualTo(ReferenceTargetUnavailablePolicy.RESTRICT);
+        assertThat(reference.integrity().requireEnabled()).isTrue();
         assertThat(reference.keyField()).isEqualTo("id");
         assertThat(reference.labelField()).isEqualTo("title");
         assertThat(reference.generateRuleId()).isEqualTo("generate-order");
@@ -450,6 +453,7 @@ class PlatformModuleDefinitionCompilerTest {
     void shouldCompileFieldReferenceConfigIntoModuleDefinition() {
         moduleService.insert(module("sales.invoice", ModuleKind.DYNAMIC));
         String invoiceId = metadataService.insert(metadata("sales", "invoice"));
+        fieldService.insert(field(invoiceId, "enabled", "enabled", FieldType.BOOLEAN));
         String lineId = metadataService.insert(metadata("sales", "invoice_line"));
         fieldService.insert(titleField(invoiceId));
         MetadataField invoiceCode = field(invoiceId, "code", "code", FieldType.STRING);
@@ -464,6 +468,7 @@ class PlatformModuleDefinitionCompilerTest {
         relationService.insert(childRelation("sales.invoice", lineId, invoiceId));
         MetadataFieldReferenceConfig referenceConfig = referenceConfig(invoiceField.getId(), invoiceId);
         referenceConfig.setTargetUnavailablePolicy(ReferenceTargetUnavailablePolicy.RESTRICT);
+        referenceConfig.setRequireEnabled(true);
         referenceConfig.setProjectionMappings("title:invoiceTitle,code:invoiceCode");
         referenceConfigService.insert(referenceConfig);
         MetadataFieldReferenceConfig genericReference = referenceConfig(invoiceCodeField.getId(), invoiceId);
@@ -482,6 +487,7 @@ class PlatformModuleDefinitionCompilerTest {
         assertThat(reference.targetQualifiedName()).isEqualTo("sales.invoice.invoice");
         assertThat(reference.projections()).anySatisfy(projection -> assertThat(projection.outputField()).isEqualTo("invoiceTitle"));
         assertThat(reference.integrity().onTargetUnavailable()).isEqualTo(ReferenceTargetUnavailablePolicy.RESTRICT);
+        assertThat(reference.integrity().requireEnabled()).isTrue();
         assertThat(reference.projections()).hasSize(3);
         assertThat(reference.projections()).anySatisfy(projection -> {
             assertThat(projection.targetField()).isEqualTo("title");

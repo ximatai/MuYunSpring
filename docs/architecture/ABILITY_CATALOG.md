@@ -21,17 +21,20 @@
 | `SystemStandardBusinessService` | 在系统态写入校验基础上收口系统配置保存 hook 模板                      | `SystemManagedAbility`                 | 适合租户等明确要求系统态维护的配置；系统态业务不要直接用 `StandardBusinessService` 绕过系统上下文。                                                                                    |
 | `BaseDao`                       | 屏蔽静态 DAO、动态 DAO 和底层数据访问差异                             | MuYunDatabase 默认实现                 | 生命周期、权限、软删等不应下沉到 DAO；DAO 只负责数据访问。                                                                                                                             |
 
+静态 Service 的 `mutateFields(policy, id, mutation, fields...)` 供领域动作声明少量业务字段变更，仍执行正常 `update` 的租户门禁、数据范围、版本、校验、缓存和生命周期。普通资料保存不得覆盖的动作专用字段，在 `beforeUpdate(incoming, existing)` 中用 `retainCommandFields` 保留。字段白名单由服务端声明，不能接受客户端字段名；该辅助入口适用于具备无参构造器的静态模型，不是跳过业务校验的 DAO patch。密码动作是当前接入样板，动态动作输入仍按现有元数据契约另行编译。
+
 ## 数据状态与作用域
 
 | 能力                               | 核心解决问题                                                | 主要依赖                                                                 | 注意点                                                                                                                                  |
 | ---------------------------------- | ----------------------------------------------------------- | ------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `MutationScopeAbility` | 将记录归属要求从可覆盖的业务 hook 中分离 | `CrudAbility` 内部写链 | 由租户态、系统态能力实现；更新与删除按库内记录判断。覆盖业务 hook 不会取消门禁。 |
+| `DataScopeAbility` | 按动作统一数据范围查询与变更校验 | 宿主安装的 `DataScopeCriteriaService` | 默认从平台运行时解析，业务无需复制 provider/getter；未装配时明确失败。叠加回收站能力后，列表、保留记录和恢复来源读取自动复用数据范围。 |
 | `SoftDeleteAbility`                | 统一软删除写入、默认过滤和忽略软删读取                      | `EntityContract.deleted/deletedAt`                                       | 默认读写隐藏已删除数据；确需读取已删除数据时使用明确的 RAW/ignore 入口。                                                                |
 | `EnableAbility`                    | 统一启用、停用、启用校验和启用条件构造                      | `EnabledCapable.enabled`                                                 | 启停不是默认过滤条件；业务需要时显式调用 `enabledCriteria` 或 `requireEnabled`。                                                        |
 | `SystemManagedAbility`             | 限制系统级配置只能在系统态维护                              | `TenantContext.system(reason)`                                           | 适合租户、应用、平台模块等系统态配置；写入前可做 `normalizeBeforeMutation`。                                                            |
 | `PlatformManagedProtectionAbility` | 保护平台托管记录，限制普通运行态创建、删除和核心字段修改    | `PlatformManagedCapable.systemManaged`、`PlatformManagedMutationContext` | 适合模块动作、元数据标准字段等由平台贡献或初始化数据维护的记录；普通入口默认只允许启停和排序，平台同步应显式进入托管 mutation context。 |
 | `TenantActiveScopedAbility`        | 限制租户内业务写入必须处于有效租户上下文                    | `TenantContext.currentTenantId()`、`ActiveTenantVerifier`                | 写入前会要求租户上下文并校验租户有效；适合组织、部门等租户内业务。                                                                      |
-| `TenantActiveScopedService`        | 收口租户内业务 Service 对 `ActiveTenantVerifier` 的样板依赖 | `AbstractAbilityService`、`TenantActiveScopedAbility`                    | 后续租户内静态 Service 优先继承它，而不是重复声明 verifier 字段和转发方法。                                                             |
-| `TenantStandardBusinessService`    | 在租户有效性校验基础上收口租户内业务保存 hook 模板          | `TenantActiveScopedService`                                              | 适合部门、职员等租户内标准业务，业务只补规范化和业务校验，不重复写租户校验链路。                                                        |
+| `TenantActiveScopedService`        | 收口租户有效性依赖与标准保存校验 hook | `StandardBusinessService`、`TenantActiveScopedAbility`                    | 后续租户内静态 Service 优先继承它，而不是重复声明 verifier 字段和转发方法。                                                             |
 | `GlobalScopedAbility`              | 表达不受当前租户过滤影响的全局配置读取                      | `SoftDeleteAbility`                                                      | 适合租户自身、平台全局配置等；不要用于普通租户业务绕过隔离。                                                                            |
 
 `SystemManagedAbility`、`PlatformManagedProtectionAbility` 和 `InitialDataAbility` 表达不同边界：
@@ -61,6 +64,10 @@
 | `ChildAbility`      | 给子表 Service 提供子记录选择、排序和软删兼容入口     | 子模型 `EntityContract`                                  | 子表自身仍是标准实体能力组合，不应脱离 CRUD 链路。                                                                                                                                                                                               |
 | `ChildrenAbility`   | 给父表 Service 提供父子聚合插入、替换、装配和父删联动 | `ChildRelation`、`@Children` / `@ChildOf` 或动态关系配置 | `@ChildOf` 必须与同字段 `@ReferenceTo` 共存；父删除遵循该引用的 `integrity`：仅 `CASCADE_DELETE` 清理子项，`RESTRICT` 阻断，`PRESERVE_HISTORY` 保留。`null` 子列表表示不改子表，空列表表示清空。普通反向展示使用 `@ReferencedBy`，不进入本能力。 |
 
+引用写入完整性由 `ReferenceWriteValidator` 统一执行，静态 `@ReferenceTo` 无需额外实现 `ReferencerAbility` 即可生效；动态定义和判别引用复用同一执行器。检查读取受租户、软删约束的原始引用事实，不经过候选列表数据权限或输出脱敏。`SAME_TENANT` 同时比较源、目标记录的租户，系统上下文不能绕过；租户等平台级目标应显式声明 `GLOBAL`。
+
+`@ReferenceIntegrity(requireEnabled = true)` 表示每次保存及恢复均要求目标存在且启用，包括未改变引用值的更新。目标必须具备标准启停状态；元数据配置和可解析目标的编译校验提前拒绝不匹配的声明，写入时复核同一契约。动态 `ReferenceIntegrityPolicy`、元数据引用配置和字段属性草稿传递同一声明。默认 `false` 允许更新保留既有的失效引用，但引用值及其依赖字段必须保持不变；`onTargetUnavailable` 单独控制目标删除时的保留、阻断或级联。主岗归属等领域不变量继续由业务 Service 表达。
+
 ## 字段治理
 
 | 能力                     | 核心解决问题                                               | 主要依赖                                                               | 注意点                                                                                                                                                                                   |
@@ -75,6 +82,7 @@
 | 能力                                                    | 核心解决问题                                                               | 主要依赖                                              | 注意点                                                                                                                                                                                                                                                                                                                             |
 | ------------------------------------------------------- | -------------------------------------------------------------------------- | ----------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `CacheAbility`                                          | 统一按 ID 和全量列表缓存、写后失效、事务内绕过、对象副本隔离               | `CrudAbility`、`CacheRegistry`、`TenantContext`       | 缓存命名空间包含服务、模块和 DAO；跨模型引用失效依赖 `ReferencerAbility`。                                                                                                                                                                                                                                                         |
+| `MutationTransactionOperator` | 为标准插入、更新、删除、恢复和清理提供统一事务入口 | 宿主事务管理器 | 聚合写入失败整体回滚，不要求每个业务复制事务壳。 |
 | `PlatformAbilityDispatcher`                             | 调度平台内部 after 链，避免业务 hook 覆盖破坏平台能力                      | CRUD 生命周期                                         | 新能力如果需要挂入 CRUD 内部链，应优先考虑这里，而不是要求业务手动调用 `super`。                                                                                                                                                                                                                                                   |
 | `PlatformOperation` / `DisablePlatformOperations`       | 声明规范 Service 动作，并为少量特殊模块停用默认公开动作                    | `PlatformAction`、Ability 规范方法                    | Ability 不声明 HTTP；普通 Service 零额外配置，停用只写具体动作数组，不引入 exposure 档位或动作组。                                                                                                                                                                                                                                 |
 | `StaticAbilityWebEndpointRegistrar`                     | 把静态 Service 的标准 Operation 投射为真实 Spring MVC 端点，并沉淀注册目录 | 静态模块锚点、Ability、`RequestMappingHandlerMapping` | 当前承接启停、排序、树和回收站独立端点；HTTP 契约由投射描述提供，所有编译端点复用单一 Dispatcher，不生成 Ability Handler 类。注册目录供权限与后续 OpenAPI 复用。                                                                                                                                                                   |
@@ -82,12 +90,14 @@
 | `RuntimeEventPublisher` 等事件组件                      | 提供 after-commit 运行事件发布和监听边界                                   | `TransactionScopeSupport`、事件 listener              | 平台审计只记录必要上下文；工作流等专题应保留自己的流水。                                                                                                                                                                                                                                                                           |
 | `@ModuleExtension` / `@RuntimeEventHandler`             | 给模块运行事件提供声明式扩展处理器                                         | `RuntimeEvent`、`RuntimeEventHandlerRegistry`         | 这是 Ability 事件链路上的扩展点，不是绕过权限、租户、生命周期和审计的插件内核；默认 after 类事件提交后执行且失败告警，非 after 类事件事务内执行且失败阻断。类级 `entityAlias` 可作为方法级默认值，方法级声明优先。handler phase 只约束处理器执行时机，不改变事件源发布时间；已由事件源 after-commit 发布的事件不会回到事务内执行。 |
 
+标准写入由 `MutationTransactionOperator` 包裹，Spring 宿主通过事务管理器装配；父子聚合及其生命周期共享事务。仅手工构造、未安装事务执行器的独立使用不承诺原子回滚。跨多个独立 Service 的领域编排仍应声明外层事务。
+
 ## 选型提示
 
 | 业务场景                                | 推荐能力组合                                                                                         |
 | --------------------------------------- | ---------------------------------------------------------------------------------------------------- |
 | 系统态维护的全局配置，如租户、应用      | `SystemManagedAbility + GlobalScopedAbility + EnableAbility + SortAbility`                           |
-| 租户内树形业务，如组织机构、部门        | `TenantStandardBusinessService + SoftDeleteAbility + EnableAbility + TreeAbility + ReferenceAbility` |
+| 租户内树形业务，如组织机构、部门        | `TenantActiveScopedService + SoftDeleteAbility + EnableAbility + TreeAbility + ReferenceAbility` |
 | 可被其他模型选择的基础资料              | `ReferenceAbility`，必要时叠加 `EnableAbility`、`SortAbility`                                        |
 | 引用了其他模型且需要标题/投影展示的业务 | `ReferencerAbility` + 静态引用注解或动态引用配置                                                     |
 | 主子表聚合保存和读取                    | 父 Service 实现 `ChildrenAbility`，子 Service 实现 `ChildAbility`                                    |

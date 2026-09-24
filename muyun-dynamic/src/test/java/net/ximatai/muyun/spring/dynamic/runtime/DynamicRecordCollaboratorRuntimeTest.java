@@ -89,6 +89,7 @@ class DynamicRecordCollaboratorRuntimeTest {
     @Test
     void mutationRuntimeRejectsDisablingTargetWithRestrictDynamicReferences() {
         IDatabaseOperations<Object> operations = operations();
+        when(operations.row(anyString(), anyMap())).thenReturn(Map.of("total_count", 1));
         when(operations.query(anyString(), anyMap())).thenReturn(List.of(Map.of(
                 "id", "purchase-1",
                 "warehouse_id", "warehouse-1",
@@ -105,8 +106,9 @@ class DynamicRecordCollaboratorRuntimeTest {
         assertThatThrownBy(() -> mutations.disable(WAREHOUSE_MODULE, "warehouse", "warehouse-1", 0,
                 RuntimeMutationSource.SYSTEM, "trace-1"))
                 .isInstanceOf(PlatformException.class)
-                .hasMessageContaining("cannot make reference target unavailable")
-                .hasMessageContaining("sales.warehouse.warehouse");
+                .hasMessageContaining("该记录仍被其他记录引用")
+                .satisfies(error -> assertThat(((PlatformException) error).details())
+                        .containsEntry("referenceTarget", "sales.warehouse.warehouse"));
 
         verify(operations, never()).patchUpdateItemWhere(anyString(), anyString(), anyMap(), anyMap(), anyString());
     }

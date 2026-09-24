@@ -7,15 +7,19 @@ import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
 
-final class EntityCacheCopies {
-    private EntityCacheCopies() {
+final class EntityRecordCopies {
+    private EntityRecordCopies() {
     }
 
     static <T> T shallowCopy(T entity) {
+        return shallowCopy(entity, "record copy requires a no-arg constructor");
+    }
+
+    static <T> T shallowCopy(T entity, String constructorRequirement) {
         if (entity == null) {
             return null;
         }
-        T copy = newInstance(entity);
+        T copy = newInstance(entity, constructorRequirement);
         Class<?> current = entity.getClass();
         while (current != null && !Object.class.equals(current)) {
             copyFields(entity, copy, current);
@@ -24,14 +28,14 @@ final class EntityCacheCopies {
         return copy;
     }
 
-    private static <T> T newInstance(T entity) {
+    private static <T> T newInstance(T entity, String constructorRequirement) {
         try {
             @SuppressWarnings("unchecked")
             Constructor<T> constructor = (Constructor<T>) entity.getClass().getDeclaredConstructor();
             constructor.setAccessible(true);
             return constructor.newInstance();
         } catch (ReflectiveOperationException e) {
-            throw new PlatformException("cache copy requires a no-arg constructor or custom copyForCache: "
+            throw new PlatformException(constructorRequirement + ": "
                     + entity.getClass().getName(), e);
         }
     }
@@ -45,7 +49,7 @@ final class EntityCacheCopies {
                 field.setAccessible(true);
                 field.set(target, field.get(source));
             } catch (IllegalAccessException e) {
-                throw new PlatformException("cannot copy cache field: "
+                throw new PlatformException("cannot copy record field: "
                         + owner.getName() + "." + field.getName(), e);
             }
         }

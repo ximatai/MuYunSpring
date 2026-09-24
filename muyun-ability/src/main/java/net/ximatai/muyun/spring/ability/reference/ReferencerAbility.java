@@ -45,39 +45,7 @@ public interface ReferencerAbility<T extends EntityContract> extends CrudAbility
      * retain an unavailable value that was already persisted on the record.
      */
     default void validateReferenceIntegrity(T existing, T entity) {
-        Class<?> modelClass = referenceModelClass(entity);
-        if (entity == null || modelClass == null) {
-            return;
-        }
-        // Model-only services deliberately run without the assembled target catalog. Runtime
-        // services always provide one, where both existence and candidate dependencies apply.
-        if (net.ximatai.muyun.spring.ability.PlatformAbilityRuntime.referenceTargetResolver()
-                == ReferenceTargetResolver.NONE) {
-            return;
-        }
-        for (StaticReferenceResolver.ReferenceRule rule : StaticReferenceResolver.rules(modelClass)) {
-            List<String> ids = StaticReferenceResolver.values(entity, rule.plan());
-            if (ids.isEmpty()) {
-                continue;
-            }
-            Map<String, String> resolved = referenceTitles(rule.target(), ids);
-            List<String> persistedIds = existing == null
-                    ? List.of()
-                    : StaticReferenceResolver.values(existing, rule.plan());
-            List<String> unavailable = ids.stream()
-                    .filter(id -> !resolved.containsKey(id))
-                    .filter(id -> rule.integrity().onTargetUnavailable()
-                            != ReferenceTargetUnavailablePolicy.PRESERVE_HISTORY
-                            || !persistedIds.contains(id))
-                    .toList();
-            if (!unavailable.isEmpty()) {
-                throw new PlatformException("reference target is unavailable: "
-                        + rule.target().qualifiedName() + "." + rule.plan().sourceField()
-                        + " -> " + unavailable);
-            }
-            ReferenceCandidateDependencyValidator.validate(entity, ids, rule.plan(),
-                    requireReferenceAbility(rule.target(), "candidate dependency"));
-        }
+        ReferenceWriteValidator.validateStatic(referenceModelClass(entity), existing, entity);
     }
 
     default void refreshReferenceDependencies(T entity) {

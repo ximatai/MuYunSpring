@@ -194,7 +194,7 @@ class PlatformDynamicRuntimeRefresherIT extends PlatformPostgresIntegrationTest 
         assertThatThrownBy(() -> runtime.validateReferenceTargetDeletion(
                 ReferenceTarget.of("crm.customer", "customer"), id))
                 .isInstanceOf(net.ximatai.muyun.spring.common.exception.PlatformException.class)
-                .hasMessageContaining("cannot make reference target unavailable");
+                .hasMessageContaining("该记录仍被其他记录引用");
 
         assertThat(categoryId).isNotBlank();
         assertThat(runtime.registry().requireModule("crm.customer").mainEntityAlias()).isEqualTo("customer");

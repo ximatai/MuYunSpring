@@ -12,6 +12,9 @@ import java.lang.annotation.Target;
 @Target({ElementType.FIELD, ElementType.ANNOTATION_TYPE})
 @Retention(RetentionPolicy.RUNTIME)
 public @interface ReferenceIntegrity {
+    /** Every save requires an existing, enabled target, including unchanged references. */
+    boolean requireEnabled() default false;
+
     ReferenceTargetUnavailablePolicy onTargetUnavailable() default ReferenceTargetUnavailablePolicy.PRESERVE_HISTORY;
 
 }

@@ -11,7 +11,6 @@ import net.ximatai.muyun.spring.ability.reference.ReferenceTarget;
 import net.ximatai.muyun.spring.ability.reference.ReferenceTargets;
 import net.ximatai.muyun.spring.ability.reference.ReferenceTargetUnavailablePolicy;
 import net.ximatai.muyun.spring.ability.reference.StaticReferenceResolver;
-import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.model.contract.EntityContract;
 
 import java.util.LinkedHashMap;
@@ -100,9 +99,8 @@ public final class StaticReferenceDeletionGuard implements ReferenceDeletionGuar
             }
             long count = inbound.source().count(Criteria.of().eq(inbound.rule().plan().sourceField(), target.getId()));
             if (count > 0) {
-                throw new PlatformException("cannot make reference target unavailable " + targetReference.qualifiedName()
-                        + ": active records in " + inbound.source().getModuleAlias()
-                        + "." + inbound.rule().plan().sourceField() + " still reference it");
+                throw ReferenceDeletionGuard.referencedTarget(targetReference, target.getId(),
+                        inbound.source().getModuleAlias(), inbound.rule().plan().sourceField(), count);
             }
         }
     }

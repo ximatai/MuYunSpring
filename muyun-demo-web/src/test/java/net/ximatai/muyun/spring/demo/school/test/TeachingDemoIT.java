@@ -494,7 +494,9 @@ public class TeachingDemoIT {
 
             assertThatThrownBy(() -> teachers.insert(teacher))
                     .isInstanceOf(PlatformException.class)
-                    .hasMessageContaining("reference target");
+                    .hasMessageContaining("所选关联记录不存在或已删除")
+                    .satisfies(error -> assertThat(((PlatformException) error).details())
+                            .containsEntry("referenceReason", "TARGET_UNAVAILABLE"));
         }
     }
 
@@ -978,6 +980,23 @@ public class TeachingDemoIT {
             assertThat(students.select(studentId).getClassMemberships())
                     .extracting(ClassMember::getId)
                     .containsExactly(member.getId());
+        }
+    }
+
+    @Test
+    void shouldRollbackDirectAggregateServiceInsertWhenAChildFails() {
+        try (TenantContext.Scope ignored = TenantContext.system("aggregate rollback contract")) {
+            String subjectId = subjects.insert(subject("rollback-" + serial(), "数学", TreeAbility.ROOT_ID));
+            String teacherId = teachers.insert(teacher("T-" + serial(), "王老师", subjectId));
+            String studentId = students.insert(student("S-" + serial(), "学生", "一年级"));
+            ClassMember valid = classMember(studentId);
+            Classroom parent = classroom("rollback-" + serial(), "回滚班级", "2026", teacherId);
+            parent.setMembers(List.of(valid, classMember("missing-" + serial())));
+
+            assertThatThrownBy(() -> classrooms.insert(parent)).isInstanceOf(RuntimeException.class);
+            assertThat(classrooms.getDao().findById(parent.getId())).isNull();
+            assertThat(members.getDao().query(Criteria.of().eq("classroomId", parent.getId()),
+                    PageRequest.of(1, 10))).isEmpty();
         }
     }
 

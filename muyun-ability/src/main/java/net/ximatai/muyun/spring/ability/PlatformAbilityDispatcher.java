@@ -6,30 +6,26 @@ import net.ximatai.muyun.spring.ability.deletion.DeletionContext;
 import net.ximatai.muyun.spring.ability.deletion.DeletionLifecycleListener;
 import net.ximatai.muyun.spring.ability.deletion.DeletionMode;
 import net.ximatai.muyun.spring.ability.deletion.DeletionNode;
-import net.ximatai.muyun.spring.ability.deletion.DeletionTransactionOperator;
+import net.ximatai.muyun.spring.ability.MutationTransactionOperator;
 import net.ximatai.muyun.spring.ability.option.StaticOptionFieldValueValidator;
 import net.ximatai.muyun.spring.ability.reference.ReferencerAbility;
 import net.ximatai.muyun.spring.ability.reference.ReferencedByResolver;
 import net.ximatai.muyun.spring.ability.reference.ReferenceLoadResolver;
 import net.ximatai.muyun.spring.ability.reference.ReferenceReadObserver;
 import net.ximatai.muyun.spring.ability.reference.ReferenceDeletionGuard;
-import net.ximatai.muyun.spring.ability.reference.ReferenceAbility;
 import net.ximatai.muyun.spring.ability.reference.ReferenceTargetResolver;
 import net.ximatai.muyun.spring.ability.reference.StaticReferenceResolver;
-import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.ability.security.FieldProtectionAbility;
 import net.ximatai.muyun.spring.ability.discriminator.DiscriminatedValueValidator;
 import net.ximatai.muyun.spring.common.model.contract.EntityContract;
 
-import java.util.List;
-import java.util.Map;
 
 final class PlatformAbilityDispatcher {
     private static final MainRecordFormulaExecutor mainRecordFormulaExecutor = new MainRecordFormulaExecutor();
     private static volatile StaticOptionFieldValueValidator staticOptionFieldValueValidator =
             StaticOptionFieldValueValidator.NONE;
     private static volatile DeletionLifecycleListener deletionLifecycleListener = DeletionLifecycleListener.NONE;
-    private static volatile DeletionTransactionOperator deletionTransactionOperator = DeletionTransactionOperator.NONE;
+    private static volatile MutationTransactionOperator mutationTransactionOperator = MutationTransactionOperator.NONE;
     private static volatile ReferenceDeletionGuard referenceDeletionGuard = ReferenceDeletionGuard.NONE;
     private static volatile ReferenceTargetResolver referenceTargetResolver = ReferenceTargetResolver.NONE;
     private static volatile ReferencedByResolver referencedByResolver = ReferencedByResolver.NONE;
@@ -39,6 +35,13 @@ final class PlatformAbilityDispatcher {
     private static volatile EntitySaveLifecycleListener entitySaveLifecycleListener = EntitySaveLifecycleListener.NONE;
 
     private PlatformAbilityDispatcher() {
+    }
+
+    @SuppressWarnings({"rawtypes", "unchecked"})
+    static void requireMutationContext(CrudAbility<?> ability, EntityContract record) {
+        if (ability instanceof MutationScopeAbility scoped) {
+            scoped.requireMutationContext(record);
+        }
     }
 
     static void setStaticOptionFieldValueValidator(StaticOptionFieldValueValidator validator) {
@@ -57,16 +60,16 @@ final class PlatformAbilityDispatcher {
         deletionLifecycleListener = DeletionLifecycleListener.NONE;
     }
 
-    static void setDeletionTransactionOperator(DeletionTransactionOperator operator) {
-        deletionTransactionOperator = operator == null ? DeletionTransactionOperator.NONE : operator;
+    static void setMutationTransactionOperator(MutationTransactionOperator operator) {
+        mutationTransactionOperator = operator == null ? MutationTransactionOperator.NONE : operator;
     }
 
-    static void resetDeletionTransactionOperator() {
-        deletionTransactionOperator = DeletionTransactionOperator.NONE;
+    static void resetMutationTransactionOperator() {
+        mutationTransactionOperator = MutationTransactionOperator.NONE;
     }
 
-    static <T> T inDeletionTransaction(java.util.function.Supplier<T> work) {
-        return deletionTransactionOperator.execute(work);
+    static <T> T inMutationTransaction(java.util.function.Supplier<T> work) {
+        return mutationTransactionOperator.execute(work);
     }
 
     static void setReferenceDeletionGuard(ReferenceDeletionGuard guard) {
@@ -351,32 +354,7 @@ final class PlatformAbilityDispatcher {
             referencerAbility.validateReferenceIntegrity(persisted, entity);
             return;
         }
-        for (StaticReferenceResolver.ReferenceRule rule : StaticReferenceResolver.rules(modelClass)) {
-            List<String> ids = StaticReferenceResolver.values(entity, rule.plan());
-            if (ids.isEmpty()) {
-                continue;
-            }
-            ReferenceAbility<?> target = referenceTargetResolver.resolve(rule.target())
-                    .orElseThrow(() -> new PlatformException("reference target is not registered: "
-                            + rule.target().qualifiedName()));
-            Map<String, String> resolved = target.titles(ids);
-            List<String> preservedIds = persisted == null
-                    ? List.of()
-                    : StaticReferenceResolver.values(persisted, rule.plan());
-            List<String> unavailable = ids.stream()
-                    .filter(id -> !resolved.containsKey(id))
-                    .filter(id -> rule.integrity().onTargetUnavailable()
-                            != net.ximatai.muyun.spring.ability.reference.ReferenceTargetUnavailablePolicy.PRESERVE_HISTORY
-                            || !preservedIds.contains(id))
-                    .toList();
-            if (!unavailable.isEmpty()) {
-                throw new PlatformException("reference target is unavailable: "
-                        + rule.target().qualifiedName() + "." + rule.plan().sourceField()
-                        + " -> " + unavailable);
-            }
-            net.ximatai.muyun.spring.ability.reference.ReferenceCandidateDependencyValidator.validate(
-                    entity, ids, rule.plan(), target);
-        }
+        net.ximatai.muyun.spring.ability.reference.ReferenceWriteValidator.validateStatic(modelClass, persisted, entity);
     }
 
     @SuppressWarnings({"rawtypes", "unchecked"})

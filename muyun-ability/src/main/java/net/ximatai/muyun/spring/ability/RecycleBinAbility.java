@@ -7,9 +7,13 @@ import net.ximatai.muyun.database.core.orm.Sort;
 import net.ximatai.muyun.spring.common.model.contract.EntityContract;
 import net.ximatai.muyun.spring.common.schema.StandardEntitySchema;
 import net.ximatai.muyun.spring.common.tenant.TenantContext;
+import net.ximatai.muyun.spring.common.platform.ActionExecutionPolicy;
+import net.ximatai.muyun.spring.common.platform.PlatformAction;
+import net.ximatai.muyun.spring.common.platform.DataScopeCriteriaResult;
 import net.ximatai.muyun.spring.ability.deletion.DeletionRecoveryAbility;
 
 import java.util.List;
+import java.util.function.Function;
 
 /**
  * Optional lifecycle-management capability layered on top of soft deletion.
@@ -28,7 +32,9 @@ public interface RecycleBinAbility<T extends EntityContract> extends SoftDeleteA
     /** Executes recycle-bin reads with the same criteria, sorting and paging shape as a standard query. */
     default PageResult<T> pageRecycleBin(Criteria criteria, PageRequest pageRequest, Sort... sorts) {
         PageRequest effectivePage = pageRequest == null ? PageRequest.of(1, 20) : pageRequest;
-        return getDao().pageQuery(recycleBinReadCriteria(criteria), effectivePage, sorts);
+        return withRecycleBinScope(PlatformAction.RECYCLE_BIN_QUERY.executionPolicy(),
+                criteria, scoped -> getDao().pageQuery(
+                        recycleBinReadCriteria(scoped), effectivePage, sorts));
     }
 
     /** Applies the single data-range fork used by both entity and projected recycle-bin queries. */
@@ -66,28 +72,36 @@ public interface RecycleBinAbility<T extends EntityContract> extends SoftDeleteA
 
     /** Checks whether the retained root record is visible to the current operator. */
     default boolean canAccessRecycleBinRecord(String id) {
-        if (id == null || id.isBlank()) {
-            return false;
-        }
-        return !getDao().query(recycleBinCriteria(Criteria.of()
-                .eq(StandardEntitySchema.ID_FIELD, id)
-                .eq(StandardEntitySchema.DELETED_FIELD, Boolean.TRUE)), PageRequest.of(1, 1)).isEmpty();
+        return canAccessRecycleBinRecord(PlatformAction.RECYCLE_BIN_QUERY.executionPolicy(), id);
     }
 
-    /**
-     * Checks the governance range of a source root even after a successful restore changed its
-     * deleted state. Purge traversal keeps the root retained until descendants are complete, so
-     * the same contract also guards retryable purge operations.
-     */
+    default boolean canAccessRecycleBinRecord(ActionExecutionPolicy policy, String id) {
+        if (policy == null || id == null || id.isBlank()) {
+            return false;
+        }
+        beforeRecycleBinQuery();
+        return withRecycleBinScope(policy, Criteria.of()
+                .eq(StandardEntitySchema.ID_FIELD, id).eq(StandardEntitySchema.DELETED_FIELD, Boolean.TRUE),
+                criteria -> !getDao().query(recycleBinCriteria(criteria), PageRequest.of(1, 1)).isEmpty());
+    }
+
+    /** Source ownership remains applicable after recovery changes the deleted state. */
     default boolean canAccessRecycleBinSourceRecord(String id) {
         if (id == null || id.isBlank()) {
             return false;
         }
-        if (canAccessRecycleBinRecord(id)) {
-            return true;
+        beforeRecycleBinQuery();
+        return withRecycleBinScope(PlatformAction.RECYCLE_BIN_QUERY.executionPolicy(),
+                Criteria.of().eq(StandardEntitySchema.ID_FIELD, id),
+                criteria -> !getDao().query(recycleBinCriteria(criteria), PageRequest.of(1, 1)).isEmpty());
+    }
+
+    private <R> R withRecycleBinScope(ActionExecutionPolicy policy, Criteria criteria, Function<Criteria, R> read) {
+        if (this instanceof DataScopeAbility<?> scoped) {
+            DataScopeCriteriaResult scope = scoped.readScopeByPolicy(policy, criteria);
+            return scoped.withDataScopeTenant(scope, () -> read.apply(scope.criteria()));
         }
-        return !getDao().query(recycleBinCriteria(Criteria.of()
-                .eq(StandardEntitySchema.ID_FIELD, id)), PageRequest.of(1, 1)).isEmpty();
+        return read.apply(criteria);
     }
 
     /**
@@ -107,14 +121,19 @@ public interface RecycleBinAbility<T extends EntityContract> extends SoftDeleteA
      * purge coordinator owns source-tree validation, ordering and audit entries.
      */
     default int purge(String id) {
+        return PlatformAbilityDispatcher.inMutationTransaction(() -> purgeInTransaction(id));
+    }
+
+    private int purgeInTransaction(String id) {
         if (id == null || id.isBlank()) {
             return 0;
         }
         if (!isRecycleBinPurgeEnabled()) {
             throw new UnsupportedOperationException("Recycle-bin purge is not enabled for " + getModuleAlias());
         }
-        beforeRecycleBinPurge(id);
         T entity = selectIgnoreSoftDelete(id);
+        PlatformAbilityDispatcher.requireMutationContext(this, entity);
+        beforeRecycleBinPurge(id);
         if (entity == null || !Boolean.TRUE.equals(entity.getDeleted())) {
             return 0;
         }

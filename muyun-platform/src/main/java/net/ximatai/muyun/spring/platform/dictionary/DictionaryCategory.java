@@ -11,6 +11,7 @@ import net.ximatai.muyun.spring.common.model.constraint.TenantUniqueConstraint;
 import net.ximatai.muyun.spring.common.option.OptionField;
 import net.ximatai.muyun.spring.common.option.OptionSourceType;
 import net.ximatai.muyun.spring.ability.reference.ReferenceTo;
+import net.ximatai.muyun.spring.ability.reference.ReferenceTenantScope;
 import net.ximatai.muyun.spring.platform.application.ApplicationService;
 
 @Getter
@@ -20,7 +21,7 @@ import net.ximatai.muyun.spring.platform.application.ApplicationService;
 @TenantUniqueConstraint(fields = {"applicationAlias", "alias"})
 public class DictionaryCategory extends StandardEnabledTreeEntity {
     @Column(name = "application_alias", type = ColumnType.VARCHAR, length = 64, nullable = false, comment = "Application alias")
-    @ReferenceTo(target = ApplicationService.class)
+    @ReferenceTo(target = ApplicationService.class, tenantScope = ReferenceTenantScope.GLOBAL)
     private String applicationAlias;
 
     @Column(name = "alias", type = ColumnType.VARCHAR, length = 64, nullable = false, comment = "Dictionary category alias")

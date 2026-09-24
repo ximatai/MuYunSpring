@@ -1,6 +1,5 @@
 package net.ximatai.muyun.spring.dynamic.runtime;
 
-import net.ximatai.muyun.spring.common.model.title.TitleField;
 
 import net.ximatai.muyun.database.core.IDatabaseOperations;
 import net.ximatai.muyun.database.core.metadata.DBInfo;
@@ -285,14 +284,15 @@ class DynamicRelationRuntimeTest {
         DynamicRecord valid = new DynamicRecord(invoiceLineEntity())
                 .setValue("title", "L-001")
                 .setValue("invoiceId", "invoice-1");
+        valid.setTenantId("tenant-a");
         lineService.insert(valid);
 
         DynamicRecord missing = new DynamicRecord(invoiceLineEntity())
                 .setValue("title", "L-002")
                 .setValue("invoiceId", "missing-invoice");
         assertThatThrownBy(() -> lineService.insert(missing))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("dynamic reference target not found");
+                .isInstanceOf(net.ximatai.muyun.spring.common.exception.PlatformException.class)
+                .hasMessageContaining("所选关联记录不存在或已删除");
 
         DynamicRecord blankRequired = new DynamicRecord(invoiceLineEntity())
                 .setValue("title", "L-003")
@@ -362,13 +362,14 @@ class DynamicRelationRuntimeTest {
     @Test
     void shouldRestrictDynamicReferenceTargetWithoutCascadeSideEffect() {
         IDatabaseOperations<Object> operations = operations();
+        when(operations.row(anyString(), anyMap())).thenReturn(Map.of("total_count", 1));
         stubInvoiceRows(operations);
         DynamicRecordRuntime runtime = new DynamicRecordRuntime(operations).register(restrictInvoiceModule());
 
         assertThatThrownBy(() -> runtime.validateReferenceTargetDeletion(
                 ReferenceTarget.of(MODULE, "invoice"), "invoice-1"))
                 .isInstanceOf(PlatformException.class)
-                .hasMessageContaining("cannot make reference target unavailable");
+                .hasMessageContaining("该记录仍被其他记录引用");
 
         verify(operations, never()).patchUpdateItemWhere(anyString(), anyString(), anyMap(), anyMap(), anyString());
     }
@@ -376,6 +377,7 @@ class DynamicRelationRuntimeTest {
     @Test
     void shouldRestrictStaticReferenceTargetThroughTheSameRuntimeIndex() {
         IDatabaseOperations<Object> operations = operations();
+        when(operations.row(anyString(), anyMap())).thenReturn(Map.of("total_count", 1));
         when(operations.query(anyString(), anyMap())).thenReturn(List.of(Map.of(
                 "id", "line-1", "student_id", "student-1"
         )));
@@ -392,7 +394,7 @@ class DynamicRelationRuntimeTest {
         assertThatThrownBy(() -> runtime.validateReferenceTargetDeletion(
                 ReferenceTarget.of("education", "student"), "student-1"))
                 .isInstanceOf(PlatformException.class)
-                .hasMessageContaining("cannot make reference target unavailable");
+                .hasMessageContaining("该记录仍被其他记录引用");
 
         verify(operations, never()).patchUpdateItemWhere(anyString(), anyString(), anyMap(), anyMap(), anyString());
     }

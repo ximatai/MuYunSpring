@@ -116,7 +116,7 @@ public class ModuleMetadataFieldService extends AbstractAbilityService<ModuleMet
 
     @Override
     public QueryDescriptor queryDescriptor() {
-        return QueryDescriptors.fromModel(MODULE_ALIAS, ModuleMetadataField.class, java.util.List.of("id", "relationId", "metadataFieldId", "cloneable", "dictionaryApplicationAlias", "dictionaryCategoryAlias", "referenceModuleAlias", "referenceTargetUnavailablePolicy", "referenceModuleKeyField", "referenceModuleLabelField", "referenceGenerateRuleId", "referenceQueryTemplateId", "unitCategoryAlias", "unitMode", "fixedUnitCode", "defaultUnitCode", "unitFieldId", "baseValueFieldId", "baseUnitCategoryAlias", "baseUnitCode", "unitConversionMode", "conversionScopeFieldId", "unitRequired", "moneyCurrencyMode", "moneyFixedCurrencyCode", "moneyDefaultCurrencyCode", "moneyCurrencyFieldId", "moneyBaseAmountFieldId", "moneyBaseCurrencyCode", "moneyRateTypeCode", "moneyRateDateFieldId", "moneyExchangeRateFieldId", "moneyCurrencyRequired", "title", "sortOrder", "createdAt", "updatedAt"),
+        return QueryDescriptors.fromModel(MODULE_ALIAS, ModuleMetadataField.class, java.util.List.of("id", "relationId", "metadataFieldId", "cloneable", "dictionaryApplicationAlias", "dictionaryCategoryAlias", "referenceModuleAlias", "referenceTargetUnavailablePolicy", "referenceRequireEnabled", "referenceModuleKeyField", "referenceModuleLabelField", "referenceGenerateRuleId", "referenceQueryTemplateId", "unitCategoryAlias", "unitMode", "fixedUnitCode", "defaultUnitCode", "unitFieldId", "baseValueFieldId", "baseUnitCategoryAlias", "baseUnitCode", "unitConversionMode", "conversionScopeFieldId", "unitRequired", "moneyCurrencyMode", "moneyFixedCurrencyCode", "moneyDefaultCurrencyCode", "moneyCurrencyFieldId", "moneyBaseAmountFieldId", "moneyBaseCurrencyCode", "moneyRateTypeCode", "moneyRateDateFieldId", "moneyExchangeRateFieldId", "moneyCurrencyRequired", "title", "sortOrder", "createdAt", "updatedAt"),
                 net.ximatai.muyun.database.core.orm.Sort.asc("sortOrder"));
     }
 
@@ -317,6 +317,7 @@ public class ModuleMetadataFieldService extends AbstractAbilityService<ModuleMet
         if (moduleField.getCloneable() == null) {
             moduleField.setCloneable(Boolean.FALSE);
         }
+        moduleField.setReferenceRequireEnabled(Boolean.TRUE.equals(moduleField.getReferenceRequireEnabled()));
         if (moduleField.getReferenceTargetUnavailablePolicy() == null) {
             moduleField.setReferenceTargetUnavailablePolicy(ReferenceTargetUnavailablePolicy.PRESERVE_HISTORY);
         }

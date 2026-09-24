@@ -242,7 +242,6 @@ class StaticModuleDefinitionScannerTest {
                     () -> withService(new DepartmentWebController(), mock(DepartmentService.class)));
             EmployeeService employeeService = new EmployeeService(mock(EmployeeDao.class),
                     mock(net.ximatai.muyun.spring.common.tenant.ActiveTenantVerifier.class),
-                    mock(OrganizationService.class),
                     mock(DepartmentService.class));
             context.registerBean(EmployeeService.class, () -> employeeService);
             context.registerBean(EmployeeWebController.class, () -> {
@@ -255,9 +254,7 @@ class StaticModuleDefinitionScannerTest {
                     () -> withService(new PositionWebController(),
                             new net.ximatai.muyun.spring.iam.position.PositionService(
                                     mock(net.ximatai.muyun.spring.iam.position.PositionDao.class),
-                                    mock(net.ximatai.muyun.spring.common.tenant.ActiveTenantVerifier.class),
-                                    mock(PositionCategoryService.class),
-                                    mock(net.ximatai.muyun.spring.iam.employee.EmployeePositionDao.class))));
+                                    mock(net.ximatai.muyun.spring.common.tenant.ActiveTenantVerifier.class))));
             context.registerBean(PositionCategoryWebController.class,
                     () -> withService(new PositionCategoryWebController(), mock(PositionCategoryService.class)));
             context.registerBean(RoleWebController.class,

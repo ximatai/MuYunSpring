@@ -5,7 +5,7 @@ import net.ximatai.muyun.spring.common.tenant.ActiveTenantVerifier;
 
 import java.util.Objects;
 
-public abstract class TenantActiveScopedService<T extends EntityContract> extends AbstractAbilityService<T>
+public abstract class TenantActiveScopedService<T extends EntityContract> extends StandardBusinessService<T>
         implements TenantActiveScopedAbility<T> {
     private final ActiveTenantVerifier activeTenantVerifier;
 

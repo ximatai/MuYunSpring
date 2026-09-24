@@ -33,12 +33,12 @@ public class EmployeePosition extends StandardEntity implements EnabledCapable, 
     @Column(name = "employee_id", type = ColumnType.VARCHAR, length = 32, nullable = false, comment = "Employee id")
     @ChildOf
     @ReferenceTo(target = EmployeeService.class,
-            integrity = @ReferenceIntegrity(onTargetUnavailable = ReferenceTargetUnavailablePolicy.CASCADE_DELETE))
+            integrity = @ReferenceIntegrity(requireEnabled = true, onTargetUnavailable = ReferenceTargetUnavailablePolicy.CASCADE_DELETE))
     private String employeeId;
 
     @Column(name = "organization_id", type = ColumnType.VARCHAR, length = 32, nullable = false,
             comment = "Organization id")
-    @ReferenceTo(target = OrganizationService.class)
+    @ReferenceTo(target = OrganizationService.class, integrity = @ReferenceIntegrity(requireEnabled = true))
     private String organizationId;
 
     @ReferenceLoad(source = "organizationId", field = "title")
@@ -47,14 +47,16 @@ public class EmployeePosition extends StandardEntity implements EnabledCapable, 
     @Column(name = "department_id", type = ColumnType.VARCHAR, length = 32, nullable = false,
             comment = "Department id")
     @ReferenceTo(target = DepartmentService.class,
-            candidateBindings = @ReferenceCandidateBinding(sourceField = "organizationId", targetField = "organizationId"))
+            candidateBindings = @ReferenceCandidateBinding(sourceField = "organizationId", targetField = "organizationId"),
+            integrity = @ReferenceIntegrity(requireEnabled = true))
     private String departmentId;
 
     @ReferenceLoad(source = "departmentId", field = "title")
     private transient String departmentTitle;
 
     @Column(name = "position_id", type = ColumnType.VARCHAR, length = 32, nullable = false, comment = "Position id")
-    @ReferenceTo(target = PositionService.class)
+    @ReferenceTo(target = PositionService.class,
+            integrity = @ReferenceIntegrity(requireEnabled = true, onTargetUnavailable = ReferenceTargetUnavailablePolicy.RESTRICT))
     private String positionId;
 
     @ReferenceLoad(source = "positionId", field = "title")

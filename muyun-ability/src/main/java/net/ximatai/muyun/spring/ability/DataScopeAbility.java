@@ -23,7 +23,9 @@ import java.util.Set;
 import java.util.function.Supplier;
 
 public interface DataScopeAbility<T extends EntityContract> extends CrudAbility<T> {
-    DataScopeCriteriaService getDataScopeCriteriaService();
+    default DataScopeCriteriaService getDataScopeCriteriaService() {
+        return PlatformAbilityRuntime.dataScopeCriteriaService();
+    }
 
     default DataScopeCriteriaResult readScope(PlatformAction action, Criteria criteria) {
         return getDataScopeCriteriaService().resolveReadScope(

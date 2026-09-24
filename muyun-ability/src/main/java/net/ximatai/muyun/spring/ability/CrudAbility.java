@@ -10,9 +10,6 @@ import net.ximatai.muyun.spring.common.model.capability.EnabledCapable;
 import net.ximatai.muyun.spring.common.model.capability.DataScopeCapable;
 import net.ximatai.muyun.spring.common.model.capability.SortCapable;
 import net.ximatai.muyun.spring.common.model.capability.TreeCapable;
-import net.ximatai.muyun.spring.common.platform.ActionExecutionContext;
-import net.ximatai.muyun.spring.common.platform.ActionExecutionContextHolder;
-import net.ximatai.muyun.spring.common.platform.ActionExecutionPolicy;
 import net.ximatai.muyun.spring.common.platform.DataScopeCriteriaResult;
 import net.ximatai.muyun.spring.common.platform.PlatformAction;
 import net.ximatai.muyun.spring.common.schema.StandardEntitySchema;
@@ -26,8 +23,6 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
-import java.util.Optional;
-import java.util.function.Supplier;
 
 public interface CrudAbility<T extends EntityContract> {
     BaseDao<T, String> getDao();
@@ -40,6 +35,12 @@ public interface CrudAbility<T extends EntityContract> {
 
     @PlatformOperation(PlatformAction.CREATE)
     default String insert(T entity) {
+        return PlatformAbilityDispatcher.inMutationTransaction(() -> insertInTransaction(entity));
+    }
+
+    private String insertInTransaction(T entity) {
+        PlatformAbilityDispatcher.requireMutationContext(this, entity);
+        normalizeBeforeMutation(entity);
         beforePrepareInsert(entity);
         EntityLifecycle.prepareInsert(entity, Instant.now());
         prepareAbilityDefaults(entity);
@@ -108,15 +109,26 @@ public interface CrudAbility<T extends EntityContract> {
      * ability implementations, not an application-facing alternative to {@link #update(EntityContract)}.
      */
     default int updateWithExisting(T entity, T existingSnapshot) {
-        DataScopeCriteriaResult mutationScope = mutationRecordScope(PlatformAction.UPDATE, entity == null ? null : entity.getId());
-        return withTenantScope(mutationScope, () -> {
+        return PlatformAbilityDispatcher.inMutationTransaction(() -> updateInTransaction(entity, existingSnapshot));
+    }
+
+    private int updateInTransaction(T entity, T existingSnapshot) {
+        DataScopeCriteriaResult mutationScope = MutationScopeSupport.resolve(this, PlatformAction.UPDATE, entity == null ? null : entity.getId());
+        return MutationScopeSupport.withTenantScope(mutationScope, () -> {
             T existing = existingSnapshot == null ? selectExistingForScopedMutation(entity) : existingSnapshot;
-            if (TenantContext.currentTenantId().isPresent() && existing == null) {
+            if (existing == null && (TenantContext.currentTenantId().isPresent() || this instanceof SoftDeleteAbility<?>)) {
                 return 0;
             }
             if (existing != null && !allowsTenantOwnershipChange(existing, entity)) {
                 entity.setTenantId(existing.getTenantId());
             }
+            PlatformAbilityDispatcher.requireMutationContext(this, existing == null ? entity : existing);
+            if (this instanceof SoftDeleteAbility<?>) {
+                entity.setDeleted(Boolean.FALSE);
+                entity.setDeletedAt(null);
+                entity.setDeletedBy(null);
+            }
+            normalizeBeforeMutation(entity);
             Integer expectedVersion = expectedVersionForUpdate(entity, existing);
             EntityLifecycle.prepareUpdate(entity, Instant.now(), EntityLifecycle.nextVersion(expectedVersion));
             T platformManagedExisting = existing == null && this instanceof PlatformManagedProtectionAbility<?>
@@ -171,13 +183,14 @@ public interface CrudAbility<T extends EntityContract> {
         if (id == null || id.isBlank()) {
             return 0;
         }
-        DataScopeCriteriaResult mutationScope = mutationRecordScope(PlatformAction.DELETE, id);
-        return PlatformAbilityDispatcher.inDeletionTransaction(() -> {
+        DataScopeCriteriaResult mutationScope = MutationScopeSupport.resolve(this, PlatformAction.DELETE, id);
+        return PlatformAbilityDispatcher.inMutationTransaction(() -> {
             DeletionContext context = PlatformAbilityDispatcher.resolveDeletionContext(
                     getModuleAlias(), id, deletionContext);
-            beforeDelete(id, context);
-            return withTenantScope(mutationScope, () -> {
+            return MutationScopeSupport.withTenantScope(mutationScope, () -> {
             T entity = selectActiveRaw(id);
+            PlatformAbilityDispatcher.requireMutationContext(this, entity);
+            beforeDelete(id, context);
             if (entity == null) {
                 return 0;
             }
@@ -211,8 +224,8 @@ public interface CrudAbility<T extends EntityContract> {
         if (ids == null || ids.isEmpty()) {
             return 0;
         }
-        DataScopeCriteriaResult mutationScope = mutationRecordScope(PlatformAction.DELETE, ids);
-        return withTenantScope(mutationScope, () -> {
+        DataScopeCriteriaResult mutationScope = MutationScopeSupport.resolve(this, PlatformAction.DELETE, ids);
+        return MutationScopeSupport.withTenantScope(mutationScope, () -> {
             int count = 0;
             for (String id : ids) {
                 count += delete(id);
@@ -240,9 +253,14 @@ public interface CrudAbility<T extends EntityContract> {
     }
 
     default List<T> list(Criteria criteria, PageRequest pageRequest, Sort... sorts) {
-        List<T> records = getDao().query(activeCriteria(criteria), pageRequest, sorts);
+        List<T> records = listRaw(criteria, pageRequest, sorts);
         populateDeclaredReferenceLoads(records);
         return records;
+    }
+
+    /** Tenant/active-scoped storage facts, without references, children or business read hooks. */
+    default List<T> listRaw(Criteria criteria, PageRequest pageRequest, Sort... sorts) {
+        return getDao().query(activeCriteria(criteria), pageRequest, sorts);
     }
 
     default List<T> list(Criteria criteria, Sort... sorts) {
@@ -261,6 +279,10 @@ public interface CrudAbility<T extends EntityContract> {
 
     default long count(Criteria criteria) {
         return getDao().count(activeCriteria(criteria));
+    }
+
+    /** Normalizes the business draft once for every standard insert and update. */
+    default void normalizeBeforeMutation(T entity) {
     }
 
     default void beforeInsert(T entity) {
@@ -383,55 +405,9 @@ public interface CrudAbility<T extends EntityContract> {
         if (entity == null || entity.getId() == null || entity.getId().isBlank()) {
             return null;
         }
-        return TenantContext.currentTenantId().isPresent() || TenantContext.isSystem()
+        return TenantContext.currentTenantId().isPresent() || TenantContext.isSystem() || this instanceof SoftDeleteAbility<?>
                 ? selectActiveRaw(entity.getId())
                 : null;
-    }
-
-    @SuppressWarnings({"rawtypes", "unchecked"})
-    private DataScopeCriteriaResult mutationRecordScope(PlatformAction action, String id) {
-        if (id == null || id.isBlank()) {
-            return DataScopeCriteriaResult.unrestricted(Criteria.of());
-        }
-        Optional<DataScopeCriteriaResult> verified = VerifiedMutationScopeExecutor.current(this, action, List.of(id));
-        if (verified.isPresent()) {
-            return verified.get();
-        }
-        if (this instanceof DataScopeAbility dataScopeAbility) {
-            return dataScopeAbility.requireRecordScopeResult(mutationPolicy(action), List.of(id));
-        }
-        return DataScopeCriteriaResult.unrestricted(Criteria.of());
-    }
-
-    @SuppressWarnings({"rawtypes", "unchecked"})
-    private DataScopeCriteriaResult mutationRecordScope(PlatformAction action, Collection<String> ids) {
-        if (ids == null || ids.isEmpty()) {
-            return DataScopeCriteriaResult.unrestricted(Criteria.of());
-        }
-        Optional<DataScopeCriteriaResult> verified = VerifiedMutationScopeExecutor.current(this, action, ids);
-        if (verified.isPresent()) {
-            return verified.get();
-        }
-        if (this instanceof DataScopeAbility dataScopeAbility) {
-            return dataScopeAbility.requireRecordScopeResult(mutationPolicy(action), ids);
-        }
-        return DataScopeCriteriaResult.unrestricted(Criteria.of());
-    }
-
-    private ActionExecutionPolicy mutationPolicy(PlatformAction fallback) {
-        return ActionExecutionContextHolder.current()
-                .filter(context -> context.moduleAlias().equals(getModuleAlias()))
-                .map(ActionExecutionContext::actionPolicy)
-                .orElseGet(fallback::executionPolicy);
-    }
-
-    private <R> R withTenantScope(DataScopeCriteriaResult scope, Supplier<R> supplier) {
-        if (scope != null && scope.crossTenant()) {
-            try (TenantContext.Scope ignored = TenantContext.bypassTenantFilter("data scope allows cross-tenant mutation")) {
-                return supplier.get();
-            }
-        }
-        return supplier.get();
     }
 
     private int updatePreparedRecord(T entity, Integer expectedVersion, boolean dispatchPlatformAfterUpdate) {

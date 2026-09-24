@@ -3,7 +3,6 @@ package net.ximatai.muyun.spring.platform.runtime;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.database.core.orm.Sort;
-import net.ximatai.muyun.spring.ability.reference.ReferenceProjection;
 import net.ximatai.muyun.spring.ability.reference.ReferenceIntegrityPolicy;
 import net.ximatai.muyun.spring.ability.reference.ReferenceTarget;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
@@ -40,9 +39,7 @@ import net.ximatai.muyun.spring.platform.metadata.MetadataViewFieldService;
 import net.ximatai.muyun.spring.platform.metadata.MetadataViewService;
 import net.ximatai.muyun.spring.platform.metadata.ModuleMetadataFormulaRuleService;
 import net.ximatai.muyun.spring.platform.metadata.ModuleMetadataField;
-import net.ximatai.muyun.spring.platform.metadata.ModuleMetadataFieldAffect;
 import net.ximatai.muyun.spring.platform.metadata.ModuleMetadataFieldAffectService;
-import net.ximatai.muyun.spring.platform.metadata.ModuleMetadataFieldFilter;
 import net.ximatai.muyun.spring.platform.metadata.ModuleMetadataFieldFilterService;
 import net.ximatai.muyun.spring.platform.metadata.ModuleMetadataFieldService;
 import net.ximatai.muyun.spring.platform.metadata.ModuleMetadataRelation;
@@ -434,7 +431,7 @@ public class PlatformModuleDefinitionCompiler {
                 moduleAlias + "." + parentMetadata.getAlias(),
                 config.getCardinality(),
                 config.projections(), config.getTargetKeyField(), config.getTargetLabelField(), null, null, Set.of(), List.of(), List.of(),
-                new ReferenceIntegrityPolicy(config.getTargetUnavailablePolicy())
+                new ReferenceIntegrityPolicy(config.getTargetUnavailablePolicy(), Boolean.TRUE.equals(config.getRequireEnabled()))
         );
     }
 
@@ -448,6 +445,13 @@ public class PlatformModuleDefinitionCompiler {
                     + targetRelation.getMetadataId());
         }
         validateReferenceFields(moduleField, targetMetadata);
+        ReferenceIntegrityPolicy integrity = new ReferenceIntegrityPolicy(
+                moduleField.getReferenceTargetUnavailablePolicy(), Boolean.TRUE.equals(moduleField.getReferenceRequireEnabled()));
+        if (integrity.requireEnabled()) {
+            integrity.validateTarget(ReferenceTarget.of(targetRelation.getModuleAlias(), targetMetadata.getAlias()),
+                    MetadataCapabilityCatalog.resolve(targetMetadata, targetRelation.getRelationRole(),
+                            metadataFields(targetMetadata.getId())).capabilities().contains(EntityCapability.ENABLE));
+        }
         return new EntityReferenceDefinition(
                 sourceMetadata.getAlias(),
                 sourceField.getFieldName(),
@@ -458,7 +462,7 @@ public class PlatformModuleDefinitionCompiler {
                 moduleField.getReferenceGenerateRuleId(),
                 moduleField.getReferenceQueryTemplateId(),
                 moduleField.getReferenceModulePlusFields()
-        ).withIntegrity(new ReferenceIntegrityPolicy(moduleField.getReferenceTargetUnavailablePolicy()))
+        ).withIntegrity(integrity)
         .withInteractionRules(
                 referenceFilters(moduleField),
                 referenceAffects(moduleField)
@@ -548,7 +552,7 @@ public class PlatformModuleDefinitionCompiler {
                 target.qualifiedName(),
                 config.getCardinality(),
                 config.projections(), config.getTargetKeyField(), config.getTargetLabelField(), null, null, Set.of(), List.of(), List.of(),
-                new ReferenceIntegrityPolicy(config.getTargetUnavailablePolicy())
+                new ReferenceIntegrityPolicy(config.getTargetUnavailablePolicy(), Boolean.TRUE.equals(config.getRequireEnabled()))
         );
         return definition;
     }
