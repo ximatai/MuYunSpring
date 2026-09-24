@@ -8,10 +8,16 @@ import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
 import net.ximatai.muyun.spring.common.model.standard.StandardEntity;
 import net.ximatai.muyun.spring.common.platform.*;
 import net.ximatai.muyun.spring.common.tenant.TenantContext;
+import net.ximatai.muyun.spring.ability.child.*;
+import net.ximatai.muyun.spring.ability.reference.ReferenceTo;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
 import java.util.Optional;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.LinkedHashMap;
 import java.util.function.Consumer;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -28,6 +34,7 @@ class RecordFieldMutationContractTest {
         TenantContext.clear();
         CurrentUserContext.clear();
         CacheRegistry.clearAll();
+        PlatformAbilityRuntime.resetChildAbilityResolver();
     }
 
     @Test
@@ -95,6 +102,78 @@ class RecordFieldMutationContractTest {
         ordinary.setSecret("ordinary");
         service.update(ordinary);
         assertThat(service.select(id).getSecret()).isEqualTo("old");
+    }
+
+    @Test
+    void scalarCommandMustLeaveInitializedAggregateChildrenUntouched() {
+        ItemService items = new ItemService();
+        AggregateService service = new AggregateService();
+        PlatformAbilityRuntime.configureChildAbilityResolver(request -> Optional.of(items));
+        AggregateRecord record = new AggregateRecord();
+        Item item = new Item();
+        record.getItems().add(item);
+        service.insert(record);
+
+        service.command(record.getId(), draft -> {
+            draft.setState("new");
+            draft.setItems(List.of(new Item()));
+        }, "state");
+
+        assertThat(service.select(record.getId()).getState()).isEqualTo("new");
+        assertThat(items.list(Criteria.of())).extracting(Item::getId).containsExactly(item.getId());
+        assertThat(items.select(item.getId()).getVersion()).isEqualTo(0);
+    }
+
+    @Test
+    void commandMustIsolateNestedValuesAndOnlyPersistDeclaredFields() {
+        AggregateService service = new AggregateService();
+        AggregateRecord record = new AggregateRecord();
+        service.insert(record);
+        service.command(record.getId(), draft -> {
+            draft.setState("new");
+            draft.getAttributes().get("tags").add("unexpected");
+            draft.getPayload().bytes[0] = 9;
+        }, "state");
+        assertThat(service.selectActiveRaw(record.getId()).getAttributes().get("tags")).containsExactly("original");
+        assertThat(service.selectActiveRaw(record.getId()).getPayload().bytes).containsExactly((byte) 1);
+        assertThat(record.getAttributes().get("tags")).containsExactly("original");
+
+        service.command(record.getId(), draft -> draft.getAttributes().get("tags").add("declared"), "attributes");
+        assertThat(service.selectActiveRaw(record.getId()).getAttributes().get("tags"))
+                .containsExactly("original", "declared");
+        assertThatThrownBy(() -> service.command(record.getId(), draft -> {
+            draft.getAttributes().clear();
+            throw new IllegalArgumentException("rejected");
+        }, "attributes")).hasMessage("rejected");
+        assertThat(service.selectActiveRaw(record.getId()).getAttributes().get("tags"))
+                .containsExactly("original", "declared");
+    }
+
+    @Getter @Setter
+    static class AggregateRecord extends StandardEntity {
+        private String state = "old";
+        private Map<String, List<String>> attributes = new LinkedHashMap<>(Map.of("tags", new ArrayList<>(List.of("original"))));
+        private Payload payload = new Payload();
+        @Children private List<Item> items = new ArrayList<>();
+    }
+
+    static class Payload { byte[] bytes = {1}; }
+
+    @Getter @Setter
+    static class Item extends StandardEntity {
+        @ChildOf @ReferenceTo(target = AggregateService.class) private String parentId;
+    }
+
+    static class ItemService extends AbstractAbilityService<Item> implements ChildAbility<Item>, SoftDeleteAbility<Item> {
+        ItemService() { super("test.item", Item.class, new InMemoryBaseDao<>()); }
+    }
+
+    public static class AggregateService extends AbstractAbilityService<AggregateRecord> implements ChildrenAbility<AggregateRecord> {
+        public static final String MODULE_ALIAS = "test.aggregate_record";
+        AggregateService() { super(MODULE_ALIAS, AggregateRecord.class, new InMemoryBaseDao<>()); }
+        int command(String id, Consumer<AggregateRecord> mutation, String... fields) {
+            return mutateFields(POLICY, id, mutation, fields);
+        }
     }
 
     @Getter @Setter

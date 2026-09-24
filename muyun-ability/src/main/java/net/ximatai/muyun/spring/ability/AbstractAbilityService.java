@@ -44,6 +44,8 @@ public abstract class AbstractAbilityService<T extends EntityContract> implement
     /**
      * Executes a domain command through normal polymorphic update, preserving actor, scope,
      * version and lifecycle. Fields are server-owned declarations, never request field names.
+     * The callback receives detached business values; only declared fields are copied back.
+     * Aggregate child collections do not participate in field commands.
      */
     protected final int mutateFields(ActionExecutionPolicy policy,
                                      String id, Consumer<T> mutation, String... fields) {

@@ -72,6 +72,10 @@ final class PlatformAbilityDispatcher {
         return mutationTransactionOperator.execute(work);
     }
 
+    static <T> T inStatementTransaction(java.util.function.Supplier<T> work) {
+        return mutationTransactionOperator.executeStatement(work);
+    }
+
     static void setReferenceDeletionGuard(ReferenceDeletionGuard guard) {
         referenceDeletionGuard = guard == null ? ReferenceDeletionGuard.NONE : guard;
     }

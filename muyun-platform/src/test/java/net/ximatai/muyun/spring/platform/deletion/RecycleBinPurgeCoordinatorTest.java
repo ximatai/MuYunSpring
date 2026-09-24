@@ -15,6 +15,7 @@ class RecycleBinPurgeCoordinatorTest {
     private final TestMemoryDao<DeletionOperation> operationDao = new TestMemoryDao<>();
     private final TestMemoryDao<DeletionEntry> entryDao = new TestMemoryDao<>();
     private final DeletionLogService logService = new DeletionLogService(operationDao, entryDao);
+    private final DeletionRecoveryExecutor recovery = new DeletionRecoveryExecutor(logService);
 
     @Test
     void shouldPurgeWholeSourceTreeAndWriteAuditEntries() {
@@ -22,7 +23,7 @@ class RecycleBinPurgeCoordinatorTest {
         PurgeAbility tenant = purgeableAbility("iam.tenant", "tenant", "tenant-1");
         PurgeAbility application = purgeableAbility("iam.tenantApplication", "tenantApplication", "application-1");
 
-        PurgeReport report = new RecycleBinPurgeCoordinator(logService, resolver(tenant, application))
+        PurgeReport report = new RecycleBinPurgeCoordinator(logService, recovery, resolver(tenant, application))
                 .purge(source.operationId());
 
         assertThat(report.sourceOperationId()).isEqualTo(source.operationId());
@@ -52,7 +53,7 @@ class RecycleBinPurgeCoordinatorTest {
         PurgeAbility deniedTenant = deniedAbility("iam.tenant", "tenant", "tenant-1");
         PurgeAbility application = purgeableAbility("iam.tenantApplication", "tenantApplication", "application-1");
 
-        PurgeReport report = new RecycleBinPurgeCoordinator(logService, resolver(deniedTenant, application))
+        PurgeReport report = new RecycleBinPurgeCoordinator(logService, recovery, resolver(deniedTenant, application))
                 .purge(source.operationId());
 
         assertThat(report.entries()).extracting(PurgeEntryResult::status)
@@ -69,8 +70,8 @@ class RecycleBinPurgeCoordinatorTest {
         PurgeAbility deniedTenant = deniedAbility("iam.tenant", "tenant", "tenant-1");
         PurgeAbility application = purgeableAbility("iam.tenantApplication", "tenantApplication", "application-1");
 
-        new RecycleBinPurgeCoordinator(logService, resolver(deniedTenant, application)).purge(source.operationId());
-        PurgeReport retry = new RecycleBinPurgeCoordinator(logService,
+        new RecycleBinPurgeCoordinator(logService, recovery, resolver(deniedTenant, application)).purge(source.operationId());
+        PurgeReport retry = new RecycleBinPurgeCoordinator(logService, recovery,
                 resolver(purgeableAbility("iam.tenant", "tenant", "tenant-1"), application)).purge(source.operationId());
 
         assertThat(retry.entries()).extracting(PurgeEntryResult::status)
@@ -81,7 +82,7 @@ class RecycleBinPurgeCoordinatorTest {
     void shouldNotMarkAnAllSkippedPurgeAsSucceeded() {
         SourceTree source = completedDeleteTree();
 
-        PurgeReport report = new RecycleBinPurgeCoordinator(logService, List.of())
+        PurgeReport report = new RecycleBinPurgeCoordinator(logService, recovery, List.of())
                 .purge(source.operationId());
 
         assertThat(report.entries()).extracting(PurgeEntryResult::status)
@@ -98,7 +99,7 @@ class RecycleBinPurgeCoordinatorTest {
         PurgeAbility application = purgeableAbility("iam.tenantApplication", "tenantApplication", "application-1");
         simulateRestore(source.childEntryId(), "iam.tenantApplication", "tenantApplication", "application-1");
 
-        PurgeReport report = new RecycleBinPurgeCoordinator(logService, resolver(tenant, application))
+        PurgeReport report = new RecycleBinPurgeCoordinator(logService, recovery, resolver(tenant, application))
                 .purge(source.operationId());
 
         assertThat(report.entries()).extracting(PurgeEntryResult::status)
@@ -115,7 +116,7 @@ class RecycleBinPurgeCoordinatorTest {
         DeletionRecoveryResourceResolver first = resolver(tenant).getFirst();
         DeletionRecoveryResourceResolver second = resolver(tenant).getFirst();
 
-        PurgeReport report = new RecycleBinPurgeCoordinator(logService, List.of(first, second))
+        PurgeReport report = new RecycleBinPurgeCoordinator(logService, recovery, List.of(first, second))
                 .purge(source.operationId());
 
         assertThat(report.entries()).extracting(PurgeEntryResult::status)
@@ -130,7 +131,7 @@ class RecycleBinPurgeCoordinatorTest {
         PurgeAbility tenant = purgeableAbility("iam.tenant", "tenant", "tenant-1");
         RestoreOnlyAbility application = new RestoreOnlyAbility("iam.tenantApplication", "tenantApplication", "application-1");
 
-        PurgeReport report = new RecycleBinPurgeCoordinator(logService, resolver(tenant, application))
+        PurgeReport report = new RecycleBinPurgeCoordinator(logService, recovery, resolver(tenant, application))
                 .purge(source.operationId());
 
         assertThat(report.entries()).extracting(PurgeEntryResult::status)
@@ -148,7 +149,7 @@ class RecycleBinPurgeCoordinatorTest {
         PurgeAbility application = purgeableAbility(
                 "iam.tenantApplication", "tenantApplication", "application-1");
 
-        PurgeReport retry = new RecycleBinPurgeCoordinator(logService, resolver(tenant, application))
+        PurgeReport retry = new RecycleBinPurgeCoordinator(logService, recovery, resolver(tenant, application))
                 .purge(source.operationId());
 
         assertThat(retry.entries()).extracting(PurgeEntryResult::status)

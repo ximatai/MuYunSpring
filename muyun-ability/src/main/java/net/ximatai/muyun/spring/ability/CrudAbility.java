@@ -52,11 +52,7 @@ public interface CrudAbility<T extends EntityContract> {
         String id;
         try {
             try (FieldProtectionAbility.FieldProtectionMutation ignored = PlatformAbilityDispatcher.beforePersist(this, entity)) {
-                try {
-                    id = getDao().insert(entity);
-                } catch (RuntimeException failure) {
-                    throw TenantUniqueConstraintSupport.translatePersistFailure(this, entity, failure);
-                }
+                id = TenantUniqueConstraintSupport.persist(this, entity, () -> getDao().insert(entity));
             }
             PlatformAbilityDispatcher.afterInsert(this, id, entity);
             afterInsert(id, entity);
@@ -414,11 +410,8 @@ public interface CrudAbility<T extends EntityContract> {
         int updated;
         try {
             try (FieldProtectionAbility.FieldProtectionMutation ignored = PlatformAbilityDispatcher.beforePersist(this, entity)) {
-                try {
-                    updated = getDao().updateByIdAndVersion(entity, expectedVersion);
-                } catch (RuntimeException failure) {
-                    throw TenantUniqueConstraintSupport.translatePersistFailure(this, entity, failure);
-                }
+                updated = TenantUniqueConstraintSupport.persist(this, entity,
+                        () -> getDao().updateByIdAndVersion(entity, expectedVersion));
             }
             if (updated <= 0) {
                 throw new OptimisticLockException("record version conflict: " + entity.getId());

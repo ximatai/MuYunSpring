@@ -50,7 +50,7 @@ class DynamicDeletionRecoveryContractTest {
         assertThat(sourceEntry.getResourceModuleAlias()).isEqualTo("sales.contract");
         assertThat(sourceEntry.getResourceEntityAlias()).isEqualTo("contract");
 
-        RestoreReport report = new SoftDeleteRestoreCoordinator(logService, List.of(
+        RestoreReport report = new SoftDeleteRestoreCoordinator(logService, new DeletionRecoveryExecutor(logService), List.of(
                 new DynamicDeletionRecoveryResourceResolver(Optional.of(records))))
                 .restore(operation.getId());
 

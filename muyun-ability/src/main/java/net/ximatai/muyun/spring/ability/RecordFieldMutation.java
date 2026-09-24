@@ -15,6 +15,7 @@ import java.lang.reflect.Modifier;
 import java.util.Set;
 import java.util.Objects;
 import java.util.function.Consumer;
+import java.util.function.UnaryOperator;
 
 /** Exact service/record binding for a domain command's declared field writes. */
 final class RecordFieldMutation {
@@ -49,17 +50,17 @@ final class RecordFieldMutation {
         T stored = service.selectActiveRaw(id);
         if (stored == null) return 0;
         PlatformAbilityDispatcher.requireMutationContext(service, stored);
-        T draft = EntityRecordCopies.shallowCopy(stored);
+        // Resolve and validate the server declaration before copying values or executing domain code.
+        var writableFields = fields.stream().map(name -> field(stored.getClass(), name, true)).toList();
+        T draft = EntityRecordCopies.forFieldMutation(stored);
         if (service instanceof FieldProtectionAbility<?> protection) {
             @SuppressWarnings("unchecked")
             var typed = (FieldProtectionAbility<T>) protection;
             typed.restoreProtectedFieldsFromStorage(draft);
         }
-        T changes = EntityRecordCopies.shallowCopy(draft);
-        // Validate the server declaration before executing domain code.
-        for (String name : fields) field(draft.getClass(), name, true);
+        T changes = EntityRecordCopies.forFieldMutation(draft);
         mutation.accept(changes);
-        for (String name : fields) copy(field(draft.getClass(), name, true), changes, draft);
+        writableFields.forEach(field -> copy(field, changes, draft, EntityRecordCopies::forFieldMutation));
         Binding previous = CURRENT.get();
         CURRENT.set(new Binding(service, draft, Set.copyOf(fields)));
         try {
@@ -75,7 +76,7 @@ final class RecordFieldMutation {
         for (String name : fields) {
             if (binding != null && binding.service == service && binding.record == draft
                     && binding.fields.contains(name)) continue;
-            copy(field(draft.getClass(), name, false), existing, draft);
+            copy(field(draft.getClass(), name, false), existing, draft, UnaryOperator.identity());
         }
     }
 
@@ -98,9 +99,12 @@ final class RecordFieldMutation {
         throw new IllegalArgumentException("unknown mutation field: " + name);
     }
 
-    private static void copy(Field field, Object source, Object target) {
-        try { field.set(target, field.get(source)); }
-        catch (IllegalAccessException failure) { throw new IllegalStateException("cannot copy mutation field", failure); }
+    private static void copy(Field field, Object source, Object target, UnaryOperator<Object> copyValue) {
+        try {
+            field.set(target, copyValue.apply(field.get(source)));
+        } catch (IllegalAccessException failure) {
+            throw new IllegalStateException("cannot copy mutation field: " + field.getName(), failure);
+        }
     }
 
     private record Binding(CrudAbility<?> service, EntityContract record, Set<String> fields) {}

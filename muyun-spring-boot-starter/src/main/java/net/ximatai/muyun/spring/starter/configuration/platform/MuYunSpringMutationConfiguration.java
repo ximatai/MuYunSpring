@@ -8,6 +8,7 @@ import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
@@ -31,7 +32,7 @@ public class MuYunSpringMutationConfiguration {
         PlatformTransactionManager manager = transactionManager.getIfAvailable();
         MutationTransactionOperator operator = manager == null
                 ? MutationTransactionOperator.NONE
-                : transactionOperator(new TransactionTemplate(manager));
+                : transactionOperator(manager);
         return new MutationTransactionRegistration(operator);
     }
 
@@ -46,11 +47,19 @@ public class MuYunSpringMutationConfiguration {
         }
     }
 
-    private static MutationTransactionOperator transactionOperator(TransactionTemplate transactionTemplate) {
+    private static MutationTransactionOperator transactionOperator(PlatformTransactionManager manager) {
+        TransactionTemplate mutation = new TransactionTemplate(manager);
+        TransactionTemplate statement = new TransactionTemplate(manager);
+        statement.setPropagationBehavior(TransactionDefinition.PROPAGATION_NESTED);
         return new MutationTransactionOperator() {
             @Override
             public <T> T execute(java.util.function.Supplier<T> work) {
-                return transactionTemplate.execute(status -> work.get());
+                return mutation.execute(status -> work.get());
+            }
+
+            @Override
+            public <T> T executeStatement(java.util.function.Supplier<T> work) {
+                return statement.execute(status -> work.get());
             }
         };
     }

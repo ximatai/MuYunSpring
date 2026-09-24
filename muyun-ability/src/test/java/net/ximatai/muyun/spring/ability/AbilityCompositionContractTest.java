@@ -104,6 +104,29 @@ class AbilityCompositionContractTest {
     }
 
     @Test
+    void virtualRootTraversalMustApplyScopeToEveryBranch() {
+        DemoOrganizationService service = new DemoOrganizationService();
+        DemoOrganization top = new DemoOrganization("Top", TreeAbility.ROOT_ID);
+        top.setScopeKey("a");
+        service.insert(top);
+        DemoOrganization leaf = new DemoOrganization("Leaf", top.getId());
+        leaf.setScopeKey("a");
+        service.insert(leaf);
+        DemoOrganization foreign = new DemoOrganization("Foreign", TreeAbility.ROOT_ID);
+        foreign.setScopeKey("b");
+        service.insert(foreign);
+        assertThat(service.descendantIds(TreeAbility.ROOT_ID))
+                .containsExactly(top.getId(), leaf.getId(), foreign.getId());
+        assertThat(service.selfAndDescendantIds(TreeAbility.ROOT_ID))
+                .containsExactly(TreeAbility.ROOT_ID, top.getId(), leaf.getId(), foreign.getId());
+        Criteria scope = Criteria.of().eq("scopeKey", "a");
+        assertThat(service.descendantIds(scope, TreeAbility.ROOT_ID)).containsExactly(top.getId(), leaf.getId());
+        assertThat(service.selfAndDescendantIds(scope, TreeAbility.ROOT_ID))
+                .containsExactly(TreeAbility.ROOT_ID, top.getId(), leaf.getId());
+        assertThat(service.descendantIds("missing")).isEmpty();
+    }
+
+    @Test
     void recycleBinMustApplyTenantCriteriaAfterResolvingCrossTenantScope() {
         ScopedRecycleService service = new ScopedRecycleService();
         DemoPlainRecord local = new DemoPlainRecord("Local");

@@ -352,7 +352,7 @@ public interface TreeAbility<T extends TreeCapable> extends SortAbility<T> {
     }
 
     default List<String> descendantIds(Criteria scope, String id) {
-        if (selectInScope(scope, id) == null) {
+        if (!ROOT_ID.equals(id) && selectInScope(scope, id) == null) {
             return List.of();
         }
         List<String> result = new ArrayList<>();
@@ -365,7 +365,7 @@ public interface TreeAbility<T extends TreeCapable> extends SortAbility<T> {
     }
 
     default List<String> selfAndDescendantIds(Criteria scope, String id) {
-        if (selectInScope(scope, id) == null) {
+        if (!ROOT_ID.equals(id) && selectInScope(scope, id) == null) {
             return List.of();
         }
         List<String> ids = new ArrayList<>();
