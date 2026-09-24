@@ -16,7 +16,8 @@ public record MetadataFieldReferenceConfigDraft(
         String targetLabelField,
         ReferenceCardinality cardinality,
         ReferenceTargetUnavailablePolicy targetUnavailablePolicy,
-        List<String> projectionMappings
+        List<String> projectionMappings,
+        boolean requireEnabled
 ) {
     public MetadataFieldReferenceConfigDraft {
         projectionMappings = projectionMappings == null ? List.of() : List.copyOf(projectionMappings);
@@ -30,6 +31,7 @@ public record MetadataFieldReferenceConfigDraft(
         result.setTargetLabelField(targetLabelField);
         result.setCardinality(cardinality);
         result.setTargetUnavailablePolicy(targetUnavailablePolicy);
+        result.setRequireEnabled(requireEnabled);
         result.setProjectionMappings(MetadataFieldReferenceConfig.encodeProjections(projectionMappings));
         return result;
     }
@@ -38,6 +40,6 @@ public record MetadataFieldReferenceConfigDraft(
         if (config == null) return null;
         return new MetadataFieldReferenceConfigDraft(config.getTargetModuleAlias(), config.getTargetMetadataId(),
                 config.getTargetKeyField(), config.getTargetLabelField(), config.getCardinality(),
-                config.getTargetUnavailablePolicy(), MetadataFieldReferenceConfig.projectionMappings(config));
+                config.getTargetUnavailablePolicy(), MetadataFieldReferenceConfig.projectionMappings(config), Boolean.TRUE.equals(config.getRequireEnabled()));
     }
 }

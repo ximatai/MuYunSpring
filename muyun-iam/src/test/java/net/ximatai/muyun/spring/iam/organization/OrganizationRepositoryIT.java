@@ -7,6 +7,12 @@ import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.database.core.orm.SimpleEntityManager;
 import net.ximatai.muyun.database.spring.boot.sql.annotation.EnableMuYunRepositories;
 import net.ximatai.muyun.spring.ability.TreeAbility;
+import net.ximatai.muyun.spring.common.exception.PlatformAccessDeniedException;
+import net.ximatai.muyun.spring.common.identity.CurrentUser;
+import net.ximatai.muyun.spring.common.platform.ActionExecutionPolicy;
+import net.ximatai.muyun.spring.common.platform.AllowAllDataScopeCriteriaService;
+import net.ximatai.muyun.spring.common.platform.DataScopeCriteriaResult;
+import net.ximatai.muyun.spring.common.platform.DataScopeCriteriaService;
 import net.ximatai.muyun.spring.common.schema.PlatformEntityManagers;
 import net.ximatai.muyun.spring.common.tenant.TenantContext;
 import org.junit.jupiter.api.Test;
@@ -28,8 +34,11 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 @Testcontainers(disabledWithoutDocker = true)
 @SpringBootTest(classes = OrganizationRepositoryIT.TestApplication.class)
@@ -95,6 +104,48 @@ class OrganizationRepositoryIT {
         }
     }
 
+    @Test
+    void directSoftDeleteServiceMustEnforceRecordScopeAndHonorCrossTenantGrants() {
+        Organization original = new Organization();
+        original.setCode("CROSS-TENANT");
+        original.setTitle("Original");
+        try (var ignored = TenantContext.use("tenant-cross-target")) {
+            organizationService.insert(original);
+        }
+        AtomicBoolean granted = new AtomicBoolean();
+        var permissions = new AllowAllDataScopeCriteriaService() {
+            @Override
+            public DataScopeCriteriaResult resolveReadScope(String module, ActionExecutionPolicy policy,
+                                                            Criteria criteria, Optional<CurrentUser> user) {
+                return DataScopeCriteriaResult.crossTenantRestricted(criteria.eq("id",
+                        granted.get() ? original.getId() : "not-visible"));
+            }
+        };
+        OrganizationService service = new OrganizationService(organizationDao, tenantId -> {}) {
+            @Override public DataScopeCriteriaService getDataScopeCriteriaService() { return permissions; }
+        };
+        try (var ignored = TenantContext.use("tenant-cross-actor")) {
+            Organization update = new Organization();
+            update.setId(original.getId());
+            update.setCode(original.getCode());
+            update.setTitle("Updated");
+            update.setVersion(original.getVersion());
+            assertThatThrownBy(() -> service.update(update)).isInstanceOf(PlatformAccessDeniedException.class);
+            assertThatThrownBy(() -> service.delete(original.getId())).isInstanceOf(PlatformAccessDeniedException.class);
+            granted.set(true);
+            assertThat(service.update(update)).isEqualTo(1);
+            assertThat(service.delete(update)).isEqualTo(1);
+            assertThat(TenantContext.tenantFilterBypassed()).isFalse();
+        }
+        try (var ignored = TenantContext.use("tenant-cross-target")) {
+            Organization retained = service.selectIgnoreSoftDelete(original.getId());
+            assertThat(retained.getTenantId()).isEqualTo("tenant-cross-target");
+            assertThat(retained.getTitle()).isEqualTo("Updated");
+            assertThat(retained.getDeleted()).isTrue();
+            assertThat(retained.getVersion()).isEqualTo(original.getVersion() + 2);
+        }
+    }
+
     private List<String> organizationColumns(Connection connection) throws Exception {
         try (var columns = connection.getMetaData().getColumns(null, "public", "iam_organization", null)) {
             ArrayList<String> names = new ArrayList<>();
@@ -138,7 +189,12 @@ class OrganizationRepositoryIT {
         @Bean
         OrganizationService organizationService(OrganizationDao organizationDao) {
             return new OrganizationService(organizationDao, tenantId -> {
-            });
+            }) {
+                @Override
+                public DataScopeCriteriaService getDataScopeCriteriaService() {
+                    return new AllowAllDataScopeCriteriaService();
+                }
+            };
         }
 
         @Bean

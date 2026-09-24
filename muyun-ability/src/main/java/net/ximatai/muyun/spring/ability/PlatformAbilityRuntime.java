@@ -3,14 +3,38 @@ package net.ximatai.muyun.spring.ability;
 import net.ximatai.muyun.spring.ability.option.StaticOptionFieldValueValidator;
 import net.ximatai.muyun.spring.ability.child.ChildAbilityResolver;
 import net.ximatai.muyun.spring.ability.deletion.DeletionLifecycleListener;
-import net.ximatai.muyun.spring.ability.deletion.DeletionTransactionOperator;
 import net.ximatai.muyun.spring.ability.reference.ReferenceDeletionGuard;
 import net.ximatai.muyun.spring.ability.reference.ReferenceTargetResolver;
 import net.ximatai.muyun.spring.ability.reference.ReferencedByResolver;
 import net.ximatai.muyun.spring.ability.reference.ReferenceLoadResolver;
 import net.ximatai.muyun.spring.ability.reference.ReferenceReadObserver;
 
+import net.ximatai.muyun.spring.common.platform.DataScopeCriteriaService;
+
+import java.util.Objects;
+import java.util.function.Supplier;
+
 public final class PlatformAbilityRuntime {
+    private static volatile Supplier<DataScopeCriteriaService>
+            dataScopeCriteriaService;
+
+    public static void configureDataScopeCriteriaService(
+            Supplier<DataScopeCriteriaService> service) {
+        dataScopeCriteriaService = Objects.requireNonNull(service, "service");
+    }
+
+    public static void resetDataScopeCriteriaService() {
+        dataScopeCriteriaService = null;
+    }
+
+    public static DataScopeCriteriaService dataScopeCriteriaService() {
+        var service = dataScopeCriteriaService;
+        if (service == null) {
+            throw new IllegalStateException("DataScopeAbility requires an installed DataScopeCriteriaService");
+        }
+        return Objects.requireNonNull(service.get(), "DataScopeCriteriaService");
+    }
+
     private PlatformAbilityRuntime() {
     }
 
@@ -38,12 +62,12 @@ public final class PlatformAbilityRuntime {
         PlatformAbilityDispatcher.resetDeletionLifecycleListener();
     }
 
-    public static void configureDeletionTransactionOperator(DeletionTransactionOperator operator) {
-        PlatformAbilityDispatcher.setDeletionTransactionOperator(operator);
+    public static void configureMutationTransactionOperator(MutationTransactionOperator operator) {
+        PlatformAbilityDispatcher.setMutationTransactionOperator(operator);
     }
 
-    public static void resetDeletionTransactionOperator() {
-        PlatformAbilityDispatcher.resetDeletionTransactionOperator();
+    public static void resetMutationTransactionOperator() {
+        PlatformAbilityDispatcher.resetMutationTransactionOperator();
     }
 
     public static void configureReferenceDeletionGuard(ReferenceDeletionGuard guard) {

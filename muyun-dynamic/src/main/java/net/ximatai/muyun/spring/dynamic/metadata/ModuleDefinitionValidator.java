@@ -1148,6 +1148,11 @@ public class ModuleDefinitionValidator {
                                                ReferenceTarget target,
                                                EntityDefinition targetEntity) {
         if (targetEntity == null) return;
+        try {
+            reference.integrity().validateTarget(target, targetEntity.supports(EntityCapability.ENABLE));
+        } catch (PlatformException failure) {
+            throw new ModuleDefinitionException(failure.getMessage());
+        }
         String keyField = reference.plan().targetKeyField();
         if (!StandardEntitySchema.ID_FIELD.equals(keyField)) {
             requireField(targetEntity, keyField, "reference target key field");

@@ -21,7 +21,7 @@ public class Position extends StandardEnabledSortableEntity {
     @Column(name = "category_id", type = ColumnType.VARCHAR, length = 32, nullable = false,
             comment = "Position category id")
     @ReferenceTo(target = PositionCategoryService.class,
-            integrity = @ReferenceIntegrity(onTargetUnavailable = ReferenceTargetUnavailablePolicy.RESTRICT))
+            integrity = @ReferenceIntegrity(requireEnabled = true, onTargetUnavailable = ReferenceTargetUnavailablePolicy.RESTRICT))
     private String categoryId;
 
     @Column(name = "code", type = ColumnType.VARCHAR, length = 64, nullable = false, comment = "Position code")

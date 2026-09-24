@@ -6,25 +6,10 @@ import net.ximatai.muyun.spring.common.model.contract.EntityContract;
 import net.ximatai.muyun.spring.common.tenant.ActiveTenantVerifier;
 import net.ximatai.muyun.spring.common.tenant.TenantContext;
 
-public interface TenantActiveScopedAbility<T extends EntityContract> extends CrudAbility<T>, ActiveTenantVerifier {
+public interface TenantActiveScopedAbility<T extends EntityContract> extends MutationScopeAbility<T>, ActiveTenantVerifier {
     @Override
-    default void beforePrepareInsert(T entity) {
+    default void requireMutationContext(T entity) {
         requireActiveTenantMutationContext();
-        normalizeBeforeMutation(entity);
-    }
-
-    @Override
-    default void beforeUpdate(T entity) {
-        requireActiveTenantMutationContext();
-        normalizeBeforeMutation(entity);
-    }
-
-    @Override
-    default void beforeDelete(String id) {
-        requireActiveTenantMutationContext();
-    }
-
-    default void normalizeBeforeMutation(T entity) {
     }
 
     default String requireActiveTenantMutationContext() {

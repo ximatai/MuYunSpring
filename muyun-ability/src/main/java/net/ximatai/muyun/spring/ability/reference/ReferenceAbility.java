@@ -85,6 +85,29 @@ public interface ReferenceAbility<T extends EntityContract & TitledCapable> exte
         return Collections.unmodifiableMap(new LinkedHashMap<>(ordered));
     }
 
+    /** Whether the target owns the standard enabled-state contract. */
+    default boolean supportsEnabledState() {
+        return modelClass() != null
+                && net.ximatai.muyun.spring.common.model.capability.EnabledCapable.class.isAssignableFrom(modelClass());
+    }
+
+    /** Internal integrity facts: active/tenant scoped, without output masking or candidate data permissions. */
+    default Map<String, Map<String, Object>> referenceFacts(Collection<String> ids, Collection<String> fieldNames) {
+        if (ids == null || ids.isEmpty()) return Map.of();
+        Map<String, Map<String, Object>> facts = new LinkedHashMap<>();
+        for (T record : listRaw(Criteria.of().in(StandardEntitySchema.ID_FIELD, List.copyOf(ids)), PageRequests.all())) {
+            restoreReferenceProtectedFields(record);
+            Map<String, Object> values = new LinkedHashMap<>();
+            for (String field : fieldNames) values.put(field, readReferenceField(record, field));
+            facts.put(record.getId(), Collections.unmodifiableMap(values));
+        }
+        return Collections.unmodifiableMap(facts);
+    }
+
+    default Object readReferenceField(T record, String field) {
+        return ReferenceFieldResolver.read(record, field);
+    }
+
     default T selectReferenceRaw(String id) {
         T entity = selectActiveRaw(id);
         restoreReferenceProtectedFields(entity);
@@ -244,7 +267,7 @@ public interface ReferenceAbility<T extends EntityContract & TitledCapable> exte
     }
 
     @SuppressWarnings("unchecked")
-    private void restoreReferenceProtectedFields(T entity) {
+    default void restoreReferenceProtectedFields(T entity) {
         if (entity != null && this instanceof FieldProtectionAbility<?> fieldProtectionAbility) {
             ((FieldProtectionAbility<T>) fieldProtectionAbility).restoreProtectedFieldsFromStorage(entity);
         }

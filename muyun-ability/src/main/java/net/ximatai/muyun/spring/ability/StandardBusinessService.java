@@ -8,11 +8,6 @@ public abstract class StandardBusinessService<T extends EntityContract> extends 
     }
 
     @Override
-    public void beforePrepareInsert(T entity) {
-        normalizeBeforeMutation(entity);
-    }
-
-    @Override
     public void beforeInsert(T entity) {
         validateBeforeSave(entity);
         validateBeforeInsert(entity);
@@ -20,12 +15,8 @@ public abstract class StandardBusinessService<T extends EntityContract> extends 
 
     @Override
     public void beforeUpdate(T entity) {
-        normalizeBeforeMutation(entity);
         validateBeforeSave(entity);
         validateBeforeUpdate(entity);
-    }
-
-    public void normalizeBeforeMutation(T entity) {
     }
 
     protected void validateBeforeSave(T entity) {

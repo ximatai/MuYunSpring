@@ -5,25 +5,10 @@ import net.ximatai.muyun.spring.common.exception.PlatformAccessDeniedException;
 import net.ximatai.muyun.spring.common.model.contract.EntityContract;
 import net.ximatai.muyun.spring.common.tenant.TenantContext;
 
-public interface SystemManagedAbility<T extends EntityContract> extends CrudAbility<T> {
+public interface SystemManagedAbility<T extends EntityContract> extends MutationScopeAbility<T> {
     @Override
-    default void beforePrepareInsert(T entity) {
+    default void requireMutationContext(T entity) {
         requireSystemMutationContext();
-        normalizeBeforeMutation(entity);
-    }
-
-    @Override
-    default void beforeUpdate(T entity) {
-        requireSystemMutationContext();
-        normalizeBeforeMutation(entity);
-    }
-
-    @Override
-    default void beforeDelete(String id) {
-        requireSystemMutationContext();
-    }
-
-    default void normalizeBeforeMutation(T entity) {
     }
 
     default void requireSystemMutationContext() {

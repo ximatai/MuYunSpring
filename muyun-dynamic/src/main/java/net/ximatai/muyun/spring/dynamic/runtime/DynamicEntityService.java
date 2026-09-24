@@ -768,7 +768,6 @@ public class DynamicEntityService implements
         restoreProtectedFieldsFromStorage(record);
         populateReferenceReadFields(record == null ? List.of() : List.of(record));
         optionLoadPopulator.populate(dao.getEntity(), record == null ? List.of() : List.of(record));
-        refreshReferenceDependencies(record);
     }
 
     private void applyReadPipeline(List<DynamicRecord> records) {
@@ -778,7 +777,6 @@ public class DynamicEntityService implements
         records.forEach(this::restoreProtectedFieldsFromStorage);
         populateReferenceReadFields(records);
         optionLoadPopulator.populate(dao.getEntity(), records);
-        records.forEach(this::refreshReferenceDependencies);
     }
 
     private void populateReferenceReadFields(List<DynamicRecord> records) {
@@ -1183,26 +1181,10 @@ public class DynamicEntityService implements
                 ? discriminatedValue(record, valueField) : discriminatedValue(existing, valueField);
         List<String> ids = plan.normalizeValues(value);
         if (ids.isEmpty()) throw new IllegalArgumentException("dynamic discriminator reference value is required: " + valueField);
-        validateReferenceIds(plan, ids, List.of());
-        if (plan.candidateDependencies().isEmpty()) return;
-        var targetAbility = referenceAbility(plan.target());
-        List<String> dependencyFields = plan.candidateDependencies().stream()
-                .map(dependency -> dependency.targetField()).toList();
-        Map<String, Map<String, Object>> targets = targetAbility.projections(ids, dependencyFields);
-        for (String id : ids) {
-            Map<String, Object> target = targets.get(id);
-            for (var dependency : plan.candidateDependencies()) {
-                Object source = isDiscriminatedValueExplicit(record, dependency.sourceField()) || existing == null
-                        ? discriminatedValue(record, dependency.sourceField())
-                        : discriminatedValue(existing, dependency.sourceField());
-                if (dependency.required() && (source == null || String.valueOf(source).isBlank())) {
-                    throw new IllegalArgumentException("dynamic discriminator reference dependency is required: " + dependency.sourceField());
-                }
-                if (source != null && !Objects.equals(String.valueOf(source), String.valueOf(target == null ? null : target.get(dependency.targetField())))) {
-                    throw new IllegalArgumentException("dynamic discriminator reference target does not satisfy dependency: " + dependency.sourceField());
-                }
-            }
-        }
+        net.ximatai.muyun.spring.ability.reference.ReferenceWriteValidator.validate(plan, ids, List.of(),
+                record.getTenantId(), field -> isDiscriminatedValueExplicit(record, field) || existing == null
+                        ? discriminatedValue(record, field) : discriminatedValue(existing, field),
+                null, referenceAbility(plan.target()));
     }
 
     private void validateReferenceValues(DynamicRecord record,
@@ -1215,37 +1197,24 @@ public class DynamicEntityService implements
         Map<String, FieldDefinition> fields = dao.getEntity().fields().stream()
                 .collect(java.util.stream.Collectors.toMap(FieldDefinition::fieldName, Function.identity()));
         for (ReferencePlan plan : referencePlans()) {
-            if (explicitFieldsOnly && !record.isExplicitlySet(plan.sourceField())) {
+            if (explicitFieldsOnly && !plan.integrity().requireEnabled() && !record.isExplicitlySet(plan.sourceField())
+                    && plan.candidateDependencies().stream().noneMatch(d -> record.isExplicitlySet(d.sourceField()))) {
                 continue;
             }
             FieldDefinition field = fields.get(plan.sourceField());
-            List<String> ids = plan.normalizeValues(record.getValue(plan.sourceField()));
+            List<String> ids = plan.normalizeValues(record.isExplicitlySet(plan.sourceField()) || existing == null
+                    ? record.getValue(plan.sourceField()) : existing.getValue(plan.sourceField()));
             if (field != null && field.isRequired() && ids.isEmpty()) {
                 throw new IllegalArgumentException("required dynamic reference field must not be blank: " + plan.sourceField());
             }
             List<String> persistedIds = existing == null
                     ? List.of()
                     : plan.normalizeValues(existing.getValue(plan.sourceField()));
-            validateReferenceIds(plan, ids, persistedIds);
-        }
-    }
-
-    private void validateReferenceIds(ReferencePlan plan, List<String> ids, List<String> persistedIds) {
-        if (ids.isEmpty()) {
-            return;
-        }
-        Set<String> resolved = referenceAbility(plan.target()).titles(ids).keySet();
-        Set<String> resolvedIds = resolved;
-        List<String> unavailable = ids.stream()
-                .filter(id -> !resolvedIds.contains(id))
-                .filter(id -> plan.integrity().onTargetUnavailable()
-                        != net.ximatai.muyun.spring.ability.reference.ReferenceTargetUnavailablePolicy.PRESERVE_HISTORY
-                        || !persistedIds.contains(id))
-                .toList();
-        if (!unavailable.isEmpty()) {
-            throw new IllegalArgumentException("dynamic reference target not found: "
-                    + plan.target().qualifiedName() + "."
-                    + (unavailable.size() == 1 ? unavailable.getFirst() : unavailable));
+            net.ximatai.muyun.spring.ability.reference.ReferenceWriteValidator.validate(plan, ids, persistedIds,
+                    record.getTenantId(), fieldName -> isDiscriminatedValueExplicit(record, fieldName) || existing == null
+                            ? discriminatedValue(record, fieldName) : discriminatedValue(existing, fieldName),
+                    existing == null ? null : fieldName -> discriminatedValue(existing, fieldName),
+                    referenceAbility(plan.target()));
         }
     }
 

@@ -1006,6 +1006,7 @@ function commitAssistantPropertyFieldDraft(prepared: PreparedMetadataPropertyFie
             ...prepared.reference!,
             cardinality: 'ONE',
             targetUnavailablePolicy: 'PRESERVE_HISTORY',
+            requireEnabled: false,
             projectionMappings: [],
           },
         }
@@ -1957,6 +1958,11 @@ function capabilityTitleOf(capability: string): string {
                     style="width: 100%"
                 /></label>
               </div>
+              <label class="record-form-full-row">
+                <UiCheckbox v-model:checked="fieldPropertyDraft.referenceConfig!.requireEnabled">
+                  每次保存时要求被引用记录存在且已启用
+                </UiCheckbox>
+              </label>
               <label class="record-form-full-row"
                 ><span title="读取时带出，不写入业务字段">关联展示字段</span
                 ><UiTextArea

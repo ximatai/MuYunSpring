@@ -64,6 +64,8 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.WebApplicationContext;
 import org.testcontainers.containers.PostgreSQLContainer;
@@ -99,6 +101,9 @@ public class TeachingDemoIT {
 
     @Autowired
     private TeacherService teachers;
+
+    @Autowired
+    private PlatformTransactionManager transactions;
 
     @Autowired
     private ClassMemberService members;
@@ -479,10 +484,24 @@ public class TeachingDemoIT {
 
             assertThat(subjects.children(scienceId)).extracting(SubjectCategory::getId).containsExactly(mathematicsId);
             assertThat(teachers.select(teacherId).getSubjectTitle()).isEqualTo("数学");
+            // Change storage directly to distinguish dependency invalidation from merely
+            // reloading a projected title on an otherwise stale cached teacher.
+            Teacher storedTeacher = teachers.selectActiveRaw(teacherId);
+            storedTeacher.setTitle("更新后的数学老师");
+            teachers.getDao().updateById(storedTeacher);
+            assertThat(teachers.select(teacherId).getTitle()).isEqualTo("数学老师");
+            teachers.selectAllWithCache();
+            // A transaction-local draft must not redirect the shared cache's dependencies.
+            new TransactionTemplate(transactions).executeWithoutResult(status -> {
+                teachers.select(teacherId).setSubjectCategoryId(scienceId);
+                teachers.selectAllWithCache().stream().filter(row -> row.getId().equals(teacherId))
+                        .forEach(row -> row.setSubjectCategoryId(scienceId));
+            });
 
             SubjectCategory mathematics = subjects.select(mathematicsId);
             mathematics.setTitle("高等数学");
             assertThat(subjects.update(mathematics)).isEqualTo(1);
+            assertThat(teachers.select(teacherId).getTitle()).isEqualTo("更新后的数学老师");
             assertThat(teachers.select(teacherId).getSubjectTitle()).isEqualTo("高等数学");
         }
     }
@@ -494,7 +513,9 @@ public class TeachingDemoIT {
 
             assertThatThrownBy(() -> teachers.insert(teacher))
                     .isInstanceOf(PlatformException.class)
-                    .hasMessageContaining("reference target");
+                    .hasMessageContaining("所选关联记录不存在或已删除")
+                    .satisfies(error -> assertThat(((PlatformException) error).details())
+                            .containsEntry("referenceReason", "TARGET_UNAVAILABLE"));
         }
     }
 
@@ -978,6 +999,23 @@ public class TeachingDemoIT {
             assertThat(students.select(studentId).getClassMemberships())
                     .extracting(ClassMember::getId)
                     .containsExactly(member.getId());
+        }
+    }
+
+    @Test
+    void shouldRollbackDirectAggregateServiceInsertWhenAChildFails() {
+        try (TenantContext.Scope ignored = TenantContext.system("aggregate rollback contract")) {
+            String subjectId = subjects.insert(subject("rollback-" + serial(), "数学", TreeAbility.ROOT_ID));
+            String teacherId = teachers.insert(teacher("T-" + serial(), "王老师", subjectId));
+            String studentId = students.insert(student("S-" + serial(), "学生", "一年级"));
+            ClassMember valid = classMember(studentId);
+            Classroom parent = classroom("rollback-" + serial(), "回滚班级", "2026", teacherId);
+            parent.setMembers(List.of(valid, classMember("missing-" + serial())));
+
+            assertThatThrownBy(() -> classrooms.insert(parent)).isInstanceOf(RuntimeException.class);
+            assertThat(classrooms.getDao().findById(parent.getId())).isNull();
+            assertThat(members.getDao().query(Criteria.of().eq("classroomId", parent.getId()),
+                    PageRequest.of(1, 10))).isEmpty();
         }
     }
 

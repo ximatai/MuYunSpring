@@ -20,7 +20,6 @@ import net.ximatai.muyun.spring.iam.employee.EmployeeService;
 import net.ximatai.muyun.spring.iam.organization.Organization;
 import net.ximatai.muyun.spring.iam.organization.OrganizationDao;
 import net.ximatai.muyun.spring.iam.organization.OrganizationService;
-import net.ximatai.muyun.spring.iam.role.DataScopePolicy;
 import net.ximatai.muyun.spring.iam.role.GrantableAction;
 import net.ximatai.muyun.spring.iam.role.AccountRoleGrant;
 import net.ximatai.muyun.spring.iam.role.AccountRoleGrantDao;
@@ -34,7 +33,6 @@ import net.ximatai.muyun.spring.iam.role.RoleAssignmentType;
 import net.ximatai.muyun.spring.iam.role.RoleDao;
 import net.ximatai.muyun.spring.iam.role.RoleService;
 import net.ximatai.muyun.spring.iam.role.RoleSharePolicy;
-import net.ximatai.muyun.spring.iam.role.TenantScopePolicy;
 import net.ximatai.muyun.spring.iam.role.RoleOwnerScopeType;
 import net.ximatai.muyun.spring.iam.tenant.Tenant;
 import net.ximatai.muyun.spring.iam.tenant.TenantApplicationService;
@@ -51,7 +49,6 @@ import org.springframework.beans.factory.ObjectProvider;
 
 import java.time.Instant;
 import java.util.List;
-import java.util.Optional;
 import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -81,9 +78,8 @@ class DemoBootstrapTaskTest {
     private final TenantService tenantService = new TenantService(tenantDao);
     private final TenantApplicationService tenantApplicationService = mock(TenantApplicationService.class);
     private final OrganizationService organizationService = new OrganizationService(organizationDao, tenantService);
-    private final DepartmentService departmentService = new DepartmentService(departmentDao, tenantService,
-            organizationService);
-    private final EmployeeService employeeService = new EmployeeService(employeeDao, tenantService, organizationService,
+    private final DepartmentService departmentService = new DepartmentService(departmentDao, tenantService);
+    private final EmployeeService employeeService = new EmployeeService(employeeDao, tenantService,
             departmentService);
     private final UserAccountService userAccountService = net.ximatai.muyun.spring.iam.support.UserAccountServiceTestFactory.create(userAccountDao, tenantService,
             new PasswordHashingService());
@@ -189,7 +185,7 @@ class DemoBootstrapTaskTest {
         ObjectProvider<OrganizationCreationProvisioner> provisioners = mock(ObjectProvider.class);
         when(provisioners.orderedStream()).thenAnswer(invocation -> Stream.of(organizationRoleProvisioner));
         OrganizationService provisioningOrganizationService =
-                new OrganizationService(organizationDao, tenantService, Optional.empty(), provisioners);
+                new OrganizationService(organizationDao, tenantService, provisioners);
         Organization organization = new Organization();
         organization.setId("org-1");
         organization.setCode("HQ");

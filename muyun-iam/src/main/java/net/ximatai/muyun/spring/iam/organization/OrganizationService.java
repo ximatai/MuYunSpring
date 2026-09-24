@@ -7,8 +7,6 @@ import net.ximatai.muyun.spring.ability.reference.ReferenceAbility;
 import net.ximatai.muyun.spring.ability.SoftDeleteAbility;
 import net.ximatai.muyun.spring.ability.TenantActiveScopedService;
 import net.ximatai.muyun.spring.ability.TreeAbility;
-import net.ximatai.muyun.spring.common.platform.AllowAllDataScopeCriteriaService;
-import net.ximatai.muyun.spring.common.platform.DataScopeCriteriaService;
 import net.ximatai.muyun.spring.common.platform.DataScopeFieldMapping;
 import net.ximatai.muyun.spring.common.platform.OrganizationHierarchyService;
 import net.ximatai.muyun.spring.common.tenant.ActiveTenantVerifier;
@@ -20,8 +18,6 @@ import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
-import java.util.Optional;
-import java.util.function.Supplier;
 
 @Service
 public class OrganizationService extends TenantActiveScopedService<Organization> implements
@@ -35,46 +31,17 @@ public class OrganizationService extends TenantActiveScopedService<Organization>
 
     public static final String MODULE_ALIAS = "iam.organization";
     private static final DataScopeFieldMapping DATA_SCOPE_FIELD_MAPPING = DataScopeFieldMapping.of(null, "id", null);
-    private final Supplier<DataScopeCriteriaService> dataScopeCriteriaService;
     private final ObjectProvider<OrganizationCreationProvisioner> creationProvisioners;
 
-    public OrganizationService(OrganizationDao organizationDao, ActiveTenantVerifier activeTenantVerifier) {
-        this(organizationDao, activeTenantVerifier, Optional.empty());
+    public OrganizationService(OrganizationDao dao, ActiveTenantVerifier verifier) {
+        this(dao, verifier, null);
     }
 
     @Autowired
-    public OrganizationService(OrganizationDao organizationDao,
-                               ActiveTenantVerifier activeTenantVerifier,
-                               ObjectProvider<DataScopeCriteriaService> dataScopeCriteriaService,
+    public OrganizationService(OrganizationDao dao, ActiveTenantVerifier verifier,
                                ObjectProvider<OrganizationCreationProvisioner> creationProvisioners) {
-        super(MODULE_ALIAS, Organization.class, organizationDao, activeTenantVerifier);
-        this.dataScopeCriteriaService = () -> dataScopeCriteriaService.getIfAvailable(AllowAllDataScopeCriteriaService::new);
+        super(MODULE_ALIAS, Organization.class, dao, verifier);
         this.creationProvisioners = creationProvisioners;
-    }
-
-    public OrganizationService(OrganizationDao organizationDao,
-                               ActiveTenantVerifier activeTenantVerifier,
-                               Optional<DataScopeCriteriaService> dataScopeCriteriaService) {
-        this(organizationDao, activeTenantVerifier, dataScopeCriteriaService, null);
-    }
-
-    public OrganizationService(OrganizationDao organizationDao,
-                               ActiveTenantVerifier activeTenantVerifier,
-                               Optional<DataScopeCriteriaService> dataScopeCriteriaService,
-                               ObjectProvider<OrganizationCreationProvisioner> creationProvisioners) {
-        super(MODULE_ALIAS, Organization.class, organizationDao, activeTenantVerifier);
-        Optional<DataScopeCriteriaService> criteriaService = dataScopeCriteriaService == null
-                ? Optional.empty()
-                : dataScopeCriteriaService;
-        this.dataScopeCriteriaService = () -> criteriaService
-                .<DataScopeCriteriaService>map(service -> service)
-                .orElseGet(AllowAllDataScopeCriteriaService::new);
-        this.creationProvisioners = creationProvisioners;
-    }
-
-    @Override
-    public DataScopeCriteriaService getDataScopeCriteriaService() {
-        return dataScopeCriteriaService.get();
     }
 
     @Override

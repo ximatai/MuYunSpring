@@ -1,25 +1,19 @@
 package net.ximatai.muyun.spring.iam.position;
 
-import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.spring.ability.EnableAbility;
 import net.ximatai.muyun.spring.ability.SoftDeleteAbility;
 import net.ximatai.muyun.spring.ability.SortAbility;
-import net.ximatai.muyun.spring.ability.TenantStandardBusinessService;
-import net.ximatai.muyun.spring.ability.action.BusinessExceptions;
+import net.ximatai.muyun.spring.ability.TenantActiveScopedService;
 import net.ximatai.muyun.spring.ability.reference.ReferenceAbility;
-import net.ximatai.muyun.spring.common.schema.StandardEntitySchema;
 import net.ximatai.muyun.spring.common.tenant.ActiveTenantVerifier;
 import net.ximatai.muyun.spring.common.util.Preconditions;
-import net.ximatai.muyun.spring.iam.employee.EmployeePositionDao;
 import org.springframework.stereotype.Service;
 import net.ximatai.muyun.spring.ability.query.QueryAbility;
 import net.ximatai.muyun.spring.ability.query.QueryDescriptor;
 import net.ximatai.muyun.spring.ability.query.QueryDescriptors;
 
-import java.util.Map;
-
 @Service
-public class PositionService extends TenantStandardBusinessService<Position> implements
+public class PositionService extends TenantActiveScopedService<Position> implements
         SoftDeleteAbility<Position>,
         EnableAbility<Position>,
         SortAbility<Position>,
@@ -27,16 +21,9 @@ public class PositionService extends TenantStandardBusinessService<Position> imp
         QueryAbility<Position> {
     public static final String MODULE_ALIAS = "iam.position";
 
-    private final PositionCategoryService positionCategoryService;
-    private final EmployeePositionDao employeePositionDao;
-
     public PositionService(PositionDao positionDao,
-                           ActiveTenantVerifier activeTenantVerifier,
-                           PositionCategoryService positionCategoryService,
-                           EmployeePositionDao employeePositionDao) {
+                           ActiveTenantVerifier activeTenantVerifier) {
         super(MODULE_ALIAS, Position.class, positionDao, activeTenantVerifier);
-        this.positionCategoryService = positionCategoryService;
-        this.employeePositionDao = employeePositionDao;
     }
 
     @Override
@@ -52,37 +39,6 @@ public class PositionService extends TenantStandardBusinessService<Position> imp
         position.setCode(Preconditions.requireText(position.getCode(), "positionCode"));
         position.setTitle(Preconditions.requireText(position.getTitle(), "positionTitle"));
         position.setDescription(normalizeBlank(position.getDescription()));
-    }
-
-    @Override
-    protected void validateBeforeSave(Position position) {
-        requireActiveCategory(position.getCategoryId());
-        rejectDuplicate(position, Criteria.of().eq("code", position.getCode()),
-                "positionCode must be unique within tenant: " + position.getCode());
-    }
-
-
-    @Override
-    public void beforeDelete(String id) {
-        String tenantId = requireActiveTenantMutationContext();
-        String positionId = Preconditions.requireText(id, "positionId");
-        long referencedEmployeePositions = employeePositionDao.count(Criteria.of()
-                .eq("positionId", positionId)
-                .eq(StandardEntitySchema.TENANT_ID_FIELD, tenantId)
-                .eq(StandardEntitySchema.DELETED_FIELD, Boolean.FALSE));
-        if (referencedEmployeePositions > 0) {
-            throw BusinessExceptions.warning("iam.position.delete-referenced",
-                    "该岗位已被职员任职信息引用，不能删除",
-                    Map.of("referenceCount", referencedEmployeePositions));
-        }
-    }
-
-    private void requireActiveCategory(String categoryId) {
-        if (categoryId == null) {
-            return;
-        }
-        positionCategoryService.requireEnabled(categoryId,
-                "position category is not active: " + categoryId);
     }
 
     private String normalizeBlank(String value) {

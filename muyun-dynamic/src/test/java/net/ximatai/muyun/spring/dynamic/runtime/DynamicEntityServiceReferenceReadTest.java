@@ -139,7 +139,7 @@ class DynamicEntityServiceReferenceReadTest {
         when(student.projections(eq(List.of("student-1", "student-2")), eq(List.of("displayName"))))
                 .thenReturn(Map.of("student-1", Map.of("displayName", "张三"),
                         "student-2", Map.of("displayName", "李四")));
-        when(student.titles(eq(List.of("student-1")))).thenReturn(Map.of("student-1", "张三"));
+        when(student.referenceFacts(eq(List.of("student-1")), any())).thenReturn(Map.of("student-1", Map.of()));
         PlatformAbilityRuntime.configureReferenceTargetResolver(reference -> target.equals(reference)
                 ? java.util.Optional.of(student) : java.util.Optional.empty());
         DynamicEntityService service = new DynamicEntityService(sourceDao, "education.exam", DynamicRecordLifecycle.NONE,
@@ -153,7 +153,7 @@ class DynamicEntityServiceReferenceReadTest {
 
         assertThat(records).extracting(record -> record.getValue("studentName")).containsExactly("张三", "李四");
         verify(student).projections(eq(List.of("student-1", "student-2")), eq(List.of("displayName")));
-        verify(student).titles(eq(List.of("student-1")));
+        verify(student).referenceFacts(eq(List.of("student-1")), any());
     }
 
     @Test
@@ -208,7 +208,7 @@ class DynamicEntityServiceReferenceReadTest {
                         1, invocation.getArgument(1)));
         when(student.projections(List.of("student-1"), List.of("studentNo")))
                 .thenReturn(Map.of("student-1", Map.of("studentNo", "S-001")));
-        when(student.titles(List.of("student-1"))).thenReturn(Map.of("student-1", "张三"));
+        when(student.referenceFacts(eq(List.of("student-1")), any())).thenReturn(Map.of("student-1", Map.of()));
         when(student.titles(List.of("missing"))).thenReturn(Map.of());
         PlatformAbilityRuntime.configureReferenceTargetResolver(reference -> target.equals(reference)
                 ? java.util.Optional.of(student) : java.util.Optional.empty());
@@ -235,15 +235,15 @@ class DynamicEntityServiceReferenceReadTest {
         });
         service.beforeInsert(new DynamicRecord(line).setValue("studentId", "student-1"));
         assertThatThrownBy(() -> service.beforeInsert(new DynamicRecord(line).setValue("studentId", "missing")))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("education.student.missing");
+                .isInstanceOf(net.ximatai.muyun.spring.common.exception.PlatformException.class)
+                .hasMessageContaining("所选关联记录不存在或已删除");
         var searchedCriteria = org.mockito.ArgumentCaptor.forClass(Criteria.class);
         verify(student, times(2)).referenceOptions(searchedCriteria.capture(), any(PageRequest.class));
         var searchSql = new CriteriaSqlCompiler().compile(searchedCriteria.getAllValues().getFirst(),
                 field -> field, DBInfo.Type.POSTGRESQL);
         assertThat(searchSql.getParams()).containsValue("%张三%").containsValue("张三");
         verify(student, times(2)).projections(List.of("student-1"), List.of("studentNo"));
-        verify(student).titles(List.of("student-1"));
+        verify(student).referenceFacts(eq(List.of("student-1")), any());
     }
 
     @Test

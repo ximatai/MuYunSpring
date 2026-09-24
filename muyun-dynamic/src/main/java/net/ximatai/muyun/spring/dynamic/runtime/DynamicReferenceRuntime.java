@@ -17,6 +17,25 @@ final class DynamicReferenceRuntime extends DynamicAbilityRuntime<DynamicTitledR
     }
 
     @Override
+    public boolean supportsEnabledState() {
+        return owner.dynamicDao().getEntity().supports(net.ximatai.muyun.spring.common.platform.EntityCapability.ENABLE);
+    }
+
+    @Override
+    public Object readReferenceField(DynamicTitledRecord entity, String field) {
+        return switch (field) {
+            case "id" -> entity.getId();
+            case "tenantId" -> entity.getTenantId();
+            default -> entity.record().getValue(field);
+        };
+    }
+
+    @Override
+    public void restoreReferenceProtectedFields(DynamicTitledRecord entity) {
+        if (entity != null) owner.restoreProtectedFieldsFromStorage(entity.record());
+    }
+
+    @Override
     public ReferenceTarget referenceTarget() {
         return owner.referenceTarget();
     }

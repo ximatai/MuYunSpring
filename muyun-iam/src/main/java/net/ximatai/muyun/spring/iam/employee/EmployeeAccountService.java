@@ -5,7 +5,7 @@ import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.spring.ability.action.ActionMessageReporter;
 import net.ximatai.muyun.spring.ability.action.BusinessExceptions;
 import net.ximatai.muyun.spring.ability.action.DataChangeRecorder;
-import net.ximatai.muyun.spring.ability.TenantStandardBusinessService;
+import net.ximatai.muyun.spring.ability.TenantActiveScopedService;
 import net.ximatai.muyun.spring.common.identity.CurrentUser;
 import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
 import net.ximatai.muyun.spring.common.tenant.ActiveTenantVerifier;
@@ -20,7 +20,7 @@ import java.util.Collection;
 import java.util.List;
 
 @Service
-public class EmployeeAccountService extends TenantStandardBusinessService<EmployeeAccount> {
+public class EmployeeAccountService extends TenantActiveScopedService<EmployeeAccount> {
     public static final String MODULE_ALIAS = "iam.employee_account";
     private static final String ACCOUNT_REMOVAL_OPERATOR_ID = "employee-account-removal";
 

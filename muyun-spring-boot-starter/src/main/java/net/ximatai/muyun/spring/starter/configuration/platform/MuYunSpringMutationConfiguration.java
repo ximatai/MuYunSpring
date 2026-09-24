@@ -2,20 +2,21 @@ package net.ximatai.muyun.spring.starter.configuration.platform;
 
 import net.ximatai.muyun.spring.ability.PlatformAbilityRuntime;
 import net.ximatai.muyun.spring.ability.deletion.DeletionLifecycleListener;
-import net.ximatai.muyun.spring.ability.deletion.DeletionTransactionOperator;
+import net.ximatai.muyun.spring.ability.MutationTransactionOperator;
 import org.springframework.beans.factory.DisposableBean;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
- * 删除链路装配：把平台删除日志和事务执行器安装到 Ability 运行时，
+ * 写入链路装配：把事务执行器和删除日志安装到 Ability 运行时，
  * 使领域 Service 无需感知日志持久化或 Spring 事务 API。
  */
 @Configuration(proxyBeanMethods = false)
-public class MuYunSpringDeletionConfiguration {
+public class MuYunSpringMutationConfiguration {
     @Bean
     /** 注入删除生命周期监听器；应用未提供时使用显式空实现。 */
     DeletionLifecycleListenerRegistration deletionLifecycleListenerRegistration(
@@ -25,14 +26,14 @@ public class MuYunSpringDeletionConfiguration {
     }
 
     @Bean
-    /** 有事务管理器时让删除前后动作共享事务；无事务宿主保持可用。 */
-    DeletionTransactionRegistration deletionTransactionRegistration(
+    /** 有事务管理器时让标准写入、子表和生命周期共享事务；无事务宿主保持可用。 */
+    MutationTransactionRegistration mutationTransactionRegistration(
             ObjectProvider<PlatformTransactionManager> transactionManager) {
         PlatformTransactionManager manager = transactionManager.getIfAvailable();
-        DeletionTransactionOperator operator = manager == null
-                ? DeletionTransactionOperator.NONE
-                : transactionOperator(new TransactionTemplate(manager));
-        return new DeletionTransactionRegistration(operator);
+        MutationTransactionOperator operator = manager == null
+                ? MutationTransactionOperator.NONE
+                : transactionOperator(manager);
+        return new MutationTransactionRegistration(operator);
     }
 
     static final class DeletionLifecycleListenerRegistration implements DisposableBean {
@@ -46,23 +47,31 @@ public class MuYunSpringDeletionConfiguration {
         }
     }
 
-    private static DeletionTransactionOperator transactionOperator(TransactionTemplate transactionTemplate) {
-        return new DeletionTransactionOperator() {
+    private static MutationTransactionOperator transactionOperator(PlatformTransactionManager manager) {
+        TransactionTemplate mutation = new TransactionTemplate(manager);
+        TransactionTemplate statement = new TransactionTemplate(manager);
+        statement.setPropagationBehavior(TransactionDefinition.PROPAGATION_NESTED);
+        return new MutationTransactionOperator() {
             @Override
             public <T> T execute(java.util.function.Supplier<T> work) {
-                return transactionTemplate.execute(status -> work.get());
+                return mutation.execute(status -> work.get());
+            }
+
+            @Override
+            public <T> T executeStatement(java.util.function.Supplier<T> work) {
+                return statement.execute(status -> work.get());
             }
         };
     }
 
-    static final class DeletionTransactionRegistration implements DisposableBean {
-        DeletionTransactionRegistration(DeletionTransactionOperator operator) {
-            PlatformAbilityRuntime.configureDeletionTransactionOperator(operator);
+    static final class MutationTransactionRegistration implements DisposableBean {
+        MutationTransactionRegistration(MutationTransactionOperator operator) {
+            PlatformAbilityRuntime.configureMutationTransactionOperator(operator);
         }
 
         @Override
         public void destroy() {
-            PlatformAbilityRuntime.resetDeletionTransactionOperator();
+            PlatformAbilityRuntime.resetMutationTransactionOperator();
         }
     }
 }

@@ -4,7 +4,7 @@ import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.database.core.orm.Sort;
 import net.ximatai.muyun.spring.ability.EnableAbility;
-import net.ximatai.muyun.spring.ability.TenantStandardBusinessService;
+import net.ximatai.muyun.spring.ability.TenantActiveScopedService;
 import net.ximatai.muyun.spring.ability.action.BusinessExceptions;
 import net.ximatai.muyun.spring.common.identity.ActingContext;
 import net.ximatai.muyun.spring.common.identity.BusinessPrincipal;
@@ -23,7 +23,7 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 @Service
-public class EmployeeDelegationService extends TenantStandardBusinessService<EmployeeDelegation> implements
+public class EmployeeDelegationService extends TenantActiveScopedService<EmployeeDelegation> implements
         EnableAbility<EmployeeDelegation> {
     public static final String MODULE_ALIAS = "iam.employee_delegation";
 

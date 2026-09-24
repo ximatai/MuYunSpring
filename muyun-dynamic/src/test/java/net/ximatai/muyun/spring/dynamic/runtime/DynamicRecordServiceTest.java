@@ -2721,9 +2721,8 @@ class DynamicRecordServiceTest {
         line.setId("line-1");
 
         assertThatThrownBy(() -> lines.create(line))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("dynamic reference target not found")
-                .hasMessageContaining("sales.contract.contract.deleted-contract");
+                .isInstanceOf(net.ximatai.muyun.spring.common.exception.PlatformException.class)
+                .hasMessageContaining("所选关联记录不存在或已删除");
         verify(operations, org.mockito.Mockito.never()).insertItem(anyString(), anyString(), anyMap(), anyString());
     }
 
@@ -2748,8 +2747,8 @@ class DynamicRecordServiceTest {
 
         line.setValue("contractId", "another-deleted-contract");
         assertThatThrownBy(() -> lines.update(line))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("dynamic reference target not found");
+                .isInstanceOf(net.ximatai.muyun.spring.common.exception.PlatformException.class)
+                .hasMessageContaining("所选关联记录不存在或已删除");
     }
 
     @Test

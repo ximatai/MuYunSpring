@@ -6,7 +6,11 @@ import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.spring.common.model.contract.EntityContract;
 import net.ximatai.muyun.spring.common.util.Preconditions;
 
+import net.ximatai.muyun.spring.common.platform.ActionExecutionPolicy;
+
 import java.util.Objects;
+import java.util.Set;
+import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Supplier;
 
@@ -21,19 +25,36 @@ public abstract class AbstractAbilityService<T extends EntityContract> implement
         this.dao = Objects.requireNonNull(dao, "dao must not be null");
     }
 
+    // Accessors must remain interceptable so class proxies delegate to their initialized target.
     @Override
-    public final BaseDao<T, String> getDao() {
+    public BaseDao<T, String> getDao() {
         return dao;
     }
 
     @Override
-    public final String getModuleAlias() {
+    public String getModuleAlias() {
         return moduleAlias;
     }
 
     @Override
-    public final Class<T> modelClass() {
+    public Class<T> modelClass() {
         return modelClass;
+    }
+
+    /**
+     * Executes a domain command through normal polymorphic update, preserving actor, scope,
+     * version and lifecycle. Fields are server-owned declarations, never request field names.
+     * The callback receives detached business values; only declared fields are copied back.
+     * Aggregate child collections do not participate in field commands.
+     */
+    protected final int mutateFields(ActionExecutionPolicy policy,
+                                     String id, Consumer<T> mutation, String... fields) {
+        return RecordFieldMutation.update(this, policy, id, mutation, Set.of(fields));
+    }
+
+    /** Retains RAW snapshot values in business form, including decryption/verification; an exact field command may update them. */
+    protected final void retainCommandFields(T incoming, T existing, String... fields) {
+        RecordFieldMutation.retain(this, incoming, existing, fields);
     }
 
     protected final boolean existsOtherInCurrentScope(T entity, Criteria criteria) {

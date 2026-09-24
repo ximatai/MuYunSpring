@@ -5,6 +5,7 @@ import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.annotation.Propagation;
 
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -24,14 +25,17 @@ import java.util.Objects;
 public class SoftDeleteRestoreCoordinator {
     private final DeletionLogService deletionLogService;
     private final List<DeletionRecoveryResourceResolver> resourceResolvers;
+    private final DeletionRecoveryExecutor recovery;
 
     public SoftDeleteRestoreCoordinator(DeletionLogService deletionLogService,
+                                        DeletionRecoveryExecutor recovery,
                                         List<DeletionRecoveryResourceResolver> resourceResolvers) {
         this.deletionLogService = Objects.requireNonNull(deletionLogService, "deletionLogService must not be null");
         this.resourceResolvers = resourceResolvers == null ? List.of() : List.copyOf(resourceResolvers);
+        this.recovery = Objects.requireNonNull(recovery, "recovery must not be null");
     }
 
-    @Transactional
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public RestoreReport restore(String sourceOperationId) {
         DeletionOperation sourceOperation = deletionLogService.operation(sourceOperationId);
         if (sourceOperation.getOperationType() != DeletionOperationType.DELETE
@@ -96,7 +100,7 @@ public class SoftDeleteRestoreCoordinator {
         }
         final int restored;
         try {
-            restored = ability.restore(entry.getResourceRecordId());
+            restored = recovery.restore(ability, entry.getResourceRecordId(), restoreEntryId);
         } catch (RuntimeException exception) {
             failedBranch(entry, children, results, restoreOperationId, restoreEntryIds, restoreEntryId,
                     exception.getMessage());
@@ -107,7 +111,6 @@ public class SoftDeleteRestoreCoordinator {
                     restoreEntryId, "resource is no longer recoverable");
             return false;
         }
-        completeRestoreEntry(restoreEntryId, DeletionEntryStatus.SUCCEEDED, null);
         results.add(result(entry, RestoreEntryResult.Status.RESTORED, null));
         for (DeletionEntry child : children.getOrDefault(entry.getId(), List.of())) {
             restoreEntry(child, children, results, restoreOperationId, sourceOperationId, restoreEntryIds);

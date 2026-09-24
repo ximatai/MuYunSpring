@@ -204,6 +204,13 @@ class MetadataRelationChangeSetPreviewServiceTest {
                 MetadataFieldReferenceConfig::getTargetLabelField).containsExactly("studentNo", "name");
         assertThat(result.fieldImpacts().getFirst().description()).contains("模块引用", "education.student");
         assertThat(result.proposalFingerprint()).hasSize(64);
+        reference.setRequireEnabled(true);
+        MetadataRelationChangeSetPreview requiringEnabled = fixture.service.preview("crm.customer", "main", command(3,
+                Map.of(), List.of(new MetadataFieldChangeSetDraft(MetadataFieldChangeSetDraft.Operation.ADD, null, null,
+                        field, new MetadataFieldPropertyDraft(MetadataFieldPropertyKind.MODULE_REFERENCE, null,
+                        MetadataFieldReferenceConfigDraft.fromConfig(reference), null)))));
+        assertThat(requiringEnabled.plan().fieldMutations().getFirst().property().referenceConfig().getRequireEnabled()).isTrue();
+        assertThat(requiringEnabled.proposalFingerprint()).isNotEqualTo(result.proposalFingerprint());
     }
 
     @Test

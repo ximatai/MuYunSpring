@@ -34,6 +34,7 @@ export interface MetadataFieldReferencePropertyConfig {
   targetLabelField?: string;
   cardinality?: 'ONE' | 'MANY';
   targetUnavailablePolicy?: 'PRESERVE_HISTORY' | 'RESTRICT' | 'CASCADE_DELETE';
+  requireEnabled?: boolean;
   projectionMappings?: string[];
 }
 
@@ -272,6 +273,7 @@ export function emptyFieldPropertyDraft(kind: MetadataFieldPropertyKind): Metada
         targetLabelField: 'title',
         cardinality: 'ONE',
         targetUnavailablePolicy: 'PRESERVE_HISTORY',
+        requireEnabled: false,
         projectionMappings: [],
       },
     };

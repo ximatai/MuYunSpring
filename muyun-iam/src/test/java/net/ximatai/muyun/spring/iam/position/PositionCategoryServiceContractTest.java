@@ -27,7 +27,7 @@ class PositionCategoryServiceContractTest {
         PositionCategoryDao dao = mock(PositionCategoryDao.class);
         when(dao.insert(any())).thenReturn("position-category-1");
         ActiveTenantVerifier tenantVerifier = activeTenantVerifier();
-        PositionCategoryService service = new PositionCategoryService(dao, tenantVerifier, mock(PositionDao.class));
+        PositionCategoryService service = new PositionCategoryService(dao, tenantVerifier);
         PositionCategory category = category("TECH", "Technology");
         category.setDescription(" ");
 
@@ -66,32 +66,12 @@ class PositionCategoryServiceContractTest {
     }
 
     @Test
-    void shouldRejectDeletingPositionCategoryReferencedByPositions() {
-        PositionCategoryDao categoryDao = mock(PositionCategoryDao.class);
-        PositionDao positionDao = mock(PositionDao.class);
-        when(positionDao.count(any())).thenReturn(1L);
-        PositionCategoryService service = new PositionCategoryService(categoryDao,
-                activeTenantVerifier(), positionDao);
-
-        try (TenantContext.Scope ignored = TenantContext.use("tenant_a")) {
-            assertThatThrownBy(() -> service.beforeDelete("category-1"))
-                    .isInstanceOf(BusinessException.class)
-                    .hasFieldOrPropertyWithValue("code", "iam.position-category.delete-referenced")
-                    .hasMessage("该岗位分类已被岗位引用，不能删除")
-                    .satisfies(error -> assertThat(((BusinessException) error).messageArgs())
-                            .containsEntry("referenceCount", 1L));
-        }
-
-        verify(positionDao).count(any());
-    }
-
-    @Test
     void shouldRejectDeletingPositionCategoryWithChildCategories() {
         PositionCategoryDao categoryDao = mock(PositionCategoryDao.class);
         when(categoryDao.count(any())).thenReturn(1L);
         PositionDao positionDao = mock(PositionDao.class);
         PositionCategoryService service = new PositionCategoryService(categoryDao,
-                activeTenantVerifier(), positionDao);
+                activeTenantVerifier());
 
         try (TenantContext.Scope ignored = TenantContext.use("tenant_a")) {
             assertThatThrownBy(() -> service.beforeDelete("category-1"))
@@ -115,6 +95,6 @@ class PositionCategoryServiceContractTest {
     }
 
     private PositionCategoryService service(PositionCategoryDao categoryDao) {
-        return new PositionCategoryService(categoryDao, activeTenantVerifier(), mock(PositionDao.class));
+        return new PositionCategoryService(categoryDao, activeTenantVerifier());
     }
 }

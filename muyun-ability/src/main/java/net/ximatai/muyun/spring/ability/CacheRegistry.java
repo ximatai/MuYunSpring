@@ -2,6 +2,7 @@ package net.ximatai.muyun.spring.ability;
 
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
+import net.ximatai.muyun.spring.ability.reference.ReferenceDependencyRegistry;
 import net.ximatai.muyun.spring.common.model.contract.EntityContract;
 
 import java.time.Duration;
@@ -83,16 +84,18 @@ public final class CacheRegistry {
         }
         ITEM_CACHE.keySet().removeIf(namespace -> matchesPrefix(namespace, prefix));
         allCache.asMap().keySet().removeIf(namespace -> matchesPrefix(namespace, prefix));
+        ReferenceDependencyRegistry.clearNamespacePrefix(prefix);
     }
 
     public static void clearAll() {
         ITEM_CACHE.clear();
         allCache.invalidateAll();
+        ReferenceDependencyRegistry.clearAll();
     }
 
     public static void configure(CachePolicy nextPolicy) {
         policy = Objects.requireNonNull(nextPolicy, "nextPolicy must not be null");
-        ITEM_CACHE.clear();
+        clearAll();
         allCache = allCache(policy);
     }
 

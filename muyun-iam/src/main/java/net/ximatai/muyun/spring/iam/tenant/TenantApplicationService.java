@@ -7,7 +7,6 @@ import net.ximatai.muyun.spring.ability.GlobalScopedAbility;
 import net.ximatai.muyun.spring.ability.RecycleBinAbility;
 import net.ximatai.muyun.spring.ability.child.ChildAbility;
 import net.ximatai.muyun.spring.ability.deletion.DeletionContext;
-import net.ximatai.muyun.spring.ability.deletion.DeletionRecoveryAbility;
 import net.ximatai.muyun.spring.ability.deletion.DeletionTrigger;
 import net.ximatai.muyun.spring.common.util.PlatformNameRules;
 import net.ximatai.muyun.spring.common.exception.ApplicationNotOpenedException;
@@ -149,7 +148,6 @@ public class TenantApplicationService extends AbstractAbilityService<TenantAppli
 
     @Override
     public void beforeInsert(TenantApplication tenantApplication) {
-        normalizeBeforeMutation(tenantApplication);
         requireEnabledTenantApplication(tenantApplication.getApplicationAlias());
         tenantApplication.setId(idOf(tenantApplication.getTenantId(), tenantApplication.getApplicationAlias()));
         rejectDuplicate(tenantApplication, Criteria.of()
@@ -166,7 +164,6 @@ public class TenantApplicationService extends AbstractAbilityService<TenantAppli
         }
         rejectChanged(existing, tenantApplication, "tenantId", TenantApplication::getTenantId);
         rejectChanged(existing, tenantApplication, "applicationAlias", TenantApplication::getApplicationAlias);
-        normalizeBeforeMutation(tenantApplication);
         requireEnabledTenantApplication(tenantApplication.getApplicationAlias());
     }
 

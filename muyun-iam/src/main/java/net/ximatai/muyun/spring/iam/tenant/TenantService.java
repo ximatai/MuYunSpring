@@ -103,12 +103,6 @@ public class TenantService extends AbstractAbilityService<Tenant> implements
     }
 
     @Override
-    public void beforeUpdate(Tenant tenant) {
-        requireSystemMutationContext();
-        normalizeBeforeMutation(tenant);
-    }
-
-    @Override
     public void beforeInsert(Tenant tenant) {
         Tenant existing = selectIgnoreSoftDelete(tenant.getId());
         if (existing != null && Boolean.TRUE.equals(existing.getDeleted())) {
@@ -123,11 +117,6 @@ public class TenantService extends AbstractAbilityService<Tenant> implements
                     "Tenant alias is retained by a soft-deleted tenant; restore it from the recycle bin before creating it again",
                     details);
         }
-    }
-
-    @Override
-    public void beforeDelete(String id) {
-        requireSystemMutationContext();
     }
 
     @Override
@@ -159,11 +148,6 @@ public class TenantService extends AbstractAbilityService<Tenant> implements
     @Override
     public void beforeRecycleBinQuery() {
         requireSystemMutationContext();
-    }
-
-    @Override
-    public Criteria recycleBinCriteria(Criteria criteria) {
-        return globalCriteria(criteria);
     }
 
     @Override

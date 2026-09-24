@@ -13,6 +13,7 @@ import net.ximatai.muyun.spring.ability.capability.StaticCapabilityRegistry;
 import net.ximatai.muyun.spring.ability.child.ChildrenAbility;
 import net.ximatai.muyun.spring.ability.reference.ReferenceAbility;
 import net.ximatai.muyun.spring.ability.reference.ReferencerAbility;
+import net.ximatai.muyun.spring.ability.reference.StaticReferenceResolver;
 import net.ximatai.muyun.spring.common.platform.EntityCapability;
 import net.ximatai.muyun.spring.common.platform.PlatformAction;
 import org.springframework.aop.support.AopUtils;
@@ -44,7 +45,10 @@ public final class StaticServiceAbilityCompiler {
                 .filter(facet -> facet.supports(service))
                 .ifPresent(facet -> capabilities.add(module.capability())));
         if (service instanceof ReferenceAbility<?>) capabilities.add(EntityCapability.REFERENCE);
-        if (service instanceof ReferencerAbility<?>) capabilities.add(EntityCapability.REFERENCE_DEPENDENCY);
+        if (service instanceof ReferencerAbility<?> || service instanceof CrudAbility<?> crud
+                && !StaticReferenceResolver.rules(crud.modelClass()).isEmpty()) {
+            capabilities.add(EntityCapability.REFERENCE_DEPENDENCY);
+        }
         if (service instanceof DataScopeAbility<?>) capabilities.add(EntityCapability.DATA_SCOPE);
         if (service instanceof ChildrenAbility<?>) capabilities.add(EntityCapability.CHILD_RELATION);
         validateDependencies(capabilities, registry.staticModules(), service);

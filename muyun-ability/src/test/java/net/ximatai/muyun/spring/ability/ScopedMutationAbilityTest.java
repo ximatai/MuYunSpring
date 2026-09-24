@@ -3,6 +3,8 @@ package net.ximatai.muyun.spring.ability;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.exception.PlatformErrorCodes;
 import net.ximatai.muyun.spring.common.tenant.TenantContext;
+import net.ximatai.muyun.database.core.orm.Criteria;
+import net.ximatai.muyun.database.core.orm.PageRequest;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.aop.framework.ProxyFactory;
@@ -38,6 +40,7 @@ class ScopedMutationAbilityTest {
     @AfterEach
     void tearDown() {
         TenantContext.clear();
+        CacheRegistry.clearAll();
     }
 
     @Test
@@ -181,9 +184,64 @@ class ScopedMutationAbilityTest {
                 .hasMessageContaining("disabled");
     }
 
+    @Test
+    void globalScopeMustNotChooseSoftDeletionAndMustWorkWithColdAndWarmCaches() {
+        GlobalCachedService service = new GlobalCachedService();
+        DemoPlainRecord record = new DemoPlainRecord("Global");
+        try (var ignored = TenantContext.system("global fixture")) {
+            service.insert(record);
+        }
+        try (var ignored = TenantContext.use("tenant-a")) {
+            assertThat(service.select(record.getId()).getTitle()).isEqualTo("Global");
+            assertThat(service.selectAllWithCache()).hasSize(1);
+        }
+        try (var ignored = TenantContext.use("tenant-b")) {
+            assertThat(service.select(record.getId()).getTitle()).isEqualTo("Global");
+            assertThat(service.selectAllWithCache()).hasSize(1);
+        }
+        try (var ignored = TenantContext.system("global deletion")) {
+            assertThat(service.delete(record.getId())).isEqualTo(1);
+            assertThat(service.getDao().findById(record.getId())).isNull();
+            assertThat(service.selectAllWithCache()).isEmpty();
+        }
+    }
+
+    @Test
+    void globalRecycleBinMustShareScopeWithActiveAndRetainedReads() {
+        GlobalRecycleService service = new GlobalRecycleService();
+        DemoPlainRecord record = new DemoPlainRecord("Global");
+        try (var ignored = TenantContext.system("global fixture")) {
+            service.insert(record);
+            service.delete(record.getId());
+        }
+        try (var ignored = TenantContext.use("tenant-a")) {
+            assertThat(service.select(record.getId())).isNull();
+            assertThat(service.selectIgnoreSoftDelete(record.getId())).isNotNull();
+            assertThat(service.pageRecycleBin(Criteria.of(), PageRequest.of(1, 20)).getRecords())
+                    .containsExactly(record);
+            assertThat(service.pageRecycleBin(Criteria.of().eq("title", "Other"), PageRequest.of(1, 20)).getRecords())
+                    .isEmpty();
+            assertThat(service.canAccessRecycleBinRecord(record.getId())).isTrue();
+            assertThat(service.canAccessRecycleBinSourceRecord(record.getId())).isTrue();
+            assertThat(service.restore(record.getId())).isEqualTo(1);
+            assertThat(service.select(record.getId())).isNotNull();
+        }
+    }
+
+    private static final class GlobalCachedService extends StandardBusinessService<DemoPlainRecord>
+            implements GlobalScopedAbility<DemoPlainRecord>, CacheAbility<DemoPlainRecord> {
+        GlobalCachedService() { super("demo.globalCached", DemoPlainRecord.class, new InMemoryBaseDao<>()); }
+    }
+
+    private static final class GlobalRecycleService extends StandardBusinessService<DemoPlainRecord>
+            implements GlobalScopedAbility<DemoPlainRecord>, RecycleBinAbility<DemoPlainRecord> {
+        GlobalRecycleService() { super("demo.globalRecycle", DemoPlainRecord.class, new InMemoryBaseDao<>()); }
+    }
+
     private static final class SystemManagedDemoService extends AbstractAbilityService<DemoEnabledRecord> implements
             SystemManagedAbility<DemoEnabledRecord>,
             GlobalScopedAbility<DemoEnabledRecord>,
+            SoftDeleteAbility<DemoEnabledRecord>,
             EnableAbility<DemoEnabledRecord> {
 
         private SystemManagedDemoService() {

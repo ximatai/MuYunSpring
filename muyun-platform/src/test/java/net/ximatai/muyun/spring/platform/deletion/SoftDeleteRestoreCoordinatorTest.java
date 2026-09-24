@@ -15,6 +15,7 @@ class SoftDeleteRestoreCoordinatorTest {
     private final TestMemoryDao<DeletionOperation> operationDao = new TestMemoryDao<>();
     private final TestMemoryDao<DeletionEntry> entryDao = new TestMemoryDao<>();
     private final DeletionLogService logService = new DeletionLogService(operationDao, entryDao);
+    private final DeletionRecoveryExecutor recovery = new DeletionRecoveryExecutor(logService);
 
     @Test
     void shouldWriteRestoreOperationAndLinkedEntriesForWholeSourceTree() {
@@ -22,7 +23,7 @@ class SoftDeleteRestoreCoordinatorTest {
         RestoreAbility tenant = softDeletedAbility("iam.tenant", "tenant-1");
         RestoreAbility application = softDeletedAbility("iam.tenantApplication", "application-1");
 
-        RestoreReport report = new SoftDeleteRestoreCoordinator(logService, resolver(tenant, application))
+        RestoreReport report = new SoftDeleteRestoreCoordinator(logService, recovery, resolver(tenant, application))
                 .restore(source.operationId());
 
         assertThat(report.sourceOperationId()).isEqualTo(source.operationId());
@@ -52,7 +53,7 @@ class SoftDeleteRestoreCoordinatorTest {
         RestoreAbility failingTenant = new RestoreAbility("iam.tenant", "tenant", "tenant-1", true);
         RestoreAbility application = softDeletedAbility("iam.tenantApplication", "application-1");
 
-        RestoreReport report = new SoftDeleteRestoreCoordinator(logService, resolver(failingTenant, application))
+        RestoreReport report = new SoftDeleteRestoreCoordinator(logService, recovery, resolver(failingTenant, application))
                 .restore(source.operationId());
 
         assertThat(report.entries()).extracting(RestoreEntryResult::status)
@@ -74,10 +75,10 @@ class SoftDeleteRestoreCoordinatorTest {
         RestoreAbility failingApplication = new RestoreAbility(
                 "iam.tenantApplication", "tenantApplication", "application-1", true);
 
-        RestoreReport first = new SoftDeleteRestoreCoordinator(logService, resolver(tenant, failingApplication))
+        RestoreReport first = new SoftDeleteRestoreCoordinator(logService, recovery, resolver(tenant, failingApplication))
                 .restore(source.operationId());
         RestoreAbility retryableApplication = softDeletedAbility("iam.tenantApplication", "application-1");
-        RestoreReport retry = new SoftDeleteRestoreCoordinator(logService, resolver(tenant, retryableApplication))
+        RestoreReport retry = new SoftDeleteRestoreCoordinator(logService, recovery, resolver(tenant, retryableApplication))
                 .restore(source.operationId());
 
         assertThat(first.entries()).extracting(RestoreEntryResult::status)
@@ -94,7 +95,7 @@ class SoftDeleteRestoreCoordinatorTest {
     void shouldNotMarkAnAllSkippedRestoreAsSucceeded() {
         SourceTree source = completedDeleteTree();
 
-        RestoreReport report = new SoftDeleteRestoreCoordinator(logService, List.of())
+        RestoreReport report = new SoftDeleteRestoreCoordinator(logService, recovery, List.of())
                 .restore(source.operationId());
 
         assertThat(report.entries()).extracting(RestoreEntryResult::status)
@@ -124,7 +125,7 @@ class SoftDeleteRestoreCoordinatorTest {
         DeletionRecoveryResourceResolver first = resolver(tenant).getFirst();
         DeletionRecoveryResourceResolver second = resolver(tenant).getFirst();
 
-        RestoreReport report = new SoftDeleteRestoreCoordinator(logService, List.of(first, second))
+        RestoreReport report = new SoftDeleteRestoreCoordinator(logService, recovery, List.of(first, second))
                 .restore(source.operationId());
 
         assertThat(report.entries()).extracting(RestoreEntryResult::status)

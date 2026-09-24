@@ -4,7 +4,6 @@ import net.ximatai.muyun.database.core.IDatabaseOperations;
 import net.ximatai.muyun.database.core.orm.DatabaseValueConverter;
 import net.ximatai.muyun.spring.ability.CacheRegistry;
 import net.ximatai.muyun.spring.ability.event.RuntimeEventPublisher;
-import net.ximatai.muyun.spring.ability.reference.ReferenceDependencyRegistry;
 import net.ximatai.muyun.spring.ability.deletion.DeletionContext;
 import net.ximatai.muyun.spring.ability.deletion.DeletionNode;
 import net.ximatai.muyun.spring.ability.security.FieldCryptoProvider;
@@ -256,13 +255,11 @@ public class DynamicRecordRuntime implements AutoCloseable {
                 continue;
             }
             DynamicEntityService source = entityService(inbound.moduleAlias(), reference.sourceEntityAlias());
-                boolean referenced = !source.list(Criteria.of().eq(reference.sourceField(), targetId),
-                        PageRequest.of(1, 1)).isEmpty();
-                if (referenced) {
-                    throw new PlatformException("cannot make reference target unavailable " + target.qualifiedName()
-                            + ": active records in " + inbound.moduleAlias()
-                            + "." + reference.sourceField() + " still reference it");
-                }
+            long count = source.count(Criteria.of().eq(reference.sourceField(), targetId));
+            if (count > 0) {
+                throw net.ximatai.muyun.spring.ability.reference.ReferenceDeletionGuard.referencedTarget(
+                        target, targetId, inbound.moduleAlias(), reference.sourceField(), count);
+            }
         }
     }
 
@@ -336,7 +333,6 @@ public class DynamicRecordRuntime implements AutoCloseable {
 
     public void clearCache() {
         CacheRegistry.clearNamespacePrefix(cacheNamespacePrefix);
-        ReferenceDependencyRegistry.clearNamespacePrefix(cacheNamespacePrefix);
     }
 
     @Override

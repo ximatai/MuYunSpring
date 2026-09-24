@@ -61,6 +61,11 @@ public class MetadataFieldReferenceConfig extends StandardEntity {
             defaultVal = @Default(varchar = "PRESERVE_HISTORY"))
     private ReferenceTargetUnavailablePolicy targetUnavailablePolicy = ReferenceTargetUnavailablePolicy.PRESERVE_HISTORY;
 
+    @Column(name = "require_enabled", type = ColumnType.BOOLEAN, nullable = false,
+            comment = "Require an enabled target on every save",
+            defaultVal = @Default(bool = net.ximatai.muyun.database.core.annotation.TrueOrFalse.FALSE))
+    private Boolean requireEnabled = false;
+
     @Column(name = "projection_mappings", type = ColumnType.VARCHAR, length = 512, comment = "Projection mappings")
     private String projectionMappings;
 

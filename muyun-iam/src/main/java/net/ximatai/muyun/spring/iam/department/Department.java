@@ -25,7 +25,7 @@ public class Department extends StandardEnabledTreeEntity {
     @Column(name = "organization_id", type = ColumnType.VARCHAR, length = 32, nullable = false,
             comment = "Organization id")
     @ReferenceTo(target = OrganizationService.class,
-            integrity = @ReferenceIntegrity(onTargetUnavailable = ReferenceTargetUnavailablePolicy.RESTRICT))
+            integrity = @ReferenceIntegrity(requireEnabled = true, onTargetUnavailable = ReferenceTargetUnavailablePolicy.RESTRICT))
     private String organizationId;
 
     /** Stable read fact for detail, list and tree-node projection. */

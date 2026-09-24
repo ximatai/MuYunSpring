@@ -1286,6 +1286,25 @@ class PlatformMetadataServiceContractTest {
     }
 
     @Test
+    void strictReferenceMustRejectTargetWithoutEnabledCapabilityBeforeSaving() {
+        String customerId = metadataService.insert(metadata("crm", "customer"));
+        String contactId = metadataService.insert(metadata("crm", "contact"));
+        fieldService.insert(titleField(customerId));
+        MetadataField customerField = field(contactId, "customerId", "customer_id", FieldType.STRING);
+        fieldService.insert(customerField);
+        MetadataFieldReferenceConfig config = referenceConfig(customerField.getId(), customerId);
+        config.setRequireEnabled(true);
+
+        assertThatThrownBy(() -> referenceConfigService.insert(config))
+                .isInstanceOf(PlatformException.class).hasMessageContaining("requires target ENABLE capability");
+        assertThat(referenceConfigService.findByMetadataFieldId(customerField.getId())).isNull();
+
+        fieldService.insert(field(customerId, "enabled", "enabled", FieldType.BOOLEAN));
+        assertThat(referenceConfigService.insert(config)).isNotBlank();
+        assertThat(referenceConfigService.findByMetadataFieldId(customerField.getId()).getRequireEnabled()).isTrue();
+    }
+
+    @Test
     void shouldDeriveStandardSourceTitleProjectionBeforeExplicitReferenceProjections() {
         String customerId = metadataService.insert(metadata("crm", "customer"));
         String contactId = metadataService.insert(metadata("crm", "contact"));

@@ -42,7 +42,7 @@ public class Employee extends StandardEnabledSortableEntity {
     @Column(name = "organization_id", type = ColumnType.VARCHAR, length = 32, nullable = false,
             comment = "Organization id")
     @ReferenceTo(target = OrganizationService.class,
-            integrity = @ReferenceIntegrity(onTargetUnavailable = ReferenceTargetUnavailablePolicy.RESTRICT))
+            integrity = @ReferenceIntegrity(requireEnabled = true, onTargetUnavailable = ReferenceTargetUnavailablePolicy.RESTRICT))
     private String organizationId;
 
     /** Stable read fact reused by detail, list and domain read facades. */
@@ -54,7 +54,7 @@ public class Employee extends StandardEnabledSortableEntity {
     @ReferenceTo(target = DepartmentService.class,
             candidateBindings = @net.ximatai.muyun.spring.ability.reference.ReferenceCandidateBinding(
                     sourceField = "organizationId", targetField = "organizationId"),
-            integrity = @ReferenceIntegrity(onTargetUnavailable = ReferenceTargetUnavailablePolicy.RESTRICT))
+            integrity = @ReferenceIntegrity(requireEnabled = true, onTargetUnavailable = ReferenceTargetUnavailablePolicy.RESTRICT))
     private String departmentId;
 
     /** Stable read fact reused by detail, list and domain read facades. */

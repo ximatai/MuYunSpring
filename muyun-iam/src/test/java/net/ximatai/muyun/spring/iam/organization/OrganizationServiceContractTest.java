@@ -116,8 +116,7 @@ class OrganizationServiceContractTest {
         @SuppressWarnings("unchecked")
         ObjectProvider<OrganizationCreationProvisioner> provisioners = mock(ObjectProvider.class);
         when(provisioners.orderedStream()).thenAnswer(invocation -> Stream.of(provisioner));
-        OrganizationService service = new OrganizationService(dao, activeTenantVerifier(), Optional.empty(),
-                provisioners);
+        OrganizationService service = new OrganizationService(dao, activeTenantVerifier(), provisioners);
 
         try (TenantContext.Scope ignored = TenantContext.use("tenant_a")) {
             service.insert(organization("HQ", "Headquarters"));

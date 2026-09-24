@@ -1,6 +1,5 @@
 package net.ximatai.muyun.spring.dynamic.runtime;
 
-import net.ximatai.muyun.spring.common.model.title.TitleField;
 
 import net.ximatai.muyun.database.core.IDatabaseOperations;
 import net.ximatai.muyun.database.core.metadata.DBInfo;
@@ -53,6 +52,7 @@ import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyMap;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -137,8 +137,7 @@ class DynamicRecordDaoTest {
                 .build();
         @SuppressWarnings("unchecked")
         ReferenceAbility<?> organization = mock(ReferenceAbility.class);
-        when(organization.titles(List.of("org-a"))).thenReturn(Map.of("org-a", "机构 A"));
-        when(organization.projections(List.of("org-a"), List.of("regionCode")))
+        when(organization.referenceFacts(eq(List.of("org-a")), any()))
                 .thenReturn(Map.of("org-a", Map.of("regionCode", "CN")));
         PlatformAbilityRuntime.configureReferenceTargetResolver(target -> organizationTarget.equals(target)
                 ? java.util.Optional.of(organization) : java.util.Optional.empty());
@@ -152,8 +151,49 @@ class DynamicRecordDaoTest {
             assertThat(service.update(update)).isEqualTo(1);
             assertThat(update.getValue("scopeId")).isNull();
             verify(operations, times(1)).query(anyString(), anyMap());
-            verify(organization).titles(List.of("org-a"));
-            verify(organization).projections(List.of("org-a"), List.of("regionCode"));
+            verify(organization).referenceFacts(eq(List.of("org-a")), any());
+        } finally {
+            PlatformAbilityRuntime.resetReferenceTargetResolver();
+        }
+    }
+
+    @Test
+    void shouldValidateUnchangedEnabledReferenceDuringPartialDynamicUpdate() {
+        IDatabaseOperations<Object> operations = operations();
+        when(operations.query(anyString(), anyMap())).thenReturn(List.of(Map.of(
+                "id", "contract-1", "organization_id", "org-a", "description", "old",
+                "deleted", false, "version", 3)));
+        when(operations.patchUpdateItemWhere(anyString(), anyString(), anyMap(), anyMap(), anyString())).thenReturn(1);
+        EntityDefinition entity = new EntityDefinition("contract", TABLE, "Contract", List.of(
+                FieldDefinition.string("organizationId", "Organization").column("organization_id"),
+                FieldDefinition.string("description", "Description")));
+        ModuleDefinition module = ModuleDefinition.builder("sales.contract", "Sales")
+                .entities(List.of(entity))
+                .references(List.of(net.ximatai.muyun.spring.dynamic.metadata.EntityReferenceDefinition
+                        .to("contract", "organizationId", "iam.organization")
+                        .withIntegrity(new net.ximatai.muyun.spring.ability.reference.ReferenceIntegrityPolicy(
+                                net.ximatai.muyun.spring.ability.reference.ReferenceTargetUnavailablePolicy.PRESERVE_HISTORY,
+                                true))))
+                .build();
+        ReferenceAbility<?> organization = mock(ReferenceAbility.class);
+        when(organization.supportsEnabledState()).thenReturn(true);
+        when(organization.referenceFacts(eq(List.of("org-a")), any()))
+                .thenReturn(Map.of("org-a", Map.of("enabled", true)))
+                .thenReturn(Map.of("org-a", Map.of("enabled", false)));
+        PlatformAbilityRuntime.configureReferenceTargetResolver(target -> java.util.Optional.of(organization));
+        try {
+            DynamicEntityService service = DynamicEntityService.withModule(
+                    new DynamicRecordDao(operations, entity), "sales.contract", DynamicRecordLifecycle.NONE, module,
+                    ignored -> { throw new IllegalStateException("no dynamic relation is needed"); });
+            DynamicRecord update = new DynamicRecord(entity).setValue("description", "new");
+            update.setId("contract-1");
+            assertThat(service.update(update)).isEqualTo(1);
+            DynamicRecord disabledTargetUpdate = new DynamicRecord(entity).setValue("description", "must fail");
+            disabledTargetUpdate.setId("contract-1");
+            assertThatThrownBy(() -> service.update(disabledTargetUpdate))
+                    .isInstanceOf(net.ximatai.muyun.spring.common.exception.PlatformException.class)
+                    .hasMessageContaining("所选关联记录已停用");
+            verify(operations, times(1)).patchUpdateItemWhere(anyString(), anyString(), anyMap(), anyMap(), anyString());
         } finally {
             PlatformAbilityRuntime.resetReferenceTargetResolver();
         }

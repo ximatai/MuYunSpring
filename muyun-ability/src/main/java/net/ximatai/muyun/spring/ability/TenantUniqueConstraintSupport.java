@@ -17,9 +17,20 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.function.Supplier;
 
 final class TenantUniqueConstraintSupport {
     private TenantUniqueConstraintSupport() {
+    }
+
+    static <T extends EntityContract, R> R persist(CrudAbility<T> ability, T entity, Supplier<R> write) {
+        if (constraints(ability).isEmpty()) return write.get();
+        try {
+            return PlatformAbilityDispatcher.inStatementTransaction(write);
+        } catch (RuntimeException failure) {
+            // PostgreSQL rejects reads after a statement error until its savepoint is rolled back.
+            throw translatePersistFailure(ability, entity, failure);
+        }
     }
 
     static <T extends EntityContract> void validate(CrudAbility<T> ability, T entity) {
@@ -35,18 +46,15 @@ final class TenantUniqueConstraintSupport {
         if (!isDatabaseUniqueViolation(failure)) {
             return failure;
         }
-        List<TenantUniqueConstraintDefinition> constraints = constraints(ability);
-        if (constraints.isEmpty()) {
-            return failure;
+        PlatformException translated = null;
+        for (TenantUniqueConstraintDefinition constraint : constraints(ability)) {
+            List<T> conflicts = conflictingRecords(ability, entity, constraint);
+            if (conflicts.isEmpty()) continue;
+            // More than one matching constraint is ambiguous; preserve the database failure.
+            if (translated != null) return failure;
+            translated = tenantUniqueConflict(ability, constraint, conflicts, failure);
         }
-        List<TenantUniqueConstraintDefinition> matching = constraints.stream()
-                .filter(constraint -> !conflictingRecords(ability, entity, constraint).isEmpty())
-                .toList();
-        if (matching.size() != 1) {
-            return failure;
-        }
-        TenantUniqueConstraintDefinition constraint = matching.getFirst();
-        return tenantUniqueConflict(ability, constraint, conflictingRecords(ability, entity, constraint), failure);
+        return translated == null ? failure : translated;
     }
 
     private static <T extends EntityContract> void validate(CrudAbility<T> ability,
@@ -88,14 +96,9 @@ final class TenantUniqueConstraintSupport {
         if (active == null && !conflicts.isEmpty()) {
             return softDeletedConflict(ability, conflicts.getFirst(), cause);
         }
-        String message = constraint == null ? "tenant unique constraint violated" : constraint.violationMessage();
-        Map<String, Object> details = constraint == null
-                ? Map.of("moduleAlias", ability.getModuleAlias())
-                : Map.of("moduleAlias", ability.getModuleAlias(), "fields", constraint.fieldNames());
-        ErrorScope scope = ErrorScope.module(ability.getModuleAlias());
-        return cause == null
-                ? PlatformErrors.conflict(PlatformErrorCodes.CONFLICT_UNIQUE, message, scope, details)
-                : PlatformErrors.conflict(PlatformErrorCodes.CONFLICT_UNIQUE, message, cause, scope, details);
+        return PlatformErrors.conflict(PlatformErrorCodes.CONFLICT_UNIQUE, constraint.violationMessage(), cause,
+                ErrorScope.module(ability.getModuleAlias()),
+                Map.of("moduleAlias", ability.getModuleAlias(), "fields", constraint.fieldNames()));
     }
 
     private static PlatformException softDeletedConflict(CrudAbility<?> ability,
@@ -109,10 +112,8 @@ final class TenantUniqueConstraintSupport {
         }
         details.put("recoveryAvailable", Boolean.TRUE);
         String message = "tenant unique identity is retained by a soft-deleted record; restore it from the recycle bin before reusing it";
-        ErrorScope scope = ErrorScope.module(ability.getModuleAlias());
-        return cause == null
-                ? PlatformErrors.conflict(PlatformErrorCodes.RESOURCE_SOFT_DELETED_CONFLICT, message, scope, details)
-                : PlatformErrors.conflict(PlatformErrorCodes.RESOURCE_SOFT_DELETED_CONFLICT, message, cause, scope, details);
+        return PlatformErrors.conflict(PlatformErrorCodes.RESOURCE_SOFT_DELETED_CONFLICT, message, cause,
+                ErrorScope.module(ability.getModuleAlias()), details);
     }
 
     @SuppressWarnings({"rawtypes", "unchecked"})

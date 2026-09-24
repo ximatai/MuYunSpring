@@ -6,12 +6,6 @@ import net.ximatai.muyun.spring.ability.action.BusinessException;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.tenant.ActiveTenantVerifier;
 import net.ximatai.muyun.spring.common.tenant.TenantContext;
-import net.ximatai.muyun.spring.iam.department.Department;
-import net.ximatai.muyun.spring.iam.department.DepartmentService;
-import net.ximatai.muyun.spring.iam.organization.Organization;
-import net.ximatai.muyun.spring.iam.organization.OrganizationService;
-import net.ximatai.muyun.spring.iam.position.Position;
-import net.ximatai.muyun.spring.iam.position.PositionService;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -102,51 +96,6 @@ class EmployeePositionServiceContractTest {
                             assertThat(exception.actionMessage().code())
                                     .isEqualTo("iam.employee-position.primary-owner-mismatch"))
                     .hasMessage("主岗位的机构和部门必须与职员主机构、主部门一致");
-        }
-    }
-
-    @Test
-    void shouldRejectDepartmentFromAnotherOrganization() {
-        EmployeePositionService service = service(mock(EmployeePositionDao.class));
-
-        try (TenantContext.Scope ignored = TenantContext.use("tenant_a")) {
-            assertThatThrownBy(() -> service.beforeInsert(
-                    relation("employee-1", "org-2", "dept-1", "position-1", false)))
-                    .isInstanceOfSatisfying(BusinessException.class, exception ->
-                            assertThat(exception.actionMessage().code())
-                                    .isEqualTo("iam.employee-position.department-organization-mismatch"))
-                    .hasMessage("任职所属部门必须隶属于同一机构");
-        }
-    }
-
-    @Test
-    void shouldRejectEmploymentReferencesFromAnotherTenant() {
-        EmployeeService employeeService = mock(EmployeeService.class);
-        OrganizationService organizationService = mock(OrganizationService.class);
-        DepartmentService departmentService = mock(DepartmentService.class);
-        PositionService positionService = mock(PositionService.class);
-        Employee employee = employee("employee-1", "org-1", "dept-1");
-        employee.setTenantId("tenant-a");
-        Organization organization = organization("org-1");
-        organization.setTenantId("tenant-b");
-        Department department = department("dept-1", "org-1");
-        department.setTenantId("tenant-a");
-        Position position = position("position-1");
-        position.setTenantId("tenant-a");
-        when(employeeService.requireEnabledOrThrow(eq("employee-1"), any())).thenReturn(employee);
-        when(organizationService.requireEnabledOrThrow(eq("org-1"), any())).thenReturn(organization);
-        when(departmentService.requireEnabledOrThrow(eq("dept-1"), any())).thenReturn(department);
-        when(positionService.requireEnabledOrThrow(eq("position-1"), any())).thenReturn(position);
-        EmployeePositionService service = new EmployeePositionService(mock(EmployeePositionDao.class),
-                activeTenantVerifier(), employeeService, organizationService, departmentService, positionService);
-
-        try (TenantContext.Scope ignored = TenantContext.use("tenant-a")) {
-            assertThatThrownBy(() -> service.beforeInsert(
-                    relation("employee-1", "org-1", "dept-1", "position-1", false)))
-                    .isInstanceOfSatisfying(BusinessException.class, exception ->
-                            assertThat(exception.actionMessage().code())
-                                    .isEqualTo("iam.employee-position.cross-tenant-reference"))
-                    .hasMessage("任职职员与机构必须属于同一租户");
         }
     }
 
@@ -267,18 +216,8 @@ class EmployeePositionServiceContractTest {
 
     private EmployeePositionService service(EmployeePositionDao dao, ActiveTenantVerifier tenantVerifier) {
         EmployeeService employeeService = mock(EmployeeService.class);
-        OrganizationService organizationService = mock(OrganizationService.class);
-        DepartmentService departmentService = mock(DepartmentService.class);
-        PositionService positionService = mock(PositionService.class);
         when(employeeService.requireEnabledOrThrow(eq("employee-1"), any())).thenReturn(employee("employee-1", "org-1", "dept-1"));
-        when(organizationService.requireEnabledOrThrow(eq("org-1"), any())).thenReturn(organization("org-1"));
-        when(organizationService.requireEnabledOrThrow(eq("org-2"), any())).thenReturn(organization("org-2"));
-        when(departmentService.requireEnabledOrThrow(eq("dept-1"), any())).thenReturn(department("dept-1", "org-1"));
-        when(departmentService.requireEnabledOrThrow(eq("dept-2"), any())).thenReturn(department("dept-2", "org-1"));
-        when(positionService.requireEnabledOrThrow(eq("position-1"), any())).thenReturn(position("position-1"));
-        when(positionService.requireEnabledOrThrow(eq("position-2"), any())).thenReturn(position("position-2"));
-        return new EmployeePositionService(dao, tenantVerifier, employeeService, organizationService,
-                departmentService, positionService);
+        return new EmployeePositionService(dao, tenantVerifier, employeeService);
     }
 
     private EmployeePosition relation(String employeeId, String organizationId, String departmentId,
@@ -299,28 +238,6 @@ class EmployeePositionServiceContractTest {
         employee.setDepartmentId(departmentId);
         employee.setEnabled(Boolean.TRUE);
         return employee;
-    }
-
-    private Organization organization(String id) {
-        Organization organization = new Organization();
-        organization.setId(id);
-        organization.setEnabled(Boolean.TRUE);
-        return organization;
-    }
-
-    private Department department(String id, String organizationId) {
-        Department department = new Department();
-        department.setId(id);
-        department.setOrganizationId(organizationId);
-        department.setEnabled(Boolean.TRUE);
-        return department;
-    }
-
-    private Position position(String id) {
-        Position position = new Position();
-        position.setId(id);
-        position.setEnabled(Boolean.TRUE);
-        return position;
     }
 
     private ActiveTenantVerifier activeTenantVerifier() {

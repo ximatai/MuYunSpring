@@ -22,8 +22,6 @@ import net.ximatai.muyun.spring.common.platform.ActionAccessMode;
 import net.ximatai.muyun.spring.common.platform.ActionDefaultGrantPolicy;
 import net.ximatai.muyun.spring.common.platform.ActionExecutionContextHolder;
 import net.ximatai.muyun.spring.common.platform.ActionExecutionPolicy;
-import net.ximatai.muyun.spring.common.platform.AllowAllDataScopeCriteriaService;
-import net.ximatai.muyun.spring.common.platform.DataScopeCriteriaService;
 import net.ximatai.muyun.spring.common.platform.PlatformActionLevel;
 import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
 import net.ximatai.muyun.spring.common.platform.RecordActionAvailabilityContributor;
@@ -44,6 +42,7 @@ import net.ximatai.muyun.spring.ability.initialdata.InitialDataOptions;
 import net.ximatai.muyun.spring.common.platform.PlatformAction;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.security.SecureRandom;
 import java.time.Instant;
@@ -53,7 +52,6 @@ import java.util.Collection;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.function.Supplier;
 
 @Service
 public class UserAccountService extends TenantActiveScopedService<UserAccount> implements
@@ -72,7 +70,6 @@ public class UserAccountService extends TenantActiveScopedService<UserAccount> i
     private final PasswordHashingService passwordHashingService;
     private final PasswordPolicyRuleService passwordPolicyRuleService;
     private final AccountRoleGrantDao accountRoleGrantDao;
-    private final Supplier<DataScopeCriteriaService> dataScopeCriteriaService;
     private final UserSecurityEventPublisher userSecurityEventPublisher;
     private final UserSessionRevocationService userSessionRevocationService;
     private final UserSessionPresenceService userSessionPresenceService;
@@ -92,7 +89,7 @@ public class UserAccountService extends TenantActiveScopedService<UserAccount> i
                        ActiveTenantVerifier activeTenantVerifier,
                        PasswordHashingService passwordHashingService) {
         this(userAccountDao, activeTenantVerifier, passwordHashingService,
-                null, null, AllowAllDataScopeCriteriaService::new,
+                null, null,
                 UserSecurityEventPublisher.NOOP, null, null);
     }
 
@@ -100,12 +97,11 @@ public class UserAccountService extends TenantActiveScopedService<UserAccount> i
     public UserAccountService(UserAccountDao userAccountDao,
                               ActiveTenantVerifier activeTenantVerifier,
                               PasswordHashingService passwordHashingService,
-                              UserAccountAuthorizationServices authorizationServices,
+                              AccountRoleGrantDao accountRoleGrantDao,
                               UserAccountSecurityServices securityServices) {
         this(userAccountDao, activeTenantVerifier, passwordHashingService,
                 securityServices.passwordPolicyRuleService().orElse(null),
-                authorizationServices.accountRoleGrantDao(),
-                authorizationServices.dataScopeCriteriaService(),
+                accountRoleGrantDao,
                 securityServices.securityEventPublisher(),
                 securityServices.sessionRevocationService(),
                 securityServices.sessionPresenceService());
@@ -116,7 +112,6 @@ public class UserAccountService extends TenantActiveScopedService<UserAccount> i
                                PasswordHashingService passwordHashingService,
                                PasswordPolicyRuleService passwordPolicyRuleService,
                                AccountRoleGrantDao accountRoleGrantDao,
-                               Supplier<DataScopeCriteriaService> dataScopeCriteriaService,
                                UserSecurityEventPublisher userSecurityEventPublisher,
                                UserSessionRevocationService userSessionRevocationService,
                                UserSessionPresenceService userSessionPresenceService) {
@@ -124,7 +119,6 @@ public class UserAccountService extends TenantActiveScopedService<UserAccount> i
         this.passwordHashingService = passwordHashingService;
         this.passwordPolicyRuleService = passwordPolicyRuleService;
         this.accountRoleGrantDao = accountRoleGrantDao;
-        this.dataScopeCriteriaService = dataScopeCriteriaService;
         this.userSecurityEventPublisher = userSecurityEventPublisher;
         this.userSessionRevocationService = userSessionRevocationService;
         this.userSessionPresenceService = userSessionPresenceService;
@@ -150,11 +144,6 @@ public class UserAccountService extends TenantActiveScopedService<UserAccount> i
         user.setAuthModuleAlias(MODULE_ALIAS);
         user.setEnabled(Boolean.TRUE);
         return List.of(user);
-    }
-
-    @Override
-    public DataScopeCriteriaService getDataScopeCriteriaService() {
-        return dataScopeCriteriaService.get();
     }
 
     @Override
@@ -280,11 +269,11 @@ public class UserAccountService extends TenantActiveScopedService<UserAccount> i
     }
 
     @Override
-    public void beforePrepareInsert(UserAccount user) {
-        if (!TenantContext.isSystem() || user.getTenantId() != null) {
-            requireActiveTenantMutationContext();
+    public void requireMutationContext(UserAccount user) {
+        if (TenantContext.isSystem() && (user == null || user.getTenantId() == null)) {
+            return;
         }
-        normalizeBeforeMutation(user);
+        requireActiveTenantMutationContext();
     }
 
     @Override
@@ -299,8 +288,7 @@ public class UserAccountService extends TenantActiveScopedService<UserAccount> i
     }
 
     @Override
-    public void beforeUpdate(UserAccount user) {
-        UserAccount existing = select(user.getId());
+    public void beforeUpdate(UserAccount user, UserAccount existing) {
         if (existing != null) {
             preserveSecurityFields(user, existing);
         }
@@ -386,18 +374,18 @@ public class UserAccountService extends TenantActiveScopedService<UserAccount> i
         return DataScopeAbility.super.selectForAction(PlatformAction.VIEW, validUserId);
     }
 
+    @Transactional
     public int changePassword(String userId, String newPassword) {
         String validUserId = Preconditions.requireText(userId, "userId");
         rejectCurrentUserPasswordAdministration(validUserId);
-        requireRecordScope(currentRecordMutationPolicy(), List.of(validUserId));
-        UserAccount user = requireEnabled(validUserId,
-                "user is not active: " + userId);
-        validatePasswordPolicy(newPassword);
-        user.setPasswordHash(passwordHashingService.hash(newPassword));
-        user.setPasswordStatus(PasswordStatus.NORMAL);
-        user.setPasswordChangedAt(Instant.now());
-        user.setPasswordExpiresAt(null);
-        int count = getDao().updateById(user);
+        int count = mutateFields(currentRecordMutationPolicy(), validUserId, user -> {
+            requireCommandUserEnabled(user);
+            validatePasswordPolicy(newPassword);
+            user.setPasswordHash(passwordHashingService.hash(newPassword));
+            user.setPasswordStatus(PasswordStatus.NORMAL);
+            user.setPasswordChangedAt(Instant.now());
+            user.setPasswordExpiresAt(null);
+        }, "passwordHash", "passwordStatus", "passwordChangedAt", "passwordExpiresAt");
         if (count > 0) {
             revokeUserSessions(validUserId, "password changed");
             userSecurityEventPublisher.publish(UserSecurityEvent.passwordChanged(validUserId));
@@ -405,26 +393,26 @@ public class UserAccountService extends TenantActiveScopedService<UserAccount> i
         return count;
     }
 
+    @Transactional
     public PasswordResetResult resetPassword(String userId) {
         String validUserId = Preconditions.requireText(userId, "userId");
         rejectCurrentUserPasswordAdministration(validUserId);
-        requireRecordScope(resetPasswordPolicy(), List.of(validUserId));
-        UserAccount user = requireEnabled(validUserId,
-                "user is not active: " + userId);
         String temporaryPassword = generateTemporaryPassword();
-        Instant now = Instant.now();
-        user.setPasswordHash(passwordHashingService.hash(temporaryPassword));
-        user.setPasswordStatus(PasswordStatus.RESET_REQUIRED);
-        user.setPasswordChangedAt(now);
-        user.setPasswordExpiresAt(now.plusSeconds(86_400));
-        user.setFailedLoginCount(0);
-        user.setLockedUntil(null);
-        int count = getDao().updateById(user);
+        Instant expiresAt = Instant.now().plusSeconds(86_400);
+        int count = mutateFields(resetPasswordPolicy(), validUserId, user -> {
+            requireCommandUserEnabled(user);
+            user.setPasswordHash(passwordHashingService.hash(temporaryPassword));
+            user.setPasswordStatus(PasswordStatus.RESET_REQUIRED);
+            user.setPasswordChangedAt(Instant.now());
+            user.setPasswordExpiresAt(expiresAt);
+            user.setFailedLoginCount(0);
+            user.setLockedUntil(null);
+        }, "passwordHash", "passwordStatus", "passwordChangedAt", "passwordExpiresAt", "failedLoginCount", "lockedUntil");
         if (count > 0) {
             revokeUserSessions(validUserId, "password reset");
             userSecurityEventPublisher.publish(UserSecurityEvent.passwordReset(validUserId));
         }
-        return new PasswordResetResult(count, count > 0 ? temporaryPassword : null, user.getPasswordExpiresAt());
+        return new PasswordResetResult(count, count > 0 ? temporaryPassword : null, count > 0 ? expiresAt : null);
     }
 
     public int forceLogout(String userId) {
@@ -440,26 +428,33 @@ public class UserAccountService extends TenantActiveScopedService<UserAccount> i
         return revoked;
     }
 
+    @Transactional
     public int changeOwnPassword(String userId, String currentPassword, String newPassword) {
         String validUserId = Preconditions.requireText(userId, "userId");
-        UserAccount user = requireEnabled(validUserId,
-                "user is not active: " + userId);
-        if (!passwordMatches(user, currentPassword)) {
-            throw new AuthenticationFailedException("invalid username or password");
-        }
-        validatePasswordPolicy(newPassword);
-        user.setPasswordHash(passwordHashingService.hash(newPassword));
-        user.setPasswordStatus(PasswordStatus.NORMAL);
-        user.setPasswordChangedAt(Instant.now());
-        user.setPasswordExpiresAt(null);
-        user.setFailedLoginCount(0);
-        user.setLockedUntil(null);
-        int count = getDao().updateById(user);
+        int count = mutateFields(ownPasswordPolicy(), validUserId, user -> {
+            requireCommandUserEnabled(user);
+            if (!passwordMatches(user, currentPassword)) {
+                throw new AuthenticationFailedException("invalid username or password");
+            }
+            validatePasswordPolicy(newPassword);
+            user.setPasswordHash(passwordHashingService.hash(newPassword));
+            user.setPasswordStatus(PasswordStatus.NORMAL);
+            user.setPasswordChangedAt(Instant.now());
+            user.setPasswordExpiresAt(null);
+            user.setFailedLoginCount(0);
+            user.setLockedUntil(null);
+        }, "passwordHash", "passwordStatus", "passwordChangedAt", "passwordExpiresAt", "failedLoginCount", "lockedUntil");
         if (count > 0) {
             revokeUserSessions(validUserId, "own password changed");
             userSecurityEventPublisher.publish(UserSecurityEvent.passwordChanged(validUserId));
         }
         return count;
+    }
+
+    private void requireCommandUserEnabled(UserAccount user) {
+        if (!Boolean.TRUE.equals(user.getEnabled())) {
+            throw new PlatformException("user is not active: " + user.getId());
+        }
     }
 
     private int revokeUserSessions(String userId, String reason) {
@@ -595,16 +590,9 @@ public class UserAccountService extends TenantActiveScopedService<UserAccount> i
     }
 
     private void preserveSecurityFields(UserAccount user, UserAccount existing) {
-        user.setPasswordHash(existing.getPasswordHash());
-        user.setPasswordStatus(existing.getPasswordStatus());
-        user.setPasswordChangedAt(existing.getPasswordChangedAt());
-        user.setPasswordExpiresAt(existing.getPasswordExpiresAt());
-        user.setLastLoginAt(existing.getLastLoginAt());
-        user.setLastLoginIp(existing.getLastLoginIp());
-        user.setLastLoginUserAgent(existing.getLastLoginUserAgent());
-        user.setLastFailedLoginAt(existing.getLastFailedLoginAt());
-        user.setFailedLoginCount(existing.getFailedLoginCount());
-        user.setLockedUntil(existing.getLockedUntil());
+        retainCommandFields(user, existing, "passwordHash", "passwordStatus", "passwordChangedAt",
+                "passwordExpiresAt", "lastLoginAt", "lastLoginIp", "lastLoginUserAgent",
+                "lastFailedLoginAt", "failedLoginCount", "lockedUntil");
     }
 
     private void validatePasswordPolicy(String password) {
@@ -622,6 +610,11 @@ public class UserAccountService extends TenantActiveScopedService<UserAccount> i
                 .filter(context -> MODULE_ALIAS.equals(context.moduleAlias()))
                 .map(context -> context.actionPolicy())
                 .orElse(CHANGE_PASSWORD_POLICY);
+    }
+
+    private ActionExecutionPolicy ownPasswordPolicy() {
+        return new ActionExecutionPolicy("changeOwnPassword", PlatformActionLevel.RECORD,
+                ActionAccessMode.LOGIN_REQUIRED, false, false, ActionDefaultGrantPolicy.NONE, null);
     }
 
     private ActionExecutionPolicy resetPasswordPolicy() {

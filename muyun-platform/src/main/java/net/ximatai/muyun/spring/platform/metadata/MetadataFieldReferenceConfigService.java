@@ -79,7 +79,7 @@ public class MetadataFieldReferenceConfigService extends AbstractAbilityService<
 
     @Override
     public QueryDescriptor queryDescriptor() {
-        return QueryDescriptors.fromModel(MODULE_ALIAS, MetadataFieldReferenceConfig.class, java.util.List.of("id", "metadataFieldId", "relationId", "targetModuleAlias", "targetMetadataId", "targetKeyField", "targetLabelField", "cardinality", "targetUnavailablePolicy", "projectionMappings", "createdAt", "updatedAt"));
+        return QueryDescriptors.fromModel(MODULE_ALIAS, MetadataFieldReferenceConfig.class, java.util.List.of("id", "metadataFieldId", "relationId", "targetModuleAlias", "targetMetadataId", "targetKeyField", "targetLabelField", "cardinality", "targetUnavailablePolicy", "requireEnabled", "projectionMappings", "createdAt", "updatedAt"));
     }
 
     @Override
@@ -161,9 +161,10 @@ public class MetadataFieldReferenceConfigService extends AbstractAbilityService<
         if (config.getTargetUnavailablePolicy() == null) {
             config.setTargetUnavailablePolicy(ReferenceTargetUnavailablePolicy.PRESERVE_HISTORY);
         }
+        config.setRequireEnabled(Boolean.TRUE.equals(config.getRequireEnabled()));
         new ReferencePlan(sourceField.getFieldName(), target,
                 config.getCardinality(), List.of(),
-                new ReferenceIntegrityPolicy(config.getTargetUnavailablePolicy()));
+                new ReferenceIntegrityPolicy(config.getTargetUnavailablePolicy(), Boolean.TRUE.equals(config.getRequireEnabled())));
     }
 
     /**
@@ -176,14 +177,31 @@ public class MetadataFieldReferenceConfigService extends AbstractAbilityService<
         normalizeTargetIdentifiers(config);
         if (targetsStaticEntity(config)) {
             ReferenceTarget target = resolveStaticTarget(config, sourceRelation);
+            validateTargetIntegrity(config, target);
             normalizeStandardLabelProjection(config, sourceField, target);
             validateOutputFields(config, sourceField.getMetadataId(), target);
             return target;
         }
         ReferenceTarget target = resolveDynamicTarget(config, sourceField, sourceRelation);
+        validateTargetIntegrity(config, target);
         normalizeStandardLabelProjection(config, sourceField, target);
         validateOutputFields(config, sourceField.getMetadataId(), target);
         return target;
+    }
+
+    private void validateTargetIntegrity(MetadataFieldReferenceConfig config, ReferenceTarget target) {
+        if (!Boolean.TRUE.equals(config.getRequireEnabled())) return;
+        boolean enabled;
+        if (targetsStaticEntity(config)) {
+            enabled = PlatformAbilityRuntime.referenceTargetResolver().resolve(target)
+                    .orElseThrow(() -> new PlatformException("Static reference target is not registered: "
+                            + target.qualifiedName())).supportsEnabledState();
+        } else {
+            enabled = MetadataCapabilityCatalog.resolve(metadataService.select(config.getTargetMetadataId()), null,
+                    fieldService.list(Criteria.of().eq("metadataId", config.getTargetMetadataId()), PageRequests.all()))
+                    .capabilities().contains(net.ximatai.muyun.spring.common.platform.EntityCapability.ENABLE);
+        }
+        new ReferenceIntegrityPolicy(config.getTargetUnavailablePolicy(), true).validateTarget(target, enabled);
     }
 
     /**

@@ -1,6 +1,6 @@
 package net.ximatai.muyun.spring.demo.school.subject;
 
-import net.ximatai.muyun.spring.ability.AbstractAbilityService;
+import net.ximatai.muyun.spring.ability.StandardBusinessService;
 import net.ximatai.muyun.spring.ability.CacheAbility;
 import net.ximatai.muyun.spring.ability.EnableAbility;
 import net.ximatai.muyun.spring.ability.SoftDeleteAbility;
@@ -12,7 +12,7 @@ import org.springframework.stereotype.Service;
 /** 学科分类树的标准服务，作为静态教学组织和动态测评共用的引用目标。 */
 @Service
 @Profile("school-demo")
-public class SubjectCategoryService extends AbstractAbilityService<SubjectCategory> implements
+public class SubjectCategoryService extends StandardBusinessService<SubjectCategory> implements
         SoftDeleteAbility<SubjectCategory>,
         EnableAbility<SubjectCategory>,
         TreeAbility<SubjectCategory>,

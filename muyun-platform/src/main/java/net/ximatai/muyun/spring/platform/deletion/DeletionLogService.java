@@ -218,8 +218,11 @@ public class DeletionLogService {
         for (DeletionEntry entry : entries) {
             DeletionOperation operation = operations.get(entry.getOperationId());
             // Failed or skipped attempts remain audit facts, but do not change the resource lifecycle.
+            // Recovery nodes commit independently. Their success is already an effective fact even
+            // if the coordinator was interrupted before completing the overall operation report.
             if (entry.getStatus() != DeletionEntryStatus.SUCCEEDED || operation == null
-                    || operation.getStatus() == DeletionOperationStatus.IN_PROGRESS) {
+                    || (operation.getStatus() == DeletionOperationStatus.IN_PROGRESS
+                    && operation.getOperationType() == DeletionOperationType.DELETE)) {
                 continue;
             }
             DeletionLifecycleEntry candidate = new DeletionLifecycleEntry(operation, entry);

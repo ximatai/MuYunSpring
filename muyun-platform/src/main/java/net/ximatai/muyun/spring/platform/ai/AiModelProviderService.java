@@ -5,6 +5,7 @@ import net.ximatai.muyun.database.core.orm.Sort;
 import net.ximatai.muyun.spring.ability.BaseDao;
 import net.ximatai.muyun.spring.ability.EnableAbility;
 import net.ximatai.muyun.spring.ability.GlobalScopedAbility;
+import net.ximatai.muyun.spring.ability.SoftDeleteAbility;
 import net.ximatai.muyun.spring.ability.SortAbility;
 import net.ximatai.muyun.spring.ability.StandardBusinessService;
 import net.ximatai.muyun.spring.ability.initialdata.InitialDataAbility;
@@ -28,6 +29,7 @@ import java.util.Locale;
 @Service
 public class AiModelProviderService extends StandardBusinessService<AiModelProvider> implements
         GlobalScopedAbility<AiModelProvider>,
+        SoftDeleteAbility<AiModelProvider>,
         EnableAbility<AiModelProvider>,
         SortAbility<AiModelProvider>,
         ReferenceAbility<AiModelProvider>,

@@ -271,13 +271,14 @@ public class RoleService extends TenantActiveScopedService<Role> implements
     }
 
     @Override
-    public void beforePrepareInsert(Role role) {
-        normalizeBeforeMutation(role);
-        if (role.getOwnerScopeType() == RoleOwnerScopeType.PLATFORM) {
+    public void requireMutationContext(Role role) {
+        RoleOwnerScopeType owner = role == null || role.getOwnerScopeType() == null
+                ? defaultOwnerScopeType() : role.getOwnerScopeType();
+        if (owner == RoleOwnerScopeType.PLATFORM) {
             requirePlatformRoleSystemContext();
-            return;
+        } else {
+            requireActiveTenantMutationContext();
         }
-        requireActiveTenantMutationContext();
     }
 
     @Override
@@ -329,12 +330,6 @@ public class RoleService extends TenantActiveScopedService<Role> implements
         if (existing != null) {
             normalizeLoadedRoleDefaults(existing);
         }
-        if (existing != null && existing.getOwnerScopeType() == RoleOwnerScopeType.PLATFORM) {
-            requirePlatformRoleSystemContext();
-        } else {
-            requireActiveTenantMutationContext();
-        }
-        normalizeBeforeMutation(role);
         requireSystemManagedMutationAllowed(existing, "update");
         requireSystemManagedMutationAllowed(role, "update");
         requireStructuralFieldsUnchanged(existing, role);
@@ -343,11 +338,6 @@ public class RoleService extends TenantActiveScopedService<Role> implements
     @Override
     public void beforeDelete(String id) {
         Role role = select(id);
-        if (role != null && role.getOwnerScopeType() == RoleOwnerScopeType.PLATFORM) {
-            requirePlatformRoleSystemContext();
-        } else {
-            requireActiveTenantMutationContext();
-        }
         requireSystemManagedMutationAllowed(role, "delete");
     }
 

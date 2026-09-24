@@ -1225,8 +1225,7 @@ class AbilityContractTest {
 
         assertThatThrownBy(() -> service.insert(new PlainReferenceRecord("missing-customer")))
                 .isInstanceOf(PlatformException.class)
-                .hasMessageContaining("reference target is unavailable")
-                .hasMessageContaining("demo.customer.customerId");
+                .hasMessageContaining("所选关联记录不存在或已删除");
     }
 
     @Test
@@ -1266,7 +1265,7 @@ class AbilityContractTest {
         replacement.setVersion(record.getVersion());
         assertThatThrownBy(() -> service.update(replacement))
                 .isInstanceOf(PlatformException.class)
-                .hasMessageContaining("reference target is unavailable");
+                .hasMessageContaining("所选关联记录不存在或已删除");
     }
 
     @Test
@@ -1285,7 +1284,7 @@ class AbilityContractTest {
 
         assertThatThrownBy(() -> service.restore(recordId))
                 .isInstanceOf(PlatformException.class)
-                .hasMessageContaining("reference target is unavailable");
+                .hasMessageContaining("所选关联记录不存在或已删除");
     }
 
     @Test

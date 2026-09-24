@@ -1,14 +1,13 @@
 package net.ximatai.muyun.spring.ability.discriminator;
 
 import net.ximatai.muyun.spring.ability.PlatformAbilityRuntime;
-import net.ximatai.muyun.spring.ability.reference.ReferenceCandidateDependencyValidator;
+import net.ximatai.muyun.spring.ability.reference.ReferenceWriteValidator;
 import net.ximatai.muyun.spring.ability.reference.ReferencePlan;
 import net.ximatai.muyun.spring.ability.reference.ReferenceTarget;
 import net.ximatai.muyun.spring.ability.reference.StaticReferenceResolver;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 
 import java.util.List;
-import java.util.Map;
 
 /** Normalizes and validates static discriminated fields through the standard reference facade. */
 public final class DiscriminatedValueValidator {
@@ -55,10 +54,9 @@ public final class DiscriminatedValueValidator {
         // A model-only unit test may deliberately run without the optional platform target catalog.
         // In an assembled runtime the catalog is present and this branch is always validated through it.
         if (ability == null) return;
-        Map<String, String> titles = ability.titles(values);
-        if (titles.size() != values.size()) {
-            throw new PlatformException("discriminator reference target is unavailable: " + target.qualifiedName() + "." + valueField);
-        }
-        ReferenceCandidateDependencyValidator.validate(record, values, reference, ability);
+        ReferenceWriteValidator.validate(reference, values, java.util.List.of(),
+                record instanceof net.ximatai.muyun.spring.common.model.contract.EntityContract entity
+                        ? entity.getTenantId() : null,
+                field -> StaticReferenceResolver.readLoadedValue(record, field), null, ability);
     }
 }

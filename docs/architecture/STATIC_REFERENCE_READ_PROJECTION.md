@@ -37,7 +37,8 @@ private String employeeId;
 
 引用关系描述的是模型事实，不描述 UI 要展示哪些字段，也不描述 SQL join。普通业务模块不应手写 join SQL。
 静态 service 不绑定目标 service；平台按 `ReferenceTo.target` 通过全局 `ReferenceTargetResolver` 解析标题和投影，
-以模型字段本身作为引用路径抓手。
+以模型字段本身作为引用路径抓手。静态标准读写自动消费这些声明；有缓存时平台同时维护直接引用依赖，
+普通业务不需要额外实现 `ReferencerAbility`。该接口保留给动态运行态和自定义引用行为扩展。
 
 引用字段的派生输出声明在输出字段上，而不是作为 `@ReferenceTo` 的附带开关：
 

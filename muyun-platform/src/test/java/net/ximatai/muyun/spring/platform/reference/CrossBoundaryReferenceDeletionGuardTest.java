@@ -52,7 +52,8 @@ class CrossBoundaryReferenceDeletionGuardTest {
         assertThatThrownBy(() -> new StaticReferenceDeletionGuard(List.of(staticSource))
                 .beforeTargetUnavailable(dynamicTarget, target))
                 .isInstanceOf(PlatformException.class)
-                .hasMessageContaining("sales.contract.contract");
+                .satisfies(error -> assertThat(((PlatformException) error).details())
+                        .containsEntry("referenceTarget", "sales.contract.contract"));
     }
 
     @Test
@@ -130,8 +131,15 @@ class CrossBoundaryReferenceDeletionGuardTest {
         assertThatThrownBy(() -> new StaticReferenceDeletionGuard(List.of(employee))
                 .beforeTargetUnavailable(organization, target))
                 .isInstanceOf(PlatformException.class)
-                .hasMessageContaining("iam.organization")
-                .hasMessageContaining("iam.employee.organizationId");
+                .satisfies(error -> {
+                    PlatformException exception = (PlatformException) error;
+                    assertThat(exception.code()).isEqualTo("RESOURCE_IN_USE");
+                    assertThat(exception.httpStatus()).isEqualTo(409);
+                    assertThat(exception.details()).containsEntry("referenceTarget", "iam.organization")
+                            .containsEntry("sourceModuleAlias", "iam.employee")
+                            .containsEntry("sourceField", "organizationId")
+                            .containsEntry("referenceCount", 1L);
+                });
     }
 
     @Test

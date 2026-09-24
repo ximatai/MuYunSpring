@@ -13,6 +13,7 @@ import net.ximatai.muyun.spring.common.model.standard.StandardEnabledTreeEntity;
 import net.ximatai.muyun.spring.common.option.OptionField;
 import net.ximatai.muyun.spring.common.option.OptionSourceType;
 import net.ximatai.muyun.spring.ability.reference.ReferenceTo;
+import net.ximatai.muyun.spring.ability.reference.ReferenceTenantScope;
 import net.ximatai.muyun.spring.platform.application.ApplicationService;
 
 import java.util.Set;
@@ -31,7 +32,7 @@ public class PlatformModule extends StandardEnabledTreeEntity implements Platfor
     private String parentId;
 
     @Column(name = "application_alias", type = ColumnType.VARCHAR, length = 64, nullable = false, comment = "Application alias")
-    @ReferenceTo(target = ApplicationService.class)
+    @ReferenceTo(target = ApplicationService.class, tenantScope = ReferenceTenantScope.GLOBAL)
     private String applicationAlias;
 
     @Column(name = "module_kind", type = ColumnType.VARCHAR, length = 32, nullable = false, comment = "Module kind",

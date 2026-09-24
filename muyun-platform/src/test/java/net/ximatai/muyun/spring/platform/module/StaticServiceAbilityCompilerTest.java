@@ -3,6 +3,10 @@ package net.ximatai.muyun.spring.platform.module;
 import net.ximatai.muyun.spring.common.platform.EntityCapability;
 import net.ximatai.muyun.spring.common.platform.PlatformAction;
 import net.ximatai.muyun.spring.ability.PlatformOperationDefinition;
+import net.ximatai.muyun.spring.ability.AbstractAbilityService;
+import net.ximatai.muyun.spring.ability.BaseDao;
+import net.ximatai.muyun.spring.ability.reference.ReferenceTo;
+import net.ximatai.muyun.spring.common.model.standard.StandardEntity;
 import net.ximatai.muyun.spring.ability.capability.StaticCapabilityFacet;
 import net.ximatai.muyun.spring.ability.capability.StaticCapabilityDeclarationPolicy;
 import net.ximatai.muyun.spring.ability.capability.StaticCapabilityModule;
@@ -19,6 +23,13 @@ import static org.assertj.core.api.Assertions.assertThatIllegalStateException;
 import static org.mockito.Mockito.mock;
 
 class StaticServiceAbilityCompilerTest {
+    @Test
+    void shouldDeriveReferenceDependenciesFromTheDeclaredModelWithoutAServiceMixin() {
+        assertThat(StaticServiceAbilityCompiler.compile(new ReferencingService(), CapabilityModuleRegistry.defaultRegistry()))
+                .contains(EntityCapability.REFERENCE_DEPENDENCY)
+                .doesNotContain(EntityCapability.REFERENCE, EntityCapability.CACHE, EntityCapability.SOFT_DELETE);
+    }
+
     @Test
     void shouldCompileEnableAbilityThroughTheSameCapabilityModuleFacts() {
         PlatformModuleService service = mock(PlatformModuleService.class);
@@ -50,6 +61,16 @@ class StaticServiceAbilityCompilerTest {
     }
 
     private static final class ApprovalService { }
+
+    private static final class ReferencingRecord extends StandardEntity {
+        @ReferenceTo(moduleAlias = "test", entityAlias = "target")
+        private String targetId;
+    }
+
+    private static final class ReferencingService extends AbstractAbilityService<ReferencingRecord> {
+        @SuppressWarnings("unchecked")
+        ReferencingService() { super("test.source", ReferencingRecord.class, mock(BaseDao.class)); }
+    }
 
     private static final class ApprovalCapabilityModule implements StaticCapabilityModule {
         @Override public EntityCapability capability() { return EntityCapability.APPROVAL; }

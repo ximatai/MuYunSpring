@@ -9,6 +9,7 @@ import net.ximatai.muyun.spring.ability.deletion.DeletionNode;
 import net.ximatai.muyun.spring.common.model.contract.EntityContract;
 import net.ximatai.muyun.spring.common.model.EntityLifecycle;
 import net.ximatai.muyun.spring.common.schema.StandardEntitySchema;
+import net.ximatai.muyun.spring.common.platform.PlatformAction;
 
 import java.time.Instant;
 
@@ -33,7 +34,7 @@ public interface SoftDeleteAbility<T extends EntityContract> extends CrudAbility
         if (id == null || id.isBlank()) {
             return null;
         }
-        T entity = getDao().query(CrudAbility.super.activeCriteria(Criteria.of().eq(StandardEntitySchema.ID_FIELD, id)), new PageRequest(0, 1))
+        T entity = getDao().query(tenantCriteria(Criteria.of().eq(StandardEntitySchema.ID_FIELD, id)), new PageRequest(0, 1))
                 .stream()
                 .findFirst()
                 .orElse(null);
@@ -43,24 +44,6 @@ public interface SoftDeleteAbility<T extends EntityContract> extends CrudAbility
             typed.restoreProtectedFieldsFromStorage(entity);
         }
         return entity;
-    }
-
-    @Override
-    default int update(T entity) {
-        if (entity == null || entity.getId() == null || entity.getId().isBlank()) {
-            return 0;
-        }
-        T active = selectActiveRaw(entity.getId());
-        if (active == null) {
-            return 0;
-        }
-        if (!allowsTenantOwnershipChange(active, entity)) {
-            entity.setTenantId(active.getTenantId());
-        }
-        entity.setDeleted(Boolean.FALSE);
-        entity.setDeletedAt(null);
-        entity.setDeletedBy(null);
-        return CrudAbility.super.updateWithExisting(entity, active);
     }
 
     @Override
@@ -89,11 +72,14 @@ public interface SoftDeleteAbility<T extends EntityContract> extends CrudAbility
         if (id == null || id.isBlank()) {
             return 0;
         }
-        return PlatformAbilityDispatcher.inDeletionTransaction(() -> {
+        return PlatformAbilityDispatcher.inMutationTransaction(() -> {
+            var mutationScope = MutationScopeSupport.resolve(this, PlatformAction.DELETE, id);
+            return MutationScopeSupport.withTenantScope(mutationScope, () -> {
             DeletionContext context = PlatformAbilityDispatcher.resolveDeletionContext(
                     getModuleAlias(), id, deletionContext);
-            beforeDelete(id, context);
             T entity = selectIgnoreSoftDelete(id);
+            PlatformAbilityDispatcher.requireMutationContext(this, entity);
+            beforeDelete(id, context);
             if (isSoftDeleted(entity)) {
                 return 0;
             }
@@ -124,6 +110,7 @@ public interface SoftDeleteAbility<T extends EntityContract> extends CrudAbility
                 PlatformAbilityDispatcher.deletionFailed(this, entity, context, node, DeletionMode.SOFT, exception);
                 throw exception;
             }
+            });
         });
     }
 
@@ -137,11 +124,16 @@ public interface SoftDeleteAbility<T extends EntityContract> extends CrudAbility
     }
 
     default int restore(String id, Integer expectedVersion) {
+        return PlatformAbilityDispatcher.inMutationTransaction(() -> restoreInTransaction(id, expectedVersion));
+    }
+
+    private int restoreInTransaction(String id, Integer expectedVersion) {
         if (id == null || id.isBlank()) {
             return 0;
         }
-        beforeRestore(id);
         T entity = selectIgnoreSoftDelete(id);
+        PlatformAbilityDispatcher.requireMutationContext(this, entity);
+        beforeRestore(id);
         if (!Boolean.TRUE.equals(entity == null ? null : entity.getDeleted())) {
             return 0;
         }
@@ -175,7 +167,7 @@ public interface SoftDeleteAbility<T extends EntityContract> extends CrudAbility
 
     @Override
     default Criteria activeCriteria(Criteria criteria) {
-        Criteria scoped = CrudAbility.super.activeCriteria(criteria);
+        Criteria scoped = tenantCriteria(criteria);
         scoped.andGroup(group -> group
                 .eq(StandardEntitySchema.DELETED_FIELD, Boolean.FALSE)
                 .orIsNull(StandardEntitySchema.DELETED_FIELD));
@@ -184,7 +176,7 @@ public interface SoftDeleteAbility<T extends EntityContract> extends CrudAbility
 
     /** Tenant-aware retained-row scope for platform-owned recycle-bin projections. */
     default Criteria deletedCriteria(Criteria criteria) {
-        Criteria scoped = CrudAbility.super.activeCriteria(criteria);
+        Criteria scoped = tenantCriteria(criteria);
         scoped.eq(StandardEntitySchema.DELETED_FIELD, Boolean.TRUE);
         return scoped;
     }

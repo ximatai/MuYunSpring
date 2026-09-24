@@ -56,10 +56,10 @@ class TenantServiceContractTest {
         assertThatThrownBy(() -> service.insert(tenant("ximatai", "Ximatai")))
                 .isInstanceOf(PlatformException.class)
                 .hasMessageContaining("system context");
-        assertThatThrownBy(() -> service.beforeUpdate(tenant("ximatai", "Ximatai")))
+        assertThatThrownBy(() -> service.requireMutationContext(tenant("ximatai", "Ximatai")))
                 .isInstanceOf(PlatformException.class)
                 .hasMessageContaining("system context");
-        assertThatThrownBy(() -> service.beforeDelete("ximatai"))
+        assertThatThrownBy(() -> service.requireMutationContext(tenant("ximatai", "Ximatai")))
                 .isInstanceOf(PlatformException.class)
                 .hasMessageContaining("system context");
 
@@ -67,10 +67,10 @@ class TenantServiceContractTest {
             assertThatThrownBy(() -> service.insert(tenant("tenant_b", "Tenant B")))
                     .isInstanceOf(PlatformException.class)
                     .hasMessageContaining("system context");
-            assertThatThrownBy(() -> service.beforeUpdate(tenant("tenant_b", "Tenant B")))
+            assertThatThrownBy(() -> service.requireMutationContext(tenant("tenant_b", "Tenant B")))
                     .isInstanceOf(PlatformException.class)
                     .hasMessageContaining("system context");
-            assertThatThrownBy(() -> service.beforeDelete("tenant_b"))
+            assertThatThrownBy(() -> service.requireMutationContext(tenant("tenant_b", "Tenant B")))
                     .isInstanceOf(PlatformException.class)
                     .hasMessageContaining("system context");
         }

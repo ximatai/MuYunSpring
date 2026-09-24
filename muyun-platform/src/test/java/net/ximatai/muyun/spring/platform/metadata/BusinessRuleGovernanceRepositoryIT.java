@@ -100,6 +100,28 @@ class BusinessRuleGovernanceRepositoryIT extends PlatformPostgresIntegrationTest
     }
 
     @Test
+    void shouldPersistReferenceEnabledRequirement() {
+        MetadataField title = field(mainMetadataId(), "title", "title", "string");
+        title.setTitleField(true);
+        fields.insert(title);
+        MetadataField targetId = field(mainMetadataId(), "targetId", "target_id", "string");
+        fields.insert(targetId);
+        MetadataFieldReferenceConfig reference = new MetadataFieldReferenceConfig();
+        reference.setMetadataFieldId(targetId.getId());
+        reference.setRelationId(mainRelationId());
+        reference.setTargetMetadataId(mainMetadataId());
+        reference.setRequireEnabled(true);
+        assertThatThrownBy(() -> referenceConfigs.insert(reference))
+                .isInstanceOf(PlatformException.class).hasMessageContaining("requires target ENABLE capability");
+        assertThat(referenceConfigs.findForRelation(targetId.getId(), mainRelationId())).isNull();
+        ensureSpec("boolean", FieldType.BOOLEAN);
+        fields.insert(field(mainMetadataId(), "enabled", "enabled", "boolean"));
+        referenceConfigs.insert(reference);
+
+        assertThat(referenceConfigs.select(reference.getId()).getRequireEnabled()).isTrue();
+    }
+
+    @Test
     void shouldApplyReferenceRuleAndPersistComputedValue() {
         Metadata item = metadata.select(mainMetadataId());
         MetadataField title = field(item.getId(), "title", "title", "string");

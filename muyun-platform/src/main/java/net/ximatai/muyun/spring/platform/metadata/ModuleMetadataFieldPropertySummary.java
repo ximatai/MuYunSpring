@@ -23,7 +23,8 @@ public record ModuleMetadataFieldPropertySummary(
             String targetLabelField,
             ReferenceCardinality cardinality,
             ReferenceTargetUnavailablePolicy targetUnavailablePolicy,
-            List<String> projectionMappings
+            List<String> projectionMappings,
+            boolean requireEnabled
     ) {
     }
 

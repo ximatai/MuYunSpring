@@ -8,6 +8,7 @@ import net.ximatai.muyun.database.core.builder.ColumnType;
 import net.ximatai.muyun.spring.ability.reference.ReferenceIntegrity;
 import net.ximatai.muyun.spring.ability.reference.ReferenceTargetUnavailablePolicy;
 import net.ximatai.muyun.spring.ability.reference.ReferenceTo;
+import net.ximatai.muyun.spring.ability.reference.ReferenceTenantScope;
 import net.ximatai.muyun.spring.ability.child.ChildOf;
 import net.ximatai.muyun.spring.common.model.standard.StandardTitledEntity;
 
@@ -18,7 +19,7 @@ public class TenantApplication extends StandardTitledEntity {
      * This entitlement cannot outlive its tenant. The explicit field replaces the inherited
      * tenant scope property so the model also declares its lifecycle dependency.
      */
-    @ReferenceTo(target = TenantService.class,
+    @ReferenceTo(target = TenantService.class, tenantScope = ReferenceTenantScope.GLOBAL,
             integrity = @ReferenceIntegrity(onTargetUnavailable = ReferenceTargetUnavailablePolicy.CASCADE_DELETE))
     @ChildOf
     @Column(name = "tenant_id", type = ColumnType.VARCHAR, length = 64, comment = "Tenant id")

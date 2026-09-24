@@ -307,6 +307,45 @@ class DynamicSchemaServiceIT {
     }
 
     @Test
+    void strictReferenceMustValidateDynamicTargetStateOnPartialUpdatesInRealDatabase() {
+        String suffix = java.util.UUID.randomUUID().toString().replace("-", "").substring(0, 8);
+        String moduleAlias = "sales.strict_" + suffix;
+        EntityDefinition target = new EntityDefinition("target", "strict_target_" + suffix, "Target",
+                List.of(FieldDefinition.titleField(), FieldDefinition.enabled()),
+                Set.of(EntityCapability.REFERENCE, EntityCapability.ENABLE));
+        EntityDefinition source = new EntityDefinition("source", "strict_source_" + suffix, "Source",
+                List.of(FieldDefinition.string("targetId", "Target").column("target_id"),
+                        FieldDefinition.string("note", "Note")));
+        ModuleDefinition module = ModuleDefinition.builder(moduleAlias, "Strict references")
+                .entities(List.of(target, source))
+                .references(List.of(EntityReferenceDefinition.to("source", "targetId", moduleAlias + ".target")
+                        .withIntegrity(new ReferenceIntegrityPolicy(ReferenceTargetUnavailablePolicy.PRESERVE_HISTORY, true))))
+                .build();
+        try (DynamicRecordRuntime runtime = new DynamicRecordRuntime(operations);
+             var ignored = TenantContext.use("strict-tenant-" + suffix)) {
+            new DynamicModuleRuntimeRefresher(schemaService, runtime).refresh(module);
+            DynamicEntityService targets = runtime.entityService(moduleAlias, "target");
+            DynamicEntityService sources = runtime.entityService(moduleAlias, "source");
+            String targetId = targets.insert(new DynamicRecord(target).setValue("title", "Available"));
+            String sourceId = sources.insert(new DynamicRecord(source).setValue("targetId", targetId).setValue("note", "Original"));
+            DynamicRecord update = new DynamicRecord(source).setValue("note", "Updated");
+            update.setId(sourceId);
+            assertThat(sources.update(update)).isEqualTo(1);
+            targets.disable(targetId);
+            DynamicRecord denied = new DynamicRecord(source).setValue("note", "Must not persist");
+            denied.setId(sourceId);
+            assertThatThrownBy(() -> sources.update(denied)).isInstanceOf(PlatformException.class)
+                    .satisfies(error -> assertThat(((PlatformException) error).details())
+                            .containsEntry("referenceReason", "TARGET_DISABLED"));
+            targets.delete(targetId);
+            assertThatThrownBy(() -> sources.update(denied)).isInstanceOf(PlatformException.class)
+                    .satisfies(error -> assertThat(((PlatformException) error).details())
+                            .containsEntry("referenceReason", "TARGET_UNAVAILABLE"));
+            assertThat(sources.select(sourceId).getValue("note")).isEqualTo("Updated");
+        }
+    }
+
+    @Test
     void shouldMoveOnlyRecordsInsideDynamicTreeActionCriteriaScopeOnRealDatabase() {
         List<RuntimeEvent> events = new ArrayList<>();
         DynamicRecordRuntime runtime = DynamicRecordRuntime.builder(operations)
@@ -444,7 +483,7 @@ class DynamicSchemaServiceIT {
             if (policy == ReferenceTargetUnavailablePolicy.RESTRICT) {
                 assertThatThrownBy(() -> service.delete(moduleAlias, "invoice", invoiceId))
                         .isInstanceOf(PlatformException.class)
-                        .hasMessageContaining("cannot make reference target unavailable");
+                        .hasMessageContaining("该记录仍被其他记录引用");
                 assertThat(service.select(moduleAlias, "invoice", invoiceId)).isNotNull();
                 assertThat(service.select(moduleAlias, "invoice_line", lineId)).isNotNull();
                 return;

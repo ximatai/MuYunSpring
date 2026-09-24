@@ -6,6 +6,7 @@ import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.annotation.Propagation;
 
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -19,14 +20,17 @@ import java.util.Objects;
 public class RecycleBinPurgeCoordinator {
     private final DeletionLogService deletionLogService;
     private final List<DeletionRecoveryResourceResolver> resourceResolvers;
+    private final DeletionRecoveryExecutor recovery;
 
     public RecycleBinPurgeCoordinator(DeletionLogService deletionLogService,
+                                      DeletionRecoveryExecutor recovery,
                                       List<DeletionRecoveryResourceResolver> resourceResolvers) {
         this.deletionLogService = Objects.requireNonNull(deletionLogService, "deletionLogService must not be null");
         this.resourceResolvers = resourceResolvers == null ? List.of() : List.copyOf(resourceResolvers);
+        this.recovery = Objects.requireNonNull(recovery, "recovery must not be null");
     }
 
-    @Transactional
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public PurgeReport purge(String sourceOperationId) {
         DeletionOperation source = deletionLogService.operation(sourceOperationId);
         if (source.getOperationType() != DeletionOperationType.DELETE
@@ -112,13 +116,12 @@ public class RecycleBinPurgeCoordinator {
             return skipCurrent(source, results, entryId, "a descendant resource was not purged");
         }
         try {
-            if (ability.purge(source.getResourceRecordId()) <= 0) {
+            if (recovery.purge(ability, source.getResourceRecordId(), entryId) <= 0) {
                 return skipCurrent(source, results, entryId, "resource is no longer purgeable");
             }
         } catch (RuntimeException exception) {
             return failedCurrent(source, results, entryId, exception.getMessage());
         }
-        complete(entryId, DeletionEntryStatus.SUCCEEDED, null);
         results.add(result(source, PurgeEntryResult.Status.PURGED, null));
         return true;
     }

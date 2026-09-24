@@ -16,6 +16,25 @@ class ModuleDefinitionValidatorTest {
     private final ModuleDefinitionValidator validator = new ModuleDefinitionValidator();
 
     @Test
+    void strictReferenceMustRequireTargetEnabledCapabilityAtCompilation() {
+        EntityDefinition target = new EntityDefinition("subject", "school_subject", "Subject",
+                List.of(FieldDefinition.titleField()), Set.of(EntityCapability.REFERENCE));
+        EntityDefinition source = new EntityDefinition("exam", "school_exam", "Exam",
+                List.of(FieldDefinition.string("subjectId", "Subject").column("subject_id")));
+        var reference = EntityReferenceDefinition.to("exam", "subjectId", "school.exam.subject")
+                .withIntegrity(new ReferenceIntegrityPolicy(ReferenceTargetUnavailablePolicy.PRESERVE_HISTORY, true));
+        assertThatThrownBy(() -> validator.validateReference(reference,
+                java.util.Map.of("subject", target, "exam", source), "school.exam"))
+                .isInstanceOf(ModuleDefinitionException.class)
+                .hasMessageContaining("requires target ENABLE capability: school.exam.subject");
+
+        EntityDefinition enabledTarget = new EntityDefinition("subject", "school_subject", "Subject",
+                List.of(FieldDefinition.titleField(), FieldDefinition.enabled()),
+                Set.of(EntityCapability.REFERENCE, EntityCapability.ENABLE));
+        validator.validateReference(reference, java.util.Map.of("subject", enabledTarget, "exam", source), "school.exam");
+    }
+
+    @Test
     void shouldRejectDiscriminatedReferenceWithUnknownDependencyField() {
         net.ximatai.muyun.spring.ability.reference.ReferencePlan reference = new net.ximatai.muyun.spring.ability.reference.ReferencePlan(
                 "scopeId", net.ximatai.muyun.spring.ability.reference.ReferenceTarget.of("iam", "organization"),

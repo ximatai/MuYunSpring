@@ -1,6 +1,5 @@
 package net.ximatai.muyun.spring.dynamic.runtime;
 
-import net.ximatai.muyun.spring.common.model.title.TitleField;
 
 import net.ximatai.muyun.database.core.IDatabaseOperations;
 import net.ximatai.muyun.database.core.metadata.DBInfo;
@@ -285,14 +284,15 @@ class DynamicRelationRuntimeTest {
         DynamicRecord valid = new DynamicRecord(invoiceLineEntity())
                 .setValue("title", "L-001")
                 .setValue("invoiceId", "invoice-1");
+        valid.setTenantId("tenant-a");
         lineService.insert(valid);
 
         DynamicRecord missing = new DynamicRecord(invoiceLineEntity())
                 .setValue("title", "L-002")
                 .setValue("invoiceId", "missing-invoice");
         assertThatThrownBy(() -> lineService.insert(missing))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("dynamic reference target not found");
+                .isInstanceOf(net.ximatai.muyun.spring.common.exception.PlatformException.class)
+                .hasMessageContaining("所选关联记录不存在或已删除");
 
         DynamicRecord blankRequired = new DynamicRecord(invoiceLineEntity())
                 .setValue("title", "L-003")
@@ -362,13 +362,14 @@ class DynamicRelationRuntimeTest {
     @Test
     void shouldRestrictDynamicReferenceTargetWithoutCascadeSideEffect() {
         IDatabaseOperations<Object> operations = operations();
+        when(operations.row(anyString(), anyMap())).thenReturn(Map.of("total_count", 1));
         stubInvoiceRows(operations);
         DynamicRecordRuntime runtime = new DynamicRecordRuntime(operations).register(restrictInvoiceModule());
 
         assertThatThrownBy(() -> runtime.validateReferenceTargetDeletion(
                 ReferenceTarget.of(MODULE, "invoice"), "invoice-1"))
                 .isInstanceOf(PlatformException.class)
-                .hasMessageContaining("cannot make reference target unavailable");
+                .hasMessageContaining("该记录仍被其他记录引用");
 
         verify(operations, never()).patchUpdateItemWhere(anyString(), anyString(), anyMap(), anyMap(), anyString());
     }
@@ -376,6 +377,7 @@ class DynamicRelationRuntimeTest {
     @Test
     void shouldRestrictStaticReferenceTargetThroughTheSameRuntimeIndex() {
         IDatabaseOperations<Object> operations = operations();
+        when(operations.row(anyString(), anyMap())).thenReturn(Map.of("total_count", 1));
         when(operations.query(anyString(), anyMap())).thenReturn(List.of(Map.of(
                 "id", "line-1", "student_id", "student-1"
         )));
@@ -392,7 +394,7 @@ class DynamicRelationRuntimeTest {
         assertThatThrownBy(() -> runtime.validateReferenceTargetDeletion(
                 ReferenceTarget.of("education", "student"), "student-1"))
                 .isInstanceOf(PlatformException.class)
-                .hasMessageContaining("cannot make reference target unavailable");
+                .hasMessageContaining("该记录仍被其他记录引用");
 
         verify(operations, never()).patchUpdateItemWhere(anyString(), anyString(), anyMap(), anyMap(), anyString());
     }
@@ -650,6 +652,37 @@ class DynamicRelationRuntimeTest {
 
         assertThat(lineService.collectReferenceIdsByTarget(line))
                 .containsEntry(ReferenceTarget.of("sales.invoice", "invoice"), Set.of("invoice-1"));
+    }
+
+    @Test
+    void uncachedDynamicListMustNotReplaceDependenciesOfCachedRecords() {
+        IDatabaseOperations<Object> operations = operations();
+        AtomicReference<Map<String, Object>> storedLine = new AtomicReference<>(lineRow());
+        when(operations.query(anyString(), anyMap())).thenAnswer(invocation -> {
+            String sql = invocation.getArgument(0);
+            if (sql.contains("\"app_invoice_line\"")) return List.of(storedLine.get());
+            if (sql.contains("\"app_invoice\"")) return List.of(invoiceRow());
+            return List.of();
+        });
+        when(operations.patchUpdateItemWhere(eq(SCHEMA), anyString(), anyMap(), anyMap(), eq("id"))).thenReturn(1);
+        try (DynamicRecordRuntime runtime = new DynamicRecordRuntime(operations).register(invoiceModule())) {
+            DynamicEntityService invoices = runtime.entityService(MODULE, "invoice");
+            DynamicEntityService lines = runtime.entityService(MODULE, "invoice_line");
+            assertThat(lines.select("line-1").getValue("title")).isEqualTo("L-001");
+
+            Map<String, Object> changed = new java.util.LinkedHashMap<>(lineRow("L-002"));
+            changed.put("invoice_id", null);
+            storedLine.set(changed);
+            assertThat(lines.list(net.ximatai.muyun.database.core.orm.Criteria.of()))
+                    .singleElement().satisfies(line -> assertThat(line.getValue("title")).isEqualTo("L-002"));
+
+            DynamicRecord invoice = new DynamicRecord(invoiceEntity()).setValue("title", "I-002");
+            invoice.setId("invoice-1");
+            invoice.setVersion(1);
+            invoices.update(invoice);
+
+            assertThat(lines.select("line-1").getValue("title")).isEqualTo("L-002");
+        }
     }
 
     @Test

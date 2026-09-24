@@ -18,4 +18,5 @@ dependencies {
     testImplementation(testFixtures(project(":muyun-iam")))
     testImplementation(testFixtures(project(":muyun-platform")))
     testRuntimeOnly(libs.junit.platform.launcher)
+    testRuntimeOnly(libs.postgresql)
 }

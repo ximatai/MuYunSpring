@@ -30,7 +30,6 @@ import java.util.concurrent.atomic.AtomicReference;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyCollection;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -98,7 +97,7 @@ class MenuServiceContractTest {
     void shouldRejectOrganizationSchemeWhenOrganizationBelongsToAnotherTenant() {
         ReferenceAbility<?> organizationReference = mock(ReferenceAbility.class);
         when(organizationReference.titles(anyCollection())).thenReturn(Map.of("org-b", "其他租户机构"));
-        when(organizationReference.projections(anyCollection(), eq(List.of("tenantId"))))
+        when(organizationReference.referenceFacts(anyCollection(), anyCollection()))
                 .thenReturn(Map.of("org-b", Map.of("tenantId", "tenant-b")));
         PlatformAbilityRuntime.configureReferenceTargetResolver(target ->
                 "iam.organization".equals(target.qualifiedName())
@@ -109,7 +108,7 @@ class MenuServiceContractTest {
             assertThatThrownBy(() -> schemeService.insert(
                     scheme("organization_default", MenuScopeType.ORGANIZATION, "org-b")))
                     .isInstanceOf(PlatformException.class)
-                    .hasMessageContaining("reference target does not satisfy dependency: tenantId");
+                    .hasMessageContaining("所选关联记录不属于当前记录的租户");
         }
     }
 
@@ -233,7 +232,7 @@ class MenuServiceContractTest {
         menuServiceReference.set(guardedMenuService);
         ReferenceAbility<?> organizationReference = mock(ReferenceAbility.class);
         when(organizationReference.titles(anyCollection())).thenReturn(Map.of("org-a", "机构 A"));
-        when(organizationReference.projections(anyCollection(), eq(List.of("tenantId"))))
+        when(organizationReference.referenceFacts(anyCollection(), anyCollection()))
                 .thenReturn(Map.of("org-a", Map.of("tenantId", "tenant-a")));
         PlatformAbilityRuntime.configureReferenceTargetResolver(target -> "iam.organization".equals(target.qualifiedName())
                 ? Optional.of(organizationReference) : Optional.empty());
