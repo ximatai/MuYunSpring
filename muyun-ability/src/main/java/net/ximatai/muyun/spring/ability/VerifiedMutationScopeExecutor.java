@@ -80,7 +80,7 @@ public final class VerifiedMutationScopeExecutor {
             VerifiedMutationScope scope = iterator.next();
             if (!scope.belongsTo(service)) continue;
             serviceBound = true;
-            if (scope.matches(service, action, normalized)) {
+            if (scope.matchesExecution(service, action, normalized)) {
                 return Optional.of(scope.criteriaResult());
             }
         }

@@ -72,7 +72,7 @@ public class MetadataModelChangeSetApplyService {
             ensureSchemas(preview.plan(), relations, metadata, previousFieldSpecs);
             return null;
         }));
-        TransactionScopeSupport.afterCommitOrNow(() -> refreshCoordinator.activateModulesNow(List.of(validModuleAlias)));
+        refreshCoordinator.scheduleModules(List.of(validModuleAlias));
         return new MetadataModelChangeSetPublishResult(preview, snapshots(validModuleAlias, relations), List.of(validModuleAlias));
     }
 

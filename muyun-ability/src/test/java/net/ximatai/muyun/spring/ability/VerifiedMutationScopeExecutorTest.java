@@ -1,7 +1,12 @@
 package net.ximatai.muyun.spring.ability;
 
 import net.ximatai.muyun.database.core.orm.Criteria;
+import net.ximatai.muyun.spring.common.identity.ActingContext;
+import net.ximatai.muyun.spring.common.identity.ActingContextHolder;
+import net.ximatai.muyun.spring.common.identity.BusinessPrincipal;
 import net.ximatai.muyun.spring.common.identity.CurrentUser;
+import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
+import org.springframework.aop.framework.ProxyFactory;
 import net.ximatai.muyun.spring.common.platform.ActionExecutionPolicy;
 import net.ximatai.muyun.spring.common.platform.DataScopeCriteriaResult;
 import net.ximatai.muyun.spring.common.platform.DataScopeCriteriaService;
@@ -114,17 +119,71 @@ class VerifiedMutationScopeExecutorTest {
     @Test
     void shouldKeepCrossTenantBypassForTheWholePolymorphicServiceCallAndRestoreIt() {
         ScopeAwareService service = serviceWith("record-1");
-        VerifiedMutationScope scope = new VerifiedMutationScope(service, PlatformAction.UPDATE,
-                Set.of("record-1"), DataScopeCriteriaResult.crossTenantRestricted(
-                Criteria.of().eq("id", "record-1")));
-
         try (TenantContext.Scope ignored = TenantContext.use("tenant-a")) {
+            VerifiedMutationScope scope = new VerifiedMutationScope(service, PlatformAction.UPDATE,
+                    Set.of("record-1"), DataScopeCriteriaResult.crossTenantRestricted(
+                    Criteria.of().eq("id", "record-1")));
             VerifiedMutationScopeExecutor.execute(service, PlatformAction.UPDATE, Set.of("record-1"), scope, () -> {
                 assertThat(TenantContext.tenantFilterBypassed()).isTrue();
                 return service.update(update("record-1", "cross-tenant"));
             });
             assertThat(TenantContext.tenantFilterBypassed()).isFalse();
         }
+    }
+
+    @Test
+    void proofMustRejectActorTenantModeAndUnauthorizedBypassChanges() {
+        ScopeAwareService service = serviceWith("record-1");
+        VerifiedMutationScope none = verified(service, "record-1");
+        try (var ignored = TenantContext.system("unexpected elevation")) {
+            assertInvalid(service, none);
+        }
+        try (var ignored = TenantContext.use("tenant-a")) {
+            VerifiedMutationScope tenant = verified(service, "record-1");
+            try (var other = TenantContext.use("tenant-b")) { assertInvalid(service, tenant); }
+            try (var bypass = TenantContext.bypassTenantFilter("unexpected elevation")) { assertInvalid(service, tenant); }
+            try (var actor = CurrentUserContext.use(CurrentUser.systemUser("other", "Other"))) {
+                assertInvalid(service, tenant);
+            }
+            try (var acting = ActingContextHolder.use(new ActingContext("delegation",
+                    CurrentUser.systemUser("operator", "Operator"), BusinessPrincipal.userAccount("principal"), null, null))) {
+                assertInvalid(service, tenant);
+            }
+            VerifiedMutationScopeExecutor.execute(service, PlatformAction.UPDATE, Set.of("record-1"), tenant, () -> {
+                try (var bypass = TenantContext.bypassTenantFilter("unexpected elevation during execution")) {
+                    assertThatThrownBy(() -> service.update(update("record-1", "forged")))
+                            .isInstanceOf(IllegalStateException.class);
+                }
+                return 0;
+            });
+        }
+        assertThat(service.select("record-1").getTitle()).isEqualTo("record-1");
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void proofIdentityMustSurviveBothSpringProxyFormsButRemainBoundToOneServiceInstance() {
+        for (boolean classProxy : new boolean[]{false, true}) {
+            ScopeAwareService target = serviceWith("record-1");
+            ProxyFactory factory = new ProxyFactory(target);
+            factory.setProxyTargetClass(classProxy);
+            CrudAbility<DemoPlainRecord> proxy = (CrudAbility<DemoPlainRecord>) factory.getProxy();
+            VerifiedMutationScope proof = new VerifiedMutationScope(proxy, PlatformAction.UPDATE, Set.of("record-1"),
+                    DataScopeCriteriaResult.restricted(Criteria.of().eq("id", "record-1")));
+            assertThatThrownBy(() -> VerifiedMutationScopeExecutor.execute(serviceWith("record-1"),
+                    PlatformAction.UPDATE, Set.of("record-1"), proof, () -> 0)).isInstanceOf(IllegalStateException.class);
+            VerifiedMutationScopeExecutor.execute(proxy, PlatformAction.UPDATE, Set.of("record-1"), proof,
+                    () -> proxy.update(update("record-1", "through proxy")));
+            assertThat(target.scopeResolutions).isZero();
+            assertThat(target.select("record-1").getTitle()).isEqualTo("through proxy");
+        }
+    }
+
+    private void assertInvalid(ScopeAwareService service, VerifiedMutationScope proof) {
+        assertThatThrownBy(() -> VerifiedMutationScopeExecutor.execute(service, PlatformAction.UPDATE,
+                Set.of("record-1"), proof, () -> 0)).isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> VerifiedMutationScopeExecutor.select(service, PlatformAction.UPDATE, "record-1", proof))
+                .isInstanceOf(IllegalStateException.class);
     }
 
     private static VerifiedMutationScope verified(ScopeAwareService service, String id) {
@@ -148,13 +207,13 @@ class VerifiedMutationScopeExecutorTest {
         return record;
     }
 
-    private static final class ScopeAwareService extends AbstractAbilityService<DemoPlainRecord>
+    static class ScopeAwareService extends AbstractAbilityService<DemoPlainRecord>
             implements DataScopeAbility<DemoPlainRecord> {
         private int scopeResolutions;
         private String lastScopeModuleAlias;
         private String lastScopeActionCode;
 
-        private ScopeAwareService(BaseDao<DemoPlainRecord, String> dao) {
+        ScopeAwareService(BaseDao<DemoPlainRecord, String> dao) {
             super("child.module", DemoPlainRecord.class, dao);
         }
 

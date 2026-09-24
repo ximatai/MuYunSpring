@@ -1,5 +1,9 @@
 package net.ximatai.muyun.spring.platform.module;
 
+import net.ximatai.muyun.spring.common.util.PlatformNameRules;
+import net.ximatai.muyun.spring.common.platform.ActionAccessMode;
+import net.ximatai.muyun.spring.common.platform.PlatformActionLevel;
+import net.ximatai.muyun.spring.common.platform.ActionExecutionPolicy;
 import lombok.Getter;
 import lombok.Setter;
 import net.ximatai.muyun.database.core.annotation.Column;
@@ -146,5 +150,18 @@ public class PlatformModuleAction extends StandardEnabledSortableEntity implemen
 
     public ActionDefaultGrantPolicy effectiveDefaultGrantPolicy() {
         return defaultGrantPolicyOverride == null ? defaultGrantPolicy : defaultGrantPolicyOverride;
+    }
+
+    /** The same effective policy is consumed by HTTP adapters and domain commands. */
+    public ActionExecutionPolicy executionPolicy() {
+        String code = PlatformNameRules.requireActionCode(actionCode, "actionCode");
+        String inherited = permissionActionCode == null || permissionActionCode.isBlank() || permissionActionCode.equals(code)
+                ? null : PlatformNameRules.requireActionCode(permissionActionCode, "permissionActionCode");
+        return new ActionExecutionPolicy(code,
+                actionLevel == null ? PlatformActionLevel.ANY
+                        : PlatformActionLevel.valueOf(actionLevel.name()),
+                effectiveAccessMode() == null ? ActionAccessMode.AUTH_REQUIRED
+                        : ActionAccessMode.valueOf(effectiveAccessMode().name()),
+                effectiveActionAuth(), effectiveDataAuth(), effectiveDefaultGrantPolicy(), inherited);
     }
 }

@@ -1555,7 +1555,7 @@ class PlatformMetadataServiceContractTest {
                 .doesNotContain("id", "tenantId", "authUserId");
         verify(schemaEnsureService).ensureNow(org.mockito.ArgumentMatchers.<Metadata>argThat(published ->
                 published != null && result.metadata().getId().equals(published.getId())));
-        verify(runtimeRefreshCoordinator).activateModulesNow(List.of("crm.customer"));
+        verify(runtimeRefreshCoordinator).scheduleModules(List.of("crm.customer"));
     }
 
     @Test
@@ -1594,7 +1594,7 @@ class PlatformMetadataServiceContractTest {
                 });
         verify(schemaEnsureService).ensureNow(org.mockito.ArgumentMatchers.<Metadata>argThat(published ->
                 published != null && child.metadata().getId().equals(published.getId())));
-        verify(runtimeRefreshCoordinator).activateModulesNow(List.of("crm.customer"));
+        verify(runtimeRefreshCoordinator).scheduleModules(List.of("crm.customer"));
     }
 
     @Test

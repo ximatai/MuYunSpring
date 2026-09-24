@@ -4,35 +4,20 @@ import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.database.core.orm.Sort;
 import net.ximatai.muyun.spring.ability.CrudAbility;
-import net.ximatai.muyun.spring.ability.query.QueryAbility;
 import net.ximatai.muyun.spring.ability.query.QuerySchema;
-import net.ximatai.muyun.spring.web.QueryViewWeb;
-import net.ximatai.muyun.spring.web.WebOutputSupport;
-import net.ximatai.muyun.spring.web.WebPageRequest;
-import net.ximatai.muyun.spring.web.WebPageResponse;
-import net.ximatai.muyun.spring.web.WebQueryRequest;
-import net.ximatai.muyun.spring.web.query.WebQueryRequests;
 import net.ximatai.muyun.spring.common.model.contract.EntityContract;
 import net.ximatai.muyun.spring.common.platform.ActionEndpoint;
 import net.ximatai.muyun.spring.common.platform.PlatformAction;
 import net.ximatai.muyun.spring.common.security.FieldOutputContext;
 import net.ximatai.muyun.spring.platform.module.StaticModuleServiceDeclaration;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestParam;
+import net.ximatai.muyun.spring.web.*;
+import net.ximatai.muyun.spring.web.query.WebQueryRequests;
+import org.springframework.web.bind.annotation.*;
 
 import java.util.Map;
 import java.util.List;
-import java.util.Optional;
 
-/**
- * Static-module query/view transport with the compiled list-read projection.
- *
- * <p>It deliberately adds no mutation endpoints. Controllers use this instead of
- * {@link QueryViewWeb} when their descriptor exposes reference or relation fields
- * that must share the static list projection and data-scope pipeline.</p>
- */
+/** Read-only static delivery using the same compiled query, navigation and projection runtime as CRUD. */
 public interface StaticQueryViewWeb<T extends EntityContract, S extends CrudAbility<T>>
         extends QueryViewWeb<T, S>, StaticModuleServiceDeclaration {
     @Override
@@ -40,51 +25,40 @@ public interface StaticQueryViewWeb<T extends EntityContract, S extends CrudAbil
         return service();
     }
 
-    /** Supplied by the platform-web controller through its standard optional injection seam. */
-    default StaticRecordReadProjectionService staticRecordReadProjectionService() {
+    /** Installed by {@link StaticModuleWebControllerAdapter}; no mutation endpoints are inherited. */
+    default StandardModuleWebRuntime standardModuleWebRuntime() {
         return null;
     }
 
-    /**
-     * Exposes the standard query contract for read-only static modules.
-     * Without this mapping, the dynamic-record fallback route can consume
-     * {@code /query/schema} and reject the static module alias.
-     */
+    /** Business-owned resolvers for opaque, server-authorized page selections. */
+    default PageSelectionContextResolverRegistry pageSelectionContextResolvers() {
+        return new PageSelectionContextResolverRegistry(List.of());
+    }
+
+    private StandardModuleWebRuntime runtime() {
+        StandardModuleWebRuntime runtime = standardModuleWebRuntime();
+        if (runtime == null) throw new IllegalStateException("static query module requires StandardModuleWebRuntime: " + webScopeName());
+        runtime.requirePlan(webScopeName());
+        return runtime;
+    }
+
     @GetMapping("/query/schema")
     @ActionEndpoint(PlatformAction.QUERY)
     @ModuleDiscoveryEndpoint
     default QuerySchema querySchema(@RequestParam(required = false) String uiConfigId) {
-        StaticRecordReadProjectionService projectionService = staticRecordReadProjectionService();
-        if (projectionService != null && this instanceof StaticModuleUiContributor contributor
-                && projectionService.hasModuleDefinition(contributor.moduleUiDefinition().moduleAlias())) {
-            return projectionService.querySchema(contributor.moduleUiDefinition().moduleAlias(), service());
-        }
-        if (service() instanceof QueryAbility<?> queryAbility) {
-            return queryAbility.querySchema();
-        }
-        throw new IllegalArgumentException("query schema is not supported by " + webScopeName());
+        return runtime().querySchema(webScopeName(), service()).orElseThrow();
     }
 
     @Override
     default Criteria queryCriteria(WebQueryRequest request) {
-        StaticRecordReadProjectionService projectionService = staticRecordReadProjectionService();
-        if (projectionService != null && this instanceof StaticModuleUiContributor contributor
-                && projectionService.hasModuleDefinition(contributor.moduleUiDefinition().moduleAlias())) {
-            return andCriteria(projectionService.queryCriteria(contributor.moduleUiDefinition().moduleAlias(), service(),
-                    WebQueryRequests.from(request)), navigatorCriteria(request));
-        }
-        return andCriteria(QueryViewWeb.super.queryCriteria(request), navigatorCriteria(request));
+        Criteria criteria = runtime().queryCriteria(webScopeName(), service(),
+                WebQueryRequests.from(executionRequest(request))).orElseThrow();
+        return Criteria.copyOf(criteria).and(navigatorCriteria(request));
     }
 
     @Override
     default Sort[] querySorts(WebQueryRequest request) {
-        StaticRecordReadProjectionService projectionService = staticRecordReadProjectionService();
-        if (projectionService != null && this instanceof StaticModuleUiContributor contributor
-                && projectionService.hasModuleDefinition(contributor.moduleUiDefinition().moduleAlias())) {
-            return projectionService.querySorts(contributor.moduleUiDefinition().moduleAlias(), service(),
-                    WebQueryRequests.from(request));
-        }
-        return QueryViewWeb.super.querySorts(request);
+        return runtime().querySorts(webScopeName(), service(), WebQueryRequests.from(executionRequest(request))).orElseThrow();
     }
 
     @Override
@@ -93,61 +67,45 @@ public interface StaticQueryViewWeb<T extends EntityContract, S extends CrudAbil
     @SuppressWarnings("unchecked")
     default WebPageResponse<T> query(@RequestBody(required = false) WebQueryRequest request) {
         return webScope(() -> {
-            StaticRecordReadProjectionService projectionService = staticRecordReadProjectionService();
-            if (projectionService != null && this instanceof StaticModuleUiContributor contributor) {
-                WebPageRequest page = request == null ? WebPageRequest.DEFAULT : request.pageOrDefault();
-                Optional<WebPageResponse<Map<String, Object>>> projected = projectionService.queryDefaultList(
-                        contributor.moduleUiDefinition().moduleAlias(),
-                        WebQueryRequests.from(request),
-                        navigatorCriteria(request),
-                        PageRequest.of(page.pageNum(), page.pageSize()),
-                        service(),
-                        net.ximatai.muyun.spring.web.StaticStandardMutationSupport.actionPolicy(this, PlatformAction.QUERY),
-                        RecordReadVisibility.ACTIVE
-                );
-                if (projected.isPresent()) {
-                    return (WebPageResponse<T>) (WebPageResponse<?>) projected.get();
-                }
-            }
-            WebPageResponse<T> response = WebPageResponse.from(WebOutputSupport.page(
-                    service(), queryRecords(request), FieldOutputContext.LIST));
-            if (projectionService != null && this instanceof StaticModuleUiContributor contributor) {
-                return projectionService.projectDefaultList(contributor.moduleUiDefinition().moduleAlias(), response, service());
-            }
+            StandardModuleWebRuntime runtime = runtime();
+            WebPageRequest page = request == null ? WebPageRequest.DEFAULT : request.pageOrDefault();
+            var projected = runtime.queryProjectedDefaultList(webScopeName(), WebQueryRequests.from(executionRequest(request)),
+                    navigatorCriteria(request), PageRequest.of(page.pageNum(), page.pageSize()), service(),
+                    StaticStandardMutationSupport.actionPolicy(this, PlatformAction.QUERY), RecordReadVisibility.ACTIVE);
+            WebPageResponse<T> response = projected.isPresent()
+                    ? (WebPageResponse<T>) (WebPageResponse<?>) projected.get()
+                    : runtime.projectDefaultList(webScopeName(), WebPageResponse.from(WebOutputSupport.page(
+                            service(), queryRecords(request), FieldOutputContext.LIST)), service());
+            runtime.markWireResponse(webScopeName());
             return response;
         });
     }
 
+    @Override
+    @GetMapping("/view/{id}")
+    @ActionEndpoint(PlatformAction.VIEW)
+    default T view(@PathVariable String id) {
+        return webScope(() -> {
+            StandardModuleWebRuntime runtime = runtime();
+            T record = RecordReadSupport.requireVisible(webScopeName(), id,
+                    StaticStandardMutationSupport.selectForAction(this, PlatformAction.VIEW, id));
+            PageContextScopePolicy.requireRecordInScope(record, PageContextScopePolicy.recordScopeBindings(
+                            runtime.pageContextBindings(webScopeName(), PageContextTarget.LIST_QUERY)),
+                    webScopeName(), PlatformAction.VIEW, pageSelectionContextResolvers());
+            T output = WebOutputSupport.record(service(), record, FieldOutputContext.VIEW);
+            runtime.markWireResponse(webScopeName());
+            return output;
+        });
+    }
+
     private Criteria navigatorCriteria(WebQueryRequest request) {
-        // Controllers outside the static page DSL retain their lazy fallback path. A controller
-        // that opts into a page declaration must always evaluate its LIST_QUERY bindings: a
-        // REQUIRED_SCOPE is a server contract, not a browser-only loading convention.
-        if (!(this instanceof StaticModuleUiContributor)) {
-            return Criteria.of();
-        }
-        return PageContextScopePolicy.criteria(pageContextBindings(PageContextTarget.LIST_QUERY),
-                request == null ? Map.of() : request.externalQueryValues(), false);
+        return PageContextScopePolicy.criteria(runtime().pageContextBindings(webScopeName(), PageContextTarget.LIST_QUERY),
+                request == null ? Map.of() : request.externalQueryValues(), false,
+                webScopeName(), PlatformAction.QUERY, pageSelectionContextResolvers());
     }
 
-    private List<PageContextBindingDefinition> pageContextBindings(PageContextTarget target) {
-        if (!(this instanceof StaticModuleUiContributor contributor)) return List.of();
-        ModulePageDefinition page = contributor.moduleUiDefinition().page();
-        PageNavigatorDefinition navigator = switch (page) {
-            case ListDetailCardPageDefinition card -> card.navigator();
-            case FlatManagementPageDefinition flat -> flat.navigator();
-            case TreeManagementPageDefinition tree -> tree.navigator();
-            case null -> null;
-        };
-        return navigator == null ? List.of()
-                : navigator.contextBindings().stream().filter(binding -> binding.target() == target).toList();
-    }
-
-    private Criteria andCriteria(Criteria first, Criteria second) {
-        if (first == null || first.isEmpty()) return second == null ? Criteria.of() : second;
-        if (second == null || second.isEmpty()) return first;
-        Criteria criteria = Criteria.of();
-        criteria.andGroup(first.getRoot());
-        criteria.andGroup(second.getRoot());
-        return criteria;
+    private WebQueryRequest executionRequest(WebQueryRequest request) {
+        return CrudWebRuntimeSupport.withoutWorkspaceExternalValues(request,
+                runtime().pageContextBindings(webScopeName(), PageContextTarget.LIST_QUERY));
     }
 }

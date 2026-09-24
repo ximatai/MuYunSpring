@@ -23,7 +23,7 @@ public final class DynamicReferenceDeletionGuard implements ReferenceDeletionGua
         if (targetAbility == null || target == null || target.getId() == null || target.getId().isBlank()) {
             return;
         }
-        runtime.validateReferenceTargetDeletion(targetOf(targetAbility), target.getId());
+        runtime.validateReferenceTargetUnavailable(targetOf(targetAbility), target.getId());
     }
 
     @Override

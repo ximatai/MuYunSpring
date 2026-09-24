@@ -7,6 +7,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+@DynamicRuntimeRead
 @RestController
 @RequestMapping("/platform.module/{moduleAlias}/context")
 public class PlatformModuleRuntimeContextWebController {

@@ -7,6 +7,7 @@ import net.ximatai.muyun.spring.platform.module.ModuleEntryType;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicReference;
@@ -297,27 +298,15 @@ class ModuleExecutionPlanCatalogTest {
     }
 
     @Test
-    void shouldInstallPublishedDynamicPlansDuringColdStart() {
+    void controlledActivationEventMustNotRecompileTheInstalledPlan() {
         ModuleUiCompilationResult compilation = ModuleUiDescriptorCompiler.compileModule(module("iam.customer", "username"));
-        ModuleExecutionPlan plan = new ModuleExecutionPlan("iam.customer", "dynamic-runtime-1-ui-1",
+        ModuleExecutionPlan plan = new ModuleExecutionPlan("iam.customer", "installed-revision-2",
                 compilation.uiDescriptor(), compilation.readModel(), List.of());
         ModuleExecutionPlanCatalog catalog = new ModuleExecutionPlanCatalog(new StaticModuleDefinitionCatalog(List.of()),
-                new DynamicModuleExecutionPlanResolver() {
-                    @Override
-                    public Optional<ModuleExecutionPlan> resolve(String alias) {
-                        return Optional.of(plan);
-                    }
-
-                    @Override
-                    public List<String> moduleAliases() {
-                        return List.of("iam.customer");
-                    }
-                });
-
-        // Dynamic metadata tables are populated after singleton wiring; the published plans
-        // therefore become available at the delivery runtime's application-ready phase.
-        catalog.installInitialDynamicPlans();
-
+                alias -> { throw new AssertionError("controlled activation must not resolve an unversioned candidate"); });
+        catalog.replaceDynamicPlan("iam.customer", Optional.of(plan));
+        catalog.onRuntimeEvent(RuntimeEvent.of(RuntimeEventType.MODULE_REFRESHED, "iam.customer", null, null,
+                null, null, true, "activation", RuntimeMutationSource.SYSTEM, Map.of("activationRevision", 1)));
         assertThat(catalog.find("iam.customer")).containsSame(plan);
     }
 

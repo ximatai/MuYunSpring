@@ -129,10 +129,14 @@ public class ActionEndpointWebConfiguration {
     public WebMvcConfigurer actionEndpointInterceptorRegistration(
             ActionEndpointInterceptor actionEndpointInterceptor,
             ObjectProvider<MenuEntryRequestInterceptor> menuEntryRequestInterceptor,
-            ObjectProvider<BusinessMutationInterceptor> businessMutationInterceptor) {
+            ObjectProvider<BusinessMutationInterceptor> businessMutationInterceptor,
+            ObjectProvider<net.ximatai.muyun.spring.dynamic.runtime.DynamicRecordRuntime> dynamicRuntime) {
         return new WebMvcConfigurer() {
             @Override
             public void addInterceptors(InterceptorRegistry registry) {
+                var runtime = dynamicRuntime.getIfAvailable();
+                if (runtime != null) registry.addInterceptor(new DynamicRuntimeReadInterceptor(runtime.publication()))
+                        .addPathPatterns("/**").order(Ordered.HIGHEST_PRECEDENCE + 180);
                 MenuEntryRequestInterceptor menuEntryInterceptor = menuEntryRequestInterceptor.getIfAvailable();
                 if (menuEntryInterceptor != null) {
                     registry.addInterceptor(menuEntryInterceptor)

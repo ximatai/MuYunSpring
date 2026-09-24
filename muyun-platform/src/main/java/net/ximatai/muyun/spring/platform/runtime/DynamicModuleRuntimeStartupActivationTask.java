@@ -4,13 +4,14 @@ import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.spring.platform.metadata.ModuleMetadataRelationService;
 import net.ximatai.muyun.spring.platform.metadata.RelationRole;
-import net.ximatai.muyun.spring.platform.metadata.ModuleMetadataOrchestrationService;
 import net.ximatai.muyun.spring.platform.module.ModuleKind;
 import net.ximatai.muyun.spring.platform.module.PlatformModule;
 import net.ximatai.muyun.spring.platform.module.PlatformModuleService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
+import java.util.Set;
+import java.util.HashSet;
 
 /**
  * Restores published dynamic module registrations after a process restart.
@@ -26,17 +27,14 @@ public class DynamicModuleRuntimeStartupActivationTask implements PlatformBootst
 
     private final PlatformModuleService moduleService;
     private final ModuleMetadataRelationService relationService;
-    private final PlatformDynamicRuntimeRefreshService runtimeRefreshService;
-    private final ModuleMetadataOrchestrationService metadataOrchestration;
+    private final DynamicRuntimeActivationService activation;
 
     public DynamicModuleRuntimeStartupActivationTask(PlatformModuleService moduleService,
                                                      ModuleMetadataRelationService relationService,
-                                                     PlatformDynamicRuntimeRefreshService runtimeRefreshService,
-                                                     ModuleMetadataOrchestrationService metadataOrchestration) {
+                                                     DynamicRuntimeActivationService activation) {
         this.moduleService = moduleService;
         this.relationService = relationService;
-        this.runtimeRefreshService = runtimeRefreshService;
-        this.metadataOrchestration = metadataOrchestration;
+        this.activation = activation;
     }
 
     @Override
@@ -52,16 +50,18 @@ public class DynamicModuleRuntimeStartupActivationTask implements PlatformBootst
 
     @Override
     public void run() {
+        Set<String> configured = new HashSet<>();
         moduleService.listVisibleModules().stream()
                 .filter(module -> module.getModuleKind() == ModuleKind.DYNAMIC)
                 .filter(this::hasPublishedMainMetadata)
-                .forEach(this::activatePublishedModule);
+                .forEach(module -> { configured.add(module.getAlias()); activatePublishedModule(module); });
+        activation.trackedModuleAliases().stream().filter(alias -> !configured.contains(alias))
+                .forEach(activation::restoreAtStartup);
     }
 
     private void activatePublishedModule(PlatformModule module) {
         try {
-            metadataOrchestration.reconcileChildSystemFields(module.getAlias());
-            runtimeRefreshService.activateNow(module.getAlias());
+            activation.restoreAtStartup(module.getAlias());
         } catch (RuntimeException exception) {
             // A persisted model can become invalid while governance evolves.  Keep the platform
             // available so that the model can be repaired; only its record runtime is withheld.

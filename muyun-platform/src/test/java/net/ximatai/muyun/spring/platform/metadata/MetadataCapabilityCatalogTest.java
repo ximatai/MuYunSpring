@@ -42,6 +42,20 @@ class MetadataCapabilityCatalogTest {
     }
 
     @Test
+    void recycleBinDeclarationMustNotInventFieldsOrBecomeImplicitInLegacyModels() {
+        Metadata metadata = metadata();
+        metadata.setCapabilityDeclarations(Set.of("RECYCLE_BIN"));
+        var resolution = MetadataCapabilityCatalog.resolve(metadata, RelationRole.MAIN, List.of());
+        assertThat(resolution.capabilities()).containsExactly(EntityCapability.RECYCLE_BIN);
+        assertThat(resolution.plan().metadataFields()).isEmpty();
+        assertThat(MetadataCapabilityCatalog.isMutableInFirstRelease(EntityCapability.RECYCLE_BIN)).isTrue();
+        assertThatThrownBy(() -> MetadataCapabilityCatalog.resolve(metadata, RelationRole.CHILD, List.of()))
+                .isInstanceOf(PlatformException.class);
+        assertThat(MetadataCapabilityCatalog.resolve(metadata(), RelationRole.MAIN, List.of()).capabilities())
+                .doesNotContain(EntityCapability.RECYCLE_BIN);
+    }
+
+    @Test
     void shouldRejectDeclaredCapabilityForChildRelation() {
         Metadata metadata = metadata();
         metadata.setCapabilityDeclarations(Set.of("ENABLE"));

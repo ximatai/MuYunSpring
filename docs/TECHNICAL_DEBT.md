@@ -24,14 +24,12 @@
 | TD-023 | 模块锚定的运行态数据校准能力尚未建设 | 初始化数据能力只治理平台托管事实，不承接已上线业务记录的历史值转换、字段搬运、批量归一或跨版本数据修补；如果提前引入任意 alias 的启动迁移脚本，会绕开 `moduleAlias`、运行态 descriptor、租户、审计和后台任务边界 | 出现真实历史业务数据修补、跨版本记录校准或动态模块运行态数据迁移需求时，以 `moduleAlias` 为锚点设计运行态门禁、dry-run、执行报告、多租户作用域、失败恢复和审计/后台任务接入 |
 | TD-028 | `QuerySchema` 外部查询值描述仍过于粗糙 | `QuerySchema.ExternalCriteria` 目前只暴露 key，并固定为 `OBJECT` / `PAGE_CONTEXT`，缺少字段结构、来源语义和校验契约；随着静态查询模板、动态页面上下文和外部查询值增多，ability 层可能继续携带页面交付语义 | 后续扩展 external query values 前，引入 `ExternalCriteriaDescriptor` 或等价能力契约，由能力层声明 valueType、来源、对象字段结构和校验边界，Web 层只负责序列化 |
 | TD-029 | 关联投影查询仍需继续平台化 | 当前已将静态列表 SQL join 上移到来源无关的 `RelationProjectionReadService` / `RelationProjection*` 能力，并收敛输出字段、cardinality、递归深度、join 数量和 relation 字段查询边界；动态主实体 `ONE` 引用投影已有最小 adapter，动态列表 `uiConfigId` 查询已能复用同一 SQL 投影门面，SQL Map 输出已支持输出脱敏字段保护；加密、签名等存储保护字段、projection plan 缓存、模块关系、子实体引用、`MANY` 聚合和字典标题尚未完成 | 按 [关联投影查询治理](architecture/RELATION_PROJECTION_GOVERNANCE.md) 分阶段回收，动态表单业务推进时继续把动态引用字段、模块关系和字典标题编译到同一套 `RelationProjection` |
-| TD-034 | 动态模块回收站尚未完成端到端交付验收 | `RECYCLE_BIN` 已进入动态能力和动作目录，`DynamicEntityOperations` 已实现 `RecycleBinAbility`，动态记录服务也已有保留记录查询及数据范围入口；标准页面宿主具备回收站 mode，但动态 Web 端点与这些能力的完整接入、恢复/清理的真实动态记录路径尚缺端到端验收，不能据此认定低代码回收站已经交付 | 进入动态模块软删治理时，先核验动态端点、运行态查询/恢复/清理、权限与数据范围、宿主 mode 的完整链路并补真实路径测试，再开放入口；复用已实现的运行态能力 |
 | TD-035 | 动态复合租户唯一约束尚无持久化元数据事实源 | `EntityDefinition` 已能表达复合租户唯一约束，schema 映射与运行态预查也会使用同一事实；但配置管理侧尚未持久化该声明，现有 metadata compiler 只会从 `FieldDefinition.isUnique` 编译单字段唯一。因此不能将动态复合唯一配置视为已交付能力 | 出现真实动态模块需要复合租户唯一时，成套建设持久化定义、compiler、校验、schema 刷新、发布和配置 UI，再开放该配置入口 |
 | TD-036 | 动态引用加载与反向引用尚未进入配置持久化和页面交付 | 运行态已支持 `EntityReferenceLoadDefinition` 编译为与静态一致的 `ReferenceLoadPath`，并由共享 `ReferenceLoadReader` 执行多跳读取；`EntityReferencedByDefinition` 也能按动态 CRUD 链路装配反向集合。但二者尚无平台配置的持久化事实、metadata compiler 输入和动态页面 descriptor 表达，不能视为低代码可配置能力 | 出现真实动态模块需要配置多跳展示字段或反向集合视图时，成套建设配置定义、保存校验、compiler、运行态 refresh、页面 descriptor 与关联视图交付；引用加载输出字段保持只读虚拟字段，反向集合优先进入关联视图而非普通表单字段 |
 | TD-037 | 动态表单及配置资源的 HTTP URL 体系尚未定稿 | 当前 `@PlatformStaticWebScope(CUSTOM)` 仅明确模块身份与嵌套资源路径可以不同，已覆盖模块、元数据、字段、UI 配置等现有父资源路径；这些 URL 仍是阶段性接口，不应据此固化前端路由、外部集成或自动生成规则 | 进入动态表单页面交付、配置管理 API 整理或外部开放 API 治理时，统一模块入口、父资源上下文、版本策略、兼容迁移和 endpoint descriptor，再收敛现有 `CUSTOM` 路径 |
 | TD-038 | 动态选项投影尚未进入配置持久化与发布链路 | `FieldDefinition.optionLoad` 已能表达字典选项字段到只读虚拟字段的属性投影，并已接入运行态读取、descriptor 与页面 schema；但配置管理侧尚无对应的字段事实、保存校验和 metadata compiler 输入，因此不能视为动态表单可配置能力 | 出现真实动态模块需要在配置界面声明字典标题或其他稳定 `OptionItem` 属性投影时，成套建设配置定义、来源/输出字段校验、compiler、运行态 refresh、发布快照与页面交付；保持输出字段只读、虚拟，且不参与查询、排序或写入 |
 | TD-041 | 动态文件引用尚未进入配置持久化与发布链路 | `EntityDefinition.fileReferences` 已能表达单文件或多文件字段的约束，并由动态运行态、保存生命周期和 descriptor 使用；但平台 metadata 配置尚无对应的持久化事实、compiler 输入和发布治理，不能将它视为低代码可配置能力 | 出现真实动态模块需要配置文件字段时，成套建设文件字段配置、保存校验、metadata compiler、运行态 refresh、发布快照和标准页面交付；继续复用同一份 `FileReferenceDefinition`，不在页面侧推断字段语义 |
-| TD-048 | 动态 Action/Relation 协作者仍回持完整记录门面 | `DynamicRecordService` 已拆出 Query、Mutation、Action 和 Relation 协作者，但 `DynamicRecordActionRuntime`、`DynamicRecordRelationRuntime` 仍依赖完整 `DynamicRecordService`，使动作或关系能力继续增长时容易穿透门面边界并形成隐式递归协作 | 下一次扩展动态动作、关系或安全/数据范围运行时前，按实际所需查询与变更能力收窄为类型化 gateway；保留 `DynamicRecordService` 作为按模块、实体定位的外部门面，并为 Action/Relation 协作者补独立权限、事务和失败契约 |
-| TD-050 | 动态元数据能力迁移与发布恢复尚未完整治理 | 已交付节点级字段编辑、变更预检确认、字段与能力原子写入、Schema ensure 和提交后运行态激活；树、排序、启停由 `Metadata.capabilityDeclarations` 声明。展示排序独立即时保存，系统字段与关联字段可排序，纯排序不改物理表结构。子实体已有标准字段与关系治理，但不等于支持子实体模块增强能力。能力关闭、数据权限/审批/引用的声明式发布仍未开放；元数据提交后运行态激活失败尚无持久状态、诊断与重试闭环 | 能力关闭或子实体增强进入真实场景时，分别定义兼容迁移和影响分析；发布恢复先明确配置已提交、运行态已生效和激活失败三个事实，补齐可查询状态及受控重试。页面修订已有事务内预编译、提交后安装执行计划的边界，应复用其分层而非重建另一套页面发布 |
+| TD-050 | 跨节点动态配置生效与破坏性迁移需要独立治理 | 本节点已有目标版本持久化、失败撤销、启动重建、版本约束重试及同步请求与实体/页面安装的互斥边界；请求保护不等于配置数据库快照、DDL 回滚或跨节点确认。异步任务也不能继承请求线程的运行范围 | 多实例部署时补节点版本确认和可靠通知；启用破坏性类型迁移、能力关闭或异步运行时，按实际场景定义物理迁移、任务版本和失败恢复约束，不重建泛化发布中心 |
 
 ### 待决策
 
@@ -44,7 +42,6 @@
 | 编号 | 问题 | 风险 | 回收条件 |
 | --- | --- | --- | --- |
 | TD-042 | 表单型自定义动作尚无统一输入与提交协议 | 当前 editor surface 已可声明默认或具名编辑字段，并可由页面承载面选择；但 `CustomActionEndpoint` 的请求 DTO、记录上下文、提交 URL/方法和成功后的数据变化语义仍由各业务接口自行定义。若仅增加 `actionEditor(actionCode, ...)`，会形成能展示字段却无法可靠提交或刷新的一半能力 | 出现第二个需要“独立动作仅编辑少数字段”的标准页面场景时，定义动作输入 descriptor、actionEditor 与已发布动作的编译校验、前端提交/权限/记录上下文和统一数据变化回执，再开放 DSL |
-| TD-043 | 静态读 transport 的投影与 navigator 适配尚未形成专用门面 | 当前 `CrudWeb` 与 `StaticQueryViewWeb` 都要将静态 descriptor 的查询投影、navigator 条件和 `DataScopeAbility` 接入标准查询；二者已共用 `QueryViewWeb.queryRecords`，避免数据范围漂移，但其余适配逻辑仍各自表达。现在仅有两种 transport，提前抽成万能基类会抹平 schema、投影与 mutation surface 的真实差异 | 出现第三种需要静态 descriptor 驱动读投影的 transport 时，提炼仅负责 projection、navigator 和 action-aware query 的静态读投影门面；各 transport 继续独立决定 endpoint 与 mutation surface，禁止复制新的查询链路 |
 
 ## 前端工作台关注
 
@@ -59,7 +56,6 @@
 | 编号 | 问题 | 风险 | 回收条件 |
 | --- | --- | --- | --- |
 | TD-018 | 业务时区来源尚未模型化到租户、组织和用户主数据 | 当前只提供平台默认时区配置、显式上下文时区和 resolver 扩展点；生产 Spring 路径已复用 `PlatformTimeService`，但尚未定义租户/组织/用户时区字段、优先级配置入口和治理页面 | 进入跨区域组织、用户本地化展示或租户级时区治理时，补齐主数据字段、解析优先级、配置入口和迁移策略 |
-| TD-019 | 非 Spring 手工构造路径不承诺读取 boot 默认时区配置 | 兼容构造器和测试便利构造仍可能 `new PlatformTimeService()` 或按传入 `Clock` 回退；生产 Spring 路径已有契约测试锁住默认时区贯穿动态查询、编码规则和自然日历 | 如果要把平台默认时区提升为所有构造方式的强契约，收紧兼容构造器或提供统一测试工厂，并回收直接 `new PlatformTimeService()` 的生产用法 |
 
 ## 待讨论决策
 
@@ -74,10 +70,6 @@
 | --- | --- | --- | --- |
 | TD-002 | 聚合装配出的 child 已明确按 RAW 查询读取，并有契约测试锁住不执行 child service 完整 `afterSelect`；HYDRATED 聚合读取暂未开放 | 单独读取子实体和父聚合带出子实体的语义仍需保持使用者可预期 | 出现需要嵌套聚合或深度加载的业务场景时，设计显式 HYDRATED 入口 |
 | TD-010 | 引用能力的标题、选项和字段投影已明确按 RAW 读取目标记录，并有契约测试锁住不触发目标 service `afterSelect`；更通用的加载模式暂未设计 | 复杂聚合读取时，引用、父子关系和缓存可能需要更明确的加载深度策略 | 出现跨层级 HYDRATED 引用读取需求时，再设计统一加载模式 |
-| TD-051 | 职员账户移除仍通过替换操作者跨越下游权限 | `EmployeeAccountService.removeAccount` 在删除绑定后以临时系统用户删除登录账号，真实操作者和下游授权依据因此分离；现有已验证变更范围仅表达目标 Service 的策略校验，尚未表达从来源业务关系取得的授权 | 下一轮职员账户生命周期治理时，明确“来源动作、关系证明、目标操作”的受限委托契约，保持真实操作者，并覆盖跨租户、越权、关系变化与事务回滚；不得继续增加系统用户替身或裸 DAO 删除 |
-| TD-052 | 登录审计状态更新仍绕过标准版本写链 | 密码管理动作已通过受控字段变更复用标准更新；登录成功/失败计数、锁定等认证状态仍有直接 DAO 更新，不能简单搬到普通更新后触发全部资料校验或依赖尚未建立的登录态 | 进入登录并发和账号锁定治理时，明确认证状态原子更新与记录版本的契约，复用平台条件写能力并补真实并发测试；不将通用字段变更入口降级为全局权限豁免 |
-| TD-053 | 引用目标停用的动静守卫语义尚未统一 | 静态标准启停复用普通更新，动态 Mutation 门面仍把停用送入目标不可用守卫；`RESTRICT` 在两条停用入口的行为不同。共享引用写校验、显式启用要求及删除策略已统一，但不能据此认为停用入口也已统一 | 在启停生命周期治理时，先明确机构停用后下游不可访问与引用阻止停用的产品边界，再统一能力与门面；不通过业务 Service 增加分散的停用引用预查 |
-| TD-015 | 职员任岗主岗唯一仍缺少强并发保护 | 已提供事务性主岗切换能力，常规请求会先降级同职员其他启用主岗再设置目标主岗；但没有条件唯一索引或显式锁时，强并发写入仍可能绕过应用层预查 | 进入组织人事并发导入或平台级条件唯一约束建设时，补条件唯一索引或显式锁 |
 | TD-017 | 外部写入、后台任务和异步批次尚未建设专题流水 | 平台运行审计只记录动作入口和必要身份上下文，不能解释幂等、重试、回执、批次进度和失败恢复 | 进入外部系统接入、统一后台任务调度或异步导入执行时，按 [审计与专题流水边界](platform/AUDIT_AND_PROCESS_LOG_BOUNDARY.md)、[外部写入接入边界](platform/EXTERNAL_WRITE_BOUNDARY.md) 和 [后台任务与异步批次边界](platform/BACKGROUND_JOB_AND_BATCH_BOUNDARY.md) 建设对应专题流水 |
 | TD-020 | 工作日历和 SLA 仍停留在自然时间边界 | `BusinessCalendarService` 当前默认实现只表达自然 elapsed time，workflow 超期仍按节点激活时刻加自然分钟数计算，不跳过节假日或非工作时间；`BusinessCalendar.workingTimeAware` 只能区分自然日历和未来工作日历能力，不是完整日历类型模型 | 进入审批 SLA、工单 SLA 或营业时间承诺时，补 calendar type/能力枚举、工作时段、节假日、时区归属和 SLA 计算策略，再接入 workflow 节点定义 |
 | TD-021 | 登录 session 生命周期审计和清理策略尚未完整模型化 | 当前 session 已持久化到 `iam_user_session`，支持 token hash、滑动过期、绝对过期、多端登录、登出和用户失效撤销；但过期 session 只在访问时拒绝，不立即写入撤销状态，也没有后台清理、保留周期和审计汇总策略 | 进入登录安全审计、运维会话管理、长期运行数据清理或账号安全治理时，设计 session 过期落库、清理任务、保留周期和审计查询 |
@@ -90,7 +82,7 @@
 
 | 编号 | 问题 | 风险 | 回收条件 |
 | --- | --- | --- | --- |
-| TD-005 | 引用依赖缓存失效已有本地进程内索引和动静态路径闭环，但还不是完整的缓存生命周期与跨节点治理能力 | Service/runtime 整体清理、缓存策略重置已统一回收依赖；单条容量淘汰和列表 TTL 到期尚未同步回收索引，长期读取大量不同记录可能留下无缓存的依赖。多实例部署仍无跨节点失效 | 进入缓存容量治理时，将依赖生命周期与实际缓存条目统一管理，覆盖同一记录的单条/列表多份缓存和并发替换；多实例部署或动态发布中心另补跨节点事件和批量重建策略 |
+| TD-005 | 引用缓存尚无跨节点失效协议 | 本地依赖已绑定实际缓存条目，容量、TTL、替换各自回收；失效代次已阻断并发旧快照回填。但多实例之间仍不会同步失效 | 多实例部署时统一失效事件与节点代次协议；继续复用条目生命周期，不在业务 Service 补缓存同步 |
 | TD-006 | `CacheAbility` 仍使用进程内 Caffeine 本地缓存 | 当前已有默认容量、全量列表 TTL 和 runtime namespace 清理，但还不是可观测、可替换的缓存管理器 | 当缓存需要监控、跨节点一致性或业务级策略时，引入运行态缓存管理器 |
 | TD-030 | 实时数据变化广播仍是第一阶段通道能力 | 当前已通过 WebSocket/STOMP 打通 `CommittedChangeSet` 广播和前端 data change 订阅，但仍是 simple broker + 尽力投递；尚未治理租户/作用域精准过滤、多实例 broker relay、outbox 补偿、消息 offset、SockJS fallback、连接监控和限流 | 进入多实例部署、生产网关代理、跨租户高安全场景、通知中心/IM 产品化或数据变化可靠补发时，按 [平台实时通信设计](platform/REALTIME_COMMUNICATION.md) 回收对应可靠性、隔离和运维能力 |
 | TD-044 | 实时 Presence 治理仍由 IAM Web 维护 | 当前 `RealtimeConnectionRegistry` 同时承接 WebSocket 连接登记、会话 presence、闲置检测、既有业务 fan-out 和在线业务提醒投递。通知能力已将业务 Service 与 IAM 人员范围解析下沉到核心层，但连接状态仍由 Web 适配层持有，跨传输协议或统一在线治理时会继续耦合 WebSocket 细节 | 出现第二种实时传输、统一连接治理、跨节点 presence 或需要由核心服务主动管理在线状态时，在 Platform 建立中性 `RealtimePresenceService`；Web adapter 只上报连接生命周期，逐步迁移 session presence、闲置治理和 fan-out |

@@ -44,6 +44,17 @@ final class PlatformAbilityDispatcher {
         }
     }
 
+    @SuppressWarnings({"rawtypes", "unchecked"})
+    static void lockMutationParents(CrudAbility<?> ability, EntityContract existing, EntityContract incoming) {
+        if (ability instanceof net.ximatai.muyun.spring.ability.child.ChildAbility child) {
+            java.util.function.Function<EntityContract, String> key = child.mutationParentKey();
+            if (key == null) return;
+            java.util.stream.Stream.of(existing, incoming).filter(java.util.Objects::nonNull)
+                    .map(record -> net.ximatai.muyun.spring.common.util.Preconditions.requireText(key.apply(record), "mutation parent id"))
+                    .distinct().sorted().forEach(child::lockParentMutation);
+        }
+    }
+
     static void setStaticOptionFieldValueValidator(StaticOptionFieldValueValidator validator) {
         staticOptionFieldValueValidator = validator == null ? StaticOptionFieldValueValidator.NONE : validator;
     }
@@ -70,6 +81,10 @@ final class PlatformAbilityDispatcher {
 
     static <T> T inMutationTransaction(java.util.function.Supplier<T> work) {
         return mutationTransactionOperator.execute(work);
+    }
+
+    static void lockMutation(String scope, String key) {
+        mutationTransactionOperator.lock(scope, key);
     }
 
     static <T> T inStatementTransaction(java.util.function.Supplier<T> work) {

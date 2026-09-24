@@ -12,6 +12,12 @@ import net.ximatai.muyun.spring.ability.reference.ReferenceTargetUnavailablePoli
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.platform.ActionExecutionPolicyService;
 import net.ximatai.muyun.spring.common.platform.AllowAllDataScopeCriteriaService;
+import net.ximatai.muyun.spring.common.platform.AllowAllActionExecutionPolicyService;
+import net.ximatai.muyun.spring.common.platform.ActionExecutionPolicy;
+import net.ximatai.muyun.spring.common.platform.DataScopeCriteriaResult;
+import net.ximatai.muyun.spring.common.identity.CurrentUser;
+import net.ximatai.muyun.spring.common.tenant.TenantContext;
+import java.util.Optional;
 import net.ximatai.muyun.spring.common.platform.EntityCapability;
 import net.ximatai.muyun.spring.dynamic.metadata.EntityActionCategory;
 import net.ximatai.muyun.spring.dynamic.metadata.EntityActionDefinition;
@@ -57,8 +63,7 @@ class DynamicRecordCollaboratorRuntimeTest {
             throw new PlatformException("query denied");
         };
         DynamicRecordRuntime runtime = runtime(operations, listActionModule(), DynamicActionTransactionOperator.none());
-        DynamicRecordQueryRuntime queries = new DynamicRecordQueryRuntime(runtime, denied,
-                new AllowAllDataScopeCriteriaService());
+        DynamicRecordQueryRuntime queries = new DynamicRecordQueryRuntime(access(runtime, denied));
 
         assertThatThrownBy(() -> queries.pageForAction(MODULE, "contract", "recalculate",
                 Criteria.of(), PageRequest.of(1, 10)))
@@ -72,10 +77,10 @@ class DynamicRecordCollaboratorRuntimeTest {
     void mutationRuntimeRejectsUnauthorizedBusinessCreateBeforePersistence() {
         IDatabaseOperations<Object> operations = operations();
         DynamicRecordRuntime runtime = runtime(operations, plainModule(), DynamicActionTransactionOperator.none());
-        DynamicRecordMutationRuntime mutations = new DynamicRecordMutationRuntime(runtime,
+        DynamicRecordMutationRuntime mutations = new DynamicRecordMutationRuntime(
                 new DynamicRecordEventPublisher(RuntimeEventPublisher.noop()),
-                context -> { throw new PlatformException("create denied"); },
-                new AllowAllDataScopeCriteriaService(), DynamicRecordMutationCoordinator.NONE, null);
+                access(runtime, context -> { throw new PlatformException("create denied"); }),
+                DynamicRecordMutationCoordinator.NONE, null);
         DynamicRecord record = runtime.newRecord(MODULE, "contract").setValue("code", "C-001");
 
         assertThatThrownBy(() -> mutations.create(MODULE, "contract", record,
@@ -87,30 +92,41 @@ class DynamicRecordCollaboratorRuntimeTest {
     }
 
     @Test
-    void mutationRuntimeRejectsDisablingTargetWithRestrictDynamicReferences() {
+    void mutationRuntimeDisablesReferencedTargetWithoutApplyingItsDeletionPolicy() {
         IDatabaseOperations<Object> operations = operations();
-        when(operations.row(anyString(), anyMap())).thenReturn(Map.of("total_count", 1));
         when(operations.query(anyString(), anyMap())).thenReturn(List.of(Map.of(
-                "id", "purchase-1",
-                "warehouse_id", "warehouse-1",
-                "version", 0,
-                "deleted", false
-        )));
+                "id", "warehouse-1", "version", 0, "enabled", true, "deleted", false)));
+        when(operations.patchUpdateItemWhere(anyString(), anyString(), anyMap(), anyMap(), anyString())).thenReturn(1);
         DynamicRecordRuntime runtime = runtime(operations, warehouseModule(), DynamicActionTransactionOperator.none())
                 .register(restrictingPurchaseModule());
-        DynamicRecordMutationRuntime mutations = new DynamicRecordMutationRuntime(runtime,
+        DynamicRecordMutationRuntime mutations = new DynamicRecordMutationRuntime(
                 new DynamicRecordEventPublisher(RuntimeEventPublisher.noop()),
-                new net.ximatai.muyun.spring.common.platform.AllowAllActionExecutionPolicyService(),
-                new AllowAllDataScopeCriteriaService(), DynamicRecordMutationCoordinator.NONE, null);
+                access(runtime, new AllowAllActionExecutionPolicyService()), DynamicRecordMutationCoordinator.NONE, null);
 
-        assertThatThrownBy(() -> mutations.disable(WAREHOUSE_MODULE, "warehouse", "warehouse-1", 0,
-                RuntimeMutationSource.SYSTEM, "trace-1"))
-                .isInstanceOf(PlatformException.class)
-                .hasMessageContaining("该记录仍被其他记录引用")
-                .satisfies(error -> assertThat(((PlatformException) error).details())
-                        .containsEntry("referenceTarget", "sales.warehouse.warehouse"));
+        try (var ignored = net.ximatai.muyun.spring.common.tenant.TenantContext.system("disable contract")) {
+            assertThat(mutations.disable(WAREHOUSE_MODULE, "warehouse", "warehouse-1", 0,
+                    RuntimeMutationSource.SYSTEM, "trace-1")).isEqualTo(1);
+        }
+        verify(operations).patchUpdateItemWhere(anyString(), anyString(), anyMap(), anyMap(), anyString());
+        verify(operations, never()).row(anyString(), anyMap());
+    }
 
-        verify(operations, never()).patchUpdateItemWhere(anyString(), anyString(), anyMap(), anyMap(), anyString());
+    @Test
+    void withdrawnModuleCannotLeaveStaleInboundGuardsAndReactivationAdvancesItsRevision() {
+        var operations = operations();
+        when(operations.row(anyString(), anyMap())).thenReturn(Map.of("total_count", 1));
+        var runtime = runtime(operations, warehouseModule(), DynamicActionTransactionOperator.none())
+                .register(restrictingPurchaseModule());
+        var target = ReferenceTarget.of(WAREHOUSE_MODULE, "warehouse");
+        assertThatThrownBy(() -> runtime.validateReferenceTargetUnavailable(target, "warehouse-1"))
+                .isInstanceOf(PlatformException.class);
+        long previousRevision = runtime.registry().revision(MODULE);
+        runtime.deactivate(MODULE);
+        assertThat(runtime.registry().findModule(MODULE)).isEmpty();
+        org.assertj.core.api.Assertions.assertThatCode(() -> runtime.validateReferenceTargetUnavailable(target, "warehouse-1"))
+                .doesNotThrowAnyException();
+        runtime.register(restrictingPurchaseModule());
+        assertThat(runtime.registry().revision(MODULE)).isGreaterThan(previousRevision);
     }
 
     @Test
@@ -141,10 +157,13 @@ class DynamicRecordCollaboratorRuntimeTest {
                 .actionTransactionOperator(transaction)
                 .build()
                 .register(listActionModule());
-        DynamicRecordService facade = new DynamicRecordService(runtime);
-        DynamicRecordActionRuntime actions = new DynamicRecordActionRuntime(facade, runtime,
-                new DynamicRecordEventPublisher(RuntimeEventPublisher.noop()),
-                new net.ximatai.muyun.spring.common.platform.AllowAllActionExecutionPolicyService());
+        var policy = new AllowAllActionExecutionPolicyService();
+        var access = access(runtime, policy);
+        var events = new DynamicRecordEventPublisher(RuntimeEventPublisher.noop());
+        DynamicRecordActionRuntime actions = new DynamicRecordActionRuntime(runtime, access,
+                new DynamicRecordQueryRuntime(access),
+                new DynamicRecordMutationRuntime(events, access, DynamicRecordMutationCoordinator.NONE, null),
+                events);
 
         assertThatThrownBy(() -> actions.executeAction(MODULE, "recalculate", DynamicActionExecutionRequest.empty()))
                 .isInstanceOf(DynamicActionExecutionException.class)
@@ -159,13 +178,65 @@ class DynamicRecordCollaboratorRuntimeTest {
     void relationRuntimeFailsForAnUndeclaredReferenceWithoutFallingBackToGenericLookup() {
         IDatabaseOperations<Object> operations = operations();
         DynamicRecordRuntime runtime = runtime(operations, plainModule(), DynamicActionTransactionOperator.none());
-        DynamicRecordRelationRuntime relations = new DynamicRecordRelationRuntime(new DynamicRecordService(runtime));
+        var policy = new AllowAllActionExecutionPolicyService();
+        var access = access(runtime, policy);
+        DynamicRecordRelationRuntime relations = new DynamicRecordRelationRuntime(access,
+                new DynamicRecordQueryRuntime(access));
 
         assertThatThrownBy(() -> relations.reference(MODULE, "contract", "customerId"))
                 .isInstanceOf(ModuleDefinitionException.class)
                 .hasMessageContaining("unknown dynamic reference");
 
         verify(operations, never()).query(anyString(), anyMap());
+    }
+
+    @Test
+    void actionRuntimeRejectsUnauthorizedCreateBeforeCallingMutationRuntime() {
+        var runtime = runtime(operations(), plainModule(), DynamicActionTransactionOperator.none());
+        ActionExecutionPolicyService denied = context -> { throw new PlatformException("action denied"); };
+        var access = access(runtime, denied);
+        var mutations = mock(DynamicRecordMutationRuntime.class);
+        var actions = new DynamicRecordActionRuntime(runtime, access,
+                new DynamicRecordQueryRuntime(access), mutations,
+                new DynamicRecordEventPublisher(RuntimeEventPublisher.noop()));
+
+        assertThatThrownBy(() -> actions.executeAction(MODULE, "contract", "create",
+                DynamicActionExecutionRequest.empty()))
+                .isInstanceOf(PlatformException.class).hasMessage("action denied");
+        org.mockito.Mockito.verifyNoInteractions(mutations);
+    }
+
+    @Test
+    void relationReferenceFailureClosesItsCrossTenantReadScope() {
+        var runtime = mock(DynamicRecordRuntime.class);
+        var entity = mock(DynamicEntityService.class);
+        when(runtime.entityService(MODULE, "contract")).thenReturn(entity);
+        var policy = new AllowAllActionExecutionPolicyService();
+        var scope = new AllowAllDataScopeCriteriaService() {
+            @Override public DataScopeCriteriaResult resolveReadScope(String moduleAlias, ActionExecutionPolicy action,
+                    Criteria criteria, Optional<CurrentUser> currentUser) {
+                assertThat(action.actionCode()).isEqualTo("reference");
+                return DataScopeCriteriaResult.crossTenantUnrestricted(criteria);
+            }
+        };
+        var access = new DynamicRecordAccessContext(runtime, policy, scope);
+        var relations = new DynamicRecordRelationRuntime(access, new DynamicRecordQueryRuntime(access));
+        Criteria criteria = Criteria.of();
+        PageRequest page = PageRequest.of(1, 10);
+        when(entity.referenceOptions(criteria, page)).thenAnswer(invocation -> {
+            assertThat(TenantContext.tenantFilterBypassed()).isTrue();
+            throw new PlatformException("target read failed");
+        });
+        try (var ignored = TenantContext.use("tenant-a")) {
+            assertThatThrownBy(() -> relations.referenceOptions(MODULE, "contract", criteria, page))
+                    .isInstanceOf(PlatformException.class).hasMessage("target read failed");
+            assertThat(TenantContext.currentTenantId()).contains("tenant-a");
+            assertThat(TenantContext.tenantFilterBypassed()).isFalse();
+        }
+    }
+
+    private DynamicRecordAccessContext access(DynamicRecordRuntime runtime, ActionExecutionPolicyService policy) {
+        return new DynamicRecordAccessContext(runtime, policy, new AllowAllDataScopeCriteriaService());
     }
 
     private DynamicRecordRuntime runtime(IDatabaseOperations<Object> operations, ModuleDefinition module,

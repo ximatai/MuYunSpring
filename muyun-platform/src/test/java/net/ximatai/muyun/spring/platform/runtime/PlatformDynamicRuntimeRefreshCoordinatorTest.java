@@ -58,13 +58,12 @@ class PlatformDynamicRuntimeRefreshCoordinatorTest {
             new ModuleMetadataFieldService(moduleFieldDao, relationService, mock(MetadataService.class),
                     mock(MetadataFieldService.class));
     private final MetadataViewService viewService = new MetadataViewService(viewDao, relationService);
-    private final PlatformDynamicRuntimeRefreshService refreshService = mock(PlatformDynamicRuntimeRefreshService.class);
+    private final DynamicRuntimeActivationService refreshService = mock(DynamicRuntimeActivationService.class);
     private final PlatformDynamicRuntimeRefreshCoordinator coordinator =
             new PlatformDynamicRuntimeRefreshCoordinator(refreshService, relationService, moduleFieldService, viewService);
 
     @Test
     void shouldRefreshDistinctModulesReferencingChangedMetadataField() {
-        when(refreshService.refresh(anyString())).thenAnswer(invocation -> result(invocation.getArgument(0)));
         relationDao.insert(relation("rel-customer-main", "crm.customer", "metadata-customer"));
         relationDao.insert(relation("rel-customer-child", "crm.customer", "metadata-customer"));
         relationDao.insert(relation("rel-order-main", "crm.order", "metadata-customer"));
@@ -72,32 +71,30 @@ class PlatformDynamicRuntimeRefreshCoordinatorTest {
         MetadataField field = new MetadataField();
         field.setMetadataId("metadata-customer");
 
-        List<DynamicModuleRefreshResult> results = coordinator.refreshByMetadataField(field);
+        coordinator.refreshByMetadataField(field);
 
-        assertThat(results).hasSize(2);
-        verify(refreshService, times(1)).refresh("crm.customer");
-        verify(refreshService, times(1)).refresh("crm.order");
-        verify(refreshService, never()).refresh("finance.invoice");
+        verify(refreshService, times(1)).schedule("crm.customer");
+        verify(refreshService, times(1)).schedule("crm.order");
+        verify(refreshService, never()).schedule("finance.invoice");
     }
 
     @Test
-    void shouldRefreshAfterCommitWhenTransactionIsActive() {
+    void shouldRegisterActivationIntentBeforeConfigurationCommit() {
         clearTransactionState();
         try {
-            when(refreshService.refresh(anyString())).thenAnswer(invocation -> result(invocation.getArgument(0)));
             relationDao.insert(relation("rel-customer-main", "crm.customer", "metadata-customer"));
             MetadataField field = new MetadataField();
             field.setMetadataId("metadata-customer");
             TransactionSynchronizationManager.initSynchronization();
             TransactionSynchronizationManager.setActualTransactionActive(true);
 
-            List<DynamicModuleRefreshResult> results = coordinator.refreshByMetadataField(field);
+            coordinator.refreshByMetadataField(field);
 
-            assertThat(results).isEmpty();
-            verify(refreshService, never()).refresh(anyString());
+            verify(refreshService).schedule("crm.customer");
+            org.mockito.Mockito.clearInvocations(refreshService);
             TransactionSynchronizationManager.getSynchronizations()
                     .forEach(TransactionSynchronization::afterCommit);
-            verify(refreshService).refresh("crm.customer");
+            verify(refreshService, never()).schedule(anyString());
         } finally {
             clearTransactionState();
         }
@@ -105,7 +102,6 @@ class PlatformDynamicRuntimeRefreshCoordinatorTest {
 
     @Test
     void shouldRefreshModuleResolvedFromModuleFieldFormulaViewAndActionChanges() {
-        when(refreshService.refresh(anyString())).thenAnswer(invocation -> result(invocation.getArgument(0)));
         relationDao.insert(relation("rel-customer-main", "crm.customer", "metadata-customer"));
         moduleFieldDao.insert(moduleField("module-field-name", "rel-customer-main"));
         viewDao.insert(view("view-list", "rel-customer-main"));
@@ -118,7 +114,7 @@ class PlatformDynamicRuntimeRefreshCoordinatorTest {
         coordinator.refreshByMetadataViewField(viewField("view-list"));
         coordinator.refreshByModuleAction(action("crm.customer"));
 
-        verify(refreshService, times(7)).refresh("crm.customer");
+        verify(refreshService, times(7)).schedule("crm.customer");
     }
 
     @Test

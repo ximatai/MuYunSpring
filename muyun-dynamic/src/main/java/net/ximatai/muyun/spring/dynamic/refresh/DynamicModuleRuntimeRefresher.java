@@ -40,7 +40,16 @@ public class DynamicModuleRuntimeRefresher {
 
     /** Drops an installed runtime projection after its dynamic module loses its MAIN entity. */
     public void deactivateNow(String moduleAlias) {
-        runtime.registry().unregister(moduleAlias);
+        runtime.deactivate(moduleAlias);
+    }
+
+    /** Validates/applies schema in the publication transaction without changing in-memory projections. */
+    public DynamicModuleRefreshResult prepareSchema(ModuleDefinition module, MigrationOptions options) {
+        ModuleDefinition previous = runtime.registry().findModule(module.moduleAlias()).orElse(null);
+        Map<String, MigrationResult> migrations = schemaService.ensureModule(module, previous, options);
+        return new DynamicModuleRefreshResult(module, migrations, migrations != null && !migrations.isEmpty()
+                ? migrations.values().stream().allMatch(MigrationResult::isDryRun)
+                : options != null && options.isDryRun());
     }
 
     public DynamicModuleRefreshResult refresh(ModuleDefinition module, MigrationOptions options) {

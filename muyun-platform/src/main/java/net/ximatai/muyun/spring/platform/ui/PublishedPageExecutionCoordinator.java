@@ -15,6 +15,11 @@ public interface PublishedPageExecutionCoordinator {
 
     void prepareAfterPublishedConfigurationChange(String moduleAlias);
 
+    /** Recompiles and installs the current committed page projection as part of a controlled activation attempt. */
+    default void installCurrentPublishedConfiguration(String moduleAlias) {}
+
+    default void removeInstalledConfiguration(String moduleAlias) {}
+
     static PublishedPageExecutionCoordinator noop() {
         return NOOP;
     }

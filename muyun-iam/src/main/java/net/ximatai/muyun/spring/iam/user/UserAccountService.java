@@ -5,6 +5,7 @@ import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.spring.ability.DataScopeAbility;
 import net.ximatai.muyun.spring.ability.EnableAbility;
 import net.ximatai.muyun.spring.ability.TenantActiveScopedService;
+import net.ximatai.muyun.spring.ability.VersionedRecordMutation;
 import net.ximatai.muyun.spring.ability.query.QueryAbility;
 import net.ximatai.muyun.spring.ability.query.QueryDescriptor;
 import net.ximatai.muyun.spring.ability.query.ExternalQueryValueSource;
@@ -486,28 +487,22 @@ public class UserAccountService extends TenantActiveScopedService<UserAccount> i
     }
 
     public void recordLoginSuccess(String userId, Instant loginAt, String ip, String userAgent) {
-        UserAccount user = select(userId);
-        if (user == null) {
-            return;
-        }
-        user.setLastLoginAt(loginAt);
-        user.setLastLoginIp(normalizeLength(ip, 64));
-        user.setLastLoginUserAgent(normalizeLength(userAgent, 512));
-        user.setFailedLoginCount(0);
-        updateLoginAudit(user);
+        VersionedRecordMutation.update(getDao(), () -> selectActiveRaw(userId), user -> {
+            user.setLastLoginAt(loginAt);
+            user.setLastLoginIp(normalizeLength(ip, 64));
+            user.setLastLoginUserAgent(normalizeLength(userAgent, 512));
+            user.setFailedLoginCount(0);
+        });
     }
 
     public void recordLoginFailure(UserAccount user, Instant failedAt) {
         if (user == null || user.getId() == null || user.getId().isBlank()) {
             return;
         }
-        UserAccount latest = select(user.getId());
-        if (latest == null) {
-            return;
-        }
-        latest.setLastFailedLoginAt(failedAt);
-        latest.setFailedLoginCount((latest.getFailedLoginCount() == null ? 0 : latest.getFailedLoginCount()) + 1);
-        updateLoginAudit(latest);
+        VersionedRecordMutation.update(getDao(), () -> selectActiveRaw(user.getId()), latest -> {
+            latest.setLastFailedLoginAt(failedAt);
+            latest.setFailedLoginCount((latest.getFailedLoginCount() == null ? 0 : latest.getFailedLoginCount()) + 1);
+        });
     }
 
     public UserAccount requireActiveUser(String username) {
@@ -668,14 +663,6 @@ public class UserAccountService extends TenantActiveScopedService<UserAccount> i
                 && user.getPasswordExpiresAt() != null
                 && now != null
                 && !now.isBefore(user.getPasswordExpiresAt());
-    }
-
-    private void updateLoginAudit(UserAccount user) {
-        if (user.getVersion() == null) {
-            getDao().updateById(user);
-            return;
-        }
-        getDao().updateByIdAndVersion(user, user.getVersion());
     }
 
     private String normalizeLength(String value, int maxLength) {

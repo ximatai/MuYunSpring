@@ -508,7 +508,7 @@ class DynamicSchemaServiceIT {
         return new ReferenceDeletionGuard() {
             @Override
             public void validateTargetUnavailable(CrudAbility<?> targetAbility, EntityContract target) {
-                runtime.validateReferenceTargetDeletion(ReferenceTargets.of(targetAbility), target.getId());
+                runtime.validateReferenceTargetUnavailable(ReferenceTargets.of(targetAbility), target.getId());
             }
 
             @Override

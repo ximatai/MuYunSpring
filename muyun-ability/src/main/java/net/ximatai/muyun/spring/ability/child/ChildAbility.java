@@ -2,6 +2,8 @@ package net.ximatai.muyun.spring.ability.child;
 
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.ability.CrudAbility;
+import net.ximatai.muyun.spring.ability.PlatformAbilityRuntime;
+import net.ximatai.muyun.spring.common.util.Preconditions;
 import net.ximatai.muyun.spring.ability.DataScopeAbility;
 import net.ximatai.muyun.spring.ability.PageRequests;
 import net.ximatai.muyun.spring.ability.SoftDeleteAbility;
@@ -14,6 +16,19 @@ import java.util.function.BiConsumer;
 import java.util.function.Function;
 
 public interface ChildAbility<C extends EntityContract> extends CrudAbility<C> {
+    /** Opts into parent-scoped serialization for cross-child invariants. Return a persisted parent-ID reader. */
+    default Function<C, String> mutationParentKey() {
+        return null;
+    }
+
+    /** Custom commands acquire this same lock before reading their child collection. Standard writes do so automatically. */
+    default void lockParentMutation(String parentId) {
+        if (mutationParentKey() != null) {
+            PlatformAbilityRuntime.lockMutationPartition(
+                    getModuleAlias() + ":children", Preconditions.requireText(parentId, "parentId"));
+        }
+    }
+
     /**
      * Lets a domain child relation establish a deterministic write sequence when several rows
      * together express one business invariant. The default preserves the submitted row order.

@@ -1,5 +1,7 @@
 package net.ximatai.muyun.spring.platform.module;
 
+import net.ximatai.muyun.spring.common.exception.PlatformAccessDeniedException;
+import net.ximatai.muyun.spring.common.platform.ActionExecutionPolicy;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.database.core.orm.Sort;
@@ -170,6 +172,14 @@ public class PlatformModuleActionService extends AbstractAbilityService<Platform
                     .eq("actionCode", validActionCode)
                     .isNull(StandardEntitySchema.TENANT_ID_FIELD));
         }
+    }
+
+    public ActionExecutionPolicy requireExecutionPolicy(String moduleAlias, String actionCode) {
+        PlatformModuleAction action = findByModuleAliasAndActionCode(moduleAlias, actionCode);
+        if (action == null || Boolean.FALSE.equals(action.getEnabled())) {
+            throw new PlatformAccessDeniedException("模块动作尚未发布或已停用：" + moduleAlias + "." + actionCode);
+        }
+        return action.executionPolicy();
     }
 
     /** Restores the permission policy declared by the action contributor or static module. */

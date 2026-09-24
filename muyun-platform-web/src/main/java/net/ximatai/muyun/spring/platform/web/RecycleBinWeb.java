@@ -94,7 +94,7 @@ public interface RecycleBinWeb<T extends EntityContract, S extends RecycleBinAbi
     }
 
     @SuppressWarnings("unchecked")
-    private Optional<? extends WebPageResponse<?>> recycleBinProjectedQuery(WebQueryRequest request) {
+    default Optional<? extends WebPageResponse<?>> recycleBinProjectedQuery(WebQueryRequest request) {
         if (!(this instanceof CrudWeb<?, ?> crudWeb)) {
             return Optional.empty();
         }

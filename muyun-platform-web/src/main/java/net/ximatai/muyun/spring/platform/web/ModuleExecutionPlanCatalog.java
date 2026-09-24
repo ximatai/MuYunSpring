@@ -15,8 +15,6 @@ import net.ximatai.muyun.spring.ability.event.RuntimeEventType;
 import org.springframework.stereotype.Component;
 import org.springframework.beans.factory.SmartInitializingSingleton;
 import org.springframework.beans.factory.ObjectProvider;
-import org.springframework.boot.context.event.ApplicationReadyEvent;
-import org.springframework.context.event.EventListener;
 import net.ximatai.muyun.spring.common.util.PlatformNameRules;
 import net.ximatai.muyun.spring.dynamic.metadata.EntityDefinition;
 import net.ximatai.muyun.spring.dynamic.metadata.FieldDefinition;
@@ -123,14 +121,6 @@ public class ModuleExecutionPlanCatalog implements SmartInitializingSingleton, R
     @Override
     public void afterSingletonsInstantiated() {
         plans();
-    }
-
-    /** Dynamic metadata tables are created and populated after singleton wiring. */
-    @EventListener(ApplicationReadyEvent.class)
-    public void installInitialDynamicPlans() {
-        if (dynamicPlanResolver != null) {
-            dynamicPlanResolver.moduleAliases().forEach(this::rebuildDynamicPlan);
-        }
     }
 
     private Map<String, ModuleExecutionPlan> compilePlans(List<StaticModuleDefinition> definitions) {
@@ -245,7 +235,8 @@ public class ModuleExecutionPlanCatalog implements SmartInitializingSingleton, R
     @Override
     public void onRuntimeEvent(RuntimeEvent event) {
         if (event == null || event.moduleAlias() == null) return;
-        if (event.eventType() == RuntimeEventType.MODULE_REFRESHED) {
+        if (event.eventType() == RuntimeEventType.MODULE_REFRESHED
+                && !event.payload().containsKey("activationRevision")) {
             rebuildDynamicPlan(event.moduleAlias());
         }
     }

@@ -10,7 +10,7 @@ import net.ximatai.muyun.spring.platform.module.PlatformModule;
 import net.ximatai.muyun.spring.platform.module.PlatformModuleActionService;
 import net.ximatai.muyun.spring.platform.module.PlatformModuleService;
 import net.ximatai.muyun.spring.platform.runtime.DynamicModuleRuntimeStartupActivationTask;
-import net.ximatai.muyun.spring.platform.runtime.PlatformDynamicRuntimeRefreshService;
+import net.ximatai.muyun.spring.platform.runtime.DynamicRuntimeActivationService;
 import net.ximatai.muyun.spring.platform.menu.MenuService;
 import net.ximatai.muyun.spring.platform.dictionary.DictionaryCategoryService;
 import net.ximatai.muyun.spring.platform.dictionary.DictionaryItemService;
@@ -29,7 +29,7 @@ class DynamicRuntimeBootstrapConfigurationTest {
     void shouldActivateEachModuleOnceAndKeepStartingAfterInvalidMetadata() {
         var modules = mock(PlatformModuleService.class);
         var relations = mock(ModuleMetadataRelationService.class);
-        var refresh = mock(PlatformDynamicRuntimeRefreshService.class);
+        var refresh = mock(DynamicRuntimeActivationService.class);
         var orchestration = mock(ModuleMetadataOrchestrationService.class);
         var invalid = module("education.invalid");
         var ready = module("education.ready");
@@ -40,7 +40,7 @@ class DynamicRuntimeBootstrapConfigurationTest {
         main.setModuleAlias(invalid.getAlias());
         when(relations.list(any(Criteria.class), any(PageRequest.class))).thenReturn(List.of(main));
         doThrow(new IllegalStateException("invalid persisted metadata"))
-                .when(refresh).activateNow(invalid.getAlias());
+                .when(refresh).restoreAtStartup(invalid.getAlias());
 
         new ApplicationContextRunner()
                 .withBean(MenuService.class, () -> mock(MenuService.class))
@@ -50,15 +50,16 @@ class DynamicRuntimeBootstrapConfigurationTest {
                 .withBean(PlatformModuleService.class, () -> modules)
                 .withBean(PlatformModuleActionService.class, () -> mock(PlatformModuleActionService.class))
                 .withBean(ModuleMetadataRelationService.class, () -> relations)
-                .withBean(PlatformDynamicRuntimeRefreshService.class, () -> refresh)
+                .withBean(DynamicRuntimeActivationService.class, () -> refresh)
                 .withBean(ModuleMetadataOrchestrationService.class, () -> orchestration)
                 .withUserConfiguration(MuYunSpringBootstrapConfiguration.class,
                         DynamicModuleRuntimeStartupActivationTask.class)
                 .run(context -> {
                     assertThat(context).hasNotFailed();
                     context.getBean(PlatformBootstrapRunner.class).run(null);
-                    verify(refresh).activateNow(invalid.getAlias());
-                    verify(refresh).activateNow(ready.getAlias());
+                    verify(refresh).restoreAtStartup(invalid.getAlias());
+                    verify(refresh).restoreAtStartup(ready.getAlias());
+                    verify(refresh).trackedModuleAliases();
                     verifyNoMoreInteractions(refresh);
                 });
     }

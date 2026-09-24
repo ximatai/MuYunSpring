@@ -106,7 +106,7 @@ public class MetadataRelationChangeSetApplyService {
             return null;
         }));
         List<String> affected = affectedModules(metadata.getId());
-        TransactionScopeSupport.afterCommitOrNow(() -> refreshCoordinator.activateByMetadataIdNow(metadata.getId()));
+        refreshCoordinator.scheduleByMetadataId(metadata.getId());
         return new MetadataRelationChangeSetPublishResult(preview, snapshotService.snapshot(validModuleAlias, relationId), affected);
     }
 
@@ -124,7 +124,7 @@ public class MetadataRelationChangeSetApplyService {
             schemaEnsureService.ensureNow(metadata);
             return null;
         });
-        TransactionScopeSupport.afterCommitOrNow(() -> refreshCoordinator.activateByMetadataIdNow(metadata.getId()));
+        refreshCoordinator.scheduleByMetadataId(metadata.getId());
     }
 
     /**
@@ -152,7 +152,7 @@ public class MetadataRelationChangeSetApplyService {
             schemaEnsureService.ensureNow(metadata.getId(), previous);
             return null;
         });
-        TransactionScopeSupport.afterCommitOrNow(() -> refreshCoordinator.activateByMetadataIdNow(metadata.getId()));
+        refreshCoordinator.scheduleByMetadataId(metadata.getId());
     }
 
     /** Removes the optional enable-state capability while the entity is still empty. */
@@ -185,7 +185,7 @@ public class MetadataRelationChangeSetApplyService {
             schemaEnsureService.ensureNow(metadata.getId(), previous);
             return null;
         });
-        TransactionScopeSupport.afterCommitOrNow(() -> refreshCoordinator.activateByMetadataIdNow(metadata.getId()));
+        refreshCoordinator.scheduleByMetadataId(metadata.getId());
     }
 
     /** Removes the optional ordering capability while the entity is still empty. */
@@ -222,7 +222,7 @@ public class MetadataRelationChangeSetApplyService {
             schemaEnsureService.ensureNow(metadata.getId(), previous);
             return null;
         });
-        TransactionScopeSupport.afterCommitOrNow(() -> refreshCoordinator.activateByMetadataIdNow(metadata.getId()));
+        refreshCoordinator.scheduleByMetadataId(metadata.getId());
     }
 
     /**
@@ -259,7 +259,7 @@ public class MetadataRelationChangeSetApplyService {
             schemaEnsureService.ensureNow(metadata.getId(), previous);
             return null;
         });
-        TransactionScopeSupport.afterCommitOrNow(() -> refreshCoordinator.activateByMetadataIdNow(metadata.getId()));
+        refreshCoordinator.scheduleByMetadataId(metadata.getId());
     }
 
     /**

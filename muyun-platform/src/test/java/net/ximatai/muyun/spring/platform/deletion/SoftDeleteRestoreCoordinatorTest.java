@@ -160,6 +160,7 @@ class SoftDeleteRestoreCoordinatorTest {
         entry.setResourceRecordId(recordId);
         entry.setTriggerType(parentEntryId == null ? DeletionEntryTrigger.DIRECT : DeletionEntryTrigger.CASCADE);
         entry.setDeleteMode(DeletionEntryMode.SOFT);
+        entry.setResourceVersion(0);
         return logService.startEntry(entry);
     }
 
@@ -204,11 +205,11 @@ class SoftDeleteRestoreCoordinatorTest {
         }
 
         @Override
-        public int restore(String id) {
+        public int restore(String id, Integer expectedVersion) {
             if (fails) {
                 throw new IllegalStateException("restore rejected");
             }
-            return DeletionRecoveryAbility.super.restore(id);
+            return DeletionRecoveryAbility.super.restore(id, expectedVersion);
         }
 
         @Override

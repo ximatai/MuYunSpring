@@ -51,7 +51,7 @@ class DynamicDeletionRecoveryContractTest {
         assertThat(sourceEntry.getResourceEntityAlias()).isEqualTo("contract");
 
         RestoreReport report = new SoftDeleteRestoreCoordinator(logService, new DeletionRecoveryExecutor(logService), List.of(
-                new DynamicDeletionRecoveryResourceResolver(Optional.of(records))))
+                new DynamicDeletionRecoveryResourceResolver(Optional.of(runtime))))
                 .restore(operation.getId());
 
         assertThat(report.entries()).singleElement()
@@ -75,6 +75,6 @@ class DynamicDeletionRecoveryContractTest {
     }
 
     private Map<String, Object> record(boolean deleted) {
-        return Map.of("id", "contract-1", "code", "C-001", "deleted", deleted, "version", 0);
+        return Map.of("id", "contract-1", "code", "C-001", "deleted", deleted, "version", deleted ? 1 : 0);
     }
 }

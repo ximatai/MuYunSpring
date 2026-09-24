@@ -26,7 +26,7 @@ class DynamicModuleRuntimeStartupActivationTaskTest {
     void shouldActivateOnlyDynamicModulesWhoseMainMetadataHasBeenPublished() {
         PlatformModuleService moduleService = mock(PlatformModuleService.class);
         ModuleMetadataRelationService relationService = mock(ModuleMetadataRelationService.class);
-        PlatformDynamicRuntimeRefreshService refreshService = mock(PlatformDynamicRuntimeRefreshService.class);
+        DynamicRuntimeActivationService refreshService = mock(DynamicRuntimeActivationService.class);
         PlatformModule publishedModule = module("education.exam", ModuleKind.DYNAMIC);
         when(moduleService.listVisibleModules()).thenReturn(List.of(
                 publishedModule,
@@ -36,11 +36,12 @@ class DynamicModuleRuntimeStartupActivationTaskTest {
                 .thenReturn(List.of(new ModuleMetadataRelation()), List.of());
 
         DynamicModuleRuntimeStartupActivationTask task = new DynamicModuleRuntimeStartupActivationTask(
-                moduleService, relationService, refreshService, mock(ModuleMetadataOrchestrationService.class));
+                moduleService, relationService, refreshService);
 
         task.run();
 
-        verify(refreshService).activateNow("education.exam");
+        verify(refreshService).restoreAtStartup("education.exam");
+        verify(refreshService).trackedModuleAliases();
         verifyNoMoreInteractions(refreshService);
     }
 
@@ -48,7 +49,7 @@ class DynamicModuleRuntimeStartupActivationTaskTest {
     void shouldRunAfterInitialDataToRecoverMetadataPublishedDuringStartup() {
         DynamicModuleRuntimeStartupActivationTask task = new DynamicModuleRuntimeStartupActivationTask(
                 mock(PlatformModuleService.class), mock(ModuleMetadataRelationService.class),
-                mock(PlatformDynamicRuntimeRefreshService.class), mock(ModuleMetadataOrchestrationService.class));
+                mock(DynamicRuntimeActivationService.class));
 
         assertThat(task).isInstanceOf(PlatformBootstrapTask.class);
         assertThat(task.order()).isGreaterThan(new InitialDataBootstrapTask(mock(InitialDataExecutor.class)).order());
@@ -58,36 +59,18 @@ class DynamicModuleRuntimeStartupActivationTaskTest {
     void shouldKeepStartingWhenOnePublishedModuleCannotBeActivated() {
         PlatformModuleService moduleService = mock(PlatformModuleService.class);
         ModuleMetadataRelationService relationService = mock(ModuleMetadataRelationService.class);
-        PlatformDynamicRuntimeRefreshService refreshService = mock(PlatformDynamicRuntimeRefreshService.class);
+        DynamicRuntimeActivationService refreshService = mock(DynamicRuntimeActivationService.class);
         when(moduleService.listVisibleModules()).thenReturn(List.of(
                 module("education.invalid", ModuleKind.DYNAMIC), module("education.ready", ModuleKind.DYNAMIC)));
         when(relationService.list(any(Criteria.class), any(PageRequest.class)))
                 .thenReturn(List.of(new ModuleMetadataRelation()));
         org.mockito.Mockito.doThrow(new IllegalStateException("broken metadata"))
-                .when(refreshService).activateNow("education.invalid");
+                .when(refreshService).restoreAtStartup("education.invalid");
 
-        new DynamicModuleRuntimeStartupActivationTask(moduleService, relationService, refreshService, mock(ModuleMetadataOrchestrationService.class)).run();
+        new DynamicModuleRuntimeStartupActivationTask(moduleService, relationService, refreshService).run();
 
-        verify(refreshService).activateNow("education.invalid");
-        verify(refreshService).activateNow("education.ready");
-    }
-
-    @Test
-    void shouldIsolateReconciliationFailureAndReconcileBeforeActivation() {
-        var modules = mock(PlatformModuleService.class);
-        var relations = mock(ModuleMetadataRelationService.class);
-        var refresh = mock(PlatformDynamicRuntimeRefreshService.class);
-        var orchestration = mock(ModuleMetadataOrchestrationService.class);
-        when(modules.listVisibleModules()).thenReturn(List.of(module("education.invalid", ModuleKind.DYNAMIC),
-                module("education.ready", ModuleKind.DYNAMIC)));
-        when(relations.list(any(Criteria.class), any(PageRequest.class))).thenReturn(List.of(new ModuleMetadataRelation()));
-        org.mockito.Mockito.doThrow(new IllegalStateException("conflicting system field"))
-                .when(orchestration).reconcileChildSystemFields("education.invalid");
-        new DynamicModuleRuntimeStartupActivationTask(modules, relations, refresh, orchestration).run();
-        var ordered = org.mockito.Mockito.inOrder(orchestration, refresh);
-        ordered.verify(orchestration).reconcileChildSystemFields("education.ready");
-        ordered.verify(refresh).activateNow("education.ready");
-        org.mockito.Mockito.verify(refresh, org.mockito.Mockito.never()).activateNow("education.invalid");
+        verify(refreshService).restoreAtStartup("education.invalid");
+        verify(refreshService).restoreAtStartup("education.ready");
     }
 
     private static PlatformModule module(String alias, ModuleKind kind) {

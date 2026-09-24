@@ -21,6 +21,7 @@ import net.ximatai.muyun.spring.platform.application.ApplicationService;
 import net.ximatai.muyun.spring.platform.module.PlatformModule;
 import net.ximatai.muyun.spring.platform.module.PlatformModuleService;
 import net.ximatai.muyun.spring.platform.runtime.PlatformDynamicRuntimeRefreshService;
+import net.ximatai.muyun.spring.platform.runtime.DynamicRuntimeActivationService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -58,6 +59,8 @@ public class PlatformModuleWebController extends StaticModuleWebControllerAdapte
 
     private PlatformDynamicRuntimeRefreshService runtimeRefreshService;
     private PlatformOpenApiCatalogService openApiCatalogService;
+    @Autowired
+    private DynamicRuntimeActivationService runtimeActivation;
 
     @Autowired
     public PlatformModuleWebController(PlatformDynamicRuntimeRefreshService runtimeRefreshService) {
@@ -149,6 +152,21 @@ public class PlatformModuleWebController extends StaticModuleWebControllerAdapte
     @Override
     public TreeScope treeScope(HttpServletRequest request, PlatformModule record) {
         return record == null ? treeScope(request) : applicationTreeScope(record.getApplicationAlias());
+    }
+
+    @GetMapping("/{moduleAlias}/runtime/activation")
+    @ActionEndpoint(PlatformAction.VIEW)
+    public DynamicRuntimeActivationService.Status runtimeActivation(
+            @PathVariable String moduleAlias) {
+        return webScope(() -> runtimeActivation.status(moduleAlias));
+    }
+
+    @PostMapping("/{moduleAlias}/runtime/activation/retry")
+    @CustomActionEndpoint(value = "retryRuntimeActivation", title = "重试运行态激活",
+            level = PlatformActionLevel.RECORD, recordIdPathVariable = "moduleAlias")
+    public DynamicRuntimeActivationService.Status retryRuntimeActivation(
+            @PathVariable String moduleAlias, @org.springframework.web.bind.annotation.RequestParam int expectedRevision) {
+        return webScope(() -> runtimeActivation.retry(moduleAlias, expectedRevision));
     }
 
     @PostMapping("/{moduleAlias}/runtime/refresh")

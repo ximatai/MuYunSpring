@@ -160,6 +160,51 @@ class RecycleBinPurgeCoordinatorTest {
                 .isEqualTo(DeletionOperationStatus.SUCCEEDED);
     }
 
+    @Test
+    void ownedRetainedDetailNeedsNoIndependentRecycleBinButKeepsItsRetentionPolicy() {
+        SourceTree source = completedDeleteTree();
+        PurgeAbility root = purgeableAbility("iam.tenant", "tenant", "tenant-1");
+        RetainedDetail detail = new RetainedDetail();
+        var lookup = resolver(root, detail).getFirst();
+        var ownership = new DeletionRecoveryResourceResolver() {
+            @Override public boolean supports(DeletionEntry entry) { return lookup.supports(entry); }
+            @Override public java.util.Optional<SoftDeleteAbility<?>> resolve(DeletionEntry entry) { return lookup.resolve(entry); }
+            @Override public boolean canPurgeAggregateChild(DeletionEntry entry, DeletionEntry parent) {
+                return parent != null && parent.getId().equals(source.rootEntryId())
+                        && entry.getId().equals(source.childEntryId());
+            }
+        };
+        var coordinator = new RecycleBinPurgeCoordinator(logService, recovery, List.of(ownership));
+        detail.retained = true;
+        PurgeReport denied = coordinator.purge(source.operationId());
+        assertThat(denied.entries()).extracting(PurgeEntryResult::status)
+                .containsExactly(PurgeEntryResult.Status.SKIPPED, PurgeEntryResult.Status.FAILED);
+        assertThat(root.dao().findById("tenant-1")).isNotNull();
+        assertThat(detail.getDao().findById("application-1")).isNotNull();
+        detail.retained = false;
+        PurgeReport retried = coordinator.purge(source.operationId());
+        assertThat(retried.entries()).extracting(PurgeEntryResult::status)
+                .containsExactly(PurgeEntryResult.Status.PURGED, PurgeEntryResult.Status.PURGED);
+        assertThat(detail.getDao().findById("application-1")).isNull();
+        assertThat(detail.purged).isEqualTo(1);
+    }
+
+    private static final class RetainedDetail extends AbstractAbilityService<TestRecord>
+            implements net.ximatai.muyun.spring.ability.SoftDeleteAbility<TestRecord> {
+        boolean retained;
+        int purged;
+        RetainedDetail() {
+            super("iam.tenantApplication", TestRecord.class, new TestMemoryDao<>());
+            var record = new TestRecord();
+            record.setId("application-1"); record.setVersion(1); record.setDeleted(true); record.setTenantId("tenant-1");
+            getDao().insert(record);
+        }
+        @Override public void beforeRetainedRecordPurge(String id) {
+            if (retained) throw new IllegalStateException("detail retention period has not elapsed");
+        }
+        @Override public void afterRetainedRecordPurge(String id, TestRecord record, int count) { purged += count; }
+    }
+
     // --- helpers ---
 
     private SourceTree completedDeleteTree() {
@@ -236,6 +281,7 @@ class RecycleBinPurgeCoordinatorTest {
         entry.setResourceRecordId(recordId);
         entry.setTriggerType(parentEntryId == null ? DeletionEntryTrigger.DIRECT : DeletionEntryTrigger.CASCADE);
         entry.setDeleteMode(DeletionEntryMode.SOFT);
+        entry.setResourceVersion(1);
         return logService.startEntry(entry);
     }
 

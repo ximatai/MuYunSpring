@@ -197,7 +197,7 @@ public class ModuleMetadataOrchestrationService {
     private void publishCreatedMetadata(Metadata metadata, String moduleAlias) {
         if (metadata == null) throw new PlatformException("Created metadata cannot be reloaded for publication");
         schemaEnsureService.ensureNow(metadata);
-        TransactionScopeSupport.afterCommitOrNow(() -> refreshCoordinator.activateModulesNow(java.util.List.of(moduleAlias)));
+        refreshCoordinator.scheduleModules(java.util.List.of(moduleAlias));
     }
 
     private PlatformModule requireDynamicModule(String moduleAlias) {

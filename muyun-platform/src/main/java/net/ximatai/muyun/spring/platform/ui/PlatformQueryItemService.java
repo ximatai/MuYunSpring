@@ -1,5 +1,6 @@
 package net.ximatai.muyun.spring.platform.ui;
 
+import net.ximatai.muyun.spring.ability.PlatformAbilityRuntime;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.database.core.orm.Sort;
@@ -58,7 +59,7 @@ public class PlatformQueryItemService extends AbstractAbilityService<PlatformQue
                                     PlatformQueryTemplateService queryTemplateService,
                                     ModuleMetadataFieldService moduleFieldService,
                                     FieldSpecService fieldTypeService) {
-        this(queryItemDao, queryTemplateService, moduleFieldService, fieldTypeService, null, new PlatformTimeService());
+        this(queryItemDao, queryTemplateService, moduleFieldService, fieldTypeService, null, PlatformAbilityRuntime.timeService());
     }
 
     @Autowired
@@ -69,8 +70,8 @@ public class PlatformQueryItemService extends AbstractAbilityService<PlatformQue
                                     MetadataFieldDefinitionCompiler fieldDefinitionCompiler,
                                     ObjectProvider<PlatformTimeService> timeServiceProvider) {
         this(queryItemDao, queryTemplateService, moduleFieldService, fieldTypeService, fieldDefinitionCompiler,
-                timeServiceProvider == null ? new PlatformTimeService()
-                        : timeServiceProvider.getIfAvailable(PlatformTimeService::new));
+                timeServiceProvider == null ? PlatformAbilityRuntime.timeService()
+                        : timeServiceProvider.getIfAvailable(PlatformAbilityRuntime::timeService));
     }
 
     public PlatformQueryItemService(BaseDao<PlatformQueryItem, String> queryItemDao,
@@ -92,7 +93,7 @@ public class PlatformQueryItemService extends AbstractAbilityService<PlatformQue
         this.moduleFieldService = moduleFieldService;
         this.fieldTypeService = fieldTypeService;
         this.fieldDefinitionCompiler = fieldDefinitionCompiler;
-        this.timeService = timeService == null ? new PlatformTimeService() : timeService;
+        this.timeService = java.util.Objects.requireNonNull(timeService, "timeService");
     }
 
     @Override

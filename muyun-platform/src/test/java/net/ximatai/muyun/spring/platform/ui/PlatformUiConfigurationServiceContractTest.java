@@ -119,7 +119,7 @@ class PlatformUiConfigurationServiceContractTest {
             new PlatformQueryTemplateService(queryTemplateDao, moduleService);
     private final PlatformQueryItemService queryItemService =
             new PlatformQueryItemService(queryItemDao, queryTemplateService, moduleFieldService, fieldTypeService,
-                    fieldDefinitionCompiler, (net.ximatai.muyun.spring.common.time.PlatformTimeService) null);
+                    fieldDefinitionCompiler, new net.ximatai.muyun.spring.common.time.PlatformTimeService());
     private final PlatformPageConfigPublishService publishService = new PlatformPageConfigPublishService(
             uiSetService, uiConfigService, uiConfigFieldService, queryTemplateService, queryItemService);
     private final PlatformPageConfigSnapshotService snapshotService = new PlatformPageConfigSnapshotService(

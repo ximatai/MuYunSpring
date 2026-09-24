@@ -50,6 +50,8 @@ public class ModuleMetadataCapabilitySnapshotService {
                         field -> Boolean.TRUE.equals(field.getTitleField()),
                         List.of(PlatformAbilityFields.TITLE_FIELD), "NONE", "标题字段用于引用显示；不自动写入初始值。"),
                 catalogCapability(EntityCapability.ENABLE, relation, resolution, hasChildUsage),
+                catalogCapability(EntityCapability.RECYCLE_BIN, relation, resolution,
+                        relationService.count(Criteria.of().eq("metadataId", metadata.getId()).eq("relationRole", RelationRole.CHILD)) > 0),
                 dataScopeCapability(relation, metadata),
                 fieldCapability(EntityCapability.APPROVAL, relation, fields, false, this::isApprovalField,
                         List.of(PlatformAbilityFields.APPROVAL_INSTANCE_FIELD, PlatformAbilityFields.APPROVAL_STATUS_FIELD),
@@ -69,6 +71,7 @@ public class ModuleMetadataCapabilitySnapshotService {
             case TREE -> "未填写 parentId 时，运行态写入根节点。";
             case SORT -> "未填写 sortOrder 时，运行态按分区分配下一个排序值。";
             case ENABLE -> "未填写 enabled 时，默认写入 true。";
+            case RECYCLE_BIN -> "查询和恢复已删除记录；彻底清理需要独立授权。启用后暂不支持关闭。";
             default -> "";
         };
         boolean configurable = !child && !blockedByChildUsage;

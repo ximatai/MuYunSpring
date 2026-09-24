@@ -4,7 +4,6 @@ import net.ximatai.muyun.spring.ability.PlatformOperationDefinition;
 import net.ximatai.muyun.spring.common.platform.EntityCapability;
 import net.ximatai.muyun.spring.common.platform.PlatformAction;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicActionExecutionRequest;
-import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecordService;
 
 import java.util.List;
 import java.util.Optional;
@@ -68,8 +67,8 @@ public final class SortCapabilityActionFacet implements CapabilityActionContribu
         });
     }
 
-    private int executeDynamic(PlatformAction action, DynamicRecordService service, String moduleAlias,
-                               String entityAlias, DynamicActionExecutionRequest request, String traceId) {
+    private int executeDynamic(PlatformAction action, DynamicCapabilityActionExecution execution,
+                               DynamicActionExecutionRequest request) {
         if (action != PlatformAction.SORT) {
             throw new IllegalArgumentException("SORT runtime handler does not own: " + action.code());
         }
@@ -79,15 +78,15 @@ public final class SortCapabilityActionFacet implements CapabilityActionContribu
             throw new IllegalArgumentException("dynamic action requires exactly one sort intent: " + action.code());
         }
         if (!request.orderedIds().isEmpty()) {
-            service.reorderFromAction(moduleAlias, entityAlias, request.orderedIds(), traceId);
+            execution.reorder(request.orderedIds());
             return 0;
         }
         String recordId = requireRecordId(request, action);
         if (hasText(request.beforeId())) {
-            service.moveBeforeFromAction(moduleAlias, entityAlias, recordId, request.beforeId(), traceId);
+            execution.moveBefore(recordId, request.beforeId());
             return 0;
         }
-        service.moveAfterFromAction(moduleAlias, entityAlias, recordId, request.afterId(), traceId);
+        execution.moveAfter(recordId, request.afterId());
         return 0;
     }
 

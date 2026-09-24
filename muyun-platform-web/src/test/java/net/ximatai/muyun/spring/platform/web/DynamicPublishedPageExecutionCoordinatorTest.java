@@ -1,9 +1,8 @@
 package net.ximatai.muyun.spring.platform.web;
 
+import net.ximatai.muyun.spring.platform.runtime.DynamicRuntimeActivationService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.ObjectProvider;
-import org.springframework.transaction.support.TransactionSynchronization;
-import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.util.List;
 import java.util.Optional;
@@ -11,7 +10,9 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
 class DynamicPublishedPageExecutionCoordinatorTest {
@@ -22,7 +23,7 @@ class DynamicPublishedPageExecutionCoordinatorTest {
         ModuleExecutionPlanCatalog planCatalog = new ModuleExecutionPlanCatalog(
                 new StaticModuleDefinitionCatalog(List.of()), new ListQuerySummaryContributorCatalog(List.of()));
 
-        new DynamicPublishedPageExecutionCoordinator(runtimeContexts, planCatalog);
+        new DynamicPublishedPageExecutionCoordinator(runtimeContexts, planCatalog, mock(ObjectProvider.class));
 
         verifyNoInteractions(runtimeContexts);
     }
@@ -36,8 +37,8 @@ class DynamicPublishedPageExecutionCoordinatorTest {
         PlatformModuleRuntimeContextService runtimeContextService = mock(PlatformModuleRuntimeContextService.class);
         when(runtimeContextService.dynamicExecutionPlan(moduleAlias)).thenReturn(Optional.empty());
 
-        new DynamicPublishedPageExecutionCoordinator(runtimeContextService, planCatalog)
-                .prepareAfterPublishedConfigurationChange(moduleAlias);
+        new DynamicPublishedPageExecutionCoordinator(() -> runtimeContextService, planCatalog, () -> mock(DynamicRuntimeActivationService.class))
+                .installCurrentPublishedConfiguration(moduleAlias);
 
         assertThat(planCatalog.find(moduleAlias)).isEmpty();
     }
@@ -54,7 +55,7 @@ class DynamicPublishedPageExecutionCoordinatorTest {
         when(runtimeContextService.dynamicExecutionPlan(moduleAlias)).thenReturn(Optional.of(
                 plan(moduleAlias, "dynamic-runtime-1-ui-2", true)));
         DynamicPublishedPageExecutionCoordinator coordinator = new DynamicPublishedPageExecutionCoordinator(
-                runtimeContextService, planCatalog);
+                () -> runtimeContextService, planCatalog, () -> mock(DynamicRuntimeActivationService.class));
 
         assertThatThrownBy(() -> coordinator.prepareAfterPublishedConfigurationChange(moduleAlias))
                 .isInstanceOf(IllegalArgumentException.class)
@@ -63,7 +64,7 @@ class DynamicPublishedPageExecutionCoordinatorTest {
     }
 
     @Test
-    void shouldInstallCompiledGroupedCandidateOnlyAfterCommitAndRetainOldPlanWhenCompilationFails() {
+    void shouldValidateCandidateBeforeSchedulingAndInstallOnlyOnActivation() {
         String moduleAlias = "sales.contract";
         ModuleExecutionPlanCatalog catalog = new ModuleExecutionPlanCatalog(
                 new StaticModuleDefinitionCatalog(List.of()), new ListQuerySummaryContributorCatalog(List.of()));
@@ -77,24 +78,22 @@ class DynamicPublishedPageExecutionCoordinatorTest {
         catalog.replaceDynamicPlan(moduleAlias, Optional.of(installed));
         PlatformModuleRuntimeContextService context = mock(PlatformModuleRuntimeContextService.class);
         when(context.dynamicExecutionPlan(moduleAlias)).thenReturn(Optional.of(candidate));
-        DynamicPublishedPageExecutionCoordinator coordinator = new DynamicPublishedPageExecutionCoordinator(context, catalog);
-        TransactionSynchronizationManager.initSynchronization();
-        TransactionSynchronizationManager.setActualTransactionActive(true);
-        try {
-            coordinator.prepareAfterPublishedConfigurationChange(moduleAlias);
-            assertThat(catalog.find(moduleAlias)).containsSame(installed);
-            TransactionSynchronizationManager.getSynchronizations().forEach(TransactionSynchronization::afterCommit);
-            assertThat(catalog.find(moduleAlias)).containsSame(candidate);
+        DynamicRuntimeActivationService activation = mock(DynamicRuntimeActivationService.class);
+        DynamicPublishedPageExecutionCoordinator coordinator = new DynamicPublishedPageExecutionCoordinator(
+                () -> context, catalog, () -> activation);
+        coordinator.prepareAfterPublishedConfigurationChange(moduleAlias);
+        verify(activation).schedule(moduleAlias);
+        assertThat(catalog.find(moduleAlias)).containsSame(installed);
 
-            when(context.dynamicExecutionPlan(moduleAlias)).thenThrow(
-                    new IllegalArgumentException("grouped list query summary field is not eligible: sales.contract.title"));
-            assertThatThrownBy(() -> coordinator.prepareAfterPublishedConfigurationChange(moduleAlias))
-                    .hasMessageContaining("not eligible");
-            assertThat(catalog.find(moduleAlias)).containsSame(candidate);
-        } finally {
-            TransactionSynchronizationManager.clearSynchronization();
-            TransactionSynchronizationManager.setActualTransactionActive(false);
-        }
+        coordinator.installCurrentPublishedConfiguration(moduleAlias);
+        assertThat(catalog.find(moduleAlias)).containsSame(candidate);
+
+        when(context.dynamicExecutionPlan(moduleAlias)).thenThrow(
+                new IllegalArgumentException("grouped list query summary field is not eligible: sales.contract.title"));
+        assertThatThrownBy(() -> coordinator.prepareAfterPublishedConfigurationChange(moduleAlias))
+                .hasMessageContaining("not eligible");
+        assertThat(catalog.find(moduleAlias)).containsSame(candidate);
+        verifyNoMoreInteractions(activation);
     }
 
     private static ModuleExecutionPlan groupedPlanFromManagementRoot(String moduleAlias, String versionKey) {

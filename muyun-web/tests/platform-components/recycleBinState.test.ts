@@ -6,7 +6,7 @@ import {
   useRecycleBinState,
 } from '@/platform-components/recycleBinState.ts';
 import { useRecycleBinExplorerMode } from '@/platform-components/useRecycleBinExplorerMode.ts';
-import { ref } from 'vue';
+import { ref, shallowRef } from 'vue';
 
 interface Tenant {
   id?: string;
@@ -490,6 +490,104 @@ it('recycle bin state handles purge failure and resets acting state', async () =
 
 // --- helpers ---
 
+it.each(['restore', 'purge'] as const)(
+  'isolates pending %s actions when leaving and returning to the same context',
+  async (action) => {
+    const responses: Array<(response: unknown) => void> = [];
+    const firstContext = createContext({
+      request: () => new Promise((resolve) => responses.push(resolve)),
+    });
+    const context = shallowRef(firstContext);
+    const state = useRecycleBinState({ context });
+    const item: RecycleBinItem<Tenant> = {
+      record: { id: 'root' },
+      sourceDeleteOperationId: 'source',
+      deletedAt: '2024-01-15T10:30:00Z',
+      restorable: true,
+      purgeable: true,
+    };
+    const oldAction = state[action](item, false);
+    context.value = createContext({ request: async () => undefined });
+    assert.equal(state.acting.value, false);
+    assert.equal(state.actingOperationId.value, undefined);
+    context.value = firstContext;
+    const currentAction = state[action](item, false);
+    assert.equal(responses.length, 2);
+    const partial = {
+      sourceOperationId: 'source',
+      restoreOperationId: 'r1',
+      purgeOperationId: 'p1',
+      entries: [{ sourceEntryId: 'child', status: 'FAILED' }],
+    };
+    responses[0](partial);
+    assert.equal(await oldAction, undefined);
+    assert.equal(state.pendingActions.value.length, 0);
+    assert.equal(state.acting.value, true);
+    assert.equal(state.actingOperationId.value, 'source');
+    responses[1](partial);
+    assert.ok(await currentAction);
+    assert.equal(state.pendingActions.value.length, 1);
+    assert.equal(state.acting.value, false);
+  },
+);
+
+it('starts a new module with its default query rather than the previous module filters', async () => {
+  const context = shallowRef(
+    createContext({
+      request: async () => ({ records: [], total: 0, pageNum: 9, pageSize: 5 }),
+    }),
+  );
+  const state = useRecycleBinState({ context });
+  await state.load({ page: { pageNum: 9, pageSize: 5 }, conditions: [], sorts: [] });
+  let body: unknown;
+  context.value = createContext({
+    request: async (request) => {
+      body = request.body;
+      return { records: [], total: 0, pageNum: 1, pageSize: 200 };
+    },
+  });
+  assert.equal(state.pageNum.value, 1);
+  await state.load();
+  assert.deepEqual(body, { page: { pageNum: 1, pageSize: 200 }, conditions: [], sorts: [] });
+});
+
+it.each(['restore', 'purge'] as const)(
+  'does not report %s completion to the new module while its old list reload is pending',
+  async (action) => {
+    let finishLoad: (response: unknown) => void = () => {};
+    let loadStarted: () => void = () => {};
+    const loading = new Promise<void>((resolve) => {
+      loadStarted = resolve;
+    });
+    const context = shallowRef(
+      createContext({
+        request: async (request) => {
+          if (request.path.endsWith('/query')) {
+            return new Promise((resolve) => {
+              finishLoad = resolve;
+              loadStarted();
+            });
+          }
+          return { sourceOperationId: 'source', restoreOperationId: 'r', purgeOperationId: 'p', entries: [] };
+        },
+      }),
+    );
+    const state = useRecycleBinState({ context });
+    const pending = state[action]({
+      record: { id: 'root' },
+      sourceDeleteOperationId: 'source',
+      deletedAt: '2024-01-15T10:30:00Z',
+      restorable: true,
+      purgeable: true,
+    });
+    await loading;
+    context.value = createContext({ request: async () => undefined });
+    finishLoad({ records: [], total: 0 });
+    assert.equal(await pending, undefined);
+    assert.equal(state.acting.value, false);
+  },
+);
+
 function createContext(overrides: {
   request: (options: { path: string; body?: unknown }) => Promise<unknown>;
 }) {
@@ -528,3 +626,84 @@ function fakeRuntimeState(): ModuleRuntimeContextState {
     recordActionsSnapshot: () => undefined,
   };
 }
+
+it.each(['restore', 'purge'] as const)(
+  'keeps partial %s reports after the root leaves the list and retries the same deletion',
+  async (action) => {
+    const item: RecycleBinItem<Tenant> = {
+      record: { id: 'root', title: '主记录' },
+      sourceDeleteOperationId: 'source-1',
+      deletedAt: '2024-01-15T10:30:00Z',
+      restorable: true,
+      purgeable: true,
+    };
+    let attempts = 0;
+    const paths: string[] = [];
+    const context = createContext({
+      request: async (options) => {
+        paths.push(options.path);
+        if (options.path.endsWith(`/${action}`)) {
+          attempts++;
+          return {
+            sourceOperationId: 'source-1',
+            restoreOperationId: 'r1',
+            purgeOperationId: 'p1',
+            entries: [
+              { sourceEntryId: 'root', status: action === 'restore' ? 'RESTORED' : 'PURGED' },
+              {
+                sourceEntryId: 'child',
+                status: attempts === 1 ? 'FAILED' : action === 'restore' ? 'RESTORED' : 'PURGED',
+              },
+            ],
+          };
+        }
+        return { records: [], total: 0 };
+      },
+    });
+    const state = useRecycleBinState({ context });
+    await state[action](item);
+    assert.equal(state.items.value.length, 0);
+    assert.equal(state.pendingActions.value.length, 1);
+    await state[action](state.pendingActions.value[0].item);
+    assert.equal(state.pendingActions.value.length, 0);
+    assert.deepEqual(
+      paths.filter((path) => !path.endsWith('/query')),
+      [`/iam.tenant/recycle-bin/source-1/${action}`, `/iam.tenant/recycle-bin/source-1/${action}`],
+    );
+  },
+);
+
+it('does not attach an old action report or reload to a replaced module context', async () => {
+  let resolveOld: (value: unknown) => void = () => {};
+  const oldContext = createContext({
+    request: () =>
+      new Promise((resolve) => {
+        resolveOld = resolve;
+      }),
+  });
+  let newRequests = 0;
+  let current = oldContext;
+  const state = useRecycleBinState({ context: () => current });
+  const action = state.restore({
+    record: { id: 'root' },
+    sourceDeleteOperationId: 'source',
+    deletedAt: '2024-01-15T10:30:00Z',
+    restorable: true,
+    purgeable: false,
+  });
+  current = createContext({
+    request: async () => {
+      newRequests++;
+      return {};
+    },
+  });
+  resolveOld({
+    sourceOperationId: 'source',
+    restoreOperationId: 'r1',
+    entries: [{ sourceEntryId: 'child', status: 'FAILED' }],
+  });
+  assert.equal(await action, undefined);
+  assert.equal(state.pendingActions.value.length, 0);
+  assert.equal(newRequests, 0);
+  assert.equal(state.acting.value, false);
+});

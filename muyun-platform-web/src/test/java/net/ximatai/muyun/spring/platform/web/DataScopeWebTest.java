@@ -74,10 +74,12 @@ class DataScopeWebTest {
         DataScopedStaticQueryViewController controller = new DataScopedStaticQueryViewController(service);
 
         try (TenantContext.Scope ignored = TenantContext.use("tenant-a")) {
-            WebPageResponse<DataScopedRecord> page = controller.query(null);
+            WebPageResponse<?> page = controller.query(null);
 
-            assertThat(page.records()).extracting(DataScopedRecord::getTitle).containsExactly("Query");
+            assertThat(page.records()).extracting("title").containsExactly("Query");
             assertThat(service.queryAction).isEqualTo(PlatformAction.QUERY);
+            assertThat(controller.view("record-1").getTitle()).isEqualTo("View record-1");
+            assertThat(service.viewAction).isEqualTo(PlatformAction.VIEW);
         }
     }
 
@@ -510,17 +512,29 @@ class DataScopeWebTest {
         }
     }
 
-    /** No projection service is supplied: this exercises StaticQueryViewWeb's query fallback. */
-    private static final class DataScopedStaticQueryViewController extends WebSupport<DataScopedCrudService>
+    /** Read-only transport keeps the same action-aware query path after plan compilation. */
+    private static final class DataScopedStaticQueryViewController extends StaticModuleWebControllerAdapter<DataScopedCrudService>
             implements StaticQueryViewWeb<DataScopedRecord, DataScopedCrudService>, StaticModuleUiContributor {
         private DataScopedStaticQueryViewController(DataScopedCrudService service) {
             this.service = service;
+            var definition = StaticModuleDefinition.builder(
+                    "demo", "demo.data_scoped_crud", "Scoped")
+                    .entities(java.util.List.of(new net.ximatai.muyun.spring.dynamic.metadata.EntityDefinition(
+                            "record", "record", "Record", java.util.List.of(
+                                    net.ximatai.muyun.spring.dynamic.metadata.FieldDefinition.string("title", "Title")))))
+                    .uiDefinition(moduleUiDefinition()).build();
+            var catalog = new StaticModuleDefinitionCatalog(java.util.List.of(definition));
+            setStandardModuleWebRuntime(new StandardModuleWebRuntime(
+                    new ModuleExecutionPlanCatalog(catalog), new StaticRecordReadProjectionService(catalog)));
         }
+
+        @Override public String webScopeName() { return "demo.data_scoped_crud"; }
 
         @Override
         public ModuleUiDefinition moduleUiDefinition() {
             return ModuleUiDefinition.builder("demo.data_scoped_crud")
-                    .page(PageTemplates.treeManagement(page -> page
+                    .page(PageTemplates.flatManagement(page -> page
+                            .explorer(explorer -> explorer.titleField("title"))
                             .detail(detail -> detail.display(display -> display.field("title")))))
                     .build();
         }

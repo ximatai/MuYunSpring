@@ -1,5 +1,9 @@
 package net.ximatai.muyun.spring.dynamic.web;
 
+import net.ximatai.muyun.spring.platform.web.DynamicRuntimeRead;
+
+import net.ximatai.muyun.spring.platform.web.RecordReadVisibility;
+
 import net.ximatai.muyun.spring.web.PlatformAuditMutationGuard;
 import net.ximatai.muyun.spring.common.schema.PlatformFieldPolicy;
 import net.ximatai.muyun.spring.common.schema.PlatformAbilityFields;
@@ -152,6 +156,7 @@ import java.util.Set;
 import java.util.function.Supplier;
 import java.util.function.Function;
 
+@DynamicRuntimeRead
 @RestController
 @RequestMapping("/{moduleAlias:[a-z][a-z0-9_]*(?:\\.[a-z][a-z0-9_]*)+}")
 public class DynamicRecordWebController implements
@@ -273,6 +278,18 @@ public class DynamicRecordWebController implements
     @ActionEndpoint(PlatformAction.VIEW)
     public WebListResponse<Map<String, Object>> readAggregateChildRelationExpansion(
             @PathVariable String parentId, @PathVariable String relationCode) {
+        return readAggregateExpansion(parentId, relationCode, false);
+    }
+
+    @GetMapping("/recycle-bin/view/{parentId}/relations/{relationCode}/expansion")
+    @ActionEndpoint(PlatformAction.RECYCLE_BIN_QUERY)
+    public WebListResponse<Map<String, Object>> readRetainedAggregateChildRelationExpansion(
+            @PathVariable String parentId, @PathVariable String relationCode) {
+        return readAggregateExpansion(parentId, relationCode, true);
+    }
+
+    private WebListResponse<Map<String, Object>> readAggregateExpansion(String parentId, String relationCode,
+                                                                       boolean retained) {
         return webScope(() -> {
             String moduleAlias = DynamicWebRequest.moduleAlias();
             var plan = requireExecutionPlan(moduleAlias);
@@ -293,8 +310,10 @@ public class DynamicRecordWebController implements
             }
             List<String> outputFields = recordService.aggregateExpansionOutputFields(
                     moduleAlias, relationCode, expansion.fields());
-            return new WebListResponse<>(recordService.aggregateChildrenForView(moduleAlias, parentId, relationCode)
-                    .stream().map(record -> projectAggregateExpansion(record, outputFields)).toList());
+            List<DynamicRecord> children = retained
+                    ? recordService.aggregateChildrenForRecycleBin(moduleAlias, parentId, relationCode)
+                    : recordService.aggregateChildrenForView(moduleAlias, parentId, relationCode);
+            return new WebListResponse<>(children.stream().map(record -> projectAggregateExpansion(record, outputFields)).toList());
         });
     }
 
@@ -599,10 +618,19 @@ public class DynamicRecordWebController implements
 
     @Override
     public PageResult<DynamicRecord> queryRecords(WebQueryRequest request) {
-        if (request == null) {
+        return queryRecords(request, RecordReadVisibility.ACTIVE);
+    }
+
+    @Override
+    public java.util.Optional<? extends WebPageResponse<?>> recycleBinProjectedQuery(WebQueryRequest request) {
+        return java.util.Optional.of(WebPageResponse.from(queryRecords(request, RecordReadVisibility.RETAINED)));
+    }
+
+    private PageResult<DynamicRecord> queryRecords(WebQueryRequest request, RecordReadVisibility visibility) {
+        if (request == null && visibility == RecordReadVisibility.ACTIVE) {
             return CrudWeb.super.queryRecords(request);
         }
-        WebPageRequest webPage = request.pageOrDefault();
+        WebPageRequest webPage = request == null ? WebPageRequest.DEFAULT : request.pageOrDefault();
         PageRequest pageRequest = PageRequest.of(webPage.pageNum(), webPage.pageSize());
         Criteria criteria = queryCriteria(request);
         Set<String> projectionFields = dynamicRelationProjectionReadService.resolveListOutputFields(
@@ -612,13 +640,15 @@ public class DynamicRecordWebController implements
         ProjectionQueryDescriptor projectionDescriptor = projectionListQueryDescriptor(storageProjectionFields);
         Sort[] sorts = querySorts(request, projectionDescriptor.sortableFields());
         PageResult<DynamicRecord> projectedPage = projectionDescriptor.supported()
-                ? queryProjectionRecords(storageProjectionFields, criteria, pageRequest, sorts)
+                ? queryProjectionRecords(storageProjectionFields, criteria, pageRequest, visibility, sorts)
                 : null;
         if (projectedPage != null) {
             populateReadProjections(projectedPage.getRecords(), projectionFields);
             return projectedPage;
         }
-        PageResult<DynamicRecord> page = service().pageQuery(criteria, pageRequest, sorts);
+        PageResult<DynamicRecord> page = visibility == RecordReadVisibility.RETAINED
+                ? service().pageRecycleBin(criteria, pageRequest, sorts)
+                : service().pageQuery(criteria, pageRequest, sorts);
         Set<String> fields = storageProjectionFields;
         List<DynamicRecord> records = page.getRecords().stream()
                 .map(record -> project(record, fields))
@@ -683,13 +713,19 @@ public class DynamicRecordWebController implements
     private PageResult<DynamicRecord> queryProjectionRecords(Set<String> projectionFields,
                                                              Criteria criteria,
                                                              PageRequest pageRequest,
+                                                             RecordReadVisibility visibility,
                                                              Sort... sorts) {
+        if (visibility == RecordReadVisibility.ACTIVE) {
+            return dynamicRelationProjectionReadService.queryList(DynamicWebRequest.moduleAlias(), recordService,
+                    projectionFields, criteria, pageRequest, sorts).orElse(null);
+        }
         return dynamicRelationProjectionReadService.queryList(
                 DynamicWebRequest.moduleAlias(),
                 recordService,
                 projectionFields,
                 criteria,
                 pageRequest,
+                visibility,
                 sorts
         ).orElse(null);
     }

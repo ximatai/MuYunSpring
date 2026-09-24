@@ -16,4 +16,9 @@ public interface DeletionRecoveryResourceResolver {
     boolean supports(DeletionEntry entry);
 
     Optional<SoftDeleteAbility<?>> resolve(DeletionEntry entry);
+
+    /** Verifies current ownership for a child whose cleanup entry is governed by its parent aggregate. */
+    default boolean canPurgeAggregateChild(DeletionEntry entry, DeletionEntry parent) {
+        return false;
+    }
 }

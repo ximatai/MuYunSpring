@@ -5,7 +5,6 @@ import net.ximatai.muyun.database.core.orm.AggregateQuery;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.database.core.orm.PageResult;
 import net.ximatai.muyun.database.core.orm.Sort;
-import net.ximatai.muyun.spring.ability.TransactionScopeSupport;
 import net.ximatai.muyun.spring.ability.BaseDao;
 import net.ximatai.muyun.spring.ability.child.ChildRelation;
 import net.ximatai.muyun.spring.ability.event.RuntimeMutationSource;
@@ -15,26 +14,16 @@ import net.ximatai.muyun.spring.ability.reference.ReferencePlan;
 import net.ximatai.muyun.spring.ability.reference.ReferenceTarget;
 import net.ximatai.muyun.spring.ability.permission.RecordPermissionAccess;
 import net.ximatai.muyun.spring.ability.permission.RecordPermissionWrite;
-import net.ximatai.muyun.spring.common.exception.PlatformException;
-import net.ximatai.muyun.spring.common.exception.PlatformAccessDeniedException;
-import net.ximatai.muyun.spring.common.exception.ErrorScope;
 import net.ximatai.muyun.spring.common.identity.CurrentUser;
-import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
-import net.ximatai.muyun.spring.common.platform.ActionAccessMode;
-import net.ximatai.muyun.spring.common.platform.ActionAuthorizationResult;
-import net.ximatai.muyun.spring.common.platform.ActionExecutionContext;
 import net.ximatai.muyun.spring.common.platform.ActionExecutionPolicy;
 import net.ximatai.muyun.spring.common.platform.ActionExecutionPolicyService;
-import net.ximatai.muyun.spring.common.platform.ActionDefaultGrantPolicy;
 import net.ximatai.muyun.spring.common.platform.AllowAllActionExecutionPolicyService;
 import net.ximatai.muyun.spring.common.platform.AllowAllDataScopeCriteriaService;
 import net.ximatai.muyun.spring.common.platform.DataScopeCriteriaResult;
 import net.ximatai.muyun.spring.common.platform.DataScopeCriteriaService;
 import net.ximatai.muyun.spring.common.platform.EntityCapability;
 import net.ximatai.muyun.spring.common.platform.PlatformAction;
-import net.ximatai.muyun.spring.common.platform.PlatformActionLevel;
 import net.ximatai.muyun.spring.common.tenant.TenantContext;
-import net.ximatai.muyun.spring.common.web.RequestTraceContext;
 import net.ximatai.muyun.spring.dynamic.descriptor.DynamicActionDescriptor;
 import net.ximatai.muyun.spring.dynamic.descriptor.DynamicAssociationRelationOverview;
 import net.ximatai.muyun.spring.dynamic.descriptor.DynamicAssociationViewDescriptor;
@@ -43,7 +32,6 @@ import net.ximatai.muyun.spring.dynamic.descriptor.DynamicModuleDescriptor;
 import net.ximatai.muyun.spring.dynamic.descriptor.DynamicReferenceDescriptor;
 import net.ximatai.muyun.spring.dynamic.descriptor.DynamicRelationDescriptor;
 import net.ximatai.muyun.spring.dynamic.descriptor.DynamicViewDescriptor;
-import net.ximatai.muyun.spring.dynamic.metadata.EntityActionExecutorType;
 import net.ximatai.muyun.spring.dynamic.metadata.EntityViewType;
 import net.ximatai.muyun.spring.dynamic.metadata.ModuleDefinition;
 import net.ximatai.muyun.spring.dynamic.metadata.ModuleDefinitionException;
@@ -53,23 +41,18 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
 import java.util.Collection;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
-import java.util.UUID;
 import java.util.function.Function;
-import java.util.function.Supplier;
 import java.util.Optional;
 
 public class DynamicRecordService {
     private static final DynamicOpenApiGenerator OPEN_API_GENERATOR = new DynamicOpenApiGenerator();
 
     private final DynamicRecordRuntime runtime;
-    private final DynamicRecordEventPublisher eventPublisher;
-    private final ActionExecutionPolicyService actionExecutionPolicyService;
-    private final DataScopeCriteriaService dataScopeCriteriaService;
+    private final DynamicRecordAccessContext access;
     private final DynamicRecordQueryRuntime queryRuntime;
     private final DynamicSchemaGovernanceFacts schemaGovernanceFacts;
     private final DynamicRecordMutationRuntime mutationRuntime;
@@ -107,23 +90,17 @@ public class DynamicRecordService {
                                 DynamicRecordMutationCoordinator mutationCoordinator,
                                 Clock mutationClock) {
         this.runtime = Objects.requireNonNull(runtime, "runtime must not be null");
-        this.eventPublisher = new DynamicRecordEventPublisher(runtime.eventPublisher());
-        this.actionExecutionPolicyService = Objects.requireNonNull(actionExecutionPolicyService,
-                "actionExecutionPolicyService must not be null");
-        this.dataScopeCriteriaService = Objects.requireNonNull(dataScopeCriteriaService,
-                "dataScopeCriteriaService must not be null");
-        this.queryRuntime = new DynamicRecordQueryRuntime(runtime, this.actionExecutionPolicyService,
-                this.dataScopeCriteriaService);
+        DynamicRecordEventPublisher eventPublisher = new DynamicRecordEventPublisher(runtime.eventPublisher());
+        this.access = new DynamicRecordAccessContext(runtime, actionExecutionPolicyService, dataScopeCriteriaService);
+        this.queryRuntime = new DynamicRecordQueryRuntime(access);
         this.schemaGovernanceFacts = new DynamicSchemaGovernanceFacts(runtime);
         DynamicRecordMutationCoordinator effectiveMutationCoordinator = mutationCoordinator == null
                 ? DynamicRecordMutationCoordinator.NONE
                 : mutationCoordinator;
         Clock effectiveMutationClock = mutationClock == null ? Clock.systemDefaultZone() : mutationClock;
-        this.mutationRuntime = new DynamicRecordMutationRuntime(runtime, eventPublisher, this.actionExecutionPolicyService,
-                this.dataScopeCriteriaService, effectiveMutationCoordinator, effectiveMutationClock);
-        this.relationRuntime = new DynamicRecordRelationRuntime(this);
-        this.actionRuntime = new DynamicRecordActionRuntime(this, runtime, eventPublisher,
-                this.actionExecutionPolicyService);
+        this.mutationRuntime = new DynamicRecordMutationRuntime(eventPublisher, access, effectiveMutationCoordinator, effectiveMutationClock);
+        this.relationRuntime = new DynamicRecordRelationRuntime(access, queryRuntime);
+        this.actionRuntime = new DynamicRecordActionRuntime(runtime, access, queryRuntime, mutationRuntime, eventPublisher);
     }
 
     public DynamicRecord newRecord(String moduleAlias, String entityAlias) {
@@ -148,7 +125,7 @@ public class DynamicRecordService {
     }
 
     public String mainEntityAlias(String moduleAlias) {
-        return runtime.registry().requireModule(moduleAlias).mainEntityAlias();
+        return access.mainEntityAlias(moduleAlias);
     }
 
     public ModuleOperations module(String moduleAlias) {
@@ -173,10 +150,7 @@ public class DynamicRecordService {
      * module segment as a dynamic module alias.
      */
     public boolean hasRegisteredDynamicEntity(String moduleAlias, String entityAlias) {
-        return runtime.registry().findModule(moduleAlias)
-                .stream()
-                .flatMap(module -> module.entities().stream())
-                .anyMatch(entity -> entity.alias().equals(entityAlias));
+        return access.hasRegisteredDynamicEntity(moduleAlias, entityAlias);
     }
 
     public DynamicEntityOperations mainEntity(String moduleAlias) {
@@ -184,7 +158,7 @@ public class DynamicRecordService {
     }
 
     public boolean formActionSupported(String moduleAlias, String actionCode) {
-        DynamicActionDescriptor action = actionDescriptor(moduleAlias, actionCode);
+        DynamicActionDescriptor action = access.actionDescriptor(moduleAlias, actionCode);
         return action != null && action.executorKey() != null
                 && runtime.actionExecutorRegistry().definition(action.executorKey()).formSupported();
     }
@@ -198,7 +172,7 @@ public class DynamicRecordService {
             return Optional.empty();
         }
         try {
-            requireCapability(target.moduleAlias(), target.entityAlias(), EntityCapability.REFERENCE);
+            access.requireCapability(target.moduleAlias(), target.entityAlias(), EntityCapability.REFERENCE);
             return Optional.of(new ReferenceAbility<DynamicTitledRecord>() {
                 @Override
                 public BaseDao<DynamicTitledRecord, String> getDao() {
@@ -248,17 +222,17 @@ public class DynamicRecordService {
     }
 
     public DynamicEntityDescriptor entityDescriptor(String moduleAlias, String entityAlias) {
-        return findEntity(describe(moduleAlias), entityAlias);
+        return access.entityDescriptor(moduleAlias, entityAlias);
     }
 
     public DynamicFormulaPreviewResult previewFormula(String moduleAlias, String entityAlias, DynamicRecord record) {
         if (record == null || record.getId() == null || record.getId().isBlank()) {
-            requireAction(moduleAlias, PlatformAction.CREATE);
+            access.requireAction(moduleAlias, PlatformAction.CREATE);
             return entityService(moduleAlias, entityAlias).previewFormula(record);
         }
-        DataScopeCriteriaResult scope = requireBusinessRecordMutation(moduleAlias, entityAlias,
+        DataScopeCriteriaResult scope = access.requireBusinessRecordMutation(moduleAlias, entityAlias,
                 PlatformAction.UPDATE, normalizeRecordId(record.getId()));
-        return withTenantScope(scope, () -> entityService(moduleAlias, entityAlias).previewFormula(record));
+        return access.withTenantScope(scope, () -> entityService(moduleAlias, entityAlias).previewFormula(record));
     }
 
     public List<DynamicActionDescriptor> actions(String moduleAlias) {
@@ -266,23 +240,11 @@ public class DynamicRecordService {
     }
 
     public DynamicActionDescriptor action(String moduleAlias, String actionCode) {
-        return findAction(describe(moduleAlias), actionCode);
+        return access.actionDescriptor(moduleAlias, actionCode);
     }
 
     public String actionEntityAlias(String moduleAlias, String actionCode) {
-        DynamicModuleDescriptor descriptor = describe(moduleAlias);
-        findAction(descriptor, actionCode);
-        DynamicEntityDescriptor mainEntity = findEntity(descriptor, descriptor.mainEntityAlias());
-        if (hasAction(mainEntity, actionCode)) {
-            return mainEntity.entityAlias();
-        }
-        return descriptor.entities().stream()
-                .filter(entity -> !entity.entityAlias().equals(descriptor.mainEntityAlias()))
-                .filter(entity -> entity.actions().stream().anyMatch(action -> action.code().equals(actionCode)))
-                .map(DynamicEntityDescriptor::entityAlias)
-                .findFirst()
-                .orElseThrow(() -> new ModuleDefinitionException("unknown dynamic action entity: "
-                        + moduleAlias + "." + actionCode));
+        return access.actionEntityAlias(moduleAlias, actionCode);
     }
 
     public DynamicActionAvailability actionAvailability(String moduleAlias, String actionCode, DynamicRecord record) {
@@ -324,7 +286,7 @@ public class DynamicRecordService {
     }
 
     public DynamicActionDescriptor action(String moduleAlias, String entityAlias, String actionCode) {
-        return findAction(moduleAlias, entityDescriptor(moduleAlias, entityAlias), actionCode);
+        return access.entityActionDescriptor(moduleAlias, entityAlias, actionCode);
     }
 
     public DynamicActionAvailability actionAvailability(String moduleAlias,
@@ -429,26 +391,17 @@ public class DynamicRecordService {
         return mutationRuntime.create(moduleAlias, entityAlias, record, RuntimeMutationSource.ACTION, traceId, Map.of());
     }
 
-
     public DynamicRecord select(String moduleAlias, String entityAlias, String id) {
-        Criteria base = Criteria.of().eq("id", id);
-        DataScopeCriteriaResult scope = readScope(moduleAlias, PlatformAction.VIEW.code(), base);
-        return withTenantScope(scope, () -> {
-            if (!scope.restricted()) {
-                return entityService(moduleAlias, entityAlias).select(id);
-            }
-            boolean visible = !entityService(moduleAlias, entityAlias).list(scope.criteria(), new PageRequest(0, 1)).isEmpty();
-            return visible ? entityService(moduleAlias, entityAlias).select(id) : null;
-        });
+        return queryRuntime.select(moduleAlias, entityAlias, id);
     }
 
     RecordPermissionAccess<DynamicRecord> readForPermissionAction(String moduleAlias, String entityAlias, String id) {
         if (id == null || id.isBlank()) {
             return new RecordPermissionAccess<>(null, false);
         }
-        DataScopeCriteriaResult scope = readScope(moduleAlias, PlatformAction.MANAGE_PERMISSIONS,
+        DataScopeCriteriaResult scope = access.readScope(moduleAlias, PlatformAction.MANAGE_PERMISSIONS,
                 Criteria.of().eq("id", id));
-        DynamicRecord record = withTenantScope(scope, () -> {
+        DynamicRecord record = access.withTenantScope(scope, () -> {
             boolean visible = !entityService(moduleAlias, entityAlias)
                     .list(scope.criteria(), new PageRequest(0, 1)).isEmpty();
             return visible ? entityService(moduleAlias, entityAlias).select(id) : null;
@@ -461,20 +414,37 @@ public class DynamicRecordService {
      * scope.  It is the dynamic counterpart of the shared {@code ChildRelation} read path used
      * by static modules; web delivery decides which child fields are exposed.
      */
-    @SuppressWarnings({"rawtypes", "unchecked"})
     public List<DynamicRecord> aggregateChildrenForView(String moduleAlias, String parentId,
                                                         String relationCode) {
-        String mainEntityAlias = mainEntityAlias(moduleAlias);
-        DynamicRecord parent = select(moduleAlias, mainEntityAlias, parentId);
-        if (parent == null) {
-            throw new IllegalArgumentException("aggregate relation expansion parent is not visible: " + parentId);
-        }
-        ChildRelation relation = requireAggregateChildRelation(moduleAlias, relationCode);
-        if (!(relation.childAbility() instanceof DynamicEntityService childService)) {
-            throw new IllegalStateException("dynamic aggregate child relation must use a dynamic child service: "
-                    + relationCode);
-        }
-        return childService.enrichAggregateViewChildren((List<DynamicRecord>) relation.selectChildren(parent.getId()));
+        return aggregateChildrenForRead(moduleAlias, parentId, relationCode, false);
+    }
+
+    public List<DynamicRecord> aggregateChildrenForRecycleBin(String moduleAlias, String parentId,
+                                                              String relationCode) {
+        access.requireCapability(moduleAlias, mainEntityAlias(moduleAlias), EntityCapability.RECYCLE_BIN);
+        return aggregateChildrenForRead(moduleAlias, parentId, relationCode, true);
+    }
+
+    @SuppressWarnings({"rawtypes", "unchecked"})
+    private List<DynamicRecord> aggregateChildrenForRead(String moduleAlias, String parentId,
+                                                         String relationCode, boolean retained) {
+        String parentAlias = mainEntityAlias(moduleAlias);
+        DataScopeCriteriaResult scope = access.readScope(moduleAlias,
+                retained ? PlatformAction.RECYCLE_BIN_QUERY : PlatformAction.VIEW, Criteria.of().eq("id", parentId));
+        return access.withTenantScope(scope, () -> {
+            DynamicEntityService parentService = entityService(moduleAlias, parentAlias);
+            Criteria criteria = retained ? parentService.recycleBinReadCriteria(scope.criteria())
+                    : parentService.activeCriteria(scope.criteria());
+            if (parentService.getDao().query(criteria, PageRequest.of(1, 1)).isEmpty()) {
+                throw new IllegalArgumentException("aggregate relation expansion parent is not visible: " + parentId);
+            }
+            ChildRelation relation = requireAggregateChildRelation(moduleAlias, relationCode);
+            if (!(relation.childAbility() instanceof DynamicEntityService childService)) {
+                throw new IllegalStateException("dynamic aggregate child relation must use a dynamic child service: " + relationCode);
+            }
+            return childService.enrichAggregateViewChildren((List<DynamicRecord>) (retained
+                    ? relation.selectDeletedChildren(parentId) : relation.selectChildren(parentId)));
+        });
     }
 
     /**
@@ -486,10 +456,10 @@ public class DynamicRecordService {
     public List<DynamicRecord> aggregateChildrenForUpdate(String moduleAlias, String parentId,
                                                           String relationCode) {
         String mainEntityAlias = mainEntityAlias(moduleAlias);
-        DataScopeCriteriaResult scope = requireBusinessRecordMutation(moduleAlias, mainEntityAlias,
+        DataScopeCriteriaResult scope = access.requireBusinessRecordMutation(moduleAlias, mainEntityAlias,
                 PlatformAction.UPDATE, Set.of(parentId));
         ChildRelation relation = requireAggregateChildRelation(moduleAlias, relationCode);
-        return withTenantScope(scope, () -> (List<DynamicRecord>) relation.selectChildren(parentId));
+        return access.withTenantScope(scope, () -> (List<DynamicRecord>) relation.selectChildren(parentId));
     }
 
     /** Presentation companions (for example, reference titles) travel with an aggregate expansion column. */
@@ -519,84 +489,16 @@ public class DynamicRecordService {
         return entityService(moduleAlias, entityAlias).select(id);
     }
 
+    void requireAction(String moduleAlias, PlatformAction action) {
+        access.requireAction(moduleAlias, action);
+    }
+
     public DataScopeCriteriaResult requireRecordActionScope(String moduleAlias,
                                                             String entityAlias,
                                                             ActionExecutionPolicy policy,
                                                             Collection<String> recordIds,
                                                             Optional<CurrentUser> currentUser) {
-        Set<String> normalized = normalizeRecordIds(recordIds);
-        actionExecutionPolicyService.requireRecordAction(ActionExecutionContext.ofPolicy(
-                moduleAlias,
-                policy,
-                normalized,
-                currentUser
-        ));
-        return requireActionRecordDataScope(moduleAlias, entityAlias, policy, normalized);
-    }
-
-    // Package-private action-runtime support. These preserve one data-scope/tenant implementation while
-    // keeping action orchestration out of this facade.
-    DynamicActionDescriptor actionDescriptor(String moduleAlias, String actionCode) {
-        return findAction(describe(moduleAlias), actionCode);
-    }
-
-    DynamicActionDescriptor entityActionDescriptor(String moduleAlias, String entityAlias, String actionCode) {
-        return findAction(moduleAlias, entityDescriptor(moduleAlias, entityAlias), actionCode);
-    }
-
-    Set<String> normalizeActionRecordIds(Collection<String> recordIds) {
-        return normalizeRecordIds(recordIds);
-    }
-
-    Criteria actionIdsCriteria(Collection<String> recordIds) {
-        return idsCriteria(recordIds);
-    }
-
-    boolean supportsActionCapability(String moduleAlias, String entityAlias, EntityCapability capability) {
-        return supportsCapability(moduleAlias, entityAlias, capability);
-    }
-
-    DataScopeCriteriaResult actionCriteriaScope(String moduleAlias,
-                                                String entityAlias,
-                                                ActionExecutionPolicy policy,
-                                                Criteria criteria,
-                                                Collection<String> recordIds) {
-        if (!supportsCapability(moduleAlias, entityAlias, EntityCapability.DATA_SCOPE)
-                || !policy.requiresDataScope()
-                || (criteria == null && !normalizeRecordIds(recordIds).isEmpty())) {
-            return null;
-        }
-        return readScope(moduleAlias, policy, actionExecutionCriteria(criteria, recordIds));
-    }
-
-    DataScopeCriteriaResult actionRecordDataScope(String moduleAlias,
-                                                  String entityAlias,
-                                                  ActionExecutionPolicy policy,
-                                                  Collection<String> recordIds) {
-        return requireActionRecordDataScope(moduleAlias, entityAlias, policy, recordIds);
-    }
-
-    <R> R withActionScope(DataScopeCriteriaResult scope, Supplier<R> supplier) {
-        return withTenantScope(scope, supplier);
-    }
-
-    Set<String> visibleActionRecordIds(String moduleAlias,
-                                       String entityAlias,
-                                       ActionExecutionPolicy policy,
-                                       Set<String> recordIds) {
-        return visibleActionRecordIdsInternal(moduleAlias, entityAlias, policy, recordIds);
-    }
-
-    ActionExecutionPolicy actionPolicy(DynamicActionDescriptor action) {
-        return new ActionExecutionPolicy(
-                action.code(),
-                toPlatformLevel(action.actionLevel()),
-                toAccessMode(action.accessMode()),
-                action.actionAuth(),
-                action.dataAuth(),
-                action.defaultGrantPolicy(),
-                action.authInheritActionCode()
-        );
+        return access.requireRecordActionScope(moduleAlias, entityAlias, policy, recordIds, currentUser);
     }
 
     @Transactional
@@ -675,7 +577,6 @@ public class DynamicRecordService {
         return record == null ? Map.of() : record.mutationMetadata();
     }
 
-
     @Transactional
     public int delete(String moduleAlias, String entityAlias, String id) {
         return mutationRuntime.delete(moduleAlias, entityAlias, id, null, RuntimeMutationSource.BUSINESS, null);
@@ -749,30 +650,38 @@ public class DynamicRecordService {
                                                       Criteria criteria,
                                                       PageRequest pageRequest,
                                                       Sort... sorts) {
-        requireCapability(moduleAlias, entityAlias, EntityCapability.RECYCLE_BIN);
-        DataScopeCriteriaResult scope = readScope(moduleAlias, PlatformAction.RECYCLE_BIN_QUERY, criteria);
-        Criteria retained = retainedCriteria(scope.criteria());
-        return withTenantScope(scope, () -> entityService(moduleAlias, entityAlias).getDao()
-                .pageQuery(retained, pageRequest == null ? PageRequest.of(1, 20) : pageRequest, sorts));
+        access.requireCapability(moduleAlias, entityAlias, EntityCapability.RECYCLE_BIN);
+        DataScopeCriteriaResult scope = access.readScope(moduleAlias, PlatformAction.RECYCLE_BIN_QUERY, criteria);
+        return access.withTenantScope(scope, () -> entityService(moduleAlias, entityAlias)
+                .pageRecycleBin(scope.criteria(), pageRequest, sorts));
     }
 
     /** Restore and purge validate the retained root through the same action data-range before coordinators mutate it. */
     boolean canAccessRecycleBinSourceForAction(String moduleAlias, String entityAlias, String id) {
-        requireCapability(moduleAlias, entityAlias, EntityCapability.RECYCLE_BIN);
+        access.requireCapability(moduleAlias, entityAlias, EntityCapability.RECYCLE_BIN);
         if (id == null || id.isBlank()) return false;
-        DataScopeCriteriaResult scope = readScope(moduleAlias, PlatformAction.RECYCLE_BIN_QUERY,
+        DataScopeCriteriaResult scope = access.readScope(moduleAlias, PlatformAction.RECYCLE_BIN_QUERY,
                 Criteria.of().eq("id", id));
-        return withTenantScope(scope, () -> !entityService(moduleAlias, entityAlias).getDao()
-                .query(scope.criteria(), PageRequest.of(1, 1)).isEmpty());
+        return access.withTenantScope(scope, () -> !entityService(moduleAlias, entityAlias).getDao()
+                .query(entityService(moduleAlias, entityAlias).tenantCriteria(scope.criteria()), PageRequest.of(1, 1)).isEmpty());
     }
 
     boolean canAccessRecycleBinRecordForAction(String moduleAlias, String entityAlias, String id) {
-        requireCapability(moduleAlias, entityAlias, EntityCapability.RECYCLE_BIN);
+        access.requireCapability(moduleAlias, entityAlias, EntityCapability.RECYCLE_BIN);
         if (id == null || id.isBlank()) return false;
-        DataScopeCriteriaResult scope = readScope(moduleAlias, PlatformAction.RECYCLE_BIN_QUERY,
+        DataScopeCriteriaResult scope = access.readScope(moduleAlias, PlatformAction.RECYCLE_BIN_QUERY,
                 Criteria.of().eq("id", id));
-        return withTenantScope(scope, () -> !entityService(moduleAlias, entityAlias).getDao()
-                .query(retainedCriteria(scope.criteria()), PageRequest.of(1, 1)).isEmpty());
+        return access.withTenantScope(scope, () -> !entityService(moduleAlias, entityAlias).getDao()
+                .query(entityService(moduleAlias, entityAlias).tenantCriteria(retainedCriteria(scope.criteria())), PageRequest.of(1, 1)).isEmpty());
+    }
+
+    /** SQL projections retain the recycle-bin capability, data-range and tenant boundaries. */
+    public <R> R withRecycleBinReadScope(String moduleAlias, Criteria criteria, Function<Criteria, R> reader) {
+        String entityAlias = runtime.describe(moduleAlias).mainEntityAlias();
+        access.requireCapability(moduleAlias, entityAlias, EntityCapability.RECYCLE_BIN);
+        DataScopeCriteriaResult scope = access.readScope(moduleAlias, PlatformAction.RECYCLE_BIN_QUERY, criteria);
+        return access.withTenantScope(scope, () -> reader.apply(entityService(moduleAlias, entityAlias)
+                .recycleBinReadCriteria(scope.criteria())));
     }
 
     public <R> R withQueryReadScope(String moduleAlias, Criteria criteria, Function<Criteria, R> action) {
@@ -867,35 +776,34 @@ public class DynamicRecordService {
     }
 
     public List<String> ancestorIds(String moduleAlias, String entityAlias, String id) {
-        requireCapability(moduleAlias, entityAlias, EntityCapability.TREE);
-        DataScopeCriteriaResult scope = readScope(moduleAlias, PlatformAction.TREE, Criteria.of().eq("id", id));
-        if (!recordVisible(moduleAlias, entityAlias, scope, id)) {
+        access.requireCapability(moduleAlias, entityAlias, EntityCapability.TREE);
+        DataScopeCriteriaResult scope = access.readScope(moduleAlias, PlatformAction.TREE, Criteria.of().eq("id", id));
+        if (!access.recordVisible(moduleAlias, entityAlias, scope, id)) {
             return List.of();
         }
-        List<String> ids = withTenantScope(scope, () -> entityService(moduleAlias, entityAlias).ancestorIds(id));
+        List<String> ids = access.withTenantScope(scope, () -> entityService(moduleAlias, entityAlias).ancestorIds(id));
         return visibleTreeIds(moduleAlias, entityAlias, ids);
     }
 
     public List<String> ancestorIdsAndSelf(String moduleAlias, String entityAlias, String id) {
-        requireCapability(moduleAlias, entityAlias, EntityCapability.TREE);
-        DataScopeCriteriaResult scope = readScope(moduleAlias, PlatformAction.TREE, Criteria.of().eq("id", id));
-        if (!recordVisible(moduleAlias, entityAlias, scope, id)) {
+        access.requireCapability(moduleAlias, entityAlias, EntityCapability.TREE);
+        DataScopeCriteriaResult scope = access.readScope(moduleAlias, PlatformAction.TREE, Criteria.of().eq("id", id));
+        if (!access.recordVisible(moduleAlias, entityAlias, scope, id)) {
             return List.of();
         }
-        List<String> ids = withTenantScope(scope, () -> entityService(moduleAlias, entityAlias).ancestorIdsAndSelf(id));
+        List<String> ids = access.withTenantScope(scope, () -> entityService(moduleAlias, entityAlias).ancestorIdsAndSelf(id));
         return visibleTreeIds(moduleAlias, entityAlias, ids);
     }
 
     public List<String> descendantIds(String moduleAlias, String entityAlias, String id) {
-        requireCapability(moduleAlias, entityAlias, EntityCapability.TREE);
-        DataScopeCriteriaResult scope = readScope(moduleAlias, PlatformAction.TREE, Criteria.of().eq("id", id));
-        if (!recordVisible(moduleAlias, entityAlias, scope, id)) {
+        access.requireCapability(moduleAlias, entityAlias, EntityCapability.TREE);
+        DataScopeCriteriaResult scope = access.readScope(moduleAlias, PlatformAction.TREE, Criteria.of().eq("id", id));
+        if (!access.recordVisible(moduleAlias, entityAlias, scope, id)) {
             return List.of();
         }
-        List<String> ids = withTenantScope(scope, () -> entityService(moduleAlias, entityAlias).descendantIds(id));
+        List<String> ids = access.withTenantScope(scope, () -> entityService(moduleAlias, entityAlias).descendantIds(id));
         return visibleTreeIds(moduleAlias, entityAlias, ids);
     }
-
 
     public int enable(String moduleAlias, String entityAlias, String id) {
         return mutationRuntime.enable(moduleAlias, entityAlias, id, null, RuntimeMutationSource.BUSINESS, null);
@@ -924,12 +832,12 @@ public class DynamicRecordService {
     }
 
     public boolean isEnabled(String moduleAlias, String entityAlias, String id) {
-        requireCapability(moduleAlias, entityAlias, EntityCapability.ENABLE);
-        DataScopeCriteriaResult scope = readScope(moduleAlias, PlatformAction.VIEW, Criteria.of().eq("id", id));
-        if (!recordVisible(moduleAlias, entityAlias, scope, id)) {
+        access.requireCapability(moduleAlias, entityAlias, EntityCapability.ENABLE);
+        DataScopeCriteriaResult scope = access.readScope(moduleAlias, PlatformAction.VIEW, Criteria.of().eq("id", id));
+        if (!access.recordVisible(moduleAlias, entityAlias, scope, id)) {
             return false;
         }
-        return withTenantScope(scope, () -> entityService(moduleAlias, entityAlias).isEnabled(id));
+        return access.withTenantScope(scope, () -> entityService(moduleAlias, entityAlias).isEnabled(id));
     }
 
     public Criteria enabledCriteria(String moduleAlias, String entityAlias, Criteria criteria) {
@@ -967,10 +875,6 @@ public class DynamicRecordService {
         return relationRuntime.referenceOptions(moduleAlias, entityAlias, plan, criteria, pageRequest);
     }
 
-    DataScopeCriteriaResult readScope(String moduleAlias, PlatformAction action, Criteria criteria) {
-        return readScope(moduleAlias, action.executionPolicy(), criteria);
-    }
-
     private Criteria retainedCriteria(Criteria criteria) {
         Criteria result = Criteria.of();
         if (criteria != null && !criteria.isEmpty()) {
@@ -979,207 +883,13 @@ public class DynamicRecordService {
         return result.eq(net.ximatai.muyun.spring.common.schema.StandardEntitySchema.DELETED_FIELD, Boolean.TRUE);
     }
 
-    private DataScopeCriteriaResult readScope(String moduleAlias, String actionCode, Criteria criteria) {
-        return readScope(moduleAlias, ActionExecutionContext.ofActionCode(
-                moduleAlias, actionCode, Set.of(), CurrentUserContext.currentUser()).actionPolicy(), criteria);
-    }
-
-    private DataScopeCriteriaResult readScope(String moduleAlias, ActionExecutionPolicy policy, Criteria criteria) {
-        return dataScopeCriteriaService.resolveReadScope(moduleAlias, policy,
-                criteria == null ? Criteria.of() : criteria,
-                CurrentUserContext.currentUser());
-    }
-
-    Criteria idsCriteria(Collection<String> ids) {
-        Set<String> normalized = normalizeRecordIds(ids);
-        if (normalized.isEmpty()) {
-            return Criteria.of().raw(net.ximatai.muyun.database.core.orm.SqlRawCondition.of("1 = 0", Map.of()));
-        }
-        return normalized.size() == 1
-                ? Criteria.of().eq("id", normalized.iterator().next())
-                : Criteria.of().in("id", List.copyOf(normalized));
-    }
-
-    boolean recordVisible(String moduleAlias, String entityAlias, DataScopeCriteriaResult scope, String id) {
-        if (id == null || id.isBlank()) {
-            return false;
-        }
-        return !withTenantScope(scope, () -> entityService(moduleAlias, entityAlias)
-                .list(scope.criteria(), new PageRequest(0, 1))).isEmpty();
-    }
-
-    Set<String> visibleRecordIds(String moduleAlias,
-                                         String entityAlias,
-                                         DataScopeCriteriaResult scope,
-                                         Collection<String> ids) {
-        Set<String> normalized = normalizeRecordIds(ids);
-        if (normalized.isEmpty()) {
-            return Set.of();
-        }
-        Set<String> loaded = withTenantScope(scope, () -> entityService(moduleAlias, entityAlias)
-                .list(scope.criteria(), new PageRequest(0, normalized.size()))
-                .stream()
-                .map(DynamicRecord::getId)
-                .filter(normalized::contains)
-                .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new)));
-        LinkedHashSet<String> ordered = new LinkedHashSet<>();
-        normalized.stream()
-                .filter(loaded::contains)
-                .forEach(ordered::add);
-        return ordered;
-    }
-
-    <R> R withTenantScope(DataScopeCriteriaResult scope, Supplier<R> supplier) {
-        if (scope.crossTenant()) {
-            try (TenantContext.Scope ignored = TenantContext.bypassTenantFilter("data scope allows cross-tenant read")) {
-                return supplier.get();
-            }
-        }
-        return supplier.get();
-    }
-
     private List<String> visibleTreeIds(String moduleAlias, String entityAlias, Collection<String> ids) {
-        DataScopeCriteriaResult scope = readScope(moduleAlias, PlatformAction.TREE, idsCriteria(ids));
-        return List.copyOf(visibleRecordIds(moduleAlias, entityAlias, scope, ids));
-    }
-
-
-    private DataScopeCriteriaResult requireBusinessRecordMutation(String moduleAlias,
-                                                                  String entityAlias,
-                                                                  PlatformAction action,
-                                                                  Set<String> recordIds) {
-        requireRecordAction(moduleAlias, action, recordIds);
-        return requireRecordDataScope(moduleAlias, entityAlias, action, recordIds);
-    }
-
-    private void requireRecordAction(String moduleAlias, PlatformAction action, Set<String> recordIds) {
-        actionExecutionPolicyService.requireRecordAction(ActionExecutionContext.ofPlatformAction(
-                moduleAlias,
-                action,
-                recordIds,
-                CurrentUserContext.currentUser()
-        ));
-    }
-
-    void requireAction(String moduleAlias, PlatformAction action) {
-        if (action == null) {
-            throw new IllegalArgumentException("action must not be null");
-        }
-        actionExecutionPolicyService.requireAuthorized(ActionExecutionContext.ofPlatformAction(
-                moduleAlias,
-                action,
-                Set.of(),
-                CurrentUserContext.currentUser()
-        ));
-    }
-
-    private DataScopeCriteriaResult requireRecordDataScope(String moduleAlias,
-                                                           String entityAlias,
-                                                           PlatformAction action,
-                                                           Set<String> recordIds) {
-        if (!supportsCapability(moduleAlias, entityAlias, EntityCapability.DATA_SCOPE)) {
-            return DataScopeCriteriaResult.unrestricted(Criteria.of());
-        }
-        Set<String> normalized = normalizeRecordIds(recordIds);
-        if (normalized.isEmpty()) {
-            throw new IllegalArgumentException("record action requires record ids: " + moduleAlias + "." + action.code());
-        }
-        ActionExecutionContext context = ActionExecutionContext.ofPlatformAction(
-                moduleAlias,
-                action,
-                normalized,
-                CurrentUserContext.currentUser()
-        );
-        if (!context.actionPolicy().requiresDataScope()) {
-            return DataScopeCriteriaResult.unrestricted(Criteria.of());
-        }
-        return requireActionRecordDataScope(moduleAlias, entityAlias, context.actionPolicy(), normalized);
-    }
-
-    private DataScopeCriteriaResult requireActionRecordDataScope(String moduleAlias,
-                                                                 String entityAlias,
-                                                                 ActionExecutionPolicy policy,
-                                                                 Collection<String> recordIds) {
-        if (!supportsCapability(moduleAlias, entityAlias, EntityCapability.DATA_SCOPE)) {
-            return DataScopeCriteriaResult.unrestricted(Criteria.of());
-        }
-        Set<String> normalized = normalizeRecordIds(recordIds);
-        if (!policy.requiresDataScope() || normalized.isEmpty()) {
-            return DataScopeCriteriaResult.unrestricted(Criteria.of());
-        }
-        Criteria idCriteria = normalized.size() == 1
-                ? Criteria.of().eq("id", normalized.iterator().next())
-                : Criteria.of().in("id", List.copyOf(normalized));
-        DataScopeCriteriaResult scope = readScope(moduleAlias, policy, idCriteria);
-        long visible = withTenantScope(scope, () -> entityService(moduleAlias, entityAlias)
-                .list(scope.criteria(), new PageRequest(0, normalized.size()))
-                .stream()
-                .map(DynamicRecord::getId)
-                .filter(normalized::contains)
-                .distinct()
-                .count());
-        if (visible != normalized.size()) {
-            throw new PlatformAccessDeniedException("record data permission denied: " + moduleAlias + "." + policy.actionCode(),
-                    ErrorScope.module(moduleAlias).action(policy.actionCode()));
-        }
-        return scope;
-    }
-
-    private String actionAuthorizationFailure(String moduleAlias, ActionExecutionPolicy policy) {
-        try {
-            actionExecutionPolicyService.authorizeAction(moduleAlias, policy, CurrentUserContext.currentUser());
-            return null;
-        } catch (PlatformException exception) {
-            return exception.getMessage() == null || exception.getMessage().isBlank()
-                    ? "no action auth"
-                    : exception.getMessage();
-        }
-    }
-
-    private Set<String> visibleActionRecordIdsInternal(String moduleAlias,
-                                                       String entityAlias,
-                                                       ActionExecutionPolicy policy,
-                                                       Set<String> recordIds) {
-        if (!policy.requiresDataScope() || !supportsCapability(moduleAlias, entityAlias, EntityCapability.DATA_SCOPE)) {
-            return recordIds;
-        }
-        try {
-            DataScopeCriteriaResult scope = readScope(moduleAlias, policy, idsCriteria(recordIds));
-            return visibleRecordIds(moduleAlias, entityAlias, scope, recordIds);
-        } catch (PlatformException | IllegalArgumentException ignored) {
-            return Set.of();
-        }
-    }
-
-    private DynamicActionAvailability actionAuthorizationAvailability(String moduleAlias,
-                                                                      String entityAlias,
-                                                                      DynamicActionDescriptor action,
-                                                                      Collection<String> recordIds) {
-        ActionExecutionPolicy policy = actionPolicy(action);
-        Set<String> normalizedIds = normalizeRecordIds(recordIds);
-        try {
-            actionExecutionPolicyService.authorizeAction(moduleAlias, policy, CurrentUserContext.currentUser());
-            requireActionRecordDataScope(moduleAlias, entityAlias, policy, normalizedIds);
-            return DynamicActionAvailability.available(action.code());
-        } catch (PlatformException e) {
-            return DynamicActionAvailability.unavailable(action.code(), e.getMessage());
-        }
-    }
-
-    private Set<String> normalizeRecordIds(Collection<String> ids) {
-        if (ids == null || ids.isEmpty()) {
-            return Set.of();
-        }
-        LinkedHashSet<String> normalized = new LinkedHashSet<>();
-        ids.stream()
-                .filter(id -> id != null && !id.isBlank())
-                .map(String::trim)
-                .forEach(normalized::add);
-        return java.util.Collections.unmodifiableSet(normalized);
+        DataScopeCriteriaResult scope = access.readScope(moduleAlias, PlatformAction.TREE, access.idsCriteria(ids));
+        return List.copyOf(access.visibleRecordIds(moduleAlias, entityAlias, scope, ids));
     }
 
     private Set<String> normalizeRecordId(String id) {
-        return normalizeRecordIds(id == null ? null : java.util.Collections.singletonList(id));
+        return access.normalizeRecordIds(id == null ? null : java.util.Collections.singletonList(id));
     }
 
     public DynamicReferenceResolveResponse resolveReference(String moduleAlias,
@@ -1196,104 +906,8 @@ public class DynamicRecordService {
         return resolveReference(moduleAlias, entityAlias, fieldName, request);
     }
 
-    private Criteria actionExecutionCriteria(Criteria criteria, Collection<String> recordIds) {
-        Criteria scoped = Criteria.of();
-        if (criteria != null && !criteria.isEmpty()) {
-            scoped.andGroup(criteria.getRoot());
-        }
-        Set<String> normalized = normalizeRecordIds(recordIds);
-        if (normalized.isEmpty()) {
-            return scoped;
-        }
-        if (normalized.size() == 1) {
-            return scoped.eq("id", normalized.iterator().next());
-        }
-        return scoped.in("id", List.copyOf(normalized));
-    }
-
-    private PlatformActionLevel toPlatformLevel(net.ximatai.muyun.spring.dynamic.metadata.EntityActionLevel level) {
-        if (level == null) {
-            return PlatformActionLevel.DEFAULT;
-        }
-        return switch (level) {
-            case LIST -> PlatformActionLevel.LIST;
-            case RECORD -> PlatformActionLevel.RECORD;
-            case BATCH -> PlatformActionLevel.BATCH;
-            case ANY -> PlatformActionLevel.ANY;
-        };
-    }
-
-    private ActionAccessMode toAccessMode(net.ximatai.muyun.spring.dynamic.metadata.EntityActionAccessMode accessMode) {
-        if (accessMode == null) {
-            return ActionAccessMode.AUTH_REQUIRED;
-        }
-        return switch (accessMode) {
-            case AUTH_REQUIRED -> ActionAccessMode.AUTH_REQUIRED;
-            case LOGIN_REQUIRED -> ActionAccessMode.LOGIN_REQUIRED;
-            case ANONYMOUS_ALLOWED -> ActionAccessMode.ANONYMOUS_ALLOWED;
-        };
-    }
-
     DynamicEntityService entityService(String moduleAlias, String entityAlias) {
-        return runtime.entityService(moduleAlias, entityAlias);
-    }
-
-    private boolean supportsCapability(String moduleAlias, String entityAlias, EntityCapability capability) {
-        return findEntity(describe(moduleAlias), entityAlias).capabilities().contains(capability.name());
-    }
-
-    void requireCapability(String moduleAlias, String entityAlias, EntityCapability capability) {
-        if (!supportsCapability(moduleAlias, entityAlias, capability)) {
-            throw new PlatformException("dynamic entity does not support capability: " + capability);
-        }
-    }
-
-    private DynamicRecordEventPublisher.DynamicRecordEventContext eventContext(String moduleAlias,
-                                                                               String entityAlias,
-                                                                               RuntimeMutationSource mutationSource,
-                                                                               String traceId) {
-        DynamicMutationContext mutationContext = DynamicMutationContext.current().orElse(null);
-        boolean writeBack = mutationSource == RuntimeMutationSource.WRITE_BACK && mutationContext != null;
-        return new DynamicRecordEventPublisher.DynamicRecordEventContext(
-                moduleAlias,
-                entityAlias,
-                writeBack ? mutationContext.traceId() : traceId,
-                TenantContext.currentTenantId().orElse(null),
-                TenantContext.isSystem(),
-                TenantContext.systemReason().orElse(null),
-                mutationSource,
-                writeBack ? mutationContext.depth() : 0,
-                writeBack ? mutationContext.parentExecutionId() : null,
-                !writeBack || mutationContext.cascadeAllowed()
-        );
-    }
-
-    private DynamicEntityDescriptor findEntity(DynamicModuleDescriptor descriptor, String entityAlias) {
-        return descriptor.entities().stream()
-                .filter(entity -> entity.entityAlias().equals(entityAlias))
-                .findFirst()
-                .orElseThrow(() -> new ModuleDefinitionException("unknown dynamic entity: "
-                        + descriptor.moduleAlias() + "." + entityAlias));
-    }
-
-    private DynamicActionDescriptor findAction(DynamicModuleDescriptor module, String actionCode) {
-        return module.actions().stream()
-                .filter(action -> action.code().equals(actionCode))
-                .findFirst()
-                .orElseThrow(() -> new ModuleDefinitionException("unknown dynamic action: "
-                        + module.moduleAlias() + "." + actionCode));
-    }
-
-    private boolean hasAction(DynamicEntityDescriptor entity, String actionCode) {
-        return entity.actions().stream().anyMatch(action -> action.code().equals(actionCode));
-    }
-
-    private DynamicActionDescriptor findAction(String moduleAlias, DynamicEntityDescriptor entity, String actionCode) {
-        return entity.actions().stream()
-                .filter(action -> action.code().equals(actionCode))
-                .findFirst()
-                .orElseThrow(() -> new ModuleDefinitionException("unknown dynamic action: "
-                        + moduleAlias + "." + entity.entityAlias() + "." + actionCode));
+        return access.entityService(moduleAlias, entityAlias);
     }
 
     private DynamicViewDescriptor findView(String moduleAlias, DynamicEntityDescriptor entity, EntityViewType viewType) {

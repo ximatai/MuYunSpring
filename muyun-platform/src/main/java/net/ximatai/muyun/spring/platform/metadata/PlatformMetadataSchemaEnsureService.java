@@ -1,9 +1,12 @@
 package net.ximatai.muyun.spring.platform.metadata;
 
-import net.ximatai.muyun.spring.ability.TransactionScopeSupport;
 import net.ximatai.muyun.spring.dynamic.metadata.EntityDefinition;
 import net.ximatai.muyun.spring.dynamic.schema.DynamicSchemaService;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
+import java.util.LinkedHashSet;
+import java.util.Set;
 
 import java.util.Objects;
 
@@ -19,11 +22,34 @@ public class PlatformMetadataSchemaEnsureService {
     }
 
     public void ensure(String metadataId) {
-        TransactionScopeSupport.afterCommitOrNow(() -> ensureNow(metadataId));
+        if (!TransactionSynchronizationManager.isActualTransactionActive()
+                || !TransactionSynchronizationManager.isSynchronizationActive()) {
+            ensureNow(metadataId);
+            return;
+        }
+        // Inspect the current transaction's synchronizations, avoiding thread-local state that can leak into REQUIRES_NEW.
+        SchemaEnsureSynchronization pending = TransactionSynchronizationManager.getSynchronizations().stream()
+                .filter(sync -> sync instanceof SchemaEnsureSynchronization candidate && candidate.owner() == this)
+                .map(SchemaEnsureSynchronization.class::cast).findFirst().orElseGet(() -> {
+                    var created = new SchemaEnsureSynchronization();
+                    TransactionSynchronizationManager.registerSynchronization(created);
+                    return created;
+                });
+        pending.metadataIds.add(metadataId);
     }
 
     public void ensure(Metadata metadata) {
-        TransactionScopeSupport.afterCommitOrNow(() -> ensureNow(metadata));
+        if (metadata.getId() == null) ensureNow(metadata);
+        else ensure(metadata.getId());
+    }
+
+    private final class SchemaEnsureSynchronization implements TransactionSynchronization {
+        private final Set<String> metadataIds = new LinkedHashSet<>();
+        private PlatformMetadataSchemaEnsureService owner() { return PlatformMetadataSchemaEnsureService.this; }
+        @Override public void beforeCommit(boolean readOnly) {
+            // All field writes are visible; a schema failure still aborts the configuration transaction.
+            metadataIds.forEach(PlatformMetadataSchemaEnsureService.this::ensureNow);
+        }
     }
 
     public boolean ensureNow(String metadataId) {

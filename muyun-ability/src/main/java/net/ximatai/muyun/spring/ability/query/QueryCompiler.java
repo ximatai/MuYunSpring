@@ -1,5 +1,6 @@
 package net.ximatai.muyun.spring.ability.query;
 
+import net.ximatai.muyun.spring.ability.PlatformAbilityRuntime;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.Sort;
 import net.ximatai.muyun.spring.common.time.BusinessTimeContext;
@@ -17,7 +18,7 @@ public final class QueryCompiler {
     private final QueryCriteriaComposition criteriaComposition;
 
     public QueryCompiler(QueryDescriptor descriptor) {
-        this(descriptor, new PlatformTimeService(), QueryCriteriaComposition.TREE);
+        this(descriptor, PlatformAbilityRuntime.timeService(), QueryCriteriaComposition.TREE);
     }
 
     public QueryCompiler(QueryDescriptor descriptor, PlatformTimeService timeService) {
@@ -25,13 +26,13 @@ public final class QueryCompiler {
     }
 
     public QueryCompiler(QueryDescriptor descriptor, QueryCriteriaComposition criteriaComposition) {
-        this(descriptor, new PlatformTimeService(), criteriaComposition);
+        this(descriptor, PlatformAbilityRuntime.timeService(), criteriaComposition);
     }
 
     public QueryCompiler(QueryDescriptor descriptor, PlatformTimeService timeService,
                          QueryCriteriaComposition criteriaComposition) {
         this.descriptor = descriptor;
-        this.timeService = timeService == null ? new PlatformTimeService() : timeService;
+        this.timeService = java.util.Objects.requireNonNull(timeService, "timeService");
         this.criteriaComposition = criteriaComposition == null ? QueryCriteriaComposition.TREE : criteriaComposition;
     }
 

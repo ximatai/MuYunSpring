@@ -27,6 +27,8 @@ import net.ximatai.muyun.spring.common.identity.CurrentUser;
 import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.platform.application.ApplicationService;
+import net.ximatai.muyun.spring.platform.deletion.RecycleBinFacade;
+import net.ximatai.muyun.spring.platform.deletion.RestoreEntryResult;
 import net.ximatai.muyun.spring.platform.module.ModuleActionSourceType;
 import net.ximatai.muyun.spring.platform.module.PlatformModuleAction;
 import net.ximatai.muyun.spring.platform.module.PlatformModuleActionService;
@@ -113,6 +115,9 @@ public class TeachingDemoIT {
 
     @Autowired
     private ClassroomService classrooms;
+
+    @Autowired
+    private RecycleBinFacade recycleBin;
 
     @Autowired
     private RegisteredWebEndpointCatalog endpointCatalog;
@@ -540,7 +545,9 @@ public class TeachingDemoIT {
                     .containsExactlyInAnyOrder("title", "classroomId", "subjectCategoryId", "examDate");
             assertThat(metadataFields.list(Criteria.of().eq("metadataId", participant.getId())))
                     .extracting(MetadataField::getFieldName)
-                    .containsExactlyInAnyOrder("examId", "studentId", "score", "attendanceStatus");
+                    .containsExactlyInAnyOrderElementsOf(java.util.stream.Stream.concat(
+                            net.ximatai.muyun.spring.common.schema.StandardEntitySchema.fieldNames().stream(),
+                            java.util.stream.Stream.of("examId", "studentId", "score", "attendanceStatus")).toList());
             assertThat(referenceConfigs.findForRelation(classroomId.getId(), main.getId()))
                     .satisfies(config -> {
                         assertThat(config.getTargetModuleAlias()).isEqualTo(ClassroomService.MODULE_ALIAS);
@@ -1020,7 +1027,7 @@ public class TeachingDemoIT {
     }
 
     @Test
-    void shouldReplaceMemberRowsAndCascadeSoftDeleteWhenClassroomIsDeleted() {
+    void shouldReplaceMembersAndRestoreOnlyTheCurrentClassroomDeletionTree() {
         try (TenantContext.Scope ignored = TenantContext.system("school demo aggregate")) {
             String subjectId = subjects.insert(subject("mathematics-" + serial(), "数学", TreeAbility.ROOT_ID));
             String teacherId = teachers.insert(teacher("T-" + serial(), "王老师", subjectId));
@@ -1047,6 +1054,22 @@ public class TeachingDemoIT {
             assertThat(members.select(replacement.getId())).isNull();
             assertThat(members.selectIgnoreSoftDelete(first.getId())).isNotNull();
             assertThat(members.selectIgnoreSoftDelete(replacement.getId())).isNotNull();
+
+            Classroom retained = classrooms.selectIgnoreSoftDelete(classroomId);
+            var item = recycleBin.item(classrooms, retained, classroomId, retained.getDeletedAt());
+            assertThat(item.restorable()).isTrue();
+            assertThat(recycleBin.restore(classrooms, item.sourceDeleteOperationId()).entries())
+                    .extracting(RestoreEntryResult::recordId, RestoreEntryResult::status)
+                    .containsExactlyInAnyOrder(
+                            org.assertj.core.groups.Tuple.tuple(classroomId, RestoreEntryResult.Status.RESTORED),
+                            org.assertj.core.groups.Tuple.tuple(first.getId(), RestoreEntryResult.Status.RESTORED),
+                            org.assertj.core.groups.Tuple.tuple(replacement.getId(), RestoreEntryResult.Status.RESTORED));
+            assertThat(classrooms.select(classroomId).getMembers())
+                    .extracting(ClassMember::getId).containsExactlyInAnyOrder(first.getId(), replacement.getId());
+            assertThat(members.select(first.getId())).isNotNull();
+            assertThat(members.select(replacement.getId())).isNotNull();
+            assertThat(members.select(removed.getId())).isNull();
+            assertThat(members.selectIgnoreSoftDelete(removed.getId()).getDeleted()).isTrue();
         }
     }
 

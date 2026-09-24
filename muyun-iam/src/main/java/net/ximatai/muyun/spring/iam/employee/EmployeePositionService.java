@@ -50,7 +50,7 @@ public class EmployeePositionService extends TenantActiveScopedService<EmployeeP
 
     @Override
     protected void validateBeforeSave(EmployeePosition relation) {
-        if (Boolean.TRUE.equals(relation.getPrimaryPosition())) {
+        if (Boolean.TRUE.equals(relation.getPrimaryPosition()) && Boolean.TRUE.equals(relation.getEnabled())) {
             validatePrimaryPositionOwner(relation);
             rejectDuplicate(relation, Criteria.of()
                     .eq("employeeId", relation.getEmployeeId())
@@ -66,6 +66,25 @@ public class EmployeePositionService extends TenantActiveScopedService<EmployeeP
                         .eq("positionId", relation.getPositionId()),
                 () -> BusinessExceptions.warning("iam.employee-position.already-exists",
                         "该职员已存在相同任职"));
+    }
+
+    @Override
+    public void beforeUpdate(EmployeePosition relation, EmployeePosition existing) {
+        if (existing != null && !java.util.Objects.equals(existing.getEmployeeId(), relation.getEmployeeId())) {
+            throw BusinessExceptions.warning("iam.employee-position.owner-immutable", "任职不能转移至其他职员");
+        }
+        super.beforeUpdate(relation);
+    }
+
+    @Override
+    public void beforeRestore(String id) {
+        EmployeePosition retained = selectIgnoreSoftDelete(id);
+        if (retained != null && Boolean.TRUE.equals(retained.getDeleted())) validateBeforeSave(retained);
+    }
+
+    @Override
+    public Function<EmployeePosition, String> mutationParentKey() {
+        return EmployeePosition::getEmployeeId;
     }
 
     public List<EmployeePosition> positions(String employeeId) {
@@ -139,6 +158,7 @@ public class EmployeePositionService extends TenantActiveScopedService<EmployeeP
     public int makePrimaryPosition(String employeeId, String relationId) {
         requireActiveTenantMutationContext();
         String validEmployeeId = Preconditions.requireText(employeeId, "employeeId");
+        lockParentMutation(validEmployeeId);
         EmployeePosition target = requireEmployeePosition(validEmployeeId, relationId);
         validatePrimaryPositionOwner(target);
         int changed = 0;

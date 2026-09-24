@@ -1,11 +1,11 @@
 package net.ximatai.muyun.spring.platform.runtime;
 
 import net.ximatai.muyun.database.core.orm.MigrationOptions;
-import net.ximatai.muyun.spring.dynamic.metadata.ModuleDefinition;
 import net.ximatai.muyun.spring.dynamic.refresh.DynamicModuleRefreshResult;
 import net.ximatai.muyun.spring.dynamic.refresh.DynamicModuleRuntimeRefresher;
 import org.springframework.stereotype.Service;
 
+/** Internal compilation stages; callers publish through PlatformDynamicRuntimeRefreshService. */
 @Service
 public class PlatformDynamicRuntimeRefresher {
     private final PlatformModuleDefinitionCompiler compiler;
@@ -16,31 +16,22 @@ public class PlatformDynamicRuntimeRefresher {
         this.refresher = refresher;
     }
 
-    public DynamicModuleRefreshResult refresh(String moduleAlias) {
-        ModuleDefinition definition = compiler.compile(moduleAlias);
-        return refresher.refresh(definition);
+    DynamicModuleRefreshResult prepareSchema(String moduleAlias, MigrationOptions options) {
+        return refresher.prepareSchema(compiler.compile(moduleAlias), options);
     }
 
-    public DynamicModuleRefreshResult executeRefresh(String moduleAlias) {
-        return refresh(moduleAlias, MigrationOptions.execute());
-    }
-
-    public DynamicModuleRefreshResult previewRefresh(String moduleAlias) {
-        return refresh(moduleAlias, MigrationOptions.dryRun());
+    DynamicModuleRefreshResult previewRefresh(String moduleAlias) {
+        return prepareSchema(moduleAlias, MigrationOptions.dryRun());
     }
 
     /** Activates a module after its schema was ensured by an enclosing configuration release. */
-    public DynamicModuleRefreshResult activateNow(String moduleAlias) {
+    DynamicModuleRefreshResult activateNow(String moduleAlias) {
         return refresher.activateNow(compiler.compile(moduleAlias));
     }
 
     /** Removes a runtime projection whose module currently has no MAIN metadata relation. */
-    public void deactivateNow(String moduleAlias) {
+    void deactivateNow(String moduleAlias) {
         refresher.deactivateNow(moduleAlias);
     }
 
-    public DynamicModuleRefreshResult refresh(String moduleAlias, MigrationOptions options) {
-        ModuleDefinition definition = compiler.compile(moduleAlias);
-        return refresher.refresh(definition, options);
-    }
 }

@@ -11,7 +11,6 @@ import net.ximatai.muyun.spring.ability.deletion.DeletionTrigger;
 import net.ximatai.muyun.spring.common.id.Ids;
 import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
 import net.ximatai.muyun.spring.common.model.contract.EntityContract;
-import net.ximatai.muyun.spring.ability.deletion.DeletionRecoveryAbility;
 import org.springframework.stereotype.Component;
 
 import java.time.Instant;
@@ -61,9 +60,7 @@ public class DeletionLogLifecycleListener implements DeletionLifecycleListener {
             entry.setOperationId(context.operationId());
             entry.setParentEntryId(context.parentEntryId());
             entry.setResourceModuleAlias(ability.getModuleAlias());
-            if (ability instanceof DeletionRecoveryAbility<?> recoveryAbility) {
-                entry.setResourceEntityAlias(recoveryAbility.getDeletionEntityAlias());
-            }
+            entry.setResourceEntityAlias(DeletionResourceIdentity.of(ability).entityAlias());
             entry.setResourceRecordId(entity.getId());
             entry.setTriggerType(context.trigger() == DeletionTrigger.CASCADE
                     ? DeletionEntryTrigger.CASCADE : DeletionEntryTrigger.DIRECT);
@@ -81,6 +78,8 @@ public class DeletionLogLifecycleListener implements DeletionLifecycleListener {
                               DeletionContext context,
                               DeletionNode node,
                               DeletionMode mode) {
+            // Recovery binds to the retained version actually committed by this deletion.
+            entries.get(node.entryId()).setResourceVersion(entity.getVersion());
             completeEntry(node.entryId(), DeletionEntryStatus.SUCCEEDED, null);
             if (context.trigger() == DeletionTrigger.DIRECT) {
                 flush(context.operationId(), DeletionOperationStatus.SUCCEEDED, null);
@@ -111,9 +110,7 @@ public class DeletionLogLifecycleListener implements DeletionLifecycleListener {
             operation.setOperationType(DeletionOperationType.DELETE);
             operation.setStatus(DeletionOperationStatus.IN_PROGRESS);
             operation.setRootModuleAlias(root.moduleAlias());
-            if (ability instanceof DeletionRecoveryAbility<?> recoveryAbility) {
-                operation.setRootEntityAlias(recoveryAbility.getDeletionEntityAlias());
-            }
+            operation.setRootEntityAlias(DeletionResourceIdentity.of(ability).entityAlias());
             operation.setRootRecordId(root.recordId());
             operation.setOperatorId(CurrentUserContext.currentUser().map(user -> user.userId()).orElse(null));
             operation.setStartedAt(Instant.now());

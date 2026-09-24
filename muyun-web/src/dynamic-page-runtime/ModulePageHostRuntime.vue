@@ -668,6 +668,7 @@ export default defineComponent({
               :ui-descriptor="runtimeUiDescriptor!"
               :record="record"
               :relation-entries="listRelationExpansions"
+              :retained="listMode === 'recycleBin'"
               :extension="enhancementRowExpansion"
               :extension-context="enhancementRowExpansion ? listRowExpansionContext(record, true) : undefined"
             />
@@ -1177,6 +1178,7 @@ export default defineComponent({
               :ui-descriptor="runtimeUiDescriptor!"
               :record="record"
               :relation-entries="listRelationExpansions"
+              :retained="listMode === 'recycleBin'"
               :extension="enhancementRowExpansion"
               :extension-context="enhancementRowExpansion ? listRowExpansionContext(record, true) : undefined"
             />

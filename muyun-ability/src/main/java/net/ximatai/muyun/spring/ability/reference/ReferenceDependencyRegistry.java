@@ -1,117 +1,112 @@
 package net.ximatai.muyun.spring.ability.reference;
 
 import net.ximatai.muyun.spring.ability.CacheAbility;
-import net.ximatai.muyun.spring.ability.CacheRegistry;
 import net.ximatai.muyun.spring.ability.TransactionScopeSupport;
+import net.ximatai.muyun.spring.ability.security.FieldProtectionAbility;
 import net.ximatai.muyun.spring.common.model.contract.EntityContract;
 
-import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
 
+/** Direct reference dependencies owned by concrete cache entries, including list snapshots. */
 public final class ReferenceDependencyRegistry {
-    private static final Map<TargetKey, Set<ReferrerKey>> REFERRERS = new ConcurrentHashMap<>();
-    private static final Map<ReferrerKey, Set<TargetKey>> TARGETS_BY_REFERRER = new ConcurrentHashMap<>();
+    private static final Map<TargetKey, Set<Registration>> REFERRERS = new HashMap<>();
+    private static final Set<Registration> ENTRIES = new HashSet<>();
 
-    private ReferenceDependencyRegistry() {
-    }
+    private ReferenceDependencyRegistry() {}
 
-    /** Internal cache integration; transaction reads bypass both cache and dependencies. */
-    public static void refresh(CacheAbility<?> cacheAbility, EntityContract entity) {
-        if (entity == null
-                || entity.getId() == null
-                || entity.getId().isBlank()) {
-            return;
-        }
-        ReferrerKey referrer = new ReferrerKey(cacheAbility.cacheNamespace(), entity.getId());
-        removeReferrer(referrer);
-
-        @SuppressWarnings({"rawtypes", "unchecked"})
-        Map<ReferenceTarget, Set<String>> references = cacheAbility instanceof ReferencerAbility referencerAbility
-                ? referencerAbility.collectReferenceIdsByTarget(entity)
-                : StaticReferenceResolver.collect(cacheAbility.modelClass() == null
-                        ? entity.getClass() : cacheAbility.modelClass(), entity);
-        for (Map.Entry<ReferenceTarget, Set<String>> entry : references.entrySet()) {
-            for (String targetId : entry.getValue()) {
-                TargetKey target = new TargetKey(entry.getKey(), targetId);
-                REFERRERS.computeIfAbsent(target, ignored -> ConcurrentHashMap.newKeySet()).add(referrer);
-                TARGETS_BY_REFERRER.computeIfAbsent(referrer, ignored -> ConcurrentHashMap.newKeySet()).add(target);
+    /** Collects persisted reference facts without running business read hooks or aggregate loading. */
+    @SuppressWarnings({"rawtypes", "unchecked"})
+    public static <T extends EntityContract> Map<ReferenceTarget, Map<String, Set<String>>> collect(
+            CacheAbility<T> ability, List<T> records) {
+        Map<ReferenceTarget, Map<String, Set<String>>> result = new LinkedHashMap<>();
+        for (T stored : records) {
+            T record = ability.copyForCache(stored);
+            if (ability instanceof FieldProtectionAbility protection) {
+                protection.restoreProtectedFieldsFromStorage(record);
             }
+            Map<ReferenceTarget, Set<String>> references = ability instanceof ReferencerAbility referencer
+                    ? referencer.collectReferenceIdsByTarget(record)
+                    : StaticReferenceResolver.collect(ability.modelClass() == null ? record.getClass() : ability.modelClass(), record);
+            references.forEach((target, ids) -> ids.forEach(id -> result
+                    .computeIfAbsent(target, ignored -> new LinkedHashMap<>())
+                    .computeIfAbsent(id, ignored -> new LinkedHashSet<>()).add(record.getId())));
         }
+        return result;
     }
 
-    public static void removeReferrer(String namespace, String id) {
-        if (namespace == null || namespace.isBlank() || id == null || id.isBlank()) {
-            return;
+    /** CacheRegistry installs and removes each registration together with its exact cache entry. */
+    public static synchronized Registration register(String namespace,
+            Map<ReferenceTarget, Map<String, Set<String>>> references, Runnable invalidate) {
+        Map<TargetKey, Set<String>> targets = new HashMap<>();
+        references.forEach((target, ids) -> ids.forEach((id, referrers) ->
+                targets.put(new TargetKey(target, id), Set.copyOf(referrers))));
+        Registration entry = new Registration(namespace, Map.copyOf(targets), invalidate);
+        if (!targets.isEmpty()) {
+            ENTRIES.add(entry);
+            targets.keySet().forEach(target -> REFERRERS.computeIfAbsent(target, ignored -> new HashSet<>()).add(entry));
         }
-        removeReferrer(new ReferrerKey(namespace, id));
+        return entry;
     }
 
     static void clearReferrers(ReferenceTarget target, String id) {
-        if (target == null || id == null || id.isBlank()) {
-            return;
-        }
-        TransactionScopeSupport.afterCommitOrNow(() -> clearReferrersNow(target, id));
+        if (target == null || id == null || id.isBlank()) return;
+        TransactionScopeSupport.afterCommitOrNow(() -> {
+            net.ximatai.muyun.spring.ability.CacheRegistry.invalidatePendingLoads();
+            List<Registration> entries;
+            synchronized (ReferenceDependencyRegistry.class) {
+                entries = List.copyOf(REFERRERS.getOrDefault(new TargetKey(target, id), Set.of()));
+            }
+            // Never call the cache while holding the index lock: cache removal releases registrations.
+            entries.forEach(entry -> entry.invalidate.run());
+        });
     }
 
-    private static void clearReferrersNow(ReferenceTarget target, String id) {
-        Set<ReferrerKey> referrers = REFERRERS.remove(new TargetKey(target, id));
-        if (referrers == null || referrers.isEmpty()) {
-            return;
-        }
-        for (ReferrerKey referrer : referrers) {
-            CacheRegistry.removeItem(referrer.namespace(), referrer.id());
-            CacheRegistry.clearAllCachePrefix(referrer.namespace() + "::" + CacheAbility.ALL_CACHE_KEY);
-            removeReferrer(referrer);
-        }
-    }
-
-    public static void clearAll() {
+    public static synchronized void clearAll() {
         REFERRERS.clear();
-        TARGETS_BY_REFERRER.clear();
+        ENTRIES.clear();
     }
 
-    public static void clearNamespacePrefix(String prefix) {
-        if (prefix == null || prefix.isBlank()) {
-            return;
-        }
-        TARGETS_BY_REFERRER.keySet().stream()
-                .filter(referrer -> referrer.namespace().equals(prefix) || referrer.namespace().startsWith(prefix + "::"))
-                .toList()
-                .forEach(ReferenceDependencyRegistry::removeReferrer);
+    public static synchronized void clearNamespacePrefix(String prefix) {
+        if (prefix == null || prefix.isBlank()) return;
+        ENTRIES.stream().filter(entry -> entry.namespace.equals(prefix) || entry.namespace.startsWith(prefix + "::"))
+                .toList().forEach(Registration::close);
     }
 
-    static Set<String> referrerIds(ReferenceTarget target, String id) {
-        Set<ReferrerKey> referrers = REFERRERS.get(new TargetKey(target, id));
-        if (referrers == null) {
-            return Set.of();
-        }
-        LinkedHashSet<String> ids = new LinkedHashSet<>();
-        referrers.forEach(referrer -> ids.add(referrer.id()));
-        return Collections.unmodifiableSet(ids);
+    static synchronized Set<String> referrerIds(ReferenceTarget target, String id) {
+        TargetKey key = new TargetKey(target, id);
+        Set<String> ids = new HashSet<>();
+        REFERRERS.getOrDefault(key, Set.of()).forEach(entry -> ids.addAll(entry.targets.get(key)));
+        return Set.copyOf(ids);
     }
 
-    private static void removeReferrer(ReferrerKey referrer) {
-        Set<TargetKey> targets = TARGETS_BY_REFERRER.remove(referrer);
-        if (targets == null) {
-            return;
+    public static final class Registration implements AutoCloseable {
+        private final String namespace;
+        private final Map<TargetKey, Set<String>> targets;
+        private final Runnable invalidate;
+
+        private Registration(String namespace, Map<TargetKey, Set<String>> targets, Runnable invalidate) {
+            this.namespace = namespace;
+            this.targets = targets;
+            this.invalidate = invalidate;
         }
-        for (TargetKey target : targets) {
-            Set<ReferrerKey> referrers = REFERRERS.get(target);
-            if (referrers != null) {
-                referrers.remove(referrer);
-                if (referrers.isEmpty()) {
-                    REFERRERS.remove(target, referrers);
+
+        @Override public void close() {
+            synchronized (ReferenceDependencyRegistry.class) {
+                if (!ENTRIES.remove(this)) return;
+                for (TargetKey target : targets.keySet()) {
+                    Set<Registration> entries = REFERRERS.get(target);
+                    entries.remove(this);
+                    if (entries.isEmpty()) REFERRERS.remove(target);
                 }
             }
         }
     }
 
-    private record TargetKey(ReferenceTarget target, String id) {
-    }
-
-    private record ReferrerKey(String namespace, String id) {
-    }
+    private record TargetKey(ReferenceTarget target, String id) {}
 }

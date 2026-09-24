@@ -31,6 +31,7 @@ import java.util.List;
 import java.util.Map;
 
 /** Standard, policy-gated ticket endpoint for form file-reference fields. */
+@DynamicRuntimeRead
 @RestController
 @RequestMapping("/{moduleAlias:[a-z][a-z0-9_]*(?:\\.[a-z][a-z0-9_]*)+}/file-transfer")
 public class FileReferenceUploadTicketWebController {

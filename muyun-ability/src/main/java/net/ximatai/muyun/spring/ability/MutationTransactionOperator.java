@@ -9,6 +9,11 @@ public interface MutationTransactionOperator {
 
     <T> T execute(Supplier<T> work);
 
+    /** Holds a database lock until the outermost transaction completes; never silently runs unlocked. */
+    default void lock(String scope, String key) {
+        throw new IllegalStateException("transactional mutation locks are not installed");
+    }
+
     /**
      * Isolates one DAO write so a failed statement is rolled back before constraint diagnostics
      * query the current transaction. Transactional hosts must provide a savepoint; no lifecycle

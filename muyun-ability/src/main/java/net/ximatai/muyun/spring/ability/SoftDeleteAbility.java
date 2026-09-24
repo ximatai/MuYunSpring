@@ -79,6 +79,7 @@ public interface SoftDeleteAbility<T extends EntityContract> extends CrudAbility
                     getModuleAlias(), id, deletionContext);
             T entity = selectIgnoreSoftDelete(id);
             PlatformAbilityDispatcher.requireMutationContext(this, entity);
+            PlatformAbilityDispatcher.lockMutationParents(this, entity, null);
             beforeDelete(id, context);
             if (isSoftDeleted(entity)) {
                 return 0;
@@ -133,6 +134,7 @@ public interface SoftDeleteAbility<T extends EntityContract> extends CrudAbility
         }
         T entity = selectIgnoreSoftDelete(id);
         PlatformAbilityDispatcher.requireMutationContext(this, entity);
+        PlatformAbilityDispatcher.lockMutationParents(this, entity, null);
         beforeRestore(id);
         if (!Boolean.TRUE.equals(entity == null ? null : entity.getDeleted())) {
             return 0;
@@ -154,6 +156,14 @@ public interface SoftDeleteAbility<T extends EntityContract> extends CrudAbility
         afterChanged(entity);
         CacheInvalidationSupport.clearAfterChanged(this, entity);
         return restored;
+    }
+
+    /** Retention and domain constraints shared by direct recycle-bin and owned-child cleanup. */
+    default void beforeRetainedRecordPurge(String id) {
+    }
+
+    /** Called after a verified retained-row cleanup, in the same mutation transaction. */
+    default void afterRetainedRecordPurge(String id, T entity, int purged) {
     }
 
     default void beforeRestore(String id) {

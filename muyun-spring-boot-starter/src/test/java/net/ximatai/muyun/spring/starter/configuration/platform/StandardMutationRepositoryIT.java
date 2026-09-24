@@ -5,6 +5,10 @@ import net.ximatai.muyun.database.core.IDatabaseOperations;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.spring.ability.*;
+import net.ximatai.muyun.spring.ability.child.ChildAbility;
+import net.ximatai.muyun.spring.ability.child.ChildRelation;
+import net.ximatai.muyun.spring.ability.child.ChildrenAbility;
+import net.ximatai.muyun.spring.common.model.contract.EntityContract;
 import net.ximatai.muyun.spring.common.exception.PlatformErrorCodes;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.schema.StaticSchemaService;
@@ -63,6 +67,7 @@ class StandardMutationRepositoryIT {
         records.failPurge.clear();
         records.committed.clear();
         log.rejectSuccessFor(null);
+        records.purgeGate = ignored -> {};
     }
 
     @Test
@@ -238,12 +243,147 @@ class StandardMutationRepositoryIT {
         DeletionEntry success = entry(interrupted.getId(), null, source.root().getId());
         success.setSourceEntryId(source.rootEntryId());
         log.startEntry(success);
-        recovery.restore(records, source.root().getId(), success.getId());
+        recovery.restore(records, log.entry(source.rootEntryId()), success.getId());
         assertThat(log.operation(interrupted.getId()).getStatus()).isEqualTo(DeletionOperationStatus.IN_PROGRESS);
         assertThat(restores.restore(source.operationId()).entries()).extracting(RestoreEntryResult::status)
                 .containsOnly(RestoreEntryResult.Status.RESTORED);
         assertThat(records.committed).containsExactly(source.root().getId(), source.child().getId());
     }
+
+    @Test
+    void sourceVersionChangesMustBlockRecoveryAndPurgeBeforeAnyDescendantWrite() {
+        Source source = sourceTree();
+        records.jdbc.update("update test_mutation_contract set version = version + 1 where id = ?", source.root().getId());
+        assertThat(restores.restore(source.operationId()).entries())
+                .extracting(RestoreEntryResult::recordId, RestoreEntryResult::status)
+                .containsExactlyInAnyOrder(
+                        org.assertj.core.groups.Tuple.tuple(source.root().getId(), RestoreEntryResult.Status.FAILED),
+                        org.assertj.core.groups.Tuple.tuple(source.child().getId(), RestoreEntryResult.Status.SKIPPED));
+        assertThat(purges.purge(source.operationId()).entries())
+                .extracting(PurgeEntryResult::recordId, PurgeEntryResult::status)
+                .containsExactlyInAnyOrder(
+                        org.assertj.core.groups.Tuple.tuple(source.root().getId(), PurgeEntryResult.Status.FAILED),
+                        org.assertj.core.groups.Tuple.tuple(source.child().getId(), PurgeEntryResult.Status.SKIPPED));
+        assertThat(dao.findById(source.root().getId()).getDeleted()).isTrue();
+        assertThat(dao.findById(source.child().getId()).getDeleted()).isTrue();
+    }
+
+    @Test
+    void restoreAndPurgeMustSerializeOneSourceWhileOtherSourcesContinue() throws Exception {
+        Source first = sourceTree(), independent = sourceTree();
+        var entered = new java.util.concurrent.CountDownLatch(1);
+        var release = new java.util.concurrent.CountDownLatch(1);
+        var restoring = new java.util.concurrent.CountDownLatch(1);
+        records.purgeGate = id -> {
+            if (!id.equals(first.child().getId())) return;
+            entered.countDown();
+            try {
+                if (!release.await(10, java.util.concurrent.TimeUnit.SECONDS)) throw new IllegalStateException("purge gate timed out");
+            } catch (InterruptedException exception) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException(exception);
+            }
+        };
+        try (var pool = java.util.concurrent.Executors.newFixedThreadPool(3)) {
+            var purge = pool.submit(() -> purges.purge(first.operationId()));
+            try {
+                assertThat(entered.await(10, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+                var restore = pool.submit(() -> { restoring.countDown(); return restores.restore(first.operationId()); });
+                assertThat(restoring.await(10, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+                assertThat(pool.submit(() -> restores.restore(independent.operationId())).get(10, java.util.concurrent.TimeUnit.SECONDS)
+                        .entries()).extracting(RestoreEntryResult::status).containsOnly(RestoreEntryResult.Status.RESTORED);
+                assertThat(restore.isDone()).isFalse();
+                assertThat(dao.findById(first.root().getId()).getDeleted()).isTrue();
+                release.countDown();
+                assertThat(purge.get(10, java.util.concurrent.TimeUnit.SECONDS).entries())
+                        .extracting(PurgeEntryResult::status).containsOnly(PurgeEntryResult.Status.PURGED);
+                assertThat(restore.get(10, java.util.concurrent.TimeUnit.SECONDS).entries())
+                        .extracting(RestoreEntryResult::status).containsOnly(RestoreEntryResult.Status.SKIPPED);
+            } finally {
+                release.countDown();
+            }
+        }
+    }
+
+    @Test
+    void aggregateRootPurgeMustIncludePlainSoftChildrenAndHonorTheirRetention() {
+        try (var ignored = TenantContext.use("aggregate-purge-it")) {
+            var aggregate = aggregateSource();
+            aggregate.details().retainUntil = java.time.Instant.now().plusSeconds(3600);
+            PurgeReport blocked = aggregate.facade().purge(aggregate.roots(), aggregate.operationId());
+            assertThat(blocked.entries()).extracting(PurgeEntryResult::recordId, PurgeEntryResult::status)
+                    .containsExactlyInAnyOrder(
+                            tuple(aggregate.root().getId(), PurgeEntryResult.Status.SKIPPED),
+                            tuple(aggregate.child().getId(), PurgeEntryResult.Status.FAILED));
+            assertThat(dao.findById(aggregate.root().getId()).getDeleted()).isTrue();
+            assertThat(dao.findById(aggregate.child().getId()).getDeleted()).isTrue();
+            aggregate.details().retainUntil = java.time.Instant.EPOCH;
+            assertThat(aggregate.facade().purge(aggregate.roots(), aggregate.operationId()).entries())
+                    .extracting(PurgeEntryResult::status).containsOnly(PurgeEntryResult.Status.PURGED);
+            assertThat(dao.findById(aggregate.root().getId())).isNull();
+            assertThat(dao.findById(aggregate.child().getId())).isNull();
+            assertThat(aggregate.details().purged).containsExactly(aggregate.child().getId());
+        }
+    }
+
+    @Test
+    void aggregatePurgeMustHonorAnOwnedResourcesExplicitRecycleBinDenial() {
+        try (var ignored = TenantContext.use("aggregate-purge-it")) {
+            var aggregate = aggregateSource(new DeniedRecycleDetails(dao));
+            PurgeReport report = aggregate.facade().purge(aggregate.roots(), aggregate.operationId());
+            assertThat(report.entries()).extracting(PurgeEntryResult::recordId, PurgeEntryResult::status)
+                    .containsExactlyInAnyOrder(
+                            tuple(aggregate.root().getId(), PurgeEntryResult.Status.SKIPPED),
+                            tuple(aggregate.child().getId(), PurgeEntryResult.Status.FAILED));
+            assertThat(dao.findById(aggregate.root().getId())).isNotNull();
+            assertThat(dao.findById(aggregate.child().getId())).isNotNull();
+        }
+    }
+
+    @Test
+    void aggregatePurgeMustRejectCurrentForeignKeyDriftEvenWithoutAVersionIncrement() {
+        try (var ignored = TenantContext.use("aggregate-purge-it")) {
+            var aggregate = aggregateSource();
+            records.jdbc.update("update test_mutation_contract set code = ? where id = ?",
+                    "other-owner-" + UUID.randomUUID(), aggregate.child().getId());
+            assertThat(aggregate.facade().purge(aggregate.roots(), aggregate.operationId()).entries())
+                    .extracting(PurgeEntryResult::recordId, PurgeEntryResult::status)
+                    .containsExactlyInAnyOrder(
+                            tuple(aggregate.root().getId(), PurgeEntryResult.Status.SKIPPED),
+                            tuple(aggregate.child().getId(), PurgeEntryResult.Status.FAILED));
+            assertThat(dao.findById(aggregate.root().getId())).isNotNull();
+            assertThat(dao.findById(aggregate.child().getId())).isNotNull();
+            assertThat(aggregate.details().purged).isEmpty();
+        }
+    }
+
+    private AggregateSource aggregateSource() {
+        return aggregateSource(new AggregateDetails(dao));
+    }
+
+    private AggregateSource aggregateSource(AggregateDetails details) {
+        AggregateRoots roots = new AggregateRoots(dao, details);
+        var resolver = new StaticDeletionRecoveryResourceResolver(List.of(roots));
+        var facade = new RecycleBinFacade(log,
+                new SoftDeleteRestoreCoordinator(log, recovery, List.of(resolver)),
+                new RecycleBinPurgeCoordinator(log, recovery, List.of(resolver)));
+        MutationContractRecord root = record("aggregate-" + UUID.randomUUID());
+        roots.insert(root);
+        MutationContractRecord child = record(root.getId());
+        details.insert(child);
+        roots.delete(root.getId());
+        var retained = roots.selectIgnoreSoftDelete(root.getId());
+        var item = facade.item(roots, retained, retained.getId(), retained.getDeletedAt());
+        assertThat(item.purgeable()).isTrue();
+        assertThat(log.operationEntries(item.sourceDeleteOperationId()))
+                .extracting(DeletionEntry::getResourceModuleAlias, DeletionEntry::getResourceEntityAlias)
+                .containsExactlyInAnyOrder(tuple("test.aggregate_root", "aggregate_root"),
+                        tuple("test.aggregate_detail", "aggregate_detail"));
+        return new AggregateSource(roots, details, facade, root, child, item.sourceDeleteOperationId());
+    }
+
+    record AggregateSource(AggregateRoots roots, AggregateDetails details, RecycleBinFacade facade,
+                           MutationContractRecord root, MutationContractRecord child, String operationId) {}
 
     private Source sourceTree() {
         MutationContractRecord root = record("root-" + UUID.randomUUID());
@@ -275,6 +415,7 @@ class StandardMutationRepositoryIT {
         entry.setOperationId(operationId); entry.setParentEntryId(parentId);
         entry.setResourceModuleAlias("test.records"); entry.setResourceRecordId(recordId);
         entry.setDeleteMode(DeletionEntryMode.SOFT);
+        entry.setResourceVersion(1);
         entry.setTriggerType(parentId == null ? DeletionEntryTrigger.DIRECT : DeletionEntryTrigger.CASCADE);
         return entry;
     }
@@ -283,13 +424,15 @@ class StandardMutationRepositoryIT {
 
     static class Records extends AbstractAbilityService<MutationContractRecord> implements RecycleBinAbility<MutationContractRecord> {
         final Set<String> failRestore = new HashSet<>(), failPurge = new HashSet<>();
-        final List<String> committed = new ArrayList<>();
+        final List<String> committed = new java.util.concurrent.CopyOnWriteArrayList<>();
+        volatile java.util.function.Consumer<String> purgeGate = ignored -> {};
         final JdbcTemplate jdbc;
         Records(BaseDao<MutationContractRecord, String> dao, JdbcTemplate jdbc) {
             super("test.records", MutationContractRecord.class, dao); this.jdbc = jdbc;
         }
         @Override public boolean isRecycleBinPurgeEnabled() { return true; }
         @Override public void beforeRecycleBinPurge(String id) {}
+        @Override public void beforeRetainedRecordPurge(String id) { purgeGate.accept(id); }
         @Override public void afterRestore(String id, MutationContractRecord record, int restored) {
             TransactionScopeSupport.afterCommitOrNow(() -> committed.add(id));
             if (failRestore.contains(id)) jdbc.execute("select 1 / 0");
@@ -297,6 +440,43 @@ class StandardMutationRepositoryIT {
         @Override public void afterRecycleBinPurge(String id, MutationContractRecord record, int purged) {
             TransactionScopeSupport.afterCommitOrNow(() -> committed.add(id));
             if (failPurge.contains(id)) throw new IllegalArgumentException("reject purge after write");
+        }
+    }
+
+    static class AggregateRoots extends AbstractAbilityService<MutationContractRecord>
+            implements RecycleBinAbility<MutationContractRecord>, ChildrenAbility<MutationContractRecord> {
+        private final AggregateDetails details;
+        AggregateRoots(BaseDao<MutationContractRecord, String> dao, AggregateDetails details) {
+            super("test.aggregate_root", MutationContractRecord.class, dao);
+            this.details = details;
+        }
+        @Override public boolean isRecycleBinPurgeEnabled() { return true; }
+        @Override public void beforeRecycleBinPurge(String id) {}
+        @Override public boolean usesAutomaticChildRelations() { return false; }
+        @Override public List<ChildRelation<? extends EntityContract, MutationContractRecord>> childRelations() {
+            return List.of(new ChildRelation<MutationContractRecord, MutationContractRecord>("details", details,
+                    MutationContractRecord::setCode, "code", parent -> List.of(), MutationContractRecord::getCode)
+                    .cascadeOnParentUnavailable());
+        }
+    }
+
+    static class DeniedRecycleDetails extends AggregateDetails implements RecycleBinAbility<MutationContractRecord> {
+        DeniedRecycleDetails(BaseDao<MutationContractRecord, String> dao) { super(dao); }
+        @Override public boolean isRecycleBinPurgeEnabled() { return false; }
+    }
+
+    static class AggregateDetails extends AbstractAbilityService<MutationContractRecord>
+            implements SoftDeleteAbility<MutationContractRecord>, ChildAbility<MutationContractRecord> {
+        java.time.Instant retainUntil = java.time.Instant.EPOCH;
+        final List<String> purged = new ArrayList<>();
+        AggregateDetails(BaseDao<MutationContractRecord, String> dao) {
+            super("test.aggregate_detail", MutationContractRecord.class, dao);
+        }
+        @Override public void beforeRetainedRecordPurge(String id) {
+            if (retainUntil.isAfter(java.time.Instant.now())) throw new IllegalStateException("retention period has not elapsed");
+        }
+        @Override public void afterRetainedRecordPurge(String id, MutationContractRecord entity, int count) {
+            TransactionScopeSupport.afterCommitOrNow(() -> purged.add(id));
         }
     }
 
@@ -321,7 +501,8 @@ class StandardMutationRepositoryIT {
     @EnableTransactionManagement(proxyTargetClass = true)
     @EnableMuYunRepositories(basePackageClasses = {MutationContractDao.class, DeletionOperationDao.class})
     @Import({MuYunSpringMutationConfiguration.class, MuYunSpringDatabaseConfiguration.class,
-            DeletionRecoveryExecutor.class, SoftDeleteRestoreCoordinator.class, RecycleBinPurgeCoordinator.class})
+            DeletionRecoveryExecutor.class, SoftDeleteRestoreCoordinator.class, RecycleBinPurgeCoordinator.class,
+            DeletionLogLifecycleListener.class})
     static class Application {
         @Bean DataSource dataSource() {
             return DataSourceBuilder.create().url(postgres.getJdbcUrl()).username(postgres.getUsername())

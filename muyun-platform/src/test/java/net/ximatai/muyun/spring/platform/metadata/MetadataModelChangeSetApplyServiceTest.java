@@ -84,7 +84,7 @@ class MetadataModelChangeSetApplyServiceTest {
         assertThat(result.affectedModuleAliases()).containsExactly("education.exam");
         assertThat(relation.getSortOrder()).isEqualTo(100);
         verify(relations).update(relation);
-        verify(refresh).activateModulesNow(List.of("education.exam"));
+        verify(refresh).scheduleModules(List.of("education.exam"));
         verify(schema, never()).ensureNow(any(Metadata.class));
         verifyNoRelationApply(relationApply);
     }

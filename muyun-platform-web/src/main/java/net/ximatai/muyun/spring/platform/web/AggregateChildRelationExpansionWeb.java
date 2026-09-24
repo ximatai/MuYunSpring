@@ -28,4 +28,12 @@ public interface AggregateChildRelationExpansionWeb<P extends EntityContract, S 
         return webScope(() -> requireAggregateChildRelationExpansionGateway().read(
                 webScopeName(), service(), parentId, relationCode));
     }
+    @GetMapping("/recycle-bin/view/{parentId}/relations/{relationCode}/expansion")
+    @ActionEndpoint(PlatformAction.RECYCLE_BIN_QUERY)
+    default WebListResponse<java.util.Map<String, Object>> readRetainedAggregateChildRelationExpansion(
+            @PathVariable String parentId, @PathVariable String relationCode) {
+        return webScope(() -> requireAggregateChildRelationExpansionGateway().read(
+                webScopeName(), service(), parentId, relationCode, RecordReadVisibility.RETAINED));
+    }
+
 }

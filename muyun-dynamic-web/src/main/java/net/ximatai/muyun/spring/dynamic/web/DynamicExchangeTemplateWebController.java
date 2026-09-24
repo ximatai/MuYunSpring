@@ -1,5 +1,7 @@
 package net.ximatai.muyun.spring.dynamic.web;
 
+import net.ximatai.muyun.spring.platform.web.DynamicRuntimeRead;
+
 import jakarta.servlet.http.HttpServletResponse;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.option.OptionSourceRegistry;
@@ -29,6 +31,7 @@ import org.springframework.web.bind.annotation.RestController;
 import java.io.IOException;
 import java.util.function.Supplier;
 
+@DynamicRuntimeRead
 @RestController
 @RequestMapping("/{moduleAlias:[a-z][a-z0-9_]*(?:\\.[a-z][a-z0-9_]*)+}/exchange")
 public class DynamicExchangeTemplateWebController {

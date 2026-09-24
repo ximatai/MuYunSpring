@@ -39,6 +39,29 @@ class DynamicRecordRuntimeTest {
     private static final String TABLE = "app_contract";
 
     @Test
+    void nestedChildLookupUsesTheSameDefinitionSnapshotAsItsParent() {
+        IDatabaseOperations<Object> operations = operations();
+        when(operations.query(anyString(), anyMap())).thenReturn(List.of());
+        var parent = new EntityDefinition("parent", "snapshot_parent", "Parent", List.of());
+        var oldChild = new EntityDefinition("child", "snapshot_child_old", "Child", List.of(
+                FieldDefinition.string("parentId", "Parent").column("parent_id")));
+        var newChild = new EntityDefinition("child", "snapshot_child_new", "Child", oldChild.fields());
+        var relation = net.ximatai.muyun.spring.dynamic.metadata.EntityRelationDefinition.child(
+                "children", "parent", "child", "parentId");
+        var runtime = new DynamicRecordRuntime(operations).register(ModuleDefinition.builder("test.snapshot", "Snapshot")
+                .entities(List.of(parent, oldChild)).relations(List.of(relation)).build());
+        var original = runtime.entityService("test.snapshot", "parent");
+        runtime.refresh(ModuleDefinition.builder("test.snapshot", "Snapshot")
+                .entities(List.of(parent, newChild)).relations(List.of(relation)).build());
+        original.childRelations().getFirst().selectChildren("parent-1");
+        runtime.entityService("test.snapshot", "parent").childRelations().getFirst().selectChildren("parent-1");
+        var sql = ArgumentCaptor.forClass(String.class);
+        verify(operations, org.mockito.Mockito.times(2)).query(sql.capture(), anyMap());
+        assertThat(sql.getAllValues().get(0)).contains("snapshot_child_old").doesNotContain("snapshot_child_new");
+        assertThat(sql.getAllValues().get(1)).contains("snapshot_child_new").doesNotContain("snapshot_child_old");
+    }
+
+    @Test
     void shouldCreateEntityServiceFromRegisteredModule() {
         IDatabaseOperations<Object> operations = operations();
         when(operations.insertItem(eq(SCHEMA), eq(TABLE), anyMap(), eq("id")))
@@ -103,16 +126,18 @@ class DynamicRecordRuntimeTest {
                 .contains("\"deleted\" IS NULL"));
     }
 
-    @Test
-    void shouldPopulateOptionLoadOnSingleRecordSelectIncludingCacheHit() {
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {false, true})
+    void shouldPopulateOptionLoadOnActiveCachedSelectAndRetainedPage(boolean retained) {
         CacheRegistry.clearAll();
         IDatabaseOperations<Object> operations = operations();
         when(operations.query(anyString(), anyMap())).thenReturn(List.of(Map.of(
                 "id", "teacher-1",
                 "subject_code", "mathematics",
-                "deleted", Boolean.FALSE,
+                "deleted", retained,
                 "version", 0
         )));
+        when(operations.row(anyString(), anyMap())).thenReturn(Map.of("total_count", 1));
         DynamicRecordRuntime runtime = DynamicRecordRuntime.builder(operations)
                 .optionLoadPopulator((entity, records) -> records.forEach(record ->
                         record.putVirtualValue("subjectTitle", "数学")))
@@ -123,11 +148,14 @@ class DynamicRecordRuntimeTest {
                                 .dictionary("education", "teaching_subject"),
                         FieldDefinition.string("subjectTitle", "Subject Title").column("subject_title")
                                 .virtual().optionLoad("subjectCode")
-                )))));
+                ), java.util.Set.of(EntityCapability.RECYCLE_BIN)))));
         DynamicEntityService service = runtime.entityService("education.teacher", "teacher");
 
-        assertThat(service.select("teacher-1").getValue("subjectTitle")).isEqualTo("数学");
-        assertThat(service.select("teacher-1").getValue("subjectTitle")).isEqualTo("数学");
+        for (int i = 0; i < 2; i++) {
+            DynamicRecord record = retained ? service.pageRecycleBin(Criteria.of(), PageRequest.of(1, 10))
+                    .getRecords().getFirst() : service.select("teacher-1");
+            assertThat(record.getValue("subjectTitle")).isEqualTo("数学");
+        }
     }
 
     @Test
@@ -259,6 +287,31 @@ class DynamicRecordRuntimeTest {
     }
 
     @Test
+    void recycleBinMustDecryptAndVerifyRetainedRecordsAndRestoreThroughEntityLifecycle() {
+        IDatabaseOperations<Object> operations = operations();
+        when(operations.row(anyString(), anyMap())).thenReturn(Map.of("total_count", 1));
+        Map<String, Object> row = new java.util.LinkedHashMap<>(Map.of(
+                "id", "contract-1", "secret", "enc:sensitive-value",
+                "secret_signature", "sig:secret:sensitive-value", "deleted", true, "version", 1));
+        when(operations.query(anyString(), anyMap())).thenReturn(List.of(row));
+        DynamicRecordRuntime runtime = protectedRuntime(operations).register(protectedContractModule());
+        DynamicEntityOperations records = new DynamicRecordService(runtime).mainEntity("sales.contract");
+
+        assertThat(records.pageRecycleBin(Criteria.of(), PageRequest.of(1, 10)).getRecords().getFirst().getValue("secret"))
+                .isEqualTo("sensitive-value");
+        assertThat(records.pageRecycleBin(Criteria.of().eq("id", "contract-1"), PageRequest.of(1, 1))
+                .getRecords().getFirst().getValue("secret")).isEqualTo("sensitive-value");
+        assertThat(records.restore("contract-1")).isEqualTo(1);
+        ArgumentCaptor<Map<String, Object>> body = mapCaptor();
+        verify(operations).patchUpdateItemWhere(eq(SCHEMA), eq(TABLE), body.capture(), anyMap(), eq("id"));
+        assertThat(body.getValue()).containsEntry("secret", "enc:sensitive-value")
+                .containsEntry("secret_signature", "sig:secret:sensitive-value").containsEntry("deleted", false);
+        row.put("secret_signature", "tampered");
+        assertThatThrownBy(() -> records.pageRecycleBin(Criteria.of(), PageRequest.of(1, 10)))
+                .isInstanceOf(FieldProtectionException.class);
+    }
+
+    @Test
     void shouldRejectTamperedDynamicProtectedFieldSignature() {
         IDatabaseOperations<Object> operations = operations();
         when(operations.query(anyString(), anyMap())).thenReturn(List.of(Map.of(
@@ -380,7 +433,7 @@ class DynamicRecordRuntimeTest {
                                         FieldMaskingPolicy.MIDDLE
                                 ))
                 ),
-                java.util.Set.of(EntityCapability.REFERENCE)
+                java.util.Set.of(EntityCapability.REFERENCE, EntityCapability.RECYCLE_BIN)
         )));
     }
 

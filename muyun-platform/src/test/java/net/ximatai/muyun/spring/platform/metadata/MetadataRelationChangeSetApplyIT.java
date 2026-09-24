@@ -187,7 +187,7 @@ class MetadataRelationChangeSetApplyIT extends PlatformPostgresIntegrationTest {
         assertThat(relationService.select(child.relation().getId())).isNull();
         assertThat(columnExists(child.metadata().getTableName(), "id")).isFalse();
         assertThat(metadataService.select(metadata.getId())).isNotNull();
-        verify(refreshCoordinator, org.mockito.Mockito.atLeastOnce()).activateModulesNow(List.of(moduleAlias));
+        verify(refreshCoordinator, org.mockito.Mockito.atLeastOnce()).scheduleModules(List.of(moduleAlias));
     }
 
     @Test
@@ -259,7 +259,7 @@ class MetadataRelationChangeSetApplyIT extends PlatformPostgresIntegrationTest {
                 .extracting(MetadataField::getFieldName).contains("title", "enabled");
         assertThat(columnExists(metadata.getTableName(), "title")).isTrue();
         assertThat(columnExists(metadata.getTableName(), "enabled")).isTrue();
-        verify(refreshCoordinator).activateByMetadataIdNow(metadata.getId());
+        verify(refreshCoordinator).scheduleByMetadataId(metadata.getId());
     }
 
     @Test
@@ -279,7 +279,7 @@ class MetadataRelationChangeSetApplyIT extends PlatformPostgresIntegrationTest {
         assertThat(entityCompiler.compile(metadata.getId()).fields())
                 .filteredOn(field -> field.fieldName().equals("parentId"))
                 .singleElement().extracting(field -> field.length()).isEqualTo(32);
-        verify(refreshCoordinator).activateByMetadataIdNow(metadata.getId());
+        verify(refreshCoordinator).scheduleByMetadataId(metadata.getId());
     }
 
     @Test

@@ -57,6 +57,12 @@ public abstract class AbstractAbilityService<T extends EntityContract> implement
         RecordFieldMutation.retain(this, incoming, existing, fields);
     }
 
+    /** Serializes a domain partition until transaction completion. Use persisted IDs, or include tenant in local keys. */
+    protected void lockMutation(String partition, String key) {
+        PlatformAbilityDispatcher.lockMutation(getModuleAlias() + ":" + Preconditions.requireText(partition, "partition"),
+                Preconditions.requireText(key, "partition key"));
+    }
+
     protected final boolean existsOtherInCurrentScope(T entity, Criteria criteria) {
         String currentId = entity == null ? null : entity.getId();
         return list(criteria, PageRequest.of(1, 2)).stream()

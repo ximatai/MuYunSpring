@@ -1999,3 +1999,14 @@ export interface PurgeReport {
   purgeOperationId: string;
   entries: PurgeEntryResult[];
 }
+
+/** Committed configuration and the projections installed in the node serving this response. */
+export interface DynamicRuntimeActivationStatus {
+  moduleAlias: string;
+  desiredRevision: number | null;
+  lastSuccessfulRevision: number | null;
+  installedRevision: number | null;
+  status: 'UNTRACKED' | 'PENDING' | 'ACTIVE' | 'INACTIVE' | 'FAILED';
+  failureMessage: string | null;
+  attemptedAt: string | null;
+}

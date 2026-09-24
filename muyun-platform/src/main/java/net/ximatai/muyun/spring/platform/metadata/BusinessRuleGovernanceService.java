@@ -214,7 +214,7 @@ public class BusinessRuleGovernanceService {
             persistProposal(main, existing, current, command.rules());
             return null;
         });
-        TransactionScopeSupport.afterCommitOrNow(() -> refreshCoordinator.activateModulesNow(List.of(alias)));
+        refreshCoordinator.scheduleModules(List.of(alias));
         return new BusinessRuleApplyResult(snapshot(alias), preview, List.of(alias));
     }
 

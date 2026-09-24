@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onActivated, onDeactivated, onMounted, onUnmounted, ref, watch } from 'vue';
+import ModuleRuntimeActivationStatus from './ModuleRuntimeActivationStatus.vue';
 import {
   generatedBusinessFieldName,
   generatedMetadataAlias,
@@ -109,6 +110,7 @@ type ChildMetadataDraft = { alias: string; title: string; schemaName?: string; t
 const ORCHESTRATION_QUERY_PAGE_SIZE = 200;
 
 const moduleContext = useModuleContext({ moduleAlias: 'platform.module' });
+const activationReloadKey = ref(0);
 const metadataClient = createStaticResourceCrudClient<Metadata>(moduleContext.http, '/platform.metadata');
 const state = createMetadataOrchestrationState();
 const editSession = createMetadataModelWorkspaceEditSession();
@@ -593,6 +595,7 @@ watch(
 onMounted(() => void loadFieldSpecs());
 
 async function loadWorkspace() {
+  activationReloadKey.value++;
   const requestRevision = ++workspaceLoadRevision;
   const selectionBeforeRefresh = selectedTreeKey.value;
   loading.value = true;
@@ -1149,6 +1152,7 @@ async function previewAndApply(
       proposal as MetadataModelChangeSetProposal,
       preview.proposalFingerprint,
     );
+    activationReloadKey.value++;
     if (mode === 'immediate-order') {
       // The write is committed. Keep its order even if the subsequent read fails.
       retainCommittedOrder(proposal);
@@ -1168,7 +1172,7 @@ async function previewAndApply(
       await loadWorkspace();
     }
     await handlePlatformActionSuccess(
-      { success: true, message: `${operationName}成功并已同步生效` },
+      { success: true, message: `${operationName}已提交` },
       { source: 'metadata-orchestration' },
     );
   } catch (cause) {
@@ -1773,6 +1777,7 @@ function capabilityTitleOf(capability: string): string {
             : state.selectedMetadata.value.alias
       "
     >
+      <ModuleRuntimeActivationStatus :module-alias="moduleAlias" :reload-key="activationReloadKey" />
       <template v-if="state.fieldEditorOpen.value" #status>
         <UiRadioGroup v-model:value="editorMode" :options="editorModeOptions" size="small" />
       </template>

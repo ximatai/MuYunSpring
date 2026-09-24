@@ -33,6 +33,24 @@ public class AggregateChildRelationExpansionGateway {
                                                                  CrudAbility<?> parentService,
                                                                  String parentId,
                                                                  String relationCode) {
+        return read(moduleAlias, parentService, parentId, relationCode, RecordReadVisibility.ACTIVE);
+    }
+
+    public WebListResponse<java.util.Map<String, Object>> read(String moduleAlias, CrudAbility<?> parentService,
+                                                              String parentId, String relationCode,
+                                                              RecordReadVisibility visibility) {
+        if (parentService instanceof DataScopeAbility<?> scoped) {
+            var policy = (visibility == RecordReadVisibility.RETAINED ? PlatformAction.RECYCLE_BIN_QUERY : PlatformAction.VIEW).executionPolicy();
+            var scope = scoped.readScopeByPolicy(policy, net.ximatai.muyun.database.core.orm.Criteria.of().eq("id", parentId));
+            return scoped.withDataScopeTenant(scope, () -> readScoped(moduleAlias, parentService, parentId, relationCode, visibility));
+        }
+        return readScoped(moduleAlias, parentService, parentId, relationCode, visibility);
+    }
+
+    @SuppressWarnings({"rawtypes", "unchecked"})
+    private WebListResponse<java.util.Map<String, Object>> readScoped(String moduleAlias, CrudAbility<?> parentService,
+                                                                     String parentId, String relationCode,
+                                                                     RecordReadVisibility visibility) {
         ModuleExecutionPlan plan = planCatalog.find(moduleAlias)
                 .orElseThrow(() -> new IllegalStateException(
                         "aggregate relation expansion requires compiled plan: " + moduleAlias));
@@ -49,7 +67,8 @@ public class AggregateChildRelationExpansionGateway {
             throw new IllegalStateException("list relation expansion requires an aggregate child relation: "
                     + relationCode);
         }
-        EntityContract parent = selectVisibleParent(parentService, parentId);
+        EntityContract parent = visibility == RecordReadVisibility.RETAINED
+                ? selectRetainedParent(parentService, parentId) : selectVisibleParent(parentService, parentId);
         if (!(parentService instanceof ChildrenAbility<?> childrenAbility)) {
             throw new IllegalStateException("aggregate relation expansion requires ChildrenAbility: " + moduleAlias);
         }
@@ -58,12 +77,22 @@ public class AggregateChildRelationExpansionGateway {
                 .findFirst().orElseThrow(() -> new IllegalStateException(
                         "aggregate child relation is not registered: " + moduleAlias + "." + relationCode));
         CrudAbility childService = childRelation.childAbility();
-        List<EntityContract> children = (List<EntityContract>) childRelation.selectChildren(parent.getId());
+        List<EntityContract> children = (List<EntityContract>) (visibility == RecordReadVisibility.RETAINED
+                ? childRelation.selectDeletedChildren(parent.getId()) : childRelation.selectChildren(parent.getId()));
         List<EntityContract> secured = WebOutputSupport.records(childService, children,
                 net.ximatai.muyun.spring.common.security.FieldOutputContext.LIST);
         List<String> outputFields = RelationReadProjectionSupport.outputFields(childService, expansion.fields());
         return new WebListResponse<>(RelationReadProjectionSupport.project(childService, relation.targetModuleAlias(),
                 "list_relation_expansion:" + relationCode, secured, outputFields));
+    }
+
+    private static EntityContract selectRetainedParent(CrudAbility<?> service, String id) {
+        if (!(service instanceof net.ximatai.muyun.spring.ability.RecycleBinAbility<?> recycleBin)) {
+            throw new IllegalArgumentException("retained aggregate reads require a recycle-bin root");
+        }
+        return recycleBin.pageRecycleBin(net.ximatai.muyun.database.core.orm.Criteria.of().eq("id", id),
+                net.ximatai.muyun.database.core.orm.PageRequest.of(1, 1)).getRecords().stream()
+                .findFirst().orElseThrow(() -> new IllegalArgumentException("retained aggregate parent is not visible: " + id));
     }
 
     @SuppressWarnings({"rawtypes", "unchecked"})

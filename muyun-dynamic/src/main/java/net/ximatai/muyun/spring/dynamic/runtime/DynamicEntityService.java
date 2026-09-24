@@ -25,9 +25,8 @@ import net.ximatai.muyun.spring.ability.security.FieldProtectionAbility;
 import net.ximatai.muyun.spring.ability.security.FieldProtectionPlan;
 import net.ximatai.muyun.spring.ability.security.FieldSigner;
 import net.ximatai.muyun.spring.ability.security.ProtectedFieldAccessor;
-import net.ximatai.muyun.spring.ability.SoftDeleteAbility;
+import net.ximatai.muyun.spring.ability.RecycleBinAbility;
 import net.ximatai.muyun.spring.ability.TenantUniqueConstraintProvider;
-import net.ximatai.muyun.spring.ability.deletion.DeletionRecoveryAbility;
 import net.ximatai.muyun.spring.ability.SortAbility;
 import net.ximatai.muyun.spring.ability.SortPartition;
 import net.ximatai.muyun.database.core.orm.Criteria;
@@ -69,8 +68,7 @@ import java.util.function.Function;
 
 public class DynamicEntityService implements
         CrudAbility<DynamicRecord>,
-        SoftDeleteAbility<DynamicRecord>,
-        DeletionRecoveryAbility<DynamicRecord>,
+        RecycleBinAbility<DynamicRecord>,
         ChildAbility<DynamicRecord>,
         ChildrenAbility<DynamicRecord>,
         ReferencerAbility<DynamicRecord>,
@@ -96,7 +94,7 @@ public class DynamicEntityService implements
     DynamicEntityService(DynamicRecordDao dao, String moduleAlias) {
         this(dao, moduleAlias, DynamicRecordLifecycle.NONE, null, unsupportedRelationResolver(),
                 unsupportedReferenceResolver(moduleAlias), null, DynamicFieldValueValidator.NONE,
-                FieldCryptoProvider.UNAVAILABLE, FieldSigner.UNAVAILABLE, new PlatformTimeService());
+                FieldCryptoProvider.UNAVAILABLE, FieldSigner.UNAVAILABLE, PlatformAbilityRuntime.timeService());
     }
 
     static DynamicEntityService withLifecycle(DynamicRecordDao dao,
@@ -104,7 +102,7 @@ public class DynamicEntityService implements
                                               DynamicRecordLifecycle lifecycle) {
         return new DynamicEntityService(dao, moduleAlias, lifecycle, null, unsupportedRelationResolver(),
                 unsupportedReferenceResolver(moduleAlias), null, DynamicFieldValueValidator.NONE,
-                FieldCryptoProvider.UNAVAILABLE, FieldSigner.UNAVAILABLE, new PlatformTimeService());
+                FieldCryptoProvider.UNAVAILABLE, FieldSigner.UNAVAILABLE, PlatformAbilityRuntime.timeService());
     }
 
     static DynamicEntityService withModule(DynamicRecordDao dao,
@@ -115,7 +113,7 @@ public class DynamicEntityService implements
         return new DynamicEntityService(dao, moduleAlias, lifecycle, module, relationServiceResolver,
                 sameModuleReferenceResolver(moduleAlias, relationServiceResolver), null,
                 DynamicFieldValueValidator.NONE, FieldCryptoProvider.UNAVAILABLE, FieldSigner.UNAVAILABLE,
-                new PlatformTimeService());
+                PlatformAbilityRuntime.timeService());
     }
 
     DynamicEntityService(DynamicRecordDao dao,
@@ -156,7 +154,7 @@ public class DynamicEntityService implements
         this.fieldValueValidator = Objects.requireNonNull(fieldValueValidator, "fieldValueValidator must not be null");
         this.fieldCryptoProvider = fieldCryptoProvider == null ? FieldCryptoProvider.UNAVAILABLE : fieldCryptoProvider;
         this.fieldSigner = fieldSigner == null ? FieldSigner.UNAVAILABLE : fieldSigner;
-        this.timeService = timeService == null ? new PlatformTimeService() : timeService;
+        this.timeService = java.util.Objects.requireNonNull(timeService, "timeService");
         this.optionLoadPopulator = optionLoadPopulator == null ? DynamicOptionLoadPopulator.NONE : optionLoadPopulator;
         this.fieldProtectionPlan = new FieldProtectionPlan<DynamicRecord>(dao.getEntity().fields().stream()
                 .filter(field -> field.protection().enabled())
@@ -472,6 +470,29 @@ public class DynamicEntityService implements
 
     public Criteria queryCriteria(Collection<DynamicQueryCondition> conditions) {
         return new DynamicQueryCriteriaBuilder(dao.getEntity(), timeService, BusinessTimeContext.empty()).build(conditions);
+    }
+
+    @Override
+    public void beforeRecycleBinQuery() {
+        capabilityRuntimes.require(EntityCapability.RECYCLE_BIN);
+    }
+
+    @Override
+    public boolean isRecycleBinPurgeEnabled() {
+        return dao.getEntity().capabilities().contains(EntityCapability.RECYCLE_BIN);
+    }
+
+    @Override
+    public void beforeRecycleBinPurge(String id) {
+        capabilityRuntimes.require(EntityCapability.RECYCLE_BIN);
+    }
+
+    @Override
+    public PageResult<DynamicRecord> pageRecycleBin(Criteria criteria, PageRequest pageRequest, Sort... sorts) {
+        beforeRecycleBinQuery();
+        PageResult<DynamicRecord> page = getDao().pageQuery(recycleBinReadCriteria(criteria), pageRequest, sorts);
+        applyReadPipeline(page.getRecords());
+        return page;
     }
 
     @Override

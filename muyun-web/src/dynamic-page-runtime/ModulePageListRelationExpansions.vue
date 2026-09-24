@@ -21,6 +21,7 @@ const props = defineProps<{
   crossModuleHttp?: HttpClient;
   uiDescriptor: ResolvedModuleUiDescriptor;
   record: QueryListRecord;
+  retained?: boolean;
   entries: readonly RelationExpansionEntry[];
 }>();
 
@@ -58,6 +59,7 @@ watch(
     :cross-module-http="crossModuleHttp"
     :ui-descriptor="uiDescriptor"
     :record="record"
+    :retained="retained"
     :relation="entries[0].relation"
     :expansion="entries[0].expansion"
   />
@@ -81,6 +83,7 @@ watch(
       :cross-module-http="crossModuleHttp"
       :ui-descriptor="uiDescriptor"
       :record="record"
+      :retained="retained"
       :relation="entry.relation"
       :expansion="entry.expansion"
     />

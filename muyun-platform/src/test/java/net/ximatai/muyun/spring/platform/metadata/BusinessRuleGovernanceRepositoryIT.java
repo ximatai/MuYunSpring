@@ -16,8 +16,6 @@ import net.ximatai.muyun.spring.platform.module.PlatformModuleActionService;
 import net.ximatai.muyun.spring.platform.module.PlatformModuleService;
 import net.ximatai.muyun.spring.platform.runtime.PlatformDynamicRuntimeRefreshCoordinator;
 import net.ximatai.muyun.spring.platform.runtime.PlatformModuleDefinitionCompiler;
-import net.ximatai.muyun.spring.platform.runtime.PlatformDynamicRuntimeRefresher;
-import net.ximatai.muyun.spring.platform.runtime.PlatformDynamicRuntimeRefreshService;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecordRuntime;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecordService;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecord;
@@ -66,7 +64,8 @@ class BusinessRuleGovernanceRepositoryIT extends PlatformPostgresIntegrationTest
     @Autowired private MetadataFieldReferenceConfigService referenceConfigs;
     @Autowired private PlatformDynamicRuntimeRefreshCoordinator refresh;
     @Autowired private PlatformTransactionManager transactionManager;
-    @Autowired private PlatformDynamicRuntimeRefresher dynamicRefresher;
+    @Autowired private PlatformModuleDefinitionCompiler definitionCompiler;
+    @Autowired private DynamicSchemaService schemaService;
     @Autowired private DynamicRecordRuntime dynamicRuntime;
     private DynamicRecordService recordService;
     private String moduleAlias;
@@ -137,7 +136,7 @@ class BusinessRuleGovernanceRepositoryIT extends PlatformPostgresIntegrationTest
         referenceConfigs.insert(reference);
 
         // Register the declared dynamic reference before governance validates the proposed formula.
-        dynamicRefresher.refresh(moduleAlias);
+        installDeclaredModel();
         PlatformAbilityRuntime.configureReferenceTargetResolver(
                 new PlatformReferenceTargetResolver(null, dynamicRuntime, recordService));
 
@@ -150,7 +149,7 @@ class BusinessRuleGovernanceRepositoryIT extends PlatformPostgresIntegrationTest
                 baseline.baselineFingerprint(), preview.proposalFingerprint()));
 
         // Governance's coordinator is deliberately mocked in this repository fixture; install the accepted definition.
-        dynamicRefresher.refresh(moduleAlias);
+        installDeclaredModel();
         String entityAlias = item.getAlias();
         try (TenantContext.Scope ignored = TenantContext.use("formula-tenant-a")) {
         DynamicRecord supplier = recordService.newRecord(moduleAlias, entityAlias)
@@ -396,7 +395,8 @@ class BusinessRuleGovernanceRepositoryIT extends PlatformPostgresIntegrationTest
             throw new IllegalStateException("force rollback");
         })).isInstanceOf(IllegalStateException.class);
         assertThat(formulas.listByRelationIds(List.of(mainRelationId()))).isEmpty();
-        verifyNoInteractions(refresh);
+        verify(refresh).scheduleModules(List.of(moduleAlias));
+        org.mockito.Mockito.clearInvocations(refresh);
 
         AtomicInteger accepted = new AtomicInteger();
         CountDownLatch ready = new CountDownLatch(2);
@@ -412,7 +412,7 @@ class BusinessRuleGovernanceRepositoryIT extends PlatformPostgresIntegrationTest
         assertThat(accepted.get()).isEqualTo(1);
         assertThat(formulas.listByRelationIds(List.of(mainRelationId()))).extracting(ModuleMetadataFormulaRule::getAlias)
                 .containsExactly("deriveTotal");
-        verify(refresh, times(1)).activateModulesNow(List.of(moduleAlias));
+        verify(refresh, times(1)).scheduleModules(List.of(moduleAlias));
         assertThatThrownBy(() -> governance.apply(moduleAlias, new BusinessRuleApplyCommand(List.of(valid),
                 baseline.baselineFingerprint(), preview.proposalFingerprint()))).isInstanceOf(PlatformException.class)
                 .hasMessageContaining("stale");
@@ -475,10 +475,15 @@ class BusinessRuleGovernanceRepositoryIT extends PlatformPostgresIntegrationTest
         reference.setTargetMetadataId(item.getId());
         reference.setTargetUnavailablePolicy(net.ximatai.muyun.spring.ability.reference.ReferenceTargetUnavailablePolicy.RESTRICT);
         referenceConfigs.insert(reference);
-        dynamicRefresher.refresh(moduleAlias);
+        installDeclaredModel();
         PlatformAbilityRuntime.configureReferenceTargetResolver(
                 new PlatformReferenceTargetResolver(null, dynamicRuntime, recordService));
     }
+    private void installDeclaredModel() {
+        // This isolated governance fixture mocks the platform activation coordinator.
+        new DynamicModuleRuntimeRefresher(schemaService, dynamicRuntime).refresh(definitionCompiler.compile(moduleAlias));
+    }
+
     private ModuleMetadataFormulaRule formulaRule(String alias, FormulaRuleKind kind, FormulaRulePhase phase,
                                                   String targetField, String expression, boolean enabled) {
         ModuleMetadataFormulaRule rule = new ModuleMetadataFormulaRule();
@@ -527,13 +532,5 @@ class BusinessRuleGovernanceRepositoryIT extends PlatformPostgresIntegrationTest
             return new BusinessRuleGovernanceService(modules, relations, fields, configs, formulas, compiler, modulesCompiler, validator, refresh);
         }
         @Bean DynamicRecordRuntime dynamicRuntime(IDatabaseOperations<?> operations) { return DynamicRecordRuntime.builder(operations).build(); }
-        @Bean PlatformDynamicRuntimeRefresher dynamicRuntimeRefresher(PlatformModuleDefinitionCompiler compiler,
-                                                                        DynamicSchemaService schema,
-                                                                        DynamicRecordRuntime runtime) {
-            return new PlatformDynamicRuntimeRefresher(compiler, new DynamicModuleRuntimeRefresher(schema, runtime));
-        }
-        @Bean PlatformDynamicRuntimeRefreshService dynamicRuntimeRefreshService(PlatformDynamicRuntimeRefresher refresher) {
-            return new PlatformDynamicRuntimeRefreshService(refresher);
-        }
     }
 }

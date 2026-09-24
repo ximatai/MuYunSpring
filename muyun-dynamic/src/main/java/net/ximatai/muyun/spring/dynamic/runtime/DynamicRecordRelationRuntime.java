@@ -39,18 +39,20 @@ import java.util.Objects;
  * the record-service facade only preserves the established public entry points.</p>
  */
 final class DynamicRecordRelationRuntime {
-    private final DynamicRecordService records;
+    private final DynamicRecordAccessContext access;
+    private final DynamicRecordQueryRuntime queries;
 
-    DynamicRecordRelationRuntime(DynamicRecordService records) {
-        this.records = Objects.requireNonNull(records, "records must not be null");
+    DynamicRecordRelationRuntime(DynamicRecordAccessContext access, DynamicRecordQueryRuntime queries) {
+        this.access = Objects.requireNonNull(access, "access must not be null");
+        this.queries = Objects.requireNonNull(queries, "queries must not be null");
     }
 
     List<DynamicAssociationViewDescriptor> associationViews(String moduleAlias) {
-        return records.describe(moduleAlias).associationViews();
+        return access.describe(moduleAlias).associationViews();
     }
 
     List<DynamicAssociationViewDescriptor> associationViews(String moduleAlias, String entityAlias) {
-        return records.entityDescriptor(moduleAlias, entityAlias).associationViews();
+        return access.entityDescriptor(moduleAlias, entityAlias).associationViews();
     }
 
     DynamicAssociationViewDescriptor associationView(String moduleAlias, String entityAlias, String viewCode) {
@@ -70,12 +72,12 @@ final class DynamicRecordRelationRuntime {
         }
         DynamicRecord source = requireAssociationSource(moduleAlias, entityAlias, sourceRecordId);
         Criteria associationCriteria = associationCriteria(moduleAlias, entityAlias, source, view);
-        return records.page(view.targetModuleAlias(), view.targetEntityAlias(),
+        return queries.page(view.targetModuleAlias(), view.targetEntityAlias(),
                 associationTargetCriteria(source, view, associationCriteria, criteria), pageRequest, sorts);
     }
 
     DynamicAssociationRelationOverview associationRelationOverview(String moduleAlias) {
-        DynamicModuleDescriptor descriptor = records.describe(moduleAlias);
+        DynamicModuleDescriptor descriptor = access.describe(moduleAlias);
         Map<String, String> viewByRelation = new LinkedHashMap<>();
         Map<String, String> viewByReference = new LinkedHashMap<>();
         for (DynamicAssociationViewDescriptor view : descriptor.associationViews()) {
@@ -117,18 +119,18 @@ final class DynamicRecordRelationRuntime {
         DynamicRecord source = requireAssociationSource(moduleAlias, entityAlias, sourceRecordId);
         Criteria associationCriteria = associationCriteria(moduleAlias, entityAlias, source, view);
         Criteria targetCriteria = associationTargetCriteria(source, view, associationCriteria, criteria);
-        long targetCount = records.count(view.targetModuleAlias(), view.targetEntityAlias(), targetCriteria);
+        long targetCount = queries.count(view.targetModuleAlias(), view.targetEntityAlias(), targetCriteria);
         DynamicAssociationViewDiagnosisStatus status = diagnosisStatus(view, targetCount);
         return new DynamicAssociationViewDiagnosis(view, associationCriteria, criteria == null ? Criteria.of() : criteria,
                 targetCriteria, targetCount, status, diagnosisMessage(status, targetCount));
     }
 
     List<DynamicRelationDescriptor> relations(String moduleAlias) {
-        return records.describe(moduleAlias).relations();
+        return access.describe(moduleAlias).relations();
     }
 
     List<DynamicReferenceDescriptor> references(String moduleAlias) {
-        return records.describe(moduleAlias).references();
+        return access.describe(moduleAlias).references();
     }
 
     List<DynamicReferenceDescriptor> references(String moduleAlias, String entityAlias) {
@@ -151,55 +153,55 @@ final class DynamicRecordRelationRuntime {
         DynamicReferenceResolveRequest normalized = request == null
                 ? DynamicReferenceResolveRequest.query(null) : request;
         Criteria criteria = referenceCriteria(normalized.criteria(), reference, normalized.formValues());
-        if (!records.hasRegisteredDynamicEntity(reference.targetModuleAlias(), reference.targetEntityAlias())) {
+        if (!access.hasRegisteredDynamicEntity(reference.targetModuleAlias(), reference.targetEntityAlias())) {
             // Static targets execute their own REFERENCE data-scope policy through ReferenceAbility.
             // Do not force them through the dynamic runtime only because the source is metadata-driven.
-            return records.entityService(moduleAlias, entityAlias)
+            return access.entityService(moduleAlias, entityAlias)
                     .resolveReference(sourceField, normalized.withCriteria(criteria));
         }
-        DataScopeCriteriaResult scope = records.readScope(reference.targetModuleAlias(), PlatformAction.REFERENCE, criteria);
-        return records.withTenantScope(scope, () -> records.entityService(moduleAlias, entityAlias)
+        DataScopeCriteriaResult scope = access.readScope(reference.targetModuleAlias(), PlatformAction.REFERENCE, criteria);
+        return access.withTenantScope(scope, () -> access.entityService(moduleAlias, entityAlias)
                 .resolveReference(sourceField, normalized.withCriteria(scope.criteria())));
     }
 
     String title(String moduleAlias, String entityAlias, String id) {
-        records.requireCapability(moduleAlias, entityAlias, EntityCapability.REFERENCE);
-        DataScopeCriteriaResult scope = records.readScope(moduleAlias, PlatformAction.VIEW, Criteria.of().eq("id", id));
-        if (!records.recordVisible(moduleAlias, entityAlias, scope, id)) return null;
-        return records.withTenantScope(scope, () -> records.entityService(moduleAlias, entityAlias).title(id));
+        access.requireCapability(moduleAlias, entityAlias, EntityCapability.REFERENCE);
+        DataScopeCriteriaResult scope = access.readScope(moduleAlias, PlatformAction.VIEW, Criteria.of().eq("id", id));
+        if (!access.recordVisible(moduleAlias, entityAlias, scope, id)) return null;
+        return access.withTenantScope(scope, () -> access.entityService(moduleAlias, entityAlias).title(id));
     }
 
     Map<String, String> titles(String moduleAlias, String entityAlias, Collection<String> ids) {
-        records.requireCapability(moduleAlias, entityAlias, EntityCapability.REFERENCE);
-        DataScopeCriteriaResult scope = records.readScope(moduleAlias, PlatformAction.VIEW, records.idsCriteria(ids));
-        return records.withTenantScope(scope, () -> records.entityService(moduleAlias, entityAlias)
-                .titles(records.visibleRecordIds(moduleAlias, entityAlias, scope, ids)));
+        access.requireCapability(moduleAlias, entityAlias, EntityCapability.REFERENCE);
+        DataScopeCriteriaResult scope = access.readScope(moduleAlias, PlatformAction.VIEW, access.idsCriteria(ids));
+        return access.withTenantScope(scope, () -> access.entityService(moduleAlias, entityAlias)
+                .titles(access.visibleRecordIds(moduleAlias, entityAlias, scope, ids)));
     }
 
     Map<String, Map<String, Object>> projections(String moduleAlias, String entityAlias, Collection<String> ids,
                                                   Collection<String> fieldNames) {
-        records.requireCapability(moduleAlias, entityAlias, EntityCapability.REFERENCE);
-        DataScopeCriteriaResult scope = records.readScope(moduleAlias, PlatformAction.REFERENCE, records.idsCriteria(ids));
-        return records.withTenantScope(scope, () -> records.entityService(moduleAlias, entityAlias)
-                .projections(records.visibleRecordIds(moduleAlias, entityAlias, scope, ids), fieldNames));
+        access.requireCapability(moduleAlias, entityAlias, EntityCapability.REFERENCE);
+        DataScopeCriteriaResult scope = access.readScope(moduleAlias, PlatformAction.REFERENCE, access.idsCriteria(ids));
+        return access.withTenantScope(scope, () -> access.entityService(moduleAlias, entityAlias)
+                .projections(access.visibleRecordIds(moduleAlias, entityAlias, scope, ids), fieldNames));
     }
 
     PageResult<ReferenceOption> referenceOptions(String moduleAlias, String entityAlias, Criteria criteria,
                                                  PageRequest pageRequest) {
-        DataScopeCriteriaResult scope = records.readScope(moduleAlias, PlatformAction.REFERENCE, criteria);
-        return records.withTenantScope(scope, () -> records.entityService(moduleAlias, entityAlias)
+        DataScopeCriteriaResult scope = access.readScope(moduleAlias, PlatformAction.REFERENCE, criteria);
+        return access.withTenantScope(scope, () -> access.entityService(moduleAlias, entityAlias)
                 .referenceOptions(scope.criteria(), pageRequest));
     }
 
     PageResult<ReferenceOption> referenceOptions(String moduleAlias, String entityAlias, ReferencePlan plan,
                                                  Criteria criteria, PageRequest pageRequest) {
-        DataScopeCriteriaResult scope = records.readScope(moduleAlias, PlatformAction.REFERENCE, criteria);
-        return records.withTenantScope(scope, () -> records.entityService(moduleAlias, entityAlias)
+        DataScopeCriteriaResult scope = access.readScope(moduleAlias, PlatformAction.REFERENCE, criteria);
+        return access.withTenantScope(scope, () -> access.entityService(moduleAlias, entityAlias)
                 .referenceOptions(plan, scope.criteria(), pageRequest));
     }
 
     private DynamicRecord requireAssociationSource(String moduleAlias, String entityAlias, String sourceRecordId) {
-        DynamicRecord source = records.select(moduleAlias, entityAlias, sourceRecordId);
+        DynamicRecord source = queries.select(moduleAlias, entityAlias, sourceRecordId);
         if (source == null) {
             throw new PlatformException("dynamic association source record does not exist: " + sourceRecordId);
         }
@@ -243,7 +245,7 @@ final class DynamicRecordRelationRuntime {
             if (value == null && mapping.operator() != DynamicQueryOperator.NULL && mapping.operator() != DynamicQueryOperator.NOT_NULL) {
                 return falseCriteria();
             }
-            return records.queryCriteria(targetModuleAlias, targetEntityAlias,
+            return access.entityService(targetModuleAlias, targetEntityAlias).queryCriteria(
                     List.of(new DynamicQueryCondition(mapping.targetField(), mapping.operator(), mappingValues(mapping, value))));
         }
         Criteria criteria = Criteria.of();

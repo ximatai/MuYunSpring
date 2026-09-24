@@ -66,7 +66,7 @@ class CrossBoundaryReferenceDeletionGuardTest {
 
         new DynamicReferenceDeletionGuard(runtime).beforeTargetUnavailable(staticTarget, target);
 
-        verify(runtime).validateReferenceTargetDeletion(
+        verify(runtime).validateReferenceTargetUnavailable(
                 eq(ReferenceTarget.of("education", "student")), eq("student-1"));
     }
 
