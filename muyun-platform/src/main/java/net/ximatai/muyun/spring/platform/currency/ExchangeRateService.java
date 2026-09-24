@@ -50,8 +50,7 @@ public class ExchangeRateService extends StandardBusinessService<ExchangeRate> i
     }
 
     @Override
-    public void beforeUpdate(ExchangeRate rate, ExchangeRate existing) {
-        super.beforeUpdate(rate);
+    protected void validateBeforeUpdate(ExchangeRate rate, ExchangeRate existing) {
         validateImmutableIdentity(rate, existing);
     }
 

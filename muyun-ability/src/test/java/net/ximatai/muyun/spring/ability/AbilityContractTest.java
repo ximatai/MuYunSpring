@@ -2246,7 +2246,7 @@ class AbilityContractTest {
         }
 
         @Override
-        protected void validateBeforeUpdate(DemoPlainRecord record) {
+        protected void validateBeforeUpdate(DemoPlainRecord record, DemoPlainRecord existing) {
             hooks.add("update");
         }
     }

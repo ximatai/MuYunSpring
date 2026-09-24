@@ -71,8 +71,7 @@ public class PlatformPageDefinitionService extends StandardBusinessService<Platf
     }
 
     @Override
-    public void beforeUpdate(PlatformPageDefinition page, PlatformPageDefinition existing) {
-        super.beforeUpdate(page);
+    protected void validateBeforeUpdate(PlatformPageDefinition page, PlatformPageDefinition existing) {
         rejectChanged(existing, page, "Page moduleAlias", PlatformPageDefinition::getModuleAlias);
         rejectChanged(existing, page, "Page alias", PlatformPageDefinition::getAlias);
         rejectChanged(existing, page, "Page contract type", PlatformPageDefinition::getContractType);

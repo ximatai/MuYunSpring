@@ -69,8 +69,7 @@ public class MeasureUnitService extends StandardBusinessService<MeasureUnit> imp
     }
 
     @Override
-    public void beforeUpdate(MeasureUnit unit, MeasureUnit existing) {
-        super.beforeUpdate(unit);
+    protected void validateBeforeUpdate(MeasureUnit unit, MeasureUnit existing) {
         validateImmutableIdentity(unit, existing);
     }
 

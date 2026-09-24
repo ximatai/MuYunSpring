@@ -45,8 +45,7 @@ public class CurrencyService extends StandardBusinessService<Currency> implement
     }
 
     @Override
-    public void beforeUpdate(Currency currency, Currency existing) {
-        super.beforeUpdate(currency);
+    protected void validateBeforeUpdate(Currency currency, Currency existing) {
         validateImmutableIdentity(currency, existing);
     }
 

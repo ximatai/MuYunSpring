@@ -69,8 +69,7 @@ public class MeasureUnitConversionRuleService extends StandardBusinessService<Me
     }
 
     @Override
-    public void beforeUpdate(MeasureUnitConversionRule rule, MeasureUnitConversionRule existing) {
-        super.beforeUpdate(rule);
+    protected void validateBeforeUpdate(MeasureUnitConversionRule rule, MeasureUnitConversionRule existing) {
         validateImmutableIdentity(rule, existing);
     }
 

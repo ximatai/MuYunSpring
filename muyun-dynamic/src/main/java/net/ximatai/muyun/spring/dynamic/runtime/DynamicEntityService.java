@@ -623,7 +623,7 @@ public class DynamicEntityService implements
             scope = Criteria.of();
         }
         for (String fieldName : dao.getEntity().sortPartitionFields()) {
-            scope.eq(fieldName, record.getValue(fieldName));
+            scope.eqNullable(fieldName, record.getValue(fieldName));
         }
         return scope;
     }

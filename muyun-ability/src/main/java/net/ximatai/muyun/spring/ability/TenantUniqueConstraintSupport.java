@@ -69,10 +69,7 @@ final class TenantUniqueConstraintSupport {
     private static <T extends EntityContract> List<T> conflictingRecords(CrudAbility<T> ability,
                                                                            T entity,
                                                                            TenantUniqueConstraintDefinition constraint) {
-        Criteria criteria = Criteria.of();
-        if (entity.getTenantId() != null && !entity.getTenantId().isBlank()) {
-            criteria.eq(StandardEntitySchema.TENANT_ID_FIELD, entity.getTenantId());
-        }
+        Criteria criteria = Criteria.of().eqNullable(StandardEntitySchema.TENANT_ID_FIELD, entity.getTenantId());
         for (String field : constraint.fieldNames()) {
             Object value = value(ability, entity, field);
             if (value == null) {

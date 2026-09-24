@@ -11,7 +11,7 @@
 | 不需要上述写入门禁的业务 | `StandardBusinessService<T>` | 标准保存模板；不自动赋予系统态，也不自动绕过租户过滤 |
 | 底层适配、特殊生命周期或已有完整模板 | `AbstractAbilityService<T>` / `CrudAbility<T>` | 标准 CRUD 链；普通业务优先使用上面的入口 |
 
-推荐基类统一提供模块身份、模型类型、DAO 和保存校验入口。业务优先覆盖 `normalizeBeforeMutation`、`validateBeforeSave`、`validateBeforeInsert`、`validateBeforeUpdate`；平台门禁与规范化独立于业务保存 hook，`after*` 无需手动调用 `super` 维持平台能力。
+推荐基类统一提供模块身份、模型类型、DAO 和保存校验入口。业务优先覆盖 `normalizeBeforeMutation`、`validateBeforeSave`、`validateBeforeInsert`、`validateBeforeUpdate(entity, existing)`；平台门禁与规范化独立于业务保存 hook，`after*` 无需手动调用 `super` 维持平台能力。更新专用校验直接获得平台已读取的旧记录，不需再查询，也不需手工调用通用保存校验。
 
 标准 CRUD 自动执行版本控制、生命周期及已声明能力的内部链。通过 Starter 接入时，平台安装标准写入事务与能力运行时，普通业务不复制事务壳、权限 provider 或引用 resolver。标准批量新增、批量删除、重排、相邻移动及树节点移动也以整次操作为事务边界，改父级后的排序失败会一并回滚。跨多个独立 Service 的领域编排通过基类 `inMutationTransaction` 或外层事务明确整次边界；手工构造且未安装事务执行器的独立使用不承诺原子回滚。
 

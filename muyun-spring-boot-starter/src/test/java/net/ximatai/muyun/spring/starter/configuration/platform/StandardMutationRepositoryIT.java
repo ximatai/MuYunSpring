@@ -161,6 +161,33 @@ class StandardMutationRepositoryIT {
     }
 
     @Test
+    void globalIdentityIsIndependentOfTenantOverridesAndRetainedTenantRecords() {
+        String code = "tenant-first-" + UUID.randomUUID();
+        var tenantRow = record(code);
+        try (var tenant = TenantContext.use("identity-tenant")) {
+            records.insert(tenantRow);
+            records.delete(tenantRow.getId());
+        }
+        var global = record(code);
+        records.insert(global);
+        assertThat(records.update(global)).isEqualTo(1);
+        try (var tenant = TenantContext.use("identity-tenant")) {
+            assertThatThrownBy(() -> records.insert(record(code)))
+                    .isInstanceOfSatisfying(PlatformException.class, error -> {
+                        assertThat(error.code()).isEqualTo(PlatformErrorCodes.RESOURCE_SOFT_DELETED_CONFLICT);
+                        assertThat(error.details()).containsEntry("resourceRecordId", tenantRow.getId());
+                    });
+        }
+        assertThatThrownBy(() -> records.insert(record(code)))
+                .isInstanceOfSatisfying(PlatformException.class,
+                        error -> assertThat(error.code()).isEqualTo(PlatformErrorCodes.CONFLICT_UNIQUE));
+        records.delete(global.getId());
+        assertThatThrownBy(() -> records.insert(record(code)))
+                .isInstanceOfSatisfying(PlatformException.class,
+                        error -> assertThat(error.details()).containsEntry("resourceRecordId", global.getId()));
+    }
+
+    @Test
     void declaredNullPartitionDoesNotIncludeTenantRecords() {
         var sorting = new LayerRecords(dao);
         String code = "partition-" + UUID.randomUUID();
