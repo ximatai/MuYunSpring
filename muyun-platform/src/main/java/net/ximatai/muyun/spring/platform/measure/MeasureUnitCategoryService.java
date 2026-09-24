@@ -3,8 +3,9 @@ package net.ximatai.muyun.spring.platform.measure;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.database.core.orm.Sort;
-import net.ximatai.muyun.spring.ability.AbstractAbilityService;
+import net.ximatai.muyun.spring.ability.StandardBusinessService;
 import net.ximatai.muyun.spring.ability.BaseDao;
+import net.ximatai.muyun.spring.ability.TenantLayerAbility;
 import net.ximatai.muyun.spring.ability.CacheAbility;
 import net.ximatai.muyun.spring.ability.EnableAbility;
 import net.ximatai.muyun.spring.ability.SoftDeleteAbility;
@@ -12,8 +13,6 @@ import net.ximatai.muyun.spring.ability.SortAbility;
 import net.ximatai.muyun.spring.ability.reference.ReferenceAbility;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.schema.PlatformAbilityFields;
-import net.ximatai.muyun.spring.common.schema.StandardEntitySchema;
-import net.ximatai.muyun.spring.common.tenant.TenantContext;
 import net.ximatai.muyun.spring.common.util.PlatformNameRules;
 import net.ximatai.muyun.spring.platform.application.ApplicationReferenceContributor;
 import org.springframework.stereotype.Service;
@@ -27,7 +26,8 @@ import net.ximatai.muyun.spring.ability.query.QueryDescriptor;
 import net.ximatai.muyun.spring.ability.query.QueryDescriptors;
 
 @Service
-public class MeasureUnitCategoryService extends AbstractAbilityService<MeasureUnitCategory> implements
+public class MeasureUnitCategoryService extends StandardBusinessService<MeasureUnitCategory> implements
+        TenantLayerAbility<MeasureUnitCategory>,
         SoftDeleteAbility<MeasureUnitCategory>,
         EnableAbility<MeasureUnitCategory>,
         SortAbility<MeasureUnitCategory>,
@@ -65,29 +65,8 @@ public class MeasureUnitCategoryService extends AbstractAbilityService<MeasureUn
     }
 
     @Override
-    public void beforeInsert(MeasureUnitCategory category) {
-        normalizeAndValidate(category);
-    }
-
-    @Override
-    public void beforeUpdate(MeasureUnitCategory category) {
-        normalizeAndValidate(category);
-        validateImmutableIdentity(category);
-    }
-
-    @Override
-    public net.ximatai.muyun.spring.ability.SortPartition<MeasureUnitCategory> sortPartition() {
-        return net.ximatai.muyun.spring.ability.SortPartitions.of(category -> Criteria.of()
-                        .eqNullable(StandardEntitySchema.TENANT_ID_FIELD, category.getTenantId())
-                        .eq("applicationAlias", category.getApplicationAlias()),
-                net.ximatai.muyun.spring.ability.SortPartitions.byFieldsWithMessage(
-                "Measure unit category sort can only move records within the same tenant and application",
-                "tenantId", "applicationAlias"));
-    }
-
-    @Override
-    public List<String> sortPartitionFields() {
-        return List.of("tenantId", "applicationAlias");
+    protected void validateBeforeUpdate(MeasureUnitCategory category, MeasureUnitCategory existing) {
+        validateImmutableIdentity(category, existing);
     }
 
     public MeasureUnitCategory requireCategory(String applicationAlias, String categoryAlias) {
@@ -148,20 +127,13 @@ public class MeasureUnitCategoryService extends AbstractAbilityService<MeasureUn
     public List<MeasureUnitCategory> listVisibleCategories(String applicationAlias, boolean enabledOnly) {
         String validApplicationAlias = PlatformNameRules.requireApplicationAlias(applicationAlias);
         Map<String, MeasureUnitCategory> categories = new LinkedHashMap<>();
-        if (TenantContext.currentTenantId().isPresent()) {
-            for (String candidateApplication : applicationCandidates(validApplicationAlias)) {
-                listCategoryLayer(candidateApplication, enabledOnly)
-                        .forEach(category -> categories.putIfAbsent(category.getAlias(), category));
-            }
-            for (String candidateApplication : applicationCandidates(validApplicationAlias)) {
-                listGlobalCategories(categoryCriteria(candidateApplication, enabledOnly))
-                        .forEach(category -> categories.putIfAbsent(category.getAlias(), category));
-            }
-        } else {
-            for (String candidateApplication : applicationCandidates(validApplicationAlias)) {
-                listCategoryLayer(candidateApplication, enabledOnly)
-                        .forEach(category -> categories.putIfAbsent(category.getAlias(), category));
-            }
+        for (String candidateApplication : applicationCandidates(validApplicationAlias)) {
+            listCurrentTenant(categoryCriteria(candidateApplication, enabledOnly), Sort.asc(PlatformAbilityFields.SORT_FIELD))
+                    .forEach(category -> categories.putIfAbsent(category.getAlias(), category));
+        }
+        for (String candidateApplication : applicationCandidates(validApplicationAlias)) {
+            listGlobal(categoryCriteria(candidateApplication, enabledOnly), Sort.asc(PlatformAbilityFields.SORT_FIELD))
+                    .forEach(category -> categories.putIfAbsent(category.getAlias(), category));
         }
         return List.copyOf(categories.values());
     }
@@ -181,26 +153,12 @@ public class MeasureUnitCategoryService extends AbstractAbilityService<MeasureUn
                 .toList();
     }
 
-    private List<MeasureUnitCategory> listCategoryLayer(String applicationAlias, boolean enabledOnly) {
-        Criteria criteria = categoryCriteria(applicationAlias, enabledOnly);
-        return list(criteria, new PageRequest(0, Integer.MAX_VALUE), Sort.asc(PlatformAbilityFields.SORT_FIELD));
-    }
-
     private Criteria categoryCriteria(String applicationAlias, boolean enabledOnly) {
         Criteria criteria = Criteria.of().eq("applicationAlias", applicationAlias);
         if (enabledOnly) {
             criteria.eq("enabled", Boolean.TRUE);
         }
         return criteria;
-    }
-
-    private List<MeasureUnitCategory> listGlobalCategories(Criteria criteria) {
-        try (TenantContext.Scope ignored = TenantContext.system("select global measure unit categories")) {
-            return list(criteria, new PageRequest(0, Integer.MAX_VALUE), Sort.asc(PlatformAbilityFields.SORT_FIELD))
-                    .stream()
-                    .filter(category -> category.getTenantId() == null || category.getTenantId().isBlank())
-                    .toList();
-        }
     }
 
     private List<String> applicationCandidates(String applicationAlias) {
@@ -210,7 +168,8 @@ public class MeasureUnitCategoryService extends AbstractAbilityService<MeasureUn
         return List.of(SHARED_APPLICATION_ALIAS, applicationAlias);
     }
 
-    private void normalizeAndValidate(MeasureUnitCategory category) {
+    @Override
+    protected void validateBeforeSave(MeasureUnitCategory category) {
         String applicationAlias = PlatformNameRules.requireApplicationAlias(category.getApplicationAlias());
         String alias = requireAlias(category.getAlias());
         category.setApplicationAlias(applicationAlias);
@@ -223,15 +182,9 @@ public class MeasureUnitCategoryService extends AbstractAbilityService<MeasureUn
         } else {
             category.setBaseUnitCode(null);
         }
-        rejectDuplicate(category, Criteria.of()
-                        .eqNullable(StandardEntitySchema.TENANT_ID_FIELD, category.getTenantId())
-                        .eq("applicationAlias", category.getApplicationAlias())
-                        .eq("alias", category.getAlias()),
-                "measureUnitCategoryAlias must be unique within application: " + category.getAlias());
     }
 
-    private void validateImmutableIdentity(MeasureUnitCategory category) {
-        MeasureUnitCategory existing = selectIncludingDeleted(category.getId());
+    private void validateImmutableIdentity(MeasureUnitCategory category, MeasureUnitCategory existing) {
         rejectChanged(existing, category, "Measure unit category application", MeasureUnitCategory::getApplicationAlias);
         rejectChanged(existing, category, "Measure unit category alias", MeasureUnitCategory::getAlias);
         rejectChanged(existing, category, "Measure unit category dimension", MeasureUnitCategory::getDimension);

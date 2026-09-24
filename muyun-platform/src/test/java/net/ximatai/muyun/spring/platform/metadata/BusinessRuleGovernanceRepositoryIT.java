@@ -23,6 +23,7 @@ import net.ximatai.muyun.spring.dynamic.schema.DynamicSchemaService;
 import net.ximatai.muyun.spring.dynamic.refresh.DynamicModuleRuntimeRefresher;
 import net.ximatai.muyun.database.core.IDatabaseOperations;
 import net.ximatai.muyun.spring.ability.PlatformAbilityRuntime;
+import net.ximatai.muyun.spring.ability.MutationTransactionOperator;
 import net.ximatai.muyun.spring.platform.reference.PlatformReferenceTargetResolver;
 import net.ximatai.muyun.spring.platform.support.PlatformPostgresIntegrationTest;
 import org.junit.jupiter.api.AfterEach;
@@ -72,6 +73,18 @@ class BusinessRuleGovernanceRepositoryIT extends PlatformPostgresIntegrationTest
 
     @BeforeEach
     void setUp() {
+        // This isolated host does not import Starter's mutation runtime configuration.
+        TransactionTemplate mutations = new TransactionTemplate(transactionManager);
+        TransactionTemplate statements = new TransactionTemplate(transactionManager);
+        statements.setPropagationBehavior(org.springframework.transaction.TransactionDefinition.PROPAGATION_NESTED);
+        PlatformAbilityRuntime.configureMutationTransactionOperator(new MutationTransactionOperator() {
+            @Override public <T> T execute(java.util.function.Supplier<T> work) {
+                return mutations.execute(status -> work.get());
+            }
+            @Override public <T> T executeStatement(java.util.function.Supplier<T> work) {
+                return statements.execute(status -> work.get());
+            }
+        });
         reset(modules, refresh);
         recordService = new DynamicRecordService(dynamicRuntime);
         String suffix = UUID.randomUUID().toString().replace("-", "").substring(0, 8);
@@ -95,6 +108,7 @@ class BusinessRuleGovernanceRepositoryIT extends PlatformPostgresIntegrationTest
 
     @AfterEach
     void resetAbilityRuntime() {
+        PlatformAbilityRuntime.resetMutationTransactionOperator();
         PlatformAbilityRuntime.resetReferenceTargetResolver();
     }
 

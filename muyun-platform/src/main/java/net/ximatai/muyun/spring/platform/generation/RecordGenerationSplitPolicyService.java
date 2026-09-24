@@ -1,8 +1,7 @@
 package net.ximatai.muyun.spring.platform.generation;
 
 import net.ximatai.muyun.database.core.orm.Criteria;
-import net.ximatai.muyun.database.core.orm.PageRequest;
-import net.ximatai.muyun.spring.ability.AbstractAbilityService;
+import net.ximatai.muyun.spring.ability.StandardBusinessService;
 import net.ximatai.muyun.spring.ability.BaseDao;
 import net.ximatai.muyun.spring.ability.SoftDeleteAbility;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
@@ -10,7 +9,7 @@ import net.ximatai.muyun.spring.common.util.PlatformNameRules;
 import org.springframework.stereotype.Service;
 
 @Service
-public class RecordGenerationSplitPolicyService extends AbstractAbilityService<RecordGenerationSplitPolicy> implements SoftDeleteAbility<RecordGenerationSplitPolicy> {
+public class RecordGenerationSplitPolicyService extends StandardBusinessService<RecordGenerationSplitPolicy> implements SoftDeleteAbility<RecordGenerationSplitPolicy> {
     public static final String MODULE_ALIAS = "platform.record_generation_split_policy";
 
     public RecordGenerationSplitPolicyService(BaseDao<RecordGenerationSplitPolicy, String> splitPolicyDao) {
@@ -25,16 +24,7 @@ public class RecordGenerationSplitPolicyService extends AbstractAbilityService<R
     }
 
     @Override
-    public void beforeInsert(RecordGenerationSplitPolicy policy) {
-        normalizeAndValidate(policy);
-    }
-
-    @Override
-    public void beforeUpdate(RecordGenerationSplitPolicy policy) {
-        normalizeAndValidate(policy);
-    }
-
-    private void normalizeAndValidate(RecordGenerationSplitPolicy policy) {
+    protected void validateBeforeSave(RecordGenerationSplitPolicy policy) {
         if (policy.getObjectMappingId() == null || policy.getObjectMappingId().isBlank()) {
             throw new PlatformException("Split policy requires objectMappingId");
         }

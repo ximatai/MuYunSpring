@@ -1,6 +1,7 @@
 package net.ximatai.muyun.spring.platform.measure;
 
 import lombok.Getter;
+import net.ximatai.muyun.spring.ability.SortPartitionBy;
 import lombok.Setter;
 import net.ximatai.muyun.database.core.annotation.Column;
 import net.ximatai.muyun.database.core.annotation.Default;
@@ -13,6 +14,8 @@ import net.ximatai.muyun.spring.common.model.constraint.TenantUniqueConstraint;
 @Setter
 @Table(name = "platform_measure_unit_category", comment = "Platform measure unit category")
 @TenantUniqueConstraint(fields = {"applicationAlias", "alias"})
+@SortPartitionBy(fields = {"tenantId", "applicationAlias"},
+        message = "Measure unit category sort can only move records within the same tenant and application")
 public class MeasureUnitCategory extends StandardEnabledSortableEntity {
     @Column(name = "application_alias", type = ColumnType.VARCHAR, length = 64, nullable = false,
             comment = "Application alias")

@@ -19,7 +19,7 @@ public final class BusinessScope {
         Objects.requireNonNull(source, "source must not be null");
         Criteria criteria = Criteria.of();
         for (String fieldName : requireFieldNames(fieldNames)) {
-            criteria.eq(fieldName, value(source, fieldName));
+            criteria.eqNullable(fieldName, value(source, fieldName));
         }
         return criteria;
     }

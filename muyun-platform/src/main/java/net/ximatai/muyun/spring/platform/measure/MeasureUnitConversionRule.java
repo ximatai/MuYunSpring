@@ -1,6 +1,7 @@
 package net.ximatai.muyun.spring.platform.measure;
 
 import lombok.Getter;
+import net.ximatai.muyun.spring.ability.SortPartitionBy;
 import lombok.Setter;
 import net.ximatai.muyun.database.core.annotation.Column;
 import net.ximatai.muyun.database.core.annotation.CompositeIndex;
@@ -19,6 +20,9 @@ import java.time.LocalDateTime;
         "tenant_id", "application_alias", "scope_type", "module_alias", "context_object_type", "context_object_id",
         "from_category_alias", "from_unit_code", "to_category_alias", "to_unit_code"
 })
+@SortPartitionBy(fields = {"tenantId", "applicationAlias", "scopeType", "moduleAlias", "contextObjectType",
+        "contextObjectId"},
+        message = "Measure unit conversion rule sort can only move records within the same tenant and scope")
 public class MeasureUnitConversionRule extends StandardEnabledSortableEntity {
     @Column(name = "application_alias", type = ColumnType.VARCHAR, length = 64, nullable = false,
             comment = "Application alias")

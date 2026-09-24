@@ -786,6 +786,27 @@ class DynamicSchemaServiceIT {
     }
 
     @Test
+    void nullableDynamicSortPartitionMustRemainSeparateFromPopulatedPartitions() {
+        EntityDefinition entity = new EntityDefinition("entry", "app_nullable_partition_it", "Entry", List.of(
+                FieldDefinition.string("groupId", "Group").column("group_id"), FieldDefinition.sortOrder()))
+                .withCapabilities(EntityCapability.CRUD, EntityCapability.SORT)
+                .withSortPartitionFields("groupId");
+        schemaService.ensureTable(entity);
+        var service = DynamicEntityServiceTestFactory.forDataAccess(new DynamicRecordDao(operations, entity), "test.partition");
+        try (var tenant = TenantContext.use("partition-" + java.util.UUID.randomUUID())) {
+            String first = service.insert(new DynamicRecord(entity));
+            String second = service.insert(new DynamicRecord(entity));
+            String other = service.insert(new DynamicRecord(entity).setValue("groupId", "other"));
+            var before = service.select(other);
+            service.reorder(List.of(second, first));
+            assertThat(service.sortedList(Criteria.of().isNull("groupId"))).extracting(DynamicRecord::getId)
+                    .containsExactly(second, first);
+            assertThat(service.select(other).getVersion()).isEqualTo(before.getVersion());
+            assertThat(service.select(other).getValue("sortOrder")).isEqualTo(before.getValue("sortOrder"));
+        }
+    }
+
+    @Test
     void shouldRunDynamicRecordMinimalDataAccessLoopOnRealDatabase() {
         EntityDefinition entity = entity("app_contract_record_it");
         schemaService.ensureTable(entity);

@@ -23,6 +23,22 @@ class MeasureUnitConversionRuleServiceTest {
             new MeasureUnitBusinessConversionService(unitService, ruleService);
 
     @Test
+    void shouldOnlyUseGlobalRulesWithoutTenantContext() {
+        prepareQuantityUnits();
+        String global = ruleService.insert(rule("crm", MeasureUnitConversionScopeType.GLOBAL,
+                null, null, null, "quantity", "box", "quantity", "bottle", "12"));
+        try (TenantContext.Scope ignored = TenantContext.use("tenant-a")) {
+            prepareQuantityUnits();
+            ruleService.insert(rule("crm", MeasureUnitConversionScopeType.GLOBAL,
+                    null, null, null, "quantity", "box", "quantity", "bottle", "10"));
+        }
+        assertThat(ruleService.applicableRules(context("crm", null, null, null)))
+                .extracting(MeasureUnitConversionRule::getId).containsExactly(global);
+        assertThat(categoryService.listVisibleCategories("crm", false))
+                .allSatisfy(category -> assertThat(category.getTenantId()).isNull());
+    }
+
+    @Test
     void shouldConvertByChainedGlobalRules() {
         prepareQuantityUnits();
         String boxRuleId = ruleService.insert(rule("crm", MeasureUnitConversionScopeType.GLOBAL,
@@ -114,7 +130,6 @@ class MeasureUnitConversionRuleServiceTest {
 
         assertThat(conversion.convertedValue()).isEqualByComparingTo("20");
     }
-
 
     @Test
     void shouldSupportReverseConversionFromSameRule() {

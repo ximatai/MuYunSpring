@@ -1,17 +1,15 @@
 package net.ximatai.muyun.spring.platform.currency;
 
 import net.ximatai.muyun.database.core.orm.Criteria;
-import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.database.core.orm.Sort;
-import net.ximatai.muyun.spring.ability.AbstractAbilityService;
+import net.ximatai.muyun.spring.ability.StandardBusinessService;
 import net.ximatai.muyun.spring.ability.BaseDao;
+import net.ximatai.muyun.spring.ability.TenantLayerAbility;
 import net.ximatai.muyun.spring.ability.EnableAbility;
 import net.ximatai.muyun.spring.ability.SoftDeleteAbility;
 import net.ximatai.muyun.spring.ability.SortAbility;
 import net.ximatai.muyun.spring.ability.reference.ReferenceAbility;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
-import net.ximatai.muyun.spring.common.schema.PlatformAbilityFields;
-import net.ximatai.muyun.spring.common.schema.StandardEntitySchema;
 import net.ximatai.muyun.spring.common.tenant.TenantContext;
 import org.springframework.stereotype.Service;
 
@@ -23,7 +21,8 @@ import net.ximatai.muyun.spring.ability.query.QueryDescriptor;
 import net.ximatai.muyun.spring.ability.query.QueryDescriptors;
 
 @Service
-public class ExchangeRateService extends AbstractAbilityService<ExchangeRate> implements
+public class ExchangeRateService extends StandardBusinessService<ExchangeRate> implements
+        TenantLayerAbility<ExchangeRate>,
         SoftDeleteAbility<ExchangeRate>,
         EnableAbility<ExchangeRate>,
         SortAbility<ExchangeRate>,
@@ -51,31 +50,8 @@ public class ExchangeRateService extends AbstractAbilityService<ExchangeRate> im
     }
 
     @Override
-    public void beforeInsert(ExchangeRate rate) {
-        normalizeAndValidate(rate);
-    }
-
-    @Override
-    public void beforeUpdate(ExchangeRate rate) {
-        normalizeAndValidate(rate);
-        validateImmutableIdentity(rate);
-    }
-
-    @Override
-    public net.ximatai.muyun.spring.ability.SortPartition<ExchangeRate> sortPartition() {
-        return net.ximatai.muyun.spring.ability.SortPartitions.of(rate -> Criteria.of()
-                        .eqNullable(StandardEntitySchema.TENANT_ID_FIELD, rate.getTenantId())
-                        .eq("fromCurrencyCode", rate.getFromCurrencyCode())
-                        .eq("toCurrencyCode", rate.getToCurrencyCode())
-                        .eq("rateTypeCode", rate.getRateTypeCode()),
-                net.ximatai.muyun.spring.ability.SortPartitions.byFieldsWithMessage(
-                "Exchange rate sort can only move records within the same currency pair and rate type",
-                "tenantId", "fromCurrencyCode", "toCurrencyCode", "rateTypeCode"));
-    }
-
-    @Override
-    public List<String> sortPartitionFields() {
-        return List.of("tenantId", "fromCurrencyCode", "toCurrencyCode", "rateTypeCode");
+    protected void validateBeforeUpdate(ExchangeRate rate, ExchangeRate existing) {
+        validateImmutableIdentity(rate, existing);
     }
 
     public ExchangeRate resolveEffectiveRate(String fromCurrencyCode,
@@ -112,7 +88,8 @@ public class ExchangeRateService extends AbstractAbilityService<ExchangeRate> im
         return rateTypeService.requireEnabledRateType(rateTypeCode).getCode();
     }
 
-    private void normalizeAndValidate(ExchangeRate rate) {
+    @Override
+    protected void validateBeforeSave(ExchangeRate rate) {
         Currency from = currencyService.requireEnabledCurrency(rate.getFromCurrencyCode());
         Currency to = currencyService.requireEnabledCurrency(rate.getToCurrencyCode());
         if (from.getCode().equals(to.getCode())) {
@@ -129,17 +106,9 @@ public class ExchangeRateService extends AbstractAbilityService<ExchangeRate> im
         if (rate.getSource() != null && rate.getSource().isBlank()) {
             rate.setSource(null);
         }
-        rejectDuplicate(rate, Criteria.of()
-                        .eqNullable(StandardEntitySchema.TENANT_ID_FIELD, rate.getTenantId())
-                        .eq("fromCurrencyCode", rate.getFromCurrencyCode())
-                        .eq("toCurrencyCode", rate.getToCurrencyCode())
-                        .eq("rateTypeCode", rate.getRateTypeCode())
-                        .eq("effectiveDate", rate.getEffectiveDate()),
-                "exchange rate must be unique within tenant, currency pair, rate type and effective date");
     }
 
-    private void validateImmutableIdentity(ExchangeRate rate) {
-        ExchangeRate existing = selectIncludingDeleted(rate.getId());
+    private void validateImmutableIdentity(ExchangeRate rate, ExchangeRate existing) {
         rejectChanged(existing, rate, "Exchange rate source currency", ExchangeRate::getFromCurrencyCode);
         rejectChanged(existing, rate, "Exchange rate target currency", ExchangeRate::getToCurrencyCode);
         rejectChanged(existing, rate, "Exchange rate type", ExchangeRate::getRateTypeCode);
@@ -156,20 +125,13 @@ public class ExchangeRateService extends AbstractAbilityService<ExchangeRate> im
     private List<ExchangeRate> listRateLayer(String fromCurrencyCode,
                                              String toCurrencyCode,
                                              String rateTypeCode) {
-        return list(rateCriteria(fromCurrencyCode, toCurrencyCode, rateTypeCode),
-                new PageRequest(0, Integer.MAX_VALUE), Sort.desc("effectiveDate"));
+        return listCurrentTenant(rateCriteria(fromCurrencyCode, toCurrencyCode, rateTypeCode), Sort.desc("effectiveDate"));
     }
 
     private List<ExchangeRate> listGlobalRateLayer(String fromCurrencyCode,
                                                    String toCurrencyCode,
                                                    String rateTypeCode) {
-        try (TenantContext.Scope ignored = TenantContext.system("select global exchange rates")) {
-            return list(rateCriteria(fromCurrencyCode, toCurrencyCode, rateTypeCode),
-                    new PageRequest(0, Integer.MAX_VALUE), Sort.desc("effectiveDate"))
-                    .stream()
-                    .filter(rate -> rate.getTenantId() == null || rate.getTenantId().isBlank())
-                    .toList();
-        }
+        return listGlobal(rateCriteria(fromCurrencyCode, toCurrencyCode, rateTypeCode), Sort.desc("effectiveDate"));
     }
 
     private Criteria rateCriteria(String fromCurrencyCode, String toCurrencyCode, String rateTypeCode) {

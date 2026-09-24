@@ -1,7 +1,7 @@
 package net.ximatai.muyun.spring.platform.ui;
 
 import net.ximatai.muyun.database.core.orm.Criteria;
-import net.ximatai.muyun.spring.ability.AbstractAbilityService;
+import net.ximatai.muyun.spring.ability.StandardBusinessService;
 import net.ximatai.muyun.spring.ability.BaseDao;
 import net.ximatai.muyun.spring.ability.EnableAbility;
 import net.ximatai.muyun.spring.ability.SoftDeleteAbility;
@@ -23,7 +23,7 @@ import org.springframework.stereotype.Service;
 import java.util.Optional;
 
 @Service
-public class PlatformPageDefinitionService extends AbstractAbilityService<PlatformPageDefinition> implements
+public class PlatformPageDefinitionService extends StandardBusinessService<PlatformPageDefinition> implements
         SoftDeleteAbility<PlatformPageDefinition>,
         EnableAbility<PlatformPageDefinition>,
         SortAbility<PlatformPageDefinition>,
@@ -71,14 +71,7 @@ public class PlatformPageDefinitionService extends AbstractAbilityService<Platfo
     }
 
     @Override
-    public void beforeInsert(PlatformPageDefinition page) {
-        normalizeAndValidate(page);
-    }
-
-    @Override
-    public void beforeUpdate(PlatformPageDefinition page) {
-        PlatformPageDefinition existing = selectIncludingDeleted(page.getId());
-        normalizeAndValidate(page);
+    protected void validateBeforeUpdate(PlatformPageDefinition page, PlatformPageDefinition existing) {
         rejectChanged(existing, page, "Page moduleAlias", PlatformPageDefinition::getModuleAlias);
         rejectChanged(existing, page, "Page alias", PlatformPageDefinition::getAlias);
         rejectChanged(existing, page, "Page contract type", PlatformPageDefinition::getContractType);
@@ -135,7 +128,8 @@ public class PlatformPageDefinitionService extends AbstractAbilityService<Platfo
         }
     }
 
-    private void normalizeAndValidate(PlatformPageDefinition page) {
+    @Override
+    protected void validateBeforeSave(PlatformPageDefinition page) {
         if (!TenantContext.isSystem()) {
             throw BusinessExceptions.warning("platform.page-definition.global-system-context-required",
                     "Stable page definition requires system context; tenant and organization differences belong to variants");

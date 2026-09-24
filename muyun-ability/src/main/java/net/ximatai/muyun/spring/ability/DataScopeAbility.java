@@ -153,10 +153,6 @@ public interface DataScopeAbility<T extends EntityContract> extends CrudAbility<
     }
 
     default DataScopeFieldMapping dataScopeFieldMapping() {
-        if (this instanceof DataScopeFieldMappingAbility mappingAbility) {
-            DataScopeFieldMapping mapping = mappingAbility.dataScopeFieldMapping();
-            return mapping == null ? DataScopeFieldMapping.STANDARD : mapping;
-        }
         return DataScopeFieldMapping.STANDARD;
     }
 

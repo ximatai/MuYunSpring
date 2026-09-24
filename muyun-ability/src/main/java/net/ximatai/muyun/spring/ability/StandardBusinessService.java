@@ -16,7 +16,12 @@ public abstract class StandardBusinessService<T extends EntityContract> extends 
     @Override
     public void beforeUpdate(T entity) {
         validateBeforeSave(entity);
-        validateBeforeUpdate(entity);
+    }
+
+    @Override
+    public void beforeUpdate(T entity, T existing) {
+        beforeUpdate(entity);
+        validateBeforeUpdate(entity, existing);
     }
 
     protected void validateBeforeSave(T entity) {
@@ -25,6 +30,10 @@ public abstract class StandardBusinessService<T extends EntityContract> extends 
     protected void validateBeforeInsert(T entity) {
     }
 
-    protected void validateBeforeUpdate(T entity) {
+    /**
+     * Runs after common save validation. Existing is a read-only RAW storage snapshot and may be null;
+     * use the field-protection helpers when comparing or retaining protected values.
+     */
+    protected void validateBeforeUpdate(T entity, T existing) {
     }
 }

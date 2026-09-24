@@ -1,10 +1,10 @@
 package net.ximatai.muyun.spring.platform.currency;
 
 import net.ximatai.muyun.database.core.orm.Criteria;
-import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.database.core.orm.Sort;
-import net.ximatai.muyun.spring.ability.AbstractAbilityService;
+import net.ximatai.muyun.spring.ability.StandardBusinessService;
 import net.ximatai.muyun.spring.ability.BaseDao;
+import net.ximatai.muyun.spring.ability.TenantLayerAbility;
 import net.ximatai.muyun.spring.ability.CacheAbility;
 import net.ximatai.muyun.spring.ability.EnableAbility;
 import net.ximatai.muyun.spring.ability.PlatformManagedProtectionAbility;
@@ -13,20 +13,18 @@ import net.ximatai.muyun.spring.ability.SortAbility;
 import net.ximatai.muyun.spring.ability.reference.ReferenceAbility;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.schema.PlatformAbilityFields;
-import net.ximatai.muyun.spring.common.schema.StandardEntitySchema;
-import net.ximatai.muyun.spring.common.tenant.TenantContext;
 import org.springframework.stereotype.Service;
 
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import net.ximatai.muyun.spring.ability.query.QueryAbility;
 import net.ximatai.muyun.spring.ability.query.QueryDescriptor;
 import net.ximatai.muyun.spring.ability.query.QueryDescriptors;
 
 @Service
-public class ExchangeRateTypeService extends AbstractAbilityService<ExchangeRateType> implements
+public class ExchangeRateTypeService extends StandardBusinessService<ExchangeRateType> implements
+        TenantLayerAbility<ExchangeRateType>,
         SoftDeleteAbility<ExchangeRateType>,
         EnableAbility<ExchangeRateType>,
         SortAbility<ExchangeRateType>,
@@ -48,35 +46,13 @@ public class ExchangeRateTypeService extends AbstractAbilityService<ExchangeRate
     }
 
     @Override
-    public void beforeInsert(ExchangeRateType rateType) {
-        normalizeAndValidate(rateType);
+    protected void validateBeforeUpdate(ExchangeRateType rateType, ExchangeRateType existing) {
+        validateImmutableIdentity(rateType, existing);
     }
 
-    @Override
-    public void beforeUpdate(ExchangeRateType rateType) {
-        normalizeAndValidate(rateType);
-        validateImmutableIdentity(rateType);
-    }
-
-    @Override
-    public net.ximatai.muyun.spring.ability.SortPartition<ExchangeRateType> sortPartition() {
-        return net.ximatai.muyun.spring.ability.SortPartitions.of(
-                rateType -> Criteria.of().eqNullable(StandardEntitySchema.TENANT_ID_FIELD, rateType.getTenantId()),
-                net.ximatai.muyun.spring.ability.SortPartitions.byFieldsWithMessage(
-                        "Exchange rate type sort can only move records within the same tenant scope", "tenantId"));
-    }
-
-    @Override
-    public List<String> sortPartitionFields() {
-        return List.of("tenantId");
-    }
-
-    public ExchangeRateType resolveRateType(String rateTypeCode) {
-        String code = requireRateTypeCode(rateTypeCode);
-        for (ExchangeRateType rateType : visibleRateTypeCandidates(code, false)) {
-            return rateType;
-        }
-        return null;
+    public ExchangeRateType resolveRateType(String code) {
+        return listTenantAndGlobal(Criteria.of().eq("code", requireRateTypeCode(code)),
+                Sort.asc(PlatformAbilityFields.SORT_FIELD)).stream().findFirst().orElse(null);
     }
 
     public ExchangeRateType requireRateType(String rateTypeCode) {
@@ -100,58 +76,24 @@ public class ExchangeRateTypeService extends AbstractAbilityService<ExchangeRate
     }
 
     public List<ExchangeRateType> listVisibleRateTypes(boolean enabledOnly) {
-        Map<String, ExchangeRateType> rateTypes = new LinkedHashMap<>();
-        if (TenantContext.currentTenantId().isPresent()) {
-            listTenantLayer(false).forEach(rateType -> rateTypes.putIfAbsent(rateType.getCode(), rateType));
-            listGlobalLayer(false).forEach(rateType -> rateTypes.putIfAbsent(rateType.getCode(), rateType));
-        } else {
-            listGlobalLayer(false).forEach(rateType -> rateTypes.putIfAbsent(rateType.getCode(), rateType));
-        }
-        return rateTypes.values().stream()
-                .filter(rateType -> !enabledOnly || Boolean.TRUE.equals(rateType.getEnabled()))
+        Map<String, ExchangeRateType> records = new LinkedHashMap<>();
+        listTenantAndGlobal(Criteria.of(), Sort.asc(PlatformAbilityFields.SORT_FIELD))
+                .forEach(record -> records.putIfAbsent(record.getCode(), record));
+        // A disabled tenant override still masks the global definition.
+        return records.values().stream()
+                .filter(record -> !enabledOnly || Boolean.TRUE.equals(record.getEnabled()))
                 .toList();
     }
 
-    private List<ExchangeRateType> visibleRateTypeCandidates(String rateTypeCode, boolean enabledOnly) {
-        return listVisibleRateTypes(enabledOnly).stream()
-                .filter(rateType -> Objects.equals(rateType.getCode(), rateTypeCode))
-                .toList();
-    }
-
-    private List<ExchangeRateType> listTenantLayer(boolean enabledOnly) {
-        Criteria criteria = Criteria.of();
-        if (enabledOnly) {
-            criteria.eq("enabled", Boolean.TRUE);
-        }
-        return list(criteria, new PageRequest(0, Integer.MAX_VALUE), Sort.asc(PlatformAbilityFields.SORT_FIELD));
-    }
-
-    private List<ExchangeRateType> listGlobalLayer(boolean enabledOnly) {
-        try (TenantContext.Scope ignored = TenantContext.system("select global exchange rate types")) {
-            Criteria criteria = Criteria.of();
-            if (enabledOnly) {
-                criteria.eq("enabled", Boolean.TRUE);
-            }
-            return list(criteria, new PageRequest(0, Integer.MAX_VALUE), Sort.asc(PlatformAbilityFields.SORT_FIELD))
-                    .stream()
-                    .filter(rateType -> rateType.getTenantId() == null || rateType.getTenantId().isBlank())
-                    .toList();
-        }
-    }
-
-    private void normalizeAndValidate(ExchangeRateType rateType) {
+    @Override
+    protected void validateBeforeSave(ExchangeRateType rateType) {
         rateType.setCode(requireRateTypeCode(rateType.getCode()));
         if (rateType.getSystemManaged() == null) {
             rateType.setSystemManaged(Boolean.FALSE);
         }
-        rejectDuplicate(rateType, Criteria.of()
-                        .eqNullable(StandardEntitySchema.TENANT_ID_FIELD, rateType.getTenantId())
-                        .eq("code", rateType.getCode()),
-                "exchange rate type code must be unique within tenant scope: " + rateType.getCode());
     }
 
-    private void validateImmutableIdentity(ExchangeRateType rateType) {
-        ExchangeRateType existing = selectIncludingDeleted(rateType.getId());
+    private void validateImmutableIdentity(ExchangeRateType rateType, ExchangeRateType existing) {
         rejectChanged(existing, rateType, "Exchange rate type code", ExchangeRateType::getCode);
     }
 

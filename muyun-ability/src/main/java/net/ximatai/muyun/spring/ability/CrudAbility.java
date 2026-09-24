@@ -76,11 +76,13 @@ public interface CrudAbility<T extends EntityContract> {
         if (entities == null || entities.isEmpty()) {
             return List.of();
         }
-        List<String> ids = new ArrayList<>();
-        for (T entity : entities) {
-            ids.add(insert(entity));
-        }
-        return ids;
+        return PlatformAbilityDispatcher.inMutationTransaction(() -> {
+            List<String> ids = new ArrayList<>();
+            for (T entity : entities) {
+                ids.add(insert(entity));
+            }
+            return ids;
+        });
     }
 
     @PlatformOperation(PlatformAction.VIEW)
@@ -229,24 +231,27 @@ public interface CrudAbility<T extends EntityContract> {
             return 0;
         }
         DataScopeCriteriaResult mutationScope = MutationScopeSupport.resolve(this, PlatformAction.DELETE, ids);
-        return MutationScopeSupport.withTenantScope(mutationScope, () -> {
-            int count = 0;
-            for (String id : ids) {
-                count += delete(id);
-            }
-            return count;
-        });
+        return PlatformAbilityDispatcher.inMutationTransaction(() ->
+                MutationScopeSupport.withTenantScope(mutationScope, () -> {
+                    int count = 0;
+                    for (String id : ids) {
+                        count += delete(id);
+                    }
+                    return count;
+                }));
     }
 
     default int deleteBatch(Collection<String> ids, DeletionContext deletionContext) {
         if (ids == null || ids.isEmpty()) {
             return 0;
         }
-        int count = 0;
-        for (String id : ids) {
-            count += delete(id, null, deletionContext);
-        }
-        return count;
+        return PlatformAbilityDispatcher.inMutationTransaction(() -> {
+            int count = 0;
+            for (String id : ids) {
+                count += delete(id, null, deletionContext);
+            }
+            return count;
+        });
     }
 
     @PlatformOperation(PlatformAction.QUERY)

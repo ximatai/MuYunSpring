@@ -3,7 +3,6 @@ package net.ximatai.muyun.spring.iam.department;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.Sort;
 import net.ximatai.muyun.spring.ability.DataScopeAbility;
-import net.ximatai.muyun.spring.ability.DataScopeFieldMappingAbility;
 import net.ximatai.muyun.spring.ability.EnableAbility;
 import net.ximatai.muyun.spring.ability.SoftDeleteAbility;
 import net.ximatai.muyun.spring.ability.TenantActiveScopedService;
@@ -25,7 +24,6 @@ public class DepartmentService extends TenantActiveScopedService<Department> imp
         EnableAbility<Department>,
         TreeAbility<Department>,
         DataScopeAbility<Department>,
-        DataScopeFieldMappingAbility,
         ReferenceAbility<Department> {
 
     public static final String MODULE_ALIAS = "iam.department";

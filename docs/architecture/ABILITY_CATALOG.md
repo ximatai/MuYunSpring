@@ -11,9 +11,9 @@
 | 不需要上述写入门禁的业务 | `StandardBusinessService<T>` | 标准保存模板；不自动赋予系统态，也不自动绕过租户过滤 |
 | 底层适配、特殊生命周期或已有完整模板 | `AbstractAbilityService<T>` / `CrudAbility<T>` | 标准 CRUD 链；普通业务优先使用上面的入口 |
 
-推荐基类统一提供模块身份、模型类型、DAO 和保存校验入口。业务优先覆盖 `normalizeBeforeMutation`、`validateBeforeSave`、`validateBeforeInsert`、`validateBeforeUpdate`；平台门禁与规范化独立于业务保存 hook，`after*` 无需手动调用 `super` 维持平台能力。
+推荐基类统一提供模块身份、模型类型、DAO 和保存校验入口。业务优先覆盖 `normalizeBeforeMutation`、`validateBeforeSave`、`validateBeforeInsert`、`validateBeforeUpdate(entity, existing)`；平台门禁与规范化独立于业务保存 hook，`after*` 无需手动调用 `super` 维持平台能力。更新专用校验直接获得平台已读取的旧记录，不需再查询，也不需手工调用通用保存校验。
 
-标准 CRUD 自动执行版本控制、生命周期及已声明能力的内部链。通过 Starter 接入时，平台安装标准写入事务与能力运行时，普通业务不复制事务壳、权限 provider 或引用 resolver。标准重排、相邻移动及树节点移动也以整次操作为事务边界，改父级后的排序失败会一并回滚。跨多个独立 Service 的领域编排仍声明外层事务；手工构造且未安装事务执行器的独立使用不承诺原子回滚。
+标准 CRUD 自动执行版本控制、生命周期及已声明能力的内部链。通过 Starter 接入时，平台安装标准写入事务与能力运行时，普通业务不复制事务壳、权限 provider 或引用 resolver。标准批量新增、批量删除、重排、相邻移动及树节点移动也以整次操作为事务边界，改父级后的排序失败会一并回滚。跨多个独立 Service 的领域编排通过基类 `inMutationTransaction` 或外层事务明确整次边界；手工构造且未安装事务执行器的独立使用不承诺原子回滚。
 
 **继承标准基类不等于启用所有业务能力。** 软删除、回收站、启停、缓存均需显式选择；未接入软删除的 CRUD 使用硬删除。普通可维护资料推荐软删除，绑定表等是否保留历史由业务决定。动态实体定义目前默认归一 CRUD、生命周期、软删除和缓存；这不表示静态 Service 自动实现同名接口，也不表示所有读取都命中缓存。
 
@@ -41,7 +41,7 @@
 | 共性业务规则 | 声明入口 | 自动获得 |
 | --- | --- | --- |
 | 租户内单字段或组合字段唯一 | `@TenantUniqueConstraint` | 标准写入校验、数据库唯一冲突翻译、保留记录冲突提示 |
-| 机构内、部门内等业务分区排序 | `@SortPartitionBy` | 同一分区条件用于查询、移动和树父节点校验 |
+| 机构内、部门内等业务分区排序 | `@SortPartitionBy` | 同一分区条件用于查询、移动和树父节点校验；空值也是明确分区，不会省略过滤 |
 | 记录引用及完整性 | `@ReferenceTo` / `@ReferenceIntegrity` | 标准写入和恢复校验、显式删除策略；有缓存时自动维护直接引用依赖 |
 | 关联标题或摘要字段 | `@ReferenceLoad` / `@ReferenceSummary` | 按声明解析、批量读取；不要求注入目标 Service 或另写标题拼装 |
 | 只读反向关联集合 | `@ReferencedBy` | 自动解析来源 Service，并复用来源的数据范围；不获得来源写入权 |
@@ -80,10 +80,13 @@ private transient String organizationTitle;
 | --- | --- | --- |
 | 数据受当前租户过滤 | 普通 CRUD 默认归属范围 | 无租户时不自动要求有效租户；这由租户写入门禁负责 |
 | 数据按全局范围读取 | `GlobalScopedAbility` | 不包含软删，也不授予系统写入权限；可组合独立的软删、缓存、回收站 |
+| 显式读取租户配置与全局配置 | `TenantLayerAbility` | `listCurrentTenant`、`listGlobal`、`listTenantAndGlobal`；全局仅包含空租户记录，不改变普通 CRUD 或授予系统写入权限 |
 | 写入必须处于有效租户 | `TenantActiveScopedService` / `TenantActiveScopedAbility` | 不等于操作者拥有该记录的数据权限 |
 | 写入必须处于系统态 | `SystemStandardBusinessService` / `SystemManagedAbility` | 不自动允许修改平台托管记录 |
 | 按操作者和动作限制记录范围 | `DataScopeAbility` | 普通 `select/list` 不会隐式变成某个动作的授权读取 |
 | 保护平台托管的记录 | `PlatformManagedProtectionAbility` + `PlatformManagedCapable` | 不替代 Service 级系统态门禁或初始化同步 |
+
+`TenantLayerAbility` 无租户上下文时只返回全局层；有租户时组合入口先返回当前租户层，再返回全局层。业务决定覆盖键、禁用记录是否遮蔽全局定义、候选优先级；币种和汇率类型在覆盖后过滤启用状态，换算规则保留候选集供领域选择。
 
 `DataScopeAbility` 默认使用宿主权限运行时；缺少装配时明确失败。标准交付入口按动作衔接数据范围，自定义业务读取使用 `selectForAction`、`listForAction` 等入口。普通读取保留租户/软删范围，供领域内部读取；它们不是对外授权接口。特殊归属映射由业务声明 `dataScopeFieldMapping`，例如部门以 `organizationId` 和自身 `id` 表达机构、部门范围，不能由平台猜测。
 

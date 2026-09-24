@@ -57,6 +57,11 @@ public abstract class AbstractAbilityService<T extends EntityContract> implement
         RecordFieldMutation.retain(this, incoming, existing, fields);
     }
 
+    /** Groups a domain command's standard writes into one transaction, including direct service calls. */
+    protected final <R> R inMutationTransaction(Supplier<R> work) {
+        return PlatformAbilityDispatcher.inMutationTransaction(work);
+    }
+
     /** Serializes a domain partition until transaction completion. Use persisted IDs, or include tenant in local keys. */
     protected void lockMutation(String partition, String key) {
         PlatformAbilityDispatcher.lockMutation(getModuleAlias() + ":" + Preconditions.requireText(partition, "partition"),

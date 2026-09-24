@@ -7,9 +7,14 @@ import net.ximatai.muyun.spring.common.tenant.TenantContext;
 import net.ximatai.muyun.spring.ability.TreeAbility;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.support.StaticListableBeanFactory;
+import net.ximatai.muyun.database.core.orm.Criteria;
+import net.ximatai.muyun.database.core.orm.PageRequest;
+import net.ximatai.muyun.database.core.orm.Sort;
+import net.ximatai.muyun.spring.iam.role.*;
+import java.util.concurrent.atomic.AtomicReference;
 
 import java.util.List;
-import java.util.Optional;
 import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -124,6 +129,68 @@ class OrganizationServiceContractTest {
         }
 
         verify(provisioner, times(2)).afterOrganizationCreated("tenant_a", "org-1");
+    }
+
+    @Test
+    void disabledOrganizationCanCreateItsDefaultRole() {
+        AtomicReference<Organization> stored = new AtomicReference<>();
+        OrganizationDao dao = mock(OrganizationDao.class);
+        when(dao.query(any(Criteria.class), any(PageRequest.class), any(Sort[].class)))
+                .thenAnswer(call -> stored.get() == null ? List.of() : List.of(stored.get()));
+        when(dao.insert(any())).thenAnswer(call -> {
+            Organization row = call.getArgument(0);
+            stored.set(row);
+            return row.getId();
+        });
+        var beans = new StaticListableBeanFactory();
+        var organizations = new OrganizationService(dao, activeTenantVerifier(),
+                beans.getBeanProvider(OrganizationCreationProvisioner.class));
+        var roleDao = mock(RoleDao.class);
+        var roles = new RoleService(roleDao, mock(AccountRoleGrantDao.class), mock(EmploymentRoleGrantDao.class),
+                mock(RoleActionDao.class), activeTenantVerifier(), RoleActionGrantVerifier.platformActionsOnly(),
+                null, null, null, null, organizations);
+        var templates = mock(BuiltInRolePermissionTemplateService.class);
+        beans.addBean("roles", new DefaultOrganizationRoleProvisioner(roles, templates));
+        Organization disabled = organization("disabled", "Disabled organization");
+        disabled.setEnabled(false);
+        try (var tenant = TenantContext.use("tenant_a")) {
+            organizations.insert(disabled);
+        }
+        var captor = org.mockito.ArgumentCaptor.forClass(Role.class);
+        verify(roleDao).insert(captor.capture());
+        assertThat(captor.getValue().getOwnerScopeId()).isEqualTo(disabled.getId());
+        assertThat(disabled.getEnabled()).isFalse();
+        verify(templates).applyOrganizationAdminTemplate(captor.getValue().getId());
+    }
+
+    @Test
+    void replayRequiresValidOrganizationAndActiveTenantEvenWithoutExtensions() {
+        OrganizationDao dao = mock(OrganizationDao.class);
+        var service = new OrganizationService(dao, activeTenantVerifier());
+        assertThatThrownBy(() -> service.provisionOrganization(" ")).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> service.provisionOrganization("missing")).hasMessageContaining("tenant context");
+        try (var tenant = TenantContext.use("tenant_a")) {
+            assertThatThrownBy(() -> service.provisionOrganization("missing")).hasMessageContaining("does not exist");
+            Organization foreign = organization("foreign", "Foreign");
+            foreign.setTenantId("tenant_b");
+            when(dao.query(any(Criteria.class), any(PageRequest.class), any(Sort[].class))).thenReturn(List.of(foreign));
+            try (var bypass = TenantContext.bypassTenantFilter("test caller bypass")) {
+                assertThatThrownBy(() -> service.provisionOrganization("foreign")).hasMessageContaining("does not exist");
+            }
+        }
+    }
+
+    @Test
+    void hierarchyReadsEachStructuralRecordOnceWithoutBusinessReadHooks() {
+        var service = spy(new OrganizationService(mock(OrganizationDao.class), activeTenantVerifier()));
+        Organization parent = organization("parent", "Parent"); parent.setId("parent");
+        Organization child = organization("child", "Child"); child.setId("child"); child.setParentId("parent");
+        doReturn(parent).when(service).selectActiveRaw("parent");
+        doReturn(child).when(service).selectActiveRaw("child");
+        assertThat(service.organizationIdsFromSelfToRoot("child")).containsExactly("child", "parent");
+        verify(service).selectActiveRaw("child");
+        verify(service).selectActiveRaw("parent");
+        verify(service, org.mockito.Mockito.never()).afterSelect(any());
     }
 
     private Organization organization(String code, String title) {

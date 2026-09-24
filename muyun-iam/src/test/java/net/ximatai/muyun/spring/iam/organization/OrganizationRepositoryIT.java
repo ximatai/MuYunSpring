@@ -105,6 +105,28 @@ class OrganizationRepositoryIT {
     }
 
     @Test
+    void provisioningMustRejectSoftDeletedOrganizationsBeforeCallingExtensions() {
+        var callbacks = new ArrayList<String>();
+        var beans = new org.springframework.beans.factory.support.StaticListableBeanFactory();
+        beans.addBean("observer", (net.ximatai.muyun.spring.common.tenant.OrganizationCreationProvisioner)
+                (tenant, id) -> callbacks.add(id));
+        var service = new OrganizationService(organizationDao, tenant -> {},
+                beans.getBeanProvider(net.ximatai.muyun.spring.common.tenant.OrganizationCreationProvisioner.class)) {
+            @Override public DataScopeCriteriaService getDataScopeCriteriaService() {
+                return new AllowAllDataScopeCriteriaService();
+            }
+        };
+        try (var tenant = TenantContext.use("provision-deleted")) {
+            Organization row = new Organization(); row.setCode("replay"); row.setTitle("Replay");
+            service.insert(row);
+            assertThat(callbacks).containsExactly(row.getId());
+            service.delete(row.getId());
+            assertThatThrownBy(() -> service.provisionOrganization(row.getId())).hasMessageContaining("does not exist");
+            assertThat(callbacks).containsExactly(row.getId());
+        }
+    }
+
+    @Test
     void directSoftDeleteServiceMustEnforceRecordScopeAndHonorCrossTenantGrants() {
         Organization original = new Organization();
         original.setCode("CROSS-TENANT");

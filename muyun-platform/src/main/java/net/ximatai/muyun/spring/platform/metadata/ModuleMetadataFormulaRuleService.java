@@ -8,7 +8,6 @@ import net.ximatai.muyun.spring.ability.BaseDao;
 import net.ximatai.muyun.spring.ability.EnableAbility;
 import net.ximatai.muyun.spring.ability.SoftDeleteAbility;
 import net.ximatai.muyun.spring.ability.SortAbility;
-import net.ximatai.muyun.spring.ability.deletion.DeletionContext;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.formula.FormulaEngine;
 import net.ximatai.muyun.spring.common.formula.FormulaEvaluationException;
@@ -19,9 +18,7 @@ import net.ximatai.muyun.spring.dynamic.metadata.EntityFormulaRuleDefinition;
 import net.ximatai.muyun.spring.platform.runtime.PlatformDynamicRuntimeRefreshCoordinator;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
-import java.util.Collection;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -75,133 +72,6 @@ public class ModuleMetadataFormulaRuleService extends AbstractAbilityService<Mod
     public QueryDescriptor queryDescriptor() {
         return QueryDescriptors.fromModel(MODULE_ALIAS, ModuleMetadataFormulaRule.class, java.util.List.of("id", "relationId", "alias", "ruleKind", "rulePhase", "targetField", "severity", "enabled", "sortOrder", "createdAt", "updatedAt"),
                 net.ximatai.muyun.database.core.orm.Sort.asc("sortOrder"));
-    }
-
-    @Override
-    @Transactional
-    public String insert(ModuleMetadataFormulaRule rule) {
-        return SoftDeleteAbility.super.insert(rule);
-    }
-
-    @Override
-    @Transactional
-    public List<String> insertBatch(Collection<ModuleMetadataFormulaRule> rules) {
-        return SoftDeleteAbility.super.insertBatch(rules);
-    }
-
-    @Override
-    @Transactional
-    public int update(ModuleMetadataFormulaRule rule) {
-        return SoftDeleteAbility.super.update(rule);
-    }
-
-    @Override
-    @Transactional
-    public int updateWithExisting(ModuleMetadataFormulaRule rule, ModuleMetadataFormulaRule existing) {
-        return SoftDeleteAbility.super.updateWithExisting(rule, existing);
-    }
-
-    @Override
-    @Transactional
-    public int enable(String id) {
-        return EnableAbility.super.enable(id);
-    }
-
-    @Override
-    @Transactional
-    public int enable(String id, Integer expectedVersion) {
-        return EnableAbility.super.enable(id, expectedVersion);
-    }
-
-    @Override
-    @Transactional
-    public int disable(String id) {
-        return EnableAbility.super.disable(id);
-    }
-
-    @Override
-    @Transactional
-    public int disable(String id, Integer expectedVersion) {
-        return EnableAbility.super.disable(id, expectedVersion);
-    }
-
-    @Override
-    @Transactional
-    public int delete(String id) {
-        return SoftDeleteAbility.super.delete(id);
-    }
-
-    @Override
-    @Transactional
-    public int delete(ModuleMetadataFormulaRule rule) {
-        return SoftDeleteAbility.super.delete(rule);
-    }
-
-    @Override
-    @Transactional
-    public int delete(String id, Integer expectedVersion) {
-        return SoftDeleteAbility.super.delete(id, expectedVersion);
-    }
-
-    @Override
-    @Transactional
-    public int delete(String id, Integer expectedVersion, DeletionContext deletionContext) {
-        return SoftDeleteAbility.super.delete(id, expectedVersion, deletionContext);
-    }
-
-    @Override
-    @Transactional
-    public int deleteBatch(Collection<String> ids) {
-        return SoftDeleteAbility.super.deleteBatch(ids);
-    }
-
-    @Override
-    @Transactional
-    public int deleteBatch(Collection<String> ids, DeletionContext deletionContext) {
-        return SoftDeleteAbility.super.deleteBatch(ids, deletionContext);
-    }
-
-    @Override
-    @Transactional
-    public int restore(String id) {
-        return SoftDeleteAbility.super.restore(id);
-    }
-
-    @Override
-    @Transactional
-    public int restore(String id, Integer expectedVersion) {
-        return SoftDeleteAbility.super.restore(id, expectedVersion);
-    }
-
-    @Override
-    @Transactional
-    public void reorder(List<String> orderedIds) {
-        SortAbility.super.reorder(orderedIds);
-    }
-
-    @Override
-    @Transactional
-    public void reorder(Criteria additionalScope, List<String> orderedIds) {
-        SortAbility.super.reorder(additionalScope, orderedIds);
-    }
-
-    @Override
-    @Transactional
-    public void moveBefore(String id, String beforeId) {
-        SortAbility.super.moveBefore(id, beforeId);
-    }
-
-    @Override
-    @Transactional
-    public void moveAfter(String id, String afterId) {
-        SortAbility.super.moveAfter(id, afterId);
-    }
-
-    @Override
-    @Transactional
-    public boolean moveBetween(ModuleMetadataFormulaRule moving, ModuleMetadataFormulaRule previous,
-                               ModuleMetadataFormulaRule next) {
-        return SortAbility.super.moveBetween(moving, previous, next);
     }
 
     @Override
