@@ -39,6 +39,9 @@ defineOptions({ name: 'PageCompositionTree' });
 
 const props = withDefaults(
   defineProps<{
+    layoutTitle?: string;
+    hideList?: boolean;
+    separateDetail?: boolean;
     skeleton?: CompositionSkeleton;
     explorerTitle?: string;
     searchableFieldIds?: string[];
@@ -66,7 +69,15 @@ const props = withDefaults(
     selectedKey?: string;
     disabled?: boolean;
   }>(),
-  { selectedKey: undefined, disabled: false, editorMode: 'fields', formOrder: undefined },
+  {
+    selectedKey: undefined,
+    disabled: false,
+    editorMode: 'fields',
+    formOrder: undefined,
+    layoutTitle: undefined,
+    hideList: false,
+    separateDetail: false,
+  },
 );
 
 const emit = defineEmits<{
@@ -95,7 +106,13 @@ const emit = defineEmits<{
   /** Kept for field/relation callers while actions use the broader source contract. */
 }>();
 
-type ComposerNodeAction = 'configure' | 'remove' | 'add-group' | 'toggle-visibility';
+type ComposerNodeAction =
+  | 'configure'
+  | 'remove'
+  | 'add-group'
+  | 'toggle-visibility'
+  | 'split-layout'
+  | 'merge-layout';
 
 export type ComposerDropTarget = (
   | { kind: 'explorer-title' | 'explorer-secondary' | 'quick-search' }
@@ -141,7 +158,7 @@ const treeNodes = computed<UiTreeNode[]>(() => {
     tag: relation.unavailable ? '来源失效' : undefined,
     muted: relation.unavailable,
     isLeaf: relation.fields.length === 0,
-    actions: nodeActions('remove'),
+    actions: nodeActions('configure', 'remove'),
     children: relation.fields.map((field) => relationFieldNode(relation.id, field)),
   }));
 
@@ -239,8 +256,8 @@ const treeNodes = computed<UiTreeNode[]>(() => {
     },
     {
       key: 'ui:slot:form',
-      title: '详情 / 表单',
-      actions: nodeActions('add-group'),
+      title: props.layoutTitle ?? '详情 / 表单',
+      actions: nodeActions('add-group', props.separateDetail ? 'merge-layout' : 'split-layout'),
       isLeaf: false,
       children: [
         ...orderedFormItems(props.formFields, props.formGroups, props.formOrder).map((item) =>
@@ -248,9 +265,12 @@ const treeNodes = computed<UiTreeNode[]>(() => {
             ? formFieldNodes.find((node) => node.key === `ui:field:form:${item.id}`)!
             : groupNodes.find((node) => node.key === `ui:group:form:${item.id}`)!,
         ),
-        ...relationNodes,
+        ...(props.separateDetail ? [] : relationNodes),
       ],
     },
+    ...(props.separateDetail && relationNodes.length
+      ? [{ key: 'ui:relations', title: '关联明细（共用）', children: relationNodes }]
+      : []),
     ...(['page', 'detail', 'form'] as const).map((anchor) => ({
       key: `ui:action-anchor:${anchor}`,
       title: actionAnchorTitle(anchor),
@@ -271,7 +291,10 @@ const treeNodes = computed<UiTreeNode[]>(() => {
   ];
   return props.editorMode === 'actions'
     ? nodes.filter((node) => node.key.startsWith('ui:action-anchor:'))
-    : nodes.filter((node) => !node.key.startsWith('ui:action-anchor:'));
+    : nodes.filter(
+        (node) =>
+          !node.key.startsWith('ui:action-anchor:') && !(props.hideList && node.key === 'ui:slot:list'),
+      );
 });
 
 function actionAnchorTitle(anchor: PageCompositionActionPlacement['anchor']) {
@@ -337,6 +360,7 @@ watch(
       'ui:explorer-secondary',
       'ui:slot:form',
       ...props.formGroups.map((group) => `ui:group:form:${group.id}`),
+      ...props.formRelations.map((relation) => `ui:relation:form:${relation.id}`),
     ];
     const current = expandedKeys.value.filter((key) => available.has(key));
     expandedKeys.value = [
@@ -351,7 +375,7 @@ function fieldNode(slot: 'list' | 'form', field: PageComposerField): UiTreeNode 
   return {
     key: `ui:field:${slot}:${field.id}`,
     title: field.properties?.label ?? field.title,
-    secondary: field.fieldName,
+    secondary: field.pending ? '新增' : field.fieldName,
     tag: field.unavailable ? '来源失效' : undefined,
     muted: field.unavailable,
     actions: nodeActions('configure', 'remove'),
@@ -363,7 +387,7 @@ function groupFieldNode(groupId: string, field: PageComposerField): UiTreeNode {
   return {
     key: `ui:group-field:form:${groupId}:${field.id}`,
     title: field.properties?.label ?? field.title,
-    secondary: field.fieldName,
+    secondary: field.pending ? '新增' : field.fieldName,
     tag: field.unavailable ? '来源失效' : undefined,
     muted: field.unavailable,
     actions: nodeActions('configure', 'remove'),
@@ -375,7 +399,7 @@ function relationFieldNode(relationId: string, field: PageComposerField): UiTree
   return {
     key: `ui:relation-field:form:${relationId}:${field.id}`,
     title: field.properties?.label ?? field.title,
-    secondary: field.fieldName,
+    secondary: field.pending ? '新增' : field.fieldName,
     tag: field.unavailable ? '来源失效' : undefined,
     muted: field.unavailable,
     actions: nodeActions('configure', 'remove'),
@@ -389,6 +413,8 @@ function flattenNodes(nodes: UiTreeNode[]): UiTreeNode[] {
 
 function nodeActions(...keys: ComposerNodeAction[]): UiRecordInlineAction[] {
   const definitions: Record<ComposerNodeAction, UiRecordInlineAction> = {
+    'split-layout': { key: 'split-layout', title: '分别编排', iconName: 'edit' },
+    'merge-layout': { key: 'merge-layout', title: '恢复共用', iconName: 'edit' },
     configure: { key: 'configure', title: '配置', iconName: 'edit' },
     remove: { key: 'remove', title: '移除', iconName: 'delete', danger: true },
     'toggle-visibility': { key: 'toggle-visibility', title: '隐藏', iconName: 'eye' },
@@ -491,10 +517,16 @@ function formPlacement(event: UiTreeDropEvent) {
   if (
     event.operation === 'copy' &&
     event.source.payloadType === PAGE_COMPOSITION_DRAG_PAYLOAD_TYPE &&
+    metadata?.kind === 'component'
+  )
+    source = { kind: 'component', component: metadata };
+  else if (
+    event.operation === 'copy' &&
+    event.source.payloadType === PAGE_COMPOSITION_DRAG_PAYLOAD_TYPE &&
     metadata?.kind === 'field'
   )
     source = { kind: 'metadata', metadata };
-  else if (event.operation !== 'copy') {
+  else if (event.operation === 'move' && event.source.instanceId === event.target.instanceId) {
     if (node?.kind === 'field' && node.slot === 'form')
       source = { kind: 'node', container: { kind: 'form' }, nodeId: node.fieldId };
     else if (node?.kind === 'groupField')
@@ -525,7 +557,10 @@ function emitFormPlacement(event: UiTreeDropEvent) {
     source,
     placement: { container, index },
   } = result;
-  if (source.kind === 'metadata') {
+  if (source.kind === 'component') {
+    if (container.kind === 'form' || container.kind === 'group')
+      emit('source-drop', { ...container, index }, source.component);
+  } else if (source.kind === 'metadata') {
     if (container.kind === 'form' || container.kind === 'group') {
       emit('source-drop', { ...container, index }, source.metadata);
     }
@@ -701,6 +736,13 @@ function allowExternalDrop(event: UiTreeDropEvent) {
   const target = composerDropTarget(event.target.node);
   if (!target || props.disabled) return false;
   const parsed = parseNode(event.target.node.key);
+  const payload = parsePageCompositionDragPayload(event.source.payload);
+  if (payload?.kind === 'child')
+    return (
+      event.source.payloadType === PAGE_COMPOSITION_DRAG_PAYLOAD_TYPE &&
+      ((parsed?.kind === 'slot' && parsed.slot === 'form' && event.target.position === 'inside') ||
+        (parsed?.kind === 'relation' && event.target.position !== 'inside'))
+    );
   if (
     parsed &&
     ['field', 'groupField', 'relationField', 'action'].includes(parsed.kind) &&
@@ -715,7 +757,13 @@ function allowExternalDrop(event: UiTreeDropEvent) {
     parsed?.kind !== 'action'
   )
     return false;
-  const payload = parsePageCompositionDragPayload(event.source.payload);
+  if (payload?.kind === 'component')
+    return (
+      event.source.payloadType === PAGE_COMPOSITION_DRAG_PAYLOAD_TYPE &&
+      (target.kind === 'list' ||
+        (target.kind === 'relation' &&
+          props.formRelations.some((relation) => relation.id === target.relationId && relation.pending)))
+    );
   if (target.kind === 'action-anchor')
     return payload?.kind === 'action' && actionCanOccupyAnchor(payload.actionCode, target.anchor);
   if (
@@ -779,6 +827,21 @@ function handleExternalDrop(event: UiTreeDropEvent) {
   if (!allowExternalDrop(event)) return;
   const parsed = parseNode(event.target.node.key);
   const metadata = parsePageCompositionDragPayload(event.source.payload);
+  if (metadata?.kind === 'child') {
+    emit(
+      'source-drop',
+      {
+        kind: 'form',
+        index:
+          parsed?.kind === 'relation'
+            ? props.formRelations.findIndex((relation) => relation.id === parsed.relationId) +
+              (event.target.position === 'after' ? 1 : 0)
+            : props.formRelations.length,
+      },
+      metadata,
+    );
+    return;
+  }
   if (target.kind === 'action-anchor') {
     if (metadata?.kind === 'action') {
       const actions = actionPlacementsWithout(metadata.actionCode, target.anchor);
@@ -806,7 +869,7 @@ function handleExternalDrop(event: UiTreeDropEvent) {
   }
   if (
     event.target.position !== 'inside' &&
-    metadata?.kind === 'field' &&
+    (metadata?.kind === 'field' || metadata?.kind === 'component') &&
     target.kind !== 'relation' &&
     target.kind !== 'explorer-title' &&
     target.kind !== 'explorer-secondary' &&
@@ -823,7 +886,7 @@ function handleExternalDrop(event: UiTreeDropEvent) {
             : [];
     target.index = insertionIndex(
       fields.map((field) => field.id),
-      metadata.fieldId,
+      metadata.kind === 'field' ? metadata.fieldId : '',
       parsed.fieldId,
       event,
     );

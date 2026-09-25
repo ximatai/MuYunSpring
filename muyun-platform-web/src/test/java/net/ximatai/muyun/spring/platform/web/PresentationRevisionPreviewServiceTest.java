@@ -39,7 +39,7 @@ class PresentationRevisionPreviewServiceTest {
         when(pageService.requireVisiblePage("page-1")).thenReturn(page);
         when(runtimeContexts.previewDynamicPageDescriptor(any(), any(), any())).thenReturn(descriptor);
         PresentationRevisionPreviewService service = new PresentationRevisionPreviewService(variantService, revisionService,
-                pageService, new PlatformPresentationTemplateCatalog(), runtimeContexts);
+                pageService, new PlatformPresentationTemplateCatalog(), runtimeContexts, mock(net.ximatai.muyun.spring.platform.metadata.MetadataFieldDefinitionCompiler.class));
 
         PresentationRevisionPreview result = service.preview("variant-1", "revision-2",
                 new PresentationRevisionPreviewRequest("""
@@ -66,7 +66,7 @@ class PresentationRevisionPreviewServiceTest {
         when(revisionService.requireVisibleRevision("variant-1", "revision-2")).thenReturn(revision());
         when(pageService.requireVisiblePage("page-1")).thenReturn(page());
         PresentationRevisionPreviewService service = new PresentationRevisionPreviewService(variantService, revisionService,
-                pageService, new PlatformPresentationTemplateCatalog(), runtimeContexts);
+                pageService, new PlatformPresentationTemplateCatalog(), runtimeContexts, mock(net.ximatai.muyun.spring.platform.metadata.MetadataFieldDefinitionCompiler.class));
 
         assertThatThrownBy(() -> service.preview("variant-1", "revision-2",
                 new PresentationRevisionPreviewRequest("{" + "\"template\":\"management\",\"templateVersion\":1,\"nodes\":[]}")))

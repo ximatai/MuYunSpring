@@ -1,7 +1,10 @@
 <script setup lang="ts">
-import { computed, ref, watch, type Component } from 'vue';
+import { computed, provide, ref, watch, type Component } from 'vue';
 import { RecordRelationTabs } from '@muyun/platform-components';
 import { useWorkspaceViewNavigation } from '@muyun/platform-workbench';
+import ModuleRuntimeActivationStatus from './ModuleRuntimeActivationStatus.vue';
+import { moduleRuntimeActivationRefreshKey } from './moduleRuntimeActivation';
+import { usePageDataChangeHandler } from '../platform-admin-runtime/pageRealtime';
 import ModuleActionManagementView from './ModuleActionManagementView.vue';
 import BusinessRuleGovernanceSurface from './BusinessRuleGovernanceSurface.vue';
 import ModuleExperienceProfileOverview from './ModuleExperienceProfileOverview.vue';
@@ -20,6 +23,17 @@ const props = defineProps<{
 
 const activeTab = ref<ModuleGovernanceTab>(props.governanceTab ?? 'overview');
 const navigation = useWorkspaceViewNavigation();
+const activation = ref<InstanceType<typeof ModuleRuntimeActivationStatus>>();
+provide(moduleRuntimeActivationRefreshKey, async (alias) => {
+  if (alias !== props.moduleAlias) return;
+  return activation.value?.refresh?.();
+});
+usePageDataChangeHandler((changeSet) => {
+  if (changeSet.changes.some((change) => change.moduleAlias.startsWith('platform.'))) {
+    void activation.value?.refresh?.();
+  }
+});
+watch(activeTab, () => void activation.value?.refresh?.());
 const tabs: Array<{ key: ModuleGovernanceTab; title: string }> = [
   { key: 'overview', title: '概览' },
   { key: 'metadata', title: '元数据' },
@@ -66,7 +80,13 @@ function selectTab(key: string) {
 <template>
   <section class="module-governance">
     <header class="module-governance__header">
-      <RecordRelationTabs :tabs="tabs" :active-key="activeTab" @update:active-key="selectTab" />
+      <RecordRelationTabs
+        class="module-governance__tabs"
+        :tabs="tabs"
+        :active-key="activeTab"
+        @update:active-key="selectTab"
+      />
+      <ModuleRuntimeActivationStatus ref="activation" :module-alias="moduleAlias" />
     </header>
 
     <KeepAlive :max="moduleGovernanceTabs.length">
@@ -91,8 +111,15 @@ function selectTab(key: string) {
 }
 
 .module-governance__header {
-  display: grid;
-  gap: 6px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 16px;
+  min-width: 0;
+}
+
+.module-governance__tabs {
+  flex: 1 1 auto;
   min-width: 0;
 }
 

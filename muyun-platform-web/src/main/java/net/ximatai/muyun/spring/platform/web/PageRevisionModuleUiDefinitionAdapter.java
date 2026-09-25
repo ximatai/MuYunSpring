@@ -152,7 +152,7 @@ public final class PageRevisionModuleUiDefinitionAdapter {
         }
         if (!PlatformPresentationTemplateCatalog.MANAGEMENT_ALIAS.equals(revision.getTemplateAlias())
                 || revision.getTemplateVersion() == null
-                || !Set.of(PlatformPresentationTemplateCatalog.MANAGEMENT_VERSION, PlatformPresentationTemplateCatalog.MODE_AWARE_VERSION, PlatformPresentationTemplateCatalog.MODE_AWARE_ACTION_VERSION, PlatformPresentationTemplateCatalog.MANAGED_ACTION_VERSION).contains(revision.getTemplateVersion())) {
+                || !Set.of(PlatformPresentationTemplateCatalog.MANAGEMENT_VERSION, PlatformPresentationTemplateCatalog.MODE_AWARE_VERSION, PlatformPresentationTemplateCatalog.MODE_AWARE_ACTION_VERSION, PlatformPresentationTemplateCatalog.MANAGED_ACTION_VERSION, PlatformPresentationTemplateCatalog.SEPARATE_DETAIL_VERSION).contains(revision.getTemplateVersion())) {
             throw new IllegalArgumentException("page revision requires management v1 template: " + revision.getId());
         }
         Map<String, String> fieldTitles = fieldTitles(mainEntityFieldTitles);
@@ -172,7 +172,10 @@ public final class PageRevisionModuleUiDefinitionAdapter {
         Slot form = requireSlot(composition.slots(), "form", revision.getId());
         ViewDefinition listView = view(ModuleUiViewCodes.DEFAULT_LIST, ModuleViewKind.LIST,
                 list, knownFields, fieldTitles, requiredFields, allowReferencePaths, referenceFieldTitleResolver);
-        PageDetailDefinition detail = new PageDetailDefinition(null, form.title(), null,
+        Slot display = composition.slots().get("detail");
+        PageDetailDefinition detail = new PageDetailDefinition(null, form.title(),
+                display == null ? null : view("page_detail_display", ModuleViewKind.FORM, display, knownFields, fieldTitles, requiredFields,
+                        allowReferencePaths, referenceFieldTitleResolver),
                 view(ModuleUiViewCodes.DEFAULT_FORM, ModuleViewKind.FORM, form, knownFields, fieldTitles, requiredFields,
                         allowReferencePaths, referenceFieldTitleResolver));
         if (composition.quickSearchFields() != null && !knownFields.containsAll(composition.quickSearchFields()))
@@ -237,7 +240,7 @@ public final class PageRevisionModuleUiDefinitionAdapter {
                 .map(field -> field(field, slot.slot(), knownFields, fieldTitles, requiredFields, allowReferencePaths,
                         referenceFieldTitleResolver))
                 .collect(java.util.stream.Collectors.toCollection(java.util.ArrayList::new));
-        List<FormGroupDefinition> groups = "form".equals(slot.slot())
+        List<FormGroupDefinition> groups = !"list".equals(slot.slot())
                 ? slot.groups().stream().map(group -> {
                     List<ViewFieldDefinition> groupFields = group.fields().stream()
                             .map(field -> field(field, slot.slot(), knownFields, fieldTitles, requiredFields,
@@ -246,7 +249,7 @@ public final class PageRevisionModuleUiDefinitionAdapter {
                     return new FormGroupDefinition(group.code(), group.title(), group.subtitle(), groupFields);
                 }).toList()
                 : List.of();
-        if ("form".equals(slot.slot())) {
+        if (!"list".equals(slot.slot())) {
             Map<String, ViewFieldDefinition> rootFields = new LinkedHashMap<>();
             for (int index = 0; index < slot.fields().size(); index++) rootFields.put(slot.fields().get(index).name(), fields.get(index));
             Map<String, FormGroupDefinition> byCode = new LinkedHashMap<>();
@@ -362,9 +365,10 @@ public final class PageRevisionModuleUiDefinitionAdapter {
         List<PageListQuerySummaryDefinition> querySummaries = List.of();
         List<PageListPersistentQueryControlDefinition> persistentQueryControls = List.of();
         boolean persistentQueriesDeclared = false;
-        boolean managedActions = root != null && root.path("templateVersion").asInt() == PlatformPresentationTemplateCatalog.MANAGED_ACTION_VERSION;
+        boolean separateDetail = root != null && root.path("templateVersion").asInt() == PlatformPresentationTemplateCatalog.SEPARATE_DETAIL_VERSION;
+        boolean managedActions = root != null && root.path("templateVersion").asInt() >= PlatformPresentationTemplateCatalog.MANAGED_ACTION_VERSION;
         if (root != null && Set.of(PlatformPresentationTemplateCatalog.MODE_AWARE_VERSION,
-                PlatformPresentationTemplateCatalog.MODE_AWARE_ACTION_VERSION, PlatformPresentationTemplateCatalog.MANAGED_ACTION_VERSION).contains(root.path("templateVersion").asInt())) {
+                PlatformPresentationTemplateCatalog.MODE_AWARE_ACTION_VERSION, PlatformPresentationTemplateCatalog.MANAGED_ACTION_VERSION, PlatformPresentationTemplateCatalog.SEPARATE_DETAIL_VERSION).contains(root.path("templateVersion").asInt())) {
             JsonNode normalized = PlatformPresentationTemplateCatalog.validateModeAwareTree(root);
             quickSearchFields = new java.util.ArrayList<>();
             for (JsonNode field : root.path("quickSearchFields")) quickSearchFields.add(field.asText());
@@ -398,7 +402,7 @@ public final class PageRevisionModuleUiDefinitionAdapter {
         LinkedHashMap<String, Slot> slots = new LinkedHashMap<>();
         for (JsonNode node : root.path("nodes")) {
             String slot = node.path("slot").asText(null);
-            if (!"list".equals(slot) && !"form".equals(slot)) {
+            if (!Set.of("list", "form").contains(slot) && !(separateDetail && "detail".equals(slot))) {
                 throw new IllegalArgumentException("management page revision declares an unsupported slot: " + slot);
             }
             String title = node.path("title").asText(null);
@@ -415,13 +419,13 @@ public final class PageRevisionModuleUiDefinitionAdapter {
                 throw new IllegalArgumentException("management " + slot + " slot contains duplicate fields");
             }
             List<RelationNode> relations = "form".equals(slot) ? relationNodes(node.path("relations")) : List.of();
-            List<GroupNode> groups = "form".equals(slot) ? groupNodes(node.path("groups"), slot) : List.of();
+            List<GroupNode> groups = !"list".equals(slot) ? groupNodes(node.path("groups"), slot) : List.of();
             Set<String> allFields = new LinkedHashSet<>(fields.stream().map(FieldNode::name).toList());
             groups.forEach(group -> group.fields().forEach(field -> allFields.add(field.name())));
             if (allFields.size() != fields.size() + groups.stream().mapToInt(group -> group.fields().size()).sum()) {
                 throw new IllegalArgumentException("management form slot contains duplicate fields");
             }
-            if (slots.put(slot, new Slot(slot, title.trim(), List.copyOf(fields), relations, groups, "form".equals(slot) ? PlatformPresentationTemplateCatalog.managementFormOrder(node) : List.of())) != null) {
+            if (slots.put(slot, new Slot(slot, title.trim(), List.copyOf(fields), relations, groups, !"list".equals(slot) ? PlatformPresentationTemplateCatalog.managementFormOrder(node) : List.of())) != null) {
                 throw new IllegalArgumentException("management page revision declares duplicate " + slot + " slot");
             }
         }
@@ -572,7 +576,7 @@ public final class PageRevisionModuleUiDefinitionAdapter {
                 properties.path("width").asText(null), properties.path("align").asText(null),
                 properties.has("columnSpan") ? properties.path("columnSpan").asInt() : null,
                 properties.has("readOnly") ? properties.path("readOnly").asBoolean() : null,
-                "form".equals(slot) ? properties.path("fieldUiControlAlias").asText(null) : null,
+                !"list".equals(slot) ? properties.path("fieldUiControlAlias").asText(null) : null,
                 properties.path("assistantPolicy").asText(null));
     }
 

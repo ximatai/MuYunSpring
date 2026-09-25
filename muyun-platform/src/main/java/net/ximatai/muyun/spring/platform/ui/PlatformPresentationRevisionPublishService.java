@@ -51,6 +51,21 @@ public class PlatformPresentationRevisionPublishService {
                 ? PublishedPageExecutionCoordinator.noop() : pageExecutionCoordinator;
     }
 
+    /** Saves the caller's complete working copy and publishes it in one transaction. */
+    @Transactional
+    public PlatformPresentationRevision saveAndPublish(String revisionId, PlatformPresentationRevision changes) {
+        if (changes.getVersion() == null) {
+            throw BusinessExceptions.warning("platform.presentation-revision.version-required", "保存页面需要版本信息，请重新加载后重试");
+        }
+        PlatformPresentationRevision candidate = requireRevision(revisionId);
+        candidate.setVersion(changes.getVersion());
+        candidate.setUiTreeJson(changes.getUiTreeJson());
+        candidate.setTemplateAlias(changes.getTemplateAlias());
+        candidate.setTemplateVersion(changes.getTemplateVersion());
+        revisionService.update(candidate);
+        return publish(revisionId);
+    }
+
     @Transactional
     public PlatformPresentationRevision publish(String revisionId) {
         PlatformPresentationRevision candidate = requireRevision(revisionId);

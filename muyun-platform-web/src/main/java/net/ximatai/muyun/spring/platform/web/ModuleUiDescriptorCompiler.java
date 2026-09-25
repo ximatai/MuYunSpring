@@ -1285,6 +1285,7 @@ public final class ModuleUiDescriptorCompiler {
         if (valueType == null) return "text";
         return switch (valueType) {
             case BOOLEAN -> "switch";
+            case TEXT -> "textarea";
             case INTEGER -> "integer";
             case LONG, DECIMAL -> "number";
             case DATE -> "date";

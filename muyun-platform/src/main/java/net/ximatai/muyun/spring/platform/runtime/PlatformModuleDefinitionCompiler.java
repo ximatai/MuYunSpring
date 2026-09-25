@@ -47,6 +47,7 @@ import net.ximatai.muyun.spring.platform.metadata.ModuleMetadataRelationService;
 import net.ximatai.muyun.spring.platform.metadata.ModuleMetadataCapabilityPolicy;
 import net.ximatai.muyun.spring.platform.metadata.RelationRole;
 import net.ximatai.muyun.spring.platform.module.ModuleKind;
+import net.ximatai.muyun.spring.platform.module.ModuleActionSourceType;
 import net.ximatai.muyun.spring.platform.module.PlatformModule;
 import net.ximatai.muyun.spring.platform.module.PlatformModuleAction;
 import net.ximatai.muyun.spring.platform.module.PlatformModuleActionService;
@@ -641,11 +642,20 @@ public class PlatformModuleDefinitionCompiler {
                 .map(relation -> metadataById.get(relation.getMetadataId()))
                 .filter(Objects::nonNull)
                 .collect(java.util.stream.Collectors.toMap(Metadata::getAlias, metadata -> metadata));
+        EntityDefinition main = mainEntity(mainEntityAlias, entities);
         List<EntityActionDefinition> actions = actionService.listByModuleAliases(List.of(moduleAlias)).stream()
                 .filter(action -> !action.isBindingPending())
+                // The global reference action also authorizes source-side reference transport.
+                // It is not an entity selection action until MAIN has REFERENCE capability.
+                .filter(action -> !(Boolean.TRUE.equals(action.getSystemManaged())
+                        && action.getSourceType() == ModuleActionSourceType.DYNAMIC_MODULE
+                        && "reference".equals(action.getActionCode())
+                        && (action.getEntityAlias() == null || action.getEntityAlias().isBlank()
+                            || action.getEntityAlias().equals(mainEntityAlias))
+                        && !main.supports(EntityCapability.REFERENCE)))
                 .map(action -> action(action, mainEntityAlias, metadataByAlias))
                 .toList();
-        return withWorkflowActions(actions, mainEntity(mainEntityAlias, entities));
+        return withWorkflowActions(actions, main);
     }
 
     private EntityDefinition mainEntity(String mainEntityAlias, List<EntityDefinition> entities) {

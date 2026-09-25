@@ -44,7 +44,22 @@ const emit = defineEmits<{
           'management-panel-header-title-copy--with-suffix': $slots['title-suffix'],
         }"
       >
+        <div v-if="$slots.title" class="management-panel-header-custom-title">
+          <slot name="title" />
+          <UiButton
+            v-if="titleActionIcon"
+            :icon-name="titleActionIcon"
+            icon-only
+            type="text"
+            size="small"
+            :title="titleActionTooltip()"
+            :aria-label="titleActionTooltip()"
+            :disabled="titleActionDisabled"
+            @click="emit('titleAction')"
+          />
+        </div>
         <h2
+          v-else
           class="management-panel-header-title"
           :class="{
             'management-panel-header-title--action': titleActionIcon,
@@ -97,6 +112,13 @@ const emit = defineEmits<{
   flex: 1 1 auto;
   align-items: center;
   gap: 4px;
+  min-width: 0;
+}
+
+.management-panel-header-custom-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   min-width: 0;
 }
 

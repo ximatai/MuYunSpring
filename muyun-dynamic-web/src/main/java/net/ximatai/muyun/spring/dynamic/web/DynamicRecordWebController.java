@@ -1104,13 +1104,18 @@ public class DynamicRecordWebController implements
 
     private void applyRecordScopeForCreate(DynamicRecord record) {
         PageContextScopePolicy.requiredRecordScopeValues(recordScopeBindings())
-                .forEach(record::setValue);
+                .forEach((field, value) -> {
+                    // Tenant ownership lives on the record envelope, never in business values.
+                    if (StandardEntitySchema.TENANT_ID_FIELD.equals(field)) record.setTenantId(String.valueOf(value));
+                    else record.setValue(field, value);
+                });
     }
 
     private void requireRecordScope(DynamicRecord record) {
         if (record == null) return;
         PageContextScopePolicy.requireRecordValues(
-                PageContextScopePolicy.requiredRecordScopeValues(recordScopeBindings()), record::getValue);
+                PageContextScopePolicy.requiredRecordScopeValues(recordScopeBindings()),
+                field -> StandardEntitySchema.TENANT_ID_FIELD.equals(field) ? record.getTenantId() : record.getValue(field));
     }
 
     @SuppressWarnings({"rawtypes", "unchecked"})

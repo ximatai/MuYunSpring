@@ -16,7 +16,15 @@ export type MetadataDragPayload =
 
 /** A module action is a source fact, distinct from metadata fields and relations. */
 export type ModuleActionDragPayload = { kind: 'action'; actionCode: string };
-export type PageCompositionDragPayload = MetadataDragPayload | ModuleActionDragPayload;
+export type ComponentDragPayload = {
+  kind: 'component';
+  component: 'text' | 'textarea' | 'number' | 'date' | 'switch';
+};
+export type PageCompositionDragPayload =
+  | MetadataDragPayload
+  | ModuleActionDragPayload
+  | ComponentDragPayload
+  | { kind: 'child' };
 
 export function parseMetadataDragPayload(payload: unknown): MetadataDragPayload | undefined {
   if (!payload || typeof payload !== 'object') return undefined;
@@ -54,6 +62,12 @@ export function parsePageCompositionDragPayload(payload: unknown): PageCompositi
   if (metadata) return metadata;
   if (!payload || typeof payload !== 'object') return undefined;
   const candidate = payload as Record<string, unknown>;
+  if (candidate.kind === 'child') return { kind: 'child' };
+  if (
+    candidate.kind === 'component' &&
+    ['text', 'textarea', 'number', 'date', 'switch'].includes(String(candidate.component))
+  )
+    return { kind: 'component', component: candidate.component as ComponentDragPayload['component'] };
   return candidate.kind === 'action' && nonEmptyString(candidate.actionCode)
     ? { kind: 'action', actionCode: candidate.actionCode }
     : undefined;

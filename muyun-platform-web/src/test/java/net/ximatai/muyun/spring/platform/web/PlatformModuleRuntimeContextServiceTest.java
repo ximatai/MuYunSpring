@@ -143,7 +143,7 @@ class PlatformModuleRuntimeContextServiceTest {
             assertThat(preview.page().list().searchPlaceholder()).isEqualTo("搜索合同");
         }
         verify(records).describe("sales.contract");
-        verify(records, org.mockito.Mockito.times(2)).moduleDefinitions();
+        verify(records).moduleDefinitions();
         org.mockito.Mockito.verifyNoMoreInteractions(records);
         org.mockito.Mockito.verifyNoInteractions(pages, revisions);
     }
@@ -206,7 +206,7 @@ class PlatformModuleRuntimeContextServiceTest {
             assertThat(preview.page().list().searchPlaceholder()).isEqualTo("搜索合同");
         }
         verify(records).describe("sales.contract");
-        verify(records, org.mockito.Mockito.times(2)).moduleDefinitions();
+        verify(records).moduleDefinitions();
         org.mockito.Mockito.verifyNoMoreInteractions(records);
         org.mockito.Mockito.verifyNoInteractions(pages, revisions);
     }
@@ -393,6 +393,62 @@ class PlatformModuleRuntimeContextServiceTest {
     }
 
     @Test
+    void shouldReadReferenceFieldDeclaredOnlyInDetailDisplay() {
+        var modules = mock(PlatformModuleService.class);
+        var actions = mock(PlatformModuleActionService.class);
+        var records = mock(DynamicRecordService.class);
+        var resolver = mock(DynamicPublishedPageDefinitionResolver.class);
+        var root = net.ximatai.muyun.spring.ability.reference.ReferenceTarget.of("sales.contract", "contract");
+        var target = net.ximatai.muyun.spring.ability.reference.ReferenceTarget.of("crm.customer", "customer");
+        var ability = mock(net.ximatai.muyun.spring.ability.reference.ReferenceAbility.class);
+        when(ability.projections(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any()))
+                .thenReturn(Map.of("c1", Map.of("title", "客户甲")));
+        net.ximatai.muyun.spring.ability.PlatformAbilityRuntime.configureReferenceTargetResolver(
+                new net.ximatai.muyun.spring.ability.reference.ReferenceTargetResolver() {
+                    public Optional<net.ximatai.muyun.spring.ability.reference.ReferenceAbility<?>> resolve(
+                            net.ximatai.muyun.spring.ability.reference.ReferenceTarget value) {
+                        return target.equals(value) ? Optional.of(ability) : Optional.empty();
+                    }
+                    public Optional<net.ximatai.muyun.spring.ability.reference.ReferencePlan> referencePlan(
+                            net.ximatai.muyun.spring.ability.reference.ReferenceTarget value, String field) {
+                        return root.equals(value) && "customerId".equals(field)
+                                ? Optional.of(net.ximatai.muyun.spring.ability.reference.ReferencePlan.of(field, target, ReferenceCardinality.ONE))
+                                : Optional.empty();
+                    }
+                });
+        try {
+            var entity = new EntityDefinition("contract", "contract", "合同",
+                    List.of(FieldDefinition.titleField(), FieldDefinition.string("customerId", "客户")));
+            var descriptor = DynamicModuleDescriptor.from(new ModuleDefinition("sales.contract", "合同", List.of(entity)));
+            var customer = DynamicModuleDescriptor.from(new ModuleDefinition("crm.customer", "客户",
+                    List.of(entity("customer", Set.of(EntityCapability.CRUD)))));
+            when(modules.resolveVisibleModule("sales.contract")).thenReturn(module("sales.contract", "合同", ModuleKind.DYNAMIC));
+            when(actions.listByModuleAliases(List.of("sales.contract"))).thenReturn(List.of());
+            when(records.describe("sales.contract")).thenReturn(descriptor);
+            when(records.describe("crm.customer")).thenReturn(customer);
+            var definition = ModuleUiDefinition.builder("sales.contract")
+                    .page(PageTemplates.listDetailCard(page -> page.list(list -> list.fields(fields -> fields.field("title")))
+                            .detail(detail -> detail.display(fields -> fields.field("customerId.title"))
+                                    .editor(fields -> fields.field("customerId"))))).build();
+            var page = new PlatformPageDefinition(); page.setId("page");
+            var revision = new PlatformPresentationRevision(); revision.setId("revision");
+            when(resolver.resolveWebGlobal(descriptor)).thenReturn(Optional.of(
+                    new DynamicPublishedPageDefinitionResolver.ResolvedPublishedPage(page, revision, definition)));
+            var service = new PlatformModuleRuntimeContextService(modules, actions, new StaticModuleDefinitionCatalog(List.of()),
+                    records, null, null, allowAllPolicy(), List.of(), new DeclaredPageNavigatorResolver(), null,
+                    null, null, null, null, resolver);
+            var plan = service.dynamicExecutionPlan("sales.contract").orElseThrow();
+            var fields = plan.readModel().fields().stream().map(ResolvedModuleReadField::fieldName).toList();
+            assertThat(fields).contains("customerId.title");
+            List<Map<String, Object>> rows = List.of(new java.util.LinkedHashMap<>(Map.of("customerId", "c1")));
+            PageReferenceProjectionReader.populate(root, rows, fields, row -> row, Map::putAll);
+            assertThat(rows.getFirst()).containsEntry("customerId.title", "客户甲");
+        } finally {
+            net.ximatai.muyun.spring.ability.PlatformAbilityRuntime.resetReferenceTargetResolver();
+        }
+    }
+
+    @Test
     void shouldCompilePublishedPageRevisionIntoDynamicExecutionPlan() {
         PlatformModuleService moduleService = mock(PlatformModuleService.class);
         PlatformModuleActionService actionService = mock(PlatformModuleActionService.class);
@@ -436,6 +492,16 @@ class PlatformModuleRuntimeContextServiceTest {
                 .containsExactly("title");
         assertThat(plan.mutationFieldValidations()).singleElement()
                 .satisfies(field -> assertThat(field.fieldName()).isEqualTo("title"));
+        ModuleUiDefinition detailOnly = ModuleUiDefinition.builder("sales.contract")
+                .page(PageTemplates.listDetailCard(candidate -> candidate
+                        .list(list -> list.fields(fields -> fields.field("title")))
+                        .detail(detail -> detail.display(fields -> fields.field("memo"))
+                                .editor(fields -> fields.field("notes"))))).build();
+        when(resolver.resolveWebGlobal(descriptor)).thenReturn(Optional.of(
+                new DynamicPublishedPageDefinitionResolver.ResolvedPublishedPage(page, revision, detailOnly)));
+        assertThat(service.dynamicExecutionPlan("sales.contract").orElseThrow().readModel().fields())
+                .extracting(ResolvedModuleReadField::fieldName).contains("title", "memo", "notes");
+
         ResolvedViewFieldDescriptor listField = plan.uiDescriptor().page().list().fields().fields().getFirst();
         assertThat(listField.label()).isEqualTo("合同名称");
         assertThat(listField.width()).isEqualTo("180px");
@@ -509,7 +575,8 @@ class PlatformModuleRuntimeContextServiceTest {
         ModuleExecutionPlanCatalog planCatalog = new ModuleExecutionPlanCatalog(new StaticModuleDefinitionCatalog(List.of()));
 
         new DynamicPublishedPageExecutionCoordinator(() -> service, planCatalog,
-                () -> mock(net.ximatai.muyun.spring.platform.runtime.DynamicRuntimeActivationService.class))
+                () -> mock(net.ximatai.muyun.spring.platform.runtime.DynamicRuntimeActivationService.class),
+                () -> mock(net.ximatai.muyun.spring.platform.runtime.PlatformModuleDefinitionCompiler.class))
                 .installCurrentPublishedConfiguration("sales.contract");
         ModuleExecutionPlan plan = planCatalog.find("sales.contract").orElseThrow();
         ResolvedFieldControlDescriptor fieldControl = plan.uiDescriptor().page().detail().editor().fields().getFirst().fieldControl();
@@ -532,9 +599,13 @@ class PlatformModuleRuntimeContextServiceTest {
         unsupportedPresentation.setDefaultValue("TREE");
         when(properties.listByFieldUiControlAliases(List.of("record_picker_dialog"))).thenReturn(List.of(unsupportedPresentation));
         ModuleExecutionPlanCatalog rejectedCatalog = new ModuleExecutionPlanCatalog(new StaticModuleDefinitionCatalog(List.of()));
-        assertThatThrownBy(() -> new DynamicPublishedPageExecutionCoordinator(() -> service, rejectedCatalog,
-                () -> mock(net.ximatai.muyun.spring.platform.runtime.DynamicRuntimeActivationService.class))
-                .prepareAfterPublishedConfigurationChange("sales.contract"))
+        ModuleDefinition candidate = new ModuleDefinition("sales.contract", "合同",
+                List.of(new EntityDefinition("contract", "contract", "合同",
+                        List.of(FieldDefinition.string("customerId", "客户")))))
+                .toBuilder().references(List.of(
+                        net.ximatai.muyun.spring.dynamic.metadata.EntityReferenceDefinition.to(
+                                "contract", "customerId", new net.ximatai.muyun.spring.ability.reference.ReferenceTarget("base.product", "product")))).build();
+        assertThatThrownBy(() -> service.pendingDynamicExecutionPlan(candidate))
                 .hasMessageContaining("presentation must be DROPDOWN or DIALOG");
         assertThat(rejectedCatalog.find("sales.contract")).isEmpty();
     }
@@ -642,6 +713,23 @@ class PlatformModuleRuntimeContextServiceTest {
             assertThat(summary.groupByTitle()).isEqualTo("状态");
             assertThat(summary.sumFieldTitle()).isEqualTo("金额");
         });
+
+        // Installed runtime lacks amount; candidate/preview must not fall back to those old fields.
+        var oldEntity = new EntityDefinition("contract", "contract", "合同",
+                entity.fields().stream().filter(field -> !"amount".equals(field.fieldName())).toList(), Set.of(EntityCapability.CRUD));
+        var oldModule = new ModuleDefinition("sales.contract", "合同", List.of(oldEntity));
+        var candidateModule = new ModuleDefinition("sales.contract", "合同", List.of(entity));
+        when(records.moduleDefinitions()).thenReturn(List.of(oldModule));
+        when(resolver.resolveWebGlobal(org.mockito.ArgumentMatchers.any())).thenReturn(Optional.of(
+                new DynamicPublishedPageDefinitionResolver.ResolvedPublishedPage(page, revision, definition)));
+        assertThat(service.pendingDynamicExecutionPlan(candidateModule).orElseThrow().uiDescriptor()
+                .page().list().querySummaries().getFirst().sumFieldTitle()).isEqualTo("金额");
+        when(records.describe("sales.contract")).thenReturn(DynamicModuleDescriptor.from(oldModule));
+        assertThat(service.previewDynamicPageDescriptor(page, revision, revision.getUiTreeJson(),
+                List.of(FieldDefinition.decimal("amount", "金额"))).page().list().querySummaries().getFirst()
+                .sumFieldTitle()).isEqualTo("金额");
+        when(records.describe("sales.contract")).thenReturn(descriptor);
+        when(records.moduleDefinitions()).thenReturn(List.of(candidateModule));
 
         ModuleUiDefinition invalid = ModuleUiDefinition.builder("sales.contract")
                 .page(PageTemplates.listDetailCard(candidate -> candidate
@@ -1100,7 +1188,7 @@ class PlatformModuleRuntimeContextServiceTest {
     }
 
     @Test
-    void shouldMergePersistedModuleActionsWithStaticBaselineAndExposeAuthorizationResult() {
+    void shouldUseConfiguredDirectoryOrderWithoutChangingStaticDeclarationsOrAuthorization() {
         PlatformModuleService moduleService = mock(PlatformModuleService.class);
         PlatformModuleActionService actionService = mock(PlatformModuleActionService.class);
         when(moduleService.resolveVisibleModule("iam.organization"))
@@ -1111,7 +1199,7 @@ class PlatformModuleRuntimeContextServiceTest {
         view.setActionAuth(Boolean.FALSE);
         view.setActionAuthOverride(Boolean.FALSE);
         PlatformModuleAction enable = action("iam.organization", PlatformAction.ENABLE);
-        when(actionService.listByModuleAliases(List.of("iam.organization"))).thenReturn(List.of(view, enable));
+        when(actionService.listByModuleAliases(List.of("iam.organization"))).thenReturn(List.of(enable, view));
         ActionExecutionPolicyService policyService = context -> {
             if (PlatformAction.ENABLE.matches(context.actionCode())) {
                 throw new PlatformAccessDeniedException("denied");
@@ -1137,7 +1225,7 @@ class PlatformModuleRuntimeContextServiceTest {
         PlatformModuleRuntimeContext context = service.context("iam.organization");
 
         assertThat(context.actions()).extracting(PlatformModuleRuntimeAction::actionCode)
-                .containsExactly("view", "enable", "tree");
+                .containsExactly("enable", "view", "tree");
         assertThat(context.actions()).filteredOn(action -> "view".equals(action.actionCode()))
                 .singleElement()
                 .satisfies(action -> {
@@ -1266,7 +1354,7 @@ class PlatformModuleRuntimeContextServiceTest {
     }
 
     @Test
-    void shouldMergePersistedDynamicActionsWithDescriptorActions() {
+    void shouldUseConfiguredDynamicDirectoryOrderAndKeepDisabledActionsHidden() {
         PlatformModuleService moduleService = mock(PlatformModuleService.class);
         PlatformModuleActionService actionService = mock(PlatformModuleActionService.class);
         DynamicRecordService dynamicRecordService = mock(DynamicRecordService.class);
@@ -1305,7 +1393,7 @@ class PlatformModuleRuntimeContextServiceTest {
         PlatformModuleRuntimeContext context = service.context("sales.contract");
 
         assertThat(context.actions()).extracting(PlatformModuleRuntimeAction::actionCode)
-                .containsExactly("view", "update");
+                .containsExactly("update", "view");
         assertThat(context.actions()).filteredOn(action -> "update".equals(action.actionCode()))
                 .singleElement()
                 .satisfies(action -> assertThat(action.title()).isEqualTo("编辑合同"));

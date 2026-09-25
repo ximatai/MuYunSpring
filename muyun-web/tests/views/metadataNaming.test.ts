@@ -20,7 +20,7 @@ it('keeps generated business field names inside the platform field-name contract
   expect(generatedBusinessFieldName('学生'.repeat(100), 'MODULE_REFERENCE')).toHaveLength(63);
   expect(isPlatformFieldName(generatedBusinessFieldName('2026 Students', 'BASIC'))).toBe(true);
   expect(isPlatformFieldName('customer_name')).toBe(false);
-  expect(['values', 'attachments', 'record'].every(isDynamicRecordReservedFieldName)).toBe(true);
+  expect(['values', 'attachments', 'record', 'tenantId'].every(isDynamicRecordReservedFieldName)).toBe(true);
 });
 
 it.each([

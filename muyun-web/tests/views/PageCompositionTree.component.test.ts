@@ -98,9 +98,9 @@ describe('PageCompositionTree', () => {
       expect(actionsAt(key)).toEqual(['configure', 'remove']);
     }
     expect(actionsAt('ui:template:list:quick-search')).toEqual(['configure']);
-    expect(actionsAt('ui:slot:form')).toEqual(['add-group']);
+    expect(actionsAt('ui:slot:form')).toEqual(['add-group', 'split-layout']);
     expect(findNode(nodes, 'ui:groups:form')).toBeUndefined();
-    expect(actionsAt('ui:relation:form:participants')).toEqual(['remove']);
+    expect(actionsAt('ui:relation:form:participants')).toEqual(['configure', 'remove']);
     expect(actionsAt('ui:relation-field:form:participants:exam-date')).toEqual(['configure', 'remove']);
     for (const key of ['ui:slot:list', 'ui:slot:list:fields']) {
       expect(actionsAt(key)).toEqual([]);
@@ -715,4 +715,53 @@ it.each([
       false,
     );
   }
+});
+
+it.each(['ui:field:form:subject', 'ui:group:form:dates'])(
+  'rejects cross-layout moves of %s even when the target has the same IDs',
+  (key) => {
+    const wrapper = mountTree({
+      formFields: [subject, examDate],
+      formGroups: [{ id: 'dates', groupCode: 'dates', title: '日期', fields: [] }],
+      separateDetail: true,
+      layoutTitle: '表单',
+    });
+    const tree = uiTree(wrapper);
+    const event = {
+      source: { instanceId: 'detail-tree', node: { key }, operations: ['move'] },
+      target: {
+        instanceId: 'form-tree',
+        kind: 'node',
+        node: { key: 'ui:field:form:exam-date' },
+        position: 'after',
+      },
+      operation: 'move',
+    };
+    expect(tree.props('allowDrop')(event)).toBe(false);
+    tree.vm.$emit('drop', event);
+    expect(wrapper.emitted('reorder-form-field')).toBeUndefined();
+    expect(wrapper.emitted('reorder-group')).toBeUndefined();
+    expect(wrapper.emitted('source-drop')).toBeUndefined();
+    wrapper.unmount();
+  },
+);
+
+it('accepts a component inside an empty form and emits its component payload', () => {
+  const wrapper = mountTree({});
+  const tree = uiTree(wrapper);
+  const event = {
+    source: {
+      instanceId: 'library',
+      node: { key: 'text' },
+      operations: ['copy'],
+      payloadType: PAGE_COMPOSITION_DRAG_PAYLOAD_TYPE,
+      payload: { kind: 'component', component: 'text' },
+    },
+    target: { instanceId: 'form', kind: 'node', node: { key: 'ui:slot:form' }, position: 'inside' },
+    operation: 'copy',
+  };
+  expect(tree.props('allowDrop')(event)).toBe(true);
+  tree.vm.$emit('drop', event);
+  expect(wrapper.emitted('source-drop')).toEqual([[{ kind: 'form', index: 0 }, event.source.payload]]);
+  wrapper.unmount();
 });

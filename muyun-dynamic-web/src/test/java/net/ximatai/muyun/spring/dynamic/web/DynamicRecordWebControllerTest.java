@@ -388,6 +388,43 @@ class DynamicRecordWebControllerTest {
     }
 
     @Test
+    void shouldApplyAndCheckTenantPageScopeThroughRecordEnvelope() throws Exception {
+        var catalog = new ModuleExecutionPlanCatalog(new StaticModuleDefinitionCatalog(List.of()));
+        catalog.replaceDynamicPlan(MODULE, java.util.Optional.of(installedDynamicPlan(List.of(
+                PageContextBindingDefinition.navigatorList("tenant", "tenantId", NavigatorListQueryMode.REQUIRED_SCOPE)))));
+        MockMvc scopedMvc = MockMvcBuilders.standaloneSetup(controllerFixture(service, activeTenantVerifier)
+                        .executionPlans(catalog).build())
+                .setMessageConverters(new MappingJackson2HttpMessageConverter(objectMapper))
+                .setControllerAdvice(new PlatformWebExceptionHandler(), new DynamicWebExceptionHandler())
+                .addFilters(new CurrentUserWebFilter(() -> java.util.Optional.of(
+                        CurrentUser.tenantUser("user-1", "User", "tenant_a"))))
+                .build();
+        DynamicRecord saved = new DynamicRecord(entity()).setValue("code", "C-001");
+        saved.setId("scoped-record");
+        saved.setTenantId("tenant_a");
+        when(mainEntity.insert(any(DynamicRecord.class))).thenReturn(saved.getId());
+        when(mainEntity.select(saved.getId())).thenReturn(saved);
+        when(mainEntity.update(any(DynamicRecord.class))).thenReturn(1);
+
+        scopedMvc.perform(post("/{moduleAlias}/insert", MODULE).contentType("application/json")
+                        .header("X-MuYun-Page-Context", "{\"tenant\":\"tenant_a\"}")
+                        .content("{\"tenantId\":\"forged\",\"values\":{\"tenantId\":\"forged\",\"code\":\"C-001\"}}"))
+                .andExpect(status().isCreated());
+        var captured = ArgumentCaptor.forClass(DynamicRecord.class);
+        verify(mainEntity).insert(captured.capture());
+        assertThat(captured.getValue().getTenantId()).isEqualTo("tenant_a");
+        assertThat(captured.getValue().getValues()).doesNotContainKey("tenantId");
+        scopedMvc.perform(post("/{moduleAlias}/update/{id}", MODULE, saved.getId()).contentType("application/json")
+                        .content("{\"version\":0,\"values\":{\"code\":\"C-002\"}}")
+                        .header("X-MuYun-Page-Context", "{\"tenant\":\"tenant_a\"}"))
+                .andExpect(status().isOk());
+        scopedMvc.perform(post("/{moduleAlias}/update/{id}", MODULE, saved.getId()).contentType("application/json")
+                        .content("{\"version\":0,\"values\":{\"code\":\"C-002\"}}")
+                        .header("X-MuYun-Page-Context", "{\"tenant\":\"tenant_b\"}"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
     void shouldCreateAndUpdateMainEntityThroughAliasRootContract() throws Exception {
         DynamicRecord created = new DynamicRecord(entity()).setValue("code", "C-001")
                 .setValue("amount", BigDecimal.valueOf(12));

@@ -113,7 +113,6 @@ public class StaticModuleDefinitionRegistrar implements PlatformBootstrapTask {
         Set<String> declaredActionCodes = definition.actions().stream()
                 .map(StaticModuleActionDefinition::actionCode)
                 .collect(java.util.stream.Collectors.toUnmodifiableSet());
-        int order = 1;
         for (StaticModuleActionDefinition actionDefinition : definition.actions()) {
             PlatformModuleAction action = actionService.findByModuleAliasAndActionCode(
                     definition.moduleAlias(), actionDefinition.actionCode());
@@ -137,7 +136,7 @@ public class StaticModuleDefinitionRegistrar implements PlatformBootstrapTask {
             action.setSourceId(definition.moduleAlias());
             action.setSystemManaged(Boolean.TRUE);
             action.setEnabled(Boolean.TRUE);
-            action.setSortOrder(order++);
+            // Existing directory order belongs to configuration; new actions append through SortAbility.
             if (action.getId() == null || action.getId().isBlank()) {
                 actionService.insert(action);
             } else {

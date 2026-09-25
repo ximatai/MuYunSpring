@@ -1,6 +1,6 @@
 import { orderedFormItems, type PageComposerFormItem } from './pageCompositionDraftState';
 import type { PageComposerField, PageComposerGroup, PageComposerRelation } from './pageCompositionDraftState';
-import type { MetadataDragPayload } from './pageCompositionDragPayload';
+import type { MetadataDragPayload, ComponentDragPayload } from './pageCompositionDragPayload';
 
 /** Editor placement facts shared by the structure tree and the descriptor preview. */
 export interface PageCompositionStructure {
@@ -23,6 +23,7 @@ export interface CompositionPlacementTarget {
   position: 'before' | 'after' | 'inside';
 }
 export type CompositionPlacementSource =
+  | { kind: 'component'; component: ComponentDragPayload | { kind: 'child' } }
   | { kind: 'metadata'; metadata: MetadataDragPayload }
   | { kind: 'node'; container: CompositionContainer; nodeId: string };
 export interface CompositionPlacement {
@@ -69,7 +70,17 @@ export function resolveCompositionPlacement(
   if (!items || (target.anchorId && !items.some((item) => item.id === target.anchorId))) return;
   const fieldTarget = ['form', 'group'].includes(target.container.kind);
   let movingId: string | undefined;
-  if (source.kind === 'metadata') {
+  if (source.kind === 'component') {
+    const container = target.container;
+    if (source.component.kind === 'child') {
+      if (container.kind !== 'relations') return;
+    } else {
+      const pendingRelation =
+        container.kind === 'relation' &&
+        structure.relations.some((relation) => relation.id === container.relationId && relation.pending);
+      if (target.container.kind !== 'list' && !fieldTarget && !pendingRelation) return;
+    }
+  } else if (source.kind === 'metadata') {
     const metadata = source.metadata;
     if (metadata.kind === 'field') {
       if (target.container.kind !== 'list' && !fieldTarget) return;
@@ -91,7 +102,7 @@ export function resolveCompositionPlacement(
     if (!same && !movingFormField && !movingGroup) return;
     movingId = source.nodeId;
   }
-  if (movingId === target.anchorId) return;
+  if (movingId !== undefined && movingId === target.anchorId) return;
   const remaining = items.filter((item) => item.id !== movingId);
   const anchor = target.anchorId
     ? remaining.findIndex((item) => item.id === target.anchorId)

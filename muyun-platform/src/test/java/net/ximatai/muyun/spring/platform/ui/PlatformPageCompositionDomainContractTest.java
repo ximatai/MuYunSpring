@@ -74,18 +74,19 @@ class PlatformPageCompositionDomainContractTest {
         TenantContext.clear();
     }
 
-    @Test
-    void managedStatusEntriesKeepEnableCapabilityUntilTheReplacementIsPublished() {
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(ints = {4, 5})
+    void managedStatusEntriesKeepEnableCapabilityUntilTheReplacementIsPublished(int version) {
         String pageId = seedPage();
         try (TenantContext.Scope ignored = TenantContext.system("validate action dependencies")) {
             String variantId = variantService.insert(variant(pageId, PlatformPresentationScopeType.GLOBAL, null));
             for (String entries : List.of("[{\"actionCode\":\" enable \",\"anchor\":\"detail\"}]", "[]")) {
                 var draft = revision(variantId, entries.equals("[]") ? 2 : 1, PlatformPresentationRevisionStatus.DRAFT,
                         """
-                        {"template":"management","templateVersion":4,"mode":"LIST_CARD","quickSearchFields":[],"actions":%s,
+                        {"template":"management","templateVersion":%d,"mode":"LIST_CARD","quickSearchFields":[],"actions":%s,
                          "nodes":[{"slot":"list","title":"列表","fields":[]},{"slot":"form","title":"详情","fields":[]}]}
-                        """.formatted(entries));
-                draft.setTemplateVersion(4);
+                        """.formatted(version, entries));
+                draft.setTemplateVersion(version);
                 String id = revisionService.insert(draft);
                 if (entries.equals("[]")) {
                     assertThat(revisionService.publishedRequiredCapabilities("crm.customer"))
@@ -109,9 +110,9 @@ class PlatformPageCompositionDomainContractTest {
                      "nodes":[{"slot":"explorer","title":"导航","titleField":"title","fields":[]},
                               {"slot":"form","title":"详情","fields":[]}]}
                     """;
-            for (int version : List.of(2, 3)) {
+            for (int version : List.of(2, 3, 4, 5)) {
                 var draft = revision(variantId, version, PlatformPresentationRevisionStatus.DRAFT,
-                        tree.formatted(version, version == 3 ? "\"actions\":[]," : ""));
+                        tree.formatted(version, version >= 3 ? "\"actions\":[]," : ""));
                 draft.setTemplateVersion(version);
                 String id = revisionService.insert(draft);
                 revisionPublishService.publish(id);
@@ -120,7 +121,7 @@ class PlatformPageCompositionDomainContractTest {
                                 net.ximatai.muyun.spring.common.platform.EntityCapability.SORT);
                 assertThat(revisionService.hasLegacyPublishedPage("crm.customer")).isFalse();
             }
-            var replacement = revision(variantId, 4, PlatformPresentationRevisionStatus.DRAFT,
+            var replacement = revision(variantId, 6, PlatformPresentationRevisionStatus.DRAFT,
                     """
                     {"template":"management","templateVersion":3,"mode":"LIST_CARD","quickSearchFields":[],"actions":[],
                      "nodes":[{"slot":"list","title":"列表","fields":[]},{"slot":"form","title":"详情","fields":[]}]}

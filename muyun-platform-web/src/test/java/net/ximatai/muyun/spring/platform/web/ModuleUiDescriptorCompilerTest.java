@@ -1353,6 +1353,18 @@ class ModuleUiDescriptorCompilerTest {
     }
 
     @Test
+    void shouldInferMultilineEditorFromTextValueTypeAndRespectExplicitControl() {
+        var ui = editorPage("demo.notes", form -> form.field("notes")
+                .field("shortNotes", field -> field.uiType("text")));
+        var fields = ModuleUiDescriptorCompiler.compile(ui, ModuleKind.DYNAMIC, "备注", Map.of(), Map.of(),
+                null, Map.of(ViewFieldRef.main("notes"), FieldValueType.TEXT,
+                        ViewFieldRef.main("shortNotes"), FieldValueType.TEXT))
+                .page().detail().editor().fields();
+        assertThat(fields).extracting(field -> field.fieldControl().rendererType())
+                .containsExactly("TEXTAREA", "TEXT");
+    }
+
+    @Test
     void shouldCompileDictionaryControlAliasesForStaticAndDynamicModules() {
         ModuleUiDefinition ui = editorPage("iam.dictionary_demo", form -> form
                 .field("dropdown", field -> field.uiType("dictionary_dropdown"))

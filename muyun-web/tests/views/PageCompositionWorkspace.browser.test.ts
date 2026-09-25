@@ -28,7 +28,7 @@ it.each([1440, 980])(
       { attachTo: document.body },
     );
     try {
-      await expect.element(page.getByRole('button', { name: '发布草稿', exact: true })).toBeEnabled();
+      await expect.element(page.getByRole('button', { name: '保存并生效', exact: true })).toBeEnabled();
       const lastField = wrapper.get('[data-ui-tree-key="ui:field:list:field-59"]').element;
       lastField.scrollIntoView({ block: 'end' });
       await page.elementLocator(lastField).dblClick();
@@ -60,7 +60,7 @@ it.each([1440, 980])(
       await expect.element(page.getByRole('textbox', { name: '搜索占位提示', exact: true })).toBeVisible();
       await page.getByRole('textbox', { name: '搜索占位提示', exact: true }).fill('布局验收');
       await page.getByRole('button', { name: '关闭', exact: true }).click();
-      await expect.element(page.getByRole('button', { name: '保存草稿', exact: true })).toBeEnabled();
+      await expect.element(page.getByRole('button', { name: '保存并生效', exact: true })).toBeEnabled();
       await expect.poll(() => wrapper.find('[data-testid="page-composer-list-preview"]').exists()).toBe(true);
       await expect
         .poll(() => !(wrapper.get('input[value="detail"]').element as HTMLInputElement).disabled)
@@ -71,7 +71,7 @@ it.each([1440, 980])(
         .toBe(true);
       const detailField = wrapper.get('[data-page-composition-layout-key="detail:field:field0"]').element;
       await page.elementLocator(detailField).dblClick();
-      await expect.element(page.getByRole('radio', { name: '页面', exact: true })).toBeChecked();
+      await expect.element(page.getByRole('radio', { name: '详情', exact: true })).toBeChecked();
       await expect.element(page.getByRole('textbox', { name: '展示标题', exact: true })).toBeVisible();
       await page.getByRole('button', { name: '关闭', exact: true }).click();
       await expect
@@ -83,7 +83,7 @@ it.each([1440, 980])(
       const content = wrapper.get('.record-detail-panel-region .record-detail-layout-content')
         .element as HTMLElement;
       expect(content.scrollHeight).toBeGreaterThan(content.clientHeight);
-      const save = page.getByRole('button', { name: '保存草稿', exact: true });
+      const save = page.getByRole('button', { name: '保存并生效', exact: true });
       const header = wrapper.get('.page-composition-workspace > .management-panel-header').element;
       const top = header.getBoundingClientRect().top;
       await page.getByRole('textbox', { name: '字段59', exact: true }).fill('末尾可编辑');
@@ -93,14 +93,14 @@ it.each([1440, 980])(
       expect(root.getBoundingClientRect().bottom).toBeLessThanOrEqual(814);
       const previewPanel = wrapper.get('.record-detail-panel-region').element;
       const originalWidth = previewPanel.getBoundingClientRect().width;
-      await page.getByRole('button', { name: '收起可用字段', exact: true }).click();
+      await page.getByRole('button', { name: '收起已有字段', exact: true }).click();
       await expect.poll(() => previewPanel.getBoundingClientRect().width).toBeGreaterThan(originalWidth);
       const oneCollapsedWidth = previewPanel.getBoundingClientRect().width;
       await page.getByRole('button', { name: '收起页面结构', exact: true }).click();
       await expect.poll(() => previewPanel.getBoundingClientRect().width).toBeGreaterThan(oneCollapsedWidth);
       await expect.poll(() => root.scrollWidth).toBeLessThanOrEqual(root.clientWidth + 1);
       await page.getByRole('button', { name: '展开页面结构', exact: true }).click();
-      await page.getByRole('button', { name: '展开可用字段', exact: true }).click();
+      await page.getByRole('button', { name: '展开字段来源', exact: true }).click();
       await expect.poll(() => previewPanel.getBoundingClientRect().width).toBeCloseTo(originalWidth, 0);
       expect(wrapper.find('.record-explorer-panel-footer').exists()).toBe(false);
     } finally {
@@ -117,7 +117,7 @@ it('configures and previews list summaries in the real Chromium footer', async (
     props: { moduleAlias: 'education.layout', moduleTitle: '布局验收' },
   });
   try {
-    await expect.element(page.getByRole('button', { name: '发布草稿', exact: true })).toBeEnabled();
+    await expect.element(page.getByRole('button', { name: '保存并生效', exact: true })).toBeEnabled();
     const summaryNode = wrapper.get('[data-ui-tree-key="ui:template:list:query-summaries"]').element;
     await page.elementLocator(summaryNode).dblClick();
     await expect.element(page.getByRole('heading', { name: '汇总统计', exact: true })).toBeVisible();
@@ -171,7 +171,7 @@ it('scrolls a tree-targeted statistic into the drawer and keeps it visible after
     { attachTo: document.body },
   );
   try {
-    await expect.element(page.getByRole('button', { name: '发布草稿', exact: true })).toBeEnabled();
+    await expect.element(page.getByRole('button', { name: '保存并生效', exact: true })).toBeEnabled();
     await page
       .elementLocator(wrapper.get('[data-ui-tree-key="ui:template:list:query-summaries"]').element)
       .dblClick();
@@ -353,7 +353,7 @@ it('refreshes metadata after returning to a cached composer without discarding u
     { attachTo: document.body },
   );
   try {
-    await expect.element(page.getByRole('button', { name: '发布草稿', exact: true })).toBeEnabled();
+    await expect.element(page.getByRole('button', { name: '保存并生效', exact: true })).toBeEnabled();
     await page
       .elementLocator(wrapper.get('[data-ui-tree-key="ui:template:list:quick-search"]').element)
       .dblClick();
@@ -373,7 +373,7 @@ it('refreshes metadata after returning to a cached composer without discarding u
     await expect
       .element(page.getByRole('textbox', { name: '搜索占位提示', exact: true }))
       .toHaveValue('保留未保存内容');
-    await expect.element(page.getByRole('button', { name: '保存草稿', exact: true })).toBeEnabled();
+    await expect.element(page.getByRole('button', { name: '保存并生效', exact: true })).toBeEnabled();
   } finally {
     wrapper.unmount();
   }

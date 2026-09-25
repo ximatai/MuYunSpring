@@ -6,7 +6,10 @@ import {
   type UiDropPosition,
   type UiTreeDropEvent,
 } from '@muyun/vue-ui-antdv';
-import { PAGE_COMPOSITION_DRAG_PAYLOAD_TYPE, parseMetadataDragPayload } from './pageCompositionDragPayload';
+import {
+  PAGE_COMPOSITION_DRAG_PAYLOAD_TYPE,
+  parsePageCompositionDragPayload,
+} from './pageCompositionDragPayload';
 import {
   PAGE_COMPOSITION_NODE_DRAG_TYPE,
   containerKey,
@@ -56,6 +59,12 @@ export function usePageCompositionPreviewDrag(
   ) {
     if (!left || !right || left.kind !== right.kind) return false;
     if (left.kind === 'node' && right.kind === 'node') return left.nodeId === right.nodeId;
+    if (left.kind === 'component' && right.kind === 'component')
+      return (
+        left.component.kind === right.component.kind &&
+        (left.component.kind === 'child' ||
+          (right.component.kind === 'component' && left.component.component === right.component.component))
+      );
     if (left.kind !== 'metadata' || right.kind !== 'metadata') return false;
     const [source, candidate] = [left.metadata, right.metadata];
     if (source.kind !== candidate.kind) return false;
@@ -351,7 +360,13 @@ export function usePageCompositionPreviewDrag(
   }
   /** A grid slot is a stable location, even while FLIP moves a different card through it. */
   function gridSlotAt(source: CompositionPlacementSource | undefined, x: number | undefined, y: number) {
-    if (!source || x === undefined || (source.kind === 'node' && source.container.kind === 'groups')) return;
+    if (
+      !source ||
+      source.kind === 'component' ||
+      x === undefined ||
+      (source.kind === 'node' && source.container.kind === 'groups')
+    )
+      return;
     const sourceId =
       source.kind === 'node'
         ? source.nodeId
@@ -439,8 +454,12 @@ export function usePageCompositionPreviewDrag(
       return entry?.nodeId ? { kind: 'node', container: entry.container, nodeId: entry.nodeId } : undefined;
     }
     const metadata =
-      source.payloadType === PAGE_COMPOSITION_DRAG_PAYLOAD_TYPE && parseMetadataDragPayload(source.payload);
-    return metadata ? { kind: 'metadata', metadata } : undefined;
+      source.payloadType === PAGE_COMPOSITION_DRAG_PAYLOAD_TYPE &&
+      parsePageCompositionDragPayload(source.payload);
+    if (!metadata || metadata.kind === 'action') return;
+    return metadata.kind === 'component' || metadata.kind === 'child'
+      ? { kind: 'component', component: metadata }
+      : { kind: 'metadata', metadata };
   }
   function targetOf(key: string, position: UiDropPosition, source: CompositionPlacementSource) {
     const entry = entries.value.get(key);
@@ -448,7 +467,9 @@ export function usePageCompositionPreviewDrag(
     const field =
       source.kind === 'metadata'
         ? source.metadata.kind !== 'relation'
-        : ['list', 'form', 'group', 'relation'].includes(source.container.kind);
+        : source.kind === 'component'
+          ? source.component.kind !== 'child'
+          : ['list', 'form', 'group', 'relation'].includes(source.container.kind);
     if (entry.inside && field && (entry.container.kind === 'relations' || position === 'inside'))
       return { container: entry.inside, position: 'inside' as const };
     if (entry.container.kind === 'groups')
@@ -501,13 +522,13 @@ export function usePageCompositionPreviewDrag(
       const markedElement = origin.closest<HTMLElement>(
         '[data-composer-target], [data-page-composition-layout-key]',
       );
-      // A table cell's padding is part of the visible list column but sits outside the heading or
+      // A table cell's padding is part of the visible column but sits outside the heading or
       // field marker. Resolve it through the marker it contains, without making the surrounding
       // preview surface an implicit append receiver.
       const cellMarker = origin
         .closest<HTMLElement>('th, td')
-        ?.querySelector<HTMLElement>('[data-page-composition-layout-key^="list:"]');
-      const nearestElement = markedElement ?? cellMarker;
+        ?.querySelector<HTMLElement>('[data-page-composition-layout-key]');
+      const nearestElement = cellMarker ?? markedElement;
       const listTable = origin.closest('table')?.querySelector('[data-page-composition-layout-key^="list:"]');
       if (!source) return;
       const parsed = sourceOf(source);
@@ -577,7 +598,7 @@ export function usePageCompositionPreviewDrag(
         parsed?.kind === 'node' &&
         !['form', 'group', 'groups'].includes(parsed.container.kind) &&
         Boolean(liveEntry) &&
-        !liveIsSource;
+        (!liveIsSource || parsed.container.kind === 'relation');
       const frozen = listSlot || preferLiveTarget ? undefined : frozenTargetAt(x, y);
       const key = gridSlot?.key ?? listSlot?.key ?? (preferLiveTarget ? liveKey : (frozen?.[0] ?? liveKey));
       const entry = key && entries.value.get(key);
@@ -588,6 +609,9 @@ export function usePageCompositionPreviewDrag(
         gridSlot?.rect ??
         listSlot?.rect ??
         (entry.container.kind === 'list' ? listSlotRect(key, element) : undefined) ??
+        (parsed?.kind === 'component' && entry.axis === 'x'
+          ? element?.closest('th, td')?.getBoundingClientRect()
+          : undefined) ??
         frozen?.[1] ??
         largestLiveRect(key, element);
       if (!rect) return;
@@ -608,10 +632,11 @@ export function usePageCompositionPreviewDrag(
         // Reordering can move the dragged column under the pointer before mouseup. It is
         // still the displayed placement, not a cancellation or a new insertion into itself.
         const staged = transientPlacement.value;
-        if (entry.container.kind === 'list' && staged && sameSource(staged.source, parsed)) {
+        if (entry.axis === 'x' && staged && sameSource(staged.source, parsed)) {
           const anchor = [...entries.value].find(
             ([, candidate]) =>
-              candidate.container.kind === 'list' && candidate.nodeId === staged.target.anchorId,
+              containerKey(candidate.container) === containerKey(entry.container) &&
+              candidate.nodeId === staged.target.anchorId,
           );
           if (anchor)
             return {
@@ -631,7 +656,9 @@ export function usePageCompositionPreviewDrag(
       const rawDropPosition =
         entry.inside &&
         parsed &&
-        !(parsed.kind === 'node' && parsed.container.kind === 'groups') &&
+        !(parsed.kind === 'component' && parsed.component.kind === 'child') &&
+        !(parsed.kind === 'node' && ['groups', 'relations'].includes(parsed.container.kind)) &&
+        !(parsed.kind === 'metadata' && parsed.metadata.kind === 'relation') &&
         ratio >= 0.24 &&
         ratio <= 0.76
           ? 'inside'
@@ -670,7 +697,11 @@ export function usePageCompositionPreviewDrag(
         transientPlacement.value = undefined;
       }
       const inside = target?.position === 'inside';
-      const staged = Boolean(resolved);
+      const staged =
+        Boolean(resolved) &&
+        parsed?.kind !== 'component' &&
+        !(parsed?.kind === 'node' && parsed.container.kind === 'relations') &&
+        !(parsed?.kind === 'metadata' && parsed.metadata.kind === 'relation');
       const rootRect = root.value!.getBoundingClientRect();
       const width =
         !inside && horizontal ? (staged ? Math.min(Math.max(88, rect.width * 0.7), 180) : 3) : rect.width;
@@ -717,7 +748,8 @@ export function usePageCompositionPreviewDrag(
       if (!result) return;
       // Hub teardown precedes drop delivery. Keep the staged order through that hand-off so the
       // committed draft takes over without briefly restoring and replaying the FLIP animation.
-      committingPlacement = true;
+      committingPlacement = result.source.kind !== 'component';
+      if (!committingPlacement) transientPlacement.value = undefined;
       onDrop(result.source, result.target);
     },
   });

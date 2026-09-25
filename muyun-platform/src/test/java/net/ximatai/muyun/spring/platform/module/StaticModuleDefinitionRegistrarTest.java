@@ -31,6 +31,27 @@ class StaticModuleDefinitionRegistrarTest {
     }
 
     @Test
+    void shouldPreserveConfiguredActionOrderOnRegistration() {
+        PlatformModuleService modules = mock(PlatformModuleService.class);
+        PlatformModuleActionService actions = mock(PlatformModuleActionService.class);
+        PlatformModuleAction existing = new PlatformModuleAction();
+        existing.setId("menu-action");
+        existing.setModuleAlias("sales.contract");
+        existing.setActionCode("menu");
+        existing.setSortOrder(750);
+        when(actions.findByModuleAliasAndActionCode("sales.contract", "menu")).thenReturn(existing);
+        var registrar = new StaticModuleDefinitionRegistrar(modules, actions,
+                List.of(definition("sales", "sales.contract", "合同", List.of(
+                        StaticModuleActionDefinition.platformAction(PlatformAction.MENU),
+                        StaticModuleActionDefinition.recordAction("custom", "新动作")))));
+        registrar.registerAll();
+        assertThat(existing.getSortOrder()).isEqualTo(750);
+        ArgumentCaptor<PlatformModuleAction> inserted = ArgumentCaptor.forClass(PlatformModuleAction.class);
+        verify(actions).insert(inserted.capture());
+        assertThat(inserted.getValue().getSortOrder()).isNull();
+    }
+
+    @Test
     void shouldBePlatformBootstrapTaskBeforeInitialData() {
         StaticModuleDefinitionRegistrar registrar = new StaticModuleDefinitionRegistrar(
                 mock(PlatformModuleService.class),

@@ -9,6 +9,25 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class PlatformPresentationTemplateCatalogTest {
     private final PlatformPresentationTemplateCatalog catalog = new PlatformPresentationTemplateCatalog();
 
+    @Test
+    void acceptsIndependentDetailOnlyInVersionFiveAndValidatesItsPlacements() {
+        String tree = """
+                {"template":"management","templateVersion":5,"mode":"LIST_CARD","quickSearchFields":[],"actions":[],
+                 "nodes":[{"slot":"list","title":"列表","fields":[]},
+                   {"slot":"form","title":"表单","fields":["title"]},
+                   {"slot":"detail","title":"详情","fields":[],
+                    "groups":[{"group":"info","title":"信息","fields":[{"field":"title","props":{"columnSpan":2}}]}],
+                    "order":[{"group":"info"}]}]}
+                """;
+        var template = catalog.require("management", 5, PlatformPresentationClientType.WEB, PlatformPageContractType.MANAGEMENT);
+        catalog.validateUiTree(tree, template);
+        assertThatThrownBy(() -> catalog.validateUiTree(tree.replace("\"group\":\"info\"}", "\"group\":\"missing\"}"), template))
+                .isInstanceOf(BusinessException.class);
+        var legacy = catalog.require("management", 4, PlatformPresentationClientType.WEB, PlatformPageContractType.MANAGEMENT);
+        assertThatThrownBy(() -> catalog.validateUiTree(tree.replace("\"templateVersion\":5", "\"templateVersion\":4"), legacy))
+                .isInstanceOf(BusinessException.class);
+    }
+
     @org.junit.jupiter.params.ParameterizedTest
     @org.junit.jupiter.params.provider.ValueSource(strings = {"TREE_CARD", "LIST_CARD", "MICRO_LIST_CARD"})
     void validatesModeOwnedSlotsAndSearchBindings(String mode) {
@@ -126,7 +145,7 @@ class PlatformPresentationTemplateCatalogTest {
     void shouldExposeOnlyTemplatesCompatibleWithTheClientAndPageContract() {
         assertThat(catalog.listFor(PlatformPresentationClientType.WEB, PlatformPageContractType.MANAGEMENT))
                 .extracting(PlatformPresentationTemplate::version)
-                .containsExactly(1, 2, 3, 4);
+                .containsExactly(1, 2, 3, 4, 5);
         assertThat(catalog.listFor(PlatformPresentationClientType.MOBILE, PlatformPageContractType.MANAGEMENT))
                 .isEmpty();
     }

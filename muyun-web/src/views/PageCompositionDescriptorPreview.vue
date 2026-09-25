@@ -482,9 +482,17 @@ function fieldContainerOf(id: string): CompositionContainer | undefined {
   );
   return relation ? { kind: 'relation', relationId: relation.id } : undefined;
 }
+const insertionOnlyPlacement = computed(() => {
+  const source = transientPlacement.value?.source;
+  return (
+    source?.kind === 'component' ||
+    (source?.kind === 'node' && source.container.kind === 'relations') ||
+    (source?.kind === 'metadata' && source.metadata.kind === 'relation')
+  );
+});
 function transientField() {
   const source = transientPlacement.value?.source;
-  if (!source) return undefined;
+  if (!source || source.kind === 'component') return undefined;
   const id =
     source.kind === 'node'
       ? source.nodeId
@@ -896,11 +904,11 @@ function animateLayoutElement(element: HTMLElement, x: number, y: number) {
         aria-hidden="true"
       />
       <div
-        v-if="feedback && !transientPlacement"
+        v-if="feedback && (!transientPlacement || insertionOnlyPlacement)"
         class="page-composer-drop-indicator"
         :class="{
           'page-composer-drop-indicator--rejected': feedback.rejected,
-          'page-composer-drop-indicator--transient': transientPlacement,
+          'page-composer-drop-indicator--insertion': insertionOnlyPlacement,
         }"
         :style="{
           left: `${feedback.left}px`,
@@ -1057,11 +1065,11 @@ function animateLayoutElement(element: HTMLElement, x: number, y: number) {
     data-composer-drop-target="list"
   >
     <div
-      v-if="feedback && !transientPlacement"
+      v-if="feedback && (!transientPlacement || insertionOnlyPlacement)"
       class="page-composer-drop-indicator"
       :class="{
         'page-composer-drop-indicator--rejected': feedback.rejected,
-        'page-composer-drop-indicator--transient': transientPlacement,
+        'page-composer-drop-indicator--insertion': insertionOnlyPlacement,
       }"
       :style="{
         left: `${feedback.left}px`,
@@ -1139,11 +1147,11 @@ function animateLayoutElement(element: HTMLElement, x: number, y: number) {
       aria-hidden="true"
     />
     <div
-      v-if="feedback && !transientPlacement"
+      v-if="feedback && (!transientPlacement || insertionOnlyPlacement)"
       class="page-composer-drop-indicator"
       :class="{
         'page-composer-drop-indicator--rejected': feedback.rejected,
-        'page-composer-drop-indicator--transient': transientPlacement,
+        'page-composer-drop-indicator--insertion': insertionOnlyPlacement,
       }"
       :style="{
         left: `${feedback.left}px`,
@@ -1269,9 +1277,9 @@ function animateLayoutElement(element: HTMLElement, x: number, y: number) {
       v-for="relation in detailRelations"
       :key="relation.code"
       :title="relation.title ?? relation.code"
+      :data-composer-target="`detail:relation:${relation.code}`"
       kind="relation"
       :heading-attributes="{
-        'data-composer-target': `detail:relation:${relation.code}`,
         'data-ui-drop-key': `detail:relation:${relation.code}`,
         tabindex: 0,
       }"
@@ -1368,11 +1376,11 @@ function animateLayoutElement(element: HTMLElement, x: number, y: number) {
       aria-hidden="true"
     />
     <div
-      v-if="feedback && !transientPlacement"
+      v-if="feedback && (!transientPlacement || insertionOnlyPlacement)"
       class="page-composer-drop-indicator"
       :class="{
         'page-composer-drop-indicator--rejected': feedback.rejected,
-        'page-composer-drop-indicator--transient': transientPlacement,
+        'page-composer-drop-indicator--insertion': insertionOnlyPlacement,
       }"
       :style="{
         left: `${feedback.left}px`,
@@ -1524,9 +1532,9 @@ function animateLayoutElement(element: HTMLElement, x: number, y: number) {
       v-for="relation in detailRelations"
       :key="relation.code"
       :title="relation.title ?? relation.code"
+      :data-composer-target="`edit:relation:${relation.code}`"
       kind="relation"
       :heading-attributes="{
-        'data-composer-target': `edit:relation:${relation.code}`,
         'data-ui-drop-key': `edit:relation:${relation.code}`,
         tabindex: 0,
       }"
@@ -1925,18 +1933,6 @@ function animateLayoutElement(element: HTMLElement, x: number, y: number) {
   background: color-mix(in srgb, var(--muyun-primary) 8%, transparent);
   pointer-events: none;
 }
-.page-composer-drop-indicator--transient {
-  display: grid;
-  min-width: 88px;
-  place-items: center start;
-  padding: 0 10px;
-  overflow: hidden;
-  border-style: dashed;
-  border-radius: 6px;
-  color: var(--muyun-primary);
-  background: color-mix(in srgb, var(--muyun-primary) 14%, var(--muyun-surface));
-  box-shadow: 0 4px 14px color-mix(in srgb, var(--muyun-primary) 16%, transparent);
-}
 .page-composer-drop-indicator > span {
   position: absolute;
   top: -23px;
@@ -1947,14 +1943,15 @@ function animateLayoutElement(element: HTMLElement, x: number, y: number) {
   color: white;
   background: var(--muyun-primary);
 }
-.page-composer-drop-indicator--transient > span {
-  position: static;
-  max-width: 100%;
+/* Unstaged items use an insertion edge instead of a placeholder over existing content.
+   Keep the announcement available to assistive technology without covering field labels. */
+.page-composer-drop-indicator--insertion > span {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
   overflow: hidden;
-  color: inherit;
-  font-weight: 600;
-  text-overflow: ellipsis;
-  background: transparent;
+  clip-path: inset(50%);
 }
 .page-composer-drop-indicator--rejected {
   border-color: var(--muyun-danger-base);

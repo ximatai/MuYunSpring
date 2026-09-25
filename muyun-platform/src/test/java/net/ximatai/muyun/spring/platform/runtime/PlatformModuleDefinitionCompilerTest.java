@@ -1076,6 +1076,25 @@ class PlatformModuleDefinitionCompilerTest {
     }
 
     @Test
+    void shouldCompileUntitledModuleWithoutTreatingReferenceTransportAsSelectionCapability() {
+        var module = module("crm.untitled", ModuleKind.DYNAMIC);
+        moduleService.insert(module);
+        String metadataId = metadataService.insert(metadata("crm", "untitled"));
+        relationService.insert(mainRelation("crm.untitled", metadataId));
+        new net.ximatai.muyun.spring.platform.module.DynamicModuleStandardActionRegistrar(moduleService,
+                new net.ximatai.muyun.spring.platform.module.ModuleActionContributionRegistrar(actionService)).register(module);
+
+        ModuleDefinition definition = compiler.compile("crm.untitled");
+        assertThat(definition.entities().getFirst().supports(EntityCapability.REFERENCE)).isFalse();
+        assertThat(definition.actions()).extracting(action -> action.actionCode()).doesNotContain("reference");
+        assertThat(actionService.findByModuleAliasAndActionCode("crm.untitled", "reference")).isNotNull();
+
+        fieldService.insert(titleField(metadataId));
+        assertThat(compiler.compile("crm.untitled").actions())
+                .extracting(action -> action.actionCode()).contains("reference");
+    }
+
+    @Test
     void shouldRejectActionConfigThatDoesNotMatchEntityCapability() {
         moduleService.insert(module("crm.customer", ModuleKind.DYNAMIC));
         String metadataId = metadataService.insert(metadata("crm", "customer"));

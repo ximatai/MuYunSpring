@@ -1912,6 +1912,44 @@ class MuYunSpringApplicationContextIT {
         }
     }
 
+    @Test
+    void pageSaveAndApplyRollsBackInvalidConfigurationAndRejectsStaleEdits() {
+        installDynamicReferenceTarget("saveapplyit", "saveapplyit.entry", "entry");
+        try (CurrentUserContext.Scope user = CurrentUserContext.use(CurrentUser.systemUser("save-apply", "Save apply"));
+             TenantContext.Scope scope = TenantContext.system("verify atomic page save")) {
+            var page = pageDefinitionService.list(Criteria.of().eq("moduleAlias", "saveapplyit.entry"), ALL).getFirst();
+            var variant = presentationVariantService.list(Criteria.of().eq("pageId", page.getId()), ALL).getFirst();
+            var published = presentationRevisionService.list(Criteria.of().eq("variantId", variant.getId()), ALL).getFirst();
+            var draft = new PlatformPresentationRevision();
+            draft.setVariantId(variant.getId());
+            draft.setRevisionNo(2);
+            draft.setTemplateAlias("management");
+            draft.setTemplateVersion(1);
+            draft.setUiTreeJson(published.getUiTreeJson());
+            String id = presentationRevisionService.insert(draft);
+            var candidate = presentationRevisionService.select(id);
+            candidate.setUiTreeJson(published.getUiTreeJson().replace("\"title\"", "\"missingField\""));
+            assertThatThrownBy(() -> presentationRevisionPublishService.saveAndPublish(id, candidate)).isInstanceOf(RuntimeException.class);
+            assertThat(presentationRevisionService.select(id).getUiTreeJson()).isEqualTo(published.getUiTreeJson());
+            assertThat(presentationRevisionService.select(id).getVersion()).isEqualTo(candidate.getVersion());
+            assertThat(presentationRevisionService.select(published.getId()).getStatus()).isEqualTo(PlatformPresentationRevisionStatus.PUBLISHED);
+
+            var concurrent = presentationRevisionService.select(id);
+            concurrent.setTitle("Another editor");
+            presentationRevisionService.update(concurrent);
+            candidate.setUiTreeJson(published.getUiTreeJson());
+            assertThatThrownBy(() -> presentationRevisionPublishService.saveAndPublish(id, candidate)).isInstanceOf(RuntimeException.class);
+            assertThat(presentationRevisionService.select(id).getStatus()).isEqualTo(PlatformPresentationRevisionStatus.DRAFT);
+
+            var current = presentationRevisionService.select(id);
+            current.setUiTreeJson(published.getUiTreeJson().replace("Dynamic targets", "Updated targets"));
+            presentationRevisionPublishService.saveAndPublish(id, current);
+            assertThat(presentationRevisionService.select(id).getStatus()).isEqualTo(PlatformPresentationRevisionStatus.PUBLISHED);
+            assertThat(presentationRevisionService.select(id).getUiTreeJson()).contains("Updated targets");
+            assertThat(presentationRevisionService.select(published.getId()).getStatus()).isEqualTo(PlatformPresentationRevisionStatus.ARCHIVED);
+        }
+    }
+
     private void installDynamicReferenceTarget(String applicationAlias, String moduleAlias, String entityAlias) {
         installDynamicReferenceTarget(applicationAlias, moduleAlias, entityAlias, false);
     }

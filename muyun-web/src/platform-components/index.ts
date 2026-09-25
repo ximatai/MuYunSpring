@@ -334,3 +334,5 @@ export { ReferencePickerReadError } from './referencePickerReadError';
 export type { ReferencePickerReadErrorKind } from './referencePickerReadError';
 
 export { parseRecordQueryListStandardQuery } from './recordQueryListStandardQuery';
+
+export { default as ManagementTabs } from './ManagementTabs.vue';

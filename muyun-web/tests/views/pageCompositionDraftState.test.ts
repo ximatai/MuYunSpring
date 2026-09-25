@@ -406,3 +406,51 @@ it('persists mixed root order through group moves, membership changes and remova
   state.removeSelectedField();
   expect(state.toManagementUiTree().nodes[1].fields).toEqual(['examDate', 'title']);
 });
+
+describe('detail and form layouts', () => {
+  it('clones shared fields and groups, edits independently and serializes regardless of selection', () => {
+    const state = createPageCompositionDraftState();
+    state.replaceFields({
+      list: [title],
+      form: [title],
+      groups: [{ id: 'dates', groupCode: 'dates', title: '日期', fields: [date] }],
+    });
+    state.splitLayout();
+    state.formFields.value[0].properties = { label: '详情名称' };
+    state.formGroups.value[0].title = '详情日期';
+    const split = state.toManagementUiTree();
+    expect(split.nodes.find((node) => node.slot === 'form')?.fields).toEqual(['title']);
+    expect(split.nodes.find((node) => node.slot === 'form')?.groups?.[0].title).toBe('日期');
+    expect(split.nodes.find((node) => node.slot === 'detail')?.fields).toEqual([
+      { field: 'title', props: { label: '详情名称' } },
+    ]);
+    state.selectLayout('form');
+    expect(state.toManagementUiTree()).toEqual(split);
+    state.mergeLayout('detail');
+    expect(state.toManagementUiTree().nodes.map((node) => node.slot)).toEqual(['list', 'form']);
+    expect(state.formGroups.value[0].title).toBe('详情日期');
+  });
+
+  it('preserves an explicitly empty detail and can merge back keeping the form', () => {
+    const state = createPageCompositionDraftState();
+    state.addField(title, 'form');
+    state.splitLayout();
+    state.replaceFields({ list: [], form: [] });
+    expect(state.toManagementUiTree().nodes.find((node) => node.slot === 'detail')?.fields).toEqual([]);
+    expect(state.toManagementUiTree().nodes.find((node) => node.slot === 'form')?.fields).toEqual(['title']);
+    state.mergeLayout('form');
+    expect(state.formFields.value).toEqual([title]);
+    expect(state.toManagementUiTree().nodes.some((node) => node.slot === 'detail')).toBe(false);
+  });
+});
+
+it('ignores a stale merge request after restoring the shared layout', () => {
+  const state = createPageCompositionDraftState();
+  state.replaceFields({ list: [], form: [title] });
+  state.splitLayout();
+  state.replaceFields({ list: [], form: [] });
+  state.mergeLayout('form');
+  state.mergeLayout('detail');
+  expect(state.formFields.value).toEqual([title]);
+  expect(state.layouts.value.detail).toEqual({ fields: [], groups: [], order: [] });
+});
