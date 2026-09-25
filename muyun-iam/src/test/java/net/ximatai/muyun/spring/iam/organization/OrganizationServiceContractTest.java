@@ -1,5 +1,6 @@
 package net.ximatai.muyun.spring.iam.organization;
 
+import net.ximatai.muyun.spring.common.platform.ReferenceDependencyScopeCatalogResolver;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.tenant.ActiveTenantVerifier;
 import net.ximatai.muyun.spring.common.tenant.OrganizationCreationProvisioner;
@@ -8,10 +9,17 @@ import net.ximatai.muyun.spring.ability.TreeAbility;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.support.StaticListableBeanFactory;
+import org.mockito.Mockito;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.database.core.orm.Sort;
 import net.ximatai.muyun.spring.iam.role.*;
+import net.ximatai.muyun.spring.iam.employee.EmployeeAccountService;
+import net.ximatai.muyun.spring.iam.employee.EmployeePositionService;
+import net.ximatai.muyun.spring.iam.employee.EmployeeService;
+import net.ximatai.muyun.spring.iam.role.RoleDataGrantActionDao;
+import net.ximatai.muyun.spring.iam.tenant.TenantApplicationService;
+import net.ximatai.muyun.spring.iam.user.UserAccountService;
 import java.util.concurrent.atomic.AtomicReference;
 
 import java.util.List;
@@ -31,7 +39,10 @@ import static org.mockito.Mockito.when;
 class OrganizationServiceContractTest {
     @Test
     void shouldExposeStableModuleAlias() {
-        OrganizationService service = new OrganizationService(mock(OrganizationDao.class), activeTenantVerifier());
+        OrganizationService service = new OrganizationService(
+                mock(OrganizationDao.class),
+                activeTenantVerifier(),
+                new StaticListableBeanFactory().getBeanProvider(OrganizationCreationProvisioner.class));
 
         assertThat(service.getModuleAlias()).isEqualTo("iam.organization");
     }
@@ -41,7 +52,10 @@ class OrganizationServiceContractTest {
         OrganizationDao dao = mock(OrganizationDao.class);
         when(dao.insert(any())).thenReturn("org-1");
         ActiveTenantVerifier tenantVerifier = activeTenantVerifier();
-        OrganizationService service = new OrganizationService(dao, tenantVerifier);
+        OrganizationService service = new OrganizationService(
+                dao,
+                tenantVerifier,
+                new StaticListableBeanFactory().getBeanProvider(OrganizationCreationProvisioner.class));
         Organization organization = organization("HQ", "Headquarters");
 
         try (TenantContext.Scope ignored = TenantContext.use("tenant_a")) {
@@ -56,7 +70,10 @@ class OrganizationServiceContractTest {
 
     @Test
     void shouldRequireTenantContextForOrganizationMutation() {
-        OrganizationService service = new OrganizationService(mock(OrganizationDao.class), activeTenantVerifier());
+        OrganizationService service = new OrganizationService(
+                mock(OrganizationDao.class),
+                activeTenantVerifier(),
+                new StaticListableBeanFactory().getBeanProvider(OrganizationCreationProvisioner.class));
 
         assertThatThrownBy(() -> service.insert(organization("HQ", "Headquarters")))
                 .isInstanceOf(PlatformException.class)
@@ -74,7 +91,10 @@ class OrganizationServiceContractTest {
         ActiveTenantVerifier tenantVerifier = activeTenantVerifier();
         doThrow(new PlatformException("Tenant is not active: tenant_a"))
                 .when(tenantVerifier).verifyActiveTenant("tenant_a");
-        OrganizationService service = new OrganizationService(mock(OrganizationDao.class), tenantVerifier);
+        OrganizationService service = new OrganizationService(
+                mock(OrganizationDao.class),
+                tenantVerifier,
+                new StaticListableBeanFactory().getBeanProvider(OrganizationCreationProvisioner.class));
 
         try (TenantContext.Scope ignored = TenantContext.use("tenant_a")) {
             assertThatThrownBy(() -> service.insert(organization("HQ", "Headquarters")))
@@ -87,7 +107,10 @@ class OrganizationServiceContractTest {
     void shouldRequireOrganizationCodeButAllowBusinessCodeShape() {
         OrganizationDao dao = mock(OrganizationDao.class);
         when(dao.insert(any())).thenReturn("org-1");
-        OrganizationService service = new OrganizationService(dao, activeTenantVerifier());
+        OrganizationService service = new OrganizationService(
+                dao,
+                activeTenantVerifier(),
+                new StaticListableBeanFactory().getBeanProvider(OrganizationCreationProvisioner.class));
 
         try (TenantContext.Scope ignored = TenantContext.use("tenant_a")) {
             Organization branch = organization("BR-001", "Branch");
@@ -102,7 +125,10 @@ class OrganizationServiceContractTest {
 
     @Test
     void shouldResolveOrganizationIdsFromSelfToRoot() {
-        OrganizationService service = spy(new OrganizationService(mock(OrganizationDao.class), activeTenantVerifier()));
+        OrganizationService service = spy(new OrganizationService(
+                mock(OrganizationDao.class),
+                activeTenantVerifier(),
+                new StaticListableBeanFactory().getBeanProvider(OrganizationCreationProvisioner.class)));
         doReturn(List.of("group-1", "dept-1")).when(service).ancestorIdsAndSelf("dept-1");
 
         assertThat(service.organizationIdsFromSelfToRoot("dept-1"))
@@ -143,12 +169,26 @@ class OrganizationServiceContractTest {
             return row.getId();
         });
         var beans = new StaticListableBeanFactory();
-        var organizations = new OrganizationService(dao, activeTenantVerifier(),
+        var organizations = new OrganizationService(
+                dao,
+                activeTenantVerifier(),
                 beans.getBeanProvider(OrganizationCreationProvisioner.class));
         var roleDao = mock(RoleDao.class);
-        var roles = new RoleService(roleDao, mock(AccountRoleGrantDao.class), mock(EmploymentRoleGrantDao.class),
-                mock(RoleActionDao.class), activeTenantVerifier(), RoleActionGrantVerifier.platformActionsOnly(),
-                null, null, null, null, organizations);
+        var roles = new RoleService(
+                roleDao,
+                mock(AccountRoleGrantDao.class),
+                mock(EmploymentRoleGrantDao.class),
+                mock(RoleActionDao.class),
+                activeTenantVerifier(),
+                RoleActionGrantVerifier.platformActionsOnly(),
+                mock(UserAccountService.class),
+                mock(EmployeeService.class),
+                mock(EmployeePositionService.class),
+                mock(EmployeeAccountService.class),
+                organizations,
+                mock(RoleDataGrantActionDao.class),
+                mock(TenantApplicationService.class),
+                new StaticListableBeanFactory().getBeanProvider(ReferenceDependencyScopeCatalogResolver.class));
         var templates = mock(BuiltInRolePermissionTemplateService.class);
         beans.addBean("roles", new DefaultOrganizationRoleProvisioner(roles, templates));
         Organization disabled = organization("disabled", "Disabled organization");
@@ -166,7 +206,10 @@ class OrganizationServiceContractTest {
     @Test
     void replayRequiresValidOrganizationAndActiveTenantEvenWithoutExtensions() {
         OrganizationDao dao = mock(OrganizationDao.class);
-        var service = new OrganizationService(dao, activeTenantVerifier());
+        var service = new OrganizationService(
+                dao,
+                activeTenantVerifier(),
+                new StaticListableBeanFactory().getBeanProvider(OrganizationCreationProvisioner.class));
         assertThatThrownBy(() -> service.provisionOrganization(" ")).isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> service.provisionOrganization("missing")).hasMessageContaining("tenant context");
         try (var tenant = TenantContext.use("tenant_a")) {
@@ -182,7 +225,10 @@ class OrganizationServiceContractTest {
 
     @Test
     void hierarchyReadsEachStructuralRecordOnceWithoutBusinessReadHooks() {
-        var service = spy(new OrganizationService(mock(OrganizationDao.class), activeTenantVerifier()));
+        var service = spy(new OrganizationService(
+                mock(OrganizationDao.class),
+                activeTenantVerifier(),
+                new StaticListableBeanFactory().getBeanProvider(OrganizationCreationProvisioner.class)));
         Organization parent = organization("parent", "Parent"); parent.setId("parent");
         Organization child = organization("child", "Child"); child.setId("child"); child.setParentId("parent");
         doReturn(parent).when(service).selectActiveRaw("parent");
@@ -190,7 +236,7 @@ class OrganizationServiceContractTest {
         assertThat(service.organizationIdsFromSelfToRoot("child")).containsExactly("child", "parent");
         verify(service).selectActiveRaw("child");
         verify(service).selectActiveRaw("parent");
-        verify(service, org.mockito.Mockito.never()).afterSelect(any());
+        verify(service, Mockito.never()).afterSelect(any());
     }
 
     private Organization organization(String code, String title) {

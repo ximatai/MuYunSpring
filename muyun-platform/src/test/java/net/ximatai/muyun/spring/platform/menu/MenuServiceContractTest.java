@@ -37,7 +37,7 @@ class MenuServiceContractTest {
     private final TestMemoryDao<MenuScheme> schemeDao = new TestMemoryDao<>();
     private final TestMemoryDao<Menu> menuDao = new TestMemoryDao<>();
     private final TestMemoryDao<PlatformModule> moduleDao = new TestMemoryDao<>();
-    private final PlatformModuleService moduleService = new PlatformModuleService(moduleDao);
+    private final PlatformModuleService moduleService = new PlatformModuleService(moduleDao, event -> {});
     private final MenuSchemeService schemeService = new MenuSchemeService(schemeDao);
     private final MenuService menuService = new MenuService(menuDao, schemeService, moduleService);
 

@@ -90,6 +90,9 @@ import net.ximatai.muyun.spring.platform.deletion.RecycleBinItem;
 import net.ximatai.muyun.spring.platform.deletion.RestoreReport;
 import net.ximatai.muyun.spring.platform.module.PlatformModule;
 import net.ximatai.muyun.spring.platform.module.PlatformModuleService;
+import net.ximatai.muyun.spring.common.tenant.OrganizationCreationProvisioner;
+import net.ximatai.muyun.spring.iam.support.TenantServiceTestFactory;
+import net.ximatai.muyun.spring.iam.support.UserAccountServiceTestFactory;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -103,6 +106,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.servlet.HandlerInterceptor;
 import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping;
+import org.springframework.beans.factory.support.StaticListableBeanFactory;
 
 import java.util.List;
 import java.util.Map;
@@ -298,12 +302,15 @@ class IamWebControllerTest {
             return role;
         });
         grantableActionResolver = mock(RoleGrantableActionResolver.class);
-        tenantService = new TenantService(tenantDao);
-        OrganizationService organizationService = new OrganizationService(organizationDao, tenantService);
+        tenantService = TenantServiceTestFactory.create(tenantDao);
+        OrganizationService organizationService = new OrganizationService(
+                organizationDao,
+                tenantService,
+                new StaticListableBeanFactory().getBeanProvider(OrganizationCreationProvisioner.class));
         PositionCategoryService positionCategoryService = new PositionCategoryService(
                 positionCategoryDao, tenantService);
         PositionService positionService = new PositionService(positionDao, tenantService);
-        UserAccountService userAccountService = net.ximatai.muyun.spring.iam.support.UserAccountServiceTestFactory.create(
+        UserAccountService userAccountService = UserAccountServiceTestFactory.create(
                 userAccountDao, tenantService, new PasswordHashingService());
         TenantWebController tenantController = new TenantWebController();
         OrganizationWebController organizationController = new OrganizationWebController();

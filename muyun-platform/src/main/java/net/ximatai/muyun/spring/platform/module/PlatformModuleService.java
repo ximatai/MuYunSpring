@@ -14,13 +14,13 @@ import net.ximatai.muyun.spring.common.schema.StandardEntitySchema;
 import net.ximatai.muyun.spring.common.tenant.TenantContext;
 import net.ximatai.muyun.spring.common.util.PlatformNameRules;
 import net.ximatai.muyun.spring.platform.application.ApplicationReferenceContributor;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
 import java.util.LinkedHashMap;
 import java.util.Comparator;
+import java.util.Objects;
 import net.ximatai.muyun.spring.ability.query.QueryAbility;
 import net.ximatai.muyun.spring.ability.query.QueryDescriptor;
 import net.ximatai.muyun.spring.ability.query.QueryDescriptors;
@@ -40,15 +40,10 @@ public class PlatformModuleService extends AbstractAbilityService<PlatformModule
     public static final String MODULE_ALIAS = "platform.module";
     private final ApplicationEventPublisher eventPublisher;
 
-    public PlatformModuleService(BaseDao<PlatformModule, String> moduleDao) {
-        this(moduleDao, null);
-    }
-
-    @Autowired
     public PlatformModuleService(BaseDao<PlatformModule, String> moduleDao,
                                  ApplicationEventPublisher eventPublisher) {
         super(MODULE_ALIAS, PlatformModule.class, moduleDao);
-        this.eventPublisher = eventPublisher;
+        this.eventPublisher = Objects.requireNonNull(eventPublisher, "eventPublisher");
     }
 
     @Override
@@ -89,7 +84,7 @@ public class PlatformModuleService extends AbstractAbilityService<PlatformModule
 
     @Override
     public void afterChanged(PlatformModule module) {
-        if (eventPublisher != null && module != null && module.getModuleKind() == ModuleKind.DYNAMIC) {
+        if (module != null && module.getModuleKind() == ModuleKind.DYNAMIC) {
             eventPublisher.publishEvent(new DynamicModuleChangedEvent(module.getAlias(), module.getTenantId()));
         }
     }

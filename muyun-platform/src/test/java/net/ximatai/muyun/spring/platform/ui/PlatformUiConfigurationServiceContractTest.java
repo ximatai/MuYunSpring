@@ -59,7 +59,13 @@ import net.ximatai.muyun.spring.platform.module.ModuleKind;
 import net.ximatai.muyun.spring.platform.module.PlatformModule;
 import net.ximatai.muyun.spring.platform.module.PlatformModuleService;
 import net.ximatai.muyun.spring.platform.support.TestMemoryDao;
+import net.ximatai.muyun.spring.ability.BaseDao;
+import net.ximatai.muyun.spring.platform.metadata.ConfigurationReferenceDeletionGuard;
+import net.ximatai.muyun.spring.platform.metadata.PlatformMetadataSchemaEnsureService;
+import net.ximatai.muyun.spring.platform.runtime.PlatformDynamicRuntimeRefreshCoordinator;
+import net.ximatai.muyun.spring.platform.support.TestBeanProviders;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
 import java.lang.reflect.Method;
 import java.time.Clock;
@@ -94,23 +100,42 @@ class PlatformUiConfigurationServiceContractTest {
     private final TestMemoryDao<PlatformQueryTemplate> queryTemplateDao = new TestMemoryDao<>();
     private final TestMemoryDao<PlatformQueryItem> queryItemDao = new TestMemoryDao<>();
 
-    private final PlatformModuleService moduleService = new PlatformModuleService(moduleDao);
-    private final MetadataService metadataService = new MetadataService(metadataDao);
+    private final PlatformModuleService moduleService = new PlatformModuleService(moduleDao, event -> {});
+    private final MetadataService metadataService = new MetadataService(
+            metadataDao,
+            TestBeanProviders.empty(PlatformMetadataSchemaEnsureService.class),
+            Optional.empty(),
+            TestBeanProviders.empty(ConfigurationReferenceDeletionGuard.class),
+            TestBeanProviders.empty(ModuleMetadataRelationService.class),
+            event -> {});
     private final FieldSpecService fieldTypeService = new FieldSpecService(fieldTypeDao, fieldUiTypeDao);
     private final FieldUiControlService fieldUiTypeService =
-            new FieldUiControlService(fieldUiTypeDao, fieldTypeService);
+            new FieldUiControlService(fieldUiTypeDao, fieldTypeService, Mockito.mock(BaseDao.class));
     private final FieldUiControlPropertyService fieldUiTypeAttributeService =
             new FieldUiControlPropertyService(fieldUiTypeAttributeDao, fieldUiTypeService, fieldTypeService);
     private final FieldUiControlBindingService fieldUiTypeFieldMappingService =
             new FieldUiControlBindingService(fieldUiTypeFieldMappingDao, fieldUiTypeService, fieldTypeService);
-    private final MetadataFieldService fieldService = new MetadataFieldService(fieldDao, metadataService, fieldTypeService);
+    private final MetadataFieldService fieldService = new MetadataFieldService(
+            fieldDao,
+            metadataService,
+            fieldTypeService,
+            TestBeanProviders.empty(PlatformDynamicRuntimeRefreshCoordinator.class),
+            TestBeanProviders.empty(PlatformMetadataSchemaEnsureService.class),
+            TestBeanProviders.empty(ConfigurationReferenceDeletionGuard.class),
+            TestBeanProviders.empty(ModuleMetadataRelationService.class),
+            TestBeanProviders.empty(PlatformModuleService.class));
     private final ModuleMetadataRelationService relationService =
-            new ModuleMetadataRelationService(relationDao, moduleService, metadataService);
+            new ModuleMetadataRelationService(
+                    relationDao,
+                    moduleService,
+                    metadataService,
+                    Optional.empty(),
+                    TestBeanProviders.empty(ConfigurationReferenceDeletionGuard.class),
+                    TestBeanProviders.empty(MetadataFieldService.class),
+                    event -> {});
     private final MetadataFieldProtectionConfigService protectionConfigService =
-            new MetadataFieldProtectionConfigService(new TestMemoryDao<>(), fieldService, fieldTypeService, fieldConfigDao);
-    private final MetadataFieldConfigService fieldConfigService = new MetadataFieldConfigService(
-            fieldConfigDao, fieldService, metadataService, fieldTypeService,
-            new DictionaryCategoryService(new TestMemoryDao<>()), relationService, protectionConfigService);
+            new MetadataFieldProtectionConfigService(new TestMemoryDao<>(), fieldService, fieldTypeService, fieldConfigDao, Optional.empty());
+    private final MetadataFieldConfigService fieldConfigService = new MetadataFieldConfigService(fieldConfigDao, fieldService, metadataService, fieldTypeService, new DictionaryCategoryService(new TestMemoryDao<>()), relationService, protectionConfigService, Optional.empty());
     private final MetadataFieldDefinitionCompiler fieldDefinitionCompiler =
             new MetadataFieldDefinitionCompiler(fieldTypeService, fieldConfigService, protectionConfigService, fieldService);
     private final ModuleMetadataFieldService moduleFieldService =
@@ -170,7 +195,9 @@ class PlatformUiConfigurationServiceContractTest {
         uiConfigFieldService.insert(uiField(uiConfigId, moduleFieldId, "text"));
 
         FieldUiControlService protectedService = new FieldUiControlService(
-                fieldUiTypeDao, fieldTypeService, uiConfigFieldDao);
+                fieldUiTypeDao,
+                fieldTypeService,
+                uiConfigFieldDao);
 
         assertThatThrownBy(() -> protectedService.disable("text"))
                 .isInstanceOf(PlatformException.class)
@@ -229,8 +256,8 @@ class PlatformUiConfigurationServiceContractTest {
         menu.setOpenMode(MenuOpenMode.TAB);
         menu.setModuleAlias("crm.contract");
         menu.setPageMode(MenuPageMode.LIST);
-        MenuService menuService = org.mockito.Mockito.mock(MenuService.class);
-        org.mockito.Mockito.when(menuService.currentUserVisibleMenu("menu-1")).thenReturn(menu);
+        MenuService menuService = Mockito.mock(MenuService.class);
+        Mockito.when(menuService.currentUserVisibleMenu("menu-1")).thenReturn(menu);
         PlatformPageBootstrapService bootstrapService = new PlatformPageBootstrapService(
                 menuService,
                 snapshotService,
@@ -286,8 +313,8 @@ class PlatformUiConfigurationServiceContractTest {
         menu.setModuleAlias("crm.customer");
         menu.setPageMode(MenuPageMode.LIST);
         menu.setDefaultUiConfigId(alternateConfigId);
-        MenuService menuService = org.mockito.Mockito.mock(MenuService.class);
-        org.mockito.Mockito.when(menuService.currentUserVisibleMenu("menu-alternate")).thenReturn(menu);
+        MenuService menuService = Mockito.mock(MenuService.class);
+        Mockito.when(menuService.currentUserVisibleMenu("menu-alternate")).thenReturn(menu);
         PlatformPageBootstrapService bootstrapService = new PlatformPageBootstrapService(
                 menuService, snapshotService, moduleFieldService, fieldUiTypeService, fieldUiTypeAttributeService,
                 fieldUiTypeFieldMappingService);
@@ -316,8 +343,8 @@ class PlatformUiConfigurationServiceContractTest {
         menu.setOpenMode(MenuOpenMode.TAB);
         menu.setModuleAlias("crm.customer");
         menu.setPageMode(MenuPageMode.LIST);
-        MenuService menuService = org.mockito.Mockito.mock(MenuService.class);
-        org.mockito.Mockito.when(menuService.currentUserVisibleMenu("menu-virtual")).thenReturn(menu);
+        MenuService menuService = Mockito.mock(MenuService.class);
+        Mockito.when(menuService.currentUserVisibleMenu("menu-virtual")).thenReturn(menu);
         PlatformPageBootstrapService bootstrapService = new PlatformPageBootstrapService(
                 menuService,
                 snapshotService,
@@ -538,7 +565,7 @@ class PlatformUiConfigurationServiceContractTest {
                 """);
         uiConfigService.update(config);
 
-        DynamicRecordService recordService = org.mockito.Mockito.mock(DynamicRecordService.class);
+        DynamicRecordService recordService = Mockito.mock(DynamicRecordService.class);
         PlatformPageConfigPublishService verifyingPublishService = new PlatformPageConfigPublishService(
                 uiSetService, uiConfigService, uiConfigFieldService, queryTemplateService, queryItemService,
                 recordService, (moduleAlias, tree) -> !tree);
@@ -576,16 +603,16 @@ class PlatformUiConfigurationServiceContractTest {
                 ]}}""");
         uiConfigService.update(listConfig);
 
-        DynamicFieldDescriptor organizationId = org.mockito.Mockito.mock(DynamicFieldDescriptor.class);
-        org.mockito.Mockito.when(organizationId.fieldName()).thenReturn("organizationId");
-        org.mockito.Mockito.when(organizationId.reference()).thenReturn(new DynamicReferenceDescriptor(
+        DynamicFieldDescriptor organizationId = Mockito.mock(DynamicFieldDescriptor.class);
+        Mockito.when(organizationId.fieldName()).thenReturn("organizationId");
+        Mockito.when(organizationId.reference()).thenReturn(new DynamicReferenceDescriptor(
                 "directory", "organizationId", "iam.organization", "organization", ReferenceCardinality.ONE, List.of()));
-        DynamicFieldDescriptor parentId = org.mockito.Mockito.mock(DynamicFieldDescriptor.class);
-        org.mockito.Mockito.when(parentId.fieldName()).thenReturn("parentId");
+        DynamicFieldDescriptor parentId = Mockito.mock(DynamicFieldDescriptor.class);
+        Mockito.when(parentId.fieldName()).thenReturn("parentId");
         DynamicEntityDescriptor entity = new DynamicEntityDescriptor("directory", "目录", Set.of(),
                 List.of(organizationId, parentId), List.of(), List.of(), List.of(), List.of());
-        DynamicRecordService recordService = org.mockito.Mockito.mock(DynamicRecordService.class);
-        org.mockito.Mockito.when(recordService.describe("crm.directory")).thenReturn(new DynamicModuleDescriptor(
+        DynamicRecordService recordService = Mockito.mock(DynamicRecordService.class);
+        Mockito.when(recordService.describe("crm.directory")).thenReturn(new DynamicModuleDescriptor(
                 "crm.directory", "目录", "directory", List.of(), List.of(entity), List.of(), List.of(), List.of()));
         PlatformPageConfigPublishService verifyingPublishService = new PlatformPageConfigPublishService(
                 uiSetService, uiConfigService, uiConfigFieldService, queryTemplateService, queryItemService,
@@ -624,16 +651,16 @@ class PlatformUiConfigurationServiceContractTest {
                 ]}}""");
         uiConfigService.update(listConfig);
 
-        DynamicFieldDescriptor organizationId = org.mockito.Mockito.mock(DynamicFieldDescriptor.class);
-        org.mockito.Mockito.when(organizationId.fieldName()).thenReturn("organizationId");
-        org.mockito.Mockito.when(organizationId.reference()).thenReturn(new DynamicReferenceDescriptor(
+        DynamicFieldDescriptor organizationId = Mockito.mock(DynamicFieldDescriptor.class);
+        Mockito.when(organizationId.fieldName()).thenReturn("organizationId");
+        Mockito.when(organizationId.reference()).thenReturn(new DynamicReferenceDescriptor(
                 "directory", "organizationId", "iam.organization", "organization", ReferenceCardinality.ONE, List.of()));
-        DynamicFieldDescriptor parentId = org.mockito.Mockito.mock(DynamicFieldDescriptor.class);
-        org.mockito.Mockito.when(parentId.fieldName()).thenReturn("parentId");
+        DynamicFieldDescriptor parentId = Mockito.mock(DynamicFieldDescriptor.class);
+        Mockito.when(parentId.fieldName()).thenReturn("parentId");
         DynamicEntityDescriptor entity = new DynamicEntityDescriptor("directory", "目录", Set.of("TREE"),
                 List.of(organizationId, parentId), List.of(), List.of(), List.of(), List.of());
-        DynamicRecordService recordService = org.mockito.Mockito.mock(DynamicRecordService.class);
-        org.mockito.Mockito.when(recordService.describe("crm.directory")).thenReturn(new DynamicModuleDescriptor(
+        DynamicRecordService recordService = Mockito.mock(DynamicRecordService.class);
+        Mockito.when(recordService.describe("crm.directory")).thenReturn(new DynamicModuleDescriptor(
                 "crm.directory", "目录", "directory", List.of(), List.of(entity), List.of(), List.of(), List.of()));
         PlatformPageConfigPublishService verifyingPublishService = new PlatformPageConfigPublishService(
                 uiSetService, uiConfigService, uiConfigFieldService, queryTemplateService, queryItemService,
@@ -667,7 +694,7 @@ class PlatformUiConfigurationServiceContractTest {
                   "key":"customer","kind":"MICRO_LIST","sourceModuleAlias":"crm.customer"
                 }]}}""");
         uiConfigService.update(config);
-        DynamicRecordService recordService = org.mockito.Mockito.mock(DynamicRecordService.class);
+        DynamicRecordService recordService = Mockito.mock(DynamicRecordService.class);
         PlatformPageConfigPublishService verifyingPublishService = new PlatformPageConfigPublishService(
                 uiSetService, uiConfigService, uiConfigFieldService, queryTemplateService, queryItemService,
                 recordService, (moduleAlias, tree) -> false);
@@ -886,8 +913,8 @@ class PlatformUiConfigurationServiceContractTest {
         String uiSetId = uiSetService.insert(uiSet("crm.customer", "detail", PlatformUiSetType.DETAIL, true));
         String uiConfigId = uiConfigService.insert(uiConfig(uiSetId, PlatformUiClientType.WEB, false));
         uiConfigFieldService.insert(uiField(uiConfigId, customerNameField, "text"));
-        DynamicRecordService recordService = org.mockito.Mockito.mock(DynamicRecordService.class);
-        org.mockito.Mockito.when(recordService.describe("crm.customer")).thenReturn(new DynamicModuleDescriptor(
+        DynamicRecordService recordService = Mockito.mock(DynamicRecordService.class);
+        Mockito.when(recordService.describe("crm.customer")).thenReturn(new DynamicModuleDescriptor(
                 "crm.customer",
                 "Customer",
                 "customer",
@@ -898,7 +925,7 @@ class PlatformUiConfigurationServiceContractTest {
                 List.of(new DynamicAssociationViewDescriptor("contracts", "customer", "crm.contract", "contract",
                         AssociationViewDisplayMode.INLINE_LIST, "contracts", null, EntityViewType.LIST, true))
         ));
-        org.mockito.Mockito.when(recordService.describe("crm.contract")).thenReturn(new DynamicModuleDescriptor(
+        Mockito.when(recordService.describe("crm.contract")).thenReturn(new DynamicModuleDescriptor(
                 "crm.contract",
                 "Contract",
                 "contract",
@@ -908,7 +935,7 @@ class PlatformUiConfigurationServiceContractTest {
                 List.of(),
                 List.of()
         ));
-        org.mockito.Mockito.when(recordService.describe("crm.missing"))
+        Mockito.when(recordService.describe("crm.missing"))
                 .thenThrow(new PlatformException("unknown module"));
         PlatformPageConfigPublishService verifyingPublishService = new PlatformPageConfigPublishService(
                 uiSetService, uiConfigService, uiConfigFieldService, queryTemplateService, queryItemService,
@@ -949,8 +976,8 @@ class PlatformUiConfigurationServiceContractTest {
         uiConfigFieldService.insert(uiField(uiConfigId, customerNameField, "text"));
         String templateId = queryTemplateService.insert(queryTemplate("crm.customer", "ready", false));
         publishService.publishQueryTemplate(templateId);
-        DynamicRecordService recordService = org.mockito.Mockito.mock(DynamicRecordService.class);
-        org.mockito.Mockito.when(recordService.describe("crm.customer")).thenReturn(new DynamicModuleDescriptor(
+        DynamicRecordService recordService = Mockito.mock(DynamicRecordService.class);
+        Mockito.when(recordService.describe("crm.customer")).thenReturn(new DynamicModuleDescriptor(
                 "crm.customer",
                 "Customer",
                 "customer",
@@ -961,7 +988,7 @@ class PlatformUiConfigurationServiceContractTest {
                 List.of(new DynamicAssociationViewDescriptor("contracts", "customer", "crm.contract", "contract",
                         AssociationViewDisplayMode.INLINE_LIST, "contracts", null, EntityViewType.LIST, true))
         ));
-        org.mockito.Mockito.when(recordService.describe("crm.contract")).thenReturn(new DynamicModuleDescriptor(
+        Mockito.when(recordService.describe("crm.contract")).thenReturn(new DynamicModuleDescriptor(
                 "crm.contract",
                 "Contract",
                 "contract",
@@ -971,7 +998,7 @@ class PlatformUiConfigurationServiceContractTest {
                 List.of(),
                 List.of()
         ));
-        org.mockito.Mockito.when(recordService.describe("crm.missing"))
+        Mockito.when(recordService.describe("crm.missing"))
                 .thenThrow(new PlatformException("unknown module"));
         PlatformPageConfigPublishService verifyingPublishService = new PlatformPageConfigPublishService(
                 uiSetService, uiConfigService, uiConfigFieldService, queryTemplateService, queryItemService,
@@ -1154,12 +1181,12 @@ class PlatformUiConfigurationServiceContractTest {
         String uiSetId = uiSetService.insert(uiSet("crm.customer", "detail", PlatformUiSetType.DETAIL, true));
         String uiConfigId = uiConfigService.insert(uiConfig(uiSetId, PlatformUiClientType.WEB, false));
         uiConfigFieldService.insert(uiField(uiConfigId, customerNameField, "text"));
-        DynamicRecordService recordService = org.mockito.Mockito.mock(DynamicRecordService.class);
-        org.mockito.Mockito.when(recordService.action("crm.customer", "submitDialog")).thenReturn(action(
+        DynamicRecordService recordService = Mockito.mock(DynamicRecordService.class);
+        Mockito.when(recordService.action("crm.customer", "submitDialog")).thenReturn(action(
                 "submitDialog", EntityActionExecutorType.DIALOG, "submitDialog#submit"));
-        org.mockito.Mockito.when(recordService.action("crm.customer", "submit")).thenReturn(action(
+        Mockito.when(recordService.action("crm.customer", "submit")).thenReturn(action(
                 "submit", EntityActionExecutorType.SERVICE, "contractSubmit"));
-        org.mockito.Mockito.when(recordService.action("crm.customer", "editBaseInfo")).thenReturn(action(
+        Mockito.when(recordService.action("crm.customer", "editBaseInfo")).thenReturn(action(
                 "editBaseInfo", EntityActionExecutorType.SERVICE, DynamicLocalEditActionExecutor.EXECUTOR_KEY));
         PlatformPageConfigPublishService verifyingPublishService = new PlatformPageConfigPublishService(
                 uiSetService, uiConfigService, uiConfigFieldService, queryTemplateService, queryItemService,

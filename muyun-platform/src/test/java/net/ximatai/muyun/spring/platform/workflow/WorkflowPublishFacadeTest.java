@@ -23,7 +23,7 @@ class WorkflowPublishFacadeTest {
     private final WorkflowDefinitionService definitionService = new WorkflowDefinitionService(new TestMemoryDao<>());
     private final WorkflowVersionService versionService = new WorkflowVersionService(new TestMemoryDao<>(),
             definitionService);
-    private final PlatformModuleService moduleService = new PlatformModuleService(moduleDao);
+    private final PlatformModuleService moduleService = new PlatformModuleService(moduleDao, event -> {});
     private final PlatformModuleActionService actionService = new PlatformModuleActionService(actionDao, moduleService);
     private final WorkflowPublishFacade facade = new WorkflowPublishFacade(
             definitionService,

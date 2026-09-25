@@ -23,7 +23,6 @@ import net.ximatai.muyun.spring.platform.module.PlatformModuleService;
 import net.ximatai.muyun.spring.platform.module.ModuleKind;
 import net.ximatai.muyun.spring.platform.module.PlatformModule;
 import net.ximatai.muyun.spring.platform.runtime.PlatformDynamicRuntimeRefreshCoordinator;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.util.LinkedHashSet;
@@ -49,17 +48,6 @@ public class MetadataFieldReferenceConfigService extends AbstractAbilityService<
     private final ModuleMetadataRelationService relationService;
     private final Optional<PlatformDynamicRuntimeRefreshCoordinator> runtimeRefreshCoordinator;
 
-    public MetadataFieldReferenceConfigService(BaseDao<MetadataFieldReferenceConfig, String> referenceConfigDao,
-                                               MetadataFieldService fieldService,
-                                               MetadataService metadataService,
-                                               FieldSpecService fieldTypeService,
-                                               PlatformModuleService moduleService,
-                                               ModuleMetadataRelationService relationService) {
-        this(referenceConfigDao, fieldService, metadataService, fieldTypeService, moduleService, relationService,
-                Optional.empty());
-    }
-
-    @Autowired
     public MetadataFieldReferenceConfigService(BaseDao<MetadataFieldReferenceConfig, String> referenceConfigDao,
                                                MetadataFieldService fieldService,
                                                MetadataService metadataService,

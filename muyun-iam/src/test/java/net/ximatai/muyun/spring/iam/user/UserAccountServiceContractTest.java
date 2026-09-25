@@ -22,6 +22,7 @@ import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
 import net.ximatai.muyun.spring.common.tenant.TenantContext;
 import net.ximatai.muyun.spring.iam.role.AccountRoleGrant;
 import net.ximatai.muyun.spring.iam.role.AccountRoleGrantDao;
+import net.ximatai.muyun.spring.iam.support.UserAccountServiceTestFactory;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
@@ -583,7 +584,7 @@ class UserAccountServiceContractTest {
             UserAccountDao dao,
             net.ximatai.muyun.spring.common.tenant.ActiveTenantVerifier activeTenantVerifier,
             PasswordHashingService passwordHashingService) {
-        return new UserAccountService(dao, activeTenantVerifier, passwordHashingService);
+        return UserAccountServiceTestFactory.create(dao, activeTenantVerifier, passwordHashingService);
     }
 
     private UserAccountServiceFixture userAccountServiceFixture(

@@ -68,7 +68,7 @@ class DynamicModuleStandardActionRegistrarTest {
 
     @Test
     void shouldRegisterOnlyRuntimeSupportedStandardActionsForDynamicModule() {
-        PlatformModuleService moduleService = new PlatformModuleService(new TestMemoryDao<>());
+        PlatformModuleService moduleService = new PlatformModuleService(new TestMemoryDao<>(), event -> {});
         PlatformModuleActionService actionService = new PlatformModuleActionService(new TestMemoryDao<>(), moduleService);
         DynamicModuleStandardActionRegistrar registrar = new DynamicModuleStandardActionRegistrar(moduleService,
                 new ModuleActionContributionRegistrar(actionService));
@@ -104,7 +104,7 @@ class DynamicModuleStandardActionRegistrarTest {
 
     @Test
     void shouldAddIndependentPermissionManagementWithoutChangingCrudAuthorizationDefaults() {
-        PlatformModuleService moduleService = new PlatformModuleService(new TestMemoryDao<>());
+        PlatformModuleService moduleService = new PlatformModuleService(new TestMemoryDao<>(), event -> {});
         PlatformModuleActionService actionService = new PlatformModuleActionService(new TestMemoryDao<>(), moduleService);
         DynamicModuleStandardActionRegistrar registrar = new DynamicModuleStandardActionRegistrar(moduleService,
                 new ModuleActionContributionRegistrar(actionService));
@@ -128,7 +128,7 @@ class DynamicModuleStandardActionRegistrarTest {
 
     @Test
     void shouldDisableNoLongerSupportedCapabilityActionsDuringReconciliation() {
-        PlatformModuleService moduleService = new PlatformModuleService(new TestMemoryDao<>());
+        PlatformModuleService moduleService = new PlatformModuleService(new TestMemoryDao<>(), event -> {});
         PlatformModuleActionService actionService = new PlatformModuleActionService(new TestMemoryDao<>(), moduleService);
         DynamicModuleStandardActionRegistrar registrar = new DynamicModuleStandardActionRegistrar(moduleService,
                 new ModuleActionContributionRegistrar(actionService));

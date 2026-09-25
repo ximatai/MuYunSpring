@@ -19,9 +19,15 @@ import net.ximatai.muyun.spring.platform.metadata.ModuleMetadataRelationService;
 import net.ximatai.muyun.spring.platform.metadata.RelationRole;
 import net.ximatai.muyun.spring.platform.module.PlatformModuleService;
 import net.ximatai.muyun.spring.platform.support.TestMemoryDao;
+import net.ximatai.muyun.spring.platform.metadata.ConfigurationReferenceDeletionGuard;
+import net.ximatai.muyun.spring.platform.metadata.FieldSpecService;
+import net.ximatai.muyun.spring.platform.metadata.PlatformMetadataSchemaEnsureService;
+import net.ximatai.muyun.spring.platform.runtime.PlatformDynamicRuntimeRefreshCoordinator;
+import net.ximatai.muyun.spring.platform.support.TestBeanProviders;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.ObjectProvider;
+import org.mockito.Mockito;
 
 import java.util.Optional;
 
@@ -155,17 +161,36 @@ class PresentationConfigurationReferencesTest {
         private final TestMemoryDao<PlatformPageDefinition> pageDao = new TestMemoryDao<>();
         private final TestMemoryDao<PlatformPresentationVariant> variantDao = new TestMemoryDao<>();
         private final TestMemoryDao<PlatformPresentationRevision> revisionDao = new TestMemoryDao<>();
-        private final MetadataService metadataService = new MetadataService(metadataDao);
-        private final MetadataFieldService fieldService = new MetadataFieldService(fieldDao, metadataService, null);
-        private final ModuleMetadataRelationService relationService = new ModuleMetadataRelationService(relationDao,
-                new PlatformModuleService(new TestMemoryDao<>()), metadataService);
+        private final MetadataService metadataService = new MetadataService(
+                metadataDao,
+                TestBeanProviders.empty(PlatformMetadataSchemaEnsureService.class),
+                Optional.empty(),
+                TestBeanProviders.empty(ConfigurationReferenceDeletionGuard.class),
+                TestBeanProviders.empty(ModuleMetadataRelationService.class),
+                event -> {});
+        private final MetadataFieldService fieldService = new MetadataFieldService(
+                fieldDao,
+                metadataService,
+                Mockito.mock(FieldSpecService.class),
+                TestBeanProviders.empty(PlatformDynamicRuntimeRefreshCoordinator.class),
+                TestBeanProviders.empty(PlatformMetadataSchemaEnsureService.class),
+                TestBeanProviders.empty(ConfigurationReferenceDeletionGuard.class),
+                TestBeanProviders.empty(ModuleMetadataRelationService.class),
+                TestBeanProviders.empty(PlatformModuleService.class));
+        private final ModuleMetadataRelationService relationService = new ModuleMetadataRelationService(
+                relationDao,
+                new PlatformModuleService(new TestMemoryDao<>(), event -> {}),
+                metadataService,
+                Optional.empty(),
+                TestBeanProviders.empty(ConfigurationReferenceDeletionGuard.class),
+                TestBeanProviders.empty(MetadataFieldService.class),
+                event -> {});
         private final ModuleMetadataFieldService moduleFieldService = new ModuleMetadataFieldService(moduleFieldDao,
                 relationService, metadataService, fieldService);
         private final MetadataFieldReferenceConfigService referenceConfigService =
-                new MetadataFieldReferenceConfigService(referenceConfigDao, fieldService, metadataService, null,
-                        new PlatformModuleService(new TestMemoryDao<>()), relationService);
+                new MetadataFieldReferenceConfigService(referenceConfigDao, fieldService, metadataService, null, new PlatformModuleService(new TestMemoryDao<>(), event -> {}), relationService, Optional.empty());
         private final PlatformPageDefinitionService pageService = new PlatformPageDefinitionService(pageDao,
-                new PlatformModuleService(new TestMemoryDao<>()), relationService);
+                new PlatformModuleService(new TestMemoryDao<>(), event -> {}), relationService);
         private final PlatformPresentationVariantService variantService =
                 new PlatformPresentationVariantService(variantDao, pageService);
         private final PlatformPresentationRevisionService revisionService =

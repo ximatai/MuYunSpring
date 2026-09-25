@@ -11,6 +11,7 @@ import net.ximatai.muyun.spring.common.tenant.TenantContext;
 import net.ximatai.muyun.spring.common.web.RequestTraceContext;
 import net.ximatai.muyun.spring.ability.logging.LoginLogDetails;
 import net.ximatai.muyun.spring.ability.logging.LoginLogEvent;
+import net.ximatai.muyun.spring.iam.support.UserAccountServiceTestFactory;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
@@ -50,7 +51,7 @@ class UserSessionServiceTest {
             user.setId("user-1");
             return "user-1";
         });
-        UserAccountService userService = new UserAccountService(dao, tenantId -> {
+        UserAccountService userService = UserAccountServiceTestFactory.create(dao, tenantId -> {
         }, passwordHashingService);
 
         UserAccount user = new UserAccount();
@@ -106,7 +107,7 @@ class UserSessionServiceTest {
         Clock preciseClock = Clock.fixed(preciseNow, ZoneOffset.UTC);
         UserAccountDao dao = userDao();
         when(dao.query(any(Criteria.class), any(PageRequest.class))).thenReturn(List.of(activeUser()));
-        UserAccountService userService = new UserAccountService(dao, tenantId -> {
+        UserAccountService userService = UserAccountServiceTestFactory.create(dao, tenantId -> {
         }, passwordHashingService);
         UserSessionDao sessionDao = mock(UserSessionDao.class);
         AtomicReference<UserSession> persistedSession = captureInsertedSession(sessionDao);
@@ -126,7 +127,7 @@ class UserSessionServiceTest {
     void shouldExposeResolvedDisplayTimeZoneOnCurrentUser() {
         UserAccountDao dao = userDao();
         when(dao.query(any(Criteria.class), any(PageRequest.class))).thenReturn(List.of(activeUser()));
-        UserAccountService userService = new UserAccountService(dao, tenantId -> {
+        UserAccountService userService = UserAccountServiceTestFactory.create(dao, tenantId -> {
         }, passwordHashingService);
         UserSessionDao sessionDao = mock(UserSessionDao.class);
         captureInsertedSession(sessionDao);
@@ -142,7 +143,7 @@ class UserSessionServiceTest {
     void shouldNotExposeDisplayTimeZoneWithoutResolver() {
         UserAccountDao dao = userDao();
         when(dao.query(any(Criteria.class), any(PageRequest.class))).thenReturn(List.of(activeUser()));
-        UserAccountService userService = new UserAccountService(dao, tenantId -> {
+        UserAccountService userService = UserAccountServiceTestFactory.create(dao, tenantId -> {
         }, passwordHashingService);
         UserSessionDao sessionDao = mock(UserSessionDao.class);
         captureInsertedSession(sessionDao);
@@ -162,7 +163,7 @@ class UserSessionServiceTest {
         when(dao.query(any(Criteria.class), any(PageRequest.class)))
                 .thenReturn(List.of(enabled))
                 .thenReturn(List.of(disabled));
-        UserAccountService userService = new UserAccountService(dao, tenantId -> {
+        UserAccountService userService = UserAccountServiceTestFactory.create(dao, tenantId -> {
         }, passwordHashingService);
         UserSessionDao sessionDao = mock(UserSessionDao.class);
         AtomicReference<UserSession> persistedSession = captureInsertedSession(sessionDao);
@@ -185,7 +186,7 @@ class UserSessionServiceTest {
     @Test
     void shouldRejectLoginWhenTenantIsNoLongerActive() {
         UserAccountDao dao = userDao();
-        UserAccountService userService = new UserAccountService(dao, tenantId -> {
+        UserAccountService userService = UserAccountServiceTestFactory.create(dao, tenantId -> {
             throw new PlatformException("Tenant is not active: " + tenantId);
         }, passwordHashingService);
         UserSessionDao sessionDao = mock(UserSessionDao.class);
@@ -201,7 +202,7 @@ class UserSessionServiceTest {
     @Test
     void shouldRevokeSessionWhenTenantIsNoLongerActive() {
         UserAccountDao dao = userDao();
-        UserAccountService userService = new UserAccountService(dao, tenantId -> {
+        UserAccountService userService = UserAccountServiceTestFactory.create(dao, tenantId -> {
             throw new PlatformException("Tenant is not active: " + tenantId);
         }, passwordHashingService);
         UserSessionDao sessionDao = mock(UserSessionDao.class);
@@ -234,7 +235,7 @@ class UserSessionServiceTest {
         user.setEnabled(Boolean.TRUE);
         user.setPasswordHash(passwordHashingService.hash("secret1"));
         when(dao.query(any(Criteria.class), any(PageRequest.class))).thenReturn(List.of(user));
-        UserAccountService userService = new UserAccountService(dao, tenantId -> {
+        UserAccountService userService = UserAccountServiceTestFactory.create(dao, tenantId -> {
         }, passwordHashingService);
         UserSessionDao sessionDao = mock(UserSessionDao.class);
         UserSessionService sessionService = sessionService(userService, sessionDao, clock);
@@ -253,7 +254,7 @@ class UserSessionServiceTest {
         UserAccount user = activeUser();
         UserAccountDao dao = userDao();
         when(dao.query(any(Criteria.class), any(PageRequest.class))).thenReturn(List.of(user));
-        UserAccountService userService = new UserAccountService(dao, tenantId -> { }, passwordHashingService);
+        UserAccountService userService = UserAccountServiceTestFactory.create(dao, tenantId -> { }, passwordHashingService);
         UserSessionDao sessionDao = mock(UserSessionDao.class);
         captureInsertedSession(sessionDao);
         RecordingLoginAuditLogger auditLogger = new RecordingLoginAuditLogger();
@@ -280,7 +281,7 @@ class UserSessionServiceTest {
         UserAccount user = activeUser();
         UserAccountDao dao = userDao();
         when(dao.query(any(Criteria.class), any(PageRequest.class))).thenReturn(List.of(user));
-        UserAccountService userService = new UserAccountService(dao, tenantId -> { }, passwordHashingService);
+        UserAccountService userService = UserAccountServiceTestFactory.create(dao, tenantId -> { }, passwordHashingService);
         UserSessionDao sessionDao = mock(UserSessionDao.class);
         captureInsertedSession(sessionDao);
         RecordingLoginAuditLogger auditLogger = new RecordingLoginAuditLogger();
@@ -298,7 +299,7 @@ class UserSessionServiceTest {
         UserAccount user = activeUser();
         UserAccountDao dao = userDao();
         when(dao.query(any(Criteria.class), any(PageRequest.class))).thenReturn(List.of(user));
-        UserAccountService userService = new UserAccountService(dao, tenantId -> { }, passwordHashingService);
+        UserAccountService userService = UserAccountServiceTestFactory.create(dao, tenantId -> { }, passwordHashingService);
         UserSessionDao sessionDao = mock(UserSessionDao.class);
         captureInsertedSession(sessionDao);
         RecordingLoginAuditLogger auditLogger = new RecordingLoginAuditLogger();
@@ -319,7 +320,7 @@ class UserSessionServiceTest {
         UserAccount user = activeUser();
         UserAccountDao dao = userDao();
         when(dao.query(any(Criteria.class), any(PageRequest.class))).thenReturn(List.of(user));
-        UserAccountService userService = new UserAccountService(dao, tenantId -> { }, passwordHashingService);
+        UserAccountService userService = UserAccountServiceTestFactory.create(dao, tenantId -> { }, passwordHashingService);
         UserSessionDao sessionDao = mock(UserSessionDao.class);
         RecordingLoginAuditLogger auditLogger = new RecordingLoginAuditLogger();
         UserSessionService sessionService = sessionServiceWithLoginAudit(userService, sessionDao, auditLogger, clock);
@@ -343,7 +344,7 @@ class UserSessionServiceTest {
         UserAccount user = activeUser();
         UserAccountDao dao = userDao();
         when(dao.query(any(Criteria.class), any(PageRequest.class))).thenReturn(List.of(user));
-        UserAccountService userService = new UserAccountService(dao, tenantId -> { }, passwordHashingService);
+        UserAccountService userService = UserAccountServiceTestFactory.create(dao, tenantId -> { }, passwordHashingService);
         UserSessionDao sessionDao = mock(UserSessionDao.class);
         RecordingLoginAuditLogger auditLogger = new RecordingLoginAuditLogger();
         UserSessionService sessionService = sessionServiceWithLoginAudit(userService, sessionDao, auditLogger, clock,
@@ -363,7 +364,7 @@ class UserSessionServiceTest {
         UserAccount user = activeUser();
         UserAccountDao dao = userDao();
         when(dao.query(any(Criteria.class), any(PageRequest.class))).thenReturn(List.of(user));
-        UserAccountService userService = new UserAccountService(dao, tenantId -> { }, passwordHashingService);
+        UserAccountService userService = UserAccountServiceTestFactory.create(dao, tenantId -> { }, passwordHashingService);
         UserSessionDao sessionDao = mock(UserSessionDao.class);
         when(sessionDao.insert(any())).thenThrow(new IllegalStateException("session storage unavailable"));
         RecordingLoginAuditLogger auditLogger = new RecordingLoginAuditLogger();
@@ -386,7 +387,7 @@ class UserSessionServiceTest {
         when(dao.query(any(Criteria.class), any(PageRequest.class))).thenReturn(List.of(user));
         when(dao.updateByIdAndVersion(any(UserAccount.class), any())).thenThrow(
                 new IllegalStateException("account storage unavailable"));
-        UserAccountService userService = new UserAccountService(dao, tenantId -> { }, passwordHashingService);
+        UserAccountService userService = UserAccountServiceTestFactory.create(dao, tenantId -> { }, passwordHashingService);
         UserSessionDao sessionDao = mock(UserSessionDao.class);
         captureInsertedSession(sessionDao);
         RecordingLoginAuditLogger auditLogger = new RecordingLoginAuditLogger();
@@ -406,7 +407,7 @@ class UserSessionServiceTest {
         UserAccount user = activeUser();
         UserAccountDao dao = userDao();
         when(dao.query(any(Criteria.class), any(PageRequest.class))).thenReturn(List.of(user));
-        UserAccountService userService = new UserAccountService(dao, tenantId -> { }, passwordHashingService);
+        UserAccountService userService = UserAccountServiceTestFactory.create(dao, tenantId -> { }, passwordHashingService);
         UserSessionDao sessionDao = mock(UserSessionDao.class);
         captureInsertedSession(sessionDao);
         UserSessionService sessionService = sessionServiceWithLoginAudit(userService, sessionDao,
@@ -424,7 +425,7 @@ class UserSessionServiceTest {
         user.setPasswordStatus(PasswordStatus.INITIAL);
         UserAccountDao dao = userDao();
         when(dao.query(any(Criteria.class), any(PageRequest.class))).thenReturn(List.of(user));
-        UserAccountService userService = new UserAccountService(dao, tenantId -> {
+        UserAccountService userService = UserAccountServiceTestFactory.create(dao, tenantId -> {
         }, passwordHashingService);
         UserSessionDao sessionDao = mock(UserSessionDao.class);
         AtomicReference<UserSession> persistedSession = captureInsertedSession(sessionDao);
@@ -447,7 +448,7 @@ class UserSessionServiceTest {
         user.setPasswordExpiresAt(clock.instant().minusSeconds(1));
         UserAccountDao dao = userDao();
         when(dao.query(any(Criteria.class), any(PageRequest.class))).thenReturn(List.of(user));
-        UserAccountService userService = new UserAccountService(dao, tenantId -> {
+        UserAccountService userService = UserAccountServiceTestFactory.create(dao, tenantId -> {
         }, passwordHashingService);
         UserSessionDao sessionDao = mock(UserSessionDao.class);
         UserSessionService sessionService = sessionService(userService, sessionDao, clock);
@@ -464,7 +465,7 @@ class UserSessionServiceTest {
     void shouldNotLoginTenantUserFromSystemWorkspace() {
         UserAccountDao dao = userDao();
         when(dao.query(any(Criteria.class), any(PageRequest.class))).thenReturn(List.of());
-        UserAccountService userService = new UserAccountService(dao, tenantId -> {
+        UserAccountService userService = UserAccountServiceTestFactory.create(dao, tenantId -> {
         }, passwordHashingService);
         UserSessionDao sessionDao = mock(UserSessionDao.class);
         UserSessionService sessionService = sessionService(userService, sessionDao, clock);
@@ -479,7 +480,7 @@ class UserSessionServiceTest {
     @Test
     void shouldRejectExpiredSession() {
         UserAccountDao dao = userDao();
-        UserAccountService userService = new UserAccountService(dao, tenantId -> {
+        UserAccountService userService = UserAccountServiceTestFactory.create(dao, tenantId -> {
         }, passwordHashingService);
         UserSessionDao sessionDao = mock(UserSessionDao.class);
         UserSession expired = activeSession("session-1", "user-1");
@@ -503,7 +504,7 @@ class UserSessionServiceTest {
     @Test
     void shouldPublishLifecycleEventWhenUserLogsOut() {
         UserAccountDao dao = userDao();
-        UserAccountService userService = new UserAccountService(dao, tenantId -> {
+        UserAccountService userService = UserAccountServiceTestFactory.create(dao, tenantId -> {
         }, passwordHashingService);
         UserSessionDao sessionDao = mock(UserSessionDao.class);
         UserSession session = activeSession("session-1", "user-1");
@@ -528,7 +529,7 @@ class UserSessionServiceTest {
         Clock accessClock = Clock.fixed(Instant.parse("2026-06-20T10:00:00Z"), ZoneOffset.UTC);
         UserAccountDao dao = userDao();
         when(dao.query(any(Criteria.class), any(PageRequest.class))).thenReturn(List.of(activeUser()));
-        UserAccountService userService = new UserAccountService(dao, tenantId -> {
+        UserAccountService userService = UserAccountServiceTestFactory.create(dao, tenantId -> {
         }, passwordHashingService);
         UserSessionDao sessionDao = mock(UserSessionDao.class);
         UserSession session = activeSession("session-1", "user-1");
@@ -554,7 +555,7 @@ class UserSessionServiceTest {
         Clock accessClock = Clock.fixed(Instant.parse("2026-06-20T10:00:00Z"), ZoneOffset.UTC);
         UserAccountDao dao = userDao();
         when(dao.query(any(Criteria.class), any(PageRequest.class))).thenReturn(List.of(activeUser()));
-        UserAccountService userService = new UserAccountService(dao, tenantId -> {
+        UserAccountService userService = UserAccountServiceTestFactory.create(dao, tenantId -> {
         }, passwordHashingService);
         UserSessionDao sessionDao = mock(UserSessionDao.class);
         UserSession session = activeSession("session-1", "user-1");
@@ -581,7 +582,7 @@ class UserSessionServiceTest {
         Clock accessClock = Clock.fixed(Instant.parse("2026-06-20T10:00:00Z"), ZoneOffset.UTC);
         UserAccountDao dao = userDao();
         when(dao.query(any(Criteria.class), any(PageRequest.class))).thenReturn(List.of(activeUser()));
-        UserAccountService userService = new UserAccountService(dao, tenantId -> {
+        UserAccountService userService = UserAccountServiceTestFactory.create(dao, tenantId -> {
         }, passwordHashingService);
         UserSessionDao sessionDao = mock(UserSessionDao.class);
         UserSession session = activeSession("session-1", "user-1");
@@ -602,7 +603,7 @@ class UserSessionServiceTest {
         Clock accessClock = Clock.fixed(Instant.parse("2026-06-20T10:00:00Z"), ZoneOffset.UTC);
         UserAccountDao dao = userDao();
         when(dao.query(any(Criteria.class), any(PageRequest.class))).thenReturn(List.of(activeUser()));
-        UserAccountService userService = new UserAccountService(dao, tenantId -> {
+        UserAccountService userService = UserAccountServiceTestFactory.create(dao, tenantId -> {
         }, passwordHashingService);
         UserSessionDao sessionDao = mock(UserSessionDao.class);
         UserSession stale = activeSession("session-1", "user-1");
@@ -630,7 +631,7 @@ class UserSessionServiceTest {
     @Test
     void shouldAllowMultipleSessionsAndRevokeAllUserSessions() {
         UserAccountDao dao = userDao();
-        UserAccountService userService = new UserAccountService(dao, tenantId -> {
+        UserAccountService userService = UserAccountServiceTestFactory.create(dao, tenantId -> {
         }, passwordHashingService);
         UserSessionDao sessionDao = mock(UserSessionDao.class);
         UserSession web = activeSession("session-web", "user-1");
@@ -661,7 +662,7 @@ class UserSessionServiceTest {
     @Test
     void shouldListActiveSessionsOfUserWithoutTokenHash() {
         UserAccountDao dao = userDao();
-        UserAccountService userService = new UserAccountService(dao, tenantId -> {
+        UserAccountService userService = UserAccountServiceTestFactory.create(dao, tenantId -> {
         }, passwordHashingService);
         UserSessionDao sessionDao = mock(UserSessionDao.class);
         UserSession active = activeSession("session-active", "user-1");
@@ -706,7 +707,7 @@ class UserSessionServiceTest {
     @Test
     void shouldAttachPresenceToActiveSessionsAndStatuses() {
         UserAccountDao dao = userDao();
-        UserAccountService userService = new UserAccountService(dao, tenantId -> {
+        UserAccountService userService = UserAccountServiceTestFactory.create(dao, tenantId -> {
         }, passwordHashingService);
         UserSessionDao sessionDao = mock(UserSessionDao.class);
         UserSession active = activeSession("session-active", "user-1");
@@ -806,7 +807,7 @@ class UserSessionServiceTest {
     @Test
     void shouldRevokeSingleUserSession() {
         UserAccountDao dao = userDao();
-        UserAccountService userService = new UserAccountService(dao, tenantId -> {
+        UserAccountService userService = UserAccountServiceTestFactory.create(dao, tenantId -> {
         }, passwordHashingService);
         UserSessionDao sessionDao = mock(UserSessionDao.class);
         UserSession session = activeSession("session-1", "user-1");
@@ -831,7 +832,7 @@ class UserSessionServiceTest {
     @Test
     void shouldIgnoreSessionThatDoesNotBelongToUser() {
         UserAccountDao dao = userDao();
-        UserAccountService userService = new UserAccountService(dao, tenantId -> {
+        UserAccountService userService = UserAccountServiceTestFactory.create(dao, tenantId -> {
         }, passwordHashingService);
         UserSessionDao sessionDao = mock(UserSessionDao.class);
         UserSession session = activeSession("session-1", "user-2");
@@ -848,7 +849,7 @@ class UserSessionServiceTest {
         UserAccount user = activeUser();
         UserAccountDao dao = userDao();
         when(dao.query(any(Criteria.class), any(PageRequest.class))).thenReturn(List.of(user));
-        UserAccountService userService = new UserAccountService(dao, tenantId -> {
+        UserAccountService userService = UserAccountServiceTestFactory.create(dao, tenantId -> {
         }, passwordHashingService);
         UserSessionDao sessionDao = mock(UserSessionDao.class);
         AtomicReference<UserSession> persistedSession = captureInsertedSession(sessionDao);
@@ -867,7 +868,7 @@ class UserSessionServiceTest {
     @Test
     void shouldRevokeSelectedUserSessions() {
         UserAccountDao dao = userDao();
-        UserAccountService userService = new UserAccountService(dao, tenantId -> {
+        UserAccountService userService = UserAccountServiceTestFactory.create(dao, tenantId -> {
         }, passwordHashingService);
         UserSessionDao sessionDao = mock(UserSessionDao.class);
         UserSession web = activeSession("session-web", "user-1");

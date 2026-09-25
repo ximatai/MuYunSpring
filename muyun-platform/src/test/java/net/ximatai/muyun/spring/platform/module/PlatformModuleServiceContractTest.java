@@ -18,7 +18,7 @@ import static org.mockito.Mockito.verify;
 class PlatformModuleServiceContractTest {
     @Test
     void shouldRequireModuleAliasBeforeIdGeneration() {
-        PlatformModuleService service = new PlatformModuleService(new TestMemoryDao<>());
+        PlatformModuleService service = new PlatformModuleService(new TestMemoryDao<>(), event -> {});
         PlatformModule module = new PlatformModule();
         module.setApplicationAlias("crm");
         module.setTitle("Customer");
@@ -30,7 +30,7 @@ class PlatformModuleServiceContractTest {
 
     @Test
     void shouldUseAliasAsModuleIdAndFillTreeDefaults() {
-        PlatformModuleService service = new PlatformModuleService(new TestMemoryDao<>());
+        PlatformModuleService service = new PlatformModuleService(new TestMemoryDao<>(), event -> {});
         PlatformModule module = module("crm.customer", "crm");
 
         String id = service.insert(module);
@@ -44,7 +44,7 @@ class PlatformModuleServiceContractTest {
 
     @Test
     void shouldResolveGlobalModuleFromTenantContext() {
-        PlatformModuleService service = new PlatformModuleService(new TestMemoryDao<>());
+        PlatformModuleService service = new PlatformModuleService(new TestMemoryDao<>(), event -> {});
         try (TenantContext.Scope ignored = TenantContext.system("test system context")) {
             service.insert(module("crm.customer", "crm"));
         }
@@ -57,7 +57,7 @@ class PlatformModuleServiceContractTest {
 
     @Test
     void shouldResolveTenantPrivateModuleWithoutLeakingToOtherTenants() {
-        PlatformModuleService service = new PlatformModuleService(new TestMemoryDao<>());
+        PlatformModuleService service = new PlatformModuleService(new TestMemoryDao<>(), event -> {});
 
         try (TenantContext.Scope ignored = TenantContext.use("tenant-a")) {
             service.insert(module("crm.tenant_customer", "crm"));
@@ -70,7 +70,7 @@ class PlatformModuleServiceContractTest {
 
     @Test
     void shouldListGlobalAndTenantVisibleModulesWithoutLeakingOtherTenantModules() {
-        PlatformModuleService service = new PlatformModuleService(new TestMemoryDao<>());
+        PlatformModuleService service = new PlatformModuleService(new TestMemoryDao<>(), event -> {});
         try (TenantContext.Scope ignored = TenantContext.system("create global module")) {
             service.insert(module("crm.customer", "crm"));
         }
@@ -89,7 +89,7 @@ class PlatformModuleServiceContractTest {
 
     @Test
     void shouldListCapturedTenantModulesWhileCallerIsInSystemScope() {
-        PlatformModuleService service = new PlatformModuleService(new TestMemoryDao<>());
+        PlatformModuleService service = new PlatformModuleService(new TestMemoryDao<>(), event -> {});
         try (TenantContext.Scope ignored = TenantContext.system("create global module")) {
             service.insert(module("crm.customer", "crm"));
         }
@@ -109,7 +109,7 @@ class PlatformModuleServiceContractTest {
 
     @Test
     void shouldRejectModuleAliasOutsideApplication() {
-        PlatformModuleService service = new PlatformModuleService(new TestMemoryDao<>());
+        PlatformModuleService service = new PlatformModuleService(new TestMemoryDao<>(), event -> {});
         PlatformModule module = module("sales.customer", "crm");
 
         assertThatThrownBy(() -> service.insert(module))
@@ -120,7 +120,7 @@ class PlatformModuleServiceContractTest {
     @Test
     void shouldSupportModuleTreeWithinSameApplication() {
         TestMemoryDao<PlatformModule> dao = new TestMemoryDao<>();
-        PlatformModuleService service = new PlatformModuleService(dao);
+        PlatformModuleService service = new PlatformModuleService(dao, event -> {});
         service.insert(module("crm.customer", "crm"));
         PlatformModule child = module("crm.customer.profile", "crm");
         child.setParentId("crm.customer");
@@ -135,7 +135,7 @@ class PlatformModuleServiceContractTest {
     @Test
     void shouldResolveRootModulesByApplication() {
         TestMemoryDao<PlatformModule> dao = new TestMemoryDao<>();
-        PlatformModuleService service = new PlatformModuleService(dao);
+        PlatformModuleService service = new PlatformModuleService(dao, event -> {});
         service.insert(module("crm.customer", "crm"));
         service.insert(module("sales.contract", "sales"));
 
@@ -146,7 +146,7 @@ class PlatformModuleServiceContractTest {
 
     @Test
     void shouldRejectUnscopedRootChildrenLookup() {
-        PlatformModuleService service = new PlatformModuleService(new TestMemoryDao<>());
+        PlatformModuleService service = new PlatformModuleService(new TestMemoryDao<>(), event -> {});
 
         assertThatThrownBy(() -> service.children(TreeAbility.ROOT_ID))
                 .isInstanceOf(PlatformException.class)
@@ -156,7 +156,7 @@ class PlatformModuleServiceContractTest {
     @Test
     void shouldResolveChildrenByApplication() {
         TestMemoryDao<PlatformModule> dao = new TestMemoryDao<>();
-        PlatformModuleService service = new PlatformModuleService(dao);
+        PlatformModuleService service = new PlatformModuleService(dao, event -> {});
         service.insert(module("crm.customer", "crm"));
         PlatformModule crmChild = module("crm.customer.profile", "crm");
         crmChild.setParentId("crm.customer");
@@ -171,7 +171,7 @@ class PlatformModuleServiceContractTest {
     @Test
     void shouldRejectModuleTreeAcrossApplications() {
         TestMemoryDao<PlatformModule> dao = new TestMemoryDao<>();
-        PlatformModuleService service = new PlatformModuleService(dao);
+        PlatformModuleService service = new PlatformModuleService(dao, event -> {});
         service.insert(module("crm.customer", "crm"));
         PlatformModule child = module("sales.contract", "sales");
         child.setParentId("crm.customer");
@@ -184,7 +184,7 @@ class PlatformModuleServiceContractTest {
     @Test
     void shouldReorderModulesWithinSameApplicationAndParent() {
         TestMemoryDao<PlatformModule> dao = new TestMemoryDao<>();
-        PlatformModuleService service = new PlatformModuleService(dao);
+        PlatformModuleService service = new PlatformModuleService(dao, event -> {});
         service.insert(module("crm.customer", "crm"));
         service.insert(module("crm.contract", "crm"));
 
@@ -198,7 +198,7 @@ class PlatformModuleServiceContractTest {
     @Test
     void shouldRejectReorderAcrossApplicationOrParent() {
         TestMemoryDao<PlatformModule> dao = new TestMemoryDao<>();
-        PlatformModuleService service = new PlatformModuleService(dao);
+        PlatformModuleService service = new PlatformModuleService(dao, event -> {});
         service.insert(module("crm.customer", "crm"));
         service.insert(module("sales.contract", "sales"));
         PlatformModule child = module("crm.customer.profile", "crm");
@@ -215,7 +215,7 @@ class PlatformModuleServiceContractTest {
 
     @Test
     void shouldProtectSystemManagedModuleFromOrdinaryMutation() {
-        PlatformModuleService service = new PlatformModuleService(new TestMemoryDao<>());
+        PlatformModuleService service = new PlatformModuleService(new TestMemoryDao<>(), event -> {});
         PlatformModule managed = module("crm.customer", "crm");
         managed.setSystemManaged(Boolean.TRUE);
         PlatformManagedMutationContext.runAsPlatformManaged(() -> service.insert(managed));
@@ -236,7 +236,7 @@ class PlatformModuleServiceContractTest {
 
     @Test
     void shouldAllowOrdinaryEnabledAndSortUpdateOnSystemManagedModule() {
-        PlatformModuleService service = new PlatformModuleService(new TestMemoryDao<>());
+        PlatformModuleService service = new PlatformModuleService(new TestMemoryDao<>(), event -> {});
         PlatformModule managed = module("crm.customer", "crm");
         managed.setSystemManaged(Boolean.TRUE);
         PlatformManagedMutationContext.runAsPlatformManaged(() -> service.insert(managed));
@@ -258,7 +258,7 @@ class PlatformModuleServiceContractTest {
 
     @Test
     void shouldProjectManagedModuleMutationBoundaryToRecordActions() {
-        PlatformModuleService service = new PlatformModuleService(new TestMemoryDao<>());
+        PlatformModuleService service = new PlatformModuleService(new TestMemoryDao<>(), event -> {});
         PlatformModule managed = module("crm.customer", "crm");
         managed.setSystemManaged(Boolean.TRUE);
         PlatformManagedMutationContext.runAsPlatformManaged(() -> service.insert(managed));

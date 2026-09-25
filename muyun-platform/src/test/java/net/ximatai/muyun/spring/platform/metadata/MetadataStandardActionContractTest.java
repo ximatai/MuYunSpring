@@ -4,6 +4,9 @@ import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.spring.common.tenant.TenantContext;
 import net.ximatai.muyun.spring.platform.module.*;
 import net.ximatai.muyun.spring.platform.support.TestMemoryDao;
+import net.ximatai.muyun.spring.platform.module.PlatformModuleService;
+import net.ximatai.muyun.spring.platform.runtime.PlatformDynamicRuntimeRefreshCoordinator;
+import net.ximatai.muyun.spring.platform.support.TestBeanProviders;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.support.StaticListableBeanFactory;
 import org.springframework.context.ApplicationEventPublisher;
@@ -16,24 +19,40 @@ import static org.mockito.Mockito.mock;
 
 class MetadataStandardActionContractTest {
     private final StaticListableBeanFactory beans = new StaticListableBeanFactory();
-    private final PlatformModuleService modules = new PlatformModuleService(new TestMemoryDao<>());
+    private final PlatformModuleService modules = new PlatformModuleService(new TestMemoryDao<>(), event -> {});
     private final PlatformModuleActionService actions = new PlatformModuleActionService(new TestMemoryDao<>(), modules);
     private DynamicModuleStandardActionRegistrar registrar;
     private final ApplicationEventPublisher events = event -> {
         if (registrar != null && event instanceof MetadataChangedEvent changed) registrar.reconcile(changed);
     };
-    private final MetadataService metadata = new MetadataService(new TestMemoryDao<>(),
-            beans.getBeanProvider(PlatformMetadataSchemaEnsureService.class), Optional.empty(),
+    private final MetadataService metadata = new MetadataService(
+            new TestMemoryDao<>(),
+            beans.getBeanProvider(PlatformMetadataSchemaEnsureService.class),
+            Optional.empty(),
             beans.getBeanProvider(ConfigurationReferenceDeletionGuard.class),
-            beans.getBeanProvider(ModuleMetadataRelationService.class), events);
-    private final ModuleMetadataRelationService relations = new ModuleMetadataRelationService(new TestMemoryDao<>(),
-            modules, metadata, Optional.empty(), beans.getBeanProvider(ConfigurationReferenceDeletionGuard.class),
-            beans.getBeanProvider(MetadataFieldService.class), events);
+            beans.getBeanProvider(ModuleMetadataRelationService.class),
+            events);
+    private final ModuleMetadataRelationService relations = new ModuleMetadataRelationService(
+            new TestMemoryDao<>(),
+            modules,
+            metadata,
+            Optional.empty(),
+            beans.getBeanProvider(ConfigurationReferenceDeletionGuard.class),
+            beans.getBeanProvider(MetadataFieldService.class),
+            events);
 
     MetadataStandardActionContractTest() {
         beans.addBean("metadata", metadata);
         beans.addBean("relations", relations);
-        beans.addBean("fields", new MetadataFieldService(new TestMemoryDao<>(), metadata, mock(FieldSpecService.class)));
+        beans.addBean("fields", new MetadataFieldService(
+                new TestMemoryDao<>(),
+                metadata,
+                mock(FieldSpecService.class),
+                TestBeanProviders.empty(PlatformDynamicRuntimeRefreshCoordinator.class),
+                TestBeanProviders.empty(PlatformMetadataSchemaEnsureService.class),
+                TestBeanProviders.empty(ConfigurationReferenceDeletionGuard.class),
+                TestBeanProviders.empty(ModuleMetadataRelationService.class),
+                TestBeanProviders.empty(PlatformModuleService.class)));
         registrar = new DynamicModuleStandardActionRegistrar(modules, new ModuleActionContributionRegistrar(actions),
                 beans.getBeanProvider(ModuleMetadataRelationService.class), beans.getBeanProvider(MetadataService.class),
                 beans.getBeanProvider(MetadataFieldService.class));

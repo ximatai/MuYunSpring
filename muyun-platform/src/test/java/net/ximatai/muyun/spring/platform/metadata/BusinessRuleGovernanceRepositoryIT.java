@@ -44,6 +44,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -519,8 +520,8 @@ class BusinessRuleGovernanceRepositoryIT extends PlatformPostgresIntegrationTest
         @Bean ModuleMetadataFormulaRuleService formulaService(ModuleMetadataFormulaRuleDao dao, ModuleMetadataRelationService relations,
                                                               MetadataFieldService fields,
                                                               MetadataFieldReferenceConfigService references) {
-            return new ModuleMetadataFormulaRuleService(dao, relations, fields, java.util.Optional.empty(),
-                    java.util.Optional.of(references));
+            return new ModuleMetadataFormulaRuleService(dao, relations, fields, Optional.empty(),
+                    Optional.of(references));
         }
         @Bean MetadataFieldReferenceConfigService referenceConfigService(MetadataFieldReferenceConfigDao dao,
                                                                           MetadataFieldService fields,
@@ -528,7 +529,7 @@ class BusinessRuleGovernanceRepositoryIT extends PlatformPostgresIntegrationTest
                                                                           FieldSpecService specs,
                                                                           PlatformModuleService modules,
                                                                           ModuleMetadataRelationService relations) {
-            return new MetadataFieldReferenceConfigService(dao, fields, metadata, specs, modules, relations);
+            return new MetadataFieldReferenceConfigService(dao, fields, metadata, specs, modules, relations, Optional.empty());
         }
         @Bean MetadataViewService metadataViewService() { MetadataViewService value = mock(MetadataViewService.class); when(value.list(any(), any(), any())).thenReturn(List.of()); return value; }
         @Bean MetadataViewFieldService metadataViewFieldService() { MetadataViewFieldService value = mock(MetadataViewFieldService.class); when(value.list(any(), any(), any())).thenReturn(List.of()); return value; }

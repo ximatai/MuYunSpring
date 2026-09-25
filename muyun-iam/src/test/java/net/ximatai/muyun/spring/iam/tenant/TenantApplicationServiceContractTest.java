@@ -19,7 +19,7 @@ import static org.mockito.Mockito.when;
 class TenantApplicationServiceContractTest {
     @Test
     void shouldKeepIamApplicationWhenReconcilingTenantApplications() {
-        TenantApplicationService service = new TenantApplicationService(mock(TenantApplicationDao.class));
+        TenantApplicationService service = new TenantApplicationService(mock(TenantApplicationDao.class), mock(TenantApplicationCatalog.class));
 
         assertThatThrownBy(() -> service.configureApplications("tenant_a", List.of("sales")))
                 .isInstanceOf(IllegalArgumentException.class)

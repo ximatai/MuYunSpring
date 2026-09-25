@@ -13,23 +13,21 @@ import net.ximatai.muyun.spring.ability.reference.ReferenceAbility;
 import net.ximatai.muyun.spring.ability.query.QueryAbility;
 import net.ximatai.muyun.spring.ability.query.QueryDescriptor;
 import net.ximatai.muyun.spring.ability.query.QueryDescriptors;
-import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.Sort;
 import net.ximatai.muyun.spring.common.tenant.ActiveTenantVerifier;
 import net.ximatai.muyun.spring.common.tenant.TenantCreationProvisioner;
 import net.ximatai.muyun.spring.common.exception.PlatformErrorCodes;
 import net.ximatai.muyun.spring.common.exception.PlatformErrors;
-import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.model.contract.EntityContract;
 import net.ximatai.muyun.spring.common.util.PlatformNameRules;
 import net.ximatai.muyun.spring.platform.attachment.ManagedFileAssetService;
 import org.springframework.beans.factory.ObjectProvider;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 @Service
 public class TenantService extends AbstractAbilityService<Tenant> implements
@@ -49,38 +47,14 @@ public class TenantService extends AbstractAbilityService<Tenant> implements
     private final TenantApplicationService tenantApplicationService;
     private final ManagedFileAssetService managedFileAssetService;
 
-    public TenantService(TenantDao tenantDao) {
-        super(MODULE_ALIAS, Tenant.class, tenantDao);
-        this.creationProvisioners = null;
-        this.tenantApplicationService = null;
-        this.managedFileAssetService = null;
-    }
-
-    public TenantService(TenantDao tenantDao, ObjectProvider<TenantCreationProvisioner> creationProvisioners) {
-        super(MODULE_ALIAS, Tenant.class, tenantDao);
-        this.creationProvisioners = creationProvisioners;
-        this.tenantApplicationService = null;
-        this.managedFileAssetService = null;
-    }
-
-    public TenantService(TenantDao tenantDao,
-                         ObjectProvider<TenantCreationProvisioner> creationProvisioners,
-                         TenantApplicationService tenantApplicationService) {
-        super(MODULE_ALIAS, Tenant.class, tenantDao);
-        this.creationProvisioners = creationProvisioners;
-        this.tenantApplicationService = tenantApplicationService;
-        this.managedFileAssetService = null;
-    }
-
-    @Autowired
     public TenantService(TenantDao tenantDao,
                          ObjectProvider<TenantCreationProvisioner> creationProvisioners,
                          TenantApplicationService tenantApplicationService,
                          ManagedFileAssetService managedFileAssetService) {
         super(MODULE_ALIAS, Tenant.class, tenantDao);
-        this.creationProvisioners = creationProvisioners;
-        this.tenantApplicationService = tenantApplicationService;
-        this.managedFileAssetService = managedFileAssetService;
+        this.creationProvisioners = Objects.requireNonNull(creationProvisioners, "creationProvisioners");
+        this.tenantApplicationService = Objects.requireNonNull(tenantApplicationService, "tenantApplicationService");
+        this.managedFileAssetService = Objects.requireNonNull(managedFileAssetService, "managedFileAssetService");
     }
 
     @Override
@@ -134,9 +108,7 @@ public class TenantService extends AbstractAbilityService<Tenant> implements
     }
 
     private void notifyTenantCreated(String tenantId) {
-        if (creationProvisioners != null) {
-            creationProvisioners.orderedStream().forEach(provisioner -> provisioner.afterTenantCreated(tenantId));
-        }
+        creationProvisioners.orderedStream().forEach(provisioner -> provisioner.afterTenantCreated(tenantId));
     }
 
     public Tenant requireActiveTenant(String tenantAlias) {
@@ -171,12 +143,10 @@ public class TenantService extends AbstractAbilityService<Tenant> implements
 
     @Override
     public List<ChildRelation<? extends EntityContract, Tenant>> childRelations() {
-        return tenantApplicationService == null
-                ? List.of()
-                : List.of(childRelation(tenantApplicationService));
+        return List.of(childRelation(tenantApplicationService));
     }
 
-    /** Tenant applications are optional in lightweight IAM runtime assemblies. */
+    /** The tenant explicitly owns its application child relation. */
     @Override
     public boolean usesAutomaticChildRelations() {
         return false;
@@ -187,14 +157,7 @@ public class TenantService extends AbstractAbilityService<Tenant> implements
     }
 
     private String contentOf(String tenantId, String assetId) {
-        return assetId == null || assetId.isBlank() ? null : requireFileAssets().readInlineContent(tenantId, assetId);
-    }
-
-    private ManagedFileAssetService requireFileAssets() {
-        if (managedFileAssetService == null) {
-            throw new IllegalStateException("tenant branding requires ManagedFileAssetService");
-        }
-        return managedFileAssetService;
+        return assetId == null || assetId.isBlank() ? null : managedFileAssetService.readInlineContent(tenantId, assetId);
     }
 
     private void validateWorkbenchBranding(Tenant tenant) {
@@ -207,7 +170,7 @@ public class TenantService extends AbstractAbilityService<Tenant> implements
 
     private void requireSquareLogo(String tenantId, String assetId, String fieldLabel) {
         if (assetId == null || assetId.isBlank()) return;
-        var metadata = requireFileAssets().readReferenceMetadata(tenantId, assetId);
+        var metadata = managedFileAssetService.readReferenceMetadata(tenantId, assetId);
         if (metadata.imageWidth() == null || metadata.imageHeight() == null) {
             throw PlatformErrors.badRequest(PlatformErrorCodes.VALIDATION_FAILED, fieldLabel + "缺少图片尺寸信息");
         }

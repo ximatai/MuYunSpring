@@ -18,6 +18,8 @@ import net.ximatai.muyun.spring.platform.application.Application;
 import net.ximatai.muyun.spring.platform.application.ApplicationDao;
 import net.ximatai.muyun.spring.platform.application.ApplicationService;
 import net.ximatai.muyun.spring.platform.initialdata.InitialDataExecutor;
+import net.ximatai.muyun.spring.iam.support.TenantServiceTestFactory;
+import net.ximatai.muyun.spring.iam.support.UserAccountServiceTestFactory;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
@@ -31,8 +33,8 @@ class PlatformBaselineInitialDataTest {
     private final UserAccountMemoryDao userAccountDao = new UserAccountMemoryDao();
 
     private final ApplicationService applicationService = new ApplicationService(applicationDao);
-    private final TenantService tenantService = new TenantService(tenantDao);
-    private final UserAccountService userAccountService = net.ximatai.muyun.spring.iam.support.UserAccountServiceTestFactory.create(
+    private final TenantService tenantService = TenantServiceTestFactory.create(tenantDao);
+    private final UserAccountService userAccountService = UserAccountServiceTestFactory.create(
             userAccountDao, tenantService, new PasswordHashingService());
 
     @AfterEach

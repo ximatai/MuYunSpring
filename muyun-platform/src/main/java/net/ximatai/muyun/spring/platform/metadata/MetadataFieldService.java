@@ -14,12 +14,10 @@ import net.ximatai.muyun.spring.platform.runtime.PlatformDynamicRuntimeRefreshCo
 import net.ximatai.muyun.spring.platform.module.ModuleKind;
 import net.ximatai.muyun.spring.platform.module.PlatformModule;
 import net.ximatai.muyun.spring.platform.module.PlatformModuleService;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 
 import java.util.Objects;
-import java.util.Optional;
 import net.ximatai.muyun.spring.ability.query.QueryAbility;
 import net.ximatai.muyun.spring.ability.query.QueryDescriptor;
 import net.ximatai.muyun.spring.ability.query.QueryDescriptors;
@@ -43,32 +41,6 @@ public class MetadataFieldService extends AbstractAbilityService<MetadataField> 
 
     public MetadataFieldService(BaseDao<MetadataField, String> fieldDao,
                                 MetadataService metadataService,
-                                FieldSpecService fieldTypeService) {
-        this(fieldDao, metadataService, fieldTypeService, provider(null), provider(null), provider(null), provider(null), provider(null));
-    }
-
-    public MetadataFieldService(BaseDao<MetadataField, String> fieldDao,
-                                MetadataService metadataService,
-                                FieldSpecService fieldTypeService,
-                                Optional<PlatformDynamicRuntimeRefreshCoordinator> runtimeRefreshCoordinator) {
-        this(fieldDao, metadataService, fieldTypeService, provider(runtimeRefreshCoordinator == null
-                ? null
-                : runtimeRefreshCoordinator.orElse(null)), provider(null), provider(null), provider(null), provider(null));
-    }
-
-    public MetadataFieldService(BaseDao<MetadataField, String> fieldDao,
-                                MetadataService metadataService,
-                                FieldSpecService fieldTypeService,
-                                Optional<PlatformDynamicRuntimeRefreshCoordinator> runtimeRefreshCoordinator,
-                                Optional<PlatformMetadataSchemaEnsureService> schemaEnsureService) {
-        this(fieldDao, metadataService, fieldTypeService,
-                provider(runtimeRefreshCoordinator == null ? null : runtimeRefreshCoordinator.orElse(null)),
-                provider(schemaEnsureService == null ? null : schemaEnsureService.orElse(null)), provider(null), provider(null), provider(null));
-    }
-
-    @Autowired
-    public MetadataFieldService(BaseDao<MetadataField, String> fieldDao,
-                                MetadataService metadataService,
                                 FieldSpecService fieldTypeService,
                                 ObjectProvider<PlatformDynamicRuntimeRefreshCoordinator> runtimeRefreshCoordinatorProvider,
                                 ObjectProvider<PlatformMetadataSchemaEnsureService> schemaEnsureServiceProvider,
@@ -76,8 +48,8 @@ public class MetadataFieldService extends AbstractAbilityService<MetadataField> 
                                 ObjectProvider<ModuleMetadataRelationService> relationServiceProvider,
                                 ObjectProvider<PlatformModuleService> moduleServiceProvider) {
         super(MODULE_ALIAS, MetadataField.class, fieldDao);
-        this.metadataService = metadataService;
-        this.fieldTypeService = fieldTypeService;
+        this.metadataService = Objects.requireNonNull(metadataService, "metadataService");
+        this.fieldTypeService = Objects.requireNonNull(fieldTypeService, "fieldTypeService");
         this.runtimeRefreshCoordinatorProvider = Objects.requireNonNull(runtimeRefreshCoordinatorProvider,
                 "runtimeRefreshCoordinatorProvider must not be null");
         this.schemaEnsureServiceProvider = Objects.requireNonNull(schemaEnsureServiceProvider,
@@ -341,27 +313,4 @@ public class MetadataFieldService extends AbstractAbilityService<MetadataField> 
         return metadata;
     }
 
-    private static <T> ObjectProvider<T> provider(T value) {
-        return new ObjectProvider<>() {
-            @Override
-            public T getObject(Object... args) {
-                return value;
-            }
-
-            @Override
-            public T getIfAvailable() {
-                return value;
-            }
-
-            @Override
-            public T getIfUnique() {
-                return value;
-            }
-
-            @Override
-            public T getObject() {
-                return value;
-            }
-        };
-    }
 }

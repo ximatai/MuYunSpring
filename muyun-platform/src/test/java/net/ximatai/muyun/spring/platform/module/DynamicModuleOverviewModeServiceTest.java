@@ -31,7 +31,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class DynamicModuleOverviewModeServiceTest {
     @Test
     void preservesPublishedTreeCapabilitiesWhenChoosingAListAndRejectsImplicitLegacyMigration() {
-        PlatformModuleService modules = new PlatformModuleService(new TestMemoryDao<>());
+        PlatformModuleService modules = new PlatformModuleService(new TestMemoryDao<>(), event -> {});
         PlatformModule module = new PlatformModule();
         module.setAlias("education.tree");
         module.setApplicationAlias("education");
@@ -67,7 +67,7 @@ class DynamicModuleOverviewModeServiceTest {
 
     @Test
     void shouldSaveTreeIntentWithoutMainMetadataOrSchemaMutation() {
-        PlatformModuleService modules = new PlatformModuleService(new TestMemoryDao<>());
+        PlatformModuleService modules = new PlatformModuleService(new TestMemoryDao<>(), event -> {});
         PlatformModule module = new PlatformModule();
         module.setAlias("education.tree");
         module.setApplicationAlias("education");
@@ -92,7 +92,7 @@ class DynamicModuleOverviewModeServiceTest {
 
     @Test
     void shouldApplyRequiredTreeCapabilitiesThroughValidatedMainMetadataProposal() {
-        PlatformModuleService modules = new PlatformModuleService(new TestMemoryDao<>());
+        PlatformModuleService modules = new PlatformModuleService(new TestMemoryDao<>(), event -> {});
         PlatformModule module = new PlatformModule();
         module.setAlias("education.tree");
         module.setApplicationAlias("education");

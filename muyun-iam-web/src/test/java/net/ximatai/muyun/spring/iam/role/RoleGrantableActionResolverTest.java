@@ -1,5 +1,7 @@
 package net.ximatai.muyun.spring.iam.role;
 
+import net.ximatai.muyun.spring.common.platform.ReferenceDependencyScopeCatalogResolver;
+import org.springframework.beans.factory.support.StaticListableBeanFactory;
 import net.ximatai.muyun.spring.common.platform.PlatformAction;
 import net.ximatai.muyun.spring.iam.role.AccountRoleGrantDao;
 import net.ximatai.muyun.spring.iam.role.DataScopePolicy;
@@ -29,6 +31,12 @@ import net.ximatai.muyun.spring.platform.module.PlatformModule;
 import net.ximatai.muyun.spring.platform.module.PlatformModuleAction;
 import net.ximatai.muyun.spring.platform.module.PlatformModuleActionService;
 import net.ximatai.muyun.spring.platform.module.PlatformModuleService;
+import net.ximatai.muyun.spring.iam.employee.EmployeeAccountService;
+import net.ximatai.muyun.spring.iam.employee.EmployeePositionService;
+import net.ximatai.muyun.spring.iam.employee.EmployeeService;
+import net.ximatai.muyun.spring.iam.organization.OrganizationService;
+import net.ximatai.muyun.spring.iam.tenant.TenantApplicationService;
+import net.ximatai.muyun.spring.iam.user.UserAccountService;
 import org.junit.jupiter.api.Test;
 import org.springframework.context.support.GenericApplicationContext;
 
@@ -148,8 +156,21 @@ class RoleGrantableActionResolverTest {
         when(roleActionDao.query(any(Criteria.class), any(PageRequest.class), any(Sort[].class)))
                 .thenReturn(List.of(rolePermissionsGrant));
         RoleService roleService = new RoleService(
-                roleDao, mock(AccountRoleGrantDao.class), mock(EmploymentRoleGrantDao.class), roleActionDao, tenantId -> {
-        });
+                roleDao,
+                mock(AccountRoleGrantDao.class),
+                mock(EmploymentRoleGrantDao.class),
+                roleActionDao,
+                tenantId -> {
+        },
+                RoleActionGrantVerifier.platformActionsOnly(),
+                mock(UserAccountService.class),
+                mock(EmployeeService.class),
+                mock(EmployeePositionService.class),
+                mock(EmployeeAccountService.class),
+                mock(OrganizationService.class),
+                mock(RoleDataGrantActionDao.class),
+                mock(TenantApplicationService.class),
+                new StaticListableBeanFactory().getBeanProvider(ReferenceDependencyScopeCatalogResolver.class));
 
         RolePermissionMatrix matrix = roleService.permissionMatrix("role-1", grantableActions);
 

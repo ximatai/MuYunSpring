@@ -11,10 +11,10 @@ import net.ximatai.muyun.spring.ability.reference.ReferenceAbility;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.util.PlatformNameRules;
 import net.ximatai.muyun.spring.platform.ui.PlatformUiConfigField;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
+import java.util.Objects;
 import net.ximatai.muyun.spring.ability.query.QueryAbility;
 import net.ximatai.muyun.spring.ability.query.QueryDescriptor;
 import net.ximatai.muyun.spring.ability.query.QueryDescriptors;
@@ -33,17 +33,11 @@ public class FieldUiControlService extends AbstractAbilityService<FieldUiControl
     private final BaseDao<PlatformUiConfigField, String> uiConfigFieldDao;
 
     public FieldUiControlService(BaseDao<FieldUiControl, String> fieldUiTypeDao,
-                                      FieldSpecService fieldTypeService) {
-        this(fieldUiTypeDao, fieldTypeService, null);
-    }
-
-    @Autowired
-    public FieldUiControlService(BaseDao<FieldUiControl, String> fieldUiTypeDao,
                                  FieldSpecService fieldTypeService,
                                  BaseDao<PlatformUiConfigField, String> uiConfigFieldDao) {
         super(MODULE_ALIAS, FieldUiControl.class, fieldUiTypeDao);
-        this.fieldTypeService = fieldTypeService;
-        this.uiConfigFieldDao = uiConfigFieldDao;
+        this.fieldTypeService = Objects.requireNonNull(fieldTypeService, "fieldTypeService");
+        this.uiConfigFieldDao = Objects.requireNonNull(uiConfigFieldDao, "uiConfigFieldDao");
     }
 
     @Override
@@ -138,7 +132,7 @@ public class FieldUiControlService extends AbstractAbilityService<FieldUiControl
     }
 
     private void rejectDisableWhenReferenced(FieldUiControl existing, FieldUiControl updated) {
-        if (uiConfigFieldDao == null || existing == null || !Boolean.FALSE.equals(updated.getEnabled())) {
+        if (existing == null || !Boolean.FALSE.equals(updated.getEnabled())) {
             return;
         }
         boolean referenced = !uiConfigFieldDao.list(Criteria.of().eq("fieldUiControlAlias", existing.getAlias()),

@@ -15,6 +15,7 @@ import net.ximatai.muyun.spring.common.platform.DataScopeCriteriaResult;
 import net.ximatai.muyun.spring.common.platform.DataScopeCriteriaService;
 import net.ximatai.muyun.spring.common.schema.PlatformEntityManagers;
 import net.ximatai.muyun.spring.common.tenant.TenantContext;
+import net.ximatai.muyun.spring.common.tenant.OrganizationCreationProvisioner;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.SpringBootConfiguration;
@@ -27,6 +28,7 @@ import org.springframework.transaction.annotation.EnableTransactionManagement;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
+import org.springframework.beans.factory.support.StaticListableBeanFactory;
 
 import javax.sql.DataSource;
 import java.sql.Connection;
@@ -107,11 +109,13 @@ class OrganizationRepositoryIT {
     @Test
     void provisioningMustRejectSoftDeletedOrganizationsBeforeCallingExtensions() {
         var callbacks = new ArrayList<String>();
-        var beans = new org.springframework.beans.factory.support.StaticListableBeanFactory();
-        beans.addBean("observer", (net.ximatai.muyun.spring.common.tenant.OrganizationCreationProvisioner)
+        var beans = new StaticListableBeanFactory();
+        beans.addBean("observer", (OrganizationCreationProvisioner)
                 (tenant, id) -> callbacks.add(id));
-        var service = new OrganizationService(organizationDao, tenant -> {},
-                beans.getBeanProvider(net.ximatai.muyun.spring.common.tenant.OrganizationCreationProvisioner.class)) {
+        var service = new OrganizationService(
+                organizationDao,
+                tenant -> {},
+                beans.getBeanProvider(OrganizationCreationProvisioner.class)) {
             @Override public DataScopeCriteriaService getDataScopeCriteriaService() {
                 return new AllowAllDataScopeCriteriaService();
             }
@@ -143,7 +147,10 @@ class OrganizationRepositoryIT {
                         granted.get() ? original.getId() : "not-visible"));
             }
         };
-        OrganizationService service = new OrganizationService(organizationDao, tenantId -> {}) {
+        OrganizationService service = new OrganizationService(
+                organizationDao,
+                tenantId -> {},
+                new StaticListableBeanFactory().getBeanProvider(OrganizationCreationProvisioner.class)) {
             @Override public DataScopeCriteriaService getDataScopeCriteriaService() { return permissions; }
         };
         try (var ignored = TenantContext.use("tenant-cross-actor")) {
@@ -210,8 +217,11 @@ class OrganizationRepositoryIT {
 
         @Bean
         OrganizationService organizationService(OrganizationDao organizationDao) {
-            return new OrganizationService(organizationDao, tenantId -> {
-            }) {
+            return new OrganizationService(
+                    organizationDao,
+                    tenantId -> {
+            },
+                    new StaticListableBeanFactory().getBeanProvider(OrganizationCreationProvisioner.class)) {
                 @Override
                 public DataScopeCriteriaService getDataScopeCriteriaService() {
                     return new AllowAllDataScopeCriteriaService();

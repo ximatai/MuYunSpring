@@ -1,5 +1,7 @@
 package net.ximatai.muyun.spring.platform.web;
 
+import net.ximatai.muyun.spring.common.platform.ReferenceDependencyScopeCatalogResolver;
+import org.springframework.beans.factory.support.StaticListableBeanFactory;
 import net.ximatai.muyun.spring.platform.module.StaticModuleDefinitionRegistrar;
 
 import net.ximatai.muyun.spring.ability.BaseDao;
@@ -50,6 +52,13 @@ import net.ximatai.muyun.spring.platform.module.PlatformModuleActionService;
 import net.ximatai.muyun.spring.platform.module.PlatformModuleDao;
 import net.ximatai.muyun.spring.platform.module.PlatformModuleService;
 import net.ximatai.muyun.spring.platform.workflow.WorkflowActionPolicyService;
+import net.ximatai.muyun.spring.iam.employee.EmployeeAccountService;
+import net.ximatai.muyun.spring.iam.employee.EmployeePositionService;
+import net.ximatai.muyun.spring.iam.employee.EmployeeService;
+import net.ximatai.muyun.spring.iam.organization.OrganizationService;
+import net.ximatai.muyun.spring.iam.role.RoleDataGrantActionDao;
+import net.ximatai.muyun.spring.iam.support.TenantServiceTestFactory;
+import net.ximatai.muyun.spring.iam.support.UserAccountServiceTestFactory;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.aop.support.AopUtils;
@@ -76,13 +85,13 @@ class PlatformAdminMenuVisibilityContractTest {
     private final TestMemoryDao<MenuScheme> schemeDao = new TestMemoryDao<>();
     private final TestMemoryDao<Menu> menuDao = new TestMemoryDao<>();
 
-    private final TenantService tenantService = new TenantService(tenantDao);
-    private final UserAccountService userAccountService = net.ximatai.muyun.spring.iam.support.UserAccountServiceTestFactory.create(
+    private final TenantService tenantService = TenantServiceTestFactory.create(tenantDao);
+    private final UserAccountService userAccountService = UserAccountServiceTestFactory.create(
             userAccountDao,
             tenantService,
             new PasswordHashingService()
     );
-    private final PlatformModuleService moduleService = new PlatformModuleService(moduleDao);
+    private final PlatformModuleService moduleService = new PlatformModuleService(moduleDao, event -> {});
     private final PlatformModuleActionService moduleActionService = new PlatformModuleActionService(
             moduleActionDao,
             moduleService
@@ -95,10 +104,13 @@ class PlatformAdminMenuVisibilityContractTest {
             tenantService,
             new PlatformRoleActionGrantVerifier(moduleService, moduleActionService),
             userAccountService,
-            null,
-            null,
-            null
-    );
+            mock(EmployeeService.class),
+            mock(EmployeePositionService.class),
+            mock(EmployeeAccountService.class),
+            mock(OrganizationService.class),
+            mock(RoleDataGrantActionDao.class),
+            TenantServiceTestFactory.applicationService(),
+            new StaticListableBeanFactory().getBeanProvider(ReferenceDependencyScopeCatalogResolver.class));
     private final MenuSchemeService schemeService = new MenuSchemeService(
             schemeDao,
             java.util.Optional.empty(),

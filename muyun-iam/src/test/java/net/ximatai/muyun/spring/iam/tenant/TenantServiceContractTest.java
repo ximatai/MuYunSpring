@@ -12,12 +12,12 @@ import net.ximatai.muyun.spring.common.tenant.TenantContext;
 import net.ximatai.muyun.spring.common.tenant.TenantCreationProvisioner;
 import net.ximatai.muyun.spring.platform.attachment.ManagedFileAssetService;
 import net.ximatai.muyun.spring.ability.RecycleBinAbility;
+import net.ximatai.muyun.spring.iam.support.TenantServiceTestFactory;
 import org.springframework.beans.factory.ObjectProvider;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
 import java.util.stream.Stream;
-
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -32,7 +32,7 @@ class TenantServiceContractTest {
     void shouldCreateTenantInSystemContext() {
         TenantDao dao = mock(TenantDao.class);
         when(dao.insert(any())).thenAnswer(invocation -> invocation.<Tenant>getArgument(0).getId());
-        TenantService service = new TenantService(dao);
+        TenantService service = TenantServiceTestFactory.create(dao);
         Tenant tenant = tenant("ximatai", "Ximatai");
         tenant.setTenantId("should-be-cleared");
 
@@ -49,7 +49,7 @@ class TenantServiceContractTest {
 
     @Test
     void shouldRequireSystemContextForTenantMutation() {
-        TenantService service = new TenantService(mock(TenantDao.class));
+        TenantService service = TenantServiceTestFactory.create(mock(TenantDao.class));
 
         assertThatThrownBy(() -> service.insert(tenant("ximatai", "Ximatai")))
                 .isInstanceOf(PlatformException.class)
@@ -76,7 +76,7 @@ class TenantServiceContractTest {
 
     @Test
     void shouldRejectInvalidTenantAlias() {
-        TenantService service = new TenantService(mock(TenantDao.class));
+        TenantService service = TenantServiceTestFactory.create(mock(TenantDao.class));
 
         try (TenantContext.Scope ignored = TenantContext.system("test system context")) {
             assertThatThrownBy(() -> service.insert(tenant("tenant-a", "Tenant A")))
@@ -89,7 +89,11 @@ class TenantServiceContractTest {
     void shouldKeepLogoContentOutOfTenantPersistenceModel() {
         TenantDao dao = mock(TenantDao.class);
         when(dao.insert(any())).thenAnswer(invocation -> invocation.<Tenant>getArgument(0).getId());
-        TenantService service = new TenantService(dao, null, null, mock(ManagedFileAssetService.class));
+        TenantService service = new TenantService(
+                dao,
+                new StaticListableBeanFactory().getBeanProvider(TenantCreationProvisioner.class),
+                TenantServiceTestFactory.applicationService(),
+                mock(ManagedFileAssetService.class));
         Tenant tenant = tenant("ximatai", "Ximatai");
         tenant.setLightLogoAssetId("asset-1");
         tenant.setWorkbenchBrandMode(TenantWorkbenchBrandMode.LOGO_ONLY);
@@ -108,7 +112,11 @@ class TenantServiceContractTest {
                 new net.ximatai.muyun.spring.platform.attachment.FileTransferFileMetadata(
                         "asset-1", "logo.png", "png", "image/png", 100, "sha", "DATABASE_INLINE", false,
                         null, 200, 80));
-        TenantService service = new TenantService(mock(TenantDao.class), null, null, assets);
+        TenantService service = new TenantService(
+                mock(TenantDao.class),
+                new StaticListableBeanFactory().getBeanProvider(TenantCreationProvisioner.class),
+                TenantServiceTestFactory.applicationService(),
+                assets);
         Tenant tenant = tenant("ximatai", "Ximatai");
         tenant.setWorkbenchBrandMode(TenantWorkbenchBrandMode.LOGO_WITH_TITLE);
         tenant.setLightLogoAssetId("asset-1");
@@ -119,18 +127,24 @@ class TenantServiceContractTest {
     }
 
     @Test
-    void brandingWithALogoMustNotSilentlySkipMissingFileCapability() {
-        TenantService service = new TenantService(mock(TenantDao.class));
-        Tenant tenant = tenant("ximatai", "Ximatai");
-        tenant.setLightLogoAssetId("asset-1");
-        assertThatThrownBy(() -> service.normalizeBeforeMutation(tenant))
-                .hasMessage("tenant branding requires ManagedFileAssetService");
+    void shouldRejectMissingFileCapabilityAtConstruction() {
+        assertThatThrownBy(() -> new TenantService(
+                mock(TenantDao.class),
+                new StaticListableBeanFactory()
+                        .getBeanProvider(TenantCreationProvisioner.class),
+                TenantServiceTestFactory.applicationService(),
+                null))
+                .isInstanceOf(NullPointerException.class).hasMessage("managedFileAssetService");
     }
 
     @Test
     void shouldAllowHorizontalLogoForLogoOnlyBranding() {
         ManagedFileAssetService assets = mock(ManagedFileAssetService.class);
-        TenantService service = new TenantService(mock(TenantDao.class), null, null, assets);
+        TenantService service = new TenantService(
+                mock(TenantDao.class),
+                new StaticListableBeanFactory().getBeanProvider(TenantCreationProvisioner.class),
+                TenantServiceTestFactory.applicationService(),
+                assets);
         Tenant tenant = tenant("ximatai", "Ximatai");
         tenant.setWorkbenchBrandMode(TenantWorkbenchBrandMode.LOGO_ONLY);
         tenant.setLightLogoAssetId("asset-1");
@@ -146,7 +160,7 @@ class TenantServiceContractTest {
         Tenant deleted = tenant("demo", "演示租户");
         deleted.setDeleted(Boolean.TRUE);
         when(dao.query(any(Criteria.class), any(PageRequest.class))).thenReturn(List.of(deleted));
-        TenantService service = new TenantService(dao);
+        TenantService service = TenantServiceTestFactory.create(dao);
 
         try (TenantContext.Scope ignored = TenantContext.system("test system context")) {
             assertThatThrownBy(() -> service.insert(tenant("demo", "新的演示租户")))
@@ -170,7 +184,7 @@ class TenantServiceContractTest {
         deleted.setDeleted(Boolean.TRUE);
         when(dao.pageQuery(any(Criteria.class), any(PageRequest.class), any(Sort[].class)))
                 .thenReturn(PageResult.of(List.of(deleted), 1, PageRequest.of(1, 20)));
-        TenantService service = new TenantService(dao);
+        TenantService service = TenantServiceTestFactory.create(dao);
 
         assertThat(service).isInstanceOf(RecycleBinAbility.class);
         assertThatThrownBy(() -> service.listRecycleBin(PageRequest.of(1, 20)))
@@ -184,7 +198,7 @@ class TenantServiceContractTest {
 
     @Test
     void shouldNotAllowTenantRootPurgeBeforeTenantScopeArchivingExists() {
-        TenantService service = new TenantService(mock(TenantDao.class));
+        TenantService service = TenantServiceTestFactory.create(mock(TenantDao.class));
 
         assertThat(service.isRecycleBinPurgeEnabled()).isFalse();
         assertThatThrownBy(() -> service.purge("tenant_a"))
@@ -199,7 +213,7 @@ class TenantServiceContractTest {
                 .thenReturn(List.of(tenant("active", "Active")))
                 .thenReturn(List.of(disabledTenant("disabled", "Disabled")))
                 .thenReturn(List.of());
-        TenantService service = new TenantService(dao);
+        TenantService service = TenantServiceTestFactory.create(dao);
 
         assertThat(service.requireActiveTenant("active").getTitle()).isEqualTo("Active");
         assertThatThrownBy(() -> service.requireActiveTenant("disabled"))
@@ -212,7 +226,7 @@ class TenantServiceContractTest {
 
     @Test
     void shouldNotReservePlatformTenantAlias() {
-        TenantService service = new TenantService(mock(TenantDao.class));
+        TenantService service = TenantServiceTestFactory.create(mock(TenantDao.class));
 
         try (TenantContext.Scope ignored = TenantContext.system("test system context")) {
             service.beforeUpdate(disabledTenant("platform", "平台租户"));
@@ -228,7 +242,7 @@ class TenantServiceContractTest {
         @SuppressWarnings("unchecked")
         ObjectProvider<TenantCreationProvisioner> provisioners = mock(ObjectProvider.class);
         when(provisioners.orderedStream()).thenAnswer(invocation -> Stream.of(provisioner));
-        TenantService service = new TenantService(dao, provisioners);
+        TenantService service = TenantServiceTestFactory.create(dao, provisioners);
 
         try (TenantContext.Scope ignored = TenantContext.system("test system context")) {
             service.insert(tenant("ximatai", "Ximatai"));
@@ -244,7 +258,7 @@ class TenantServiceContractTest {
 
     @Test
     void provisioningRequiresSystemContextEvenWithoutExtensions() {
-        TenantService service = new TenantService(mock(TenantDao.class));
+        TenantService service = TenantServiceTestFactory.create(mock(TenantDao.class));
         assertThatThrownBy(() -> service.provisionTenant("active"))
                 .isInstanceOf(PlatformAccessDeniedException.class);
         try (var ignored = TenantContext.use("active")) {
@@ -259,7 +273,7 @@ class TenantServiceContractTest {
         TenantCreationProvisioner extension = mock(TenantCreationProvisioner.class);
         var beans = new StaticListableBeanFactory();
         beans.addBean("extension", extension);
-        TenantService service = new TenantService(dao, beans.getBeanProvider(TenantCreationProvisioner.class));
+        TenantService service = TenantServiceTestFactory.create(dao, beans.getBeanProvider(TenantCreationProvisioner.class));
         when(dao.query(any(Criteria.class), any(PageRequest.class)))
                 .thenReturn(List.of()).thenReturn(List.of(disabledTenant("disabled", "Disabled")));
         try (var ignored = TenantContext.system("validate initialization target")) {

@@ -15,7 +15,6 @@ import net.ximatai.muyun.spring.iam.web.DepartmentWebController;
 import net.ximatai.muyun.spring.iam.web.EmployeeWebController;
 import net.ximatai.muyun.spring.iam.web.OrganizationWebController;
 import net.ximatai.muyun.spring.iam.web.PasswordPolicyRuleWebController;
-import net.ximatai.muyun.spring.iam.web.PositionCategoryWebController;
 import net.ximatai.muyun.spring.iam.web.PositionWebController;
 import net.ximatai.muyun.spring.iam.web.TenantWebController;
 import net.ximatai.muyun.spring.common.identity.CurrentUser;
@@ -53,7 +52,7 @@ class PlatformMenuInitialDataDeclarationProviderTest {
     private final TestMemoryDao<Menu> menuDao = new TestMemoryDao<>();
     private final TestMemoryDao<PlatformModule> moduleDao = new TestMemoryDao<>();
     private final MenuSchemeService schemeService = new MenuSchemeService(schemeDao);
-    private final PlatformModuleService moduleService = new PlatformModuleService(moduleDao);
+    private final PlatformModuleService moduleService = new PlatformModuleService(moduleDao, event -> {});
     private final MenuService menuService = new MenuService(
             menuDao,
             schemeService,

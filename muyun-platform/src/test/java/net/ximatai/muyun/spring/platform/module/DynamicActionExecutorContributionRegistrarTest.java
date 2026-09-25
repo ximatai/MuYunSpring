@@ -25,7 +25,7 @@ import static org.mockito.Mockito.when;
 class DynamicActionExecutorContributionRegistrarTest {
     @Test
     void shouldSaveUnboundDeclarationsForBothModuleKindsAndBindLater() {
-        PlatformModuleService modules = new PlatformModuleService(new TestMemoryDao<>());
+        PlatformModuleService modules = new PlatformModuleService(new TestMemoryDao<>(), event -> {});
         modules.insert(module("sales.static", ModuleKind.STATIC));
         modules.insert(module("sales.dynamic", ModuleKind.DYNAMIC));
         PlatformModuleActionService actions = new PlatformModuleActionService(new TestMemoryDao<>(), modules,
@@ -51,7 +51,7 @@ class DynamicActionExecutorContributionRegistrarTest {
     @Test
     void shouldRejectContributionToStaticModule() {
         TestMemoryDao<PlatformModule> moduleDao = new TestMemoryDao<>();
-        PlatformModuleService moduleService = new PlatformModuleService(moduleDao);
+        PlatformModuleService moduleService = new PlatformModuleService(moduleDao, event -> {});
         PlatformModule module = new PlatformModule();
         module.setAlias("sales.contract");
         module.setApplicationAlias("sales");
@@ -73,7 +73,7 @@ class DynamicActionExecutorContributionRegistrarTest {
     @Test
     void shouldAllowManualActionOnlyForDynamicModule() {
         TestMemoryDao<PlatformModule> moduleDao = new TestMemoryDao<>();
-        PlatformModuleService moduleService = new PlatformModuleService(moduleDao);
+        PlatformModuleService moduleService = new PlatformModuleService(moduleDao, event -> {});
         PlatformModule staticModule = module("sales.static", ModuleKind.STATIC);
         PlatformModule dynamicModule = module("sales.dynamic", ModuleKind.DYNAMIC);
         moduleService.insert(staticModule);
@@ -98,7 +98,7 @@ class DynamicActionExecutorContributionRegistrarTest {
     @Test
     void shouldDisableContributedActionsWhenExecutorIsNoLongerDeployed() {
         TestMemoryDao<PlatformModule> moduleDao = new TestMemoryDao<>();
-        PlatformModuleService moduleService = new PlatformModuleService(moduleDao);
+        PlatformModuleService moduleService = new PlatformModuleService(moduleDao, event -> {});
         PlatformModule module = new PlatformModule();
         module.setAlias("sales.contract");
         module.setApplicationAlias("sales");

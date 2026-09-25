@@ -27,9 +27,11 @@ import net.ximatai.muyun.spring.common.schema.StaticEntityTableMapper;
 import net.ximatai.muyun.spring.common.schema.StaticSchemaService;
 import net.ximatai.muyun.spring.common.tenant.ActiveTenantVerifier;
 import net.ximatai.muyun.spring.common.tenant.TenantContext;
+import net.ximatai.muyun.spring.common.tenant.OrganizationCreationProvisioner;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.mock.env.MockEnvironment;
+import org.springframework.beans.factory.support.StaticListableBeanFactory;
 
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -221,7 +223,10 @@ class OrganizationRepositoryContractTest {
     }
 
     private OrganizationService organizationService(IDatabaseOperations<Object> operations) {
-        return new OrganizationService(repository(operations), acceptActiveTenant());
+        return new OrganizationService(
+                repository(operations),
+                acceptActiveTenant(),
+                new StaticListableBeanFactory().getBeanProvider(OrganizationCreationProvisioner.class));
     }
 
     private ActiveTenantVerifier acceptActiveTenant() {

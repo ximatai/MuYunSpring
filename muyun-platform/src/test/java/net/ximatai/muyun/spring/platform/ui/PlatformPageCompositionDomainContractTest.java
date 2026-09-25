@@ -15,6 +15,10 @@ import net.ximatai.muyun.spring.platform.module.ModuleKind;
 import net.ximatai.muyun.spring.platform.module.PlatformModule;
 import net.ximatai.muyun.spring.platform.module.PlatformModuleService;
 import net.ximatai.muyun.spring.platform.support.TestMemoryDao;
+import net.ximatai.muyun.spring.platform.metadata.ConfigurationReferenceDeletionGuard;
+import net.ximatai.muyun.spring.platform.metadata.MetadataFieldService;
+import net.ximatai.muyun.spring.platform.metadata.PlatformMetadataSchemaEnsureService;
+import net.ximatai.muyun.spring.platform.support.TestBeanProviders;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
@@ -24,6 +28,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.Optional;
 
 class PlatformPageCompositionDomainContractTest {
     private final TestMemoryDao<PlatformModule> moduleDao = new TestMemoryDao<>();
@@ -35,10 +40,23 @@ class PlatformPageCompositionDomainContractTest {
     private final List<String> preparedModuleAliases = new ArrayList<>();
     private final PublishedPageExecutionCoordinator pageExecutionCoordinator = preparedModuleAliases::add;
 
-    private final PlatformModuleService moduleService = new PlatformModuleService(moduleDao);
-    private final MetadataService metadataService = new MetadataService(metadataDao);
+    private final PlatformModuleService moduleService = new PlatformModuleService(moduleDao, event -> {});
+    private final MetadataService metadataService = new MetadataService(
+            metadataDao,
+            TestBeanProviders.empty(PlatformMetadataSchemaEnsureService.class),
+            Optional.empty(),
+            TestBeanProviders.empty(ConfigurationReferenceDeletionGuard.class),
+            TestBeanProviders.empty(ModuleMetadataRelationService.class),
+            event -> {});
     private final ModuleMetadataRelationService relationService =
-            new ModuleMetadataRelationService(relationDao, moduleService, metadataService);
+            new ModuleMetadataRelationService(
+                    relationDao,
+                    moduleService,
+                    metadataService,
+                    Optional.empty(),
+                    TestBeanProviders.empty(ConfigurationReferenceDeletionGuard.class),
+                    TestBeanProviders.empty(MetadataFieldService.class),
+                    event -> {});
     private final PlatformPageDefinitionService pageService =
             new PlatformPageDefinitionService(pageDao, moduleService, relationService, pageExecutionCoordinator);
     private final PlatformPresentationVariantService variantService =

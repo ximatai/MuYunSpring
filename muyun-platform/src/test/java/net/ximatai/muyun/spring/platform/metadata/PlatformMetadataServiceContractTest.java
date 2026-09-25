@@ -80,10 +80,12 @@ import net.ximatai.muyun.spring.platform.module.PlatformModuleService;
 import net.ximatai.muyun.spring.platform.runtime.PlatformDynamicRuntimeRefreshCoordinator;
 import net.ximatai.muyun.spring.platform.runtime.PlatformModuleDefinitionCompiler;
 import net.ximatai.muyun.spring.platform.initialdata.InitialDataExecutor;
+import net.ximatai.muyun.spring.platform.support.TestBeanProviders;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.mockito.ArgumentCaptor;
+import org.mockito.Mockito;
 
 import java.math.BigDecimal;
 import java.lang.reflect.Method;
@@ -128,12 +130,18 @@ class PlatformMetadataServiceContractTest {
     private final MemoryDao<MetadataView> viewDao = new MemoryDao<>();
     private final MemoryDao<MetadataViewField> viewFieldDao = new MemoryDao<>();
     private final MemoryDao<DictionaryCategory> categoryDao = new MemoryDao<>();
-    private final PlatformModuleService moduleService = new PlatformModuleService(moduleDao);
-    private final MetadataService metadataService = new MetadataService(metadataDao);
+    private final PlatformModuleService moduleService = new PlatformModuleService(moduleDao, event -> {});
+    private final MetadataService metadataService = new MetadataService(
+            metadataDao,
+            TestBeanProviders.empty(PlatformMetadataSchemaEnsureService.class),
+            Optional.empty(),
+            TestBeanProviders.empty(ConfigurationReferenceDeletionGuard.class),
+            TestBeanProviders.empty(ModuleMetadataRelationService.class),
+            event -> {});
     private final DictionaryCategoryService categoryService = new DictionaryCategoryService(categoryDao);
     private final FieldSpecService fieldTypeService = new FieldSpecService(fieldTypeDao, fieldUiTypeDao);
     private final FieldUiControlService fieldUiTypeService =
-            new FieldUiControlService(fieldUiTypeDao, fieldTypeService);
+            new FieldUiControlService(fieldUiTypeDao, fieldTypeService, mock(BaseDao.class));
     private final FieldUiControlPropertyService fieldUiTypeAttributeService =
             new FieldUiControlPropertyService(fieldUiTypeAttributeDao, fieldUiTypeService, fieldTypeService);
     private final FieldUiControlBindingService fieldUiTypeFieldMappingService =
@@ -160,10 +168,24 @@ class PlatformMetadataServiceContractTest {
     private final PlatformMetadataSchemaEnsureService schemaEnsureService = mock(PlatformMetadataSchemaEnsureService.class);
     private final PlatformDynamicRuntimeRefreshCoordinator runtimeRefreshCoordinator =
             mock(PlatformDynamicRuntimeRefreshCoordinator.class);
-    private final MetadataFieldService fieldService = new MetadataFieldService(fieldDao, metadataService, fieldTypeService,
-            Optional.of(runtimeRefreshCoordinator), Optional.of(schemaEnsureService));
+    private final MetadataFieldService fieldService = new MetadataFieldService(
+            fieldDao,
+            metadataService,
+            fieldTypeService,
+            TestBeanProviders.of(PlatformDynamicRuntimeRefreshCoordinator.class, runtimeRefreshCoordinator),
+            TestBeanProviders.of(PlatformMetadataSchemaEnsureService.class, schemaEnsureService),
+            TestBeanProviders.empty(ConfigurationReferenceDeletionGuard.class),
+            TestBeanProviders.empty(ModuleMetadataRelationService.class),
+            TestBeanProviders.empty(PlatformModuleService.class));
     private final ModuleMetadataRelationService relationService =
-            new ModuleMetadataRelationService(relationDao, moduleService, metadataService);
+            new ModuleMetadataRelationService(
+                    relationDao,
+                    moduleService,
+                    metadataService,
+                    Optional.empty(),
+                    TestBeanProviders.empty(ConfigurationReferenceDeletionGuard.class),
+                    TestBeanProviders.empty(MetadataFieldService.class),
+                    event -> {});
     private final ModuleMetadataOrchestrationService orchestrationService =
             new ModuleMetadataOrchestrationService(moduleService, metadataService, relationService, fieldService,
                     schemaEnsureService, runtimeRefreshCoordinator);
@@ -171,9 +193,9 @@ class PlatformMetadataServiceContractTest {
             new ModuleMetadataFieldService(moduleFieldDao, relationService, metadataService, fieldService,
                     fieldTypeService, Optional.empty(), Optional.of(runtimeRefreshCoordinator));
     private final ModuleMetadataFieldFilterService moduleFieldFilterService =
-            new ModuleMetadataFieldFilterService(moduleFieldFilterDao, moduleFieldService);
+            new ModuleMetadataFieldFilterService(moduleFieldFilterDao, moduleFieldService, Optional.empty());
     private final ModuleMetadataFieldAffectService moduleFieldAffectService =
-            new ModuleMetadataFieldAffectService(moduleFieldAffectDao, moduleFieldService);
+            new ModuleMetadataFieldAffectService(moduleFieldAffectDao, moduleFieldService, Optional.empty());
     private final MetadataFieldProtectionConfigService protectionConfigService =
             new MetadataFieldProtectionConfigService(protectionConfigDao, fieldService, fieldTypeService, fieldConfigDao,
                     Optional.of(runtimeRefreshCoordinator));
@@ -187,7 +209,7 @@ class PlatformMetadataServiceContractTest {
     private final MetadataFieldReferenceConfigService referenceConfigService =
             new MetadataFieldReferenceConfigService(referenceConfigDao, fieldService, metadataService,
                     fieldTypeService, moduleService, relationService, Optional.of(runtimeRefreshCoordinator));
-    private final MetadataViewService viewService = new MetadataViewService(viewDao, relationService);
+    private final MetadataViewService viewService = new MetadataViewService(viewDao, relationService, Optional.empty());
     private final MetadataViewFieldService viewFieldService =
             new MetadataViewFieldService(viewFieldDao, viewService, fieldService, relationService,
                     fieldUiTypeService, fieldTypeService);
@@ -206,11 +228,9 @@ class PlatformMetadataServiceContractTest {
 
     @Test
     void fieldProtectionDependenciesMustBePresentAtAssembly() {
-        assertThatThrownBy(() -> new MetadataFieldConfigService(fieldConfigDao, fieldService,
-                metadataService, fieldTypeService, categoryService, relationService, null))
+        assertThatThrownBy(() -> new MetadataFieldConfigService(fieldConfigDao, fieldService, metadataService, fieldTypeService, categoryService, relationService, null, Optional.empty()))
                 .isInstanceOf(NullPointerException.class).hasMessageContaining("protectionConfigService");
-        assertThatThrownBy(() -> new MetadataFieldProtectionConfigService(protectionConfigDao,
-                fieldService, fieldTypeService, null))
+        assertThatThrownBy(() -> new MetadataFieldProtectionConfigService(protectionConfigDao, fieldService, fieldTypeService, null, Optional.empty()))
                 .isInstanceOf(NullPointerException.class).hasMessageContaining("fieldConfigDao");
         assertThatThrownBy(() -> new MetadataFieldDefinitionCompiler(fieldTypeService,
                 fieldConfigService, null, fieldService))
@@ -296,7 +316,13 @@ class PlatformMetadataServiceContractTest {
     @Test
     void shouldRefreshDynamicRuntimeWhenMetadataItselfChanges() {
         PlatformDynamicRuntimeRefreshCoordinator coordinator = mock(PlatformDynamicRuntimeRefreshCoordinator.class);
-        MetadataService service = new MetadataService(new MemoryDao<>(), Optional.empty(), Optional.of(coordinator));
+        MetadataService service = new MetadataService(
+                new MemoryDao<>(),
+                TestBeanProviders.empty(PlatformMetadataSchemaEnsureService.class),
+                Optional.of(coordinator),
+                TestBeanProviders.empty(ConfigurationReferenceDeletionGuard.class),
+                TestBeanProviders.empty(ModuleMetadataRelationService.class),
+                event -> {});
         Metadata metadata = metadata("crm", "customer");
 
         String id = service.insert(metadata);
@@ -584,7 +610,7 @@ class PlatformMetadataServiceContractTest {
             throw new IllegalStateException("rollback");
         })).isInstanceOf(IllegalStateException.class).hasMessage("rollback");
 
-        org.mockito.Mockito.verifyNoInteractions(runtimeRefreshCoordinator);
+        Mockito.verifyNoInteractions(runtimeRefreshCoordinator);
     }
 
     @Test
@@ -850,7 +876,9 @@ class PlatformMetadataServiceContractTest {
     @Test
     void shouldPersistAndPopulateFieldUiControlChildrenThroughStandardCrud() {
         FieldUiControlService aggregateService = new FieldUiControlService(
-                fieldUiTypeDao, fieldTypeService, null);
+                fieldUiTypeDao,
+                fieldTypeService,
+                mock(BaseDao.class));
         PlatformAbilityRuntime.configureChildAbilityResolver(request -> {
             if (FieldUiControlProperty.class.equals(request.staticModel())) {
                 return Optional.of(fieldUiTypeAttributeService);
@@ -1483,7 +1511,7 @@ class PlatformMetadataServiceContractTest {
         MetadataField customerCode = field(metadataId, "customerCode", "customer_code", FieldType.STRING);
         fieldService.insert(customerCode);
         @SuppressWarnings("unchecked") ReferenceAbility<StaticCustomerReferenceTarget> target = mock(ReferenceAbility.class);
-        org.mockito.Mockito.doReturn(StaticCustomerReferenceTarget.class).when(target).modelClass();
+        Mockito.doReturn(StaticCustomerReferenceTarget.class).when(target).modelClass();
         when(target.getModuleAlias()).thenReturn("crm.customer");
         when(target.referenceCandidateKey("code")).thenReturn(new ReferenceCandidateKey("code", true, true));
         PlatformAbilityRuntime.configureReferenceTargetResolver(reference ->
@@ -1920,7 +1948,13 @@ class PlatformMetadataServiceContractTest {
     @Test
     void shouldRequireChildRelationForeignKeyToBeExistingPhysicalFieldAndKeepDataScopeOnMainOnly() {
         ModuleMetadataRelationService validatingRelationService = new ModuleMetadataRelationService(
-                relationDao, moduleService, metadataService, Optional.empty(), Optional.of(fieldService));
+                relationDao,
+                moduleService,
+                metadataService,
+                Optional.empty(),
+                TestBeanProviders.empty(ConfigurationReferenceDeletionGuard.class),
+                TestBeanProviders.of(MetadataFieldService.class, fieldService),
+                event -> {});
         moduleService.insert(module("crm.customer", "crm", ModuleKind.DYNAMIC));
         String customerMetadataId = metadataService.insert(metadata("crm", "customer"));
         String profileMetadataId = metadataService.insert(metadata("crm", "profile"));
@@ -1945,7 +1979,13 @@ class PlatformMetadataServiceContractTest {
     @Test
     void shouldRejectSortPartitionConfigurationOnChildMetadata() {
         ModuleMetadataRelationService validatingRelationService = new ModuleMetadataRelationService(
-                relationDao, moduleService, metadataService, Optional.empty(), Optional.of(fieldService));
+                relationDao,
+                moduleService,
+                metadataService,
+                Optional.empty(),
+                TestBeanProviders.empty(ConfigurationReferenceDeletionGuard.class),
+                TestBeanProviders.of(MetadataFieldService.class, fieldService),
+                event -> {});
         moduleService.insert(module("crm.customer", "crm", ModuleKind.DYNAMIC));
         String customerMetadataId = metadataService.insert(metadata("crm", "customer"));
         String profileMetadataId = metadataService.insert(metadata("crm", "profile"));

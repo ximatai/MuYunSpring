@@ -18,7 +18,13 @@ import net.ximatai.muyun.spring.platform.metadata.RelationRole;
 import net.ximatai.muyun.spring.platform.module.PlatformModule;
 import net.ximatai.muyun.spring.platform.module.PlatformModuleService;
 import net.ximatai.muyun.spring.platform.support.TestMemoryDao;
+import net.ximatai.muyun.spring.ability.BaseDao;
+import net.ximatai.muyun.spring.platform.metadata.ConfigurationReferenceDeletionGuard;
+import net.ximatai.muyun.spring.platform.metadata.PlatformMetadataSchemaEnsureService;
+import net.ximatai.muyun.spring.platform.runtime.PlatformDynamicRuntimeRefreshCoordinator;
+import net.ximatai.muyun.spring.platform.support.TestBeanProviders;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
 import java.time.Clock;
 import java.time.Instant;
@@ -233,12 +239,32 @@ class CodeRuleServiceContractTest {
 
     @Test
     void shouldValidateTargetAgainstExistingModuleEntityAndFieldWhenServicesAreAvailable() {
-        PlatformModuleService moduleService = new PlatformModuleService(new TestMemoryDao<>());
-        MetadataService metadataService = new MetadataService(new TestMemoryDao<>());
-        FieldSpecService fieldTypeService = new FieldSpecService(new TestMemoryDao<>());
-        MetadataFieldService fieldService = new MetadataFieldService(new TestMemoryDao<>(), metadataService, fieldTypeService);
+        PlatformModuleService moduleService = new PlatformModuleService(new TestMemoryDao<>(), event -> {});
+        MetadataService metadataService = new MetadataService(
+                new TestMemoryDao<>(),
+                TestBeanProviders.empty(PlatformMetadataSchemaEnsureService.class),
+                Optional.empty(),
+                TestBeanProviders.empty(ConfigurationReferenceDeletionGuard.class),
+                TestBeanProviders.empty(ModuleMetadataRelationService.class),
+                event -> {});
+        FieldSpecService fieldTypeService = new FieldSpecService(new TestMemoryDao<>(), Mockito.mock(BaseDao.class));
+        MetadataFieldService fieldService = new MetadataFieldService(
+                new TestMemoryDao<>(),
+                metadataService,
+                fieldTypeService,
+                TestBeanProviders.empty(PlatformDynamicRuntimeRefreshCoordinator.class),
+                TestBeanProviders.empty(PlatformMetadataSchemaEnsureService.class),
+                TestBeanProviders.empty(ConfigurationReferenceDeletionGuard.class),
+                TestBeanProviders.empty(ModuleMetadataRelationService.class),
+                TestBeanProviders.empty(PlatformModuleService.class));
         ModuleMetadataRelationService relationService = new ModuleMetadataRelationService(
-                new TestMemoryDao<>(), moduleService, metadataService);
+                new TestMemoryDao<>(),
+                moduleService,
+                metadataService,
+                Optional.empty(),
+                TestBeanProviders.empty(ConfigurationReferenceDeletionGuard.class),
+                TestBeanProviders.empty(MetadataFieldService.class),
+                event -> {});
         ModuleMetadataFieldService moduleFieldService = new ModuleMetadataFieldService(
                 new TestMemoryDao<>(), relationService, metadataService, fieldService);
 
