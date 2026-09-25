@@ -7,6 +7,9 @@ public record AiTextRequest(List<AiChatMessage> messages, Double temperature, In
     public AiTextRequest {
         messages = messages == null ? List.of() : List.copyOf(messages);
         if (messages.isEmpty()) throw new IllegalArgumentException("AI text request requires at least one message");
+        if (messages.stream().anyMatch(message -> message.role() == AiChatMessage.Role.TOOL || !message.toolCalls().isEmpty())) {
+            throw new IllegalArgumentException("AI text requests cannot contain tool messages");
+        }
         if (temperature != null && (temperature < 0 || temperature > 2)) {
             throw new IllegalArgumentException("AI temperature must be between 0 and 2");
         }

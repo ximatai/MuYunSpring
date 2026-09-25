@@ -4,6 +4,7 @@ import net.ximatai.muyun.spring.platform.web.DynamicRuntimeRead;
 
 import jakarta.servlet.http.HttpServletResponse;
 import net.ximatai.muyun.database.core.orm.Criteria;
+import net.ximatai.muyun.spring.ability.query.QueryLikePattern;
 import net.ximatai.muyun.database.core.orm.CriteriaOperator;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.database.core.orm.Sort;
@@ -220,7 +221,7 @@ public class DynamicExportWebController {
         Criteria criteria = Criteria.of();
         criteria.andGroup(group -> {
             for (String field : fields) {
-                group.or(field, CriteriaOperator.LIKE, keyword);
+                group.orLikeIgnoreCase(field, QueryLikePattern.containsLiteral(keyword));
             }
         });
         return criteria;

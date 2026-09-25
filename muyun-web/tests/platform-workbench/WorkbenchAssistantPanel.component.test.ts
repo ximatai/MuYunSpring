@@ -443,6 +443,7 @@ it('does not report a read-only result as a completed page operation', async () 
     .mockResolvedValueOnce({ toolCalls: [] });
   const registry = createRegistryWithCapabilities(requestTurn, [
     {
+      effect: 'page',
       descriptor: { code: 'page.inspect', description: 'Inspect page', inputSchema: {} },
       parseInput: (input) => input,
       execute: async () => ({ inspected: true }),
@@ -466,6 +467,7 @@ it('treats an empty follow-up as completion after an applied page operation', as
     .mockResolvedValueOnce({ toolCalls: [] });
   const registry = createRegistryWithCapabilities(requestTurn, [
     {
+      effect: 'page',
       descriptor: { code: 'form.patch-draft', description: 'Patch draft', inputSchema: {} },
       parseInput: (input) => input,
       async execute(_input, context) {
@@ -492,6 +494,7 @@ it('keeps successful operation feedback when the model follow-up fails', async (
     .mockResolvedValueOnce({ text: '继续填写剩余字段。', toolCalls: [] });
   const registry = createRegistryWithCapabilities(requestTurn, [
     {
+      effect: 'page',
       descriptor: { code: 'form.patch-draft', description: 'Patch draft', inputSchema: {} },
       parseInput: (input) => input,
       async execute(_input, context) {
@@ -507,7 +510,7 @@ it('keeps successful operation feedback when the model follow-up fails', async (
   await flushPromises();
 
   expect(wrapper.text()).toContain('已应用 1 项页面操作');
-  expect(wrapper.text()).toContain('前面的 1 项页面操作已生效，但后续处理失败，目标可能尚未完成');
+  expect(wrapper.text()).toContain('前面的 1 项页面操作已生效，后续处理失败，目标可能尚未完成');
   expect(wrapper.text()).not.toContain('model returned no executable content');
 
   await wrapper.get('textarea').setValue('继续');
@@ -594,6 +597,7 @@ it('does not append missing-response feedback after a selection-only follow-up',
     .mockResolvedValueOnce(requiredChoice);
   const registry = createRegistryWithCapabilities(requestTurn, [
     {
+      effect: 'page',
       descriptor: { code: 'page.inspect', description: 'Inspect', inputSchema: {} },
       parseInput: (input) => input,
       execute: async () => ({ inspected: true }),
@@ -645,4 +649,26 @@ it('clears history and input across tenant scopes and discards an old in-flight 
   await wrapper.get('button.ant-btn-primary').trigger('click');
   await flushPromises();
   expect(requestTurn.mock.calls.at(-1)?.[0]).toMatchObject({ history: [] });
+});
+
+it('renders trusted capability presentations without knowing the capability code', async () => {
+  const requestTurn = vi
+    .fn()
+    .mockResolvedValueOnce({ toolCalls: [{ id: 'new', code: 'extension.custom-preview', input: {} }] })
+    .mockResolvedValueOnce({ text: '请审阅', toolCalls: [] });
+  const registry = createRegistryWithCapabilities(requestTurn, [
+    {
+      effect: 'read',
+      descriptor: { code: 'extension.custom-preview', description: 'Preview', inputSchema: {} },
+      parseInput: (input) => input,
+      execute: async () => ({ valid: true }),
+      present: () => ({ title: '配置候选（尚未生效）', lines: ['预检通过', '新增字段：备注'] }),
+    },
+  ]);
+  const wrapper = mount(WorkbenchAssistantPanel, { props: { open: true, registry } });
+  await wrapper.get('textarea').setValue('检查候选');
+  await wrapper.get('button.ant-btn-primary').trigger('click');
+  await flushPromises();
+  expect(wrapper.text()).toContain('配置候选（尚未生效）');
+  expect(wrapper.text()).toContain('新增字段：备注');
 });

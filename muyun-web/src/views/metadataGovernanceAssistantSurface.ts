@@ -1,5 +1,6 @@
 import type { AssistantSurfaceContext } from '@muyun/web-contracts';
 import {
+  AssistantCapabilityUsageError,
   type AssistantCapability,
   type AssistantSurface,
   type AssistantTurnRequester,
@@ -162,6 +163,7 @@ function findMetadataFieldTargetsCapability(
   adapter: MetadataGovernanceAssistantAdapter,
 ): AssistantCapability<FindMetadataFieldTargetsInput> {
   return {
+    effect: 'read',
     descriptor: {
       code: 'configuration.find-metadata-field-targets',
       description:
@@ -178,9 +180,11 @@ function findMetadataFieldTargetsCapability(
     },
     parseInput: parseFindFieldTargetsInput,
     async execute(input, context) {
-      if (!adapter.findFieldTargets) throw new Error('Metadata field target lookup is unavailable');
+      if (!adapter.findFieldTargets)
+        throw new AssistantCapabilityUsageError('Metadata field target lookup is unavailable');
       const result = await adapter.findFieldTargets(input, context.signal);
-      if (!context.isCurrent()) throw new Error('Metadata field target lookup is no longer current');
+      if (!context.isCurrent())
+        throw new AssistantCapabilityUsageError('Metadata field target lookup is no longer current');
       return { kind: input.kind, ...result };
     },
   };
@@ -195,6 +199,7 @@ function addMetadataPropertyFieldDraftCapability(
     ? ['SINGLE', 'MULTIPLE']
     : ['SINGLE'];
   return {
+    effect: 'configuration-draft',
     descriptor: {
       code: 'configuration.add-metadata-property-field-draft',
       description:
@@ -221,9 +226,10 @@ function addMetadataPropertyFieldDraftCapability(
     parseInput: (input) => parseAddPropertyFieldDraftInput(input, dictionarySelectionModes),
     async execute(input, context) {
       if (!adapter.preparePropertyFieldDraft || !adapter.commitPropertyFieldDraft)
-        throw new Error('Metadata property field drafting is unavailable');
+        throw new AssistantCapabilityUsageError('Metadata property field drafting is unavailable');
       const prepared = await adapter.preparePropertyFieldDraft(input, context.signal);
-      if (!context.isCurrent()) throw new Error('Metadata property field preparation is no longer current');
+      if (!context.isCurrent())
+        throw new AssistantCapabilityUsageError('Metadata property field preparation is no longer current');
       return context.applyEffect(() => adapter.commitPropertyFieldDraft!(prepared));
     },
   };
@@ -235,6 +241,7 @@ function updateMetadataFieldDraftCapability(
   const fieldNames = adapter.editableBasicFieldNames();
   const fieldSpecAliases = adapter.fieldSpecAliases();
   return {
+    effect: 'configuration-draft',
     descriptor: {
       code: 'configuration.update-metadata-field-draft',
       description:
@@ -258,7 +265,8 @@ function updateMetadataFieldDraftCapability(
     },
     parseInput: (input) => parseUpdateFieldDraftInput(input, fieldNames, fieldSpecAliases),
     async execute(input, context) {
-      if (!adapter.updateFieldDraft) throw new Error('Metadata field updating is unavailable');
+      if (!adapter.updateFieldDraft)
+        throw new AssistantCapabilityUsageError('Metadata field updating is unavailable');
       return context.applyEffect(() => adapter.updateFieldDraft!(input));
     },
   };
@@ -269,6 +277,7 @@ function addMetadataFieldDraftCapability(
 ): AssistantCapability<AddMetadataFieldDraftInput> {
   const aliases = adapter.fieldSpecAliases();
   return {
+    effect: 'configuration-draft',
     descriptor: {
       code: 'configuration.add-metadata-field-draft',
       description:
@@ -296,7 +305,8 @@ function addMetadataFieldDraftCapability(
     },
     parseInput: (input) => parseAddFieldDraftInput(input, aliases),
     async execute(input, context) {
-      if (!adapter.addFieldDraft) throw new Error('Metadata field drafting is unavailable');
+      if (!adapter.addFieldDraft)
+        throw new AssistantCapabilityUsageError('Metadata field drafting is unavailable');
       return context.applyEffect(() => adapter.addFieldDraft!(input));
     },
   };
@@ -320,6 +330,7 @@ function describeMetadataModelCapability(
   adapter: MetadataGovernanceAssistantAdapter,
 ): AssistantCapability<Record<string, never>> {
   return {
+    effect: 'read',
     descriptor: {
       code: 'configuration.describe-metadata-model',
       description:
@@ -335,8 +346,25 @@ function describeMetadataModelCapability(
 
 function previewMetadataDraftCapability(
   adapter: MetadataGovernanceAssistantAdapter,
-): AssistantCapability<Record<string, never>> {
+): AssistantCapability<
+  Record<string, never>,
+  Omit<MetadataChangeSetPreview, 'proposalFingerprint'> & { valid: boolean }
+> {
   return {
+    effect: 'read',
+    present(preview) {
+      return {
+        title: '配置候选预检（尚未生效）',
+        lines: [
+          preview.valid ? '预检通过，仍需人工审阅并在页面确认。' : '预检未通过。',
+          ...preview.fieldImpacts.map((impact) => impact.description),
+          ...preview.errors.map((issue) => issue.message),
+          ...preview.warnings.map((issue) => issue.message),
+        ]
+          .slice(0, 20)
+          .map((line) => line.slice(0, 500)),
+      };
+    },
     descriptor: {
       code: 'configuration.preview-metadata-draft',
       description:
@@ -346,9 +374,11 @@ function previewMetadataDraftCapability(
     parseInput: parseEmptyAssistantCapabilityInput,
     async execute(_input, context) {
       const proposal = adapter.proposal();
-      if (!hasChanges(proposal)) throw new Error('No metadata candidate is available to preview');
+      if (!hasChanges(proposal))
+        throw new AssistantCapabilityUsageError('No metadata candidate is available to preview');
       const preview = await adapter.preview(proposal, context.signal);
-      if (!context.isCurrent()) throw new Error('Metadata candidate preview is no longer current');
+      if (!context.isCurrent())
+        throw new AssistantCapabilityUsageError('Metadata candidate preview is no longer current');
       return {
         valid: preview.errors.length === 0,
         fieldImpacts: preview.fieldImpacts,
@@ -405,7 +435,7 @@ function canAddPropertyFieldDraft(adapter: MetadataGovernanceAssistantAdapter): 
 }
 
 function parseAddFieldDraftInput(input: unknown, fieldSpecAliases: string[]): AddMetadataFieldDraftInput {
-  if (!isRecord(input)) throw new Error('Capability input must be an object');
+  if (!isRecord(input)) throw new AssistantCapabilityUsageError('Capability input must be an object');
   const allowed = new Set([
     'title',
     'fieldName',
@@ -417,15 +447,20 @@ function parseAddFieldDraftInput(input: unknown, fieldSpecAliases: string[]): Ad
     'titleField',
   ]);
   if (Object.keys(input).some((key) => !allowed.has(key)))
-    throw new Error('Capability input contains unsupported metadata field properties');
+    throw new AssistantCapabilityUsageError(
+      'Capability input contains unsupported metadata field properties',
+    );
   const title = boundedString(input.title, 'title', 100, true);
   const fieldName = boundedString(input.fieldName, 'fieldName', 63, false);
   if (fieldName && !isPlatformFieldName(fieldName))
-    throw new Error('fieldName must use lower camel case and start with a lower-case letter');
+    throw new AssistantCapabilityUsageError(
+      'fieldName must use lower camel case and start with a lower-case letter',
+    );
   if (fieldName && isDynamicRecordReservedFieldName(fieldName))
-    throw new Error('fieldName is reserved by the dynamic record protocol');
+    throw new AssistantCapabilityUsageError('fieldName is reserved by the dynamic record protocol');
   const fieldSpecAlias = boundedString(input.fieldSpecAlias, 'fieldSpecAlias', 100, true);
-  if (!fieldSpecAliases.includes(fieldSpecAlias)) throw new Error('Unknown metadata field specification');
+  if (!fieldSpecAliases.includes(fieldSpecAlias))
+    throw new AssistantCapabilityUsageError('Unknown metadata field specification');
   return {
     title,
     ...(fieldName ? { fieldName } : {}),
@@ -439,7 +474,7 @@ function parseUpdateFieldDraftInput(
   fieldNames: string[],
   fieldSpecAliases: string[],
 ): UpdateMetadataFieldDraftInput {
-  if (!isRecord(input)) throw new Error('Capability input must be an object');
+  if (!isRecord(input)) throw new AssistantCapabilityUsageError('Capability input must be an object');
   const allowed = new Set([
     'fieldName',
     'title',
@@ -452,13 +487,16 @@ function parseUpdateFieldDraftInput(
     'enabled',
   ]);
   if (Object.keys(input).some((key) => !allowed.has(key)))
-    throw new Error('Capability input contains unsupported metadata field properties');
+    throw new AssistantCapabilityUsageError(
+      'Capability input contains unsupported metadata field properties',
+    );
   const fieldName = boundedString(input.fieldName, 'fieldName', 63, true);
-  if (!fieldNames.includes(fieldName)) throw new Error('Metadata field is unavailable for editing');
+  if (!fieldNames.includes(fieldName))
+    throw new AssistantCapabilityUsageError('Metadata field is unavailable for editing');
   const title = boundedString(input.title, 'title', 100, false);
   const fieldSpecAlias = boundedString(input.fieldSpecAlias, 'fieldSpecAlias', 100, false);
   if (fieldSpecAlias && !fieldSpecAliases.includes(fieldSpecAlias))
-    throw new Error('Unknown metadata field specification');
+    throw new AssistantCapabilityUsageError('Unknown metadata field specification');
   const changes = {
     ...(title ? { title } : {}),
     ...(fieldSpecAlias ? { fieldSpecAlias } : {}),
@@ -471,14 +509,15 @@ function parseUpdateFieldDraftInput(
       'enabled',
     ]),
   };
-  if (Object.keys(changes).length === 0) throw new Error('At least one metadata field change is required');
+  if (Object.keys(changes).length === 0)
+    throw new AssistantCapabilityUsageError('At least one metadata field change is required');
   return { fieldName, ...changes };
 }
 
 function parseFindFieldTargetsInput(input: unknown): FindMetadataFieldTargetsInput {
-  if (!isRecord(input)) throw new Error('Capability input must be an object');
+  if (!isRecord(input)) throw new AssistantCapabilityUsageError('Capability input must be an object');
   if (Object.keys(input).some((key) => !['kind', 'keyword'].includes(key)))
-    throw new Error('Capability input contains unsupported target lookup properties');
+    throw new AssistantCapabilityUsageError('Capability input contains unsupported target lookup properties');
   const kind = metadataPropertyFieldKind(input.kind);
   const keyword = boundedString(input.keyword, 'keyword', 100, false);
   return { kind, ...(keyword ? { keyword } : {}) };
@@ -488,25 +527,31 @@ function parseAddPropertyFieldDraftInput(
   input: unknown,
   dictionarySelectionModes: Array<'SINGLE' | 'MULTIPLE'>,
 ): AddMetadataPropertyFieldDraftInput {
-  if (!isRecord(input)) throw new Error('Capability input must be an object');
+  if (!isRecord(input)) throw new AssistantCapabilityUsageError('Capability input must be an object');
   const allowed = new Set(['kind', 'title', 'fieldName', 'target', 'selectionMode', 'required']);
   if (Object.keys(input).some((key) => !allowed.has(key)))
-    throw new Error('Capability input contains unsupported metadata property field properties');
+    throw new AssistantCapabilityUsageError(
+      'Capability input contains unsupported metadata property field properties',
+    );
   const kind = metadataPropertyFieldKind(input.kind);
   const title = boundedString(input.title, 'title', 100, true);
   const fieldName = boundedString(input.fieldName, 'fieldName', 63, false);
   if (fieldName && !isPlatformFieldName(fieldName))
-    throw new Error('fieldName must use lower camel case and start with a lower-case letter');
+    throw new AssistantCapabilityUsageError(
+      'fieldName must use lower camel case and start with a lower-case letter',
+    );
   if (fieldName && isDynamicRecordReservedFieldName(fieldName))
-    throw new Error('fieldName is reserved by the dynamic record protocol');
+    throw new AssistantCapabilityUsageError('fieldName is reserved by the dynamic record protocol');
   const target = boundedString(input.target, 'target', 255, true);
   const selectionMode = input.selectionMode;
   if (selectionMode !== undefined && selectionMode !== 'SINGLE' && selectionMode !== 'MULTIPLE')
-    throw new Error('selectionMode must be SINGLE or MULTIPLE');
+    throw new AssistantCapabilityUsageError('selectionMode must be SINGLE or MULTIPLE');
   if (kind === 'MODULE_REFERENCE' && selectionMode !== undefined)
-    throw new Error('selectionMode is only supported for dictionary fields');
+    throw new AssistantCapabilityUsageError('selectionMode is only supported for dictionary fields');
   if (kind === 'DICTIONARY' && selectionMode && !dictionarySelectionModes.includes(selectionMode))
-    throw new Error('selectionMode is unavailable because its storage field specification is disabled');
+    throw new AssistantCapabilityUsageError(
+      'selectionMode is unavailable because its storage field specification is disabled',
+    );
   const required = optionalBooleanProperties(input, ['required']).required;
   return {
     kind,
@@ -520,7 +565,7 @@ function parseAddPropertyFieldDraftInput(
 
 function metadataPropertyFieldKind(value: unknown): MetadataPropertyFieldKind {
   if (value !== 'MODULE_REFERENCE' && value !== 'DICTIONARY')
-    throw new Error('kind must be MODULE_REFERENCE or DICTIONARY');
+    throw new AssistantCapabilityUsageError('kind must be MODULE_REFERENCE or DICTIONARY');
   return value;
 }
 
@@ -529,7 +574,9 @@ function boundedString(value: unknown, name: string, maxLength: number, required
 function boundedString(value: unknown, name: string, maxLength: number, required: boolean) {
   if (value === undefined && !required) return undefined;
   if (typeof value !== 'string' || !value.trim() || value.trim().length > maxLength)
-    throw new Error(`${name} must be a non-empty string no longer than ${maxLength} characters`);
+    throw new AssistantCapabilityUsageError(
+      `${name} must be a non-empty string no longer than ${maxLength} characters`,
+    );
   return value.trim();
 }
 
@@ -541,7 +588,7 @@ function optionalBooleanProperties<T extends string>(
   for (const name of names) {
     const value = input[name];
     if (value === undefined) continue;
-    if (typeof value !== 'boolean') throw new Error(`${name} must be a boolean`);
+    if (typeof value !== 'boolean') throw new AssistantCapabilityUsageError(`${name} must be a boolean`);
     result[name] = value;
   }
   return result;

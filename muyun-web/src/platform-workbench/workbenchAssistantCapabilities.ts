@@ -1,3 +1,4 @@
+import { AssistantCapabilityUsageError } from '@muyun/web-core';
 import type { MenuRecord, MenuTreeNode } from '@muyun/web-contracts';
 import type { AssistantCapability, AssistantInvocationToken } from '@muyun/web-core';
 import { getMenuNavigationTarget } from './menuNavigation';
@@ -12,6 +13,7 @@ export function createWorkbenchAssistantCapabilities(
 
 function findMenuCapability(menus: () => MenuTreeNode[]): AssistantCapability<{ query: string }> {
   return {
+    effect: 'read',
     descriptor: {
       code: 'workbench.find-menu',
       description: 'Find candidate business entries from the current user visible menu tree',
@@ -24,7 +26,7 @@ function findMenuCapability(menus: () => MenuTreeNode[]): AssistantCapability<{ 
     },
     parseInput(input) {
       const query = recordString(input, 'query');
-      if (!query) throw new Error('workbench.find-menu requires a non-empty query');
+      if (!query) throw new AssistantCapabilityUsageError('workbench.find-menu requires a non-empty query');
       return { query };
     },
     async execute({ query }) {
@@ -53,6 +55,7 @@ function openMenuCapability(
   settleNavigation: (signal?: AbortSignal) => Promise<void | AssistantInvocationToken>,
 ): AssistantCapability<{ menuId: string }> {
   return {
+    effect: 'page',
     descriptor: {
       code: 'workbench.open-menu',
       description: 'Open one exact entry from the current user visible menu tree',
@@ -65,7 +68,7 @@ function openMenuCapability(
     },
     parseInput(input) {
       const menuId = recordString(input, 'menuId');
-      if (!menuId) throw new Error('workbench.open-menu requires a non-empty menuId');
+      if (!menuId) throw new AssistantCapabilityUsageError('workbench.open-menu requires a non-empty menuId');
       return { menuId };
     },
     async execute({ menuId }, context) {
@@ -74,12 +77,12 @@ function openMenuCapability(
       const menu = flattenMenus(menus()).find(
         (candidate) => candidate.menu.id === menuId && getMenuNavigationTarget(candidate.menu) !== undefined,
       )?.menu;
-      if (!menu) throw new Error(`Visible menu is unavailable: ${menuId}`);
+      if (!menu) throw new AssistantCapabilityUsageError(`Visible menu is unavailable: ${menuId}`);
       const opened = context.applyEffect(
         () => openMenu(menu),
         () => settleNavigation(context.cancellationSignal ?? signal),
       );
-      if (!opened) throw new Error(`Visible menu cannot be opened: ${menuId}`);
+      if (!opened) throw new AssistantCapabilityUsageError(`Visible menu cannot be opened: ${menuId}`);
       return { openedMenuId: menu.id, title: menu.title };
     },
   };

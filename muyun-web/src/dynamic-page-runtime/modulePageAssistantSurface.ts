@@ -1,5 +1,6 @@
 import type { AssistantSurfaceContext } from '@muyun/web-contracts';
 import {
+  AssistantCapabilityUsageError,
   type AssistantCapability,
   type AssistantCapabilityExecutionContext,
   type AssistantSurface,
@@ -117,6 +118,7 @@ function referenceResolveAndPatchCapability(
   fieldNames: string[],
 ): AssistantCapability<{ fieldName: string; title: string }> {
   return {
+    effect: 'draft',
     descriptor: {
       code: 'reference.resolve-and-patch',
       description:
@@ -140,13 +142,16 @@ function referenceResolveAndPatchCapability(
         !input.title.trim() ||
         input.title.length > 500
       ) {
-        throw new Error('reference.resolve-and-patch requires a declared fieldName and title');
+        throw new AssistantCapabilityUsageError(
+          'reference.resolve-and-patch requires a declared fieldName and title',
+        );
       }
       return { fieldName: input.fieldName, title: input.title.trim() };
     },
     async execute({ fieldName, title }, context) {
       const field = assistantReferenceField(view, fieldName);
-      if (!field?.pickerConfig?.provider) throw new Error(`Reference field is not available: ${fieldName}`);
+      if (!field?.pickerConfig?.provider)
+        throw new AssistantCapabilityUsageError(`Reference field is not available: ${fieldName}`);
       const searchRevision = ++state.searchRevision;
       const page = await field.pickerConfig.provider.searchPage({
         keyword: title,
@@ -155,10 +160,12 @@ function referenceResolveAndPatchCapability(
         scope: { selections: [] },
       });
       if (!context.isCurrent() || state.searchRevision !== searchRevision) {
-        throw new Error('Reference resolution is no longer current; resolve again');
+        throw new AssistantCapabilityUsageError('Reference resolution is no longer current; resolve again');
       }
       if (page.navigation?.length) {
-        throw new Error('Reference field requires scoped navigation and is not available to the assistant');
+        throw new AssistantCapabilityUsageError(
+          'Reference field requires scoped navigation and is not available to the assistant',
+        );
       }
       const candidate = page.records[0];
       if (
@@ -168,7 +175,10 @@ function referenceResolveAndPatchCapability(
         !isAssistantSelectableReference(candidate) ||
         normalizeReferenceTitle(candidate.title) !== normalizeReferenceTitle(title)
       ) {
-        throw new Error('Reference title is not a unique exact match; search reference options');
+        throw new AssistantCapabilityUsageError(
+          'Reference title is not a unique exact match; search reference options',
+          'CANDIDATE_AMBIGUOUS',
+        );
       }
       context.applyEffect(() => {
         if (
@@ -176,7 +186,7 @@ function referenceResolveAndPatchCapability(
           !context.isCurrent() ||
           !assistantReferenceField(view, fieldName)
         ) {
-          throw new Error('Reference resolution is no longer current; resolve again');
+          throw new AssistantCapabilityUsageError('Reference resolution is no longer current; resolve again');
         }
         view.updateDraftReference(fieldName, candidate, 'assistant');
         state.selections.clear();
@@ -192,6 +202,7 @@ function referenceSearchCapability(
   fieldNames: string[],
 ): AssistantCapability<{ fieldName: string; keyword: string }> {
   return {
+    effect: 'read',
     descriptor: {
       code: 'reference.search-options',
       description:
@@ -214,13 +225,16 @@ function referenceSearchCapability(
         typeof input.keyword !== 'string' ||
         input.keyword.length > 500
       ) {
-        throw new Error('reference.search-options requires a declared fieldName and keyword');
+        throw new AssistantCapabilityUsageError(
+          'reference.search-options requires a declared fieldName and keyword',
+        );
       }
       return { fieldName: input.fieldName, keyword: input.keyword };
     },
     async execute({ fieldName, keyword }, context) {
       const field = assistantReferenceField(view, fieldName);
-      if (!field?.pickerConfig?.provider) throw new Error(`Reference field is not available: ${fieldName}`);
+      if (!field?.pickerConfig?.provider)
+        throw new AssistantCapabilityUsageError(`Reference field is not available: ${fieldName}`);
       const searchRevision = ++state.searchRevision;
       const page = await field.pickerConfig.provider.searchPage({
         keyword,
@@ -229,10 +243,12 @@ function referenceSearchCapability(
         scope: { selections: [] },
       });
       if (!context.isCurrent() || state.searchRevision !== searchRevision) {
-        throw new Error('Reference search is no longer current; search again');
+        throw new AssistantCapabilityUsageError('Reference search is no longer current; search again');
       }
       if (page.navigation?.length) {
-        throw new Error('Reference field requires scoped navigation and is not available to the assistant');
+        throw new AssistantCapabilityUsageError(
+          'Reference field requires scoped navigation and is not available to the assistant',
+        );
       }
       const contextRevision = modulePageAssistantContextRevision(view);
       const options = page.records
@@ -248,7 +264,7 @@ function referenceSearchCapability(
         });
       context.commitInternalState(() => {
         if (state.searchRevision !== searchRevision) {
-          throw new Error('Reference search is no longer current; search again');
+          throw new AssistantCapabilityUsageError('Reference search is no longer current; search again');
         }
         state.selections.clear();
         for (const option of options) {
@@ -271,6 +287,7 @@ function referencePatchCapability(
   state: AssistantReferenceSelectionState,
 ): AssistantCapability<{ selectionKey: string }> {
   return {
+    effect: 'draft',
     descriptor: {
       code: 'reference.patch-draft',
       description:
@@ -284,7 +301,9 @@ function referencePatchCapability(
     },
     parseInput(input) {
       if (!isRecord(input) || typeof input.selectionKey !== 'string' || !input.selectionKey) {
-        throw new Error('reference.patch-draft requires a selectionKey returned by candidate search');
+        throw new AssistantCapabilityUsageError(
+          'reference.patch-draft requires a selectionKey returned by candidate search',
+        );
       }
       return { selectionKey: input.selectionKey };
     },
@@ -296,7 +315,10 @@ function referencePatchCapability(
         selection.searchRevision !== state.searchRevision ||
         !assistantReferenceField(view, selection.fieldName)
       ) {
-        throw new Error('Reference selection is no longer available; search again');
+        throw new AssistantCapabilityUsageError(
+          'Reference selection is no longer available; search again',
+          'CANDIDATE_EXPIRED',
+        );
       }
       context.applyEffect(() => {
         const current = state.selections.get(selectionKey);
@@ -306,7 +328,10 @@ function referencePatchCapability(
           current.searchRevision !== state.searchRevision ||
           !assistantReferenceField(view, current.fieldName)
         ) {
-          throw new Error('Reference selection is no longer available; search again');
+          throw new AssistantCapabilityUsageError(
+            'Reference selection is no longer available; search again',
+            'CANDIDATE_EXPIRED',
+          );
         }
         view.updateDraftReference(current.fieldName, current.candidate, 'assistant');
         state.selections.clear();
@@ -333,6 +358,7 @@ function recordEditorCapabilities(view: ModulePageSessionView): AssistantCapabil
   const capabilities: AssistantCapability[] = [];
   if (view.recordCreationState().ready) {
     capabilities.push({
+      effect: 'page',
       descriptor: {
         code: 'record.start-create',
         description: '打开当前模块的标准新增表单并建立未保存草稿；需要新建单据或记录时使用。它不会保存。',
@@ -350,6 +376,7 @@ function recordEditorCapabilities(view: ModulePageSessionView): AssistantCapabil
   const editableRecordIds = assistantEditableRecordIds(view.selectedRecord?.id, querySnapshot);
   if (view.context.can('update') === true && editableRecordIds.length > 0) {
     capabilities.push({
+      effect: 'page',
       descriptor: {
         code: 'record.start-edit',
         description:
@@ -367,7 +394,9 @@ function recordEditorCapabilities(view: ModulePageSessionView): AssistantCapabil
           typeof input.recordId !== 'string' ||
           !editableRecordIds.includes(input.recordId)
         ) {
-          throw new Error('record.start-edit requires a recordId from the current page');
+          throw new AssistantCapabilityUsageError(
+            'record.start-edit requires a recordId from the current page',
+          );
         }
         return { recordId: input.recordId };
       },
@@ -401,6 +430,7 @@ function queryCapabilities(view: ModulePageSessionView): AssistantCapability[] {
     ...(snapshot.quickSearchEnabled
       ? [
           {
+            effect: 'page',
             descriptor: {
               code: 'query.apply-quick-search',
               description:
@@ -414,7 +444,7 @@ function queryCapabilities(view: ModulePageSessionView): AssistantCapability[] {
             },
             parseInput(input: unknown) {
               if (!isRecord(input) || typeof input.keyword !== 'string') {
-                throw new Error('query.apply-quick-search requires a keyword');
+                throw new AssistantCapabilityUsageError('query.apply-quick-search requires a keyword');
               }
               return { keyword: input.keyword };
             },
@@ -436,6 +466,7 @@ function queryCapabilities(view: ModulePageSessionView): AssistantCapability[] {
         ]
       : []),
     {
+      effect: 'read',
       descriptor: {
         code: 'query.describe',
         description: '读取当前标准列表的查询状态和可见结果页；它不会筛选记录，仅在需要了解当前结果时使用。',
@@ -469,6 +500,7 @@ function treeQueryCapabilities(view: ModulePageSessionView): AssistantCapability
   const selectionKeys = controller.snapshot().nodes.map(({ selectionKey }) => selectionKey);
   return [
     {
+      effect: 'read',
       descriptor: {
         code: 'tree.describe',
         description: '读取当前树形页面已加载的授权节点；需要了解或查找已有树节点时使用。',
@@ -480,6 +512,7 @@ function treeQueryCapabilities(view: ModulePageSessionView): AssistantCapability
       },
     },
     {
+      effect: 'page',
       descriptor: {
         code: 'tree.select-record',
         description:
@@ -497,7 +530,9 @@ function treeQueryCapabilities(view: ModulePageSessionView): AssistantCapability
           typeof input.selectionKey !== 'string' ||
           !selectionKeys.includes(input.selectionKey)
         ) {
-          throw new Error('tree.select-record requires a selectionKey from tree.describe');
+          throw new AssistantCapabilityUsageError(
+            'tree.select-record requires a selectionKey from tree.describe',
+          );
         }
         return { selectionKey: input.selectionKey };
       },
@@ -553,6 +588,7 @@ function recordTitle(record: Record<string, unknown>) {
 
 function formDescribeCapability(view: ModulePageSessionView): AssistantCapability<Record<string, never>> {
   return {
+    effect: 'read',
     descriptor: {
       code: 'form.describe',
       description: 'Describe visible form fields and whether a draft is currently editable',
@@ -604,6 +640,15 @@ function assistantFieldWriteMode(
   return assistantReferenceFieldState(field) ? 'referenceSelection' : undefined;
 }
 
+interface AssistantDraftResult {
+  changedFields: string[];
+  draftSummary: {
+    saved: boolean;
+    changes: Array<{ fieldName: string; label: string; source: string; before?: unknown; after?: unknown }>;
+    missingRequired: string[];
+  };
+}
+
 interface AssistantDraftChange {
   fieldName: string;
   value: unknown;
@@ -611,11 +656,28 @@ interface AssistantDraftChange {
 
 function formPatchCapability(
   view: ModulePageSessionView,
-): AssistantCapability<{ changes: AssistantDraftChange[] }> {
+): AssistantCapability<{ changes: AssistantDraftChange[] }, AssistantDraftResult> {
   const writableFieldNames = formFieldStates(view)
     .filter((field) => field.visible && !field.readOnly && isAssistantWritableField(field))
     .map(({ fieldName }) => fieldName);
   return {
+    effect: 'draft',
+    present({ draftSummary }) {
+      const display = (value: unknown) =>
+        value === undefined || value === null || value === '' ? '空' : String(value).slice(0, 200);
+      return {
+        title: '草稿变更（尚未保存）',
+        lines: [
+          ...draftSummary.changes.map(
+            (change) =>
+              `${change.label}${change.source === 'derived' ? '（联动）' : ''}：${display(change.before)} → ${display(change.after)}`,
+          ),
+          ...(draftSummary.missingRequired.length
+            ? [`待填写：${draftSummary.missingRequired.join('、')}`]
+            : []),
+        ],
+      };
+    },
     descriptor: {
       code: 'form.patch-draft',
       description:
@@ -644,17 +706,19 @@ function formPatchCapability(
     },
     parseInput(input) {
       if (!isRecord(input) || !Array.isArray(input.changes) || input.changes.length === 0) {
-        throw new Error('form.patch-draft requires changes');
+        throw new AssistantCapabilityUsageError('form.patch-draft requires changes');
       }
-      if (input.changes.length > 20) throw new Error('form.patch-draft accepts at most 20 changes');
+      if (input.changes.length > 20)
+        throw new AssistantCapabilityUsageError('form.patch-draft accepts at most 20 changes');
       const changes = input.changes.map(parseDraftChange);
       if (new Set(changes.map(({ fieldName }) => fieldName)).size !== changes.length) {
-        throw new Error('form.patch-draft field names must be unique');
+        throw new AssistantCapabilityUsageError('form.patch-draft field names must be unique');
       }
       return { changes };
     },
     async execute(input, context) {
-      if (!hasEditableDraft(view)) throw new Error('No editable form draft is active');
+      if (!hasEditableDraft(view))
+        throw new AssistantCapabilityUsageError('No editable form draft is active');
       validateDraftTargets(view, input.changes);
       const validatedChanges = validateDraftChanges(view, input.changes);
       const before = draftSummaryValues(view);
@@ -695,10 +759,10 @@ function formPatchCapability(
 
 function parseDraftChange(input: unknown): AssistantDraftChange {
   if (!isRecord(input) || typeof input.fieldName !== 'string' || !input.fieldName.trim()) {
-    throw new Error('form.patch-draft changes require a fieldName and value');
+    throw new AssistantCapabilityUsageError('form.patch-draft changes require a fieldName and value');
   }
   if (!Object.hasOwn(input, 'value')) {
-    throw new Error('form.patch-draft changes require a fieldName and value');
+    throw new AssistantCapabilityUsageError('form.patch-draft changes require a fieldName and value');
   }
   return {
     fieldName: input.fieldName.trim(),
@@ -717,7 +781,7 @@ function validateDraftTargets(view: ModulePageSessionView, changes: AssistantDra
   for (const { fieldName } of changes) {
     const field = formFieldState(view, fieldName);
     if (!field || !field.visible || field.readOnly || !isAssistantWritableField(field)) {
-      throw new Error(`Form field is not editable by the assistant: ${fieldName}`);
+      throw new AssistantCapabilityUsageError(`Form field is not editable by the assistant: ${fieldName}`);
     }
   }
 }
@@ -812,7 +876,7 @@ function assistantReferenceFieldState(field: RecordFormFieldState) {
 
 function assistantFieldValue(field: RecordFormFieldState, value: unknown): RecordFormFieldValue {
   if (value === null) {
-    if (field.required) throw new Error(`Form field is required: ${field.fieldName}`);
+    if (field.required) throw new AssistantCapabilityUsageError(`Form field is required: ${field.fieldName}`);
     return undefined;
   }
   if (field.fieldControl?.rendererType === 'JSON') {

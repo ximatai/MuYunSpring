@@ -6,6 +6,7 @@ import type {
 } from '@muyun/web-contracts';
 import {
   AssistantCapabilityUsageError,
+  AssistantEffectInterruptedError,
   sameAssistantInvocationToken,
   StaleAssistantInvocationError,
   type AssistantInvocationToken,
@@ -88,16 +89,21 @@ export type AssistantRuntimeDiagnosticEvent =
 
 export interface AssistantConversationResult {
   steps: AssistantRuntimeStepResult[];
-  completed: boolean;
+  termination: 'stopped' | 'waiting-for-user' | 'repeated-call' | 'step-limit';
 }
 
-export class AssistantConversationFollowUpError extends Error {
+export class AssistantConversationInterruptedError extends Error {
   constructor(
     readonly steps: readonly AssistantRuntimeStepResult[],
     cause: unknown,
+    readonly termination:
+      | 'cancelled'
+      | 'context-changed'
+      | 'execution-interrupted'
+      | 'model-failed' = 'model-failed',
   ) {
-    super('Assistant follow-up failed after successful capability execution', { cause });
-    this.name = 'AssistantConversationFollowUpError';
+    super('Assistant conversation interrupted with execution facts', { cause });
+    this.name = 'AssistantConversationInterruptedError';
   }
 }
 
@@ -141,7 +147,7 @@ export async function runAssistantConversation(
   const steps: AssistantRuntimeStepResult[] = [];
   let results: AssistantCapabilityResult[] = [];
   const completedEffects: AssistantCapabilityResult[] = [];
-  let successfulCalls = new Map<string, AssistantCapabilityResult>();
+  let settledCalls = new Map<string, AssistantCapabilityResult>();
   let expectedReplacementToken: AssistantInvocationToken | undefined;
   let decisionRestarts = 0;
   for (let index = 0; index < maxSteps; index += 1) {
@@ -156,13 +162,13 @@ export async function runAssistantConversation(
     let step: InternalAssistantRuntimeStepResult;
     let streamedText = false;
     try {
-      step = await runAssistantStepWithSuccessfulCalls(
+      step = await runAssistantStepWithSettledCalls(
         registry,
         message,
         options.history ?? [],
         results,
         options.signal,
-        successfulCalls,
+        settledCalls,
         index,
         index === 0 ? options.selectionResponse : undefined,
         options.onActivity,
@@ -207,17 +213,33 @@ export async function runAssistantConversation(
           stepIndex: index,
           reason: 'context-changed',
         });
+        if (hasAppliedCapabilityEffect(steps))
+          throw new AssistantConversationInterruptedError(steps, error, 'context-changed');
         throw new StaleAssistantInvocationError();
       }
-      if (error instanceof StaleAssistantInvocationError) throw error;
-      if (!isAbortError(error) && hasAppliedCapabilityEffect(steps)) {
-        throw new AssistantConversationFollowUpError(steps, error);
+      if (error instanceof AssistantConversationInterruptedError) {
+        throw new AssistantConversationInterruptedError(
+          [...steps, ...error.steps],
+          error.cause,
+          error.termination,
+        );
+      }
+      if (hasAppliedCapabilityEffect(steps)) {
+        throw new AssistantConversationInterruptedError(
+          steps,
+          error,
+          isAbortError(error)
+            ? 'cancelled'
+            : error instanceof StaleAssistantInvocationError
+              ? 'context-changed'
+              : 'model-failed',
+        );
       }
       throw error;
     }
     decisionRestarts = 0;
     expectedReplacementToken = step.continuationToken;
-    successfulCalls = step.replayableCalls;
+    settledCalls = step.replayableCalls;
     const publicStep = toPublicStep(step);
     steps.push(publicStep);
     if (step.output.toolCalls.length === 0) {
@@ -227,7 +249,7 @@ export async function runAssistantConversation(
         stepCount: steps.length,
         bounded: false,
       });
-      return { steps, completed: true };
+      return { steps, termination: step.output.selection ? 'waiting-for-user' : 'stopped' };
     }
     if (step.attemptedCallCount === 0) {
       await options.onStep?.({ ...publicStep, results: [] });
@@ -236,26 +258,37 @@ export async function runAssistantConversation(
         stepCount: steps.length,
         bounded: false,
       });
-      return { steps, completed: true };
+      return { steps, termination: 'repeated-call' };
     }
     await options.onStep?.(publicStep);
+    // Receipts have conversation-local identities: providers may reuse call IDs on later turns.
+    results = [...completedEffects.slice(-8), ...step.results].map(
+      ({ callId, capabilityCode, input, execution, output, error }) => ({
+        callId,
+        capabilityCode,
+        input,
+        execution,
+        ...(output !== undefined ? { output } : {}),
+        ...(error ? { error } : {}),
+      }),
+    );
     if (step.appliedEffectCount > 0) {
       const effect = step.results.at(-1);
-      if (effect && !effect.error) completedEffects.push({ ...effect, output: { completed: true } });
+      if (effect && !effect.error)
+        completedEffects.push({
+          ...effect,
+          callId: `receipt-${index}-${effect.callId}`,
+          output: { completed: true },
+          presentation: undefined,
+        });
     }
-    // Keep a bounded receipt of effects, not old query payloads or repeated form snapshots.
-    const latestIds = new Set(step.results.map((result) => result.callId));
-    results = [
-      ...completedEffects.filter((result) => !latestIds.has(result.callId)).slice(-8),
-      ...step.results,
-    ];
   }
   emitDiagnostic(options.onDiagnostic, {
     type: 'conversation.completed',
     stepCount: steps.length,
     bounded: true,
   });
-  return { steps, completed: false };
+  return { steps, termination: 'step-limit' };
 }
 
 function hasAppliedCapabilityEffect(steps: readonly AssistantRuntimeStepResult[]) {
@@ -273,7 +306,7 @@ export async function runAssistantStep(
   signal?: AbortSignal,
 ): Promise<AssistantRuntimeStepResult> {
   return toPublicStep(
-    await runAssistantStepWithSuccessfulCalls(registry, message, [], previousResults, signal, new Map()),
+    await runAssistantStepWithSettledCalls(registry, message, [], previousResults, signal, new Map()),
   );
 }
 
@@ -286,13 +319,13 @@ function toPublicStep(step: InternalAssistantRuntimeStepResult): AssistantRuntim
   };
 }
 
-async function runAssistantStepWithSuccessfulCalls(
+async function runAssistantStepWithSettledCalls(
   registry: AssistantSurfaceRegistry,
   message: string,
   history: AssistantConversationMessage[],
   previousResults: AssistantCapabilityResult[],
   signal: AbortSignal | undefined,
-  successfulCalls: Map<string, AssistantCapabilityResult>,
+  settledCalls: Map<string, AssistantCapabilityResult>,
   stepIndex = 0,
   selectionResponse?: AssistantSelectionResponse,
   onActivity?: AssistantConversationOptions['onActivity'],
@@ -369,10 +402,10 @@ async function runAssistantStepWithSuccessfulCalls(
   let appliedEffectCount = 0;
   for (const call of output.toolCalls) {
     const callKey = capabilityCallKey(snapshot.token, call.code, call.input);
-    const successful = successfulCalls.get(callKey);
-    if (successful) {
-      results.push({ ...successful, callId: call.id });
-      replayableCalls.set(callKey, successful);
+    const settled = settledCalls.get(callKey);
+    if (settled) {
+      results.push({ ...settled, callId: call.id });
+      replayableCalls.set(callKey, settled);
       emitDiagnostic(onDiagnostic, {
         type: 'capability.completed',
         stepIndex,
@@ -385,7 +418,14 @@ async function runAssistantStepWithSuccessfulCalls(
     attemptedCallCount += 1;
     try {
       const invocation = await registry.invoke(call, snapshot.token, signal);
-      const result = { callId: call.id, capabilityCode: call.code, output: invocation.value };
+      const result: AssistantCapabilityResult = {
+        callId: call.id,
+        capabilityCode: call.code,
+        input: call.input as Record<string, unknown>,
+        execution: invocation.contextChanged ? 'effect-applied' : 'read',
+        output: invocation.value,
+        ...(invocation.presentation ? { presentation: invocation.presentation } : {}),
+      };
       results.push(result);
       replayableCalls.set(callKey, result);
       if (invocation.contextChanged) {
@@ -419,6 +459,29 @@ async function runAssistantStepWithSuccessfulCalls(
         pageEffectApplied: false,
       });
     } catch (error) {
+      if (error instanceof AssistantEffectInterruptedError) {
+        results.push({
+          callId: call.id,
+          capabilityCode: call.code,
+          input: call.input as Record<string, unknown>,
+          execution: error.execution,
+        });
+        const interrupted = {
+          output,
+          results,
+          contextChanged: true,
+          appliedEffectCount: error.execution === 'effect-applied' ? 1 : 0,
+        };
+        throw new AssistantConversationInterruptedError(
+          [interrupted],
+          error.cause,
+          isAbortError(error.cause)
+            ? 'cancelled'
+            : error.cause instanceof StaleAssistantInvocationError
+              ? 'context-changed'
+              : 'execution-interrupted',
+        );
+      }
       if (error instanceof StaleAssistantInvocationError || isAbortError(error)) {
         if (appliedEffectCount === 0 && !signal?.aborted) {
           throw new AssistantDecisionContextChangedError(snapshot.token);
@@ -428,15 +491,19 @@ async function runAssistantStepWithSuccessfulCalls(
       results.push({
         callId: call.id,
         capabilityCode: call.code,
+        input: call.input as Record<string, unknown>,
+        execution: 'not-applied',
         error: {
-          code:
-            error instanceof AssistantCapabilityUsageError ? 'CAPABILITY_USAGE_INVALID' : 'CAPABILITY_FAILED',
+          code: error instanceof AssistantCapabilityUsageError ? error.code : 'CAPABILITY_FAILED',
           message:
             error instanceof AssistantCapabilityUsageError
               ? error.message.slice(0, 500)
               : 'Capability execution failed',
         },
       });
+      // Repeating a rejected call in the same snapshot cannot repair it.
+      // Changed input or an explicit new user turn may try again. Unknown effects terminate above.
+      replayableCalls.set(callKey, results.at(-1)!);
       emitDiagnostic(onDiagnostic, {
         type: 'capability.completed',
         stepIndex,

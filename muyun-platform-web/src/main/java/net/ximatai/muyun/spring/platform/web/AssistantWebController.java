@@ -200,10 +200,10 @@ record AssistantConversationMessageWeb(String role, String text) {
     }
 }
 
-record AssistantCapabilityResultWeb(String callId, String capabilityCode, Object output,
+record AssistantCapabilityResultWeb(String callId, String capabilityCode, Map<String, Object> input, String execution, Object output,
                                     AssistantCapabilityErrorWeb error) {
     AssistantCapabilityResult toDomain() {
-        return new AssistantCapabilityResult(callId, capabilityCode, output,
+        return new AssistantCapabilityResult(callId, capabilityCode, input, execution, output,
                 error == null ? null : error.code(), error == null ? null : error.message());
     }
 }

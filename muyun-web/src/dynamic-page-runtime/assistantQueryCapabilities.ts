@@ -13,6 +13,7 @@ export function createAssistantQueryCapabilities(
   if (!query || !controller.applyStandardQuery || query.fields.length === 0) return [];
   return [
     {
+      effect: 'page',
       descriptor: {
         code: 'query.apply-standard',
         description:
@@ -37,7 +38,12 @@ export function createAssistantQueryCapabilities(
                 anyOf: query.fields.map((field) => ({
                   properties: {
                     fieldName: { const: field.name, description: field.title },
-                    operator: { type: 'string', enum: field.operators },
+                    operator: {
+                      type: 'string',
+                      enum: field.operators,
+                      description:
+                        'LIKE uses a SQL pattern: % matches any substring and _ matches one character. For a literal contains filter, escape backslash, % and _ in the literal and surround it with %. Other operators take ordinary typed values.',
+                    },
                     values: {
                       items: field.options
                         ? { enum: field.options }

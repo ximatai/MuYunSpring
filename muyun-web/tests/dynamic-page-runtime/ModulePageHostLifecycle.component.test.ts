@@ -362,9 +362,13 @@ describe('ModulePageHost lifecycle boundaries', () => {
         { id: 'tenant-2', code: 'scope.select-tenant', input: { title: '乙租户' } },
         after,
       );
-      const replacedRejection = expect(replacedInvocation).rejects.toThrow(
-        'Tenant scope selection was replaced before its session became ready',
-      );
+      const replacedRejection = expect(replacedInvocation).rejects.toMatchObject({
+        name: 'AssistantEffectInterruptedError',
+        execution: 'effect-applied',
+        cause: expect.objectContaining({
+          message: 'Tenant scope selection was replaced before its session became ready',
+        }),
+      });
       await flushPromises();
       wrapper.findComponent(tenantExplorerStub).vm.$emit('select', { id: 'tenant-a', title: '甲租户' });
       await flushPromises();
@@ -527,7 +531,11 @@ describe('ModulePageHost lifecycle boundaries', () => {
         registry.snapshot()!.token,
         abort.signal,
       );
-      const rejection = expect(invocation).rejects.toMatchObject({ name: 'AbortError' });
+      const rejection = expect(invocation).rejects.toMatchObject({
+        name: 'AssistantEffectInterruptedError',
+        execution: 'effect-applied',
+        cause: expect.objectContaining({ name: 'AbortError' }),
+      });
       await flushPromises();
       expect(resolveTenantSession).toBeTypeOf('function');
       abort.abort();

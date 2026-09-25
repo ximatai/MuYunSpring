@@ -1,3 +1,4 @@
+import { AssistantCapabilityUsageError } from '@muyun/web-core';
 import type { AssistantCapability, AssistantInvocationToken } from '@muyun/web-core';
 import { flattenTreeRecords, type QueryListRecord } from '@muyun/platform-components';
 import type { ModulePageSessionView } from './useModulePageSession';
@@ -54,6 +55,7 @@ export function modulePageScopeCapabilities(
   if (scopeKeys.length) {
     capabilities.push(scopeSearchCapability(view, tenantScope, scopeKeys, candidates));
     capabilities.push({
+      effect: 'page',
       descriptor: {
         code: 'scope.select-candidate',
         description: '应用 scope.search 返回的 selectionKey。使用候选凭据，不把展示标签当作名称重新搜索。',
@@ -66,7 +68,7 @@ export function modulePageScopeCapabilities(
       },
       parseInput(input) {
         if (!isRecord(input) || typeof input.selectionKey !== 'string')
-          throw new Error('Scope candidate key is required');
+          throw new AssistantCapabilityUsageError('Scope candidate key is required');
         return input.selectionKey;
       },
       async execute(input, context) {
@@ -76,7 +78,10 @@ export function modulePageScopeCapabilities(
           !scopeKeys.includes(candidate.scopeKey) ||
           candidate.revision !== scopeRevision(view, tenantScope, candidate.scopeKey)
         ) {
-          throw new Error('Scope candidate expired; search again');
+          throw new AssistantCapabilityUsageError(
+            'Scope candidate expired; search again',
+            'CANDIDATE_EXPIRED',
+          );
         }
         const capability =
           candidate.scopeKey === 'tenant'
@@ -99,6 +104,7 @@ function scopeSearchCapability(
   candidates: Map<string, AssistantScopeCandidate>,
 ): AssistantCapability<{ scopeKey: string; keyword: string; page: number }> {
   return {
+    effect: 'read',
     descriptor: {
       code: 'scope.search',
       description:
@@ -123,7 +129,7 @@ function scopeSearchCapability(
         (input.page !== undefined &&
           (!Number.isInteger(input.page) || Number(input.page) < 1 || Number(input.page) > 1000))
       ) {
-        throw new Error('Invalid scope search');
+        throw new AssistantCapabilityUsageError('Invalid scope search');
       }
       return {
         scopeKey: input.scopeKey,
@@ -138,7 +144,8 @@ function scopeSearchCapability(
       let secondary: string | undefined;
       if (scopeKey === 'tenant') {
         const source = tenantScope?.tenantScopeContext.value;
-        if (!source || tenantScope?.blocked.value) throw new Error('Tenant scope is unavailable');
+        if (!source || tenantScope?.blocked.value)
+          throw new AssistantCapabilityUsageError('Tenant scope is unavailable');
         const response = await source.crud.query({
           page: { pageNum: page, pageSize: MAX_ASSISTANT_SCOPE_OPTIONS },
           ...(keyword ? { quickSearch: keyword } : {}),
@@ -148,7 +155,7 @@ function scopeSearchCapability(
         secondary = 'alias';
       } else {
         const level = view.assistantNavigatorScopes().find((item) => item.descriptor.key === scopeKey);
-        if (!level) throw new Error('Navigator scope is unavailable');
+        if (!level) throw new AssistantCapabilityUsageError('Navigator scope is unavailable');
         secondary = level.descriptor.secondaryField;
         const request = {
           externalQueryValues: view.navigatorExplorerQueryValues(scopeKey),
@@ -180,7 +187,7 @@ function scopeSearchCapability(
         }
       }
       if (!context.isCurrent() || revision !== scopeRevision(view, tenantScope, scopeKey))
-        throw new Error('Scope search is no longer current');
+        throw new AssistantCapabilityUsageError('Scope search is no longer current');
       const options = records
         .filter((record) => record.id != null && scopeRecordTitle(record))
         .map((record) => ({ selectionKey: crypto.randomUUID(), record }));
@@ -209,6 +216,7 @@ function tenantScopeSelectionCapability(
   candidate?: QueryListRecord,
 ): AssistantCapability<{ title: string }> {
   return {
+    effect: 'page',
     descriptor: {
       code: 'scope.select-tenant',
       description:
@@ -223,7 +231,8 @@ function tenantScopeSelectionCapability(
     parseInput: parseScopeTitle,
     async execute({ title }, context) {
       const scopeContext = tenantScope.tenantScopeContext.value;
-      if (!scopeContext || tenantScope.blocked.value) throw new Error('Tenant scope is not available');
+      if (!scopeContext || tenantScope.blocked.value)
+        throw new AssistantCapabilityUsageError('Tenant scope is not available');
       const initialTenantId = String(tenantScope.selected.value?.id ?? '');
       const response = candidate
         ? { records: [candidate], total: 1 }
@@ -235,7 +244,7 @@ function tenantScopeSelectionCapability(
         candidate ??
         requireUniqueExactScopeRecord(response.records, response.total, title, 'tenant', 'alias');
       if (!context.isCurrent() || String(tenantScope.selected.value?.id ?? '') !== initialTenantId) {
-        throw new Error('Tenant scope selection is no longer current');
+        throw new AssistantCapabilityUsageError('Tenant scope selection is no longer current');
       }
       if (String(tenantScope.selected.value?.id ?? '') === String(selected.id)) {
         return {
@@ -247,7 +256,7 @@ function tenantScopeSelectionCapability(
       context.applyEffect(
         () => {
           if (tenantScope.blocked.value || String(tenantScope.selected.value?.id ?? '') !== initialTenantId) {
-            throw new Error('Tenant scope selection is no longer available');
+            throw new AssistantCapabilityUsageError('Tenant scope selection is no longer available');
           }
           tenantScope.changeTenantScope(selected);
         },
@@ -270,6 +279,7 @@ function navigatorScopeSelectionCapability(
   const levels = view.assistantNavigatorScopes?.() ?? [];
   const titles = Object.fromEntries(levels.map((level) => [level.descriptor.key, level.descriptor.title]));
   return {
+    effect: 'page',
     descriptor: {
       code: 'scope.select-navigator',
       description:
@@ -293,7 +303,9 @@ function navigatorScopeSelectionCapability(
         !input.title.trim() ||
         input.title.length > 500
       ) {
-        throw new Error('scope.select-navigator requires an available scopeKey and title');
+        throw new AssistantCapabilityUsageError(
+          'scope.select-navigator requires an available scopeKey and title',
+        );
       }
       return { scopeKey: input.scopeKey, title: input.title.trim() };
     },
@@ -302,7 +314,7 @@ function navigatorScopeSelectionCapability(
         .assistantNavigatorScopes?.()
         .find((candidate) => candidate.descriptor.key === scopeKey);
       if (!level) {
-        throw new Error(`Navigator scope is not available: ${scopeKey}`);
+        throw new AssistantCapabilityUsageError(`Navigator scope is not available: ${scopeKey}`);
       }
       const scopeRevision = view.assistantNavigatorScopeRevision(scopeKey);
       const request = {
@@ -338,7 +350,7 @@ function navigatorScopeSelectionCapability(
           level.descriptor.secondaryField,
         );
       if (!context.isCurrent() || view.assistantNavigatorScopeRevision(scopeKey) !== scopeRevision) {
-        throw new Error('Navigator scope selection is no longer current');
+        throw new AssistantCapabilityUsageError('Navigator scope selection is no longer current');
       }
       if (String(view.selectedNavigatorRecords[scopeKey]?.id ?? '') === String(selected.id)) {
         return {
@@ -351,7 +363,7 @@ function navigatorScopeSelectionCapability(
       context.applyEffect(
         () => {
           if (!view.applyAssistantNavigatorSelection(scopeKey, selected, scopeRevision)) {
-            throw new Error('Navigator scope selection is no longer available');
+            throw new AssistantCapabilityUsageError('Navigator scope selection is no longer available');
           }
           appliedRevision = view.assistantNavigatorScopeRevision(scopeKey);
         },
@@ -361,7 +373,9 @@ function navigatorScopeSelectionCapability(
             String(view.selectedNavigatorRecords[scopeKey]?.id ?? '') !== String(selected.id) ||
             view.assistantNavigatorScopeRevision(scopeKey) !== appliedRevision
           ) {
-            throw new Error('Navigator scope selection was replaced before its query settled');
+            throw new AssistantCapabilityUsageError(
+              'Navigator scope selection was replaced before its query settled',
+            );
           }
         },
       );
@@ -381,7 +395,7 @@ function parseScopeTitle(input: unknown) {
     !input.title.trim() ||
     input.title.length > 500
   ) {
-    throw new Error('scope selection requires a title');
+    throw new AssistantCapabilityUsageError('scope selection requires a title');
   }
   return { title: input.title.trim() };
 }
@@ -402,10 +416,13 @@ function requireUniqueExactScopeRecord(
         .some((value) => normalizeScopeTitle(String(value)) === normalized),
   );
   if (matches.length !== 1) {
-    throw new Error(`${scope} title is not a unique exact match; ask the user to clarify`);
+    throw new AssistantCapabilityUsageError(
+      `${scope} title is not a unique exact match; ask the user to clarify`,
+      'CANDIDATE_AMBIGUOUS',
+    );
   }
   if (total > records.length && records.length >= MAX_ASSISTANT_SCOPE_OPTIONS) {
-    throw new Error(`${scope} search result is truncated; ask the user to clarify`);
+    throw new AssistantCapabilityUsageError(`${scope} search result is truncated; ask the user to clarify`);
   }
   return matches[0]!;
 }

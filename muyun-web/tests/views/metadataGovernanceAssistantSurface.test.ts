@@ -401,6 +401,7 @@ function fixture(
 
 function capability(code: string) {
   return {
+    effect: 'page' as const,
     descriptor: { code, description: code, inputSchema: {} },
     parseInput: (input: unknown) => input,
     execute: vi.fn(),

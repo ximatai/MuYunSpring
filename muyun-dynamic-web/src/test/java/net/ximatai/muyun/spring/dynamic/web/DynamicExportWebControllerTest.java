@@ -272,8 +272,8 @@ class DynamicExportWebControllerTest {
         });
         assertThat(clauses).anySatisfy(clause -> {
             assertThat(clause.getField()).isEqualTo("code");
-            assertThat(clause.getOperator()).isEqualTo(CriteriaOperator.LIKE);
-            assertThat(clause.getValues()).contains("C-001");
+            assertThat(clause.getOperator()).isEqualTo(CriteriaOperator.LIKE_IGNORE_CASE);
+            assertThat(clause.getValues()).contains("%C-001%");
         });
         verify(operations, org.mockito.Mockito.atLeastOnce()).queryCriteria(any());
     }

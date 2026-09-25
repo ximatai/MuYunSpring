@@ -28,6 +28,58 @@ class OpenAiCompatibleModelClientTest {
     }
 
     @Test
+    void terminatesAStreamThatSendsHeadersButNeverCompletesItsBody() throws Exception {
+        var release = new java.util.concurrent.CountDownLatch(1);
+        server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/v1/chat/completions", exchange -> {
+            exchange.getRequestBody().readAllBytes();
+            exchange.sendResponseHeaders(200, 0);
+            exchange.getResponseBody().write("data: {\"choices\":[{\"delta\":{\"content\":\" \"}}]}\n\n".getBytes(StandardCharsets.UTF_8));
+            exchange.getResponseBody().flush();
+            try { release.await(5, java.util.concurrent.TimeUnit.SECONDS); }
+            catch (InterruptedException interrupted) { Thread.currentThread().interrupt(); }
+            finally { exchange.close(); }
+        });
+        server.start();
+        var client = new OpenAiCompatibleModelClient(java.net.http.HttpClient.newHttpClient(), new ObjectMapper(), java.time.Duration.ofMillis(100));
+        var request = new AiTurnRequest(List.of(new AiChatMessage(AiChatMessage.Role.USER, "hello")), List.of(), null, 512);
+        try {
+            org.junit.jupiter.api.Assertions.assertTimeoutPreemptively(java.time.Duration.ofSeconds(3), () ->
+                assertThatThrownBy(() -> client.stream(route(), request, new AiTurnStreamConsumer() {
+                    public void onTextDelta(String text) { }
+                    public void onComplete(AiTurnResponse result) { throw new AssertionError("Incomplete stream cannot complete"); }
+                })).isInstanceOf(PlatformException.class).hasMessageContaining("timed out"));
+        } finally { release.countDown(); }
+    }
+
+    @Test
+    void serializesNativeHistoricalToolPairsAfterTheirCapabilityDisappears() throws Exception {
+        AtomicReference<String> body = new AtomicReference<>();
+        server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/v1/chat/completions", exchange -> {
+            body.set(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
+            byte[] response = "{\"choices\":[{\"message\":{\"content\":\"done\"},\"finish_reason\":\"stop\"}]}".getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(200, response.length);
+            exchange.getResponseBody().write(response);
+            exchange.close();
+        });
+        server.start();
+        var request = new AiTurnRequest(List.of(
+                new AiChatMessage(AiChatMessage.Role.USER, "fill draft"),
+                AiChatMessage.call(new AiToolCall("old-call", "form.patch-draft", Map.of("title", "示例"))),
+                AiChatMessage.result("old-call", "{\"execution\":\"effect-applied\"}"),
+                new AiChatMessage(AiChatMessage.Role.USER, "current page")),
+                List.of(new AiToolDefinition("query.describe", "read", Map.of("type", "object"))), null, 512);
+        new OpenAiCompatibleModelClient(new ObjectMapper()).complete(route(), request);
+        var json = new ObjectMapper().readTree(body.get());
+        assertThat(json.path("messages").get(1).path("tool_calls").get(0).path("function").path("name").asText())
+                .isEqualTo(OpenAiCompatibleModelClient.providerToolName("form.patch-draft"));
+        assertThat(json.path("messages").get(2).path("role").asText()).isEqualTo("tool");
+        assertThat(json.path("messages").get(2).path("tool_call_id").asText()).isEqualTo("old-call");
+        assertThat(json.path("messages").get(3).path("content").asText()).isEqualTo("current page");
+    }
+
+    @Test
     void sendsOpenAiCompatibleCompletionAndConsumesSseDeltas() throws Exception {
         List<String> authorization = new ArrayList<>();
         server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
@@ -117,7 +169,7 @@ class OpenAiCompatibleModelClientTest {
             requestBody.set(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
             byte[] body = ("{\"choices\":[{\"message\":{\"content\":null,\"tool_calls\":["
                     + "{\"id\":\"call-1\",\"type\":\"function\",\"function\":{"
-                    + "\"name\":\"capability_0\",\"arguments\":\"{\\\"query\\\":\\\"Alice\\\","
+                    + "\"name\":\"cap_d5add68fb09702059e5a040bde0a0e2da74598d772a22c68b36fe5ab\",\"arguments\":\"{\\\"query\\\":\\\"Alice\\\","
                     + "\\\"optional\\\":null,\\\"error\\\":\\\"business fact\\\"}\"}}]},"
                     + "\"finish_reason\":\"tool_calls\"}]}").getBytes(StandardCharsets.UTF_8);
             exchange.getResponseHeaders().add("x-request-id", "request-structured");
@@ -134,7 +186,7 @@ class OpenAiCompatibleModelClientTest {
 
         AiTurnResponse response = new OpenAiCompatibleModelClient(new ObjectMapper()).complete(route(), request);
 
-        assertThat(requestBody.get()).contains("\"name\":\"capability_0\"")
+        assertThat(requestBody.get()).contains("\"name\":\"cap_d5add68fb09702059e5a040bde0a0e2da74598d772a22c68b36fe5ab\"")
                 .doesNotContain("workbench.find-menu");
         assertThat(response.toolCalls()).singleElement().satisfies(call -> {
             assertThat(call.id()).isEqualTo("call-1");
@@ -155,9 +207,9 @@ class OpenAiCompatibleModelClientTest {
             requestBody.set(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
             String body = "data: {\"choices\":[{\"delta\":{\"content\":\"正在\"},\"finish_reason\":null}]}\n\n"
                     + "data: {\"choices\":[{\"delta\":{\"content\":\"处理\",\"tool_calls\":[{\"index\":0,"
-                    + "\"id\":\"call-1\",\"function\":{\"name\":\"capability_\",\"arguments\":\"{\\\"query\\\":\"}}]},"
+                    + "\"id\":\"call-1\",\"function\":{\"name\":\"cap_\",\"arguments\":\"{\\\"query\\\":\"}}]},"
                     + "\"finish_reason\":null}]}\n\n"
-                    + "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"name\":\"0\","
+                    + "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"name\":\"d5add68fb09702059e5a040bde0a0e2da74598d772a22c68b36fe5ab\","
                     + "\"arguments\":\"\\\"Alice\\\"}\"}}]},\"finish_reason\":\"tool_calls\"}]}\n\n"
                     + "data: [DONE]\n\n";
             exchange.getResponseHeaders().add("Content-Type", "text/event-stream");
@@ -186,7 +238,7 @@ class OpenAiCompatibleModelClientTest {
             }
         });
 
-        assertThat(requestBody.get()).contains("\"stream\":true", "\"name\":\"capability_0\"");
+        assertThat(requestBody.get()).contains("\"stream\":true", "\"name\":\"cap_d5add68fb09702059e5a040bde0a0e2da74598d772a22c68b36fe5ab\"");
         assertThat(deltas).containsExactly("正在", "处理");
         assertThat(completed.get().text()).isEqualTo("正在处理");
         assertThat(completed.get().finishReason()).isEqualTo("tool_calls");
@@ -309,7 +361,7 @@ class OpenAiCompatibleModelClientTest {
     void rejectsProviderToolCallsThatWereNotDeclared() throws Exception {
         OpenAiCompatibleModelClient client = responseClient(200,
                 "{\"choices\":[{\"message\":{\"tool_calls\":[{\"id\":\"call-1\",\"function\":{"
-                        + "\"name\":\"capability_9\",\"arguments\":\"{}\"}}]},\"finish_reason\":\"tool_calls\"}]}");
+                        + "\"name\":\"cap_9\",\"arguments\":\"{}\"}}]},\"finish_reason\":\"tool_calls\"}]}");
         AiTurnRequest request = new AiTurnRequest(List.of(new AiChatMessage(AiChatMessage.Role.USER, "find")),
                 List.of(new AiToolDefinition("workbench.find-menu", "Find menu", Map.of("type", "object"))),
                 null, null);
@@ -323,7 +375,7 @@ class OpenAiCompatibleModelClientTest {
     void rejectsExcessiveStructuredToolCallsBeforeReturningThemToTheBrowser() throws Exception {
         String calls = java.util.stream.IntStream.range(0, 9)
                 .mapToObj(index -> "{\"id\":\"call-" + index
-                        + "\",\"function\":{\"name\":\"capability_0\",\"arguments\":\"{}\"}}")
+                        + "\",\"function\":{\"name\":\"cap_d5add68fb09702059e5a040bde0a0e2da74598d772a22c68b36fe5ab\",\"arguments\":\"{}\"}}")
                 .collect(java.util.stream.Collectors.joining(","));
         OpenAiCompatibleModelClient client = responseClient(200,
                 "{\"choices\":[{\"message\":{\"tool_calls\":[" + calls
@@ -345,7 +397,7 @@ class OpenAiCompatibleModelClientTest {
                 new ObjectMapper().writeValueAsString(Map.of("choices", List.of(Map.of(
                         "message", Map.of("tool_calls", List.of(Map.of(
                                 "id", "call-1",
-                                "function", Map.of("name", "capability_0", "arguments", encodedArguments)))),
+                                "function", Map.of("name", "cap_d5add68fb09702059e5a040bde0a0e2da74598d772a22c68b36fe5ab", "arguments", encodedArguments)))),
                         "finish_reason", "tool_calls")))));
         AiTurnRequest request = new AiTurnRequest(List.of(new AiChatMessage(AiChatMessage.Role.USER, "find")),
                 List.of(new AiToolDefinition("workbench.find-menu", "Find menu", Map.of("type", "object"))),

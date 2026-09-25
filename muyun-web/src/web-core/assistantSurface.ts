@@ -1,5 +1,6 @@
 import type {
   AssistantCapabilityCall,
+  AssistantResultPresentation,
   AssistantCapabilityDescriptor,
   AssistantSurfaceContext,
   AssistantTurnInput,
@@ -10,6 +11,9 @@ import type { AssistantTurnProgress } from './assistantTurnClient';
 
 export interface AssistantCapability<TInput = unknown, TOutput = unknown> {
   descriptor: AssistantCapabilityDescriptor;
+  /** Trusted implementation effect boundary; read capabilities cannot mutate the page. */
+  effect: 'read' | 'page' | 'draft' | 'configuration-draft';
+  present?(output: TOutput): AssistantResultPresentation;
   parseInput(input: unknown): TInput;
   execute(input: TInput, context: AssistantCapabilityExecutionContext): Promise<TOutput>;
 }
@@ -20,7 +24,7 @@ export function emptyAssistantCapabilityInputSchema(): Record<string, unknown> {
 
 export function parseEmptyAssistantCapabilityInput(input: unknown): Record<string, never> {
   if (input === null || typeof input !== 'object' || Array.isArray(input) || Object.keys(input).length > 0) {
-    throw new Error('Assistant capability input must be an empty object');
+    throw new AssistantCapabilityUsageError('Assistant capability input must be an empty object');
   }
   return {};
 }
@@ -118,7 +122,7 @@ export interface AssistantSurfaceRegistry {
     call: AssistantCapabilityCall,
     token: AssistantInvocationToken,
     signal?: AbortSignal,
-  ): Promise<{ value: unknown; contextChanged: boolean }>;
+  ): Promise<{ value: unknown; contextChanged: boolean; presentation?: AssistantResultPresentation }>;
 }
 
 export interface AssistantSurfaceHost {
@@ -146,9 +150,28 @@ export class StaleAssistantInvocationError extends Error {
 
 /** Safe, bounded feedback that helps the model repair a rejected capability call. */
 export class AssistantCapabilityUsageError extends Error {
-  constructor(message: string) {
+  constructor(
+    message: string,
+    readonly code:
+      | 'CAPABILITY_USAGE_INVALID'
+      | 'CANDIDATE_AMBIGUOUS'
+      | 'CANDIDATE_EXPIRED'
+      | 'PRECONDITION_FAILED' = 'CAPABILITY_USAGE_INVALID',
+  ) {
     super(message);
     this.name = 'AssistantCapabilityUsageError';
+  }
+}
+
+/** An effect started before interruption. Contains no business output from an obsolete scope. */
+export class AssistantEffectInterruptedError extends Error {
+  constructor(
+    readonly token: AssistantInvocationToken,
+    readonly execution: 'effect-applied' | 'unknown',
+    cause: unknown,
+  ) {
+    super('Assistant page effect was interrupted', { cause });
+    this.name = 'AssistantEffectInterruptedError';
   }
 }
 
@@ -373,11 +396,14 @@ export function createAssistantSurfaceRegistry(
       signal?.addEventListener('abort', abort, { once: true });
       if (signal?.aborted) abort();
       pending.add(controller);
+      let effectState: 'not-applied' | 'effect-applied' | 'unknown' = 'not-applied';
       return (async () => {
         const capability = validateAssistantCapabilities(registration.surface.capabilities()).find(
           ({ descriptor }) => descriptor.code === call.code,
         );
-        if (!capability) throw new Error(`Assistant capability is unavailable: ${call.code}`);
+        if (!capability)
+          throw new AssistantCapabilityUsageError('Capability is no longer available', 'PRECONDITION_FAILED');
+
         const input = capability.parseInput(call.input);
         requireCurrent(token);
         let postEffectToken: AssistantInvocationToken | undefined;
@@ -406,33 +432,40 @@ export function createAssistantSurfaceRegistry(
               throw new DOMException('Assistant invocation was cancelled', 'AbortError');
             }
             requireCurrent(token);
+            if (capability.effect === 'read') throw new Error('Read capability cannot apply page effects');
+            effectState = 'unknown';
             const result = effect();
+            effectState = 'effect-applied';
             effectApplied = true;
             const afterEffect = active();
             postEffectToken = afterEffect ? tokenOf(afterEffect) : undefined;
             if (settle) {
               const effectScope = postEffectToken;
-              postEffectSettlement = settle().then((replacement) => {
-                const current = active();
-                const settledToken = current ? tokenOf(current) : undefined;
-                const sameSurface =
-                  effectScope &&
-                  settledToken &&
-                  effectScope.pageInstanceKey === settledToken.pageInstanceKey &&
-                  effectScope.surfaceGeneration === settledToken.surfaceGeneration;
-                if (sameSurface) {
-                  if (!sameExecutionScope(effectScope, settledToken)) {
+              postEffectSettlement = Promise.resolve()
+                .then(settle)
+                .then((replacement) => {
+                  const current = active();
+                  const settledToken = current ? tokenOf(current) : undefined;
+                  const sameSurface =
+                    effectScope &&
+                    settledToken &&
+                    effectScope.pageInstanceKey === settledToken.pageInstanceKey &&
+                    effectScope.surfaceGeneration === settledToken.surfaceGeneration;
+                  if (sameSurface) {
+                    if (!sameExecutionScope(effectScope, settledToken)) {
+                      throw new StaleAssistantInvocationError();
+                    }
+                  } else if (
+                    !replacement ||
+                    !settledToken ||
+                    !sameAssistantInvocationToken(replacement, settledToken)
+                  ) {
                     throw new StaleAssistantInvocationError();
                   }
-                } else if (
-                  !replacement ||
-                  !settledToken ||
-                  !sameAssistantInvocationToken(replacement, settledToken)
-                ) {
-                  throw new StaleAssistantInvocationError();
-                }
-                postEffectToken = settledToken;
-              });
+                  postEffectToken = settledToken;
+                });
+              // The executor may fail before awaiting settlement; still observe its rejection.
+              void postEffectSettlement.catch(() => undefined);
             }
             return result;
           },
@@ -447,18 +480,32 @@ export function createAssistantSurfaceRegistry(
           if (!sameAssistantInvocationToken(postEffectToken, currentToken)) {
             throw new StaleAssistantInvocationError();
           }
-          return { value, contextChanged: true };
+          return {
+            value,
+            contextChanged: true,
+            ...(capability.present ? { presentation: capability.present(value) } : {}),
+          };
         }
         if (controller.signal.aborted) {
           throw new DOMException('Assistant invocation was cancelled', 'AbortError');
         }
         if (!currentToken || !sameAssistantInvocationToken(token, currentToken))
           throw new StaleAssistantInvocationError();
-        return { value, contextChanged: false };
-      })().finally(() => {
-        pending.delete(controller);
-        signal?.removeEventListener('abort', abort);
-      });
+        return {
+          value,
+          contextChanged: false,
+          ...(capability.present ? { presentation: capability.present(value) } : {}),
+        };
+      })()
+        .catch((error: unknown) => {
+          if (effectState !== 'not-applied')
+            throw new AssistantEffectInterruptedError(token, effectState, error);
+          throw error;
+        })
+        .finally(() => {
+          pending.delete(controller);
+          signal?.removeEventListener('abort', abort);
+        });
     },
   };
 }
@@ -499,6 +546,8 @@ function validateAssistantCapabilities(capabilities: AssistantCapability[]): Ass
   const codes = new Set<string>();
   for (const capability of capabilities) {
     const code = capability.descriptor.code;
+    if (!['read', 'page', 'draft', 'configuration-draft'].includes(capability.effect))
+      throw new Error('Assistant capability must declare its effect boundary');
     if (!code || codes.has(code) || code.startsWith('assistant.')) {
       throw new Error(`Invalid or duplicate assistant capability code: ${code}`);
     }

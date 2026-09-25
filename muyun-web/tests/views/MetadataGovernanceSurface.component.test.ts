@@ -1231,6 +1231,7 @@ function responseFor(options: HttpRequestOptions) {
   if (options.path.endsWith('/metadata-model/change-set-preview'))
     return {
       errors: [],
+      warnings: [],
       fieldImpacts: [
         {
           operation: 'UPDATE',
