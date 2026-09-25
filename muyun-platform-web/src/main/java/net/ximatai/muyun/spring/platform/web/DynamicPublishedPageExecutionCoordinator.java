@@ -1,7 +1,6 @@
 package net.ximatai.muyun.spring.platform.web;
 
 import net.ximatai.muyun.spring.platform.runtime.PlatformModuleDefinitionCompiler;
-import net.ximatai.muyun.spring.dynamic.descriptor.DynamicModuleDescriptor;
 
 import net.ximatai.muyun.spring.platform.runtime.DynamicRuntimeActivationService;
 import net.ximatai.muyun.spring.platform.ui.PublishedPageExecutionCoordinator;
@@ -44,7 +43,7 @@ public class DynamicPublishedPageExecutionCoordinator implements PublishedPageEx
         // It either yields a fully compiled plan or the explicit non-executable state for an
         // incomplete page. Any compilation failure intentionally escapes and rolls back publish.
         Optional<ModuleExecutionPlan> candidate = runtimeContextService.get().pendingDynamicExecutionPlan(
-                DynamicModuleDescriptor.from(compiler.get().compile(moduleAlias)));
+                compiler.get().compile(moduleAlias));
         candidate.ifPresent(executionPlanCatalog::validateCandidate);
         activation.get().schedule(moduleAlias);
     }

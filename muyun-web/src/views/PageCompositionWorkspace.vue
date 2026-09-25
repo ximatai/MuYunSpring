@@ -2892,7 +2892,7 @@ function layoutHandlers(layout: 'form' | 'detail') {
               <ManagementTabs
                 v-model:active-key="paletteMode"
                 :tabs="[
-                  { key: 'fields', title: '已有字段' },
+                  { key: 'fields', title: '元数据' },
                   { key: 'components', title: '组件库' },
                 ]"
                 :disabled="isMutating"
@@ -2950,7 +2950,7 @@ function layoutHandlers(layout: 'form' | 'detail') {
               <ManagementTabs
                 v-model:active-key="paletteMode"
                 :tabs="[
-                  { key: 'fields', title: '已有字段' },
+                  { key: 'fields', title: '元数据' },
                   { key: 'components', title: '组件库' },
                 ]"
                 :disabled="isMutating"

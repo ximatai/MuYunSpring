@@ -30,6 +30,8 @@ import net.ximatai.muyun.spring.platform.ui.PlatformPresentationRevision;
 import net.ximatai.muyun.spring.dynamic.descriptor.DynamicActionDescriptor;
 import net.ximatai.muyun.spring.dynamic.descriptor.DynamicEntityDescriptor;
 import net.ximatai.muyun.spring.dynamic.metadata.FieldDefinition;
+import net.ximatai.muyun.spring.dynamic.metadata.ModuleDefinition;
+import net.ximatai.muyun.spring.dynamic.metadata.EntityDefinition;
 import net.ximatai.muyun.spring.dynamic.descriptor.DynamicFieldDescriptor;
 import net.ximatai.muyun.spring.dynamic.descriptor.DynamicModuleDescriptor;
 import net.ximatai.muyun.spring.dynamic.descriptor.DynamicQuerySchemas;
@@ -39,8 +41,6 @@ import net.ximatai.muyun.spring.dynamic.metadata.EntityActionAccessMode;
 import net.ximatai.muyun.spring.dynamic.metadata.EntityActionCategory;
 import net.ximatai.muyun.spring.dynamic.metadata.EntityActionExecutorType;
 import net.ximatai.muyun.spring.dynamic.metadata.EntityActionLevel;
-import net.ximatai.muyun.spring.dynamic.metadata.EntityDefinition;
-import net.ximatai.muyun.spring.dynamic.metadata.FieldDefinition;
 import net.ximatai.muyun.spring.dynamic.metadata.ModuleDefinitionException;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecordService;
 import net.ximatai.muyun.spring.platform.module.ModuleEntryType;
@@ -400,10 +400,23 @@ public class PlatformModuleRuntimeContextService {
                     dynamicDescriptor.mainEntityAlias(), dynamicDescriptor.actions(), entities, relations,
                     dynamicDescriptor.references(), associations);
         }
+        ModuleDefinition facts = installedModule(validModuleAlias);
+        if (facts != null && (!newFields.isEmpty() || !children.isEmpty())) {
+            var candidateEntities = new java.util.ArrayList<EntityDefinition>();
+            for (var entity : facts.entities()) {
+                var fields = new java.util.ArrayList<>(entity.fields());
+                if (entity.alias().equals(facts.mainEntityAlias())) fields.addAll(newFields);
+                candidateEntities.add(new EntityDefinition(entity.alias(), entity.schemaName(), entity.tableName(),
+                        entity.name(), fields, entity.capabilities(), entity.formulaRules(), entity.tenantUniqueConstraints(),
+                        entity.sortPartitionFields(), entity.fileReferences()));
+            }
+            for (var child : children) candidateEntities.add(new EntityDefinition(child.alias(), child.alias(), child.title(), child.fields()));
+            facts = facts.toBuilder().entities(candidateEntities).build();
+        }
         ModuleUiDefinition definition = PageRevisionModuleUiDefinitionAdapter.fromPreviewRevision(page, revision,
                 uiTreeJson, pageCompilationContext(dynamicDescriptor, module.getOverviewMode()));
         var descriptor = compileDynamicPageDescriptor(validModuleAlias, title(module, Optional.empty(), dynamicDescriptor,
-                validModuleAlias), dynamicDescriptor, definition);
+                validModuleAlias), dynamicDescriptor, definition, facts);
         return uiControlRulesService == null ? descriptor : UiControlFormProjection.project(descriptor,
                 uiControlRulesService.snapshot(validModuleAlias).rules());
     }
@@ -435,11 +448,12 @@ public class PlatformModuleRuntimeContextService {
     }
 
     /** Compiles transactional metadata without installing it into the shared runtime. */
-    public Optional<ModuleExecutionPlan> pendingDynamicExecutionPlan(DynamicModuleDescriptor dynamic) {
+    public Optional<ModuleExecutionPlan> pendingDynamicExecutionPlan(ModuleDefinition candidate) {
+        DynamicModuleDescriptor dynamic = DynamicModuleDescriptor.from(candidate);
         if (publishedPageDefinitionResolver == null) return Optional.empty();
         return publishedPageDefinitionResolver.resolveWebGlobal(dynamic).map(page -> {
             ResolvedModuleUiDescriptor descriptor = compileDynamicPageDescriptor(dynamic.moduleAlias(),
-                    page.page().getTitle(), dynamic, page.definition());
+                    page.page().getTitle(), dynamic, page.definition(), candidate);
             return compiledPublishedPageExecutionPlan(dynamic.moduleAlias(), dynamic, descriptor, page);
         });
     }
@@ -495,6 +509,15 @@ public class PlatformModuleRuntimeContextService {
                 + "-page-" + publishedPage.revision().getId()
                 + "-r" + publishedPage.revision().getRevisionNo();
         java.util.Set<String> readFields = new java.util.LinkedHashSet<>(listFields);
+        if (descriptor.page() != null && descriptor.page().detail() != null) {
+            var detail = descriptor.page().detail();
+            java.util.stream.Stream.concat(
+                    detail.display() == null ? java.util.stream.Stream.<ResolvedViewFieldDescriptor>empty() : detail.display().fields().stream(),
+                    formViewFields.stream())
+                    .filter(field -> field.fieldRef().relationCode() == null)
+                    .filter(field -> !Boolean.FALSE.equals(field.visible().constant()))
+                    .map(field -> field.fieldRef().fieldName()).forEach(readFields::add);
+        }
         readFields.addAll(quickSearchFields);
         if (descriptor.page() != null && descriptor.page().explorer() != null) {
             readFields.add(descriptor.page().explorer().titleField());
@@ -596,6 +619,14 @@ public class PlatformModuleRuntimeContextService {
                                                                      String title,
                                                                      DynamicModuleDescriptor dynamicDescriptor,
                                                                      ModuleUiDefinition definition) {
+        return compileDynamicPageDescriptor(moduleAlias, title, dynamicDescriptor, definition,
+                installedModule(moduleAlias));
+    }
+
+    private ResolvedModuleUiDescriptor compileDynamicPageDescriptor(String moduleAlias,
+                                                                     String title,
+                                                                     DynamicModuleDescriptor dynamicDescriptor,
+                                                                     ModuleUiDefinition definition, ModuleDefinition facts) {
         if (definition.managedActions()) {
             var available = actions(moduleAlias, ModuleKind.DYNAMIC, Optional.empty(), dynamicDescriptor);
             PageActionOperation.validate(definition, code -> available.stream()
@@ -625,7 +656,7 @@ public class PlatformModuleRuntimeContextService {
                 if (!isSearchableText(main, field)) throw new IllegalArgumentException("快速查询仅支持文本字段：" + field);
             }
         }
-        validateDynamicListQuerySummaryFields(moduleAlias, definition, dynamicDescriptor);
+        validateDynamicListQuerySummaryFields(moduleAlias, definition, dynamicDescriptor, facts);
         List<DynamicDetailRelationTarget> relationTargets = dynamicDetailRelationTargets(moduleAlias, dynamicDescriptor,
                 definition.detailRelations());
         java.util.Map<ViewFieldRef, FieldValueType> fieldTypes = new java.util.LinkedHashMap<>(
@@ -655,22 +686,20 @@ public class PlatformModuleRuntimeContextService {
                 .forEach(field -> protectedFields.add(ViewFieldRef.relation(target.entity().entityAlias(), field.fieldName()))));
         descriptor = AssistantFieldPolicyProjection.protect(descriptor, protectedFields);
         Map<ViewFieldRef, net.ximatai.muyun.spring.dynamic.metadata.FieldDefinition> writeFields = new LinkedHashMap<>();
-        dynamicRecordService.moduleDefinitions().stream().filter(module -> moduleAlias.equals(module.moduleAlias()))
-                .findFirst().ifPresent(module -> writeFields.putAll(FieldWriteRuleProjection.fields(
-                        module.entities(), module.mainEntityAlias())));
+        if (facts != null) writeFields.putAll(FieldWriteRuleProjection.fields(facts.entities(), facts.mainEntityAlias()));
         relationTargets.stream().filter(DynamicDetailRelationTarget::aggregateChild).forEach(target ->
-                dynamicEntityFields(target.view().targetModuleAlias(), target.entity().entityAlias()).forEach(field ->
+                dynamicEntityFields(target.view().targetModuleAlias(), target.entity().entityAlias(), facts).forEach(field ->
                         writeFields.put(ViewFieldRef.relation(target.entity().entityAlias(), field.fieldName()), field)));
         descriptor = FieldWriteRuleProjection.project(descriptor, writeFields);
         // Formula projection needs the resolved aggregate-child relation code and its child editor
         // fields. Attach them before compiling browser-visible business rules.
         descriptor = descriptor.withDetailRelations(dynamicDetailRelations(moduleAlias, relationTargets));
         descriptor = BusinessRuleFormProjection.projectLenient(descriptor,
-                dynamicMainFormulaRules(moduleAlias, dynamicDescriptor.mainEntityAlias()));
+                dynamicMainFormulaRules(facts, dynamicDescriptor.mainEntityAlias()));
         if (definition.page() instanceof ListDetailCardPageDefinition listPage && listPage.list().querySummaries().stream()
                 .anyMatch(summary -> summary.source() == PageListQuerySummaryDefinition.Source.GROUPED)) {
             descriptor = ModuleUiDescriptorCompiler.withListQuerySummaryTitles(descriptor,
-                    dynamicEntityFields(moduleAlias, dynamicDescriptor.mainEntityAlias()));
+                    dynamicEntityFields(moduleAlias, dynamicDescriptor.mainEntityAlias(), facts));
         }
         descriptor = PageActionInvocationCompiler.bind(descriptor, actions(moduleAlias, ModuleKind.DYNAMIC, Optional.empty(), dynamicDescriptor).stream()
                 .collect(java.util.stream.Collectors.toMap(PlatformModuleRuntimeAction::actionCode, PlatformModuleRuntimeAction::invocations)));
@@ -741,10 +770,8 @@ public class PlatformModuleRuntimeContextService {
     }
 
     private List<net.ximatai.muyun.spring.common.formula.FormulaRule> dynamicMainFormulaRules(
-            String moduleAlias, String mainEntityAlias) {
-        if (dynamicRecordService == null) return List.of();
-        return dynamicRecordService.moduleDefinitions().stream()
-                .filter(module -> moduleAlias.equals(module.moduleAlias())).findFirst()
+            ModuleDefinition facts, String mainEntityAlias) {
+        return Optional.ofNullable(facts)
                 .flatMap(module -> module.entities().stream()
                         .filter(entity -> mainEntityAlias.equals(entity.alias())).findFirst())
                 .map(net.ximatai.muyun.spring.dynamic.metadata.EntityDefinition::orderedFormulaRules)
@@ -754,13 +781,11 @@ public class PlatformModuleRuntimeContextService {
     }
 
     private void validateDynamicListQuerySummaryFields(String moduleAlias, ModuleUiDefinition definition,
-                                                       DynamicModuleDescriptor descriptor) {
+                                                       DynamicModuleDescriptor descriptor, ModuleDefinition module) {
         if (!(definition.page() instanceof ListDetailCardPageDefinition page)) return;
         if (page.list().querySummaries().stream().noneMatch(summary -> summary.source() == PageListQuerySummaryDefinition.Source.SUM
                 || summary.source() == PageListQuerySummaryDefinition.Source.GROUPED)) return;
-        var module = dynamicRecordService.moduleDefinitions().stream()
-                .filter(candidate -> moduleAlias.equals(candidate.moduleAlias())).findFirst()
-                .orElseThrow(() -> new IllegalArgumentException("dynamic module has no main entity field facts: " + moduleAlias));
+        if (module == null) throw new IllegalArgumentException("dynamic module has no main entity field facts: " + moduleAlias);
         List<FieldDefinition> fields = module.entities().stream()
                 .filter(entity -> descriptor.mainEntityAlias().equals(entity.alias())).findFirst()
                 .map(net.ximatai.muyun.spring.dynamic.metadata.EntityDefinition::fields).orElseThrow(() ->
@@ -786,6 +811,18 @@ public class PlatformModuleRuntimeContextService {
                     if (summary.fieldName() != null) ListQuerySummaryFieldCatalog.requireEligible(summary.fieldName(), fields,
                             moduleAlias + ".querySummaries");
                 });
+    }
+
+    private ModuleDefinition installedModule(String moduleAlias) {
+        return dynamicRecordService == null ? null : dynamicRecordService.moduleDefinitions().stream()
+                .filter(module -> moduleAlias.equals(module.moduleAlias())).findFirst().orElse(null);
+    }
+
+    private List<FieldDefinition> dynamicEntityFields(String moduleAlias, String entityAlias, ModuleDefinition candidate) {
+        if (candidate != null && candidate.moduleAlias().equals(moduleAlias))
+            return candidate.entities().stream().filter(entity -> entityAlias.equals(entity.alias()))
+                    .findFirst().map(EntityDefinition::fields).orElse(List.of());
+        return dynamicEntityFields(moduleAlias, entityAlias);
     }
 
     private List<FieldDefinition> dynamicEntityFields(
