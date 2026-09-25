@@ -1,5 +1,7 @@
 package net.ximatai.muyun.spring.iam.role;
 
+import net.ximatai.muyun.spring.common.platform.ReferenceDependencyScopeCatalogResolver;
+import org.springframework.beans.factory.support.StaticListableBeanFactory;
 import net.ximatai.muyun.spring.common.platform.PlatformAction;
 import net.ximatai.muyun.spring.iam.role.AccountRoleGrantDao;
 import net.ximatai.muyun.spring.iam.role.DataScopePolicy;
@@ -167,7 +169,8 @@ class RoleGrantableActionResolverTest {
                 mock(EmployeeAccountService.class),
                 mock(OrganizationService.class),
                 mock(RoleDataGrantActionDao.class),
-                mock(TenantApplicationService.class));
+                mock(TenantApplicationService.class),
+                new StaticListableBeanFactory().getBeanProvider(ReferenceDependencyScopeCatalogResolver.class));
 
         RolePermissionMatrix matrix = roleService.permissionMatrix("role-1", grantableActions);
 

@@ -1,5 +1,7 @@
 package net.ximatai.muyun.spring.platform.web;
 
+import net.ximatai.muyun.spring.common.platform.ReferenceDependencyScopeCatalogResolver;
+import org.springframework.beans.factory.support.StaticListableBeanFactory;
 import net.ximatai.muyun.spring.platform.module.StaticModuleDefinitionRegistrar;
 
 import net.ximatai.muyun.spring.ability.BaseDao;
@@ -107,7 +109,8 @@ class PlatformAdminMenuVisibilityContractTest {
             mock(EmployeeAccountService.class),
             mock(OrganizationService.class),
             mock(RoleDataGrantActionDao.class),
-            TenantServiceTestFactory.applicationService());
+            TenantServiceTestFactory.applicationService(),
+            new StaticListableBeanFactory().getBeanProvider(ReferenceDependencyScopeCatalogResolver.class));
     private final MenuSchemeService schemeService = new MenuSchemeService(
             schemeDao,
             java.util.Optional.empty(),

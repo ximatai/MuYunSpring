@@ -1,5 +1,6 @@
 package net.ximatai.muyun.spring.iam.organization;
 
+import net.ximatai.muyun.spring.common.platform.ReferenceDependencyScopeCatalogResolver;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.tenant.ActiveTenantVerifier;
 import net.ximatai.muyun.spring.common.tenant.OrganizationCreationProvisioner;
@@ -186,7 +187,8 @@ class OrganizationServiceContractTest {
                 mock(EmployeeAccountService.class),
                 organizations,
                 mock(RoleDataGrantActionDao.class),
-                mock(TenantApplicationService.class));
+                mock(TenantApplicationService.class),
+                new StaticListableBeanFactory().getBeanProvider(ReferenceDependencyScopeCatalogResolver.class));
         var templates = mock(BuiltInRolePermissionTemplateService.class);
         beans.addBean("roles", new DefaultOrganizationRoleProvisioner(roles, templates));
         Organization disabled = organization("disabled", "Disabled organization");

@@ -39,7 +39,7 @@ import net.ximatai.muyun.spring.iam.organization.Organization;
 import net.ximatai.muyun.spring.iam.organization.OrganizationService;
 import net.ximatai.muyun.spring.iam.tenant.TenantApplicationService;
 import net.ximatai.muyun.spring.iam.user.UserAccountService;
-import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -77,7 +77,7 @@ public class RoleService extends TenantActiveScopedService<Role> implements
     private final EmployeePositionService employeePositionService;
     private final EmployeeAccountService employeeAccountService;
     private final OrganizationService organizationService;
-    private ReferenceDependencyScopeCatalogResolver referenceDependencyScopeCatalogResolver;
+    private final ObjectProvider<ReferenceDependencyScopeCatalogResolver> referenceDependencyScopeCatalogResolverProvider;
     private final TenantApplicationService tenantApplicationService;
 
     public RoleService(RoleDao roleDao,
@@ -92,7 +92,8 @@ public class RoleService extends TenantActiveScopedService<Role> implements
                        EmployeeAccountService employeeAccountService,
                        OrganizationService organizationService,
                        RoleDataGrantActionDao roleDataGrantActionDao,
-                       TenantApplicationService tenantApplicationService) {
+                       TenantApplicationService tenantApplicationService,
+                       ObjectProvider<ReferenceDependencyScopeCatalogResolver> referenceDependencyScopeCatalogResolverProvider) {
         super(MODULE_ALIAS, Role.class, roleDao, activeTenantVerifier);
         this.accountRoleGrantDao = Objects.requireNonNull(accountRoleGrantDao, "accountRoleGrantDao must not be null");
         this.employmentRoleGrantDao = Objects.requireNonNull(employmentRoleGrantDao,
@@ -106,12 +107,8 @@ public class RoleService extends TenantActiveScopedService<Role> implements
         this.employeeAccountService = Objects.requireNonNull(employeeAccountService, "employeeAccountService must not be null");
         this.organizationService = Objects.requireNonNull(organizationService, "organizationService must not be null");
         this.tenantApplicationService = Objects.requireNonNull(tenantApplicationService, "tenantApplicationService must not be null");
-    }
-
-    @Autowired(required = false)
-    void setReferenceDependencyScopeCatalogResolver(
-            ReferenceDependencyScopeCatalogResolver referenceDependencyScopeCatalogResolver) {
-        this.referenceDependencyScopeCatalogResolver = referenceDependencyScopeCatalogResolver;
+        this.referenceDependencyScopeCatalogResolverProvider = Objects.requireNonNull(
+                referenceDependencyScopeCatalogResolverProvider, "referenceDependencyScopeCatalogResolverProvider must not be null");
     }
 
     @Override
@@ -1589,9 +1586,7 @@ public class RoleService extends TenantActiveScopedService<Role> implements
                 || role.getRoleKind() == RoleKind.DATA_GRANT || moduleAlias == null || moduleAlias.isBlank()) {
             return new RoleDataScopePolicyCatalog(role.getId(), options, List.of());
         }
-        List<ReferenceDependencyScopeCandidate> candidates = referenceDependencyScopeCatalogResolver == null
-                ? List.of()
-                : referenceDependencyScopeCatalogResolver.resolveCandidates(requireModuleAlias(moduleAlias));
+        List<ReferenceDependencyScopeCandidate> candidates = referenceDependencyScopeCandidates(moduleAlias);
         if (candidates.isEmpty()) {
             options = options.stream()
                     .filter(option -> option.code() != DataScopePolicy.REFERENCE_DEPENDENCY)
@@ -1602,6 +1597,12 @@ public class RoleService extends TenantActiveScopedService<Role> implements
                         candidate.referenceFieldId(), candidate.title(), candidate.targetModuleAlias(),
                         candidate.targetModuleTitle(), candidate.referenceActionCode(), candidate.referenceActionTitle()))
                 .toList());
+    }
+
+    private List<ReferenceDependencyScopeCandidate> referenceDependencyScopeCandidates(String moduleAlias) {
+        // The optional catalog can depend on the dynamic runtime; resolve it after service construction.
+        ReferenceDependencyScopeCatalogResolver resolver = referenceDependencyScopeCatalogResolverProvider.getIfAvailable();
+        return resolver == null ? List.of() : resolver.resolveCandidates(requireModuleAlias(moduleAlias));
     }
 
     private List<RoleDataScopePolicyCatalog.Option> dataScopeOptions(Role role) {
@@ -1671,8 +1672,7 @@ public class RoleService extends TenantActiveScopedService<Role> implements
         if (policy == DataScopePolicy.REFERENCE_DEPENDENCY) {
             String validReferenceFieldId = Preconditions.requireText(referenceFieldId, "referenceFieldId");
             String validReferenceActionCode = normalizeReferenceActionCode(referenceActionCode);
-            boolean supported = referenceDependencyScopeCatalogResolver != null
-                    && referenceDependencyScopeCatalogResolver.resolveCandidates(moduleAlias).stream()
+            boolean supported = referenceDependencyScopeCandidates(moduleAlias).stream()
                     .anyMatch(candidate -> candidate.referenceFieldId().equals(validReferenceFieldId)
                             && candidate.referenceActionCode().equals(validReferenceActionCode));
             if (!supported) {

@@ -1,5 +1,7 @@
 package net.ximatai.muyun.spring.iam.role;
 
+import net.ximatai.muyun.spring.common.platform.ReferenceDependencyScopeCatalogResolver;
+import org.springframework.beans.factory.support.StaticListableBeanFactory;
 import net.ximatai.muyun.database.core.metadata.DBInfo;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.CriteriaSqlCompiler;
@@ -29,6 +31,7 @@ import net.ximatai.muyun.spring.iam.user.UserAccount;
 import net.ximatai.muyun.spring.iam.user.UserAccountService;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.ObjectProvider;
 
 import java.util.List;
 
@@ -330,7 +333,8 @@ class RoleServiceContractTest {
                 mock(EmployeeAccountService.class),
                 organizationService,
                 mock(RoleDataGrantActionDao.class),
-                mock(TenantApplicationService.class));
+                mock(TenantApplicationService.class),
+                new StaticListableBeanFactory().getBeanProvider(ReferenceDependencyScopeCatalogResolver.class));
         Role role = employmentRole("org-role", RoleKind.STANDARD);
         role.setOwnerScopeType(RoleOwnerScopeType.ORGANIZATION);
         role.setOwnerScopeId("org-1");
@@ -524,7 +528,8 @@ class RoleServiceContractTest {
                 mock(EmployeeAccountService.class),
                 mock(OrganizationService.class),
                 mock(RoleDataGrantActionDao.class),
-                mock(TenantApplicationService.class));
+                mock(TenantApplicationService.class),
+                new StaticListableBeanFactory().getBeanProvider(ReferenceDependencyScopeCatalogResolver.class));
 
         try (TenantContext.Scope ignored = TenantContext.use("tenant_a")) {
             assertThat(service.grantAccountRole("r1", "user-1", ManagementScopeType.TENANT, "tenant_a"))
@@ -566,16 +571,19 @@ class RoleServiceContractTest {
     }
 
     @Test
-    void shouldExposeBackendOwnedDataScopeCatalogAndValidateReferenceDependency() {
+    void shouldResolveConstructorProvidedReferenceCatalogLazilyAndValidateGrants() {
         RoleDao roleDao = mock(RoleDao.class);
         RoleActionDao actionDao = mock(RoleActionDao.class);
         when(roleDao.query(any(Criteria.class), any(PageRequest.class)))
                 .thenReturn(List.of(employmentRole("r1", RoleKind.STANDARD)));
         when(actionDao.query(any(Criteria.class), any(PageRequest.class))).thenReturn(List.of());
         when(actionDao.insert(any())).thenReturn("action-1");
+        StaticListableBeanFactory catalogs = new StaticListableBeanFactory();
         RoleService service = service(roleDao, mock(AccountRoleGrantDao.class),
-                mock(EmploymentRoleGrantDao.class), actionDao);
-        service.setReferenceDependencyScopeCatalogResolver(moduleAlias -> "sales.score".equals(moduleAlias)
+                mock(EmploymentRoleGrantDao.class), actionDao, mock(RoleDataGrantActionDao.class),
+                catalogs.getBeanProvider(ReferenceDependencyScopeCatalogResolver.class));
+        // Register after construction to prove that the service neither resolves nor caches absence eagerly.
+        catalogs.addBean("referenceCatalog", (ReferenceDependencyScopeCatalogResolver) moduleAlias -> "sales.score".equals(moduleAlias)
                 ? List.of(new ReferenceDependencyScopeCandidate(
                         "score.studentId", "学生", "school.student", "学生", "view", "查看"))
                 : List.of());
@@ -609,6 +617,29 @@ class RoleServiceContractTest {
     }
 
     @Test
+    void shouldHideAndRejectReferenceDependencyWhenNoCatalogIsInstalled() {
+        RoleDao roleDao = mock(RoleDao.class);
+        RoleActionDao actionDao = mock(RoleActionDao.class);
+        when(roleDao.query(any(Criteria.class), any(PageRequest.class)))
+                .thenReturn(List.of(employmentRole("r1", RoleKind.STANDARD)));
+        RoleService service = service(roleDao, mock(AccountRoleGrantDao.class),
+                mock(EmploymentRoleGrantDao.class), actionDao);
+
+        RoleDataScopePolicyCatalog catalog = service.dataScopePolicyCatalog("r1", "sales.score");
+        assertThat(catalog.referenceDependencies()).isEmpty();
+        assertThat(catalog.options()).extracting(RoleDataScopePolicyCatalog.Option::code)
+                .doesNotContain(DataScopePolicy.REFERENCE_DEPENDENCY);
+        try (TenantContext.Scope ignored = TenantContext.use("tenant_a")) {
+            assertThatThrownBy(() -> service.grantAction("r1", "sales.score", "query",
+                    DataScopePolicy.REFERENCE_DEPENDENCY, TenantScopePolicy.CURRENT_TENANT,
+                    null, "score.studentId", "view"))
+                    .isInstanceOf(BusinessException.class)
+                    .hasFieldOrPropertyWithValue("code", "iam.role.reference-dependency-unavailable");
+        }
+        verify(actionDao, never()).insert(any());
+    }
+
+    @Test
     void shouldGrantEmploymentRoleToEmployeePosition() {
         RoleDao roleDao = mock(RoleDao.class);
         EmploymentRoleGrantDao employmentGrantDao = mock(EmploymentRoleGrantDao.class);
@@ -631,7 +662,8 @@ class RoleServiceContractTest {
                 mock(EmployeeAccountService.class),
                 mock(OrganizationService.class),
                 mock(RoleDataGrantActionDao.class),
-                mock(TenantApplicationService.class));
+                mock(TenantApplicationService.class),
+                new StaticListableBeanFactory().getBeanProvider(ReferenceDependencyScopeCatalogResolver.class));
 
         try (TenantContext.Scope ignored = TenantContext.use("tenant_a")) {
             assertThat(service.grantEmploymentRole("r1", "position-1")).isEqualTo("grant-1");
@@ -675,7 +707,8 @@ class RoleServiceContractTest {
                 mock(EmployeeAccountService.class),
                 mock(OrganizationService.class),
                 mock(RoleDataGrantActionDao.class),
-                mock(TenantApplicationService.class));
+                mock(TenantApplicationService.class),
+                new StaticListableBeanFactory().getBeanProvider(ReferenceDependencyScopeCatalogResolver.class));
 
         try (TenantContext.Scope ignored = TenantContext.use("tenant_a")) {
             service.grantAction("r1", "sales.contract", "view");
@@ -714,7 +747,8 @@ class RoleServiceContractTest {
                 mock(EmployeeAccountService.class),
                 mock(OrganizationService.class),
                 mock(RoleDataGrantActionDao.class),
-                mock(TenantApplicationService.class));
+                mock(TenantApplicationService.class),
+                new StaticListableBeanFactory().getBeanProvider(ReferenceDependencyScopeCatalogResolver.class));
 
         try (TenantContext.Scope ignored = TenantContext.use("tenant_a")) {
             assertThatThrownBy(() -> service.grantAction("r1", "sales.contract", "view",
@@ -774,7 +808,8 @@ class RoleServiceContractTest {
                 mock(EmployeeAccountService.class),
                 mock(OrganizationService.class),
                 mock(RoleDataGrantActionDao.class),
-                mock(TenantApplicationService.class));
+                mock(TenantApplicationService.class),
+                new StaticListableBeanFactory().getBeanProvider(ReferenceDependencyScopeCatalogResolver.class));
 
         try (TenantContext.Scope ignored = TenantContext.use("tenant_a")) {
             service.grantEmploymentRole("r1", "position-1");
@@ -1027,7 +1062,8 @@ class RoleServiceContractTest {
                 mock(EmployeeAccountService.class),
                 mock(OrganizationService.class),
                 mock(RoleDataGrantActionDao.class),
-                mock(TenantApplicationService.class));
+                mock(TenantApplicationService.class),
+                new StaticListableBeanFactory().getBeanProvider(ReferenceDependencyScopeCatalogResolver.class));
 
         try (TenantContext.Scope ignored = TenantContext.use("tenant_a")) {
             assertThat(service.grantAction("r1", "sales.contract", "exportData")).isEqualTo(1);
@@ -1059,7 +1095,8 @@ class RoleServiceContractTest {
                 mock(EmployeeAccountService.class),
                 mock(OrganizationService.class),
                 mock(RoleDataGrantActionDao.class),
-                tenantApplicationService);
+                tenantApplicationService,
+                new StaticListableBeanFactory().getBeanProvider(ReferenceDependencyScopeCatalogResolver.class));
 
         try (TenantContext.Scope ignored = TenantContext.use("tenant_a")) {
             assertThatThrownBy(() -> service.grantAction("r1", "sales.contract", "query"))
@@ -1102,7 +1139,8 @@ class RoleServiceContractTest {
                 mock(EmployeeAccountService.class),
                 mock(OrganizationService.class),
                 mock(RoleDataGrantActionDao.class),
-                mock(TenantApplicationService.class));
+                mock(TenantApplicationService.class),
+                new StaticListableBeanFactory().getBeanProvider(ReferenceDependencyScopeCatalogResolver.class));
 
         BusinessPrincipal principal = BusinessPrincipal.employeePosition("employee-1", null, null, "position-1");
         assertThat(service.effectiveRoleIds(principal)).containsExactly("group-1", "r1");
@@ -1144,7 +1182,8 @@ class RoleServiceContractTest {
                 employeeAccountService,
                 mock(OrganizationService.class),
                 mock(RoleDataGrantActionDao.class),
-                mock(TenantApplicationService.class));
+                mock(TenantApplicationService.class),
+                new StaticListableBeanFactory().getBeanProvider(ReferenceDependencyScopeCatalogResolver.class));
 
         List<EffectiveRoleGrant> grants = service.effectiveRoleGrants("user-1");
 
@@ -1311,7 +1350,8 @@ class RoleServiceContractTest {
                 employeeAccountService,
                 mock(OrganizationService.class),
                 mock(RoleDataGrantActionDao.class),
-                mock(TenantApplicationService.class));
+                mock(TenantApplicationService.class),
+                new StaticListableBeanFactory().getBeanProvider(ReferenceDependencyScopeCatalogResolver.class));
 
         assertThat(service.effectiveRoleGrants("user-1")).extracting(EffectiveRoleGrant::roleId)
                 .containsExactly("account-role");
@@ -1413,6 +1453,14 @@ class RoleServiceContractTest {
     private RoleService service(RoleDao roleDao, AccountRoleGrantDao accountRoleGrantDao,
                                 EmploymentRoleGrantDao employmentRoleGrantDao, RoleActionDao roleActionDao,
                                 RoleDataGrantActionDao dataGrantActionDao) {
+        return service(roleDao, accountRoleGrantDao, employmentRoleGrantDao, roleActionDao, dataGrantActionDao,
+                new StaticListableBeanFactory().getBeanProvider(ReferenceDependencyScopeCatalogResolver.class));
+    }
+
+    private RoleService service(RoleDao roleDao, AccountRoleGrantDao accountRoleGrantDao,
+                                EmploymentRoleGrantDao employmentRoleGrantDao, RoleActionDao roleActionDao,
+                                RoleDataGrantActionDao dataGrantActionDao,
+                                ObjectProvider<ReferenceDependencyScopeCatalogResolver> referenceCatalog) {
         EmployeePositionService positions = mock(EmployeePositionService.class);
         when(positions.requireEnabled(anyString(), anyString()))
                 .thenAnswer(call -> employeePosition(call.getArgument(0), "employee-1", "org-1", "dept-1", true));
@@ -1429,7 +1477,8 @@ class RoleServiceContractTest {
                 mock(EmployeeAccountService.class),
                 mock(OrganizationService.class),
                 dataGrantActionDao,
-                mock(TenantApplicationService.class));
+                mock(TenantApplicationService.class),
+                referenceCatalog);
     }
 
     private RoleDataGrantAction dataGrantAction(String id, String roleId, DataScopePolicy scope) {

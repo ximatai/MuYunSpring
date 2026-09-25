@@ -1,5 +1,6 @@
 package net.ximatai.muyun.spring.demo;
 
+import net.ximatai.muyun.spring.common.platform.ReferenceDependencyScopeCatalogResolver;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.spring.iam.role.BuiltInRolePermissionTemplateService;
 import net.ximatai.muyun.spring.iam.role.DefaultOrganizationRoleProvisioner;
@@ -107,7 +108,8 @@ class DemoBootstrapTaskTest {
             employeeAccountService,
             organizationService,
             mock(RoleDataGrantActionDao.class),
-            tenantApplicationService);
+            tenantApplicationService,
+            new StaticListableBeanFactory().getBeanProvider(ReferenceDependencyScopeCatalogResolver.class));
     private final RoleGrantableActionResolver grantableActionResolver = mock(RoleGrantableActionResolver.class);
     private final BuiltInRolePermissionTemplateService rolePermissionTemplateService =
             new BuiltInRolePermissionTemplateService(roleService, grantableActionResolver);
