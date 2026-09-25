@@ -53,8 +53,8 @@ public class DemoBootstrapConfiguration {
     }
 
     @Bean
-    ExamDemoMenuBootstrapTask examDemoMenuBootstrapTask(MenuService menuService) {
-        return new ExamDemoMenuBootstrapTask(menuService);
+    SchoolDemoMountTask schoolDemoMountTask(MenuService menuService, PlatformModuleService moduleService) {
+        return new SchoolDemoMountTask(menuService, moduleService);
     }
 
     @Bean

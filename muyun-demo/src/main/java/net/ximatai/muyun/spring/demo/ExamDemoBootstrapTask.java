@@ -28,9 +28,7 @@ import net.ximatai.muyun.spring.platform.metadata.MetadataService;
 import net.ximatai.muyun.spring.platform.metadata.ModuleMetadataRelation;
 import net.ximatai.muyun.spring.platform.metadata.ModuleMetadataRelationService;
 import net.ximatai.muyun.spring.platform.metadata.RelationRole;
-import net.ximatai.muyun.spring.platform.module.ModuleKind;
 import net.ximatai.muyun.spring.platform.module.DynamicModuleStandardActionRegistrar;
-import net.ximatai.muyun.spring.platform.module.PlatformModule;
 import net.ximatai.muyun.spring.platform.module.PlatformModuleService;
 import net.ximatai.muyun.spring.platform.runtime.PlatformBootstrapTask;
 import net.ximatai.muyun.spring.platform.runtime.PlatformDynamicRuntimeRefreshService;
@@ -150,7 +148,6 @@ public class ExamDemoBootstrapTask implements PlatformBootstrapTask {
     }
 
     private void configureMetadata() {
-        ensureModule();
         Metadata exam = ensureMetadata(EXAM_METADATA_ALIAS, "考试", "education_exam");
         ensureField(exam.getId(), "title", "title", "string", "考试名称", true, true);
         MetadataField classroomId = ensureField(exam.getId(), "classroomId", "classroom_id", "string", "教学班", true,
@@ -177,18 +174,6 @@ public class ExamDemoBootstrapTask implements PlatformBootstrapTask {
         ensureStaticReference(studentId, participants, StudentService.MODULE_ALIAS, "studentNo:studentNo,title:studentIdTitle");
         ensureAttendanceStatusDictionary();
         ensureDictionaryBinding(attendanceStatus, participants);
-    }
-
-    private void ensureModule() {
-        if (moduleService.select(MODULE_ALIAS) != null) {
-            return;
-        }
-        PlatformModule module = new PlatformModule();
-        module.setAlias(MODULE_ALIAS);
-        module.setApplicationAlias("education");
-        module.setModuleKind(ModuleKind.DYNAMIC);
-        module.setTitle("考试管理");
-        moduleService.insert(module);
     }
 
     private Metadata ensureMetadata(String alias, String title, String tableName) {

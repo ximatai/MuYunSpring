@@ -139,6 +139,8 @@ dependencies {
 ./scripts/dev-local.sh --platform
 ```
 
+开启 Demo 会统一挂载学生、班级、教师、学科分类和考试管理，恢复这些演示模块与菜单的启用状态；关闭 Demo 后，启动协调会停用演示入口，但保留配置和业务数据。重新开启即可恢复完整菜单，演示包内的手工停用不跨启动保留。普通业务模块不受演示挂载任务影响。
+
 `school-demo` 是可重建的本地演示 fixture，不提供旧元数据的兼容迁移。演示场景升级后需要获得干净状态时，先停止本地开发栈，再执行 `docker compose down --volumes`，然后重新运行 `./scripts/dev-local.sh --demo`。该命令会删除本仓库 Docker Compose 管理的全部本地 PostgreSQL 数据卷，不能用于需要保留本地数据的环境。
 
 需要分终端运行时，先 `docker compose up -d`，然后复制本机配置并启动后端：

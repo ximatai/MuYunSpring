@@ -5,7 +5,7 @@ import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.spring.boot.MuYunSpringApplication;
 import net.ximatai.muyun.spring.demo.DemoBootstrapTask;
 import net.ximatai.muyun.spring.demo.ExamDemoBootstrapTask;
-import net.ximatai.muyun.spring.demo.ExamDemoMenuBootstrapTask;
+import net.ximatai.muyun.spring.demo.SchoolDemoMountTask;
 import net.ximatai.muyun.spring.demo.ExamPostponeActionExecutor;
 import net.ximatai.muyun.spring.demo.ExamPageDemoBootstrapTask;
 import net.ximatai.muyun.spring.demo.school.classroom.ClassMember;
@@ -32,6 +32,8 @@ import net.ximatai.muyun.spring.platform.deletion.RestoreEntryResult;
 import net.ximatai.muyun.spring.platform.module.ModuleActionSourceType;
 import net.ximatai.muyun.spring.platform.module.PlatformModuleAction;
 import net.ximatai.muyun.spring.platform.module.PlatformModuleActionService;
+import net.ximatai.muyun.spring.platform.module.PlatformModuleService;
+import net.ximatai.muyun.spring.ability.PlatformManagedMutationContext;
 import net.ximatai.muyun.spring.platform.menu.Menu;
 import net.ximatai.muyun.spring.platform.menu.MenuService;
 import net.ximatai.muyun.spring.platform.metadata.Metadata;
@@ -472,9 +474,48 @@ public class TeachingDemoIT {
                     .allSatisfy(moduleAlias -> assertThat(menus.select("platform.menu.module." + moduleAlias))
                             .extracting(Menu::getParentId)
                             .isEqualTo(TeachingDemoMenuGroups.ROOT));
-            assertThat(menus.select(ExamDemoMenuBootstrapTask.MENU_ID))
+            assertThat(menus.select(SchoolDemoMountTask.MENU_ID))
                     .extracting(Menu::getModuleAlias)
                     .isEqualTo(ExamDemoBootstrapTask.MODULE_ALIAS);
+        }
+    }
+
+    @Test
+    void shouldRemountTheCompleteDemoWithoutChangingOrdinaryMenuChoicesOrBusinessData() {
+        var moduleService = webApplicationContext.getBean(PlatformModuleService.class);
+        var mount = webApplicationContext.getBean(SchoolDemoMountTask.class);
+        try (TenantContext.Scope ignored = TenantContext.system("verify demo remount")) {
+            new TransactionTemplate(transactions).executeWithoutResult(status -> {
+                PlatformManagedMutationContext.runAsPlatformManaged(() -> {
+                    SchoolDemoMountTask.MODULE_ALIASES.forEach(alias -> {
+                        moduleService.disable(alias);
+                        menus.disable("platform.menu.module." + alias);
+                    });
+                    menus.disable(TeachingDemoMenuGroups.ROOT);
+                    menus.disable("platform.menu.module.platform.application");
+                });
+                var studentBefore = students.select("demo_student_1001");
+                assertThat(studentBefore).isNotNull();
+                mount.run();
+                mount.run();
+                SchoolDemoMountTask.MODULE_ALIASES.forEach(alias -> {
+                    assertThat(moduleService.select(alias).getEnabled()).as(alias).isTrue();
+                    assertThat(menus.select("platform.menu.module." + alias).getEnabled()).as(alias).isTrue();
+                });
+                assertThat(menus.select(TeachingDemoMenuGroups.ROOT).getEnabled()).isTrue();
+                assertThat(menus.select("platform.menu.module.platform.application").getEnabled()).isFalse();
+                assertThat(students.select("demo_student_1001")).usingRecursiveComparison().isEqualTo(studentBefore);
+                webApplicationContext.getBean(net.ximatai.muyun.spring.iam.tenant.TenantMenuReconciliationTask.class)
+                        .run();
+                try (TenantContext.Scope tenant = TenantContext.use(DemoBootstrapTask.TENANT_ALIAS)) {
+                    var demoMenus = menus.list(Criteria.of()).stream()
+                            .filter(menu -> menu.getModuleAlias() != null
+                                    && SchoolDemoMountTask.MODULE_ALIASES.contains(menu.getModuleAlias()))
+                            .toList();
+                    assertThat(demoMenus).hasSize(5).allSatisfy(menu -> assertThat(menu.getEnabled()).isTrue());
+                }
+                status.setRollbackOnly();
+            });
         }
     }
 
