@@ -25,8 +25,11 @@ public class RecordAttachmentService extends AbstractAbilityService<RecordAttach
     public static final String MODULE_ALIAS = "platform.record_attachment";
     private static final PageRequest DEFAULT_PAGE = PageRequest.of(1, 500);
 
-    public RecordAttachmentService(BaseDao<RecordAttachment, String> attachmentDao) {
+    private final FileReferenceBindingService fileBindings;
+
+    public RecordAttachmentService(BaseDao<RecordAttachment, String> attachmentDao, FileReferenceBindingService fileBindings) {
         super(MODULE_ALIAS, RecordAttachment.class, attachmentDao);
+        this.fileBindings = Objects.requireNonNull(fileBindings);
     }
 
     public List<RecordAttachment> listByRecord(String moduleAlias, String recordId) {
@@ -122,11 +125,19 @@ public class RecordAttachmentService extends AbstractAbilityService<RecordAttach
         normalizeAndValidate(attachment);
         rejectDuplicate(attachment, duplicateCriteria(attachment),
                 "record attachment fileId is duplicated: " + attachment.getFileId());
+        fileBindings.bind(attachment.getTenantId(), MODULE_ALIAS, attachment.getId(), "fileId", attachment.getFileId(),
+                net.ximatai.muyun.spring.dynamic.metadata.FileReferenceDefinition.unrestricted());
     }
 
     @Override
     public void beforeUpdate(RecordAttachment attachment) {
         normalizeAndValidate(attachment);
+        RecordAttachment existing = selectActiveRaw(attachment.getId());
+        if (existing != null && (!Objects.equals(existing.getFileId(), attachment.getFileId())
+                || !Objects.equals(existing.getModuleAlias(), attachment.getModuleAlias())
+                || !Objects.equals(existing.getRecordId(), attachment.getRecordId()))) {
+            throw new PlatformException("attachment binding cannot be changed: " + attachment.getId());
+        }
         rejectDuplicate(attachment, duplicateCriteria(attachment),
                 "record attachment fileId is duplicated: " + attachment.getFileId());
     }

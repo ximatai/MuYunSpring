@@ -10,7 +10,28 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class RecordAttachmentServiceTest {
-    private final RecordAttachmentService service = new RecordAttachmentService(new TestMemoryDao<>());
+    private final FileReferenceBindingService bindings = org.mockito.Mockito.mock(FileReferenceBindingService.class);
+    private final RecordAttachmentService service = new RecordAttachmentService(new TestMemoryDao<>(), bindings);
+
+    @Test
+    void shouldAcquireOwnershipThroughSharedBindingBeforePersistingAttachment() {
+        RecordAttachment attachment = service.add("sales.contract", "contract-1", command(null, "file-1", "a.pdf", 10));
+        org.mockito.Mockito.verify(bindings).bind(attachment.getTenantId(), RecordAttachmentService.MODULE_ALIAS,
+                attachment.getId(), "fileId", "file-1",
+                net.ximatai.muyun.spring.dynamic.metadata.FileReferenceDefinition.unrestricted());
+    }
+
+    @Test
+    void shouldRejectMovingAttachmentThroughDirectStandardUpdate() {
+        RecordAttachment original = service.add("sales.contract", "contract-1", command(null, "file-1", "a.pdf", 10));
+        RecordAttachment changed = new RecordAttachment();
+        changed.setId(original.getId());
+        changed.setModuleAlias("sales.contract");
+        changed.setRecordId("contract-2");
+        changed.setFileId("file-1");
+        assertThatThrownBy(() -> service.update(changed)).isInstanceOf(PlatformException.class)
+                .hasMessageContaining("binding cannot be changed");
+    }
 
     @Test
     void shouldReplaceRecordAttachmentsAsFinalState() {

@@ -3,10 +3,10 @@ package net.ximatai.muyun.spring.platform.attachment;
 import java.time.Instant;
 
 /**
- * File metadata read from the configured transfer provider.
+ * Storage-neutral file facts read from FileServer or a managed inline asset.
  *
- * <p>This is a transport snapshot, not a platform file asset.  The file server
- * remains the only owner of this metadata and applications persist only the
+ * <p>This is a transport snapshot, not a platform file asset.  The physical storage owner
+ * supplies authoritative facts and applications persist only the
  * business facts they need (normally the {@code fileId}).</p>
  */
 public record FileTransferFileMetadata(
@@ -18,6 +18,14 @@ public record FileTransferFileMetadata(
         String sha256,
         String status,
         boolean temporary,
-        Instant uploadedAt
+        Instant uploadedAt,
+        Integer imageWidth,
+        Integer imageHeight
 ) {
+    public FileTransferFileMetadata {
+        if ((imageWidth == null) != (imageHeight == null)
+                || (imageWidth != null && (imageWidth <= 0 || imageHeight <= 0))) {
+            throw new IllegalArgumentException("image dimensions must both be absent or positive");
+        }
+    }
 }

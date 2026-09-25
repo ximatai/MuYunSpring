@@ -57,6 +57,33 @@ class MuYunFileServerTransferClientTest {
     }
 
     @Test
+    void readsDimensionsAndRejectsMalformedProviderFacts() {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        FileTransferClient client = new MuYunFileServerTransferClient(accessService(), builder.build(), new ObjectMapper());
+        String fileId = "01ARZ3NDEKTSV4RRFFQ69G5FAV";
+        for (String dimensions : java.util.List.of("16,8", "16,null", "-1,8", "2147483648,8", "16.5,8")) {
+            String[] pair = dimensions.split(",");
+            String json = """
+                    {"data":{"id":"%s","mimeType":"image/png","sizeBytes":100,
+                    "imageWidth":%s,"imageHeight":%s}}
+                    """.formatted(fileId, pair[0], pair[1]);
+            server.expect(requestTo(org.hamcrest.Matchers.containsString("/" + fileId + "?access_token=")))
+                    .andRespond(withSuccess(json, org.springframework.http.MediaType.APPLICATION_JSON));
+        }
+        try (var ignored = CurrentUserContext.use(CurrentUser.tenantUser("user-1", "operator", "tenant-a"))) {
+            var metadata = client.readMetadata(fileId);
+            assertThat(metadata.imageWidth()).isEqualTo(16);
+            assertThat(metadata.imageHeight()).isEqualTo(8);
+            for (int i = 0; i < 4; i++) {
+                org.assertj.core.api.Assertions.assertThatThrownBy(() -> client.readMetadata(fileId))
+                        .hasMessageContaining("image dimension");
+            }
+        }
+        server.verify();
+    }
+
+    @Test
     void shouldDeleteThroughAPurposeScopedServerCredential() {
         RestClient.Builder builder = RestClient.builder();
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();

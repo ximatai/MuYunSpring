@@ -43,8 +43,8 @@ class FileReferenceConfirmationServiceTest {
         RecordingClient client = new RecordingClient(metadata(true, "application/pdf", 1));
         FileReferenceConfirmationService service = new FileReferenceConfirmationService(client);
 
-        FileTransferFileMetadata metadata = service.confirmAndPromote(
-                FileReferenceDefinition.unrestricted(), "file-1");
+        FileTransferFileMetadata metadata = service.promoteConfirmedFile(
+                service.confirmTemporaryFile(FileReferenceDefinition.unrestricted(), "file-1"));
 
         assertThat(metadata.fileId()).isEqualTo("file-1");
         assertThat(client.promotedFileId).isEqualTo("file-1");
@@ -56,7 +56,8 @@ class FileReferenceConfirmationServiceTest {
         client.promoteFailure = new PlatformException("fileserver unavailable");
         FileReferenceConfirmationService service = new FileReferenceConfirmationService(client);
 
-        assertThatThrownBy(() -> service.confirmAndPromote(FileReferenceDefinition.unrestricted(), "file-1"))
+        assertThatThrownBy(() -> service.promoteConfirmedFile(
+                service.confirmTemporaryFile(FileReferenceDefinition.unrestricted(), "file-1")))
                 .isInstanceOf(PlatformException.class)
                 .hasMessage("fileserver unavailable");
     }
@@ -67,14 +68,15 @@ class FileReferenceConfirmationServiceTest {
         client.promoteResult = metadata(true, "application/pdf", 1);
         FileReferenceConfirmationService service = new FileReferenceConfirmationService(client);
 
-        assertThatThrownBy(() -> service.confirmAndPromote(FileReferenceDefinition.unrestricted(), "file-1"))
+        assertThatThrownBy(() -> service.promoteConfirmedFile(
+                service.confirmTemporaryFile(FileReferenceDefinition.unrestricted(), "file-1")))
                 .isInstanceOf(PlatformException.class)
                 .hasMessage("file reference was not promoted: file-1");
     }
 
     private static FileTransferFileMetadata metadata(boolean temporary, String mimeType, long sizeBytes) {
         return new FileTransferFileMetadata("file-1", "source.pdf", "pdf", mimeType, sizeBytes, "sha", "ACTIVE",
-                temporary, Instant.parse("2026-08-09T00:00:00Z"));
+                temporary, Instant.parse("2026-08-09T00:00:00Z"), null, null);
     }
 
     private static final class RecordingClient implements FileTransferClient {
@@ -94,7 +96,7 @@ class FileReferenceConfirmationServiceTest {
             if (promoteFailure != null) throw promoteFailure;
             return promoteResult == null ? new FileTransferFileMetadata(metadata.fileId(), metadata.originalFilename(),
                     metadata.extension(), metadata.mimeType(), metadata.sizeBytes(), metadata.sha256(), "ACTIVE", false,
-                    metadata.uploadedAt()) : promoteResult;
+                    metadata.uploadedAt(), null, null) : promoteResult;
         }
     }
 }

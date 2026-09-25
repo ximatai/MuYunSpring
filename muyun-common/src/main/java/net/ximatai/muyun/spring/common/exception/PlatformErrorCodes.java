@@ -1,6 +1,7 @@
 package net.ximatai.muyun.spring.common.exception;
 
 public final class PlatformErrorCodes {
+    public static final String FILE_REFERENCE_ALREADY_BOUND = "FILE_REFERENCE_ALREADY_BOUND";
     public static final String AUTH_REQUIRED = "AUTH_REQUIRED";
     public static final String AUTH_EXPIRED = "AUTH_EXPIRED";
     public static final String PASSWORD_CHANGE_REQUIRED = "PASSWORD_CHANGE_REQUIRED";

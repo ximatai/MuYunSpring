@@ -1,4 +1,5 @@
 [versions]
+metadata-extractor = "2.21.0"
 spring-boot = "4.1.1"
 spring-framework = "7.0.9"
 spring-dependency-management = "1.1.7"
@@ -14,6 +15,7 @@ poi = "5.5.1"
 swagger-parser = "2.1.47"
 
 [libraries]
+metadata-extractor = { module = "com.drewnoakes:metadata-extractor", version.ref = "metadata-extractor" }
 muyun-database-core = { module = "net.ximatai.muyun.database:muyun-database-core", version.ref = "muyun-database" }
 muyun-database-spring-boot-starter = { module = "net.ximatai.muyun.database:muyun-database-spring-boot-starter", version.ref = "muyun-database" }
 junit-bom = { module = "org.junit:junit-bom", version.ref = "junit" }

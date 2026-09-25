@@ -16,12 +16,8 @@ import org.springframework.beans.factory.ObjectProvider;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
-import java.util.Base64;
 import java.util.stream.Stream;
 
-import javax.imageio.ImageIO;
-import java.awt.image.BufferedImage;
-import java.io.ByteArrayOutputStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -93,9 +89,10 @@ class TenantServiceContractTest {
     void shouldKeepLogoContentOutOfTenantPersistenceModel() {
         TenantDao dao = mock(TenantDao.class);
         when(dao.insert(any())).thenAnswer(invocation -> invocation.<Tenant>getArgument(0).getId());
-        TenantService service = new TenantService(dao);
+        TenantService service = new TenantService(dao, null, null, mock(ManagedFileAssetService.class));
         Tenant tenant = tenant("ximatai", "Ximatai");
         tenant.setLightLogoAssetId("asset-1");
+        tenant.setWorkbenchBrandMode(TenantWorkbenchBrandMode.LOGO_ONLY);
 
         try (TenantContext.Scope ignored = TenantContext.system("test system context")) {
             service.insert(tenant);
@@ -105,9 +102,12 @@ class TenantServiceContractTest {
     }
 
     @Test
-    void shouldRequireSquareLogoForLogoWithTitleBranding() throws Exception {
+    void shouldRequireSquareLogoForLogoWithTitleBranding() {
         ManagedFileAssetService assets = mock(ManagedFileAssetService.class);
-        when(assets.readInlineContent("ximatai", "asset-1")).thenReturn(imageDataUrl(200, 80));
+        when(assets.readReferenceMetadata("ximatai", "asset-1")).thenReturn(
+                new net.ximatai.muyun.spring.platform.attachment.FileTransferFileMetadata(
+                        "asset-1", "logo.png", "png", "image/png", 100, "sha", "DATABASE_INLINE", false,
+                        null, 200, 80));
         TenantService service = new TenantService(mock(TenantDao.class), null, null, assets);
         Tenant tenant = tenant("ximatai", "Ximatai");
         tenant.setWorkbenchBrandMode(TenantWorkbenchBrandMode.LOGO_WITH_TITLE);
@@ -119,7 +119,16 @@ class TenantServiceContractTest {
     }
 
     @Test
-    void shouldAllowHorizontalLogoForLogoOnlyBranding() throws Exception {
+    void brandingWithALogoMustNotSilentlySkipMissingFileCapability() {
+        TenantService service = new TenantService(mock(TenantDao.class));
+        Tenant tenant = tenant("ximatai", "Ximatai");
+        tenant.setLightLogoAssetId("asset-1");
+        assertThatThrownBy(() -> service.normalizeBeforeMutation(tenant))
+                .hasMessage("tenant branding requires ManagedFileAssetService");
+    }
+
+    @Test
+    void shouldAllowHorizontalLogoForLogoOnlyBranding() {
         ManagedFileAssetService assets = mock(ManagedFileAssetService.class);
         TenantService service = new TenantService(mock(TenantDao.class), null, null, assets);
         Tenant tenant = tenant("ximatai", "Ximatai");
@@ -273,13 +282,6 @@ class TenantServiceContractTest {
         Tenant tenant = tenant(alias, title);
         tenant.setEnabled(Boolean.FALSE);
         return tenant;
-    }
-
-    private String imageDataUrl(int width, int height) throws Exception {
-        BufferedImage image = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB);
-        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
-        ImageIO.write(image, "png", bytes);
-        return "data:image/png;base64," + Base64.getEncoder().encodeToString(bytes.toByteArray());
     }
 
 }
