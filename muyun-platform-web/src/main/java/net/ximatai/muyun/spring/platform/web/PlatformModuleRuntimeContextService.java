@@ -1,5 +1,9 @@
 package net.ximatai.muyun.spring.platform.web;
 
+import net.ximatai.muyun.spring.dynamic.metadata.EntityViewType;
+import net.ximatai.muyun.spring.dynamic.metadata.AssociationViewDisplayMode;
+import net.ximatai.muyun.spring.dynamic.descriptor.DynamicAssociationViewDescriptor;
+import net.ximatai.muyun.spring.dynamic.descriptor.DynamicRelationDescriptor;
 import net.ximatai.muyun.spring.common.schema.PlatformFieldPolicy;
 import net.ximatai.muyun.spring.common.exception.AuthenticationRequiredException;
 import net.ximatai.muyun.spring.common.exception.PlatformAccessDeniedException;
@@ -25,6 +29,7 @@ import net.ximatai.muyun.spring.platform.ui.PlatformPageDefinition;
 import net.ximatai.muyun.spring.platform.ui.PlatformPresentationRevision;
 import net.ximatai.muyun.spring.dynamic.descriptor.DynamicActionDescriptor;
 import net.ximatai.muyun.spring.dynamic.descriptor.DynamicEntityDescriptor;
+import net.ximatai.muyun.spring.dynamic.metadata.FieldDefinition;
 import net.ximatai.muyun.spring.dynamic.descriptor.DynamicFieldDescriptor;
 import net.ximatai.muyun.spring.dynamic.descriptor.DynamicModuleDescriptor;
 import net.ximatai.muyun.spring.dynamic.descriptor.DynamicQuerySchemas;
@@ -336,12 +341,64 @@ public class PlatformModuleRuntimeContextService {
     public ResolvedModuleUiDescriptor previewDynamicPageDescriptor(PlatformPageDefinition page,
                                                                     PlatformPresentationRevision revision,
                                                                     String uiTreeJson) {
+        return previewDynamicPageDescriptor(page, revision, uiTreeJson, List.of());
+    }
+
+    public ResolvedModuleUiDescriptor previewDynamicPageDescriptor(PlatformPageDefinition page,
+            PlatformPresentationRevision revision, String uiTreeJson,
+            List<FieldDefinition> newFields) {
+        return previewDynamicPageDescriptor(page, revision, uiTreeJson, newFields, List.of());
+    }
+
+    public record PreviewChild(String alias, String title, List<FieldDefinition> fields) {}
+
+    public ResolvedModuleUiDescriptor previewDynamicPageDescriptor(PlatformPageDefinition page,
+            PlatformPresentationRevision revision, String uiTreeJson, List<FieldDefinition> newFields,
+            List<PreviewChild> children) {
         String validModuleAlias = PlatformNameRules.requireModuleAlias(page.getModuleAlias());
         PlatformModule module = moduleService.resolveVisibleModule(validModuleAlias);
         DynamicModuleDescriptor dynamicDescriptor = dynamicDescriptor(module, validModuleAlias);
         if (module == null || module.getModuleKind() != ModuleKind.DYNAMIC || dynamicDescriptor == null) {
             throw new PlatformException(PlatformErrorCodes.RESOURCE_NOT_FOUND, 404,
                     "dynamic module runtime context not found: " + validModuleAlias);
+        }
+        if (!newFields.isEmpty()) {
+            DynamicModuleDescriptor source = dynamicDescriptor;
+            dynamicDescriptor = new DynamicModuleDescriptor(source.moduleAlias(), source.title(), source.mainEntityAlias(),
+                    source.actions(), source.entities().stream().map(entity -> {
+                        if (!entity.entityAlias().equals(source.mainEntityAlias())) return entity;
+                        var fields = new java.util.ArrayList<>(entity.fields());
+                        var names = fields.stream().map(DynamicFieldDescriptor::fieldName)
+                                .collect(java.util.stream.Collectors.toSet());
+                        newFields.forEach(field -> {
+                            if (!names.add(field.fieldName())) throw new IllegalArgumentException("新增字段与已有字段重复");
+                            fields.add(DynamicFieldDescriptor.from(field));
+                        });
+                        return new DynamicEntityDescriptor(entity.entityAlias(), entity.title(), entity.capabilities(),
+                                entity.sortPartitionFields(), fields, entity.formulaRules(), entity.actions(), entity.views(),
+                                entity.associationViews(), entity.fileReferences());
+                    }).toList(), source.relations(), source.references(), source.associationViews());
+        }
+        if (!children.isEmpty()) {
+            var entities = new java.util.ArrayList<>(dynamicDescriptor.entities());
+            var relations = new java.util.ArrayList<>(dynamicDescriptor.relations());
+            var associations = new java.util.ArrayList<>(dynamicDescriptor.associationViews());
+            for (var child : children) {
+                if (entities.stream().anyMatch(entity -> entity.entityAlias().equals(child.alias())))
+                    throw new IllegalArgumentException("新增明细表与已有实体重复");
+                entities.add(new DynamicEntityDescriptor(child.alias(), child.title(), java.util.Set.of(),
+                        child.fields().stream().map(DynamicFieldDescriptor::from).toList(),
+                        List.of(), List.of(), List.of(), List.of()));
+                relations.add(new DynamicRelationDescriptor(
+                        child.alias(), dynamicDescriptor.mainEntityAlias(), child.alias(), "parentId", true, true));
+                associations.add(new DynamicAssociationViewDescriptor(
+                        child.alias(), dynamicDescriptor.mainEntityAlias(), validModuleAlias, child.alias(),
+                        AssociationViewDisplayMode.INLINE_LIST,
+                        child.alias(), null, EntityViewType.LIST, true));
+            }
+            dynamicDescriptor = new DynamicModuleDescriptor(dynamicDescriptor.moduleAlias(), dynamicDescriptor.title(),
+                    dynamicDescriptor.mainEntityAlias(), dynamicDescriptor.actions(), entities, relations,
+                    dynamicDescriptor.references(), associations);
         }
         ModuleUiDefinition definition = PageRevisionModuleUiDefinitionAdapter.fromPreviewRevision(page, revision,
                 uiTreeJson, pageCompilationContext(dynamicDescriptor, module.getOverviewMode()));
@@ -371,10 +428,20 @@ public class PlatformModuleRuntimeContextService {
             if (runtimeContext.moduleKind() != ModuleKind.DYNAMIC || runtimeContext.uiDescriptor() == null) {
                 return Optional.empty();
             }
-            return Optional.of(compiledPublishedPageExecutionPlan(validAlias, dynamicDescriptor, runtimeContext,
+            return Optional.of(compiledPublishedPageExecutionPlan(validAlias, dynamicDescriptor, runtimeContext.uiDescriptor(),
                     publishedPage.get()));
         }
         return Optional.empty();
+    }
+
+    /** Compiles transactional metadata without installing it into the shared runtime. */
+    public Optional<ModuleExecutionPlan> pendingDynamicExecutionPlan(DynamicModuleDescriptor dynamic) {
+        if (publishedPageDefinitionResolver == null) return Optional.empty();
+        return publishedPageDefinitionResolver.resolveWebGlobal(dynamic).map(page -> {
+            ResolvedModuleUiDescriptor descriptor = compileDynamicPageDescriptor(dynamic.moduleAlias(),
+                    page.page().getTitle(), dynamic, page.definition());
+            return compiledPublishedPageExecutionPlan(dynamic.moduleAlias(), dynamic, descriptor, page);
+        });
     }
 
     private ModuleExecutionPlanCatalog installedExecutionPlanCatalog(ModuleKind moduleKind) {
@@ -387,13 +454,12 @@ public class PlatformModuleRuntimeContextService {
     private ModuleExecutionPlan compiledPublishedPageExecutionPlan(
             String moduleAlias,
             DynamicModuleDescriptor dynamicDescriptor,
-            PlatformModuleRuntimeContext runtimeContext,
+            ResolvedModuleUiDescriptor descriptor,
             DynamicPublishedPageDefinitionResolver.ResolvedPublishedPage publishedPage) {
         DynamicEntityDescriptor mainEntity = dynamicDescriptor.entities().stream()
                 .filter(entity -> dynamicDescriptor.mainEntityAlias().equals(entity.entityAlias()))
                 .findFirst().orElseThrow(() -> new IllegalStateException(
                         "dynamic runtime has no main entity: " + moduleAlias));
-        ResolvedModuleUiDescriptor descriptor = runtimeContext.uiDescriptor();
         List<ResolvedViewFieldDescriptor> listViewFields = descriptor.page() == null || descriptor.page().list() == null
                 || descriptor.page().list().fields() == null ? List.of() : descriptor.page().list().fields().fields();
         List<ResolvedViewFieldDescriptor> formViewFields = descriptor.page() == null || descriptor.page().detail() == null
@@ -435,13 +501,13 @@ public class PlatformModuleRuntimeContextService {
             if (descriptor.page().explorer().secondaryField() != null) readFields.add(descriptor.page().explorer().secondaryField());
         }
         return new ModuleExecutionPlan(moduleAlias, versionKey, descriptor,
-                new ResolvedModuleReadModel(moduleAlias, runtimeContext.mainEntityAlias(), readFields.stream()
-                        .map(field -> new ResolvedModuleReadField(runtimeContext.mainEntityAlias(), null, field, false))
+                new ResolvedModuleReadModel(moduleAlias, dynamicDescriptor.mainEntityAlias(), readFields.stream()
+                        .map(field -> new ResolvedModuleReadField(dynamicDescriptor.mainEntityAlias(), null, field, false))
                         .toList()),
                 bindings, QueryDescriptor.builder(moduleAlias).build(), querySchema, List.of(), List.of(), null, null,
                 List.of(), bindings.stream().filter(binding -> binding.target() == PageContextTarget.MUTATION_CONSTRAINT)
                         .toList(), validations, List.of(),
-                runtimeContext.capabilities().contains(EntityCapability.DATA_SCOPE));
+                mainEntity.capabilities().contains(EntityCapability.DATA_SCOPE.name()));
     }
 
     private static boolean isSearchableText(DynamicEntityDescriptor entity, String fieldName) {
@@ -452,7 +518,7 @@ public class PlatformModuleRuntimeContextService {
 
     private static boolean isRequired(DynamicEntityDescriptor entity, String fieldName) {
         return entity.fields().stream().filter(field -> fieldName.equals(field.fieldName()))
-                .anyMatch(net.ximatai.muyun.spring.dynamic.descriptor.DynamicFieldDescriptor::required);
+                .anyMatch(DynamicFieldDescriptor::required);
     }
 
     /** Returns the startup-visible dynamic modules so their published plans are installed eagerly. */
@@ -695,7 +761,7 @@ public class PlatformModuleRuntimeContextService {
         var module = dynamicRecordService.moduleDefinitions().stream()
                 .filter(candidate -> moduleAlias.equals(candidate.moduleAlias())).findFirst()
                 .orElseThrow(() -> new IllegalArgumentException("dynamic module has no main entity field facts: " + moduleAlias));
-        List<net.ximatai.muyun.spring.dynamic.metadata.FieldDefinition> fields = module.entities().stream()
+        List<FieldDefinition> fields = module.entities().stream()
                 .filter(entity -> descriptor.mainEntityAlias().equals(entity.alias())).findFirst()
                 .map(net.ximatai.muyun.spring.dynamic.metadata.EntityDefinition::fields).orElseThrow(() ->
                         new IllegalArgumentException("dynamic module has no main entity field facts: " + moduleAlias));
@@ -722,7 +788,7 @@ public class PlatformModuleRuntimeContextService {
                 });
     }
 
-    private List<net.ximatai.muyun.spring.dynamic.metadata.FieldDefinition> dynamicEntityFields(
+    private List<FieldDefinition> dynamicEntityFields(
             String moduleAlias, String entityAlias) {
         return dynamicRecordService.moduleDefinitions().stream().filter(module -> moduleAlias.equals(module.moduleAlias()))
                 .findFirst().flatMap(module -> module.entities().stream()
@@ -815,7 +881,7 @@ public class PlatformModuleRuntimeContextService {
     private List<DynamicDetailRelationTarget> dynamicDetailRelationTargets(
             String moduleAlias, DynamicModuleDescriptor sourceModule, List<PageDetailRelationDefinition> configured) {
         if (configured == null || configured.isEmpty()) return List.of();
-        java.util.Map<String, net.ximatai.muyun.spring.dynamic.descriptor.DynamicAssociationViewDescriptor> views =
+        java.util.Map<String, DynamicAssociationViewDescriptor> views =
                 DynamicPageAssociationCatalog.mainEntityChildAssociations(sourceModule);
         return configured.stream().map(selection -> {
             var view = views.get(selection.code());
@@ -834,7 +900,7 @@ public class PlatformModuleRuntimeContextService {
                     .filter(relation -> view.relationCode().equals(relation.code()))
                     .filter(relation -> view.sourceEntityAlias().equals(relation.parentEntityAlias()))
                     .filter(relation -> view.targetEntityAlias().equals(relation.childEntityAlias()))
-                    .map(net.ximatai.muyun.spring.dynamic.descriptor.DynamicRelationDescriptor::childForeignKeyField)
+                    .map(DynamicRelationDescriptor::childForeignKeyField)
                     .findFirst().orElse(null);
             return new DynamicDetailRelationTarget(selection, view, target, parentForeignKey);
         }).toList();
@@ -975,7 +1041,7 @@ public class PlatformModuleRuntimeContextService {
     }
 
     private record DynamicDetailRelationTarget(PageDetailRelationDefinition selection,
-                                               net.ximatai.muyun.spring.dynamic.descriptor.DynamicAssociationViewDescriptor view,
+                                               DynamicAssociationViewDescriptor view,
                                                DynamicEntityDescriptor entity,
                                                String parentForeignKeyField) {
         boolean aggregateChild() {
@@ -1181,8 +1247,8 @@ public class PlatformModuleRuntimeContextService {
         return descriptor.entities().stream()
                 .filter(entity -> entity.entityAlias().equals(descriptor.mainEntityAlias()))
                 .flatMap(entity -> entity.fields().stream())
-                .filter(net.ximatai.muyun.spring.dynamic.descriptor.DynamicFieldDescriptor::titleField)
-                .map(net.ximatai.muyun.spring.dynamic.descriptor.DynamicFieldDescriptor::fieldName)
+                .filter(DynamicFieldDescriptor::titleField)
+                .map(DynamicFieldDescriptor::fieldName)
                 .findFirst().orElse(null);
     }
 

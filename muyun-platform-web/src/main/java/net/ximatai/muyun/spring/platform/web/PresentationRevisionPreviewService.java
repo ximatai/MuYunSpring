@@ -4,6 +4,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.core.JsonProcessingException;
 
 import net.ximatai.muyun.spring.ability.action.BusinessExceptions;
+import net.ximatai.muyun.spring.platform.metadata.MetadataFieldDefinitionCompiler;
+import net.ximatai.muyun.spring.platform.ui.PageCompositionDraftCompiler;
 import net.ximatai.muyun.spring.platform.ui.PlatformPageDefinition;
 import net.ximatai.muyun.spring.platform.ui.PlatformPageDefinitionService;
 import net.ximatai.muyun.spring.platform.ui.PlatformPresentationRevision;
@@ -26,12 +28,15 @@ public class PresentationRevisionPreviewService {
     private final PlatformPageDefinitionService pageService;
     private final PlatformPresentationTemplateCatalog templateCatalog;
     private final PlatformModuleRuntimeContextService runtimeContextService;
+    private final MetadataFieldDefinitionCompiler fields;
 
     public PresentationRevisionPreviewService(PlatformPresentationVariantService variantService,
                                               PlatformPresentationRevisionService revisionService,
                                               PlatformPageDefinitionService pageService,
                                               PlatformPresentationTemplateCatalog templateCatalog,
-                                              PlatformModuleRuntimeContextService runtimeContextService) {
+                                              PlatformModuleRuntimeContextService runtimeContextService,
+                                              MetadataFieldDefinitionCompiler fields) {
+        this.fields = fields;
         this.variantService = variantService;
         this.revisionService = revisionService;
         this.pageService = pageService;
@@ -59,8 +64,17 @@ public class PresentationRevisionPreviewService {
                 previewVersion, variant.getClientType(), page.getContractType());
         templateCatalog.validateUiTree(request.uiTreeJson(), template);
 
-        ResolvedModuleUiDescriptor descriptor = runtimeContextService.previewDynamicPageDescriptor(page, revision,
-                request.uiTreeJson());
+        var added = request.newFields();
+        var childDrafts = PageCompositionDraftCompiler.childDrafts(request.uiTreeJson(), request.newChildren());
+        var children = request.newChildren().stream().map(child -> new PlatformModuleRuntimeContextService.PreviewChild(
+                PageCompositionDraftCompiler.childAlias(child.key()), child.title(),
+                childDrafts.get(PageCompositionDraftCompiler.childAlias(child.key())).stream()
+                    .map(draft -> fields.compile(draft.field())).toList())).toList();
+        ResolvedModuleUiDescriptor descriptor = added.isEmpty() && children.isEmpty()
+                ? runtimeContextService.previewDynamicPageDescriptor(page, revision, request.uiTreeJson())
+                : runtimeContextService.previewDynamicPageDescriptor(page, revision, request.uiTreeJson(),
+                    PageCompositionDraftCompiler.fieldDrafts(request.uiTreeJson(), added)
+                        .stream().map(draft -> fields.compile(draft.field())).toList(), children);
         return new PresentationRevisionPreview(page.getId(), variant.getId(), revision.getId(), descriptor);
     }
 }

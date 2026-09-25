@@ -70,6 +70,7 @@ class MetadataRelationChangeSetApplyIT extends PlatformPostgresIntegrationTest {
     }
 
     @Autowired private MetadataRelationChangeSetApplyService applyService;
+    @Autowired private net.ximatai.muyun.spring.platform.ui.PageCompositionSaveService compositionSave;
     @Autowired private MetadataRelationChangeSetPreviewService previewService;
     @Autowired private MetadataService metadataService;
     @Autowired private MetadataFieldService fieldService;
@@ -89,6 +90,7 @@ class MetadataRelationChangeSetApplyIT extends PlatformPostgresIntegrationTest {
     @Autowired private PlatformPageDefinitionDao pageDao;
     @Autowired private PlatformPresentationVariantDao variantDao;
     @Autowired private PlatformPresentationRevisionDao revisionDao;
+    @Autowired private PlatformPresentationRevisionService revisionService;
 
     private String moduleAlias;
     private String relationId;
@@ -168,6 +170,126 @@ class MetadataRelationChangeSetApplyIT extends PlatformPostgresIntegrationTest {
         relation.setRelationAlias(metadata.getAlias());
         relation.setTitle(metadata.getTitle());
         relationId = relationService.insert(relation);
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {false, true})
+    void shouldCommitNewChildAndPageTogetherOrRollbackInvalidPage(boolean invalidPage) throws Exception {
+        String key = UUID.randomUUID().toString().replace("-", "");
+        String fieldKey = UUID.randomUUID().toString().replace("-", "");
+        String alias = net.ximatai.muyun.spring.platform.ui.PageCompositionDraftCompiler.childAlias(key);
+        String tree = """
+                {"template":"management","templateVersion":1,"nodes":[
+                {"slot":"list","title":"列表","fields":%s},
+                {"slot":"form","title":"表单","fields":[],"relations":[
+                  {"relation":"%s","title":"明细","fields":["field%s"]}]}]}
+                """.formatted(invalidPage ? "[\"missing\"]" : "[]", alias, fieldKey);
+        var revision = pageRevision(tree);
+        revision = revisionService.select(revision.getId());
+        if (invalidPage) revision.setTemplateVersion(999);
+        var child = new net.ximatai.muyun.spring.platform.ui.PageCompositionSaveCommand.NewChild(key, "明细",
+                List.of(new net.ximatai.muyun.spring.platform.ui.PageCompositionSaveCommand.NewField(fieldKey, "说明", "text", true, "shuoMing")));
+        var command = new net.ximatai.muyun.spring.platform.ui.PageCompositionSaveCommand(revision, relationId,
+                metadataService.select(metadata.getId()).getVersion(), List.of(), List.of(child));
+        String id = revision.getId();
+        if (invalidPage) {
+            assertThatThrownBy(() -> saveComposition(id, command)).hasMessageContaining("not registered");
+            assertThat(metadataService.list(Criteria.of().eq("alias", alias))).isEmpty();
+            assertThat(columnExists(alias, "id")).isFalse();
+            assertThat(revisionService.select(id).getStatus()).isEqualTo(PlatformPresentationRevisionStatus.DRAFT);
+        } else {
+            saveComposition(id, command);
+            var saved = metadataService.list(Criteria.of().eq("alias", alias)).getFirst();
+            assertThat(fieldService.list(Criteria.of().eq("metadataId", saved.getId()).eq("fieldName", "shuoMing")))
+                    .singleElement().extracting(MetadataField::getRequired).isEqualTo(true);
+            assertThat(relationService.list(Criteria.of().eq("metadataId", saved.getId())))
+                    .singleElement().extracting(ModuleMetadataRelation::getParentMetadataId).isEqualTo(metadata.getId());
+            assertThat(columnExists(saved.getTableName(), "shuo_ming")).isTrue();
+            assertThat(revisionService.select(id).getUiTreeJson()).contains("shuoMing").doesNotContain("field" + fieldKey);
+            assertThat(revisionService.select(id).getStatus()).isEqualTo(PlatformPresentationRevisionStatus.PUBLISHED);
+        }
+    }
+
+    @Test
+    void shouldCommitPageAndComponentFieldTogetherAndRejectReplay() {
+        String key = UUID.randomUUID().toString().replace("-", "");
+        String name = "lianXiDianHua2";
+        applyNewStringField("lianXiDianHua", "lian_xi_dian_hua");
+        var revision = pageRevision("{\"template\":\"management\",\"templateVersion\":1,\"nodes\":[{\"slot\":\"list\",\"title\":\"列表\",\"fields\":[]},{\"slot\":\"form\",\"title\":\"表单\",\"fields\":[\"" + "field" + key + "\"]}]}");
+        revision = revisionService.select(revision.getId());
+        var command = new net.ximatai.muyun.spring.platform.ui.PageCompositionSaveCommand(revision, relationId,
+                metadataService.select(metadata.getId()).getVersion(),
+                List.of(new net.ximatai.muyun.spring.platform.ui.PageCompositionSaveCommand.NewField(key, "联系电话", "text", true, "lianXiDianHua")));
+        saveComposition(revision.getId(), command);
+        assertThat(revisionService.select(revision.getId()).getStatus()).isEqualTo(PlatformPresentationRevisionStatus.PUBLISHED);
+        assertThat(fieldService.list(Criteria.of().eq("metadataId", metadata.getId()).eq("fieldName", name))).hasSize(1);
+        assertThat(fieldService.list(Criteria.of().eq("metadataId", metadata.getId()).eq("fieldName", name)))
+                .singleElement().extracting(MetadataField::getRequired).isEqualTo(true);
+        assertThat(entityCompiler.compile(metadata.getId()).fields())
+                .filteredOn(field -> field.fieldName().equals(name))
+                .singleElement().extracting(field -> field.isRequired()).isEqualTo(true);
+        assertThat(revisionService.select(revision.getId()).getUiTreeJson()).contains(name).doesNotContain("field" + key);
+        assertThat(columnExists(metadata.getTableName(), "lian_xi_dian_hua2")).isTrue();
+        String id = revision.getId();
+        assertThatThrownBy(() -> saveComposition(id, command)).hasMessageContaining("页面已变化");
+        assertThat(fieldService.list(Criteria.of().eq("metadataId", metadata.getId()).eq("fieldName", name))).hasSize(1);
+    }
+
+    @Test
+    void shouldPublishComponentUsedOnlyByQuickSearch() {
+        String key = UUID.randomUUID().toString().replace("-", "");
+        var revision = pageRevision("""
+                {"template":"management","templateVersion":2,"mode":"LIST_CARD","quickSearchFields":["field%s"],"nodes":[
+                {"slot":"list","title":"列表","fields":[]},{"slot":"form","title":"表单","fields":[]}]}
+                """.formatted(key));
+        revision = revisionService.select(revision.getId());
+        revision.setTemplateVersion(2);
+        var command = new net.ximatai.muyun.spring.platform.ui.PageCompositionSaveCommand(revision, relationId,
+                metadataService.select(metadata.getId()).getVersion(),
+                List.of(new net.ximatai.muyun.spring.platform.ui.PageCompositionSaveCommand.NewField(key, "查询名称", "text", false, "chaXunMingCheng")));
+        saveComposition(revision.getId(), command);
+        var saved = revisionService.select(revision.getId());
+        assertThat(saved.getStatus()).isEqualTo(PlatformPresentationRevisionStatus.PUBLISHED);
+        assertThat(saved.getUiTreeJson()).contains("chaXunMingCheng").doesNotContain("field" + key);
+        assertThat(columnExists(metadata.getTableName(), "cha_xun_ming_cheng")).isTrue();
+    }
+
+    @Test
+    void shouldRejectCompositionBasedOnAnOlderMetadataVersionWithoutPublishing() {
+        String key = UUID.randomUUID().toString().replace("-", "");
+        String name = "field" + key;
+        var revision = pageRevision("""
+                {"template":"management","templateVersion":1,"nodes":[
+                {"slot":"list","title":"列表","fields":[]},
+                {"slot":"form","title":"表单","fields":["%s"]}]}
+                """.formatted(name));
+        var command = new net.ximatai.muyun.spring.platform.ui.PageCompositionSaveCommand(
+                revisionService.select(revision.getId()), relationId,
+                metadataService.select(metadata.getId()).getVersion() - 1,
+                List.of(new net.ximatai.muyun.spring.platform.ui.PageCompositionSaveCommand.NewField(key, "名称", "text")));
+        assertThatThrownBy(() -> saveComposition(revision.getId(), command)).hasMessageContaining("元数据版本已变化");
+        assertThat(fieldService.list(Criteria.of().eq("metadataId", metadata.getId()).eq("fieldName", name))).isEmpty();
+        assertThat(revisionService.select(revision.getId()).getStatus()).isEqualTo(PlatformPresentationRevisionStatus.DRAFT);
+    }
+
+    @Test
+    void shouldRollBackComponentFieldAndSchemaWhenPageValidationFails() {
+        applyNewStringField("existing", "existing");
+        String key = UUID.randomUUID().toString().replace("-", "");
+        String name = "lianXiDianHua";
+        var revision = pageRevision("{\"template\":\"management\",\"templateVersion\":1,\"nodes\":[{\"slot\":\"list\",\"title\":\"列表\",\"fields\":[]},{\"slot\":\"form\",\"title\":\"表单\",\"fields\":[\"" + "field" + key + "\"]}]}");
+        revision = revisionService.select(revision.getId());
+        revision.setTemplateVersion(999);
+        var command = new net.ximatai.muyun.spring.platform.ui.PageCompositionSaveCommand(revision, relationId,
+                metadataService.select(metadata.getId()).getVersion(),
+                List.of(new net.ximatai.muyun.spring.platform.ui.PageCompositionSaveCommand.NewField(key, "联系电话", "text", false, name)));
+        String id = revision.getId();
+        assertThatThrownBy(() -> saveComposition(id, command)).hasMessageContaining("not registered");
+        assertThat(fieldService.list(Criteria.of().eq("metadataId", metadata.getId()).eq("fieldName", name))).isEmpty();
+        assertThat(revisionService.select(id).getStatus()).isEqualTo(PlatformPresentationRevisionStatus.DRAFT);
+        try (var connection = dataSource.getConnection(); var columns = connection.getMetaData().getColumns(null, "public", metadata.getTableName(), "lian_xi_dian_hua")) {
+            assertThat(columns.next()).isFalse();
+        } catch (java.sql.SQLException failure) { throw new AssertionError(failure); }
     }
 
     @Test
@@ -396,6 +518,12 @@ class MetadataRelationChangeSetApplyIT extends PlatformPostgresIntegrationTest {
                 .isInstanceOf(PlatformException.class).hasMessageContaining("页面配置验证").hasMessageContaining("主实体绑定");
     }
 
+    private void saveComposition(String id, net.ximatai.muyun.spring.platform.ui.PageCompositionSaveCommand command) {
+        try (var ignored = net.ximatai.muyun.spring.common.tenant.TenantContext.system("test page composition")) {
+            compositionSave.save(id, command);
+        }
+    }
+
     private PlatformPresentationRevision pageRevision(String tree) {
         PlatformPageDefinition page = new PlatformPageDefinition();
         page.setId(UUID.randomUUID().toString().replace("-", ""));
@@ -563,6 +691,14 @@ class MetadataRelationChangeSetApplyIT extends PlatformPostgresIntegrationTest {
                     compiler, schema, records, refresh);
         }
         @Bean FieldSpecService fieldSpecService(FieldSpecDao dao) { return new FieldSpecService(dao, mock(BaseDao.class)); }
+        @Bean net.ximatai.muyun.spring.platform.ui.PageCompositionSaveService compositionSave(
+                PlatformPresentationRevisionService revisions, PlatformPresentationVariantService variants,
+                PlatformPageDefinitionService pages, MetadataRelationChangeSetPreviewService preview,
+                MetadataRelationChangeSetApplyService apply, ModuleMetadataRelationService relations, MetadataService metadata, ModuleMetadataOrchestrationService orchestration, MetadataFieldService fields) {
+            return new net.ximatai.muyun.spring.platform.ui.PageCompositionSaveService(revisions, variants, pages, preview, apply,
+                    new net.ximatai.muyun.spring.platform.ui.PlatformPresentationRevisionPublishService(revisions, variants, pages,
+                            new net.ximatai.muyun.spring.platform.ui.PlatformPresentationTemplateCatalog()), relations, metadata, orchestration, fields);
+        }
         @Bean MetadataService metadataService(MetadataDao dao) { return new MetadataService(
                 dao,
                 TestBeanProviders.empty(PlatformMetadataSchemaEnsureService.class),

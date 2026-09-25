@@ -4,6 +4,7 @@ import type { MetadataFieldPropertyKind } from './metadataOrchestrationState';
 export const PLATFORM_FIELD_NAME_PATTERN = '^[a-z][A-Za-z0-9]{0,62}$';
 export const DYNAMIC_RECORD_RESERVED_FIELD_NAMES = new Set([
   'id',
+  'tenantId',
   'version',
   'uiConfigId',
   'values',

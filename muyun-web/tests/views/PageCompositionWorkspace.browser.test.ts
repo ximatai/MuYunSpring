@@ -93,14 +93,14 @@ it.each([1440, 980])(
       expect(root.getBoundingClientRect().bottom).toBeLessThanOrEqual(814);
       const previewPanel = wrapper.get('.record-detail-panel-region').element;
       const originalWidth = previewPanel.getBoundingClientRect().width;
-      await page.getByRole('button', { name: '收起可用字段', exact: true }).click();
+      await page.getByRole('button', { name: '收起已有字段', exact: true }).click();
       await expect.poll(() => previewPanel.getBoundingClientRect().width).toBeGreaterThan(originalWidth);
       const oneCollapsedWidth = previewPanel.getBoundingClientRect().width;
       await page.getByRole('button', { name: '收起页面结构', exact: true }).click();
       await expect.poll(() => previewPanel.getBoundingClientRect().width).toBeGreaterThan(oneCollapsedWidth);
       await expect.poll(() => root.scrollWidth).toBeLessThanOrEqual(root.clientWidth + 1);
       await page.getByRole('button', { name: '展开页面结构', exact: true }).click();
-      await page.getByRole('button', { name: '展开可用字段', exact: true }).click();
+      await page.getByRole('button', { name: '展开字段来源', exact: true }).click();
       await expect.poll(() => previewPanel.getBoundingClientRect().width).toBeCloseTo(originalWidth, 0);
       expect(wrapper.find('.record-explorer-panel-footer').exists()).toBe(false);
     } finally {

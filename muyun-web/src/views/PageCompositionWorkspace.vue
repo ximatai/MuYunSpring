@@ -7,6 +7,7 @@ import {
   RecordDetailDrawer,
   RecordDetailPanel,
   RecordExplorerPanel,
+  ManagementTabs,
   presentPlatformError,
   presentPlatformSuccess,
 } from '@muyun/platform-components';
@@ -26,6 +27,7 @@ import {
 import {
   confirmAction,
   UiButton,
+  UiTree,
   UiEmpty,
   UiInput,
   UiSelect,
@@ -94,11 +96,112 @@ import {
 } from './dictionaryRadioEligibility';
 import { createDictionaryRadioFactRequestEpoch } from './dictionaryRadioFactRequestEpoch';
 
+import {
+  type ComponentCatalog,
+  sameTitleFields,
+  componentField,
+  componentFieldForSave,
+  componentFieldDefinition,
+  type PendingComponentField,
+} from './pageCompositionComponents';
+
+import { usePageCompositionComponents } from './usePageCompositionComponents';
+
 defineOptions({ name: 'PageCompositionWorkspace' });
 
 const props = defineProps<{ moduleAlias: string; moduleTitle?: string }>();
 const moduleContext = useModuleContext({ moduleAlias: 'platform.module' });
 const state = createPageCompositionDraftState();
+
+const paletteMode = ref('fields');
+const componentSession = usePageCompositionComponents(state, () => currentUiTreeJson.value);
+const {
+  fieldUsageIndex,
+  pendingComponents,
+  pendingChildren,
+  pendingFieldSources,
+  activeComponents,
+  activeChildren,
+  componentNameInvalid,
+  childInvalid,
+  pendingSearchableFields,
+} = componentSession;
+
+const componentCatalog = ref<ComponentCatalog>();
+const componentCatalogLoading = ref(false);
+let componentCatalogSequence = 0;
+const componentNodes = computed<UiTreeNode[]>(() => [
+  ...(componentCatalog.value?.components ?? []).map((item) => ({
+    key: item.component,
+    title: item.title,
+    isLeaf: true,
+  })),
+  ...(componentCatalog.value?.canCreateChild ? [{ key: 'child', title: '明细表', isLeaf: true }] : []),
+]);
+const selectedPendingComponent = computed(() =>
+  [...pendingComponents.value, ...pendingChildren.value.flatMap((child) => child.fields)].find(
+    (item) => item.key === selectedField.value?.id,
+  ),
+);
+
+const selectedFieldUsage = computed(() =>
+  selectedRelationField.value && selectedRelation.value
+    ? [selectedRelation.value.title]
+    : selectedField.value
+      ? (fieldUsageIndex.value.get(selectedField.value.fieldName) ?? [])
+      : [],
+);
+const duplicateComponentFields = computed(() =>
+  selectedPendingComponent.value && !selectedRelationField.value
+    ? sameTitleFields(selectedPendingComponent.value.title, selectedPendingComponent.value.key, [
+        ...metadataFields.value,
+        ...pendingFieldSources.value,
+      ])
+    : [],
+);
+
+function updateComponentRequired(required: boolean) {
+  const input = selectedPendingComponent.value;
+  if (!input || isMutating.value) return;
+  componentSession.updateField(input.key, { required });
+  schedulePreviewDescriptor();
+}
+
+async function loadComponentCatalog() {
+  const revisionId = revision.value?.id;
+  if (!revisionId) return;
+  const sequence = workspaceLoadSequence;
+  const request = ++componentCatalogSequence;
+  const current = () =>
+    sequence === workspaceLoadSequence &&
+    request === componentCatalogSequence &&
+    revisionId === revision.value?.id;
+  componentCatalogLoading.value = true;
+  try {
+    const catalog = await moduleContext.http.request<ComponentCatalog>({
+      method: 'GET',
+      path: `/platform.presentation_publish/revisions/${encodeURIComponent(revisionId)}/component-catalog`,
+    });
+    if (current()) componentCatalog.value = catalog;
+  } catch (cause) {
+    if (current()) {
+      componentCatalog.value = undefined;
+      presentPlatformError(cause, { source: 'page-composition', phase: 'load' });
+    }
+  } finally {
+    if (request === componentCatalogSequence) componentCatalogLoading.value = false;
+  }
+}
+watch(paletteMode, (mode) => {
+  if (mode === 'components') void loadComponentCatalog();
+});
+
+function updateComponentTitle(title: string) {
+  const input = selectedPendingComponent.value;
+  if (!input || isMutating.value) return;
+  componentSession.updateField(input.key, { title });
+  schedulePreviewDescriptor();
+}
 
 // Governance tabs retain drafts through KeepAlive. Re-entering the composer
 // refreshes its source catalogue, not the user's unsaved page composition.
@@ -133,7 +236,11 @@ const compositionMode = ref<CompositionMode>();
 const configuredMode = ref<CompositionMode>();
 const explorerTitleField = ref('title');
 const quickSearchFields = ref<string[]>([]);
-const searchableFields = ref<string[]>([]);
+const persistedSearchableFields = ref<string[]>([]);
+const searchableFields = computed(() => [
+  ...persistedSearchableFields.value,
+  ...pendingSearchableFields.value,
+]);
 const explorerSecondaryField = ref<string>();
 const moduleActions = ref<ModuleRuntimeAction[]>([]);
 const actionPlacements = ref<PageCompositionActionPlacement[]>([]);
@@ -338,7 +445,7 @@ const propertyIssues = computed(() => [
 ]);
 const visibleFields = computed(() => {
   const keyword = fieldKeyword.value.trim().toLowerCase();
-  const fields = filterSystemFields(metadataFields.value);
+  const fields = filterSystemFields([...metadataFields.value, ...pendingFieldSources.value]);
   if (!keyword) return fields;
   return fields.filter(
     (field) =>
@@ -355,6 +462,7 @@ const visibleFields = computed(() => {
   );
 });
 const allMetadataFields = computed(() => [
+  ...pendingFieldSources.value,
   ...metadataFields.value,
   ...[...referenceFieldDirectories.value.entries()]
     .filter(([key]) => key.startsWith(`${props.moduleAlias}:`) && key !== `${props.moduleAlias}:`)
@@ -490,7 +598,9 @@ const isMutating = computed(
   () => saving.value || publishing.value || loading.value || compositionLoading.value,
 );
 const unavailableNavigationSources = computed(() => {
-  const known = new Set(metadataFields.value.map((field) => field.fieldName));
+  const known = new Set(
+    [...metadataFields.value, ...pendingFieldSources.value].map((field) => field.fieldName),
+  );
   const fields = [...quickSearchFields.value];
   if (skeleton.value?.columns === false) {
     fields.push(explorerTitleField.value || '导航标题（未配置）');
@@ -852,7 +962,7 @@ async function loadMetadataTree(requestSequence = workspaceLoadSequence, moduleA
     const selected = state.selectedNodeId.value;
     skeletons.value = profile.compositionSkeletons;
     configuredMode.value = profile.overviewMode.toUpperCase() as CompositionMode;
-    searchableFields.value = profile.searchableFields ?? [];
+    persistedSearchableFields.value = profile.searchableFields ?? [];
     if (runtime) moduleActions.value = runtime.actions ?? [];
     relation.value = main;
     metadataRelations.value = relations;
@@ -882,6 +992,7 @@ async function loadMetadataTree(requestSequence = workspaceLoadSequence, moduleA
       await hydrateDraft({ ...revision.value, uiTreeJson: treeJson }, false);
       if (state.nodes.value.some((node) => node.id === selected)) state.selectedNodeId.value = selected;
     }
+    if (componentCatalog.value && !publishing.value) await loadComponentCatalog();
     return true;
   } catch (cause) {
     if (current()) presentPlatformError(cause, { source: 'page-composition', phase: 'load' });
@@ -1133,6 +1244,13 @@ async function loadReferenceChildren(
 
 function metadataFieldNode(field: PageComposerField): UiTreeNode {
   return metadataSourceFieldNode(field, {
+    secondary:
+      [
+        ...(fieldUsageIndex.value.get(field.fieldName) ?? []),
+        field.pending ? '新增' : metadataSourceFieldNode(field, { key: field.id }).secondary,
+      ]
+        .filter(Boolean)
+        .join(' · ') || undefined,
     key: `metadata:field:${field.id}`,
     actions: [
       {
@@ -1245,6 +1363,10 @@ async function loadComposition(requestSequence = workspaceLoadSequence, moduleAl
       : [[], []];
     if (!current()) return;
     // Replace the working copy only after the complete snapshot arrives. A failed reload keeps local edits.
+    componentSession.reset();
+    componentCatalogSequence += 1;
+    componentCatalogLoading.value = false;
+    componentCatalog.value = undefined;
     resetPreviewDescriptor();
     page.value = nextPage;
     variant.value = nextVariant;
@@ -1260,6 +1382,7 @@ async function loadComposition(requestSequence = workspaceLoadSequence, moduleAl
     savedUiTreeJson.value = undefined;
     await hydrateDraft(revision.value);
     propertyDrawerOpen.value = false;
+    if (paletteMode.value === 'components') await loadComponentCatalog();
   } catch (cause) {
     if (current()) presentPlatformError(cause, { source: 'page-composition', phase: 'load' });
   } finally {
@@ -1355,7 +1478,20 @@ async function requestPreviewDescriptor(
     const preview = await moduleContext.http.request<PresentationRevisionPreview>({
       method: 'POST',
       path: pageCompositionTransport.previewRevisionPath(variantId, revisionId),
-      body: { uiTreeJson },
+      body: {
+        uiTreeJson,
+        ...(activeComponents.value.length
+          ? { newFields: activeComponents.value.map(componentFieldDefinition) }
+          : {}),
+        ...(activeChildren.value.length
+          ? {
+              newChildren: activeChildren.value.map((child) => ({
+                ...child,
+                fields: child.fields.map(componentFieldDefinition),
+              })),
+            }
+          : {}),
+      },
     });
     if (requestSequence !== previewRequestSequence) return;
     if (uiTreeJson !== currentUiTreeJson.value) return;
@@ -1478,13 +1614,15 @@ async function hydrateDraft(current: PresentationRevision | undefined, markSaved
       const relation = metadataRelations.value.find(
         (candidate) => candidate.relationAlias === entry.relation,
       );
+      const pendingChild = pendingChildren.value.find((child) => `detail_${child.key}` === entry.relation);
       const relationCode = relation?.relationAlias ?? entry.relation;
       if (!relationCode) return [];
       return [
         {
-          id: relation?.id ?? relationCode,
+          id: relation?.id ?? pendingChild?.key ?? relationCode,
           relationCode,
-          unavailable: !relation,
+          unavailable: !relation && !pendingChild,
+          pending: !relation && !!pendingChild,
           title: entry.title?.trim() || relation?.title || relation?.relationAlias || relationCode,
           fields: (entry.fields ?? []).flatMap((entryField) => {
             const fieldName = typeof entryField === 'string' ? entryField : entryField.field;
@@ -1493,7 +1631,7 @@ async function hydrateDraft(current: PresentationRevision | undefined, markSaved
               ? childMetadataFields.value
                   .get(relation.id ?? relation.metadataId ?? '')
                   ?.find((candidate) => candidate.fieldName === fieldName)
-              : undefined;
+              : pendingChild?.fields.map(componentField).find((field) => field.fieldName === fieldName);
             return [
               {
                 ...(childField ?? {
@@ -1659,6 +1797,8 @@ async function saveAndApply() {
   if (
     isMutating.value ||
     !hasPendingChanges.value ||
+    componentNameInvalid.value ||
+    childInvalid.value ||
     propertyIssues.value.length > 0 ||
     dictionaryRadioIssues.value.length > 0 ||
     actionIssues.value.length > 0 ||
@@ -1675,19 +1815,38 @@ async function saveAndApply() {
   const current = () => sequence === workspaceLoadSequence;
   const variantId = variant.value?.id;
   if (!variantId) return;
-  const treeJsonToPublish = currentUiTreeJson.value;
+  let treeJsonToPublish = currentUiTreeJson.value;
   publishing.value = true;
   try {
-    const publicationCandidate = {
+    let publicationCandidate: PresentationRevision = {
       ...revision.value,
       templateVersion: JSON.parse(treeJsonToPublish).templateVersion,
       uiTreeJson: treeJsonToPublish,
     };
-    await moduleContext.http.request<number>({
-      method: 'POST',
-      path: `/platform.presentation_publish/revisions/${encodeURIComponent(publicationCandidate.id!)}/publish`,
-      body: publicationCandidate,
-    });
+    if (activeComponents.value.length || activeChildren.value.length) {
+      if (!componentCatalog.value) throw new Error('请重新打开组件库后保存');
+      publicationCandidate = await moduleContext.http.request<PresentationRevision>({
+        method: 'POST',
+        path: `/platform.presentation_publish/revisions/${encodeURIComponent(publicationCandidate.id!)}/save-composition`,
+        body: {
+          revision: publicationCandidate,
+          relationId: componentCatalog.value.relationId,
+          expectedMetadataVersion: componentCatalog.value.metadataVersion,
+          newFields: activeComponents.value.map(componentFieldForSave),
+          newChildren: activeChildren.value.map((child) => ({
+            ...child,
+            fields: child.fields.map(componentFieldForSave),
+          })),
+        },
+      });
+      treeJsonToPublish = publicationCandidate.uiTreeJson!;
+    } else {
+      await moduleContext.http.request<number>({
+        method: 'POST',
+        path: `/platform.presentation_publish/revisions/${encodeURIComponent(publicationCandidate.id!)}/publish`,
+        body: publicationCandidate,
+      });
+    }
     if (!current()) return;
     // A successful publication makes this revision immutable, even if the following read fails.
     publishedRevision.value = {
@@ -1701,6 +1860,12 @@ async function saveAndApply() {
     removedDraft.value = undefined;
     propertyDrawerOpen.value = false;
     try {
+      if (pendingComponents.value.length || pendingChildren.value.length) {
+        await loadMetadataTree();
+        if (!current()) return;
+        componentSession.reset();
+        componentCatalog.value = undefined;
+      }
       const nextDraft = await createFollowUpDraft(variantId, publicationCandidate, treeJsonToPublish);
       if (current()) {
         revision.value = nextDraft;
@@ -1737,6 +1902,7 @@ async function discardUnsavedChanges() {
   });
   if (!confirmed || sequence !== workspaceLoadSequence || isMutating.value) return;
   await hydrateDraft(revision.value);
+  componentSession.reset();
   removedDraft.value = undefined;
   propertyDrawerOpen.value = false;
 }
@@ -2040,6 +2206,56 @@ function handleCompositionMetadataDrop(target: ComposerDropTarget, payload: unkn
 function handleCompositionSourceDrop(target: ComposerDropTarget, payload: unknown) {
   const source = parsePageCompositionDragPayload(payload);
   if (!source) return;
+  if (source.kind === 'child') {
+    if (!componentCatalog.value?.canCreateChild || isMutating.value || target.kind !== 'form') return;
+    const key = crypto.randomUUID().replaceAll('-', '');
+    pendingChildren.value.push({ key, title: '明细表', fields: [] });
+    state.addFormRelation({
+      pending: true,
+      id: key,
+      relationCode: `detail_${key}`,
+      title: '明细表',
+      fields: [],
+    });
+    if (target.index !== undefined) state.moveFormRelation(key, target.index);
+    openPropertyDrawer();
+    return;
+  }
+  if (source.kind === 'component') {
+    const definition = componentCatalog.value?.components.find((item) => item.component === source.component);
+    if (!definition) return;
+    if (target.kind === 'relation') {
+      const child = pendingChildren.value.find((item) => item.key === target.relationId);
+      const relation = state.formRelations.value.find((item) => item.id === target.relationId);
+      if (!child || !relation || !componentCatalog.value || isMutating.value) return;
+      const input: PendingComponentField = {
+        key: crypto.randomUUID().replaceAll('-', ''),
+        component: source.component,
+        title: definition.title,
+        fieldSpecAlias: definition.fieldSpecAlias,
+      };
+      child.fields.push(input);
+      state.addFormRelationField(relation, componentField(input));
+      if (target.index !== undefined) state.moveFormRelationField(relation.id, input.key, target.index);
+      openPropertyDrawer();
+      return;
+    }
+    if (!componentCatalog.value || isMutating.value || !['list', 'form', 'group'].includes(target.kind))
+      return;
+    const input: PendingComponentField = {
+      key: crypto.randomUUID().replaceAll('-', ''),
+      component: source.component,
+      title: definition.title,
+      fieldSpecAlias: definition.fieldSpecAlias,
+    };
+    pendingComponents.value.push(input);
+    const field = componentField(input);
+    if (target.kind === 'group') placeMetadataFieldInGroup(field, target.groupId, target.index);
+    else if (target.kind === 'list' || target.kind === 'form')
+      state.addField(field, target.kind, target.index);
+    openPropertyDrawer();
+    return;
+  }
   if (source.kind !== 'action') {
     handleCompositionMetadataDrop(target, source);
     return;
@@ -2149,6 +2365,19 @@ function handlePreviewPlacement(source: CompositionPlacementSource, target: Comp
   if (!placement) return;
   const { container, index } = placement;
   const mode = state.previewMode.value;
+  if (source.kind === 'component') {
+    if (source.component.kind === 'child')
+      handleCompositionSourceDrop({ kind: 'form', index }, source.component);
+    else if (
+      container.kind === 'list' ||
+      container.kind === 'form' ||
+      container.kind === 'group' ||
+      container.kind === 'relation'
+    )
+      handleCompositionSourceDrop({ ...container, index }, source.component);
+    state.previewMode.value = mode;
+    return;
+  }
   if (source.kind === 'metadata') {
     const metadata = source.metadata;
     if (container.kind === 'list' || container.kind === 'form' || container.kind === 'group') {
@@ -2498,7 +2727,11 @@ function fieldDisplayTitle(field: PageComposerField) {
 function openPropertyDrawer() {
   if (
     isMutating.value ||
-    (!selectedActionEntry.value && !selectedField.value && !selectedQuickSearch.value && !selectedGroup.value)
+    (!selectedActionEntry.value &&
+      !selectedField.value &&
+      !selectedQuickSearch.value &&
+      !selectedGroup.value &&
+      !selectedRelation.value)
   )
     return;
   if (selectedQuickSearch.value) quickSearchPlaceholderDraft.value = state.quickSearchPlaceholder.value ?? '';
@@ -2521,6 +2754,10 @@ watch(
   () => props.moduleAlias,
   () => {
     mergeLayoutOpen.value = false;
+    componentSession.reset();
+    componentCatalog.value = undefined;
+    componentCatalogLoading.value = false;
+    paletteMode.value = 'fields';
   },
 );
 function confirmMergeLayout() {
@@ -2619,6 +2856,8 @@ function layoutHandlers(layout: 'form' | 'detail') {
                 isMutating ||
                 !hasPendingChanges ||
                 draftConflict ||
+                componentNameInvalid ||
+                childInvalid ||
                 propertyIssues.length > 0 ||
                 dictionaryRadioIssues.length > 0 ||
                 actionIssues.length > 0 ||
@@ -2640,33 +2879,89 @@ function layoutHandlers(layout: 'form' | 'detail') {
       <UiButton :disabled="isMutating" @click="applyConfiguredMode">采用概览中的呈现方式</UiButton>
     </div>
     <ManagementWorkspace class="page-composition-workspace__body" layout="composer" :explorer-count="2">
-      <ManagementExplorerColumn collapsible :title="paletteTitle">
-        <MetadataSourceTree
-          v-model:search-keyword="fieldKeyword"
-          v-model:show-system-fields="showSystemFields"
-          :title="paletteTitle"
-          :searchable="editorMode === 'fields'"
-          :refresh-disabled="isMutating"
-          :loading="loading && !relation"
-          :unavailable="!relation"
-          unavailable-description="页面编排仅面向已发布主元数据；当前模块暂无可编排主实体"
-          v-model:expanded-keys="metadataExpandedKeys"
-          :nodes="metadataTreeNodes"
-          :load-children="loadReferenceChildren"
-          :reload-key="metadataTreeReloadKey"
-          :selected-key="selectedMetadataTreeKey"
-          :draggable="!isMutating"
-          :drag-payload-type="PAGE_COMPOSITION_DRAG_PAYLOAD_TYPE"
-          :drag-payload-of="metadataDragPayload"
-          :can-drag="canDragMetadataNode"
-          data-testid="page-composer-metadata-tree"
-          @refresh="loadMetadataTree"
-          @select="selectMetadataNode"
-          @action="addMetadataNode"
-        >
-          <UiEmpty v-if="editorMode === 'actions' && !moduleActions.length" description="暂无模块动作" />
-          <UiEmpty v-if="editorMode === 'fields' && !visibleFields.length" description="暂无可编排字段" />
-        </MetadataSourceTree>
+      <ManagementExplorerColumn collapsible :title="editorMode === 'fields' ? '字段来源' : paletteTitle">
+        <div class="page-composition-palette">
+          <RecordExplorerPanel
+            v-if="editorMode === 'fields' && paletteMode === 'components'"
+            title="组件库"
+            :searchable="false"
+            :refresh-disabled="isMutating || componentCatalogLoading"
+            @refresh="loadComponentCatalog"
+          >
+            <template #title>
+              <ManagementTabs
+                v-model:active-key="paletteMode"
+                :tabs="[
+                  { key: 'fields', title: '已有字段' },
+                  { key: 'components', title: '组件库' },
+                ]"
+                :disabled="isMutating"
+                label="字段来源"
+                appearance="header"
+              />
+            </template>
+
+            <div class="page-composition-component-list">
+              <p class="page-composition-component-help">
+                拖入组件新建数据项；同一数据在多处展示，请复用已有字段。
+              </p>
+              <UiTree
+                v-if="componentCatalog"
+                :nodes="componentNodes"
+                :draggable="!isMutating"
+                :drag-operations="['copy']"
+                :drag-payload-type="PAGE_COMPOSITION_DRAG_PAYLOAD_TYPE"
+                :drag-payload-of="
+                  (node: UiTreeNode) =>
+                    node.key === 'child' ? { kind: 'child' } : { kind: 'component', component: node.key }
+                "
+                :allow-drop="() => false"
+                data-testid="page-composer-component-library"
+              />
+              <UiEmpty v-else :description="componentCatalogLoading ? '加载组件库' : '当前无法新增数据项'" />
+            </div>
+          </RecordExplorerPanel>
+          <MetadataSourceTree
+            v-else
+            v-model:search-keyword="fieldKeyword"
+            v-model:show-system-fields="showSystemFields"
+            :title="editorMode === 'fields' ? '已有字段' : paletteTitle"
+            :utility-placement="editorMode === 'fields' ? 'toolbar' : 'header'"
+            :searchable="editorMode === 'fields'"
+            :refresh-disabled="isMutating"
+            :loading="loading && !relation"
+            :unavailable="!relation"
+            unavailable-description="页面编排仅面向已发布主元数据；当前模块暂无可编排主实体"
+            v-model:expanded-keys="metadataExpandedKeys"
+            :nodes="metadataTreeNodes"
+            :load-children="loadReferenceChildren"
+            :reload-key="metadataTreeReloadKey"
+            :selected-key="selectedMetadataTreeKey"
+            :draggable="!isMutating"
+            :drag-payload-type="PAGE_COMPOSITION_DRAG_PAYLOAD_TYPE"
+            :drag-payload-of="metadataDragPayload"
+            :can-drag="canDragMetadataNode"
+            data-testid="page-composer-metadata-tree"
+            @refresh="loadMetadataTree"
+            @select="selectMetadataNode"
+            @action="addMetadataNode"
+          >
+            <template v-if="editorMode === 'fields'" #title>
+              <ManagementTabs
+                v-model:active-key="paletteMode"
+                :tabs="[
+                  { key: 'fields', title: '已有字段' },
+                  { key: 'components', title: '组件库' },
+                ]"
+                :disabled="isMutating"
+                label="字段来源"
+                appearance="header"
+              />
+            </template>
+            <UiEmpty v-if="editorMode === 'actions' && !moduleActions.length" description="暂无模块动作" />
+            <UiEmpty v-if="editorMode === 'fields' && !visibleFields.length" description="暂无可编排字段" />
+          </MetadataSourceTree>
+        </div>
       </ManagementExplorerColumn>
 
       <ManagementExplorerColumn collapsible :title="structureTitle">
@@ -2685,14 +2980,14 @@ function layoutHandlers(layout: 'form' | 'detail') {
               :separate-detail="state.separateDetail.value"
               :skeleton="skeleton"
               :searchable-field-ids="
-                metadataFields
+                allMetadataFields
                   .filter((field) => searchableFields.includes(field.fieldName))
                   .map((field) => field.id)
               "
               :quick-search-fields="
                 quickSearchFields.map((fieldName) => ({
                   fieldName,
-                  title: metadataFields.find((field) => field.fieldName === fieldName)?.title ?? fieldName,
+                  title: allMetadataFields.find((field) => field.fieldName === fieldName)?.title ?? fieldName,
                 }))
               "
               :query-summaries="summarySources"
@@ -2700,11 +2995,11 @@ function layoutHandlers(layout: 'form' | 'detail') {
               :summary-descriptions="summaryDescriptions"
               :summary-issues="summaryTreeIssues"
               :explorer-title="
-                metadataFields.find((field) => field.fieldName === explorerTitleField)?.title ??
+                allMetadataFields.find((field) => field.fieldName === explorerTitleField)?.title ??
                 explorerTitleField
               "
               :explorer-secondary="
-                metadataFields.find((field) => field.fieldName === explorerSecondaryField)?.title ??
+                allMetadataFields.find((field) => field.fieldName === explorerSecondaryField)?.title ??
                 explorerSecondaryField
               "
               :list-fields="state.listFields.value"
@@ -2752,6 +3047,9 @@ function layoutHandlers(layout: 'form' | 'detail') {
             { value: 'edit', label: '编辑状态' },
           ]"
         />
+        <div v-if="componentNameInvalid || childInvalid" role="alert" class="page-composition-source-error">
+          请填写数据项和明细表名称（最多 128 字），明细表至少添加一个字段。
+        </div>
         <div v-if="propertyIssues.length" role="alert" class="page-composition-source-error">
           列宽格式有误，请修正后保存：
           <UiButton
@@ -2929,6 +3227,48 @@ function layoutHandlers(layout: 'form' | 'detail') {
           <p>交互：{{ pageActionEntryDescription(selectedActionEntry) }}</p>
         </div>
         <div v-else-if="selectedField" class="component-property-drawer">
+          <h3>数据项</h3>
+          <p v-if="!selectedPendingComponent">
+            {{ selectedField.title }} · {{ selectedField.required ? '必填' : '选填' }}
+          </p>
+          <p v-if="selectedFieldUsage.length">已用于：{{ selectedFieldUsage.join('、') }}</p>
+          <label v-if="selectedPendingComponent">
+            <span>数据项名称</span>
+            <UiInput
+              :value="selectedPendingComponent.title"
+              :disabled="isMutating"
+              :maxlength="128"
+              placeholder="例如：供应商名称"
+              @update:value="updateComponentTitle"
+            />
+          </label>
+          <label v-if="selectedPendingComponent" class="component-property-drawer__switch">
+            <span>必填</span>
+            <UiSwitch
+              :checked="selectedPendingComponent.required ?? false"
+              :disabled="isMutating"
+              @update:checked="updateComponentRequired"
+            />
+          </label>
+          <small v-if="selectedPendingComponent">名称和必填规则适用于所有使用位置。</small>
+          <div v-if="duplicateComponentFields.length" role="status">
+            <p>
+              已有同名数据项“{{
+                selectedPendingComponent?.title.trim()
+              }}”。若要展示同一份数据，请移除此新增组件并复用已有字段。
+            </p>
+            <UiButton
+              :disabled="isMutating"
+              @click="
+                paletteMode = 'fields';
+                fieldKeyword = selectedPendingComponent?.title.trim() ?? '';
+                propertyDrawerOpen = false;
+              "
+              >查找同名字段</UiButton
+            >
+          </div>
+          <h3>当前展示位置</h3>
+          <small>以下设置仅影响当前区域，不修改数据项。</small>
           <label>
             <span>展示标题</span>
             <UiInput
@@ -3037,6 +3377,20 @@ function layoutHandlers(layout: 'form' | 'detail') {
             </label>
           </template>
         </div>
+        <div v-else-if="selectedRelation" class="component-property-drawer">
+          <label
+            ><span>明细表名称</span
+            ><UiInput
+              :value="selectedRelation.title"
+              :maxlength="128"
+              :disabled="isMutating"
+              @update:value="selectedRelation.title = $event"
+          /></label>
+          <p v-if="pendingChildren.some((child) => child.key === selectedRelation?.id)">
+            将基础组件拖入明细表，添加明细字段。
+          </p>
+          <p>明细随主表一起编辑和保存。</p>
+        </div>
         <div v-else-if="selectedGroup" class="component-property-drawer">
           <label>
             <span>分组标题</span>
@@ -3090,6 +3444,26 @@ function layoutHandlers(layout: 'form' | 'detail') {
 </template>
 
 <style scoped>
+.page-composition-palette,
+.page-composition-component-list {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+}
+.page-composition-component-list {
+  gap: 8px;
+}
+.page-composition-palette > :deep(.record-explorer-panel) {
+  flex: 1 1 auto;
+}
+.page-composition-component-list > .page-composition-component-help {
+  flex: 0 0 auto;
+  color: var(--muyun-text-muted);
+  margin: 0 0 12px;
+  font-size: 13px;
+}
 .page-composition-mode {
   display: flex;
   align-items: center;
@@ -3188,6 +3562,13 @@ function layoutHandlers(layout: 'form' | 'detail') {
 .component-property-drawer {
   display: grid;
   gap: 16px;
+}
+.component-property-drawer h3 {
+  margin: 0;
+  font-size: 14px;
+}
+.component-property-drawer small {
+  color: var(--muyun-text-muted);
 }
 .component-property-drawer label {
   display: grid;

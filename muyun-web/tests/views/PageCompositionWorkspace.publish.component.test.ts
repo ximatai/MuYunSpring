@@ -1,10 +1,12 @@
+import { inputComponents } from './pageCompositionComponentFixtures';
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AppError, configureModuleContext, type HttpClient, type HttpRequestOptions } from '@/web-core';
+import { ManagementTabs } from '@muyun/platform-components';
 import PageCompositionDescriptorPreview from '@/views/PageCompositionDescriptorPreview.vue';
 import PageCompositionWorkspace from '@/views/PageCompositionWorkspace.vue';
 import PageCompositionTree from '@/views/PageCompositionTree.vue';
-import { confirmAction } from '@muyun/vue-ui-antdv';
+import { confirmAction, UiSwitch } from '@muyun/vue-ui-antdv';
 
 vi.mock('@muyun/vue-ui-antdv', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@muyun/vue-ui-antdv')>()),
@@ -12,6 +14,398 @@ vi.mock('@muyun/vue-ui-antdv', async (importOriginal) => ({
 }));
 
 describe('PageCompositionWorkspace publication flow', () => {
+  it('does not create child drafts when the catalog denies child creation', async () => {
+    const base = publicationFlowHttp([]);
+    configureModuleContext({
+      http: {
+        request: (request) =>
+          request.path.endsWith('/component-catalog')
+            ? (Promise.resolve({
+                relationId: 'main',
+                metadataVersion: 2,
+                components: [...inputComponents],
+                canCreateChild: false,
+              }) as never)
+            : base.request(request),
+      },
+    });
+    const wrapper = mount(PageCompositionWorkspace, {
+      props: { moduleAlias: 'education.exam' },
+      global: { stubs: workspaceStubs() },
+    });
+    try {
+      await flushPromises();
+      wrapper.findComponent(ManagementTabs).vm.$emit('update:activeKey', 'components');
+      await flushPromises();
+      const tree = wrapper.findComponent(PageCompositionTree);
+      const before = tree.props('formRelations');
+      tree.vm.$emit('source-drop', { kind: 'form' }, { kind: 'child' });
+      await flushPromises();
+      expect(tree.props('formRelations')).toEqual(before);
+      tree.vm.$emit('source-drop', { kind: 'form' }, { kind: 'component', component: 'text' });
+      await flushPromises();
+      expect(tree.props('formFields')).toHaveLength(1);
+    } finally {
+      wrapper.unmount();
+    }
+  });
+
+  it.each(['undo', 'quick-search', 'explorer-title'])(
+    'retains pending field identity through %s and refresh',
+    async (scenario) => {
+      const requests: HttpRequestOptions[] = [];
+      let metadataVersion = 2;
+      const base = publicationFlowHttp(requests);
+      configureModuleContext({
+        http: {
+          request: (request) => {
+            if (request.path.endsWith('/component-catalog'))
+              return Promise.resolve({
+                components: [...inputComponents],
+                canCreateChild: true,
+                relationId: 'main',
+                metadataVersion,
+              }) as never;
+            if (request.path.endsWith('/overview-mode'))
+              return Promise.resolve({
+                ...compositionProfile(),
+                overviewMode: scenario === 'explorer-title' ? 'MICRO_LIST_CARD' : 'LIST_CARD',
+              }) as never;
+            if (request.path.endsWith('/save-composition')) {
+              requests.push(request);
+              return Promise.reject(new Error('保存失败'));
+            }
+            return base.request(request);
+          },
+        },
+      });
+      const wrapper = mount(PageCompositionWorkspace, {
+        props: { moduleAlias: 'education.exam' },
+        global: { stubs: workspaceStubs() },
+      });
+      try {
+        await flushPromises();
+        const palette = wrapper.findComponent(ManagementTabs);
+        palette.vm.$emit('update:activeKey', 'components');
+        await flushPromises();
+        const tree = wrapper.findComponent(PageCompositionTree);
+        tree.vm.$emit('source-drop', { kind: 'form' }, { kind: 'component', component: 'text' });
+        await flushPromises();
+        const field = tree.props('formFields')[0];
+        if (scenario !== 'undo') {
+          expect(tree.props('searchableFieldIds')).toContain(field.id);
+          tree.vm.$emit('source-drop', { kind: scenario }, { kind: 'field', fieldId: field.id });
+          await flushPromises();
+          if (scenario === 'quick-search')
+            expect(tree.props('quickSearchFields')).toContainEqual({
+              fieldName: field.fieldName,
+              title: field.title,
+            });
+          else expect(tree.props('explorerTitle')).toBe(field.title);
+        }
+        tree.vm.$emit('node-action', 'remove', `ui:field:form:${field.id}`);
+        await flushPromises();
+        expect(tree.props('formFields')).toHaveLength(0);
+        if (scenario === 'undo') {
+          await wrapper
+            .findAll('button')
+            .find((button) => button.text() === '撤销移除')!
+            .trigger('click');
+          await flushPromises();
+          expect(tree.props('formFields')[0]).toMatchObject({ id: field.id, pending: true });
+          expect(tree.props('formFields')[0].unavailable).not.toBe(true);
+        }
+        wrapper.findComponent(ManagementTabs).vm.$emit('update:activeKey', 'fields');
+        await flushPromises();
+        metadataVersion = 3;
+        wrapper.findComponent({ name: 'MetadataSourceTree' }).vm.$emit('refresh');
+        await flushPromises();
+        if (scenario === 'undo') expect(tree.props('formFields')[0].id).toBe(field.id);
+        const save = wrapper
+          .findAll('[data-testid="publish-button"]')
+          .find((button) => button.text() === '保存并生效')!;
+        expect(save.attributes('disabled')).toBeUndefined();
+        await save.trigger('click');
+        await flushPromises();
+        const body = requests.find((request) => request.path.endsWith('/save-composition'))!.body;
+        expect(body).toMatchObject({
+          expectedMetadataVersion: 3,
+          newFields: [{ key: field.id, title: field.title }],
+        });
+        await save.trigger('click');
+        await flushPromises();
+        expect(requests.filter((request) => request.path.endsWith('/save-composition'))[1].body).toEqual(
+          body,
+        );
+      } finally {
+        wrapper.unmount();
+      }
+    },
+  );
+
+  it('does not offer a pending number as a quick-search field', async () => {
+    const base = publicationFlowHttp([]);
+    configureModuleContext({
+      http: {
+        request: (request) =>
+          request.path.endsWith('/component-catalog')
+            ? (Promise.resolve({
+                components: [...inputComponents],
+                canCreateChild: true,
+                relationId: 'main',
+                metadataVersion: 2,
+              }) as never)
+            : base.request(request),
+      },
+    });
+    const wrapper = mount(PageCompositionWorkspace, {
+      props: { moduleAlias: 'education.exam' },
+      global: { stubs: workspaceStubs() },
+    });
+    try {
+      await flushPromises();
+      wrapper.findComponent(ManagementTabs).vm.$emit('update:activeKey', 'components');
+      await flushPromises();
+      const tree = wrapper.findComponent(PageCompositionTree);
+      tree.vm.$emit('source-drop', { kind: 'form' }, { kind: 'component', component: 'number' });
+      await flushPromises();
+      const field = tree.props('formFields')[0];
+      expect(tree.props('searchableFieldIds')).not.toContain(field.id);
+      tree.vm.$emit('source-drop', { kind: 'quick-search' }, { kind: 'field', fieldId: field.id });
+      await flushPromises();
+      expect(tree.props('quickSearchFields')).toEqual([]);
+    } finally {
+      wrapper.unmount();
+    }
+  });
+
+  it('stages a component, reuses its field and retains the same key after a failed save', async () => {
+    const requests: HttpRequestOptions[] = [];
+    const base = publicationFlowHttp(requests);
+    const http: HttpClient = {
+      request: (request) => {
+        if (request.path.endsWith('/component-catalog'))
+          return Promise.resolve({
+            components: [...inputComponents],
+            canCreateChild: true,
+            relationId: 'main',
+            metadataVersion: 2,
+          }) as never;
+        if (request.path.endsWith('/save-composition')) {
+          requests.push(request);
+          return Promise.reject(new Error('保存失败'));
+        }
+        return base.request(request);
+      },
+    };
+    configureModuleContext({ http });
+    const wrapper = mount(PageCompositionWorkspace, {
+      props: { moduleAlias: 'education.exam' },
+      global: { stubs: workspaceStubs() },
+    });
+    await flushPromises();
+    wrapper.findComponent(ManagementTabs).vm.$emit('update:activeKey', 'components');
+    await flushPromises();
+    const tree = wrapper.findComponent(PageCompositionTree);
+    tree.vm.$emit('source-drop', { kind: 'form' }, { kind: 'component', component: 'text' });
+    await flushPromises();
+    const field = tree.props('formFields')[0];
+    expect(field.fieldName).toMatch(/^field[a-f0-9]{32}$/);
+    expect(requests.some((request) => request.method === 'POST' && request.path.includes('change-set'))).toBe(
+      false,
+    );
+    const name = wrapper
+      .findAll('label')
+      .find((label) => label.text().includes('数据项名称'))!
+      .find('input');
+    await name.setValue('考试名称');
+    expect(wrapper.text()).toContain('已有同名数据项');
+    await name.setValue('供应商名称');
+    expect(wrapper.text()).not.toContain('已有同名数据项');
+    const required = wrapper.findAll('label').find((label) => label.text() === '必填')!;
+    required.findComponent(UiSwitch).vm.$emit('update:checked', true);
+    await flushPromises();
+    expect(tree.props('formFields')[0].required).toBe(true);
+    tree.vm.$emit('source-drop', { kind: 'list' }, { kind: 'field', fieldId: field.id });
+    await flushPromises();
+    expect(tree.props('listFields')[0].fieldName).toBe(field.fieldName);
+    const save = () =>
+      wrapper.findAll('[data-testid="publish-button"]').find((button) => button.text() === '保存并生效')!;
+    await save().trigger('click');
+    await flushPromises();
+    await save().trigger('click');
+    await flushPromises();
+    const saves = requests.filter((request) => request.path.endsWith('/save-composition'));
+    expect(saves).toHaveLength(2);
+    expect(saves[0].body).toMatchObject({
+      expectedMetadataVersion: 2,
+      relationId: 'main',
+      newFields: [
+        {
+          key: field.id,
+          title: '供应商名称',
+          component: 'text',
+          required: true,
+          suggestedName: 'gongYingShangMingCheng',
+        },
+      ],
+    });
+    expect(saves[1].body).toEqual(saves[0].body);
+    vi.mocked(confirmAction).mockResolvedValue(true);
+    await wrapper
+      .findAll('[data-testid="publish-button"]')
+      .find((button) => button.text() === '放弃本次更改')!
+      .trigger('click');
+    await flushPromises();
+    expect(tree.props('formFields')).toEqual([]);
+    expect(tree.props('listFields')).toEqual([]);
+    wrapper.unmount();
+  });
+
+  it('stages a child with its own fields and preserves it after a failed atomic save', async () => {
+    const requests: HttpRequestOptions[] = [];
+    const base = publicationFlowHttp(requests);
+    configureModuleContext({
+      http: {
+        request: (request) => {
+          if (request.path.endsWith('/component-catalog'))
+            return Promise.resolve({
+              components: [...inputComponents],
+              canCreateChild: true,
+              relationId: 'main',
+              metadataVersion: 2,
+            }) as never;
+          if (request.path.endsWith('/save-composition')) {
+            requests.push(request);
+            return Promise.reject(new Error('保存失败'));
+          }
+          return base.request(request);
+        },
+      },
+    });
+    const wrapper = mount(PageCompositionWorkspace, {
+      props: { moduleAlias: 'education.exam' },
+      global: { stubs: workspaceStubs() },
+    });
+    await flushPromises();
+    wrapper.findComponent(ManagementTabs).vm.$emit('update:activeKey', 'components');
+    await flushPromises();
+    const tree = wrapper.findComponent(PageCompositionTree);
+    tree.vm.$emit('source-drop', { kind: 'form' }, { kind: 'child' });
+    await flushPromises();
+    const child = tree.props('formRelations')[0];
+    expect(child.relationCode).toMatch(/^detail_[a-f0-9]{32}$/);
+    const name = wrapper
+      .findAll('label')
+      .find((label) => label.text() === '明细表名称')!
+      .find('input');
+    await name.setValue('费用明细');
+    tree.vm.$emit(
+      'source-drop',
+      { kind: 'relation', relationId: child.id },
+      { kind: 'component', component: 'number' },
+    );
+    await flushPromises();
+    expect(tree.props('formFields')).toEqual([]);
+    expect(tree.props('formRelations')[0].fields).toHaveLength(1);
+    await wrapper
+      .findAll('[data-testid="publish-button"]')
+      .find((button) => button.text() === '保存并生效')!
+      .trigger('click');
+    await flushPromises();
+    const save = requests.find((request) => request.path.endsWith('/save-composition'))!;
+    expect(save.body).toMatchObject({
+      newFields: [],
+      newChildren: [
+        { key: child.id, title: '费用明细', fields: [{ component: 'number', suggestedName: 'shuZi' }] },
+      ],
+    });
+    expect(tree.props('formRelations')[0].fields).toHaveLength(1);
+    wrapper.unmount();
+  });
+
+  it('rebinds saved components to persisted fields and uses the new metadata version for continued editing', async () => {
+    const requests: HttpRequestOptions[] = [];
+    const fields: MetadataFieldFixture[] = [];
+    const base = publicationFlowHttp(requests, initialTree(), fields);
+    let metadataVersion = 2;
+    configureModuleContext({
+      http: {
+        request: (request) => {
+          if (request.path.endsWith('/component-catalog'))
+            return Promise.resolve({
+              components: [...inputComponents],
+              canCreateChild: true,
+              relationId: 'main',
+              metadataVersion,
+            }) as never;
+          if (request.path.endsWith('/save-composition')) {
+            requests.push(request);
+            const body = request.body as {
+              revision: { uiTreeJson: string };
+              newFields: { key: string; title: string; suggestedName: string }[];
+            };
+            let savedTree = body.revision.uiTreeJson;
+            fields.push(
+              ...body.newFields.map((input) => {
+                const fieldName = input.suggestedName + (fields.length ? '2' : '');
+                savedTree = savedTree.replaceAll(`field${input.key}`, fieldName);
+                return {
+                  id: `saved-${input.key}`,
+                  fieldName,
+                  title: input.title,
+                  fieldOwnership: 'BUSINESS',
+                  fieldForm: 'PHYSICAL',
+                };
+              }),
+            );
+            metadataVersion += 1;
+            return base.request({
+              ...request,
+              path: '/platform.presentation_publish/revisions/revision-1/publish',
+              body: { ...body.revision, uiTreeJson: savedTree },
+            });
+          }
+          return base.request(request);
+        },
+      },
+    });
+    const wrapper = mount(PageCompositionWorkspace, {
+      props: { moduleAlias: 'education.exam' },
+      global: { stubs: workspaceStubs() },
+    });
+    await flushPromises();
+    wrapper.findComponent(ManagementTabs).vm.$emit('update:activeKey', 'components');
+    await flushPromises();
+    const tree = wrapper.findComponent(PageCompositionTree);
+    const save = async () => {
+      await wrapper
+        .findAll('[data-testid="publish-button"]')
+        .find((button) => button.text() === '保存并生效')!
+        .trigger('click');
+      await flushPromises();
+    };
+    tree.vm.$emit('source-drop', { kind: 'form' }, { kind: 'component', component: 'text' });
+    await flushPromises();
+    const firstName = tree.props('formFields')[0].fieldName;
+    await save();
+    expect(tree.props('formFields')[0]).toMatchObject({ id: fields[0].id, fieldName: 'danHangWenBen' });
+    expect(tree.props('formFields')[0].fieldName).not.toBe(firstName);
+    expect(tree.props('formFields')[0].pending).not.toBe(true);
+    tree.vm.$emit('source-drop', { kind: 'form' }, { kind: 'component', component: 'text' });
+    await flushPromises();
+    await save();
+    const saves = requests.filter((request) => request.path.endsWith('/save-composition'));
+    expect(saves).toHaveLength(2);
+    expect(saves[1].body).toMatchObject({ expectedMetadataVersion: 3 });
+    expect((saves[1].body as { newFields: unknown[] }).newFields).toHaveLength(1);
+    expect(tree.props('formFields').map((field) => field.fieldName)).toEqual([
+      'danHangWenBen',
+      'danHangWenBen2',
+    ]);
+    wrapper.unmount();
+  });
+
   it('closes the merge drawer on discard and ignores a stale confirmation', async () => {
     vi.mocked(confirmAction).mockResolvedValue(true);
     configureModuleContext({
@@ -2321,7 +2715,7 @@ function workspaceStubs() {
     RecordExplorerPanel: {
       name: 'RecordExplorerPanel',
       template:
-        '<div><slot /><slot name="utility-actions" /><slot name="actions" /><slot name="footer" /></div>',
+        '<div><slot name="title" /><slot /><slot name="utility-actions" /><slot name="actions" /><slot name="footer" /></div>',
     },
     RecordDetailPanel: { template: '<section><slot name="actions" /><slot /></section>' },
     RecordDetailDrawer: { template: '<aside><slot /><footer><slot name="operation" /></footer></aside>' },

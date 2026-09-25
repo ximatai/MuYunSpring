@@ -90,6 +90,7 @@ final class DynamicRecordJsonDeserializer extends JsonDeserializer<DynamicRecord
                     && !field.getValue().isNull()) {
                 record.putMutationMetadata("auditInput:" + field.getKey(), field.getValue().asText());
             }
+            // Ownership is established by the validated request scope, never by a submitted tenantId.
             if (isEnvelopeField(field.getKey()) || flatRelations.contains(field.getKey())
                     || readFields.contains(field.getKey())) {
                 continue;

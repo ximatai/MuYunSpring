@@ -10,6 +10,7 @@ export interface PageComposerField {
   fieldName: string;
   /** Editor-only source diagnostic; never serialized into the page declaration. */
   unavailable?: boolean;
+  pending?: boolean;
   fieldSpecAlias?: string;
   required?: boolean;
   /** Source visibility only; never serialized into the page declaration. */
@@ -128,6 +129,8 @@ export function hasDefaultPageQuerySummaryLabel(
 
 /** A direct child relation placed as an association-list component in the detail slot. */
 export interface PageComposerRelation {
+  /** Unsaved child metadata, owned by the current composition session. */
+  pending?: boolean;
   id: string;
   relationCode: string;
   unavailable?: boolean;

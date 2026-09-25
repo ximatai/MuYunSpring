@@ -90,8 +90,8 @@ public class MetadataRelationChangeSetApplyService {
             throw new PlatformException("Metadata change-set preview fingerprint is stale; preview again before publish");
         }
         ModuleMetadataRelation relation = relationService.select(relationId);
-        if (relation == null || relation.getRelationRole() != RelationRole.MAIN) {
-            throw new PlatformException("Metadata change-set apply only supports MAIN metadata relation: " + relationId);
+        if (relation == null || !validModuleAlias.equals(relation.getModuleAlias())) {
+            throw new PlatformException("Metadata change-set relation is unavailable: " + relationId);
         }
         Metadata metadata = metadataService.select(relation.getMetadataId());
         if (metadata == null) throw new PlatformException("Module relation points to missing metadata: " + relation.getMetadataId());

@@ -3,6 +3,7 @@ import { computed, inject, nextTick, ref, watch } from 'vue';
 import { UiButton, UiInput } from '@muyun/vue-ui-antdv';
 import { MANAGEMENT_EXPLORER_COLUMN_CONTEXT } from './managementExplorerContext';
 import ManagementPanelHeader from './ManagementPanelHeader.vue';
+import RecordExplorerTools from './RecordExplorerTools.vue';
 
 defineOptions({ name: 'RecordExplorerPanel' });
 
@@ -19,6 +20,7 @@ const props = withDefaults(
     searchPlaceholder?: string;
     searchable?: boolean;
     collapseAction?: boolean;
+    utilityPlacement?: 'header' | 'toolbar';
   }>(),
   {
     embedded: false,
@@ -30,6 +32,7 @@ const props = withDefaults(
     searchPlaceholder: '搜索名称、编码或 ID',
     searchable: true,
     collapseAction: true,
+    utilityPlacement: 'header',
   },
 );
 
@@ -77,28 +80,29 @@ async function focusSearchInput() {
       class="record-explorer-panel-header"
       :title="title"
       :subtitle="subtitle"
-      :title-action-icon="refreshable ? 'reload' : undefined"
+      :title-action-icon="refreshable && utilityPlacement === 'header' ? 'reload' : undefined"
       :title-action-title="refreshTitle ?? `刷新${title}`"
       :title-action-disabled="refreshDisabled"
       @title-action="!refreshDisabled && emit('refresh')"
     >
+      <template v-if="$slots.title" #title><slot name="title" /></template>
       <template v-if="$slots['title-extra']" #status>
         <slot name="title-extra" />
       </template>
       <template #actions>
         <div class="record-explorer-panel-actions">
-          <slot name="utility-actions" />
-          <UiButton
-            v-if="searchable"
-            class="record-explorer-panel-action"
-            icon-name="search"
-            icon-only
-            size="small"
-            type="text"
-            :selected="searchExpanded"
-            :title="`搜索${title}`"
-            @click="toggleSearch"
-          />
+          <RecordExplorerTools
+            v-if="utilityPlacement === 'header'"
+            :title="title"
+            :searchable="searchable"
+            :search-expanded="searchExpanded"
+            :refreshable="false"
+            :refresh-disabled="refreshDisabled"
+            :refresh-title="refreshTitle ?? `刷新${title}`"
+            @search="toggleSearch"
+            @refresh="emit('refresh')"
+            ><slot name="utility-actions"
+          /></RecordExplorerTools>
           <UiButton
             v-if="collapseAction && explorerColumn?.collapsible.value && !explorerColumn.collapsed.value"
             class="record-explorer-panel-action"
@@ -115,6 +119,19 @@ async function focusSearchInput() {
       </template>
     </ManagementPanelHeader>
 
+    <div v-if="utilityPlacement === 'toolbar'" class="record-explorer-toolbar">
+      <slot name="utility-actions" />
+      <RecordExplorerTools
+        :title="title"
+        :searchable="searchable"
+        :search-expanded="searchExpanded"
+        :refreshable="refreshable"
+        :refresh-disabled="refreshDisabled"
+        :refresh-title="refreshTitle ?? `刷新${title}`"
+        @search="toggleSearch"
+        @refresh="emit('refresh')"
+      />
+    </div>
     <Transition name="record-explorer-search">
       <div v-if="searchVisible" ref="searchRoot" class="record-explorer-search">
         <UiInput
@@ -164,6 +181,15 @@ async function focusSearchInput() {
 
 .record-explorer-panel-header {
   flex: 0 0 auto;
+  margin-bottom: var(--muyun-management-panel-content-gap, 8px);
+}
+
+.record-explorer-toolbar {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
   margin-bottom: var(--muyun-management-panel-content-gap, 8px);
 }
 

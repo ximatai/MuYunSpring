@@ -23,7 +23,7 @@ class DynamicPublishedPageExecutionCoordinatorTest {
         ModuleExecutionPlanCatalog planCatalog = new ModuleExecutionPlanCatalog(
                 new StaticModuleDefinitionCatalog(List.of()), new ListQuerySummaryContributorCatalog(List.of()));
 
-        new DynamicPublishedPageExecutionCoordinator(runtimeContexts, planCatalog, mock(ObjectProvider.class));
+        new DynamicPublishedPageExecutionCoordinator(runtimeContexts, planCatalog, mock(ObjectProvider.class), mock(ObjectProvider.class));
 
         verifyNoInteractions(runtimeContexts);
     }
@@ -37,7 +37,7 @@ class DynamicPublishedPageExecutionCoordinatorTest {
         PlatformModuleRuntimeContextService runtimeContextService = mock(PlatformModuleRuntimeContextService.class);
         when(runtimeContextService.dynamicExecutionPlan(moduleAlias)).thenReturn(Optional.empty());
 
-        new DynamicPublishedPageExecutionCoordinator(() -> runtimeContextService, planCatalog, () -> mock(DynamicRuntimeActivationService.class))
+        new DynamicPublishedPageExecutionCoordinator(() -> runtimeContextService, planCatalog, () -> mock(DynamicRuntimeActivationService.class), () -> compiler(moduleAlias))
                 .installCurrentPublishedConfiguration(moduleAlias);
 
         assertThat(planCatalog.find(moduleAlias)).isEmpty();
@@ -52,10 +52,10 @@ class DynamicPublishedPageExecutionCoordinatorTest {
         planCatalog.replaceDynamicPlan(moduleAlias, Optional.of(installed));
 
         PlatformModuleRuntimeContextService runtimeContextService = mock(PlatformModuleRuntimeContextService.class);
-        when(runtimeContextService.dynamicExecutionPlan(moduleAlias)).thenReturn(Optional.of(
+        when(runtimeContextService.pendingDynamicExecutionPlan(org.mockito.ArgumentMatchers.any())).thenReturn(Optional.of(
                 plan(moduleAlias, "dynamic-runtime-1-ui-2", true)));
         DynamicPublishedPageExecutionCoordinator coordinator = new DynamicPublishedPageExecutionCoordinator(
-                () -> runtimeContextService, planCatalog, () -> mock(DynamicRuntimeActivationService.class));
+                () -> runtimeContextService, planCatalog, () -> mock(DynamicRuntimeActivationService.class), () -> compiler(moduleAlias));
 
         assertThatThrownBy(() -> coordinator.prepareAfterPublishedConfigurationChange(moduleAlias))
                 .isInstanceOf(IllegalArgumentException.class)
@@ -78,9 +78,10 @@ class DynamicPublishedPageExecutionCoordinatorTest {
         catalog.replaceDynamicPlan(moduleAlias, Optional.of(installed));
         PlatformModuleRuntimeContextService context = mock(PlatformModuleRuntimeContextService.class);
         when(context.dynamicExecutionPlan(moduleAlias)).thenReturn(Optional.of(candidate));
+        when(context.pendingDynamicExecutionPlan(org.mockito.ArgumentMatchers.any())).thenReturn(Optional.of(candidate));
         DynamicRuntimeActivationService activation = mock(DynamicRuntimeActivationService.class);
         DynamicPublishedPageExecutionCoordinator coordinator = new DynamicPublishedPageExecutionCoordinator(
-                () -> context, catalog, () -> activation);
+                () -> context, catalog, () -> activation, () -> compiler(moduleAlias));
         coordinator.prepareAfterPublishedConfigurationChange(moduleAlias);
         verify(activation).schedule(moduleAlias);
         assertThat(catalog.find(moduleAlias)).containsSame(installed);
@@ -88,12 +89,20 @@ class DynamicPublishedPageExecutionCoordinatorTest {
         coordinator.installCurrentPublishedConfiguration(moduleAlias);
         assertThat(catalog.find(moduleAlias)).containsSame(candidate);
 
-        when(context.dynamicExecutionPlan(moduleAlias)).thenThrow(
+        when(context.pendingDynamicExecutionPlan(org.mockito.ArgumentMatchers.any())).thenThrow(
                 new IllegalArgumentException("grouped list query summary field is not eligible: sales.contract.title"));
         assertThatThrownBy(() -> coordinator.prepareAfterPublishedConfigurationChange(moduleAlias))
                 .hasMessageContaining("not eligible");
         assertThat(catalog.find(moduleAlias)).containsSame(candidate);
         verifyNoMoreInteractions(activation);
+    }
+
+    private static net.ximatai.muyun.spring.platform.runtime.PlatformModuleDefinitionCompiler compiler(String alias) {
+        var compiler = mock(net.ximatai.muyun.spring.platform.runtime.PlatformModuleDefinitionCompiler.class);
+        when(compiler.compile(alias)).thenReturn(new net.ximatai.muyun.spring.dynamic.metadata.ModuleDefinition(alias, alias,
+                List.of(new net.ximatai.muyun.spring.dynamic.metadata.EntityDefinition("main", "public", "main", "Main", List.of(),
+                        java.util.Set.of(), List.of(), List.of()))));
+        return compiler;
     }
 
     private static ModuleExecutionPlan groupedPlanFromManagementRoot(String moduleAlias, String versionKey) {

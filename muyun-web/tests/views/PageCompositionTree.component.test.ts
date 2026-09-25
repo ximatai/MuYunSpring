@@ -100,7 +100,7 @@ describe('PageCompositionTree', () => {
     expect(actionsAt('ui:template:list:quick-search')).toEqual(['configure']);
     expect(actionsAt('ui:slot:form')).toEqual(['add-group', 'split-layout']);
     expect(findNode(nodes, 'ui:groups:form')).toBeUndefined();
-    expect(actionsAt('ui:relation:form:participants')).toEqual(['remove']);
+    expect(actionsAt('ui:relation:form:participants')).toEqual(['configure', 'remove']);
     expect(actionsAt('ui:relation-field:form:participants:exam-date')).toEqual(['configure', 'remove']);
     for (const key of ['ui:slot:list', 'ui:slot:list:fields']) {
       expect(actionsAt(key)).toEqual([]);
@@ -745,3 +745,23 @@ it.each(['ui:field:form:subject', 'ui:group:form:dates'])(
     wrapper.unmount();
   },
 );
+
+it('accepts a component inside an empty form and emits its component payload', () => {
+  const wrapper = mountTree({});
+  const tree = uiTree(wrapper);
+  const event = {
+    source: {
+      instanceId: 'library',
+      node: { key: 'text' },
+      operations: ['copy'],
+      payloadType: PAGE_COMPOSITION_DRAG_PAYLOAD_TYPE,
+      payload: { kind: 'component', component: 'text' },
+    },
+    target: { instanceId: 'form', kind: 'node', node: { key: 'ui:slot:form' }, position: 'inside' },
+    operation: 'copy',
+  };
+  expect(tree.props('allowDrop')(event)).toBe(true);
+  tree.vm.$emit('drop', event);
+  expect(wrapper.emitted('source-drop')).toEqual([[{ kind: 'form', index: 0 }, event.source.payload]]);
+  wrapper.unmount();
+});

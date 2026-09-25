@@ -1,3 +1,4 @@
+import { inputComponents } from './pageCompositionComponentFixtures';
 import { defineComponent, h } from 'vue';
 import { mount } from '@vue/test-utils';
 import { expect, it, vi } from 'vitest';
@@ -680,6 +681,210 @@ it.each([1440, 980])(
   },
 );
 
+it.each([
+  ['list', '列表', 'list:header:a'],
+  ['detail', '详情', 'detail:field:a'],
+  ['edit', '表单', 'edit:field:a'],
+  ['group', '表单', 'edit:container:group:empty'],
+])('drops a library component into the %s preview and supports cancellation', async (surface, label, key) => {
+  await page.viewport(1440, 1200);
+  const base = placementHttp([]);
+  configureModuleContext({
+    http: {
+      request: (request) =>
+        request.path.endsWith('/component-catalog')
+          ? (Promise.resolve({
+              components: [...inputComponents],
+              canCreateChild: true,
+              relationId: 'main',
+              metadataVersion: 2,
+            }) as never)
+          : base.request(request),
+    },
+  });
+  const wrapper = mount(PlacementHost, { attachTo: document.body, props: { height: 1120 } });
+  const fields = () => {
+    const tree = wrapper.findComponent(PageCompositionTree);
+    return surface === 'list'
+      ? tree.props('listFields')
+      : surface === 'group'
+        ? tree.props('formGroups').find((group: { id: string }) => group.id === 'empty')!.fields
+        : tree.props('formFields');
+  };
+  const target = `[data-composer-target="${key}"], [data-page-composition-layout-key="${key}"]`;
+  try {
+    await page.getByText('组件库', { exact: true }).click();
+    await page.getByText(label, { exact: true }).click();
+    const count = fields().length;
+    await commands.treeGesture('[data-ui-tree-key="text"]', target, 0.5, 'hold', 0.1);
+    expect(wrapper.find('.page-composer-drop-indicator').exists()).toBe(true);
+    await userEvent.keyboard('{Escape}');
+    await commands.treeRelease();
+    expect(fields()).toHaveLength(count);
+    await commands.treeGesture('[data-ui-tree-key="text"]', target, 0.5, 'drop', 0.1);
+    await expect.poll(() => fields().length).toBe(count + 1);
+    expect(fields()[0].pending).toBe(true);
+    await expect.element(page.getByText('数据项名称', { exact: true })).toBeVisible();
+  } finally {
+    wrapper.unmount();
+  }
+});
+
+it.each(['detail', 'edit'] as const)(
+  'drops library components into pending child previews in %s mode',
+  async (mode) => {
+    await page.viewport(1440, 1200);
+    const base = placementHttp([], true);
+    configureModuleContext({
+      http: {
+        request: (request) =>
+          request.path.endsWith('/component-catalog')
+            ? (Promise.resolve({
+                components: [...inputComponents],
+                canCreateChild: true,
+                relationId: 'main',
+                metadataVersion: 2,
+              }) as never)
+            : base.request(request),
+      },
+    });
+    const wrapper = mount(PlacementHost, { attachTo: document.body, props: { height: 1120 } });
+    const tree = () => wrapper.findComponent(PageCompositionTree);
+    const child = () =>
+      tree()
+        .props('formRelations')
+        .find((entry: { pending?: boolean }) => entry.pending)!;
+    const source = '[data-ui-tree-key="text"]';
+    try {
+      await page.getByText('组件库', { exact: true }).click();
+      await page.getByText(mode === 'edit' ? '表单' : '详情', { exact: true }).click();
+      await commands.treeGesture('[data-ui-tree-key="child"]', '[data-composer-target="relations:end"]');
+      await page.getByRole('button', { name: '关闭', exact: true }).click();
+      await page.getByText(mode === 'edit' ? '表单' : '详情', { exact: true }).click();
+      await expect.poll(() => Boolean(child())).toBe(true);
+      const target = `[data-composer-target="${mode}:relation:${child().relationCode}:end"]`;
+      await commands.treeGesture(source, target);
+      await expect.poll(() => child().fields.length).toBe(1);
+      await expect.element(page.getByText('数据项名称', { exact: true })).toBeVisible();
+      await page.getByRole('button', { name: '关闭', exact: true }).click();
+      await expect
+        .element(page.getByRole('radio', { name: mode === 'edit' ? '表单' : '详情', exact: true }))
+        .toBeChecked();
+      const firstId = child().fields[0].id;
+      const header = `[data-page-composition-layout-key="${mode}:relation:${child().relationCode}:header:${child().fields[0].fieldName}"]`;
+      await commands.treeGesture(source, header, 0.5, 'hold', 0.1);
+      const indicator = wrapper.get('.page-composer-drop-indicator--insertion');
+      const cell = wrapper.get(header).element.closest('th')!.getBoundingClientRect();
+      const marker = indicator.element.getBoundingClientRect();
+      expect(marker.width).toBeLessThanOrEqual(4);
+      expect(marker.height).toBeCloseTo(cell.height, 0);
+      expect(Math.abs(marker.left - cell.left)).toBeLessThanOrEqual(2);
+      expect(getComputedStyle(indicator.get('span').element).clipPath).toBe('inset(50%)');
+      await commands.treeRelease();
+      await expect.poll(() => child().fields.length).toBe(2);
+      expect(child().fields[1].id).toBe(firstId);
+      await page.getByRole('button', { name: '关闭', exact: true }).click();
+      await commands.treeGesture(source, `[data-composer-target="${mode}:relation:child"]`);
+      expect(child().fields).toHaveLength(2);
+      expect(
+        tree()
+          .props('formRelations')
+          .find((entry: { id: string }) => entry.id === 'child')!.fields,
+      ).toHaveLength(1);
+      // A second new child can be inserted before an existing child, without nesting.
+      const previousIds = tree()
+        .props('formRelations')
+        .map((entry: { id: string }) => entry.id);
+      await commands.treeGesture(
+        '[data-ui-tree-key="child"]',
+        `[data-composer-target="${mode}:relation:child"]`,
+        0.1,
+      );
+      await expect.poll(() => tree().props('formRelations').length).toBe(previousIds.length + 1);
+      expect(tree().props('formRelations')[0].pending).toBe(true);
+      expect(
+        tree()
+          .props('formRelations')
+          .slice(1)
+          .map((entry: { id: string }) => entry.id),
+      ).toEqual(previousIds);
+      await page.getByRole('button', { name: '关闭', exact: true }).click();
+      // The structure tree exposes the same sibling insertion after a child section.
+      await expect
+        .poll(
+          () =>
+            wrapper.element
+              .getAnimations({ subtree: true })
+              .filter((animation: Animation) => animation.playState === 'running').length,
+        )
+        .toBe(0);
+      await commands.treeGesture(
+        '[data-ui-tree-key="child"]',
+        '[data-ui-tree-key="ui:relation:form:child"]',
+        0.9,
+      );
+      await expect.poll(() => tree().props('formRelations').length).toBe(previousIds.length + 2);
+      expect(tree().props('formRelations')[2].pending).toBe(true);
+    } finally {
+      wrapper.unmount();
+    }
+  },
+);
+
+it.each(['detail', 'edit'] as const)(
+  'reorders whole child previews from their body and shows section feedback in %s',
+  async (mode) => {
+    await page.viewport(1440, 1200);
+    const requests: HttpRequestOptions[] = [];
+    configureModuleContext({ http: placementHttp(requests, true) });
+    const wrapper = mount(PlacementHost, { attachTo: document.body, props: { height: 1120 } });
+    const ids = () =>
+      wrapper
+        .findComponent(PageCompositionTree)
+        .props('formRelations')
+        .map((item: { id: string }) => item.id);
+    const section = (id: string) => `[data-composer-target="${mode}:relation:${id}"]`;
+    const grip = (id: string) => `[data-composer-drag="${mode}:relation:${id}"]`;
+    const ready = async () => {
+      await expect
+        .element(page.elementLocator(wrapper.get(grip('child')).element))
+        .toHaveAttribute('aria-disabled', 'false');
+      await expect
+        .poll(
+          () =>
+            wrapper.element
+              .getAnimations({ subtree: true })
+              .filter((animation: Animation) => animation.playState === 'running').length,
+        )
+        .toBe(0);
+    };
+    try {
+      await page.getByText(mode === 'edit' ? '表单' : '详情', { exact: true }).click();
+      await ready();
+      // Dropping upward in the section centre must mean before, never "inside"/append.
+      await commands.treeGesture(grip('other'), section('child'), 0.5, 'hold');
+      expect(wrapper.get(section('other')).classes()).toContain('page-composer-drag-source');
+      const marker = wrapper.get('.page-composer-drop-indicator--insertion').element.getBoundingClientRect();
+      const target = wrapper.get(section('child')).element.getBoundingClientRect();
+      expect(marker.height).toBeLessThanOrEqual(4);
+      expect(marker.width).toBeCloseTo(target.width, 0);
+      expect(Math.abs(marker.top - target.top)).toBeLessThanOrEqual(2);
+      await commands.treeRelease();
+      await expect.poll(ids).toEqual(['other', 'child']);
+      await ready();
+      // The body, including a child field cell, also accepts a whole-section move.
+      await commands.treeGesture(grip('other'), `${section('child')} td`, 0.5);
+      await expect.poll(ids).toEqual(['child', 'other']);
+      await ready();
+      await commands.treeGesture(grip('other'), section('child'), 0.5, 'escape');
+      expect(ids()).toEqual(['child', 'other']);
+      expect(wrapper.find('.page-composer-drop-indicator').exists()).toBe(false);
+    } finally {
+      wrapper.unmount();
+    }
+  },
+);
+
 it('targets child-table columns precisely, rejects another relation and moves whole child sections', async () => {
   await page.viewport(1440, 1200);
   configureModuleContext({ http: placementHttp([], true) });
@@ -736,6 +941,15 @@ it('targets child-table columns precisely, rejects another relation and moves wh
       'drop',
       0.1,
     );
+    await expect.poll(ids).toEqual(['x', 'y']);
+    await ready();
+    // The whole header cell, including its padding, is a reorder receiver.
+    const lastHeader =
+      '[data-testid="page-composer-edit-preview"] th:has([data-page-composition-layout-key="edit:relation:child:header:y"])';
+    await commands.treeGesture(grip, lastHeader, 0.85, 'drop', 0.85);
+    await expect.poll(ids).toEqual(['y', 'x']);
+    await ready();
+    await commands.treeGesture(grip, lastHeader, 0.85, 'drop', 0.1);
     await expect.poll(ids).toEqual(['x', 'y']);
     await ready();
     await commands.treeGesture(
@@ -1626,7 +1840,10 @@ function placementHttp(
                 code: relation.relation,
                 title: relation.title,
                 listProjection: {
-                  fields: relation.fields.map((fieldName) => ({ fieldName, title: `子字段${fieldName}` })),
+                  fields: (relation.fields ?? []).map((fieldName) => ({
+                    fieldName,
+                    title: `子字段${fieldName}`,
+                  })),
                 },
               }),
             ),

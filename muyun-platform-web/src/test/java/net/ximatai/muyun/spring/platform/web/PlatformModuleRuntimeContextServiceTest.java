@@ -509,7 +509,8 @@ class PlatformModuleRuntimeContextServiceTest {
         ModuleExecutionPlanCatalog planCatalog = new ModuleExecutionPlanCatalog(new StaticModuleDefinitionCatalog(List.of()));
 
         new DynamicPublishedPageExecutionCoordinator(() -> service, planCatalog,
-                () -> mock(net.ximatai.muyun.spring.platform.runtime.DynamicRuntimeActivationService.class))
+                () -> mock(net.ximatai.muyun.spring.platform.runtime.DynamicRuntimeActivationService.class),
+                () -> mock(net.ximatai.muyun.spring.platform.runtime.PlatformModuleDefinitionCompiler.class))
                 .installCurrentPublishedConfiguration("sales.contract");
         ModuleExecutionPlan plan = planCatalog.find("sales.contract").orElseThrow();
         ResolvedFieldControlDescriptor fieldControl = plan.uiDescriptor().page().detail().editor().fields().getFirst().fieldControl();
@@ -532,9 +533,7 @@ class PlatformModuleRuntimeContextServiceTest {
         unsupportedPresentation.setDefaultValue("TREE");
         when(properties.listByFieldUiControlAliases(List.of("record_picker_dialog"))).thenReturn(List.of(unsupportedPresentation));
         ModuleExecutionPlanCatalog rejectedCatalog = new ModuleExecutionPlanCatalog(new StaticModuleDefinitionCatalog(List.of()));
-        assertThatThrownBy(() -> new DynamicPublishedPageExecutionCoordinator(() -> service, rejectedCatalog,
-                () -> mock(net.ximatai.muyun.spring.platform.runtime.DynamicRuntimeActivationService.class))
-                .prepareAfterPublishedConfigurationChange("sales.contract"))
+        assertThatThrownBy(() -> service.pendingDynamicExecutionPlan(dynamicDescriptor))
                 .hasMessageContaining("presentation must be DROPDOWN or DIALOG");
         assertThat(rejectedCatalog.find("sales.contract")).isEmpty();
     }

@@ -8,6 +8,7 @@ withDefaults(
     nodes: UiTreeNode[];
     title?: string;
     embedded?: boolean;
+    utilityPlacement?: 'header' | 'toolbar';
     searchKeyword?: string;
     showSystemFields?: boolean;
     searchable?: boolean;
@@ -19,6 +20,7 @@ withDefaults(
   {
     title: '可用字段',
     embedded: false,
+    utilityPlacement: 'header',
     searchKeyword: '',
     showSystemFields: false,
     searchable: true,
@@ -39,6 +41,7 @@ const emit = defineEmits<{
   <RecordExplorerPanel
     :title="title"
     :embedded="embedded"
+    :utility-placement="utilityPlacement"
     :search-keyword="searchKeyword"
     search-placeholder="搜索字段"
     :searchable="searchable"
@@ -46,6 +49,7 @@ const emit = defineEmits<{
     @update:search-keyword="emit('update:searchKeyword', $event)"
     @refresh="emit('refresh')"
   >
+    <template v-if="$slots.title" #title><slot name="title" /></template>
     <template v-if="searchable" #utility-actions>
       <label class="metadata-source-tree__system-fields">
         <span>系统字段</span>

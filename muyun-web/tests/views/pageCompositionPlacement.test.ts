@@ -66,3 +66,33 @@ it('rejects unrelated child fields, cross-slot moves, stale anchors and self-dro
       ),
     ).toBeUndefined();
 });
+
+it('inserts new child tables as siblings and rejects nested or field placements', () => {
+  const source = { kind: 'component', component: { kind: 'child' } } as const;
+  expect(
+    resolveCompositionPlacement(model, source, {
+      container: { kind: 'relations' },
+      anchorId: 'child',
+      position: 'before',
+    })?.index,
+  ).toBe(0);
+  expect(
+    resolveCompositionPlacement(model, source, {
+      container: { kind: 'relations' },
+      anchorId: 'child',
+      position: 'after',
+    })?.index,
+  ).toBe(1);
+  expect(
+    resolveCompositionPlacement(model, source, {
+      container: { kind: 'relations' },
+      position: 'inside',
+    })?.index,
+  ).toBe(1);
+  for (const container of [
+    { kind: 'list' },
+    { kind: 'form' },
+    { kind: 'relation', relationId: 'child' },
+  ] as const)
+    expect(resolveCompositionPlacement(model, source, { container, position: 'inside' })).toBeUndefined();
+});

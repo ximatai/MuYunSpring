@@ -6,7 +6,7 @@ import java.util.Set;
 /** Stable JSON envelope names that cannot also represent dynamic business fields. */
 public final class DynamicRecordProtocolFields {
     private static final Set<String> ENVELOPE_FIELDS = Set.of(
-            "id", "version", "uiConfigId", "values", "children", "attachments", "originContext");
+            "id", "tenantId", "version", "uiConfigId", "values", "children", "attachments", "originContext");
     private static final Set<String> RESERVED_BUSINESS_FIELD_NAMES;
 
     static {
