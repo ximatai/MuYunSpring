@@ -25,6 +25,8 @@ public class PlatformPresentationTemplateCatalog {
     /** Adds fixed, platform-owned action anchors while retaining the v2 page skeleton. */
     public static final int MODE_AWARE_ACTION_VERSION = 3;
     public static final int MANAGED_ACTION_VERSION = 4;
+    /** Optional independent detail layout; missing detail inherits form. */
+    public static final int SEPARATE_DETAIL_VERSION = 5;
 
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
     private static final PlatformPresentationTemplate MANAGEMENT = new PlatformPresentationTemplate(
@@ -41,7 +43,10 @@ public class PlatformPresentationTemplateCatalog {
                             "{\"template\":\"management\",\"templateVersion\":3,\"mode\":\"LIST_CARD\",\"quickSearchFields\":[],\"actions\":[],\"nodes\":[{\"slot\":\"list\",\"title\":\"记录列表\",\"fields\":[]},{\"slot\":\"form\",\"title\":\"详情 / 表单\",\"fields\":[]}]}"),
                     new PlatformPresentationTemplate(MANAGEMENT_ALIAS, MANAGED_ACTION_VERSION,
                             PlatformPresentationClientType.WEB, java.util.Set.of(PlatformPageContractType.MANAGEMENT),
-                            "{\"template\":\"management\",\"templateVersion\":4,\"mode\":\"LIST_CARD\",\"quickSearchFields\":[],\"actions\":[],\"nodes\":[{\"slot\":\"list\",\"title\":\"记录列表\",\"fields\":[]},{\"slot\":\"form\",\"title\":\"详情 / 表单\",\"fields\":[]}]}")));
+                            "{\"template\":\"management\",\"templateVersion\":4,\"mode\":\"LIST_CARD\",\"quickSearchFields\":[],\"actions\":[],\"nodes\":[{\"slot\":\"list\",\"title\":\"记录列表\",\"fields\":[]},{\"slot\":\"form\",\"title\":\"详情 / 表单\",\"fields\":[]}]}"),
+                    new PlatformPresentationTemplate(MANAGEMENT_ALIAS, SEPARATE_DETAIL_VERSION,
+                            PlatformPresentationClientType.WEB, java.util.Set.of(PlatformPageContractType.MANAGEMENT),
+                            "{\"template\":\"management\",\"templateVersion\":5,\"mode\":\"LIST_CARD\",\"quickSearchFields\":[],\"actions\":[],\"nodes\":[{\"slot\":\"list\",\"title\":\"记录列表\",\"fields\":[]},{\"slot\":\"form\",\"title\":\"详情 / 表单\",\"fields\":[]}]}")));
 
     public record ManagementSkeleton(String mode, String title, String navigationTitle,
                                      String fieldGroupTitle, boolean columns, int maxIdentityFields) {}
@@ -103,7 +108,7 @@ public class PlatformPresentationTemplateCatalog {
             throw BusinessExceptions.warning("platform.presentation-revision.ui-tree-template-mismatch",
                     "Presentation revision UI tree does not match its template contract");
         }
-        if (template.version() == MODE_AWARE_VERSION || template.version() == MODE_AWARE_ACTION_VERSION || template.version() == MANAGED_ACTION_VERSION) {
+        if (template.version() == MODE_AWARE_VERSION || template.version() == MODE_AWARE_ACTION_VERSION || template.version() == MANAGED_ACTION_VERSION || template.version() == SEPARATE_DETAIL_VERSION) {
             validateModeAwareTree(root);
         } else if (MANAGEMENT_ALIAS.equals(template.alias())) {
             validateManagementTree(root);
@@ -114,7 +119,7 @@ public class PlatformPresentationTemplateCatalog {
     public static JsonNode validateModeAwareTree(JsonNode root) {
         if (root == null || !root.isObject()) throw invalidManagementTree();
         int version = root.path("templateVersion").asInt(-1);
-        if (!Set.of(MODE_AWARE_VERSION, MODE_AWARE_ACTION_VERSION, MANAGED_ACTION_VERSION).contains(version)) throw invalidManagementTree();
+        if (!Set.of(MODE_AWARE_VERSION, MODE_AWARE_ACTION_VERSION, MANAGED_ACTION_VERSION, SEPARATE_DETAIL_VERSION).contains(version)) throw invalidManagementTree();
         JsonNode searchFields = root.path("quickSearchFields");
         if (!searchFields.isArray()) throw invalidManagementTree();
         Set<String> uniqueSearchFields = new java.util.LinkedHashSet<>();
@@ -127,7 +132,7 @@ public class PlatformPresentationTemplateCatalog {
         if (!"LIST_CARD".equals(mode) && (root.has("querySummaries") || root.has("persistentQueries"))) {
             throw invalidManagementTree();
         }
-        if (version >= MODE_AWARE_ACTION_VERSION) validateManagementActions(root.path("actions"), version == MANAGED_ACTION_VERSION);
+        if (version >= MODE_AWARE_ACTION_VERSION) validateManagementActions(root.path("actions"), version >= MANAGED_ACTION_VERSION);
         else if (root.has("actions")) throw invalidManagementTree();
         var normalized = ((com.fasterxml.jackson.databind.node.ObjectNode) root).deepCopy();
         normalized.remove("mode");
@@ -151,7 +156,7 @@ public class PlatformPresentationTemplateCatalog {
             }
             if (!found) throw invalidManagementTree();
         }
-        validateManagementTree(normalized);
+        validateManagementTree(normalized, version >= SEPARATE_DETAIL_VERSION);
         return normalized;
     }
 
@@ -189,11 +194,15 @@ public class PlatformPresentationTemplateCatalog {
      * these properties describe a field component after it is placed in a page slot.
      */
     private static void validateManagementTree(JsonNode root) {
+        validateManagementTree(root, false);
+    }
+
+    private static void validateManagementTree(JsonNode root, boolean separateDetail) {
         validateManagementRootProperties(root);
         Set<String> slots = new java.util.LinkedHashSet<>();
         for (JsonNode node : root.path("nodes")) {
             String slot = node.path("slot").asText();
-            if (!Set.of("list", "form").contains(slot) || !slots.add(slot)
+            if (!(Set.of("list", "form").contains(slot) || (separateDetail && "detail".equals(slot))) || !slots.add(slot)
                     || !node.path("title").isTextual() || node.path("title").asText().isBlank()
                     || !node.path("fields").isArray()) {
                 throw invalidManagementTree();
@@ -213,15 +222,15 @@ public class PlatformPresentationTemplateCatalog {
                     throw invalidManagementTree();
                 }
                 if (!field.isTextual()) {
-                    validateManagementFieldProperties(slot, field);
+                    validateManagementFieldProperties("detail".equals(slot) ? "form" : slot, field);
                 }
             }
             validateManagementRelations(node.path("relations"));
-            validateManagementGroups(slot, node.path("groups"), fields);
-            if ("form".equals(slot)) managementFormOrder(node);
+            validateManagementGroups("detail".equals(slot) ? "form" : slot, node.path("groups"), fields);
+            if (!"list".equals(slot)) managementFormOrder(node);
             else if (node.has("order")) throw invalidManagementTree();
         }
-        if (!slots.equals(Set.of("list", "form"))) {
+        if (!slots.containsAll(Set.of("list", "form"))) {
             throw invalidManagementTree();
         }
     }

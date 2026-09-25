@@ -64,7 +64,7 @@ export function modeAwareTree(
 ) {
   return {
     ...tree,
-    templateVersion: 4,
+    templateVersion: tree.nodes.some((node) => node.slot === 'detail') ? 5 : 4,
     mode: skeleton.mode,
     quickSearchFields,
     actions,

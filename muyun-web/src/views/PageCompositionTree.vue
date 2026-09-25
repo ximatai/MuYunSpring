@@ -39,6 +39,9 @@ defineOptions({ name: 'PageCompositionTree' });
 
 const props = withDefaults(
   defineProps<{
+    layoutTitle?: string;
+    hideList?: boolean;
+    separateDetail?: boolean;
     skeleton?: CompositionSkeleton;
     explorerTitle?: string;
     searchableFieldIds?: string[];
@@ -66,7 +69,15 @@ const props = withDefaults(
     selectedKey?: string;
     disabled?: boolean;
   }>(),
-  { selectedKey: undefined, disabled: false, editorMode: 'fields', formOrder: undefined },
+  {
+    selectedKey: undefined,
+    disabled: false,
+    editorMode: 'fields',
+    formOrder: undefined,
+    layoutTitle: undefined,
+    hideList: false,
+    separateDetail: false,
+  },
 );
 
 const emit = defineEmits<{
@@ -95,7 +106,13 @@ const emit = defineEmits<{
   /** Kept for field/relation callers while actions use the broader source contract. */
 }>();
 
-type ComposerNodeAction = 'configure' | 'remove' | 'add-group' | 'toggle-visibility';
+type ComposerNodeAction =
+  | 'configure'
+  | 'remove'
+  | 'add-group'
+  | 'toggle-visibility'
+  | 'split-layout'
+  | 'merge-layout';
 
 export type ComposerDropTarget = (
   | { kind: 'explorer-title' | 'explorer-secondary' | 'quick-search' }
@@ -239,8 +256,8 @@ const treeNodes = computed<UiTreeNode[]>(() => {
     },
     {
       key: 'ui:slot:form',
-      title: '详情 / 表单',
-      actions: nodeActions('add-group'),
+      title: props.layoutTitle ?? '详情 / 表单',
+      actions: nodeActions('add-group', props.separateDetail ? 'merge-layout' : 'split-layout'),
       isLeaf: false,
       children: [
         ...orderedFormItems(props.formFields, props.formGroups, props.formOrder).map((item) =>
@@ -248,9 +265,12 @@ const treeNodes = computed<UiTreeNode[]>(() => {
             ? formFieldNodes.find((node) => node.key === `ui:field:form:${item.id}`)!
             : groupNodes.find((node) => node.key === `ui:group:form:${item.id}`)!,
         ),
-        ...relationNodes,
+        ...(props.separateDetail ? [] : relationNodes),
       ],
     },
+    ...(props.separateDetail && relationNodes.length
+      ? [{ key: 'ui:relations', title: '关联明细（共用）', children: relationNodes }]
+      : []),
     ...(['page', 'detail', 'form'] as const).map((anchor) => ({
       key: `ui:action-anchor:${anchor}`,
       title: actionAnchorTitle(anchor),
@@ -271,7 +291,10 @@ const treeNodes = computed<UiTreeNode[]>(() => {
   ];
   return props.editorMode === 'actions'
     ? nodes.filter((node) => node.key.startsWith('ui:action-anchor:'))
-    : nodes.filter((node) => !node.key.startsWith('ui:action-anchor:'));
+    : nodes.filter(
+        (node) =>
+          !node.key.startsWith('ui:action-anchor:') && !(props.hideList && node.key === 'ui:slot:list'),
+      );
 });
 
 function actionAnchorTitle(anchor: PageCompositionActionPlacement['anchor']) {
@@ -389,6 +412,8 @@ function flattenNodes(nodes: UiTreeNode[]): UiTreeNode[] {
 
 function nodeActions(...keys: ComposerNodeAction[]): UiRecordInlineAction[] {
   const definitions: Record<ComposerNodeAction, UiRecordInlineAction> = {
+    'split-layout': { key: 'split-layout', title: '分别编排', iconName: 'edit' },
+    'merge-layout': { key: 'merge-layout', title: '恢复共用', iconName: 'edit' },
     configure: { key: 'configure', title: '配置', iconName: 'edit' },
     remove: { key: 'remove', title: '移除', iconName: 'delete', danger: true },
     'toggle-visibility': { key: 'toggle-visibility', title: '隐藏', iconName: 'eye' },
@@ -494,7 +519,7 @@ function formPlacement(event: UiTreeDropEvent) {
     metadata?.kind === 'field'
   )
     source = { kind: 'metadata', metadata };
-  else if (event.operation !== 'copy') {
+  else if (event.operation === 'move' && event.source.instanceId === event.target.instanceId) {
     if (node?.kind === 'field' && node.slot === 'form')
       source = { kind: 'node', container: { kind: 'form' }, nodeId: node.fieldId };
     else if (node?.kind === 'groupField')

@@ -19,6 +19,27 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class PageRevisionModuleUiDefinitionAdapterTest {
     @Test
+    void compilesSeparateDetailIncludingEmptyDisplayWithoutChangingTheEditor() {
+        String tree = """
+                {"template":"management","templateVersion":5,"mode":"LIST_CARD","quickSearchFields":[],"actions":[],
+                 "nodes":[{"slot":"list","title":"列表","fields":[]},
+                   {"slot":"form","title":"表单","fields":["title"]},
+                   {"slot":"detail","title":"详情","fields":[],
+                    "groups":[{"group":"info","title":"详情信息","fields":["code"]}],"order":[{"group":"info"}]}]}
+                """;
+        var context = new DynamicPageCompilationContext(DynamicModuleOverviewMode.LIST_CARD,
+                Map.of("title", "名称", "code", "编号"), java.util.Set.of(), Map.of());
+        var resolved = ModuleUiDescriptorCompiler.compile(PageRevisionModuleUiDefinitionAdapter.fromPublishedRevision(page(), revision(tree), context));
+        assertThat(resolved.page().detail().display().fields()).extracting(field -> field.fieldRef().fieldName()).containsExactly("code");
+        assertThat(resolved.page().detail().editor().fields()).extracting(field -> field.fieldRef().fieldName()).containsExactly("title");
+        String empty = tree.replace("\"groups\":[{\"group\":\"info\",\"title\":\"详情信息\",\"fields\":[\"code\"]}],\"order\":[{\"group\":\"info\"}]", "\"groups\":[],\"order\":[]");
+        var emptyResolved = ModuleUiDescriptorCompiler.compile(PageRevisionModuleUiDefinitionAdapter.fromPublishedRevision(page(), revision(empty), context));
+        assertThat(emptyResolved.page().detail().display()).isNotNull();
+        assertThat(emptyResolved.page().detail().display().fields()).isEmpty();
+        assertThat(emptyResolved.page().detail().editor().fields()).hasSize(1);
+    }
+
+    @Test
     void publishesTheSameAssistantPolicyForDynamicListAndFormFields() {
         String tree = """
                 {"template":"management","templateVersion":1,"nodes":[

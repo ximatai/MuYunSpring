@@ -47,6 +47,7 @@ import type {
 } from '@muyun/web-contracts';
 import {
   createPageCompositionDraftState,
+  orderedFormItems,
   type PageComposerField,
   type PageComposerFormItem,
   type PageComposerFieldProperties,
@@ -172,7 +173,14 @@ const quickSearchPlaceholderDraft = ref('');
 const savedUiTreeJson = ref<string>();
 const savedDraftApplied = ref(false);
 const previewDescriptor = ref<ResolvedModuleUiDescriptor>();
-const previewStructure = ref<PageCompositionStructure>();
+const previewLayouts = ref<Record<'form' | 'detail', PageCompositionStructure>>();
+const previewStructure = computed(
+  () =>
+    previewLayouts.value?.[
+      state.separateDetail.value && effectivePreviewMode.value === 'detail' ? 'detail' : 'form'
+    ],
+);
+
 const previewLoading = ref(false);
 const previewError = ref<string>();
 interface PlatformFieldPolicy {
@@ -309,7 +317,7 @@ const effectivePreviewMode = computed(() => {
 });
 const previewModes = computed<UiRadioOption[]>(() => [
   ...(hasListPreview.value ? [{ value: 'list', label: '列表' }] : []),
-  { value: 'detail', label: '页面' },
+  { value: 'detail', label: '详情' },
   { value: 'edit', label: '表单' },
 ]);
 const removedDraft = ref<{ before: string; after: string }>();
@@ -490,11 +498,15 @@ const unavailableNavigationSources = computed(() => {
   }
   return [...new Set(fields.filter((field) => !known.has(field)))];
 });
+const compositionFields = computed(() =>
+  (state.separateDetail.value ? Object.values(state.layouts.value) : [state.layouts.value.form]).flatMap(
+    (layout) => [...layout.fields, ...layout.groups.flatMap((group) => group.fields)],
+  ),
+);
 const unavailableSources = computed(() =>
   [
     ...(skeleton.value?.columns === false ? [] : state.listFields.value),
-    ...state.formFields.value,
-    ...state.formGroups.value.flatMap((group) => group.fields),
+    ...compositionFields.value,
     ...state.formRelations.value.flatMap((relation) => relation.fields),
   ]
     .filter((field) => field.unavailable)
@@ -507,7 +519,7 @@ const unavailableSources = computed(() =>
     ),
 );
 const dictionaryRadioIssues = computed(() => {
-  const fields = [...state.formFields.value, ...state.formGroups.value.flatMap((group) => group.fields)];
+  const fields = compositionFields.value;
   return fields.flatMap((field) => {
     if (field.properties?.fieldUiControlAlias !== 'dictionary_radio') return [];
     const issue = dictionaryRadioIssueOf(field);
@@ -615,7 +627,7 @@ watch(showSystemFields, () => {
   // Managed UiTree caches rendered children. Rebuild those branches with the current visibility rule.
   metadataTreeReloadKey.value += 1;
 });
-watch(state.selectedNodeId, () => {
+watch([state.selectedNodeId, state.activeLayout], () => {
   propertyDraft.value = { ...(selectedField.value?.properties ?? {}) };
   quickSearchPlaceholderDraft.value = state.quickSearchPlaceholder.value ?? '';
   groupTitleDraft.value = selectedGroup.value?.title ?? '';
@@ -666,6 +678,7 @@ watch(
     actionPlacements.value = [];
     explorerTitleField.value = 'title';
     explorerSecondaryField.value = undefined;
+    state.mergeLayout('form');
     state.replaceFields({ list: [], form: [] });
     state.updateQuickSearchPlaceholder(undefined);
     savedUiTreeJson.value = undefined;
@@ -1134,7 +1147,8 @@ function metadataFieldNode(field: PageComposerField): UiTreeNode {
                 { key: 'explorer-secondary', title: '用作辅助信息' },
               ]
             : [{ key: 'add-list', title: '添加到列表' }]),
-          { key: 'add-form', title: '添加到表单' },
+          ...(state.separateDetail.value ? [{ key: 'add-detail', title: '添加到详情' }] : []),
+          { key: 'add-form', title: state.separateDetail.value ? '添加到表单' : '添加到详情 / 表单' },
         ],
       },
     ],
@@ -1240,6 +1254,7 @@ async function loadComposition(requestSequence = workspaceLoadSequence, moduleAl
     draftConflict.value = false;
     removedDraft.value = undefined;
     draftParseError.value = undefined;
+    state.mergeLayout('form');
     state.replaceFields({ list: [], form: [] });
     state.updateQuickSearchPlaceholder(undefined);
     savedUiTreeJson.value = undefined;
@@ -1281,7 +1296,7 @@ function resetPreviewDescriptor() {
     previewDebounceTimer = undefined;
   }
   previewDescriptor.value = undefined;
-  previewStructure.value = undefined;
+  previewLayouts.value = undefined;
   previewLoading.value = false;
   previewError.value = undefined;
 }
@@ -1344,13 +1359,17 @@ async function requestPreviewDescriptor(
     });
     if (requestSequence !== previewRequestSequence) return;
     if (uiTreeJson !== currentUiTreeJson.value) return;
-    previewStructure.value = {
-      list: state.listFields.value,
-      form: state.formFields.value,
-      groups: state.formGroups.value,
-      order: state.orderedForm.value,
-      relations: state.formRelations.value,
+    const structureFor = (layout: 'form' | 'detail'): PageCompositionStructure => {
+      const source = state.layouts.value[layout];
+      return {
+        list: state.listFields.value,
+        form: source.fields,
+        groups: source.groups,
+        order: orderedFormItems(source.fields, source.groups, source.order),
+        relations: state.formRelations.value,
+      };
     };
+    previewLayouts.value = { form: structureFor('form'), detail: structureFor('detail') };
     previewDescriptor.value = preview.uiDescriptor;
     previewError.value = undefined;
   } catch (cause) {
@@ -1383,7 +1402,7 @@ async function hydrateDraft(current: PresentationRevision | undefined, markSaved
       props?: { list?: { searchPlaceholder?: unknown } };
       querySummaries?: PageQuerySummary[];
       nodes?: Array<{
-        slot?: PageComposerSlot;
+        slot?: PageComposerSlot | 'detail';
         fields?: Array<string | { field?: string; props?: PageComposerFieldProperties }>;
         order?: Array<{ field?: string; group?: string }>;
         relations?: Array<{
@@ -1425,7 +1444,8 @@ async function hydrateDraft(current: PresentationRevision | undefined, markSaved
     const explorer = modeTree.nodes?.find((node) => node.slot === 'explorer');
     explorerTitleField.value = explorer?.titleField ?? 'title';
     explorerSecondaryField.value = explorer?.secondaryField;
-    const resolve = (slot: PageComposerSlot) => tree.nodes?.find((node) => node.slot === slot)?.fields ?? [];
+    const resolve = (slot: PageComposerSlot | 'detail') =>
+      tree.nodes?.find((node) => node.slot === slot)?.fields ?? [];
     const fieldsByName = new Map(allMetadataFields.value.map((field) => [field.fieldName, field]));
     const resolveField = (
       entry: string | { field?: string; props?: PageComposerFieldProperties },
@@ -1451,72 +1471,84 @@ async function hydrateDraft(current: PresentationRevision | undefined, markSaved
         ...(Object.keys(properties).length ? { properties } : {}),
       };
     };
-    state.replaceFields({
-      list: resolve('list')
-        .map((entry) => resolveField(entry, false))
-        .filter((field): field is PageComposerField => Boolean(field)),
-      order: tree.nodes
-        ?.find((node) => node.slot === 'form')
-        ?.order?.flatMap<PageComposerFormItem>((item) =>
-          item.field
-            ? [{ kind: 'field' as const, id: resolveField(item.field)!.id }]
-            : item.group
-              ? [{ kind: 'group' as const, id: item.group }]
-              : [],
-        ),
-      form: resolve('form')
-        .map((entry) => resolveField(entry, true))
-        .filter((field): field is PageComposerField => Boolean(field)),
-      relations: (tree.nodes?.find((node) => node.slot === 'form')?.relations ?? []).flatMap((entry) => {
-        const relation = metadataRelations.value.find(
-          (candidate) => candidate.relationAlias === entry.relation,
-        );
-        const relationCode = relation?.relationAlias ?? entry.relation;
-        if (!relationCode) return [];
-        return [
-          {
-            id: relation?.id ?? relationCode,
-            relationCode,
-            unavailable: !relation,
-            title: entry.title?.trim() || relation?.title || relation?.relationAlias || relationCode,
-            fields: (entry.fields ?? []).flatMap((entryField) => {
-              const fieldName = typeof entryField === 'string' ? entryField : entryField.field;
-              const properties = typeof entryField === 'string' ? undefined : entryField.props;
-              const childField = relation
-                ? childMetadataFields.value
-                    .get(relation.id ?? relation.metadataId ?? '')
-                    ?.find((candidate) => candidate.fieldName === fieldName)
-                : undefined;
-              return [
-                {
-                  ...(childField ?? {
-                    id: `missing_${fieldName}`,
-                    fieldName,
-                    title: fieldName,
-                    unavailable: true,
-                  }),
-                  properties,
-                },
-              ];
-            }),
-          },
-        ];
-      }),
-      groups: (tree.nodes?.find((node) => node.slot === 'form')?.groups ?? []).flatMap((entry) => {
-        if (!entry.group || !entry.title) return [];
-        return [
-          {
-            id: entry.group,
-            groupCode: entry.group,
-            title: entry.title,
-            subtitle: entry.subtitle,
-            fields: (entry.fields ?? [])
-              .map((entryField) => resolveField(entryField, true))
-              .filter((field): field is PageComposerField => Boolean(field)),
-          },
-        ];
-      }),
+    const list = resolve('list')
+      .map((entry) => resolveField(entry, false))
+      .filter((field): field is PageComposerField => Boolean(field));
+    const relations = (tree.nodes?.find((node) => node.slot === 'form')?.relations ?? []).flatMap((entry) => {
+      const relation = metadataRelations.value.find(
+        (candidate) => candidate.relationAlias === entry.relation,
+      );
+      const relationCode = relation?.relationAlias ?? entry.relation;
+      if (!relationCode) return [];
+      return [
+        {
+          id: relation?.id ?? relationCode,
+          relationCode,
+          unavailable: !relation,
+          title: entry.title?.trim() || relation?.title || relation?.relationAlias || relationCode,
+          fields: (entry.fields ?? []).flatMap((entryField) => {
+            const fieldName = typeof entryField === 'string' ? entryField : entryField.field;
+            const properties = typeof entryField === 'string' ? undefined : entryField.props;
+            const childField = relation
+              ? childMetadataFields.value
+                  .get(relation.id ?? relation.metadataId ?? '')
+                  ?.find((candidate) => candidate.fieldName === fieldName)
+              : undefined;
+            return [
+              {
+                ...(childField ?? {
+                  id: `missing_${fieldName}`,
+                  fieldName,
+                  title: fieldName,
+                  unavailable: true,
+                }),
+                properties,
+              },
+            ];
+          }),
+        },
+      ];
     });
+    const previousLayout = state.activeLayout.value;
+    mergeLayoutOpen.value = false;
+    state.mergeLayout('form');
+    state.separateDetail.value = tree.nodes?.some((node) => node.slot === 'detail') ?? false;
+    for (const layout of (state.separateDetail.value ? ['detail', 'form'] : ['form']) as Array<
+      'form' | 'detail'
+    >) {
+      state.selectLayout(layout);
+      state.replaceFields({
+        list,
+        order: tree.nodes
+          ?.find((node) => node.slot === layout)
+          ?.order?.flatMap<PageComposerFormItem>((item) =>
+            item.field
+              ? [{ kind: 'field' as const, id: resolveField(item.field)!.id }]
+              : item.group
+                ? [{ kind: 'group' as const, id: item.group }]
+                : [],
+          ),
+        form: resolve(layout)
+          .map((entry) => resolveField(entry, true))
+          .filter((field): field is PageComposerField => Boolean(field)),
+        relations,
+        groups: (tree.nodes?.find((node) => node.slot === layout)?.groups ?? []).flatMap((entry) => {
+          if (!entry.group || !entry.title) return [];
+          return [
+            {
+              id: entry.group,
+              groupCode: entry.group,
+              title: entry.title,
+              subtitle: entry.subtitle,
+              fields: (entry.fields ?? [])
+                .map((entryField) => resolveField(entryField, true))
+                .filter((field): field is PageComposerField => Boolean(field)),
+            },
+          ];
+        }),
+      });
+    }
+    state.selectLayout(state.separateDetail.value ? previousLayout : 'form');
     customSummaryKeys.clear();
     state.replaceQuerySummaries(Array.isArray(tree.querySummaries) ? tree.querySummaries : []);
     if (hasCatalogDependentSummary.value) void loadSummaryCatalog();
@@ -1531,7 +1563,7 @@ async function hydrateDraft(current: PresentationRevision | undefined, markSaved
         typeof placement?.anchor === 'string' &&
         ['page', 'detail', 'form'].includes(placement.anchor),
     );
-    if (modeTree.templateVersion === 4)
+    if ((modeTree.templateVersion ?? 1) >= 4)
       actionPlacements.value = withStandardActionEntries(actionPlacements.value, moduleActions.value);
     if ((modeTree.templateVersion ?? 1) < 4) {
       const defaults = defaultPageActionEntries(moduleActions.value);
@@ -1601,7 +1633,7 @@ async function initializeComposition() {
       await revisionClient(variant.value.id).insert({
         revisionNo: Math.max(0, ...revisions.map((item) => item.revisionNo ?? 0)) + 1,
         templateAlias: latestPublished?.templateAlias ?? 'management',
-        templateVersion: skeleton.value ? 4 : (latestPublished?.templateVersion ?? 1),
+        templateVersion: JSON.parse(treeJsonToPersist).templateVersion,
         uiTreeJson: treeJsonToPersist,
         status: pageCompositionTransport.draftRevision,
         title: latestPublished ? `基于 v${latestPublished.revisionNo ?? 1} 的草稿` : '初始草稿',
@@ -1648,7 +1680,7 @@ async function saveAndApply() {
   try {
     const publicationCandidate = {
       ...revision.value,
-      templateVersion: skeleton.value ? 4 : revision.value.templateVersion,
+      templateVersion: JSON.parse(treeJsonToPublish).templateVersion,
       uiTreeJson: treeJsonToPublish,
     };
     await moduleContext.http.request<number>({
@@ -1765,7 +1797,13 @@ function isRuntimeReservedMetadataField(field: MetadataField) {
 }
 
 function slotTitle(slot: PageComposerSlot) {
-  return slot === 'list' ? '列表' : '详情 / 表单';
+  return slot === 'list'
+    ? '列表'
+    : state.separateDetail.value
+      ? state.activeLayout.value === 'detail'
+        ? '详情'
+        : '表单'
+      : '详情 / 表单';
 }
 function fieldsInSlot(slot: PageComposerSlot) {
   return slot === 'list' ? state.listFields.value : state.formFields.value;
@@ -1776,6 +1814,7 @@ function selectMetadataNode(node: UiTreeNode) {
 function addMetadataNode(action: UiRecordInlineAction, node: UiTreeNode) {
   if (isMutating.value || action.disabled) return;
   const payload = metadataDragPayload(node);
+  state.selectLayout(action.key === 'add-detail' ? 'detail' : 'form');
   if (payload)
     handleCompositionMetadataDrop(
       {
@@ -1788,6 +1827,7 @@ function addMetadataNode(action: UiRecordInlineAction, node: UiTreeNode) {
       },
       payload,
     );
+  if (action.key === 'add-detail') state.previewMode.value = 'detail';
 }
 
 function selectUiTreeKey(key: string) {
@@ -2097,6 +2137,7 @@ function placeMetadataFieldInGroup(field: PageComposerField, groupId: string, ta
 
 function handlePreviewPlacement(source: CompositionPlacementSource, target: CompositionPlacementTarget) {
   if (isMutating.value || previewLoading.value || previewError.value) return;
+  state.selectLayout(effectivePreviewMode.value === 'detail' ? 'detail' : 'form');
   const model = {
     list: state.listFields.value,
     form: state.formFields.value,
@@ -2233,10 +2274,13 @@ function selectNode(node: (typeof state.nodes.value)[number]) {
   if (isMutating.value) return;
   selectedActionKey.value = undefined;
   state.selectNode(node);
+  if (node.slot === 'form' && state.separateDetail.value)
+    state.previewMode.value = state.activeLayout.value === 'detail' ? 'detail' : 'edit';
 }
 
 function selectDescriptorPreviewField(slot: PageComposerSlot, fieldName: string, configure = false) {
   if (isMutating.value) return;
+  state.selectLayout(effectivePreviewMode.value === 'detail' ? 'detail' : 'form');
   const node = state.nodes.value.find(
     (candidate) => candidate.slot === slot && candidate.field?.fieldName === fieldName,
   );
@@ -2270,6 +2314,7 @@ function selectPreviewMode(key: string) {
     (!['detail', 'edit'].includes(key) && !(key === 'list' && hasListPreview.value))
   )
     return;
+  state.selectLayout(key === 'detail' ? 'detail' : 'form');
   state.previewMode.value = key as typeof state.previewMode.value;
 }
 
@@ -2466,6 +2511,78 @@ function openPropertyDrawer() {
   selectedSummaryKey.value = undefined;
   propertyDrawerOpen.value = true;
 }
+
+const treeLayouts = computed<Array<'form' | 'detail'>>(() =>
+  state.separateDetail.value && editorMode.value === 'fields' ? ['detail', 'form'] : ['form'],
+);
+const mergeLayoutOpen = ref(false);
+const mergeKeep = ref<'form' | 'detail'>('form');
+watch(
+  () => props.moduleAlias,
+  () => {
+    mergeLayoutOpen.value = false;
+  },
+);
+function confirmMergeLayout() {
+  if (isMutating.value || !state.separateDetail.value) return;
+  state.mergeLayout(mergeKeep.value);
+  mergeLayoutOpen.value = false;
+}
+
+async function confirmSplitLayout() {
+  if (isMutating.value || state.separateDetail.value) return;
+  const sequence = workspaceLoadSequence;
+  const confirmed = await confirmAction({
+    title: '分别编排详情和表单',
+    content: '将复制当前布局，详情和表单此后独立维护。保存并生效后应用，是否继续？',
+  });
+  if (!confirmed || sequence !== workspaceLoadSequence || isMutating.value || state.separateDetail.value)
+    return;
+  propertyDrawerOpen.value = false;
+  state.splitLayout();
+  state.previewMode.value = 'detail';
+}
+
+function layoutHandlers(layout: 'form' | 'detail') {
+  const inLayout =
+    <T extends unknown[]>(handler: (...args: T) => unknown) =>
+    (...args: T) => {
+      state.selectLayout(layout);
+      handler(...args);
+      if (state.separateDetail.value && state.selectedNode.value?.slot === 'form')
+        state.previewMode.value = layout === 'detail' ? 'detail' : 'edit';
+    };
+  return {
+    'node-action': inLayout(
+      (action: Parameters<typeof handleNodeAction>[0] | 'split-layout' | 'merge-layout', key: string) => {
+        if (isMutating.value) return;
+        if (action === 'split-layout') {
+          void confirmSplitLayout();
+          return;
+        }
+        if (action === 'merge-layout') {
+          mergeKeep.value = layout;
+          mergeLayoutOpen.value = true;
+          return;
+        }
+        handleNodeAction(action, key);
+      },
+    ),
+    select: inLayout(selectUiTreeKey),
+    'double-click': inLayout(handleUiTreeDoubleClick),
+    'reorder-list-field': inLayout(reorderListField),
+    'reorder-form-field': inLayout(reorderFormField),
+    'move-form-field-to-group': inLayout(moveFormFieldToGroup),
+    'move-group-field-to-form': inLayout(moveGroupFieldToForm),
+    'reorder-group-field': inLayout(reorderGroupField),
+    'move-group-field-to-group': inLayout(moveGroupFieldToGroup),
+    'reorder-group': inLayout(reorderGroup),
+    'reorder-relation-field': inLayout(reorderRelationField),
+    'reorder-query-summary': inLayout(reorderQuerySummary),
+    'source-drop': inLayout(handleCompositionSourceDrop),
+    'action-drop': inLayout(handlePreviewActionDrop),
+  };
+}
 </script>
 
 <template>
@@ -2561,6 +2678,11 @@ function openPropertyDrawer() {
         >
           <div class="page-composition-structure" data-testid="page-composer-ui-tree">
             <PageCompositionTree
+              v-for="layout in treeLayouts"
+              :key="layout"
+              :layout-title="state.separateDetail.value ? (layout === 'detail' ? '详情' : '表单') : undefined"
+              :hide-list="state.separateDetail.value && layout === 'form'"
+              :separate-detail="state.separateDetail.value"
               :skeleton="skeleton"
               :searchable-field-ids="
                 metadataFields
@@ -2586,29 +2708,22 @@ function openPropertyDrawer() {
                 explorerSecondaryField
               "
               :list-fields="state.listFields.value"
-              :form-fields="state.formFields.value"
-              :form-groups="state.formGroups.value"
-              :form-order="state.orderedForm.value"
-              :form-relations="state.formRelations.value"
-              :selected-key="selectedUiTreeKey"
+              :form-fields="state.layouts.value[layout].fields"
+              :form-groups="state.layouts.value[layout].groups"
+              :form-order="
+                orderedFormItems(
+                  state.layouts.value[layout].fields,
+                  state.layouts.value[layout].groups,
+                  state.layouts.value[layout].order,
+                )
+              "
+              :form-relations="layout === 'form' ? state.formRelations.value : []"
+              :selected-key="state.activeLayout.value === layout ? selectedUiTreeKey : undefined"
               :disabled="isMutating"
-              @node-action="handleNodeAction"
-              @select="selectUiTreeKey"
-              @double-click="handleUiTreeDoubleClick"
-              @reorder-list-field="reorderListField"
-              @reorder-form-field="reorderFormField"
-              @move-form-field-to-group="moveFormFieldToGroup"
-              @move-group-field-to-form="moveGroupFieldToForm"
-              @reorder-group-field="reorderGroupField"
-              @move-group-field-to-group="moveGroupFieldToGroup"
-              @reorder-group="reorderGroup"
-              @reorder-relation-field="reorderRelationField"
               :action-placements="actionPlacements"
               :module-actions="moduleActions"
               :editor-mode="editorMode"
-              @reorder-query-summary="reorderQuerySummary"
-              @source-drop="handleCompositionSourceDrop"
-              @action-drop="handlePreviewActionDrop"
+              v-on="layoutHandlers(layout)"
             />
           </div>
         </RecordExplorerPanel>
@@ -2745,6 +2860,38 @@ function openPropertyDrawer() {
         />
       </RecordDetailPanel>
 
+      <RecordDetailDrawer
+        :open="mergeLayoutOpen"
+        title="恢复共用布局"
+        render-mode="inline"
+        width="compact"
+        @close="mergeLayoutOpen = false"
+      >
+        <div class="component-property-drawer">
+          <fieldset class="page-composition-layout-choice">
+            <legend>共用哪套布局</legend>
+            <UiRadioGroup
+              v-model:value="mergeKeep"
+              :disabled="isMutating"
+              :options="[
+                { value: 'form', label: '表单布局' },
+                { value: 'detail', label: '详情布局' },
+              ]"
+            />
+          </fieldset>
+          <p>
+            {{
+              mergeKeep === 'form'
+                ? '详情将采用当前表单的字段、分组和顺序，原详情编排将被覆盖。'
+                : '表单将采用当前详情的字段、分组和顺序，原表单编排将被覆盖。'
+            }}
+          </p>
+        </div>
+        <template #operation>
+          <UiButton :disabled="isMutating" @click="mergeLayoutOpen = false">取消</UiButton>
+          <UiButton type="primary" :disabled="isMutating" @click="confirmMergeLayout">恢复共用</UiButton>
+        </template>
+      </RecordDetailDrawer>
       <RecordDetailDrawer
         :open="propertyDrawerOpen"
         render-mode="inline"
@@ -3027,6 +3174,16 @@ function openPropertyDrawer() {
   margin-top: 12px;
   border: 1px solid var(--muyun-border);
   border-radius: 8px;
+}
+.page-composition-layout-choice {
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.page-composition-layout-choice legend {
+  margin-bottom: 8px;
+  color: var(--muyun-text-muted);
+  font-size: 13px;
 }
 .component-property-drawer {
   display: grid;

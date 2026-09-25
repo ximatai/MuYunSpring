@@ -71,7 +71,7 @@ it.each([1440, 980])(
         .toBe(true);
       const detailField = wrapper.get('[data-page-composition-layout-key="detail:field:field0"]').element;
       await page.elementLocator(detailField).dblClick();
-      await expect.element(page.getByRole('radio', { name: '页面', exact: true })).toBeChecked();
+      await expect.element(page.getByRole('radio', { name: '详情', exact: true })).toBeChecked();
       await expect.element(page.getByRole('textbox', { name: '展示标题', exact: true })).toBeVisible();
       await page.getByRole('button', { name: '关闭', exact: true }).click();
       await expect

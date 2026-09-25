@@ -12,9 +12,152 @@ vi.mock('@muyun/vue-ui-antdv', async (importOriginal) => ({
 }));
 
 describe('PageCompositionWorkspace publication flow', () => {
+  it('closes the merge drawer on discard and ignores a stale confirmation', async () => {
+    vi.mocked(confirmAction).mockResolvedValue(true);
+    configureModuleContext({
+      http: publicationFlowHttp(
+        [],
+        JSON.stringify({
+          template: 'management',
+          templateVersion: 4,
+          mode: 'LIST_CARD',
+          quickSearchFields: [],
+          actions: [],
+          nodes: [
+            { slot: 'list', title: '列表', fields: [] },
+            { slot: 'form', title: '表单', fields: ['title'] },
+          ],
+        }),
+      ),
+    });
+    const wrapper = mount(PageCompositionWorkspace, {
+      props: { moduleAlias: 'education.exam', moduleTitle: '考试' },
+      global: { stubs: workspaceStubs() },
+    });
+    await flushPromises();
+    await flushPromises();
+    wrapper.findComponent(PageCompositionTree).vm.$emit('node-action', 'split-layout', 'ui:slot:form');
+    await flushPromises();
+    const detail = wrapper
+      .findAllComponents(PageCompositionTree)
+      .find((tree) => tree.props('layoutTitle') === '详情')!;
+    detail.vm.$emit('node-action', 'remove', 'ui:field:form:field-title');
+    await flushPromises();
+    detail.vm.$emit('node-action', 'merge-layout', 'ui:slot:form');
+    await flushPromises();
+    expect(wrapper.find('aside[title="恢复共用布局"]').attributes('open')).toBe('true');
+    await wrapper
+      .findAll('[data-testid="publish-button"]')
+      .find((button) => button.text() === '放弃本次更改')!
+      .trigger('click');
+    await flushPromises();
+    expect(wrapper.findAllComponents(PageCompositionTree)).toHaveLength(1);
+    expect(wrapper.find('aside[title="恢复共用布局"]').attributes('open')).toBe('false');
+    // The drawer stub retains its slot; a queued confirmation must also be harmless.
+    await wrapper
+      .findAll('[data-testid="publish-button"]')
+      .find((button) => button.text() === '恢复共用')!
+      .trigger('click');
+    await flushPromises();
+    expect(wrapper.findComponent(PageCompositionTree).props('formFields')).toHaveLength(1);
+    wrapper.unmount();
+  });
+
   afterEach(() => {
     vi.clearAllMocks();
     vi.unstubAllGlobals();
+  });
+
+  it('splits, saves and reloads independent layouts including an empty detail', async () => {
+    const requests: HttpRequestOptions[] = [];
+    configureModuleContext({
+      http: publicationFlowHttp(
+        requests,
+        JSON.stringify({
+          template: 'management',
+          templateVersion: 4,
+          mode: 'LIST_CARD',
+          quickSearchFields: [],
+          actions: [],
+          nodes: [
+            { slot: 'list', title: '列表', fields: ['title'] },
+            { slot: 'form', title: '详情 / 表单', fields: ['title'] },
+          ],
+        }),
+      ),
+    });
+    const mountWorkspace = () =>
+      mount(PageCompositionWorkspace, {
+        props: { moduleAlias: 'education.exam', moduleTitle: '考试管理' },
+        global: { stubs: workspaceStubs() },
+      });
+    let wrapper = mountWorkspace();
+    await flushPromises();
+    await flushPromises();
+    vi.mocked(confirmAction).mockResolvedValueOnce(false);
+    wrapper.findComponent(PageCompositionTree).vm.$emit('node-action', 'split-layout', 'ui:slot:form');
+    await flushPromises();
+    expect(confirmAction).toHaveBeenCalledWith(expect.objectContaining({ title: '分别编排详情和表单' }));
+    expect(wrapper.findAllComponents(PageCompositionTree)).toHaveLength(1);
+    expect(wrapper.findComponent(PageCompositionTree).props('formFields')).toHaveLength(1);
+    const confirmation = deferred<boolean>();
+    vi.mocked(confirmAction).mockReturnValueOnce(confirmation.promise);
+    wrapper.findComponent(PageCompositionTree).vm.$emit('node-action', 'split-layout', 'ui:slot:form');
+    await flushPromises();
+    expect(wrapper.findAllComponents(PageCompositionTree)).toHaveLength(1);
+    confirmation.resolve(true);
+    await flushPromises();
+    expect(wrapper.findAllComponents(PageCompositionTree)).toHaveLength(2);
+    const detail = wrapper
+      .findAllComponents(PageCompositionTree)
+      .find((tree) => tree.props('layoutTitle') === '详情')!;
+    detail.vm.$emit('node-action', 'remove', 'ui:field:form:field-title');
+    await flushPromises();
+    const form = wrapper
+      .findAllComponents(PageCompositionTree)
+      .find((tree) => tree.props('layoutTitle') === '表单')!;
+    expect(form.props('formFields')).toHaveLength(1);
+    expect(detail.props('formFields')).toHaveLength(0);
+    await wrapper
+      .findAll('[data-testid="publish-button"]')
+      .find((button) => button.text().includes('保存并生效'))!
+      .trigger('click');
+    await flushPromises();
+    const saved = requests.find((request) => request.path.endsWith('/revisions/revision-1/publish'))!;
+    expect(saved).toBeDefined();
+    expect(saved.body).toMatchObject({ templateVersion: 5 });
+    const tree = JSON.parse((saved.body as { uiTreeJson: string }).uiTreeJson);
+    expect(tree.nodes.find((node: { slot: string }) => node.slot === 'detail').fields).toEqual([]);
+    expect(tree.nodes.find((node: { slot: string }) => node.slot === 'form').fields).toEqual(['title']);
+    wrapper.unmount();
+    wrapper = mountWorkspace();
+    await flushPromises();
+    await flushPromises();
+    expect(
+      wrapper
+        .findAllComponents(PageCompositionTree)
+        .find((tree) => tree.props('layoutTitle') === '详情')!
+        .props('formFields'),
+    ).toEqual([]);
+    expect(
+      wrapper
+        .findAllComponents(PageCompositionTree)
+        .find((tree) => tree.props('layoutTitle') === '表单')!
+        .props('formFields'),
+    ).toHaveLength(1);
+    wrapper
+      .findAllComponents(PageCompositionTree)
+      .find((tree) => tree.props('layoutTitle') === '表单')!
+      .vm.$emit('node-action', 'merge-layout', 'ui:slot:form');
+    await flushPromises();
+    await wrapper
+      .findAll('[data-testid="publish-button"]')
+      .find((button) => button.text() === '恢复共用')!
+      .trigger('click');
+    await flushPromises();
+    expect(wrapper.findAllComponents(PageCompositionTree)).toHaveLength(1);
+    expect(wrapper.findComponent(PageCompositionTree).props('formFields')).toHaveLength(1);
+    wrapper.unmount();
   });
 
   it.each(['TREE_CARD', 'MICRO_LIST_CARD'])(
@@ -2181,7 +2324,7 @@ function workspaceStubs() {
         '<div><slot /><slot name="utility-actions" /><slot name="actions" /><slot name="footer" /></div>',
     },
     RecordDetailPanel: { template: '<section><slot name="actions" /><slot /></section>' },
-    RecordDetailDrawer: { template: '<aside><slot /></aside>' },
+    RecordDetailDrawer: { template: '<aside><slot /><footer><slot name="operation" /></footer></aside>' },
     UiButton: {
       props: { disabled: Boolean, loading: Boolean },
       emits: ['click'],

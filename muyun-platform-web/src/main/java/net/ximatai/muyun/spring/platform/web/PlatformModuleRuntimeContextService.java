@@ -744,11 +744,11 @@ public class PlatformModuleRuntimeContextService {
         PageReferenceFieldCatalogService catalog = new PageReferenceFieldCatalogService(dynamicRecordService, staticModuleCatalog);
         java.util.stream.Stream<ViewDefinition> views;
         if (definition.page() instanceof ListDetailCardPageDefinition page) {
-            views = java.util.stream.Stream.of(page.list().list(), page.detail().editor());
+            views = java.util.stream.Stream.of(page.list().list(), page.detail().display(), page.detail().editor());
         } else if (definition.page() instanceof FlatManagementPageDefinition page) {
-            views = java.util.stream.Stream.of(page.detail().editor());
+            views = java.util.stream.Stream.of(page.detail().display(), page.detail().editor());
         } else if (definition.page() instanceof TreeManagementPageDefinition page) {
-            views = java.util.stream.Stream.of(page.detail().editor());
+            views = java.util.stream.Stream.of(page.detail().display(), page.detail().editor());
         } else {
             views = java.util.stream.Stream.empty();
         }

@@ -98,7 +98,7 @@ describe('PageCompositionTree', () => {
       expect(actionsAt(key)).toEqual(['configure', 'remove']);
     }
     expect(actionsAt('ui:template:list:quick-search')).toEqual(['configure']);
-    expect(actionsAt('ui:slot:form')).toEqual(['add-group']);
+    expect(actionsAt('ui:slot:form')).toEqual(['add-group', 'split-layout']);
     expect(findNode(nodes, 'ui:groups:form')).toBeUndefined();
     expect(actionsAt('ui:relation:form:participants')).toEqual(['remove']);
     expect(actionsAt('ui:relation-field:form:participants:exam-date')).toEqual(['configure', 'remove']);
@@ -716,3 +716,32 @@ it.each([
     );
   }
 });
+
+it.each(['ui:field:form:subject', 'ui:group:form:dates'])(
+  'rejects cross-layout moves of %s even when the target has the same IDs',
+  (key) => {
+    const wrapper = mountTree({
+      formFields: [subject, examDate],
+      formGroups: [{ id: 'dates', groupCode: 'dates', title: '日期', fields: [] }],
+      separateDetail: true,
+      layoutTitle: '表单',
+    });
+    const tree = uiTree(wrapper);
+    const event = {
+      source: { instanceId: 'detail-tree', node: { key }, operations: ['move'] },
+      target: {
+        instanceId: 'form-tree',
+        kind: 'node',
+        node: { key: 'ui:field:form:exam-date' },
+        position: 'after',
+      },
+      operation: 'move',
+    };
+    expect(tree.props('allowDrop')(event)).toBe(false);
+    tree.vm.$emit('drop', event);
+    expect(wrapper.emitted('reorder-form-field')).toBeUndefined();
+    expect(wrapper.emitted('reorder-group')).toBeUndefined();
+    expect(wrapper.emitted('source-drop')).toBeUndefined();
+    wrapper.unmount();
+  },
+);

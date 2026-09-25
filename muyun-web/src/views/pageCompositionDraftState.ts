@@ -1,7 +1,7 @@
 import { computed, ref } from 'vue';
 
 export type PageComposerSlot = 'list' | 'form';
-/** Runtime states, not independent configuration slots.  management v1 still owns only list/form. */
+/** Preview selects the read or edit projection of the page. */
 export type PageComposerPreviewMode = 'list' | 'query' | 'detail' | 'edit';
 
 export interface PageComposerField {
@@ -189,7 +189,7 @@ export interface ManagementUiTree {
   };
   querySummaries?: PageQuerySummary[];
   nodes: Array<{
-    slot: PageComposerSlot;
+    slot: PageComposerSlot | 'detail';
     title: string;
     fields: Array<string | { field: string; props: PageComposerFieldProperties }>;
     order?: ManagementFormOrder;
@@ -214,10 +214,29 @@ export interface ManagementUiTree {
  */
 export function createPageCompositionDraftState() {
   const listFields = ref<PageComposerField[]>([]);
-  const formFields = ref<PageComposerField[]>([]);
+  const separateDetail = ref(false);
+  const activeLayout = ref<'form' | 'detail'>('form');
+  const layouts = ref({ form: emptyLayout(), detail: emptyLayout() });
+  const currentLayout = computed(() => layouts.value[separateDetail.value ? activeLayout.value : 'form']);
+  const formFields = computed({
+    get: () => currentLayout.value.fields,
+    set: (value) => {
+      currentLayout.value.fields = value;
+    },
+  });
   const formRelations = ref<PageComposerRelation[]>([]);
-  const formGroups = ref<PageComposerGroup[]>([]);
-  const formOrder = ref<PageComposerFormItem[]>([]);
+  const formGroups = computed({
+    get: () => currentLayout.value.groups,
+    set: (value) => {
+      currentLayout.value.groups = value;
+    },
+  });
+  const formOrder = computed({
+    get: () => currentLayout.value.order,
+    set: (value) => {
+      currentLayout.value.order = value;
+    },
+  });
   const querySummaries = ref<PageQuerySummary[]>([]);
   const orderedForm = computed(() => orderedFormItems(formFields.value, formGroups.value, formOrder.value));
   function placeFormItem(kind: PageComposerFormItem['kind'], id: string, index?: number) {
@@ -681,11 +700,65 @@ export function createPageCompositionDraftState() {
     return true;
   }
 
+  function layoutNode(
+    layout: PageComposerLayout,
+    slot: 'form' | 'detail',
+    title: string,
+  ): ManagementUiTree['nodes'][number] {
+    const ordered = orderedFormItems(layout.fields, layout.groups, layout.order);
+    return {
+      slot,
+      title,
+      fields: ordered
+        .filter((item) => item.kind === 'field')
+        .map((item) => toPersistedField(layout.fields.find((field) => field.id === item.id)!)),
+      ...(layout.groups.length
+        ? {
+            order: ordered.map((item) =>
+              item.kind === 'field'
+                ? { field: layout.fields.find((field) => field.id === item.id)!.fieldName }
+                : { group: layout.groups.find((group) => group.id === item.id)!.groupCode },
+            ),
+          }
+        : {}),
+      ...(layout.groups.length
+        ? {
+            groups: layout.groups.map((group) => ({
+              group: group.groupCode,
+              title: group.title,
+              ...(group.subtitle ? { subtitle: group.subtitle } : {}),
+              fields: group.fields.map((field) => toPersistedField(field, true)),
+            })),
+          }
+        : {}),
+    };
+  }
+
+  function selectLayout(layout: 'form' | 'detail') {
+    if (activeLayout.value !== layout) selectedNodeId.value = undefined;
+    activeLayout.value = separateDetail.value ? layout : 'form';
+  }
+
+  function splitLayout() {
+    if (separateDetail.value) return;
+    layouts.value.detail = JSON.parse(JSON.stringify(layouts.value.form));
+    separateDetail.value = true;
+    selectLayout('detail');
+  }
+
+  function mergeLayout(keep: 'form' | 'detail') {
+    if (separateDetail.value && keep === 'detail')
+      layouts.value.form = JSON.parse(JSON.stringify(layouts.value.detail));
+    layouts.value.detail = emptyLayout();
+    separateDetail.value = false;
+    selectLayout('form');
+  }
+
   function toManagementUiTree(titles?: Partial<Record<PageComposerSlot, string>>): ManagementUiTree {
     const props = quickSearchPlaceholder.value
       ? { list: { searchPlaceholder: quickSearchPlaceholder.value } }
       : undefined;
-    return {
+    const tree: ManagementUiTree = {
       template: 'management',
       templateVersion: 1,
       ...(props ? { props } : {}),
@@ -697,20 +770,11 @@ export function createPageCompositionDraftState() {
           fields: listFields.value.map((field) => toPersistedField(field, false)),
         },
         {
-          slot: 'form',
-          title: titles?.form ?? '详情 / 表单',
-          fields: orderedForm.value
-            .filter((item) => item.kind === 'field')
-            .map((item) => toPersistedField(formFields.value.find((field) => field.id === item.id)!)),
-          ...(formGroups.value.length
-            ? {
-                order: orderedForm.value.map((item) =>
-                  item.kind === 'field'
-                    ? { field: formFields.value.find((field) => field.id === item.id)!.fieldName }
-                    : { group: formGroups.value.find((group) => group.id === item.id)!.groupCode },
-                ),
-              }
-            : {}),
+          ...layoutNode(
+            layouts.value.form,
+            'form',
+            titles?.form ?? (separateDetail.value ? '表单' : '详情 / 表单'),
+          ),
           ...(formRelations.value.length
             ? {
                 relations: formRelations.value.map((relation) => ({
@@ -722,22 +786,20 @@ export function createPageCompositionDraftState() {
                 })),
               }
             : {}),
-          ...(formGroups.value.length
-            ? {
-                groups: formGroups.value.map((group) => ({
-                  group: group.groupCode,
-                  title: group.title,
-                  ...(group.subtitle ? { subtitle: group.subtitle } : {}),
-                  fields: group.fields.map((field) => toPersistedField(field, true)),
-                })),
-              }
-            : {}),
         },
       ],
     };
+    if (separateDetail.value) tree.nodes.push(layoutNode(layouts.value.detail, 'detail', '详情'));
+    return tree;
   }
 
   return {
+    separateDetail,
+    activeLayout,
+    layouts,
+    selectLayout,
+    splitLayout,
+    mergeLayout,
     listFields,
     formFields,
     formRelations,
@@ -827,4 +889,13 @@ function toPersistedField(
   }
   const compact = compactProperties(properties);
   return compact ? { field: field.fieldName, props: compact } : field.fieldName;
+}
+
+export interface PageComposerLayout {
+  fields: PageComposerField[];
+  groups: PageComposerGroup[];
+  order: PageComposerFormItem[];
+}
+function emptyLayout(): PageComposerLayout {
+  return { fields: [], groups: [], order: [] };
 }
