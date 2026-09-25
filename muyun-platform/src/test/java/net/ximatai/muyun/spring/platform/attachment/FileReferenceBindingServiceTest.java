@@ -26,6 +26,33 @@ class FileReferenceBindingServiceTest {
     }
 
     @Test
+    void preparationReadsFactsWithoutClaimingOrPromoting() {
+        when(client.readMetadata("file-1")).thenReturn(metadata(true));
+
+        assertThat(service().prepare("test.document", "fileId", "file-1", FileReferenceDefinition.unrestricted()).fileId())
+                .isEqualTo("file-1");
+
+        verify(ownership).existsById("file-1");
+        verify(ownership, never()).insert(any());
+        verify(client, never()).promote(anyString());
+    }
+
+    @Test
+    void ownershipRaceAfterPreparationStillUsesConflictAtBinding() {
+        when(client.readMetadata("file-1")).thenReturn(metadata(true));
+        var service = service();
+        service.prepare("test.document", "fileId", "file-1", FileReferenceDefinition.unrestricted());
+        when(ownership.insert(any())).thenThrow(new IllegalStateException(
+                new java.sql.SQLException("duplicate file", "23505")));
+
+        inTransaction(() -> assertThatThrownBy(() -> service.bind("tenant-1", "test.document", "record-1",
+                "fileId", "file-1", FileReferenceDefinition.unrestricted()))
+                .isInstanceOfSatisfying(net.ximatai.muyun.spring.common.exception.PlatformException.class,
+                        error -> assertThat(error.code()).isEqualTo("FILE_REFERENCE_ALREADY_BOUND")));
+        verify(client, never()).promote(anyString());
+    }
+
+    @Test
     void refusesBindingWithoutBusinessTransaction() {
         assertThatThrownBy(() -> bind()).isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("active transaction");

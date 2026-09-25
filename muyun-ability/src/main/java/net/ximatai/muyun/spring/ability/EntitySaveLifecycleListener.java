@@ -7,6 +7,11 @@ public interface EntitySaveLifecycleListener {
     EntitySaveLifecycleListener NONE = new EntitySaveLifecycleListener() {
     };
 
+    /** Prepares platform-owned values before final validation; must not perform external write side effects. */
+    default <T extends EntityContract> void prepareValues(CrudAbility<T> ability, T existing, T incoming) {
+    }
+
+    /** Runs after validation; may bind resources but must not change the validated record values. */
     default <T extends EntityContract> void beforeSave(CrudAbility<T> ability, T existing, T incoming) {
     }
 
