@@ -58,7 +58,16 @@ public class FileReferenceBindingService {
             }
             throw failure;
         }
-        FileTransferFileMetadata metadata = new FileReferenceConfirmationService(client).confirmAndPromote(definition, fileId);
+        FileReferenceConfirmationService confirmation = new FileReferenceConfirmationService(client);
+        FileTransferFileMetadata confirmed = confirmation.confirmTemporaryFile(definition, fileId);
+        FileTransferFileMetadata metadata;
+        try {
+            metadata = confirmation.promoteConfirmedFile(confirmed);
+        } catch (RuntimeException failure) {
+            log.error("File reference promotion outcome is unknown: moduleAlias={}, recordId={}, fieldName={}, fileId={}",
+                    moduleAlias, recordId, fieldName, fileId, failure);
+            throw failure;
+        }
         TransactionScopeSupport.afterCompletionOrNow(() -> {}, () ->
                 log.error("File reference was promoted but record save did not complete: moduleAlias={}, recordId={}, fieldName={}, fileId={}",
                         moduleAlias, recordId, fieldName, fileId));

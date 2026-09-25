@@ -29,12 +29,8 @@ final class FileReferenceConfirmationService {
         return metadata;
     }
 
-    /**
-     * Confirms the uploaded temporary file and promotes it before the caller
-     * persists its business binding. A promotion failure aborts that save path.
-     */
-    FileTransferFileMetadata confirmAndPromote(FileReferenceDefinition definition, String fileId) {
-        FileTransferFileMetadata metadata = confirmTemporaryFile(definition, fileId);
+    /** Promotes a previously confirmed file; the caller observes ambiguous transport outcomes. */
+    FileTransferFileMetadata promoteConfirmedFile(FileTransferFileMetadata metadata) {
         FileTransferFileMetadata promoted = fileTransferClient.promote(metadata.fileId());
         if (promoted == null || !metadata.fileId().equals(promoted.fileId()) || promoted.temporary()) {
             throw new PlatformException("file reference was not promoted: " + metadata.fileId());

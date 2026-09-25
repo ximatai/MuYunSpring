@@ -43,8 +43,10 @@ class FileReferenceSaveLifecycleListenerTest {
         FileReferenceBindingService bindings = mock(FileReferenceBindingService.class);
         org.mockito.Mockito.when(bindings.bind(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
                 org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
-                org.mockito.ArgumentMatchers.any())).thenAnswer(call ->
-                new FileReferenceConfirmationService(clients.get()).confirmAndPromote(call.getArgument(5), call.getArgument(4)));
+                org.mockito.ArgumentMatchers.any())).thenAnswer(call -> {
+                    var confirmation = new FileReferenceConfirmationService(clients.get());
+                    return confirmation.promoteConfirmedFile(confirmation.confirmTemporaryFile(call.getArgument(5), call.getArgument(4)));
+                });
         return new FileReferenceSaveLifecycleListener(clients, assets, references, () -> bindings);
     }
 

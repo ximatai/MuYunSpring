@@ -67,6 +67,34 @@ class FileReferenceBindingServiceTest {
         }
     }
 
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {false, true})
+    void observesUnknownPromotionOnlyAfterValidationSucceeded(boolean reachesPromotion) {
+        when(client.readMetadata("file-1")).thenReturn(metadata(reachesPromotion));
+        var timeout = new IllegalStateException("response timed out after remote commit");
+        when(client.promote("file-1")).thenThrow(timeout);
+        Logger logger = (Logger) LoggerFactory.getLogger(FileReferenceBindingService.class);
+        ListAppender<ILoggingEvent> events = new ListAppender<>();
+        events.start();
+        logger.addAppender(events);
+        try {
+            inTransaction(() -> {
+                var thrown = catchThrowable(this::bind);
+                if (reachesPromotion) assertThat(thrown).isSameAs(timeout);
+                else assertThat(thrown).hasMessageContaining("must bind a temporary file");
+            });
+            if (reachesPromotion) {
+                assertThat(events.list).singleElement().satisfies(event -> assertThat(event.getFormattedMessage())
+                        .contains("outcome is unknown", "test.document", "record-1", "fileId", "file-1"));
+            } else {
+                assertThat(events.list).isEmpty();
+                verify(client, never()).promote(anyString());
+            }
+        } finally {
+            logger.detachAppender(events);
+        }
+    }
+
     private void bind() {
         service().bind("tenant-1", "test.document", "record-1", "fileId", "file-1", FileReferenceDefinition.unrestricted());
     }
