@@ -74,7 +74,7 @@ class MenuEntryBootstrapContractTest {
     private final TestMemoryDao<PlatformQueryTemplate> queryTemplateDao = new TestMemoryDao<>();
     private final TestMemoryDao<PlatformQueryItem> queryItemDao = new TestMemoryDao<>();
 
-    private final PlatformModuleService moduleService = new PlatformModuleService(moduleDao);
+    private final PlatformModuleService moduleService = new PlatformModuleService(moduleDao, event -> {});
     private final MenuSchemeService schemeService = new MenuSchemeService(schemeDao);
     private final PlatformUiSetService uiSetService = new PlatformUiSetService(uiSetDao, moduleService);
     private final PlatformUiConfigService uiConfigService = new PlatformUiConfigService(uiConfigDao, uiSetService);

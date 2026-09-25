@@ -17,7 +17,6 @@ import net.ximatai.muyun.spring.common.platform.DataScopeFieldMapping;
 import net.ximatai.muyun.spring.common.platform.PlatformAction;
 import net.ximatai.muyun.spring.common.platform.PlatformActionLevel;
 import net.ximatai.muyun.spring.common.platform.ReferenceDependencyScopePlan;
-import net.ximatai.muyun.spring.common.platform.ReferenceDependencyScopeRequest;
 import net.ximatai.muyun.spring.common.platform.ReferenceDependencyScopeResolver;
 import net.ximatai.muyun.spring.iam.department.DepartmentService;
 import net.ximatai.muyun.spring.iam.organization.OrganizationService;
@@ -43,7 +42,12 @@ class RoleDataScopeCriteriaServiceTest {
     void shouldDenyWhenUserHasNoActionGrant() {
         RoleService roleService = mock(RoleService.class);
         whenActionGrants(roleService, "user-1", "sales.contract", "view");
-        RoleDataScopeCriteriaService service = new RoleDataScopeCriteriaService(roleService);
+        RoleDataScopeCriteriaService service = new RoleDataScopeCriteriaService(
+                roleService,
+                mock(TenantAdminImplicitGrantPolicy.class),
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty());
 
         Criteria scoped = service.applyReadScope(
                 "sales.contract",
@@ -62,7 +66,12 @@ class RoleDataScopeCriteriaServiceTest {
         TenantAdminImplicitGrantPolicy tenantAdminPolicy = mock(TenantAdminImplicitGrantPolicy.class);
         CurrentUser user = CurrentUser.tenantUser("user-1", "User", "tenant-a");
         when(tenantAdminPolicy.grants(user, "mr.expert", PlatformAction.QUERY.executionPolicy())).thenReturn(true);
-        RoleDataScopeCriteriaService service = new RoleDataScopeCriteriaService(roleService, tenantAdminPolicy);
+        RoleDataScopeCriteriaService service = new RoleDataScopeCriteriaService(
+                roleService,
+                tenantAdminPolicy,
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty());
 
         DataScopeCriteriaResult result = service.resolveReadScope(
                 "mr.expert",
@@ -85,7 +94,12 @@ class RoleDataScopeCriteriaServiceTest {
                 grant(DataScopePolicy.OWNER),
                 grant(DataScopePolicy.ORGANIZATION)
         );
-        RoleDataScopeCriteriaService service = new RoleDataScopeCriteriaService(roleService);
+        RoleDataScopeCriteriaService service = new RoleDataScopeCriteriaService(
+                roleService,
+                mock(TenantAdminImplicitGrantPolicy.class),
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty());
 
         Criteria scoped = service.applyReadScope(
                 "sales.contract",
@@ -108,7 +122,12 @@ class RoleDataScopeCriteriaServiceTest {
         whenActionGrants(roleService, "user-1", "iam.employee", "view",
                 grant(DataScopePolicy.ORGANIZATION)
         );
-        RoleDataScopeCriteriaService service = new RoleDataScopeCriteriaService(roleService);
+        RoleDataScopeCriteriaService service = new RoleDataScopeCriteriaService(
+                roleService,
+                mock(TenantAdminImplicitGrantPolicy.class),
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty());
 
         DataScopeCriteriaResult result = service.resolveReadScope(
                 "iam.employee",
@@ -134,8 +153,12 @@ class RoleDataScopeCriteriaServiceTest {
                 grant(DataScopePolicy.ORGANIZATION_AND_CHILDREN)
         );
         when(organizationService.selfAndDescendantIds("org-1")).thenReturn(List.of("org-1", "org-2"));
-        RoleDataScopeCriteriaService service = new RoleDataScopeCriteriaService(roleService,
-                Optional.of(organizationService));
+        RoleDataScopeCriteriaService service = new RoleDataScopeCriteriaService(
+                roleService,
+                mock(TenantAdminImplicitGrantPolicy.class),
+                Optional.of(organizationService),
+                Optional.empty(),
+                Optional.empty());
 
         DataScopeCriteriaResult result = service.resolveReadScope(
                 "iam.organization",
@@ -159,7 +182,12 @@ class RoleDataScopeCriteriaServiceTest {
                 grant(DataScopePolicy.OWNER),
                 grant(DataScopePolicy.ALL)
         );
-        RoleDataScopeCriteriaService service = new RoleDataScopeCriteriaService(roleService);
+        RoleDataScopeCriteriaService service = new RoleDataScopeCriteriaService(
+                roleService,
+                mock(TenantAdminImplicitGrantPolicy.class),
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty());
 
         Criteria scoped = service.applyReadScope(
                 "sales.contract",
@@ -178,7 +206,12 @@ class RoleDataScopeCriteriaServiceTest {
         whenActionGrants(roleService, "user-1", "sales.contract", "view",
                 grant(DataScopePolicy.ALL, "role-cross", TenantScopePolicy.ALL_TENANTS)
         );
-        RoleDataScopeCriteriaService service = new RoleDataScopeCriteriaService(roleService);
+        RoleDataScopeCriteriaService service = new RoleDataScopeCriteriaService(
+                roleService,
+                mock(TenantAdminImplicitGrantPolicy.class),
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty());
 
         DataScopeCriteriaResult result = service.resolveReadScope(
                 "sales.contract",
@@ -198,7 +231,12 @@ class RoleDataScopeCriteriaServiceTest {
         whenActionGrants(roleService, "user-1", "sales.contract", "view",
                 grant(DataScopePolicy.ALL, "role-current")
         );
-        RoleDataScopeCriteriaService service = new RoleDataScopeCriteriaService(roleService);
+        RoleDataScopeCriteriaService service = new RoleDataScopeCriteriaService(
+                roleService,
+                mock(TenantAdminImplicitGrantPolicy.class),
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty());
 
         DataScopeCriteriaResult result = service.resolveReadScope(
                 "sales.contract",
@@ -219,7 +257,12 @@ class RoleDataScopeCriteriaServiceTest {
                 grant(DataScopePolicy.ALL, "role-current"),
                 grant(DataScopePolicy.OWNER, "role-cross", TenantScopePolicy.ALL_TENANTS)
         );
-        RoleDataScopeCriteriaService service = new RoleDataScopeCriteriaService(roleService);
+        RoleDataScopeCriteriaService service = new RoleDataScopeCriteriaService(
+                roleService,
+                mock(TenantAdminImplicitGrantPolicy.class),
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty());
 
         DataScopeCriteriaResult result = service.resolveReadScope(
                 "sales.contract",
@@ -245,7 +288,12 @@ class RoleDataScopeCriteriaServiceTest {
                 grant(DataScopePolicy.ALL, "role-current"),
                 grant(DataScopePolicy.NONE, "role-cross", TenantScopePolicy.ALL_TENANTS)
         );
-        RoleDataScopeCriteriaService service = new RoleDataScopeCriteriaService(roleService);
+        RoleDataScopeCriteriaService service = new RoleDataScopeCriteriaService(
+                roleService,
+                mock(TenantAdminImplicitGrantPolicy.class),
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty());
 
         DataScopeCriteriaResult result = service.resolveReadScope(
                 "sales.contract",
@@ -267,7 +315,12 @@ class RoleDataScopeCriteriaServiceTest {
         whenActionGrants(roleService, "user-1", "sales.contract", "view",
                 grant(DataScopePolicy.OWNER, "role-cross", TenantScopePolicy.ALL_TENANTS)
         );
-        RoleDataScopeCriteriaService service = new RoleDataScopeCriteriaService(roleService);
+        RoleDataScopeCriteriaService service = new RoleDataScopeCriteriaService(
+                roleService,
+                mock(TenantAdminImplicitGrantPolicy.class),
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty());
 
         DataScopeCriteriaResult result = service.resolveReadScope(
                 "sales.contract",
@@ -290,7 +343,12 @@ class RoleDataScopeCriteriaServiceTest {
         whenActionGrants(roleService, "user-1", "sales.contract", "view",
                 grant(DataScopePolicy.NONE)
         );
-        RoleDataScopeCriteriaService service = new RoleDataScopeCriteriaService(roleService);
+        RoleDataScopeCriteriaService service = new RoleDataScopeCriteriaService(
+                roleService,
+                mock(TenantAdminImplicitGrantPolicy.class),
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty());
 
         Criteria scoped = service.applyReadScope(
                 "sales.contract",
@@ -311,7 +369,12 @@ class RoleDataScopeCriteriaServiceTest {
                 grant(DataScopePolicy.ORGANIZATION_AND_CHILDREN)
         );
         when(organizationService.selfAndDescendantIds("org-1")).thenReturn(List.of("org-1", "org-1-1"));
-        RoleDataScopeCriteriaService service = new RoleDataScopeCriteriaService(roleService, Optional.of(organizationService));
+        RoleDataScopeCriteriaService service = new RoleDataScopeCriteriaService(
+                roleService,
+                mock(TenantAdminImplicitGrantPolicy.class),
+                Optional.of(organizationService),
+                Optional.empty(),
+                Optional.empty());
 
         Criteria scoped = service.applyReadScope(
                 "sales.contract",
@@ -338,7 +401,12 @@ class RoleDataScopeCriteriaServiceTest {
                         effectiveRoleGrant("position-role", RoleAssignmentType.EMPLOYMENT,
                                 "position-1", "org-branch", "dept-branch", "position-1"))
         ));
-        RoleDataScopeCriteriaService service = new RoleDataScopeCriteriaService(roleService);
+        RoleDataScopeCriteriaService service = new RoleDataScopeCriteriaService(
+                roleService,
+                mock(TenantAdminImplicitGrantPolicy.class),
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty());
 
         Criteria scoped = service.applyReadScope(
                 "sales.contract",
@@ -367,8 +435,12 @@ class RoleDataScopeCriteriaServiceTest {
                                 ManagementScopeType.ORGANIZATION, "org-admin"))
         ));
         when(organizationService.selfAndDescendantIds("org-admin")).thenReturn(List.of("org-admin", "org-child"));
-        RoleDataScopeCriteriaService service = new RoleDataScopeCriteriaService(roleService,
-                Optional.of(organizationService));
+        RoleDataScopeCriteriaService service = new RoleDataScopeCriteriaService(
+                roleService,
+                mock(TenantAdminImplicitGrantPolicy.class),
+                Optional.of(organizationService),
+                Optional.empty(),
+                Optional.empty());
 
         Criteria scoped = service.applyReadScope(
                 "sales.contract",
@@ -399,7 +471,12 @@ class RoleDataScopeCriteriaServiceTest {
         ));
         when(organizationService.selfAndDescendantIds("org-main")).thenReturn(List.of("org-main", "org-main-child"));
         when(organizationService.selfAndDescendantIds("org-branch")).thenReturn(List.of("org-branch"));
-        RoleDataScopeCriteriaService service = new RoleDataScopeCriteriaService(roleService, Optional.of(organizationService));
+        RoleDataScopeCriteriaService service = new RoleDataScopeCriteriaService(
+                roleService,
+                mock(TenantAdminImplicitGrantPolicy.class),
+                Optional.of(organizationService),
+                Optional.empty(),
+                Optional.empty());
 
         Criteria scoped = service.applyReadScope(
                 "sales.contract",
@@ -429,7 +506,12 @@ class RoleDataScopeCriteriaServiceTest {
                         effectiveRoleGrant("position-role", RoleAssignmentType.EMPLOYMENT,
                                 "position-1", "org-branch", "dept-branch", "position-1"))
         ));
-        RoleDataScopeCriteriaService service = new RoleDataScopeCriteriaService(roleService);
+        RoleDataScopeCriteriaService service = new RoleDataScopeCriteriaService(
+                roleService,
+                mock(TenantAdminImplicitGrantPolicy.class),
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty());
 
         Criteria scoped = service.applyReadScope(
                 "sales.contract",
@@ -458,7 +540,12 @@ class RoleDataScopeCriteriaServiceTest {
                         grant(DataScopePolicy.DEPARTMENT, "position-role"),
                         effectiveRoleGrant("position-role", RoleAssignmentType.EMPLOYMENT,
                                 "position-principal", "org-grant", "dept-grant", "position-principal"))));
-        RoleDataScopeCriteriaService service = new RoleDataScopeCriteriaService(roleService);
+        RoleDataScopeCriteriaService service = new RoleDataScopeCriteriaService(
+                roleService,
+                mock(TenantAdminImplicitGrantPolicy.class),
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty());
         CurrentUser operator = CurrentUser.tenantUser("assistant-user", "Assistant", "tenant-a", "org-assistant");
 
         Criteria scoped;
@@ -488,7 +575,12 @@ class RoleDataScopeCriteriaServiceTest {
         when(roleService.effectiveActionGrantsWithContext(principal, "sales.contract", "view"))
                 .thenReturn(List.of());
         whenActionGrants(roleService, "assistant-user", "sales.contract", "view", grant(DataScopePolicy.ALL));
-        RoleDataScopeCriteriaService service = new RoleDataScopeCriteriaService(roleService);
+        RoleDataScopeCriteriaService service = new RoleDataScopeCriteriaService(
+                roleService,
+                mock(TenantAdminImplicitGrantPolicy.class),
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty());
         CurrentUser operator = CurrentUser.tenantUser("assistant-user", "Assistant", "tenant-a", "org-assistant");
 
         Criteria scoped;
@@ -516,7 +608,12 @@ class RoleDataScopeCriteriaServiceTest {
                         grant(DataScopePolicy.OWNER, "employee-role"),
                         effectiveRoleGrant("employee-role", RoleAssignmentType.EMPLOYMENT,
                                 "employee-principal", "org-principal", "dept-principal", null))));
-        RoleDataScopeCriteriaService service = new RoleDataScopeCriteriaService(roleService);
+        RoleDataScopeCriteriaService service = new RoleDataScopeCriteriaService(
+                roleService,
+                mock(TenantAdminImplicitGrantPolicy.class),
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty());
         CurrentUser operator = CurrentUser.tenantUser("assistant-user", "Assistant", "tenant-a", "org-assistant");
 
         Criteria scoped;
@@ -542,7 +639,12 @@ class RoleDataScopeCriteriaServiceTest {
                 "employee-principal", "org-principal", "dept-principal");
         whenActionGrants(roleService, "assistant-user", "sales.contract", "view",
                 grant(DataScopePolicy.ORGANIZATION));
-        RoleDataScopeCriteriaService service = new RoleDataScopeCriteriaService(roleService);
+        RoleDataScopeCriteriaService service = new RoleDataScopeCriteriaService(
+                roleService,
+                mock(TenantAdminImplicitGrantPolicy.class),
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty());
         CurrentUser operator = CurrentUser.tenantUser("assistant-user", "Assistant", "tenant-a", "org-assistant");
 
         Criteria scoped;
@@ -569,7 +671,12 @@ class RoleDataScopeCriteriaServiceTest {
                 "employee-principal", "org-principal", "dept-principal");
         when(roleService.effectiveActionGrantsWithContext(principal, "sales.contract", "follow"))
                 .thenReturn(List.of());
-        RoleDataScopeCriteriaService service = new RoleDataScopeCriteriaService(roleService);
+        RoleDataScopeCriteriaService service = new RoleDataScopeCriteriaService(
+                roleService,
+                mock(TenantAdminImplicitGrantPolicy.class),
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty());
         CurrentUser operator = CurrentUser.tenantUser("assistant-user", "Assistant", "tenant-a", "org-assistant");
 
         Criteria scoped;
@@ -606,7 +713,12 @@ class RoleDataScopeCriteriaServiceTest {
                         "sales.contract",
                         "view"))
                 .thenReturn(grant(DataScopePolicy.ALL));
-        RoleDataScopeCriteriaService service = new RoleDataScopeCriteriaService(roleService);
+        RoleDataScopeCriteriaService service = new RoleDataScopeCriteriaService(
+                roleService,
+                mock(TenantAdminImplicitGrantPolicy.class),
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty());
         CurrentUser operator = CurrentUser.tenantUser("assistant-user", "Assistant", "tenant-a", "org-assistant");
 
         Criteria scoped;
@@ -636,9 +748,10 @@ class RoleDataScopeCriteriaServiceTest {
         whenActionGrants(roleService, "assistant-user", "school.student", "view", grant(DataScopePolicy.ALL));
         RoleDataScopeCriteriaService service = new RoleDataScopeCriteriaService(
                 roleService,
+                mock(TenantAdminImplicitGrantPolicy.class),
                 Optional.empty(),
-                Optional.of(referenceResolver("studentId", "school.student", "student"))
-        );
+                Optional.empty(),
+                Optional.of(referenceResolver("studentId", "school.student", "student")));
         CurrentUser operator = CurrentUser.tenantUser("assistant-user", "Assistant", "tenant-a", "org-assistant");
 
         Criteria scoped;
@@ -664,7 +777,12 @@ class RoleDataScopeCriteriaServiceTest {
                         effectiveAccountRoleGrant("account-role", "user-1",
                                 ManagementScopeType.ORGANIZATION, null))
         ));
-        RoleDataScopeCriteriaService service = new RoleDataScopeCriteriaService(roleService);
+        RoleDataScopeCriteriaService service = new RoleDataScopeCriteriaService(
+                roleService,
+                mock(TenantAdminImplicitGrantPolicy.class),
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty());
 
         Criteria scoped = service.applyReadScope(
                 "sales.contract",
@@ -693,7 +811,11 @@ class RoleDataScopeCriteriaServiceTest {
         when(departmentService.selfAndDescendantIds("org-branch", "dept-branch"))
                 .thenReturn(List.of("dept-branch"));
         RoleDataScopeCriteriaService service = new RoleDataScopeCriteriaService(
-                roleService, Optional.empty(), Optional.of(departmentService), Optional.empty());
+                roleService,
+                mock(TenantAdminImplicitGrantPolicy.class),
+                Optional.empty(),
+                Optional.of(departmentService),
+                Optional.empty());
 
         Criteria scoped = service.applyReadScope(
                 "sales.contract",
@@ -719,7 +841,12 @@ class RoleDataScopeCriteriaServiceTest {
                         effectiveRoleGrant("employee-role", RoleAssignmentType.EMPLOYMENT,
                                 "employee-1", "org-main", "dept-main", null))
         ));
-        RoleDataScopeCriteriaService service = new RoleDataScopeCriteriaService(roleService);
+        RoleDataScopeCriteriaService service = new RoleDataScopeCriteriaService(
+                roleService,
+                mock(TenantAdminImplicitGrantPolicy.class),
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty());
 
         assertThatThrownBy(() -> service.applyReadScope(
                 "sales.contract",
@@ -736,7 +863,12 @@ class RoleDataScopeCriteriaServiceTest {
         whenActionGrants(roleService, "user-1", "sales.contract", "view",
                 grant(DataScopePolicy.ORGANIZATION_AND_CHILDREN)
         );
-        RoleDataScopeCriteriaService service = new RoleDataScopeCriteriaService(roleService, Optional.empty());
+        RoleDataScopeCriteriaService service = new RoleDataScopeCriteriaService(
+                roleService,
+                mock(TenantAdminImplicitGrantPolicy.class),
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty());
 
         assertThatThrownBy(() -> service.applyReadScope(
                 "sales.contract",
@@ -754,7 +886,12 @@ class RoleDataScopeCriteriaServiceTest {
                 grant(DataScopePolicy.ASSIGNEE),
                 grant(DataScopePolicy.MEMBER)
         );
-        RoleDataScopeCriteriaService service = new RoleDataScopeCriteriaService(roleService);
+        RoleDataScopeCriteriaService service = new RoleDataScopeCriteriaService(
+                roleService,
+                mock(TenantAdminImplicitGrantPolicy.class),
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty());
 
         Criteria scoped = service.applyReadScope(
                 "sales.contract",
@@ -776,7 +913,12 @@ class RoleDataScopeCriteriaServiceTest {
         whenActionGrants(roleService, "user-1", "sales.contract", "view",
                 grant(DataScopePolicy.ASSIGNEE)
         );
-        RoleDataScopeCriteriaService service = new RoleDataScopeCriteriaService(roleService);
+        RoleDataScopeCriteriaService service = new RoleDataScopeCriteriaService(
+                roleService,
+                mock(TenantAdminImplicitGrantPolicy.class),
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty());
 
         Criteria scoped = service.applyReadScope(
                 "sales.contract",
@@ -794,7 +936,12 @@ class RoleDataScopeCriteriaServiceTest {
     void shouldApplyDefaultOwnerScopeWithoutRoleGrant() {
         RoleService roleService = mock(RoleService.class);
         whenActionGrants(roleService, "user-1", "sales.contract", "follow");
-        RoleDataScopeCriteriaService service = new RoleDataScopeCriteriaService(roleService);
+        RoleDataScopeCriteriaService service = new RoleDataScopeCriteriaService(
+                roleService,
+                mock(TenantAdminImplicitGrantPolicy.class),
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty());
 
         DataScopeCriteriaResult result = service.resolveReadScope(
                 "sales.contract",
@@ -815,7 +962,12 @@ class RoleDataScopeCriteriaServiceTest {
     void shouldExpandDefaultMemberScopeToOwnerAssigneeAndMember() {
         RoleService roleService = mock(RoleService.class);
         whenActionGrants(roleService, "user-1", "sales.contract", "follow");
-        RoleDataScopeCriteriaService service = new RoleDataScopeCriteriaService(roleService);
+        RoleDataScopeCriteriaService service = new RoleDataScopeCriteriaService(
+                roleService,
+                mock(TenantAdminImplicitGrantPolicy.class),
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty());
 
         Criteria scoped = service.resolveReadScope(
                 "sales.contract",
@@ -835,7 +987,12 @@ class RoleDataScopeCriteriaServiceTest {
     void shouldNotTreatAnyLoginUserDefaultGrantAsDataScope() {
         RoleService roleService = mock(RoleService.class);
         whenActionGrants(roleService, "user-1", "sales.contract", "query");
-        RoleDataScopeCriteriaService service = new RoleDataScopeCriteriaService(roleService);
+        RoleDataScopeCriteriaService service = new RoleDataScopeCriteriaService(
+                roleService,
+                mock(TenantAdminImplicitGrantPolicy.class),
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty());
 
         Criteria scoped = service.resolveReadScope(
                 "sales.contract",
@@ -859,7 +1016,12 @@ class RoleDataScopeCriteriaServiceTest {
         when(roleService.effectiveActionGrantsWithContext("user-1", "sales.contract", "view"))
                 .thenReturn(List.of(effectiveActionGrant(inherit, roleGrant)));
         when(roleService.inheritedDataGrantAction(roleGrant, "sales.contract", "view")).thenReturn(actual);
-        RoleDataScopeCriteriaService service = new RoleDataScopeCriteriaService(roleService);
+        RoleDataScopeCriteriaService service = new RoleDataScopeCriteriaService(
+                roleService,
+                mock(TenantAdminImplicitGrantPolicy.class),
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty());
 
         Criteria scoped = service.applyReadScope(
                 "sales.contract",
@@ -886,7 +1048,12 @@ class RoleDataScopeCriteriaServiceTest {
         when(roleService.effectiveActionGrantsWithContext("user-1", "sales.contract", "view"))
                 .thenReturn(List.of(effectiveActionGrant(inherit, roleGrant)));
         when(roleService.inheritedDataGrantAction(roleGrant, "sales.contract", "view")).thenReturn(actual);
-        RoleDataScopeCriteriaService service = new RoleDataScopeCriteriaService(roleService);
+        RoleDataScopeCriteriaService service = new RoleDataScopeCriteriaService(
+                roleService,
+                mock(TenantAdminImplicitGrantPolicy.class),
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty());
 
         DataScopeCriteriaResult result = service.resolveReadScope(
                 "sales.contract",
@@ -909,7 +1076,12 @@ class RoleDataScopeCriteriaServiceTest {
                 "position-1", "org-1", "dept-1", "position-1");
         when(roleService.effectiveActionGrantsWithContext("user-1", "sales.contract", "view"))
                 .thenReturn(List.of(effectiveActionGrant(inherit, roleGrant)));
-        RoleDataScopeCriteriaService service = new RoleDataScopeCriteriaService(roleService);
+        RoleDataScopeCriteriaService service = new RoleDataScopeCriteriaService(
+                roleService,
+                mock(TenantAdminImplicitGrantPolicy.class),
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty());
 
         Criteria scoped = service.applyReadScope(
                 "sales.contract",
@@ -932,9 +1104,10 @@ class RoleDataScopeCriteriaServiceTest {
         );
         RoleDataScopeCriteriaService service = new RoleDataScopeCriteriaService(
                 roleService,
+                mock(TenantAdminImplicitGrantPolicy.class),
                 Optional.empty(),
-                Optional.of(referenceResolver("studentId", "school.student", "student"))
-        );
+                Optional.empty(),
+                Optional.of(referenceResolver("studentId", "school.student", "student")));
 
         Criteria scoped = service.applyReadScope(
                 "sales.score",
@@ -965,9 +1138,10 @@ class RoleDataScopeCriteriaServiceTest {
         AtomicReference<String> requestedAction = new AtomicReference<>();
         RoleDataScopeCriteriaService service = new RoleDataScopeCriteriaService(
                 roleService,
+                mock(TenantAdminImplicitGrantPolicy.class),
                 Optional.empty(),
-                Optional.of(referenceResolver("studentId", "school.student", "student", requestedAction))
-        );
+                Optional.empty(),
+                Optional.of(referenceResolver("studentId", "school.student", "student", requestedAction)));
 
         Criteria scoped = service.applyReadScope(
                 "sales.score",
@@ -991,9 +1165,10 @@ class RoleDataScopeCriteriaServiceTest {
         );
         RoleDataScopeCriteriaService service = new RoleDataScopeCriteriaService(
                 roleService,
+                mock(TenantAdminImplicitGrantPolicy.class),
                 Optional.empty(),
-                Optional.of(referenceResolver("studentId", "school.student", "student"))
-        );
+                Optional.empty(),
+                Optional.of(referenceResolver("studentId", "school.student", "student")));
 
         DataScopeCriteriaResult result = service.resolveReadScope(
                 "sales.score",
@@ -1016,7 +1191,12 @@ class RoleDataScopeCriteriaServiceTest {
         whenActionGrants(roleService, "user-1", "sales.score", "view",
                 referenceGrant("missingField", "view")
         );
-        RoleDataScopeCriteriaService service = new RoleDataScopeCriteriaService(roleService);
+        RoleDataScopeCriteriaService service = new RoleDataScopeCriteriaService(
+                roleService,
+                mock(TenantAdminImplicitGrantPolicy.class),
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty());
 
         Criteria scoped = service.applyReadScope(
                 "sales.score",

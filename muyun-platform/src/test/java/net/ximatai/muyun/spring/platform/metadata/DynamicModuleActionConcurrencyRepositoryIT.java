@@ -4,6 +4,7 @@ import net.ximatai.muyun.database.spring.boot.sql.annotation.EnableMuYunReposito
 import net.ximatai.muyun.spring.ability.OptimisticLockException;
 import net.ximatai.muyun.spring.platform.module.*;
 import net.ximatai.muyun.spring.platform.support.PlatformPostgresIntegrationTest;
+import net.ximatai.muyun.spring.platform.support.TestBeanProviders;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -24,6 +25,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -107,7 +109,11 @@ class DynamicModuleActionConcurrencyRepositoryIT extends PlatformPostgresIntegra
         private CountDownLatch snapshotRead;
         private CountDownLatch continueRegistration;
 
-        PausingMetadataService(MetadataDao dao) { super(dao); }
+        PausingMetadataService(MetadataDao dao) { super(dao,
+                TestBeanProviders.empty(PlatformMetadataSchemaEnsureService.class),
+                Optional.empty(),
+                TestBeanProviders.empty(ConfigurationReferenceDeletionGuard.class),
+                TestBeanProviders.empty(ModuleMetadataRelationService.class), event -> {}); }
 
         void pause(String id) {
             pausedId = id;
@@ -141,7 +147,7 @@ class DynamicModuleActionConcurrencyRepositoryIT extends PlatformPostgresIntegra
             return DataSourceBuilder.create().url(postgres.getJdbcUrl()).username(postgres.getUsername())
                     .password(postgres.getPassword()).driverClassName(postgres.getDriverClassName()).build();
         }
-        @Bean PlatformModuleService modules(PlatformModuleDao dao) { return new PlatformModuleService(dao); }
+        @Bean PlatformModuleService modules(PlatformModuleDao dao) { return new PlatformModuleService(dao, event -> {}); }
         @Bean PlatformModuleActionService actions(PlatformModuleActionDao dao, PlatformModuleService modules) {
             return new PlatformModuleActionService(dao, modules);
         }
@@ -151,7 +157,14 @@ class DynamicModuleActionConcurrencyRepositoryIT extends PlatformPostgresIntegra
         @Bean PausingMetadataService metadata(MetadataDao dao) { return new PausingMetadataService(dao); }
         @Bean ModuleMetadataRelationService relations(ModuleMetadataRelationDao dao, PlatformModuleService modules,
                                                       MetadataService metadata) {
-            return new ModuleMetadataRelationService(dao, modules, metadata);
+            return new ModuleMetadataRelationService(
+                    dao,
+                    modules,
+                    metadata,
+                    Optional.empty(),
+                    TestBeanProviders.empty(ConfigurationReferenceDeletionGuard.class),
+                    TestBeanProviders.empty(MetadataFieldService.class),
+                    event -> {});
         }
         @Bean DynamicModuleStandardActionRegistrar registrar(PlatformModuleService modules,
                 ModuleActionContributionRegistrar contributions, ObjectProvider<ModuleMetadataRelationService> relations,

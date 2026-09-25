@@ -10,7 +10,6 @@ import net.ximatai.muyun.spring.ability.SoftDeleteAbility;
 import net.ximatai.muyun.spring.ability.SortAbility;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.platform.runtime.PlatformDynamicRuntimeRefreshCoordinator;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
@@ -34,16 +33,10 @@ public class MetadataViewService extends AbstractAbilityService<MetadataView> im
     private final PlatformDynamicRuntimeRefreshCoordinator runtimeRefreshCoordinator;
 
     public MetadataViewService(BaseDao<MetadataView, String> viewDao,
-                               ModuleMetadataRelationService relationService) {
-        this(viewDao, relationService, Optional.empty());
-    }
-
-    @Autowired
-    public MetadataViewService(BaseDao<MetadataView, String> viewDao,
                                ModuleMetadataRelationService relationService,
                                Optional<PlatformDynamicRuntimeRefreshCoordinator> runtimeRefreshCoordinator) {
         super(MODULE_ALIAS, MetadataView.class, viewDao);
-        this.relationService = relationService;
+        this.relationService = Objects.requireNonNull(relationService, "relationService");
         this.runtimeRefreshCoordinator = runtimeRefreshCoordinator.orElse(null);
     }
 

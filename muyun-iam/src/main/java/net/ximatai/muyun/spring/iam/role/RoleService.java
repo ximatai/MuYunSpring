@@ -37,11 +37,9 @@ import net.ximatai.muyun.spring.iam.employee.EmployeePositionService;
 import net.ximatai.muyun.spring.iam.employee.EmployeeService;
 import net.ximatai.muyun.spring.iam.organization.Organization;
 import net.ximatai.muyun.spring.iam.organization.OrganizationService;
-import net.ximatai.muyun.spring.iam.tenant.TenantService;
 import net.ximatai.muyun.spring.iam.tenant.TenantApplicationService;
 import net.ximatai.muyun.spring.iam.user.UserAccountService;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -80,66 +78,7 @@ public class RoleService extends TenantActiveScopedService<Role> implements
     private final EmployeeAccountService employeeAccountService;
     private final OrganizationService organizationService;
     private ReferenceDependencyScopeCatalogResolver referenceDependencyScopeCatalogResolver;
-    private TenantApplicationService tenantApplicationService;
-
-    public RoleService(RoleDao roleDao,
-                       AccountRoleGrantDao accountRoleGrantDao,
-                       EmploymentRoleGrantDao employmentRoleGrantDao,
-                       RoleActionDao roleActionDao,
-                       ActiveTenantVerifier activeTenantVerifier) {
-        this(roleDao, accountRoleGrantDao, employmentRoleGrantDao, roleActionDao, activeTenantVerifier,
-                RoleActionGrantVerifier.platformActionsOnly(), null, null, null, null,
-                (OrganizationService) null, null);
-    }
-
-    @Autowired
-    public RoleService(RoleDao roleDao,
-                       AccountRoleGrantDao accountRoleGrantDao,
-                       EmploymentRoleGrantDao employmentRoleGrantDao,
-                       RoleActionDao roleActionDao,
-                       RoleDataGrantActionDao roleDataGrantActionDao,
-                       TenantService tenantService,
-                       RoleActionGrantVerifier grantVerifier,
-                       UserAccountService userAccountService,
-                       EmployeeService employeeService,
-                       EmployeePositionService employeePositionService,
-                       EmployeeAccountService employeeAccountService,
-                       ObjectProvider<OrganizationService> organizationService) {
-        this(roleDao, accountRoleGrantDao, employmentRoleGrantDao, roleActionDao, tenantService,
-                grantVerifier, userAccountService, employeeService, employeePositionService, employeeAccountService,
-                organizationService == null ? null : organizationService.getIfAvailable(), roleDataGrantActionDao);
-    }
-
-    public RoleService(RoleDao roleDao,
-                       AccountRoleGrantDao accountRoleGrantDao,
-                       EmploymentRoleGrantDao employmentRoleGrantDao,
-                       RoleActionDao roleActionDao,
-                       ActiveTenantVerifier activeTenantVerifier,
-                       RoleActionGrantVerifier grantVerifier,
-                       UserAccountService userAccountService,
-                       EmployeeService employeeService,
-                       EmployeePositionService employeePositionService,
-                       EmployeeAccountService employeeAccountService) {
-        this(roleDao, accountRoleGrantDao, employmentRoleGrantDao, roleActionDao, activeTenantVerifier,
-                grantVerifier, userAccountService, employeeService, employeePositionService, employeeAccountService,
-                (OrganizationService) null, null);
-    }
-
-    public RoleService(RoleDao roleDao,
-                       AccountRoleGrantDao accountRoleGrantDao,
-                       EmploymentRoleGrantDao employmentRoleGrantDao,
-                       RoleActionDao roleActionDao,
-                       ActiveTenantVerifier activeTenantVerifier,
-                       RoleActionGrantVerifier grantVerifier,
-                       UserAccountService userAccountService,
-                       EmployeeService employeeService,
-                       EmployeePositionService employeePositionService,
-                       EmployeeAccountService employeeAccountService,
-                       OrganizationService organizationService) {
-        this(roleDao, accountRoleGrantDao, employmentRoleGrantDao, roleActionDao, activeTenantVerifier,
-                grantVerifier, userAccountService, employeeService, employeePositionService, employeeAccountService,
-                organizationService, null);
-    }
+    private final TenantApplicationService tenantApplicationService;
 
     public RoleService(RoleDao roleDao,
                        AccountRoleGrantDao accountRoleGrantDao,
@@ -152,30 +91,27 @@ public class RoleService extends TenantActiveScopedService<Role> implements
                        EmployeePositionService employeePositionService,
                        EmployeeAccountService employeeAccountService,
                        OrganizationService organizationService,
-                       RoleDataGrantActionDao roleDataGrantActionDao) {
+                       RoleDataGrantActionDao roleDataGrantActionDao,
+                       TenantApplicationService tenantApplicationService) {
         super(MODULE_ALIAS, Role.class, roleDao, activeTenantVerifier);
         this.accountRoleGrantDao = Objects.requireNonNull(accountRoleGrantDao, "accountRoleGrantDao must not be null");
         this.employmentRoleGrantDao = Objects.requireNonNull(employmentRoleGrantDao,
                 "employmentRoleGrantDao must not be null");
         this.roleActionDao = Objects.requireNonNull(roleActionDao, "roleActionDao must not be null");
-        this.roleDataGrantActionDao = roleDataGrantActionDao;
+        this.roleDataGrantActionDao = Objects.requireNonNull(roleDataGrantActionDao, "roleDataGrantActionDao must not be null");
         this.grantVerifier = Objects.requireNonNull(grantVerifier, "grantVerifier must not be null");
-        this.userAccountService = userAccountService;
-        this.employeeService = employeeService;
-        this.employeePositionService = employeePositionService;
-        this.employeeAccountService = employeeAccountService;
-        this.organizationService = organizationService;
+        this.userAccountService = Objects.requireNonNull(userAccountService, "userAccountService must not be null");
+        this.employeeService = Objects.requireNonNull(employeeService, "employeeService must not be null");
+        this.employeePositionService = Objects.requireNonNull(employeePositionService, "employeePositionService must not be null");
+        this.employeeAccountService = Objects.requireNonNull(employeeAccountService, "employeeAccountService must not be null");
+        this.organizationService = Objects.requireNonNull(organizationService, "organizationService must not be null");
+        this.tenantApplicationService = Objects.requireNonNull(tenantApplicationService, "tenantApplicationService must not be null");
     }
 
     @Autowired(required = false)
     void setReferenceDependencyScopeCatalogResolver(
             ReferenceDependencyScopeCatalogResolver referenceDependencyScopeCatalogResolver) {
         this.referenceDependencyScopeCatalogResolver = referenceDependencyScopeCatalogResolver;
-    }
-
-    @Autowired(required = false)
-    void setTenantApplicationService(TenantApplicationService tenantApplicationService) {
-        this.tenantApplicationService = tenantApplicationService;
     }
 
     @Override
@@ -234,7 +170,6 @@ public class RoleService extends TenantActiveScopedService<Role> implements
                 .defaultSort(Sort.asc("title"))
                 .build();
     }
-
 
     @Override
     public void normalizeBeforeMutation(Role role) {
@@ -646,7 +581,7 @@ public class RoleService extends TenantActiveScopedService<Role> implements
     }
 
     private void requireTenantApplicationOpenedForRole(Role role, String moduleAlias) {
-        if (tenantApplicationService == null || role.getOwnerScopeType() == RoleOwnerScopeType.PLATFORM) {
+        if (role.getOwnerScopeType() == RoleOwnerScopeType.PLATFORM) {
             return;
         }
         tenantApplicationService.requireApplicationOpened(
@@ -757,12 +692,6 @@ public class RoleService extends TenantActiveScopedService<Role> implements
         if (dataGrantRoleIds.isEmpty()) {
             return null;
         }
-        // Legacy constructor wiring is retained for focused contract tests and older embedders.
-        // Runtime beans always receive the dedicated template store.
-        if (roleDataGrantActionDao == null) {
-            return inheritedDataGrantActionFromLegacyRoleAction(dataGrantRoleIds, moduleAlias, actionCode,
-                    roleGrant.employeePositionId());
-        }
         List<RoleDataGrantAction> grants = roleDataGrantActionDao.query(Criteria.of()
                         .in("roleId", dataGrantRoleIds)
                         .eq("actionCode", permissionActionCode(actionCode))
@@ -773,22 +702,6 @@ public class RoleService extends TenantActiveScopedService<Role> implements
                     + roleGrant.employeePositionId());
         }
         return grants.stream().findFirst().map(this::asInheritedDataGrantAction).orElse(null);
-    }
-
-    private RoleAction inheritedDataGrantActionFromLegacyRoleAction(List<String> dataGrantRoleIds,
-                                                                      String moduleAlias,
-                                                                      String actionCode,
-                                                                      String employeePositionId) {
-        List<RoleAction> grants = roleActionDao.query(Criteria.of()
-                        .in("roleId", dataGrantRoleIds)
-                        .eq("moduleAlias", moduleAlias)
-                        .eq("actionCode", permissionActionCode(actionCode))
-                        .eq("enabled", Boolean.TRUE),
-                ALL);
-        if (grants.size() > 1) {
-            throw new PlatformException("employment has more than one inherited data grant action: " + employeePositionId);
-        }
-        return grants.stream().findFirst().orElse(null);
     }
 
     public RoleDataGrantActionMatrix dataGrantActionMatrix(String roleId) {
@@ -811,9 +724,6 @@ public class RoleService extends TenantActiveScopedService<Role> implements
     public int replaceDataGrantActions(String roleId, List<DataGrantActionCommand> commands) {
         Role role = requireDataGrantRole(roleId);
         requireSystemManagedMutationAllowed(role, "replace data grant actions");
-        if (roleDataGrantActionDao == null) {
-            throw new IllegalStateException("role data grant action storage is not available");
-        }
         LinkedHashMap<String, DataScopePolicy> desired = new LinkedHashMap<>();
         for (DataGrantActionCommand command : commands == null ? List.<DataGrantActionCommand>of() : commands) {
             if (command == null || command.enabled() == false) {
@@ -879,8 +789,8 @@ public class RoleService extends TenantActiveScopedService<Role> implements
         ArrayList<EffectiveRoleGrant> effective = new ArrayList<>();
         accountRoleGrantsForUser(validUserId).forEach(grant -> appendAccountRoleGrant(effective, grant));
 
-        String employeeId = employeeAccountService == null ? null : employeeAccountService.employeeIdOfUser(validUserId);
-        if (employeeId == null || employeeId.isBlank() || employeeService == null || employeePositionService == null) {
+        String employeeId = employeeAccountService.employeeIdOfUser(validUserId);
+        if (employeeId == null || employeeId.isBlank()) {
             return List.copyOf(effective);
         }
         Employee employee = employeeService.selectActiveRaw(employeeId);
@@ -904,9 +814,7 @@ public class RoleService extends TenantActiveScopedService<Role> implements
             accountRoleGrantsForUser(principal.userId()).forEach(grant -> appendAccountRoleGrant(effective, grant));
         }
         if (principal.employeePositionId() != null) {
-            EmployeePosition position = employeePositionService == null
-                    ? null
-                    : employeePositionService.selectActiveRaw(principal.employeePositionId());
+            EmployeePosition position = employeePositionService.selectActiveRaw(principal.employeePositionId());
             if (isActivePrincipalPosition(principal, position)) {
                 effectiveEmploymentRoleGrants(principal.employeePositionId())
                         .forEach(grant -> appendEmploymentRoleGrant(effective, grant, position));
@@ -995,10 +903,8 @@ public class RoleService extends TenantActiveScopedService<Role> implements
                 .forEach(binding -> employmentRoleGrantDao.deleteById(binding.getId()));
         roleActionDao.query(activeCriteria(Criteria.of().eq("roleId", id)), ALL)
                 .forEach(action -> roleActionDao.deleteById(action.getId()));
-        if (roleDataGrantActionDao != null) {
-            roleDataGrantActionDao.query(activeCriteria(Criteria.of().eq("roleId", id)), ALL)
-                    .forEach(action -> roleDataGrantActionDao.deleteById(action.getId()));
-        }
+        roleDataGrantActionDao.query(activeCriteria(Criteria.of().eq("roleId", id)), ALL)
+                .forEach(action -> roleDataGrantActionDao.deleteById(action.getId()));
         removeRoleFromGroups(id);
     }
 
@@ -1307,7 +1213,7 @@ public class RoleService extends TenantActiveScopedService<Role> implements
     }
 
     private void validateOwnerScope(Role role) {
-        if (role.getOwnerScopeType() != RoleOwnerScopeType.ORGANIZATION || organizationService == null) {
+        if (role.getOwnerScopeType() != RoleOwnerScopeType.ORGANIZATION) {
             return;
         }
         Organization organization = organizationService.selectActiveRaw(role.getOwnerScopeId());
@@ -1395,9 +1301,7 @@ public class RoleService extends TenantActiveScopedService<Role> implements
         requireAccountRole(role);
         requireSystemManagedMutationAllowed(role, "grant account role");
         String validUserId = Preconditions.requireText(userId, "userId");
-        if (userAccountService != null) {
-            userAccountService.requireEnabled(validUserId, "user account is not active: " + validUserId);
-        }
+        userAccountService.requireEnabled(validUserId, "user account is not active: " + validUserId);
         ManagementScopeType validScopeType = normalizeManagementScopeType(managementScopeType);
         String validScopeId = normalizeManagementScopeId(validScopeType, managementScopeId);
         AccountRoleGrant existing = findAccountRoleGrant(role.getId(), validUserId, validScopeType, validScopeId);
@@ -1425,14 +1329,10 @@ public class RoleService extends TenantActiveScopedService<Role> implements
         requireEmploymentAssignableRole(role);
         requireSystemManagedMutationAllowed(role, "grant employment role");
         String validEmployeePositionId = Preconditions.requireText(employeePositionId, "employeePositionId");
-        if (employeePositionService != null) {
-            EmployeePosition employeePosition = employeePositionService.requireEnabled(validEmployeePositionId,
-                    "employee position is not active: " + validEmployeePositionId);
-            if (employeeService != null && employeePosition != null) {
-                employeeService.requireEnabled(employeePosition.getEmployeeId(),
-                        "employee is not active: " + employeePosition.getEmployeeId());
-            }
-        }
+        EmployeePosition employeePosition = employeePositionService.requireEnabled(validEmployeePositionId,
+                "employee position is not active: " + validEmployeePositionId);
+        employeeService.requireEnabled(employeePosition.getEmployeeId(),
+                "employee is not active: " + employeePosition.getEmployeeId());
         ensureDataGrantUnique(validEmployeePositionId, role);
         ensureInheritedDataGrantCoverage(validEmployeePositionId, role);
         EmploymentRoleGrant existing = findEmploymentRoleGrant(role.getId(), validEmployeePositionId);
@@ -1805,9 +1705,6 @@ public class RoleService extends TenantActiveScopedService<Role> implements
     }
 
     private List<RoleDataGrantAction> dataGrantActionTemplates(String roleId) {
-        if (roleDataGrantActionDao == null) {
-            return List.of();
-        }
         return roleDataGrantActionDao.query(activeCriteria(Criteria.of().eq("roleId", roleId)), ALL);
     }
 

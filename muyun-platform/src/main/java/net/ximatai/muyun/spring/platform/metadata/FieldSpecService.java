@@ -12,11 +12,11 @@ import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.util.PlatformNameRules;
 import net.ximatai.muyun.spring.dynamic.metadata.DynamicQueryOperator;
 import net.ximatai.muyun.spring.dynamic.metadata.FieldType;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.util.LinkedHashSet;
 import java.util.Set;
+import java.util.Objects;
 import net.ximatai.muyun.spring.ability.query.QueryAbility;
 import net.ximatai.muyun.spring.ability.query.QueryDescriptor;
 import net.ximatai.muyun.spring.ability.query.QueryDescriptors;
@@ -31,15 +31,10 @@ public class FieldSpecService extends AbstractAbilityService<FieldSpec> implemen
     public static final String MODULE_ALIAS = "platform.field_spec";
     private final BaseDao<FieldUiControl, String> fieldUiTypeDao;
 
-    public FieldSpecService(BaseDao<FieldSpec, String> fieldTypeDao) {
-        this(fieldTypeDao, null);
-    }
-
-    @Autowired
     public FieldSpecService(BaseDao<FieldSpec, String> fieldTypeDao,
                                     BaseDao<FieldUiControl, String> fieldUiTypeDao) {
         super(MODULE_ALIAS, FieldSpec.class, fieldTypeDao);
-        this.fieldUiTypeDao = fieldUiTypeDao;
+        this.fieldUiTypeDao = Objects.requireNonNull(fieldUiTypeDao, "fieldUiTypeDao");
     }
 
     @Override
@@ -156,8 +151,7 @@ public class FieldSpecService extends AbstractAbilityService<FieldSpec> implemen
     }
 
     private void requireFieldUiControl(String alias) {
-        if (fieldUiTypeDao != null
-                && fieldUiTypeDao.list(Criteria.of().eq("alias", alias), new PageRequest(0, 1)).isEmpty()) {
+        if (fieldUiTypeDao.list(Criteria.of().eq("alias", alias), new PageRequest(0, 1)).isEmpty()) {
             throw new PlatformException("Field spec UI alias requires existing UI type: " + alias);
         }
     }

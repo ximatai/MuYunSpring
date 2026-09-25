@@ -13,6 +13,10 @@ import net.ximatai.muyun.spring.dynamic.schema.DynamicSchemaService;
 import net.ximatai.muyun.spring.platform.support.TestMemoryDao;
 import net.ximatai.muyun.spring.platform.ui.PlatformQueryTemplateService;
 import net.ximatai.muyun.spring.platform.ui.PlatformUiConfigService;
+import net.ximatai.muyun.spring.ability.BaseDao;
+import net.ximatai.muyun.spring.platform.module.PlatformModuleService;
+import net.ximatai.muyun.spring.platform.runtime.PlatformDynamicRuntimeRefreshCoordinator;
+import net.ximatai.muyun.spring.platform.support.TestBeanProviders;
 import org.junit.jupiter.api.Test;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
@@ -35,7 +39,13 @@ class PlatformMetadataSchemaEnsureServiceTest {
     @Test
     void shouldEnsureMetadataSchemaAfterMetadataSave() {
         PlatformMetadataSchemaEnsureService schemaEnsureService = mock(PlatformMetadataSchemaEnsureService.class);
-        MetadataService metadataService = new MetadataService(new TestMemoryDao<>(), Optional.of(schemaEnsureService));
+        MetadataService metadataService = new MetadataService(
+                new TestMemoryDao<>(),
+                TestBeanProviders.of(PlatformMetadataSchemaEnsureService.class, schemaEnsureService),
+                Optional.empty(),
+                TestBeanProviders.empty(ConfigurationReferenceDeletionGuard.class),
+                TestBeanProviders.empty(ModuleMetadataRelationService.class),
+                event -> {});
         Metadata metadata = metadata("crm", "customer");
 
         String metadataId = metadataService.insert(metadata);
@@ -46,12 +56,24 @@ class PlatformMetadataSchemaEnsureServiceTest {
     @Test
     void shouldEnsureOwningMetadataSchemaAfterMetadataFieldSave() {
         PlatformMetadataSchemaEnsureService schemaEnsureService = mock(PlatformMetadataSchemaEnsureService.class);
-        MetadataService metadataService = new MetadataService(new TestMemoryDao<>());
-        FieldSpecService fieldTypeService = new FieldSpecService(new TestMemoryDao<>());
+        MetadataService metadataService = new MetadataService(
+                new TestMemoryDao<>(),
+                TestBeanProviders.empty(PlatformMetadataSchemaEnsureService.class),
+                Optional.empty(),
+                TestBeanProviders.empty(ConfigurationReferenceDeletionGuard.class),
+                TestBeanProviders.empty(ModuleMetadataRelationService.class),
+                event -> {});
+        FieldSpecService fieldTypeService = new FieldSpecService(new TestMemoryDao<>(), mock(BaseDao.class));
         fieldTypeService.insert(fieldType("string", FieldType.STRING, 128));
         MetadataFieldService fieldService = new MetadataFieldService(
-                new TestMemoryDao<>(), metadataService, fieldTypeService, Optional.empty(),
-                Optional.of(schemaEnsureService));
+                new TestMemoryDao<>(),
+                metadataService,
+                fieldTypeService,
+                TestBeanProviders.empty(PlatformDynamicRuntimeRefreshCoordinator.class),
+                TestBeanProviders.of(PlatformMetadataSchemaEnsureService.class, schemaEnsureService),
+                TestBeanProviders.empty(ConfigurationReferenceDeletionGuard.class),
+                TestBeanProviders.empty(ModuleMetadataRelationService.class),
+                TestBeanProviders.empty(PlatformModuleService.class));
         String metadataId = metadataService.insert(metadata("crm", "customer"));
 
         fieldService.insert(field(metadataId, "customerName", "customer_name", "string"));
@@ -180,17 +202,30 @@ class PlatformMetadataSchemaEnsureServiceTest {
     }
 
     private TestContext testContext() {
-        MetadataService metadataService = new MetadataService(new TestMemoryDao<>());
-        FieldSpecService fieldTypeService = new FieldSpecService(new TestMemoryDao<>());
+        MetadataService metadataService = new MetadataService(
+                new TestMemoryDao<>(),
+                TestBeanProviders.empty(PlatformMetadataSchemaEnsureService.class),
+                Optional.empty(),
+                TestBeanProviders.empty(ConfigurationReferenceDeletionGuard.class),
+                TestBeanProviders.empty(ModuleMetadataRelationService.class),
+                event -> {});
+        FieldSpecService fieldTypeService = new FieldSpecService(new TestMemoryDao<>(), mock(BaseDao.class));
         fieldTypeService.insert(fieldType("string", FieldType.STRING, 128));
         fieldTypeService.insert(fieldType("boolean", FieldType.BOOLEAN, null));
         fieldTypeService.insert(fieldType("integer", FieldType.INTEGER, null));
         MetadataFieldService fieldService = new MetadataFieldService(
-                new TestMemoryDao<>(), metadataService, fieldTypeService);
+                new TestMemoryDao<>(),
+                metadataService,
+                fieldTypeService,
+                TestBeanProviders.empty(PlatformDynamicRuntimeRefreshCoordinator.class),
+                TestBeanProviders.empty(PlatformMetadataSchemaEnsureService.class),
+                TestBeanProviders.empty(ConfigurationReferenceDeletionGuard.class),
+                TestBeanProviders.empty(ModuleMetadataRelationService.class),
+                TestBeanProviders.empty(PlatformModuleService.class));
         MetadataFieldConfigService configService = mock(MetadataFieldConfigService.class);
         MetadataFieldDefinitionCompiler fieldCompiler =
                 new MetadataFieldDefinitionCompiler(fieldTypeService, configService,
-                        new MetadataFieldProtectionConfigService(new TestMemoryDao<>(), fieldService, fieldTypeService, new TestMemoryDao<>()), fieldService);
+                        new MetadataFieldProtectionConfigService(new TestMemoryDao<>(), fieldService, fieldTypeService, new TestMemoryDao<>(), Optional.empty()), fieldService);
         PlatformMetadataEntityDefinitionCompiler compiler =
                 new PlatformMetadataEntityDefinitionCompiler(metadataService, fieldService, fieldCompiler);
         return new TestContext(metadataService, fieldService, compiler);

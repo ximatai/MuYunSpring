@@ -1,13 +1,11 @@
 package net.ximatai.muyun.spring.platform.metadata;
 
-import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.spring.ability.AbstractAbilityService;
 import net.ximatai.muyun.spring.ability.BaseDao;
 import net.ximatai.muyun.spring.ability.SoftDeleteAbility;
 import net.ximatai.muyun.spring.ability.SortAbility;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.platform.runtime.PlatformDynamicRuntimeRefreshCoordinator;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.util.Objects;
@@ -26,12 +24,6 @@ public class ModuleMetadataFieldFilterService extends AbstractAbilityService<Mod
     private final ModuleMetadataFieldService moduleFieldService;
     private final PlatformDynamicRuntimeRefreshCoordinator runtimeRefreshCoordinator;
 
-    public ModuleMetadataFieldFilterService(BaseDao<ModuleMetadataFieldFilter, String> filterDao,
-                                            ModuleMetadataFieldService moduleFieldService) {
-        this(filterDao, moduleFieldService, Optional.empty());
-    }
-
-    @Autowired
     public ModuleMetadataFieldFilterService(BaseDao<ModuleMetadataFieldFilter, String> filterDao,
                                             ModuleMetadataFieldService moduleFieldService,
                                             Optional<PlatformDynamicRuntimeRefreshCoordinator> runtimeRefreshCoordinator) {

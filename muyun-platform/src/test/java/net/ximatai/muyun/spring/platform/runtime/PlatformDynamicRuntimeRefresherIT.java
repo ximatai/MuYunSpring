@@ -61,6 +61,10 @@ import net.ximatai.muyun.spring.platform.module.PlatformModuleActionService;
 import net.ximatai.muyun.spring.platform.module.PlatformModuleService;
 import net.ximatai.muyun.spring.platform.support.TestMemoryDao;
 import net.ximatai.muyun.spring.platform.support.PlatformPostgresIntegrationTest;
+import net.ximatai.muyun.spring.ability.BaseDao;
+import net.ximatai.muyun.spring.platform.metadata.ConfigurationReferenceDeletionGuard;
+import net.ximatai.muyun.spring.platform.metadata.PlatformMetadataSchemaEnsureService;
+import net.ximatai.muyun.spring.platform.support.TestBeanProviders;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.SpringBootConfiguration;
@@ -70,10 +74,12 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Bean;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.mockito.Mockito;
 
 import javax.sql.DataSource;
 
 import java.util.List;
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -278,8 +284,8 @@ class PlatformDynamicRuntimeRefresherIT extends PlatformPostgresIntegrationTest 
                 .fieldValueValidator(new DictionaryFieldValueValidator(services.itemService)).build();
         var restoredRefresher = new PlatformDynamicRuntimeRefresher(compiler,
                 new DynamicModuleRuntimeRefresher(schemaService, restarted));
-        var restoredActivation = org.mockito.Mockito.mock(DynamicRuntimeActivationService.class);
-        org.mockito.Mockito.doAnswer(invocation -> restoredRefresher.activateNow(invocation.getArgument(0)))
+        var restoredActivation = Mockito.mock(DynamicRuntimeActivationService.class);
+        Mockito.doAnswer(invocation -> restoredRefresher.activateNow(invocation.getArgument(0)))
                 .when(restoredActivation).restoreAtStartup(org.mockito.ArgumentMatchers.anyString());
         new DynamicModuleRuntimeStartupActivationTask(services.moduleService, services.relationService,
                 restoredActivation).run();
@@ -331,26 +337,45 @@ class PlatformDynamicRuntimeRefresherIT extends PlatformPostgresIntegrationTest 
         ApplicationService applicationService = new ApplicationService(applicationDao);
         DictionaryCategoryService categoryService = new DictionaryCategoryService(categoryDao);
         DictionaryItemService itemService = new DictionaryItemService(itemDao, categoryService);
-        PlatformModuleService moduleService = new PlatformModuleService(moduleDao);
-        MetadataService metadataService = new MetadataService(metadataDao);
-        FieldSpecService fieldTypeService = new FieldSpecService(fieldTypeDao);
+        PlatformModuleService moduleService = new PlatformModuleService(moduleDao, event -> {});
+        MetadataService metadataService = new MetadataService(
+                metadataDao,
+                TestBeanProviders.empty(PlatformMetadataSchemaEnsureService.class),
+                Optional.empty(),
+                TestBeanProviders.empty(ConfigurationReferenceDeletionGuard.class),
+                TestBeanProviders.empty(ModuleMetadataRelationService.class),
+                event -> {});
+        FieldSpecService fieldTypeService = new FieldSpecService(fieldTypeDao, Mockito.mock(BaseDao.class));
         fieldTypeService.insert(fieldType("string", FieldType.STRING, 128));
         fieldTypeService.insert(fieldType("id", FieldType.STRING, 32));
         fieldTypeService.insert(fieldType("integer", FieldType.INTEGER, null));
-        MetadataFieldService fieldService = new MetadataFieldService(fieldDao, metadataService, fieldTypeService);
+        MetadataFieldService fieldService = new MetadataFieldService(
+                fieldDao,
+                metadataService,
+                fieldTypeService,
+                TestBeanProviders.empty(PlatformDynamicRuntimeRefreshCoordinator.class),
+                TestBeanProviders.empty(PlatformMetadataSchemaEnsureService.class),
+                TestBeanProviders.empty(ConfigurationReferenceDeletionGuard.class),
+                TestBeanProviders.empty(ModuleMetadataRelationService.class),
+                TestBeanProviders.empty(PlatformModuleService.class));
         ModuleMetadataRelationService relationService =
-                new ModuleMetadataRelationService(relationDao, moduleService, metadataService);
+                new ModuleMetadataRelationService(
+                        relationDao,
+                        moduleService,
+                        metadataService,
+                        Optional.empty(),
+                        TestBeanProviders.empty(ConfigurationReferenceDeletionGuard.class),
+                        TestBeanProviders.empty(MetadataFieldService.class),
+                        event -> {});
         MetadataFieldProtectionConfigService protectionConfigService =
-                new MetadataFieldProtectionConfigService(new TestMemoryDao<>(), fieldService, fieldTypeService, fieldConfigDao);
+                new MetadataFieldProtectionConfigService(new TestMemoryDao<>(), fieldService, fieldTypeService, fieldConfigDao, Optional.empty());
         MetadataFieldConfigService fieldConfigService =
-                new MetadataFieldConfigService(fieldConfigDao, fieldService, metadataService, fieldTypeService,
-                        categoryService, relationService, protectionConfigService);
+                new MetadataFieldConfigService(fieldConfigDao, fieldService, metadataService, fieldTypeService, categoryService, relationService, protectionConfigService, Optional.empty());
         MetadataFieldDefinitionCompiler fieldDefinitionCompiler =
                 new MetadataFieldDefinitionCompiler(fieldTypeService, fieldConfigService, protectionConfigService, fieldService);
         MetadataFieldReferenceConfigService referenceConfigService =
-                new MetadataFieldReferenceConfigService(referenceConfigDao, fieldService, metadataService,
-                        fieldTypeService, moduleService, relationService);
-        MetadataViewService viewService = new MetadataViewService(viewDao, relationService);
+                new MetadataFieldReferenceConfigService(referenceConfigDao, fieldService, metadataService, fieldTypeService, moduleService, relationService, Optional.empty());
+        MetadataViewService viewService = new MetadataViewService(viewDao, relationService, Optional.empty());
         MetadataViewFieldService viewFieldService =
                 new MetadataViewFieldService(viewFieldDao, viewService, fieldService, relationService);
         PlatformModuleActionService actionService = new PlatformModuleActionService(actionDao, moduleService);

@@ -10,7 +10,6 @@ import net.ximatai.muyun.spring.ability.SortAbility;
 import net.ximatai.muyun.spring.common.util.PlatformNameRules;
 import net.ximatai.muyun.spring.platform.runtime.PlatformDynamicRuntimeRefreshCoordinator;
 import net.ximatai.muyun.spring.platform.application.ApplicationReferenceContributor;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
@@ -38,35 +37,6 @@ public class MetadataService extends AbstractAbilityService<Metadata> implements
     private final ObjectProvider<ModuleMetadataRelationService> relationServiceProvider;
     private final ApplicationEventPublisher eventPublisher;
 
-    public MetadataService(BaseDao<Metadata, String> metadataDao) {
-        this(metadataDao, provider(null), Optional.empty(), provider(null), provider(null));
-    }
-
-    public MetadataService(BaseDao<Metadata, String> metadataDao,
-                           Optional<PlatformMetadataSchemaEnsureService> schemaEnsureService) {
-        this(metadataDao, provider(schemaEnsureService == null ? null : schemaEnsureService.orElse(null)),
-                Optional.empty(), provider(null), provider(null));
-    }
-
-    public MetadataService(BaseDao<Metadata, String> metadataDao,
-                           Optional<PlatformMetadataSchemaEnsureService> schemaEnsureService,
-                           Optional<PlatformDynamicRuntimeRefreshCoordinator> runtimeRefreshCoordinator) {
-        this(metadataDao,
-                provider(schemaEnsureService == null ? null : schemaEnsureService.orElse(null)),
-                runtimeRefreshCoordinator == null ? Optional.empty() : runtimeRefreshCoordinator,
-                provider(null), provider(null));
-    }
-
-    public MetadataService(BaseDao<Metadata, String> metadataDao,
-                           ObjectProvider<PlatformMetadataSchemaEnsureService> schemaEnsureServiceProvider,
-                           Optional<PlatformDynamicRuntimeRefreshCoordinator> runtimeRefreshCoordinator,
-                           ObjectProvider<ConfigurationReferenceDeletionGuard> referenceGuardProvider,
-                           ObjectProvider<ModuleMetadataRelationService> relationServiceProvider) {
-        this(metadataDao, schemaEnsureServiceProvider, runtimeRefreshCoordinator, referenceGuardProvider,
-                relationServiceProvider, null);
-    }
-
-    @Autowired
     public MetadataService(BaseDao<Metadata, String> metadataDao,
                            ObjectProvider<PlatformMetadataSchemaEnsureService> schemaEnsureServiceProvider,
                            Optional<PlatformDynamicRuntimeRefreshCoordinator> runtimeRefreshCoordinator,
@@ -74,7 +44,7 @@ public class MetadataService extends AbstractAbilityService<Metadata> implements
                            ObjectProvider<ModuleMetadataRelationService> relationServiceProvider,
                            ApplicationEventPublisher eventPublisher) {
         super(MODULE_ALIAS, Metadata.class, metadataDao);
-        this.eventPublisher = eventPublisher;
+        this.eventPublisher = Objects.requireNonNull(eventPublisher, "eventPublisher");
         this.schemaEnsureServiceProvider = Objects.requireNonNull(schemaEnsureServiceProvider,
                 "schemaEnsureServiceProvider must not be null");
         this.runtimeRefreshCoordinator = Objects.requireNonNull(runtimeRefreshCoordinator,
@@ -141,7 +111,7 @@ public class MetadataService extends AbstractAbilityService<Metadata> implements
 
     @Override
     public void afterChanged(Metadata metadata) {
-        if (eventPublisher != null) eventPublisher.publishEvent(new MetadataChangedEvent(metadata.getId(), null, metadata.getTenantId()));
+        eventPublisher.publishEvent(new MetadataChangedEvent(metadata.getId(), null, metadata.getTenantId()));
         PlatformDynamicRuntimeRefreshCoordinator runtimeRefreshCoordinator = runtimeRefreshCoordinator();
         if (runtimeRefreshCoordinator != null && !MetadataCapabilityGovernanceMutationContext.isActive()) {
             runtimeRefreshCoordinator.refreshByMetadataId(metadata.getId());
@@ -225,27 +195,4 @@ public class MetadataService extends AbstractAbilityService<Metadata> implements
                 "metadata physical table must be unique: " + metadata.getSchemaName() + "." + metadata.getTableName());
     }
 
-    private static <T> ObjectProvider<T> provider(T value) {
-        return new ObjectProvider<>() {
-            @Override
-            public T getObject(Object... args) {
-                return value;
-            }
-
-            @Override
-            public T getIfAvailable() {
-                return value;
-            }
-
-            @Override
-            public T getIfUnique() {
-                return value;
-            }
-
-            @Override
-            public T getObject() {
-                return value;
-            }
-        };
-    }
 }

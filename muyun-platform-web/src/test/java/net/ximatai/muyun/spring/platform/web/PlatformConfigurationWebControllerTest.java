@@ -70,6 +70,7 @@ import net.ximatai.muyun.spring.platform.ui.PlatformQueryTemplateService;
 import net.ximatai.muyun.spring.platform.ui.PlatformUiSet;
 import net.ximatai.muyun.spring.platform.ui.PlatformUiSetService;
 import net.ximatai.muyun.spring.platform.ui.PlatformUiSetType;
+import net.ximatai.muyun.spring.ability.BaseDao;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.ObjectProvider;
@@ -198,7 +199,7 @@ class PlatformConfigurationWebControllerTest {
     @Test
     void shouldRunModuleCrudSchemasFromCompiledPlanWithoutReenteringDsl() throws Exception {
         PlanOnlyPlatformModuleWebController controller = new PlanOnlyPlatformModuleWebController();
-        ReflectionTestUtils.setField(controller, "service", new PlatformModuleService(mock(net.ximatai.muyun.spring.ability.BaseDao.class)));
+        ReflectionTestUtils.setField(controller, "service", new PlatformModuleService(mock(BaseDao.class), event -> {}));
         ReflectionTestUtils.setField(controller, "standardModuleWebRuntime", platformModuleRuntime(controller));
         controller.rejectDefinitionLookup();
         MockMvc mvc = abilityAwareMvc(controller);

@@ -12,7 +12,6 @@ import net.ximatai.muyun.spring.common.util.PlatformNameRules;
 import net.ximatai.muyun.spring.common.exception.ApplicationNotOpenedException;
 import net.ximatai.muyun.spring.common.platform.TenantApplicationCatalog;
 import net.ximatai.muyun.spring.platform.application.ApplicationReferenceContributor;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.stereotype.Service;
 
@@ -23,6 +22,7 @@ import java.util.Collection;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.Objects;
 
 @Service
 public class TenantApplicationService extends AbstractAbilityService<TenantApplication> implements
@@ -34,14 +34,10 @@ public class TenantApplicationService extends AbstractAbilityService<TenantAppli
     public static final String IAM_APPLICATION_ALIAS = "iam";
 
     private final TenantApplicationCatalog applicationCatalog;
-    public TenantApplicationService(TenantApplicationDao dao) {
-        this(dao, null);
-    }
 
-    @Autowired
     public TenantApplicationService(TenantApplicationDao dao, TenantApplicationCatalog applicationCatalog) {
         super(MODULE_ALIAS, TenantApplication.class, dao);
-        this.applicationCatalog = applicationCatalog;
+        this.applicationCatalog = Objects.requireNonNull(applicationCatalog, "applicationCatalog");
     }
 
     public List<String> openedApplicationAliases(String tenantId) {
@@ -79,14 +75,13 @@ public class TenantApplicationService extends AbstractAbilityService<TenantAppli
         String validTenantId = requireTenantAlias(tenantId);
         String validApplicationAlias = PlatformNameRules.requireApplicationAlias(applicationAlias);
         return isApplicationOpened(validTenantId, validApplicationAlias)
-                && (applicationCatalog == null || applicationCatalog.isEnabledForTenant(validApplicationAlias));
+                && applicationCatalog.isEnabledForTenant(validApplicationAlias);
     }
 
     /** Lists only recorded applications that remain globally available to tenants. */
     public List<String> availableApplicationAliases(String tenantId) {
         return openedApplicationAliases(tenantId).stream()
-                .filter(applicationAlias -> applicationCatalog == null
-                        || applicationCatalog.isEnabledForTenant(applicationAlias))
+                .filter(applicationAlias -> applicationCatalog.isEnabledForTenant(applicationAlias))
                 .toList();
     }
 
@@ -187,9 +182,7 @@ public class TenantApplicationService extends AbstractAbilityService<TenantAppli
     }
 
     private void requireEnabledTenantApplication(String applicationAlias) {
-        if (applicationCatalog != null) {
-            applicationCatalog.requireEnabledForTenant(applicationAlias);
-        }
+        applicationCatalog.requireEnabledForTenant(applicationAlias);
     }
 
     private String requireTenantAlias(String tenantId) {

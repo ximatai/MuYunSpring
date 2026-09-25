@@ -8,6 +8,7 @@ import net.ximatai.muyun.spring.ability.VersionedRecordMutation;
 import net.ximatai.muyun.spring.common.model.EntityLifecycle;
 import net.ximatai.muyun.spring.common.schema.PlatformEntityManagers;
 import net.ximatai.muyun.spring.common.tenant.TenantContext;
+import net.ximatai.muyun.spring.iam.support.UserAccountServiceTestFactory;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.SpringBootConfiguration;
@@ -135,7 +136,7 @@ class UserLoginStateRepositoryIT {
             return PlatformEntityManagers.simpleEntityManager(database, resolver);
         }
         @Bean UserAccountService userAccountService(UserAccountDao dao) {
-            return new UserAccountService(dao, tenant -> {}, new PasswordHashingService());
+            return UserAccountServiceTestFactory.create(dao, tenant -> {}, new PasswordHashingService());
         }
     }
 }

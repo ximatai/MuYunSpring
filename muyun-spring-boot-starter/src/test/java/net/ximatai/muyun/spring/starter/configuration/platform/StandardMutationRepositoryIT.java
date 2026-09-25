@@ -4,7 +4,6 @@ import net.ximatai.muyun.spring.iam.tenant.Tenant;
 import net.ximatai.muyun.spring.platform.attachment.*;
 import net.ximatai.muyun.spring.platform.attachment.ManagedFileAssetService;
 import net.ximatai.muyun.spring.iam.tenant.TenantDao;
-import net.ximatai.muyun.spring.iam.tenant.TenantService;
 import net.ximatai.muyun.spring.common.tenant.TenantCreationProvisioner;
 import net.ximatai.muyun.database.spring.boot.sql.annotation.EnableMuYunRepositories;
 import net.ximatai.muyun.database.core.IDatabaseOperations;
@@ -24,6 +23,7 @@ import net.ximatai.muyun.spring.starter.MuYunSpringAutoConfiguration;
 import net.ximatai.muyun.spring.starter.configuration.database.MuYunSpringDatabaseConfiguration;
 import net.ximatai.muyun.spring.starter.configuration.platform.fixture.MutationContractDao;
 import net.ximatai.muyun.spring.starter.configuration.platform.fixture.MutationContractRecord;
+import net.ximatai.muyun.spring.iam.support.TenantServiceTestFactory;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -185,7 +185,7 @@ class StandardMutationRepositoryIT {
         tenant.setAlias("replay_" + UUID.randomUUID().toString().replace("-", "").substring(0, 20));
         tenant.setTitle("Replay tenant");
         try (var ignored = TenantContext.system("create initialization target")) {
-            new TenantService(tenantDao).insert(tenant);
+            TenantServiceTestFactory.create(tenantDao).insert(tenant);
         }
         var created = record("tenant-provision-" + UUID.randomUUID());
         var beans = new org.springframework.beans.factory.support.StaticListableBeanFactory();
@@ -193,8 +193,7 @@ class StandardMutationRepositoryIT {
             records.insert(created);
             throw new IllegalArgumentException("reject tenant provisioning");
         });
-        var service = new TenantService(tenantDao,
-                beans.getBeanProvider(TenantCreationProvisioner.class));
+        var service = TenantServiceTestFactory.create(tenantDao, beans.getBeanProvider(TenantCreationProvisioner.class));
         try (var ignored = TenantContext.system("initialize tenant")) {
             assertThatThrownBy(() -> service.provisionTenant(tenant.getId())).hasMessage("reject tenant provisioning");
             assertThat(dao.findById(created.getId())).isNull();

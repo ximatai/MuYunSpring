@@ -21,11 +21,9 @@ import net.ximatai.muyun.spring.common.platform.PlatformAction;
 import net.ximatai.muyun.spring.common.platform.ReferenceDependencyScopePlan;
 import net.ximatai.muyun.spring.common.platform.ReferenceDependencyScopeRequest;
 import net.ximatai.muyun.spring.common.platform.ReferenceDependencyScopeResolver;
-import net.ximatai.muyun.spring.common.schema.PlatformAbilityFields;
 import net.ximatai.muyun.spring.common.schema.StandardEntitySchema;
 import net.ximatai.muyun.spring.iam.department.DepartmentService;
 import net.ximatai.muyun.spring.iam.organization.OrganizationService;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.util.HashSet;
@@ -44,40 +42,13 @@ public class RoleDataScopeCriteriaService implements DataScopeCriteriaService {
     private final Optional<DepartmentService> departmentService;
     private final Optional<ReferenceDependencyScopeResolver> referenceDependencyScopeResolver;
 
-    public RoleDataScopeCriteriaService(RoleService roleService) {
-        this(roleService, null, Optional.empty(), Optional.empty(), Optional.empty());
-    }
-
-    public RoleDataScopeCriteriaService(RoleService roleService, Optional<OrganizationService> organizationService) {
-        this(roleService, null, organizationService, Optional.empty(), Optional.empty());
-    }
-
-    public RoleDataScopeCriteriaService(RoleService roleService,
-                                        Optional<OrganizationService> organizationService,
-                                        Optional<ReferenceDependencyScopeResolver> referenceDependencyScopeResolver) {
-        this(roleService, null, organizationService, Optional.empty(), referenceDependencyScopeResolver);
-    }
-
-    public RoleDataScopeCriteriaService(RoleService roleService,
-                                        TenantAdminImplicitGrantPolicy tenantAdminImplicitGrantPolicy) {
-        this(roleService, tenantAdminImplicitGrantPolicy, Optional.empty(), Optional.empty(), Optional.empty());
-    }
-
-    public RoleDataScopeCriteriaService(RoleService roleService,
-                                        Optional<OrganizationService> organizationService,
-                                        Optional<DepartmentService> departmentService,
-                                        Optional<ReferenceDependencyScopeResolver> referenceDependencyScopeResolver) {
-        this(roleService, null, organizationService, departmentService, referenceDependencyScopeResolver);
-    }
-
-    @Autowired
     public RoleDataScopeCriteriaService(RoleService roleService,
                                         TenantAdminImplicitGrantPolicy tenantAdminImplicitGrantPolicy,
                                         Optional<OrganizationService> organizationService,
                                         Optional<DepartmentService> departmentService,
                                         Optional<ReferenceDependencyScopeResolver> referenceDependencyScopeResolver) {
         this.roleService = Objects.requireNonNull(roleService, "roleService must not be null");
-        this.tenantAdminImplicitGrantPolicy = tenantAdminImplicitGrantPolicy;
+        this.tenantAdminImplicitGrantPolicy = Objects.requireNonNull(tenantAdminImplicitGrantPolicy, "tenantAdminImplicitGrantPolicy");
         this.organizationService = organizationService == null ? Optional.empty() : organizationService;
         this.departmentService = departmentService == null ? Optional.empty() : departmentService;
         this.referenceDependencyScopeResolver = referenceDependencyScopeResolver == null
@@ -175,8 +146,7 @@ public class RoleDataScopeCriteriaService implements DataScopeCriteriaService {
         if (ActingContextHolder.current().filter(acting -> acting.matches(moduleAlias, policy.actionCode())).isPresent()) {
             return false;
         }
-        return tenantAdminImplicitGrantPolicy != null
-                && tenantAdminImplicitGrantPolicy.grants(user, moduleAlias, policy);
+        return tenantAdminImplicitGrantPolicy.grants(user, moduleAlias, policy);
     }
 
     private ActionExecutionPolicy policyOf(String actionCode) {

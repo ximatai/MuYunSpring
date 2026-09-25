@@ -44,6 +44,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.ArgumentMatchers.anyString;
 
 class RoleServiceContractTest {
     @AfterEach
@@ -122,6 +123,7 @@ class RoleServiceContractTest {
         RoleService service = service(roleDao, mock(AccountRoleGrantDao.class),
                 mock(EmploymentRoleGrantDao.class), mock(RoleActionDao.class));
         Role role = accountRole("platform-role", RoleKind.STANDARD);
+        role.setTenantId(null);
         role.setOwnerScopeType(RoleOwnerScopeType.PLATFORM);
         role.setSharePolicy(RoleSharePolicy.PLATFORM);
 
@@ -315,9 +317,20 @@ class RoleServiceContractTest {
         organization.setEnabled(Boolean.TRUE);
         when(organizationService.selectActiveRaw("org-1"))
                 .thenReturn(organization);
-        RoleService service = new RoleService(mock(RoleDao.class), mock(AccountRoleGrantDao.class),
-                mock(EmploymentRoleGrantDao.class), mock(RoleActionDao.class), activeTenantVerifier(),
-                RoleActionGrantVerifier.platformActionsOnly(), null, null, null, null, organizationService);
+        RoleService service = new RoleService(
+                mock(RoleDao.class),
+                mock(AccountRoleGrantDao.class),
+                mock(EmploymentRoleGrantDao.class),
+                mock(RoleActionDao.class),
+                activeTenantVerifier(),
+                RoleActionGrantVerifier.platformActionsOnly(),
+                mock(UserAccountService.class),
+                mock(EmployeeService.class),
+                mock(EmployeePositionService.class),
+                mock(EmployeeAccountService.class),
+                organizationService,
+                mock(RoleDataGrantActionDao.class),
+                mock(TenantApplicationService.class));
         Role role = employmentRole("org-role", RoleKind.STANDARD);
         role.setOwnerScopeType(RoleOwnerScopeType.ORGANIZATION);
         role.setOwnerScopeId("org-1");
@@ -498,9 +511,20 @@ class RoleServiceContractTest {
         when(accountGrantDao.insert(any())).thenReturn("grant-1");
         when(userAccountService.requireEnabled("user-1", "user account is not active: user-1"))
                 .thenReturn(new UserAccount());
-        RoleService service = new RoleService(roleDao, accountGrantDao, mock(EmploymentRoleGrantDao.class),
-                mock(RoleActionDao.class), activeTenantVerifier(), RoleActionGrantVerifier.platformActionsOnly(),
-                userAccountService, null, null, null);
+        RoleService service = new RoleService(
+                roleDao,
+                accountGrantDao,
+                mock(EmploymentRoleGrantDao.class),
+                mock(RoleActionDao.class),
+                activeTenantVerifier(),
+                RoleActionGrantVerifier.platformActionsOnly(),
+                userAccountService,
+                mock(EmployeeService.class),
+                mock(EmployeePositionService.class),
+                mock(EmployeeAccountService.class),
+                mock(OrganizationService.class),
+                mock(RoleDataGrantActionDao.class),
+                mock(TenantApplicationService.class));
 
         try (TenantContext.Scope ignored = TenantContext.use("tenant_a")) {
             assertThat(service.grantAccountRole("r1", "user-1", ManagementScopeType.TENANT, "tenant_a"))
@@ -594,9 +618,20 @@ class RoleServiceContractTest {
         when(employmentGrantDao.insert(any())).thenReturn("grant-1");
         when(employeePositionService.requireEnabled("position-1", "employee position is not active: position-1"))
                 .thenReturn(new EmployeePosition());
-        RoleService service = new RoleService(roleDao, mock(AccountRoleGrantDao.class), employmentGrantDao,
-                mock(RoleActionDao.class), activeTenantVerifier(), RoleActionGrantVerifier.platformActionsOnly(),
-                null, null, employeePositionService, null);
+        RoleService service = new RoleService(
+                roleDao,
+                mock(AccountRoleGrantDao.class),
+                employmentGrantDao,
+                mock(RoleActionDao.class),
+                activeTenantVerifier(),
+                RoleActionGrantVerifier.platformActionsOnly(),
+                mock(UserAccountService.class),
+                mock(EmployeeService.class),
+                employeePositionService,
+                mock(EmployeeAccountService.class),
+                mock(OrganizationService.class),
+                mock(RoleDataGrantActionDao.class),
+                mock(TenantApplicationService.class));
 
         try (TenantContext.Scope ignored = TenantContext.use("tenant_a")) {
             assertThat(service.grantEmploymentRole("r1", "position-1")).isEqualTo("grant-1");
@@ -627,9 +662,20 @@ class RoleServiceContractTest {
                 return true;
             }
         };
-        RoleService service = new RoleService(roleDao, mock(AccountRoleGrantDao.class),
-                mock(EmploymentRoleGrantDao.class), actionDao, activeTenantVerifier(), verifier,
-                null, null, null, null);
+        RoleService service = new RoleService(
+                roleDao,
+                mock(AccountRoleGrantDao.class),
+                mock(EmploymentRoleGrantDao.class),
+                actionDao,
+                activeTenantVerifier(),
+                verifier,
+                mock(UserAccountService.class),
+                mock(EmployeeService.class),
+                mock(EmployeePositionService.class),
+                mock(EmployeeAccountService.class),
+                mock(OrganizationService.class),
+                mock(RoleDataGrantActionDao.class),
+                mock(TenantApplicationService.class));
 
         try (TenantContext.Scope ignored = TenantContext.use("tenant_a")) {
             service.grantAction("r1", "sales.contract", "view");
@@ -655,9 +701,20 @@ class RoleServiceContractTest {
                 return true;
             }
         };
-        RoleService service = new RoleService(roleDao, mock(AccountRoleGrantDao.class),
-                mock(EmploymentRoleGrantDao.class), mock(RoleActionDao.class), activeTenantVerifier(), verifier,
-                null, null, null, null);
+        RoleService service = new RoleService(
+                roleDao,
+                mock(AccountRoleGrantDao.class),
+                mock(EmploymentRoleGrantDao.class),
+                mock(RoleActionDao.class),
+                activeTenantVerifier(),
+                verifier,
+                mock(UserAccountService.class),
+                mock(EmployeeService.class),
+                mock(EmployeePositionService.class),
+                mock(EmployeeAccountService.class),
+                mock(OrganizationService.class),
+                mock(RoleDataGrantActionDao.class),
+                mock(TenantApplicationService.class));
 
         try (TenantContext.Scope ignored = TenantContext.use("tenant_a")) {
             assertThatThrownBy(() -> service.grantAction("r1", "sales.contract", "view",
@@ -704,9 +761,20 @@ class RoleServiceContractTest {
                 .thenReturn(position);
         when(employeeService.requireEnabled("employee-1", "employee is not active: employee-1"))
                 .thenReturn(employee("employee-1", "org-1", "dept-1", true));
-        RoleService service = new RoleService(roleDao, mock(AccountRoleGrantDao.class), employmentGrantDao,
-                mock(RoleActionDao.class), activeTenantVerifier(), RoleActionGrantVerifier.platformActionsOnly(),
-                null, employeeService, employeePositionService, null);
+        RoleService service = new RoleService(
+                roleDao,
+                mock(AccountRoleGrantDao.class),
+                employmentGrantDao,
+                mock(RoleActionDao.class),
+                activeTenantVerifier(),
+                RoleActionGrantVerifier.platformActionsOnly(),
+                mock(UserAccountService.class),
+                employeeService,
+                employeePositionService,
+                mock(EmployeeAccountService.class),
+                mock(OrganizationService.class),
+                mock(RoleDataGrantActionDao.class),
+                mock(TenantApplicationService.class));
 
         try (TenantContext.Scope ignored = TenantContext.use("tenant_a")) {
             service.grantEmploymentRole("r1", "position-1");
@@ -784,49 +852,51 @@ class RoleServiceContractTest {
         RoleDao roleDao = mock(RoleDao.class);
         EmploymentRoleGrantDao employmentGrantDao = mock(EmploymentRoleGrantDao.class);
         RoleActionDao actionDao = mock(RoleActionDao.class);
+        RoleDataGrantActionDao dataDao = mock(RoleDataGrantActionDao.class);
         Role group = employmentRole("group-1", RoleKind.GROUP);
         group.setMemberRoleIds("data-role");
-        RoleAction grant = enabledAction("ra1", "data-role", "sales.contract", "view");
+        RoleDataGrantAction grant = dataGrantAction("ra1", "data-role", DataScopePolicy.NONE);
         grant.setDataScopePolicy(DataScopePolicy.ORGANIZATION);
         when(employmentGrantDao.query(any(Criteria.class), any(PageRequest.class)))
                 .thenReturn(List.of(employmentGrant("group-1", "position-1")));
         when(roleDao.query(any(Criteria.class), any(PageRequest.class)))
                 .thenReturn(List.of(group))
                 .thenReturn(List.of(employmentRole("data-role", RoleKind.DATA_GRANT)));
-        when(actionDao.query(any(Criteria.class), any(PageRequest.class))).thenReturn(List.of(grant));
-        RoleService service = service(roleDao, mock(AccountRoleGrantDao.class), employmentGrantDao, actionDao);
+        when(dataDao.query(any(Criteria.class), any(PageRequest.class))).thenReturn(List.of(grant));
+        RoleService service = service(roleDao, mock(AccountRoleGrantDao.class), employmentGrantDao, actionDao, dataDao);
 
         RoleAction resolved = service.inheritedDataGrantAction(
                 EffectiveRoleGrant.employment("standard-role", "position-1", "org-1", "dept-1"),
                 "sales.contract", "query");
 
-        assertThat(resolved).isSameAs(grant);
+        assertThat(resolved.getDataScopePolicy()).isEqualTo(grant.getDataScopePolicy());
     }
 
     @Test
-    void shouldResolveInheritedDataGrantActionByModuleAlias() {
+    void shouldResolveInheritedDataGrantTemplateAcrossModules() {
         RoleDao roleDao = mock(RoleDao.class);
         EmploymentRoleGrantDao employmentGrantDao = mock(EmploymentRoleGrantDao.class);
         RoleActionDao actionDao = mock(RoleActionDao.class);
-        RoleAction orderGrant = enabledAction("ra2", "data-role", "sales.order", "view");
+        RoleDataGrantActionDao dataDao = mock(RoleDataGrantActionDao.class);
+        RoleDataGrantAction orderGrant = dataGrantAction("ra2", "data-role", DataScopePolicy.NONE);
         orderGrant.setDataScopePolicy(DataScopePolicy.DEPARTMENT);
         when(employmentGrantDao.query(any(Criteria.class), any(PageRequest.class)))
                 .thenReturn(List.of(employmentGrant("data-role", "position-1")));
         when(roleDao.query(any(Criteria.class), any(PageRequest.class)))
                 .thenReturn(List.of(employmentRole("data-role", RoleKind.DATA_GRANT)));
-        when(actionDao.query(any(Criteria.class), any(PageRequest.class))).thenReturn(List.of(orderGrant));
-        RoleService service = service(roleDao, mock(AccountRoleGrantDao.class), employmentGrantDao, actionDao);
+        when(dataDao.query(any(Criteria.class), any(PageRequest.class))).thenReturn(List.of(orderGrant));
+        RoleService service = service(roleDao, mock(AccountRoleGrantDao.class), employmentGrantDao, actionDao, dataDao);
 
         RoleAction resolved = service.inheritedDataGrantAction(
                 EffectiveRoleGrant.employment("standard-role", "position-1", "org-1", "dept-1"),
                 "sales.order", "query");
 
-        assertThat(resolved).isSameAs(orderGrant);
-        verify(actionDao).query(argThat(criteria -> {
+        assertThat(resolved.getDataScopePolicy()).isEqualTo(orderGrant.getDataScopePolicy());
+        verify(dataDao).query(argThat(criteria -> {
                     var compiled = new CriteriaSqlCompiler()
                             .compile(criteria, field -> field, DBInfo.Type.POSTGRESQL);
-                    return compiled.getSql().contains("\"moduleAlias\" =")
-                            && compiled.getParams().containsValue("sales.order");
+                    return !compiled.getSql().contains("moduleAlias")
+                            && compiled.getParams().containsValue("view");
                 }),
                 any(PageRequest.class));
     }
@@ -944,9 +1014,20 @@ class RoleServiceContractTest {
             assertThat(actionCode).isEqualTo("exportData");
             return "create";
         };
-        RoleService service = new RoleService(roleDao, mock(AccountRoleGrantDao.class),
-                mock(EmploymentRoleGrantDao.class), actionDao, activeTenantVerifier(), verifier,
-                null, null, null, null);
+        RoleService service = new RoleService(
+                roleDao,
+                mock(AccountRoleGrantDao.class),
+                mock(EmploymentRoleGrantDao.class),
+                actionDao,
+                activeTenantVerifier(),
+                verifier,
+                mock(UserAccountService.class),
+                mock(EmployeeService.class),
+                mock(EmployeePositionService.class),
+                mock(EmployeeAccountService.class),
+                mock(OrganizationService.class),
+                mock(RoleDataGrantActionDao.class),
+                mock(TenantApplicationService.class));
 
         try (TenantContext.Scope ignored = TenantContext.use("tenant_a")) {
             assertThat(service.grantAction("r1", "sales.contract", "exportData")).isEqualTo(1);
@@ -965,9 +1046,20 @@ class RoleServiceContractTest {
         TenantApplicationService tenantApplicationService = mock(TenantApplicationService.class);
         doThrow(new ApplicationNotOpenedException("tenant_a", "sales"))
                 .when(tenantApplicationService).requireApplicationOpened("tenant_a", "sales");
-        RoleService service = service(roleDao, mock(AccountRoleGrantDao.class),
-                mock(EmploymentRoleGrantDao.class), actionDao);
-        service.setTenantApplicationService(tenantApplicationService);
+        RoleService service = new RoleService(
+                roleDao,
+                mock(AccountRoleGrantDao.class),
+                mock(EmploymentRoleGrantDao.class),
+                actionDao,
+                activeTenantVerifier(),
+                RoleActionGrantVerifier.platformActionsOnly(),
+                mock(UserAccountService.class),
+                mock(EmployeeService.class),
+                mock(EmployeePositionService.class),
+                mock(EmployeeAccountService.class),
+                mock(OrganizationService.class),
+                mock(RoleDataGrantActionDao.class),
+                tenantApplicationService);
 
         try (TenantContext.Scope ignored = TenantContext.use("tenant_a")) {
             assertThatThrownBy(() -> service.grantAction("r1", "sales.contract", "query"))
@@ -997,9 +1089,20 @@ class RoleServiceContractTest {
         EmployeePositionService employeePositionService = mock(EmployeePositionService.class);
         when(employeePositionService.selectActiveRaw("position-1"))
                 .thenReturn(employeePosition("position-1", "employee-1", "org-1", "dept-1", true));
-        RoleService service = new RoleService(roleDao, mock(AccountRoleGrantDao.class), employmentGrantDao,
-                actionDao, activeTenantVerifier(), RoleActionGrantVerifier.platformActionsOnly(),
-                null, null, employeePositionService, null);
+        RoleService service = new RoleService(
+                roleDao,
+                mock(AccountRoleGrantDao.class),
+                employmentGrantDao,
+                actionDao,
+                activeTenantVerifier(),
+                RoleActionGrantVerifier.platformActionsOnly(),
+                mock(UserAccountService.class),
+                mock(EmployeeService.class),
+                employeePositionService,
+                mock(EmployeeAccountService.class),
+                mock(OrganizationService.class),
+                mock(RoleDataGrantActionDao.class),
+                mock(TenantApplicationService.class));
 
         BusinessPrincipal principal = BusinessPrincipal.employeePosition("employee-1", null, null, "position-1");
         assertThat(service.effectiveRoleIds(principal)).containsExactly("group-1", "r1");
@@ -1028,9 +1131,20 @@ class RoleServiceContractTest {
         when(roleDao.query(any(Criteria.class), any(PageRequest.class)))
                 .thenReturn(List.of(accountRole("account-role", RoleKind.STANDARD)))
                 .thenReturn(List.of(employmentRole("position-role", RoleKind.STANDARD)));
-        RoleService service = new RoleService(roleDao, accountGrantDao, employmentGrantDao,
-                mock(RoleActionDao.class), activeTenantVerifier(), RoleActionGrantVerifier.platformActionsOnly(),
-                null, employeeService, employeePositionService, employeeAccountService);
+        RoleService service = new RoleService(
+                roleDao,
+                accountGrantDao,
+                employmentGrantDao,
+                mock(RoleActionDao.class),
+                activeTenantVerifier(),
+                RoleActionGrantVerifier.platformActionsOnly(),
+                mock(UserAccountService.class),
+                employeeService,
+                employeePositionService,
+                employeeAccountService,
+                mock(OrganizationService.class),
+                mock(RoleDataGrantActionDao.class),
+                mock(TenantApplicationService.class));
 
         List<EffectiveRoleGrant> grants = service.effectiveRoleGrants("user-1");
 
@@ -1056,20 +1170,21 @@ class RoleServiceContractTest {
         RoleDao roleDao = mock(RoleDao.class);
         EmploymentRoleGrantDao employmentGrantDao = mock(EmploymentRoleGrantDao.class);
         RoleActionDao actionDao = mock(RoleActionDao.class);
-        RoleAction grant = enabledAction("ra1", "data-role", "sales.contract", "view");
+        RoleDataGrantActionDao dataDao = mock(RoleDataGrantActionDao.class);
+        RoleDataGrantAction grant = dataGrantAction("ra1", "data-role", DataScopePolicy.NONE);
         grant.setDataScopePolicy(DataScopePolicy.ORGANIZATION);
         when(employmentGrantDao.query(any(Criteria.class), any(PageRequest.class)))
                 .thenReturn(List.of(employmentGrant("data-role", "position-1")));
         when(roleDao.query(any(Criteria.class), any(PageRequest.class)))
                 .thenReturn(List.of(employmentRole("data-role", RoleKind.DATA_GRANT)));
-        when(actionDao.query(any(Criteria.class), any(PageRequest.class))).thenReturn(List.of(grant));
-        RoleService service = service(roleDao, mock(AccountRoleGrantDao.class), employmentGrantDao, actionDao);
+        when(dataDao.query(any(Criteria.class), any(PageRequest.class))).thenReturn(List.of(grant));
+        RoleService service = service(roleDao, mock(AccountRoleGrantDao.class), employmentGrantDao, actionDao, dataDao);
 
         RoleAction resolved = service.inheritedDataGrantAction(
                 EffectiveRoleGrant.employment("standard-role", "position-1", "org-1", "dept-1"),
                 "sales.contract", "query");
 
-        assertThat(resolved).isSameAs(grant);
+        assertThat(resolved.getDataScopePolicy()).isEqualTo(grant.getDataScopePolicy());
     }
 
     @Test
@@ -1183,9 +1298,20 @@ class RoleServiceContractTest {
         when(employeeService.select("employee-1")).thenReturn(employee("employee-1", "org-main", "dept-main", false));
         when(roleDao.query(any(Criteria.class), any(PageRequest.class)))
                 .thenReturn(List.of(accountRole("account-role", RoleKind.STANDARD)));
-        RoleService service = new RoleService(roleDao, accountGrantDao, mock(EmploymentRoleGrantDao.class),
-                mock(RoleActionDao.class), activeTenantVerifier(), RoleActionGrantVerifier.platformActionsOnly(),
-                null, employeeService, employeePositionService, employeeAccountService);
+        RoleService service = new RoleService(
+                roleDao,
+                accountGrantDao,
+                mock(EmploymentRoleGrantDao.class),
+                mock(RoleActionDao.class),
+                activeTenantVerifier(),
+                RoleActionGrantVerifier.platformActionsOnly(),
+                mock(UserAccountService.class),
+                employeeService,
+                employeePositionService,
+                employeeAccountService,
+                mock(OrganizationService.class),
+                mock(RoleDataGrantActionDao.class),
+                mock(TenantApplicationService.class));
 
         assertThat(service.effectiveRoleGrants("user-1")).extracting(EffectiveRoleGrant::roleId)
                 .containsExactly("account-role");
@@ -1278,12 +1404,42 @@ class RoleServiceContractTest {
                 .hasFieldOrPropertyWithValue("code", "iam.role.group-action-grant-denied");
     }
 
-    private RoleService service(RoleDao roleDao,
-                                AccountRoleGrantDao accountRoleGrantDao,
-                                EmploymentRoleGrantDao employmentRoleGrantDao,
-                                RoleActionDao roleActionDao) {
-        return new RoleService(roleDao, accountRoleGrantDao, employmentRoleGrantDao, roleActionDao,
-                activeTenantVerifier());
+    private RoleService service(RoleDao roleDao, AccountRoleGrantDao accountRoleGrantDao,
+                                EmploymentRoleGrantDao employmentRoleGrantDao, RoleActionDao roleActionDao) {
+        return service(roleDao, accountRoleGrantDao, employmentRoleGrantDao, roleActionDao,
+                mock(RoleDataGrantActionDao.class));
+    }
+
+    private RoleService service(RoleDao roleDao, AccountRoleGrantDao accountRoleGrantDao,
+                                EmploymentRoleGrantDao employmentRoleGrantDao, RoleActionDao roleActionDao,
+                                RoleDataGrantActionDao dataGrantActionDao) {
+        EmployeePositionService positions = mock(EmployeePositionService.class);
+        when(positions.requireEnabled(anyString(), anyString()))
+                .thenAnswer(call -> employeePosition(call.getArgument(0), "employee-1", "org-1", "dept-1", true));
+        return new RoleService(
+                roleDao,
+                accountRoleGrantDao,
+                employmentRoleGrantDao,
+                roleActionDao,
+                activeTenantVerifier(),
+                RoleActionGrantVerifier.platformActionsOnly(),
+                mock(UserAccountService.class),
+                mock(EmployeeService.class),
+                positions,
+                mock(EmployeeAccountService.class),
+                mock(OrganizationService.class),
+                dataGrantActionDao,
+                mock(TenantApplicationService.class));
+    }
+
+    private RoleDataGrantAction dataGrantAction(String id, String roleId, DataScopePolicy scope) {
+        RoleDataGrantAction grant = new RoleDataGrantAction();
+        grant.setId(id);
+        grant.setRoleId(roleId);
+        grant.setActionCode("view");
+        grant.setEnabled(true);
+        grant.setDataScopePolicy(scope);
+        return grant;
     }
 
     private Role accountRole(String id, RoleKind kind) {
@@ -1325,6 +1481,7 @@ class RoleServiceContractTest {
     private Role role(String id, String title, RoleAssignmentType assignmentType, RoleKind kind) {
         Role role = new Role();
         role.setId(id);
+        role.setTenantId("tenant_a");
         role.setTitle(title);
         role.setAssignmentType(assignmentType);
         role.setRoleKind(kind);

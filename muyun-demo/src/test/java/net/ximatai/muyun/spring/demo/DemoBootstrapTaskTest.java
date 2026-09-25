@@ -43,9 +43,15 @@ import net.ximatai.muyun.spring.iam.user.UserAccount;
 import net.ximatai.muyun.spring.iam.user.UserAccountDao;
 import net.ximatai.muyun.spring.iam.user.UserAccountService;
 import net.ximatai.muyun.spring.platform.support.TestMemoryDao;
+import net.ximatai.muyun.spring.iam.employee.EmployeePositionService;
+import net.ximatai.muyun.spring.iam.role.RoleActionGrantVerifier;
+import net.ximatai.muyun.spring.iam.role.RoleDataGrantActionDao;
+import net.ximatai.muyun.spring.iam.support.TenantServiceTestFactory;
+import net.ximatai.muyun.spring.iam.support.UserAccountServiceTestFactory;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.support.StaticListableBeanFactory;
 
 import java.time.Instant;
 import java.util.List;
@@ -75,19 +81,33 @@ class DemoBootstrapTaskTest {
     private final EmploymentRoleGrantMemoryDao employmentRoleGrantDao = new EmploymentRoleGrantMemoryDao();
     private final RoleActionMemoryDao roleActionDao = new RoleActionMemoryDao();
 
-    private final TenantService tenantService = new TenantService(tenantDao);
+    private final TenantService tenantService = TenantServiceTestFactory.create(tenantDao);
     private final TenantApplicationService tenantApplicationService = mock(TenantApplicationService.class);
-    private final OrganizationService organizationService = new OrganizationService(organizationDao, tenantService);
+    private final OrganizationService organizationService = new OrganizationService(
+            organizationDao,
+            tenantService,
+            new StaticListableBeanFactory().getBeanProvider(OrganizationCreationProvisioner.class));
     private final DepartmentService departmentService = new DepartmentService(departmentDao, tenantService);
     private final EmployeeService employeeService = new EmployeeService(employeeDao, tenantService,
             departmentService);
-    private final UserAccountService userAccountService = net.ximatai.muyun.spring.iam.support.UserAccountServiceTestFactory.create(userAccountDao, tenantService,
+    private final UserAccountService userAccountService = UserAccountServiceTestFactory.create(userAccountDao, tenantService,
             new PasswordHashingService());
     private final EmployeeAccountService employeeAccountService = new EmployeeAccountService(employeeAccountDao,
             tenantService, employeeService, userAccountService);
-    private final RoleService roleService = new RoleService(roleDao, accountRoleGrantDao, employmentRoleGrantDao,
-            roleActionDao, tenantService, net.ximatai.muyun.spring.iam.role.RoleActionGrantVerifier.platformActionsOnly(),
-            userAccountService, employeeService, null, employeeAccountService);
+    private final RoleService roleService = new RoleService(
+            roleDao,
+            accountRoleGrantDao,
+            employmentRoleGrantDao,
+            roleActionDao,
+            tenantService,
+            RoleActionGrantVerifier.platformActionsOnly(),
+            userAccountService,
+            employeeService,
+            mock(EmployeePositionService.class),
+            employeeAccountService,
+            organizationService,
+            mock(RoleDataGrantActionDao.class),
+            tenantApplicationService);
     private final RoleGrantableActionResolver grantableActionResolver = mock(RoleGrantableActionResolver.class);
     private final BuiltInRolePermissionTemplateService rolePermissionTemplateService =
             new BuiltInRolePermissionTemplateService(roleService, grantableActionResolver);
@@ -116,7 +136,7 @@ class DemoBootstrapTaskTest {
         ObjectProvider<net.ximatai.muyun.spring.common.tenant.TenantCreationProvisioner> provisioners =
                 mock(ObjectProvider.class);
         when(provisioners.orderedStream()).thenAnswer(invocation -> Stream.of(tenantRoleProvisioner));
-        TenantService provisioningTenantService = new TenantService(tenantDao, provisioners);
+        TenantService provisioningTenantService = TenantServiceTestFactory.create(tenantDao, provisioners);
         Tenant tenant = new Tenant();
         tenant.setAlias("acme");
         tenant.setTitle("Acme");
@@ -218,6 +238,13 @@ class DemoBootstrapTaskTest {
             tenantService.insert(tenant);
         }
         try (TenantContext.Scope ignored = TenantContext.use("acme")) {
+            Organization organization = new Organization();
+            organization.setId("org-1");
+            organization.setCode("org_1");
+            organization.setTitle("Organization 1");
+            organization.setEnabled(Boolean.TRUE);
+            organizationService.insert(organization);
+
             UserAccount user = new UserAccount();
             user.setId("user-1");
             user.setUsername("org_admin");
@@ -498,7 +525,7 @@ class DemoBootstrapTaskTest {
     void shouldReplayTenantProvisioningWhenDemoTenantAlreadyExists() {
         DemoBootstrapProperties properties = new DemoBootstrapProperties();
         when(grantableActionResolver.resolve(any())).thenReturn(List.of());
-        TenantService replayingTenantService = spy(new TenantService(tenantDao));
+        TenantService replayingTenantService = spy(TenantServiceTestFactory.create(tenantDao));
         DemoBootstrapTask task = new DemoBootstrapTask(properties, replayingTenantService, tenantApplicationService, organizationService,
                 departmentService, employeeService, userAccountService, employeeAccountService, tenantRoleProvisioner);
 

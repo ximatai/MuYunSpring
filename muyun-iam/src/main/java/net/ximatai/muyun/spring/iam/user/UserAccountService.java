@@ -86,43 +86,19 @@ public class UserAccountService extends TenantActiveScopedService<UserAccount> i
             null
     );
 
-    UserAccountService(UserAccountDao userAccountDao,
-                       ActiveTenantVerifier activeTenantVerifier,
-                       PasswordHashingService passwordHashingService) {
-        this(userAccountDao, activeTenantVerifier, passwordHashingService,
-                null, null,
-                UserSecurityEventPublisher.NOOP, null, null);
-    }
-
     @Autowired
     public UserAccountService(UserAccountDao userAccountDao,
                               ActiveTenantVerifier activeTenantVerifier,
                               PasswordHashingService passwordHashingService,
                               AccountRoleGrantDao accountRoleGrantDao,
                               UserAccountSecurityServices securityServices) {
-        this(userAccountDao, activeTenantVerifier, passwordHashingService,
-                securityServices.passwordPolicyRuleService().orElse(null),
-                accountRoleGrantDao,
-                securityServices.securityEventPublisher(),
-                securityServices.sessionRevocationService(),
-                securityServices.sessionPresenceService());
-    }
-
-    private UserAccountService(UserAccountDao userAccountDao,
-                               ActiveTenantVerifier activeTenantVerifier,
-                               PasswordHashingService passwordHashingService,
-                               PasswordPolicyRuleService passwordPolicyRuleService,
-                               AccountRoleGrantDao accountRoleGrantDao,
-                               UserSecurityEventPublisher userSecurityEventPublisher,
-                               UserSessionRevocationService userSessionRevocationService,
-                               UserSessionPresenceService userSessionPresenceService) {
         super(MODULE_ALIAS, UserAccount.class, userAccountDao, activeTenantVerifier);
-        this.passwordHashingService = passwordHashingService;
-        this.passwordPolicyRuleService = passwordPolicyRuleService;
-        this.accountRoleGrantDao = accountRoleGrantDao;
-        this.userSecurityEventPublisher = userSecurityEventPublisher;
-        this.userSessionRevocationService = userSessionRevocationService;
-        this.userSessionPresenceService = userSessionPresenceService;
+        this.passwordHashingService = Objects.requireNonNull(passwordHashingService, "passwordHashingService");
+        this.passwordPolicyRuleService = securityServices.passwordPolicyRuleService().orElse(null);
+        this.accountRoleGrantDao = Objects.requireNonNull(accountRoleGrantDao, "accountRoleGrantDao");
+        this.userSecurityEventPublisher = securityServices.securityEventPublisher();
+        this.userSessionRevocationService = securityServices.sessionRevocationService();
+        this.userSessionPresenceService = securityServices.sessionPresenceService();
     }
 
     @Autowired
@@ -211,9 +187,6 @@ public class UserAccountService extends TenantActiveScopedService<UserAccount> i
         if (!Boolean.TRUE.equals(value)) {
             return Criteria.of();
         }
-        if (userSessionPresenceService == null) {
-            return Criteria.of().in("id", List.of("__no_active_user__"));
-        }
         return userSessionPresenceService.activeAccountCriteria();
     }
 
@@ -301,9 +274,6 @@ public class UserAccountService extends TenantActiveScopedService<UserAccount> i
     }
 
     public void cleanupDeletedUserReferences(String userId) {
-        if (accountRoleGrantDao == null) {
-            return;
-        }
         String validUserId = Preconditions.requireText(userId, "userId");
         accountRoleGrantDao.query(activeCriteria(Criteria.of().eq("userId", validUserId)),
                         new PageRequest(0, Integer.MAX_VALUE))
@@ -311,9 +281,6 @@ public class UserAccountService extends TenantActiveScopedService<UserAccount> i
     }
 
     public AccountRoleGrantUserIdRepairResult repairAccountRoleGrantUserIds() {
-        if (accountRoleGrantDao == null) {
-            return AccountRoleGrantUserIdRepairResult.empty();
-        }
         List<UserAccount> users = getDao().query(activeCriteria(Criteria.of()), new PageRequest(0, Integer.MAX_VALUE));
         List<AccountRoleGrant> grants = accountRoleGrantDao.query(activeCriteria(Criteria.of()),
                 new PageRequest(0, Integer.MAX_VALUE));
@@ -457,9 +424,7 @@ public class UserAccountService extends TenantActiveScopedService<UserAccount> i
     }
 
     private int revokeUserSessions(String userId, String reason) {
-        return userSessionRevocationService == null
-                ? 0
-                : userSessionRevocationService.revokeUserSessions(userId, reason);
+        return userSessionRevocationService.revokeUserSessions(userId, reason);
     }
 
     public boolean passwordChangeRequired(UserAccount user, Instant now) {

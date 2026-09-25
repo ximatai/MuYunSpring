@@ -19,7 +19,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class GenerationModuleActionContributorTest {
-    private final PlatformModuleService moduleService = new PlatformModuleService(new TestMemoryDao<>());
+    private final PlatformModuleService moduleService = new PlatformModuleService(new TestMemoryDao<>(), event -> {});
     private final PlatformModuleActionService actionService =
             new PlatformModuleActionService(new TestMemoryDao<>(), moduleService);
     private final ModuleActionContributionRegistrar registrar = new ModuleActionContributionRegistrar(actionService);

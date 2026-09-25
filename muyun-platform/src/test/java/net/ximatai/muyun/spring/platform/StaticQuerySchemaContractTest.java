@@ -33,7 +33,16 @@ import net.ximatai.muyun.spring.platform.module.PlatformModuleService;
 import net.ximatai.muyun.spring.platform.support.TestMemoryDao;
 import net.ximatai.muyun.spring.platform.workflow.WorkflowDefinition;
 import net.ximatai.muyun.spring.platform.workflow.WorkflowDefinitionService;
+import net.ximatai.muyun.spring.ability.BaseDao;
+import net.ximatai.muyun.spring.platform.metadata.ConfigurationReferenceDeletionGuard;
+import net.ximatai.muyun.spring.platform.metadata.ModuleMetadataRelationService;
+import net.ximatai.muyun.spring.platform.metadata.PlatformMetadataSchemaEnsureService;
+import net.ximatai.muyun.spring.platform.runtime.PlatformDynamicRuntimeRefreshCoordinator;
+import net.ximatai.muyun.spring.platform.support.TestBeanProviders;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
+
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -63,10 +72,25 @@ class StaticQuerySchemaContractTest {
                 .containsExactly("effectiveDate", "fromCurrencyCode", "toCurrencyCode");
         assertThat(exchangeRate.defaultSorts().getFirst().desc()).isTrue();
 
-        MetadataService metadataService = new MetadataService(new TestMemoryDao<Metadata>());
-        FieldSpecService fieldTypeService = new FieldSpecService(new TestMemoryDao<FieldSpec>());
-        QuerySchema metadataField = new MetadataFieldService(new TestMemoryDao<MetadataField>(), metadataService,
-                fieldTypeService).querySchema();
+        MetadataService metadataService = new MetadataService(
+                new TestMemoryDao<Metadata>(),
+                TestBeanProviders.empty(PlatformMetadataSchemaEnsureService.class),
+                Optional.empty(),
+                TestBeanProviders.empty(ConfigurationReferenceDeletionGuard.class),
+                TestBeanProviders.empty(ModuleMetadataRelationService.class),
+                event -> {});
+        FieldSpecService fieldTypeService = new FieldSpecService(
+                new TestMemoryDao<FieldSpec>(),
+                Mockito.mock(BaseDao.class));
+        QuerySchema metadataField = new MetadataFieldService(
+                new TestMemoryDao<MetadataField>(),
+                metadataService,
+                fieldTypeService,
+                TestBeanProviders.empty(PlatformDynamicRuntimeRefreshCoordinator.class),
+                TestBeanProviders.empty(PlatformMetadataSchemaEnsureService.class),
+                TestBeanProviders.empty(ConfigurationReferenceDeletionGuard.class),
+                TestBeanProviders.empty(ModuleMetadataRelationService.class),
+                TestBeanProviders.empty(PlatformModuleService.class)).querySchema();
         assertField(metadataField, "required", QueryValueType.BOOLEAN);
         assertField(metadataField, "uniqueField", QueryValueType.BOOLEAN);
         assertField(metadataField, "fieldName", QueryValueType.STRING);
@@ -74,7 +98,7 @@ class StaticQuerySchemaContractTest {
 
         QuerySchema menu = new MenuService(new TestMemoryDao<Menu>(),
                 new MenuSchemeService(new TestMemoryDao<MenuScheme>()),
-                new PlatformModuleService(new TestMemoryDao<PlatformModule>())).querySchema();
+                new PlatformModuleService(new TestMemoryDao<PlatformModule>(), event -> {})).querySchema();
         assertField(menu, "pageMode", QueryValueType.STRING);
         assertField(menu, "enabled", QueryValueType.BOOLEAN);
         assertThat(menu.quickSearch().fields()).containsExactly("title");

@@ -15,7 +15,6 @@ import net.ximatai.muyun.spring.dynamic.metadata.FieldBehaviorSupport;
 import net.ximatai.muyun.spring.dynamic.metadata.FieldType;
 import net.ximatai.muyun.spring.platform.dictionary.DictionaryCategoryService;
 import net.ximatai.muyun.spring.platform.runtime.PlatformDynamicRuntimeRefreshCoordinator;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.util.Objects;
@@ -34,18 +33,6 @@ public class MetadataFieldConfigService extends StandardBusinessService<Metadata
     private final MetadataFieldProtectionConfigService protectionConfigService;
     private final Optional<PlatformDynamicRuntimeRefreshCoordinator> runtimeRefreshCoordinator;
 
-    public MetadataFieldConfigService(BaseDao<MetadataFieldConfig, String> configDao,
-                                      MetadataFieldService fieldService,
-                                      MetadataService metadataService,
-                                      FieldSpecService fieldTypeService,
-                                      DictionaryCategoryService categoryService,
-                                      ModuleMetadataRelationService relationService,
-                                      MetadataFieldProtectionConfigService protectionConfigService) {
-        this(configDao, fieldService, metadataService, fieldTypeService, categoryService, relationService,
-                protectionConfigService, Optional.empty());
-    }
-
-    @Autowired
     public MetadataFieldConfigService(BaseDao<MetadataFieldConfig, String> configDao,
                                       MetadataFieldService fieldService,
                                       MetadataService metadataService,

@@ -12,11 +12,11 @@ import net.ximatai.muyun.spring.common.platform.OrganizationHierarchyService;
 import net.ximatai.muyun.spring.common.tenant.ActiveTenantVerifier;
 import net.ximatai.muyun.spring.common.tenant.OrganizationCreationProvisioner;
 import net.ximatai.muyun.spring.common.util.Preconditions;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
+import java.util.Objects;
 
 @Service
 public class OrganizationService extends TenantActiveScopedService<Organization> implements
@@ -31,22 +31,16 @@ public class OrganizationService extends TenantActiveScopedService<Organization>
     private static final DataScopeFieldMapping DATA_SCOPE_FIELD_MAPPING = DataScopeFieldMapping.of(null, "id", null);
     private final ObjectProvider<OrganizationCreationProvisioner> creationProvisioners;
 
-    public OrganizationService(OrganizationDao dao, ActiveTenantVerifier verifier) {
-        this(dao, verifier, null);
-    }
-
-    @Autowired
     public OrganizationService(OrganizationDao dao, ActiveTenantVerifier verifier,
                                ObjectProvider<OrganizationCreationProvisioner> creationProvisioners) {
         super(MODULE_ALIAS, Organization.class, dao, verifier);
-        this.creationProvisioners = creationProvisioners;
+        this.creationProvisioners = Objects.requireNonNull(creationProvisioners, "creationProvisioners");
     }
 
     @Override
     public DataScopeFieldMapping dataScopeFieldMapping() {
         return DATA_SCOPE_FIELD_MAPPING;
     }
-
 
     @Override
     public void afterInsert(String id, Organization organization) {
@@ -68,10 +62,8 @@ public class OrganizationService extends TenantActiveScopedService<Organization>
     }
 
     private void notifyCreationProvisioners(String tenantId, String organizationId) {
-        if (creationProvisioners != null) {
-            creationProvisioners.orderedStream()
-                    .forEach(provisioner -> provisioner.afterOrganizationCreated(tenantId, organizationId));
-        }
+        creationProvisioners.orderedStream()
+                .forEach(provisioner -> provisioner.afterOrganizationCreated(tenantId, organizationId));
     }
 
     @Override

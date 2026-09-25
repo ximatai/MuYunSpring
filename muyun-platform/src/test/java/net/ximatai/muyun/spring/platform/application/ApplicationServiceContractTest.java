@@ -20,6 +20,10 @@ import net.ximatai.muyun.spring.platform.metadata.MetadataService;
 import net.ximatai.muyun.spring.platform.module.PlatformModule;
 import net.ximatai.muyun.spring.platform.module.PlatformModuleService;
 import net.ximatai.muyun.spring.platform.support.TestMemoryDao;
+import net.ximatai.muyun.spring.platform.metadata.ConfigurationReferenceDeletionGuard;
+import net.ximatai.muyun.spring.platform.metadata.ModuleMetadataRelationService;
+import net.ximatai.muyun.spring.platform.metadata.PlatformMetadataSchemaEnsureService;
+import net.ximatai.muyun.spring.platform.support.TestBeanProviders;
 import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Method;
@@ -28,6 +32,7 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -181,8 +186,14 @@ class ApplicationServiceContractTest {
 
     @Test
     void shouldRejectDeletingApplicationReferencedByModules() {
-        PlatformModuleService moduleService = new PlatformModuleService(new TestMemoryDao<>());
-        ApplicationService service = applicationService(moduleService, new MetadataService(new TestMemoryDao<>()),
+        PlatformModuleService moduleService = new PlatformModuleService(new TestMemoryDao<>(), event -> {});
+        ApplicationService service = applicationService(moduleService, new MetadataService(
+                new TestMemoryDao<>(),
+                TestBeanProviders.empty(PlatformMetadataSchemaEnsureService.class),
+                Optional.empty(),
+                TestBeanProviders.empty(ConfigurationReferenceDeletionGuard.class),
+                TestBeanProviders.empty(ModuleMetadataRelationService.class),
+                event -> {}),
                 new DictionaryCategoryService(new TestMemoryDao<>()));
         service.insert(application("crm"));
         moduleService.insert(module("crm.customer", "crm"));
@@ -195,8 +206,14 @@ class ApplicationServiceContractTest {
 
     @Test
     void shouldRejectDeletingApplicationReferencedByMetadata() {
-        MetadataService metadataService = new MetadataService(new TestMemoryDao<>());
-        ApplicationService service = applicationService(new PlatformModuleService(new TestMemoryDao<>()), metadataService,
+        MetadataService metadataService = new MetadataService(
+                new TestMemoryDao<>(),
+                TestBeanProviders.empty(PlatformMetadataSchemaEnsureService.class),
+                Optional.empty(),
+                TestBeanProviders.empty(ConfigurationReferenceDeletionGuard.class),
+                TestBeanProviders.empty(ModuleMetadataRelationService.class),
+                event -> {});
+        ApplicationService service = applicationService(new PlatformModuleService(new TestMemoryDao<>(), event -> {}), metadataService,
                 new DictionaryCategoryService(new TestMemoryDao<>()));
         service.insert(application("crm"));
         metadataService.insert(metadata("customer", "crm"));
@@ -210,8 +227,14 @@ class ApplicationServiceContractTest {
     @Test
     void shouldRejectDeletingApplicationReferencedByDictionaryCategories() {
         DictionaryCategoryService categoryService = new DictionaryCategoryService(new TestMemoryDao<>());
-        ApplicationService service = applicationService(new PlatformModuleService(new TestMemoryDao<>()),
-                new MetadataService(new TestMemoryDao<>()), categoryService);
+        ApplicationService service = applicationService(new PlatformModuleService(new TestMemoryDao<>(), event -> {}),
+                new MetadataService(
+                        new TestMemoryDao<>(),
+                        TestBeanProviders.empty(PlatformMetadataSchemaEnsureService.class),
+                        Optional.empty(),
+                        TestBeanProviders.empty(ConfigurationReferenceDeletionGuard.class),
+                        TestBeanProviders.empty(ModuleMetadataRelationService.class),
+                        event -> {}), categoryService);
         service.insert(application("crm"));
         categoryService.insert(dictionaryCategory("status", "crm"));
 

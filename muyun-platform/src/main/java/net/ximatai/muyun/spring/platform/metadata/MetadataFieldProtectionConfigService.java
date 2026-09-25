@@ -11,7 +11,6 @@ import net.ximatai.muyun.spring.common.security.FieldProtectionDefinition;
 import net.ximatai.muyun.spring.common.security.FieldSignatureMode;
 import net.ximatai.muyun.spring.dynamic.metadata.FieldType;
 import net.ximatai.muyun.spring.platform.runtime.PlatformDynamicRuntimeRefreshCoordinator;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.util.Objects;
@@ -31,14 +30,6 @@ public class MetadataFieldProtectionConfigService extends AbstractAbilityService
     private final BaseDao<MetadataFieldConfig, String> fieldConfigDao;
     private final Optional<PlatformDynamicRuntimeRefreshCoordinator> runtimeRefreshCoordinator;
 
-    public MetadataFieldProtectionConfigService(BaseDao<MetadataFieldProtectionConfig, String> configDao,
-                                                MetadataFieldService fieldService,
-                                                FieldSpecService fieldTypeService,
-                                                BaseDao<MetadataFieldConfig, String> fieldConfigDao) {
-        this(configDao, fieldService, fieldTypeService, fieldConfigDao, Optional.empty());
-    }
-
-    @Autowired
     public MetadataFieldProtectionConfigService(BaseDao<MetadataFieldProtectionConfig, String> configDao,
                                                 MetadataFieldService fieldService,
                                                 FieldSpecService fieldTypeService,

@@ -95,6 +95,7 @@ import net.ximatai.muyun.spring.common.model.standard.StandardEntity;
 import net.ximatai.muyun.spring.common.platform.PlatformAction;
 import net.ximatai.muyun.spring.dynamic.metadata.FieldMeasureUnitConversionMode;
 import net.ximatai.muyun.spring.dynamic.metadata.FieldMeasureUnitMode;
+import net.ximatai.muyun.spring.iam.support.UserAccountServiceTestFactory;
 import org.junit.jupiter.api.Test;
 import org.springframework.context.support.GenericApplicationContext;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -168,7 +169,7 @@ class StaticModuleDefinitionScannerTest {
             context.registerBean(ApplicationWebController.class);
             context.registerBean(PlatformModuleWebController.class,
                     () -> withService(new PlatformModuleWebController(),
-                            new PlatformModuleService(mock(BaseDao.class))));
+                            new PlatformModuleService(mock(BaseDao.class), event -> {})));
             context.refresh();
 
             List<StaticModuleDefinition> definitions = new StaticModuleDefinitionScanner(context).scan();
@@ -259,7 +260,7 @@ class StaticModuleDefinitionScannerTest {
                     () -> withService(new PositionCategoryWebController(), mock(PositionCategoryService.class)));
             context.registerBean(RoleWebController.class,
                     () -> withService(new RoleWebController(null), mock(RoleService.class)));
-            UserAccountService userAccountService = net.ximatai.muyun.spring.iam.support.UserAccountServiceTestFactory.create(mock(UserAccountDao.class),
+            UserAccountService userAccountService = UserAccountServiceTestFactory.create(mock(UserAccountDao.class),
                     mock(net.ximatai.muyun.spring.common.tenant.ActiveTenantVerifier.class),
                     new PasswordHashingService());
             context.registerBean(UserAccountService.class, () -> userAccountService);
@@ -631,10 +632,10 @@ class StaticModuleDefinitionScannerTest {
         try (GenericApplicationContext context = new GenericApplicationContext()) {
             context.registerBean(CodeRuleWebController.class,
                     () -> withService(
-                            new CodeRuleWebController(org.mockito.Mockito.mock(CodePreviewService.class)),
+                            new CodeRuleWebController(mock(CodePreviewService.class)),
                             mock(CodeRuleService.class)));
             context.registerBean(CodeSequenceStateWebController.class,
-                    () -> new CodeSequenceStateWebController(org.mockito.Mockito.mock(CodeOpsActionService.class)));
+                    () -> new CodeSequenceStateWebController(mock(CodeOpsActionService.class)));
             context.registerBean(CodeLedgerEntryWebController.class);
             context.registerBean(CodeRecycleEntryWebController.class);
             context.registerBean(CodeIssueLogWebController.class);

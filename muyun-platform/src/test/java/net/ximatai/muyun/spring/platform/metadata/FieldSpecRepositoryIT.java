@@ -11,6 +11,8 @@ import net.ximatai.muyun.spring.dynamic.metadata.EntityDefinition;
 import net.ximatai.muyun.spring.dynamic.metadata.FieldDefinition;
 import net.ximatai.muyun.spring.dynamic.schema.DynamicSchemaService;
 import net.ximatai.muyun.spring.platform.support.PlatformPostgresIntegrationTest;
+import net.ximatai.muyun.spring.ability.BaseDao;
+import net.ximatai.muyun.spring.platform.support.TestBeanProviders;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.AfterEach;
@@ -24,6 +26,7 @@ import org.springframework.transaction.annotation.EnableTransactionManagement;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.mockito.Mockito;
 
 import javax.sql.DataSource;
 import java.sql.Connection;
@@ -109,10 +112,16 @@ class FieldSpecRepositoryIT extends PlatformPostgresIntegrationTest {
     @Test
     void shouldQueryJsonSetFieldWithCollectionCriteria() {
         String suffix = UUID.randomUUID().toString().replace("-", "").substring(0, 8);
+        for (String kind : List.of("input", "select", "date")) {
+            FieldUiControl control = new FieldUiControl();
+            control.setAlias(kind + "_" + suffix);
+            control.setTitle(kind);
+            fieldUiControlService.insert(control);
+        }
         FieldSpec stringType = fieldType("string_" + suffix, FieldType.STRING,
-                Set.of("LIKE", "EQ"), Set.of("input", "select"));
+                Set.of("LIKE", "EQ"), Set.of("input_" + suffix, "select_" + suffix));
         FieldSpec dateType = fieldType("date_" + suffix, FieldType.DATE,
-                Set.of("BETWEEN", "EQ"), Set.of("date"));
+                Set.of("BETWEEN", "EQ"), Set.of("date_" + suffix));
         FieldSpec emptyType = fieldType("empty_" + suffix, FieldType.TEXT,
                 Set.of(), Set.of());
         emptyType.setDefaultQueryOperator(null);
@@ -133,7 +142,7 @@ class FieldSpecRepositoryIT extends PlatformPostgresIntegrationTest {
                 .containsExactlyInAnyOrder(stringType.getAlias(), dateType.getAlias());
         assertThat(fieldTypeService.list(Criteria.of()
                         .in("alias", aliases)
-                        .containsAll("uiControlAliases", List.of("input", "select"))))
+                        .containsAll("uiControlAliases", List.of("input_" + suffix, "select_" + suffix))))
                 .extracting(FieldSpec::getAlias)
                 .containsExactly(stringType.getAlias());
         assertThat(fieldTypeService.list(Criteria.of()
@@ -257,14 +266,14 @@ class FieldSpecRepositoryIT extends PlatformPostgresIntegrationTest {
         }
 
         @Bean
-        FieldSpecService fieldTypeService(FieldSpecDao fieldTypeDao) {
-            return new FieldSpecService(fieldTypeDao);
+        FieldSpecService fieldTypeService(FieldSpecDao fieldTypeDao, FieldUiControlDao fieldUiControlDao) {
+            return new FieldSpecService(fieldTypeDao, fieldUiControlDao);
         }
 
         @Bean
         FieldUiControlService fieldUiControlService(FieldUiControlDao fieldUiControlDao,
                                                     FieldSpecService fieldTypeService) {
-            return new FieldUiControlService(fieldUiControlDao, fieldTypeService);
+            return new FieldUiControlService(fieldUiControlDao, fieldTypeService, Mockito.mock(BaseDao.class));
         }
 
         @Bean
@@ -283,7 +292,13 @@ class FieldSpecRepositoryIT extends PlatformPostgresIntegrationTest {
 
         @Bean
         MetadataService metadataService(MetadataDao metadataDao) {
-            return new MetadataService(metadataDao);
+            return new MetadataService(
+                    metadataDao,
+                    TestBeanProviders.empty(PlatformMetadataSchemaEnsureService.class),
+                    Optional.empty(),
+                    TestBeanProviders.empty(ConfigurationReferenceDeletionGuard.class),
+                    TestBeanProviders.empty(ModuleMetadataRelationService.class),
+                    event -> {});
         }
 
         @Bean

@@ -29,6 +29,8 @@ import net.ximatai.muyun.spring.platform.module.PlatformModuleDao;
 import net.ximatai.muyun.spring.platform.module.PlatformModuleService;
 import net.ximatai.muyun.spring.platform.runtime.PlatformDynamicRuntimeRefreshCoordinator;
 import net.ximatai.muyun.spring.platform.support.PlatformPostgresIntegrationTest;
+import net.ximatai.muyun.spring.ability.BaseDao;
+import net.ximatai.muyun.spring.platform.support.TestBeanProviders;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -40,6 +42,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.transaction.annotation.EnableTransactionManagement;
+import org.mockito.Mockito;
 
 import javax.sql.DataSource;
 import java.sql.Connection;
@@ -47,6 +50,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -188,7 +192,7 @@ class MetadataRelationChangeSetApplyIT extends PlatformPostgresIntegrationTest {
         assertThat(relationService.select(child.relation().getId())).isNull();
         assertThat(columnExists(child.metadata().getTableName(), "id")).isFalse();
         assertThat(metadataService.select(metadata.getId())).isNotNull();
-        verify(refreshCoordinator, org.mockito.Mockito.atLeastOnce()).scheduleModules(List.of(moduleAlias));
+        verify(refreshCoordinator, Mockito.atLeastOnce()).scheduleModules(List.of(moduleAlias));
     }
 
     @Test
@@ -296,7 +300,7 @@ class MetadataRelationChangeSetApplyIT extends PlatformPostgresIntegrationTest {
         assertThat(fieldService.list(Criteria.of().eq("metadataId", metadata.getId())))
                 .extracting(MetadataField::getFieldName).doesNotContain("rollbackTitle");
         assertThat(columnExists(metadata.getTableName(), "rollback_title")).isFalse();
-        org.mockito.Mockito.verifyNoInteractions(refreshCoordinator);
+        Mockito.verifyNoInteractions(refreshCoordinator);
     }
 
     @Test
@@ -558,20 +562,38 @@ class MetadataRelationChangeSetApplyIT extends PlatformPostgresIntegrationTest {
             return new MetadataModelDeletionService(relations, metadata, fields, mock(ModuleMetadataFieldService.class),
                     compiler, schema, records, refresh);
         }
-        @Bean FieldSpecService fieldSpecService(FieldSpecDao dao) { return new FieldSpecService(dao); }
-        @Bean MetadataService metadataService(MetadataDao dao) { return new MetadataService(dao); }
+        @Bean FieldSpecService fieldSpecService(FieldSpecDao dao) { return new FieldSpecService(dao, mock(BaseDao.class)); }
+        @Bean MetadataService metadataService(MetadataDao dao) { return new MetadataService(
+                dao,
+                TestBeanProviders.empty(PlatformMetadataSchemaEnsureService.class),
+                Optional.empty(),
+                TestBeanProviders.empty(ConfigurationReferenceDeletionGuard.class),
+                TestBeanProviders.empty(ModuleMetadataRelationService.class),
+                event -> {}); }
         @Bean PlatformModuleService moduleService() { return mock(PlatformModuleService.class); }
         @Bean ModuleMetadataRelationService relationService(ModuleMetadataRelationDao dao, PlatformModuleService modules,
                                                             MetadataService metadata, org.springframework.beans.factory.ObjectProvider<ConfigurationReferenceDeletionGuard> guard) {
-            return new ModuleMetadataRelationService(dao, modules, metadata, java.util.Optional.empty(), guard);
+            return new ModuleMetadataRelationService(
+                    dao,
+                    modules,
+                    metadata,
+                    Optional.empty(),
+                    guard,
+                    TestBeanProviders.empty(MetadataFieldService.class),
+                    event -> {});
         }
         @Bean MetadataFieldService fieldService(MetadataFieldDao dao, MetadataService metadata, FieldSpecService specs,
                 org.springframework.beans.factory.ObjectProvider<ConfigurationReferenceDeletionGuard> guard) {
             var empty = new org.springframework.beans.factory.support.DefaultListableBeanFactory();
-            return new MetadataFieldService(dao, metadata, specs,
+            return new MetadataFieldService(
+                    dao,
+                    metadata,
+                    specs,
                     empty.getBeanProvider(PlatformDynamicRuntimeRefreshCoordinator.class),
-                    empty.getBeanProvider(PlatformMetadataSchemaEnsureService.class), guard,
-                    empty.getBeanProvider(ModuleMetadataRelationService.class), empty.getBeanProvider(PlatformModuleService.class));
+                    empty.getBeanProvider(PlatformMetadataSchemaEnsureService.class),
+                    guard,
+                    empty.getBeanProvider(ModuleMetadataRelationService.class),
+                    empty.getBeanProvider(PlatformModuleService.class));
         }
         @Bean PlatformPageDefinitionService pageService(PlatformPageDefinitionDao dao, PlatformModuleService modules, ModuleMetadataRelationService relations) {
             return new PlatformPageDefinitionService(dao, modules, relations);
@@ -586,8 +608,7 @@ class MetadataRelationChangeSetApplyIT extends PlatformPostgresIntegrationTest {
         @Bean MetadataFieldConfigService metadataFieldConfigService() { return mock(MetadataFieldConfigService.class); }
         @Bean MetadataFieldDefinitionCompiler fieldCompiler(FieldSpecService specs, MetadataFieldConfigService configs, MetadataFieldService fields) {
             return new MetadataFieldDefinitionCompiler(specs, configs,
-                    new MetadataFieldProtectionConfigService(new TestMemoryDao<>(), fields, specs,
-                            new TestMemoryDao<>()), fields);
+                    new MetadataFieldProtectionConfigService(new TestMemoryDao<>(), fields, specs, new TestMemoryDao<>(), Optional.empty()), fields);
         }
         @Bean PlatformMetadataEntityDefinitionCompiler entityCompiler(MetadataService metadata, MetadataFieldService fields,
                                                                        MetadataFieldDefinitionCompiler compiler) {

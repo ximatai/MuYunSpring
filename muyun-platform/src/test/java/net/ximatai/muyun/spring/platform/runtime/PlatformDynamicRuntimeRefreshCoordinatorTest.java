@@ -28,6 +28,9 @@ import net.ximatai.muyun.spring.platform.module.PlatformModuleService;
 import net.ximatai.muyun.spring.platform.support.TestMemoryDao;
 import net.ximatai.muyun.spring.platform.ui.PlatformQueryTemplateService;
 import net.ximatai.muyun.spring.platform.ui.PlatformUiConfigService;
+import net.ximatai.muyun.spring.platform.metadata.ConfigurationReferenceDeletionGuard;
+import net.ximatai.muyun.spring.platform.metadata.PlatformMetadataSchemaEnsureService;
+import net.ximatai.muyun.spring.platform.support.TestBeanProviders;
 import org.junit.jupiter.api.Test;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
@@ -53,11 +56,18 @@ class PlatformDynamicRuntimeRefreshCoordinatorTest {
     private final TestMemoryDao<ModuleMetadataField> moduleFieldDao = new TestMemoryDao<>();
     private final TestMemoryDao<MetadataView> viewDao = new TestMemoryDao<>();
     private final ModuleMetadataRelationService relationService =
-            new ModuleMetadataRelationService(relationDao, mock(PlatformModuleService.class), mock(MetadataService.class));
+            new ModuleMetadataRelationService(
+                    relationDao,
+                    mock(PlatformModuleService.class),
+                    mock(MetadataService.class),
+                    Optional.empty(),
+                    TestBeanProviders.empty(ConfigurationReferenceDeletionGuard.class),
+                    TestBeanProviders.empty(MetadataFieldService.class),
+                    event -> {});
     private final ModuleMetadataFieldService moduleFieldService =
             new ModuleMetadataFieldService(moduleFieldDao, relationService, mock(MetadataService.class),
                     mock(MetadataFieldService.class));
-    private final MetadataViewService viewService = new MetadataViewService(viewDao, relationService);
+    private final MetadataViewService viewService = new MetadataViewService(viewDao, relationService, Optional.empty());
     private final DynamicRuntimeActivationService refreshService = mock(DynamicRuntimeActivationService.class);
     private final PlatformDynamicRuntimeRefreshCoordinator coordinator =
             new PlatformDynamicRuntimeRefreshCoordinator(refreshService, relationService, moduleFieldService, viewService);
@@ -122,11 +132,22 @@ class PlatformDynamicRuntimeRefreshCoordinatorTest {
         PlatformDynamicRuntimeRefreshCoordinator refreshCoordinator =
                 mock(PlatformDynamicRuntimeRefreshCoordinator.class);
         ModuleMetadataRelationService relationHook = new ModuleMetadataRelationService(
-                new TestMemoryDao<>(), mock(PlatformModuleService.class), mock(MetadataService.class),
-                Optional.of(refreshCoordinator));
+                new TestMemoryDao<>(),
+                mock(PlatformModuleService.class),
+                mock(MetadataService.class),
+                Optional.of(refreshCoordinator),
+                TestBeanProviders.empty(ConfigurationReferenceDeletionGuard.class),
+                TestBeanProviders.empty(MetadataFieldService.class),
+                event -> {});
         MetadataFieldService metadataFieldHook = new MetadataFieldService(
-                new TestMemoryDao<>(), mock(MetadataService.class), mock(FieldSpecService.class),
-                Optional.of(refreshCoordinator));
+                new TestMemoryDao<>(),
+                mock(MetadataService.class),
+                mock(FieldSpecService.class),
+                TestBeanProviders.of(PlatformDynamicRuntimeRefreshCoordinator.class, refreshCoordinator),
+                TestBeanProviders.empty(PlatformMetadataSchemaEnsureService.class),
+                TestBeanProviders.empty(ConfigurationReferenceDeletionGuard.class),
+                TestBeanProviders.empty(ModuleMetadataRelationService.class),
+                TestBeanProviders.empty(PlatformModuleService.class));
         ModuleMetadataFieldService moduleFieldHook = new ModuleMetadataFieldService(
                 new TestMemoryDao<>(), mock(ModuleMetadataRelationService.class), mock(MetadataService.class),
                 mock(MetadataFieldService.class), null, Optional.empty(), Optional.of(refreshCoordinator));

@@ -71,6 +71,10 @@ import net.ximatai.muyun.spring.platform.module.PlatformModuleActionService;
 import net.ximatai.muyun.spring.platform.module.PlatformModuleService;
 import net.ximatai.muyun.spring.platform.support.TestMemoryDao;
 import net.ximatai.muyun.spring.platform.workflow.DynamicWorkflowActionExecutor;
+import net.ximatai.muyun.spring.ability.BaseDao;
+import net.ximatai.muyun.spring.platform.metadata.ConfigurationReferenceDeletionGuard;
+import net.ximatai.muyun.spring.platform.metadata.PlatformMetadataSchemaEnsureService;
+import net.ximatai.muyun.spring.platform.support.TestBeanProviders;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -98,24 +102,43 @@ class PlatformModuleDefinitionCompilerTest {
     private final TestMemoryDao<ModuleMetadataFieldFilter> moduleFieldFilterDao = new TestMemoryDao<>();
     private final TestMemoryDao<ModuleMetadataFieldAffect> moduleFieldAffectDao = new TestMemoryDao<>();
     private final TestMemoryDao<DictionaryCategory> categoryDao = new TestMemoryDao<>();
-    private final PlatformModuleService moduleService = new PlatformModuleService(moduleDao);
-    private final MetadataService metadataService = new MetadataService(metadataDao);
+    private final PlatformModuleService moduleService = new PlatformModuleService(moduleDao, event -> {});
+    private final MetadataService metadataService = new MetadataService(
+            metadataDao,
+            TestBeanProviders.empty(PlatformMetadataSchemaEnsureService.class),
+            Optional.empty(),
+            TestBeanProviders.empty(ConfigurationReferenceDeletionGuard.class),
+            TestBeanProviders.empty(ModuleMetadataRelationService.class),
+            event -> {});
     private final DictionaryCategoryService categoryService = new DictionaryCategoryService(categoryDao);
-    private final FieldSpecService fieldTypeService = new FieldSpecService(fieldTypeDao);
-    private final MetadataFieldService fieldService = new MetadataFieldService(fieldDao, metadataService, fieldTypeService);
+    private final FieldSpecService fieldTypeService = new FieldSpecService(fieldTypeDao, mock(BaseDao.class));
+    private final MetadataFieldService fieldService = new MetadataFieldService(
+            fieldDao,
+            metadataService,
+            fieldTypeService,
+            TestBeanProviders.empty(PlatformDynamicRuntimeRefreshCoordinator.class),
+            TestBeanProviders.empty(PlatformMetadataSchemaEnsureService.class),
+            TestBeanProviders.empty(ConfigurationReferenceDeletionGuard.class),
+            TestBeanProviders.empty(ModuleMetadataRelationService.class),
+            TestBeanProviders.empty(PlatformModuleService.class));
     private final ModuleMetadataRelationService relationService =
-            new ModuleMetadataRelationService(relationDao, moduleService, metadataService);
+            new ModuleMetadataRelationService(
+                    relationDao,
+                    moduleService,
+                    metadataService,
+                    Optional.empty(),
+                    TestBeanProviders.empty(ConfigurationReferenceDeletionGuard.class),
+                    TestBeanProviders.empty(MetadataFieldService.class),
+                    event -> {});
     private final MetadataFieldProtectionConfigService protectionConfigService =
-            new MetadataFieldProtectionConfigService(new TestMemoryDao<>(), fieldService, fieldTypeService, fieldConfigDao);
+            new MetadataFieldProtectionConfigService(new TestMemoryDao<>(), fieldService, fieldTypeService, fieldConfigDao, Optional.empty());
     private final MetadataFieldConfigService fieldConfigService =
-            new MetadataFieldConfigService(fieldConfigDao, fieldService, metadataService, fieldTypeService,
-                    categoryService, relationService, protectionConfigService);
+            new MetadataFieldConfigService(fieldConfigDao, fieldService, metadataService, fieldTypeService, categoryService, relationService, protectionConfigService, Optional.empty());
     private final MetadataFieldDefinitionCompiler fieldDefinitionCompiler =
             new MetadataFieldDefinitionCompiler(fieldTypeService, fieldConfigService, protectionConfigService, fieldService);
     private final MetadataFieldReferenceConfigService referenceConfigService =
-            new MetadataFieldReferenceConfigService(referenceConfigDao, fieldService, metadataService,
-                    fieldTypeService, moduleService, relationService);
-    private final MetadataViewService viewService = new MetadataViewService(viewDao, relationService);
+            new MetadataFieldReferenceConfigService(referenceConfigDao, fieldService, metadataService, fieldTypeService, moduleService, relationService, Optional.empty());
+    private final MetadataViewService viewService = new MetadataViewService(viewDao, relationService, Optional.empty());
     private final MetadataViewFieldService viewFieldService =
             new MetadataViewFieldService(viewFieldDao, viewService, fieldService, relationService);
     private final PlatformModuleActionService actionService =
@@ -128,9 +151,9 @@ class PlatformModuleDefinitionCompilerTest {
                     Optional.of((ruleId, referenceModuleAlias, ownerModuleAlias) -> {
                     }));
     private final ModuleMetadataFieldFilterService moduleFieldFilterService =
-            new ModuleMetadataFieldFilterService(moduleFieldFilterDao, moduleFieldService);
+            new ModuleMetadataFieldFilterService(moduleFieldFilterDao, moduleFieldService, Optional.empty());
     private final ModuleMetadataFieldAffectService moduleFieldAffectService =
-            new ModuleMetadataFieldAffectService(moduleFieldAffectDao, moduleFieldService);
+            new ModuleMetadataFieldAffectService(moduleFieldAffectDao, moduleFieldService, Optional.empty());
     private final PlatformModuleDefinitionCompiler compiler =
             new PlatformModuleDefinitionCompiler(moduleService, metadataService, fieldService, fieldDefinitionCompiler,
                     referenceConfigService, relationService, viewService, viewFieldService, actionService,

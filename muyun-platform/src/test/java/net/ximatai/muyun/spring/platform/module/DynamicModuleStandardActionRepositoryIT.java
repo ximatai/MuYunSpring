@@ -89,7 +89,7 @@ class DynamicModuleStandardActionRepositoryIT extends PlatformPostgresIntegratio
             return DataSourceBuilder.create().url(postgres.getJdbcUrl()).username(postgres.getUsername())
                     .password(postgres.getPassword()).driverClassName(postgres.getDriverClassName()).build();
         }
-        @Bean PlatformModuleService modules(PlatformModuleDao dao) { return new PlatformModuleService(dao); }
+        @Bean PlatformModuleService modules(PlatformModuleDao dao) { return new PlatformModuleService(dao, event -> {}); }
         @Bean PlatformModuleActionService actions(PlatformModuleActionDao dao, PlatformModuleService modules) {
             return new PlatformModuleActionService(dao, modules);
         }

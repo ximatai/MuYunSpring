@@ -2,7 +2,6 @@ package net.ximatai.muyun.spring.platform.module;
 
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
-import net.ximatai.muyun.spring.common.tenant.TenantContext;
 import net.ximatai.muyun.spring.platform.metadata.ModuleMetadataRelation;
 import net.ximatai.muyun.spring.platform.metadata.ModuleMetadataRelationService;
 import net.ximatai.muyun.spring.platform.metadata.ModuleMetadataFieldService;
@@ -10,6 +9,10 @@ import net.ximatai.muyun.spring.platform.metadata.MetadataViewService;
 import net.ximatai.muyun.spring.platform.runtime.PlatformDynamicRuntimeRefreshCoordinator;
 import net.ximatai.muyun.spring.platform.runtime.DynamicRuntimeActivationService;
 import net.ximatai.muyun.spring.platform.support.TestMemoryDao;
+import net.ximatai.muyun.spring.platform.metadata.ConfigurationReferenceDeletionGuard;
+import net.ximatai.muyun.spring.platform.metadata.MetadataFieldService;
+import net.ximatai.muyun.spring.platform.metadata.MetadataService;
+import net.ximatai.muyun.spring.platform.support.TestBeanProviders;
 import org.junit.jupiter.api.Test;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.AbstractPlatformTransactionManager;
@@ -25,7 +28,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
 class DynamicModuleActionRefreshContractTest {
-    private final PlatformModuleService modules = new PlatformModuleService(new TestMemoryDao<>());
+    private final PlatformModuleService modules = new PlatformModuleService(new TestMemoryDao<>(), event -> {});
     private final DynamicRuntimeActivationService runtime = mock(DynamicRuntimeActivationService.class);
     private final ModuleMetadataRelationService relations = mock(ModuleMetadataRelationService.class);
     private final PlatformDynamicRuntimeRefreshCoordinator coordinator = new PlatformDynamicRuntimeRefreshCoordinator(
@@ -51,8 +54,14 @@ class DynamicModuleActionRefreshContractTest {
         main.setTenantId("tenant-owner");
         main.setDeleted(false);
         dao.insert(main);
-        ModuleMetadataRelationService scopedRelations = new ModuleMetadataRelationService(dao, modules,
-                mock(net.ximatai.muyun.spring.platform.metadata.MetadataService.class));
+        ModuleMetadataRelationService scopedRelations = new ModuleMetadataRelationService(
+                dao,
+                modules,
+                mock(MetadataService.class),
+                Optional.empty(),
+                TestBeanProviders.empty(ConfigurationReferenceDeletionGuard.class),
+                TestBeanProviders.empty(MetadataFieldService.class),
+                event -> {});
         var scopedCoordinator = new PlatformDynamicRuntimeRefreshCoordinator(runtime, scopedRelations,
                 mock(ModuleMetadataFieldService.class), mock(MetadataViewService.class));
 
