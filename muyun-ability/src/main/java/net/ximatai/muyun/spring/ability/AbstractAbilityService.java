@@ -1,5 +1,6 @@
 package net.ximatai.muyun.spring.ability;
 
+import net.ximatai.muyun.spring.common.model.constraint.StaticFieldWriteRules;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
@@ -23,6 +24,7 @@ public abstract class AbstractAbilityService<T extends EntityContract> implement
         this.moduleAlias = Preconditions.requireText(moduleAlias, "moduleAlias");
         this.modelClass = Objects.requireNonNull(modelClass, "modelClass must not be null");
         this.dao = Objects.requireNonNull(dao, "dao must not be null");
+        StaticFieldWriteRules.resolve(modelClass);
     }
 
     // Accessors must remain interceptable so class proxies delegate to their initialized target.

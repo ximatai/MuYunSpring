@@ -1,5 +1,7 @@
 package net.ximatai.muyun.spring.iam.department;
 
+import net.ximatai.muyun.spring.common.model.constraint.Required;
+import net.ximatai.muyun.spring.common.model.constraint.NormalizeText;
 import lombok.Getter;
 import lombok.Setter;
 import net.ximatai.muyun.database.core.annotation.Column;
@@ -26,6 +28,8 @@ public class Department extends StandardEnabledTreeEntity {
             comment = "Organization id")
     @ReferenceTo(target = OrganizationService.class,
             integrity = @ReferenceIntegrity(requireEnabled = true, onTargetUnavailable = ReferenceTargetUnavailablePolicy.RESTRICT))
+    @Required
+    @NormalizeText
     private String organizationId;
 
     /** Stable read fact for detail, list and tree-node projection. */
@@ -33,5 +37,7 @@ public class Department extends StandardEnabledTreeEntity {
     private transient String organizationTitle;
 
     @Column(name = "code", type = ColumnType.VARCHAR, length = 64, nullable = false, comment = "Department code")
+    @Required
+    @NormalizeText
     private String code;
 }

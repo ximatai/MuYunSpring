@@ -1205,7 +1205,7 @@ class DynamicRecordDaoTest {
         record.setVersion(1);
 
         assertThat(record.explicitFieldCodes()).contains("meetingAt");
-        assertThatThrownBy(record::validateForUpdate)
+        assertThatThrownBy(record::validateCompanionsForUpdate)
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("field companion is missing");
         assertThatThrownBy(() -> service.update(record))

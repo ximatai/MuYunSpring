@@ -89,15 +89,10 @@ class DynamicRecordTest {
     }
 
     @Test
-    void shouldValidateRequiredFieldsBeforeInsert() {
-        DynamicRecord record = new DynamicRecord(contractEntity());
-
-        assertThatThrownBy(record::validateForInsert)
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("required dynamic field is missing: code");
-        assertThatThrownBy(() -> record.setValue("code", null))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("required dynamic field must not be null");
+    void shouldKeepDraftNullsUntilTheSaveOperationCanApplyGeneratedValuesAndRequirements() {
+        DynamicRecord record = new DynamicRecord(contractEntity()).setValue("code", null);
+        assertThat(record.getValue("code")).isNull();
+        assertThat(record.explicitFieldCodes()).contains("code");
     }
 
     @Test
@@ -208,7 +203,7 @@ class DynamicRecordTest {
 
         assertThat(record.getValue("meetingAt")).isEqualTo(Instant.parse("2026-01-02T01:30:00Z"));
         assertThat(record.getValue("meetingAtTimeZone")).isEqualTo("Asia/Shanghai");
-        record.validateForInsert();
+        record.validateCompanionsForInsert();
     }
 
     @Test
@@ -216,7 +211,7 @@ class DynamicRecordTest {
         DynamicRecord record = new DynamicRecord(optionalZonedTimestampEntity())
                 .setValue("meetingAt", "2026-01-02T01:30:00Z");
 
-        assertThatThrownBy(record::validateForInsert)
+        assertThatThrownBy(record::validateCompanionsForInsert)
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("field companion is missing");
         assertThatThrownBy(() -> record.setValue("meetingAtTimeZone", "+08:00"))

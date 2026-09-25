@@ -100,13 +100,19 @@ class EmployeeServiceContractTest {
         DepartmentService departmentService = departmentService();
         EmployeeService service = new EmployeeService(dao, activeTenantVerifier(),
                 departmentService);
-        Employee employee = employee("org-1", "dept-1", "E001", "Alice");
+        Employee employee = employee(" org-1 ", " dept-1 ", " E001 ", " Alice ");
         employee.setGender(" ");
+        employee.setEmail(" alice@example.com ");
 
         try (TenantContext.Scope ignored = TenantContext.use("tenant_a")) {
             service.insert(employee);
         }
 
+        assertThat(employee.getOrganizationId()).isEqualTo("org-1");
+        assertThat(employee.getDepartmentId()).isEqualTo("dept-1");
+        assertThat(employee.getEmployeeNo()).isEqualTo("E001");
+        assertThat(employee.getTitle()).isEqualTo("Alice");
+        assertThat(employee.getEmail()).isEqualTo("alice@example.com");
         assertThat(employee.getEnabled()).isTrue();
         assertThat(employee.getTenantId()).isEqualTo("tenant_a");
         assertThat(employee.getGender()).isNull();
@@ -138,7 +144,7 @@ class EmployeeServiceContractTest {
                     .hasMessageContaining("employeeNo");
             assertThatThrownBy(() -> service.insert(employee("org-1", "dept-1", "E001", " ")))
                     .isInstanceOf(IllegalArgumentException.class)
-                    .hasMessageContaining("employeeName");
+                    .hasMessageContaining("title");
         }
     }
 

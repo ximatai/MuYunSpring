@@ -172,10 +172,6 @@ public class ModuleMetadataFormulaRuleService extends AbstractAbilityService<Mod
         if (rule.getRulePhase() == null) {
             rule.setRulePhase(FormulaRulePhase.BEFORE_SAVE);
         }
-        if (rule.getExpression() == null || rule.getExpression().isBlank()) {
-            throw new PlatformException("Metadata formula rule requires expression: " + rule.getAlias());
-        }
-        rule.setExpression(rule.getExpression().trim());
         if (rule.getTargetField() != null && rule.getTargetField().isBlank()) {
             rule.setTargetField(null);
         }
@@ -188,7 +184,9 @@ public class ModuleMetadataFormulaRuleService extends AbstractAbilityService<Mod
         if (rule.getStopOnError() == null) {
             rule.setStopOnError(rule.getRuleKind() == FormulaRuleKind.VALIDATION);
         }
-        validateFormula(rule, relation);
+        if (rule.getExpression() != null && !rule.getExpression().isBlank()) {
+            validateFormula(rule, relation);
+        }
         rejectDuplicate(rule, Criteria.of()
                         .eq("relationId", rule.getRelationId())
                         .eq("alias", rule.getAlias()),

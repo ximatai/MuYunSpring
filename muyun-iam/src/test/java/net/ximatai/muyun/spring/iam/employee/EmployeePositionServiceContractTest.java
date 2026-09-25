@@ -63,7 +63,7 @@ class EmployeePositionServiceContractTest {
         try (TenantContext.Scope ignored = TenantContext.use("tenant_a")) {
             assertThatThrownBy(() -> service.insert(relation(" ", "org-1", "dept-1", "position-1", false)))
                     .isInstanceOf(IllegalArgumentException.class)
-                    .hasMessageContaining("employeeId");
+                    .hasMessageContaining("mutation parent id");
             assertThatThrownBy(() -> service.insert(relation("employee-1", " ", "dept-1", "position-1", false)))
                     .isInstanceOf(IllegalArgumentException.class)
                     .hasMessageContaining("organizationId");

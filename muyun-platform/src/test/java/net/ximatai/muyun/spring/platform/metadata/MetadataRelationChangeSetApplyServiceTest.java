@@ -1,5 +1,6 @@
 package net.ximatai.muyun.spring.platform.metadata;
 
+import net.ximatai.muyun.spring.common.model.constraint.TextNormalization;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
@@ -141,6 +142,9 @@ class MetadataRelationChangeSetApplyServiceTest {
         base.setQueryable(false);
         base.setDefaultValue("ATTENDED");
         base.setValidationRegex("[A-Z_]+");
+        base.setRequiredOnInsert(true);
+        base.setRequiredOnUpdate(false);
+        base.setTextNormalization(TextNormalization.TRIM);
         base.setCopyable(true);
         base.setWriteProtected(true);
         when(fixture.fieldConfigService.findRelationOverride("field-attendance", "main")).thenReturn(null);
@@ -154,6 +158,9 @@ class MetadataRelationChangeSetApplyServiceTest {
                         && Boolean.FALSE.equals(config.getQueryable())
                         && "ATTENDED".equals(config.getDefaultValue())
                         && "[A-Z_]+".equals(config.getValidationRegex())
+                        && Boolean.TRUE.equals(config.getRequiredOnInsert())
+                        && Boolean.FALSE.equals(config.getRequiredOnUpdate())
+                        && config.getTextNormalization() == TextNormalization.TRIM
                         && Boolean.TRUE.equals(config.getCopyable()) && Boolean.TRUE.equals(config.getWriteProtected())
                         && config.getFieldLength() == null && config.getPrecision() == null && config.getScale() == null));
     }

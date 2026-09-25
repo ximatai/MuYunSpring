@@ -69,7 +69,7 @@ class RecordImpactRelationServiceTest {
                         originContext("sales.contract"),
                         " ",
                         "operator-1"))
-                .isInstanceOf(PlatformException.class)
+                .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("targetRecordId");
     }
 

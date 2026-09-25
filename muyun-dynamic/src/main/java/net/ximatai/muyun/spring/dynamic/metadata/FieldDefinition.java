@@ -1,5 +1,6 @@
 package net.ximatai.muyun.spring.dynamic.metadata;
 
+import net.ximatai.muyun.spring.common.model.constraint.FieldWriteRules;
 import net.ximatai.muyun.spring.common.option.OptionBinding;
 import net.ximatai.muyun.spring.common.option.OptionSelectionMode;
 import net.ximatai.muyun.spring.common.schema.PlatformAbilityFields;
@@ -289,19 +290,29 @@ public record FieldDefinition(
     }
 
     public FieldDefinition defaultValue(String value) {
-        return behavior(new FieldBehaviorDefinition(value, behavior.validationRegex(), behavior.copyable(), behavior.writeProtected()));
+        return behavior(new FieldBehaviorDefinition(value, behavior.validationRegex(), behavior.copyable(), behavior.writeProtected(), behavior.writeRules()));
     }
 
     public FieldDefinition validationRegex(String value) {
-        return behavior(new FieldBehaviorDefinition(behavior.defaultValue(), value, behavior.copyable(), behavior.writeProtected()));
+        return behavior(new FieldBehaviorDefinition(behavior.defaultValue(), value, behavior.copyable(), behavior.writeProtected(), behavior.writeRules()));
     }
 
     public FieldDefinition notCopyable() {
-        return behavior(new FieldBehaviorDefinition(behavior.defaultValue(), behavior.validationRegex(), false, behavior.writeProtected()));
+        return behavior(new FieldBehaviorDefinition(behavior.defaultValue(), behavior.validationRegex(), false, behavior.writeProtected(), behavior.writeRules()));
     }
 
     public FieldDefinition writeProtected() {
-        return behavior(new FieldBehaviorDefinition(behavior.defaultValue(), behavior.validationRegex(), behavior.copyable(), true));
+        return behavior(new FieldBehaviorDefinition(behavior.defaultValue(), behavior.validationRegex(), behavior.copyable(), true, behavior.writeRules()));
+    }
+
+    /** Save-time requirements; storage nullability and explicit non-blank rules remain distinct facts. */
+    public FieldWriteRules resolvedWriteRules() {
+        return behavior.writeRules().withNonNull(isRequired);
+    }
+
+    public FieldDefinition writeRules(FieldWriteRules value) {
+        return behavior(new FieldBehaviorDefinition(behavior.defaultValue(), behavior.validationRegex(),
+                behavior.copyable(), behavior.writeProtected(), value));
     }
 
     public FieldDefinition behavior(FieldBehaviorDefinition value) {

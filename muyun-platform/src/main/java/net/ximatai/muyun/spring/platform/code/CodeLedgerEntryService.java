@@ -144,7 +144,7 @@ public class CodeLedgerEntryService extends AbstractAbilityService<CodeLedgerEnt
 
     @Override
     public void beforeInsert(CodeLedgerEntry entry) {
-        normalizeAndValidate(entry);
+        applyDefaults(entry);
         rejectDuplicate(entry, Criteria.of()
                         .eq("ruleId", entry.getRuleId())
                         .eq("codeValue", entry.getCodeValue()),
@@ -153,29 +153,14 @@ public class CodeLedgerEntryService extends AbstractAbilityService<CodeLedgerEnt
 
     @Override
     public void beforeUpdate(CodeLedgerEntry entry) {
-        normalizeAndValidate(entry);
+        applyDefaults(entry);
         rejectDuplicate(entry, Criteria.of()
                         .eq("ruleId", entry.getRuleId())
                         .eq("codeValue", entry.getCodeValue()),
                 "Code ledger entry already exists for value: " + entry.getRuleId() + "/" + entry.getCodeValue());
     }
 
-    private void normalizeAndValidate(CodeLedgerEntry entry) {
-        if (entry.getRuleId() == null || entry.getRuleId().isBlank()) {
-            throw new PlatformException("Code ledger entry requires ruleId");
-        }
-        if (entry.getCodeValue() == null || entry.getCodeValue().isBlank()) {
-            throw new PlatformException("Code ledger entry requires codeValue");
-        }
-        if (entry.getModuleAlias() == null || entry.getModuleAlias().isBlank()) {
-            throw new PlatformException("Code ledger entry requires moduleAlias");
-        }
-        if (entry.getEntityAlias() == null || entry.getEntityAlias().isBlank()) {
-            throw new PlatformException("Code ledger entry requires entityAlias");
-        }
-        if (entry.getFieldName() == null || entry.getFieldName().isBlank()) {
-            throw new PlatformException("Code ledger entry requires fieldName");
-        }
+    private void applyDefaults(CodeLedgerEntry entry) {
         entry.setBasisKey(normalizeBucket(entry.getBasisKey()));
         entry.setPeriodKey(normalizeBucket(entry.getPeriodKey()));
         if (entry.getStatus() == null) {

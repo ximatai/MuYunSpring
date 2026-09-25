@@ -89,30 +89,17 @@ public class RecordWriteBackEffectLogService extends AbstractAbilityService<Reco
 
     @Override
     public void beforeInsert(RecordWriteBackEffectLog effectLog) {
-        normalizeAndValidate(effectLog);
+        applyDefaults(effectLog);
     }
 
     @Override
     public void beforeUpdate(RecordWriteBackEffectLog effectLog) {
-        normalizeAndValidate(effectLog);
+        applyDefaults(effectLog);
     }
 
-    private void normalizeAndValidate(RecordWriteBackEffectLog effectLog) {
+    private void applyDefaults(RecordWriteBackEffectLog effectLog) {
         if (effectLog == null) {
             throw new PlatformException("Record write-back effect log must not be null");
-        }
-        effectLog.setExecutionId(requireText(effectLog.getExecutionId(), "executionId"));
-        effectLog.setTraceId(requireText(effectLog.getTraceId(), "traceId"));
-        effectLog.setTriggerModuleAlias(requireText(effectLog.getTriggerModuleAlias(), "triggerModuleAlias"));
-        effectLog.setTriggerRecordId(requireText(effectLog.getTriggerRecordId(), "triggerRecordId"));
-        effectLog.setTargetModuleAlias(requireText(effectLog.getTargetModuleAlias(), "targetModuleAlias"));
-        effectLog.setTargetRecordId(requireText(effectLog.getTargetRecordId(), "targetRecordId"));
-        effectLog.setTargetField(requireText(effectLog.getTargetField(), "targetField"));
-        if (effectLog.getSourceType() == null) {
-            throw new PlatformException("Record write-back effect log sourceType must not be null");
-        }
-        if (effectLog.getOperation() == null) {
-            throw new PlatformException("Record write-back effect log operation must not be null");
         }
         if (effectLog.getStatus() == null) {
             effectLog.setStatus(RecordWriteBackEffectStatus.APPLIED);

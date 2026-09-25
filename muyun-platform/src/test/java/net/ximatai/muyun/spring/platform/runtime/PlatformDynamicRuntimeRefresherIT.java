@@ -1,5 +1,7 @@
 package net.ximatai.muyun.spring.platform.runtime;
 
+import net.ximatai.muyun.spring.common.model.constraint.FieldWriteRules;
+import net.ximatai.muyun.spring.common.model.constraint.TextNormalization;
 import net.ximatai.muyun.database.core.IDatabaseOperations;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
@@ -112,7 +114,18 @@ class PlatformDynamicRuntimeRefresherIT extends PlatformPostgresIntegrationTest 
         statusConfig.setDefaultValue("active");
         statusConfig.setValidationRegex("[a-z_]+");
         statusConfig.setCopyable(false);
+        statusConfig.setRequiredOnInsert(true);
+        statusConfig.setRequiredOnUpdate(true);
+        statusConfig.setTextNormalization(TextNormalization.TRIM);
         services.fieldConfigService.insert(statusConfig);
+        MetadataFieldConfig persistedStatusConfig = services.fieldConfigService.select(statusConfig.getId());
+        assertThat(persistedStatusConfig.getRequiredOnInsert()).isTrue();
+        assertThat(persistedStatusConfig.getRequiredOnUpdate()).isTrue();
+        assertThat(persistedStatusConfig.getTextNormalization())
+                .isEqualTo(TextNormalization.TRIM);
+        assertThat(services.fieldDefinitionCompiler.compile(status).behavior().writeRules())
+                .isEqualTo(new FieldWriteRules(true, true,
+                        TextNormalization.TRIM));
         MetadataField serverCode = field(customerMetadataId, "serverCode", "server_code", FieldType.STRING);
         services.fieldService.insert(serverCode);
         MetadataFieldConfig serverCodeConfig = fieldConfig(serverCode.getId());

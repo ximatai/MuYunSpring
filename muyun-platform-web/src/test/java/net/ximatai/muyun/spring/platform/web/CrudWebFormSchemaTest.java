@@ -51,6 +51,24 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 class CrudWebFormSchemaTest {
+    @Test
+    void legacyFormSchemaShouldRetainResolvedOperationRequirements() {
+        var rules = new net.ximatai.muyun.spring.common.model.constraint.FieldWriteRules(true, false, null);
+        var entity = new EntityDefinition("form", "form", "表单", List.of(
+                FieldDefinition.string("code", "编码").writeRules(rules),
+                FieldDefinition.string("generated", "自动值").writeRules(rules).defaultValue("generated")));
+        var ui = ModuleUiDefinition.builder("demo.form").editors(editors -> editors.defaultEditor(editor ->
+                editor.field("code").field("generated"))).build();
+        var descriptor = ModuleUiDescriptorCompiler.compile(StaticModuleDefinition.builder("demo", "demo.form", "表单")
+                .entities(List.of(entity)).uiDefinition(ui).build());
+        var schema = ModuleUiFormSchemaAdapter.formSchema(descriptor, null, null, null);
+        assertThat(schema.fields().getFirst().required()).isFalse();
+        assertThat(schema.fields().getFirst().inputRequirements()).isEqualTo(
+                new net.ximatai.muyun.spring.common.model.constraint.FieldInputRequirements(true, false));
+        assertThat(schema.fields().get(1).inputRequirements()).isEqualTo(
+                net.ximatai.muyun.spring.common.model.constraint.FieldInputRequirements.NONE);
+    }
+
     @AfterEach
     void tearDown() {
         TenantContext.clear();

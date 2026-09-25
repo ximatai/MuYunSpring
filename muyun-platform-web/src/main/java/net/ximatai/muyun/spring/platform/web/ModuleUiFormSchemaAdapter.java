@@ -1,6 +1,7 @@
 package net.ximatai.muyun.spring.platform.web;
 
 import net.ximatai.muyun.spring.ability.form.FormControlType;
+import net.ximatai.muyun.spring.common.model.constraint.FieldInputRequirements;
 import net.ximatai.muyun.spring.ability.form.FormDescriptor;
 import net.ximatai.muyun.spring.ability.form.FormField;
 import net.ximatai.muyun.spring.ability.form.FormSchema;
@@ -133,7 +134,8 @@ public final class ModuleUiFormSchemaAdapter {
                 field.option() == null ? null : field.option().binding(),
                 field.option() == null ? null : field.option().selectionMode(),
                 field.option() == null ? null : field.option().titleField());
-        return result;
+        return result.withInputRequirements(field.inputRequirements() == null
+                ? FieldInputRequirements.NONE : field.inputRequirements());
     }
 
     private static FormControlType controlType(ResolvedViewFieldDescriptor field) {

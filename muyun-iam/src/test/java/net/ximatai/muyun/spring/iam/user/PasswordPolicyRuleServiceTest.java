@@ -14,6 +14,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.when;
 
 class PasswordPolicyRuleServiceTest {
@@ -61,13 +63,14 @@ class PasswordPolicyRuleServiceTest {
     @Test
     void shouldNormalizeGlobalRuleAndRejectInvalidRegex() {
         PasswordPolicyRuleDao dao = mock(PasswordPolicyRuleDao.class);
-        PasswordPolicyRuleService service = new PasswordPolicyRuleService(dao);
+        PasswordPolicyRuleService service = spy(new PasswordPolicyRuleService(dao));
+        when(dao.insert(any())).thenReturn("rule-1");
         PasswordPolicyRule rule = new PasswordPolicyRule();
         rule.setTitle(" 包含大写字母 ");
         rule.setPattern("^.*[A-Z].*$");
         rule.setMessage(" 密码必须包含大写字母 ");
 
-        service.beforeInsert(rule);
+        service.insert(rule);
 
         assertThat(rule.getScopeType()).isEqualTo(PasswordPolicyScopeType.GLOBAL);
         assertThat(rule.getScopeId()).isNull();
@@ -75,10 +78,23 @@ class PasswordPolicyRuleServiceTest {
         assertThat(rule.getTitle()).isEqualTo("包含大写字母");
         assertThat(rule.getMessage()).isEqualTo("密码必须包含大写字母");
 
+        rule.setId("rule-1");
+        doReturn(rule).when(service).selectExistingForScopedMutation(any());
         rule.setPattern("[");
-        assertThatThrownBy(() -> service.beforeUpdate(rule))
+        assertThatThrownBy(() -> service.update(rule))
                 .isInstanceOf(PlatformException.class)
                 .hasMessageContaining("invalid password policy regex");
+    }
+
+    @Test
+    void shouldRejectBlankPolicyFieldsThroughStandardInsert() {
+        PasswordPolicyRuleService service = new PasswordPolicyRuleService(mock(PasswordPolicyRuleDao.class));
+        PasswordPolicyRule missingPattern = rule("Policy", null, "Invalid password", 10);
+        assertThatThrownBy(() -> service.insert(missingPattern))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("pattern");
+        PasswordPolicyRule missingMessage = rule("Policy", ".+", "  ", 10);
+        assertThatThrownBy(() -> service.insert(missingMessage))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("message");
     }
 
     private PasswordPolicyRule rule(String title, String pattern, String message, int sortOrder) {

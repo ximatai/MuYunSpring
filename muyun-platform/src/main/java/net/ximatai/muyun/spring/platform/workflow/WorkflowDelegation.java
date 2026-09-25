@@ -1,5 +1,7 @@
 package net.ximatai.muyun.spring.platform.workflow;
 
+import net.ximatai.muyun.spring.common.model.constraint.NormalizeText;
+import net.ximatai.muyun.spring.common.model.constraint.Required;
 import lombok.Getter;
 import lombok.Setter;
 import net.ximatai.muyun.database.core.annotation.Column;
@@ -17,16 +19,22 @@ import java.util.Set;
 @Table(name = "platform_workflow_delegation", comment = "Workflow delegation policy")
 @CompositeIndex(columns = {"tenant_id", "principal_user_id", "enabled"})
 @CompositeIndex(columns = {"tenant_id", "delegate_user_id", "enabled"})
+@Required(fields = "title")
+@NormalizeText(fields = "title")
 public class WorkflowDelegation extends StandardEnabledSortableEntity {
     @Column(name = "title", type = ColumnType.VARCHAR, length = 128, nullable = false, comment = "Delegation title")
     private String title;
 
     @Column(name = "principal_user_id", type = ColumnType.VARCHAR, length = 64, nullable = false,
             comment = "Principal user id")
+    @Required
+    @NormalizeText
     private String principalUserId;
 
     @Column(name = "delegate_user_id", type = ColumnType.VARCHAR, length = 64, nullable = false,
             comment = "Delegate user id")
+    @Required
+    @NormalizeText
     private String delegateUserId;
 
     @Column(name = "principal_can_process", type = ColumnType.BOOLEAN, nullable = false,

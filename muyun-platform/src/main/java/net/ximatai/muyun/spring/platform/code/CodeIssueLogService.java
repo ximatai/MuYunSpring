@@ -7,7 +7,6 @@ import net.ximatai.muyun.spring.ability.AbstractAbilityService;
 import net.ximatai.muyun.spring.ability.BaseDao;
 import net.ximatai.muyun.spring.ability.DisablePlatformOperations;
 import net.ximatai.muyun.spring.ability.SoftDeleteAbility;
-import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.platform.PlatformAction;
 import org.springframework.stereotype.Service;
 
@@ -68,27 +67,15 @@ public class CodeIssueLogService extends AbstractAbilityService<CodeIssueLog> im
 
     @Override
     public void beforeInsert(CodeIssueLog log) {
-        normalizeAndValidate(log);
+        applyDefaults(log);
     }
 
     @Override
     public void beforeUpdate(CodeIssueLog log) {
-        normalizeAndValidate(log);
+        applyDefaults(log);
     }
 
-    private void normalizeAndValidate(CodeIssueLog log) {
-        if (log.getRuleId() == null || log.getRuleId().isBlank()) {
-            throw new PlatformException("Code issue log requires ruleId");
-        }
-        if (log.getModuleAlias() == null || log.getModuleAlias().isBlank()) {
-            throw new PlatformException("Code issue log requires moduleAlias");
-        }
-        if (log.getEntityAlias() == null || log.getEntityAlias().isBlank()) {
-            throw new PlatformException("Code issue log requires entityAlias");
-        }
-        if (log.getFieldName() == null || log.getFieldName().isBlank()) {
-            throw new PlatformException("Code issue log requires fieldName");
-        }
+    private void applyDefaults(CodeIssueLog log) {
         log.setBasisKey(normalizeBucket(log.getBasisKey()));
         log.setPeriodKey(normalizeBucket(log.getPeriodKey()));
         if (log.getStatus() == null) {

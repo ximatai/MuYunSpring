@@ -9,6 +9,29 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 class FormSchemaTest {
     @Test
+    void shouldRetainModelOperationRequirementsAcrossOptionAndFormProjection() {
+        var descriptor = FormDescriptor.builder("demo.form")
+                .field(FormField.of("code").withOptionBinding(OptionBinding.dictionary("demo", "code")))
+                .build();
+        var schema = FormSchema.from(descriptor, RequiredRecord.class);
+        assertThat(schema.fields().getFirst().required()).isFalse();
+        assertThat(schema.fields().getFirst().inputRequirements()).isEqualTo(
+                new net.ximatai.muyun.spring.common.model.constraint.FieldInputRequirements(true, false));
+        var explicit = FormField.of("code").withInputRequirements(
+                net.ximatai.muyun.spring.common.model.constraint.FieldInputRequirements.NONE)
+                .withTitle("编码").withOptionBinding(OptionBinding.dictionary("demo", "code"));
+        assertThat(FormSchema.from(FormDescriptor.builder("demo.form").field(explicit).build(), RequiredRecord.class)
+                .fields().getFirst().inputRequirements()).isEqualTo(
+                        net.ximatai.muyun.spring.common.model.constraint.FieldInputRequirements.NONE);
+    }
+
+    private static class RequiredRecord {
+        @net.ximatai.muyun.spring.common.model.constraint.Required(
+                on = net.ximatai.muyun.spring.common.model.constraint.WriteOperation.INSERT)
+        private String code;
+    }
+
+    @Test
     void shouldExposeDescriptorAsFrontendConsumableSchema() {
         FormDescriptor descriptor = FormDescriptor.builder("iam.employee")
                 .title("职员档案")

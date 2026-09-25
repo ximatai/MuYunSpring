@@ -113,12 +113,24 @@ public interface FieldProtectionAbility<T extends EntityContract> extends CrudAb
         if (incoming == null || stored == null) {
             throw new IllegalArgumentException("retaining a protected field requires incoming and stored records");
         }
-        ProtectedFieldAccessor<T> field = fieldProtectionPlan().fields().stream()
-                .filter(candidate -> candidate.fieldName().equals(fieldName)
-                        && candidate.protection().hasStorageProtection())
+        ProtectedFieldAccessor<T> field = requireStorageProtectedField(fieldName);
+        field.set(incoming, readProtectedStorageValue(field, stored));
+    }
+
+    /** Reads and verifies a stored value without applying write-time transformations. */
+    default Object readProtectedFieldFromStorage(T stored, String fieldName) {
+        if (stored == null) {
+            throw new IllegalArgumentException("reading a protected field requires a stored record");
+        }
+        ProtectedFieldAccessor<T> field = requireStorageProtectedField(fieldName);
+        return readProtectedStorageValue(field, stored);
+    }
+
+    private ProtectedFieldAccessor<T> requireStorageProtectedField(String fieldName) {
+        return fieldProtectionPlan().fields().stream()
+                .filter(field -> field.fieldName().equals(fieldName) && field.protection().hasStorageProtection())
                 .findFirst().orElseThrow(() -> new IllegalArgumentException(
                         "field has no storage protection: " + fieldName));
-        field.set(incoming, readProtectedStorageValue(field, stored));
     }
 
     private Object readProtectedStorageValue(ProtectedFieldAccessor<T> field, T stored) {

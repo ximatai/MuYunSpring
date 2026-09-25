@@ -1,5 +1,7 @@
 package net.ximatai.muyun.spring.dynamic.metadata;
 
+import net.ximatai.muyun.spring.common.model.constraint.FieldWriteRules;
+import net.ximatai.muyun.spring.common.model.constraint.TextNormalization;
 import net.ximatai.muyun.spring.common.option.OptionBinding;
 import net.ximatai.muyun.spring.common.option.OptionSelectionMode;
 import net.ximatai.muyun.spring.common.security.FieldEncryptionMode;
@@ -197,6 +199,17 @@ class FieldDefinitionTest {
         )))
                 .isInstanceOf(ModuleDefinitionException.class)
                 .hasMessageContaining("virtual field cannot define default value or validation regex");
+    }
+
+    @Test
+    void shouldRejectWriteRulesOnVirtualFields() {
+        EntityDefinition entity = new EntityDefinition("customer", "customer", "Customer",
+                java.util.List.of(FieldDefinition.string("displayCode", "Display Code").column("display_code").virtual()
+                        .writeRules(new FieldWriteRules(true, false,
+                                TextNormalization.TRIM))));
+        assertThatThrownBy(() -> new ModuleDefinitionValidator().validateEntity(entity))
+                .isInstanceOf(ModuleDefinitionException.class)
+                .hasMessageContaining("virtual field cannot define write rules");
     }
 
     @Test

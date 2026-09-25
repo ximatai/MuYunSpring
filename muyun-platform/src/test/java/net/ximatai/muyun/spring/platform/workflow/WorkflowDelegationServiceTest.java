@@ -14,6 +14,19 @@ class WorkflowDelegationServiceTest {
     private final WorkflowDelegationService service = new WorkflowDelegationService(new TestMemoryDao<>());
 
     @Test
+    void standardWritesNormalizeAndRequireInheritedTitle() {
+        WorkflowDelegation record = delegation("  Delegation  ", " user-a ", " user-b ");
+        service.insert(record);
+        assertThat(record.getTitle()).isEqualTo("Delegation");
+        assertThat(record.getPrincipalUserId()).isEqualTo("user-a");
+        record.setTitle(" ");
+        assertThatThrownBy(() -> service.update(record))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("title");
+        assertThatThrownBy(() -> service.insert(delegation(" ", "user-a", "user-b")))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("title");
+    }
+
+    @Test
     void shouldCreateDisabledAndRejectEnabledUpdateOrDelete() {
         WorkflowDelegation delegation = delegation("specific", "user-a", "user-b");
         delegation.setEnabled(true);

@@ -27,25 +27,6 @@ public class RecordWriteBackMatchRuleService extends AbstractAbilityService<Reco
         return list(Criteria.of().eq("ruleId", requireText(ruleId, "ruleId")), ALL, Sort.asc("sortOrder"));
     }
 
-    @Override
-    public void beforeInsert(RecordWriteBackMatchRule rule) {
-        normalizeAndValidate(rule);
-    }
-
-    @Override
-    public void beforeUpdate(RecordWriteBackMatchRule rule) {
-        normalizeAndValidate(rule);
-    }
-
-    private void normalizeAndValidate(RecordWriteBackMatchRule rule) {
-        if (rule == null) {
-            throw new PlatformException("Record write-back match rule must not be null");
-        }
-        rule.setRuleId(requireText(rule.getRuleId(), "ruleId"));
-        rule.setSourceField(requireText(rule.getSourceField(), "sourceField"));
-        rule.setTargetField(requireText(rule.getTargetField(), "targetField"));
-    }
-
     private String requireText(String value, String fieldName) {
         if (value == null || value.isBlank()) {
             throw new PlatformException("Record write-back match rule " + fieldName + " must not be blank");

@@ -11,6 +11,18 @@ class WorkflowInstanceServiceTest {
     private final WorkflowInstanceService service = new WorkflowInstanceService(new TestMemoryDao<>());
 
     @Test
+    void standardWritesRejectBlankInstanceIdentityAndSnapshot() {
+        WorkflowInstance invalid = instance("invalid", "sales.contract", " ", false);
+        assertThatThrownBy(() -> service.insert(invalid))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("recordId");
+        WorkflowInstance valid = instance("valid", "sales.contract", "record-1", false);
+        service.insert(valid);
+        valid.setSnapshotText(" ");
+        assertThatThrownBy(() -> service.update(valid))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("snapshotText");
+    }
+
+    @Test
     void shouldRejectSecondRunningApprovalInstanceForSameModuleRecord() {
         service.insert(instance("i1", "sales.contract", "record-1", true));
 

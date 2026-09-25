@@ -1,5 +1,7 @@
 package net.ximatai.muyun.spring.platform.metadata;
 
+import net.ximatai.muyun.spring.common.model.constraint.FieldWriteRules;
+import net.ximatai.muyun.spring.common.model.constraint.TextNormalization;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.database.core.orm.Sort;
@@ -244,7 +246,16 @@ public class ModuleMetadataFieldService extends AbstractAbilityService<ModuleMet
             throw new PlatformException("Module metadata field requires field in relation metadata: "
                     + moduleField.getMetadataFieldId());
         }
+        if (Boolean.TRUE.equals(field.getSystemManaged())
+                && (moduleField.getRequiredOnInsert() != null || moduleField.getRequiredOnUpdate() != null
+                        || moduleField.getTextNormalization() != null)) {
+            throw new PlatformException("System managed field cannot override write rules: " + field.getFieldName());
+        }
         validateVirtualFieldBoundary(moduleField, field);
+        if (moduleField.getTextNormalization() != null
+                && moduleField.getTextNormalization() != TextNormalization.NONE) {
+            requireTextField(field, "Text normalization");
+        }
         normalizeReferenceConfig(moduleField, metadata, relation);
         validateChildForeignKeyReference(moduleField, relation, field);
         normalizeMeasureUnitConfig(moduleField, metadata, relation, field);
@@ -272,8 +283,10 @@ public class ModuleMetadataFieldService extends AbstractAbilityService<ModuleMet
         if (field.getFieldForm() != MetadataFieldForm.VIRTUAL) {
             return;
         }
-        if (hasText(moduleField.getDefaultValue()) || hasText(moduleField.getValidationRegex())) {
-            throw new PlatformException("Virtual module metadata field cannot define default value or validation regex: "
+        if (hasText(moduleField.getDefaultValue()) || hasText(moduleField.getValidationRegex())
+                || !moduleField.effectiveWriteRules(FieldWriteRules.NONE)
+                        .equals(FieldWriteRules.NONE)) {
+            throw new PlatformException("Virtual module metadata field cannot define default value or validation regex or write rules: "
                     + field.getFieldName());
         }
         if (hasMeasureConfig(moduleField)) {

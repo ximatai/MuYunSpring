@@ -1,5 +1,7 @@
 package net.ximatai.muyun.spring.platform.metadata;
 
+import net.ximatai.muyun.spring.common.model.constraint.FieldWriteRules;
+import net.ximatai.muyun.spring.common.model.constraint.TextNormalization;
 import net.ximatai.muyun.database.core.IDatabaseOperations;
 import net.ximatai.muyun.database.core.metadata.DBInfo;
 import net.ximatai.muyun.database.core.orm.Criteria;
@@ -1211,6 +1213,58 @@ class PlatformMetadataServiceContractTest {
         assertThat(definition.behavior().validationRegex()).isEqualTo("[A-Z]+");
         assertThat(definition.behavior().copyable()).isFalse();
         assertThat(definition.behavior().writeProtected()).isFalse();
+    }
+
+    @Test
+    void shouldInheritAndOverrideWriteRulesWithoutChangingStorageNullability() {
+        moduleService.insert(module("crm.customer", "crm", ModuleKind.DYNAMIC));
+        String metadataId = metadataService.insert(metadata("crm", "customer"));
+        MetadataField field = field(metadataId, "code", "code", FieldType.STRING);
+        fieldService.insert(field);
+        String relationId = relationService.insert(mainRelation("crm.customer", metadataId));
+        MetadataFieldConfig defaults = fieldConfig(field.getId());
+        defaults.setRequiredOnInsert(true);
+        defaults.setRequiredOnUpdate(true);
+        defaults.setTextNormalization(TextNormalization.TRIM);
+        fieldConfigService.insert(defaults);
+        MetadataFieldConfig override = fieldConfig(field.getId());
+        override.setRelationId(relationId);
+        override.setRequiredOnUpdate(false);
+        fieldConfigService.insert(override);
+
+        FieldDefinition compiled = fieldDefinitionCompiler.compile(field, relationId);
+        assertThat(compiled.isRequired()).isFalse();
+        assertThat(compiled.behavior().writeRules()).isEqualTo(
+                new FieldWriteRules(true, false,
+                        TextNormalization.TRIM));
+        ModuleMetadataField moduleField = new ModuleMetadataField();
+        moduleField.setTextNormalization(TextNormalization.NONE);
+        moduleField.setRequiredOnUpdate(true);
+        assertThat(fieldDefinitionCompiler.compile(field, relationId, moduleField).behavior().writeRules()).isEqualTo(
+                new FieldWriteRules(true, true,
+                        TextNormalization.NONE));
+    }
+
+    @Test
+    void shouldRejectWriteRuleOverridesOnSystemManagedFields() {
+        String metadataId = metadataService.insert(metadata("crm", "customer"));
+        MetadataField managed = field(metadataId, "customerName", "customer_name", FieldType.STRING);
+        managed.setSystemManaged(Boolean.TRUE);
+        PlatformManagedMutationContext.runAsPlatformManaged(() -> fieldService.insert(managed));
+        MetadataFieldConfig config = fieldConfig(managed.getId());
+        config.setRequiredOnInsert(true);
+        assertThatThrownBy(() -> fieldConfigService.insert(config))
+                .isInstanceOf(PlatformException.class).hasMessageContaining("System managed field cannot override write rules");
+    }
+
+    @Test
+    void shouldRejectTextNormalizationOnNumericField() {
+        String metadataId = metadataService.insert(metadata("crm", "customer"));
+        MetadataField field = field(metadataId, "amount", "amount", FieldType.INTEGER);
+        fieldService.insert(field);
+        MetadataFieldConfig config = fieldConfig(field.getId());
+        config.setTextNormalization(TextNormalization.TRIM);
+        assertThatThrownBy(() -> fieldConfigService.insert(config)).isInstanceOf(IllegalArgumentException.class);
     }
 
     @Test

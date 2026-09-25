@@ -45,6 +45,7 @@ public interface CrudAbility<T extends EntityContract> {
 
     private String insertInTransaction(T entity) {
         PlatformAbilityDispatcher.requireMutationContext(this, entity);
+        FieldWriteSupport.normalize(this, entity);
         normalizeBeforeMutation(entity);
         beforePrepareInsert(entity);
         EntityLifecycle.prepareInsert(entity, Instant.now());
@@ -132,6 +133,7 @@ public interface CrudAbility<T extends EntityContract> {
                 entity.setDeletedAt(null);
                 entity.setDeletedBy(null);
             }
+            FieldWriteSupport.normalize(this, entity);
             normalizeBeforeMutation(entity);
             PlatformAbilityDispatcher.lockMutationParents(this, existing, entity);
             Integer expectedVersion = expectedVersionForUpdate(entity, existing);

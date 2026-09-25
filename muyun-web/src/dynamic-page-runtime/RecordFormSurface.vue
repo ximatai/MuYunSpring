@@ -113,6 +113,7 @@ watch(
       :context-for="contextFor"
     />
     <RecordFormFields
+      :mode="mode"
       :record="record"
       :fields="fields"
       :field-names="fieldNames"

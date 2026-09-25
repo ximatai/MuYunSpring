@@ -1333,3 +1333,23 @@ it('resolves detail groups from the selected read projection without inheriting 
   value.page!.detail.display!.formGroups = [{ ...group, title: '只读信息' }];
   expect(resolveRecordDetailFields(value).get('title')?.formGroup?.title).toBe('只读信息');
 });
+
+it('uses editor operation for model requirements even when a new record has a preallocated id', () => {
+  const fields = new Map<string, RecordFormFieldDescriptor>([
+    [
+      'code',
+      {
+        ...descriptorField('code', '编码'),
+        required: { constant: false },
+        inputRequirements: { requiredOnInsert: true, requiredOnUpdate: false },
+      },
+    ],
+  ]);
+  const record = { id: 'preallocated-id' };
+  expect(resolveRecordFormFieldState('code', { fields, record, mode: 'create' }).required).toBe(true);
+  expect(resolveRecordFormFieldState('code', { fields, record, mode: 'edit' }).required).toBe(false);
+  fields.get('code')!.readOnly = { constant: true };
+  expect(resolveRecordFormFieldState('code', { fields, record, mode: 'create' }).required).toBe(false);
+  fields.get('code')!.required = { constant: true };
+  expect(resolveRecordFormFieldState('code', { fields, record, mode: 'edit' }).required).toBe(true);
+});

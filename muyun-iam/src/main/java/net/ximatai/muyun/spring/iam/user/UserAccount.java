@@ -1,5 +1,7 @@
 package net.ximatai.muyun.spring.iam.user;
 
+import net.ximatai.muyun.spring.common.model.constraint.Required;
+import net.ximatai.muyun.spring.common.model.constraint.NormalizeText;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.Getter;
@@ -27,6 +29,8 @@ import java.time.Instant;
 )
 public class UserAccount extends StandardDataScopedEnabledSortableEntity {
     @Column(name = "username", type = ColumnType.VARCHAR, length = 64, nullable = false, comment = "Username")
+    @Required
+    @NormalizeText
     private String username;
 
     @Column(name = "password_hash", type = ColumnType.VARCHAR, length = 256, nullable = false,

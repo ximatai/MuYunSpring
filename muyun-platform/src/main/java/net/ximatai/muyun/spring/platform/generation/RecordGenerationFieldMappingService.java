@@ -30,9 +30,6 @@ public class RecordGenerationFieldMappingService extends StandardBusinessService
 
     @Override
     protected void validateBeforeSave(RecordGenerationFieldMapping mapping) {
-        if (mapping.getObjectMappingId() == null || mapping.getObjectMappingId().isBlank()) {
-            throw new PlatformException("Field mapping requires objectMappingId");
-        }
         if (mapping.getMappingType() == null) {
             mapping.setMappingType(RecordGenerationFieldSourceType.DIRECT);
         }

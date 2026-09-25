@@ -218,8 +218,13 @@ const someSelected = computed(
   () => !allSelected.value && selectableRows.value.some((row) => selectedKeys.value.has(row.__draftKey)),
 );
 
+function rowMode(row: QueryListRecord): 'create' | 'edit' {
+  return String(row.__draftKey ?? '').startsWith('persisted:') ? 'edit' : 'create';
+}
+
 function fieldRequired(fieldName: string, row: QueryListRecord = {}) {
-  return resolveRecordFormFieldState(fieldName, { fields: formFields.value, record: row }).required;
+  return resolveRecordFormFieldState(fieldName, { fields: formFields.value, record: row, mode: rowMode(row) })
+    .required;
 }
 
 function displayRecord(row: DraftRow | QueryListRecord): RecordFormRecord {
@@ -606,6 +611,7 @@ onMounted(() => void load());
     </template>
     <template #cell="{ row, column }">
       <RecordFormFields
+        :mode="rowMode(row)"
         v-if="editingEnabled && formFields.has(column.fieldName)"
         :record="displayRecord(row)"
         :fields="formFields"

@@ -1,5 +1,8 @@
 package net.ximatai.muyun.spring.iam.employee;
 
+import net.ximatai.muyun.spring.common.model.constraint.Required;
+import net.ximatai.muyun.spring.common.model.constraint.NormalizeText;
+import net.ximatai.muyun.spring.common.model.constraint.TextNormalization;
 import lombok.Getter;
 import lombok.Setter;
 import net.ximatai.muyun.database.core.annotation.Column;
@@ -26,18 +29,24 @@ public class EmployeeDelegation extends StandardEntity implements EnabledCapable
 
     @Column(name = "principal_employee_id", type = ColumnType.VARCHAR, length = 32, nullable = false,
             comment = "Principal employee id")
+    @Required
+    @NormalizeText
     private String principalEmployeeId;
 
     @Column(name = "principal_position_id", type = ColumnType.VARCHAR, length = 32,
             comment = "Principal employee position id")
+    @NormalizeText(TextNormalization.TRIM_TO_NULL)
     private String principalPositionId;
 
     @Column(name = "delegate_employee_id", type = ColumnType.VARCHAR, length = 32, nullable = false,
             comment = "Delegate employee id")
+    @Required
+    @NormalizeText
     private String delegateEmployeeId;
 
     @Column(name = "delegate_position_id", type = ColumnType.VARCHAR, length = 32,
             comment = "Delegate employee position id")
+    @NormalizeText(TextNormalization.TRIM_TO_NULL)
     private String delegatePositionId;
 
     @Column(name = "effective_from", type = ColumnType.TIMESTAMP, comment = "Effective from")

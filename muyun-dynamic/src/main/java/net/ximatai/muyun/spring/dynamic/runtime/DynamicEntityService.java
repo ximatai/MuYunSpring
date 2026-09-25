@@ -57,6 +57,8 @@ import net.ximatai.muyun.spring.dynamic.capability.CapabilityModuleRegistry;
 
 import java.util.Collection;
 import java.util.ArrayList;
+import net.ximatai.muyun.spring.ability.FieldWriteRulesProvider;
+import net.ximatai.muyun.spring.common.model.constraint.FieldWriteRules;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -68,6 +70,7 @@ import java.util.function.Function;
 
 public class DynamicEntityService implements
         CrudAbility<DynamicRecord>,
+        FieldWriteRulesProvider<DynamicRecord>,
         RecycleBinAbility<DynamicRecord>,
         ChildAbility<DynamicRecord>,
         ChildrenAbility<DynamicRecord>,
@@ -76,6 +79,7 @@ public class DynamicEntityService implements
         FieldProtectionAbility<DynamicRecord>,
         TenantUniqueConstraintProvider<DynamicRecord>,
         ReferenceTargetProvider {
+    private final Map<String, FieldWriteRules> writeRules;
     private final DynamicRecordDao dao;
     private final String moduleAlias;
     private final DynamicRecordLifecycle lifecycle;
@@ -144,6 +148,13 @@ public class DynamicEntityService implements
                          PlatformTimeService timeService,
                          DynamicOptionLoadPopulator optionLoadPopulator) {
         this.dao = Objects.requireNonNull(dao, "dao must not be null");
+        Map<String, FieldWriteRules> rules = new LinkedHashMap<>();
+        dao.getEntity().fields().forEach(field -> {
+            if (!field.resolvedWriteRules().equals(FieldWriteRules.NONE)) {
+                rules.put(field.code(), field.resolvedWriteRules());
+            }
+        });
+        this.writeRules = Collections.unmodifiableMap(rules);
         this.moduleAlias = requireModuleAlias(moduleAlias);
         this.lifecycle = lifecycle == null ? DynamicRecordLifecycle.NONE : lifecycle;
         this.module = module;
@@ -284,6 +295,34 @@ public class DynamicEntityService implements
     }
 
     @Override
+    public Map<String, FieldWriteRules> fieldWriteRules() {
+        return writeRules;
+    }
+
+    @Override
+    public boolean hasFieldWriteValue(DynamicRecord record, String field) {
+        return record.hasMutationValue(field);
+    }
+
+    @Override
+    public Object fieldWriteValue(DynamicRecord record, String field) {
+        return record.getValue(field);
+    }
+
+    @Override
+    public Object storedFieldWriteValue(DynamicRecord stored, String field) {
+        boolean protectedField = fieldProtectionPlan.fields().stream().anyMatch(accessor ->
+                accessor.fieldName().equals(field) && accessor.protection().hasStorageProtection());
+        if (!protectedField) return stored.getValue(field);
+        return readProtectedFieldFromStorage(stored, field);
+    }
+
+    @Override
+    public void fieldWriteValue(DynamicRecord record, String field, Object value) {
+        record.putGeneratedValue(field, value);
+    }
+
+    @Override
     public void beforeInsert(DynamicRecord record) {
         rejectWriteProtectedFields(record);
         record.applyDefaultsForInsert();
@@ -292,7 +331,7 @@ public class DynamicEntityService implements
         record.formulaReport(capabilityRuntimes.formula().beforeInsert(record));
         normalizeDiscriminatedValues(record, null);
         validateChildPayload(record);
-        record.validateForInsert();
+        record.validateCompanionsForInsert();
         validateFieldValues(record);
         validateReferenceValues(record);
         validateTreePlacement(record);
@@ -325,7 +364,7 @@ public class DynamicEntityService implements
         }
         normalizeDiscriminatedValues(record, existing);
         validateChildPayload(record);
-        record.validateForUpdate();
+        record.validateCompanionsForUpdate();
         validateFieldValues(record);
         validateReferenceValues(record, existing);
         validateTreePlacement(record);

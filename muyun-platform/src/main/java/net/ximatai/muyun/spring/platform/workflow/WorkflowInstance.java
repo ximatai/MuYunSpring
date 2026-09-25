@@ -1,5 +1,6 @@
 package net.ximatai.muyun.spring.platform.workflow;
 
+import net.ximatai.muyun.spring.common.model.constraint.Required;
 import lombok.Getter;
 import lombok.Setter;
 import net.ximatai.muyun.database.core.annotation.Column;
@@ -20,10 +21,12 @@ import java.time.Instant;
 public class WorkflowInstance extends StandardEntity {
     @Column(name = "definition_id", type = ColumnType.VARCHAR, length = 32, nullable = false,
             comment = "Workflow definition id")
+    @Required
     private String definitionId;
 
     @Column(name = "workflow_version_id", type = ColumnType.VARCHAR, length = 32, nullable = false,
             comment = "Workflow version id")
+    @Required
     private String workflowVersionId;
 
     @Column(name = "version_no", type = ColumnType.INT, nullable = false, comment = "Workflow version number")
@@ -33,6 +36,7 @@ public class WorkflowInstance extends StandardEntity {
     private String moduleAlias;
 
     @Column(name = "record_id", type = ColumnType.VARCHAR, length = 64, nullable = false, comment = "Record id")
+    @Required
     private String recordId;
 
     @Column(name = "auth_org_id", type = ColumnType.VARCHAR, length = 64,
@@ -98,6 +102,7 @@ public class WorkflowInstance extends StandardEntity {
     private Instant lastOperatedAt;
 
     @Column(name = "snapshot_text", type = ColumnType.TEXT, nullable = false, comment = "Workflow snapshot")
+    @Required
     private String snapshotText;
 
     @Column(name = "semantic_json", type = ColumnType.TEXT, comment = "Frozen designer semantic workflow json")

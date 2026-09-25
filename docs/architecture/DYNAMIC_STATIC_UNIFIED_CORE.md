@@ -90,7 +90,7 @@ DynamicRecordService
 
 生命周期分为平台内部链和业务扩展 hook。CRUD 标准入口先调度平台内部链，再调用业务 hook；父子聚合等平台能力挂在内部链上，业务覆盖 `afterInsert`、`afterUpdate`、`afterDelete`、`afterSelect` 时不需要手动调用 `super` 来维持平台能力正确性。业务 `after*` hook 是平台能力完成后的扩展点，不用于观察或拦截平台内部链执行前的 RAW 对象状态。
 
-写入门禁独立于业务 hook：`MutationScopeAbility` 在标准插入、更新、删除、恢复和清理中由内部链调用。更新与删除基于库内归属判断，不信任请求中的租户或所有者。`normalizeBeforeMutation` 在标准插入、更新中各执行一次；业务覆盖保存钩子无需补调门禁或规范化。租户静态业务统一继承 `TenantActiveScopedService`，同时获得标准保存校验模板。
+写入门禁独立于业务 hook：`MutationScopeAbility` 在标准插入、更新、删除、恢复和清理中由内部链调用。更新与删除基于库内归属判断，不信任请求中的租户或所有者。`normalizeBeforeMutation` 在标准插入、更新中各执行一次；业务覆盖保存钩子无需补调门禁或规范化。租户静态业务统一继承 `TenantActiveScopedService`，同时获得标准保存校验模板。静态字段注解与动态字段行为归一为 `FieldWriteRules`，规范化和阶段必填由公共写入链执行；存储非空、保存结果有效性与页面输入要求保持独立，具体契约见能力接入目录。
 
 `DataScopeAbility` 默认解析宿主安装的权限运行时，未装配时明确拒绝使用；轻量测试需要显式提供测试策略。回收站与数据范围的组合由能力层承担。普通业务不再复制权限 provider、回收站权限分支或组织树递归；树能力支持带业务范围的后代遍历，并按模型分区声明校验父节点。
 

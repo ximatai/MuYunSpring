@@ -14,6 +14,7 @@ import net.ximatai.muyun.spring.common.tenant.ActiveTenantVerifier;
 import net.ximatai.muyun.spring.common.util.Preconditions;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.util.StringUtils;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
@@ -41,15 +42,16 @@ public class EmployeePositionService extends TenantActiveScopedService<EmployeeP
 
     @Override
     public void normalizeBeforeMutation(EmployeePosition relation) {
-        relation.setEmployeeId(Preconditions.requireText(relation.getEmployeeId(), "employeeId"));
-        relation.setOrganizationId(Preconditions.requireText(relation.getOrganizationId(), "organizationId"));
-        relation.setDepartmentId(Preconditions.requireText(relation.getDepartmentId(), "departmentId"));
-        relation.setPositionId(Preconditions.requireText(relation.getPositionId(), "positionId"));
         relation.setPrimaryPosition(Boolean.TRUE.equals(relation.getPrimaryPosition()));
     }
 
     @Override
     protected void validateBeforeSave(EmployeePosition relation) {
+        // Reference-dependent checks run only when their inputs exist; the write chain enforces required fields.
+        if (!StringUtils.hasText(relation.getEmployeeId())
+                || !StringUtils.hasText(relation.getOrganizationId())
+                || !StringUtils.hasText(relation.getDepartmentId())
+                || !StringUtils.hasText(relation.getPositionId())) return;
         if (Boolean.TRUE.equals(relation.getPrimaryPosition()) && Boolean.TRUE.equals(relation.getEnabled())) {
             validatePrimaryPositionOwner(relation);
             rejectDuplicate(relation, Criteria.of()

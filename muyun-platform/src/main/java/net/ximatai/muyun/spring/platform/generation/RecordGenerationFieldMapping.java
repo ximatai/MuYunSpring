@@ -1,5 +1,6 @@
 package net.ximatai.muyun.spring.platform.generation;
 
+import net.ximatai.muyun.spring.common.model.constraint.Required;
 import lombok.Getter;
 import lombok.Setter;
 import net.ximatai.muyun.database.core.annotation.Column;
@@ -16,6 +17,7 @@ public class RecordGenerationFieldMapping extends StandardSortableEntity {
     @Indexed
     @Column(name = "object_mapping_id", type = ColumnType.VARCHAR, length = 32, nullable = false,
             comment = "Object mapping id")
+    @Required
     private String objectMappingId;
 
     @Column(name = "source_field", type = ColumnType.VARCHAR, length = 64, comment = "Source field")

@@ -57,13 +57,13 @@ class PositionServiceContractTest {
         try (TenantContext.Scope ignored = TenantContext.use("tenant_a")) {
             assertThatThrownBy(() -> service.insert(position("SALES_MANAGER", "Sales Manager")))
                     .isInstanceOf(IllegalArgumentException.class)
-                    .hasMessageContaining("positionCategoryId");
+                    .hasMessageContaining("categoryId");
             assertThatThrownBy(() -> service.insert(position("category-1", " ", "Sales Manager")))
                     .isInstanceOf(IllegalArgumentException.class)
-                    .hasMessageContaining("positionCode");
+                    .hasMessageContaining("code");
             assertThatThrownBy(() -> service.insert(position("category-1", "SALES_MANAGER", " ")))
                     .isInstanceOf(IllegalArgumentException.class)
-                    .hasMessageContaining("positionTitle");
+                    .hasMessageContaining("title");
         }
     }
 

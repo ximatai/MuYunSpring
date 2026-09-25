@@ -1,5 +1,7 @@
 package net.ximatai.muyun.spring.platform.writeback;
 
+import net.ximatai.muyun.spring.common.model.constraint.NormalizeText;
+import net.ximatai.muyun.spring.common.model.constraint.Required;
 import lombok.Getter;
 import lombok.Setter;
 import net.ximatai.muyun.database.core.annotation.Column;
@@ -15,6 +17,8 @@ import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecordMutationEventType;
 public class RecordWriteBackExecutionLog extends StandardEntity {
     @Indexed
     @Column(name = "trace_id", type = ColumnType.VARCHAR, length = 64, nullable = false, comment = "Trace id")
+    @Required
+    @NormalizeText
     private String traceId;
 
     @Indexed
@@ -22,9 +26,12 @@ public class RecordWriteBackExecutionLog extends StandardEntity {
     private String ruleId;
 
     @Column(name = "event_id", type = ColumnType.VARCHAR, length = 64, nullable = false, comment = "Event id")
+    @Required
+    @NormalizeText
     private String eventId;
 
     @Column(name = "event_type", type = ColumnType.VARCHAR, length = 32, nullable = false, comment = "Event type")
+    @Required
     private DynamicRecordMutationEventType eventType;
 
     @Column(name = "depth", type = ColumnType.INT, nullable = false, comment = "Trace depth")
@@ -35,10 +42,14 @@ public class RecordWriteBackExecutionLog extends StandardEntity {
 
     @Column(name = "trigger_module_alias", type = ColumnType.VARCHAR, length = 128, nullable = false,
             comment = "Trigger module alias")
+    @Required
+    @NormalizeText
     private String triggerModuleAlias;
 
     @Column(name = "trigger_record_id", type = ColumnType.VARCHAR, length = 64, nullable = false,
             comment = "Trigger record id")
+    @Required
+    @NormalizeText
     private String triggerRecordId;
 
     @Column(name = "target_module_alias", type = ColumnType.VARCHAR, length = 128, comment = "Target module alias")

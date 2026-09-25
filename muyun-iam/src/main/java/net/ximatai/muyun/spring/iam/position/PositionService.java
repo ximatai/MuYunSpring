@@ -6,7 +6,6 @@ import net.ximatai.muyun.spring.ability.SortAbility;
 import net.ximatai.muyun.spring.ability.TenantActiveScopedService;
 import net.ximatai.muyun.spring.ability.reference.ReferenceAbility;
 import net.ximatai.muyun.spring.common.tenant.ActiveTenantVerifier;
-import net.ximatai.muyun.spring.common.util.Preconditions;
 import org.springframework.stereotype.Service;
 import net.ximatai.muyun.spring.ability.query.QueryAbility;
 import net.ximatai.muyun.spring.ability.query.QueryDescriptor;
@@ -33,15 +32,4 @@ public class PositionService extends TenantActiveScopedService<Position> impleme
                 net.ximatai.muyun.database.core.orm.Sort.asc("title"));
     }
 
-    @Override
-    public void normalizeBeforeMutation(Position position) {
-        position.setCategoryId(Preconditions.requireText(position.getCategoryId(), "positionCategoryId"));
-        position.setCode(Preconditions.requireText(position.getCode(), "positionCode"));
-        position.setTitle(Preconditions.requireText(position.getTitle(), "positionTitle"));
-        position.setDescription(normalizeBlank(position.getDescription()));
-    }
-
-    private String normalizeBlank(String value) {
-        return value == null || value.isBlank() ? null : value.trim();
-    }
 }

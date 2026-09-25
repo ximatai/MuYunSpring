@@ -1,5 +1,7 @@
 package net.ximatai.muyun.spring.platform.ai;
 
+import net.ximatai.muyun.spring.common.model.constraint.Required;
+import net.ximatai.muyun.spring.common.model.constraint.NormalizeText;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import lombok.Getter;
@@ -26,6 +28,8 @@ import net.ximatai.muyun.spring.ability.reference.ReferenceTo;
 public class AiModelConfiguration extends StandardEnabledEntity {
     @Column(name = "provider", type = ColumnType.VARCHAR, length = 32, nullable = false, comment = "AI provider")
     @ReferenceTo(target = AiModelProviderService.class, tenantScope = ReferenceTenantScope.GLOBAL)
+    @Required
+    @NormalizeText
     private String provider;
 
     @OptionField(type = OptionSourceType.ENUM)
@@ -39,6 +43,8 @@ public class AiModelConfiguration extends StandardEnabledEntity {
     private Boolean tenantFallbackEnabled = Boolean.FALSE;
 
     @Column(name = "model_id", type = ColumnType.VARCHAR, length = 128, nullable = false, comment = "Provider model id")
+    @Required
+    @NormalizeText
     private String modelId;
 
     @OptionField(type = OptionSourceType.ENUM)

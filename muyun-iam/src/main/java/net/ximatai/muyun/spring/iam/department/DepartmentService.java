@@ -40,11 +40,6 @@ public class DepartmentService extends TenantActiveScopedService<Department> imp
         return DATA_SCOPE_FIELD_MAPPING;
     }
 
-    @Override
-    public void normalizeBeforeMutation(Department department) {
-        department.setOrganizationId(Preconditions.requireText(department.getOrganizationId(), "organizationId"));
-        department.setCode(Preconditions.requireText(department.getCode(), "departmentCode"));
-    }
 
     public List<Department> rootDepartments(String organizationId) {
         return departmentChildren(organizationId, TreeAbility.ROOT_ID);

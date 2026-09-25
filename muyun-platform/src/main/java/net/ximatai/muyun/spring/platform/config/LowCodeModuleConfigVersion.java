@@ -1,5 +1,6 @@
 package net.ximatai.muyun.spring.platform.config;
 
+import net.ximatai.muyun.spring.common.model.constraint.Required;
 import lombok.Getter;
 import lombok.Setter;
 import net.ximatai.muyun.database.core.annotation.Column;
@@ -34,10 +35,12 @@ public class LowCodeModuleConfigVersion extends StandardEntity {
 
     @Column(name = "package_snapshot_text", type = ColumnType.TEXT, nullable = false,
             comment = "Low code module package snapshot")
+    @Required
     private String packageSnapshotText;
 
     @Column(name = "package_hash", type = ColumnType.VARCHAR, length = 64, nullable = false,
             comment = "Package sha-256 hash")
+    @Required
     private String packageHash;
 
     @Column(name = "summary_json", type = ColumnType.TEXT, comment = "Version summary json")

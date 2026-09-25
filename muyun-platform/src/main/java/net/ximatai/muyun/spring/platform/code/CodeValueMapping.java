@@ -1,5 +1,6 @@
 package net.ximatai.muyun.spring.platform.code;
 
+import net.ximatai.muyun.spring.common.model.constraint.Required;
 import lombok.Getter;
 import lombok.Setter;
 import net.ximatai.muyun.database.core.annotation.Column;
@@ -17,6 +18,7 @@ import net.ximatai.muyun.spring.common.model.standard.StandardEnabledSortableEnt
 public class CodeValueMapping extends StandardEnabledSortableEntity {
     @Indexed
     @Column(name = "segment_id", type = ColumnType.VARCHAR, length = 32, nullable = false, comment = "Code segment id")
+    @Required
     private String segmentId;
 
     @Indexed

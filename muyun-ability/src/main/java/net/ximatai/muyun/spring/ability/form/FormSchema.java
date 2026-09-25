@@ -1,6 +1,8 @@
 package net.ximatai.muyun.spring.ability.form;
 
 import net.ximatai.muyun.spring.common.option.OptionBinding;
+import net.ximatai.muyun.spring.common.model.constraint.FieldInputRequirements;
+import net.ximatai.muyun.spring.common.model.constraint.StaticFieldWriteRules;
 import net.ximatai.muyun.spring.common.option.OptionFieldDefinition;
 import net.ximatai.muyun.spring.common.option.OptionFieldResolver;
 import net.ximatai.muyun.spring.common.option.OptionLoadResolver;
@@ -29,12 +31,19 @@ public record FormSchema(String scopeName,
         if (descriptor == null) {
             throw new IllegalArgumentException("form descriptor must not be null");
         }
+        var writeRules = StaticFieldWriteRules.resolve(modelClass);
         Map<String, OptionFieldDefinition> optionFields = optionFields(modelClass);
         Map<String, String> optionTitleFields = optionTitleFields(modelClass);
         return new FormSchema(
                 descriptor.scopeName(),
                 descriptor.title(),
                 descriptor.fields().stream()
+                        .map(field -> {
+                            var binding = writeRules.get(field.fieldName());
+                            return field.readOnly() || field.inputRequirements() != null || binding == null ? field
+                                    : field.withInputRequirements(new FieldInputRequirements(
+                                            binding.rules().requiredOnInsert(), binding.rules().requiredOnUpdate()));
+                        })
                         .map(field -> Field.from(mergeOptionField(field, optionFields, optionTitleFields)))
                         .toList()
         );
@@ -81,7 +90,15 @@ public record FormSchema(String scopeName,
                         boolean readOnly,
                         OptionBinding optionBinding,
                         OptionSelectionMode selectionMode,
-                        String optionTitleField) {
+                        String optionTitleField,
+                        FieldInputRequirements inputRequirements) {
+        public Field(String name, String title, FormValueType valueType, FormControlType controlType,
+                     boolean required, boolean readOnly, OptionBinding optionBinding,
+                     OptionSelectionMode selectionMode, String optionTitleField) {
+            this(name, title, valueType, controlType, required, readOnly, optionBinding, selectionMode,
+                    optionTitleField, null);
+        }
+
         public Field {
             optionTitleField = optionTitleField == null || optionTitleField.isBlank() ? null : optionTitleField.trim();
         }
@@ -96,7 +113,8 @@ public record FormSchema(String scopeName,
                     field.readOnly(),
                     field.optionBinding(),
                     field.selectionMode(),
-                    field.optionTitleField()
+                    field.optionTitleField(),
+                    field.inputRequirements()
             );
         }
     }

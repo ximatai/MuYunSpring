@@ -153,29 +153,6 @@ public class RecordImpactRelationService extends AbstractAbilityService<RecordIm
                 .toList();
     }
 
-    @Override
-    public void beforeInsert(RecordImpactRelation relation) {
-        normalizeAndValidate(relation);
-    }
-
-    @Override
-    public void beforeUpdate(RecordImpactRelation relation) {
-        normalizeAndValidate(relation);
-    }
-
-    private void normalizeAndValidate(RecordImpactRelation relation) {
-        if (relation == null) {
-            throw new PlatformException("Record impact relation must not be null");
-        }
-        if (relation.getImpactType() == null) {
-            throw new PlatformException("Record impact relation requires impactType");
-        }
-        relation.setSourceModuleAlias(requireText(relation.getSourceModuleAlias(), "sourceModuleAlias"));
-        relation.setSourceRecordId(requireText(relation.getSourceRecordId(), "sourceRecordId"));
-        relation.setTargetModuleAlias(requireText(relation.getTargetModuleAlias(), "targetModuleAlias"));
-        relation.setTargetRecordId(requireText(relation.getTargetRecordId(), "targetRecordId"));
-    }
-
     private PageRequest pageOrDefault(PageRequest pageRequest) {
         return pageRequest == null ? DEFAULT_QUERY_PAGE : pageRequest;
     }

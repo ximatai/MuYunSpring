@@ -234,6 +234,8 @@ final class PlatformAbilityDispatcher {
         Class<?> modelClass = ability.modelClass() == null ? entity.getClass() : ability.modelClass();
         DiscriminatedValueValidator.normalizeAndValidate(modelClass, entity);
         runMainRecordFormulas(ability, entity);
+        FieldWriteSupport.normalize(ability, entity);
+        FieldWriteSupport.validate(ability, existing, entity, update);
         runStaticOptionFieldValidation(ability, entity);
         runReferenceIntegrityValidation(ability, existing, entity, update);
         TenantUniqueConstraintSupport.validate(ability, entity);

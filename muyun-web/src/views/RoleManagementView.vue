@@ -1242,6 +1242,7 @@ function validateRoleDraft(draft: Role) {
   for (const fieldName of requiredFields) {
     const field = resolveRecordFormFieldState(fieldName, {
       fields: roleFormFieldDefinitions.value,
+      mode: roleDetailMode.value,
       fallback: roleFormFieldFallback.value,
     });
     if (field.visible && field.required && !draft[fieldName]) {
@@ -1584,6 +1585,7 @@ function parseRoleIds(value: unknown) {
             <UiInput :value="selectedScope?.title ?? '-'" disabled />
           </label>
           <RecordFormFields
+            :mode="roleDetailMode"
             :record="roleDraft as RecordFormRecord"
             :field-names="rolePrimaryFormFieldNames"
             :fields="roleFormFieldDefinitions"
@@ -1601,6 +1603,7 @@ function parseRoleIds(value: unknown) {
             @update:value="updateRoleDraftField('memberRoleIds', $event)"
           />
           <RecordFormFields
+            :mode="roleDetailMode"
             :record="roleDraft as RecordFormRecord"
             :field-names="roleSecondaryFormFieldNames"
             :fields="roleFormFieldDefinitions"
@@ -1656,6 +1659,7 @@ function parseRoleIds(value: unknown) {
             <UiInput :value="selectedScope?.title ?? '-'" disabled />
           </label>
           <RecordFormFields
+            :mode="roleDetailMode"
             :record="roleDraft as RecordFormRecord"
             :field-names="rolePrimaryFormFieldNames"
             :fields="roleFormFieldDefinitions"
@@ -1673,6 +1677,7 @@ function parseRoleIds(value: unknown) {
             @update:value="updateRoleDraftField('memberRoleIds', $event)"
           />
           <RecordFormFields
+            :mode="roleDetailMode"
             :record="roleDraft as RecordFormRecord"
             :field-names="roleSecondaryFormFieldNames"
             :fields="roleFormFieldDefinitions"

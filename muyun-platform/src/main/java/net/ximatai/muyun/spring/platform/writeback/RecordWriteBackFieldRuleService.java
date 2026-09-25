@@ -41,8 +41,6 @@ public class RecordWriteBackFieldRuleService extends AbstractAbilityService<Reco
         if (rule == null) {
             throw new PlatformException("Record write-back field rule must not be null");
         }
-        rule.setRuleId(requireText(rule.getRuleId(), "ruleId"));
-        rule.setTargetField(requireText(rule.getTargetField(), "targetField"));
         if (rule.getSourceType() == null) {
             rule.setSourceType(RecordWriteBackFieldSourceType.FIELD);
         }

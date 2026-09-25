@@ -87,19 +87,12 @@ public class LowCodeModuleConfigVersionService extends AbstractAbilityService<Lo
         if (version.getCurrentVersion() == null) {
             version.setCurrentVersion(Boolean.FALSE);
         }
-        requireText(version.getPackageSnapshotText(), "packageSnapshotText");
-        requireText(version.getPackageHash(), "packageHash");
         rejectDuplicate(version, Criteria.of()
                         .eq("moduleAlias", version.getModuleAlias())
                         .eq("versionNo", version.getVersionNo()),
                 "low code config version number must be unique within module: " + version.getVersionNo());
     }
 
-    private void requireText(String value, String name) {
-        if (value == null || value.isBlank()) {
-            throw new PlatformException(name + " must not be blank");
-        }
-    }
 
     private void rejectSnapshotMutation(LowCodeModuleConfigVersion existing, LowCodeModuleConfigVersion incoming) {
         if (existing == null) {

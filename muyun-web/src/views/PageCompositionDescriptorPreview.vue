@@ -1426,6 +1426,7 @@ function animateLayoutElement(element: HTMLElement, x: number, y: number) {
     <UiEmpty v-if="isEditEmpty" description="当前草稿尚未配置编辑字段或关联子表" />
     <RecordFormGrid as="div" surface="record">
       <RecordFormFields
+        mode="edit"
         :record="formRecordWithTransient"
         :fields="renderedFormFields"
         :field-names="renderedFieldNames.filter((name) => renderedFormFields.has(name))"
@@ -1573,6 +1574,7 @@ function animateLayoutElement(element: HTMLElement, x: number, y: number) {
         <template #cell="{ column, row }">
           <div :data-page-composition-layout-key="`edit:relation:${relation.code}:field:${column.fieldName}`">
             <RecordFormFields
+              mode="edit"
               v-if="relationFields(relation).has(column.fieldName)"
               :record="row"
               :fields="relationFields(relation)"

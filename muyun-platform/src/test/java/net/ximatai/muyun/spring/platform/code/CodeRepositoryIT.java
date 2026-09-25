@@ -72,6 +72,26 @@ class CodeRepositoryIT extends PlatformPostgresIntegrationTest {
     }
 
     @Test
+    void shouldEnforceMigratedRequiredFieldsWithoutTrimmingCodeValues() {
+        CodeRecycleEntry entry = new CodeRecycleEntry();
+        entry.setRuleId(UUID.randomUUID().toString().replace("-", ""));
+        entry.setRecycledValue("  PRESERVE  ");
+        recycleService.insert(entry);
+        assertThat(recycleService.select(entry.getId()).getRecycledValue()).isEqualTo("  PRESERVE  ");
+
+        CodeRecycleEntry update = recycleService.select(entry.getId());
+        update.setRecycledValue(" ");
+        assertThatThrownBy(() -> recycleService.update(update))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("recycledValue");
+        assertThat(recycleService.select(entry.getId()).getRecycledValue()).isEqualTo("  PRESERVE  ");
+
+        CodeRecycleEntry missingRule = new CodeRecycleEntry();
+        missingRule.setRecycledValue("VALID");
+        assertThatThrownBy(() -> recycleService.insert(missingRule))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("ruleId");
+    }
+
+    @Test
     void shouldPersistCodeRuleTreeAndLifecycleRecordsThroughRepository() {
         CodeRule rule = rule(uniqueModuleAlias(), "orderNo");
         rule.setAllowRecycle(Boolean.TRUE);

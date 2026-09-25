@@ -1,5 +1,6 @@
 package net.ximatai.muyun.spring.platform.metadata;
 
+import net.ximatai.muyun.spring.common.model.constraint.FieldWriteRules;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.spring.ability.StandardBusinessService;
 import net.ximatai.muyun.spring.ability.BaseDao;
@@ -94,6 +95,11 @@ public class MetadataFieldConfigService extends StandardBusinessService<Metadata
     @Override
     protected void validateBeforeSave(MetadataFieldConfig config) {
         MetadataField field = requireField(config.getMetadataFieldId());
+        if (Boolean.TRUE.equals(field.getSystemManaged())
+                && (config.getRequiredOnInsert() != null || config.getRequiredOnUpdate() != null
+                        || config.getTextNormalization() != null)) {
+            throw new PlatformException("System managed field cannot override write rules: " + field.getFieldName());
+        }
         normalizeRelation(config, field);
         validateDictionaryDraft(config, field);
         validateVirtualQueryBoundary(config, field);
@@ -278,7 +284,8 @@ public class MetadataFieldConfigService extends StandardBusinessService<Metadata
                 fieldType.getFieldType(),
                 new FieldBehaviorDefinition(config.getDefaultValue(), config.getValidationRegex(),
                         config.getCopyable() == null || Boolean.TRUE.equals(config.getCopyable()),
-                        Boolean.TRUE.equals(config.getWriteProtected())),
+                        Boolean.TRUE.equals(config.getWriteProtected()),
+                        config.effectiveWriteRules(FieldWriteRules.NONE)),
                 config.getMetadataFieldId()
         );
     }
@@ -287,8 +294,10 @@ public class MetadataFieldConfigService extends StandardBusinessService<Metadata
         if (field.getFieldForm() != MetadataFieldForm.VIRTUAL) {
             return;
         }
-        if (config.getDefaultValue() != null || config.getValidationRegex() != null) {
-            throw new PlatformException("Virtual metadata field cannot define default value or validation regex: "
+        if (config.getDefaultValue() != null || config.getValidationRegex() != null
+                || !config.effectiveWriteRules(FieldWriteRules.NONE)
+                        .equals(FieldWriteRules.NONE)) {
+            throw new PlatformException("Virtual metadata field cannot define default value or validation regex or write rules: "
                     + config.getMetadataFieldId());
         }
     }

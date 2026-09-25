@@ -1,5 +1,6 @@
 package net.ximatai.muyun.spring.platform.code;
 
+import net.ximatai.muyun.spring.common.model.constraint.Required;
 import lombok.Getter;
 import lombok.Setter;
 import net.ximatai.muyun.database.core.annotation.Column;
@@ -15,18 +16,22 @@ import net.ximatai.muyun.spring.common.model.standard.StandardEntity;
 public class CodeIssueLog extends StandardEntity {
     @Indexed
     @Column(name = "rule_id", type = ColumnType.VARCHAR, length = 32, nullable = false, comment = "Code rule id")
+    @Required
     private String ruleId;
 
     @Indexed
     @Column(name = "module_alias", type = ColumnType.VARCHAR, length = 128, nullable = false, comment = "Module alias")
+    @Required
     private String moduleAlias;
 
     @Indexed
     @Column(name = "entity_alias", type = ColumnType.VARCHAR, length = 64, nullable = false, comment = "Entity alias")
+    @Required
     private String entityAlias;
 
     @Indexed
     @Column(name = "field_name", type = ColumnType.VARCHAR, length = 64, nullable = false, comment = "Code field name")
+    @Required
     private String fieldName;
 
     @Indexed

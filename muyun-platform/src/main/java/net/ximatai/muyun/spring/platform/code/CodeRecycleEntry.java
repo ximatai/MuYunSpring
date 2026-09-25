@@ -1,5 +1,6 @@
 package net.ximatai.muyun.spring.platform.code;
 
+import net.ximatai.muyun.spring.common.model.constraint.Required;
 import lombok.Getter;
 import lombok.Setter;
 import net.ximatai.muyun.database.core.annotation.Column;
@@ -17,6 +18,7 @@ import net.ximatai.muyun.spring.common.model.standard.StandardEntity;
 public class CodeRecycleEntry extends StandardEntity {
     @Indexed
     @Column(name = "rule_id", type = ColumnType.VARCHAR, length = 32, nullable = false, comment = "Code rule id")
+    @Required
     private String ruleId;
 
     @Indexed
@@ -31,6 +33,7 @@ public class CodeRecycleEntry extends StandardEntity {
 
     @Indexed
     @Column(name = "recycled_value", type = ColumnType.VARCHAR, length = 256, nullable = false, comment = "Recycled code value")
+    @Required
     private String recycledValue;
 
     @Indexed

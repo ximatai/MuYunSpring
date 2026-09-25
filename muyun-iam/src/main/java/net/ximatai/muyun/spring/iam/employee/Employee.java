@@ -1,5 +1,8 @@
 package net.ximatai.muyun.spring.iam.employee;
 
+import net.ximatai.muyun.spring.common.model.constraint.Required;
+import net.ximatai.muyun.spring.common.model.constraint.NormalizeText;
+import net.ximatai.muyun.spring.common.model.constraint.TextNormalization;
 import lombok.Getter;
 import lombok.Setter;
 import net.ximatai.muyun.database.core.annotation.Column;
@@ -32,6 +35,8 @@ import java.util.List;
         managed = {"organizationId", "departmentId", "employeeNo"},
         operator = {"title", "gender", "mobile", "email", "enabled", "sortOrder"}
 )
+@Required(fields = "title")
+@NormalizeText(fields = "title")
 public class Employee extends StandardEnabledSortableEntity {
     @FileReference(allowedMediaTypes = {"image/png", "image/jpeg", "image/gif", "image/webp"},
             maxFileSizeBytes = 1048576, storagePolicy = FileReferenceStoragePolicy.DATABASE_INLINE)
@@ -43,6 +48,8 @@ public class Employee extends StandardEnabledSortableEntity {
             comment = "Organization id")
     @ReferenceTo(target = OrganizationService.class,
             integrity = @ReferenceIntegrity(requireEnabled = true, onTargetUnavailable = ReferenceTargetUnavailablePolicy.RESTRICT))
+    @Required
+    @NormalizeText
     private String organizationId;
 
     /** Stable read fact reused by detail, list and domain read facades. */
@@ -55,6 +62,8 @@ public class Employee extends StandardEnabledSortableEntity {
             candidateBindings = @net.ximatai.muyun.spring.ability.reference.ReferenceCandidateBinding(
                     sourceField = "organizationId", targetField = "organizationId"),
             integrity = @ReferenceIntegrity(requireEnabled = true, onTargetUnavailable = ReferenceTargetUnavailablePolicy.RESTRICT))
+    @Required
+    @NormalizeText
     private String departmentId;
 
     /** Stable read fact reused by detail, list and domain read facades. */
@@ -63,6 +72,8 @@ public class Employee extends StandardEnabledSortableEntity {
 
     @Column(name = "employee_no", type = ColumnType.VARCHAR, length = 64, nullable = false,
             comment = "Employee number")
+    @Required
+    @NormalizeText
     private String employeeNo;
 
     @DictionaryField(
@@ -75,15 +86,18 @@ public class Employee extends StandardEnabledSortableEntity {
             }
     )
     @Column(name = "gender", type = ColumnType.VARCHAR, length = 64, comment = "Gender")
+    @NormalizeText(TextNormalization.TRIM_TO_NULL)
     private String gender;
 
     @OptionLoad(source = "gender")
     private transient String genderTitle;
 
     @Column(name = "mobile", type = ColumnType.VARCHAR, length = 32, comment = "Mobile")
+    @NormalizeText(TextNormalization.TRIM_TO_NULL)
     private String mobile;
 
     @Column(name = "email", type = ColumnType.VARCHAR, length = 128, comment = "Email")
+    @NormalizeText(TextNormalization.TRIM_TO_NULL)
     private String email;
 
     /** Employment is part of the employee aggregate and is maintained in the standard detail relation. */

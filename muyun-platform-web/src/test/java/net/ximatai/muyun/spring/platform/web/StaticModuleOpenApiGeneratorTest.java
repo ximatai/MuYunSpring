@@ -33,6 +33,43 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class StaticModuleOpenApiGeneratorTest {
     private StaticModuleOpenApiGenerator generator;
 
+    @Test
+    void shouldExposeFinalValueRulesAndDistinctWriteOperationsWithoutInventingMandatoryInput() {
+        var rules = new net.ximatai.muyun.spring.common.model.constraint.FieldWriteRules(false, true, null);
+        var entity = new EntityDefinition("task", "task", "任务", List.of(
+                FieldDefinition.string("code", "编码").required().writeRules(rules)));
+        var module = StaticModuleDefinition.builder("demo", "demo.task", "任务").entities(List.of(entity)).build();
+        var schemas = new StaticModuleOpenApiSchemaFactory().schemas(module);
+        assertThat(schemas.get("Task").required()).containsExactly("code");
+        assertThat(schemas.get("TaskCreate").writeOperation())
+                .isEqualTo(net.ximatai.muyun.spring.common.model.constraint.WriteOperation.INSERT);
+        assertThat(schemas.get("TaskUpdate").writeOperation())
+                .isEqualTo(net.ximatai.muyun.spring.common.model.constraint.WriteOperation.UPDATE);
+        assertThat(schemas.get("TaskUpdate").partialUpdate()).isFalse();
+        assertThat(schemas.get("TaskUpdate").required()).isEmpty();
+        assertThat(schemas.get("TaskUpdate").properties().get("code").required()).isFalse();
+        assertThat(schemas.get("TaskUpdate").properties().get("code").writeRules()).isEqualTo(rules.withNonNull(true));
+        assertThat(schemas.get("TaskCreate").properties().get("code").nullable()).isTrue();
+        assertThat(schemas.get("TaskUpdate").properties().get("code").nullable()).isTrue();
+        assertThat(schemas.get("Task").properties().get("code").nullable()).isFalse();
+        assertThat(schemas.get("TaskUpdate").required()).doesNotContain("id", "version");
+        assertThat(schemas.get("TaskUpdate").properties().get("version").required()).isFalse();
+        assertThat(schemas.get("RecordActionWebRequest").required()).contains("version");
+        var endpoints = new RegisteredWebEndpointCatalog();
+        register(endpoints, endpoint("demo.task.update", "demo.task", "update", PlatformAction.UPDATE,
+                RequestMethod.POST, "/demo.task/update/{id}"));
+        var document = new StaticModuleOpenApiGenerator(new StaticModuleDefinitionCatalog(List.of(module)), endpoints)
+                .generate("demo.task");
+        @SuppressWarnings("unchecked")
+        var paths = (Map<String, Object>) OpenApi31Projector.project(document).get("paths");
+        @SuppressWarnings("unchecked")
+        var pathItem = (Map<String, Object>) paths.get("/demo.task/update/{id}");
+        @SuppressWarnings("unchecked")
+        var updateOperation = (Map<String, Object>) pathItem.get("post");
+        assertThat(updateOperation.get("parameters")).isEqualTo(List.of(Map.of(
+                "name", "id", "in", "path", "required", true, "schema", Map.of("type", "string"))));
+    }
+
     @org.junit.jupiter.api.AfterEach
     void tearDown() {
         TenantContext.clear();
@@ -196,7 +233,7 @@ class StaticModuleOpenApiGeneratorTest {
         assertThat(document.operations()).filteredOn(operation -> PlatformAction.CREATE.code().equals(operation.actionCode()))
                 .singleElement().extracting(operation -> operation.successStatus()).isEqualTo(201);
         assertThat(document.operations()).filteredOn(operation -> PlatformAction.CREATE.code().equals(operation.actionCode()))
-                .singleElement().extracting(operation -> operation.requestSchema()).isEqualTo("Teacher");
+                .singleElement().extracting(operation -> operation.requestSchema()).isEqualTo("TeacherCreate");
         assertThat(document.operations()).filteredOn(operation -> PlatformAction.DELETE.code().equals(operation.actionCode()))
                 .singleElement().extracting(operation -> operation.requestSchema()).isEqualTo("RecordActionWebRequest");
         assertThat(document.operations()).filteredOn(operation -> PlatformAction.QUERY.code().equals(operation.actionCode()))

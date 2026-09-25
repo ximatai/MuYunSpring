@@ -261,9 +261,7 @@ public class UserAccountService extends TenantActiveScopedService<UserAccount> i
 
     @Override
     public void normalizeBeforeMutation(UserAccount user) {
-        String username = requireUsername(user.getUsername());
-        user.setUsername(username);
-        user.setTitle(username);
+        user.setTitle(user.getUsername());
         user.setSortOrder(null);
         user.setAuthOrganizationId(null);
         user.setAuthModuleAlias(MODULE_ALIAS);

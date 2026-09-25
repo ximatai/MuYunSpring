@@ -205,26 +205,11 @@ public class RuntimeAuditRecordService extends AbstractAbilityService<RuntimeAud
 
     @Override
     public void beforeInsert(RuntimeAuditRecord record) {
-        if (record.getEventId() == null || record.getEventId().isBlank()) {
-            throw new PlatformException("Runtime audit eventId must not be blank");
-        }
         if (getDao().count(Criteria.of().eq("eventId", record.getEventId())) > 0) {
             throw new PlatformException("Runtime audit eventId must be unique: " + record.getEventId());
         }
-        if (record.getTraceId() == null || record.getTraceId().isBlank()) {
-            throw new PlatformException("Runtime audit traceId must not be blank");
-        }
-        if (record.getEventType() == null) {
-            throw new PlatformException("Runtime audit eventType must not be null");
-        }
-        if (record.getModuleAlias() == null || record.getModuleAlias().isBlank()) {
-            throw new PlatformException("Runtime audit moduleAlias must not be blank");
-        }
         if (record.getSystemContext() == null) {
             record.setSystemContext(Boolean.FALSE);
-        }
-        if (record.getMutationSource() == null) {
-            throw new PlatformException("Runtime audit mutationSource must not be null");
         }
         if (record.getMutationSource() == RuntimeMutationSource.SYSTEM) {
             record.setSystemContext(Boolean.TRUE);
@@ -234,9 +219,6 @@ public class RuntimeAuditRecordService extends AbstractAbilityService<RuntimeAud
         }
         if (Boolean.TRUE.equals(record.getSystemContext()) && record.getSystemReason() == null) {
             throw new PlatformException("Runtime audit systemReason must not be blank for system context");
-        }
-        if (record.getOccurredAt() == null) {
-            throw new PlatformException("Runtime audit occurredAt must not be null");
         }
     }
 

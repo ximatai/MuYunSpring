@@ -14,6 +14,7 @@ import net.ximatai.muyun.spring.common.util.PlatformNameRules;
 import net.ximatai.muyun.spring.common.util.Preconditions;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.util.StringUtils;
 
 import java.time.Instant;
 import java.util.Comparator;
@@ -47,12 +48,6 @@ public class EmployeeDelegationService extends TenantActiveScopedService<Employe
 
     @Override
     public void normalizeBeforeMutation(EmployeeDelegation delegation) {
-        delegation.setPrincipalEmployeeId(Preconditions.requireText(
-                delegation.getPrincipalEmployeeId(), "principalEmployeeId"));
-        delegation.setDelegateEmployeeId(Preconditions.requireText(
-                delegation.getDelegateEmployeeId(), "delegateEmployeeId"));
-        delegation.setPrincipalPositionId(normalizeBlank(delegation.getPrincipalPositionId()));
-        delegation.setDelegatePositionId(normalizeBlank(delegation.getDelegatePositionId()));
         if (delegation.getDelegationType() == null) {
             delegation.setDelegationType(EmployeeDelegationType.BUSINESS);
         }
@@ -75,6 +70,9 @@ public class EmployeeDelegationService extends TenantActiveScopedService<Employe
 
     @Override
     protected void validateBeforeSave(EmployeeDelegation delegation) {
+        // Reference-dependent checks run only when their inputs exist; the write chain enforces required fields.
+        if (!StringUtils.hasText(delegation.getPrincipalEmployeeId())
+                || !StringUtils.hasText(delegation.getDelegateEmployeeId())) return;
         validateDelegationReferences(delegation);
         rejectDuplicate(delegation, duplicateCriteria(delegation), "employee delegation already exists");
     }
