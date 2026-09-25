@@ -10,6 +10,10 @@ import net.ximatai.muyun.spring.dynamic.metadata.FieldDefinition;
 import net.ximatai.muyun.spring.dynamic.metadata.ModuleDefinition;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicSchemaGovernanceFacts;
 import net.ximatai.muyun.spring.platform.metadata.ModuleMetadataRelation;
+import net.ximatai.muyun.spring.platform.application.ApplicationService;
+import net.ximatai.muyun.spring.platform.module.PlatformModuleService;
+import net.ximatai.muyun.spring.platform.module.PlatformModule;
+import net.ximatai.muyun.spring.platform.module.ModuleKind;
 import net.ximatai.muyun.spring.platform.metadata.ModuleMetadataOrchestrationService;
 import net.ximatai.muyun.spring.ability.event.RuntimeEventPublisher;
 import net.ximatai.muyun.spring.platform.metadata.ModuleMetadataRelationService;
@@ -68,9 +72,25 @@ class DynamicRuntimeActivationRepositoryIT {
     @Autowired RuntimeEventPublisher events;
     @Autowired PlatformTransactionManager manager;
     @Autowired DataSource dataSource;
+    @Autowired PlatformModuleService modules;
+    @Autowired ApplicationService applications;
+    @Autowired ObjectProvider<PlatformModuleService> moduleProvider;
+    @Autowired ObjectProvider<ApplicationService> applicationProvider;
 
     @BeforeEach void resetCollaborators() {
-        reset(refresh, relations, pages, orchestration, events);
+        reset(refresh, relations, pages, orchestration, events, modules, applications);
+        when(modules.select(anyString())).thenAnswer(call -> {
+            var module = new PlatformModule();
+            module.setAlias(call.getArgument(0));
+            module.setApplicationAlias("test");
+            module.setModuleKind(ModuleKind.DYNAMIC);
+            module.setEnabled(true);
+            return module;
+        });
+        var application = new net.ximatai.muyun.spring.platform.application.Application();
+        application.setAlias("test");
+        application.setEnabled(true);
+        when(applications.select("test")).thenReturn(application);
         when(relations.list(any(Criteria.class), any(PageRequest.class))).thenReturn(List.of(new ModuleMetadataRelation()));
     }
 
@@ -144,7 +164,7 @@ class DynamicRuntimeActivationRepositoryIT {
         String alias = alias();
         activation.schedule(alias);
         DynamicRuntimeActivationService restarted = new DynamicRuntimeActivationService(dao, refresh,
-                relationProvider, pageProvider, orchestrationProvider, eventProvider, manager, runtime);
+                relationProvider, pageProvider, orchestrationProvider, eventProvider, manager, runtime, moduleProvider, applicationProvider);
         assertThat(restarted.status(alias).installedRevision()).isNull();
         restarted.restoreAtStartup(alias);
         assertThat(restarted.status(alias).installedRevision()).isEqualTo(1);
@@ -154,6 +174,44 @@ class DynamicRuntimeActivationRepositoryIT {
         assertThat(restarted.status(alias).status()).isEqualTo("INACTIVE");
         verify(refresh).deactivateNow(alias);
         verify(pages).removeInstalledConfiguration(alias);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"application-disabled", "application-missing", "module-disabled", "module-missing"})
+    void unavailableModuleWithdrawsProjectionsAndCannotBeReactivatedByConfigurationCallbacks(String reason) {
+        String alias = alias();
+        activation.schedule(alias);
+        var module = modules.select(alias);
+        var application = applications.select("test");
+        switch (reason) {
+            case "application-disabled" -> application.setEnabled(false);
+            case "application-missing" -> when(applications.select("test")).thenReturn(null);
+            case "module-disabled" -> {
+                module.setEnabled(false);
+                when(modules.select(alias)).thenReturn(module);
+            }
+            case "module-missing" -> when(modules.select(alias)).thenReturn(null);
+            default -> throw new AssertionError(reason);
+        }
+        clearInvocations(refresh, pages, orchestration, relations, events);
+        activation.restoreAtStartup(alias);
+        activation.schedule(alias); // Missing action executors can commit another configuration revision.
+        assertThat(activation.retry(alias, 2).status()).isEqualTo("INACTIVE");
+        assertThat(activation.status(alias).failureMessage()).isNull();
+        verify(refresh, times(3)).deactivateNow(alias);
+        verify(pages, times(3)).removeInstalledConfiguration(alias);
+        verify(refresh, never()).activateNow(anyString());
+        verify(pages, never()).installCurrentPublishedConfiguration(anyString());
+        verifyNoInteractions(orchestration, relations, events);
+
+        module.setEnabled(true);
+        application.setEnabled(true);
+        when(modules.select(alias)).thenReturn(module);
+        when(applications.select("test")).thenReturn(application);
+        activation.restoreAtStartup(alias);
+        assertThat(activation.status(alias).status()).isEqualTo("ACTIVE");
+        verify(refresh).activateNow(alias);
+        verify(pages).installCurrentPublishedConfiguration(alias);
     }
 
     @Test void pageInstallFailureDoesNotClaimTheOldCompleteRuntimeIsStillInstalled() {
@@ -335,7 +393,7 @@ class DynamicRuntimeActivationRepositoryIT {
             }
         };
         var restarted = new DynamicRuntimeActivationService(dao, refresh, relationProvider, pageProvider,
-                orchestrationProvider, eventProvider, failingCommit, runtime);
+                orchestrationProvider, eventProvider, failingCommit, runtime, moduleProvider, applicationProvider);
 
         var status = restarted.retry(alias, 1);
 
@@ -429,6 +487,8 @@ class DynamicRuntimeActivationRepositoryIT {
         @Bean net.ximatai.muyun.spring.dynamic.runtime.DynamicRecordRuntime runtime(IDatabaseOperations<?> operations) {
             return new net.ximatai.muyun.spring.dynamic.runtime.DynamicRecordRuntime(operations);
         }
+        @Bean PlatformModuleService modules() { return mock(PlatformModuleService.class); }
+        @Bean ApplicationService applications() { return mock(ApplicationService.class); }
         @Bean PlatformDynamicRuntimeRefresher refresh() { return mock(PlatformDynamicRuntimeRefresher.class); }
         @Bean ModuleMetadataRelationService relations() { return mock(ModuleMetadataRelationService.class); }
         @Bean ModuleMetadataOrchestrationService orchestration() { return mock(ModuleMetadataOrchestrationService.class); }

@@ -17,6 +17,9 @@ import net.ximatai.muyun.spring.ability.event.RuntimeEventType;
 import net.ximatai.muyun.spring.ability.event.RuntimeEventPublisher;
 import net.ximatai.muyun.spring.ability.event.RuntimeMutationSource;
 import net.ximatai.muyun.spring.platform.metadata.RelationRole;
+import net.ximatai.muyun.spring.platform.application.ApplicationService;
+import net.ximatai.muyun.spring.platform.module.PlatformModuleService;
+import net.ximatai.muyun.spring.platform.module.ModuleKind;
 import net.ximatai.muyun.spring.platform.ui.PublishedPageExecutionCoordinator;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
@@ -44,6 +47,8 @@ public class DynamicRuntimeActivationService {
     private final ObjectProvider<PublishedPageExecutionCoordinator> pages;
     private final ObjectProvider<ModuleMetadataOrchestrationService> orchestration;
     private final ObjectProvider<RuntimeEventPublisher> events;
+    private final ObjectProvider<PlatformModuleService> modules;
+    private final ObjectProvider<ApplicationService> applications;
     private final TransactionTemplate required;
     private final TransactionTemplate independent;
     private final Map<String, Integer> installed = new ConcurrentHashMap<>();
@@ -52,7 +57,8 @@ public class DynamicRuntimeActivationService {
             ObjectProvider<ModuleMetadataRelationService> relations, ObjectProvider<PublishedPageExecutionCoordinator> pages,
             ObjectProvider<ModuleMetadataOrchestrationService> orchestration,
             ObjectProvider<RuntimeEventPublisher> events, PlatformTransactionManager transactions,
-            DynamicRecordRuntime runtime) {
+            DynamicRecordRuntime runtime, ObjectProvider<PlatformModuleService> modules,
+            ObjectProvider<ApplicationService> applications) {
         this.publication = runtime.publication();
         this.dao = dao;
         this.refresher = refresher;
@@ -60,6 +66,8 @@ public class DynamicRuntimeActivationService {
         this.pages = pages;
         this.orchestration = orchestration;
         this.events = events;
+        this.modules = modules;
+        this.applications = applications;
         required = new TransactionTemplate(transactions);
         independent = new TransactionTemplate(transactions);
         independent.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
@@ -129,24 +137,24 @@ public class DynamicRuntimeActivationService {
                     attemptedVersion.set(state.getVersion());
                     installed.remove(alias);
                     try {
-                        boolean hasMain = !relations.getObject().list(Criteria.of().eq("moduleAlias", alias)
+                        boolean shouldActivate = isModuleAvailable(alias) && !relations.getObject().list(Criteria.of().eq("moduleAlias", alias)
                                 .eq("relationRole", RelationRole.MAIN), PageRequest.of(1, 1)).isEmpty();
-                        if (hasMain) {
+                        if (shouldActivate) {
                             orchestration.getObject().reconcileChildSystemFields(alias);
                             refresher.activateNow(alias);
                         } else refresher.deactivateNow(alias);
                         pages.orderedStream().forEach(page -> {
-                            if (hasMain) page.installCurrentPublishedConfiguration(alias);
+                            if (shouldActivate) page.installCurrentPublishedConfiguration(alias);
                             else page.removeInstalledConfiguration(alias);
                         });
                         state.setActiveRevision(revision);
-                        state.setStatus(hasMain ? "ACTIVE" : "INACTIVE");
+                        state.setStatus(shouldActivate ? "ACTIVE" : "INACTIVE");
                         state.setFailureMessage(null);
                         state.setAttemptedAt(Instant.now());
                         save(state);
                         // Installed means entity and page projections have both completed in this process.
                         installed.put(alias, revision);
-                        if (hasMain) TransactionScopeSupport.afterCommitOrNow(() -> publishActivated(alias, revision));
+                        if (shouldActivate) TransactionScopeSupport.afterCommitOrNow(() -> publishActivated(alias, revision));
                     } catch (RuntimeException failure) {
                         installed.remove(alias);
                         try { withdrawRuntime(alias); }
@@ -180,6 +188,17 @@ public class DynamicRuntimeActivationService {
                 }
             }
         }
+    }
+
+    /** Evaluate committed availability for startup, explicit retry and every post-commit callback alike. */
+    private boolean isModuleAvailable(String alias) {
+        var module = modules.getObject().select(alias);
+        if (module == null || module.getModuleKind() != ModuleKind.DYNAMIC
+                || !Boolean.TRUE.equals(module.getEnabled())) {
+            return false;
+        }
+        var application = applications.getObject().select(module.getApplicationAlias());
+        return application != null && Boolean.TRUE.equals(application.getEnabled());
     }
 
     private void withdrawRuntime(String alias) {
