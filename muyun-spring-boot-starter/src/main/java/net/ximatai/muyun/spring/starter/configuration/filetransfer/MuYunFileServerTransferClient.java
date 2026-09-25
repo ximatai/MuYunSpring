@@ -134,9 +134,23 @@ final class MuYunFileServerTransferClient implements FileTransferClient {
         if (sizeBytes < 0) {
             throw new PlatformException("file server returned invalid file size for: " + fileId);
         }
+        Integer imageWidth = imageDimension(source, "imageWidth");
+        Integer imageHeight = imageDimension(source, "imageHeight");
+        if ((imageWidth == null) != (imageHeight == null)) {
+            throw new PlatformException("file server returned incomplete image dimensions for: " + fileId);
+        }
         return new FileTransferFileMetadata(fileId, text(source, "originalFilename"), text(source, "extension"),
                 text(source, "mimeType"), sizeBytes, text(source, "sha256"), text(source, "status"),
-                source.path("temporary").asBoolean(), instant(source, "uploadedAt"));
+                source.path("temporary").asBoolean(), instant(source, "uploadedAt"), imageWidth, imageHeight);
+    }
+
+    private Integer imageDimension(JsonNode source, String name) {
+        JsonNode value = source.get(name);
+        if (value == null || value.isNull()) return null;
+        if (!value.isIntegralNumber() || !value.canConvertToInt() || value.intValue() <= 0) {
+            throw new PlatformException("file server returned invalid image dimension: " + name);
+        }
+        return value.intValue();
     }
 
     private String text(JsonNode source, String field) {

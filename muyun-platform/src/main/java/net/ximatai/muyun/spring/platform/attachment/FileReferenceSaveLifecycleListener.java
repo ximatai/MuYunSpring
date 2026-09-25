@@ -19,7 +19,6 @@ import java.util.IdentityHashMap;
 import java.util.EnumMap;
 import java.util.LinkedHashMap;
 import java.util.Map;
-import java.util.Set;
 import java.util.Objects;
 import java.util.function.Supplier;
 
@@ -29,32 +28,21 @@ public final class FileReferenceSaveLifecycleListener implements EntitySaveLifec
     private final Supplier<FileTransferClient> clientSupplier;
     private final Supplier<ManagedFileAssetService> managedAssetServiceSupplier;
     private final Supplier<ManagedFileAssetReferenceService> managedAssetReferenceServiceSupplier;
-    private final ThreadLocal<Map<EntityContract, Map<String, java.util.List<String>>>> promoted =
-            ThreadLocal.withInitial(IdentityHashMap::new);
-    private final ThreadLocal<Set<EntityContract>> transactionTracked =
-            ThreadLocal.withInitial(() -> java.util.Collections.newSetFromMap(new IdentityHashMap<>()));
     private final ThreadLocal<Map<EntityContract, java.util.List<ResolvedFileDeletion>>> pendingDeletions =
             ThreadLocal.withInitial(IdentityHashMap::new);
     private final ThreadLocal<Map<EntityContract, InlineReferenceChange>> pendingInlineReferences =
             ThreadLocal.withInitial(IdentityHashMap::new);
 
-    public FileReferenceSaveLifecycleListener(Supplier<FileTransferClient> clientSupplier) {
-        this(clientSupplier, () -> null, () -> null);
-    }
-
-    public FileReferenceSaveLifecycleListener(Supplier<FileTransferClient> clientSupplier,
-                                              Supplier<ManagedFileAssetService> managedAssetServiceSupplier) {
-        this(clientSupplier, managedAssetServiceSupplier, () -> null);
-    }
+    private final Supplier<FileReferenceBindingService> bindingServiceSupplier;
 
     public FileReferenceSaveLifecycleListener(Supplier<FileTransferClient> clientSupplier,
                                               Supplier<ManagedFileAssetService> managedAssetServiceSupplier,
-                                              Supplier<ManagedFileAssetReferenceService> managedAssetReferenceServiceSupplier) {
-        this.clientSupplier = Objects.requireNonNull(clientSupplier, "clientSupplier must not be null");
-        this.managedAssetServiceSupplier = Objects.requireNonNull(managedAssetServiceSupplier,
-                "managedAssetServiceSupplier must not be null");
-        this.managedAssetReferenceServiceSupplier = Objects.requireNonNull(managedAssetReferenceServiceSupplier,
-                "managedAssetReferenceServiceSupplier must not be null");
+                                              Supplier<ManagedFileAssetReferenceService> managedAssetReferenceServiceSupplier,
+                                              Supplier<FileReferenceBindingService> bindingServiceSupplier) {
+        this.clientSupplier = Objects.requireNonNull(clientSupplier);
+        this.managedAssetServiceSupplier = Objects.requireNonNull(managedAssetServiceSupplier);
+        this.managedAssetReferenceServiceSupplier = Objects.requireNonNull(managedAssetReferenceServiceSupplier);
+        this.bindingServiceSupplier = Objects.requireNonNull(bindingServiceSupplier);
     }
 
     @Override
@@ -68,7 +56,6 @@ public final class FileReferenceSaveLifecycleListener implements EntitySaveLifec
         java.util.List<ResolvedFileDeletion> deletions = removedFileReferences(existing, incoming, definitions);
         if (!deletions.isEmpty()) pendingDeletions.get().put(incoming, deletions);
         if (definitions.isEmpty() && inlineDefinitions.isEmpty()) {
-            if (!deletions.isEmpty()) trackTransaction(ability, incoming);
             return;
         }
         FileTransferClient client = clientSupplier.get();
@@ -85,10 +72,8 @@ public final class FileReferenceSaveLifecycleListener implements EntitySaveLifec
                     if (client == null) throw new PlatformException("file transfer client is not configured");
                     for (String fileId : newFileIds) {
                         promotedMetadata.put(fileId,
-                                new FileReferenceConfirmationService(client).confirmAndPromote(entry.getValue(), fileId));
-                        promoted.get().computeIfAbsent(incoming, ignored -> new LinkedHashMap<>())
-                                .computeIfAbsent(entry.getKey(), ignored -> new java.util.ArrayList<>())
-                                .add(fileId);
+                                requireBindingService().bind(incoming.getTenantId(), ability.getModuleAlias(), incoming.getId(),
+                                        entry.getKey(), fileId, entry.getValue()));
                     }
                 }
                 applyMetadataFields(incoming, existing, entry.getKey(), entry.getValue(), incomingFileIds, promotedMetadata);
@@ -99,7 +84,6 @@ public final class FileReferenceSaveLifecycleListener implements EntitySaveLifec
             if (inlineReferenceChanged) {
                 pendingInlineReferences.get().put(incoming, inlineReferenceChange(incoming, inlineDefinitions));
             }
-            trackTransaction(ability, incoming);
         } catch (RuntimeException failure) {
             persistFailed(ability, incoming, failure);
             throw failure;
@@ -114,8 +98,6 @@ public final class FileReferenceSaveLifecycleListener implements EntitySaveLifec
         }
         InlineReferenceChange inlineChange = pendingInlineReferences.get().remove(entity);
         if (inlineChange != null) synchronizeInlineReferences(ability, entity, inlineChange);
-        if (transactionTracked.get().contains(entity)) return;
-        promoted.get().remove(entity);
         clearIfEmpty();
     }
 
@@ -123,12 +105,13 @@ public final class FileReferenceSaveLifecycleListener implements EntitySaveLifec
     public <T extends EntityContract> void persistFailed(CrudAbility<T> ability, T entity, RuntimeException failure) {
         pendingDeletions.get().remove(entity);
         pendingInlineReferences.get().remove(entity);
-        Map<String, java.util.List<String>> fileIds = promoted.get().remove(entity);
-        if (fileIds != null && !fileIds.isEmpty()) {
-            log.error("File reference was promoted but record save did not complete: moduleAlias={}, recordId={}, fileIds={}",
-                    ability.getModuleAlias(), entity.getId(), fileIds, failure);
-        }
         clearIfEmpty();
+    }
+
+    private FileReferenceBindingService requireBindingService() {
+        FileReferenceBindingService service = bindingServiceSupplier.get();
+        if (service == null) throw new PlatformException("file reference binding service is not configured");
+        return service;
     }
 
     private Map<String, FileReferenceDefinition> definitions(EntityContract entity) {
@@ -198,7 +181,7 @@ public final class FileReferenceSaveLifecycleListener implements EntitySaveLifec
             Map<String, FileTransferFileMetadata> metadata = new LinkedHashMap<>();
             for (String id : ids) {
                 FileTransferFileMetadata value = service.readReferenceMetadata(ownerTenantId, id);
-                validateMetadata(entry.getValue(), value);
+                FileReferenceConfirmationService.validateMetadata(entry.getValue(), value);
                 metadata.put(id, value);
             }
             applyMetadataFields(incoming, existing, entry.getKey(), entry.getValue(), ids, metadata);
@@ -243,15 +226,6 @@ public final class FileReferenceSaveLifecycleListener implements EntitySaveLifec
         if (tenantId != null && !tenantId.isBlank()) return tenantId;
         if (entity.getId() != null && !entity.getId().isBlank()) return entity.getId();
         throw new PlatformException("database inline file reference requires a tenant owner");
-    }
-
-    private void validateMetadata(FileReferenceDefinition definition, FileTransferFileMetadata metadata) {
-        if (!definition.allowedMediaTypes().isEmpty() && !definition.allowedMediaTypes().contains(metadata.mimeType())) {
-            throw new PlatformException("file reference media type is not allowed: " + metadata.mimeType());
-        }
-        if (definition.maxFileSizeBytes() != null && metadata.sizeBytes() > definition.maxFileSizeBytes()) {
-            throw new PlatformException("file reference exceeds max file size: " + metadata.fileId());
-        }
     }
 
     private Object rawValue(EntityContract entity, String fieldName) {
@@ -352,7 +326,6 @@ public final class FileReferenceSaveLifecycleListener implements EntitySaveLifec
     }
 
     private void clearIfEmpty() {
-        if (promoted.get().isEmpty()) promoted.remove();
         if (pendingDeletions.get().isEmpty()) pendingDeletions.remove();
         if (pendingInlineReferences.get().isEmpty()) pendingInlineReferences.remove();
     }
@@ -403,13 +376,4 @@ public final class FileReferenceSaveLifecycleListener implements EntitySaveLifec
     private record InlineReferenceChange(Map<String, java.util.List<String>> currentByField) {
     }
 
-    private <T extends EntityContract> void trackTransaction(CrudAbility<T> ability, T entity) {
-        if (!TransactionScopeSupport.isTransactionActive() || !transactionTracked.get().add(entity)) return;
-        TransactionScopeSupport.afterCompletionOrNow(
-                () -> { promoted.get().remove(entity); transactionTracked.get().remove(entity); clearIfEmpty(); },
-                () -> {
-                    persistFailed(ability, entity, new PlatformException("business transaction rolled back"));
-                    transactionTracked.get().remove(entity);
-                });
-    }
 }

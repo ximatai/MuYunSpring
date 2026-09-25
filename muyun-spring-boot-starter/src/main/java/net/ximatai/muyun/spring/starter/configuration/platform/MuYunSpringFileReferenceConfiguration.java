@@ -4,6 +4,7 @@ import net.ximatai.muyun.spring.ability.EntitySaveLifecycleListener;
 import net.ximatai.muyun.spring.ability.PlatformAbilityRuntime;
 import net.ximatai.muyun.spring.platform.attachment.FileReferenceSaveLifecycleListener;
 import net.ximatai.muyun.spring.platform.attachment.ManagedFileAssetService;
+import net.ximatai.muyun.spring.platform.attachment.FileReferenceBindingService;
 import net.ximatai.muyun.spring.platform.attachment.ManagedFileAssetReferenceService;
 import org.springframework.beans.factory.DisposableBean;
 import org.springframework.beans.factory.ObjectProvider;
@@ -16,9 +17,10 @@ public class MuYunSpringFileReferenceConfiguration {
     FileReferenceSaveLifecycleListener fileReferenceSaveLifecycleListener(
             ObjectProvider<net.ximatai.muyun.spring.platform.attachment.FileTransferClient> clients,
             ObjectProvider<ManagedFileAssetService> managedFileAssetService,
-            ObjectProvider<ManagedFileAssetReferenceService> managedFileAssetReferenceService) {
+            ObjectProvider<ManagedFileAssetReferenceService> managedFileAssetReferenceService,
+            ObjectProvider<FileReferenceBindingService> bindings) {
         return new FileReferenceSaveLifecycleListener(clients::getIfAvailable, managedFileAssetService::getIfAvailable,
-                managedFileAssetReferenceService::getIfAvailable);
+                managedFileAssetReferenceService::getIfAvailable, bindings::getIfAvailable);
     }
 
     @Bean

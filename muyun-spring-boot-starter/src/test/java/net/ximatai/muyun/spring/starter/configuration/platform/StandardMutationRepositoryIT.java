@@ -1,6 +1,8 @@
 package net.ximatai.muyun.spring.starter.configuration.platform;
 
 import net.ximatai.muyun.spring.iam.tenant.Tenant;
+import net.ximatai.muyun.spring.platform.attachment.*;
+import net.ximatai.muyun.spring.platform.attachment.ManagedFileAssetService;
 import net.ximatai.muyun.spring.iam.tenant.TenantDao;
 import net.ximatai.muyun.spring.iam.tenant.TenantService;
 import net.ximatai.muyun.spring.common.tenant.TenantCreationProvisioner;
@@ -59,6 +61,8 @@ class StandardMutationRepositoryIT {
     @Container static final PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:16-alpine");
     @Autowired MutationContractDao dao;
     @Autowired TenantDao tenantDao;
+    @Autowired ManagedFileAssetDao assetDao;
+    @Autowired FileReferenceOwnershipDao fileOwnership;
     @Autowired Records records;
     @Autowired FailingLogService log;
     @Autowired SoftDeleteRestoreCoordinator restores;
@@ -75,6 +79,81 @@ class StandardMutationRepositoryIT {
         records.committed.clear();
         log.rejectSuccessFor(null);
         records.purgeGate = ignored -> {};
+    }
+
+    @Test
+    void concurrentFileBindingsHaveOneOwnerBeforeAnyRemotePromotion() throws Exception {
+        String fileId = "claim-" + UUID.randomUUID().toString().substring(0, 20);
+        var client = org.mockito.Mockito.mock(FileTransferClient.class);
+        var temporary = new FileTransferFileMetadata(fileId, "test.pdf", "pdf", "application/pdf", 1,
+                "sha", "temporary", true, java.time.Instant.now(), null, null);
+        var permanent = new FileTransferFileMetadata(fileId, "test.pdf", "pdf", "application/pdf", 1,
+                "sha", "active", false, java.time.Instant.now(), null, null);
+        org.mockito.Mockito.when(client.readMetadata(fileId)).thenReturn(temporary);
+        org.mockito.Mockito.when(client.promote(fileId)).thenReturn(permanent);
+        var beans = new org.springframework.beans.factory.support.StaticListableBeanFactory();
+        beans.addBean("client", client);
+        var bindings = new FileReferenceBindingService(beans.getBeanProvider(FileTransferClient.class), fileOwnership);
+        var start = new java.util.concurrent.CountDownLatch(1);
+        try (var executor = java.util.concurrent.Executors.newFixedThreadPool(2)) {
+            var futures = new ArrayList<java.util.concurrent.Future<Boolean>>();
+            for (int i = 0; i < 2; i++) {
+                String recordId = "owner-" + i;
+                futures.add(executor.submit(() -> {
+                    start.await();
+                    try {
+                        new TransactionTemplate(transactions).executeWithoutResult(status ->
+                                bindings.bind("file-owner", "test.document", recordId, "fileId", fileId,
+                                        net.ximatai.muyun.spring.dynamic.metadata.FileReferenceDefinition.unrestricted()));
+                        return true;
+                    } catch (PlatformException conflict) {
+                        assertThat(conflict.code()).isEqualTo(PlatformErrorCodes.FILE_REFERENCE_ALREADY_BOUND);
+                        return false;
+                    }
+                }));
+            }
+            start.countDown();
+            assertThat(List.of(futures.get(0).get(20, java.util.concurrent.TimeUnit.SECONDS),
+                    futures.get(1).get(20, java.util.concurrent.TimeUnit.SECONDS)))
+                    .containsExactlyInAnyOrder(true, false);
+        }
+        org.mockito.Mockito.verify(client, org.mockito.Mockito.times(1)).promote(fileId);
+        assertThat(fileOwnership.query(Criteria.of().eq("id", fileId), PageRequest.of(1, 10)))
+                .hasSize(1);
+    }
+
+    @Test
+    void rolledBackFileOwnershipIsReleasedWithTheBusinessTransaction() {
+        String fileId = "claim-" + UUID.randomUUID().toString().substring(0, 20);
+        FileReferenceOwnership claim = new FileReferenceOwnership();
+        claim.setId(fileId);
+        claim.setModuleAlias("test.document");
+        claim.setRecordId("rolled-back");
+        claim.setFieldName("fileId");
+        net.ximatai.muyun.spring.common.model.EntityLifecycle.prepareInsert(claim, java.time.Instant.now());
+        new TransactionTemplate(transactions).executeWithoutResult(status -> {
+            fileOwnership.insert(claim);
+            status.setRollbackOnly();
+        });
+        claim.setRecordId("committed");
+        new TransactionTemplate(transactions).executeWithoutResult(status -> fileOwnership.insert(claim));
+        assertThat(fileOwnership.query(Criteria.of().eq("id", fileId), PageRequest.of(1, 10)))
+                .singleElement().extracting(FileReferenceOwnership::getRecordId).isEqualTo("committed");
+    }
+
+    @Test
+    void inlineImageFactsSurviveTheRealRepositoryRoundTrip() throws Exception {
+        var image = new java.awt.image.BufferedImage(16, 8, java.awt.image.BufferedImage.TYPE_INT_RGB);
+        var content = new java.io.ByteArrayOutputStream();
+        javax.imageio.ImageIO.write(image, "png", content);
+        var assets = new ManagedFileAssetService(assetDao);
+        var asset = new TransactionTemplate(transactions).execute(status ->
+                assets.createInline("image_facts", "logo.png", "image/png", content.toByteArray()));
+        var stored = assets.readReferenceMetadata("image_facts", asset.getId());
+        assertThat(stored.imageWidth()).isEqualTo(16);
+        assertThat(stored.imageHeight()).isEqualTo(8);
+        assertThat(stored.mimeType()).isEqualTo("image/png");
+        assertThat(stored.sizeBytes()).isEqualTo(content.size());
     }
 
     @Test
@@ -723,7 +802,7 @@ class StandardMutationRepositoryIT {
     @SpringBootConfiguration
     @EnableAutoConfiguration(exclude = {MuYunSpringAutoConfiguration.class, MuYunSpringBusinessLoggingConfiguration.class})
     @EnableTransactionManagement(proxyTargetClass = true)
-    @EnableMuYunRepositories(basePackageClasses = {MutationContractDao.class, DeletionOperationDao.class, TenantDao.class})
+    @EnableMuYunRepositories(basePackageClasses = {MutationContractDao.class, DeletionOperationDao.class, TenantDao.class, ManagedFileAssetDao.class})
     @Import({MuYunSpringMutationConfiguration.class, MuYunSpringDatabaseConfiguration.class,
             DeletionRecoveryExecutor.class, SoftDeleteRestoreCoordinator.class, RecycleBinPurgeCoordinator.class,
             DeletionLogLifecycleListener.class})

@@ -30,6 +30,17 @@ public class ManagedFileAsset extends StandardEntity {
     @Column(name = "sha256", type = ColumnType.VARCHAR, length = 64, nullable = false, comment = "Decoded content SHA-256")
     private String sha256;
 
+    @Column(name = "image_width", type = ColumnType.INT, comment = "Encoded image width in pixels")
+    private Integer imageWidth;
+
+    @Column(name = "image_height", type = ColumnType.INT, comment = "Encoded image height in pixels")
+    private Integer imageHeight;
+
+    public Integer getImageWidth() { return imageWidth; }
+    public void setImageWidth(Integer imageWidth) { this.imageWidth = imageWidth; }
+    public Integer getImageHeight() { return imageHeight; }
+    public void setImageHeight(Integer imageHeight) { this.imageHeight = imageHeight; }
+
     public ManagedFileStorageKind getStorageKind() { return storageKind; }
     public void setStorageKind(ManagedFileStorageKind storageKind) { this.storageKind = storageKind; }
     public String getProviderFileId() { return providerFileId; }

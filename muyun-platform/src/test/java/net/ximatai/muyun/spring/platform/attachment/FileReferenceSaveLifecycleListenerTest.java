@@ -1,8 +1,5 @@
 package net.ximatai.muyun.spring.platform.attachment;
 
-import ch.qos.logback.classic.Logger;
-import ch.qos.logback.classic.spi.ILoggingEvent;
-import ch.qos.logback.core.read.ListAppender;
 import lombok.Getter;
 import lombok.Setter;
 import net.ximatai.muyun.database.core.annotation.Column;
@@ -20,7 +17,6 @@ import net.ximatai.muyun.spring.dynamic.metadata.FileReferenceDefinition;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecord;
 import net.ximatai.muyun.spring.platform.support.TestMemoryDao;
 import org.junit.jupiter.api.Test;
-import org.slf4j.LoggerFactory;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.time.Instant;
@@ -37,10 +33,25 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class FileReferenceSaveLifecycleListenerTest {
+    private FileReferenceSaveLifecycleListener listener(java.util.function.Supplier<FileTransferClient> clients) {
+        return listener(clients, () -> null, () -> null);
+    }
+
+    private FileReferenceSaveLifecycleListener listener(java.util.function.Supplier<FileTransferClient> clients,
+            java.util.function.Supplier<ManagedFileAssetService> assets,
+            java.util.function.Supplier<ManagedFileAssetReferenceService> references) {
+        FileReferenceBindingService bindings = mock(FileReferenceBindingService.class);
+        org.mockito.Mockito.when(bindings.bind(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any())).thenAnswer(call ->
+                new FileReferenceConfirmationService(clients.get()).confirmAndPromote(call.getArgument(5), call.getArgument(4)));
+        return new FileReferenceSaveLifecycleListener(clients, assets, references, () -> bindings);
+    }
+
     @Test
     void promotesOnlyNewStaticFileReferences() {
         AtomicInteger promotions = new AtomicInteger();
-        FileReferenceSaveLifecycleListener listener = new FileReferenceSaveLifecycleListener(() -> client(promotions));
+        FileReferenceSaveLifecycleListener listener = listener(() -> client(promotions));
 
         listener.beforeSave(new DocumentService(), document("file-old"), document("file-new"));
         listener.persisted(new DocumentService(), document("file-new"));
@@ -52,7 +63,7 @@ class FileReferenceSaveLifecycleListenerTest {
     void removesReplacedFileWithoutAClientDeletionIntent() {
         AtomicInteger promotions = new AtomicInteger();
         AtomicInteger deletions = new AtomicInteger();
-        FileReferenceSaveLifecycleListener listener = new FileReferenceSaveLifecycleListener(() -> client(promotions, deletions));
+        FileReferenceSaveLifecycleListener listener = listener(() -> client(promotions, deletions));
         Document existing = document("file-old");
         existing.setId("document-1");
         Document incoming = document("file-new");
@@ -69,7 +80,7 @@ class FileReferenceSaveLifecycleListenerTest {
     void removesOnlyTheDifferenceFromMultiFileReference() {
         AtomicInteger promotions = new AtomicInteger();
         AtomicInteger deletions = new AtomicInteger();
-        FileReferenceSaveLifecycleListener listener = new FileReferenceSaveLifecycleListener(() -> client(promotions, deletions));
+        FileReferenceSaveLifecycleListener listener = listener(() -> client(promotions, deletions));
         MultiDocument existing = multiDocument("file-old", "file-retained", "file-removed");
         existing.setId("document-1");
         MultiDocument incoming = multiDocument("file-retained", "file-new");
@@ -85,7 +96,7 @@ class FileReferenceSaveLifecycleListenerTest {
     @Test
     void doesNotDeleteOldFilesWhenBusinessPersistenceFails() {
         AtomicInteger deletions = new AtomicInteger();
-        FileReferenceSaveLifecycleListener listener = new FileReferenceSaveLifecycleListener(
+        FileReferenceSaveLifecycleListener listener = listener(
                 () -> client(new AtomicInteger(), deletions));
         Document existing = document("file-old");
         existing.setId("document-1");
@@ -102,7 +113,7 @@ class FileReferenceSaveLifecycleListenerTest {
     @Test
     void handlesAChildEntityThroughItsOwnLifecycleWithoutRootPathMetadata() {
         AtomicInteger deletions = new AtomicInteger();
-        FileReferenceSaveLifecycleListener listener = new FileReferenceSaveLifecycleListener(
+        FileReferenceSaveLifecycleListener listener = listener(
                 () -> client(new AtomicInteger(), deletions));
         Document existingLine = document("file-old");
         existingLine.setId("line-1");
@@ -118,7 +129,7 @@ class FileReferenceSaveLifecycleListenerTest {
     @Test
     void promotesNewDynamicFileReferencesThroughTheSameLifecycle() {
         AtomicInteger promotions = new AtomicInteger();
-        FileReferenceSaveLifecycleListener listener = new FileReferenceSaveLifecycleListener(() -> client(promotions));
+        FileReferenceSaveLifecycleListener listener = listener(() -> client(promotions));
         EntityDefinition definition = new EntityDefinition("document", "crm_document", "Document", List.of(
                 FieldDefinition.string("sourceFileId", "Source file").column("source_file_id").length(64)))
                 .withFileReferences(Map.of("sourceFileId", FileReferenceDefinition.unrestricted()));
@@ -132,7 +143,7 @@ class FileReferenceSaveLifecycleListenerTest {
 
     @Test
     void hydratesDeclaredMetadataFromThePromotedFileAndRejectsClientValues() {
-        FileReferenceSaveLifecycleListener listener = new FileReferenceSaveLifecycleListener(() -> client(new AtomicInteger()));
+        FileReferenceSaveLifecycleListener listener = listener(() -> client(new AtomicInteger()));
         Document incoming = document("file-new");
         incoming.setSourceFilename("forged.pdf");
         incoming.setSourceFileSize(999L);
@@ -145,7 +156,7 @@ class FileReferenceSaveLifecycleListenerTest {
 
     @Test
     void preservesOrClearsManagedMetadataWithTheFileReference() {
-        FileReferenceSaveLifecycleListener listener = new FileReferenceSaveLifecycleListener(() -> client(new AtomicInteger()));
+        FileReferenceSaveLifecycleListener listener = listener(() -> client(new AtomicInteger()));
         Document existing = document("file-old");
         existing.setSourceFilename("trusted.pdf");
         existing.setSourceFileSize(5L);
@@ -169,7 +180,7 @@ class FileReferenceSaveLifecycleListenerTest {
 
     @Test
     void hydratesDynamicMetadataThroughTheSameSourceNeutralDefinition() {
-        FileReferenceSaveLifecycleListener listener = new FileReferenceSaveLifecycleListener(() -> client(new AtomicInteger()));
+        FileReferenceSaveLifecycleListener listener = listener(() -> client(new AtomicInteger()));
         EntityDefinition definition = new EntityDefinition("document", "crm_document", "Document", List.of(
                 FieldDefinition.string("sourceFileId", "Source file").column("source_file_id").length(64),
                 FieldDefinition.string("sourceFilename", "Source filename").column("source_filename").length(255),
@@ -194,8 +205,8 @@ class FileReferenceSaveLifecycleListenerTest {
         ManagedFileAssetReferenceService references = mock(ManagedFileAssetReferenceService.class);
         when(assets.readReferenceMetadata("tenant-a", "asset-1"))
                 .thenReturn(new FileTransferFileMetadata("asset-1", "logo.png", "png", "image/png", 12,
-                        "sha", "DATABASE_INLINE", false, Instant.now()));
-        FileReferenceSaveLifecycleListener listener = new FileReferenceSaveLifecycleListener(() -> null, () -> assets, () -> references);
+                        "sha", "DATABASE_INLINE", false, Instant.now(), null, null));
+        FileReferenceSaveLifecycleListener listener = listener(() -> null, () -> assets, () -> references);
         InlineDocument incoming = new InlineDocument();
         incoming.setId("document-1");
         incoming.setTenantId("tenant-a");
@@ -216,7 +227,7 @@ class FileReferenceSaveLifecycleListenerTest {
     void rejectsInlineReferenceSaveOutsideAnActiveTransaction() {
         ManagedFileAssetService assets = mock(ManagedFileAssetService.class);
         ManagedFileAssetReferenceService references = mock(ManagedFileAssetReferenceService.class);
-        FileReferenceSaveLifecycleListener listener = new FileReferenceSaveLifecycleListener(() -> null, () -> assets, () -> references);
+        FileReferenceSaveLifecycleListener listener = listener(() -> null, () -> assets, () -> references);
         InlineDocument incoming = new InlineDocument();
         incoming.setId("document-1");
         incoming.setTenantId("tenant-a");
@@ -238,37 +249,11 @@ class FileReferenceSaveLifecycleListenerTest {
 
     @Test
     void rejectsNewReferenceWhenTransferIsUnavailable() {
-        FileReferenceSaveLifecycleListener listener = new FileReferenceSaveLifecycleListener(() -> null);
+        FileReferenceSaveLifecycleListener listener = listener(() -> null);
 
         assertThatThrownBy(() -> listener.beforeSave(new DocumentService(), null, document("file-new")))
                 .isInstanceOf(PlatformException.class)
                 .hasMessage("file transfer client is not configured");
-    }
-
-    @Test
-    void recordsAlreadyPromotedFilesWhenLaterMultiFilePromotionFails() {
-        Logger logger = (Logger) LoggerFactory.getLogger(FileReferenceSaveLifecycleListener.class);
-        ListAppender<ILoggingEvent> events = new ListAppender<>();
-        events.start();
-        logger.addAppender(events);
-        try {
-            FileReferenceSaveLifecycleListener listener = new FileReferenceSaveLifecycleListener(
-                    () -> partiallyFailingClient("file-fails"));
-
-            assertThatThrownBy(() -> listener.beforeSave(new MultiDocumentService(), null,
-                    multiDocument("file-promoted", "file-fails")))
-                    .isInstanceOf(PlatformException.class)
-                    .hasMessage("promotion failed");
-
-            assertThat(events.list).anySatisfy(event -> {
-                assertThat(event.getFormattedMessage())
-                        .contains("File reference was promoted but record save did not complete")
-                        .contains("file-promoted");
-            });
-        } finally {
-            logger.detachAppender(events);
-            events.stop();
-        }
     }
 
     private FileTransferClient client(AtomicInteger promotions) { return client(promotions, new AtomicInteger()); }
@@ -277,31 +262,14 @@ class FileReferenceSaveLifecycleListenerTest {
         return new FileTransferClient() {
             @Override public FileTransferFileMetadata readMetadata(String fileId) {
                 return new FileTransferFileMetadata(fileId, "source.pdf", "pdf", "application/pdf", 1, "sha",
-                        "temporary", true, Instant.now());
+                        "temporary", true, Instant.now(), null, null);
             }
             @Override public FileTransferFileMetadata promote(String fileId) {
                 promotions.incrementAndGet();
                 return new FileTransferFileMetadata(fileId, "source.pdf", "pdf", "application/pdf", 1, "sha",
-                        "active", false, Instant.now());
+                        "active", false, Instant.now(), null, null);
             }
             @Override public void delete(String fileId) { deletions.incrementAndGet(); }
-        };
-    }
-
-    private FileTransferClient partiallyFailingClient(String failingFileId) {
-        return new FileTransferClient() {
-            @Override public FileTransferFileMetadata readMetadata(String fileId) {
-                return new FileTransferFileMetadata(fileId, "source.pdf", "pdf", "application/pdf", 1, "sha",
-                        "temporary", true, Instant.now());
-            }
-
-            @Override public FileTransferFileMetadata promote(String fileId) {
-                if (failingFileId.equals(fileId)) {
-                    throw new PlatformException("promotion failed");
-                }
-                return new FileTransferFileMetadata(fileId, "source.pdf", "pdf", "application/pdf", 1, "sha",
-                        "active", false, Instant.now());
-            }
         };
     }
 
