@@ -1,6 +1,7 @@
 package net.ximatai.muyun.spring.platform.web;
 
 import net.ximatai.muyun.spring.common.openapi.PlatformApiDocument;
+import net.ximatai.muyun.spring.common.model.constraint.WriteOperation;
 import net.ximatai.muyun.spring.common.option.OptionBinding;
 import net.ximatai.muyun.spring.dynamic.metadata.EntityDefinition;
 import net.ximatai.muyun.spring.dynamic.metadata.FieldDefinition;
@@ -18,6 +19,8 @@ final class StaticModuleOpenApiSchemaFactory {
         Map<String, PlatformApiDocument.Schema> schemas = new LinkedHashMap<>();
         for (EntityDefinition entity : module.entities()) {
             schemas.put(schemaName(entity), entitySchema(entity));
+            schemas.put(schemaName(entity) + "Create", mutationSchema(entity, WriteOperation.INSERT));
+            schemas.put(schemaName(entity) + "Update", mutationSchema(entity, WriteOperation.UPDATE));
         }
         EntityDefinition main = module.entities().isEmpty() ? null : module.entities().getFirst();
         if (main != null) {
@@ -65,7 +68,7 @@ final class StaticModuleOpenApiSchemaFactory {
         properties.put("tenantId", new PlatformApiDocument.Property("string", null, false, true, false,
                 null, "Platform tenant identifier", null, null, null, null, List.of()));
         properties.put("version", new PlatformApiDocument.Property("integer", "int32", false, true, false,
-                null, "Optimistic lock version; required when updating an existing record", null, null, null, null, List.of()));
+                null, "Optimistic lock expected version; uses the stored version when omitted", null, null, null, null, List.of()));
         properties.put("deleted", new PlatformApiDocument.Property("boolean", null, false, true, false,
                 null, "Soft delete flag", null, null, null, null, List.of()));
         properties.put("deletedAt", temporalProperty());
@@ -75,6 +78,21 @@ final class StaticModuleOpenApiSchemaFactory {
         properties.put("updatedBy", stringProperty());
         properties.put("updatedAt", temporalProperty());
         return new PlatformApiDocument.Schema(schemaName(entity), "object", null, required, properties, null);
+    }
+
+    private PlatformApiDocument.Schema mutationSchema(EntityDefinition entity, WriteOperation operation) {
+        var response = entitySchema(entity);
+        // Requirements describe the value after defaults and lifecycle hooks, not mandatory JSON keys.
+        String suffix = operation == WriteOperation.INSERT ? "Create" : "Update";
+        Map<String, PlatformApiDocument.Property> properties = new LinkedHashMap<>(response.properties());
+        for (FieldDefinition field : entity.fields()) {
+            properties.computeIfPresent(field.fieldName(), (ignored, property) ->
+                    property.withRequired(false).withNullable(true));
+        }
+        // The standard update endpoint owns id in the path. Version is optional and falls back to
+        // the current record; record-action request schemas retain their explicit required version.
+        return new PlatformApiDocument.Schema(schemaName(entity) + suffix, "object", null, List.of(),
+                properties, null).withWriteOperation(operation, false);
     }
 
     private PlatformApiDocument.Property temporalProperty() {
@@ -88,7 +106,7 @@ final class StaticModuleOpenApiSchemaFactory {
         boolean multiple = field.valueShape().name().equals("JSON_SET");
         return new PlatformApiDocument.Property(shape.type(), shape.format(), field.isRequired(), !field.isRequired(), multiple,
                 binding == null ? null : binding.sourceType(), binding == null ? field.name() : binding.source(),
-                null, null, null, null, List.of());
+                null, null, null, null, List.of()).withWriteRules(field.resolvedWriteRules());
     }
 
     private PlatformApiDocument.Schema webQueryRequestSchema() {

@@ -111,7 +111,9 @@ public class StaticModuleOpenApiGenerator {
         if (capabilitySchema != null) return capabilitySchema;
         if (action == PlatformAction.QUERY) return "WebQueryRequest";
         if (action == PlatformAction.DELETE) return "RecordActionWebRequest";
-        return action == PlatformAction.CREATE || action == PlatformAction.UPDATE ? mainSchemaName : null;
+        if (mainSchemaName == null) return null;
+        if (action == PlatformAction.CREATE) return mainSchemaName + "Create";
+        return action == PlatformAction.UPDATE ? mainSchemaName + "Update" : null;
     }
 
     private String responseSchema(RegisteredWebEndpoint endpoint, String mainSchemaName) {

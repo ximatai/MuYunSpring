@@ -95,7 +95,7 @@ class DynamicRecordCollaboratorRuntimeTest {
     void mutationRuntimeDisablesReferencedTargetWithoutApplyingItsDeletionPolicy() {
         IDatabaseOperations<Object> operations = operations();
         when(operations.query(anyString(), anyMap())).thenReturn(List.of(Map.of(
-                "id", "warehouse-1", "version", 0, "enabled", true, "deleted", false)));
+                "id", "warehouse-1", "name", "Warehouse", "version", 0, "enabled", true, "deleted", false)));
         when(operations.patchUpdateItemWhere(anyString(), anyString(), anyMap(), anyMap(), anyString())).thenReturn(1);
         DynamicRecordRuntime runtime = runtime(operations, warehouseModule(), DynamicActionTransactionOperator.none())
                 .register(restrictingPurchaseModule());

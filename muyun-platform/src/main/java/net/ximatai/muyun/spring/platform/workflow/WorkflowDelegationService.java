@@ -285,11 +285,6 @@ public class WorkflowDelegationService extends AbstractAbilityService<WorkflowDe
     }
 
     private void normalizeAndValidate(WorkflowDelegation delegation) {
-        delegation.setTitle(requireText(delegation.getTitle(), "workflow delegation title must not be blank"));
-        delegation.setPrincipalUserId(requireText(delegation.getPrincipalUserId(),
-                "workflow delegation principal user id must not be blank"));
-        delegation.setDelegateUserId(requireText(delegation.getDelegateUserId(),
-                "workflow delegation delegate user id must not be blank"));
         if (sameText(delegation.getPrincipalUserId(), delegation.getDelegateUserId())) {
             throw new PlatformException("workflow delegation delegate must differ from principal");
         }

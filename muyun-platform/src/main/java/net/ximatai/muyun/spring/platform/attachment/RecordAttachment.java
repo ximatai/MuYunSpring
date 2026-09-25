@@ -1,5 +1,7 @@
 package net.ximatai.muyun.spring.platform.attachment;
 
+import net.ximatai.muyun.spring.common.model.constraint.NormalizeText;
+import net.ximatai.muyun.spring.common.model.constraint.Required;
 import lombok.Getter;
 import lombok.Setter;
 import net.ximatai.muyun.database.core.annotation.Column;
@@ -16,14 +18,20 @@ import net.ximatai.muyun.spring.common.model.standard.StandardEntity;
 public class RecordAttachment extends StandardEntity {
     @Column(name = "module_alias", type = ColumnType.VARCHAR, length = 128, nullable = false,
             comment = "Business module alias")
+    @Required
+    @NormalizeText
     private String moduleAlias;
 
     @Column(name = "record_id", type = ColumnType.VARCHAR, length = 64, nullable = false,
             comment = "Business record id")
+    @Required
+    @NormalizeText
     private String recordId;
 
     @Column(name = "file_id", type = ColumnType.VARCHAR, length = 64, nullable = false,
             comment = "File server file id")
+    @Required
+    @NormalizeText
     private String fileId;
 
     @Column(name = "display_name", type = ColumnType.VARCHAR, length = 255, comment = "Display file name")

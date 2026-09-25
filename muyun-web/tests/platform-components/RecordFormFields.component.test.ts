@@ -6,6 +6,27 @@ import type { RecordFormFieldDescriptor } from '@/platform-components/recordForm
 import type { ModuleContext } from '@muyun/web-core';
 
 describe('RecordFormFields', () => {
+  it('validates insert requirements using the supplied mode even with a preallocated id', async () => {
+    const fields = new Map<string, RecordFormFieldDescriptor>([
+      [
+        'code',
+        {
+          fieldRef: { fieldName: 'code' },
+          label: '编码',
+          inputRequirements: { requiredOnInsert: true, requiredOnUpdate: false },
+        },
+      ],
+    ]);
+    const wrapper = mount(RecordFormFields, {
+      props: { fields, record: { id: 'preallocated' }, mode: 'create' },
+    });
+    await flushPromises();
+    expect(wrapper.emitted('validity-change')?.at(-1)?.[0]).toMatchObject({ valid: false });
+    await wrapper.setProps({ mode: 'edit' });
+    await flushPromises();
+    expect(wrapper.emitted('validity-change')?.at(-1)?.[0]).toMatchObject({ valid: true });
+  });
+
   it('keeps the compact picker and exposes lazy-tree expansion as an additional reference action', async () => {
     const open = vi.fn();
     const ScopedTreePickerStub = defineComponent({

@@ -124,21 +124,15 @@ public class CodeRecycleEntryService extends AbstractAbilityService<CodeRecycleE
 
     @Override
     public void beforeInsert(CodeRecycleEntry entry) {
-        normalizeAndValidate(entry);
+        applyDefaults(entry);
     }
 
     @Override
     public void beforeUpdate(CodeRecycleEntry entry) {
-        normalizeAndValidate(entry);
+        applyDefaults(entry);
     }
 
-    private void normalizeAndValidate(CodeRecycleEntry entry) {
-        if (entry.getRuleId() == null || entry.getRuleId().isBlank()) {
-            throw new PlatformException("Code recycle entry requires ruleId");
-        }
-        if (entry.getRecycledValue() == null || entry.getRecycledValue().isBlank()) {
-            throw new PlatformException("Code recycle entry requires recycledValue");
-        }
+    private void applyDefaults(CodeRecycleEntry entry) {
         entry.setBasisKey(normalizeBucket(entry.getBasisKey()));
         entry.setPeriodKey(normalizeBucket(entry.getPeriodKey()));
         if (entry.getStatus() == null) {

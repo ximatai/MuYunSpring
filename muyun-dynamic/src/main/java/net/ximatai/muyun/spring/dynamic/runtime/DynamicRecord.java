@@ -534,20 +534,19 @@ public class DynamicRecord implements EntityContract, TreeCapable, EnabledCapabl
         return values.get(fieldCode);
     }
 
+    boolean hasMutationValue(String fieldCode) {
+        return values.containsKey(fieldCode);
+    }
+
     public Map<String, Object> getPlatformValues() {
         return Collections.unmodifiableMap(new LinkedHashMap<>(values));
     }
 
-    void validateForInsert() {
-        for (FieldDefinition field : fields.values()) {
-            if (field.isRequired() && values.get(field.code()) == null) {
-                throw new IllegalArgumentException("required dynamic field is missing: " + field.code());
-            }
-        }
+    void validateCompanionsForInsert() {
         FieldCompanionRules.validateForInsert(entity, values);
     }
 
-    void validateForUpdate() {
+    void validateCompanionsForUpdate() {
         FieldCompanionRules.validateForUpdate(entity, explicitFields);
     }
 
@@ -568,19 +567,15 @@ public class DynamicRecord implements EntityContract, TreeCapable, EnabledCapabl
         }
     }
 
-    private Object normalizeValue(FieldDefinition field, Object value, boolean enforceRequired) {
-        if (value == null) {
-            if (enforceRequired && field.isRequired()) {
-                throw new IllegalArgumentException("required dynamic field must not be null: " + field.code());
-            }
-            return null;
-        }
+    private Object normalizeValue(FieldDefinition field, Object value, boolean forWrite) {
+        if (forWrite) value = field.behavior().writeRules().normalize(value);
+        if (value == null) return null;
         Object normalized;
         try {
             FieldCompanionDefinition companion = companionFields.get(field.code());
             normalized = companion != null
                     ? FieldCompanionRules.normalizeCompanionValue(companion, value)
-                    : (enforceRequired
+                    : (forWrite
                     ? DynamicFieldValueSupport.normalize(field.type(), value)
                     : DynamicFieldValueSupport.normalizeLoaded(field.type(), value));
         } catch (RuntimeException e) {

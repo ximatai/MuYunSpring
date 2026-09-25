@@ -92,12 +92,12 @@ class DepartmentServiceContractTest {
                     .hasMessageContaining("organizationId");
             assertThatThrownBy(() -> service.insert(department("org-1", " ", "Blank Code")))
                     .isInstanceOf(IllegalArgumentException.class)
-                    .hasMessageContaining("departmentCode");
+                    .hasMessageContaining("code");
         }
     }
 
     @Test
-    void shouldPreserveTenantAndNormalizeChecksBeforeUpdate() {
+    void shouldRequireActiveTenantMutationContext() {
         ActiveTenantVerifier tenantVerifier = activeTenantVerifier();
         DepartmentService service = new DepartmentService(mock(DepartmentDao.class), tenantVerifier);
 
@@ -105,11 +105,6 @@ class DepartmentServiceContractTest {
                 .isInstanceOf(PlatformException.class)
                 .hasMessageContaining("tenant context");
 
-        try (TenantContext.Scope ignored = TenantContext.use("tenant_a")) {
-            assertThatThrownBy(() -> service.normalizeBeforeMutation(department("org-1", " ", "Blank Code")))
-                    .isInstanceOf(IllegalArgumentException.class)
-                    .hasMessageContaining("departmentCode");
-        }
 
         try (TenantContext.Scope ignored = TenantContext.use("tenant_a")) {
             service.requireMutationContext(department("org-1", "FIN", "Finance"));

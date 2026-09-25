@@ -1,6 +1,7 @@
 package net.ximatai.muyun.spring.platform.ai;
 
 import net.ximatai.muyun.spring.ability.BaseDao;
+import net.ximatai.muyun.spring.platform.support.TestMemoryDao;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.database.core.orm.Sort;
@@ -24,6 +25,30 @@ class AiModelProviderServiceTest {
     void clearContexts() {
         TenantContext.clear();
         CurrentUserContext.clear();
+    }
+
+    @Test
+    void standardWritesRequireTitleAndBaseUrlWhileKeepingEndpointPolicy() {
+        AiModelProviderService service = new AiModelProviderService(new TestMemoryDao<>());
+        try (TenantContext.Scope ignored = TenantContext.system("test");
+             CurrentUserContext.Scope ignoredUser = CurrentUserContext.use(CurrentUser.systemUser("root", "root"))) {
+            AiModelProvider missingTitle = provider("https://api.example.com/v1");
+            missingTitle.setTitle(" ");
+            assertThatThrownBy(() -> service.insert(missingTitle))
+                    .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("title");
+            AiModelProvider missingUrl = provider(" ");
+            assertThatThrownBy(() -> service.insert(missingUrl))
+                    .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("baseUrl");
+
+            AiModelProvider valid = provider("  https://api.example.com/v1/  ");
+            valid.setTitle("  Provider  ");
+            service.insert(valid);
+            assertThat(valid.getTitle()).isEqualTo("Provider");
+            assertThat(valid.getBaseUrl()).isEqualTo("https://api.example.com/v1");
+            valid.setTitle(" ");
+            assertThatThrownBy(() -> service.update(valid))
+                    .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("title");
+        }
     }
 
     @Test

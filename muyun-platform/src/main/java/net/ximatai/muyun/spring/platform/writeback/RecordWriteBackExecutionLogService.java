@@ -121,26 +121,19 @@ public class RecordWriteBackExecutionLogService extends AbstractAbilityService<R
 
     @Override
     public void beforeInsert(RecordWriteBackExecutionLog log) {
-        normalizeAndValidate(log);
+        applyDefaults(log);
     }
 
     @Override
     public void beforeUpdate(RecordWriteBackExecutionLog log) {
-        normalizeAndValidate(log);
+        applyDefaults(log);
     }
 
-    private void normalizeAndValidate(RecordWriteBackExecutionLog log) {
+    private void applyDefaults(RecordWriteBackExecutionLog log) {
         if (log == null) {
             throw new PlatformException("Record write-back execution log must not be null");
         }
-        log.setTraceId(requireText(log.getTraceId(), "traceId"));
-        log.setEventId(requireText(log.getEventId(), "eventId"));
-        if (log.getEventType() == null) {
-            throw new PlatformException("Record write-back execution log eventType must not be null");
-        }
         log.setDepth(log.getDepth() == null ? 0 : log.getDepth());
-        log.setTriggerModuleAlias(requireText(log.getTriggerModuleAlias(), "triggerModuleAlias"));
-        log.setTriggerRecordId(requireText(log.getTriggerRecordId(), "triggerRecordId"));
         if (log.getStatus() == null) {
             log.setStatus(RecordWriteBackExecutionStatus.PLANNED);
         }

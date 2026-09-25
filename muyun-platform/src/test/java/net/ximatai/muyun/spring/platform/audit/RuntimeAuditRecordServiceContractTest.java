@@ -36,6 +36,23 @@ class RuntimeAuditRecordServiceContractTest {
     }
 
     @Test
+    void standardInsertRequiresEventIdentityAndTimestamp() {
+        RuntimeAuditRecord record = new RuntimeAuditRecord();
+        record.setTraceId("trace-required");
+        record.setEventType(RuntimeEventType.AFTER_UPDATE);
+        record.setModuleAlias("sales.contract");
+        record.setMutationSource(RuntimeMutationSource.BUSINESS);
+        record.setOccurredAt(Instant.now());
+        assertThatThrownBy(() -> service.insert(record))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("eventId");
+        record.setEventId("event-required");
+        record.setOccurredAt(null);
+        assertThatThrownBy(() -> service.insert(record))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("occurredAt");
+        assertThat(dao.count(Criteria.of())).isZero();
+    }
+
+    @Test
     void shouldPersistRuntimeEventAsAuditRecord() {
         RuntimeEvent event = event();
 

@@ -92,6 +92,7 @@ export function useModulePageFormContributionRuntime(options: UseModulePageFormC
           resolveRecordFormFieldState(fieldName, {
             fields: options.fields.value,
             record: draft,
+            mode: options.mode.value,
           }),
         ),
       ),

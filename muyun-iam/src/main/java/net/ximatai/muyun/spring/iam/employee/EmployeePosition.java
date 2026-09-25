@@ -1,5 +1,7 @@
 package net.ximatai.muyun.spring.iam.employee;
 
+import net.ximatai.muyun.spring.common.model.constraint.Required;
+import net.ximatai.muyun.spring.common.model.constraint.NormalizeText;
 import lombok.Getter;
 import lombok.Setter;
 import net.ximatai.muyun.database.core.annotation.Column;
@@ -34,11 +36,15 @@ public class EmployeePosition extends StandardEntity implements EnabledCapable, 
     @ChildOf
     @ReferenceTo(target = EmployeeService.class,
             integrity = @ReferenceIntegrity(requireEnabled = true, onTargetUnavailable = ReferenceTargetUnavailablePolicy.CASCADE_DELETE))
+    @Required
+    @NormalizeText
     private String employeeId;
 
     @Column(name = "organization_id", type = ColumnType.VARCHAR, length = 32, nullable = false,
             comment = "Organization id")
     @ReferenceTo(target = OrganizationService.class, integrity = @ReferenceIntegrity(requireEnabled = true))
+    @Required
+    @NormalizeText
     private String organizationId;
 
     @ReferenceLoad(source = "organizationId", field = "title")
@@ -49,6 +55,8 @@ public class EmployeePosition extends StandardEntity implements EnabledCapable, 
     @ReferenceTo(target = DepartmentService.class,
             candidateBindings = @ReferenceCandidateBinding(sourceField = "organizationId", targetField = "organizationId"),
             integrity = @ReferenceIntegrity(requireEnabled = true))
+    @Required
+    @NormalizeText
     private String departmentId;
 
     @ReferenceLoad(source = "departmentId", field = "title")
@@ -57,6 +65,8 @@ public class EmployeePosition extends StandardEntity implements EnabledCapable, 
     @Column(name = "position_id", type = ColumnType.VARCHAR, length = 32, nullable = false, comment = "Position id")
     @ReferenceTo(target = PositionService.class,
             integrity = @ReferenceIntegrity(requireEnabled = true, onTargetUnavailable = ReferenceTargetUnavailablePolicy.RESTRICT))
+    @Required
+    @NormalizeText
     private String positionId;
 
     @ReferenceLoad(source = "positionId", field = "title")

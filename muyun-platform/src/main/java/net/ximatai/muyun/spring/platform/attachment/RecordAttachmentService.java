@@ -1,5 +1,7 @@
 package net.ximatai.muyun.spring.platform.attachment;
 
+import net.ximatai.muyun.spring.common.model.constraint.StaticFieldWriteRules;
+import net.ximatai.muyun.spring.common.model.constraint.WriteOperation;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.database.core.orm.Sort;
@@ -123,6 +125,7 @@ public class RecordAttachmentService extends AbstractAbilityService<RecordAttach
     @Override
     public void beforeInsert(RecordAttachment attachment) {
         normalizeAndValidate(attachment);
+        StaticFieldWriteRules.validate(RecordAttachment.class, attachment, WriteOperation.INSERT);
         rejectDuplicate(attachment, duplicateCriteria(attachment),
                 "record attachment fileId is duplicated: " + attachment.getFileId());
         fileBindings.bind(attachment.getTenantId(), MODULE_ALIAS, attachment.getId(), "fileId", attachment.getFileId(),
@@ -132,6 +135,7 @@ public class RecordAttachmentService extends AbstractAbilityService<RecordAttach
     @Override
     public void beforeUpdate(RecordAttachment attachment) {
         normalizeAndValidate(attachment);
+        StaticFieldWriteRules.validate(RecordAttachment.class, attachment, WriteOperation.UPDATE);
         RecordAttachment existing = selectActiveRaw(attachment.getId());
         if (existing != null && (!Objects.equals(existing.getFileId(), attachment.getFileId())
                 || !Objects.equals(existing.getModuleAlias(), attachment.getModuleAlias())
@@ -172,9 +176,6 @@ public class RecordAttachmentService extends AbstractAbilityService<RecordAttach
         if (attachment == null) {
             throw new PlatformException("record attachment must not be null");
         }
-        attachment.setModuleAlias(requireText(attachment.getModuleAlias(), "moduleAlias"));
-        attachment.setRecordId(requireText(attachment.getRecordId(), "recordId"));
-        attachment.setFileId(requireText(attachment.getFileId(), "fileId"));
         attachment.setDisplayName(trimToNull(attachment.getDisplayName()));
         attachment.setRemark(trimToNull(attachment.getRemark()));
     }

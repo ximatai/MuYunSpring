@@ -123,6 +123,10 @@ public final class OpenApi31Projector {
             schema.properties().forEach((name, property) -> properties.put(name, property(property, schemaNames)));
             value.put("properties", copyMap(properties));
         }
+        if (schema.writeOperation() != null) {
+            value.put("x-muyun-write-operation", schema.writeOperation().name());
+            value.put("x-muyun-partial-update", schema.partialUpdate());
+        }
         if (schema.items() != null) value.put("items", property(schema.items(), schemaNames));
         if (!schema.valueShapeByResultType().isEmpty()) value.put("x-muyun-value-shape-by-result-type", schema.valueShapeByResultType());
         return Map.copyOf(value);
@@ -145,6 +149,14 @@ public final class OpenApi31Projector {
             } else {
                 value.put("type", List.of(value.getOrDefault("type", "object"), "null"));
             }
+        }
+        if (!net.ximatai.muyun.spring.common.model.constraint.FieldWriteRules.NONE.equals(property.writeRules())) {
+            value.put("x-muyun-write-rules", Map.of(
+                    "semantics", "FINAL_VALUE",
+                    "nonNull", property.writeRules().nonNull(),
+                    "requiredOnInsert", property.writeRules().requiredOnInsert(),
+                    "requiredOnUpdate", property.writeRules().requiredOnUpdate(),
+                    "textNormalization", property.writeRules().textNormalization().name()));
         }
         putExtension(value, "description", property.optionSource());
         putExtension(value, "x-muyun-option-source-type", property.optionSourceType());

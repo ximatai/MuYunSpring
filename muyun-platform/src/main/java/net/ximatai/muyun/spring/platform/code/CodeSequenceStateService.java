@@ -166,9 +166,6 @@ public class CodeSequenceStateService extends AbstractAbilityService<CodeSequenc
     }
 
     private void normalizeAndValidate(CodeSequenceState state) {
-        if (state.getRuleId() == null || state.getRuleId().isBlank()) {
-            throw new PlatformException("Code sequence state requires ruleId");
-        }
         state.setBasisKey(normalizeBucket(state.getBasisKey()));
         state.setPeriodKey(normalizeBucket(state.getPeriodKey()));
         if (state.getCurrentValue() == null) {

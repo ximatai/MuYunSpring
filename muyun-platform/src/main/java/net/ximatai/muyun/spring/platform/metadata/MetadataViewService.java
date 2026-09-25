@@ -87,10 +87,7 @@ public class MetadataViewService extends AbstractAbilityService<MetadataView> im
         if (relation == null) {
             throw new PlatformException("Metadata view requires existing relation: " + view.getRelationId());
         }
-        if (view.getViewType() == null) {
-            throw new PlatformException("Metadata view requires viewType");
-        }
-        if (view.getTitle() == null || view.getTitle().isBlank()) {
+        if (view.getViewType() != null && (view.getTitle() == null || view.getTitle().isBlank())) {
             view.setTitle(defaultTitle(view));
         }
         rejectDuplicate(view, Criteria.of()

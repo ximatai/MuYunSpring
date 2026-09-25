@@ -7,7 +7,6 @@ import net.ximatai.muyun.spring.ability.AbstractAbilityService;
 import net.ximatai.muyun.spring.ability.BaseDao;
 import net.ximatai.muyun.spring.ability.SoftDeleteAbility;
 import net.ximatai.muyun.spring.ability.SortAbility;
-import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.util.PlatformNameRules;
 import org.springframework.stereotype.Service;
 
@@ -43,9 +42,6 @@ public class RecordGenerationObjectMappingService extends AbstractAbilityService
     }
 
     private void normalizeAndValidate(RecordGenerationObjectMapping mapping) {
-        if (mapping.getRuleId() == null || mapping.getRuleId().isBlank()) {
-            throw new PlatformException("Object mapping requires ruleId");
-        }
         if (mapping.getSourceObjectAlias() != null && mapping.getSourceObjectAlias().isBlank()) {
             mapping.setSourceObjectAlias(null);
         }

@@ -78,6 +78,9 @@ class EmployeeDelegationServiceContractTest {
         EmployeeDelegationService service = service(mock(EmployeeDelegationDao.class));
 
         try (TenantContext.Scope ignored = TenantContext.use("tenant_a")) {
+            assertThatThrownBy(() -> service.insert(delegation(null, "delegate-1")))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("principalEmployeeId");
             assertThatThrownBy(() -> service.insert(delegation(" ", "delegate-1")))
                     .isInstanceOf(IllegalArgumentException.class)
                     .hasMessageContaining("principalEmployeeId");

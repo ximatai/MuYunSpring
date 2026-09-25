@@ -1,5 +1,8 @@
 package net.ximatai.muyun.spring.common.openapi;
 
+import net.ximatai.muyun.spring.common.model.constraint.FieldWriteRules;
+import net.ximatai.muyun.spring.common.model.constraint.WriteOperation;
+
 import java.util.List;
 import java.util.Map;
 
@@ -54,7 +57,17 @@ public interface PlatformApiDocument {
 
     record Schema(String name, String type, String format, List<String> required,
                   Map<String, Property> properties, Property items,
-                  Map<String, String> valueShapeByResultType) {
+                  Map<String, String> valueShapeByResultType, WriteOperation writeOperation, boolean partialUpdate) {
+        public Schema(String name, String type, String format, List<String> required,
+                      Map<String, Property> properties, Property items, Map<String, String> valueShapeByResultType) {
+            this(name, type, format, required, properties, items, valueShapeByResultType, null, false);
+        }
+
+        public Schema withWriteOperation(WriteOperation operation, boolean partialUpdate) {
+            return new Schema(name, type, format, required, properties, items, valueShapeByResultType,
+                    operation, partialUpdate);
+        }
+
         public Schema {
             required = required == null ? List.of() : List.copyOf(required);
             properties = properties == null ? Map.of() : Map.copyOf(properties);
@@ -70,9 +83,34 @@ public interface PlatformApiDocument {
     record Property(String type, String format, boolean required, boolean nullable, boolean multiple,
                     String optionSourceType, String optionSource, String referenceModuleAlias,
                     String referenceEntityAlias, String itemType, String temporalSemantics,
-                    List<String> companionFields) {
+                    List<String> companionFields, FieldWriteRules writeRules) {
         public Property {
+            writeRules = writeRules == null ? FieldWriteRules.NONE : writeRules;
             companionFields = companionFields == null ? List.of() : List.copyOf(companionFields);
+        }
+
+        public Property(String type, String format, boolean required, boolean nullable, boolean multiple,
+                        String optionSourceType, String optionSource, String referenceModuleAlias,
+                        String referenceEntityAlias, String itemType, String temporalSemantics,
+                        List<String> companionFields) {
+            this(type, format, required, nullable, multiple, optionSourceType, optionSource, referenceModuleAlias,
+                    referenceEntityAlias, itemType, temporalSemantics, companionFields, FieldWriteRules.NONE);
+        }
+
+        public Property withNullable(boolean value) {
+            return new Property(type, format, required, value, multiple, optionSourceType, optionSource,
+                    referenceModuleAlias, referenceEntityAlias, itemType, temporalSemantics, companionFields, writeRules);
+        }
+
+        public Property withRequired(boolean value) {
+            return new Property(type, format, value, nullable, multiple, optionSourceType, optionSource,
+                    referenceModuleAlias, referenceEntityAlias, itemType, temporalSemantics, companionFields, writeRules);
+        }
+
+        /** Final persisted-value constraints; these do not imply mandatory JSON properties. */
+        public Property withWriteRules(FieldWriteRules rules) {
+            return new Property(type, format, required, nullable, multiple, optionSourceType, optionSource,
+                    referenceModuleAlias, referenceEntityAlias, itemType, temporalSemantics, companionFields, rules);
         }
 
         public Property(String type, String format, boolean required, boolean nullable, boolean multiple,

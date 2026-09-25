@@ -70,7 +70,6 @@ public class RecordDuplicateRuleService extends AbstractAbilityService<RecordDup
         if (rule == null) {
             throw new PlatformException("duplicate rule must not be null");
         }
-        rule.setModuleAlias(requireText(rule.getModuleAlias(), "moduleAlias"));
         rule.setActionCode(requireActionCode(rule.getActionCode()));
         List<String> fields = normalizeFieldNames(rule.getFieldNames());
         if (fields.isEmpty()) {

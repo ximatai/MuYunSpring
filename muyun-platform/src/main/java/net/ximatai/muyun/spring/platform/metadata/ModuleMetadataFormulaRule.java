@@ -1,5 +1,7 @@
 package net.ximatai.muyun.spring.platform.metadata;
 
+import net.ximatai.muyun.spring.common.model.constraint.NormalizeText;
+import net.ximatai.muyun.spring.common.model.constraint.Required;
 import lombok.Getter;
 import lombok.Setter;
 import net.ximatai.muyun.database.core.annotation.Column;
@@ -33,6 +35,8 @@ public class ModuleMetadataFormulaRule extends StandardEnabledSortableEntity {
     private String targetField;
 
     @Column(name = "expression", type = ColumnType.TEXT, nullable = false, comment = "Formula expression")
+    @Required
+    @NormalizeText
     private String expression;
 
     @Column(name = "severity", type = ColumnType.VARCHAR, length = 32, nullable = false, comment = "Issue severity")

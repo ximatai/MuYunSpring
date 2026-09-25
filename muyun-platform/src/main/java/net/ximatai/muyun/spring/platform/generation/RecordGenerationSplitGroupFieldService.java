@@ -7,7 +7,6 @@ import net.ximatai.muyun.spring.ability.AbstractAbilityService;
 import net.ximatai.muyun.spring.ability.BaseDao;
 import net.ximatai.muyun.spring.ability.SoftDeleteAbility;
 import net.ximatai.muyun.spring.ability.SortAbility;
-import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.util.PlatformNameRules;
 import org.springframework.stereotype.Service;
 
@@ -43,9 +42,6 @@ public class RecordGenerationSplitGroupFieldService extends AbstractAbilityServi
     }
 
     private void normalizeAndValidate(RecordGenerationSplitGroupField groupField) {
-        if (groupField.getSplitPolicyId() == null || groupField.getSplitPolicyId().isBlank()) {
-            throw new PlatformException("Split group field requires splitPolicyId");
-        }
         if (groupField.getModuleMetadataFieldId() != null && !groupField.getModuleMetadataFieldId().isBlank()) {
             groupField.setModuleMetadataFieldId(groupField.getModuleMetadataFieldId().trim());
         }

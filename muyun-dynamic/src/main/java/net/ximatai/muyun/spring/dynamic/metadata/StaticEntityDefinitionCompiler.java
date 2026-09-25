@@ -7,6 +7,7 @@ import net.ximatai.muyun.spring.common.schema.PlatformDataScopeSchema;
 import net.ximatai.muyun.spring.common.schema.PlatformAbilityFields;
 import net.ximatai.muyun.spring.common.schema.StandardEntitySchema;
 import net.ximatai.muyun.spring.common.model.constraint.StaticTenantUniqueConstraints;
+import net.ximatai.muyun.spring.common.model.constraint.StaticFieldWriteRules;
 import net.ximatai.muyun.spring.common.model.file.FileReference;
 import net.ximatai.muyun.spring.common.model.file.FileReferenceMetadata;
 import net.ximatai.muyun.spring.common.model.file.FileReferenceMetadataField;
@@ -179,6 +180,7 @@ public class StaticEntityDefinitionCompiler {
 
     private List<FieldDefinition> fields(Class<?> modelClass, boolean sortable) {
         List<FieldDefinition> fields = new ArrayList<>();
+        var writeBindings = StaticFieldWriteRules.resolve(modelClass);
         for (Field field : declaredFields(modelClass)) {
             Column column = field.getAnnotation(Column.class);
             if (column == null) {
@@ -212,6 +214,8 @@ public class StaticEntityDefinitionCompiler {
             if (column.type() == ColumnType.JSON_SET) {
                 definition = definition.jsonSet();
             }
+            var writeBinding = writeBindings.get(field.getName());
+            if (writeBinding != null) definition = definition.writeRules(writeBinding.rules());
             definition = StaticMeasureUnitFieldDefinitionCompiler.compile(definition, field);
             definition = StaticMoneyFieldDefinitionCompiler.compile(definition, field);
             fields.add(definition);

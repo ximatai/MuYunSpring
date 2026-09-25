@@ -104,8 +104,8 @@ class RecordGenerationRuleServiceTest {
         objectMapping.setTargetObjectAlias("main");
 
         assertThatThrownBy(() -> objectMappingService.insert(objectMapping))
-                .isInstanceOf(PlatformException.class)
-                .hasMessageContaining("requires ruleId");
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("ruleId");
     }
 
     @Test

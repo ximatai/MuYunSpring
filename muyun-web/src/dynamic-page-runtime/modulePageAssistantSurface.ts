@@ -923,6 +923,7 @@ function formFieldState(view: ModulePageSessionView, fieldName: string) {
     fields: view.formFields,
     pickerConfigs: view.referencePickerConfigs,
     record: view.editingRecord ?? view.selectedRecord,
+    mode: view.editorMode,
   });
 }
 

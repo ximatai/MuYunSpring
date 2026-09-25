@@ -29,13 +29,6 @@ public class PositionCategoryService extends TenantActiveScopedService<PositionC
     }
 
     @Override
-    public void normalizeBeforeMutation(PositionCategory category) {
-        category.setCode(Preconditions.requireText(category.getCode(), "positionCategoryCode"));
-        category.setTitle(Preconditions.requireText(category.getTitle(), "positionCategoryTitle"));
-        category.setDescription(normalizeBlank(category.getDescription()));
-    }
-
-    @Override
     public void beforeDelete(String id) {
         String tenantId = requireActiveTenantMutationContext();
         String categoryId = Preconditions.requireText(id, "positionCategoryId");
@@ -50,7 +43,4 @@ public class PositionCategoryService extends TenantActiveScopedService<PositionC
 
     }
 
-    private String normalizeBlank(String value) {
-        return value == null || value.isBlank() ? null : value.trim();
-    }
 }

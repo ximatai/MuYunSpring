@@ -1,5 +1,6 @@
 package net.ximatai.muyun.spring.dynamic.metadata;
 
+import net.ximatai.muyun.spring.common.model.constraint.FieldWriteRules;
 import net.ximatai.muyun.spring.common.schema.PlatformFieldPolicy;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.ability.reference.ReferencePlan;
@@ -497,6 +498,9 @@ public class ModuleDefinitionValidator {
         }
         if (field.queryDefinition().queryable()) {
             throw new ModuleDefinitionException("virtual field cannot be queryable: " + field.code());
+        }
+        if (!field.behavior().writeRules().equals(FieldWriteRules.NONE)) {
+            throw new ModuleDefinitionException("virtual field cannot define write rules: " + field.code());
         }
         if (field.behavior().defaultValue() != null || field.behavior().validationRegex() != null) {
             throw new ModuleDefinitionException("virtual field cannot define default value or validation regex: "

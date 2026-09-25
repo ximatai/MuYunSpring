@@ -7,7 +7,6 @@ import net.ximatai.muyun.spring.ability.AbstractAbilityService;
 import net.ximatai.muyun.spring.ability.BaseDao;
 import net.ximatai.muyun.spring.ability.SoftDeleteAbility;
 import net.ximatai.muyun.spring.ability.SortAbility;
-import net.ximatai.muyun.spring.common.exception.PlatformException;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
@@ -39,13 +38,7 @@ public class CodeRuleSegmentService extends AbstractAbilityService<CodeRuleSegme
     }
 
     private void normalizeAndValidate(CodeRuleSegment segment) {
-        if (segment.getRuleId() == null || segment.getRuleId().isBlank()) {
-            throw new PlatformException("Code segment requires ruleId");
-        }
-        if (segment.getSegmentType() == null) {
-            throw new PlatformException("Code segment requires segmentType");
-        }
-        if (segment.getTitle() == null || segment.getTitle().isBlank()) {
+        if (segment.getSegmentType() != null && (segment.getTitle() == null || segment.getTitle().isBlank())) {
             segment.setTitle(defaultTitle(segment));
         }
         if (segment.getPadMode() == null) {

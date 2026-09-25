@@ -47,10 +47,6 @@ public class OrganizationService extends TenantActiveScopedService<Organization>
         return DATA_SCOPE_FIELD_MAPPING;
     }
 
-    @Override
-    public void normalizeBeforeMutation(Organization organization) {
-        organization.setCode(Preconditions.requireText(organization.getCode(), "organizationCode"));
-    }
 
     @Override
     public void afterInsert(String id, Organization organization) {

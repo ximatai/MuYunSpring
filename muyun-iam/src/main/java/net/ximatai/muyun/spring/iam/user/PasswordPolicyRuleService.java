@@ -104,13 +104,10 @@ public class PasswordPolicyRuleService extends AbstractAbilityService<PasswordPo
                 ? null
                 : Preconditions.requireText(rule.getScopeId(), "scopeId").trim());
         rule.setScopeKey(scopeKey(rule));
-        rule.setTitle(Preconditions.requireText(rule.getTitle(), "title").trim());
-        rule.setPattern(Preconditions.requireText(rule.getPattern(), "pattern"));
-        rule.setMessage(Preconditions.requireText(rule.getMessage(), "message").trim());
         if (rule.getEnabled() == null) {
             rule.setEnabled(Boolean.TRUE);
         }
-        validatePattern(rule.getPattern());
+        if (rule.getPattern() != null) validatePattern(rule.getPattern());
     }
 
     private static String scopeKey(PasswordPolicyRule rule) {

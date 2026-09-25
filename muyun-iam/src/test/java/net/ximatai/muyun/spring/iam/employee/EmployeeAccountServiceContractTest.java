@@ -46,6 +46,17 @@ class EmployeeAccountServiceContractTest {
     }
 
     @Test
+    void shouldRejectMissingBindingFieldsThroughWriteRules() {
+        EmployeeAccountService service = service(mock(EmployeeAccountDao.class));
+        try (TenantContext.Scope ignored = TenantContext.use("tenant_a")) {
+            assertThatThrownBy(() -> service.insert(binding(null, "user-1")))
+                    .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("employeeId");
+            assertThatThrownBy(() -> service.insert(binding("employee-1", "  ")))
+                    .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("userId");
+        }
+    }
+
+    @Test
     void shouldValidateEmployeeAndUserBeforeSave() {
         EmployeeService employeeService = mock(EmployeeService.class);
         UserAccountService userAccountService = mock(UserAccountService.class);

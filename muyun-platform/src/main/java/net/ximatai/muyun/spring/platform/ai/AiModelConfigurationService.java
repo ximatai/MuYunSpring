@@ -118,16 +118,8 @@ public class AiModelConfigurationService extends AbstractAbilityService<AiModelC
     }
 
     private void normalize(AiModelConfiguration configuration, AiModelConfiguration existing) {
-        if (configuration.getProvider() == null || configuration.getProvider().isBlank()) {
-            throw new PlatformException("AI model provider must not be blank");
-        }
-        configuration.setProvider(configuration.getProvider().trim());
         AiModelProvider provider = providerService.requireEnabled(configuration.getProvider());
         configuration.setProvider(provider.getId());
-        if (configuration.getModelId() == null || configuration.getModelId().isBlank()) {
-            throw new PlatformException("AI model id must not be blank");
-        }
-        configuration.setModelId(configuration.getModelId().trim());
         if (configuration.getTitle() == null || configuration.getTitle().isBlank()) {
             configuration.setTitle(provider.getTitle() + " · " + configuration.getModelId());
         } else {

@@ -1,5 +1,6 @@
 package net.ximatai.muyun.spring.platform.generation;
 
+import net.ximatai.muyun.spring.common.model.constraint.Required;
 import lombok.Getter;
 import lombok.Setter;
 import net.ximatai.muyun.database.core.annotation.Column;
@@ -16,6 +17,7 @@ public class RecordGenerationSplitGroupField extends StandardSortableEntity {
     @Indexed
     @Column(name = "split_policy_id", type = ColumnType.VARCHAR, length = 32, nullable = false,
             comment = "Split policy id")
+    @Required
     private String splitPolicyId;
 
     @Column(name = "field_name", type = ColumnType.VARCHAR, length = 64, nullable = false,

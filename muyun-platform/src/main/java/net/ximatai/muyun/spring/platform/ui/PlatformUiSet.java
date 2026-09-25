@@ -1,5 +1,6 @@
 package net.ximatai.muyun.spring.platform.ui;
 
+import net.ximatai.muyun.spring.common.model.constraint.Required;
 import lombok.Getter;
 import lombok.Setter;
 import net.ximatai.muyun.database.core.annotation.Column;
@@ -23,6 +24,7 @@ public class PlatformUiSet extends StandardEnabledSortableEntity {
     private String alias;
 
     @Column(name = "set_type", type = ColumnType.VARCHAR, length = 32, nullable = false, comment = "UI set type")
+    @Required
     private PlatformUiSetType setType;
 
     @Column(name = "default_set", type = ColumnType.BOOLEAN, comment = "Default UI set for type",

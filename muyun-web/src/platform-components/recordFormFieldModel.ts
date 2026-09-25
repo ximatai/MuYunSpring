@@ -24,6 +24,7 @@ import type { ReferencePickerColumn, ReferencePickerProvider } from './reference
 import { FormulaRuntime } from '../formula/FormulaRuntime';
 
 export type RecordFormFieldDescriptor = (ViewFieldDefinition | ResolvedViewFieldDescriptor) & {
+  inputRequirements?: ResolvedViewFieldDescriptor['inputRequirements'];
   /** Optional during the protocol migration; resolved descriptors take precedence over legacy uiType. */
   fieldControl?: ResolvedFieldControlDescriptor;
   option?: ResolvedOptionFieldDescriptor;
@@ -424,13 +425,14 @@ export function resolveRecordFormFieldState(
     pickerConfigs?: Record<string, RecordFormFieldPickerConfig>;
     placeholderOf?: (fieldName: string, field: RecordFormFieldState) => string | undefined;
     record?: RecordFormRecord;
+    mode?: 'create' | 'edit' | 'view';
     selectionContext?: RecordFormSelectionContext;
   } = {},
 ): RecordFormFieldState {
   const field = options.fields?.get(fieldName);
   const fallback = options.fallback?.[fieldName];
   const label = field?.label ?? fallback?.label ?? fieldName;
-  const required = evaluateUiRule(
+  const declaredRequired = evaluateUiRule(
     field?.required,
     options.record,
     fallback?.required ?? false,
@@ -442,6 +444,13 @@ export function resolveRecordFormFieldState(
     fallback?.readOnly ?? false,
     options.selectionContext,
   );
+  const modelRequired =
+    options.mode === 'create'
+      ? field?.inputRequirements?.requiredOnInsert
+      : options.mode === 'edit'
+        ? field?.inputRequirements?.requiredOnUpdate
+        : false;
+  const required = declaredRequired || (!readOnly && modelRequired === true);
   const visible = evaluateUiRule(
     field?.visible,
     options.record,

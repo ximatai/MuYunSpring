@@ -31,9 +31,6 @@ public class CodeSequencePolicyService extends AbstractAbilityService<CodeSequen
     }
 
     private void normalizeAndValidate(CodeSequencePolicy policy) {
-        if (policy.getRuleId() == null || policy.getRuleId().isBlank()) {
-            throw new PlatformException("Code sequence policy requires ruleId");
-        }
         if (policy.getStartValue() == null) {
             policy.setStartValue(1L);
         }

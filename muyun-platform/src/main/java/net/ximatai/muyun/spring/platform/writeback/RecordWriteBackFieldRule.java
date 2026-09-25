@@ -1,5 +1,7 @@
 package net.ximatai.muyun.spring.platform.writeback;
 
+import net.ximatai.muyun.spring.common.model.constraint.NormalizeText;
+import net.ximatai.muyun.spring.common.model.constraint.Required;
 import lombok.Getter;
 import lombok.Setter;
 import net.ximatai.muyun.database.core.annotation.Column;
@@ -15,10 +17,14 @@ import net.ximatai.muyun.spring.common.model.standard.StandardSortableEntity;
 public class RecordWriteBackFieldRule extends StandardSortableEntity {
     @Indexed
     @Column(name = "rule_id", type = ColumnType.VARCHAR, length = 32, nullable = false, comment = "Rule id")
+    @Required
+    @NormalizeText
     private String ruleId;
 
     @Column(name = "target_field", type = ColumnType.VARCHAR, length = 64, nullable = false,
             comment = "Target field")
+    @Required
+    @NormalizeText
     private String targetField;
 
     @Column(name = "source_type", type = ColumnType.VARCHAR, length = 32, nullable = false,

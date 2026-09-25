@@ -1,5 +1,7 @@
 package net.ximatai.muyun.spring.iam.user;
 
+import net.ximatai.muyun.spring.common.model.constraint.Required;
+import net.ximatai.muyun.spring.common.model.constraint.NormalizeText;
 import lombok.Getter;
 import lombok.Setter;
 import net.ximatai.muyun.database.core.annotation.Column;
@@ -21,6 +23,8 @@ import net.ximatai.muyun.spring.common.option.OptionSourceType;
         managed = {"scopeType", "scopeId", "scopeKey", "pattern", "message", "description"},
         operator = {"title", "enabled", "sortOrder"}
 )
+@Required(fields = "title")
+@NormalizeText(fields = "title")
 public class PasswordPolicyRule extends StandardEnabledSortableEntity {
     @OptionField(type = OptionSourceType.ENUM)
     @Column(name = "scope_type", type = ColumnType.VARCHAR, length = 32, nullable = false,
@@ -39,10 +43,14 @@ public class PasswordPolicyRule extends StandardEnabledSortableEntity {
 
     @Column(name = "pattern", type = ColumnType.VARCHAR, length = 512, nullable = false,
             comment = "Java regular expression")
+    @Required
+    @NormalizeText
     private String pattern;
 
     @Column(name = "message", type = ColumnType.VARCHAR, length = 256, nullable = false,
             comment = "Validation failure message")
+    @Required
+    @NormalizeText
     private String message;
 
     @Column(name = "description", type = ColumnType.TEXT, comment = "Rule description")

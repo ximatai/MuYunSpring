@@ -1,5 +1,7 @@
 package net.ximatai.muyun.spring.platform.ai;
 
+import net.ximatai.muyun.spring.common.model.constraint.NormalizeText;
+import net.ximatai.muyun.spring.common.model.constraint.Required;
 import lombok.Getter;
 import lombok.Setter;
 import net.ximatai.muyun.database.core.annotation.Column;
@@ -15,6 +17,8 @@ import net.ximatai.muyun.spring.common.option.OptionSourceType;
 @Setter
 @Table(name = "platform_ai_model_provider", comment = "AI model provider")
 @InitialDataFields(operator = {"title", "protocol", "baseUrl", "enabled", "sortOrder"})
+@Required(fields = "title")
+@NormalizeText(fields = "title")
 public class AiModelProvider extends StandardEnabledSortableEntity {
     @OptionField(type = OptionSourceType.ENUM)
     @Column(name = "protocol", type = ColumnType.VARCHAR, length = 32, nullable = false,
@@ -23,5 +27,7 @@ public class AiModelProvider extends StandardEnabledSortableEntity {
 
     @Column(name = "base_url", type = ColumnType.VARCHAR, length = 512, nullable = false,
             comment = "Provider API base URL")
+    @Required
+    @NormalizeText
     private String baseUrl;
 }

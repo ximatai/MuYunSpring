@@ -28,6 +28,49 @@ class DynamicOpenApiGeneratorTest {
     private final DynamicOpenApiGenerator generator = new DynamicOpenApiGenerator();
 
     @Test
+    void shouldKeepFinalValueRulesSeparateFromPartialUpdateSubmissionRequirements() {
+        var rules = new net.ximatai.muyun.spring.common.model.constraint.FieldWriteRules(true, false,
+                net.ximatai.muyun.spring.common.model.constraint.TextNormalization.TRIM);
+        var entity = new EntityDefinition("contract", "contract", "合同", List.of(
+                FieldDefinition.string("code", "编码").required().writeRules(rules),
+                FieldDefinition.string("storedOnly", "仅存储非空").required()),
+                java.util.Set.of(net.ximatai.muyun.spring.common.platform.EntityCapability.CRUD));
+        var module = new net.ximatai.muyun.spring.dynamic.metadata.ModuleDefinition("sales.contract", "合同", List.of(entity));
+        var descriptor = DynamicModuleDescriptor.from(module);
+        assertThat(descriptor.entities().getFirst().fields().getFirst().writeRules()).isEqualTo(rules.withNonNull(true));
+        var document = generator.generate(descriptor);
+        assertThat(document.schemas().get("ContractValues").required()).contains("code");
+        var insert = document.schemas().get("ContractCreateValues");
+        var update = document.schemas().get("ContractUpdateValues");
+        assertThat(insert.writeOperation()).isEqualTo(net.ximatai.muyun.spring.common.model.constraint.WriteOperation.INSERT);
+        assertThat(update.writeOperation()).isEqualTo(net.ximatai.muyun.spring.common.model.constraint.WriteOperation.UPDATE);
+        assertThat(update.partialUpdate()).isTrue();
+        assertThat(insert.required()).isEmpty();
+        assertThat(update.required()).isEmpty();
+        assertThat(update.properties().get("code").required()).isFalse();
+        assertThat(update.properties().get("code").writeRules()).isEqualTo(rules.withNonNull(true));
+        assertThat(update.properties().get("storedOnly").writeRules()).isEqualTo(
+                net.ximatai.muyun.spring.common.model.constraint.FieldWriteRules.NONE.withNonNull(true));
+        assertThat(update.properties().get("storedOnly").required()).isFalse();
+        assertThat(update.properties().get("storedOnly").nullable()).isTrue();
+        assertThat(update.properties().get("code").nullable()).isTrue();
+        assertThat(insert.properties().get("code").nullable()).isTrue();
+        assertThat(document.schemas().get("ContractValues").properties().get("code").nullable()).isFalse();
+        var payload = document.schemas().get("DynamicRecordUpdatePayload");
+        assertThat(payload.required()).doesNotContain("id", "version");
+        assertThat(payload.properties().get("version").required()).isFalse();
+        @SuppressWarnings("unchecked")
+        var paths = (Map<String, Object>) net.ximatai.muyun.spring.common.openapi.OpenApi31Projector.project(document).get("paths");
+        @SuppressWarnings("unchecked")
+        var pathItem = (Map<String, Object>) paths.get("/sales.contract/update/{id}");
+        @SuppressWarnings("unchecked")
+        var updateOperation = (Map<String, Object>) pathItem.get("post");
+        assertThat(updateOperation.get("parameters")).isEqualTo(List.of(Map.of(
+                "name", "id", "in", "path", "required", true, "schema", Map.of("type", "string"))));
+        assertThat(document.schemas().get("DynamicFieldDescriptor").properties()).containsKey("writeRules");
+    }
+
+    @Test
     void shouldGenerateStableDynamicModuleOpenApiDocument() {
         DynamicOpenApiDocument document = generator.generate(DynamicModuleDescriptor.from(module()));
 
@@ -122,7 +165,7 @@ class DynamicOpenApiGeneratorTest {
                 .findFirst())
                 .get()
                 .satisfies(operation -> {
-                    assertThat(operation.requestSchema()).isEqualTo("DynamicRecordPayload");
+                    assertThat(operation.requestSchema()).isEqualTo("DynamicRecordCreatePayload");
                     assertThat(operation.responseSchema()).isEqualTo("DynamicRecordResponse");
                     assertThat(operation.actionCode()).isEqualTo(PlatformAction.CREATE.code());
                     assertThat(operation.permissionCode()).isEqualTo("sales.contract:create");
@@ -132,7 +175,7 @@ class DynamicOpenApiGeneratorTest {
                 .findFirst())
                 .get()
                 .satisfies(operation -> {
-                    assertThat(operation.requestSchema()).isEqualTo("DynamicRecordPayload");
+                    assertThat(operation.requestSchema()).isEqualTo("DynamicRecordUpdatePayload");
                     assertThat(operation.responseSchema()).isEqualTo("DynamicRecordResponse");
                 });
         assertThat(document.operations().stream()

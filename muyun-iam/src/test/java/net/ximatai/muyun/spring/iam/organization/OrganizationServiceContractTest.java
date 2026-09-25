@@ -96,7 +96,7 @@ class OrganizationServiceContractTest {
 
             assertThatThrownBy(() -> service.insert(organization(" ", "Blank Code")))
                     .isInstanceOf(IllegalArgumentException.class)
-                    .hasMessageContaining("organizationCode");
+                    .hasMessageContaining("code");
         }
     }
 

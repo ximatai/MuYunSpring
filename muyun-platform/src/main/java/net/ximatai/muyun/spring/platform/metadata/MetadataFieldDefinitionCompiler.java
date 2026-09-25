@@ -1,6 +1,7 @@
 package net.ximatai.muyun.spring.platform.metadata;
 
 import net.ximatai.muyun.spring.dynamic.metadata.FieldDefinition;
+import net.ximatai.muyun.spring.common.model.constraint.FieldWriteRules;
 import net.ximatai.muyun.spring.dynamic.metadata.FieldBehaviorDefinition;
 import net.ximatai.muyun.spring.dynamic.metadata.FieldMeasureUnitDefinition;
 import net.ximatai.muyun.spring.dynamic.metadata.FieldMoneyDefinition;
@@ -89,6 +90,10 @@ public class MetadataFieldDefinitionCompiler {
         if (isJsonSetFieldType(fieldType)) {
             definition = definition.jsonSet();
         }
+        if (Boolean.TRUE.equals(field.getSystemManaged())
+                && !definition.behavior().writeRules().equals(FieldWriteRules.NONE)) {
+            throw new IllegalArgumentException("System managed field cannot override write rules: " + field.getFieldName());
+        }
         FieldDefinition managedDefinition = MetadataCapabilityCatalog.managedDefinition(field);
         return managedDefinition == null ? definition : managedDefinition;
     }
@@ -141,7 +146,11 @@ public class MetadataFieldDefinitionCompiler {
                 defaultValue,
                 validationRegex,
                 copyable,
-                writeProtected
+                writeProtected,
+                relationConfig == null
+                        ? (defaultConfig == null ? FieldWriteRules.NONE : defaultConfig.effectiveWriteRules(FieldWriteRules.NONE))
+                        : relationConfig.effectiveWriteRules(defaultConfig == null
+                                ? FieldWriteRules.NONE : defaultConfig.effectiveWriteRules(FieldWriteRules.NONE))
         );
         net.ximatai.muyun.spring.dynamic.metadata.FieldBehaviorSupport.validateBehavior(
                 fieldType.getFieldType(), behavior, fieldId);
@@ -170,7 +179,8 @@ public class MetadataFieldDefinitionCompiler {
                 defaultValue,
                 validationRegex,
                 copyable,
-                inherited.writeProtected()
+                inherited.writeProtected(),
+                moduleField.effectiveWriteRules(inherited.writeRules())
         );
         net.ximatai.muyun.spring.dynamic.metadata.FieldBehaviorSupport.validateBehavior(
                 fieldType.getFieldType(), behavior, fieldId);

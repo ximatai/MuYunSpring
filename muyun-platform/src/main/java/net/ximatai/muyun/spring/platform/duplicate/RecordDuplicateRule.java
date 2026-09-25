@@ -1,5 +1,7 @@
 package net.ximatai.muyun.spring.platform.duplicate;
 
+import net.ximatai.muyun.spring.common.model.constraint.NormalizeText;
+import net.ximatai.muyun.spring.common.model.constraint.Required;
 import lombok.Getter;
 import lombok.Setter;
 import net.ximatai.muyun.database.core.annotation.Column;
@@ -18,6 +20,8 @@ import net.ximatai.muyun.spring.common.model.standard.StandardEntity;
 public class RecordDuplicateRule extends StandardEntity implements EnabledCapable {
     @Column(name = "module_alias", type = ColumnType.VARCHAR, length = 128, nullable = false,
             comment = "Business module alias")
+    @Required
+    @NormalizeText
     private String moduleAlias;
 
     @Column(name = "action_code", type = ColumnType.VARCHAR, length = 64, nullable = false,

@@ -59,6 +59,7 @@ export interface RecordFormValidity {
 const props = withDefaults(
   defineProps<{
     record: RecordFormRecord;
+    mode?: 'create' | 'edit' | 'view';
     fieldNames?: string[];
     excludeFieldNames?: string[];
     fields?: Map<string, RecordFormFieldDescriptor>;
@@ -87,6 +88,7 @@ const props = withDefaults(
     ) => ((file: File) => string | undefined | Promise<string | undefined>) | undefined;
   }>(),
   {
+    mode: 'view',
     fieldNames: undefined,
     fields: undefined,
     excludeFieldNames: () => [],
@@ -207,6 +209,7 @@ function fieldState(fieldName: string): RecordFormFieldState {
     pickerConfigs: props.pickerConfigs,
     placeholderOf: props.placeholderOf,
     record: props.record,
+    mode: props.mode,
     selectionContext: referenceSelectionContext.value,
   });
 }

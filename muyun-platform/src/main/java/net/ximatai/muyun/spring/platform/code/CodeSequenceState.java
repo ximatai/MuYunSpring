@@ -1,5 +1,6 @@
 package net.ximatai.muyun.spring.platform.code;
 
+import net.ximatai.muyun.spring.common.model.constraint.Required;
 import lombok.Getter;
 import lombok.Setter;
 import net.ximatai.muyun.database.core.annotation.Column;
@@ -18,6 +19,7 @@ public class CodeSequenceState extends StandardEntity {
 
     @Indexed
     @Column(name = "rule_id", type = ColumnType.VARCHAR, length = 32, nullable = false, comment = "Code rule id")
+    @Required
     private String ruleId;
 
     @Indexed

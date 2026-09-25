@@ -45,9 +45,6 @@ public class WorkflowVersionService extends AbstractAbilityService<WorkflowVersi
     }
 
     private void normalizeAndValidate(WorkflowVersion version) {
-        if (version.getDefinitionId() == null || version.getDefinitionId().isBlank()) {
-            throw new PlatformException("workflow definition id must not be blank");
-        }
         if (definitionService.select(version.getDefinitionId()) == null) {
             throw new PlatformException("workflow definition not found: " + version.getDefinitionId());
         }

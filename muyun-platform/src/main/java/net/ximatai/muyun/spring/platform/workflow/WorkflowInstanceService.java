@@ -5,6 +5,8 @@ import net.ximatai.muyun.spring.ability.AbstractAbilityService;
 import net.ximatai.muyun.spring.ability.BaseDao;
 import net.ximatai.muyun.spring.ability.SoftDeleteAbility;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
+import net.ximatai.muyun.spring.common.model.constraint.StaticFieldWriteRules;
+import net.ximatai.muyun.spring.common.model.constraint.WriteOperation;
 import net.ximatai.muyun.spring.common.util.PlatformNameRules;
 import org.springframework.stereotype.Service;
 
@@ -20,6 +22,8 @@ public class WorkflowInstanceService extends AbstractAbilityService<WorkflowInst
     @Override
     public void beforeInsert(WorkflowInstance instance) {
         normalizeAndValidate(instance);
+        // The workflow runtime writer also invokes this hook before its internal DAO insert.
+        StaticFieldWriteRules.validate(WorkflowInstance.class, instance, WriteOperation.INSERT);
         rejectDuplicateRunningApprovalInstance(instance);
     }
 
@@ -33,13 +37,10 @@ public class WorkflowInstanceService extends AbstractAbilityService<WorkflowInst
     }
 
     private void normalizeAndValidate(WorkflowInstance instance) {
-        requireText(instance.getDefinitionId(), "workflow definition id must not be blank");
-        requireText(instance.getWorkflowVersionId(), "workflow version id must not be blank");
         if (instance.getVersionNo() == null || instance.getVersionNo() <= 0) {
             throw new PlatformException("workflow version number must be positive");
         }
         instance.setModuleAlias(PlatformNameRules.requireModuleAlias(instance.getModuleAlias()));
-        requireText(instance.getRecordId(), "workflow record id must not be blank");
         if (instance.getApprovalEnabled() == null) {
             instance.setApprovalEnabled(Boolean.FALSE);
         }
@@ -50,7 +51,6 @@ public class WorkflowInstanceService extends AbstractAbilityService<WorkflowInst
         if (instance.getInstanceStatus() == null) {
             instance.setInstanceStatus(WorkflowInstanceStatus.RUNNING);
         }
-        requireText(instance.getSnapshotText(), "workflow snapshot must not be blank");
     }
 
     private void rejectDuplicateRunningApprovalInstance(WorkflowInstance instance) {
@@ -73,9 +73,4 @@ public class WorkflowInstanceService extends AbstractAbilityService<WorkflowInst
         }
     }
 
-    private void requireText(String value, String message) {
-        if (value == null || value.isBlank()) {
-            throw new PlatformException(message);
-        }
-    }
 }

@@ -1,5 +1,7 @@
 package net.ximatai.muyun.spring.platform.audit;
 
+import net.ximatai.muyun.spring.common.model.constraint.WriteOperation;
+import net.ximatai.muyun.spring.common.model.constraint.Required;
 import lombok.Getter;
 import lombok.Setter;
 import net.ximatai.muyun.database.core.annotation.Column;
@@ -26,15 +28,19 @@ import java.time.Instant;
 @CompositeIndex(columns = {"tenant_id", "acting_delegation_id", "occurred_at"})
 public class RuntimeAuditRecord extends StandardEntity {
     @Column(name = "event_id", type = ColumnType.VARCHAR, length = 64, nullable = false, comment = "Runtime event id")
+    @Required(on = WriteOperation.INSERT)
     private String eventId;
 
     @Column(name = "trace_id", type = ColumnType.VARCHAR, length = 64, nullable = false, comment = "Runtime trace id")
+    @Required(on = WriteOperation.INSERT)
     private String traceId;
 
     @Column(name = "event_type", type = ColumnType.VARCHAR, length = 32, nullable = false, comment = "Runtime event type")
+    @Required(on = WriteOperation.INSERT)
     private RuntimeEventType eventType;
 
     @Column(name = "module_alias", type = ColumnType.VARCHAR, length = 128, nullable = false, comment = "Module alias")
+    @Required(on = WriteOperation.INSERT)
     private String moduleAlias;
 
     @Column(name = "entity_alias", type = ColumnType.VARCHAR, length = 64, comment = "Entity alias")
@@ -124,11 +130,13 @@ public class RuntimeAuditRecord extends StandardEntity {
     private String actingPrincipalEmployeePositionId;
 
     @Column(name = "mutation_source", type = ColumnType.VARCHAR, length = 32, nullable = false, comment = "Mutation source")
+    @Required(on = WriteOperation.INSERT)
     private RuntimeMutationSource mutationSource;
 
     @Column(name = "payload_text", type = ColumnType.TEXT, comment = "Runtime event payload snapshot")
     private String payloadText;
 
     @Column(name = "occurred_at", type = ColumnType.TIMESTAMP, nullable = false, comment = "Runtime event occurred at")
+    @Required(on = WriteOperation.INSERT)
     private Instant occurredAt;
 }

@@ -380,6 +380,9 @@ public class MetadataRelationChangeSetApplyService {
             result.setQueryOperators(existing.getQueryOperators());
             result.setDefaultValue(existing.getDefaultValue());
             result.setValidationRegex(existing.getValidationRegex());
+            result.setRequiredOnInsert(existing.getRequiredOnInsert());
+            result.setRequiredOnUpdate(existing.getRequiredOnUpdate());
+            result.setTextNormalization(existing.getTextNormalization());
             result.setCopyable(existing.getCopyable());
             result.setWriteProtected(existing.getWriteProtected());
         }

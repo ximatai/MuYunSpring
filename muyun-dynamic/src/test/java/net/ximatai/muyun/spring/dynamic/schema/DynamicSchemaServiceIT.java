@@ -106,6 +106,55 @@ class DynamicSchemaServiceIT {
     }
 
     @Test
+    void shouldEnforceWriteRulesOnRealPartialUpdatesWithoutChangingNullability() {
+        var both = new net.ximatai.muyun.spring.common.model.constraint.FieldWriteRules(true, true,
+                net.ximatai.muyun.spring.common.model.constraint.TextNormalization.TRIM);
+        var insertOnly = new net.ximatai.muyun.spring.common.model.constraint.FieldWriteRules(true, false,
+                net.ximatai.muyun.spring.common.model.constraint.TextNormalization.NONE);
+        var updateOnly = new net.ximatai.muyun.spring.common.model.constraint.FieldWriteRules(false, true,
+                net.ximatai.muyun.spring.common.model.constraint.TextNormalization.NONE);
+        String suffix = java.util.UUID.randomUUID().toString().replace("-", "").substring(0, 8);
+        EntityDefinition entity = new EntityDefinition("entry", "app_write_rules_" + suffix, "Write rules",
+                List.of(FieldDefinition.string("code", "Code").writeRules(both)
+                                .defaultValue("  GENERATED  ").validationRegex("[A-Z]+"),
+                        FieldDefinition.string("token", "Token").writeRules(insertOnly),
+                        FieldDefinition.string("reason", "Reason").writeRules(updateOnly),
+                        FieldDefinition.string("note", "Note")));
+        schemaService.ensureTable(entity);
+        DynamicRecordRuntime runtime = new DynamicRecordRuntime(operations);
+        String module = "demo.write_rules_" + suffix;
+        runtime.register(new ModuleDefinition(module, "Write rules", List.of(entity)));
+        DynamicRecordService service = new DynamicRecordService(runtime);
+        DynamicRecord inserted = service.newRecord(module, "entry").setValue("token", "secret ");
+        inserted.setId("preallocated-" + suffix);
+        String id = service.create(module, "entry", inserted);
+        assertThat(service.select(module, "entry", id).getValue("code")).isEqualTo("GENERATED");
+        assertThat(service.select(module, "entry", id).getValue("token")).isEqualTo("secret ");
+        assertThat(service.select(module, "entry", id).getValue("reason")).isNull();
+
+        DynamicRecord patch = service.newRecord(module, "entry").setValue("note", "changed");
+        patch.setId(id);
+        patch.setVersion(0);
+        assertThatThrownBy(() -> service.update(module, "entry", patch)).hasMessageContaining("reason");
+        patch.setVersion(0);
+        patch.setValue("reason", "edited").setValue("token", null);
+        assertThat(service.update(module, "entry", patch)).isEqualTo(1);
+        DynamicRecord saved = service.select(module, "entry", id);
+        assertThat(saved.getValue("code")).isEqualTo("GENERATED");
+        assertThat(saved.getValue("token")).isNull();
+        assertThat(patch.explicitFieldCodes()).doesNotContain("code");
+        assertThat(patch.getPlatformValues()).doesNotContainKey("code");
+
+        DynamicRecord clear = service.newRecord(module, "entry").setValue("code", null);
+        clear.setId(id);
+        clear.setVersion(saved.getVersion());
+        assertThatThrownBy(() -> service.update(module, "entry", clear)).hasMessageContaining("code");
+        assertThat(service.select(module, "entry", id).getValue("code")).isEqualTo("GENERATED");
+        assertThatThrownBy(() -> service.create(module, "entry", service.newRecord(module, "entry")))
+                .hasMessageContaining("token");
+    }
+
+    @Test
     void shouldAggregateOnlyTheFilteredTenantRowsOnRealDatabase() {
         String suffix = java.util.UUID.randomUUID().toString().replace("-", "").substring(0, 8);
         EntityDefinition entity = new EntityDefinition("summary_entry", "app_summary_it_" + suffix, "汇总测试",

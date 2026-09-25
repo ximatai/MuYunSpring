@@ -51,6 +51,27 @@
 
 例如 [Department](../../muyun-iam/src/main/java/net/ximatai/muyun/spring/iam/department/Department.java) 声明机构内编码唯一、同机构排序和引用启用机构。业务 Service 保留机构范围等领域意图，不重复实现这些公共流程。员工主岗判定、账号解绑等领域不变量继续放在业务代码中。
 
+### 字段写入约束
+
+静态模型通过字段上的 `@Required` 和 `@NormalizeText` 声明通用写入规则，普通 Service 无需实现额外 Ability 或手写保存 hook：
+
+```java
+@Required // 默认新增、修改均要求有效值；可用 on = WriteOperation.INSERT / UPDATE 限定
+@NormalizeText // 默认 TRIM；TRIM_TO_NULL 将空白转为 null
+@Column(name = "code", type = ColumnType.VARCHAR, nullable = false)
+private String code;
+```
+
+`@Required` 检查最终保存值非 null，字符串还需非空白；`0`、`false` 和空集合不是缺失值。必填不隐式修改文本，密码等字段不应声明去空格。继承字段的规则自动生效；具体模型可用类型级 `@Required(fields = "title")`、`@NormalizeText(fields = "title")` 声明继承字段，而不改变父类或兄弟模型。类型声明可重复，不同字段可选不同新增／修改阶段；子类仅覆盖其显式声明的规则项，同层重复、未知字段和遮蔽已声明字段在编译时拒绝。`@Column(nullable = false)` 保持存储约束语义，不自动升级为字符串非空白，也不因阶段必填而改变 DDL。
+
+静态注解和动态字段行为编译为同一 `FieldWriteRules`，由标准 CRUD 内部链执行。规范化在业务 hook 前执行，并在保存前再次处理生成值；必填在保存前的平台赋值、公式之后检查，业务覆盖 hook 不会关闭校验。规则不改变既有更新协议：静态完整更新检查待保存实体；动态局部更新以未提交字段的旧值校验、显式 null 表示清空，不把旧值复制成新写字段。规则只适用于标准新增、更新，不增加删除、恢复或内部 CAS 的业务校验。
+
+动态 `MetadataFieldConfig` 和 `ModuleMetadataField` 用 `requiredOnInsert`、`requiredOnUpdate`、`textNormalization` 声明同一规则，按默认配置、关系覆盖、模块字段配置逐属性继承；null 表示继承，false / `NONE` 表示显式关闭。虚拟字段和平台托管标准字段不接受自定义写规则；文本规范化仅适用于字符串字段。`FieldDefinition.isRequired` 继续控制数据库非空，并以 `FieldWriteRules.nonNull` 投影到公共保存校验；它只拒 null，不升级为空白字符串检查。动态 record 的赋值入口只处理值形态、规范化和正则，允许暂存 null；默认值／生命周期有机会补齐，最终保存时必须满足约束。动态局部更新读取旧值时，受保护字段先解密验签用于校验，不将旧值加入写入 patch。
+
+页面只在已显式暴露的字段上投影阶段输入要求，按实际新增／编辑模式判断，不能按 ID 是否存在猜测操作。页面只读、写保护字段不增加模型必填提示；有效默认值可免除新增输入要求，服务端仍检查最终结果。独立编码规则等生成能力需由页面明确只读等输入策略，不能仅从列非空推断用户需要输入。旧 FormSchema 同样携带 `inputRequirements`；自定义表单接入需传递实际编辑模式。动态 descriptor 保留写规则及存储非空要求，动静 OpenAPI 分开描述新增／修改请求，并通过 `x-muyun-write-rules` 的 `FINAL_VALUE` 语义交付阶段约束及 `nonNull` 最终值要求；不把最终有效值误标为请求 JSON 必须提供的属性。更新记录 ID 来自路径，版本缺省沿当前运行契约使用已读取版本；动作专用版本要求保持独立。
+
+跨字段条件、关联状态、格式、安全密码、空字符串有业务意义的映射值及已确认的业务错误码继续通过领域校验表达。附件绑定等副作用前、流程运行态自主管理生命周期的内部写入口，可显式调用 `StaticFieldWriteRules.validate` 复用同一字段声明和执行器，不复制字段清单，也不为校验重复触发 CRUD 生命周期。缺少父 ID 的子对象草稿仍由草稿契约校验，不能套用完整持久化约束。
+
 ### 引用的推荐接入
 
 ```java

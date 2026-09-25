@@ -14,6 +14,7 @@ import net.ximatai.muyun.spring.iam.user.UserAccount;
 import net.ximatai.muyun.spring.iam.user.UserAccountService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.util.StringUtils;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Collection;
@@ -53,13 +54,10 @@ public class EmployeeAccountService extends TenantActiveScopedService<EmployeeAc
     }
 
     @Override
-    public void normalizeBeforeMutation(EmployeeAccount binding) {
-        binding.setEmployeeId(Preconditions.requireText(binding.getEmployeeId(), "employeeId"));
-        binding.setUserId(Preconditions.requireText(binding.getUserId(), "userId"));
-    }
-
-    @Override
     protected void validateBeforeSave(EmployeeAccount binding) {
+        // Reference-dependent checks run only when their inputs exist; the write chain enforces required fields.
+        if (!StringUtils.hasText(binding.getEmployeeId())
+                || !StringUtils.hasText(binding.getUserId())) return;
         validateAccountReferences(binding);
         rejectDuplicate(binding, Criteria.of()
                 .eq("employeeId", binding.getEmployeeId()),

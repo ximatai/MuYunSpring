@@ -1,6 +1,8 @@
 package net.ximatai.muyun.spring.platform.metadata;
 
 import lombok.Getter;
+import net.ximatai.muyun.spring.common.model.constraint.FieldWriteRules;
+import net.ximatai.muyun.spring.common.model.constraint.TextNormalization;
 import lombok.Setter;
 import net.ximatai.muyun.database.core.annotation.Column;
 import net.ximatai.muyun.database.core.annotation.CompositeIndex;
@@ -39,6 +41,24 @@ public class ModuleMetadataField extends StandardSortableEntity {
 
     @Column(name = "validation_regex", type = ColumnType.VARCHAR, length = 512, comment = "Validation regex")
     private String validationRegex;
+
+    @Column(name = "required_on_insert", type = ColumnType.BOOLEAN, comment = "Required on insert")
+    private Boolean requiredOnInsert;
+
+    @Column(name = "required_on_update", type = ColumnType.BOOLEAN, comment = "Required on update")
+    private Boolean requiredOnUpdate;
+
+    @Column(name = "text_normalization", type = ColumnType.VARCHAR, length = 32, comment = "Text normalization")
+    private TextNormalization textNormalization;
+
+    /** Null declarations inherit the enclosing field behavior. */
+    public FieldWriteRules effectiveWriteRules(FieldWriteRules inherited) {
+        return new FieldWriteRules(
+                requiredOnInsert == null ? inherited.requiredOnInsert() : requiredOnInsert,
+                requiredOnUpdate == null ? inherited.requiredOnUpdate() : requiredOnUpdate,
+                textNormalization == null ? inherited.textNormalization() : textNormalization);
+    }
+
 
     @Column(name = "dictionary_application_alias", type = ColumnType.VARCHAR, length = 64, comment = "Dictionary application alias")
     private String dictionaryApplicationAlias;

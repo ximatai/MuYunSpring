@@ -1080,6 +1080,7 @@ export default defineComponent({
             <div v-else class="module-form">
               <RecordFormFields
                 :record="editingRecord"
+                :mode="editorMode"
                 :fields="formFields"
                 :form-session-key="formSessionKey"
                 :validation-request-key="formValidationRequestKey"
@@ -1394,6 +1395,7 @@ export default defineComponent({
       <RecordFormFields
         v-if="localEditDraft"
         :record="localEditDraft"
+        mode="edit"
         :fields="localEditFields"
         :option-context="context"
         :file-transfer-context="context"

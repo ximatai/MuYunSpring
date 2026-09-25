@@ -1,6 +1,7 @@
 package net.ximatai.muyun.spring.dynamic.openapi;
 
 import net.ximatai.muyun.spring.common.option.OptionBinding;
+import net.ximatai.muyun.spring.common.model.constraint.WriteOperation;
 import net.ximatai.muyun.spring.common.option.OptionSelectionMode;
 import net.ximatai.muyun.spring.dynamic.descriptor.DynamicActionDescriptor;
 import net.ximatai.muyun.spring.dynamic.descriptor.DynamicEntityDescriptor;
@@ -20,6 +21,15 @@ final class DynamicOpenApiSchemaFactory {
         schemas.put(schemaName(entity.entityAlias(), "Values"), valuesSchema(entity));
         schemas.put(schemaName(entity.entityAlias(), "Record"), recordSchema(entity));
         schemas.put("DynamicRecordPayload", recordPayloadSchema(entity));
+        for (WriteOperation operation : WriteOperation.values()) {
+            String suffix = operation == WriteOperation.INSERT ? "Create" : "Update";
+            schemas.put(schemaName(entity.entityAlias(), suffix + "Values"), mutationValuesSchema(entity, operation));
+            schemas.put("DynamicRecord" + suffix + "Payload", mutationPayloadSchema(entity, operation));
+        }
+        schemas.put("FieldWriteRules", new DynamicOpenApiDocument.Schema("FieldWriteRules", "object", null,
+                List.of("requiredOnInsert", "requiredOnUpdate", "textNormalization", "nonNull"), Map.of(
+                        "requiredOnInsert", booleanProperty(false), "requiredOnUpdate", booleanProperty(false),
+                        "textNormalization", stringProperty(false), "nonNull", booleanProperty(false)), null));
         schemas.put("DynamicRecordResponse", recordResponseSchema(entity));
         schemas.put("WebQueryRequest", queryRequestSchema("WebQueryRequest", "WebQueryCondition", "WebPageRequest", "WebSort"));
         schemas.put("WebQueryCondition", queryConditionSchema("WebQueryCondition"));
@@ -137,6 +147,23 @@ final class DynamicOpenApiSchemaFactory {
                 List.of(), properties, null);
     }
 
+    private DynamicOpenApiDocument.Schema mutationValuesSchema(DynamicEntityDescriptor entity, WriteOperation operation) {
+        String suffix = operation == WriteOperation.INSERT ? "CreateValues" : "UpdateValues";
+        return new DynamicOpenApiDocument.Schema(schemaName(entity.entityAlias(), suffix), "object", null,
+                List.of(), valuesSchema(entity).properties().entrySet().stream().collect(java.util.stream.Collectors.toMap(
+                        Map.Entry::getKey, entry -> entry.getValue().withRequired(false).withNullable(true))), null)
+                .withWriteOperation(operation, operation == WriteOperation.UPDATE);
+    }
+
+    private DynamicOpenApiDocument.Schema mutationPayloadSchema(DynamicEntityDescriptor entity, WriteOperation operation) {
+        String suffix = operation == WriteOperation.INSERT ? "Create" : "Update";
+        Map<String, DynamicOpenApiDocument.Property> properties = new LinkedHashMap<>(recordPayloadSchema(entity).properties());
+        properties.put("values", new DynamicOpenApiDocument.Property(schemaName(entity.entityAlias(), suffix + "Values"),
+                null, false, false, false, null, null, null, null, null, List.of()));
+        return new DynamicOpenApiDocument.Schema("DynamicRecord" + suffix + "Payload", "object", null,
+                List.of(), properties, null).withWriteOperation(operation, operation == WriteOperation.UPDATE);
+    }
+
     private DynamicOpenApiDocument.Schema recordResponseSchema(DynamicEntityDescriptor entity) {
         Map<String, DynamicOpenApiDocument.Property> properties = recordEnvelopeProperties(entity);
         properties.put("children", new DynamicOpenApiDocument.Property("object", null, false, true,
@@ -175,7 +202,7 @@ final class DynamicOpenApiSchemaFactory {
                 field.companions().stream()
                         .map(companion -> companion.fieldName())
                         .toList()
-        );
+        ).withWriteRules(field.writeRules());
     }
 
     private FieldShape fieldShape(FieldType type, OptionSelectionMode selectionMode) {
@@ -269,6 +296,7 @@ final class DynamicOpenApiSchemaFactory {
         properties.put("validationRegex", stringProperty(true));
         properties.put("copyable", booleanProperty(false));
         properties.put("writeProtected", booleanProperty(false));
+        properties.put("writeRules", objectProperty("FieldWriteRules"));
         return new DynamicOpenApiDocument.Schema("DynamicFieldDescriptor", "object", null,
                 List.of("fieldName", "type", "title"), properties, null);
     }

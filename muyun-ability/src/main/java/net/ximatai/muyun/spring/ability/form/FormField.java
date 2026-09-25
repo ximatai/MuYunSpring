@@ -1,6 +1,7 @@
 package net.ximatai.muyun.spring.ability.form;
 
 import net.ximatai.muyun.spring.common.option.OptionBinding;
+import net.ximatai.muyun.spring.common.model.constraint.FieldInputRequirements;
 import net.ximatai.muyun.spring.common.option.OptionFieldDefinition;
 import net.ximatai.muyun.spring.common.option.OptionSelectionMode;
 
@@ -12,7 +13,15 @@ public record FormField(String fieldName,
                         boolean readOnly,
                         OptionBinding optionBinding,
                         OptionSelectionMode selectionMode,
-                        String optionTitleField) {
+                        String optionTitleField,
+                        FieldInputRequirements inputRequirements) {
+    public FormField(String fieldName, String title, FormValueType valueType, FormControlType controlType,
+                     boolean required, boolean readOnly, OptionBinding optionBinding,
+                     OptionSelectionMode selectionMode, String optionTitleField) {
+        this(fieldName, title, valueType, controlType, required, readOnly, optionBinding, selectionMode,
+                optionTitleField, null);
+    }
+
     public FormField {
         if (fieldName == null || fieldName.isBlank()) {
             throw new IllegalArgumentException("form field name must not be blank");
@@ -36,22 +45,22 @@ public record FormField(String fieldName,
 
     public FormField withTitle(String title) {
         return new FormField(fieldName, title, valueType, controlType, required, readOnly,
-                optionBinding, selectionMode, optionTitleField);
+                optionBinding, selectionMode, optionTitleField, inputRequirements);
     }
 
     public FormField asRequired() {
         return new FormField(fieldName, title, valueType, controlType, true, readOnly,
-                optionBinding, selectionMode, optionTitleField);
+                optionBinding, selectionMode, optionTitleField, inputRequirements);
     }
 
     public FormField asReadOnly() {
         return new FormField(fieldName, title, valueType, controlType, required, true,
-                optionBinding, selectionMode, optionTitleField);
+                optionBinding, selectionMode, optionTitleField, inputRequirements);
     }
 
     public FormField withControlType(FormControlType controlType) {
         return new FormField(fieldName, title, valueType, controlType, required, readOnly,
-                optionBinding, selectionMode, optionTitleField);
+                optionBinding, selectionMode, optionTitleField, inputRequirements);
     }
 
     public FormField withOptionBinding(OptionBinding binding) {
@@ -60,7 +69,7 @@ public record FormField(String fieldName,
 
     public FormField withOptionBinding(OptionBinding binding, OptionSelectionMode selectionMode) {
         return new FormField(fieldName, title, valueType, null, required, readOnly,
-                binding, selectionMode, null);
+                binding, selectionMode, null, inputRequirements);
     }
 
     public FormField withOptionField(OptionFieldDefinition definition) {
@@ -68,12 +77,17 @@ public record FormField(String fieldName,
             throw new IllegalArgumentException("option field definition must not be null");
         }
         return new FormField(fieldName, title, valueType, null, required, readOnly,
-                definition.binding(), definition.selectionMode(), null);
+                definition.binding(), definition.selectionMode(), null, inputRequirements);
     }
 
     public FormField withOptionTitleField(String optionTitleField) {
         return new FormField(fieldName, title, valueType, controlType, required, readOnly,
-                optionBinding, selectionMode, optionTitleField);
+                optionBinding, selectionMode, optionTitleField, inputRequirements);
+    }
+
+    public FormField withInputRequirements(FieldInputRequirements requirements) {
+        return new FormField(fieldName, title, valueType, controlType, required, readOnly,
+                optionBinding, selectionMode, optionTitleField, requirements);
     }
 
     private static FormControlType defaultControlType(FormValueType valueType,

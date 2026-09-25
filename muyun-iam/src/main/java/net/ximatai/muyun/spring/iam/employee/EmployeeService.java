@@ -21,7 +21,6 @@ import net.ximatai.muyun.spring.ability.reference.ReferencePath;
 import net.ximatai.muyun.spring.ability.reference.ReferenceAbility;
 import net.ximatai.muyun.spring.common.platform.DataScopeFieldMapping;
 import net.ximatai.muyun.spring.common.tenant.ActiveTenantVerifier;
-import net.ximatai.muyun.spring.common.util.Preconditions;
 import net.ximatai.muyun.spring.iam.department.DepartmentService;
 import net.ximatai.muyun.spring.iam.user.UserAccount;
 import org.springframework.stereotype.Service;
@@ -60,17 +59,6 @@ public class EmployeeService extends TenantActiveScopedService<Employee> impleme
     @Override
     public DataScopeFieldMapping dataScopeFieldMapping() {
         return DATA_SCOPE_FIELD_MAPPING;
-    }
-
-    @Override
-    public void normalizeBeforeMutation(Employee employee) {
-        employee.setOrganizationId(Preconditions.requireText(employee.getOrganizationId(), "organizationId"));
-        employee.setDepartmentId(Preconditions.requireText(employee.getDepartmentId(), "departmentId"));
-        employee.setEmployeeNo(Preconditions.requireText(employee.getEmployeeNo(), "employeeNo"));
-        employee.setTitle(Preconditions.requireText(employee.getTitle(), "employeeName"));
-        employee.setGender(normalizeBlank(employee.getGender()));
-        employee.setMobile(normalizeBlank(employee.getMobile()));
-        employee.setEmail(normalizeBlank(employee.getEmail()));
     }
 
     /** Persists only the contact and avatar fields an authenticated employee may maintain for themself. */

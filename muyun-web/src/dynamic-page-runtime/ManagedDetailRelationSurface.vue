@@ -125,6 +125,7 @@ const deleteAllowed = computed(() =>
 );
 
 const draft = ref<QueryListRecord>();
+const editorMode = ref<'create' | 'edit'>('create');
 const formValid = ref(true);
 const formSessionKey = ref(0);
 const editorOpen = computed(() => draft.value != null);
@@ -138,6 +139,7 @@ function startCreate() {
   if (!createAllowed.value || runtime.busy.value) return;
   formSessionKey.value += 1;
   formValid.value = true;
+  editorMode.value = 'create';
   draft.value = {};
 }
 
@@ -145,6 +147,7 @@ function startEdit(record: QueryListRecord) {
   if (!updateAllowed.value || runtime.busy.value) return;
   formSessionKey.value += 1;
   formValid.value = true;
+  editorMode.value = 'edit';
   draft.value = structuredClone(toRaw(record));
 }
 
@@ -262,6 +265,7 @@ watch(
     @cancel="closeEditor"
   >
     <RecordFormFields
+      :mode="editorMode"
       v-if="draft"
       :record="draft as RecordFormRecord"
       :fields="formFields"

@@ -1,5 +1,6 @@
 package net.ximatai.muyun.spring.platform.ui;
 
+import net.ximatai.muyun.spring.common.model.constraint.Required;
 import lombok.Getter;
 import lombok.Setter;
 import net.ximatai.muyun.database.core.annotation.Column;
@@ -31,6 +32,7 @@ public class PlatformPageDefinition extends StandardEnabledSortableEntity {
     @Column(name = "contract_type", type = ColumnType.VARCHAR, length = 32, nullable = false,
             comment = "Page business contract type")
     @OptionField(type = OptionSourceType.ENUM, enumType = PlatformPageContractType.class)
+    @Required
     private PlatformPageContractType contractType;
 
     @Column(name = "main_relation_id", type = ColumnType.VARCHAR, length = 32, nullable = false,

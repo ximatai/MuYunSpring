@@ -1054,6 +1054,7 @@ export interface ResolvedFieldControlBindingDescriptor {
 }
 
 export interface ResolvedViewFieldDescriptor {
+  inputRequirements?: { requiredOnInsert: boolean; requiredOnUpdate: boolean };
   assistantPolicy?: AssistantFieldPolicy;
   fieldRef: ViewFieldRef;
   label?: string;

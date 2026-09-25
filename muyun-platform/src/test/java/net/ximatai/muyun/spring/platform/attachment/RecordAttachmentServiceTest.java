@@ -14,6 +14,17 @@ class RecordAttachmentServiceTest {
     private final RecordAttachmentService service = new RecordAttachmentService(new TestMemoryDao<>(), bindings);
 
     @Test
+    void standardInsertRejectsMissingFieldsBeforeAcquiringFileOwnership() {
+        RecordAttachment attachment = new RecordAttachment();
+        attachment.setModuleAlias("sales.contract");
+        attachment.setRecordId("contract-1");
+        attachment.setFileId(" ");
+        assertThatThrownBy(() -> service.insert(attachment))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("fileId");
+        org.mockito.Mockito.verifyNoInteractions(bindings);
+    }
+
+    @Test
     void shouldAcquireOwnershipThroughSharedBindingBeforePersistingAttachment() {
         RecordAttachment attachment = service.add("sales.contract", "contract-1", command(null, "file-1", "a.pdf", 10));
         org.mockito.Mockito.verify(bindings).bind(attachment.getTenantId(), RecordAttachmentService.MODULE_ALIAS,

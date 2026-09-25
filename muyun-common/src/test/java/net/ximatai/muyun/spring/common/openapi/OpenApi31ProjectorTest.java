@@ -14,6 +14,32 @@ class OpenApi31ProjectorTest {
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Test
+    @SuppressWarnings("unchecked")
+    void shouldPublishFinalValueRuleSemanticsWithoutRequiringPatchFields() {
+        var rules = new net.ximatai.muyun.spring.common.model.constraint.FieldWriteRules(true, false,
+                net.ximatai.muyun.spring.common.model.constraint.TextNormalization.TRIM, true);
+        PlatformApiDocument document = new TestDocument() {
+            @Override public Map<String, PlatformApiDocument.Schema> schemas() {
+                var property = new PlatformApiDocument.Property("string", null, false, true, false,
+                        null, null, null, null, null, List.of()).withWriteRules(rules);
+                return Map.of("Customer", new PlatformApiDocument.Schema("Customer", "object", null,
+                        List.of(), Map.of("code", property), null).withWriteOperation(
+                                net.ximatai.muyun.spring.common.model.constraint.WriteOperation.UPDATE, true));
+            }
+        };
+        var components = (Map<String, Object>) OpenApi31Projector.project(document).get("components");
+        var schemas = (Map<String, Object>) components.get("schemas");
+        var customer = (Map<String, Object>) schemas.get("Customer");
+        assertThat(customer).containsEntry("x-muyun-write-operation", "UPDATE")
+                .containsEntry("x-muyun-partial-update", true).doesNotContainKey("required");
+        var properties = (Map<String, Object>) customer.get("properties");
+        var code = (Map<String, Object>) properties.get("code");
+        assertThat((Map<String, Object>) code.get("x-muyun-write-rules"))
+                .containsExactlyInAnyOrderEntriesOf(Map.of("semantics", "FINAL_VALUE", "requiredOnInsert", true,
+                        "requiredOnUpdate", false, "textNormalization", "TRIM", "nonNull", true));
+    }
+
+    @Test
     void shouldProjectAnOpenApi31DocumentAcceptedByTheStandardParser() throws Exception {
         PlatformApiDocument document = new TestDocument();
 
@@ -33,7 +59,7 @@ class OpenApi31ProjectorTest {
         assertThat(projected).containsEntry("x-muyun-module-base-path", "/crm.customer");
     }
 
-    private static final class TestDocument implements PlatformApiDocument {
+    private static class TestDocument implements PlatformApiDocument {
         @Override
         public String moduleAlias() {
             return "crm.customer";

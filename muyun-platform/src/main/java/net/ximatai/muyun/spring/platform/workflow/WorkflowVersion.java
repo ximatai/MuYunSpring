@@ -1,5 +1,6 @@
 package net.ximatai.muyun.spring.platform.workflow;
 
+import net.ximatai.muyun.spring.common.model.constraint.Required;
 import lombok.Getter;
 import lombok.Setter;
 import net.ximatai.muyun.database.core.annotation.Column;
@@ -18,6 +19,7 @@ import java.time.Instant;
 public class WorkflowVersion extends StandardEntity {
     @Column(name = "definition_id", type = ColumnType.VARCHAR, length = 32, nullable = false,
             comment = "Workflow definition id")
+    @Required
     private String definitionId;
 
     @Column(name = "version_no", type = ColumnType.INT, nullable = false, comment = "Workflow version number")

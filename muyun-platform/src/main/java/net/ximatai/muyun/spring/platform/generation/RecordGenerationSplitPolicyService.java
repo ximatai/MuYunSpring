@@ -25,9 +25,6 @@ public class RecordGenerationSplitPolicyService extends StandardBusinessService<
 
     @Override
     protected void validateBeforeSave(RecordGenerationSplitPolicy policy) {
-        if (policy.getObjectMappingId() == null || policy.getObjectMappingId().isBlank()) {
-            throw new PlatformException("Split policy requires objectMappingId");
-        }
         if (policy.getQuantityField() != null && policy.getQuantityField().isBlank()) {
             policy.setQuantityField(null);
         }

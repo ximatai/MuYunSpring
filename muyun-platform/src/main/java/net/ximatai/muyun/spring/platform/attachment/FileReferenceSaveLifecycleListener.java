@@ -46,11 +46,56 @@ public final class FileReferenceSaveLifecycleListener implements EntitySaveLifec
     }
 
     @Override
-    public <T extends EntityContract> void beforeSave(CrudAbility<T> ability, T existing, T incoming) {
-        if (existing == null && incoming.getId() != null && !incoming.getId().isBlank()) {
-            existing = ability.selectActiveRaw(incoming.getId());
+    public <T extends EntityContract> void prepareValues(CrudAbility<T> ability, T existing, T incoming) {
+        existing = existingRecord(ability, existing, incoming);
+        Map<String, FileReferenceDefinition> definitions = definitions(incoming);
+        if (incoming instanceof DynamicRecord record) {
+            var submitted = record.getPlatformValues().keySet();
+            T snapshot = existing;
+            definitions.forEach((source, definition) -> {
+                if (!submitted.contains(source)) {
+                    definition.metadataFields().values().stream().filter(submitted::contains)
+                            .forEach(field -> writeValue(incoming, field, rawValue(snapshot, field)));
+                }
+            });
         }
-        Map<String, FileReferenceDefinition> allDefinitions = definitions(incoming);
+        definitions = writtenDefinitions(incoming);
+        for (Map.Entry<String, FileReferenceDefinition> entry : fileServerDefinitions(definitions).entrySet()) {
+            java.util.List<String> incomingIds = values(incoming, entry.getKey(), entry.getValue());
+            java.util.List<String> existingIds = values(existing, entry.getKey(), entry.getValue());
+            Map<String, FileTransferFileMetadata> metadata = new LinkedHashMap<>();
+            for (String fileId : incomingIds) {
+                if (!existingIds.contains(fileId)) {
+                    metadata.put(fileId, requireBindingService().prepare(
+                            ability.getModuleAlias(), entry.getKey(), fileId, entry.getValue()));
+                }
+            }
+            applyMetadataFields(incoming, existing, entry.getKey(), entry.getValue(), incomingIds, metadata);
+        }
+        Map<String, FileReferenceDefinition> inline = inlineDefinitions(definitions);
+        requireTransactionForInlineReferences(hasInlineReferenceValues(existing, incoming, inline));
+        applyInlineMetadataFields(incoming, existing, inline);
+    }
+
+    private <T extends EntityContract> T existingRecord(CrudAbility<T> ability, T existing, T incoming) {
+        return existing == null && incoming.getId() != null && !incoming.getId().isBlank()
+                ? ability.selectActiveRaw(incoming.getId()) : existing;
+    }
+
+    /** An omitted dynamic field is not a request to clear its reference or its metadata. */
+    private Map<String, FileReferenceDefinition> writtenDefinitions(EntityContract incoming) {
+        Map<String, FileReferenceDefinition> definitions = new LinkedHashMap<>(definitions(incoming));
+        if (incoming instanceof DynamicRecord record) {
+            var submitted = record.getPlatformValues().keySet();
+            definitions.keySet().removeIf(field -> !submitted.contains(field));
+        }
+        return definitions;
+    }
+
+    @Override
+    public <T extends EntityContract> void beforeSave(CrudAbility<T> ability, T existing, T incoming) {
+        existing = existingRecord(ability, existing, incoming);
+        Map<String, FileReferenceDefinition> allDefinitions = writtenDefinitions(incoming);
         Map<String, FileReferenceDefinition> definitions = fileServerDefinitions(allDefinitions);
         Map<String, FileReferenceDefinition> inlineDefinitions = inlineDefinitions(allDefinitions);
         java.util.List<ResolvedFileDeletion> deletions = removedFileReferences(existing, incoming, definitions);
@@ -67,20 +112,16 @@ public final class FileReferenceSaveLifecycleListener implements EntitySaveLifec
                 java.util.List<String> newFileIds = incomingFileIds.stream()
                         .filter(fileId -> !existingFileIds.contains(fileId))
                         .toList();
-                Map<String, FileTransferFileMetadata> promotedMetadata = new LinkedHashMap<>();
                 if (!newFileIds.isEmpty()) {
                     if (client == null) throw new PlatformException("file transfer client is not configured");
                     for (String fileId : newFileIds) {
-                        promotedMetadata.put(fileId,
-                                requireBindingService().bind(incoming.getTenantId(), ability.getModuleAlias(), incoming.getId(),
-                                        entry.getKey(), fileId, entry.getValue()));
+                        requireBindingService().bind(incoming.getTenantId(), ability.getModuleAlias(), incoming.getId(),
+                                entry.getKey(), fileId, entry.getValue());
                     }
                 }
-                applyMetadataFields(incoming, existing, entry.getKey(), entry.getValue(), incomingFileIds, promotedMetadata);
             }
             boolean inlineReferenceChanged = hasInlineReferenceValues(existing, incoming, inlineDefinitions);
             requireTransactionForInlineReferences(inlineReferenceChanged);
-            applyInlineMetadataFields(incoming, existing, inlineDefinitions);
             if (inlineReferenceChanged) {
                 pendingInlineReferences.get().put(incoming, inlineReferenceChange(incoming, inlineDefinitions));
             }
@@ -281,12 +322,12 @@ public final class FileReferenceSaveLifecycleListener implements EntitySaveLifec
      */
     private void applyMetadataFields(EntityContract incoming, EntityContract existing, String fileFieldName,
                                      FileReferenceDefinition definition, java.util.List<String> incomingFileIds,
-                                     Map<String, FileTransferFileMetadata> promotedMetadata) {
+                                     Map<String, FileTransferFileMetadata> preparedMetadata) {
         if (definition.metadataFields().isEmpty()) return;
         if (definition.maxFiles() != 1) {
             throw new PlatformException("file reference metadata fields require a single-file reference: " + fileFieldName);
         }
-        FileTransferFileMetadata metadata = incomingFileIds.isEmpty() ? null : promotedMetadata.get(incomingFileIds.getFirst());
+        FileTransferFileMetadata metadata = incomingFileIds.isEmpty() ? null : preparedMetadata.get(incomingFileIds.getFirst());
         for (Map.Entry<FileReferenceMetadata, String> binding : definition.metadataFields().entrySet()) {
             Object value = metadata == null
                     ? (incomingFileIds.isEmpty() ? null : rawValue(existing, binding.getValue()))

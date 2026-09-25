@@ -1,5 +1,6 @@
 package net.ximatai.muyun.spring.platform.metadata;
 
+import net.ximatai.muyun.spring.common.model.constraint.Required;
 import lombok.Getter;
 import lombok.Setter;
 import net.ximatai.muyun.database.core.annotation.Column;
@@ -19,5 +20,6 @@ public class MetadataView extends StandardEnabledSortableEntity {
     private String relationId;
 
     @Column(name = "view_type", type = ColumnType.VARCHAR, length = 32, nullable = false, comment = "View type")
+    @Required
     private EntityViewType viewType;
 }

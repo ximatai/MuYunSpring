@@ -113,21 +113,16 @@ public class AiModelProviderService extends StandardBusinessService<AiModelProvi
 
     private void normalizeAndValidate(AiModelProvider provider) {
         provider.setTenantId(null);
-        if (provider.getTitle() == null || provider.getTitle().isBlank()) {
-            throw new PlatformException("AI model provider title must not be blank");
-        }
-        provider.setTitle(provider.getTitle().trim());
         if (provider.getProtocol() != AiModelProtocol.OPENAI_COMPATIBLE) {
             throw new PlatformException("unsupported AI model provider protocol: " + provider.getProtocol());
         }
-        provider.setBaseUrl(normalizeTrustedBaseUrl(provider.getBaseUrl()));
+        if (provider.getBaseUrl() != null && !provider.getBaseUrl().isBlank()) {
+            provider.setBaseUrl(normalizeTrustedBaseUrl(provider.getBaseUrl()));
+        }
         if (provider.getEnabled() == null) provider.setEnabled(Boolean.TRUE);
     }
 
     private static String normalizeTrustedBaseUrl(String baseUrl) {
-        if (baseUrl == null || baseUrl.isBlank()) {
-            throw new PlatformException("AI model provider base URL must not be blank");
-        }
         final URI uri;
         try {
             uri = new URI(baseUrl.trim()).normalize();

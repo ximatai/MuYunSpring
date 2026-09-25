@@ -31,6 +31,16 @@ public class FileReferenceBindingService {
         this.ownership = Objects.requireNonNull(ownership);
     }
 
+    /** Resolves authoritative facts without claiming ownership or promoting the file. */
+    public FileTransferFileMetadata prepare(String moduleAlias, String fieldName, String fileId,
+                                            FileReferenceDefinition definition) {
+        String id = required(fileId, "fileId");
+        if (ownership.existsById(id)) throw alreadyBound(moduleAlias, fieldName, id, null);
+        FileTransferClient client = clients.getIfAvailable();
+        if (client == null) throw new PlatformException("file transfer client is not configured");
+        return new FileReferenceConfirmationService(client).confirmTemporaryFile(definition, id);
+    }
+
     @Transactional(propagation = Propagation.MANDATORY)
     public FileTransferFileMetadata bind(String tenantId, String moduleAlias, String recordId,
                                          String fieldName, String fileId, FileReferenceDefinition definition) {
@@ -51,9 +61,7 @@ public class FileReferenceBindingService {
         } catch (RuntimeException failure) {
             for (Throwable cause = failure; cause != null; cause = cause.getCause()) {
                 if (cause instanceof SQLException sql && "23505".equals(sql.getSQLState())) {
-                    throw PlatformErrors.conflict(PlatformErrorCodes.FILE_REFERENCE_ALREADY_BOUND,
-                            "file is already bound to a business reference: " + claim.getId(), failure,
-                            ErrorScope.module(moduleAlias), Map.of("fieldName", fieldName, "fileId", claim.getId()));
+                    throw alreadyBound(moduleAlias, fieldName, claim.getId(), failure);
                 }
             }
             throw failure;
@@ -72,6 +80,12 @@ public class FileReferenceBindingService {
                 log.error("File reference was promoted but record save did not complete: moduleAlias={}, recordId={}, fieldName={}, fileId={}",
                         moduleAlias, recordId, fieldName, fileId));
         return metadata;
+    }
+
+    private PlatformException alreadyBound(String moduleAlias, String fieldName, String fileId, Throwable cause) {
+        return PlatformErrors.conflict(PlatformErrorCodes.FILE_REFERENCE_ALREADY_BOUND,
+                "file is already bound to a business reference: " + fileId, cause,
+                ErrorScope.module(moduleAlias), Map.of("fieldName", fieldName, "fileId", fileId));
     }
 
     private String required(String value, String name) {

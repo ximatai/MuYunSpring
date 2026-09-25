@@ -28,9 +28,6 @@ public class CodeValueMappingService extends StandardBusinessService<CodeValueMa
 
     @Override
     protected void validateBeforeSave(CodeValueMapping mapping) {
-        if (mapping.getSegmentId() == null || mapping.getSegmentId().isBlank()) {
-            throw new PlatformException("Code value mapping requires segmentId");
-        }
         if (mapping.getDefaultMapping() == null) {
             mapping.setDefaultMapping(Boolean.FALSE);
         }
