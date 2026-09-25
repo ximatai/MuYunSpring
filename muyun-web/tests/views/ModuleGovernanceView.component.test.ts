@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { shallowMount } from '@vue/test-utils';
 import { defineComponent } from 'vue';
+import ModuleRuntimeActivationStatus from '@/views/ModuleRuntimeActivationStatus.vue';
 import ModuleGovernanceView from '@/views/ModuleGovernanceView.vue';
 import MetadataOrchestrationView from '@/views/MetadataOrchestrationView.vue';
 import ModuleExperienceProfileOverview from '@/views/ModuleExperienceProfileOverview.vue';
@@ -22,6 +23,17 @@ const mountGovernanceView = (props: {
   });
 
 describe('ModuleGovernanceView', () => {
+  it('keeps one activation monitor mounted across every governance tab', async () => {
+    const wrapper = mountGovernanceView({ moduleAlias: 'education.exam' });
+    const status = () => wrapper.findComponent(ModuleRuntimeActivationStatus);
+    expect(status().props('moduleAlias')).toBe('education.exam');
+    for (const governanceTab of ['metadata', 'ui', 'rules'] as const) {
+      await wrapper.setProps({ governanceTab });
+      expect(status().props('moduleAlias')).toBe('education.exam');
+      expect(wrapper.findAllComponents(ModuleRuntimeActivationStatus)).toHaveLength(1);
+    }
+    wrapper.unmount();
+  });
   it('opens the operational business preview tab', () => {
     const wrapper = mountGovernanceView({ moduleAlias: 'education.exam', governanceTab: 'preview' });
     expect(wrapper.findComponent(ModuleBusinessPreview).props('moduleAlias')).toBe('education.exam');

@@ -1100,7 +1100,7 @@ class PlatformModuleRuntimeContextServiceTest {
     }
 
     @Test
-    void shouldMergePersistedModuleActionsWithStaticBaselineAndExposeAuthorizationResult() {
+    void shouldUseConfiguredDirectoryOrderWithoutChangingStaticDeclarationsOrAuthorization() {
         PlatformModuleService moduleService = mock(PlatformModuleService.class);
         PlatformModuleActionService actionService = mock(PlatformModuleActionService.class);
         when(moduleService.resolveVisibleModule("iam.organization"))
@@ -1111,7 +1111,7 @@ class PlatformModuleRuntimeContextServiceTest {
         view.setActionAuth(Boolean.FALSE);
         view.setActionAuthOverride(Boolean.FALSE);
         PlatformModuleAction enable = action("iam.organization", PlatformAction.ENABLE);
-        when(actionService.listByModuleAliases(List.of("iam.organization"))).thenReturn(List.of(view, enable));
+        when(actionService.listByModuleAliases(List.of("iam.organization"))).thenReturn(List.of(enable, view));
         ActionExecutionPolicyService policyService = context -> {
             if (PlatformAction.ENABLE.matches(context.actionCode())) {
                 throw new PlatformAccessDeniedException("denied");
@@ -1137,7 +1137,7 @@ class PlatformModuleRuntimeContextServiceTest {
         PlatformModuleRuntimeContext context = service.context("iam.organization");
 
         assertThat(context.actions()).extracting(PlatformModuleRuntimeAction::actionCode)
-                .containsExactly("view", "enable", "tree");
+                .containsExactly("enable", "view", "tree");
         assertThat(context.actions()).filteredOn(action -> "view".equals(action.actionCode()))
                 .singleElement()
                 .satisfies(action -> {
@@ -1266,7 +1266,7 @@ class PlatformModuleRuntimeContextServiceTest {
     }
 
     @Test
-    void shouldMergePersistedDynamicActionsWithDescriptorActions() {
+    void shouldUseConfiguredDynamicDirectoryOrderAndKeepDisabledActionsHidden() {
         PlatformModuleService moduleService = mock(PlatformModuleService.class);
         PlatformModuleActionService actionService = mock(PlatformModuleActionService.class);
         DynamicRecordService dynamicRecordService = mock(DynamicRecordService.class);
@@ -1305,7 +1305,7 @@ class PlatformModuleRuntimeContextServiceTest {
         PlatformModuleRuntimeContext context = service.context("sales.contract");
 
         assertThat(context.actions()).extracting(PlatformModuleRuntimeAction::actionCode)
-                .containsExactly("view", "update");
+                .containsExactly("update", "view");
         assertThat(context.actions()).filteredOn(action -> "update".equals(action.actionCode()))
                 .singleElement()
                 .satisfies(action -> assertThat(action.title()).isEqualTo("编辑合同"));

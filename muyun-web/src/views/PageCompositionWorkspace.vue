@@ -8,6 +8,7 @@ import {
   RecordDetailPanel,
   RecordExplorerPanel,
   presentPlatformError,
+  presentPlatformSuccess,
 } from '@muyun/platform-components';
 import { loadOptionFieldItems } from '@/platform-components/optionFieldOptionCache';
 import { hasOptionHierarchy } from '@/platform-components/optionFieldOptions';
@@ -169,6 +170,7 @@ const groupTitleDraft = ref('');
 const groupSubtitleDraft = ref('');
 const quickSearchPlaceholderDraft = ref('');
 const savedUiTreeJson = ref<string>();
+const savedDraftApplied = ref(false);
 const previewDescriptor = ref<ResolvedModuleUiDescriptor>();
 const previewStructure = ref<PageCompositionStructure>();
 const previewLoading = ref(false);
@@ -472,6 +474,9 @@ const currentUiTreeJson = computed(() =>
 const hasUnsavedChanges = computed(() =>
   Boolean(revision.value?.id && savedUiTreeJson.value !== currentUiTreeJson.value),
 );
+const hasPendingChanges = computed(() =>
+  Boolean(revision.value && (!savedDraftApplied.value || hasUnsavedChanges.value)),
+);
 useWorkspaceViewUnsavedState('页面配置', () => hasUnsavedChanges.value);
 const isMutating = computed(
   () => saving.value || publishing.value || loading.value || compositionLoading.value,
@@ -541,9 +546,47 @@ const mainEntityTitle = computed(
   () => relation.value?.title ?? props.moduleTitle ?? relation.value?.relationAlias ?? '主实体',
 );
 const compositionSubtitle = computed(() => {
-  if (!page.value) return '尚未初始化页面定义';
-  return `Web · 全局 · ${revision.value ? `草稿 v${revision.value.revisionNo}` : '尚无可编辑草稿'} · 最近发布 ${publishedRevision.value ? `v${publishedRevision.value.revisionNo}` : '无'}`;
+  const status = publishing.value
+    ? '正在生效'
+    : draftConflict.value
+      ? '修改冲突'
+      : hasUnsavedChanges.value
+        ? '有未保存修改'
+        : hasPendingChanges.value
+          ? '待生效'
+          : publishedRevision.value
+            ? '已生效'
+            : '尚未配置';
+  return `Web · 全局 · ${status}`;
 });
+
+function sameComposition(left?: PresentationRevision, right?: PresentationRevision) {
+  if (
+    !left ||
+    !right ||
+    left.templateAlias !== right.templateAlias ||
+    left.templateVersion !== right.templateVersion
+  )
+    return false;
+  try {
+    const normalize = (value: unknown): unknown =>
+      Array.isArray(value)
+        ? value.map(normalize)
+        : value && typeof value === 'object'
+          ? Object.fromEntries(
+              Object.entries(value)
+                .sort(([a], [b]) => a.localeCompare(b))
+                .map(([key, item]) => [key, normalize(item)]),
+            )
+          : value;
+    return (
+      JSON.stringify(normalize(JSON.parse(left.uiTreeJson ?? '{}'))) ===
+      JSON.stringify(normalize(JSON.parse(right.uiTreeJson ?? '{}')))
+    );
+  } catch {
+    return false;
+  }
+}
 const metadataTreeNodes = computed<UiTreeNode[]>(() => [
   ...(editorMode.value === 'fields'
     ? [
@@ -1193,6 +1236,7 @@ async function loadComposition(requestSequence = workspaceLoadSequence, moduleAl
     variant.value = nextVariant;
     revision.value = latestRevision(drafts);
     publishedRevision.value = latestRevision(published);
+    savedDraftApplied.value = sameComposition(revision.value, publishedRevision.value);
     draftConflict.value = false;
     removedDraft.value = undefined;
     draftParseError.value = undefined;
@@ -1213,9 +1257,9 @@ async function reloadComposition() {
   const sequence = workspaceLoadSequence;
   if (hasUnsavedChanges.value) {
     const confirmed = await confirmAction({
-      title: '加载最新草稿',
+      title: '加载最新配置',
       content: '加载成功后将替换当前编排，并放弃尚未保存的本地修改。是否继续？',
-      okText: '加载最新草稿',
+      okText: '加载最新配置',
     });
     if (!confirmed || sequence !== workspaceLoadSequence || isMutating.value) return;
   }
@@ -1566,6 +1610,7 @@ async function initializeComposition() {
     ).record;
     if (!current()) return;
     revision.value = createdRevision;
+    savedDraftApplied.value = sameComposition(createdRevision, latestPublished);
     if (latestPublished) publishedRevision.value = latestPublished;
     await hydrateDraft(revision.value);
   } catch (cause) {
@@ -1576,60 +1621,12 @@ async function initializeComposition() {
   }
 }
 
-async function saveDraft(
-  allowDuringPublish = false,
-  treeJsonToPersist = currentUiTreeJson.value,
-): Promise<boolean> {
-  if (hasCatalogDependentSummary.value && !summaryCatalog.value && !summaryCatalogLoading.value)
-    await loadSummaryCatalog();
-  if (
-    draftParseError.value ||
-    propertyIssues.value.length > 0 ||
-    dictionaryRadioIssues.value.length > 0 ||
-    actionIssues.value.length > 0 ||
-    hasSummaryIssues.value ||
-    summaryCatalogBlocksMutation.value ||
-    (summarySources.value.length > 0 && !supportsQuerySummaries.value) ||
-    draftConflict.value ||
-    compositionLoading.value ||
-    loading.value ||
-    saving.value ||
-    (!allowDuringPublish && publishing.value) ||
-    !revision.value?.id ||
-    !variant.value?.id
-  )
-    return false;
-  const sequence = workspaceLoadSequence;
-  const variantId = variant.value.id;
-  const candidate = revision.value;
-  const current = () => sequence === workspaceLoadSequence;
-  saving.value = true;
-  try {
-    const result = await revisionClient(variantId).update(candidate.id!, {
-      ...candidate,
-      templateVersion: skeleton.value ? 4 : candidate.templateVersion,
-      uiTreeJson: treeJsonToPersist,
-    });
-    if (!current()) return false;
-    revision.value = result.record;
-    savedUiTreeJson.value = treeJsonToPersist;
-    removedDraft.value = undefined;
-    return true;
-  } catch (cause) {
-    if (!current()) return false;
-    if (normalizeError(cause).code === platformErrorCodes.conflictVersion) draftConflict.value = true;
-    presentPlatformError(cause, { source: 'page-composition', phase: 'action' });
-    return false;
-  } finally {
-    if (current()) saving.value = false;
-  }
-}
-
-async function publishDraft() {
+async function saveAndApply() {
   if (hasCatalogDependentSummary.value && !summaryCatalog.value && !summaryCatalogLoading.value)
     await loadSummaryCatalog();
   if (
     isMutating.value ||
+    !hasPendingChanges.value ||
     propertyIssues.value.length > 0 ||
     dictionaryRadioIssues.value.length > 0 ||
     actionIssues.value.length > 0 ||
@@ -1646,52 +1643,52 @@ async function publishDraft() {
   const current = () => sequence === workspaceLoadSequence;
   const variantId = variant.value?.id;
   if (!variantId) return;
-  const confirmed = await confirmAction({
-    title: '发布页面修订',
-    content: `将发布“${page.value?.title ?? '管理页'}”的草稿 v${revision.value.revisionNo}，目标为 Web · 全局，模板为 ${revision.value.templateAlias ?? 'management'} v${revision.value.templateVersion ?? 1}。发布会先保存并校验页面结构，随后替换该目标当前的已发布修订。是否继续？`,
-    okText: '确认发布',
-  });
-  if (!confirmed || !current() || isMutating.value) return;
   const treeJsonToPublish = currentUiTreeJson.value;
   publishing.value = true;
   try {
-    if (!(await saveDraft(true, treeJsonToPublish)) || !current()) return;
-    const publicationCandidate = revision.value;
+    const publicationCandidate = {
+      ...revision.value,
+      templateVersion: skeleton.value ? 4 : revision.value.templateVersion,
+      uiTreeJson: treeJsonToPublish,
+    };
     await moduleContext.http.request<number>({
       method: 'POST',
       path: `/platform.presentation_publish/revisions/${encodeURIComponent(publicationCandidate.id!)}/publish`,
+      body: publicationCandidate,
     });
-    if (current()) {
-      // A successful publication makes this revision immutable, even if the following read fails.
-      publishedRevision.value = {
-        ...publicationCandidate,
-        status: pageCompositionTransport.publishedRevision,
-      };
-      revision.value = undefined;
-      removedDraft.value = undefined;
-      propertyDrawerOpen.value = false;
-    }
+    if (!current()) return;
+    // A successful publication makes this revision immutable, even if the following read fails.
+    publishedRevision.value = {
+      ...publicationCandidate,
+      status: pageCompositionTransport.publishedRevision,
+    };
+    revision.value = undefined;
+    savedDraftApplied.value = true;
+    savedUiTreeJson.value = treeJsonToPublish;
+    presentPlatformSuccess('页面已保存并生效', { source: 'page-composition', phase: 'action' });
+    removedDraft.value = undefined;
+    propertyDrawerOpen.value = false;
     try {
       const nextDraft = await createFollowUpDraft(variantId, publicationCandidate, treeJsonToPublish);
       if (current()) {
         revision.value = nextDraft;
+        savedDraftApplied.value = true;
         await hydrateDraft(nextDraft);
       }
     } catch {
       if (!current()) return;
       await loadComposition();
       if (!current()) return;
-      presentPlatformError(
-        new Error(
-          `草稿 v${publicationCandidate.revisionNo ?? 1} 已发布，但未能生成后续草稿；请基于最近发布修订重新创建草稿。`,
-        ),
-        { source: 'page-composition', phase: 'action' },
-      );
+      presentPlatformError(new Error('页面已生效，但编辑准备失败；请点击“继续编辑”重试。'), {
+        source: 'page-composition',
+        phase: 'action',
+      });
       return;
     }
     if (current()) await loadComposition();
   } catch (cause) {
     if (!current()) return;
+    if (normalizeError(cause).code === platformErrorCodes.conflictVersion) draftConflict.value = true;
     presentPlatformError(cause, { source: 'page-composition', phase: 'action' });
   } finally {
     if (current()) publishing.value = false;
@@ -1703,7 +1700,7 @@ async function discardUnsavedChanges() {
   const sequence = workspaceLoadSequence;
   const confirmed = await confirmAction({
     title: '放弃本次更改',
-    content: `将撤销当前草稿 v${revision.value.revisionNo} 尚未保存的本地调整，已保存的草稿内容不会受影响。是否继续？`,
+    content: '将放弃本次尚未保存的修改，恢复到打开编辑时的内容。是否继续？',
     okText: '放弃更改',
   });
   if (!confirmed || sequence !== workspaceLoadSequence || isMutating.value) return;
@@ -2492,26 +2489,9 @@ function openPropertyDrawer() {
             type="primary"
             @click="initializeComposition"
           >
-            {{ publishedRevision ? '基于已发布版本创建草稿' : '初始化页面' }}
+            {{ publishedRevision ? '继续编辑' : '配置页面' }}
           </UiButton>
           <template v-else>
-            <UiButton
-              :loading="saving"
-              :disabled="
-                isMutating ||
-                draftConflict ||
-                propertyIssues.length > 0 ||
-                dictionaryRadioIssues.length > 0 ||
-                actionIssues.length > 0 ||
-                hasSummaryIssues ||
-                summaryCatalogBlocksMutation ||
-                (summarySources.length > 0 && !supportsQuerySummaries) ||
-                (!hasUnsavedChanges && revision?.templateVersion === 4)
-              "
-              @click="() => void saveDraft()"
-            >
-              保存草稿
-            </UiButton>
             <UiButton v-if="hasUnsavedChanges" :disabled="isMutating" @click="discardUnsavedChanges">
               放弃本次更改
             </UiButton>
@@ -2520,6 +2500,7 @@ function openPropertyDrawer() {
               :loading="publishing"
               :disabled="
                 isMutating ||
+                !hasPendingChanges ||
                 draftConflict ||
                 propertyIssues.length > 0 ||
                 dictionaryRadioIssues.length > 0 ||
@@ -2530,9 +2511,9 @@ function openPropertyDrawer() {
                 (summarySources.length > 0 && !supportsQuerySummaries) ||
                 Boolean(draftParseError)
               "
-              @click="publishDraft"
+              @click="saveAndApply"
             >
-              发布草稿
+              保存并生效
             </UiButton>
           </template>
         </div>
@@ -2668,8 +2649,8 @@ function openPropertyDrawer() {
           </UiButton>
         </div>
         <div v-if="draftConflict" class="page-composition-conflict" role="alert">
-          <span>草稿已被其他会话更新，本地修改已保留。请加载最新草稿后继续编辑。</span>
-          <UiButton :disabled="isMutating" @click="reloadComposition">加载最新草稿</UiButton>
+          <span>页面配置已被其他会话更新，本地修改已保留。请加载最新配置后继续编辑。</span>
+          <UiButton :disabled="isMutating" @click="reloadComposition">加载最新配置</UiButton>
         </div>
         <div
           v-if="summarySources.length && !supportsQuerySummaries"

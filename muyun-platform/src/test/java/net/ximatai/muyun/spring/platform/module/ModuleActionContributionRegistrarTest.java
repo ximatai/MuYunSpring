@@ -24,6 +24,22 @@ class ModuleActionContributionRegistrarTest {
     private final ModuleActionContributionRegistrar registrar = new ModuleActionContributionRegistrar(actionService);
 
     @Test
+    void shouldSortManagedActionsAndPreserveOrderWhenContributionsChange() {
+        moduleService.insert(module("sales.contract"));
+        registrar.register(contribution("first", "def-1", "ver-1", "first"));
+        registrar.register(contribution("second", "def-2", "ver-1", "second"));
+        PlatformModuleAction first = actionService.findByModuleAliasAndActionCode("sales.contract", "first");
+        PlatformModuleAction second = actionService.findByModuleAliasAndActionCode("sales.contract", "second");
+        assertThat(actionService.ordinaryRecordActionAvailability("sort", second)).isEmpty();
+        actionService.moveBefore(second.getId(), first.getId());
+        Integer savedOrder = actionService.select(second.getId()).getSortOrder();
+        registrar.register(contribution("second", "def-2", "ver-2", "second"));
+        assertThat(actionService.select(second.getId()).getSortOrder()).isEqualTo(savedOrder);
+        assertThat(actionService.sortedList(Criteria.of().eq("moduleAlias", "sales.contract")))
+                .extracting(PlatformModuleAction::getActionCode).containsExactly("second", "first");
+    }
+
+    @Test
     void shouldRegisterContributedModuleActionWithBinding() {
         moduleService.insert(module("sales.contract"));
 

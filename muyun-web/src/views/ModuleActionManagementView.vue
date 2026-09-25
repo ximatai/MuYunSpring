@@ -4,6 +4,7 @@ import {
   CrudRecordListExplorer,
   ModuleActionButton,
   RecordActionBar,
+  RecordPanelButton,
   RecordDetailFields,
   RecordMetaSection,
   RecordStatusSwitch,
@@ -54,6 +55,7 @@ const actionContext = createStaticTreeResourceModuleContext(baseContext, {
   ),
 });
 const searchKeyword = ref('');
+const sorting = ref(false);
 const executorDefinitions = ref<ExecutorDefinition[]>([]);
 const management = useFlatCrudManagementState({
   context: actionContext,
@@ -84,6 +86,10 @@ const hasUnsavedChanges = computed(() => {
   return JSON.stringify(draft.value) !== JSON.stringify(baseline);
 });
 useWorkspaceViewUnsavedState('模块动作', () => hasUnsavedChanges.value);
+const canSort = computed(() => actionContext.can('sort') === true);
+const sortDisabled = computed(
+  () => mode.value !== 'view' || saving.value || Boolean(searchKeyword.value.trim()),
+);
 const canCreateManualAction = computed(() => canCreate.value);
 const executorOptions = computed(() =>
   executorDefinitions.value.map((executor) => ({
@@ -355,6 +361,26 @@ function actionDetailDisplayValue(fieldName: string, value: unknown) {
     @refresh="reloadKey += 1"
   >
     <template #explorer-actions>
+      <RecordPanelButton
+        v-if="canSort"
+        icon-name="swap-vertical"
+        icon-only
+        size="small"
+        type="text"
+        :selected="sorting"
+        :disabled="sortDisabled"
+        :title="
+          searchKeyword.trim()
+            ? '清空搜索后可调整排序'
+            : mode !== 'view'
+              ? '结束编辑后可调整排序'
+              : sorting
+                ? '结束排序'
+                : '调整排序'
+        "
+        :aria-label="sorting ? '结束排序' : '调整排序'"
+        @click="sorting = !sorting"
+      />
       <ModuleActionButton
         class="record-panel-create-button"
         :context="actionContext"
@@ -371,6 +397,7 @@ function actionDetailDisplayValue(fieldName: string, value: unknown) {
         :selected-id="selected?.id"
         :reload-key="reloadKey"
         :keyword="searchKeyword"
+        :sorting="sorting && canSort && !sortDisabled"
         empty-description="当前模块暂无动作"
         loading-tip="加载模块动作"
         fallback-title="未命名动作"

@@ -11,6 +11,13 @@ import PageCompositionDescriptorPreview from '@/views/PageCompositionDescriptorP
 import '@/styles.css';
 import 'ant-design-vue/dist/reset.css';
 
+// The standalone layout host has no workbench header; global success notices
+// would overlap its preview controls and pause their timeout under the pointer.
+vi.mock('@/platform-components/platformErrorFeedback', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/platform-components/platformErrorFeedback')>()),
+  presentPlatformSuccess: vi.fn(),
+}));
+
 const themeStyle = Object.entries(cssVariablesOf(defaultUiTheme))
   .map(([name, value]) => `${name}:${value}`)
   .join(';');
@@ -101,7 +108,7 @@ it('drags a recursively loaded reference path into list and form, then restores 
   const wrapper = mount(PlacementHost, { attachTo: document.body, props: { height: 760 } });
   const source = '[data-ui-tree-key="metadata:field:supplierId.organizationId.title"]';
   try {
-    await expect.element(page.getByRole('button', { name: '发布草稿', exact: true })).toBeEnabled();
+    await expect.element(page.getByRole('button', { name: '保存并生效', exact: true })).toBeEnabled();
     await page.elementLocator(wrapper.get('[data-ui-tree-key="metadata:field:supplierId"]').element).click();
     await userEvent.keyboard('{ArrowRight}');
     await expect
@@ -139,8 +146,8 @@ it('drags a recursively loaded reference path into list and form, then restores 
           ),
       )
       .toBe(true);
-    await page.getByRole('button', { name: '保存草稿', exact: true }).click();
-    await expect.element(page.getByRole('button', { name: '保存草稿', exact: true })).toBeDisabled();
+    await page.getByRole('button', { name: '保存并生效', exact: true }).click();
+    await expect.element(page.getByRole('button', { name: '保存并生效', exact: true })).toBeDisabled();
     await page.getByRole('button', { name: '刷新：页面结构', exact: true }).click();
     await expect
       .poll(() =>
@@ -164,7 +171,7 @@ it('renders full-width groups and empty group titles in the page preview', async
   configureModuleContext({ http: placementHttp([]) });
   const wrapper = mount(PlacementHost, { attachTo: document.body, props: { height: 760 } });
   try {
-    await expect.element(page.getByRole('button', { name: '发布草稿', exact: true })).toBeEnabled();
+    await expect.element(page.getByRole('button', { name: '保存并生效', exact: true })).toBeEnabled();
     await expect
       .poll(() => !(wrapper.get('input[value="detail"]').element as HTMLInputElement).disabled)
       .toBe(true);
@@ -348,7 +355,7 @@ it('uses the table cells as the held list-column boundary and has no trailing dr
       .findAll('[data-page-composition-layout-key^="list:header:"]')
       .map((element) => element.attributes('data-page-composition-layout-key')?.split(':').at(-1) ?? '');
   try {
-    await expect.element(page.getByRole('button', { name: '发布草稿', exact: true })).toBeEnabled();
+    await expect.element(page.getByRole('button', { name: '保存并生效', exact: true })).toBeEnabled();
     await expect.poll(() => wrapper.find(header('a')).exists()).toBe(true);
     expect(wrapper.text()).not.toContain('拖到此处添加末列');
     expect(wrapper.find('[data-composer-target="list:end"]').exists()).toBe(false);
@@ -449,7 +456,7 @@ it('keeps an external field under the current two-column list receiver while its
       )
       .toBe(0);
   try {
-    await expect.element(page.getByRole('button', { name: '发布草稿', exact: true })).toBeEnabled();
+    await expect.element(page.getByRole('button', { name: '保存并生效', exact: true })).toBeEnabled();
     // The customer's two visible columns are already rendered; this hold adds the third.
     await expect.poll(previewOrder).toEqual(['a', 'b']);
     await expect.poll(() => wrapper.find(header('b')).exists()).toBe(true);
@@ -547,7 +554,7 @@ it.each([1440, 980])(
         .toBe(0);
     };
     try {
-      await expect.element(page.getByRole('button', { name: '发布草稿', exact: true })).toBeEnabled();
+      await expect.element(page.getByRole('button', { name: '保存并生效', exact: true })).toBeEnabled();
       await expect.poll(() => wrapper.find(header('a')).exists()).toBe(true);
       await ready();
       // A -> C: drop at the left edge of the first column, not the canvas root.
@@ -651,8 +658,8 @@ it.each([1440, 980])(
       // Input values remain editable; dragging uses a dedicated grip.
       await page.getByRole('textbox', { name: '字段甲', exact: true }).fill('示例输入');
       expect(model().props('formFields')[0].fieldName).toBe('a');
-      await page.getByRole('button', { name: '保存草稿', exact: true }).click();
-      await expect.element(page.getByRole('button', { name: '保存草稿', exact: true })).toBeDisabled();
+      await page.getByRole('button', { name: '保存并生效', exact: true }).click();
+      await expect.element(page.getByRole('button', { name: '保存并生效', exact: true })).toBeDisabled();
       await page.getByRole('button', { name: '刷新：页面结构', exact: true }).click();
       await expect
         .poll(() =>
@@ -699,7 +706,7 @@ it('targets child-table columns precisely, rejects another relation and moves wh
       .toBe(0);
   };
   try {
-    await expect.element(page.getByRole('button', { name: '发布草稿', exact: true })).toBeEnabled();
+    await expect.element(page.getByRole('button', { name: '保存并生效', exact: true })).toBeEnabled();
     await page.getByText('表单', { exact: true }).click();
     await expect.poll(() => wrapper.find(grip).exists()).toBe(true);
     await ready();
@@ -1006,7 +1013,7 @@ it.each(['edit', 'detail'] as const)(
         .map((node) => node.attributes('data-page-composition-layout-key'));
     const markers: HTMLElement[] = [];
     try {
-      await expect.element(page.getByRole('button', { name: '发布草稿', exact: true })).toBeEnabled();
+      await expect.element(page.getByRole('button', { name: '保存并生效', exact: true })).toBeEnabled();
       await expect.poll(() => wrapper.find('[data-testid="page-composer-list-preview"]').exists()).toBe(true);
       if (mode === 'edit') {
         await expect
@@ -1055,8 +1062,8 @@ it.each(['edit', 'detail'] as const)(
       await expect
         .element(page.elementLocator(wrapper.get(grip('field:a')).element))
         .toHaveAttribute('aria-disabled', 'false');
-      await page.getByRole('button', { name: '保存草稿', exact: true }).click();
-      await expect.element(page.getByRole('button', { name: '保存草稿', exact: true })).toBeDisabled();
+      await page.getByRole('button', { name: '保存并生效', exact: true }).click();
+      await expect.element(page.getByRole('button', { name: '保存并生效', exact: true })).toBeDisabled();
       await page.getByRole('button', { name: '刷新：页面结构', exact: true }).click();
       await expect.poll(order).toEqual(['group:empty', 'field:a', 'group:basic']);
       await expect
@@ -1089,7 +1096,7 @@ it('keeps a palette field in the extra root cell before a group while crossing i
       .findAll('.record-form-field-host[data-page-composition-layout-key]')
       .map((node) => node.attributes('data-page-composition-layout-key'));
   try {
-    await expect.element(page.getByRole('button', { name: '发布草稿', exact: true })).toBeEnabled();
+    await expect.element(page.getByRole('button', { name: '保存并生效', exact: true })).toBeEnabled();
     await page.getByText('表单', { exact: true }).click();
     await expect.poll(() => wrapper.find('[data-composer-drag="edit:field:a"]').exists()).toBe(true);
     await expect
@@ -1169,7 +1176,7 @@ it.each([
         .findComponent({ name: 'RecordFormFields' })
         .props('fields');
     try {
-      await expect.element(page.getByRole('button', { name: '发布草稿', exact: true })).toBeEnabled();
+      await expect.element(page.getByRole('button', { name: '保存并生效', exact: true })).toBeEnabled();
       await page.getByText('表单', { exact: true }).click();
       const grip = `[data-composer-drag="edit:field:${sourceId}"]`;
       await expect.poll(() => wrapper.find(grip).exists()).toBe(true);
@@ -1257,7 +1264,7 @@ it.each([false, true])(
         .map((node) => node.attributes('data-page-composition-layout-key'));
     const model = () => wrapper.findComponent(PageCompositionTree);
     try {
-      await expect.element(page.getByRole('button', { name: '发布草稿', exact: true })).toBeEnabled();
+      await expect.element(page.getByRole('button', { name: '保存并生效', exact: true })).toBeEnabled();
       await page.getByText('表单', { exact: true }).click();
       const grip = '[data-composer-drag="edit:group:basic"]';
       await expect.poll(() => wrapper.find(grip).exists()).toBe(true);
@@ -1316,9 +1323,9 @@ it.each([false, true])(
           .find((group: { id: string }) => group.id === 'basic')
           ?.fields.map((field: { id: string }) => field.id),
       ).toEqual(['b']);
-      await expect.element(page.getByRole('button', { name: '保存草稿', exact: true })).toBeEnabled();
-      await page.getByRole('button', { name: '保存草稿', exact: true }).click();
-      await expect.element(page.getByRole('button', { name: '保存草稿', exact: true })).toBeDisabled();
+      await expect.element(page.getByRole('button', { name: '保存并生效', exact: true })).toBeEnabled();
+      await page.getByRole('button', { name: '保存并生效', exact: true }).click();
+      await expect.element(page.getByRole('button', { name: '保存并生效', exact: true })).toBeDisabled();
       await page.getByRole('button', { name: '刷新：页面结构', exact: true }).click();
       await expect.poll(visible).toEqual(['empty', 'third', 'last', 'basic'].map((id) => `edit:group:${id}`));
     } finally {
@@ -1340,7 +1347,7 @@ it('moves a group field after its group through the structure tree and persists 
       .props('formOrder')!
       .map((item: { kind: string; id: string }) => `${item.kind}:${item.id}`);
   try {
-    await expect.element(page.getByRole('button', { name: '发布草稿', exact: true })).toBeEnabled();
+    await expect.element(page.getByRole('button', { name: '保存并生效', exact: true })).toBeEnabled();
     await page.getByText('表单', { exact: true }).click();
     await expect.poll(() => wrapper.find(node('ui:group-field:form:basic:b')).exists()).toBe(true);
     await commands.treeGesture(node('ui:group-field:form:basic:b'), node('ui:group:form:basic'), 0.95);
@@ -1355,8 +1362,8 @@ it('moves a group field after its group through the structure tree and persists 
         return fields.has('b') && !fields.get('b')?.formGroup;
       })
       .toBe(true);
-    await page.getByRole('button', { name: '保存草稿', exact: true }).click();
-    await expect.element(page.getByRole('button', { name: '保存草稿', exact: true })).toBeDisabled();
+    await page.getByRole('button', { name: '保存并生效', exact: true }).click();
+    await expect.element(page.getByRole('button', { name: '保存并生效', exact: true })).toBeDisabled();
     await page.getByRole('button', { name: '刷新：页面结构', exact: true }).click();
     await expect.poll(order).toEqual(['field:a', 'group:basic', 'field:b', 'group:empty']);
     await commands.treeGesture(node('ui:field:form:b'), node('ui:group:form:basic'), 0.5);
@@ -1416,9 +1423,9 @@ it('reorders query summaries with a real tree insertion target without opening t
         .find((drawer) => drawer.props('title') === '汇总统计')
         ?.props('open'),
     ).toBe(false);
-    await page.getByRole('button', { name: '保存草稿', exact: true }).click();
-    await expect.poll(() => requests.some((request) => request.path.endsWith('/update/draft'))).toBe(true);
-    const saved = requests.find((request) => request.path.endsWith('/update/draft'))!;
+    await page.getByRole('button', { name: '保存并生效', exact: true }).click();
+    await expect.poll(() => requests.some((request) => request.path.endsWith('/draft/publish'))).toBe(true);
+    const saved = requests.find((request) => request.path.endsWith('/draft/publish'))!;
     expect(
       JSON.parse((saved.body as { uiTreeJson: string }).uiTreeJson).querySummaries.map(
         (summary: { key: string }) => summary.key,
@@ -1499,6 +1506,7 @@ function placementHttp(
     ...(querySummaries.length ? { querySummaries } : {}),
   };
   const list = (records: unknown[]) => ({ records, pages: 1, totalKnown: true });
+  let applied = false;
   return {
     request: async <T>(request: HttpRequestOptions) => {
       requests.push(request);
@@ -1562,10 +1570,30 @@ function placementHttp(
       if (path.endsWith('/revisions/query'))
         return list(
           JSON.stringify(request.body).includes('published')
-            ? []
-            : [{ id: 'draft', revisionNo: 1, version: 0, uiTreeJson: JSON.stringify(tree) }],
+            ? applied
+              ? [
+                  {
+                    id: 'published',
+                    revisionNo: 1,
+                    templateVersion: tree.templateVersion,
+                    uiTreeJson: JSON.stringify(tree),
+                  },
+                ]
+              : []
+            : [
+                {
+                  id: 'draft',
+                  revisionNo: 2,
+                  version: 0,
+                  templateVersion: tree.templateVersion,
+                  uiTreeJson: JSON.stringify(tree),
+                },
+              ],
         ) as T;
-      if (path.endsWith('/update/draft')) {
+      if (path.endsWith('/revisions/insert'))
+        return { ...(request.body as object), id: 'draft', version: 0 } as T;
+      if (path.endsWith('/draft/publish')) {
+        applied = true;
         tree = JSON.parse((request.body as { uiTreeJson: string }).uiTreeJson);
         return {
           id: 'draft',
@@ -1701,9 +1729,9 @@ it.each(['TREE_CARD', 'MICRO_LIST_CARD'])(
       await page.elementLocator(quick.element).dblClick();
       await page.getByRole('textbox', { name: '搜索占位提示', exact: true }).fill('按任务名称查找');
       await page.getByRole('button', { name: '关闭', exact: true }).click();
-      await page.getByRole('button', { name: '保存草稿', exact: true }).click();
-      await expect.poll(() => requests.some((request) => request.path.endsWith('/update/draft'))).toBe(true);
-      const saved = requests.find((request) => request.path.endsWith('/update/draft'))!;
+      await page.getByRole('button', { name: '保存并生效', exact: true }).click();
+      await expect.poll(() => requests.some((request) => request.path.endsWith('/draft/publish'))).toBe(true);
+      const saved = requests.find((request) => request.path.endsWith('/draft/publish'))!;
       const json = JSON.parse((saved.body as { uiTreeJson: string }).uiTreeJson);
       expect(json.mode).toBe(mode);
       expect(json.props.list.searchPlaceholder).toBe('按任务名称查找');

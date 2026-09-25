@@ -80,10 +80,10 @@ public class PlatformModuleActionService extends AbstractAbilityService<Platform
 
     @Override
     public Set<String> editablePlatformManagedFields() {
-        return Set.of("accessModeOverride", "actionAuthOverride", "dataAuthOverride", "defaultGrantPolicyOverride");
+        return Set.of("sortOrder", "accessModeOverride", "actionAuthOverride", "dataAuthOverride", "defaultGrantPolicyOverride");
     }
 
-    /** Platform-managed action declarations expose only their explicit governance overrides. */
+    /** Platform-managed actions allow directory ordering and explicit permission governance overrides. */
     @Override
     public boolean allowsOrdinaryPlatformManagedUpdate() {
         return !editablePlatformManagedFields().isEmpty();

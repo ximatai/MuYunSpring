@@ -1272,10 +1272,17 @@ public class PlatformModuleRuntimeContextService {
                                                       DynamicModuleDescriptor dynamicDescriptor) {
         List<PlatformModuleAction> persisted = actionService.listByModuleAliases(List.of(moduleAlias)).stream()
                 .toList();
-        if (moduleKind == ModuleKind.DYNAMIC && dynamicDescriptor != null) {
-            return dynamicActions(moduleAlias, dynamicDescriptor, persisted);
+        List<PlatformModuleRuntimeAction> resolved = moduleKind == ModuleKind.DYNAMIC && dynamicDescriptor != null
+                ? dynamicActions(moduleAlias, dynamicDescriptor, persisted)
+                : staticActionsWithPersistedOverrides(moduleAlias, staticDefinition, persisted);
+        // The configuration service supplies directory order. Runtime-only actions retain their
+        // declaration order after configured entries; page placements own their separate order.
+        Map<String, Integer> directoryOrder = new java.util.HashMap<>();
+        for (int index = 0; index < persisted.size(); index++) {
+            directoryOrder.putIfAbsent(persisted.get(index).getActionCode(), index);
         }
-        return staticActionsWithPersistedOverrides(moduleAlias, staticDefinition, persisted);
+        return resolved.stream().sorted(java.util.Comparator.comparingInt(
+                action -> directoryOrder.getOrDefault(action.actionCode(), Integer.MAX_VALUE))).toList();
     }
 
     /**

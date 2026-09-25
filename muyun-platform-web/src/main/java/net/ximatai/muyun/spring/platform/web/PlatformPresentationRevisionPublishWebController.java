@@ -11,6 +11,8 @@ import net.ximatai.muyun.spring.web.BusinessMutationResult;
 import net.ximatai.muyun.spring.web.SystemScope;
 import net.ximatai.muyun.spring.web.WebSupport;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RequestBody;
+import net.ximatai.muyun.spring.platform.ui.PlatformPresentationRevision;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -29,9 +31,10 @@ public class PlatformPresentationRevisionPublishWebController
     @BusinessMutationResult(code = "platform.presentation-revision.published", message = "页面修订已发布",
             change = BusinessMutationChange.UPDATED, module = PlatformPresentationRevisionService.class,
             recordIdSource = BusinessMutationRecordIdSource.PATH_VARIABLE, recordId = "id")
-    public int publish(@PathVariable String id) {
+    public int publish(@PathVariable String id, @RequestBody(required = false) PlatformPresentationRevision changes) {
         return webScope(() -> {
-            service().publish(id);
+            if (changes == null) service().publish(id);
+            else service().saveAndPublish(id, changes);
             return 1;
         });
     }

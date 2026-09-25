@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue';
-import ModuleRuntimeActivationStatus from './ModuleRuntimeActivationStatus.vue';
+import { computed, inject, ref, watch } from 'vue';
+import { moduleRuntimeActivationRefreshKey } from './moduleRuntimeActivation';
 import {
   RecordContentSectionHeading,
   RecordDetailPanel,
@@ -27,7 +27,7 @@ type ExperienceProfile = {
 };
 
 const moduleContext = useModuleContext({ moduleAlias: 'platform.module' });
-const activationReloadKey = ref(0);
+const refreshActivation = inject(moduleRuntimeActivationRefreshKey, undefined);
 const loading = ref(false);
 const saving = ref(false);
 const editing = ref(false);
@@ -203,16 +203,18 @@ async function saveProfile() {
           : {}),
       },
     });
-    activationReloadKey.value++;
     profile.value = normalizeProfile(result, selectedMode.value);
     selectedMode.value = profile.value.mode;
     selectedCapabilities.value = [...profile.value.mainCapabilities];
     editing.value = false;
-    await handlePlatformActionSuccess(result, {
-      source: 'module-experience-profile',
-      phase: 'action',
-      fallbackMessage: '业务呈现方式已保存',
-    });
+    const activationFeedback = await refreshActivation?.(props.moduleAlias);
+    await handlePlatformActionSuccess(
+      activationFeedback ?? { message: { text: '业务呈现方式已保存，生效状态待确认', type: 'INFO' } },
+      {
+        source: 'module-experience-profile',
+        phase: 'action',
+      },
+    );
   } catch (cause) {
     presentPlatformError(cause, { source: 'module-experience-profile', phase: 'action' });
   } finally {
@@ -324,7 +326,6 @@ function normalizeCapabilities(value: unknown): CapabilityFact[] | undefined {
         >
       </template>
     </template>
-    <ModuleRuntimeActivationStatus :module-alias="moduleAlias" :reload-key="activationReloadKey" />
     <UiSpin v-if="loading" tip="加载业务呈现方式" />
     <template v-else>
       <section class="module-experience-section">
