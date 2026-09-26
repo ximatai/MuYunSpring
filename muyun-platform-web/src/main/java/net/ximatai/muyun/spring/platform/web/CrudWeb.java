@@ -289,34 +289,42 @@ public interface CrudWeb<T extends EntityContract, S extends CrudAbility<T>>
         });
     }
 
+    @GetMapping("/save-receipts/{requestId}")
+    @ActionEndpoint(PlatformAction.VIEW)
+    default RecordSaveRequestSupport.SaveReceipt saveReceipt(@PathVariable String requestId) {
+        return RecordSaveRequestSupport.lookup(this, requestId);
+    }
+
     @PostMapping("/insert")
     @ActionEndpoint(PlatformAction.CREATE)
     @StandardMutation(StandardMutationKind.CREATE)
     @ResponseStatus(HttpStatus.CREATED)
     @Transactional
     default T insert(@RequestBody T record) {
-        java.util.function.Supplier<T> insert = () -> webScope(() -> {
-            requireExecutionPlanAtRequest();
-            requireMenuEntryAction(PlatformAction.CREATE);
-            PageContextScopePolicy.applyForCreate(record, recordScopeBindings(), webScopeName(),
-                    PlatformAction.CREATE, pageSelectionContextResolvers());
-            List<PageContextBindingDefinition> mutationConstraints = CrudWebRuntimeSupport.mutationConstraints(this);
-            if (!mutationConstraints.isEmpty()) {
-                PageContextMutationConstraints.applyForCreate(record, mutationConstraints, webScopeName(),
+        return net.ximatai.muyun.spring.platform.web.RecordSaveRequestSupport.execute(this, "create", null, record, () -> {
+            java.util.function.Supplier<T> insert = () -> webScope(() -> {
+                requireExecutionPlanAtRequest();
+                requireMenuEntryAction(PlatformAction.CREATE);
+                PageContextScopePolicy.applyForCreate(record, recordScopeBindings(), webScopeName(),
                         PlatformAction.CREATE, pageSelectionContextResolvers());
-            }
-            PlatformAuditMutationGuard.validate(record, null);
-            validateAggregateChildMutations(record, null);
-            String id = service().insert(record);
-            T saved = WebOutputSupport.record(service(), service().select(id), FieldOutputContext.VIEW);
-            StandardMutationResultSupport.created(this, id, recordLabel(saved));
-            return standardWireRecord(saved);
+                List<PageContextBindingDefinition> mutationConstraints = CrudWebRuntimeSupport.mutationConstraints(this);
+                if (!mutationConstraints.isEmpty()) {
+                    PageContextMutationConstraints.applyForCreate(record, mutationConstraints, webScopeName(),
+                            PlatformAction.CREATE, pageSelectionContextResolvers());
+                }
+                PlatformAuditMutationGuard.validate(record, null);
+                validateAggregateChildMutations(record, null);
+                String id = service().insert(record);
+                T saved = WebOutputSupport.record(service(), service().select(id), FieldOutputContext.VIEW);
+                StandardMutationResultSupport.created(this, id, recordLabel(saved));
+                return standardWireRecord(saved);
+            });
+            java.util.Optional<CrudWebRuntimeSupport.ResolvedSelectionTenantScope> selectionTenantScope =
+                    CrudWebRuntimeSupport.resolvedSelectionTenantScopeForCreate(this);
+            return selectionTenantScope
+                    .map(scope -> MutationTenantScopeExecutor.forAuthoritativeTenantScope(scope.tenantId(), insert))
+                    .orElseGet(() -> MutationTenantScopeExecutor.forCreate(this, record, insert));
         });
-        java.util.Optional<CrudWebRuntimeSupport.ResolvedSelectionTenantScope> selectionTenantScope =
-                CrudWebRuntimeSupport.resolvedSelectionTenantScopeForCreate(this);
-        return selectionTenantScope
-                .map(scope -> MutationTenantScopeExecutor.forAuthoritativeTenantScope(scope.tenantId(), insert))
-                .orElseGet(() -> MutationTenantScopeExecutor.forCreate(this, record, insert));
     }
 
     @PostMapping("/update/{id}")
@@ -324,33 +332,35 @@ public interface CrudWeb<T extends EntityContract, S extends CrudAbility<T>>
     @StandardMutation(StandardMutationKind.UPDATE)
     @Transactional
     default T update(@PathVariable String id, @RequestBody T record) {
-        record.setId(id);
-        return MutationTenantScopeExecutor.forUpdate(this, id, record, () -> webScope(() -> {
-            requireExecutionPlanAtRequest();
-            requireMenuEntryAction(PlatformAction.UPDATE);
-            StaticStandardMutationSupport.requireDataScopeRecord(this, PlatformAction.UPDATE, id);
-            T existing = service().select(id);
-            PageContextScopePolicy.requireRecordInScope(existing, recordScopeBindings(), webScopeName(),
-                    PlatformAction.UPDATE, pageSelectionContextResolvers());
-            PageContextScopePolicy.applyForCreate(record, recordScopeBindings(), webScopeName(),
-                    PlatformAction.UPDATE, pageSelectionContextResolvers());
-            if (hasActiveMenuEntryPolicy()) {
-                requireMenuEntryRecord(PlatformAction.UPDATE, existing);
-            }
-            List<PageContextBindingDefinition> mutationConstraints = CrudWebRuntimeSupport.mutationConstraints(this);
-            if (!mutationConstraints.isEmpty()) {
-                PageContextMutationConstraints.applyForUpdate(record, existing, mutationConstraints, webScopeName(),
+        return net.ximatai.muyun.spring.platform.web.RecordSaveRequestSupport.execute(this, "update", id, record, () -> {
+            record.setId(id);
+            return MutationTenantScopeExecutor.forUpdate(this, id, record, () -> webScope(() -> {
+                requireExecutionPlanAtRequest();
+                requireMenuEntryAction(PlatformAction.UPDATE);
+                StaticStandardMutationSupport.requireDataScopeRecord(this, PlatformAction.UPDATE, id);
+                T existing = service().select(id);
+                PageContextScopePolicy.requireRecordInScope(existing, recordScopeBindings(), webScopeName(),
                         PlatformAction.UPDATE, pageSelectionContextResolvers());
-            }
-            PlatformAuditMutationGuard.validate(record, existing);
-            validateAggregateChildMutations(record, existing);
-            service().update(record);
-            T saved = WebOutputSupport.record(service(),
-                    StaticStandardMutationSupport.selectForAction(this, PlatformAction.VIEW, id),
-                    FieldOutputContext.VIEW);
-            StandardMutationResultSupport.updated(this, id, recordLabel(saved));
-            return standardWireRecord(saved);
-        }));
+                PageContextScopePolicy.applyForCreate(record, recordScopeBindings(), webScopeName(),
+                        PlatformAction.UPDATE, pageSelectionContextResolvers());
+                if (hasActiveMenuEntryPolicy()) {
+                    requireMenuEntryRecord(PlatformAction.UPDATE, existing);
+                }
+                List<PageContextBindingDefinition> mutationConstraints = CrudWebRuntimeSupport.mutationConstraints(this);
+                if (!mutationConstraints.isEmpty()) {
+                    PageContextMutationConstraints.applyForUpdate(record, existing, mutationConstraints, webScopeName(),
+                            PlatformAction.UPDATE, pageSelectionContextResolvers());
+                }
+                PlatformAuditMutationGuard.validate(record, existing);
+                validateAggregateChildMutations(record, existing);
+                service().update(record);
+                T saved = WebOutputSupport.record(service(),
+                        StaticStandardMutationSupport.selectForAction(this, PlatformAction.VIEW, id),
+                        FieldOutputContext.VIEW);
+                StandardMutationResultSupport.updated(this, id, recordLabel(saved));
+                return standardWireRecord(saved);
+            }));
+        });
     }
 
     private void validateAggregateChildMutations(T record, T existing) {

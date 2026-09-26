@@ -14,3 +14,6 @@ export * from './referenceResolveClient';
 export { userPreferences } from './userPreferences';
 export type { UserPreferenceOptions, UserPreferenceStore } from './userPreferences';
 export * from './module/index';
+export * from './assistantConfirmation';
+
+export * from './constructionPlanClient';

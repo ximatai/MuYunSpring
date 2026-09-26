@@ -2919,6 +2919,179 @@ describe('ModulePageHost', () => {
     expect(content.props('record')).toMatchObject({ title: '新客户' });
   });
 
+  it.each(['STATIC', 'DYNAMIC'])(
+    'confirms the captured standard %s draft and queries a lost receipt',
+    async (moduleKind) => {
+      const writes: Array<{ payload: unknown; requestId: string | null }> = [];
+      let lostResponse = false;
+      const persisted = { id: 'saved-record', title: '已确认名称', version: 1 };
+      globalThis.fetch = async (input, init) => {
+        const request = new Request(input, init);
+        const path = new URL(request.url).pathname;
+        if (path.endsWith('/context'))
+          return Response.json({
+            moduleAlias: 'crm.customer',
+            moduleKind,
+            abilities: ['crud'],
+            capabilities: [],
+            actions: ['create', 'update', 'view'].map((actionCode) => ({ actionCode, authorized: true })),
+            uiDescriptor: {
+              schemaVersion: 'module-ui.v6',
+              moduleAlias: 'crm.customer',
+              editorContributions: [
+                {
+                  ...childEditor('member', 'name'),
+                  editor: {
+                    ...childEditor('member', 'name').editor,
+                    fields: [
+                      {
+                        fieldRef: { fieldName: 'name' },
+                        label: '学生',
+                        reference: {
+                          targetModuleAlias: 'education.student',
+                          cardinality: 'ONE',
+                          titleField: 'student.title',
+                        },
+                      },
+                    ],
+                  },
+                },
+              ],
+              detailRelations: [
+                {
+                  ...embeddedRelation('members', 'member', 'name'),
+                  sourceModuleAlias: 'crm.customer',
+                  targetModuleAlias: 'crm.customer',
+                  title: '成员',
+                },
+              ],
+              page: page({
+                detail: {
+                  editor: {
+                    viewCode: 'form',
+                    viewKind: 'FORM',
+                    fields: [
+                      {
+                        fieldRef: { fieldName: 'pickupAt' },
+                        label: '取货时间',
+                        valueType: 'TIMESTAMP',
+                        fieldControl: { alias: 'datetime', rendererType: 'DATETIME', valueShape: 'SCALAR' },
+                        visible: { kind: 'CONSTANT', value: true },
+                        required: { kind: 'CONSTANT', value: false },
+                        readOnly: { kind: 'CONSTANT', value: false },
+                      },
+                      {
+                        fieldRef: { fieldName: 'title' },
+                        label: '名称',
+                        valueType: 'STRING',
+                        visible: { kind: 'CONSTANT', value: true },
+                        required: { kind: 'CONSTANT', value: false },
+                        readOnly: { kind: 'CONSTANT', value: false },
+                      },
+                    ],
+                  },
+                },
+              }),
+            },
+          });
+        if (path.endsWith('/insert')) {
+          writes.push({
+            payload: await request.json(),
+            requestId: request.headers.get('X-Muyun-Save-Request'),
+          });
+          if (lostResponse) throw new Error('response lost after commit');
+          return Response.json(persisted);
+        }
+        if (path.includes('/save-receipts/'))
+          return Response.json({ committed: true, recordId: persisted.id, recordVersion: 1 });
+        if (path.includes('/view/')) return Response.json(persisted);
+        if (path.includes('/actions/'))
+          return Response.json({ actions: [{ actionCode: 'update', available: true }] });
+        return Response.json({ records: [], total: 0 });
+      };
+      configureModuleContext({ httpFactory: () => createHttpClient({ baseUrl: 'http://api.local' }) });
+      const wrapper = shallowMount(ModulePageHost, {
+        props: {
+          descriptor: {
+            pageType: 'dynamic-module',
+            openMode: 'dynamic-runner',
+            hostType: 'module-page-host',
+            tabPolicy: { identity: 'by-target' },
+            target: { moduleAlias: 'crm.customer', pageMode: 'LIST' },
+          },
+        },
+        global: { stubs: { ManagementWorkspace: { template: '<section><slot /></section>' } } },
+      });
+      try {
+        await flushPromises();
+        const session = wrapper
+          .findComponent({ name: 'ModulePageHostRuntime' })
+          .props('session') as import('@/dynamic-page-runtime/useModulePageSession').ModulePageSessionView;
+        (await session.prepareAssistantCreate())();
+        await flushPromises();
+        session.updateDraftFields([{ fieldName: 'title', value: '旧名称' }], 'assistant');
+        await flushPromises();
+        const stale = await session.prepareAssistantSave();
+        session.updateDraftFields(
+          [
+            { fieldName: 'title', value: '已确认名称' },
+            { fieldName: 'pickupAt', value: '2026-09-27T07:00:00Z' },
+          ],
+          'assistant',
+        );
+        await flushPromises();
+        await expect(stale.execute()).rejects.toThrow('草稿已变化');
+        expect(writes).toHaveLength(0);
+        session.updateEmbeddedChildren(
+          'members',
+          [{ name: 'student-1' }],
+          [{ name: 'student-1', 'student.title': '陈晨' }],
+        );
+        await flushPromises();
+        const childStale = await session.prepareAssistantSave();
+        session.updateEmbeddedChildren(
+          'members',
+          [{ name: 'student-1' }, { name: 'student-2' }],
+          [
+            { name: 'student-1', 'student.title': '陈晨' },
+            { name: 'student-2', 'student.title': '林晓' },
+          ],
+        );
+        await flushPromises();
+        await expect(childStale.execute()).rejects.toThrow('草稿已变化');
+        expect(writes).toHaveLength(0);
+        const proposal = await session.prepareAssistantSave();
+        expect(proposal.presentation.lines).toContain('成员：保存 2 行，移除 0 行');
+        expect(proposal.presentation.details?.lines.join(' ')).toContain('陈晨');
+        expect(proposal.presentation.details?.lines.join(' ')).toContain('林晓');
+        expect(proposal.presentation.lines).toContain('名称：已确认名称');
+        expect(proposal.presentation.lines.find((line) => line.startsWith('取货时间：'))).not.toContain(
+          'T07:00:00Z',
+        );
+        await proposal.execute();
+        expect(writes).toHaveLength(1);
+        expect(writes[0]).toMatchObject({
+          payload: {
+            title: '已确认名称',
+            pickupAt: '2026-09-27T07:00:00Z',
+            members: [{ name: 'student-1' }, { name: 'student-2' }],
+          },
+          requestId: expect.any(String),
+        });
+        expect(session.editorMode).toBe('view');
+        (await session.prepareAssistantCreate())();
+        await flushPromises();
+        const next = await session.prepareAssistantSave();
+        lostResponse = true;
+        await expect(next.execute()).rejects.toBeDefined();
+        expect((await next.lookup())?.title).toBe('保存成功');
+        expect(writes).toHaveLength(2);
+      } finally {
+        wrapper.unmount();
+      }
+    },
+  );
+
   it('loads and saves embedded child relations through the parent standard CRUD contract', async () => {
     const requestedPaths: string[] = [];
     let updatePayload: Record<string, unknown> | undefined;

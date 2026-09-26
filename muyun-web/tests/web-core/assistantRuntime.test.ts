@@ -1,3 +1,4 @@
+import { AppError } from '@/web-core/errors';
 import { expect, it, vi } from 'vitest';
 import {
   AssistantCapabilityUsageError,
@@ -1323,4 +1324,112 @@ it('does not retry an unchanged rejected call in the same snapshot', async () =>
   expect(result.termination).toBe('repeated-call');
   expect(result.steps[1]?.results[0]?.error?.code).toBe('CANDIDATE_EXPIRED');
   expect(execute).toHaveBeenCalledOnce();
+});
+
+it.each([false, true])(
+  'retains prerequisite reads only within the same baseline (changed=%s)',
+  async (changed) => {
+    let revision = '1';
+    const requestTurn = vi
+      .fn()
+      .mockResolvedValueOnce({ toolCalls: [{ id: 'same-id', code: 'construction.plan', input: {} }] })
+      .mockResolvedValueOnce({ toolCalls: [{ id: 'same-id', code: 'construction.fields', input: {} }] })
+      .mockResolvedValueOnce({ text: 'Ready to prepare fields', toolCalls: [] });
+    const registry = createAssistantSurfaceRegistry();
+    registry.register({
+      pageInstanceKey: 'construction',
+      contextRevision: () => revision,
+      surface: {
+        describe: () => ({ surface: 'workbench', facts: {} }),
+        requestTurn,
+        capabilities: () =>
+          ['plan', 'fields'].map((name) => ({
+            effect: 'read' as const,
+            descriptor: { code: `construction.${name}`, description: name, inputSchema: {} },
+            parseInput: (input: unknown) => input,
+            execute: async () => ({ value: name }),
+          })),
+      },
+    });
+    registry.activate('construction');
+    await runAssistantConversation(registry, 'Prepare fields from requirements', {
+      onStep: (step) => {
+        if (changed && step.results[0]?.capabilityCode === 'construction.fields') revision = '2';
+      },
+    });
+    const results = requestTurn.mock.calls[2]![0].results;
+    expect(results.map((result: { capabilityCode: string }) => result.capabilityCode)).toEqual(
+      changed ? ['construction.fields'] : ['construction.plan', 'construction.fields'],
+    );
+    expect(new Set(results.map((result: { callId: string }) => result.callId)).size).toBe(results.length);
+  },
+);
+
+it('evicts oversized historical observations without truncating the latest tool result', async () => {
+  const requestTurn = vi
+    .fn()
+    .mockResolvedValueOnce({ toolCalls: [{ id: 'large', code: 'page.read', input: { large: true } }] })
+    .mockResolvedValueOnce({ toolCalls: [{ id: 'small', code: 'page.read', input: { large: false } }] })
+    .mockResolvedValueOnce({ text: 'done', toolCalls: [] });
+  const registry = createAssistantSurfaceRegistry();
+  registry.register({
+    pageInstanceKey: 'page',
+    contextRevision: () => '1',
+    surface: {
+      describe: () => ({ surface: 'page', facts: {} }),
+      requestTurn,
+      capabilities: () => [
+        {
+          effect: 'read',
+          descriptor: { code: 'page.read', description: 'Read', inputSchema: {} },
+          parseInput: (input) => input,
+          execute: async (input) => ({
+            value: (input as { large: boolean }).large ? 'x'.repeat(13_000) : 'small',
+          }),
+        },
+      ],
+    },
+  });
+  registry.activate('page');
+  await runAssistantConversation(registry, 'Read both');
+  expect(requestTurn.mock.calls[1]![0].results[0].output.value).toHaveLength(13_000);
+  expect(requestTurn.mock.calls[2]![0].results).toHaveLength(1);
+  expect(requestTurn.mock.calls[2]![0].results[0].output.value).toBe('small');
+});
+
+it.each([
+  ['VALIDATION_FAILED', 400, true],
+  ['CONFLICT_VERSION', 409, true],
+  ['INTERNAL_ERROR', 500, false],
+  ['VALIDATION_FAILED', 500, false],
+  ['HTTP_ERROR', 400, false],
+  ['NETWORK_ERROR', undefined, false],
+])('only forwards public validation feedback: %s / %s', async (code, status, exposed) => {
+  const registry = createAssistantSurfaceRegistry();
+  registry.register({
+    pageInstanceKey: 'test',
+    contextRevision: () => 'stable',
+    surface: {
+      describe: () => ({ surface: 'page', facts: {} }),
+      capabilities: () => [
+        {
+          effect: 'read',
+          descriptor: { code: 'construction.preview', description: 'Preview', inputSchema: {} },
+          parseInput: (input) => input,
+          async execute() {
+            throw new AppError('检查输入'.repeat(200), { code, status, details: { secret: 'private' } });
+          },
+        },
+      ],
+      requestTurn: async () => ({ toolCalls: [{ id: 'call', code: 'construction.preview', input: {} }] }),
+    },
+  });
+  registry.activate('test');
+  const result = await runAssistantStep(registry, '继续');
+  expect(result.results[0]?.error).toEqual(
+    exposed
+      ? { code, message: '检查输入'.repeat(200).slice(0, 500) }
+      : { code: 'CAPABILITY_FAILED', message: 'Capability execution failed' },
+  );
+  expect(JSON.stringify(result.results)).not.toContain('private');
 });

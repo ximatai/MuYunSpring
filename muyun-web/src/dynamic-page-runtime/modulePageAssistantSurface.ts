@@ -1,3 +1,4 @@
+import { assistantFieldDisplay, assistantRelationProjection } from './assistantRecordProjection';
 import type { AssistantSurfaceContext } from '@muyun/web-contracts';
 import {
   AssistantCapabilityUsageError,
@@ -12,6 +13,7 @@ import {
   decodeDateTimeLocalEditorValue,
   decodeNumberEditorValue,
   resolveRecordFormFieldState,
+  resolveRecordDetailDisplayValue,
   type ReferencePickerCandidate,
   type RecordFormFieldState,
   type RecordFormFieldValue,
@@ -88,7 +90,13 @@ export function createModulePageAssistantSurface(
     ...(view.listQueryController ? queryCapabilities(view) : []),
     ...(view.treeQueryController ? treeQueryCapabilities(view) : []),
     ...recordEditorCapabilities(view),
-    ...(hasEditableDraft(view) ? [formDescribeCapability(view), formPatchCapability(view)] : []),
+    ...(hasEditableDraft(view)
+      ? [
+          formDescribeCapability(view),
+          formPatchCapability(view),
+          ...(view.assistantSaveAvailable ? [formSaveProposalCapability(view)] : []),
+        ]
+      : []),
     ...referenceCapabilities(view, referenceSelections),
   ];
   return {
@@ -573,12 +581,22 @@ function surfaceContext(
       editing: hasEditableDraft(view),
       dirty: view.detailDirty,
       creation: view.recordCreationState(),
+      relations: assistantRelationFacts(view),
       ...(tenantScope?.tenantScopeExplorerVisible.value
         ? { tenant: tenantScope.selected.value ? recordTitle(tenantScope.selected.value) : null }
         : {}),
       ...(navigatorScopes.length > 0 ? { navigatorScopes } : {}),
     },
   };
+}
+
+function assistantRelationFacts(view: ModulePageSessionView) {
+  return assistantRelationProjection(
+    view.runtimeUiDescriptor,
+    view.executableDetailRelations ?? [],
+    view.assistantDisplayRecord ?? view.editingRecord ?? view.selectedRecord ?? {},
+    { baseline: view.selectedRecord, relationOptions: view.assistantRelationOptions },
+  );
 }
 
 function recordTitle(record: Record<string, unknown>) {
@@ -608,6 +626,7 @@ function formDescribeCapability(view: ModulePageSessionView): AssistantCapabilit
             required: field.required,
             readOnly: field.readOnly,
             valueType: field.valueType,
+            ...(assistantValueHint(field) ? { valueHint: assistantValueHint(field) } : {}),
             controlType: field.controlType,
             assistantWritable: writeMode !== undefined,
             ...(writeMode ? { assistantWriteMode: writeMode } : {}),
@@ -626,6 +645,7 @@ function formDescribeCapability(view: ModulePageSessionView): AssistantCapabilit
         editable: hasEditableDraft(view),
         currentValuesTruncated: valueBudget.truncated,
         fields,
+        relations: assistantRelationFacts(view),
       };
     },
   };
@@ -663,14 +683,18 @@ function formPatchCapability(
   return {
     effect: 'draft',
     present({ draftSummary }) {
-      const display = (value: unknown) =>
-        value === undefined || value === null || value === '' ? '空' : String(value).slice(0, 200);
+      const display = (value: unknown, fieldName: string) => {
+        const field = formFieldStates(view).find((item) => item.fieldName === fieldName);
+        if (field?.controlType === 'dateTimeInput')
+          return resolveRecordDetailDisplayValue(field, { [fieldName]: value }, { emptyText: '空' });
+        return value === undefined || value === null || value === '' ? '空' : String(value).slice(0, 200);
+      };
       return {
         title: '草稿变更（尚未保存）',
         lines: [
           ...draftSummary.changes.map(
             (change) =>
-              `${change.label}${change.source === 'derived' ? '（联动）' : ''}：${display(change.before)} → ${display(change.after)}`,
+              `${change.label}${change.source === 'derived' ? '（联动）' : ''}：${display(change.before, change.fieldName)} → ${display(change.after, change.fieldName)}`,
           ),
           ...(draftSummary.missingRequired.length
             ? [`待填写：${draftSummary.missingRequired.join('、')}`]
@@ -681,7 +705,7 @@ function formPatchCapability(
     descriptor: {
       code: 'form.patch-draft',
       description:
-        'Atomically patch values supplied or requested by the user into assistant-writable fields in the current unsaved form draft. Resolve meaning from the conversation and ask for clarification when a value or its field is ambiguous. Use the declared field types and option values. It does not save; the user reviews the draft before saving.',
+        'Atomically patch values supplied or requested by the user into assistant-writable fields in the current unsaved form draft. Resolve meaning from the conversation and ask for clarification when a value or its field is ambiguous. Use the declared field types and option values. LONG and DECIMAL values must be JSON strings to preserve precision (for example "100.00"); dates use YYYY-MM-DD strings. It does not save; the user reviews the draft before saving.',
       inputSchema: {
         type: 'object',
         additionalProperties: false,
@@ -791,14 +815,11 @@ function assistantCurrentValue(
   field: RecordFormFieldState,
   budget: { remaining: number; truncated: boolean },
 ) {
-  if (
-    isSensitiveField(field) ||
-    field.assistantPolicy === 'DESCRIBE' ||
-    field.reference ||
-    field.fileReference
-  )
+  if (isSensitiveField(field) || field.assistantPolicy === 'DESCRIBE' || field.fileReference)
     return undefined;
-  const value = (view.editingRecord ?? view.selectedRecord)?.[field.fieldName];
+  const value = field.reference
+    ? assistantFieldDisplay(field, view.editingRecord ?? view.selectedRecord ?? {}).slice(0, 500)
+    : (view.editingRecord ?? view.selectedRecord)?.[field.fieldName];
   let candidate: null | string | number | boolean | Array<string | number | boolean> | undefined;
   if (value === undefined) return undefined;
   if (value === null || typeof value === 'number' || typeof value === 'boolean') candidate = value;
@@ -827,7 +848,6 @@ function isAssistantWritableField(field: RecordFormFieldState) {
   if (
     isSensitiveField(field) ||
     (field.assistantPolicy !== undefined && field.assistantPolicy !== 'READ_WRITE') ||
-    field.reference ||
     field.fileReference ||
     field.fieldControl?.rendererType === 'JSON' ||
     field.valueType === 'JSON'
@@ -973,8 +993,19 @@ function isIsoLocalDateTime(value: string) {
   );
 }
 
+function assistantValueHint(field: RecordFormFieldState): string | undefined {
+  if (field.valueType === 'LONG' || field.valueType === 'DECIMAL')
+    return 'Use a JSON string, not a JSON number, to preserve precision; for example "100.00".';
+  if (field.controlType === 'dateInput') return 'Use a valid YYYY-MM-DD date string.';
+  if (field.controlType === 'dateTimeInput')
+    return 'Use a valid local date-time string, YYYY-MM-DDTHH:mm:ss.';
+  return undefined;
+}
+
 function invalidFieldValue(field: RecordFormFieldState) {
-  return new Error(`Invalid value for form field: ${field.fieldName}`);
+  return new AssistantCapabilityUsageError(
+    `Invalid value for form field: ${field.fieldName}. ${assistantValueHint(field) ?? 'Use the declared field type and allowed option values.'}`,
+  );
 }
 
 function formFieldStates(view: ModulePageSessionView): RecordFormFieldState[] {
@@ -1063,5 +1094,29 @@ function assistantQuerySnapshot(
           },
         }
       : {}),
+  };
+}
+
+function formSaveProposalCapability(view: ModulePageSessionView): AssistantCapability {
+  let proposal: Awaited<ReturnType<ModulePageSessionView['prepareAssistantSave']>> | undefined;
+  return {
+    effect: 'read',
+    descriptor: {
+      code: 'form.prepare-save',
+      description: '准备当前标准表单的保存确认卡片。用户在对话中审阅并点击确认后才保存；本工具不会保存。',
+      inputSchema: emptyAssistantCapabilityInputSchema(),
+    },
+    parseInput: parseEmptyAssistantCapabilityInput,
+    async execute(_input, context) {
+      const prepared = await view.prepareAssistantSave();
+      context.commitInternalState(() => {
+        proposal = prepared;
+      });
+      return { awaitingHumanConfirmation: true };
+    },
+    propose() {
+      if (!proposal) throw new Error('Save proposal was not prepared');
+      return proposal;
+    },
   };
 }

@@ -1,6 +1,7 @@
 import { flushPromises, mount } from '@vue/test-utils';
 import { describe, expect, it, vi } from 'vitest';
-import { defineComponent, h, onMounted } from 'vue';
+import { computed, defineComponent, h, onMounted, provide } from 'vue';
+import { assistantBusinessScopeKey } from '@/dynamic-page-runtime/assistantBusinessScope';
 import ModulePageHost from '@/dynamic-page-runtime/ModulePageHost.vue';
 import ModuleBusinessPreview from '@/views/ModuleBusinessPreview.vue';
 import {
@@ -703,4 +704,36 @@ describe('ModulePageHost lifecycle boundaries', () => {
       wrapper.unmount();
     }
   });
+});
+
+it('keeps the inherited business scope when a record-only reference host takes over the assistant', async () => {
+  const http: HttpClient = {
+    async request(options) {
+      if (options.path.includes('/view/')) return { id: 'target-1', title: '目标' } as never;
+      if (options.path.includes('/actions/')) return { actions: [] } as never;
+      return runtime('crm.customer', { tenantRequired: true }) as never;
+    },
+  };
+  configureModuleContext({ http });
+  const registry = createAssistantSurfaceRegistry();
+  registry.activate('page-1');
+  const Harness = defineComponent({
+    setup() {
+      provideAssistantSurfaceHost({ registry, activePageInstanceKey: () => 'page-1' });
+      provide(
+        assistantBusinessScopeKey,
+        computed(() => 'tenant-a'),
+      );
+      return () =>
+        h(ModulePageHost, { descriptor: descriptor('crm.customer'), recordOnly: { recordId: 'target-1' } });
+    },
+  });
+  const wrapper = mount(Harness, { global: { stubs: hostStubs } });
+  try {
+    await flushPromises();
+    await flushPromises();
+    expect(JSON.parse(registry.snapshot()!.token.conversationScopeKey!)[1]).toBe('tenant-a');
+  } finally {
+    wrapper.unmount();
+  }
 });

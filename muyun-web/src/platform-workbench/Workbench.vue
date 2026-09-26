@@ -13,8 +13,11 @@ import {
   createAssistantSurfaceRegistry,
   provideAssistantSurfaceHost,
   type AssistantTurnRequester,
+  type ConstructionPlanClient,
   userPreferences,
 } from '@muyun/web-core';
+import { createConstructionPlanSession } from './constructionPlanSession';
+import { useWorkbenchNavigation } from './workbenchNavigation';
 import WorkbenchBrandControl from './WorkbenchBrandControl.vue';
 import WorkbenchAssistantPanel from './WorkbenchAssistantPanel.vue';
 import WorkbenchMenu from './WorkbenchMenu.vue';
@@ -38,6 +41,7 @@ const props = withDefaults(
     lockedTabKeys?: string[];
     realtimeStatus?: WorkbenchRealtimeStatus;
     themeAppearance?: 'light' | 'dark';
+    constructionPlanClient?: ConstructionPlanClient;
     assistantRequestTurn?: AssistantTurnRequester;
     assistantWaitForPageReady?: () => Promise<string>;
   }>(),
@@ -75,63 +79,100 @@ const activeTabKey = computed(
 const activeTab = computed(() => openedTabs.value.find((tab) => tab.key === activeTabKey.value));
 const activePageDescriptor = computed(() => pageDescriptorOf(activeTab.value));
 const activePageInstanceKey = computed(() => activeTab.value?.instanceKey ?? activeTab.value?.key);
-const assistantSurfaceRegistry = createAssistantSurfaceRegistry(() => {
+const assistantIdentity = () => {
   const user = props.startup?.session.currentUser;
   return JSON.stringify([user?.userId, user?.tenantId, user?.organizationId, user?.system]);
-});
+};
+const constructionNavigation = useWorkbenchNavigation();
+const constructionPlan = props.constructionPlanClient
+  ? createConstructionPlanSession(
+      props.constructionPlanClient,
+      assistantIdentity,
+      () => props.startup?.session.currentUser?.system === true,
+      async (receipt) => {
+        if (receipt.kind === 'ENTRY') await constructionNavigation?.refreshMenus?.();
+      },
+    )
+  : undefined;
+watch(assistantIdentity, () => constructionPlan?.current(), { flush: 'sync' });
+const assistantSurfaceRegistry = createAssistantSurfaceRegistry(
+  assistantIdentity,
+  constructionPlan
+    ? () => {
+        const plan = constructionPlan.current();
+        return {
+          revision: String(plan.generation),
+          facts: {
+            constructionPlan: {
+              generation: plan.generation,
+              planId: plan.planId,
+              revision: plan.saved?.revision ?? 0,
+              goal: plan.candidate?.goal,
+              title: plan.candidate?.title,
+              constructionStatus: plan.saved?.constructionStatus ?? 'NOT_STARTED',
+              detailsCapability: 'construction.describe',
+            },
+          },
+        };
+      }
+    : undefined,
+);
 const ASSISTANT_PAGE_READY_TIMEOUT_MS = 15_000;
 const assistantOpen = ref(false);
 function workbenchAssistantCapabilities() {
-  return createWorkbenchAssistantCapabilities(
-    () => props.startup?.menus ?? [],
-    (menu) => {
-      const target = getMenuNavigationTarget(menu);
-      if (!target) {
-        emit('invalidMenu', menu);
-        return false;
-      }
-      handleSelectMenu(menu, target);
-      return true;
-    },
-    async (signal) => {
-      const expectedPageInstanceKey = props.assistantWaitForPageReady
-        ? await props.assistantWaitForPageReady()
-        : await nextTick(() => activePageInstanceKey.value);
-      if (!expectedPageInstanceKey || activePageInstanceKey.value !== expectedPageInstanceKey) {
-        throw new Error('Assistant target page changed before it became ready');
-      }
-      if (activePageDescriptor.value?.hostType !== 'module-page-host') {
-        return assistantSurfaceRegistry.snapshot()?.token;
-      }
-      const pageInstanceKey = expectedPageInstanceKey;
-      const controller = new AbortController();
-      const abort = () => controller.abort();
-      signal?.addEventListener('abort', abort, { once: true });
-      if (signal?.aborted) abort();
-      const stop = watch(
-        activePageInstanceKey,
-        (current) => {
-          if (current !== pageInstanceKey) abort();
-        },
-        { flush: 'sync' },
-      );
-      try {
-        const destination = await assistantSurfaceRegistry.waitForActiveSurface({
-          pageInstanceKey,
-          requireFormal: true,
-          signal: controller.signal,
-          timeoutMs: ASSISTANT_PAGE_READY_TIMEOUT_MS,
-        });
-        if (activePageInstanceKey.value !== pageInstanceKey || controller.signal.aborted) {
+  return [
+    ...createWorkbenchAssistantCapabilities(
+      () => props.startup?.menus ?? [],
+      (menu) => {
+        const target = getMenuNavigationTarget(menu);
+        if (!target) {
+          emit('invalidMenu', menu);
+          return false;
+        }
+        handleSelectMenu(menu, target);
+        return true;
+      },
+      async (signal) => {
+        const expectedPageInstanceKey = props.assistantWaitForPageReady
+          ? await props.assistantWaitForPageReady()
+          : await nextTick(() => activePageInstanceKey.value);
+        if (!expectedPageInstanceKey || activePageInstanceKey.value !== expectedPageInstanceKey) {
           throw new Error('Assistant target page changed before it became ready');
         }
-        return destination.token;
-      } finally {
-        stop();
-        signal?.removeEventListener('abort', abort);
-      }
-    },
-  );
+        if (activePageDescriptor.value?.hostType !== 'module-page-host') {
+          return assistantSurfaceRegistry.snapshot()?.token;
+        }
+        const pageInstanceKey = expectedPageInstanceKey;
+        const controller = new AbortController();
+        const abort = () => controller.abort();
+        signal?.addEventListener('abort', abort, { once: true });
+        if (signal?.aborted) abort();
+        const stop = watch(
+          activePageInstanceKey,
+          (current) => {
+            if (current !== pageInstanceKey) abort();
+          },
+          { flush: 'sync' },
+        );
+        try {
+          const destination = await assistantSurfaceRegistry.waitForActiveSurface({
+            pageInstanceKey,
+            requireFormal: true,
+            signal: controller.signal,
+            timeoutMs: ASSISTANT_PAGE_READY_TIMEOUT_MS,
+          });
+          if (activePageInstanceKey.value !== pageInstanceKey || controller.signal.aborted) {
+            throw new Error('Assistant target page changed before it became ready');
+          }
+          return destination.token;
+        } finally {
+          stop();
+          signal?.removeEventListener('abort', abort);
+        }
+      },
+    ),
+    ...(constructionPlan?.capabilities() ?? []),
+  ];
 }
 provideAssistantSurfaceHost({
   registry: assistantSurfaceRegistry,
@@ -567,6 +608,7 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
     <WorkbenchAssistantPanel
       :open="assistantOpen"
       :registry="assistantSurfaceRegistry"
+      :construction-plan="constructionPlan"
       @close="assistantOpen = false"
     />
   </div>

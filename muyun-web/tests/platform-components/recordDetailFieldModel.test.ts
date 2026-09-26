@@ -1,4 +1,4 @@
-import { assert, it } from 'vitest';
+import { assert, it, vi } from 'vitest';
 import { resolveRecordDetailDisplayValue } from '@/platform-components/recordDetailFieldModel.ts';
 import type { RecordFormFieldState } from '@/platform-components/recordFormFieldModel.ts';
 
@@ -151,3 +151,19 @@ function formField(fieldName: string, options: Partial<RecordFormFieldState> = {
     ...options,
   };
 }
+
+it('displays timestamps in the browser timezone without changing the stored instant', () => {
+  const options = Intl.DateTimeFormat().resolvedOptions();
+  const clock = vi
+    .spyOn(Intl.DateTimeFormat.prototype, 'resolvedOptions')
+    .mockReturnValue({ ...options, timeZone: 'Asia/Shanghai' });
+  try {
+    const record = { pickupAt: '2026-09-27T07:00:00Z' };
+    const field = formField('pickupAt', { controlType: 'dateTimeInput' });
+    assert.equal(resolveRecordDetailDisplayValue(field, record), '2026-09-27 15:00:00');
+    assert.equal(record.pickupAt, '2026-09-27T07:00:00Z');
+    assert.equal(resolveRecordDetailDisplayValue(field, { pickupAt: '' }, { emptyText: '空' }), '空');
+  } finally {
+    clock.mockRestore();
+  }
+});

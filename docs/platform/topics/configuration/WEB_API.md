@@ -510,3 +510,53 @@
 1. URL 中的模块身份统一使用 `moduleAlias`。
 2. 配置对象字段、DTO 和关系列不使用 `moduleId` 表达模块身份。
 3. 元数据业务别名使用 `metadataAlias`；物理表名不作为元数据身份。
+
+
+## 业务建设方案与模块初始化
+
+方案属于登录用户及其登录租户的个人配置工作区，独立于活动业务页的数据租户。确认需求只保存业务范围，不授予配置发布权限。
+
+| 方法 | 路径 | 契约 |
+| --- | --- | --- |
+| `GET` | `/platform.application-construction-plans` | 最近 30 个个人方案 |
+| `GET` | `/platform.application-construction-plans/{planId}` | 当前已确认需求及对象初始化绑定 |
+| `GET` | `/platform.application-construction-plans/{planId}/revisions` | 最近 30 个不可变需求版本 |
+| `POST` | `/platform.application-construction-plans/{planId}/confirmations` | 以请求标识、预期版本和业务内容确认方案 |
+| `GET` | `/platform.application-construction-plans/{planId}/confirmations/{requestId}` | 查询某次需求确认，未找到返回 204 |
+| `POST` | `/platform.application-construction-plans/{planId}/initializations/preview` | 对已确认业务对象做只读初始化预检，返回当前基线、影响及指纹 |
+| `POST` | `/platform.application-construction-plans/{planId}/initializations` | 提交审阅后的初始化参数、指纹和请求标识 |
+| `GET` | `/platform.application-construction-plans/{planId}/initializations/{objectKey}` | 查询初始化回执及运行态状态，未初始化返回 204 |
+
+初始化首批仅支持系统配置身份，并检查正式应用创建、模块创建与 `platform.module_metadata_relation.createMainMetadata` 动作权限。新增应用或使用现有可维护业务应用后，原子创建动态模块、主实体与物理表；绑定及回执一起提交。预检拒绝已有模块、已有主实体别名及物理表，不接管存量配置。同一对象不会因方案修订或重复请求而重建。
+
+初始化回执证明配置已提交。首个响应的运行态可以为空，调用状态接口核实提交后激活结果；字段、关系、页面、菜单及业务验收不属于该初始化动作。完整建设边界见 [AI 协作路线](../../AI_COLLABORATION_ROADMAP.md)。
+
+### 建设方案字段节点
+
+- `GET /platform.application-construction-plans/{planId}/objects/{objectKey}/fields`：读取已初始化对象的当前字段、元数据版本及启用规格目录。
+- `POST /platform.application-construction-plans/{planId}/field-changes/preview`：预检同一对象的 1–12 个普通新增字段；返回结构差异、警告、错误和确认指纹。
+- `POST /platform.application-construction-plans/{planId}/field-changes`：提交原提议、指纹与请求标识。复用正式元数据变更集，字段和回执同事务提交，不发布页面或菜单。
+- `GET /platform.application-construction-plans/{planId}/field-changes/{requestId}`：查询该次提交回执与实际运行态；未找到返回 204，不能据此推定请求未执行。
+
+以上入口要求方案所有权、系统配置身份及元数据预检/发布权限。方案快照的 `fieldChanges` 表达已提交字段及依据的需求版本，不代表业务应用已完成。生产严格 schema migration 策略不因对话确认而放宽。
+
+### 建设方案的页面交付与人工验收
+
+以下接口位于 `/platform.application-construction-plans/{planId}`，要求当前系统配置身份及方案所有权；页面、菜单写入分别验证正式配置动作权限。
+
+| 方法与路径 | 用途 |
+| --- | --- |
+| POST `/delivery/preview` | 只读预检 `PAGE` 或 `ENTRY` 节点，返回影响与绑定当前基线的指纹 |
+| POST `/delivery` | 人工确认后的冻结提议与请求身份，原子提交该节点和回执 |
+| GET `/delivery/{requestId}` | 查询同一次确认的结果，未查到返回 204，不能据此推定未提交 |
+| GET `/objects/{objectKey}/progress` | 查询真实页面、入口、运行态、需求兑现证据及人工验收是否仍适用于当前基线 |
+| GET `/task` | 依据当前需求版本、配置与回执推导每个对象的下一步；不写入任务完成状态 |
+| GET `/objects/{objectKey}/acceptance-preview` | 获取当前规则、验收例子和绑定配置的人工验收基线 |
+| POST `/acceptances` | 人工确认验收，按请求身份幂等记录当前基线 |
+| GET `/acceptances/{requestId}` | 核实原验收请求是否提交 |
+
+页面提议只接受实际字段名、标题及列表/表单/快速查询投放，不接受模型提交任意 UI JSON。入口仅面向当前系统配置工作台，不隐式授权业务角色。需求和配置修订使旧预检失效；页面、入口各自提交，不承诺跨节点自动回滚。验收表示人工判断，业务规则的执行继续归正式领域能力。
+
+需求内容的 `requirements` 按 `section`（`SCOPE/RULE/RELATION`）与零起始 `index` 对应本期条款，并绑定 `objectKey`。`mode` 为 `FIELD/REQUIRED/UNIQUE/MANUAL/UNSUPPORTED`；前三者须给出 `fieldName`，后两者不接受字段名，均须提供业务解释。关系当前只允许声明不支持，分期排除须经需求版本确认。缺失映射的旧方案仍可读取，但相关建设检查不会自动放行。
+
+`progress.requirements` 与 `task.objects[].requirements` 返回 `UNMAPPED/UNSUPPORTED/CONFIGURATION_MISSING/CONFIGURATION_MATCHED/MANUAL_CHECK_REQUIRED` 证据；配置匹配只覆盖所声明字段的存在、必填与唯一约束。人工核验不被自动转换为配置证明。任务接口要求系统配置身份和方案所有权。

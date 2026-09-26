@@ -197,6 +197,110 @@ public class TeachingDemoIT {
     @Autowired
     private net.ximatai.muyun.spring.iam.employee.EmployeeService employees;
 
+    @Autowired private net.ximatai.muyun.spring.platform.application.ApplicationConstructionPlanService constructionPlans;
+    @Autowired private net.ximatai.muyun.spring.platform.application.ApplicationConstructionInitializationService construction;
+    @Autowired private net.ximatai.muyun.database.core.IDatabaseOperations<?> constructionDatabase;
+
+    @Test
+    void shouldInitializeAReviewedBusinessObjectWithoutPublishingAnApplication() throws Exception {
+        String planId = UUID.randomUUID().toString().replace("-", "");
+        String app = "build" + serial();
+        var content = new net.ximatai.muyun.spring.platform.application.ApplicationConstructionPlanContent(
+                "业务登记", "管理业务登记", List.of("录入登记"), List.of("审批"),
+                List.of(new net.ximatai.muyun.spring.platform.application.ApplicationConstructionPlanContent.BusinessObject("entry", "业务登记", "记录业务")),
+                List.of(), List.of(), List.of(), List.of(), List.of(), List.of("可录入并查询一条登记"), List.of(new net.ximatai.muyun.spring.platform.application.ApplicationConstructionRequirement(
+                    net.ximatai.muyun.spring.platform.application.ApplicationConstructionRequirement.Section.SCOPE, 0, "entry",
+                    net.ximatai.muyun.spring.platform.application.ApplicationConstructionRequirement.Mode.MANUAL, "", "实际录入和查询确认")));
+        try (var user = CurrentUserContext.use(CurrentUser.systemUser("construction-admin", "建设管理员"));
+             var scope = TenantContext.system("construction acceptance")) {
+            constructionPlans.confirm(planId, new net.ximatai.muyun.spring.platform.application.ApplicationConstructionPlanService.ConfirmCommand(UUID.randomUUID().toString(), 0, content));
+            var proposal = new net.ximatai.muyun.spring.platform.application.ApplicationConstructionInitializationService.Proposal(1, "entry", app, "业务应用", "registration_records");
+            var preview = construction.preview(planId, proposal);
+            assertThat(constructionDatabase.query("select to_regclass(?::text) as relation", "public." + preview.tableName()).getFirst().get("relation")).isNull();
+            assertThat(constructionPlans.read(planId).initializations()).isEmpty();
+            var command = new net.ximatai.muyun.spring.platform.application.ApplicationConstructionInitializationService.ConfirmCommand(UUID.randomUUID().toString(), proposal, preview.fingerprint());
+            assertThatThrownBy(() -> construction.confirm(planId,
+                    new net.ximatai.muyun.spring.platform.application.ApplicationConstructionInitializationService.ConfirmCommand(command.requestId(), proposal, "0".repeat(64))))
+                    .hasMessageContaining("预检已过期");
+            constructionDatabase.execute("create table public." + preview.tableName() + " (id varchar(32))");
+            assertThatThrownBy(() -> construction.preview(planId, proposal)).hasMessageContaining("禁止接管存量数据表");
+            constructionDatabase.execute("drop table public." + preview.tableName());
+            // The real publisher's configuration, schema and receipt roll back together.
+            new TransactionTemplate(transactions).executeWithoutResult(status -> {
+                construction.confirm(planId, command); status.setRollbackOnly();
+            });
+            assertThat(construction.status(planId, "entry")).isNull();
+            assertThat(constructionDatabase.query("select to_regclass(?::text) as relation", "public." + preview.tableName()).getFirst().get("relation")).isNull();
+            try (var pool = java.util.concurrent.Executors.newFixedThreadPool(3)) {
+                var retries = java.util.stream.IntStream.range(0, 3).mapToObj(i -> pool.submit(() -> {
+                    try (var identity = CurrentUserContext.use(CurrentUser.systemUser("construction-admin", "建设管理员"));
+                         var tenant = TenantContext.system("concurrent initialization")) { return construction.confirm(planId, command); }
+                })).toList();
+                for (var retry : retries) assertThat(retry.get(15, java.util.concurrent.TimeUnit.SECONDS).receipt().moduleAlias()).isEqualTo(app + ".registration_records");
+            }
+            MockMvc mvc = webAppContextSetup(webApplicationContext).build();
+            var json = new com.fasterxml.jackson.databind.ObjectMapper();
+            for (int retry = 0; retry < 2; retry++) {
+                var response = mvc.perform(post("/platform.application-construction-plans/" + planId + "/initializations")
+                        .contentType("application/json").content(json.writeValueAsString(command))).andReturn().getResponse();
+                assertThat(response.getStatus()).as(response.getContentAsString()).isEqualTo(200);
+            }
+            var result = construction.status(planId, "entry");
+            assertThat(result.receipt().moduleAlias()).isEqualTo(app + ".registration_records");
+            assertThat(result.runtime().status()).isEqualTo("ACTIVE");
+            assertThat(constructionPlans.read(planId).initializations()).hasSize(1);
+            assertThat(metadataService.select(result.receipt().metadataId())).isNotNull();
+            assertThat(pageDefinitions.count(Criteria.of().eq("moduleAlias", app + ".registration_records"))).isZero();
+            assertThatThrownBy(() -> construction.confirm(planId,
+                    new net.ximatai.muyun.spring.platform.application.ApplicationConstructionInitializationService.ConfirmCommand(UUID.randomUUID().toString(), proposal, preview.fingerprint())))
+                    .hasMessageContaining("已初始化");
+            constructionPlans.confirm(planId, new net.ximatai.muyun.spring.platform.application.ApplicationConstructionPlanService.ConfirmCommand(UUID.randomUUID().toString(), 1,
+                    new net.ximatai.muyun.spring.platform.application.ApplicationConstructionPlanContent("修订范围", content.goal(), content.inScope(), content.outOfScope(), content.objects(), content.relationships(), content.rules(), content.questions(), content.assumptions(), content.decisions(), content.acceptanceExamples(), content.requirements())));
+            assertThat(construction.confirm(planId, command).receipt()).isEqualTo(result.receipt());
+
+        }
+        try (var user = CurrentUserContext.use(CurrentUser.tenantUser("tenant-user", "用户", "tenant"))) {
+            assertThatThrownBy(() -> construction.status(planId, "entry")).isInstanceOf(net.ximatai.muyun.spring.common.exception.PlatformAccessDeniedException.class);
+        }
+    }
+
+    @Test
+    void shouldKeepStaticAndDynamicHttpSaveReceiptsWithoutDuplicatingRecords() throws Exception {
+        MockMvc mvc = webAppContextSetup(webApplicationContext).build();
+        try (var user = CurrentUserContext.use(CurrentUser.systemUser("save-receipt-acceptance", "Save Acceptance"));
+             var tenant = TenantContext.use(DemoBootstrapTask.TENANT_ALIAS)) {
+            for (String module : List.of("education.student", "education.exam")) {
+                String requestId = UUID.randomUUID().toString();
+                String title = "Save receipt " + serial();
+                String body = module.endsWith("student")
+                        ? "{\"studentNo\":\"SR-" + serial() + "\",\"title\":\"" + title + "\",\"grade\":\"一年级\"}"
+                        : "{\"values\":{\"title\":\"" + title + "\",\"classroomId\":\"demo_classroom_g1a\","
+                            + "\"subjectCategoryId\":\"demo_subject_mathematics\",\"examDate\":\"2026-09-07\"}}";
+                for (int retry = 0; retry < 2; retry++) {
+                    var saved = mvc.perform(post("/" + module + "/insert")
+                            .header("X-Muyun-Save-Request", requestId).contentType("application/json").content(body)).andReturn();
+                    assertThat(saved.getResponse().getStatus()).as(saved.getResponse().getContentAsString()).isEqualTo(201);
+                }
+                String recordId;
+                if (module.endsWith("student")) {
+                    var records = students.list(Criteria.of().eq("title", title), PageRequest.of(1, 10));
+                    assertThat(records).hasSize(1);
+                    recordId = records.getFirst().getId();
+                } else {
+                    var records = dynamicRecords.mainEntity(module).list(Criteria.of().eq("title", title), PageRequest.of(1, 10));
+                    assertThat(records).hasSize(1);
+                    recordId = records.getFirst().getId();
+                }
+                var receipt = mvc.perform(get("/" + module + "/save-receipts/{requestId}", requestId)).andReturn();
+                assertThat(receipt.getResponse().getStatus()).as(receipt.getResponse().getContentAsString()).isEqualTo(200);
+                assertThat(receipt.getResponse().getContentAsString()).contains("\"committed\":true", recordId);
+                var changed = mvc.perform(post("/" + module + "/insert").header("X-Muyun-Save-Request", requestId)
+                        .contentType("application/json").content(body.replace(title, title + " changed"))).andReturn();
+                assertThat(changed.getResponse().getStatus()).isGreaterThanOrEqualTo(400).isLessThan(500);
+            }
+        }
+    }
+
     @Test
     void shouldIsolateStaticAndDynamicBusinessRequestsUsingVerifiedTenantHeader() throws Exception {
         String otherTenant = "preview_" + serial();

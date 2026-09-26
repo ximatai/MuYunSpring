@@ -1,3 +1,8 @@
+import {
+  createAssistantOperationConfirmation,
+  type AssistantOperationProposal,
+  type AssistantOperationConfirmation,
+} from './assistantConfirmation';
 import type {
   AssistantCapabilityCall,
   AssistantResultPresentation,
@@ -14,6 +19,7 @@ export interface AssistantCapability<TInput = unknown, TOutput = unknown> {
   /** Trusted implementation effect boundary; read capabilities cannot mutate the page. */
   effect: 'read' | 'page' | 'draft' | 'configuration-draft';
   present?(output: TOutput): AssistantResultPresentation;
+  propose?(output: TOutput): AssistantOperationProposal;
   parseInput(input: unknown): TInput;
   execute(input: TInput, context: AssistantCapabilityExecutionContext): Promise<TOutput>;
 }
@@ -126,7 +132,12 @@ export interface AssistantSurfaceRegistry {
     call: AssistantCapabilityCall,
     token: AssistantInvocationToken,
     signal?: AbortSignal,
-  ): Promise<{ value: unknown; contextChanged: boolean; presentation?: AssistantResultPresentation }>;
+  ): Promise<{
+    value: unknown;
+    contextChanged: boolean;
+    presentation?: AssistantResultPresentation;
+    confirmation?: AssistantOperationConfirmation;
+  }>;
 }
 
 export interface AssistantSurfaceHost {
@@ -181,6 +192,7 @@ export class AssistantEffectInterruptedError extends Error {
 
 export function createAssistantSurfaceRegistry(
   identityScope: () => string = () => '',
+  workspaceContext?: () => { revision: string; facts: Record<string, unknown> },
 ): AssistantSurfaceRegistry {
   const registrations = new Map<string, RegisteredAssistantSurface[]>();
   const pending = new Set<AbortController>();
@@ -188,6 +200,13 @@ export function createAssistantSurfaceRegistry(
   const changeListeners = new Set<() => void>();
   let activePageInstanceKey: string | undefined;
   let nextSurfaceGeneration = 0;
+
+  function describe(registration: RegisteredAssistantSurface): AssistantSurfaceContext {
+    const context = registration.surface.describe();
+    return workspaceContext
+      ? { ...context, facts: { ...context.facts, workspace: workspaceContext().facts } }
+      : context;
+  }
 
   function cancelPending() {
     for (const controller of pending) controller.abort();
@@ -245,7 +264,9 @@ export function createAssistantSurfaceRegistry(
         : JSON.stringify([identity, scope]),
       pageInstanceKey: registration.pageInstanceKey,
       surfaceGeneration: registration.surfaceGeneration,
-      contextRevision: registration.contextRevision(),
+      contextRevision: workspaceContext
+        ? JSON.stringify([registration.contextRevision(), workspaceContext().revision])
+        : registration.contextRevision(),
       interactionRevision: registration.interactionRevision?.(),
       fallback: registration.fallback === true,
     };
@@ -256,7 +277,7 @@ export function createAssistantSurfaceRegistry(
     if (!registration) return undefined;
     return {
       token: tokenOf(registration),
-      context: registration.surface.describe(),
+      context: describe(registration),
       capabilities: validateAssistantCapabilities(registration.surface.capabilities()).map(
         ({ descriptor }) => descriptor,
       ),
@@ -377,7 +398,7 @@ export function createAssistantSurfaceRegistry(
         const current = requireCurrent(token);
         const request = {
           ...input,
-          context: current.surface.describe(),
+          context: describe(current),
           capabilities: validateAssistantCapabilities(current.surface.capabilities()).map(
             ({ descriptor }) => descriptor,
           ),
@@ -508,6 +529,20 @@ export function createAssistantSurfaceRegistry(
         return {
           value,
           contextChanged: false,
+          ...(capability.propose
+            ? {
+                confirmation: createAssistantOperationConfirmation(capability.propose(value), () => {
+                  const current = snapshot()?.token;
+                  return (
+                    current !== undefined &&
+                    current.identityScopeKey === token.identityScopeKey &&
+                    current.pageInstanceKey === token.pageInstanceKey &&
+                    current.surfaceGeneration === token.surfaceGeneration &&
+                    current.conversationScopeKey === token.conversationScopeKey
+                  );
+                }),
+              }
+            : {}),
           ...(capability.present ? { presentation: capability.present(value) } : {}),
         };
       })()

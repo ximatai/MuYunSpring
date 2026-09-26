@@ -26,13 +26,28 @@ export interface QuerySchemaRequestOptions {
   queryTemplateId?: string;
 }
 
+export interface RecordSaveRequestOptions {
+  requestId: string;
+}
+export interface RecordSaveReceipt {
+  committed: boolean;
+  recordId?: string;
+  recordVersion?: number;
+  actionCode?: string;
+}
+
 /** Source-neutral client for a platform module's standard CRUD contract. */
 export interface ModuleCrudClient<TRecord> {
   querySchema(options?: QuerySchemaRequestOptions): Promise<QuerySchema>;
   query(request?: WebQueryRequest): Promise<WebPageResponse<TRecord>>;
   view(id: string): Promise<TRecord>;
-  insert(record: TRecord): Promise<StaticRecordMutationResult<TRecord>>;
-  update(id: string, record: TRecord): Promise<StaticRecordMutationResult<TRecord>>;
+  insert(record: TRecord, options?: RecordSaveRequestOptions): Promise<StaticRecordMutationResult<TRecord>>;
+  update(
+    id: string,
+    record: TRecord,
+    options?: RecordSaveRequestOptions,
+  ): Promise<StaticRecordMutationResult<TRecord>>;
+  saveReceipt?(requestId: string): Promise<RecordSaveReceipt>;
   delete(id: string, request: RecordActionRequest): Promise<StaticCountMutationResult>;
   enable(id: string, request: RecordActionRequest): Promise<StaticCountMutationResult>;
   disable(id: string, request: RecordActionRequest): Promise<StaticCountMutationResult>;
@@ -181,20 +196,26 @@ export function createStaticResourceCrudClient<TRecord>(
       http
         .request<TRecord>({ path: `${modulePath}/view/${encodeURIComponent(id)}` })
         .then(normalizeModuleRecord),
-    insert: async (record) =>
+    saveReceipt: (requestId) =>
+      http.request<RecordSaveReceipt>({
+        path: `${modulePath}/save-receipts/${encodeURIComponent(requestId)}`,
+      }),
+    insert: async (record, options) =>
       normalizeRecordMutationResponse(
         await http.request<TRecord | WebActionResultEnvelope<TRecord>>({
           method: 'POST',
           path: `${modulePath}/insert`,
           body: record,
+          ...(options ? { headers: { 'X-Muyun-Save-Request': options.requestId } } : {}),
         }),
       ),
-    update: async (id, record) =>
+    update: async (id, record, options) =>
       normalizeRecordMutationResponse(
         await http.request<TRecord | WebActionResultEnvelope<TRecord>>({
           method: 'POST',
           path: `${modulePath}/update/${encodeURIComponent(id)}`,
           body: record,
+          ...(options ? { headers: { 'X-Muyun-Save-Request': options.requestId } } : {}),
         }),
       ),
     delete: async (id, request) =>

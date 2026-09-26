@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import type { OptionItemDescriptor } from '@muyun/web-contracts';
 import { computed, ref, watch } from 'vue';
 import {
   DetailRelationListPanel,
@@ -37,7 +38,12 @@ const props = withDefaults(
 
 const emit = defineEmits<{
   'validity-change': [valid: boolean];
-  'children-change': [relationCode: string, records: QueryListRecord[]];
+  'children-change': [
+    relationCode: string,
+    records: QueryListRecord[],
+    displayRecords: QueryListRecord[],
+    options: Record<string, OptionItemDescriptor[]>,
+  ];
 }>();
 
 const relationValidity = ref<Record<string, boolean>>({});
@@ -221,7 +227,10 @@ watch(
       :validation-request-key="validationRequestKey"
       :mutation-enabled="aggregateInlineEditing(relation)"
       :density="surface === 'list-expansion' ? 'compact' : 'default'"
-      @records-change="emit('children-change', relation.embeddedField ?? relation.code, $event)"
+      @records-change="
+        (records, displayRecords, options) =>
+          emit('children-change', relation.embeddedField ?? relation.code, records, displayRecords, options)
+      "
       @validity-change="updateRelationValidity(relation.code, $event)"
       @selection-change="selectedCounts[relation.code] = $event"
       @removed-count-change="removedCounts[relation.code] = $event"
