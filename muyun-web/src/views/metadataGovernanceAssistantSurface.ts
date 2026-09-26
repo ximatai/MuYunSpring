@@ -114,6 +114,7 @@ export type MetadataFieldPlanInput = Array<
   (AddMetadataFieldDraftInput & { kind: 'BASIC' }) | AddMetadataPropertyFieldDraftInput
 >;
 
+/** Preparation validates without changing the editor; returned callbacks commit synchronously inside applyEffect. */
 export interface MetadataGovernanceAssistantAdapter {
   prepareFieldPlan?(fields: MetadataFieldPlanInput, signal: AbortSignal): Promise<() => unknown>;
   plan?(): unknown;
@@ -124,14 +125,14 @@ export interface MetadataGovernanceAssistantAdapter {
   preview(proposal: MetadataModelChangeSetProposal, signal: AbortSignal): Promise<MetadataChangeSetPreview>;
   fieldSpecAliases(): string[];
   editableBasicFieldNames(): string[];
-  addFieldDraft?(input: AddMetadataFieldDraftInput): {
+  prepareNewFieldDraft?(input: AddMetadataFieldDraftInput): () => {
     relationId: string;
     fieldName: string;
     columnName: string;
     title: string;
     fieldSpecAlias: string;
   };
-  updateFieldDraft?(input: UpdateMetadataFieldDraftInput): {
+  prepareFieldUpdate?(input: UpdateMetadataFieldDraftInput): () => {
     relationId: string;
     fieldName: string;
     title?: string;
@@ -145,7 +146,7 @@ export interface MetadataGovernanceAssistantAdapter {
     input: AddMetadataPropertyFieldDraftInput,
     signal: AbortSignal,
   ): Promise<PreparedMetadataPropertyFieldDraft>;
-  commitPropertyFieldDraft?(prepared: PreparedMetadataPropertyFieldDraft): {
+  preparePropertyFieldCommit?(prepared: PreparedMetadataPropertyFieldDraft): () => {
     relationId: string;
     kind: MetadataPropertyFieldKind;
     fieldName: string;
@@ -314,12 +315,13 @@ function addMetadataPropertyFieldDraftCapability(
     },
     parseInput: (input) => parseAddPropertyFieldDraftInput(input, dictionarySelectionModes),
     async execute(input, context) {
-      if (!adapter.preparePropertyFieldDraft || !adapter.commitPropertyFieldDraft)
+      if (!adapter.preparePropertyFieldDraft || !adapter.preparePropertyFieldCommit)
         throw new AssistantCapabilityUsageError('Metadata property field drafting is unavailable');
       const prepared = await adapter.preparePropertyFieldDraft(input, context.signal);
       if (!context.isCurrent())
         throw new AssistantCapabilityUsageError('Metadata property field preparation is no longer current');
-      return context.applyEffect(() => adapter.commitPropertyFieldDraft!(prepared));
+      const commit = adapter.preparePropertyFieldCommit(prepared);
+      return context.applyEffect(commit);
     },
   };
 }
@@ -354,9 +356,10 @@ function updateMetadataFieldDraftCapability(
     },
     parseInput: (input) => parseUpdateFieldDraftInput(input, fieldNames, fieldSpecAliases),
     async execute(input, context) {
-      if (!adapter.updateFieldDraft)
+      if (!adapter.prepareFieldUpdate)
         throw new AssistantCapabilityUsageError('Metadata field updating is unavailable');
-      return context.applyEffect(() => adapter.updateFieldDraft!(input));
+      const commit = adapter.prepareFieldUpdate(input);
+      return context.applyEffect(commit);
     },
   };
 }
@@ -394,9 +397,10 @@ function addMetadataFieldDraftCapability(
     },
     parseInput: (input) => parseAddFieldDraftInput(input, aliases),
     async execute(input, context) {
-      if (!adapter.addFieldDraft)
+      if (!adapter.prepareNewFieldDraft)
         throw new AssistantCapabilityUsageError('Metadata field drafting is unavailable');
-      return context.applyEffect(() => adapter.addFieldDraft!(input));
+      const commit = adapter.prepareNewFieldDraft(input);
+      return context.applyEffect(commit);
     },
   };
 }
@@ -550,7 +554,7 @@ function hasChanges(
 function canAddFieldDraft(adapter: MetadataGovernanceAssistantAdapter): boolean {
   const summary = adapter.summary();
   return Boolean(
-    adapter.addFieldDraft &&
+    adapter.prepareNewFieldDraft &&
     summary.selectedRelation &&
     !summary.draft.editorOpen &&
     adapter.fieldSpecAliases().length > 0,
@@ -560,7 +564,7 @@ function canAddFieldDraft(adapter: MetadataGovernanceAssistantAdapter): boolean 
 function canUpdateFieldDraft(adapter: MetadataGovernanceAssistantAdapter): boolean {
   const summary = adapter.summary();
   return Boolean(
-    adapter.updateFieldDraft &&
+    adapter.prepareFieldUpdate &&
     summary.selectedRelation &&
     (!summary.draft.editorOpen || adapter.candidate?.()?.editable === true) &&
     adapter.editableBasicFieldNames().length > 0,
@@ -572,7 +576,7 @@ function canAddPropertyFieldDraft(adapter: MetadataGovernanceAssistantAdapter): 
   return Boolean(
     adapter.findFieldTargets &&
     adapter.preparePropertyFieldDraft &&
-    adapter.commitPropertyFieldDraft &&
+    adapter.preparePropertyFieldCommit &&
     summary.selectedRelation &&
     !summary.draft.editorOpen &&
     adapter.fieldSpecAliases().includes('string'),

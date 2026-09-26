@@ -328,11 +328,11 @@ function syncAssistantSurface() {
             .map((spec) => spec.alias ?? spec.id ?? '')
             .filter(Boolean),
         editableBasicFieldNames: assistantEditableBasicFieldNames,
-        addFieldDraft: addAssistantFieldDraft,
-        updateFieldDraft: updateAssistantFieldDraft,
+        prepareNewFieldDraft: prepareAssistantNewFieldDraft,
+        prepareFieldUpdate: prepareAssistantFieldUpdate,
         findFieldTargets: findAssistantFieldTargets,
         preparePropertyFieldDraft: prepareAssistantPropertyFieldDraft,
-        commitPropertyFieldDraft: commitAssistantPropertyFieldDraft,
+        preparePropertyFieldCommit: prepareAssistantPropertyFieldCommit,
       },
       createAssistantTurnRequester(moduleContext.http),
       () => assistantHost.capabilities?.() ?? [],
@@ -793,11 +793,14 @@ function startCreateField(kind: MetadataFieldPropertyDraft['kind'] = 'BASIC') {
   state.startCreateField(kind);
 }
 
-function addAssistantFieldDraft(input: AddMetadataFieldDraftInput) {
+function prepareAssistantNewFieldDraft(input: AddMetadataFieldDraftInput) {
   const relationId = selectedRelationId.value;
-  if (!relationId || !state.selectedMetadata.value?.id) throw new Error('No metadata relation is selected');
+  if (!relationId || !state.selectedMetadata.value?.id)
+    throw new AssistantCapabilityUsageError('No metadata relation is selected');
   if (state.fieldEditorOpen.value || sorting.value)
-    throw new Error('Finish or cancel the current metadata editor before adding another field');
+    throw new AssistantCapabilityUsageError(
+      'Finish or cancel the current metadata editor before adding another field',
+    );
   requireEnabledFieldSpec(input.fieldSpecAlias);
   const fieldName = input.fieldName?.trim() || generatedBusinessFieldName(input.title, 'BASIC');
   validateAssistantNewFieldName(relationId, fieldName);
@@ -815,20 +818,22 @@ function addAssistantFieldDraft(input: AddMetadataFieldDraftInput) {
     titleField: input.titleField ?? false,
     enabled: true,
   };
-  if (!editSession.editing.value) startNodeEditSession();
-  editSession.stageField(relationId, field, { kind: 'BASIC' });
-  stagedNewFieldKey.value = fieldName;
-  fieldTitleManuallyEdited.value = true;
-  fieldNameManuallyEdited.value = Boolean(input.fieldName);
-  columnNameManuallyEdited.value = false;
-  editorMode.value = 'ADVANCED';
-  state.startEditField(field, { kind: 'BASIC' });
-  return {
-    relationId,
-    fieldName,
-    columnName: field.columnName!,
-    title: input.title,
-    fieldSpecAlias: input.fieldSpecAlias,
+  return () => {
+    if (!editSession.editing.value) startNodeEditSession();
+    editSession.stageField(relationId, field, { kind: 'BASIC' });
+    stagedNewFieldKey.value = fieldName;
+    fieldTitleManuallyEdited.value = true;
+    fieldNameManuallyEdited.value = Boolean(input.fieldName);
+    columnNameManuallyEdited.value = false;
+    editorMode.value = 'ADVANCED';
+    state.startEditField(field, { kind: 'BASIC' });
+    return {
+      relationId,
+      fieldName,
+      columnName: field.columnName!,
+      title: input.title,
+      fieldSpecAlias: input.fieldSpecAlias,
+    };
   };
 }
 
@@ -917,9 +922,9 @@ function assistantEditableBasicFieldNames() {
     .map((field) => field.fieldName!);
 }
 
-function updateAssistantFieldDraft(input: UpdateMetadataFieldDraftInput) {
+function prepareAssistantFieldUpdate(input: UpdateMetadataFieldDraftInput) {
   const relationId = selectedRelationId.value;
-  if (!relationId) throw new Error('No metadata relation is selected');
+  if (!relationId) throw new AssistantCapabilityUsageError('No metadata relation is selected');
   const revising = state.fieldEditorOpen.value;
   const candidate = assistantCandidate();
   if (
@@ -936,13 +941,15 @@ function updateAssistantFieldDraft(input: UpdateMetadataFieldDraftInput) {
     ? normalizeFieldDraft(state.fieldDraft.value)
     : state.allFields.value.find((item) => item.fieldName === input.fieldName);
   if (!field || (!revising && (!fieldEditableInSession(field) || fieldPropertyOf(field).kind !== 'BASIC')))
-    throw new Error('The selected metadata field is unavailable for editing');
+    throw new AssistantCapabilityUsageError('The selected metadata field is unavailable for editing');
   if (input.fieldSpecAlias) {
     const options = selectedRelationHasBusinessRecords.value
       ? dataSafeFieldSpecOptions(state.fieldSpecs.value, field.fieldSpecAlias)
       : state.fieldSpecOptions.value;
     if (!options.some((option) => option.value === input.fieldSpecAlias))
-      throw new Error('The selected field specification is unsafe for the current metadata data');
+      throw new AssistantCapabilityUsageError(
+        'The selected field specification is unsafe for the current metadata data',
+      );
   }
   const updated: MetadataField = {
     ...field,
@@ -956,23 +963,28 @@ function updateAssistantFieldDraft(input: UpdateMetadataFieldDraftInput) {
     ...(input.enabled !== undefined ? { enabled: input.enabled } : {}),
   };
   if (JSON.stringify(updated) === JSON.stringify(field))
-    throw new Error('The requested metadata field update does not change the current value');
+    throw new AssistantCapabilityUsageError(
+      'The requested metadata field update does not change the current value',
+    );
   const property = revising
     ? normalizeFieldPropertyDraft(state.fieldPropertyDraft.value)
     : fieldPropertyOf(field);
-  if (!revising) startNodeEditSession();
-  if (!fieldPlanActive.value) editSession.stageField(relationId, updated, property, stagedNewFieldKey.value);
-  if (!fieldPlanActive.value) stagedNewFieldKey.value = updated.id ? undefined : updated.fieldName;
-  fieldTitleManuallyEdited.value = Boolean(updated.title?.trim());
-  fieldNameManuallyEdited.value = true;
-  columnNameManuallyEdited.value = true;
-  editorMode.value = 'ADVANCED';
-  state.startEditField(updated, property);
-  return {
-    relationId,
-    fieldName: updated.fieldName!,
-    title: updated.title,
-    fieldSpecAlias: updated.fieldSpecAlias,
+  return () => {
+    if (!revising) startNodeEditSession();
+    if (!fieldPlanActive.value)
+      editSession.stageField(relationId, updated, property, stagedNewFieldKey.value);
+    if (!fieldPlanActive.value) stagedNewFieldKey.value = updated.id ? undefined : updated.fieldName;
+    fieldTitleManuallyEdited.value = Boolean(updated.title?.trim());
+    fieldNameManuallyEdited.value = true;
+    columnNameManuallyEdited.value = true;
+    editorMode.value = 'ADVANCED';
+    state.startEditField(updated, property);
+    return {
+      relationId,
+      fieldName: updated.fieldName!,
+      title: updated.title,
+      fieldSpecAlias: updated.fieldSpecAlias,
+    };
   };
 }
 
@@ -1191,52 +1203,65 @@ function cancelFieldPlan() {
   cancelNodeEditor();
 }
 
-function commitAssistantPropertyFieldDraft(prepared: PreparedMetadataPropertyFieldDraft) {
+function prepareAssistantPropertyFieldCommit(prepared: PreparedMetadataPropertyFieldDraft) {
   const relationId = selectedRelationId.value;
   if (!relationId || relationId !== prepared.relationId)
-    throw new Error('The selected metadata relation changed before the candidate could be opened');
+    throw new AssistantCapabilityUsageError(
+      'The selected metadata relation changed before the candidate could be opened',
+    );
   if (state.fieldEditorOpen.value || sorting.value)
-    throw new Error('Finish or cancel the current metadata editor before adding another field');
+    throw new AssistantCapabilityUsageError(
+      'Finish or cancel the current metadata editor before adding another field',
+    );
   validateAssistantNewFieldName(relationId, prepared.fieldName);
   requireEnabledFieldSpec(prepared.fieldSpecAlias);
   const { field, property } = propertyFieldEntry(prepared);
-  startNodeEditSession();
-  editSession.stageField(relationId, field, property);
-  stagedNewFieldKey.value = prepared.fieldName;
-  fieldTitleManuallyEdited.value = true;
-  fieldNameManuallyEdited.value = Boolean(prepared.fieldName);
-  columnNameManuallyEdited.value = false;
-  editorMode.value = 'ADVANCED';
-  state.startEditField(field, property);
-  return {
-    relationId,
-    kind: prepared.kind,
-    fieldName: prepared.fieldName,
-    columnName: prepared.columnName,
-    title: prepared.title,
-    fieldSpecAlias: prepared.fieldSpecAlias,
-    target:
-      prepared.kind === 'MODULE_REFERENCE'
-        ? prepared.reference!.targetModuleAlias
-        : `${prepared.dictionary!.applicationAlias}.${prepared.dictionary!.categoryAlias}`,
+  return () => {
+    startNodeEditSession();
+    editSession.stageField(relationId, field, property);
+    stagedNewFieldKey.value = prepared.fieldName;
+    fieldTitleManuallyEdited.value = true;
+    fieldNameManuallyEdited.value = Boolean(prepared.fieldName);
+    columnNameManuallyEdited.value = false;
+    editorMode.value = 'ADVANCED';
+    state.startEditField(field, property);
+    return {
+      relationId,
+      kind: prepared.kind,
+      fieldName: prepared.fieldName,
+      columnName: prepared.columnName,
+      title: prepared.title,
+      fieldSpecAlias: prepared.fieldSpecAlias,
+      target:
+        prepared.kind === 'MODULE_REFERENCE'
+          ? prepared.reference!.targetModuleAlias
+          : `${prepared.dictionary!.applicationAlias}.${prepared.dictionary!.categoryAlias}`,
+    };
   };
 }
 
 function validateAssistantNewFieldName(relationId: string, fieldName: string) {
-  if (!isPlatformFieldName(fieldName)) throw new Error('The metadata field name is invalid');
+  if (!isPlatformFieldName(fieldName))
+    throw new AssistantCapabilityUsageError('The metadata field name is invalid');
   if (isDynamicRecordReservedFieldName(fieldName))
-    throw new Error('The metadata field name is reserved by the dynamic record protocol');
+    throw new AssistantCapabilityUsageError(
+      'The metadata field name is reserved by the dynamic record protocol',
+    );
   if (
     editSession
       .fieldsForDisplay(relationId, state.allFields.value)
       .some((field) => field.fieldName?.toLowerCase() === fieldName.toLowerCase())
   )
-    throw new Error(`Metadata field “${fieldName}” already exists in the selected relation`);
+    throw new AssistantCapabilityUsageError(
+      `Metadata field “${fieldName}” already exists in the selected relation`,
+    );
 }
 
 function requireEnabledFieldSpec(alias: string) {
   if (!state.fieldSpecs.value.some((spec) => spec.enabled !== false && (spec.alias ?? spec.id) === alias))
-    throw new Error(`The required metadata field specification is unavailable: ${alias}`);
+    throw new AssistantCapabilityUsageError(
+      `The required metadata field specification is unavailable: ${alias}`,
+    );
 }
 
 function startCreateMainMetadata() {

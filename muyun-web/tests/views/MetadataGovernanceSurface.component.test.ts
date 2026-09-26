@@ -181,6 +181,89 @@ it('registers the metadata surface only after a complete load and invalidates ch
   );
 });
 
+it.each([
+  {
+    code: 'configuration.update-metadata-field-draft',
+    input: { fieldName: 'title', fieldSpecAlias: 'integer' },
+    message: 'unsafe',
+  },
+  {
+    code: 'configuration.update-metadata-field-draft',
+    input: { fieldName: 'title', title: '考试名称' },
+    message: 'does not change',
+  },
+  {
+    code: 'configuration.add-metadata-field-draft',
+    input: { fieldName: 'title', title: '重复标题', fieldSpecAlias: 'string' },
+    message: 'already exists',
+  },
+])(
+  'rejects $message before opening an editor and permits a corrected call',
+  async ({ code, input, message }) => {
+    const requests: HttpRequestOptions[] = [];
+    configureModuleContext({
+      http: {
+        request: <T>(request: HttpRequestOptions) => {
+          requests.push(request);
+          if (request.path.endsWith('/record-count'))
+            return Promise.resolve({ relationId: 'rel-main', recordCount: 1 }) as Promise<T>;
+          if (request.path === '/platform.field_spec/query')
+            return Promise.resolve({
+              records: [
+                { id: 'string', alias: 'string', title: '短文本', enabled: true },
+                { id: 'integer', alias: 'integer', title: '整数', enabled: true },
+              ],
+              pages: 1,
+              totalKnown: true,
+            }) as Promise<T>;
+          return Promise.resolve(responseFor(request) as T);
+        },
+      },
+    });
+    const registry = createAssistantSurfaceRegistry();
+    registry.activate('page-1');
+    const Harness = defineComponent({
+      setup() {
+        provideAssistantSurfaceHost({ registry, activePageInstanceKey: () => 'page-1' });
+        return () => h(MetadataGovernanceSurface, { moduleAlias: 'education.exam' });
+      },
+    });
+    const wrapper = shallowMount(Harness, {
+      global: { stubs: { ...governanceStubs(), MetadataGovernanceSurface: false } },
+    });
+    mounted.add(wrapper);
+    await flushPromises();
+    const token = registry.snapshot()!.token;
+    const tree = JSON.stringify(wrapper.findComponent({ name: 'UiTree' }).props('nodes'));
+    await expect(registry.invoke({ id: 'invalid', code, input }, token)).rejects.toMatchObject({
+      name: 'AssistantCapabilityUsageError',
+      code: 'CAPABILITY_USAGE_INVALID',
+      message: expect.stringContaining(message),
+    });
+    await flushPromises();
+    expect(registry.snapshot()!.token).toEqual(token);
+    expect(JSON.stringify(wrapper.findComponent({ name: 'UiTree' }).props('nodes'))).toBe(tree);
+    const description = await registry.invoke(
+      { id: 'describe', code: 'configuration.describe-metadata-model', input: {} },
+      token,
+    );
+    expect(description.value).toMatchObject({ draft: { editorOpen: false, dirty: false } });
+    await registry.invoke(
+      {
+        id: 'corrected',
+        code: 'configuration.update-metadata-field-draft',
+        input: { fieldName: 'title', title: '修正后标题' },
+      },
+      token,
+    );
+    await flushPromises();
+    expect(
+      wrapper.findAllComponents({ name: 'UiInput' }).some((field) => field.props('value') === '修正后标题'),
+    ).toBe(true);
+    expect(requests.some((request) => /change-set-(apply|preview)$/.test(request.path))).toBe(false);
+  },
+);
+
 it('opens an existing ordinary field as a visible assistant update candidate without applying it', async () => {
   const http = fakeHttp();
   const request = vi.spyOn(http, 'request');
