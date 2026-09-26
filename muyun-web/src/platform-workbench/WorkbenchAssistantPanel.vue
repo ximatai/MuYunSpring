@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { nextTick, ref, watch } from 'vue';
+import { computed, nextTick, ref, watch } from 'vue';
 import { UiButton, UiIcon, UiTextArea } from '@muyun/vue-ui-antdv';
-import type { AssistantSurfaceRegistry } from '@muyun/web-core';
+import type { AssistantSurfaceRegistry, AssistantConversationClient } from '@muyun/web-core';
 import ConstructionPlanCard from './ConstructionPlanCard.vue';
 import type { ConstructionPlanSession } from './constructionPlanSession';
 import AssistantMarkdownContent from './AssistantMarkdownContent.vue';
@@ -13,19 +13,24 @@ const props = defineProps<{
   open: boolean;
   registry: AssistantSurfaceRegistry;
   constructionPlan?: ConstructionPlanSession;
+  conversationClient?: AssistantConversationClient;
 }>();
 const emit = defineEmits<{ close: [] }>();
 const {
+  archive,
+  restored,
+  linkedPlanId,
   draft,
-  resumableRequest,
-  interruptedRequest,
-  reuseInterruptedRequest,
+  restoredThroughId,
+  restoredRequest,
+  recoveryRequest,
+  adjustRequest,
+  continueConversation,
   items,
   busy,
   activityText,
   operationPending,
   activeRequiredSelection,
-  reusePreviousRequest,
   submit,
   cancel,
   abandonSelection,
@@ -34,6 +39,54 @@ const {
   confirmOperation,
   cancelOperation,
 } = useAssistantConversation(props);
+const {
+  title: conversationTitle,
+  status: archiveStatus,
+  saveError,
+  readError,
+  loading: archiveLoading,
+  ready: archiveReady,
+  historyOpen,
+  entries: historyEntries,
+  hasMore,
+} = archive;
+const archiveStatusText = computed(
+  () =>
+    ({
+      idle: '尚未开始',
+      saving: '正在保存对话…',
+      saved: busy.value ? '输入已保存，回复完成后保存记录' : '对话已保存',
+      unsaved: '对话尚未保存',
+      restored: '历史对话已恢复',
+    })[archiveStatus.value],
+);
+const planRestoreError = ref('');
+const planRestoring = ref(false);
+let planRestoreEpoch = 0;
+watch([linkedPlanId, archive.id], () => {
+  planRestoreEpoch++;
+  planRestoreError.value = '';
+  planRestoring.value = false;
+});
+async function restoreLinkedPlan() {
+  if (planRestoring.value || !linkedPlanId.value || !props.constructionPlan || props.constructionPlan.dirty())
+    return;
+  const epoch = planRestoreEpoch;
+  planRestoreError.value = '';
+  planRestoring.value = true;
+  try {
+    await props.constructionPlan.restore(linkedPlanId.value);
+  } catch {
+    if (epoch === planRestoreEpoch)
+      planRestoreError.value = '关联方案暂时无法恢复，请检查当前身份和方案状态。';
+  } finally {
+    if (epoch === planRestoreEpoch) planRestoring.value = false;
+  }
+}
+const showEarlierMessages = ref(false);
+watch(restoredThroughId, () => {
+  showEarlierMessages.value = false;
+});
 const conversationElement = ref<HTMLElement>();
 const followLatest = ref(true);
 const hasNewReply = ref(false);
@@ -78,12 +131,59 @@ function close() {
       </UiButton>
     </header>
 
+    <section v-if="archive.enabled" class="assistant-panel__archive" aria-label="会话记录">
+      <strong>{{ conversationTitle }}</strong>
+      <span role="status">{{ archiveLoading ? '正在加载会话…' : archiveStatusText }}</span>
+      <small>当前身份和业务范围内保存；聊天保存不代表业务已保存。</small>
+      <div class="assistant-panel__archive-actions">
+        <UiButton :disabled="busy || archiveLoading || !archiveReady" @click="archive.list()"
+          >历史会话</UiButton
+        >
+        <UiButton :disabled="busy || archiveLoading || !archiveReady" @click="archive.startNew()"
+          >新对话</UiButton
+        >
+      </div>
+      <div v-if="saveError" role="alert">
+        {{ saveError }}
+        <UiButton :disabled="busy || archiveLoading" @click="archive.save()">重试保存</UiButton>
+        <UiButton :disabled="busy || archiveLoading" @click="archive.saveCopy()"
+          >将当前内容另存为新对话</UiButton
+        >
+      </div>
+      <UiButton v-if="saveError" :disabled="busy || archiveLoading" @click="archive.discardAndStartNew()"
+        >放弃未保存的聊天内容并新建</UiButton
+      >
+      <div v-if="readError" role="alert">
+        {{ readError.message }}
+        <UiButton :disabled="busy || archiveLoading" @click="archive.retryRead()">重试读取会话</UiButton>
+      </div>
+      <div v-if="historyOpen" class="assistant-panel__history">
+        <span>当前范围的历史会话；切换回原业务范围可找回此前对话。</span>
+        <UiButton :disabled="archiveLoading" @click="historyOpen = false">收起历史</UiButton>
+        <span v-if="!archiveLoading && !historyEntries.length">暂无已保存会话</span>
+        <UiButton
+          v-for="entry in historyEntries"
+          :key="entry.id"
+          :disabled="busy || archiveLoading"
+          @click="archive.open(entry.id)"
+        >
+          {{ entry.title }} · {{ new Date(entry.updatedAt).toLocaleString() }}
+        </UiButton>
+        <UiButton v-if="hasMore" :disabled="archiveLoading" @click="archive.list(true)">更多会话</UiButton>
+      </div>
+    </section>
     <section
       ref="conversationElement"
       class="assistant-panel__conversation"
       aria-live="polite"
       @scroll="trackConversationScroll"
     >
+      <UiButton
+        v-if="restoredThroughId"
+        :aria-expanded="showEarlierMessages"
+        @click="showEarlierMessages = !showEarlierMessages"
+        >{{ showEarlierMessages ? '收起之前的对话' : '查看之前的对话' }}</UiButton
+      >
       <ConstructionPlanCard v-if="constructionPlan" :session="constructionPlan" :disabled="busy" />
       <div v-if="items.length === 0" class="assistant-panel__welcome">
         <strong>我可以帮你操作当前工作区</strong>
@@ -92,6 +192,7 @@ function close() {
       <article
         v-for="item in items"
         :key="item.id"
+        v-show="item.id > restoredThroughId || showEarlierMessages"
         class="assistant-message"
         :class="`assistant-message--${item.role}`"
       >
@@ -150,24 +251,50 @@ function close() {
           </details>
         </template>
       </article>
-      <div v-if="interruptedRequest && !busy" class="assistant-panel__welcome">
-        <span>已有内容保留。带回原请求后可补充说明，再继续处理；不会自动重做保存。</span>
-        <UiButton @click="reuseInterruptedRequest">带回这条请求</UiButton>
-      </div>
-      <div v-if="resumableRequest && !busy" class="assistant-panel__welcome">
-        <span>范围已变更。可将上一条输入带回编辑框，检查后重新发送。</span>
-        <UiButton @click="reusePreviousRequest">复用上一条输入</UiButton>
-      </div>
       <div v-if="busy" class="assistant-panel__working">{{ activityText }}</div>
     </section>
 
     <footer class="assistant-panel__composer">
+      <div v-if="restored" class="assistant-panel__welcome" aria-label="继续会话">
+        <strong>需求和讨论已保留，可以接着处理。</strong>
+        <span v-if="restoredRequest" class="assistant-panel__last-request"
+          >上次提出的需求：{{ restoredRequest }}</span
+        >
+        <span>未保存草稿和旧确认按钮没有恢复。继续操作时会重新读取当前业务状态。</span>
+        <div class="assistant-panel__archive-actions">
+          <UiButton
+            :disabled="busy || archiveLoading || Boolean(draft.trim()) || !registry.snapshot()"
+            @click="continueConversation"
+            >继续处理</UiButton
+          >
+          <UiButton :disabled="busy || archiveLoading || Boolean(draft.trim())" @click="adjustRequest"
+            >调整需求</UiButton
+          >
+        </div>
+        <small>继续处理会先核实进度并建议下一步，保存仍需重新确认。</small>
+        <UiButton
+          v-if="linkedPlanId && constructionPlan"
+          :disabled="busy || planRestoring || constructionPlan.dirty()"
+          @click="restoreLinkedPlan"
+          >{{ planRestoring ? '正在读取关联方案…' : '查看关联的已保存建设方案' }}</UiButton
+        >
+        <span v-if="planRestoreError" role="alert">{{ planRestoreError }}</span>
+        <span v-if="linkedPlanId && constructionPlan?.dirty()"
+          >当前建设方案有未确认修改，请先处理后再切换方案。</span
+        >
+      </div>
+      <div v-if="recoveryRequest && !busy" class="assistant-panel__welcome">
+        <span>本轮已暂停。已有内容保留，可调整需求后继续；切换业务范围后请核对操作对象。</span>
+        <UiButton :disabled="archiveLoading || Boolean(draft.trim())" @click="adjustRequest"
+          >调整需求</UiButton
+        >
+      </div>
       <UiButton v-if="hasNewReply && !followLatest" @click="showLatest">查看最新回复</UiButton>
       <UiTextArea
         v-model:value="draft"
         :rows="3"
         :maxlength="4000"
-        :disabled="busy || Boolean(activeRequiredSelection)"
+        :disabled="busy || archiveLoading || Boolean(activeRequiredSelection)"
         :placeholder="activeRequiredSelection ? '请先完成上方选择' : '描述你想完成的事情'"
         @keydown="handleKeydown"
       />
@@ -189,6 +316,31 @@ function close() {
 </template>
 
 <style scoped>
+.assistant-panel__archive {
+  min-height: 0;
+  max-height: 40vh;
+  overflow: auto;
+  display: grid;
+  gap: 6px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--muyun-support-border);
+}
+.assistant-panel__archive-actions {
+  display: flex;
+  gap: 8px;
+}
+.assistant-panel__history {
+  display: grid;
+  gap: 6px;
+  max-height: 220px;
+  overflow: auto;
+}
+.assistant-panel__history :deep(button) {
+  white-space: normal;
+  height: auto;
+  text-align: left;
+}
+
 .assistant-panel {
   position: relative;
   min-width: 0;
@@ -199,6 +351,17 @@ function close() {
   grid-template-rows: auto minmax(0, 1fr) auto;
   border-left: 1px solid var(--muyun-support-border);
   background: var(--muyun-support-surface);
+}
+
+.assistant-panel:has(> .assistant-panel__archive) {
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+}
+.assistant-panel__archive > strong {
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow-wrap: anywhere;
 }
 
 .assistant-panel__header,
@@ -277,6 +440,12 @@ function close() {
   font-size: 12px;
 }
 
+.assistant-panel__last-request {
+  max-height: 4.8em;
+  overflow: auto;
+  white-space: pre-wrap;
+}
+
 .assistant-panel__composer {
   display: grid;
   gap: 8px;
@@ -287,9 +456,7 @@ function close() {
 .assistant-panel__actions span {
   min-width: 0;
 }
-</style>
 
-<style scoped>
 .assistant-message:has(.assistant-confirmation__details) {
   max-width: 100%;
 }

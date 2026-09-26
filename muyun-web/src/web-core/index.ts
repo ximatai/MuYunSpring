@@ -17,3 +17,5 @@ export * from './module/index';
 export * from './assistantConfirmation';
 
 export * from './constructionPlanClient';
+
+export * from './assistantConversationClient';

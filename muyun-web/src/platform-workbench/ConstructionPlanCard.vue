@@ -141,7 +141,10 @@ async function run(action: () => unknown) {
       :key="object.objectKey"
       aria-label="建设任务"
     >
-      <p>{{ object.title }}：{{ object.nextAction }}</p>
+      <p>{{ object.title }}：{{ object.complete ? '当前配置已验收' : '可继续处理的事项' }}</p>
+      <ul v-if="!object.complete">
+        <li v-for="option in object.options" :key="option.action">{{ option.explanation }}</li>
+      </ul>
       <details>
         <summary>逐项核对本期要求</summary>
         <p v-for="(item, index) in object.requirements" :key="index">

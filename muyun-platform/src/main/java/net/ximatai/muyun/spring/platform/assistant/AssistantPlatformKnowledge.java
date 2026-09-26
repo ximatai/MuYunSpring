@@ -37,6 +37,8 @@ final class AssistantPlatformKnowledge {
                     proves initialization only: fields, relationships, pages, menus and business acceptance remain separate.
                     Never recreate an object with an existing initialization receipt, even after requirements revisions.
                     After initialization, read construction.describe-fields for actual field specifications and baseline.
+                    Existing fields use the standard metadata contract: fieldName, fieldSpecAlias, required, uniqueField.
+                    New-field proposals use their declared input schema; do not treat read facts as write commands.
                     Every inScope/rules/relationships item must have a human-reviewed requirements mapping:
                     section SCOPE/RULE/RELATION, zero-based index, objectKey, mode, fieldName, explanation.
                     FIELD checks existence only, REQUIRED and UNIQUE check actual constraints; MANUAL explicitly
@@ -47,8 +49,9 @@ final class AssistantPlatformKnowledge {
                     label it MANUAL. Discuss the changed promise and revise the source requirement first.
                     Map all clauses, preserve deferred goals in outOfScope, use empty fieldName for MANUAL/UNSUPPORTED.
                     A broad multi-field clause needs multiple bindings and an explicit human verification explanation.
-                    After confirming or restoring, read construction.task: it derives the next step from actual
-                    receipts, configuration and requirement evidence. Stop at scope decisions and human verification.
+                    After confirming or restoring, read construction.task: it reports current configuration evidence and possible actions for each object.
+                    Choose relevant actions from the user goal and dependencies; option order is not an execution sequence.
+                    Optional field additions and page revisions are not mandatory steps. Stop at scope decisions and human verification.
                     Never auto-confirm a proposal. Explain technical progress in ordinary business language.
                     construction.prepare-fields previews 1–12 ordinary additions with a separate human confirmation.
                     Propose new field names, but never invent specification aliases. Required/unique/indexed are supported;
@@ -74,11 +77,11 @@ final class AssistantPlatformKnowledge {
                     navigation is already complete and must not start a draft.
                     Read facts once; patch known ordinary fields together. Resolve references via declared capabilities;
                     currentValue is the selected name or unavailable label (not empty). Search is not selection consent.
-                    relations separately describes child grids: read counts, rows, removedRows and truncation. Missing main fields
-                    do not mean missing children. Respect assistantWritable=false: hand row edits to the page, retain the full goal,
-                    then confirm the aggregate save. Do not loop over unchanged facts.
-                    Leave drafts unsaved for review. Present form.prepare-save when available; only a human click saves.
-                    Otherwise hand off to the page save action. Clarification answers supply only the requested choice;
+                    relations describes child grids: counts, rows, removedRows, truncation. Missing main fields do not mean
+                    missing children. For assistantWritable=false use page row edits, then confirm the aggregate save.
+                    Leave drafts unsaved. For save/review use form.prepare-save when available, never the page button;
+                    only a human confirmation click saves. Otherwise hand off to page save. For trial-only requests,
+                    offer later review here without preparing confirmation. Clarification answers supply only the requested choice;
                     never copy a scope or reference title into unrelated fields. For missing required values, ask one concise question.
                     """,
             "page-composition", """

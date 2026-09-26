@@ -790,3 +790,16 @@ function referenceControlTypeOf(
   }
   return reference.cardinality === 'MANY' ? 'recordMultiPicker' : 'recordPicker';
 }
+
+export function referenceDisplayProjections(
+  reference: RecordFormFieldDescriptor['reference'],
+  record: import('./recordPickerConstraints').RecordPickerRecord | undefined,
+) {
+  if (!record) return {};
+  const projections = { ...(record.projections ?? {}) };
+  for (const projection of reference?.displayProjections ?? []) {
+    const value = (record as Record<string, unknown>)[projection.targetField];
+    if (value !== undefined) projections[projection.outputField] = value;
+  }
+  return projections;
+}

@@ -11,6 +11,7 @@ import net.ximatai.muyun.spring.common.platform.ActionExecutionContext;
 import net.ximatai.muyun.spring.common.platform.ActionExecutionPolicyService;
 import net.ximatai.muyun.spring.common.tenant.TenantContext;
 import net.ximatai.muyun.spring.platform.menu.*;
+import net.ximatai.muyun.spring.platform.metadata.MetadataField;
 import net.ximatai.muyun.spring.platform.runtime.DynamicRuntimeActivationService;
 import net.ximatai.muyun.spring.platform.ui.*;
 import org.springframework.stereotype.Service;
@@ -90,13 +91,13 @@ public class ApplicationConstructionDeliveryService {
             var lines = new ArrayList<String>();
             Object baseline;
             if (proposal.kind() == Kind.PAGE) {
-                var byName = new LinkedHashMap<String, ApplicationConstructionFieldService.Field>();
-                description.fields().forEach(field -> byName.put(field.name(), field));
+                var byName = new LinkedHashMap<String, MetadataField>();
+                description.fields().forEach(field -> byName.put(field.getFieldName(), field));
                 for (String name : java.util.stream.Stream.of(proposal.listFields(), proposal.formFields(), proposal.searchFields()).flatMap(List::stream).toList())
                     if (!byName.containsKey(name)) throw new IllegalArgumentException("字段不在实际目录中：" + name);
                 for (var field : description.fields()) {
-                    if (field.required() && !SYSTEM_FIELDS.contains(field.name()) && !proposal.formFields().contains(field.name()))
-                        throw new IllegalArgumentException("表单必须包含必填字段：" + field.title());
+                    if (Boolean.TRUE.equals(field.getRequired()) && !SYSTEM_FIELDS.contains(field.getFieldName()) && !proposal.formFields().contains(field.getFieldName()))
+                        throw new IllegalArgumentException("表单必须包含必填字段：" + field.getTitle());
                 }
                 var requiredInputs = requiredInputs(plan.content(), proposal.objectKey());
                 if (!proposal.formFields().containsAll(requiredInputs))
@@ -212,45 +213,51 @@ public class ApplicationConstructionDeliveryService {
                     List.copyOf(remaining), receipts.list(Criteria.of().eq("planId", planId).eq("objectKey", objectKey)).stream().map(ApplicationConstructionDeliveryService::receipt).toList(), evidence);
         }
     }
-    public enum TaskStage { REVIEW_REQUIREMENTS, INITIALIZE, VERIFY_RUNTIME, CONFIGURE_FIELDS, REVIEW_CONFIGURATION, PUBLISH_PAGE, CREATE_ENTRY, VERIFY_BUSINESS, COMPLETE }
-    public record TaskObject(String objectKey, String title, TaskStage stage, String nextAction,
+    /** Planning choices are not execution grants; every proposal is still preflighted and confirmed. */
+    public enum TaskAction { REVIEW_REQUIREMENTS, INITIALIZE, VERIFY_RUNTIME, CONFIGURE_FIELDS, REVIEW_CONFIGURATION, PUBLISH_PAGE, CREATE_ENTRY, VERIFY_BUSINESS }
+    public record TaskOption(TaskAction action, String explanation) {}
+    public record TaskObject(String objectKey, String title, boolean complete, List<TaskOption> options,
                              List<ApplicationConstructionRequirements.Evidence> requirements) {}
     public record Task(int planRevision, List<TaskObject> objects) {}
 
-    /** A recoverable cursor derived from durable receipts and current configuration; never stored completion flags. */
+    /** Recompute choices from current facts. No persisted cursor or prescribed order across objects. */
     public Task task(String planId) {
         requireOperator();
         var plan = plans.read(planId);
         var objects = new ArrayList<TaskObject>();
         for (var object : plan.content().objects()) {
-            var initial = plan.initializations().stream().filter(item -> item.objectKey().equals(object.key())).findFirst();
+            boolean initialized = plan.initializations().stream().anyMatch(item -> item.objectKey().equals(object.key()));
             var evidence = ApplicationConstructionRequirements.evaluate(plan.content(), object.key(), List.of());
-            TaskStage stage;
-            String next;
+            var options = new ArrayList<TaskOption>();
+            boolean complete = false;
             if (ApplicationConstructionRequirements.blocked(evidence) || !plan.content().questions().isEmpty()) {
-                stage = TaskStage.REVIEW_REQUIREMENTS; next = "先逐项商定本期兑现方式；不支持项须调整范围后重新确认";
-            } else if (initial.isEmpty()) {
-                stage = TaskStage.INITIALIZE; next = "准备建立独立登记表的确认，尚不能录入业务";
+                options.add(new TaskOption(TaskAction.REVIEW_REQUIREMENTS, "先商定本期兑现方式与未决问题"));
+            } else if (!initialized) {
+                options.add(new TaskOption(TaskAction.INITIALIZE, "准备建立此业务对象，尚不能录入业务"));
             } else {
                 var progress = progress(planId, object.key());
                 evidence = progress.requirements();
+                complete = progress.acceptanceConfirmed();
                 if (!"ACTIVE".equals(progress.runtimeStatus())) {
-                    stage = TaskStage.VERIFY_RUNTIME; next = "已提交配置，先核实可用状态；不要重复创建";
-                } else if (ApplicationConstructionRequirements.missingConfiguration(evidence)) {
-                    stage = TaskStage.CONFIGURE_FIELDS; next = "读取实际登记内容，对照尚缺的配置证据准备变更；不能用普通文本替代固定选项或自动规则";
-                } else if (progress.needsReview()) {
-                    stage = TaskStage.REVIEW_CONFIGURATION; next = "需求或配置已变化，核对现有结果后准备受治理修订，保留已经生效的内容";
-                } else if (!progress.pagePublished()) {
-                    stage = TaskStage.PUBLISH_PAGE; next = "依据实际字段准备可录入和查询的页面确认";
-                } else if (!progress.entryVisible()) {
-                    stage = TaskStage.CREATE_ENTRY; next = "核实已有入口后准备访问入口确认；不自动授权";
-                } else if (!progress.acceptanceConfirmed()) {
-                    stage = TaskStage.VERIFY_BUSINESS; next = "在用户选定的业务数据范围实际试用，并核对人工项；不能自动确认验收";
-                } else {
-                    stage = TaskStage.COMPLETE; next = "当前配置基线已人工验收，后续变更须重新核对";
+                    options.add(new TaskOption(TaskAction.VERIFY_RUNTIME, "先核实已提交配置的可用状态，不重复创建"));
+                } else if (!complete) {
+                    boolean missing = ApplicationConstructionRequirements.missingConfiguration(evidence);
+                    options.add(new TaskOption(TaskAction.CONFIGURE_FIELDS, missing
+                            ? "对照尚缺的配置证据补齐登记内容" : "如本期内容仍需补充，可准备字段变更；无需为推进进度额外增加字段"));
+                    if (progress.needsReview())
+                        options.add(new TaskOption(TaskAction.REVIEW_CONFIGURATION, "核对需求与配置变化，保留已生效成果"));
+                    if (!missing) {
+                        options.add(new TaskOption(TaskAction.PUBLISH_PAGE, progress.pagePublished()
+                                ? "如需调整页面，可准备新修订；已有页面无需重复发布" : "依据实际字段准备录入和查询页面"));
+                        if (progress.pagePublished() && !progress.needsReview()) {
+                            if (!progress.entryVisible())
+                                options.add(new TaskOption(TaskAction.CREATE_ENTRY, "核实已有入口后准备访问入口，不自动授权"));
+                            else options.add(new TaskOption(TaskAction.VERIFY_BUSINESS, "实际试用并核对人工项，再由用户确认验收"));
+                        }
+                    }
                 }
             }
-            objects.add(new TaskObject(object.key(), object.name(), stage, next, evidence));
+            objects.add(new TaskObject(object.key(), object.name(), complete, List.copyOf(options), evidence));
         }
         return new Task(plan.revision(), List.copyOf(objects));
     }
@@ -398,7 +405,7 @@ public class ApplicationConstructionDeliveryService {
             throw new IllegalArgumentException("页面字段必须来自实际目录，每个区域最多 40 项且不能重复");
         return List.copyOf(names);
     }
-    private static String titles(List<String> names, Map<String, ApplicationConstructionFieldService.Field> fields) { return String.join("、", names.stream().map(name -> fields.get(name).title()).toList()); }
+    private static String titles(List<String> names, Map<String, MetadataField> fields) { return String.join("、", names.stream().map(name -> fields.get(name).getTitle()).toList()); }
     private static void requireRequestId(String value) { if (value == null || !value.matches("[a-zA-Z0-9-]{16,80}")) throw new IllegalArgumentException("确认标识格式无效"); }
     private static String json(Object value) { try { return JSON.writeValueAsString(value); } catch (Exception error) { throw new IllegalArgumentException("建设参数无效", error); } }
     private static String digest(String value) { try { return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(value.getBytes(StandardCharsets.UTF_8))); } catch (Exception error) { throw new IllegalStateException(error); } }

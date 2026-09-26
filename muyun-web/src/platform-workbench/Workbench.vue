@@ -14,6 +14,7 @@ import {
   provideAssistantSurfaceHost,
   type AssistantTurnRequester,
   type ConstructionPlanClient,
+  type AssistantConversationClient,
   userPreferences,
 } from '@muyun/web-core';
 import { createConstructionPlanSession } from './constructionPlanSession';
@@ -42,6 +43,7 @@ const props = withDefaults(
     realtimeStatus?: WorkbenchRealtimeStatus;
     themeAppearance?: 'light' | 'dark';
     constructionPlanClient?: ConstructionPlanClient;
+    assistantConversationClient?: AssistantConversationClient;
     assistantRequestTurn?: AssistantTurnRequester;
     assistantWaitForPageReady?: () => Promise<string>;
   }>(),
@@ -609,6 +611,7 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
       :open="assistantOpen"
       :registry="assistantSurfaceRegistry"
       :construction-plan="constructionPlan"
+      :conversation-client="assistantConversationClient"
       @close="assistantOpen = false"
     />
   </div>

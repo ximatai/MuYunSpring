@@ -472,7 +472,9 @@ final class OpenAiCompatibleModelClient implements AiModelClient {
         try {
             byte[] digest = java.security.MessageDigest.getInstance("SHA-256")
                     .digest(code.getBytes(StandardCharsets.UTF_8));
-            return "cap_" + java.util.HexFormat.of().formatHex(digest).substring(0, 56);
+            String readable = code.replaceAll("[^a-zA-Z0-9_-]", "_");
+            if (readable.length() > 47) readable = readable.substring(0, 47);
+            return "cap_" + readable + "_" + java.util.HexFormat.of().formatHex(digest).substring(0, 12);
         } catch (java.security.NoSuchAlgorithmException error) {
             throw new IllegalStateException(error);
         }

@@ -1433,3 +1433,70 @@ it.each([
   );
   expect(JSON.stringify(result.results)).not.toContain('private');
 });
+
+it.each([false, true])(
+  'enforces read-only policy in discovery and dispatch (stream=%s)',
+  async (streaming) => {
+    const mutate = vi.fn(async () => ({}));
+    const prepare = vi.fn(async () => ({}));
+    const inspect = vi.fn(async () => ({ count: 1 }));
+    const requestTurn = vi
+      .fn()
+      .mockResolvedValueOnce({
+        toolCalls: [
+          { id: 'read', code: 'inspect', input: {} },
+          { id: 'write', code: 'patch', input: {} },
+          { id: 'confirm', code: 'prepare', input: {} },
+        ],
+      })
+      .mockResolvedValue({ text: '只读取了当前进度', toolCalls: [] });
+    const registry = createAssistantSurfaceRegistry();
+    registry.register({
+      pageInstanceKey: 'policy-test',
+      contextRevision: () => '1',
+      surface: {
+        describe: () => ({ surface: 'workbench', facts: {} }),
+        capabilities: () => [
+          {
+            effect: 'read',
+            descriptor: { code: 'inspect', description: '', inputSchema: {} },
+            parseInput: (input) => input,
+            execute: inspect,
+          },
+          {
+            effect: 'draft',
+            descriptor: { code: 'patch', description: '', inputSchema: {} },
+            parseInput: (input) => input,
+            execute: mutate,
+          },
+          {
+            effect: 'read',
+            descriptor: { code: 'prepare', description: '', inputSchema: {} },
+            parseInput: (input) => input,
+            execute: prepare,
+            propose: () => {
+              throw new Error('must not propose');
+            },
+          },
+        ],
+        requestTurn,
+      },
+    });
+    registry.activate('policy-test');
+    const result = await runAssistantConversation(registry, '核实进度', {
+      executionPolicy: { readOnly: true },
+      ...(streaming ? { onTextDelta: vi.fn() } : {}),
+    });
+    expect(requestTurn.mock.calls[0]![0].capabilities.map((entry: { code: string }) => entry.code)).toEqual([
+      'inspect',
+    ]);
+    expect(inspect).toHaveBeenCalledOnce();
+    expect(mutate).not.toHaveBeenCalled();
+    expect(prepare).not.toHaveBeenCalled();
+    expect(
+      result.steps[0]!.results.filter((entry) => entry.error?.code === 'PRECONDITION_FAILED'),
+    ).toHaveLength(2);
+    await runAssistantConversation(registry, '正常讨论');
+    expect(requestTurn.mock.calls.at(-1)![0].capabilities).toHaveLength(3);
+  },
+);

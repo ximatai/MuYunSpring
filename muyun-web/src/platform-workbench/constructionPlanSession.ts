@@ -565,7 +565,7 @@ export function createConstructionPlanSession(
           ...propose(output),
           continuation: {
             message:
-              '平台续接：上一项已经确认成功。先读取 construction.task，依据真实任务进度核实结果并准备下一步；不要重复提交已完成节点。新的写入仅准备确认，遇到范围取舍或人工业务核验时停下询问用户。',
+              '平台续接：上一项已经确认成功。先读取 construction.task，依据真实配置证据和用户目标选择相关后续动作，不将选项顺序当作执行顺序；不要重复提交已完成节点。新的写入仅准备确认，遇到范围取舍或人工业务核验时停下询问用户。',
             isCurrent: () =>
               current().saved?.planId === planId &&
               current().saved?.revision === revision &&
@@ -587,9 +587,14 @@ export function createConstructionPlanSession(
       parseInput: parseEmptyAssistantCapabilityInput,
       execute,
     });
+    const value = current();
+    const canBuild =
+      initializationAvailable() && !!value.saved && !dirty() && !value.reviewRequired && !manualEditing.value;
     const result: AssistantCapability[] = [
-      ...(initializationAvailable() ? [...fieldCapabilities, ...deliveryCapabilities] : []),
-      ...(initializationAvailable()
+      ...(canBuild && value.saved!.initializations.length
+        ? [...fieldCapabilities, ...deliveryCapabilities]
+        : []),
+      ...(canBuild
         ? createConstructionInitializationCapabilities(
             client,
             () => {
@@ -621,18 +626,19 @@ export function createConstructionPlanSession(
             },
           )
         : []),
-      ...(initializationAvailable()
+      ...(canBuild
         ? [
             {
               ...empty(
                 'construction.task',
-                'Read the durable construction task, verified requirement evidence and next action. Always read this after confirmation or restoring a plan; do not repeat completed writes.',
+                'Read current requirement evidence and possible next actions for every object. Choose relevant actions from the user goal and actual dependencies; list order is not an execution sequence or authorization. Do not repeat completed writes.',
                 readTask,
               ),
               present: (result: unknown) => ({
                 title: '接下来要做的事',
                 lines: (result as ConstructionTask).objects.map(
-                  (item) => `${item.title}：${item.nextAction}`,
+                  (item) =>
+                    `${item.title}：${item.complete ? '当前配置已验收' : item.options.map((option) => option.explanation).join('；')}`,
                 ),
               }),
             },

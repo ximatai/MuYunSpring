@@ -1,4 +1,5 @@
 <script lang="ts">
+import { provideRelationDraftRegistry } from './relationDraftController';
 import type { CrudRecordListBase, QueryListRecord } from '@muyun/platform-components';
 
 import {
@@ -97,6 +98,7 @@ export default defineComponent({
       },
       { flush: 'sync' },
     );
+    provideRelationDraftRegistry(() => props.session.relationDrafts);
     providePageLayout(() => props.session.pageLayout);
     provideReferenceRecordDetailBrowser({
       get revision() {
