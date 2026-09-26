@@ -830,58 +830,66 @@ it('shows safe rejection reasons without exposing unexpected execution errors', 
   expect(wrapper.text()).not.toContain('private database failure');
 });
 
-it('keeps a pending approval during questions and exposes only its frozen review content', async () => {
-  let current = true;
-  const execute = vi.fn().mockResolvedValue({ title: '已完成', lines: [] });
-  const requestTurn = vi
-    .fn()
-    .mockResolvedValueOnce({ toolCalls: [{ id: 'prepare', code: 'form.prepare-save', input: {} }] })
-    .mockResolvedValueOnce({ text: '确认后才会保存这一条记录。', toolCalls: [] });
-  const registry = createRegistryWithCapabilities(requestTurn, [
-    {
-      effect: 'read',
-      descriptor: { code: 'form.prepare-save', description: 'Prepare', inputSchema: {} },
-      parseInput: (input) => input,
-      async execute() {
-        return {};
-      },
-      propose: () => ({
-        presentation: {
-          title: '保存订单',
-          lines: ['订单：小林'],
-          details: { title: '完整内容', lines: ['备注：不要糖'] },
+it.each([undefined, '保存当前单据，尚未执行。'])(
+  'keeps pending approval questions separate from human review content (%s)',
+  async (modelSummary) => {
+    let current = true;
+    const execute = vi.fn().mockResolvedValue({ title: '已完成', lines: [] });
+    const requestTurn = vi
+      .fn()
+      .mockResolvedValueOnce({ toolCalls: [{ id: 'prepare', code: 'form.prepare-save', input: {} }] })
+      .mockResolvedValueOnce({ text: '确认后才会保存这一条记录。', toolCalls: [] });
+    const registry = createRegistryWithCapabilities(requestTurn, [
+      {
+        effect: 'read',
+        descriptor: { code: 'form.prepare-save', description: 'Prepare', inputSchema: {} },
+        parseInput: (input) => input,
+        async execute() {
+          return {};
         },
-        expiresAt: Date.now() + 60000,
-        isCurrent: () => current,
-        execute,
-        lookup: async () => undefined,
-      }),
-    },
-  ]);
-  const wrapper = mount(WorkbenchAssistantPanel, { props: { open: true, registry } });
-  await wrapper.get('textarea').setValue('帮我记下来');
-  await wrapper.get('.assistant-panel__actions button').trigger('click');
-  await flushPromises();
-  await wrapper.get('textarea').setValue('点完会发生什么？');
-  await wrapper.get('.assistant-panel__actions button').trigger('click');
-  await flushPromises();
-  expect(wrapper.text()).not.toContain('已取消本次确认');
-  expect(wrapper.findAll('button').some((button) => button.text() === '确认保存')).toBe(true);
-  expect(requestTurn.mock.calls[1]![0].history).toContainEqual(
-    expect.objectContaining({ text: expect.stringContaining('平台待确认内容（尚未执行') }),
-  );
-  expect(execute).not.toHaveBeenCalled();
-  expect(wrapper.get('details').attributes('open')).toBeUndefined();
-  current = false;
-  await wrapper
-    .findAll('button')
-    .find((button) => button.text() === '确认保存')!
-    .trigger('click');
-  await flushPromises();
-  expect(execute).not.toHaveBeenCalled();
-  expect(wrapper.text()).toContain('内容或范围已变化');
-  wrapper.unmount();
-});
+        propose: () => ({
+          modelSummary,
+          presentation: {
+            title: '保存订单',
+            lines: ['订单：小林'],
+            details: { title: '完整内容', lines: ['备注：不要糖'] },
+          },
+          expiresAt: Date.now() + 60000,
+          isCurrent: () => current,
+          execute,
+          lookup: async () => undefined,
+        }),
+      },
+    ]);
+    const wrapper = mount(WorkbenchAssistantPanel, { props: { open: true, registry } });
+    await wrapper.get('textarea').setValue('帮我记下来');
+    await wrapper.get('.assistant-panel__actions button').trigger('click');
+    await flushPromises();
+    await wrapper.get('textarea').setValue('点完会发生什么？');
+    await wrapper.get('.assistant-panel__actions button').trigger('click');
+    await flushPromises();
+    expect(wrapper.text()).not.toContain('已取消本次确认');
+    expect(wrapper.findAll('button').some((button) => button.text() === '确认保存')).toBe(true);
+    expect(requestTurn.mock.calls[1]![0].history).toContainEqual(
+      expect.objectContaining({ text: expect.stringContaining('平台待确认内容（尚未执行') }),
+    );
+    const modelRequest = JSON.stringify(requestTurn.mock.calls[1]![0]);
+    expect(modelRequest).toContain(modelSummary ?? '有一项操作等待用户确认，尚未执行。');
+    for (const humanOnly of ['保存订单', '小林', '不要糖']) expect(modelRequest).not.toContain(humanOnly);
+    expect(wrapper.text()).toContain('订单：小林');
+    expect(execute).not.toHaveBeenCalled();
+    expect(wrapper.get('details').attributes('open')).toBeUndefined();
+    current = false;
+    await wrapper
+      .findAll('button')
+      .find((button) => button.text() === '确认保存')!
+      .trigger('click');
+    await flushPromises();
+    expect(execute).not.toHaveBeenCalled();
+    expect(wrapper.text()).toContain('内容或范围已变化');
+    wrapper.unmount();
+  },
+);
 
 it('offers explicit request recovery for model failures without repeating a save', async () => {
   const requestTurn = vi

@@ -154,3 +154,12 @@ it('offers a trusted continuation once, only after a known receipt in the origin
   expect(confirmation.takeContinuation()).toBeUndefined();
   expect(f.proposal.execute).toHaveBeenCalledOnce();
 });
+
+it('freezes the explicit model summary without falling back to human presentation', () => {
+  const { proposal, confirmation, scope } = fixture();
+  expect(confirmation.modelSummary).toBe('有一项操作等待用户确认，尚未执行。');
+  proposal.modelSummary = '保存当前表单，尚未执行。';
+  const explicit = createAssistantOperationConfirmation(proposal, scope, () => 10);
+  proposal.modelSummary = '后来改写的摘要';
+  expect(explicit.modelSummary).toBe('保存当前表单，尚未执行。');
+});

@@ -2,7 +2,7 @@ package net.ximatai.muyun.spring.demo.school.test;
 
 import net.ximatai.muyun.spring.boot.MuYunSpringApplication;
 import net.ximatai.muyun.spring.platform.application.*;
-import net.ximatai.muyun.spring.platform.metadata.MetadataService;
+import net.ximatai.muyun.spring.platform.metadata.*;
 import net.ximatai.muyun.database.core.IDatabaseOperations;
 import net.ximatai.muyun.spring.common.identity.CurrentUser;
 import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
@@ -41,6 +41,8 @@ class ConstructionFieldsIT {
     @Autowired ApplicationConstructionFieldService constructionFields;
     @Autowired ApplicationConstructionDeliveryService delivery;
     @Autowired MetadataService metadataService;
+    @Autowired MetadataModelChangeSetPreviewService metadataPreviews;
+    @Autowired MetadataModelChangeSetApplyService metadataPublisher;
     @Autowired net.ximatai.muyun.spring.iam.tenant.TenantService tenants;
     @Autowired net.ximatai.muyun.spring.dynamic.runtime.DynamicRecordService dynamicRecords;
     @Autowired IDatabaseOperations<?> constructionDatabase;
@@ -48,6 +50,47 @@ class ConstructionFieldsIT {
     @Autowired WebApplicationContext webApplicationContext;
     @Autowired net.ximatai.muyun.spring.platform.web.PlatformModuleRuntimeContextService runtimeContexts;
     @Autowired net.ximatai.muyun.spring.platform.ui.PlatformPageDefinitionService constructionPages;
+
+    @Test void recognizesStandardMetadataPublicationWithoutAssistantFieldReceipts() {
+        String planId = UUID.randomUUID().toString().replace("-", "");
+        var content = new ApplicationConstructionPlanContent("订单", "登记订单", List.of("登记订单号"), List.of(),
+                List.of(new ApplicationConstructionPlanContent.BusinessObject("entry", "订单", "登记")),
+                List.of(), List.of(), List.of(), List.of(), List.of(), List.of("录入订单号"),
+                List.of(new ApplicationConstructionRequirement(ApplicationConstructionRequirement.Section.SCOPE, 0,
+                        "entry", ApplicationConstructionRequirement.Mode.REQUIRED, "orderNumber", "订单号必填")));
+        try (var identity = CurrentUserContext.use(CurrentUser.systemUser("construction-admin", "建设管理员"))) {
+            constructionPlans.confirm(planId, new ApplicationConstructionPlanService.ConfirmCommand(UUID.randomUUID().toString(), 0, content));
+            var initial = new ApplicationConstructionInitializationService.Proposal(1, "entry", "manual" + planId.substring(0, 12), "订单应用", "registration_records");
+            construction.confirm(planId, new ApplicationConstructionInitializationService.ConfirmCommand(
+                    UUID.randomUUID().toString(), initial, construction.preview(planId, initial).fingerprint()));
+            assertThat(delivery.task(planId).objects().getFirst().stage()).isEqualTo(ApplicationConstructionDeliveryService.TaskStage.CONFIGURE_FIELDS);
+            var binding = constructionPlans.read(planId).initializations().getFirst();
+            var description = constructionFields.describe(planId, "entry");
+            var field = new MetadataField();
+            field.setMetadataId(binding.metadataId()); field.setFieldName("orderNumber"); field.setColumnName("order_number");
+            field.setTitle("订单号"); field.setRequired(true);
+            field.setFieldSpecAlias(description.specs().stream().filter(spec -> spec.type().equals("STRING")).findFirst().orElseThrow().alias());
+            var changeSet = new MetadataModelChangeSetPreviewCommand(List.of(new MetadataModelRelationChangeSetDraft(
+                    binding.relationId(), description.metadataVersion(), java.util.Map.of(),
+                    List.of(new MetadataFieldChangeSetDraft(MetadataFieldChangeSetDraft.Operation.ADD, null, null, field)))), List.of(), List.of());
+            var preview = metadataPreviews.preview(binding.moduleAlias(), changeSet);
+            metadataPublisher.apply(binding.moduleAlias(), new MetadataModelChangeSetApplyCommand(changeSet, preview.proposalFingerprint()));
+            assertThat(constructionPlans.read(planId).fieldChanges()).isEmpty();
+            assertThat(delivery.task(planId).objects().getFirst().stage()).isEqualTo(ApplicationConstructionDeliveryService.TaskStage.PUBLISH_PAGE);
+            var page = new ApplicationConstructionDeliveryService.Proposal(1, "entry", ApplicationConstructionDeliveryService.Kind.PAGE,
+                    "订单登记", List.of("orderNumber"), List.of("orderNumber"), List.of("orderNumber"));
+            delivery.confirm(planId, new ApplicationConstructionDeliveryService.Command(UUID.randomUUID().toString(), page, delivery.preview(planId, page).fingerprint()));
+            assertThat(delivery.task(planId).objects().getFirst().stage()).isEqualTo(ApplicationConstructionDeliveryService.TaskStage.CREATE_ENTRY);
+            var entry = new ApplicationConstructionDeliveryService.Proposal(1, "entry", ApplicationConstructionDeliveryService.Kind.ENTRY,
+                    "订单登记", List.of(), List.of(), List.of());
+            delivery.confirm(planId, new ApplicationConstructionDeliveryService.Command(UUID.randomUUID().toString(), entry, delivery.preview(planId, entry).fingerprint()));
+            assertThat(delivery.task(planId).objects().getFirst().stage()).isEqualTo(ApplicationConstructionDeliveryService.TaskStage.VERIFY_BUSINESS);
+            var acceptance = delivery.previewAcceptance(planId, "entry");
+            delivery.confirmAcceptance(planId, new ApplicationConstructionDeliveryService.AcceptanceCommand(UUID.randomUUID().toString(), "entry", acceptance.fingerprint()));
+            assertThat(delivery.task(planId).objects().getFirst().stage()).isEqualTo(ApplicationConstructionDeliveryService.TaskStage.COMPLETE);
+            assertThat(constructionPlans.read(planId).fieldChanges()).isEmpty();
+        }
+    }
 
     @Test void commitsFieldsAndReceiptAtomicallyWithRepeatableConfirmation() throws Exception {
         String planId = UUID.randomUUID().toString().replace("-", "");

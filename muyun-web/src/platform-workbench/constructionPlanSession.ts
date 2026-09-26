@@ -385,6 +385,7 @@ export function createConstructionPlanSession(
     }
     const proposal: AssistantOperationProposal = {
       confirmLabel: '确认本期方案',
+      modelSummary: '保存当前讨论的需求方案版本，不创建或发布业务配置。',
       presentation: {
         lines: [
           content.title,

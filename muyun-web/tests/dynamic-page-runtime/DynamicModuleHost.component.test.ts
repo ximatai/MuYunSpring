@@ -2971,6 +2971,28 @@ describe('ModulePageHost', () => {
                     viewCode: 'form',
                     viewKind: 'FORM',
                     fields: [
+                      ...[
+                        {
+                          fieldName: 'privateNote',
+                          label: '人工备注',
+                          assistantPolicy: 'DESCRIBE' as const,
+                          visible: true,
+                        },
+                        {
+                          fieldName: 'invisibleNote',
+                          label: '隐藏备注',
+                          assistantPolicy: 'READ_WRITE' as const,
+                          visible: false,
+                        },
+                      ].map(({ fieldName, label, assistantPolicy, visible }) => ({
+                        fieldRef: { fieldName },
+                        label,
+                        assistantPolicy,
+                        valueType: 'STRING' as const,
+                        visible: { constant: visible },
+                        required: { constant: false },
+                        readOnly: { constant: false },
+                      })),
                       {
                         fieldRef: { fieldName: 'pickupAt' },
                         label: '取货时间',
@@ -3060,7 +3082,19 @@ describe('ModulePageHost', () => {
         await flushPromises();
         await expect(childStale.execute()).rejects.toThrow('草稿已变化');
         expect(writes).toHaveLength(0);
+        session.updateDraftFields(
+          [
+            { fieldName: 'privateNote', value: '只供人工核对' },
+            { fieldName: 'invisibleNote', value: '不应显示' },
+          ],
+          'user',
+        );
+        await flushPromises();
         const proposal = await session.prepareAssistantSave();
+        expect(proposal.presentation.lines).toContain('人工备注：只供人工核对');
+        expect(proposal.presentation.lines.join(' ')).not.toContain('隐藏备注');
+        expect(proposal.modelSummary).not.toContain('只供人工核对');
+        expect(proposal.modelSummary).not.toContain('已确认名称');
         expect(proposal.presentation.lines).toContain('成员：保存 2 行，移除 0 行');
         expect(proposal.presentation.details?.lines.join(' ')).toContain('陈晨');
         expect(proposal.presentation.details?.lines.join(' ')).toContain('林晓');

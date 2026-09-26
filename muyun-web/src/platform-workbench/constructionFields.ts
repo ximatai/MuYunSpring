@@ -151,6 +151,8 @@ export function createConstructionFieldCapabilities(
         const { isCurrent } = before;
         context.commitInternalState(() => {
           prepared = {
+            modelSummary:
+              '添加已预检的普通登记字段及其声明的必填、唯一约束；不会自动计算金额或推进业务流程。',
             confirmLabel: '确认添加登记内容',
             expiresAt: Date.now() + 5 * 60_000,
             isCurrent,

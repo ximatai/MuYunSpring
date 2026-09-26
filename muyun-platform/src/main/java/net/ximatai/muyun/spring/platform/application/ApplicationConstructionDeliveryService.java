@@ -236,7 +236,7 @@ public class ApplicationConstructionDeliveryService {
                 evidence = progress.requirements();
                 if (!"ACTIVE".equals(progress.runtimeStatus())) {
                     stage = TaskStage.VERIFY_RUNTIME; next = "已提交配置，先核实可用状态；不要重复创建";
-                } else if (ApplicationConstructionRequirements.missingConfiguration(evidence) || plan.fieldChanges().stream().noneMatch(item -> item.objectKey().equals(object.key()))) {
+                } else if (ApplicationConstructionRequirements.missingConfiguration(evidence)) {
                     stage = TaskStage.CONFIGURE_FIELDS; next = "读取实际登记内容，对照尚缺的配置证据准备变更；不能用普通文本替代固定选项或自动规则";
                 } else if (progress.needsReview()) {
                     stage = TaskStage.REVIEW_CONFIGURATION; next = "需求或配置已变化，核对现有结果后准备受治理修订，保留已经生效的内容";

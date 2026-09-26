@@ -407,7 +407,7 @@ export function useAssistantConversation(props: { open: boolean; registry: Assis
       ...pending.map(
         (item): AssistantConversationMessage => ({
           role: 'assistant',
-          text: `平台待确认内容（尚未执行，用户可追问）：${item.confirmation!.presentation.title}\n${item.confirmation!.presentation.lines.join('\n')}`,
+          text: `平台待确认内容（尚未执行，用户可追问）：${item.confirmation!.modelSummary}`,
         }),
       ),
     ]);

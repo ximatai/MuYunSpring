@@ -3,6 +3,8 @@ import type { AssistantResultPresentation } from '@muyun/web-contracts';
 /** Created only by a trusted capability adapter, never decoded from model output. */
 export interface AssistantOperationProposal {
   presentation: AssistantResultPresentation;
+  /** Explicit model-safe explanation; human review content is never a model input. */
+  modelSummary?: string;
   /** Trusted post-receipt planning only; never another execution approval. */
   continuation?: { message: string; isCurrent(): boolean };
   confirmLabel?: string;
@@ -30,6 +32,7 @@ export class AssistantOperationRejectedError extends Error {}
 export interface AssistantOperationConfirmation {
   readonly confirmLabel: string;
   readonly presentation: AssistantResultPresentation;
+  readonly modelSummary: string;
   readonly state: AssistantConfirmationState;
   readonly result: AssistantResultPresentation | undefined;
   confirm(): Promise<void>;
@@ -98,6 +101,7 @@ export function createAssistantOperationConfirmation(
   }
 
   return {
+    modelSummary: proposal.modelSummary ?? '有一项操作等待用户确认，尚未执行。',
     confirmLabel: proposal.confirmLabel ?? '确认保存',
     get presentation() {
       return structuredClone(presentation);

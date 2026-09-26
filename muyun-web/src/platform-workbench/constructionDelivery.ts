@@ -106,6 +106,10 @@ export function createConstructionDeliveryCapabilities(
         const { isCurrent } = before;
         context.commitInternalState(() => {
           prepared = {
+            modelSummary:
+              kind === 'PAGE'
+                ? '发布已预检的列表、表单和查询页面配置，不修改业务字段或规则。'
+                : '创建已发布页面的工作台入口，不授予额外业务权限。',
             confirmLabel: kind === 'PAGE' ? '确认发布页面' : '确认创建入口',
             expiresAt: Date.now() + 5 * 60_000,
             isCurrent,
@@ -169,6 +173,8 @@ export function createConstructionDeliveryCapabilities(
       };
       context.commitInternalState(() => {
         acceptance = {
+          modelSummary:
+            '记录用户对当前需求及配置基线的人工验收。必须先实际核对，不自动证明业务要求已经实现。',
           confirmLabel: '我已核对并确认验收通过',
           expiresAt: Date.now() + 5 * 60_000,
           isCurrent,

@@ -3330,6 +3330,8 @@ export function useModulePageSession(
       lines: [`${modulePageTitle.value}已保存`, `记录标识：${recordId}`],
     });
     return {
+      modelSummary:
+        '保存当前表单及随单明细，等待用户确认，尚未提交。字段值仅依据当前表单能力返回的授权事实。',
       presentation: {
         title: `确认保存${modulePageTitle.value}`,
         ...(relationLines.length
@@ -3340,18 +3342,20 @@ export function useModulePageSession(
           ...relationFacts.map(
             (relation) => `${relation.title}：保存 ${relation.count} 行，移除 ${relation.removedCount} 行`,
           ),
-          ...[...formFields.value.entries()]
-            .filter(
-              ([, field]) => field.assistantPolicy !== 'HIDDEN' && field.fieldControl?.alias !== 'password',
-            )
-            .map(([fieldName, field]) => {
-              const state = resolveRecordFormFieldState(fieldName, {
+          ...[...formFields.value.keys()]
+            .map((fieldName) =>
+              resolveRecordFormFieldState(fieldName, {
                 fields: formFields.value,
                 record: editingRecord.value!,
-              });
-              const display = assistantFieldDisplay(state, editingRecord.value!);
-              return `${field.label ?? fieldName}：${display}`;
-            }),
+              }),
+            )
+            .filter(
+              (field) =>
+                field.visible &&
+                field.assistantPolicy !== 'HIDDEN' &&
+                field.fieldControl?.alias !== 'password',
+            )
+            .map((field) => `${field.label}：${assistantFieldDisplay(field, editingRecord.value!)}`),
         ],
       },
       expiresAt: Date.now() + 5 * 60_000,

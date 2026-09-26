@@ -111,6 +111,7 @@ export function createConstructionInitializationCapabilities(
         const { isCurrent } = before;
         context.commitInternalState(() => {
           prepared = {
+            modelSummary: '建立空登记表；不覆盖现有应用，不录入业务单据。字段、页面及入口仍需后续分别确认。',
             presentation: presentation(stable),
             confirmLabel: '确认建立空登记表',
             expiresAt: Date.now() + 5 * 60_000,
