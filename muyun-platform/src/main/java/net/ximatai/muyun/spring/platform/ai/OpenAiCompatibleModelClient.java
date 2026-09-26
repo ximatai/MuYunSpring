@@ -28,6 +28,8 @@ import java.util.function.Predicate;
 final class OpenAiCompatibleModelClient implements AiModelClient {
     private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(60);
     private static final int MAX_STRUCTURED_RESPONSE_BYTES = 1_048_576;
+    // SSE framing and provider metadata are bounded separately from accumulated output.
+    private static final int MAX_STREAM_TRANSPORT_BYTES = 16 * MAX_STRUCTURED_RESPONSE_BYTES;
     private static final int MAX_STRUCTURED_EVENT_BYTES = 131_072;
     private static final int MAX_TOOL_CALLS = 8;
     private static final int MAX_TOOL_ARGUMENT_BYTES = 65_536;
@@ -289,7 +291,7 @@ final class OpenAiCompatibleModelClient implements AiModelClient {
         int totalBytes = 0;
         int next;
         while ((next = input.read()) != -1) {
-            if (++totalBytes > MAX_STRUCTURED_RESPONSE_BYTES) {
+            if (++totalBytes > MAX_STREAM_TRANSPORT_BYTES) {
                 throw new PlatformException("AI model returned an oversized structured response");
             }
             if (next == '\n') {

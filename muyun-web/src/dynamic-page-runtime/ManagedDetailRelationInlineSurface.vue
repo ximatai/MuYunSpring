@@ -69,7 +69,11 @@ const emit = defineEmits<{
   'selection-change': [selectedCount: number];
   'removed-count-change': [removedCount: number];
   'recycle-bin-availability-change': [available: boolean];
-  'records-change': [records: QueryListRecord[]];
+  'records-change': [
+    records: QueryListRecord[],
+    displayRecords: QueryListRecord[],
+    options: Record<string, OptionItemDescriptor[]>,
+  ];
 }>();
 
 type DraftRow = QueryListRecord & { __draftKey: string; __recycleSourceId?: string };
@@ -275,6 +279,7 @@ async function loadOptionFields() {
       // Keep the persisted code visible if the option source is temporarily unavailable.
     }
   }
+  publishDraft();
 }
 
 function columnRequired(fieldName: string) {
@@ -511,6 +516,7 @@ function updateReferenceProjections(row: DraftRow, fieldName: string, projection
     rowProjections[fieldName] = projections;
   }
   referenceProjectionValues.value = { ...referenceProjectionValues.value, [row.__draftKey]: rowProjections };
+  publishDraft();
 }
 
 function updateValidity(row: DraftRow, fieldName: string, value: boolean) {
@@ -527,6 +533,8 @@ function publishDraft() {
     rows.value
       .filter((row) => !blankNewRow(row))
       .map((row) => recordMutationPayload(cloneRecord(row), formFields.value.values())),
+    rows.value.filter((row) => !blankNewRow(row)).map((row) => displayRecord(row)),
+    optionItems.value,
   );
 }
 

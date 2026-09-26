@@ -1,5 +1,16 @@
 <script setup lang="ts">
-import { computed, onActivated, onDeactivated, onMounted, onUnmounted, ref, shallowRef, watch } from 'vue';
+import {
+  computed,
+  inject,
+  provide,
+  onActivated,
+  onDeactivated,
+  onMounted,
+  onUnmounted,
+  ref,
+  shallowRef,
+  watch,
+} from 'vue';
 import {
   createAssistantTurnRequester,
   ModuleHttpProvider,
@@ -11,6 +22,7 @@ import {
 import type { StandardModulePageDescriptor } from '@muyun/web-contracts';
 import { RecordPanelButton, RecordPanelState, type QueryListRecord } from '@muyun/platform-components';
 import ModulePageHostRuntime from './ModulePageHostRuntime.vue';
+import { assistantBusinessScopeKey } from './assistantBusinessScope';
 import ModulePageBusinessSession from './ModulePageBusinessSession';
 import { useTenantScopeController } from './useTenantScopeController';
 import type { ModulePageSessionView } from './useModulePageSession';
@@ -39,6 +51,13 @@ const controlContext = useModuleContext<QueryListRecord>({
 const blocked = ref(false);
 const tenantController = useTenantScopeController(controlContext, Boolean(props.recordOnly), blocked);
 const tenantScope = tenantController.selected;
+const inheritedAssistantScope = inject(assistantBusinessScopeKey, undefined);
+const effectiveAssistantScope = computed(() =>
+  props.recordOnly
+    ? (inheritedAssistantScope?.value ?? tenantController.selectedId.value)
+    : tenantController.selectedId.value,
+);
+provide(assistantBusinessScopeKey, effectiveAssistantScope);
 const generation = ref(0);
 const pending = ref(true);
 const failure = ref<string>();
@@ -205,7 +224,7 @@ function syncAssistantSurface() {
         assistantSurfaceSettlement = undefined;
         unregisterAssistantSurface = assistantHost.registry.register({
           pageInstanceKey,
-          conversationScopeKey: () => tenantController.selectedId.value ?? '',
+          conversationScopeKey: () => effectiveAssistantScope.value ?? '',
           settle: (signal) => session.settleAssistantPageState(signal),
           contextRevision: () => modulePageAssistantContextRevision(session),
           interactionRevision: () => modulePageAssistantInteractionRevision(session),

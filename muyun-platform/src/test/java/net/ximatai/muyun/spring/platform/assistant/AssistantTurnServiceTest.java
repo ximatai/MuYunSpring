@@ -282,7 +282,7 @@ class AssistantTurnServiceTest {
     }
 
     @Test
-    void rejectsInvalidOrMixedSelectionCalls() {
+    void rejectsInvalidSelectionsEvenWhenMixedWithCapabilityCalls() {
         AiModelGateway gateway = mock(AiModelGateway.class);
         AssistantTurnService service = new AssistantTurnService(gateway, new ObjectMapper());
         AiToolCall invalidConfirmation = new AiToolCall("selection-1",
@@ -309,7 +309,26 @@ class AssistantTurnServiceTest {
                             "tool_calls", "request-2"));
             assertThatThrownBy(() -> service.turn(command))
                     .isInstanceOf(PlatformException.class)
-                    .hasMessageContaining("cannot be combined");
+                    .hasMessageContaining("confirmation");
+        }
+    }
+
+    @Test
+    void defersMixedCapabilitiesUntilAfterUserChoiceWithoutClaimingExecution() {
+        AiModelGateway gateway = mock(AiModelGateway.class);
+        AssistantTurnService service = new AssistantTurnService(gateway, new ObjectMapper());
+        AiToolCall selection = new AiToolCall("choice", AssistantTurnService.PRESENT_SELECTION_CODE, Map.of(
+                "prompt", "是否记录金额？", "inputPolicy", "selection_required", "presentation", "options",
+                "options", List.of(Map.of("id", "yes", "label", "记录"), Map.of("id", "no", "label", "暂不记录"))));
+        AssistantTurnCommand command = new AssistantTurnCommand("登记订单", Map.of(),
+                List.of(new AiToolDefinition("plan.update", "Update draft", Map.of())), List.of());
+        when(gateway.complete(org.mockito.ArgumentMatchers.any())).thenReturn(new AiTurnResponse(
+                "已更新方案", List.of(new AiToolCall("edit", "plan.update", Map.of()), selection), "tool_calls", "mixed"));
+        try (CurrentUserContext.Scope ignored = CurrentUserContext.use(CurrentUser.systemUser("system", "System"))) {
+            AssistantTurnResult result = service.turn(command);
+            assertThat(result.toolCalls()).isEmpty();
+            assertThat(result.selection().prompt()).isEqualTo("是否记录金额？");
+            assertThat(result.text()).contains("尚未执行").doesNotContain("已更新");
         }
     }
 

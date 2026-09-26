@@ -152,7 +152,7 @@ describe('managed detail relation surface', () => {
     expect(wrapper.find('.managed-relation-inline__required').text()).toBe('*');
     expect(wrapper.find('.managed-relation-inline__cell--validation-pulse').exists()).toBe(false);
     expect(wrapper.emitted('validity-change')?.at(-1)).toEqual([true]);
-    expect(wrapper.emitted('records-change')?.at(-1)).toEqual([[]]);
+    expect(wrapper.emitted('records-change')?.at(-1)?.[0]).toEqual([]);
 
     await wrapper.setProps({ validationRequestKey: 1 });
 
@@ -357,6 +357,9 @@ describe('managed detail relation surface', () => {
 
     expect(wrapper.find('.managed-relation-inline__value').text()).toBe('S2026001');
     expect(wrapper.emitted('records-change')?.at(-1)?.[0]).toEqual([{ id: 'row-1', studentId: 'student-1' }]);
+    expect(wrapper.emitted('records-change')?.at(-1)?.[1]).toMatchObject([
+      { id: 'row-1', studentId: 'student-1', studentNo: 'S2026001' },
+    ]);
   });
 
   it('validates a new row as soon as any editable cell contains data', async () => {
@@ -383,7 +386,7 @@ describe('managed detail relation surface', () => {
     await flushPromises();
 
     expect(wrapper.emitted('validity-change')?.at(-1)).toEqual([false]);
-    expect(wrapper.emitted('records-change')?.at(-1)).toEqual([[{ title: '已填写名称' }]]);
+    expect(wrapper.emitted('records-change')?.at(-1)?.[0]).toEqual([{ title: '已填写名称' }]);
 
     await wrapper.setProps({ validationRequestKey: 1 });
 
@@ -393,7 +396,7 @@ describe('managed detail relation surface', () => {
     await wrapper.setProps({ validationRequestKey: 2 });
     expect(wrapper.get('.managed-relation-inline__cell--validation-pulse').element).toBe(firstPulse);
     expect(wrapper.findAllComponents({ name: 'RecordFormFields' })[1]!.vm).toBe(firstEditor.vm);
-    expect(wrapper.emitted('records-change')?.at(-1)).toEqual([[{ title: '已填写名称' }]]);
+    expect(wrapper.emitted('records-change')?.at(-1)?.[0]).toEqual([{ title: '已填写名称' }]);
   });
 
   it('retains an unmatched reference draft across repeated aggregate validation without replaying its prior ID', async () => {

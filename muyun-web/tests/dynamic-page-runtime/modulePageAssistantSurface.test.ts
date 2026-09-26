@@ -6,7 +6,7 @@ import {
   modulePageAssistantContextRevision,
   modulePageAssistantInteractionRevision,
 } from '@muyun/dynamic-page-runtime';
-import { createAssistantSurfaceRegistry } from '@muyun/web-core';
+import { createAssistantSurfaceRegistry, AssistantCapabilityUsageError } from '@muyun/web-core';
 import type { ModulePageSessionView } from '@/dynamic-page-runtime/useModulePageSession';
 
 function viewFixture(): ModulePageSessionView {
@@ -1763,3 +1763,37 @@ it.each(['HIDDEN', 'DESCRIBE'] as const)(
     expect(surface.capabilities().map(({ descriptor }) => descriptor.code)).not.toContain('tree.describe');
   },
 );
+
+it('describes precision-safe numeric input and makes rejected values repairable', async () => {
+  const view = viewFixture();
+  view.formFields.set('amount', {
+    fieldName: 'amount',
+    label: '金额',
+    required: true,
+    readOnly: false,
+    visible: true,
+    controlType: 'numberInput',
+    valueType: 'DECIMAL',
+    columnSpan: 1,
+    hasOption: false,
+  } as never);
+  const capabilities = createModulePageAssistantSurface(view, vi.fn()).capabilities();
+  const describeForm = capabilities.find(({ descriptor }) => descriptor.code === 'form.describe')!;
+  const described = (await describeForm.execute({}, executionContext())) as {
+    fields: Array<{ fieldName: string; valueHint?: string }>;
+  };
+  expect(described.fields.find((field) => field.fieldName === 'amount')?.valueHint).toContain('JSON string');
+  const patch = capabilities.find(({ descriptor }) => descriptor.code === 'form.patch-draft')!;
+  await expect(
+    patch.execute(patch.parseInput({ changes: [{ fieldName: 'amount', value: 100 }] }), executionContext()),
+  ).rejects.toBeInstanceOf(AssistantCapabilityUsageError);
+  expect(view.updateDraftFields).not.toHaveBeenCalled();
+  await patch.execute(
+    patch.parseInput({ changes: [{ fieldName: 'amount', value: '9007199254740993.12' }] }),
+    executionContext(),
+  );
+  expect(view.updateDraftFields).toHaveBeenCalledWith(
+    [{ fieldName: 'amount', value: '9007199254740993.12' }],
+    'assistant',
+  );
+});

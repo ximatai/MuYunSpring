@@ -75,4 +75,6 @@ export interface AssistantTurnOutput {
 export interface AssistantResultPresentation {
   title: string;
   lines: string[];
+  /** Secondary, fully reviewable details; never used as an execution payload. */
+  details?: { title: string; lines: string[] };
 }

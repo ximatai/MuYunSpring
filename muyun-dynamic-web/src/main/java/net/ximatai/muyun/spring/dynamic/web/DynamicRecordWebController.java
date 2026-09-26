@@ -931,16 +931,18 @@ public class DynamicRecordWebController implements
     @ResponseStatus(HttpStatus.CREATED)
     @Transactional
     public DynamicRecord insert(@RequestBody DynamicRecord normalized) {
-        return webScope(() -> {
-            validateAuditInputs(normalized, null);
-            applyRecordScopeForCreate(normalized);
-            validateWritableSaveFields(normalized, "");
-            validateUiSave(DynamicWebRequest.moduleAlias(), normalized);
-            String id = service().insert(normalized);
-            syncAttachmentsIfPresent(DynamicWebRequest.moduleAlias(), id, normalized);
-            DynamicRecord saved = detailOutput(service().select(id));
-            StandardMutationResultSupport.created(this, id, recordLabel(saved));
-            return saved;
+        return net.ximatai.muyun.spring.platform.web.RecordSaveRequestSupport.execute(this, "create", null, normalized, () -> {
+            return webScope(() -> {
+                validateAuditInputs(normalized, null);
+                applyRecordScopeForCreate(normalized);
+                validateWritableSaveFields(normalized, "");
+                validateUiSave(DynamicWebRequest.moduleAlias(), normalized);
+                String id = service().insert(normalized);
+                syncAttachmentsIfPresent(DynamicWebRequest.moduleAlias(), id, normalized);
+                DynamicRecord saved = detailOutput(service().select(id));
+                StandardMutationResultSupport.created(this, id, recordLabel(saved));
+                return saved;
+            });
         });
     }
 
@@ -950,20 +952,22 @@ public class DynamicRecordWebController implements
     @Transactional
     public DynamicRecord update(@PathVariable String id,
                                 @RequestBody DynamicRecord normalized) {
-        return webScope(() -> {
-            normalized.setId(id);
-            DynamicRecord existing = selectForAction(PlatformAction.UPDATE, id);
-            requireRecordScope(existing);
-            validateAuditInputs(normalized, existing);
-            applyRecordScopeForCreate(normalized);
-            validateWritableSaveFields(normalized, "");
-            validateUiSave(DynamicWebRequest.moduleAlias(), normalized);
-            requireDataScopeRecord(PlatformAction.UPDATE, id);
-            int count = service().update(normalized);
-            syncAttachmentsIfPresent(DynamicWebRequest.moduleAlias(), id, normalized);
-            DynamicRecord saved = detailOutput(selectForAction(PlatformAction.VIEW, id));
-            if (count > 0) StandardMutationResultSupport.updated(this, id, recordLabel(saved));
-            return saved;
+        return net.ximatai.muyun.spring.platform.web.RecordSaveRequestSupport.execute(this, "update", id, normalized, () -> {
+            return webScope(() -> {
+                normalized.setId(id);
+                DynamicRecord existing = selectForAction(PlatformAction.UPDATE, id);
+                requireRecordScope(existing);
+                validateAuditInputs(normalized, existing);
+                applyRecordScopeForCreate(normalized);
+                validateWritableSaveFields(normalized, "");
+                validateUiSave(DynamicWebRequest.moduleAlias(), normalized);
+                requireDataScopeRecord(PlatformAction.UPDATE, id);
+                int count = service().update(normalized);
+                syncAttachmentsIfPresent(DynamicWebRequest.moduleAlias(), id, normalized);
+                DynamicRecord saved = detailOutput(selectForAction(PlatformAction.VIEW, id));
+                if (count > 0) StandardMutationResultSupport.updated(this, id, recordLabel(saved));
+                return saved;
+            });
         });
     }
 

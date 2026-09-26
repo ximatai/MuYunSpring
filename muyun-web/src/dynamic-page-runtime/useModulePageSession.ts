@@ -1,3 +1,6 @@
+import { assistantFieldDisplay, assistantRelationProjection } from './assistantRecordProjection';
+import type { AssistantResultPresentation, OptionItemDescriptor } from '@muyun/web-contracts';
+import type { AssistantOperationProposal } from '@muyun/web-core';
 import { recordCreationReadiness } from './recordCreationReadiness';
 import { formActionResult, hasFormActionRecordPatch } from './formActionResult';
 import { useInputValidationActionStatus } from './inputValidationActionStatus';
@@ -18,6 +21,7 @@ import {
   recordDraftFingerprint,
   recordPickerModeOf,
   resolveRecordFormFields,
+  resolveRecordFormFieldState,
   useRecycleBinExplorerMode,
   type RecordFormFieldPickerConfig,
   type RecordPickerRecord,
@@ -54,6 +58,7 @@ import { hasExecutableDetailRelationQueryContract } from '@muyun/web-contracts';
 import { FormulaRuntime } from '../formula/FormulaRuntime';
 import {
   AppError,
+  AssistantOperationRejectedError,
   createModuleContext,
   createReferenceResolveClient,
   createStaticResourceTreeClient,
@@ -277,8 +282,11 @@ export function useModulePageSession(
         });
       },
       view: (id) => (activeTreeResourceClient.value ?? rawContext.crud).view(id),
-      insert: (record) => (activeTreeResourceClient.value ?? rawContext.crud).insert(record),
-      update: (id, record) => (activeTreeResourceClient.value ?? rawContext.crud).update(id, record),
+      insert: (record, options) =>
+        (activeTreeResourceClient.value ?? rawContext.crud).insert(record, options),
+      update: (id, record, options) =>
+        (activeTreeResourceClient.value ?? rawContext.crud).update(id, record, options),
+      saveReceipt: (requestId) => rawContext.crud.saveReceipt!(requestId),
       delete: (id, request) => (activeTreeResourceClient.value ?? rawContext.crud).delete(id, request),
       enable: (id, request) => (activeTreeResourceClient.value ?? rawContext.crud).enable(id, request),
       disable: (id, request) => (activeTreeResourceClient.value ?? rawContext.crud).disable(id, request),
@@ -374,6 +382,35 @@ export function useModulePageSession(
     loading: detailLoading,
     loadFailed: detailLoadFailed,
   } = detail;
+  // Read-side child projections stay separate from aggregate mutation inputs.
+  const childDisplayFacts = ref<
+    Record<
+      string,
+      { snapshot: string; rows: QueryListRecord[]; options: Record<string, OptionItemDescriptor[]> }
+    >
+  >({});
+  const assistantRelationOptions = computed(() =>
+    Object.fromEntries(Object.entries(childDisplayFacts.value).map(([key, value]) => [key, value.options])),
+  );
+  const assistantDisplayRecord = computed(() => {
+    const record = editorMode.value === 'view' ? selectedRecord.value : editingRecord.value;
+    if (!record) return {};
+    return {
+      ...record,
+      ...Object.fromEntries(
+        Object.entries(childDisplayFacts.value)
+          .filter(([key, value]) => JSON.stringify(record[key]) === value.snapshot)
+          .map(([key, value]) => [key, value.rows]),
+      ),
+    };
+  });
+  watch(
+    formSessionKey,
+    () => {
+      childDisplayFacts.value = {};
+    },
+    { flush: 'sync' },
+  );
   const assistantContextRevision = ref(0);
   const assistantInteractionRevision = ref(0);
   const markAssistantUserInteraction = () => {
@@ -425,7 +462,20 @@ export function useModulePageSession(
   function updateMainFormValidity(validity: { valid: boolean }) {
     mainFormValid.value = validity.valid;
   }
-  function updateEmbeddedChildren(relationField: string, records: QueryListRecord[]) {
+  function updateEmbeddedChildren(
+    relationField: string,
+    records: QueryListRecord[],
+    displayRecords?: QueryListRecord[],
+    options: Record<string, OptionItemDescriptor[]> = {},
+  ) {
+    childDisplayFacts.value = {
+      ...childDisplayFacts.value,
+      [relationField]: {
+        snapshot: JSON.stringify(records),
+        rows: displayRecords ?? records,
+        options,
+      },
+    };
     if (!editingRecord.value) return;
     if (JSON.stringify(editingRecord.value[relationField] ?? []) === JSON.stringify(records)) return;
     const next = { ...editingRecord.value, [relationField]: records };
@@ -2857,10 +2907,12 @@ export function useModulePageSession(
   function passesFormValidation(
     draft: RecordFormRecord,
     rules: readonly ResolvedFormValidationRuleDescriptor[] | undefined,
+    presentFailure = true,
   ): boolean {
     const failure = new FormValidationCoordinator(rules).validate(draft);
     if (!failure) return true;
-    presentPlatformMessage(failure.message, { source: 'module-formula-validation', phase: 'validation' });
+    if (presentFailure)
+      presentPlatformMessage(failure.message, { source: 'module-formula-validation', phase: 'validation' });
     return false;
   }
 
@@ -3113,14 +3165,21 @@ export function useModulePageSession(
     };
   }
 
-  async function saveRecord(actionKey = 'save') {
+  async function prepareRecordSave(presentValidation = true) {
     const draft = editingRecord.value;
     if (!draft) return;
     if (!mainFormValid.value || !relationDraftValid.value) {
-      formValidationRequestKey.value += 1;
+      if (presentValidation) formValidationRequestKey.value += 1;
       return;
     }
-    if (!passesFormValidation(draft, formValidationRulesOf(context.runtime.snapshot()?.uiDescriptor))) return;
+    if (
+      !passesFormValidation(
+        draft,
+        formValidationRulesOf(context.runtime.snapshot()?.uiDescriptor),
+        presentValidation,
+      )
+    )
+      return;
     if (editorMode.value === 'create' ? context.can('create') !== true : context.can('update') !== true) {
       return;
     }
@@ -3139,16 +3198,43 @@ export function useModulePageSession(
     ) {
       return;
     }
+    return recordMutationPayload(draft, formFields.value.values());
+  }
+
+  async function saveRecord(actionKey = 'save') {
+    try {
+      const record = await prepareRecordSave();
+      if (record) await submitPreparedRecord(record, editorMode.value, actionKey);
+    } catch (cause) {
+      presentPlatformError(cause, { source: 'module-action', phase: 'action' });
+    }
+  }
+
+  async function submitPreparedRecord(
+    record: QueryListRecord,
+    mode: string,
+    actionKey: string,
+    requestId?: string,
+  ) {
+    if (detailActionBusy.value) throw new Error('已有保存正在执行');
     assistantInteractionRevision.value += 1;
     saving.value = true;
     activeDetailActionKey.value = actionKey;
     try {
-      const record = recordMutationPayload(draft, formFields.value.values());
       const id = record.id == null ? undefined : String(record.id);
-      const result =
-        editorMode.value === 'edit' && id
-          ? await context.crud.update(id, record)
-          : await context.crud.insert(record);
+      const result = await (
+        mode === 'edit' && id
+          ? context.crud.update(id, record, requestId ? { requestId } : undefined)
+          : context.crud.insert(record, requestId ? { requestId } : undefined)
+      ).catch((cause: unknown) => {
+        if (
+          requestId &&
+          cause instanceof AppError &&
+          [400, 401, 403, 404, 409, 422].includes(cause.status ?? 0)
+        )
+          throw new AssistantOperationRejectedError(cause.message);
+        throw cause;
+      });
       const savedId = result.record.id == null ? undefined : String(result.record.id);
       // Mutation output is an acknowledgement, not a guaranteed editable projection. Reload the
       // canonical view (including managed children and display-enriched fields) before retaining it.
@@ -3170,7 +3256,7 @@ export function useModulePageSession(
         refreshList();
         await presentModuleActionSuccess(result, '保存成功');
         reportDetailRefreshFailure(refreshFailure, 'module-action');
-        return;
+        return result;
       }
       selectedRecord.value = persistedRecord;
       if (persistentTreeDetail.value) {
@@ -3186,12 +3272,125 @@ export function useModulePageSession(
       formSessionKey.value += 1;
       await presentModuleActionSuccess(result, '保存成功');
       if (refreshFailure) reportDetailRefreshFailure(refreshFailure, 'module-action');
-    } catch (cause) {
-      presentPlatformError(cause, { source: 'module-action', phase: 'action' });
+      return result;
     } finally {
       activeDetailActionKey.value = undefined;
       saving.value = false;
     }
+  }
+
+  const assistantSaveAvailable = computed(
+    () =>
+      Boolean(rawContext.crud.saveReceipt) &&
+      !activeTreeResourceClient.value &&
+      !['platform', 'iam'].includes(context.moduleAlias.split('.')[0] ?? ''),
+  );
+
+  async function prepareAssistantSave(): Promise<AssistantOperationProposal> {
+    if (!assistantSaveAvailable.value) throw new Error('当前表单不支持对话内保存');
+    const revision = assistantContextRevision.value;
+    const identity = JSON.stringify([currentUser?.value, tenantScopeId.value]);
+    const mode = editorMode.value;
+    const record = await prepareRecordSave(false);
+    if (!record || revision !== assistantContextRevision.value)
+      throw new Error('请完成表单校验后重新准备保存');
+    const relationFacts = assistantRelationProjection(
+      runtimeUiDescriptor.value,
+      executableDetailRelations.value,
+      assistantDisplayRecord.value,
+      {
+        baseline: selectedRecord.value,
+        purpose: 'confirmation',
+        relationOptions: assistantRelationOptions.value,
+      },
+    ).filter((relation) => relation.loaded);
+    const relationLines = relationFacts.flatMap((relation) => [
+      `${relation.title}：保存 ${relation.count} 行，移除 ${relation.removedCount} 行`,
+      ...relation.rows.map(
+        (row) =>
+          `第 ${row.row} 行：${row.values.map((value) => `${value.label}：${value.value}`).join('；')}`,
+      ),
+      ...relation.removedRows.map(
+        (row) => `移除：${row.values.map((value) => `${value.label}：${value.value}`).join('；')}`,
+      ),
+    ]);
+    const snapshot = JSON.stringify(record);
+    const definition = JSON.stringify(context.runtime.snapshot()?.uiDescriptor);
+    const requestId = crypto.randomUUID();
+    const isCurrent = () =>
+      identity === JSON.stringify([currentUser?.value, tenantScopeId.value]) &&
+      revision === assistantContextRevision.value &&
+      definition === JSON.stringify(context.runtime.snapshot()?.uiDescriptor) &&
+      mode === editorMode.value &&
+      !detailActionBusy.value &&
+      Boolean(editingRecord.value) &&
+      JSON.stringify(recordMutationPayload(editingRecord.value!, formFields.value.values())) === snapshot;
+    const receiptPresentation = (recordId: string): AssistantResultPresentation => ({
+      title: '保存成功',
+      lines: [`${modulePageTitle.value}已保存`, `记录标识：${recordId}`],
+    });
+    return {
+      modelSummary:
+        '保存当前表单及随单明细，等待用户确认，尚未提交。字段值仅依据当前表单能力返回的授权事实。',
+      presentation: {
+        title: `确认保存${modulePageTitle.value}`,
+        ...(relationLines.length
+          ? { details: { title: '查看全部明细与移除内容', lines: relationLines } }
+          : {}),
+        lines: [
+          mode === 'create' ? '新增一条记录' : '保存当前记录的修改',
+          ...relationFacts.map(
+            (relation) => `${relation.title}：保存 ${relation.count} 行，移除 ${relation.removedCount} 行`,
+          ),
+          ...[...formFields.value.keys()]
+            .map((fieldName) =>
+              resolveRecordFormFieldState(fieldName, {
+                fields: formFields.value,
+                record: editingRecord.value!,
+              }),
+            )
+            .filter(
+              (field) =>
+                field.visible &&
+                field.assistantPolicy !== 'HIDDEN' &&
+                field.fieldControl?.alias !== 'password',
+            )
+            .map((field) => `${field.label}：${assistantFieldDisplay(field, editingRecord.value!)}`),
+        ],
+      },
+      expiresAt: Date.now() + 5 * 60_000,
+      isCurrent,
+      async execute() {
+        if (!isCurrent()) throw new AssistantOperationRejectedError('草稿已变化，请重新确认');
+        const validated = await prepareRecordSave();
+        if (!validated || !isCurrent())
+          throw new AssistantOperationRejectedError('保存条件已变化，请重新确认');
+        const result = await submitPreparedRecord(JSON.parse(snapshot), mode, 'save', requestId);
+        return receiptPresentation(String(result.record.id));
+      },
+      async lookup() {
+        const receipt = await context.crud.saveReceipt!(requestId);
+        if (!receipt.committed || !receipt.recordId) return undefined;
+        if (isCurrent()) {
+          let persisted: QueryListRecord = {
+            ...JSON.parse(snapshot),
+            id: receipt.recordId,
+            version: receipt.recordVersion,
+          };
+          try {
+            persisted = await context.crud.view(receipt.recordId);
+          } catch (cause) {
+            reportDetailRefreshFailure(cause, 'module-action');
+          }
+          if (isCurrent()) {
+            commitLoadedRecord(persisted, 'view');
+            if (props.recordOnly) emit('record-only-change', { type: 'saved', record: persisted });
+          }
+        }
+        refreshList();
+        return receiptPresentation(receipt.recordId);
+      },
+    };
   }
 
   async function deleteRecord(record: QueryListRecord, actionKey = 'delete') {
@@ -3784,6 +3983,8 @@ export function useModulePageSession(
     navigatorManagementFormValid,
     navigatorListScopeReady,
     selectedRecord,
+    assistantDisplayRecord,
+    assistantRelationOptions,
     flatManagementSorting,
     navigatorListQueryValues,
     flatManagementItemOf,
@@ -3896,6 +4097,8 @@ export function useModulePageSession(
     placedFormActions,
     cancelDetailEditing,
     saveRecord,
+    prepareAssistantSave,
+    assistantSaveAvailable,
     editRecord,
     deleteRecord,
     handleDetailAction,

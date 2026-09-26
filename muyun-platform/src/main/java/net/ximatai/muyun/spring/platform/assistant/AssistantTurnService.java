@@ -46,7 +46,7 @@ public class AssistantTurnService {
             Never invent identifiers, routes, fields, permissions, tenants, users, model settings or business values.
             Infer the goal from the conversation; do not ask users to repeat explicit goals or describe page operations.
             Resolve missing facts with read capabilities. For missing scope, use scope.search before asking the user.
-            Ask one concise clarification for unresolved user choices; use assistant.present-selection for known choices.
+            Ask one concise clarification with assistant.present-selection alone, never with capability calls.
             Use selection_required for blocking choices, free_text_allowed for optional ones. Confirmation describes
             a concrete action and never grants permission; the platform provides confirm/cancel choices.
             After an answer, continue the earlier goal with the latest facts. Do not repeat successful calls.
@@ -94,7 +94,8 @@ public class AssistantTurnService {
                 "options", Map.of("type", "array", "minItems", 2, "maxItems", 8, "items", option));
         return new AiToolDefinition(
                 PRESENT_SELECTION_CODE,
-                "Present one bounded choice in the conversation. Use free_text_allowed for optional next-step suggestions. "
+                "Present one bounded choice alone, without other tool calls. Update drafts in a separate turn before optional follow-up questions. "
+                        + "Use free_text_allowed for optional next-step suggestions. "
                         + "Use selection_required only when one explicit answer is required before the task can continue. "
                         + "Use confirmation only for a concrete proposal; its two choices are standardized by the platform.",
                 Map.of(
@@ -279,14 +280,18 @@ public class AssistantTurnService {
         List<AiToolCall> selectionCalls = response.toolCalls().stream()
                 .filter(call -> PRESENT_SELECTION_CODE.equals(call.code()))
                 .toList();
-        if (!selectionCalls.isEmpty() && response.toolCalls().size() != 1) {
-            throw new PlatformException("assistant selection cannot be combined with page capability calls");
+        if (selectionCalls.size() > 1) {
+            throw new PlatformException("助手一次提出了多个选择，请用文字说明要先处理的问题");
         }
         AssistantSelectionInteraction selection = selectionCalls.isEmpty()
                 ? null
                 : selection(selectionCalls.getFirst());
         List<AiToolCall> capabilityCalls = selection == null ? response.toolCalls() : List.of();
-        return new AssistantTurnResult(response.text(), capabilityCalls, selection,
+        // A question is a stop boundary. Mixed calls have not executed and must be re-planned
+        // against fresh facts after the answer. Discard text that could claim those calls succeeded.
+        String text = selection != null && response.toolCalls().size() > 1
+                ? "请先确认下面的问题；本轮尚未执行同时提出的操作。" : response.text();
+        return new AssistantTurnResult(text, capabilityCalls, selection,
                 response.finishReason(), response.requestId());
     }
 

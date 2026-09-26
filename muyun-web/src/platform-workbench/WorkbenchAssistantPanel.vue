@@ -1,19 +1,29 @@
 <script setup lang="ts">
+import { nextTick, ref, watch } from 'vue';
 import { UiButton, UiIcon, UiTextArea } from '@muyun/vue-ui-antdv';
 import type { AssistantSurfaceRegistry } from '@muyun/web-core';
+import ConstructionPlanCard from './ConstructionPlanCard.vue';
+import type { ConstructionPlanSession } from './constructionPlanSession';
 import AssistantMarkdownContent from './AssistantMarkdownContent.vue';
 import AssistantSelectionCard from './AssistantSelectionCard.vue';
 import { useAssistantConversation } from './useAssistantConversation';
 
 defineOptions({ name: 'WorkbenchAssistantPanel' });
-const props = defineProps<{ open: boolean; registry: AssistantSurfaceRegistry }>();
+const props = defineProps<{
+  open: boolean;
+  registry: AssistantSurfaceRegistry;
+  constructionPlan?: ConstructionPlanSession;
+}>();
 const emit = defineEmits<{ close: [] }>();
 const {
   draft,
   resumableRequest,
+  interruptedRequest,
+  reuseInterruptedRequest,
   items,
   busy,
   activityText,
+  operationPending,
   activeRequiredSelection,
   reusePreviousRequest,
   submit,
@@ -21,7 +31,35 @@ const {
   abandonSelection,
   selectOption,
   handleKeydown,
+  confirmOperation,
+  cancelOperation,
 } = useAssistantConversation(props);
+const conversationElement = ref<HTMLElement>();
+const followLatest = ref(true);
+const hasNewReply = ref(false);
+function trackConversationScroll() {
+  const element = conversationElement.value;
+  if (!element) return;
+  followLatest.value = element.scrollHeight - element.scrollTop - element.clientHeight < 48;
+  if (followLatest.value) hasNewReply.value = false;
+}
+function showLatest() {
+  followLatest.value = true;
+  hasNewReply.value = false;
+  const element = conversationElement.value;
+  if (element) element.scrollTop = element.scrollHeight;
+}
+watch(
+  () => [items.value.length, items.value.at(-1)?.text, busy.value, operationPending.value],
+  async () => {
+    await nextTick();
+    if (followLatest.value) showLatest();
+    else hasNewReply.value = true;
+  },
+);
+watch(busy, (active) => {
+  if (active) followLatest.value = true;
+});
 function close() {
   cancel();
   emit('close');
@@ -40,10 +78,16 @@ function close() {
       </UiButton>
     </header>
 
-    <section class="assistant-panel__conversation" aria-live="polite">
+    <section
+      ref="conversationElement"
+      class="assistant-panel__conversation"
+      aria-live="polite"
+      @scroll="trackConversationScroll"
+    >
+      <ConstructionPlanCard v-if="constructionPlan" :session="constructionPlan" :disabled="busy" />
       <div v-if="items.length === 0" class="assistant-panel__welcome">
         <strong>我可以帮你操作当前工作区</strong>
-        <span>例如：打开智能模型配置，或填写当前表单中可编辑的字段。</span>
+        <span>例如：梳理订单管理的本期范围，或填写当前表单。</span>
       </div>
       <article
         v-for="item in items"
@@ -53,6 +97,42 @@ function close() {
       >
         <template v-if="item.role === 'assistant'">
           <AssistantMarkdownContent v-if="item.text" :content="item.text" />
+          <section v-if="item.confirmation" class="assistant-panel__welcome" aria-label="保存确认">
+            <strong>{{ item.confirmation.presentation.title }}</strong>
+            <span v-for="(line, index) in item.confirmation.presentation.lines" :key="index">{{ line }}</span>
+            <details v-if="item.confirmation.presentation.details" class="assistant-confirmation__details">
+              <summary>{{ item.confirmation.presentation.details.title }}</summary>
+              <p v-for="(line, index) in item.confirmation.presentation.details.lines" :key="index">
+                {{ line }}
+              </p>
+            </details>
+            <template v-if="item.confirmationState === 'pending'">
+              <UiButton type="primary" :disabled="busy" @click="confirmOperation(item)">{{
+                item.confirmation.confirmLabel
+              }}</UiButton>
+              <UiButton :disabled="busy" @click="cancelOperation(item)">继续修改或取消</UiButton>
+            </template>
+            <template v-else-if="item.confirmationState === 'unknown'">
+              <span>操作结果尚不确定，请先查询结果；不会自动重复提交。</span>
+              <UiButton :disabled="busy" @click="confirmOperation(item, true)">查询操作结果</UiButton>
+            </template>
+            <span v-else-if="item.confirmationState === 'executing' || item.confirmationState === 'checking'"
+              >正在核实操作结果…</span
+            >
+            <span v-else-if="item.confirmationState === 'succeeded'">已完成</span>
+            <template v-else-if="item.confirmationState === 'rejected'">
+              <div role="alert">
+                <strong>操作未提交，已准备的内容保留。</strong>
+                <p v-for="(line, index) in item.confirmation.result?.lines" :key="index">{{ line }}</p>
+              </div>
+              <UiButton type="primary" :disabled="busy" @click="confirmOperation(item)"
+                >重试本次确认</UiButton
+              >
+              <UiButton :disabled="busy" @click="cancelOperation(item)">继续修改或取消</UiButton>
+            </template>
+            <span v-else-if="item.confirmationState === 'expired'">内容或范围已变化，请重新准备确认。</span>
+            <span v-else>已取消本次确认，草稿保留。</span>
+          </section>
           <AssistantSelectionCard
             v-if="item.selection"
             :selection="item.selection.value"
@@ -62,8 +142,18 @@ function close() {
             @abandon="abandonSelection(item)"
           />
         </template>
-        <template v-else>{{ item.text }}</template>
+        <template v-else>
+          {{ item.text }}
+          <details v-if="item.diagnostic">
+            <summary>查看诊断信息</summary>
+            {{ item.diagnostic }}
+          </details>
+        </template>
       </article>
+      <div v-if="interruptedRequest && !busy" class="assistant-panel__welcome">
+        <span>已有内容保留。带回原请求后可补充说明，再继续处理；不会自动重做保存。</span>
+        <UiButton @click="reuseInterruptedRequest">带回这条请求</UiButton>
+      </div>
       <div v-if="resumableRequest && !busy" class="assistant-panel__welcome">
         <span>范围已变更。可将上一条输入带回编辑框，检查后重新发送。</span>
         <UiButton @click="reusePreviousRequest">复用上一条输入</UiButton>
@@ -72,6 +162,7 @@ function close() {
     </section>
 
     <footer class="assistant-panel__composer">
+      <UiButton v-if="hasNewReply && !followLatest" @click="showLatest">查看最新回复</UiButton>
       <UiTextArea
         v-model:value="draft"
         :rows="3"
@@ -82,7 +173,8 @@ function close() {
       />
       <div class="assistant-panel__actions">
         <span>Enter 发送，Shift + Enter 换行</span>
-        <UiButton v-if="busy" @click="cancel">停止</UiButton>
+        <span v-if="operationPending">正在核实操作结果</span>
+        <UiButton v-else-if="busy" @click="cancel">停止</UiButton>
         <UiButton
           v-else
           type="primary"
@@ -194,5 +286,26 @@ function close() {
 
 .assistant-panel__actions span {
   min-width: 0;
+}
+</style>
+
+<style scoped>
+.assistant-message:has(.assistant-confirmation__details) {
+  max-width: 100%;
+}
+.assistant-confirmation__details {
+  margin: 8px 0;
+  font-size: 13px;
+}
+.assistant-confirmation__details summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+.assistant-confirmation__details p {
+  margin: 8px 0;
+}
+.assistant-panel__welcome:has(.assistant-confirmation__details) > span {
+  color: var(--muyun-support-text);
+  font-size: 14px;
 }
 </style>

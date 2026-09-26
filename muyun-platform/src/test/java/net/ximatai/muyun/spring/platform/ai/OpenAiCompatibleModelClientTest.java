@@ -292,6 +292,29 @@ class OpenAiCompatibleModelClientTest {
     }
 
     @Test
+    void acceptsSmallContentWithLargeStreamingEnvelope() throws Exception {
+        String event = "data: {\"id\":\"" + "m".repeat(180) + "\",\"choices\":[{\"delta\":{\"content\":\"好\"}}]}\n\n";
+        var client = responseClient(200, event.repeat(5000) + "data: [DONE]\n\n");
+        var result = new AtomicReference<AiTurnResponse>();
+        client.stream(route(), new AiTurnRequest(List.of(new AiChatMessage(AiChatMessage.Role.USER, "hello")), List.of(), null, 8192), new AiTurnStreamConsumer() {
+            public void onTextDelta(String text) {}
+            public void onComplete(AiTurnResponse response) { result.set(response); }
+        });
+        assertThat(result.get().text()).isEqualTo("好".repeat(5000));
+    }
+
+    @Test
+    void rejectsAccumulatedContentEvenWhenEachEventIsSmall() throws Exception {
+        String event = "data: {\"choices\":[{\"delta\":{\"content\":\"" + "x".repeat(32_768) + "\"}}]}\n\n";
+        var client = responseClient(200, event.repeat(33) + "data: [DONE]\n\n");
+        var request = new AiTurnRequest(List.of(new AiChatMessage(AiChatMessage.Role.USER, "hello")), List.of(), null, 8192);
+        assertThatThrownBy(() -> client.stream(route(), request, new AiTurnStreamConsumer() {
+            public void onTextDelta(String text) {}
+            public void onComplete(AiTurnResponse response) { throw new AssertionError("must not complete"); }
+        })).isInstanceOf(PlatformException.class).hasMessageContaining("oversized structured response");
+    }
+
+    @Test
     void rejectsOversizedStructuredStreamLinesWhileReading() throws Exception {
         OpenAiCompatibleModelClient client = responseClient(200, "data: " + "x".repeat(131_073));
         AiTurnRequest request = new AiTurnRequest(List.of(new AiChatMessage(AiChatMessage.Role.USER, "describe")),

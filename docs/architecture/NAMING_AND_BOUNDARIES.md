@@ -49,7 +49,7 @@ net.ximatai.muyun.spring
 <applicationAlias>.<moduleName>
 ```
 
-`applicationAlias` 使用单段小写标识，`moduleAlias` 使用至少两段点分小写标识，分段只允许小写字母、数字和下划线，且必须以字母开头。模块 alias 总长度不超过标准实体 ID 长度。
+`applicationAlias` 使用单段小写标识，`moduleAlias` 使用至少两段点分小写标识，分段只允许小写字母、数字和下划线，且必须以字母开头。模块 alias 总长度不超过 128 字符；模块身份及其引用字段使用相同长度，不套用普通实体 32 字符 ID 的存储限制。
 
 内置 `applicationAlias` 不是 Gradle 子项目名，也不是 Java 包边界。`platform` 表示平台配置、页面交付、自动化、工作流和治理等平台能力域；`iam` 表示租户、组织、职员、用户、角色和权限等身份组织域。两者都是平台内置应用域，和后续 `crm`、`sales` 等业务应用复用同一套 Application/Module 归属模型，但不表示 `iam` 是普通业务应用，也不表示所有内置模块都应归入 `platform`。
 

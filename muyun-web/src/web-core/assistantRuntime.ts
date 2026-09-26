@@ -1,3 +1,5 @@
+import { AppError, platformErrorCodes } from './errors';
+import type { AssistantOperationConfirmation } from './assistantConfirmation';
 import type {
   AssistantCapabilityResult,
   AssistantConversationMessage,
@@ -15,8 +17,53 @@ import {
 
 const MAX_CALLS_PER_STEP = 8;
 
+function capabilityFailure(error: unknown) {
+  if (error instanceof AssistantCapabilityUsageError)
+    return { code: error.code, message: error.message.slice(0, 500) };
+  // Only the public validation contract is suitable for model self-correction.
+  // Never forward arbitrary HTTP errors, transport errors, causes or server details.
+  if (
+    error instanceof AppError &&
+    [400, 409, 422].includes(error.status ?? 0) &&
+    ([platformErrorCodes.validationFailed, platformErrorCodes.conflictVersion] as string[]).includes(
+      error.code,
+    )
+  )
+    return { code: error.code, message: error.message.slice(0, 500) };
+  return { code: 'CAPABILITY_FAILED', message: 'Capability execution failed' };
+}
+
+/** Observations are decision context, never execution authorization or a cache of invocations. */
+interface AssistantReadContext {
+  token?: AssistantInvocationToken;
+  results: AssistantCapabilityResult[];
+}
+
+function withReadContext(
+  current: AssistantCapabilityResult[],
+  memory: AssistantReadContext | undefined,
+  token: AssistantInvocationToken,
+): AssistantCapabilityResult[] {
+  if (!memory) return current;
+  if (!sameAssistantInvocationToken(memory.token, token)) memory.results = [];
+  memory.token = token;
+  const keys = new Set(current.map((result) => JSON.stringify([result.capabilityCode, result.input])));
+  let budget = 12_000;
+  const retained: AssistantCapabilityResult[] = [];
+  for (const result of [...memory.results].reverse()) {
+    const key = JSON.stringify([result.capabilityCode, result.input]);
+    const size = JSON.stringify(result).length;
+    if (keys.has(key) || size > budget || retained.length >= 16 - current.length) continue;
+    keys.add(key);
+    budget -= size;
+    retained.unshift(result);
+  }
+  return [...retained, ...current];
+}
+
 export interface AssistantRuntimeStepResult {
   output: AssistantTurnOutput;
+  confirmations?: AssistantOperationConfirmation[];
   results: AssistantCapabilityResult[];
   contextChanged: boolean;
   /** Successful capability invocations that committed an effect through applyEffect in this step. */
@@ -147,6 +194,7 @@ export async function runAssistantConversation(
   const steps: AssistantRuntimeStepResult[] = [];
   let results: AssistantCapabilityResult[] = [];
   const completedEffects: AssistantCapabilityResult[] = [];
+  const readContext: AssistantReadContext = { results: [] };
   let settledCalls = new Map<string, AssistantCapabilityResult>();
   let expectedReplacementToken: AssistantInvocationToken | undefined;
   let decisionRestarts = 0;
@@ -179,6 +227,7 @@ export async function runAssistantConversation(
               options.onTextDelta?.(text, index);
             }
           : undefined,
+        readContext,
       );
     } catch (error) {
       if (streamedText) options.onTextDiscard?.(index);
@@ -242,6 +291,10 @@ export async function runAssistantConversation(
     settledCalls = step.replayableCalls;
     const publicStep = toPublicStep(step);
     steps.push(publicStep);
+    if (step.confirmations?.length) {
+      await options.onStep?.(publicStep);
+      return { steps, termination: 'waiting-for-user' };
+    }
     if (step.output.toolCalls.length === 0) {
       await options.onStep?.(publicStep);
       emitDiagnostic(options.onDiagnostic, {
@@ -272,6 +325,20 @@ export async function runAssistantConversation(
         ...(error ? { error } : {}),
       }),
     );
+    const observationToken = registry.snapshot()?.token;
+    if (
+      step.contextChanged ||
+      !observationToken ||
+      !sameAssistantInvocationToken(readContext.token, observationToken)
+    ) {
+      readContext.results = [];
+      readContext.token = undefined;
+    } else {
+      readContext.results = withReadContext(results, readContext, observationToken)
+        .filter((result) => result.execution === 'read' && !result.error)
+        .slice(-8)
+        .map((result, position) => ({ ...result, callId: `observation-${index}-${position}` }));
+    }
     if (step.appliedEffectCount > 0) {
       const effect = step.results.at(-1);
       if (effect && !effect.error)
@@ -313,6 +380,7 @@ export async function runAssistantStep(
 function toPublicStep(step: InternalAssistantRuntimeStepResult): AssistantRuntimeStepResult {
   return {
     output: step.output,
+    ...(step.confirmations?.length ? { confirmations: step.confirmations } : {}),
     results: step.results,
     contextChanged: step.contextChanged,
     appliedEffectCount: step.appliedEffectCount,
@@ -331,6 +399,7 @@ async function runAssistantStepWithSettledCalls(
   onActivity?: AssistantConversationOptions['onActivity'],
   onDiagnostic?: AssistantConversationOptions['onDiagnostic'],
   onTextDelta?: (text: string) => void,
+  readContext?: AssistantReadContext,
 ): Promise<InternalAssistantRuntimeStepResult> {
   const initialSnapshot = registry.snapshot();
   if (!initialSnapshot) throw new Error('No assistant surface is active');
@@ -354,6 +423,7 @@ async function runAssistantStepWithSettledCalls(
     surface: diagnosticSurface(snapshot.context.surface),
     backgroundContextRefreshed: initialSnapshot.token.contextRevision !== snapshot.token.contextRevision,
   });
+  previousResults = withReadContext(previousResults, readContext, snapshot.token);
   onActivity?.('understanding', stepIndex);
   let output: AssistantTurnOutput;
   try {
@@ -427,6 +497,17 @@ async function runAssistantStepWithSettledCalls(
         ...(invocation.presentation ? { presentation: invocation.presentation } : {}),
       };
       results.push(result);
+      if (invocation.confirmation) {
+        return {
+          output,
+          results,
+          confirmations: [invocation.confirmation],
+          contextChanged: false,
+          appliedEffectCount,
+          attemptedCallCount,
+          replayableCalls,
+        };
+      }
       replayableCalls.set(callKey, result);
       if (invocation.contextChanged) {
         appliedEffectCount += 1;
@@ -493,13 +574,7 @@ async function runAssistantStepWithSettledCalls(
         capabilityCode: call.code,
         input: call.input as Record<string, unknown>,
         execution: 'not-applied',
-        error: {
-          code: error instanceof AssistantCapabilityUsageError ? error.code : 'CAPABILITY_FAILED',
-          message:
-            error instanceof AssistantCapabilityUsageError
-              ? error.message.slice(0, 500)
-              : 'Capability execution failed',
-        },
+        error: capabilityFailure(error),
       });
       // Repeating a rejected call in the same snapshot cannot repair it.
       // Changed input or an explicit new user turn may try again. Unknown effects terminate above.

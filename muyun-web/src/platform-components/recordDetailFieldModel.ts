@@ -1,3 +1,4 @@
+import { formatPlatformDateTime } from './platformDateTime';
 import type { OptionItemDescriptor } from '@muyun/web-contracts';
 import type { RecordPickerRecord } from './recordPickerConstraints';
 import type { RecordFormFieldState, RecordFormRecord } from './recordFormFieldModel';
@@ -82,6 +83,9 @@ export function resolveRecordDetailDisplayValue(
   }
   if (!isPresent(value)) {
     return emptyText;
+  }
+  if (field.controlType === 'dateTimeInput' && (typeof value === 'string' || typeof value === 'number')) {
+    return formatPlatformDateTime(value).text;
   }
   return String(value);
 }

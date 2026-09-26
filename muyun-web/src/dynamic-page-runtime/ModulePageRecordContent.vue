@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import type { OptionItemDescriptor } from '@muyun/web-contracts';
 import {
   RecordDetailExtensionSection,
   RecordDetailFields,
@@ -49,7 +50,12 @@ defineProps<{
 const emit = defineEmits<{
   'update:field': [fieldName: string, value: RecordFormFieldValue];
   'validity-change': [validity: { valid: boolean }];
-  'children-change': [relationField: string, records: QueryListRecord[]];
+  'children-change': [
+    relationField: string,
+    records: QueryListRecord[],
+    displayRecords: QueryListRecord[],
+    options: Record<string, OptionItemDescriptor[]>,
+  ];
   'relations-validity-change': [valid: boolean];
 }>();
 
@@ -57,8 +63,13 @@ function updateField(fieldName: string, value: RecordFormFieldValue) {
   emit('update:field', fieldName, value);
 }
 
-function updateChildren(relationField: string, records: QueryListRecord[]) {
-  emit('children-change', relationField, records);
+function updateChildren(
+  relationField: string,
+  records: QueryListRecord[],
+  displayRecords: QueryListRecord[],
+  options: Record<string, OptionItemDescriptor[]>,
+) {
+  emit('children-change', relationField, records, displayRecords, options);
 }
 </script>
 
