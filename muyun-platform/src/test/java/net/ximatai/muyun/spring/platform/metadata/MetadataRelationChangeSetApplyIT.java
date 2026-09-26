@@ -70,6 +70,8 @@ class MetadataRelationChangeSetApplyIT extends PlatformPostgresIntegrationTest {
     }
 
     @Autowired private MetadataRelationChangeSetApplyService applyService;
+    @Autowired private MetadataModelChangeSetApplyService modelApply;
+    @Autowired private MetadataModelChangeSetPreviewService modelPreview;
     @Autowired private net.ximatai.muyun.spring.platform.ui.PageCompositionSaveService compositionSave;
     @Autowired private MetadataRelationChangeSetPreviewService previewService;
     @Autowired private MetadataService metadataService;
@@ -551,6 +553,76 @@ class MetadataRelationChangeSetApplyIT extends PlatformPostgresIntegrationTest {
         return revision;
     }
 
+    @Test
+    void modelCandidateRequiresFreshConfirmationAndPublishesOnlyTheReviewedDefinition() {
+        var original = modelProposal("reviewNote", "review_note");
+        var preview = modelPreview.preview(moduleAlias, original);
+        assertThat(preview.errors()).isEmpty();
+        assertThat(columnExists(metadata.getTableName(), "review_note")).isFalse();
+
+        var revised = modelProposal("reviewNote", "review_note");
+        revised.relationDrafts().getFirst().fieldDrafts().getFirst().field().setTitle("Reviewed title");
+        assertThatThrownBy(() -> modelApply.apply(moduleAlias,
+                new MetadataModelChangeSetApplyCommand(revised, preview.proposalFingerprint())))
+                .isInstanceOf(PlatformException.class).hasMessageContaining("fingerprint is stale");
+        assertThat(columnExists(metadata.getTableName(), "review_note")).isFalse();
+
+        var reviewed = modelPreview.preview(moduleAlias, revised);
+        modelApply.apply(moduleAlias, new MetadataModelChangeSetApplyCommand(revised, reviewed.proposalFingerprint()));
+        assertThat(field("reviewNote").getTitle()).isEqualTo("Reviewed title");
+        assertThat(columnExists(metadata.getTableName(), "review_note")).isTrue();
+        assertThatThrownBy(() -> modelApply.apply(moduleAlias,
+                new MetadataModelChangeSetApplyCommand(revised, reviewed.proposalFingerprint())))
+                .isInstanceOf(PlatformException.class);
+    }
+
+    @Test
+    void modelCandidateRejectsAChangedPersistedBaselineWithoutCreatingItsColumn() {
+        var candidate = modelProposal("pendingNote", "pending_note");
+        var preview = modelPreview.preview(moduleAlias, candidate);
+        applyNewStringField("otherNote", "other_note");
+        assertThatThrownBy(() -> modelApply.apply(moduleAlias,
+                new MetadataModelChangeSetApplyCommand(candidate, preview.proposalFingerprint())))
+                .isInstanceOf(PlatformException.class);
+        assertThat(columnExists(metadata.getTableName(), "pending_note")).isFalse();
+        assertThat(columnExists(metadata.getTableName(), "other_note")).isTrue();
+    }
+
+    @Test
+    void fieldPlanRollsBackEveryCandidateAndCanBeRetriedAfterSchemaFailure() {
+        var first = proposal("planNote", "plan_note", "string", false);
+        var second = proposal("planSummary", "plan_summary", "string", false);
+        var plan = new MetadataModelChangeSetPreviewCommand(List.of(new MetadataModelRelationChangeSetDraft(
+                relationId, first.expectedMetadataVersion(), Map.of(),
+                List.of(first.fieldDrafts().getFirst(), second.fieldDrafts().getFirst()))), List.of(), List.of());
+        var preview = modelPreview.preview(moduleAlias, plan);
+        assertThat(preview.errors()).isEmpty();
+        schemaEnsureService.failAfterEnsure = true;
+        assertThatThrownBy(() -> modelApply.apply(moduleAlias,
+                new MetadataModelChangeSetApplyCommand(plan, preview.proposalFingerprint())))
+                .hasMessageContaining("forced schema failure");
+        assertThat(columnExists(metadata.getTableName(), "plan_note")).isFalse();
+        assertThat(columnExists(metadata.getTableName(), "plan_summary")).isFalse();
+        assertThat(fieldService.list(Criteria.of().eq("metadataId", metadata.getId())))
+                .extracting(MetadataField::getFieldName).doesNotContain("planNote", "planSummary");
+        assertThat(metadataService.select(metadata.getId()).getVersion()).isEqualTo(first.expectedMetadataVersion());
+        Mockito.verifyNoInteractions(refreshCoordinator);
+
+        schemaEnsureService.failAfterEnsure = false;
+        var reviewed = modelPreview.preview(moduleAlias, plan);
+        modelApply.apply(moduleAlias, new MetadataModelChangeSetApplyCommand(plan, reviewed.proposalFingerprint()));
+        assertThat(columnExists(metadata.getTableName(), "plan_note")).isTrue();
+        assertThat(columnExists(metadata.getTableName(), "plan_summary")).isTrue();
+        assertThat(fieldService.list(Criteria.of().eq("metadataId", metadata.getId())))
+                .extracting(MetadataField::getFieldName).contains("planNote", "planSummary");
+    }
+
+    private MetadataModelChangeSetPreviewCommand modelProposal(String fieldName, String columnName) {
+        var relation = proposal(fieldName, columnName, "string", false);
+        return new MetadataModelChangeSetPreviewCommand(List.of(new MetadataModelRelationChangeSetDraft(
+                relationId, relation.expectedMetadataVersion(), Map.of(), relation.fieldDrafts())), List.of(), List.of());
+    }
+
     private void applyNewStringField(String fieldName, String columnName) {
         MetadataRelationChangeSetPreviewCommand proposal = proposal(fieldName, columnName, "string", false);
         MetadataRelationChangeSetPreview preview = previewService.preview(moduleAlias, relationId, proposal);
@@ -775,6 +847,18 @@ class MetadataRelationChangeSetApplyIT extends PlatformPostgresIntegrationTest {
         }
         @Bean PlatformDynamicRuntimeRefreshCoordinator refreshCoordinator() {
             return mock(PlatformDynamicRuntimeRefreshCoordinator.class);
+        }
+        @Bean MetadataModelChangeSetPreviewService modelPreview(PlatformModuleService modules,
+                ModuleMetadataRelationService relations, MetadataFieldService fields, MetadataRelationChangeSetPreviewService preview) {
+            return new MetadataModelChangeSetPreviewService(modules, relations, fields, preview);
+        }
+        @Bean MetadataModelChangeSetApplyService modelApply(MetadataModelChangeSetPreviewService preview,
+                MetadataRelationChangeSetApplyService relationApply, ModuleMetadataRelationService relations,
+                MetadataService metadata, MetadataFieldService fields, TestSchemaEnsureService schema,
+                PlatformDynamicRuntimeRefreshCoordinator refresh, ModuleMetadataCapabilitySnapshotService snapshots,
+                DynamicRecordService records, FieldSpecService specs) {
+            return new MetadataModelChangeSetApplyService(preview, relationApply, relations, metadata, fields,
+                    schema, refresh, snapshots, new EmptyMetadataFieldSpecColumnRebuildService(records, specs));
         }
         @Bean MetadataRelationChangeSetApplyService applyService(MetadataRelationChangeSetPreviewService preview,
                                                                   ModuleMetadataRelationService relations,

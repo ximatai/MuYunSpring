@@ -421,3 +421,70 @@ function executionContext() {
     },
   };
 }
+
+it.each([0, 19, 20, 40])('keeps preview errors ahead of %i field impacts', async (count) => {
+  const adapter = fixture();
+  const preview = createMetadataGovernanceAssistantSurface(adapter, vi.fn())
+    .capabilities()
+    .find(({ descriptor }) => descriptor.code === 'configuration.preview-metadata-draft')!;
+  const output = await adapter.preview(proposal, new AbortController().signal);
+  const presentation = preview.present!({
+    ...output,
+    valid: false,
+    fieldImpacts: Array.from({ length: count }, () => output.fieldImpacts[0]!),
+    errors: [{ message: '阻断错误' }],
+    warnings: [{ message: '需要注意的警告' }],
+  });
+  expect(presentation.lines.slice(0, 3)).toEqual(['预检未通过。', '阻断错误', '需要注意的警告']);
+  expect(presentation.lines.length).toBeLessThanOrEqual(20);
+  if (count > 17) expect(presentation.lines.at(-1)).toContain(`${count - 16} 项字段影响未展示`);
+  else expect(presentation.lines.join('')).not.toContain('未展示');
+});
+
+it('reports omitted error and warning counts when preview issues exceed the display budget', async () => {
+  const adapter = fixture();
+  const preview = createMetadataGovernanceAssistantSurface(adapter, vi.fn())
+    .capabilities()
+    .find(({ descriptor }) => descriptor.code === 'configuration.preview-metadata-draft')!;
+  const output = await adapter.preview(proposal, new AbortController().signal);
+  const presentation = preview.present!({
+    ...output,
+    valid: false,
+    errors: Array.from({ length: 22 }, () => ({ message: '错误'.repeat(400) })),
+    warnings: [{ message: '警告' }],
+  });
+  expect(presentation.lines).toHaveLength(20);
+  expect(presentation.lines.at(-1)).toContain('4 项错误、1 项警告、1 项字段影响未展示');
+  expect(presentation.lines.every((line) => line.length <= 500)).toBe(true);
+});
+
+it('validates a bounded mixed field plan and commits only a current fully prepared plan', async () => {
+  const adapter = fixture();
+  const commit = vi.fn(() => ({ saved: false }));
+  adapter.prepareFieldPlan = vi.fn(async () => commit);
+  const tool = createMetadataGovernanceAssistantSurface(adapter, vi.fn())
+    .capabilities()
+    .find(({ descriptor }) => descriptor.code === 'configuration.prepare-metadata-field-plan')!;
+  const input = tool.parseInput({
+    fields: [
+      { kind: 'BASIC', title: '备注', fieldName: 'note', fieldSpecAlias: 'string' },
+      { kind: 'DICTIONARY', title: '状态', target: 'crm.status' },
+    ],
+  });
+  expect(() => tool.parseInput({ fields: [] })).toThrow('1–12');
+  expect(() => tool.parseInput({ fields: Array(13).fill({}) })).toThrow('1–12');
+  expect(() =>
+    tool.parseInput({ fields: [{ kind: 'BASIC', title: 'X', fieldSpecAlias: 'unknown' }] }),
+  ).toThrow('specification');
+  await expect(tool.execute(input, { ...executionContext(), isCurrent: () => false })).rejects.toThrow(
+    'no longer current',
+  );
+  expect(commit).not.toHaveBeenCalled();
+  await tool.execute(input, executionContext());
+  expect(commit).toHaveBeenCalledOnce();
+  adapter.prepareFieldPlan = vi.fn(async () => {
+    throw new Error('Target unavailable');
+  });
+  await expect(tool.execute(input, executionContext())).rejects.toThrow('Target unavailable');
+  expect(commit).toHaveBeenCalledOnce();
+});

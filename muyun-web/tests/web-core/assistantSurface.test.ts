@@ -499,3 +499,34 @@ it('invalidates both requests and effects when identity or execution tenant chan
     StaleAssistantInvocationError,
   );
 });
+
+it.each(['resolve', 'reject', 'thenable'] as const)(
+  'keeps a mistakenly asynchronous effect unknown when it will %s',
+  async (mode) => {
+    const registry = createAssistantSurfaceRegistry();
+    const settle = vi.fn(async () => {});
+    let finish!: () => void;
+    const pending = new Promise<void>((resolve, reject) => {
+      finish = mode === 'reject' ? () => reject(new Error('late failure')) : resolve;
+    });
+    const result = mode === 'thenable' ? { then: pending.then.bind(pending) } : pending;
+    registry.register(
+      fixture({
+        pageInstanceKey: 'async-effect',
+        revision: () => 'unchanged',
+        execute: async (_input, context) => {
+          // @ts-expect-error Page effects must not return a Promise or thenable.
+          return context.applyEffect(() => result, settle);
+        },
+      }),
+    );
+    registry.activate('async-effect');
+    await expect(
+      registry.invoke({ id: 'async', code: 'form.patch-draft', input: 'value' }, registry.snapshot()!.token),
+    ).rejects.toMatchObject({ name: 'AssistantEffectInterruptedError', execution: 'unknown' });
+    expect(settle).not.toHaveBeenCalled();
+    finish();
+    // Allow late rejections to surface: the registry must observe them even after it exits.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  },
+);

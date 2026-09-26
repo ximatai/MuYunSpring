@@ -14,7 +14,8 @@ class AssistantPlatformKnowledgeTest {
         Map<String, String> expectedBySurface = Map.of(
                 "workbench", "MuYun workbench navigation",
                 "module-page", "standard MuYun record workspace",
-                "metadata-governance", "MuYun metadata governance"
+                "metadata-governance", "MuYun metadata governance",
+                "page-composition", "MuYun template-constrained page composition"
         );
 
         expectedBySurface.forEach((surface, expected) -> assertThat(

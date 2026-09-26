@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onActivated, onBeforeUnmount, ref, watch } from 'vue';
+import { computed, onActivated, onDeactivated, onMounted, onBeforeUnmount, ref, watch } from 'vue';
 import {
   ManagementExplorerColumn,
   ManagementPanelHeader,
@@ -16,6 +16,9 @@ import { hasOptionHierarchy } from '@/platform-components/optionFieldOptions';
 import { useWorkspaceViewUnsavedState } from '@muyun/platform-workbench';
 import {
   createStaticResourceCrudClient,
+  createAssistantTurnRequester,
+  useAssistantSurfaceHost,
+  AssistantCapabilityUsageError,
   pageActionEntryDescription,
   pageActionEntryTitle,
   normalizeError,
@@ -71,6 +74,12 @@ import {
   actionButtonMembers,
   actionButtons,
 } from './pageCompositionMode';
+import {
+  preparePageCompositionCandidate,
+  pageCompositionChangeLines,
+  type PageCompositionCandidateInput,
+} from './pageCompositionCandidate';
+import { createPageCompositionAssistantSurface } from './pageCompositionAssistantSurface';
 import { pageCompositionTransport } from './pageCompositionTransport';
 import PageCompositionDescriptorPreview from './PageCompositionDescriptorPreview.vue';
 import PageQuerySummaryEditor, { type PageQuerySummaryEditorIssues } from './PageQuerySummaryEditor.vue';
@@ -206,11 +215,18 @@ function updateComponentTitle(title: string) {
 // Governance tabs retain drafts through KeepAlive. Re-entering the composer
 // refreshes its source catalogue, not the user's unsaved page composition.
 let activatedOnce = false;
+const catalogueRefreshPending = ref(false);
+const workspaceActive = ref(true);
 onActivated(() => {
-  if (activatedOnce && !isMutating.value) void loadMetadataTree();
+  workspaceActive.value = true;
+  if (activatedOnce) catalogueRefreshPending.value = true;
   activatedOnce = true;
 });
+onDeactivated(() => {
+  workspaceActive.value = false;
+});
 const loading = ref(false);
+const metadataLoadFailed = ref(false);
 const saving = ref(false);
 const publishing = ref(false);
 const relation = ref<ModuleMetadataRelation>();
@@ -597,6 +613,14 @@ useWorkspaceViewUnsavedState('页面配置', () => hasUnsavedChanges.value);
 const isMutating = computed(
   () => saving.value || publishing.value || loading.value || compositionLoading.value,
 );
+watch([catalogueRefreshPending, isMutating, workspaceActive], ([pending, busy, active]) => {
+  if (!pending || busy || !active) return;
+  catalogueRefreshPending.value = false;
+  void loadMetadataTree();
+});
+const metadataLoadProblem = computed(() =>
+  metadataLoadFailed.value ? '字段目录刷新失败，请刷新字段来源后再预检或保存；本地编排已保留。' : undefined,
+);
 const unavailableNavigationSources = computed(() => {
   const known = new Set(
     [...metadataFields.value, ...pendingFieldSources.value].map((field) => field.fieldName),
@@ -901,6 +925,7 @@ async function loadMetadataTree(requestSequence = workspaceLoadSequence, moduleA
   const current = () =>
     requestSequence === workspaceLoadSequence && metadataSequence === metadataLoadSequence;
   loading.value = true;
+  metadataLoadFailed.value = false;
   try {
     const [profile, runtime] = await Promise.all([
       moduleContext.http.request<{
@@ -995,7 +1020,10 @@ async function loadMetadataTree(requestSequence = workspaceLoadSequence, moduleA
     if (componentCatalog.value && !publishing.value) await loadComponentCatalog();
     return true;
   } catch (cause) {
-    if (current()) presentPlatformError(cause, { source: 'page-composition', phase: 'load' });
+    if (current()) {
+      metadataLoadFailed.value = true;
+      presentPlatformError(cause, { source: 'page-composition', phase: 'load' });
+    }
   } finally {
     if (current()) loading.value = false;
   }
@@ -1468,6 +1496,23 @@ function retryPreviewDescriptor() {
   schedulePreviewDescriptor();
 }
 
+function pagePreviewBody(uiTreeJson: string) {
+  return {
+    uiTreeJson,
+    ...(activeComponents.value.length
+      ? { newFields: activeComponents.value.map(componentFieldDefinition) }
+      : {}),
+    ...(activeChildren.value.length
+      ? {
+          newChildren: activeChildren.value.map((child) => ({
+            ...child,
+            fields: child.fields.map(componentFieldDefinition),
+          })),
+        }
+      : {}),
+  };
+}
+
 async function requestPreviewDescriptor(
   requestSequence: number,
   variantId: string,
@@ -1478,20 +1523,7 @@ async function requestPreviewDescriptor(
     const preview = await moduleContext.http.request<PresentationRevisionPreview>({
       method: 'POST',
       path: pageCompositionTransport.previewRevisionPath(variantId, revisionId),
-      body: {
-        uiTreeJson,
-        ...(activeComponents.value.length
-          ? { newFields: activeComponents.value.map(componentFieldDefinition) }
-          : {}),
-        ...(activeChildren.value.length
-          ? {
-              newChildren: activeChildren.value.map((child) => ({
-                ...child,
-                fields: child.fields.map(componentFieldDefinition),
-              })),
-            }
-          : {}),
-      },
+      body: pagePreviewBody(uiTreeJson),
     });
     if (requestSequence !== previewRequestSequence) return;
     if (uiTreeJson !== currentUiTreeJson.value) return;
@@ -1796,6 +1828,8 @@ async function saveAndApply() {
     await loadSummaryCatalog();
   if (
     isMutating.value ||
+    catalogueRefreshPending.value ||
+    metadataLoadFailed.value ||
     !hasPendingChanges.value ||
     componentNameInvalid.value ||
     childInvalid.value ||
@@ -1816,8 +1850,26 @@ async function saveAndApply() {
   const variantId = variant.value?.id;
   if (!variantId) return;
   let treeJsonToPublish = currentUiTreeJson.value;
+  const reviewState = () =>
+    JSON.stringify({
+      sequence: workspaceLoadSequence,
+      revision: revision.value,
+      variant: variant.value?.id,
+      tree: currentUiTreeJson.value,
+      payload: pagePreviewBody(currentUiTreeJson.value),
+    });
+  const reviewedState = reviewState();
+  const requireReviewedCandidate = () => {
+    if (reviewState() !== reviewedState) throw new Error('页面候选或基线已变化，请重新预检后保存。');
+  };
   publishing.value = true;
   try {
+    await moduleContext.http.request<PresentationRevisionPreview>({
+      method: 'POST',
+      path: pageCompositionTransport.previewRevisionPath(variantId, revision.value!.id!),
+      body: pagePreviewBody(treeJsonToPublish),
+    });
+    requireReviewedCandidate();
     let publicationCandidate: PresentationRevision = {
       ...revision.value,
       templateVersion: JSON.parse(treeJsonToPublish).templateVersion,
@@ -2820,6 +2872,194 @@ function layoutHandlers(layout: 'form' | 'detail') {
     'action-drop': inLayout(handlePreviewActionDrop),
   };
 }
+
+const assistantHost = useAssistantSurfaceHost();
+let assistantActive = false;
+let assistantPageKey: string | undefined;
+let unregisterAssistant: (() => void) | undefined;
+const assistantRevision = ref(0);
+const candidateChanges = computed(() =>
+  pageCompositionChangeLines(savedUiTreeJson.value, currentUiTreeJson.value),
+);
+const assistantFieldDirectory = computed(() => {
+  const fields = new Map<string, PageComposerField>();
+  for (const field of [...metadataFields.value, ...[...referenceFieldDirectories.value.values()].flat()]) {
+    if (!field.unavailable && !field.pending && !fields.has(field.fieldName))
+      fields.set(field.fieldName, field);
+  }
+  return [...fields.values()];
+});
+const assistantSources = computed(() => assistantFieldDirectory.value.slice(0, 100));
+function assistantEditingProblem() {
+  if (isMutating.value || catalogueRefreshPending.value) return '页面正在加载或保存。';
+  if (metadataLoadProblem.value) return metadataLoadProblem.value;
+  if (!revision.value?.id || revision.value.status !== 'draft') return '请先在页面中初始化或继续编辑草稿。';
+  if (draftParseError.value || draftConflict.value) return '请先修正解析错误或重新加载冲突草稿。';
+  if (propertyDrawerOpen.value || summaryDrawerOpen.value) return '请先完成当前属性编辑。';
+  if (activeComponents.value.length || activeChildren.value.length)
+    return '请先处理当前新增数据项或明细表；助手只支持编排已有字段。';
+  if (!skeleton.value) return '页面模板尚未就绪。';
+  return undefined;
+}
+function assistantPageDescription() {
+  const placement = (field: PageComposerField) => ({
+    fieldName: field.fieldName,
+    title: field.title,
+    properties: field.properties,
+  });
+  return {
+    moduleAlias: props.moduleAlias,
+    title: `${props.moduleTitle ?? props.moduleAlias} · 页面配置`,
+    editable: !assistantEditingProblem(),
+    editingProblem: assistantEditingProblem(),
+    template: revision.value?.templateAlias,
+    templateVersion: JSON.parse(currentUiTreeJson.value).templateVersion,
+    mode: compositionMode.value,
+    columns: skeleton.value?.columns,
+    separateDetail: state.separateDetail.value,
+    revisionId: revision.value?.id,
+    expectedVersion: revision.value?.version,
+    fields: assistantSources.value.map((field) => ({
+      fieldName: field.fieldName,
+      title: field.title,
+      readOnly: field.platformReadOnly,
+      searchable: searchableFields.value.includes(field.fieldName),
+    })),
+    fieldsTruncated: assistantFieldDirectory.value.length > 100,
+    list: state.listFields.value.map(placement),
+    form: state.layouts.value.form.fields.map(placement),
+    detail: state.separateDetail.value ? state.layouts.value.detail.fields.map(placement) : undefined,
+    groupedFields: Object.fromEntries(
+      Object.entries(state.layouts.value).map(([key, layout]) => [
+        key,
+        layout.groups.flatMap((group) => group.fields.map((field) => field.fieldName)),
+      ]),
+    ),
+    quickSearchFields: quickSearchFields.value,
+  };
+}
+function assistantPageCandidate() {
+  return {
+    saved: !hasUnsavedChanges.value,
+    revisionId: revision.value?.id,
+    expectedVersion: revision.value?.version,
+    changes: candidateChanges.value,
+    current: assistantPageDescription(),
+  };
+}
+function prepareAssistantPage(input: PageCompositionCandidateInput) {
+  const problem = assistantEditingProblem();
+  if (problem) throw new AssistantCapabilityUsageError(problem);
+  const candidate = preparePageCompositionCandidate(
+    {
+      list: state.listFields.value,
+      form: state.layouts.value.form,
+      detail: state.layouts.value.detail,
+      separateDetail: state.separateDetail.value,
+      columns: skeleton.value!.columns,
+      quickSearchFields: quickSearchFields.value,
+      fields: assistantSources.value,
+      searchableFields: searchableFields.value,
+    },
+    input,
+  );
+  // Validation finishes before the effect boundary; only this callback changes the shared editor.
+  return () => {
+    state.listFields.value = candidate.list;
+    state.layouts.value = { form: candidate.form, detail: candidate.detail };
+    quickSearchFields.value = candidate.quickSearchFields;
+    state.selectedNodeId.value = undefined;
+    editorMode.value = 'fields';
+    return assistantPageCandidate();
+  };
+}
+async function previewAssistantPage(signal: AbortSignal) {
+  if (!variant.value?.id || !revision.value?.id || isMutating.value)
+    throw new AssistantCapabilityUsageError('当前页面草稿不可预检。');
+  const errors = [
+    ...(propertyDrawerOpen.value || summaryDrawerOpen.value ? ['请先完成当前属性编辑。'] : []),
+    ...(draftConflict.value ? ['页面草稿版本已冲突，请重新加载。'] : []),
+    metadataLoadProblem.value,
+    draftParseError.value,
+    ...propertyIssues.value,
+    ...dictionaryRadioIssues.value,
+    ...actionIssues.value,
+    ...(unavailableSources.value.length ? ['页面包含失效字段来源。'] : []),
+    ...(hasSummaryIssues.value || summaryCatalogBlocksMutation.value ? ['查询统计配置尚未通过校验。'] : []),
+  ].filter((message): message is string => Boolean(message));
+  if (errors.length) return { valid: false, errors };
+  try {
+    await moduleContext.http.request<PresentationRevisionPreview>({
+      method: 'POST',
+      path: pageCompositionTransport.previewRevisionPath(variant.value.id, revision.value.id),
+      body: pagePreviewBody(currentUiTreeJson.value),
+      signal,
+    });
+    return { valid: true, errors: [] };
+  } catch (cause) {
+    if (signal.aborted) throw cause;
+    return { valid: false, errors: [normalizeError(cause).message] };
+  }
+}
+function clearPageAssistant() {
+  unregisterAssistant?.();
+  unregisterAssistant = undefined;
+}
+function syncPageAssistant() {
+  clearPageAssistant();
+  if (!assistantHost || !assistantActive || !assistantPageKey || isMutating.value) return;
+  unregisterAssistant = assistantHost.registry.register({
+    pageInstanceKey: assistantPageKey,
+    contextRevision: () => `${props.moduleAlias}:${assistantRevision.value}`,
+    surface: createPageCompositionAssistantSurface(
+      {
+        describe: assistantPageDescription,
+        candidate: assistantPageCandidate,
+        prepare: prepareAssistantPage,
+        preview: previewAssistantPage,
+      },
+      createAssistantTurnRequester(moduleContext.http),
+      () => assistantHost.capabilities?.() ?? [],
+    ),
+  });
+}
+function activatePageAssistant() {
+  assistantActive = true;
+  assistantPageKey = assistantHost?.activePageInstanceKey();
+  syncPageAssistant();
+}
+watch(
+  () =>
+    JSON.stringify([
+      currentUiTreeJson.value,
+      revision.value,
+      variant.value,
+      metadataFields.value,
+      [...referenceFieldDirectories.value],
+      searchableFields.value,
+      skeleton.value,
+      propertyDrawerOpen.value,
+      summaryDrawerOpen.value,
+      draftConflict.value,
+      draftParseError.value,
+      pagePreviewBody(currentUiTreeJson.value),
+      isMutating.value,
+      catalogueRefreshPending.value,
+      metadataLoadFailed.value,
+    ]),
+  () => {
+    assistantRevision.value += 1;
+  },
+  { flush: 'sync' },
+);
+watch(isMutating, syncPageAssistant);
+onMounted(activatePageAssistant);
+onActivated(activatePageAssistant);
+onDeactivated(() => {
+  assistantActive = false;
+  clearPageAssistant();
+});
+onBeforeUnmount(clearPageAssistant);
 </script>
 
 <template>
@@ -2854,6 +3094,8 @@ function layoutHandlers(layout: 'form' | 'detail') {
               :loading="publishing"
               :disabled="
                 isMutating ||
+                catalogueRefreshPending ||
+                metadataLoadFailed ||
                 !hasPendingChanges ||
                 draftConflict ||
                 componentNameInvalid ||
@@ -2875,6 +3117,18 @@ function layoutHandlers(layout: 'form' | 'detail') {
         </div>
       </template>
     </ManagementPanelHeader>
+    <p v-if="metadataLoadProblem" role="alert">{{ metadataLoadProblem }}</p>
+    <details
+      v-if="hasUnsavedChanges"
+      class="page-composition-candidate"
+      data-testid="page-composition-candidate"
+    >
+      <summary>配置变更（尚未保存）</summary>
+      <ul>
+        <li v-for="(change, index) in candidateChanges" :key="index">{{ change }}</li>
+      </ul>
+      <p>预览使用当前草稿。点击“保存并生效”后才会发布；可继续手工修改或放弃本次更改。</p>
+    </details>
     <div v-if="configuredMode !== compositionMode" class="page-composition-mode">
       <UiButton :disabled="isMutating" @click="applyConfiguredMode">采用概览中的呈现方式</UiButton>
     </div>
@@ -3487,6 +3741,17 @@ function layoutHandlers(layout: 'form' | 'detail') {
 .page-composition-source-error {
   color: var(--muyun-danger-base);
 }
+.page-composition-candidate {
+  padding: 8px 16px;
+  max-height: 180px;
+  overflow: auto;
+  overflow-wrap: anywhere;
+  flex-shrink: 0;
+}
+.page-composition-candidate summary {
+  cursor: pointer;
+}
+
 .page-composition-workspace {
   display: flex;
   flex-direction: column;

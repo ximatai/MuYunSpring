@@ -37,10 +37,14 @@ export interface AssistantCapabilityExecutionContext {
   /** Commit invocation-local guarded state without claiming a user-visible page effect. */
   commitInternalState<T>(commit: () => T): T;
   /**
-   * Apply a page effect, retaining its execution scope while background work settles.
+   * Synchronously commit a page effect, retaining its scope while background work settles.
+   * Async preparation belongs before this call; background completion belongs in settle.
    * Navigation adapters may return the token of an explicitly validated replacement surface.
    */
-  applyEffect<T>(effect: () => T, settle?: () => Promise<void | AssistantInvocationToken>): T;
+  applyEffect<T>(
+    effect: () => T extends PromiseLike<unknown> ? never : T,
+    settle?: () => Promise<void | AssistantInvocationToken>,
+  ): T;
 }
 
 export interface AssistantSurface {
@@ -435,6 +439,16 @@ export function createAssistantSurfaceRegistry(
             if (capability.effect === 'read') throw new Error('Read capability cannot apply page effects');
             effectState = 'unknown';
             const result = effect();
+            if (
+              result !== null &&
+              (typeof result === 'object' || typeof result === 'function') &&
+              'then' in result &&
+              typeof result.then === 'function'
+            ) {
+              // Execution has already started: observe rejection but do not claim a known outcome.
+              void Promise.resolve(result).catch(() => undefined);
+              throw new Error('Assistant page effects must commit synchronously');
+            }
             effectState = 'effect-applied';
             effectApplied = true;
             const afterEffect = active();

@@ -164,28 +164,46 @@ export function createMetadataModelWorkspaceEditSession() {
     replaceNewFieldKey?: string,
   ) {
     const current = relation(relationId);
-    const key = fieldKey(field);
-    if (!current || !key) return;
-    // A failed preview keeps the local session open. If the author then corrects an unsaved
-    // field's technical name, replace that provisional ADD instead of emitting two columns.
-    if (replaceNewFieldKey && replaceNewFieldKey !== key && !current.fields[replaceNewFieldKey]?.id) {
-      const fields = { ...current.fields };
-      delete fields[replaceNewFieldKey];
-      current.fields = fields;
-      const properties = { ...current.fieldProperties };
-      delete properties[replaceNewFieldKey];
-      current.fieldProperties = properties;
-      current.fieldOrder = current.fieldOrder.map((fieldId) =>
-        fieldId === replaceNewFieldKey ? key : fieldId,
-      );
-      current.sortableFieldIds = current.sortableFieldIds.map((fieldId) =>
-        fieldId === replaceNewFieldKey ? key : fieldId,
-      );
+    stageRelationField(current, field, property, replaceNewFieldKey);
+  }
+
+  /** Validate the whole batch before replacing the session, so failures cannot leave partial candidates. */
+  function stageFields(
+    relationId: string,
+    entries: Array<{ field: MetadataField; property: MetadataFieldPropertyDraft }>,
+  ) {
+    if (!draft.value?.[relationId]) throw new Error('No metadata edit session');
+    const projected = copyRelationDrafts(draft.value);
+    const current = projected[relationId];
+    const names = new Set(Object.values(current.fields).map((field) => field.fieldName?.toLowerCase()));
+    for (const { field, property } of entries) {
+      const name = field.fieldName?.toLowerCase();
+      if (!name || field.id || names.has(name)) throw new Error('Duplicate or invalid new metadata field');
+      names.add(name);
+      stageRelationField(current, field, property);
     }
-    current.fields = { ...current.fields, [key]: { ...field } };
-    if (!current.fieldOrder.includes(key)) current.fieldOrder = [...current.fieldOrder, key];
-    if (property)
-      current.fieldProperties = { ...current.fieldProperties, [key]: copyFieldPropertyDraft(property) };
+    draft.value = projected;
+  }
+
+  function discardNewField(relationId: string, fieldName: string) {
+    const current = relation(relationId);
+    if (!current || current.fields[fieldName]?.id || initial.value[relationId]?.fields[fieldName]) return;
+    delete current.fields[fieldName];
+    delete current.fieldProperties[fieldName];
+    current.fieldOrder = current.fieldOrder.filter((key) => key !== fieldName);
+  }
+
+  /** Project the visible editor without committing it to the tree/session. */
+  function proposalWithField(
+    relationId: string,
+    field: MetadataField,
+    property: MetadataFieldPropertyDraft,
+    replaceNewFieldKey?: string,
+  ) {
+    if (!draft.value || !draft.value[relationId]) return undefined;
+    const projected = copyRelationDrafts(draft.value);
+    stageRelationField(projected[relationId], field, property, replaceNewFieldKey);
+    return buildProposal(projected);
   }
 
   function stageFieldOrder(relationId: string, fieldIds: string[]) {
@@ -204,9 +222,9 @@ export function createMetadataModelWorkspaceEditSession() {
     relationOrder.value = { ...relationOrder.value, [key]: [...relationIds] };
   }
 
-  function buildProposal(): MetadataModelChangeSetProposal | undefined {
-    if (!draft.value) return undefined;
-    const relationDrafts = Object.entries(draft.value).flatMap(([relationId, current]) => {
+  function buildProposal(currentDraft = draft.value): MetadataModelChangeSetProposal | undefined {
+    if (!currentDraft) return undefined;
+    const relationDrafts = Object.entries(currentDraft).flatMap(([relationId, current]) => {
       const original = initial.value[relationId];
       if (!original) return [];
       const relationProposal = relationProposalOf(current, original);
@@ -217,7 +235,7 @@ export function createMetadataModelWorkspaceEditSession() {
         ? []
         : [{ parentMetadataId: parentMetadataId || undefined, relationIds: [...order] }],
     );
-    const fieldOrders = Object.entries(draft.value).flatMap(([relationId, current]) =>
+    const fieldOrders = Object.entries(currentDraft).flatMap(([relationId, current]) =>
       JSON.stringify(sortableFieldOrder(current)) ===
       JSON.stringify(sortableFieldOrder(initial.value[relationId]))
         ? []
@@ -237,9 +255,12 @@ export function createMetadataModelWorkspaceEditSession() {
     fieldsForDisplay,
     propertyForField,
     stageField,
+    stageFields,
+    discardNewField,
     stageFieldOrder,
     stageRelationOrder,
     buildProposal,
+    proposalWithField,
   };
 }
 
@@ -393,4 +414,34 @@ function copyFieldPropertyMap(
   return Object.fromEntries(
     Object.entries(properties).map(([id, property]) => [id, copyFieldPropertyDraft(property)]),
   );
+}
+
+function stageRelationField(
+  current: MetadataModelRelationDraft | undefined,
+  field: MetadataField,
+  property?: MetadataFieldPropertyDraft,
+  replaceNewFieldKey?: string,
+) {
+  const key = fieldKey(field);
+  if (!current || !key) return;
+  // A failed preview keeps the local session open. If the author then corrects an unsaved
+  // field's technical name, replace that provisional ADD instead of emitting two columns.
+  if (replaceNewFieldKey && replaceNewFieldKey !== key && !current.fields[replaceNewFieldKey]?.id) {
+    const fields = { ...current.fields };
+    delete fields[replaceNewFieldKey];
+    current.fields = fields;
+    const properties = { ...current.fieldProperties };
+    delete properties[replaceNewFieldKey];
+    current.fieldProperties = properties;
+    current.fieldOrder = current.fieldOrder.map((fieldId) =>
+      fieldId === replaceNewFieldKey ? key : fieldId,
+    );
+    current.sortableFieldIds = current.sortableFieldIds.map((fieldId) =>
+      fieldId === replaceNewFieldKey ? key : fieldId,
+    );
+  }
+  current.fields = { ...current.fields, [key]: { ...field } };
+  if (!current.fieldOrder.includes(key)) current.fieldOrder = [...current.fieldOrder, key];
+  if (property)
+    current.fieldProperties = { ...current.fieldProperties, [key]: copyFieldPropertyDraft(property) };
 }

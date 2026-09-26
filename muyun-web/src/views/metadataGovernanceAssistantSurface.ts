@@ -100,8 +100,26 @@ export interface PreparedMetadataPropertyFieldDraft {
   };
 }
 
+export interface MetadataFieldCandidate {
+  fieldName: string;
+  kind: string;
+  editable: boolean;
+  operation: 'ADD' | 'UPDATE';
+  saved: false;
+  expectedMetadataVersion: number;
+  changes: Array<{ property: string; before?: string | boolean; after?: string | boolean }>;
+}
+
+export type MetadataFieldPlanInput = Array<
+  (AddMetadataFieldDraftInput & { kind: 'BASIC' }) | AddMetadataPropertyFieldDraftInput
+>;
+
 export interface MetadataGovernanceAssistantAdapter {
+  prepareFieldPlan?(fields: MetadataFieldPlanInput, signal: AbortSignal): Promise<() => unknown>;
+  plan?(): unknown;
+
   summary(): MetadataGovernanceAssistantModelSummary;
+  candidate?(): MetadataFieldCandidate | undefined;
   proposal(): MetadataModelChangeSetProposal | undefined;
   preview(proposal: MetadataModelChangeSetProposal, signal: AbortSignal): Promise<MetadataChangeSetPreview>;
   fieldSpecAliases(): string[];
@@ -148,6 +166,10 @@ export function createMetadataGovernanceAssistantSurface(
     capabilities: () => [
       ...contributedCapabilities(),
       describeMetadataModelCapability(adapter),
+      ...(adapter.prepareFieldPlan && canAddFieldDraft(adapter)
+        ? [prepareMetadataFieldPlanCapability(adapter)]
+        : []),
+      ...(adapter.candidate?.() ? [describeMetadataCandidateCapability(adapter)] : []),
       ...(canAddFieldDraft(adapter) ? [addMetadataFieldDraftCapability(adapter)] : []),
       ...(canUpdateFieldDraft(adapter) ? [updateMetadataFieldDraftCapability(adapter)] : []),
       ...(canAddPropertyFieldDraft(adapter)
@@ -156,6 +178,73 @@ export function createMetadataGovernanceAssistantSurface(
       ...(hasChanges(adapter.proposal()) ? [previewMetadataDraftCapability(adapter)] : []),
     ],
     requestTurn,
+  };
+}
+
+function prepareMetadataFieldPlanCapability(
+  adapter: MetadataGovernanceAssistantAdapter,
+): AssistantCapability<MetadataFieldPlanInput> {
+  const basicSchema = addMetadataFieldDraftCapability(adapter).descriptor.inputSchema;
+  const propertySchema = addMetadataPropertyFieldDraftCapability(adapter).descriptor.inputSchema;
+  return {
+    effect: 'configuration-draft',
+    descriptor: {
+      code: 'configuration.prepare-metadata-field-plan',
+      description:
+        'Prepare 1–12 new fields together as one visible unsaved plan. Supports BASIC, MODULE_REFERENCE and DICTIONARY fields. Resolve targets first. All fields must validate before any candidate is staged. The user can edit/remove each item and must confirm the standard change-set before anything is saved.',
+      inputSchema: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['fields'],
+        properties: {
+          fields: {
+            type: 'array',
+            minItems: 1,
+            maxItems: 12,
+            items: {
+              anyOf: [
+                {
+                  ...basicSchema,
+                  required: ['kind', 'title', 'fieldSpecAlias'],
+                  properties: {
+                    ...(isRecord(basicSchema.properties) ? basicSchema.properties : {}),
+                    kind: { type: 'string', enum: ['BASIC'] },
+                  },
+                },
+                propertySchema,
+              ],
+            },
+          },
+        },
+      },
+    },
+    parseInput(input) {
+      if (
+        !isRecord(input) ||
+        Object.keys(input).some((key) => key !== 'fields') ||
+        !Array.isArray(input.fields) ||
+        input.fields.length < 1 ||
+        input.fields.length > 12
+      )
+        throw new AssistantCapabilityUsageError('A field plan requires 1–12 fields');
+      return input.fields.map((item) => {
+        if (!isRecord(item)) throw new AssistantCapabilityUsageError('Invalid field plan item');
+        if (item.kind === 'BASIC') {
+          const { kind, ...field } = item;
+          return { ...parseAddFieldDraftInput(field, adapter.fieldSpecAliases()), kind };
+        }
+        return parseAddPropertyFieldDraftInput(
+          item,
+          adapter.fieldSpecAliases().includes('json_set') ? ['SINGLE', 'MULTIPLE'] : ['SINGLE'],
+        );
+      });
+    },
+    async execute(input, context) {
+      const commit = await adapter.prepareFieldPlan!(input, context.signal);
+      if (!context.isCurrent())
+        throw new AssistantCapabilityUsageError('Field plan preparation is no longer current');
+      return context.applyEffect(commit);
+    },
   };
 }
 
@@ -245,7 +334,7 @@ function updateMetadataFieldDraftCapability(
     descriptor: {
       code: 'configuration.update-metadata-field-draft',
       description:
-        'Update one editable ordinary business field in the selected metadata relation as a visible, unsaved candidate. The user can review, revise or cancel it before using the page save action.',
+        'Update one editable ordinary business field as a visible, unsaved candidate. When an editor is open, revise only that current candidate; first describe it to inspect the user’s latest changes. The user can review, revise or cancel it before using the page save action.',
       inputSchema: {
         type: 'object',
         additionalProperties: false,
@@ -344,31 +433,85 @@ function describeMetadataModelCapability(
   };
 }
 
-function previewMetadataDraftCapability(
+function describeMetadataCandidateCapability(
   adapter: MetadataGovernanceAssistantAdapter,
-): AssistantCapability<
+): AssistantCapability<Record<string, never>, MetadataFieldCandidate> {
+  return {
+    effect: 'read',
+    descriptor: {
+      code: 'configuration.describe-metadata-candidate',
+      description:
+        'Read the visible unsaved field candidate and its differences from the persisted baseline, including manual edits. Use before revising a candidate. Preview already includes these differences: do not read again merely to summarize that preview. It does not save or publish.',
+      inputSchema: emptyAssistantCapabilityInputSchema(),
+    },
+    parseInput: parseEmptyAssistantCapabilityInput,
+    async execute() {
+      const candidate = adapter.candidate?.();
+      if (!candidate)
+        throw new AssistantCapabilityUsageError(
+          'No visible metadata candidate is available',
+          'PRECONDITION_FAILED',
+        );
+      return candidate;
+    },
+    present(candidate) {
+      const display = (value: string | boolean | undefined) =>
+        value === undefined
+          ? '未设置'
+          : typeof value === 'boolean'
+            ? value
+              ? '是'
+              : '否'
+            : value.slice(0, 200);
+      return {
+        title: `字段候选：${candidate.fieldName}（尚未保存）`,
+        lines: candidate.changes.length
+          ? candidate.changes.map(
+              (change) => `${change.property}：${display(change.before)} → ${display(change.after)}`,
+            )
+          : ['当前候选与已保存定义一致。'],
+      };
+    },
+  };
+}
+
+function previewMetadataDraftCapability(adapter: MetadataGovernanceAssistantAdapter): AssistantCapability<
   Record<string, never>,
-  Omit<MetadataChangeSetPreview, 'proposalFingerprint'> & { valid: boolean }
+  Omit<MetadataChangeSetPreview, 'proposalFingerprint'> & {
+    valid: boolean;
+    candidate?: MetadataFieldCandidate;
+    plan?: unknown;
+  }
 > {
   return {
     effect: 'read',
     present(preview) {
+      const details = [
+        ...preview.errors.map((issue) => ({ kind: '错误', text: issue.message })),
+        ...preview.warnings.map((issue) => ({ kind: '警告', text: issue.message })),
+        ...preview.fieldImpacts.map((impact) => ({ kind: '字段影响', text: impact.description })),
+      ];
+      // Reserve one line for the conclusion and, when needed, one for omitted counts.
+      const visibleCount = details.length > 19 ? 18 : 19;
+      const omitted = details.slice(visibleCount);
+      const omittedSummary = ['错误', '警告', '字段影响']
+        .map((kind) => ({ kind, count: omitted.filter((item) => item.kind === kind).length }))
+        .filter(({ count }) => count > 0)
+        .map(({ kind, count }) => `${count} 项${kind}`)
+        .join('、');
       return {
         title: '配置候选预检（尚未生效）',
         lines: [
           preview.valid ? '预检通过，仍需人工审阅并在页面确认。' : '预检未通过。',
-          ...preview.fieldImpacts.map((impact) => impact.description),
-          ...preview.errors.map((issue) => issue.message),
-          ...preview.warnings.map((issue) => issue.message),
-        ]
-          .slice(0, 20)
-          .map((line) => line.slice(0, 500)),
+          ...details.slice(0, visibleCount).map(({ text }) => text.slice(0, 500)),
+          ...(omitted.length ? [`另有 ${omittedSummary}未展示，请在配置页面查看完整预检结果。`] : []),
+        ],
       };
     },
     descriptor: {
       code: 'configuration.preview-metadata-draft',
       description:
-        'Validate and preview the current unsaved metadata candidate through the standard change-set preview contract. It never publishes the candidate.',
+        'Validate the current visible unsaved candidate through the standard change-set preview contract. Returns both candidate differences and authoritative validation/impacts, sufficient to report the result. After this returns, summarize and stop tool calls; preview again only after the candidate changes. It never publishes the candidate.',
       inputSchema: emptyAssistantCapabilityInputSchema(),
     },
     parseInput: parseEmptyAssistantCapabilityInput,
@@ -381,6 +524,8 @@ function previewMetadataDraftCapability(
         throw new AssistantCapabilityUsageError('Metadata candidate preview is no longer current');
       return {
         valid: preview.errors.length === 0,
+        ...(adapter.plan?.() ? { plan: adapter.plan() } : {}),
+        ...(adapter.candidate?.() ? { candidate: adapter.candidate() } : {}),
         fieldImpacts: preview.fieldImpacts,
         schemaImpacts: preview.schemaImpacts,
         orderImpacts: preview.orderImpacts,
@@ -417,7 +562,7 @@ function canUpdateFieldDraft(adapter: MetadataGovernanceAssistantAdapter): boole
   return Boolean(
     adapter.updateFieldDraft &&
     summary.selectedRelation &&
-    !summary.draft.editorOpen &&
+    (!summary.draft.editorOpen || adapter.candidate?.()?.editable === true) &&
     adapter.editableBasicFieldNames().length > 0,
   );
 }
