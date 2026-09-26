@@ -1172,3 +1172,87 @@ it('shows read recovery instead of discard controls for a history failure', asyn
   expect(wrapper.text()).not.toContain('读取历史失败');
   expect(list).toHaveBeenCalledTimes(2);
 });
+
+it('does not apply a linked plan after switching to a different archived conversation', async () => {
+  const { createConstructionPlanSession } = await import('@/platform-workbench/constructionPlanSession');
+  let finish!: (value: import('@muyun/web-contracts').ConstructionPlanSnapshot) => void;
+  const read = vi.fn(
+    () =>
+      new Promise<import('@muyun/web-contracts').ConstructionPlanSnapshot>((resolve) => {
+        finish = resolve;
+      }),
+  );
+  const plan = createConstructionPlanSession(
+    { read } as unknown as import('@muyun/web-core').ConstructionPlanClient,
+    () => 'owner',
+  );
+  const snapshot = (id: string) => ({
+    id,
+    revision: 1,
+    updatedAt: '2026-09-27',
+    content: {
+      title: id,
+      messages: [{ role: 'user' as const, text: id }],
+      history: [],
+      ...(id === 'conversation-a' ? { planId: 'plan-a' } : {}),
+    },
+  });
+  const wrapper = mount(WorkbenchAssistantPanel, {
+    props: {
+      open: true,
+      registry: createRegistry(vi.fn()),
+      constructionPlan: plan,
+      conversationClient: {
+        list: vi.fn(async () =>
+          ['conversation-a', 'conversation-b'].map((id) => ({ id, title: id, updatedAt: '2026-09-27' })),
+        ),
+        read: vi.fn(async (id) => snapshot(id)),
+        save: vi.fn(async (id, _scope, revision, content) => ({
+          id,
+          revision: revision + 1,
+          updatedAt: '2026-09-27',
+          content,
+        })),
+      },
+    },
+  });
+  const click = async (label: string) => {
+    await wrapper
+      .findAll('button')
+      .find((button) => button.text().includes(label))!
+      .trigger('click');
+    await flushPromises();
+  };
+  await click('历史会话');
+  await click('conversation-a');
+  await click('查看关联的已保存建设方案');
+  expect(read).toHaveBeenCalledWith('plan-a');
+  await click('历史会话');
+  await click('conversation-b');
+  finish({
+    planId: 'plan-a',
+    revision: 1,
+    confirmedAt: '',
+    constructionStatus: 'NOT_STARTED',
+    initializations: [],
+    deliveries: [],
+    fieldChanges: [],
+    content: {
+      title: '客户',
+      goal: '登记客户',
+      inScope: [],
+      outOfScope: [],
+      objects: [],
+      relationships: [],
+      rules: [],
+      questions: [],
+      assumptions: [],
+      decisions: [],
+      acceptanceExamples: [],
+    },
+  });
+  await flushPromises();
+  expect(plan.current().saved).toBeUndefined();
+  expect(wrapper.text()).toContain('conversation-b');
+  expect(wrapper.text()).not.toContain('关联方案暂时无法恢复');
+});

@@ -309,3 +309,23 @@ it('discovers construction operations only after their local prerequisites are s
   expect(codes()).not.toContain('construction.task');
   expect(codes()).not.toContain('construction.prepare-initialization');
 });
+
+it('rejects a late restore before applying it when its caller context has changed', async () => {
+  const { session, client } = fixture();
+  session.edit(content);
+  await createAssistantOperationConfirmation(session.prepare(), () => true).confirm();
+  const original = structuredClone(session.current().saved!);
+  let finish!: (value: ConstructionPlanSnapshot) => void;
+  vi.mocked(client.read).mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
+  let current = true;
+  const restoring = session.restore('other', () => current);
+  current = false;
+  finish({ ...original, planId: 'other' });
+  await expect(restoring).rejects.toThrow('恢复入口已变化');
+  expect(session.current().saved?.planId).toBe(original.planId);
+});

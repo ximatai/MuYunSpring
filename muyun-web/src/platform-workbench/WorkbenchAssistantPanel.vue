@@ -63,11 +63,15 @@ const archiveStatusText = computed(
 const planRestoreError = ref('');
 const planRestoring = ref(false);
 let planRestoreEpoch = 0;
-watch([linkedPlanId, archive.id], () => {
-  planRestoreEpoch++;
-  planRestoreError.value = '';
-  planRestoring.value = false;
-});
+watch(
+  [linkedPlanId, archive.id],
+  () => {
+    planRestoreEpoch++;
+    planRestoreError.value = '';
+    planRestoring.value = false;
+  },
+  { flush: 'sync' },
+);
 async function restoreLinkedPlan() {
   if (planRestoring.value || !linkedPlanId.value || !props.constructionPlan || props.constructionPlan.dirty())
     return;
@@ -75,7 +79,7 @@ async function restoreLinkedPlan() {
   planRestoreError.value = '';
   planRestoring.value = true;
   try {
-    await props.constructionPlan.restore(linkedPlanId.value);
+    await props.constructionPlan.restore(linkedPlanId.value, () => epoch === planRestoreEpoch);
   } catch {
     if (epoch === planRestoreEpoch)
       planRestoreError.value = '关联方案暂时无法恢复，请检查当前身份和方案状态。';

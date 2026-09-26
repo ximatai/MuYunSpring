@@ -34,7 +34,7 @@ public class AssistantTurnService {
     static final int MAX_HISTORY_MESSAGES = 12;
     static final int MAX_HISTORY_MESSAGE_LENGTH = 4_000;
     static final int MAX_HISTORY_LENGTH = 16_000;
-    static final int MAX_CAPABILITIES = 32;
+    static final int MAX_CAPABILITIES = 64;
     static final int MAX_RESULTS = 16;
     static final int MAX_PAYLOAD_LENGTH = 64_000;
     static final int MAX_TOOL_CALLS = 8;

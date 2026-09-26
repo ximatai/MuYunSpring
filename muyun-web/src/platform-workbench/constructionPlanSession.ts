@@ -306,8 +306,10 @@ export function createConstructionPlanSession(
       generation: state.value.generation + 1,
     };
   }
-  async function restore(id: string) {
-    applyLoaded(await load(id));
+  async function restore(id: string, isCurrent: () => boolean = () => true) {
+    const loaded = await load(id);
+    if (!isCurrent()) fail('恢复入口已变化，请重新选择方案');
+    applyLoaded(loaded);
   }
   async function history() {
     const before = current();
