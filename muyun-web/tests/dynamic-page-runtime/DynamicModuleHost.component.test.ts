@@ -3231,6 +3231,7 @@ describe('ModulePageHost', () => {
           ModulePageDetailRelations: false,
           ModulePageRecordContent: false,
           ManagedDetailRelationSurface: false,
+          ManagedDetailRelationInlineSurface: false,
           RecordDetailExtensionSection: { template: '<section><slot /></section>' },
           RecordQueryListPanel: {
             name: 'RecordQueryListPanel',
@@ -3251,6 +3252,10 @@ describe('ModulePageHost', () => {
     expect(relations.props('relations')).toMatchObject([{ code: 'properties' }, { code: 'bindings' }]);
     expect(relations.props('parentRecord')).toMatchObject({ id: 'select', alias: 'select' });
 
+    const session = wrapper
+      .findComponent({ name: 'ModulePageHostRuntime' })
+      .props('session') as import('@/dynamic-page-runtime/useModulePageSession').ModulePageSessionView;
+    expect(session.relationDrafts.list()).toEqual([]);
     expect(relations.props('mutationEnabled')).toBe(false);
     expect(wrapper.findAllComponents({ name: 'ManagedDetailRelationInlineSurface' })).toHaveLength(2);
 
@@ -3262,12 +3267,14 @@ describe('ModulePageHost', () => {
     await flushPromises();
 
     const createRelations = wrapper.findComponent({ name: 'ModulePageDetailRelations' });
+    expect(session.relationDrafts.list().map((entry) => entry.code)).toEqual(['properties']);
     expect(createRelations.props('mutationEnabled')).toBe(true);
     expect(createRelations.props('parentRecord')).not.toHaveProperty('id');
 
     wrapper.findComponent({ name: 'RecordActionBar' }).vm.$emit('action', { key: 'cancel' });
     await flushPromises();
 
+    expect(session.relationDrafts.list()).toEqual([]);
     wrapper.findComponent({ name: 'CrudRecordListExplorer' }).vm.$emit('select', { id: 'select' });
     await flushPromises();
 

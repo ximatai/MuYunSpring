@@ -64,7 +64,7 @@ public class ApplicationConstructionFieldService {
         }
     }
     public record Spec(String alias, String title, String type, Integer length, Integer precision, Integer scale) {}
-    public record Description(String moduleAlias, int planRevision, Integer metadataVersion, List<Field> fields, List<Spec> specs) {}
+    public record Description(String moduleAlias, int planRevision, Integer metadataVersion, List<MetadataField> fields, List<Spec> specs) {}
     public record Preview(Proposal proposal, String moduleAlias, List<MetadataChangeSetFieldImpact> fieldImpacts,
                           List<MetadataChangeSetSchemaImpact> schemaImpacts, List<MetadataChangeSetValidationIssue> warnings,
                           List<MetadataChangeSetValidationIssue> errors, String fingerprint) {}
@@ -79,10 +79,8 @@ public class ApplicationConstructionFieldService {
         try (var ignored = TenantContext.system("construction field discovery")) {
             var entity = metadata.select(binding.metadataId());
             if (entity == null) throw new IllegalArgumentException("主实体已不可用，请检查建设状态");
-            var actual = fields.list(Criteria.of().eq("metadataId", entity.getId()), new PageRequest(0, 256)).stream()
-                    .map(field -> new Field(field.getFieldName(), field.getTitle(), field.getFieldSpecAlias(),
-                            Boolean.TRUE.equals(field.getRequired()), Boolean.TRUE.equals(field.getUniqueField()), Boolean.TRUE.equals(field.getIndexed()))).toList();
-            var catalog = specs.list(Criteria.of().eq("enabled", true), new PageRequest(0, 100)).stream()
+            var actual = fields.list(Criteria.of().eq("metadataId", entity.getId()), new PageRequest(0, Integer.MAX_VALUE));
+            var catalog = specs.list(Criteria.of().eq("enabled", true), new PageRequest(0, Integer.MAX_VALUE)).stream()
                     .map(spec -> new Spec(spec.getAlias(), spec.getTitle(), spec.getFieldType().name(), spec.getDefaultLength(), spec.getDefaultPrecision(), spec.getDefaultScale())).toList();
             return new Description(binding.moduleAlias(), plan.revision(), entity.getVersion(), actual, catalog);
         }

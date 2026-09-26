@@ -33,6 +33,7 @@ import {
   resolveRecordFormFieldState,
   resolveRecordBooleanStatusValue,
   resolveReferenceSelectionContext,
+  referenceDisplayProjections,
   decodeDateTimeLocalEditorValue,
   decodeJsonEditorValue,
   decodeNumberEditorValue,
@@ -537,19 +538,6 @@ function updateReferenceSelectionContext(
     [fieldName]: record?.id,
   };
   emit('reference-projections-change', fieldName, referenceDisplayProjections(reference, record));
-}
-
-function referenceDisplayProjections(
-  reference: RecordFormFieldDescriptor['reference'],
-  record: import('./recordPickerConstraints').RecordPickerRecord | undefined,
-) {
-  if (!record) return {};
-  const projections = { ...(record.projections ?? {}) };
-  for (const projection of reference?.displayProjections ?? []) {
-    const value = (record as Record<string, unknown>)[projection.targetField];
-    if (value !== undefined) projections[projection.outputField] = value;
-  }
-  return projections;
 }
 
 function clearReferenceSelectionContext() {

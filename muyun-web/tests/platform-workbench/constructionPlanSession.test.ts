@@ -265,14 +265,14 @@ it('derives resumable task facts from the server and drops them after a candidat
       {
         objectKey: 'order',
         title: '订单',
-        stage: 'REVIEW_REQUIREMENTS',
-        nextAction: '先核对兑现方式',
+        complete: false,
+        options: [{ action: 'REVIEW_REQUIREMENTS', explanation: '先核对兑现方式' }],
         requirements: [],
       },
     ],
   });
   await session.readTask();
-  expect(session.facts().task?.objects[0]?.stage).toBe('REVIEW_REQUIREMENTS');
+  expect(session.facts().task?.objects[0]?.options[0]?.action).toBe('REVIEW_REQUIREMENTS');
   session.edit({ ...content, title: '新想法' });
   expect(session.currentTask()).toBeUndefined();
   await expect(session.readTask()).rejects.toThrow('确认最新需求');
@@ -285,4 +285,27 @@ it('rejects a task for a newer externally confirmed plan revision', async () => 
   vi.mocked(client.task).mockResolvedValue({ planRevision: 2, objects: [] });
   await expect(session.readTask()).rejects.toThrow('恢复最新方案');
   expect(session.currentTask()).toBeUndefined();
+});
+
+it('discovers construction operations only after their local prerequisites are satisfied', async () => {
+  const { client } = fixture();
+  const session = createConstructionPlanSession(
+    client,
+    () => 'user-a',
+    () => true,
+  );
+  const codes = () => session.capabilities().map((capability) => capability.descriptor.code);
+  expect(codes()).toContain('construction.find-saved');
+  expect(codes()).not.toContain('construction.task');
+  expect(codes()).not.toContain('construction.prepare-initialization');
+  session.edit(content);
+  expect(codes()).not.toContain('construction.task');
+  await session.prepare().execute();
+  expect(codes()).toContain('construction.task');
+  expect(codes()).toContain('construction.prepare-initialization');
+  expect(codes()).not.toContain('construction.prepare-fields');
+  expect(codes()).not.toContain('construction.prepare-page');
+  session.beginManualEdit();
+  expect(codes()).not.toContain('construction.task');
+  expect(codes()).not.toContain('construction.prepare-initialization');
 });

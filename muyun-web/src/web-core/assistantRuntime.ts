@@ -12,6 +12,7 @@ import {
   sameAssistantInvocationToken,
   StaleAssistantInvocationError,
   type AssistantInvocationToken,
+  type AssistantExecutionPolicy,
   type AssistantSurfaceRegistry,
 } from './assistantSurface';
 
@@ -77,6 +78,7 @@ interface InternalAssistantRuntimeStepResult extends AssistantRuntimeStepResult 
 }
 
 export interface AssistantConversationOptions {
+  executionPolicy?: AssistantExecutionPolicy;
   signal?: AbortSignal;
   maxSteps?: number;
   /** Completed dialogue before the current user message. */
@@ -210,25 +212,26 @@ export async function runAssistantConversation(
     let step: InternalAssistantRuntimeStepResult;
     let streamedText = false;
     try {
-      step = await runAssistantStepWithSettledCalls(
+      step = await runAssistantStepWithSettledCalls({
         registry,
         message,
-        options.history ?? [],
-        results,
-        options.signal,
+        history: options.history ?? [],
+        previousResults: results,
+        signal: options.signal,
         settledCalls,
-        index,
-        index === 0 ? options.selectionResponse : undefined,
-        options.onActivity,
-        options.onDiagnostic,
-        options.onTextDelta
+        stepIndex: index,
+        selectionResponse: index === 0 ? options.selectionResponse : undefined,
+        onActivity: options.onActivity,
+        onDiagnostic: options.onDiagnostic,
+        onTextDelta: options.onTextDelta
           ? (text) => {
               streamedText = true;
               options.onTextDelta?.(text, index);
             }
           : undefined,
         readContext,
-      );
+        executionPolicy: options.executionPolicy,
+      });
     } catch (error) {
       if (streamedText) options.onTextDiscard?.(index);
       const replacement = registry.snapshot()?.token;
@@ -373,7 +376,14 @@ export async function runAssistantStep(
   signal?: AbortSignal,
 ): Promise<AssistantRuntimeStepResult> {
   return toPublicStep(
-    await runAssistantStepWithSettledCalls(registry, message, [], previousResults, signal, new Map()),
+    await runAssistantStepWithSettledCalls({
+      registry,
+      message,
+      history: [],
+      previousResults,
+      signal,
+      settledCalls: new Map(),
+    }),
   );
 }
 
@@ -387,20 +397,37 @@ function toPublicStep(step: InternalAssistantRuntimeStepResult): AssistantRuntim
   };
 }
 
-async function runAssistantStepWithSettledCalls(
-  registry: AssistantSurfaceRegistry,
-  message: string,
-  history: AssistantConversationMessage[],
-  previousResults: AssistantCapabilityResult[],
-  signal: AbortSignal | undefined,
-  settledCalls: Map<string, AssistantCapabilityResult>,
+interface AssistantStepRequest {
+  registry: AssistantSurfaceRegistry;
+  message: string;
+  history: AssistantConversationMessage[];
+  previousResults: AssistantCapabilityResult[];
+  signal?: AbortSignal;
+  settledCalls: Map<string, AssistantCapabilityResult>;
+  stepIndex?: number;
+  selectionResponse?: AssistantSelectionResponse;
+  onActivity?: AssistantConversationOptions['onActivity'];
+  onDiagnostic?: AssistantConversationOptions['onDiagnostic'];
+  onTextDelta?: (text: string) => void;
+  readContext?: AssistantReadContext;
+  executionPolicy?: AssistantExecutionPolicy;
+}
+
+async function runAssistantStepWithSettledCalls({
+  registry,
+  message,
+  history,
+  previousResults,
+  signal,
+  settledCalls,
   stepIndex = 0,
-  selectionResponse?: AssistantSelectionResponse,
-  onActivity?: AssistantConversationOptions['onActivity'],
-  onDiagnostic?: AssistantConversationOptions['onDiagnostic'],
-  onTextDelta?: (text: string) => void,
-  readContext?: AssistantReadContext,
-): Promise<InternalAssistantRuntimeStepResult> {
+  selectionResponse,
+  onActivity,
+  onDiagnostic,
+  onTextDelta,
+  readContext,
+  executionPolicy,
+}: AssistantStepRequest): Promise<InternalAssistantRuntimeStepResult> {
   const initialSnapshot = registry.snapshot();
   if (!initialSnapshot) throw new Error('No assistant surface is active');
   let snapshot: typeof initialSnapshot;
@@ -438,11 +465,14 @@ async function runAssistantStepWithSettledCalls(
               onTextDelta(text);
             },
           },
+          executionPolicy,
         )
       : await registry.requestTurn(
           { message, history, results: previousResults, ...(selectionResponse ? { selectionResponse } : {}) },
           snapshot.token,
           signal,
+          undefined,
+          executionPolicy,
         );
   } catch (error) {
     if (!signal?.aborted && (error instanceof StaleAssistantInvocationError || isAbortError(error))) {
@@ -487,7 +517,7 @@ async function runAssistantStepWithSettledCalls(
     }
     attemptedCallCount += 1;
     try {
-      const invocation = await registry.invoke(call, snapshot.token, signal);
+      const invocation = await registry.invoke(call, snapshot.token, signal, executionPolicy);
       const result: AssistantCapabilityResult = {
         callId: call.id,
         capabilityCode: call.code,

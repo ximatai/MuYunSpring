@@ -162,6 +162,19 @@ class OpenAiCompatibleModelClientTest {
     }
 
     @Test
+    void providerNamesRemainReadableBoundedAndDistinctAfterNormalization() {
+        String code = "relation.reference.resolve-and-patch";
+        assertThat(OpenAiCompatibleModelClient.providerToolName(code))
+                .startsWith("cap_relation_reference_resolve-and-patch_")
+                .matches("[a-zA-Z0-9_-]{1,64}");
+        assertThat(OpenAiCompatibleModelClient.providerToolName("a.b"))
+                .isNotEqualTo(OpenAiCompatibleModelClient.providerToolName("a_b"));
+        String prefix = "long".repeat(30);
+        assertThat(OpenAiCompatibleModelClient.providerToolName(prefix + "a"))
+                .hasSize(64).isNotEqualTo(OpenAiCompatibleModelClient.providerToolName(prefix + "b"));
+    }
+
+    @Test
     void mapsCapabilityCodesToProviderSafeNamesAndRestoresStructuredCalls() throws Exception {
         AtomicReference<String> requestBody = new AtomicReference<>();
         server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
@@ -169,7 +182,7 @@ class OpenAiCompatibleModelClientTest {
             requestBody.set(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
             byte[] body = ("{\"choices\":[{\"message\":{\"content\":null,\"tool_calls\":["
                     + "{\"id\":\"call-1\",\"type\":\"function\",\"function\":{"
-                    + "\"name\":\"cap_d5add68fb09702059e5a040bde0a0e2da74598d772a22c68b36fe5ab\",\"arguments\":\"{\\\"query\\\":\\\"Alice\\\","
+                    + "\"name\":\"cap_workbench_find-menu_d5add68fb097\",\"arguments\":\"{\\\"query\\\":\\\"Alice\\\","
                     + "\\\"optional\\\":null,\\\"error\\\":\\\"business fact\\\"}\"}}]},"
                     + "\"finish_reason\":\"tool_calls\"}]}").getBytes(StandardCharsets.UTF_8);
             exchange.getResponseHeaders().add("x-request-id", "request-structured");
@@ -186,7 +199,7 @@ class OpenAiCompatibleModelClientTest {
 
         AiTurnResponse response = new OpenAiCompatibleModelClient(new ObjectMapper()).complete(route(), request);
 
-        assertThat(requestBody.get()).contains("\"name\":\"cap_d5add68fb09702059e5a040bde0a0e2da74598d772a22c68b36fe5ab\"")
+        assertThat(requestBody.get()).contains("\"name\":\"cap_workbench_find-menu_d5add68fb097\"")
                 .doesNotContain("workbench.find-menu");
         assertThat(response.toolCalls()).singleElement().satisfies(call -> {
             assertThat(call.id()).isEqualTo("call-1");
@@ -209,7 +222,7 @@ class OpenAiCompatibleModelClientTest {
                     + "data: {\"choices\":[{\"delta\":{\"content\":\"处理\",\"tool_calls\":[{\"index\":0,"
                     + "\"id\":\"call-1\",\"function\":{\"name\":\"cap_\",\"arguments\":\"{\\\"query\\\":\"}}]},"
                     + "\"finish_reason\":null}]}\n\n"
-                    + "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"name\":\"d5add68fb09702059e5a040bde0a0e2da74598d772a22c68b36fe5ab\","
+                    + "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"name\":\"workbench_find-menu_d5add68fb097\","
                     + "\"arguments\":\"\\\"Alice\\\"}\"}}]},\"finish_reason\":\"tool_calls\"}]}\n\n"
                     + "data: [DONE]\n\n";
             exchange.getResponseHeaders().add("Content-Type", "text/event-stream");
@@ -238,7 +251,7 @@ class OpenAiCompatibleModelClientTest {
             }
         });
 
-        assertThat(requestBody.get()).contains("\"stream\":true", "\"name\":\"cap_d5add68fb09702059e5a040bde0a0e2da74598d772a22c68b36fe5ab\"");
+        assertThat(requestBody.get()).contains("\"stream\":true", "\"name\":\"cap_workbench_find-menu_d5add68fb097\"");
         assertThat(deltas).containsExactly("正在", "处理");
         assertThat(completed.get().text()).isEqualTo("正在处理");
         assertThat(completed.get().finishReason()).isEqualTo("tool_calls");
@@ -398,7 +411,7 @@ class OpenAiCompatibleModelClientTest {
     void rejectsExcessiveStructuredToolCallsBeforeReturningThemToTheBrowser() throws Exception {
         String calls = java.util.stream.IntStream.range(0, 9)
                 .mapToObj(index -> "{\"id\":\"call-" + index
-                        + "\",\"function\":{\"name\":\"cap_d5add68fb09702059e5a040bde0a0e2da74598d772a22c68b36fe5ab\",\"arguments\":\"{}\"}}")
+                        + "\",\"function\":{\"name\":\"cap_workbench_find-menu_d5add68fb097\",\"arguments\":\"{}\"}}")
                 .collect(java.util.stream.Collectors.joining(","));
         OpenAiCompatibleModelClient client = responseClient(200,
                 "{\"choices\":[{\"message\":{\"tool_calls\":[" + calls
@@ -420,7 +433,7 @@ class OpenAiCompatibleModelClientTest {
                 new ObjectMapper().writeValueAsString(Map.of("choices", List.of(Map.of(
                         "message", Map.of("tool_calls", List.of(Map.of(
                                 "id", "call-1",
-                                "function", Map.of("name", "cap_d5add68fb09702059e5a040bde0a0e2da74598d772a22c68b36fe5ab", "arguments", encodedArguments)))),
+                                "function", Map.of("name", "cap_workbench_find-menu_d5add68fb097", "arguments", encodedArguments)))),
                         "finish_reason", "tool_calls")))));
         AiTurnRequest request = new AiTurnRequest(List.of(new AiChatMessage(AiChatMessage.Role.USER, "find")),
                 List.of(new AiToolDefinition("workbench.find-menu", "Find menu", Map.of("type", "object"))),

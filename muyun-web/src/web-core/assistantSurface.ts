@@ -105,6 +105,15 @@ export interface AssistantSurfaceSnapshot {
   capabilities: AssistantCapabilityDescriptor[];
 }
 
+/** Per-request restriction selected by the caller, never by model output. */
+export interface AssistantExecutionPolicy {
+  readOnly?: boolean;
+}
+
+function permitted(capability: AssistantCapability, policy?: AssistantExecutionPolicy) {
+  return !policy?.readOnly || (capability.effect === 'read' && !capability.propose);
+}
+
 export interface AssistantSurfaceRegistry {
   register(registration: AssistantSurfaceRegistration): () => void;
   activate(pageInstanceKey: string | undefined): void;
@@ -127,11 +136,13 @@ export interface AssistantSurfaceRegistry {
     token: AssistantInvocationToken,
     signal?: AbortSignal,
     progress?: AssistantTurnProgress,
+    policy?: AssistantExecutionPolicy,
   ): Promise<AssistantTurnOutput>;
   invoke(
     call: AssistantCapabilityCall,
     token: AssistantInvocationToken,
     signal?: AbortSignal,
+    policy?: AssistantExecutionPolicy,
   ): Promise<{
     value: unknown;
     contextChanged: boolean;
@@ -392,23 +403,23 @@ export function createAssistantSurfaceRegistry(
         signal?.removeEventListener('abort', abort);
       }
     },
-    requestTurn(input, token, signal, progress) {
+    requestTurn(input, token, signal, progress, policy) {
       if (token.conversationScopePending) return Promise.reject(new StaleAssistantInvocationError());
       return controlled(token, signal, true, (registration, controlledSignal) => {
         const current = requireCurrent(token);
         const request = {
           ...input,
           context: describe(current),
-          capabilities: validateAssistantCapabilities(current.surface.capabilities()).map(
-            ({ descriptor }) => descriptor,
-          ),
+          capabilities: validateAssistantCapabilities(current.surface.capabilities())
+            .filter((capability) => permitted(capability, policy))
+            .map(({ descriptor }) => descriptor),
         };
         return progress
           ? registration.surface.requestTurn(request, controlledSignal, progress)
           : registration.surface.requestTurn(request, controlledSignal);
       });
     },
-    async invoke(call, token, signal) {
+    async invoke(call, token, signal, policy) {
       const registration = requireCurrent(token);
       const controller = new AbortController();
       const cancellationController = new AbortController();
@@ -429,6 +440,11 @@ export function createAssistantSurfaceRegistry(
         if (!capability)
           throw new AssistantCapabilityUsageError('Capability is no longer available', 'PRECONDITION_FAILED');
 
+        if (!permitted(capability, policy))
+          throw new AssistantCapabilityUsageError(
+            'This request only permits reading; changes and confirmations are unavailable',
+            'PRECONDITION_FAILED',
+          );
         const input = capability.parseInput(call.input);
         requireCurrent(token);
         let postEffectToken: AssistantInvocationToken | undefined;

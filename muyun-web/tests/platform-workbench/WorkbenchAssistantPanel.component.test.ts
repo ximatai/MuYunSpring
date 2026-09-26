@@ -406,7 +406,7 @@ it('cancels an in-flight request when the panel is closed', async () => {
   expect(wrapper.text()).toContain('已停止本次操作');
 });
 
-it('does not carry a cancelled goal into the next user request', async () => {
+it('retains a cancelled discussion with an explicit stop instead of an active execution goal', async () => {
   const requestTurn = vi
     .fn()
     .mockImplementationOnce(
@@ -432,7 +432,13 @@ it('does not carry a cancelled goal into the next user request', async () => {
 
   expect(requestTurn).toHaveBeenNthCalledWith(
     2,
-    expect.objectContaining({ message: '当前是什么页面？', history: [] }),
+    expect.objectContaining({
+      message: '当前是什么页面？',
+      history: [
+        { role: 'user', text: '删除当前职员' },
+        { role: 'assistant', text: '用户已停止本轮执行。需求仅作为讨论记录保留，不得自动继续执行。' },
+      ],
+    }),
     expect.any(AbortSignal),
     expect.any(Object),
   );
@@ -457,7 +463,7 @@ it('does not report a read-only result as a completed page operation', async () 
   await wrapper.get('button.ant-btn-primary').trigger('click');
   await flushPromises();
 
-  expect(wrapper.text()).toContain('已获取 1 项结果');
+  expect(wrapper.text()).not.toContain('已获取 1 项结果');
   expect(wrapper.text()).toContain('信息已读取，但未生成可展示的说明');
   expect(wrapper.text()).not.toContain('页面操作已完成');
 });
@@ -484,7 +490,7 @@ it('treats an empty follow-up as completion after an applied page operation', as
   await wrapper.get('button.ant-btn-primary').trigger('click');
   await flushPromises();
 
-  expect(wrapper.text()).toContain('已应用 1 项页面操作');
+  expect(wrapper.text()).not.toContain('已应用 1 项页面操作');
   expect(wrapper.text()).toContain('页面操作已完成，请检查当前页面');
 });
 
@@ -511,7 +517,7 @@ it('keeps successful operation feedback when the model follow-up fails', async (
   await wrapper.get('button.ant-btn-primary').trigger('click');
   await flushPromises();
 
-  expect(wrapper.text()).toContain('已应用 1 项页面操作');
+  expect(wrapper.text()).not.toContain('已应用 1 项页面操作');
   expect(wrapper.text()).toContain('前面的 1 项页面操作已生效，后续处理失败，目标可能尚未完成');
   expect(wrapper.text()).not.toContain('model returned no executable content');
 
@@ -642,7 +648,7 @@ it('clears history and input across tenant scopes and discards an old in-flight 
   expect(wrapper.text()).not.toContain('old answer');
   expect(wrapper.text()).toContain('已开始新会话');
   expect(requestTurn).toHaveBeenCalledTimes(1);
-  const reuse = wrapper.findAll('button').find((button) => button.text() === '复用上一条输入')!;
+  const reuse = wrapper.findAll('button').find((button) => button.text() === '调整需求')!;
   await reuse.trigger('click');
   expect((wrapper.get('textarea').element as HTMLTextAreaElement).value).toBe('tenant-a secret');
   expect(requestTurn).toHaveBeenCalledTimes(1);
@@ -891,6 +897,56 @@ it.each([undefined, '保存当前单据，尚未执行。'])(
   },
 );
 
+it('expires an old confirmation when a later draft operation changes its content within the same surface', async () => {
+  let current = true;
+  const execute = vi.fn();
+  const requestTurn = vi
+    .fn()
+    .mockResolvedValueOnce({ toolCalls: [{ id: 'prepare', code: 'form.prepare-save', input: {} }] })
+    .mockResolvedValueOnce({ toolCalls: [{ id: 'change', code: 'form.patch-draft', input: {} }] })
+    .mockResolvedValueOnce({ text: '已补充备注，请重新确认。', toolCalls: [] });
+  const registry = createRegistryWithCapabilities(requestTurn, [
+    {
+      effect: 'read',
+      descriptor: { code: 'form.prepare-save', description: 'Prepare', inputSchema: {} },
+      parseInput: (input) => input,
+      execute: async () => ({}),
+      propose: () => ({
+        presentation: { title: '保存订单', lines: ['物品：台灯'] },
+        expiresAt: Date.now() + 60000,
+        isCurrent: () => current,
+        execute,
+        lookup: async () => undefined,
+      }),
+    },
+    {
+      effect: 'page',
+      descriptor: { code: 'form.patch-draft', description: 'Patch draft', inputSchema: {} },
+      parseInput: (input) => input,
+      async execute(_input, context) {
+        context.applyEffect(() => {
+          current = false;
+        });
+        return { changed: true };
+      },
+    },
+  ]);
+  const wrapper = mount(WorkbenchAssistantPanel, { props: { open: true, registry } });
+  await wrapper.get('textarea').setValue('记一下这件台灯');
+  await wrapper.get('.assistant-panel__actions button').trigger('click');
+  await flushPromises();
+  expect(wrapper.findAll('button').some((button) => button.text() === '确认保存')).toBe(true);
+  const token = registry.snapshot()?.token;
+  await wrapper.get('textarea').setValue('等一下，再记个备注');
+  await wrapper.get('.assistant-panel__actions button').trigger('click');
+  await flushPromises();
+  expect(registry.snapshot()?.token).toEqual(token);
+  expect(wrapper.findAll('button').some((button) => button.text() === '确认保存')).toBe(false);
+  expect(wrapper.text()).toContain('内容或范围已变化');
+  expect(execute).not.toHaveBeenCalled();
+  wrapper.unmount();
+});
+
 it('offers explicit request recovery for model failures without repeating a save', async () => {
   const requestTurn = vi
     .fn()
@@ -905,7 +961,7 @@ it('offers explicit request recovery for model failures without repeating a save
   expect(wrapper.text()).not.toContain('oversized structured response');
   await wrapper
     .findAll('button')
-    .find((button) => button.text() === '带回这条请求')!
+    .find((button) => button.text() === '调整需求')!
     .trigger('click');
   expect((wrapper.get('textarea').element as HTMLTextAreaElement).value).toBe('能记小林这一单了吗？');
   expect(requestTurn).toHaveBeenCalledOnce();
@@ -991,3 +1047,128 @@ it.each([false, true])(
     wrapper.unmount();
   },
 );
+
+it('restores persisted text after remount without reactivating old confirmation or selection controls', async () => {
+  const { createAssistantConversationClient } = await import('@muyun/web-core');
+  let saved: import('@muyun/web-core').AssistantConversationSnapshot | undefined;
+  const checkpoints: import('@muyun/web-core').AssistantConversationContent[] = [];
+  const client = createAssistantConversationClient({
+    request: vi.fn(async ({ method, body }) => {
+      if (method === 'PUT') {
+        const command = body as {
+          expectedRevision: number;
+          content: import('@muyun/web-core').AssistantConversationContent;
+        };
+        saved = {
+          id: 'saved',
+          revision: command.expectedRevision + 1,
+          updatedAt: '2026-09-26',
+          content: JSON.parse(JSON.stringify(command.content)),
+        };
+        checkpoints.push(saved.content);
+        return saved;
+      }
+      return saved;
+    }) as never,
+  });
+  client.list = vi.fn(async () => [{ id: 'saved', title: '合同需求', updatedAt: '2026-09-26' }]);
+  const requestTurn = vi.fn(async () => ({ text: '先整理客户信息，再讨论合同。', toolCalls: [] }));
+  let wrapper = mount(WorkbenchAssistantPanel, {
+    props: { open: true, registry: createRegistry(requestTurn), conversationClient: client },
+  });
+  await wrapper.get('textarea').setValue('我想记录合同');
+  await wrapper.get('button.ant-btn-primary').trigger('click');
+  await flushPromises();
+  expect(wrapper.text()).toContain('对话已保存');
+  expect(saved?.content.messages.map((message) => message.text)).toContain('我想记录合同');
+  expect(checkpoints[0]?.pendingRequest).toBe('我想记录合同');
+  wrapper.unmount();
+  saved!.content.messages.push({ role: 'assistant', text: '历史保存提议：确认保存合同；历史状态：待确认' });
+  wrapper = mount(WorkbenchAssistantPanel, {
+    attachTo: document.body,
+    props: { open: true, registry: createRegistry(requestTurn), conversationClient: client },
+  });
+  await wrapper
+    .findAll('button')
+    .find((button) => button.text() === '历史会话')!
+    .trigger('click');
+  await flushPromises();
+  await wrapper
+    .findAll('button')
+    .find((button) => button.text().includes('合同需求'))!
+    .trigger('click');
+  await flushPromises();
+  expect(wrapper.text()).toContain('我想记录合同');
+  expect(wrapper.text()).toContain('未保存草稿和旧确认按钮没有恢复');
+  expect(requestTurn).toHaveBeenCalledOnce();
+  expect(JSON.stringify(saved?.content.history)).not.toContain('历史会话已恢复。');
+  expect(wrapper.findAll('button').some((button) => button.text() === '确认保存合同')).toBe(false);
+  expect(wrapper.findAll('.assistant-message').every((item) => !item.isVisible())).toBe(true);
+  await wrapper
+    .findAll('button')
+    .find((button) => button.text() === '查看之前的对话')!
+    .trigger('click');
+  expect(wrapper.findAll('.assistant-message').every((item) => item.isVisible())).toBe(true);
+  await wrapper
+    .findAll('button')
+    .find((button) => button.text() === '继续处理')!
+    .trigger('click');
+  await flushPromises();
+  expect(JSON.stringify(requestTurn.mock.calls.at(-1))).toContain('我想记录合同');
+  expect(JSON.stringify(requestTurn.mock.calls.at(-1))).toContain('先别修改，也别保存');
+  expect(wrapper.find('[aria-label="继续会话"]').exists()).toBe(false);
+  expect(wrapper.findAll('.assistant-message').at(-1)!.isVisible()).toBe(true);
+  wrapper.unmount();
+});
+
+it('keeps a request editable when its initial checkpoint fails without invoking the model', async () => {
+  const requestTurn = vi.fn();
+  const wrapper = mount(WorkbenchAssistantPanel, {
+    props: {
+      open: true,
+      registry: createRegistry(requestTurn),
+      conversationClient: {
+        list: vi.fn(async () => []),
+        read: vi.fn(),
+        save: vi.fn().mockRejectedValue(new Error('暂时无法保存聊天')),
+      },
+    },
+  });
+  await wrapper.get('textarea').setValue('帮我整理客户合同');
+  await wrapper.get('.assistant-panel__actions button').trigger('click');
+  await flushPromises();
+  expect(requestTurn).not.toHaveBeenCalled();
+  expect(wrapper.text()).toContain('暂时无法保存聊天');
+  const adjust = wrapper.findAll('button').find((button) => button.text() === '调整需求')!;
+  await wrapper.get('textarea').setValue('我补充一个要求');
+  expect(adjust.attributes('disabled')).toBeDefined();
+  await wrapper.get('textarea').setValue('');
+  await adjust.trigger('click');
+  expect((wrapper.get('textarea').element as HTMLTextAreaElement).value).toBe('帮我整理客户合同');
+});
+
+it('shows read recovery instead of discard controls for a history failure', async () => {
+  const list = vi.fn().mockRejectedValueOnce(new Error('读取历史失败')).mockResolvedValueOnce([]);
+  const wrapper = mount(WorkbenchAssistantPanel, {
+    props: {
+      open: true,
+      registry: createRegistry(vi.fn()),
+      conversationClient: { list, read: vi.fn(), save: vi.fn() },
+    },
+  });
+  await wrapper
+    .findAll('button')
+    .find((button) => button.text() === '历史会话')!
+    .trigger('click');
+  await flushPromises();
+  expect(wrapper.text()).toContain('读取历史失败');
+  expect(wrapper.text()).not.toContain('放弃未保存');
+  expect(wrapper.text()).not.toContain('重试保存');
+  await wrapper
+    .findAll('button')
+    .find((button) => button.text() === '重试读取会话')!
+    .trigger('click');
+  await flushPromises();
+  expect(wrapper.text()).not.toContain('读取历史失败');
+  expect(list).toHaveBeenCalledTimes(2);
+});

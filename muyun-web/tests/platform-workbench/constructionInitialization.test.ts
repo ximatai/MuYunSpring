@@ -158,7 +158,7 @@ it('previews without writing and keeps the publication fingerprint out of model 
 it('requires confirmed scope and invalidates initialization when a human starts revising it', async () => {
   const { session, client, prepare } = fixture();
   session.edit(content);
-  await expect(prepare()).rejects.toThrow('请先确认最新需求方案');
+  await expect(prepare()).rejects.toThrow('Capability is no longer available');
   expect(client.previewInitialization).not.toHaveBeenCalled();
   session.newPlan();
   await session.restore('plan');

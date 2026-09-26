@@ -33,6 +33,7 @@ import {
   createAuthClient,
   createAssistantTurnRequester,
   createConstructionPlanClient,
+  createAssistantConversationClient,
   createMenuClient,
   createLoginContextClient,
   invokeBusinessNotificationRecordAction,
@@ -185,6 +186,7 @@ configureUserPreferenceBackend({
 });
 
 const startup = ref<WorkbenchStartupState>();
+const assistantConversationClient = createAssistantConversationClient(createBackendHttpClient());
 const constructionPlanClient = createConstructionPlanClient(createBackendHttpClient());
 const assistantRequestTurn = createAssistantTurnRequester(createBackendHttpClient());
 const pageRefreshRevisions = ref<Record<string, number>>({});
@@ -1328,6 +1330,7 @@ function componentForCommittedRoute(route: RouteLocationNormalizedLoaded): VueCo
       :locked-tab-keys="lockedTabKeys()"
       :assistant-request-turn="assistantRequestTurn"
       :construction-plan-client="constructionPlanClient"
+      :assistant-conversation-client="assistantConversationClient"
       :assistant-wait-for-page-ready="waitForAssistantPageReady"
       @select-menu="handleSelectMenu"
       @change-tab="handleChangeTab"

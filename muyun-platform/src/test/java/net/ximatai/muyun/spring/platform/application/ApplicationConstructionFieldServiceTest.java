@@ -25,4 +25,40 @@ class ApplicationConstructionFieldServiceTest {
         }
         verifyNoInteractions(plans, previews, publisher);
     }
+    @Test void readsCompleteStandardFactsWithoutApplyingAssistantCreationRestrictions() {
+        var plans = mock(ApplicationConstructionPlanService.class);
+        var metadata = mock(MetadataService.class);
+        var relations = mock(ModuleMetadataRelationService.class);
+        var fields = mock(MetadataFieldService.class);
+        var specs = mock(FieldSpecService.class);
+        var service = new ApplicationConstructionFieldService(plans, mock(ApplicationConstructionFieldChangeDao.class),
+                metadata, relations, fields, specs, mock(MetadataModelChangeSetPreviewService.class),
+                mock(MetadataModelChangeSetApplyService.class), mock(DynamicRuntimeActivationService.class), mock(ActionExecutionPolicyService.class));
+        var content = new ApplicationConstructionPlanContent("登记", "登记", java.util.List.of(), java.util.List.of(),
+                java.util.List.of(new ApplicationConstructionPlanContent.BusinessObject("entry", "登记", "登记")),
+                java.util.List.of(), java.util.List.of(), java.util.List.of(), java.util.List.of(), java.util.List.of(), java.util.List.of(), java.util.List.of());
+        when(plans.read("plan")).thenReturn(new ApplicationConstructionPlanService.Snapshot("plan", 1, content,
+                java.time.Instant.EPOCH, "INITIALIZED", java.util.List.of(
+                new ApplicationConstructionPlanService.Initialization("entry", 1, "sample.entry", "metadata", "relation", "request")), java.util.List.of(), java.util.List.of()));
+        var entity = new Metadata(); entity.setId("metadata"); entity.setVersion(1);
+        var relation = new ModuleMetadataRelation(); relation.setMetadataId("metadata");
+        relation.setModuleAlias("sample.entry"); relation.setRelationRole(RelationRole.MAIN);
+        when(metadata.select("metadata")).thenReturn(entity);
+        when(relations.select("relation")).thenReturn(relation);
+        var actual = java.util.stream.IntStream.range(0, 257).mapToObj(index -> {
+            var field = new MetadataField(); field.setFieldName("field" + index);
+            field.setTitle("现有字段".repeat(40)); field.setMetadataId("metadata"); field.setFieldSpecAlias("text");
+            return field;
+        }).toList();
+        when(fields.list(any(), any(net.ximatai.muyun.database.core.orm.PageRequest.class))).thenAnswer(call ->
+                actual.stream().limit(call.getArgument(1, net.ximatai.muyun.database.core.orm.PageRequest.class).getLimit()).toList());
+        when(specs.list(any(), any(net.ximatai.muyun.database.core.orm.PageRequest.class))).thenReturn(java.util.List.of());
+        try (var identity = CurrentUserContext.use(CurrentUser.systemUser("admin", "管理员"))) {
+            var result = service.describe("plan", "entry");
+            assertThat(result.fields()).hasSize(257);
+            assertThat(result.fields().getLast().getFieldName()).isEqualTo("field256");
+            assertThat(result.fields().getLast().getTitle()).isEqualTo("现有字段".repeat(40));
+        }
+    }
+
 }

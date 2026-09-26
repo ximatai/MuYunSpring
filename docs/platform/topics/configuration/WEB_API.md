@@ -550,7 +550,7 @@
 | POST `/delivery` | 人工确认后的冻结提议与请求身份，原子提交该节点和回执 |
 | GET `/delivery/{requestId}` | 查询同一次确认的结果，未查到返回 204，不能据此推定未提交 |
 | GET `/objects/{objectKey}/progress` | 查询真实页面、入口、运行态、需求兑现证据及人工验收是否仍适用于当前基线 |
-| GET `/task` | 依据当前需求版本、配置与回执推导每个对象的下一步；不写入任务完成状态 |
+| GET `/task` | 依据当前需求版本、配置与回执返回每个对象的 `complete`、`options` 和需求证据；选项不代表执行授权或固定顺序，不写入任务完成状态 |
 | GET `/objects/{objectKey}/acceptance-preview` | 获取当前规则、验收例子和绑定配置的人工验收基线 |
 | POST `/acceptances` | 人工确认验收，按请求身份幂等记录当前基线 |
 | GET `/acceptances/{requestId}` | 核实原验收请求是否提交 |

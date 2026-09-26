@@ -48,7 +48,9 @@ export function assistantRelationProjection(
     baseline = {},
     purpose = 'context',
     relationOptions = {},
+    editableRelations = new Set<string>(),
   }: {
+    editableRelations?: ReadonlySet<string>;
     baseline?: RecordFormRecord;
     purpose?: 'context' | 'confirmation';
     relationOptions?: Record<string, Record<string, OptionItemDescriptor[]>>;
@@ -95,10 +97,12 @@ export function assistantRelationProjection(
       {
         relationCode: relation.code,
         title: relation.title ?? relation.code,
-        assistantWritable: false,
-        operationBoundary: loaded
-          ? '明细存在且随整单保存；当前助手仅能读取，请在页面增改明细后回到对话确认保存。'
-          : '已声明明细，但当前没有完整行数据，不能据此判断为空。',
+        assistantWritable: editableRelations.has(relation.code),
+        operationBoundary: editableRelations.has(relation.code)
+          ? '可通过 relation.describe 读取和编辑明细草稿；最后审阅并保存整单。'
+          : loaded
+            ? '明细存在且随整单保存；当前助手仅能读取，请在页面增改明细后回到对话确认保存。'
+            : '已声明明细，但当前没有完整行数据，不能据此判断为空。',
         loaded,
         count: loaded ? rows.length : null,
         removedCount: removed.length,
