@@ -112,7 +112,7 @@ class AssistantWebControllerTest {
                 ),
                 Map.of("surface", "module-page"),
                 List.of(new AiToolDefinition("form.patch-draft", "Patch form", Map.of("type", "object"))),
-                List.of(new AssistantCapabilityResultWeb("call-1", "workbench.open-menu",
+                List.of(new AssistantCapabilityResultWeb("call-1", "workbench.open-menu", Map.of(), "read",
                         Map.of("opened", true), null)));
 
         AssistantTurnWebResponse response = new AssistantWebController(service).turn(request);

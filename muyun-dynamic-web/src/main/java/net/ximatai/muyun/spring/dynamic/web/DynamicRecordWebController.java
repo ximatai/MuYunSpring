@@ -11,6 +11,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletRequest;
 import net.ximatai.muyun.database.core.orm.Criteria;
+import net.ximatai.muyun.spring.ability.query.QueryLikePattern;
 import net.ximatai.muyun.database.core.orm.CriteriaOperator;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.database.core.orm.PageResult;
@@ -441,7 +442,7 @@ public class DynamicRecordWebController implements
             throw new PlatformException("Quick search field is not enabled by module execution plan: " + invalid);
         }
         Criteria criteria = Criteria.of();
-        criteria.andGroup(group -> fields.forEach(field -> group.or(field, CriteriaOperator.LIKE, request.quickSearch().trim())));
+        criteria.andGroup(group -> fields.forEach(field -> group.orLikeIgnoreCase(field, QueryLikePattern.containsLiteral(request.quickSearch().trim()))));
         return criteria;
     }
 

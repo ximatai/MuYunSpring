@@ -15,6 +15,22 @@ public record AiTurnRequest(
         messages = messages == null ? List.of() : List.copyOf(messages);
         tools = tools == null ? List.of() : List.copyOf(tools);
         if (messages.isEmpty()) throw new IllegalArgumentException("AI turn request requires at least one message");
+        Set<String> pending = new HashSet<>();
+        Set<String> seen = new HashSet<>();
+        for (AiChatMessage message : messages) {
+            if (message.role() == AiChatMessage.Role.TOOL) {
+                if (!pending.remove(message.toolCallId())) {
+                    throw new IllegalArgumentException("Orphan or duplicate AI tool result");
+                }
+            } else {
+                if (!pending.isEmpty()) throw new IllegalArgumentException("AI tool results are missing");
+                for (AiToolCall call : message.toolCalls()) {
+                    if (!seen.add(call.id())) throw new IllegalArgumentException("Duplicate AI tool call id");
+                    pending.add(call.id());
+                }
+            }
+        }
+        if (!pending.isEmpty()) throw new IllegalArgumentException("AI tool results are missing");
         Set<String> codes = new HashSet<>();
         for (AiToolDefinition tool : tools) {
             if (!codes.add(tool.code())) throw new IllegalArgumentException("Duplicate AI tool code: " + tool.code());

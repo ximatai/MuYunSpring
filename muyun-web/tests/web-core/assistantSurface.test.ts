@@ -68,6 +68,7 @@ function fixture(options: {
 }) {
   const execute = options.execute ?? (async (input: string) => input);
   const capability: AssistantCapability<string> = {
+    effect: 'page',
     descriptor: {
       code: 'form.patch-draft',
       description: 'Patch the current form draft',
@@ -336,7 +337,7 @@ describe('assistant surface registry', () => {
     expect(remembered).toBe('value');
   });
 
-  it('discards a result when context drifts again after the guarded effect', async () => {
+  it('retains the effect fact without obsolete output when context drifts again after the guarded effect', async () => {
     let revision = 'draft-before';
     let resolve!: (value: string) => void;
     const registry = createAssistantSurfaceRegistry();
@@ -361,10 +362,14 @@ describe('assistant surface registry', () => {
     revision = 'draft-after-user-edit';
     resolve('stale result');
 
-    await expect(pending).rejects.toBeInstanceOf(StaleAssistantInvocationError);
+    await expect(pending).rejects.toMatchObject({
+      name: 'AssistantEffectInterruptedError',
+      execution: 'effect-applied',
+      cause: expect.any(StaleAssistantInvocationError),
+    });
   });
 
-  it('discards a result when explicitly cancelled after the guarded effect', async () => {
+  it('retains the effect fact without obsolete output when explicitly cancelled after the guarded effect', async () => {
     let revision = 'draft-before';
     let resolve!: (value: string) => void;
     const registry = createAssistantSurfaceRegistry();
@@ -391,7 +396,11 @@ describe('assistant surface registry', () => {
     cancellation.abort();
     resolve('cancelled result');
 
-    await expect(pending).rejects.toMatchObject({ name: 'AbortError' });
+    await expect(pending).rejects.toMatchObject({
+      name: 'AssistantEffectInterruptedError',
+      execution: 'effect-applied',
+      cause: expect.objectContaining({ name: 'AbortError' }),
+    });
   });
 
   it('uses the active surface opaque turn requester', async () => {
@@ -446,6 +455,7 @@ describe('assistant surface registry', () => {
 it('rejects duplicate composed capabilities instead of executing the first match', () => {
   const registry = createAssistantSurfaceRegistry();
   const capability: AssistantCapability = {
+    effect: 'page',
     descriptor: { code: 'read', description: 'read', inputSchema: {} },
     parseInput: (input) => input,
     execute: vi.fn(),
@@ -489,3 +499,34 @@ it('invalidates both requests and effects when identity or execution tenant chan
     StaleAssistantInvocationError,
   );
 });
+
+it.each(['resolve', 'reject', 'thenable'] as const)(
+  'keeps a mistakenly asynchronous effect unknown when it will %s',
+  async (mode) => {
+    const registry = createAssistantSurfaceRegistry();
+    const settle = vi.fn(async () => {});
+    let finish!: () => void;
+    const pending = new Promise<void>((resolve, reject) => {
+      finish = mode === 'reject' ? () => reject(new Error('late failure')) : resolve;
+    });
+    const result = mode === 'thenable' ? { then: pending.then.bind(pending) } : pending;
+    registry.register(
+      fixture({
+        pageInstanceKey: 'async-effect',
+        revision: () => 'unchanged',
+        execute: async (_input, context) => {
+          // @ts-expect-error Page effects must not return a Promise or thenable.
+          return context.applyEffect(() => result, settle);
+        },
+      }),
+    );
+    registry.activate('async-effect');
+    await expect(
+      registry.invoke({ id: 'async', code: 'form.patch-draft', input: 'value' }, registry.snapshot()!.token),
+    ).rejects.toMatchObject({ name: 'AssistantEffectInterruptedError', execution: 'unknown' });
+    expect(settle).not.toHaveBeenCalled();
+    finish();
+    // Allow late rejections to surface: the registry must observe them even after it exits.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  },
+);

@@ -131,3 +131,70 @@ it('writes dictionary selection cardinality with its CodeTitleEnum wire code', (
     },
   });
 });
+
+it('projects a renamed visible candidate without mutating the staged session or baseline', () => {
+  const session = createMetadataModelWorkspaceEditSession();
+  session.begin([{ relationId: 'r', metadataId: 'm', expectedMetadataVersion: 3, fields: [] }]);
+  session.stageField('r', { fieldName: 'oldName', title: '原候选' }, { kind: 'BASIC' });
+  const before = session.buildProposal();
+  const preview = session.proposalWithField(
+    'r',
+    { fieldName: 'newName', title: '手工修改' },
+    { kind: 'BASIC' },
+    'oldName',
+  );
+  expect(preview?.relationDrafts[0]?.fieldDrafts).toEqual([
+    expect.objectContaining({ operation: 'ADD', field: expect.objectContaining({ fieldName: 'newName' }) }),
+  ]);
+  expect(preview?.relationDrafts[0]?.expectedMetadataVersion).toBe(3);
+  expect(session.buildProposal()).toEqual(before);
+  expect(session.fieldsForDisplay('r', []).map((field) => field.fieldName)).toEqual(['oldName']);
+});
+
+it('stages a complete field plan atomically and removes only unsaved additions', () => {
+  const session = createMetadataModelWorkspaceEditSession();
+  session.begin([
+    {
+      relationId: 'main',
+      metadataId: 'meta',
+      expectedMetadataVersion: 3,
+      fields: [{ id: 'persisted', fieldName: 'title', version: 2 }],
+    },
+  ]);
+  expect(() =>
+    session.stageFields('main', [
+      { field: { fieldName: 'first' }, property: { kind: 'BASIC' } },
+      { field: { fieldName: 'Title' }, property: { kind: 'BASIC' } },
+    ]),
+  ).toThrow('Duplicate');
+  expect(session.isDirty.value).toBe(false);
+  session.stageFields('main', [
+    { field: { fieldName: 'first', title: '第一项' }, property: { kind: 'BASIC' } },
+    {
+      field: { fieldName: 'second' },
+      property: {
+        kind: 'DICTIONARY',
+        dictionaryConfig: {
+          dictionaryApplicationAlias: 'crm',
+          dictionaryCategoryAlias: 'status',
+          selectionMode: 'SINGLE',
+        },
+      },
+    },
+  ]);
+  session.discardNewField('main', 'persisted');
+  session.discardNewField('main', 'first');
+  expect(session.fieldsForDisplay('main', []).map((field) => field.fieldName)).toEqual(['title', 'second']);
+  expect(session.buildProposal()?.relationDrafts[0]).toMatchObject({
+    expectedMetadataVersion: 3,
+    fieldDrafts: [
+      {
+        operation: 'ADD',
+        field: { fieldName: 'second' },
+        property: { dictionaryConfig: { selectionMode: 'single' } },
+      },
+    ],
+  });
+  session.discardNewField('main', 'second');
+  expect(session.buildProposal()?.relationDrafts).toEqual([]);
+});

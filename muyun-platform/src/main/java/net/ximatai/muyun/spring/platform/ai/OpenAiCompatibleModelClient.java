@@ -9,6 +9,7 @@ import org.springframework.stereotype.Service;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.FilterInputStream;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -33,6 +34,7 @@ final class OpenAiCompatibleModelClient implements AiModelClient {
 
     private final HttpClient httpClient;
     private final ObjectMapper objectMapper;
+    private final Duration bodyTimeout;
 
     @Autowired
     OpenAiCompatibleModelClient(ObjectMapper objectMapper) {
@@ -41,6 +43,12 @@ final class OpenAiCompatibleModelClient implements AiModelClient {
     }
 
     OpenAiCompatibleModelClient(HttpClient httpClient, ObjectMapper objectMapper) {
+        this(httpClient, objectMapper, REQUEST_TIMEOUT);
+    }
+
+    OpenAiCompatibleModelClient(HttpClient httpClient, ObjectMapper objectMapper, Duration bodyTimeout) {
+        if (bodyTimeout.isNegative() || bodyTimeout.isZero()) throw new IllegalArgumentException("AI body timeout must be positive");
+        this.bodyTimeout = bodyTimeout;
         this.httpClient = Objects.requireNonNull(httpClient, "httpClient must not be null");
         this.objectMapper = Objects.requireNonNull(objectMapper, "objectMapper must not be null");
     }
@@ -73,7 +81,7 @@ final class OpenAiCompatibleModelClient implements AiModelClient {
         try {
             HttpResponse<InputStream> response = httpClient.send(request(route, request, true),
                     HttpResponse.BodyHandlers.ofInputStream());
-            try (InputStream body = response.body()) {
+            try (InputStream body = new TimedResponseBody(response.body(), bodyTimeout)) {
                 requireSuccess(response.statusCode());
                 if (consumeSseStream(body, payload -> consumeStreamEvent(payload, consumer))) return;
                 throw new PlatformException("AI model stream ended before completion");
@@ -94,7 +102,7 @@ final class OpenAiCompatibleModelClient implements AiModelClient {
             HttpResponse<InputStream> response = httpClient.send(turnRequest(route, request, false),
                     HttpResponse.BodyHandlers.ofInputStream());
             final JsonNode root;
-            try (InputStream body = response.body()) {
+            try (InputStream body = new TimedResponseBody(response.body(), bodyTimeout)) {
                 requireSuccess(response.statusCode());
                 root = readResponseObject(readBoundedStructuredBody(body),
                         "AI model returned an invalid structured response");
@@ -126,7 +134,7 @@ final class OpenAiCompatibleModelClient implements AiModelClient {
         try {
             HttpResponse<InputStream> response = httpClient.send(turnRequest(route, request, true),
                     HttpResponse.BodyHandlers.ofInputStream());
-            try (InputStream body = response.body()) {
+            try (InputStream body = new TimedResponseBody(response.body(), bodyTimeout)) {
                 requireSuccess(response.statusCode());
                 StructuredTurnAccumulator accumulator = new StructuredTurnAccumulator(request.tools(), consumer,
                         response.headers().firstValue("x-request-id").orElse(null));
@@ -140,6 +148,49 @@ final class OpenAiCompatibleModelClient implements AiModelClient {
             throw new PlatformException("AI model structured streaming request interrupted", exception);
         } catch (Exception exception) {
             throw new PlatformException("AI model structured streaming request failed", exception);
+        }
+    }
+
+    /** HttpRequest.timeout ends at headers with ofInputStream; bound the remaining body lifetime too. */
+    private static final class TimedResponseBody extends FilterInputStream {
+        private volatile boolean expired;
+        private final Thread deadline;
+
+        TimedResponseBody(InputStream body, Duration timeout) {
+            super(body);
+            deadline = Thread.ofVirtual().name("ai-response-deadline").start(() -> {
+                try {
+                    Thread.sleep(timeout);
+                    expired = true;
+                    body.close();
+                } catch (InterruptedException ignored) {
+                    Thread.currentThread().interrupt();
+                } catch (IOException ignored) {
+                    // Closing is best effort; readers still check the deadline before exposing content.
+                }
+            });
+        }
+
+        @Override
+        public int read() throws IOException {
+            checkDeadline();
+            try { return in.read(); } finally { checkDeadline(); }
+        }
+
+        @Override
+        public int read(byte[] bytes, int offset, int length) throws IOException {
+            checkDeadline();
+            try { return in.read(bytes, offset, length); } finally { checkDeadline(); }
+        }
+
+        private void checkDeadline() {
+            if (expired) throw new PlatformException("AI model response body timed out");
+        }
+
+        @Override
+        public void close() throws IOException {
+            deadline.interrupt();
+            super.close();
         }
     }
 
@@ -179,8 +230,7 @@ final class OpenAiCompatibleModelClient implements AiModelClient {
         }
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("model", route.modelId());
-        body.put("messages", request.messages().stream().map(message -> Map.of(
-                "role", message.role().name().toLowerCase(java.util.Locale.ROOT), "content", message.content())).toList());
+        body.put("messages", wireMessages(request.messages()));
         if (request.temperature() != null) body.put("temperature", request.temperature());
         if (request.maxOutputTokens() != null) body.put("max_tokens", request.maxOutputTokens());
         if (stream) body.put("stream", true);
@@ -198,14 +248,13 @@ final class OpenAiCompatibleModelClient implements AiModelClient {
         }
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("model", route.modelId());
-        body.put("messages", request.messages().stream().map(message -> Map.of(
-                "role", message.role().name().toLowerCase(java.util.Locale.ROOT), "content", message.content())).toList());
+        body.put("messages", wireMessages(request.messages()));
         if (!request.tools().isEmpty()) {
             List<Map<String, Object>> tools = new ArrayList<>();
             for (int index = 0; index < request.tools().size(); index++) {
                 AiToolDefinition tool = request.tools().get(index);
                 tools.add(Map.of("type", "function", "function", Map.of(
-                        "name", providerToolName(index),
+                        "name", providerToolName(tool.code()),
                         "description", tool.description(),
                         "parameters", providerParameters(tool.inputSchema()))));
             }
@@ -378,7 +427,7 @@ final class OpenAiCompatibleModelClient implements AiModelClient {
             if (id.isEmpty() || name.isEmpty() || arguments.isEmpty()) {
                 throw new PlatformException("AI model returned invalid tool calls");
             }
-            int toolIndex = providerToolIndex(name.toString(), tools.size());
+            int toolIndex = providerToolIndex(name.toString(), tools);
             JsonNode parsed = readJsonObject(arguments.toString(), "AI model returned invalid tool arguments");
             @SuppressWarnings("unchecked")
             Map<String, Object> values = objectMapper.convertValue(parsed, Map.class);
@@ -395,7 +444,7 @@ final class OpenAiCompatibleModelClient implements AiModelClient {
             String id = textOrNull(node.path("id"));
             JsonNode function = node.path("function");
             String name = textOrNull(function.path("name"));
-            int index = providerToolIndex(name, tools.size());
+            int index = providerToolIndex(name, tools);
             String argumentsJson = textOrNull(function.path("arguments"));
             if (id == null || argumentsJson == null) throw new PlatformException("AI model returned invalid tool calls");
             if (argumentsJson.getBytes(StandardCharsets.UTF_8).length > MAX_TOOL_ARGUMENT_BYTES) {
@@ -417,8 +466,35 @@ final class OpenAiCompatibleModelClient implements AiModelClient {
         return new String(bytes, StandardCharsets.UTF_8);
     }
 
-    private String providerToolName(int index) {
-        return "capability_" + index;
+    static String providerToolName(String code) {
+        try {
+            byte[] digest = java.security.MessageDigest.getInstance("SHA-256")
+                    .digest(code.getBytes(StandardCharsets.UTF_8));
+            return "cap_" + java.util.HexFormat.of().formatHex(digest).substring(0, 56);
+        } catch (java.security.NoSuchAlgorithmException error) {
+            throw new IllegalStateException(error);
+        }
+    }
+
+    private List<Map<String, Object>> wireMessages(List<AiChatMessage> messages) throws Exception {
+        List<Map<String, Object>> result = new ArrayList<>();
+        for (AiChatMessage message : messages) {
+            Map<String, Object> wire = new LinkedHashMap<>();
+            wire.put("role", message.role().name().toLowerCase(java.util.Locale.ROOT));
+            if (message.content() != null) wire.put("content", message.content());
+            if (message.toolCallId() != null) wire.put("tool_call_id", message.toolCallId());
+            if (!message.toolCalls().isEmpty()) {
+                List<Map<String, Object>> calls = new ArrayList<>();
+                for (AiToolCall call : message.toolCalls()) {
+                    calls.add(Map.of("id", call.id(), "type", "function", "function", Map.of(
+                            "name", providerToolName(call.code()),
+                            "arguments", objectMapper.writeValueAsString(call.arguments()))));
+                }
+                wire.put("tool_calls", calls);
+            }
+            result.add(wire);
+        }
+        return result;
     }
 
     /**
@@ -443,17 +519,11 @@ final class OpenAiCompatibleModelClient implements AiModelClient {
         throw new PlatformException(invalidMessage);
     }
 
-    private int providerToolIndex(String name, int toolCount) {
-        if (name == null || !name.startsWith("capability_")) {
-            throw new PlatformException("AI model requested an undeclared tool");
+    private int providerToolIndex(String name, List<AiToolDefinition> tools) {
+        for (int index = 0; index < tools.size(); index++) {
+            if (providerToolName(tools.get(index).code()).equals(name)) return index;
         }
-        try {
-            int index = Integer.parseInt(name.substring("capability_".length()));
-            if (index < 0 || index >= toolCount) throw new PlatformException("AI model requested an undeclared tool");
-            return index;
-        } catch (NumberFormatException exception) {
-            throw new PlatformException("AI model requested an undeclared tool");
-        }
+        throw new PlatformException("AI model requested an undeclared tool");
     }
 
     private void requireSuccess(int statusCode) {

@@ -32,6 +32,7 @@ import type {
   WebPageResponse,
 } from '@muyun/web-contracts';
 import {
+  AssistantCapabilityUsageError,
   createAssistantTurnRequester,
   createStaticResourceCrudClient,
   useAssistantSurfaceHost,
@@ -86,6 +87,8 @@ import {
 } from './metadataModelChangeSetClient';
 import { createMetadataGovernanceAssistantSurface } from './metadataGovernanceAssistantSurface';
 import type {
+  MetadataFieldCandidate,
+  MetadataFieldPlanInput,
   AddMetadataFieldDraftInput,
   AddMetadataPropertyFieldDraftInput,
   FindMetadataFieldTargetsInput,
@@ -114,6 +117,11 @@ const refreshActivation = inject(moduleRuntimeActivationRefreshKey, undefined);
 const metadataClient = createStaticResourceCrudClient<Metadata>(moduleContext.http, '/platform.metadata');
 const state = createMetadataOrchestrationState();
 const editSession = createMetadataModelWorkspaceEditSession();
+const fieldPlanActive = ref(false);
+const fieldPlanEntries = computed(() =>
+  fieldPlanActive.value ? sessionFields.value.filter((field) => !field.id) : [],
+);
+
 const sorting = ref(false);
 useWorkspaceViewUnsavedState('元数据', () => editSession.isDirty.value || state.mode.value !== 'view');
 const assistantHost = useAssistantSurfaceHost();
@@ -268,7 +276,7 @@ function assistantSummary() {
     draft: {
       active: editSession.editing.value || state.mode.value !== 'view',
       dirty: editSession.isDirty.value,
-      editorOpen: state.fieldEditorOpen.value || sorting.value,
+      editorOpen: state.fieldEditorOpen.value || sorting.value || fieldPlanActive.value,
     },
     fieldSpecs: state.fieldSpecs.value
       .filter((spec) => spec.enabled !== false)
@@ -293,7 +301,8 @@ function syncAssistantSurface() {
     !assistantPageInstanceKey ||
     loading.value ||
     !workspaceReady.value ||
-    workspaceLoadFailed.value
+    workspaceLoadFailed.value ||
+    saving.value
   )
     return;
   unregisterAssistantSurface = assistantHost.registry.register({
@@ -302,6 +311,14 @@ function syncAssistantSurface() {
     surface: createMetadataGovernanceAssistantSurface(
       {
         summary: assistantSummary,
+        candidate: assistantCandidate,
+        prepareFieldPlan: prepareAssistantFieldPlan,
+        plan: () =>
+          fieldPlanActive.value
+            ? assistantProposal()?.relationDrafts.flatMap((relation) =>
+                relation.fieldDrafts.map((draft) => ({ ...draft, saved: false })),
+              )
+            : undefined,
         proposal: assistantProposal,
         preview: (proposal, signal) =>
           previewMetadataModelChangeSet(moduleContext.http, props.moduleAlias, proposal, signal),
@@ -311,11 +328,11 @@ function syncAssistantSurface() {
             .map((spec) => spec.alias ?? spec.id ?? '')
             .filter(Boolean),
         editableBasicFieldNames: assistantEditableBasicFieldNames,
-        addFieldDraft: addAssistantFieldDraft,
-        updateFieldDraft: updateAssistantFieldDraft,
+        prepareNewFieldDraft: prepareAssistantNewFieldDraft,
+        prepareFieldUpdate: prepareAssistantFieldUpdate,
         findFieldTargets: findAssistantFieldTargets,
         preparePropertyFieldDraft: prepareAssistantPropertyFieldDraft,
-        commitPropertyFieldDraft: commitAssistantPropertyFieldDraft,
+        preparePropertyFieldCommit: prepareAssistantPropertyFieldCommit,
       },
       createAssistantTurnRequester(moduleContext.http),
       () => assistantHost.capabilities?.() ?? [],
@@ -335,13 +352,19 @@ function deactivateAssistantSurface() {
 }
 
 watch(
-  () => ({ summary: assistantSummary(), proposal: assistantProposal() }),
+  () => ({
+    summary: assistantSummary(),
+    proposal: assistantProposal(),
+    candidate: assistantCandidate(),
+    field: state.fieldDraft.value,
+    property: state.fieldPropertyDraft.value,
+  }),
   () => {
     assistantContextRevision.value += 1;
   },
   { deep: true, flush: 'sync' },
 );
-watch([loading, workspaceReady, workspaceLoadFailed], syncAssistantSurface, { flush: 'post' });
+watch([loading, workspaceReady, workspaceLoadFailed, saving], syncAssistantSurface, { flush: 'post' });
 onMounted(activateAssistantSurface);
 onActivated(activateAssistantSurface);
 onDeactivated(deactivateAssistantSurface);
@@ -557,6 +580,9 @@ function updateReferenceTargetModuleAlias(value: unknown) {
 watch(
   () => props.moduleAlias,
   () => {
+    fieldPlanActive.value = false;
+    editSession.cancel();
+    state.cancelEditor();
     state.handleRelationsLoaded([]);
     fieldsByRelation.value = {};
     expandedTreeKeys.value = [];
@@ -710,7 +736,7 @@ function hydrateSelectedRelation(relationId: string) {
 }
 
 async function selectMetadataTreeNode(node: UiTreeNode) {
-  if (state.fieldEditorOpen.value) {
+  if (state.fieldEditorOpen.value || fieldPlanActive.value) {
     presentPlatformMessage('请先保存或取消当前字段候选，再切换元数据。', {
       source: 'metadata-orchestration',
       phase: 'validation',
@@ -767,11 +793,14 @@ function startCreateField(kind: MetadataFieldPropertyDraft['kind'] = 'BASIC') {
   state.startCreateField(kind);
 }
 
-function addAssistantFieldDraft(input: AddMetadataFieldDraftInput) {
+function prepareAssistantNewFieldDraft(input: AddMetadataFieldDraftInput) {
   const relationId = selectedRelationId.value;
-  if (!relationId || !state.selectedMetadata.value?.id) throw new Error('No metadata relation is selected');
+  if (!relationId || !state.selectedMetadata.value?.id)
+    throw new AssistantCapabilityUsageError('No metadata relation is selected');
   if (state.fieldEditorOpen.value || sorting.value)
-    throw new Error('Finish or cancel the current metadata editor before adding another field');
+    throw new AssistantCapabilityUsageError(
+      'Finish or cancel the current metadata editor before adding another field',
+    );
   requireEnabledFieldSpec(input.fieldSpecAlias);
   const fieldName = input.fieldName?.trim() || generatedBusinessFieldName(input.title, 'BASIC');
   validateAssistantNewFieldName(relationId, fieldName);
@@ -789,41 +818,101 @@ function addAssistantFieldDraft(input: AddMetadataFieldDraftInput) {
     titleField: input.titleField ?? false,
     enabled: true,
   };
-  if (!editSession.editing.value) startNodeEditSession();
-  editSession.stageField(relationId, field, { kind: 'BASIC' });
-  stagedNewFieldKey.value = fieldName;
-  fieldTitleManuallyEdited.value = true;
-  fieldNameManuallyEdited.value = Boolean(input.fieldName);
-  columnNameManuallyEdited.value = false;
-  editorMode.value = 'ADVANCED';
-  state.startEditField(field, { kind: 'BASIC' });
+  return () => {
+    if (!editSession.editing.value) startNodeEditSession();
+    editSession.stageField(relationId, field, { kind: 'BASIC' });
+    stagedNewFieldKey.value = fieldName;
+    fieldTitleManuallyEdited.value = true;
+    fieldNameManuallyEdited.value = Boolean(input.fieldName);
+    columnNameManuallyEdited.value = false;
+    editorMode.value = 'ADVANCED';
+    state.startEditField(field, { kind: 'BASIC' });
+    return {
+      relationId,
+      fieldName,
+      columnName: field.columnName!,
+      title: input.title,
+      fieldSpecAlias: input.fieldSpecAlias,
+    };
+  };
+}
+
+function assistantCandidate(): MetadataFieldCandidate | undefined {
+  const relationId = selectedRelationId.value;
+  if (
+    !relationId ||
+    !state.fieldEditorOpen.value ||
+    childNodeType.value === 'CHILD_METADATA' ||
+    sorting.value ||
+    saving.value
+  )
+    return undefined;
+  const field = normalizeFieldDraft(state.fieldDraft.value);
+  const property = normalizeFieldPropertyDraft(state.fieldPropertyDraft.value);
+  const baseline = field.id ? state.allFields.value.find((item) => item.id === field.id) : undefined;
+  const baselineProperty = baseline
+    ? propertyDraftFromSummary(
+        fieldProperties.value.find((item) => item.fieldId === baseline.id) ?? {
+          fieldId: baseline.id,
+          kind: 'BASIC',
+        },
+      )
+    : undefined;
+  const project = (
+    value: MetadataField,
+    binding?: MetadataFieldPropertyDraft,
+  ): Record<string, string | boolean | undefined> => ({
+    显示名称: value.title,
+    字段名: value.fieldName,
+    物理列名: value.columnName,
+    字段规格: value.fieldSpecAlias,
+    必填: value.required ?? false,
+    唯一: value.uniqueField ?? false,
+    索引: value.indexed ?? false,
+    允许排序: value.sortableField ?? false,
+    标题字段: value.titleField ?? false,
+    启用: value.enabled !== false,
+    引用目标: binding?.referenceConfig?.targetModuleAlias,
+    字典应用: binding?.dictionaryConfig?.dictionaryApplicationAlias,
+    字典类别: binding?.dictionaryConfig?.dictionaryCategoryAlias,
+    字典选择: binding?.dictionaryConfig?.selectionMode,
+  });
+  const before = baseline ? project(baseline, baselineProperty) : {};
+  const after = project(field, property);
   return {
-    relationId,
-    fieldName,
-    columnName: field.columnName!,
-    title: input.title,
-    fieldSpecAlias: input.fieldSpecAlias,
+    fieldName: field.fieldName ?? '',
+    kind: property.kind,
+    operation: baseline ? 'UPDATE' : 'ADD',
+    saved: false,
+    editable:
+      property.kind === 'BASIC' &&
+      Boolean(field.fieldName && isPlatformFieldName(field.fieldName)) &&
+      (!baseline || fieldEditableInSession(baseline)),
+    expectedMetadataVersion: editSession.relation(relationId)?.expectedMetadataVersion ?? 0,
+    changes: Object.entries(after)
+      .filter(([key, value]) => value !== before[key])
+      .map(([key, value]) => ({ property: key, before: before[key], after: value })),
   };
 }
 
 function assistantProposal(): MetadataModelChangeSetProposal | undefined {
-  const proposal = editSession.buildProposal();
-  if (!proposal || !state.fieldEditorOpen.value || childNodeType.value === 'CHILD_METADATA') return proposal;
+  if (!state.fieldEditorOpen.value) return editSession.buildProposal();
   const relationId = selectedRelationId.value;
-  if (!relationId) return undefined;
-  const relationDraft = editSession.relation(relationId);
-  const currentField = normalizeFieldDraft(state.fieldDraft.value);
-  const stagedKey = currentField.id ?? stagedNewFieldKey.value ?? currentField.fieldName;
-  const stagedField = stagedKey ? relationDraft?.fields[stagedKey] : undefined;
-  if (!stagedField || JSON.stringify(currentField) !== JSON.stringify(stagedField)) return undefined;
-  const currentProperty = normalizeFieldPropertyDraft(state.fieldPropertyDraft.value);
-  const stagedProperty = editSession.propertyForField(relationId, stagedField);
-  return JSON.stringify(currentProperty) === JSON.stringify(stagedProperty) ? proposal : undefined;
+  if (!relationId || childNodeType.value === 'CHILD_METADATA') return undefined;
+  const field = normalizeFieldDraft(state.fieldDraft.value);
+  const property = normalizeFieldPropertyDraft(state.fieldPropertyDraft.value);
+  if (!isValidFieldDraft(field) || !isValidFieldPropertyDraft(property) || planFieldConflicts(field))
+    return undefined;
+  return editSession.proposalWithField(relationId, field, property, stagedNewFieldKey.value);
 }
 
 function assistantEditableBasicFieldNames() {
   const relationId = selectedRelationId.value;
   if (!relationId) return [];
+  if (state.fieldEditorOpen.value) {
+    const candidate = assistantCandidate();
+    return candidate?.editable ? [candidate.fieldName] : [];
+  }
   return editSession
     .fieldsForDisplay(relationId, state.allFields.value)
     .filter(
@@ -833,20 +922,34 @@ function assistantEditableBasicFieldNames() {
     .map((field) => field.fieldName!);
 }
 
-function updateAssistantFieldDraft(input: UpdateMetadataFieldDraftInput) {
+function prepareAssistantFieldUpdate(input: UpdateMetadataFieldDraftInput) {
   const relationId = selectedRelationId.value;
-  if (!relationId) throw new Error('No metadata relation is selected');
-  if (state.fieldEditorOpen.value || sorting.value)
-    throw new Error('Finish or cancel the current metadata editor before updating a field');
-  const field = state.allFields.value.find((candidate) => candidate.fieldName === input.fieldName);
-  if (!field || !fieldEditableInSession(field) || fieldPropertyOf(field).kind !== 'BASIC')
-    throw new Error('The selected metadata field is unavailable for editing');
+  if (!relationId) throw new AssistantCapabilityUsageError('No metadata relation is selected');
+  const revising = state.fieldEditorOpen.value;
+  const candidate = assistantCandidate();
+  if (
+    sorting.value ||
+    saving.value ||
+    (fieldPlanActive.value && !revising) ||
+    (revising && (!candidate?.editable || candidate.fieldName !== input.fieldName))
+  )
+    throw new AssistantCapabilityUsageError(
+      'Only the current editable candidate can be revised',
+      'PRECONDITION_FAILED',
+    );
+  const field = revising
+    ? normalizeFieldDraft(state.fieldDraft.value)
+    : state.allFields.value.find((item) => item.fieldName === input.fieldName);
+  if (!field || (!revising && (!fieldEditableInSession(field) || fieldPropertyOf(field).kind !== 'BASIC')))
+    throw new AssistantCapabilityUsageError('The selected metadata field is unavailable for editing');
   if (input.fieldSpecAlias) {
     const options = selectedRelationHasBusinessRecords.value
       ? dataSafeFieldSpecOptions(state.fieldSpecs.value, field.fieldSpecAlias)
       : state.fieldSpecOptions.value;
     if (!options.some((option) => option.value === input.fieldSpecAlias))
-      throw new Error('The selected field specification is unsafe for the current metadata data');
+      throw new AssistantCapabilityUsageError(
+        'The selected field specification is unsafe for the current metadata data',
+      );
   }
   const updated: MetadataField = {
     ...field,
@@ -860,21 +963,28 @@ function updateAssistantFieldDraft(input: UpdateMetadataFieldDraftInput) {
     ...(input.enabled !== undefined ? { enabled: input.enabled } : {}),
   };
   if (JSON.stringify(updated) === JSON.stringify(field))
-    throw new Error('The requested metadata field update does not change the current value');
-  const property = fieldPropertyOf(field);
-  startNodeEditSession();
-  editSession.stageField(relationId, updated, property);
-  stagedNewFieldKey.value = undefined;
-  fieldTitleManuallyEdited.value = Boolean(updated.title?.trim());
-  fieldNameManuallyEdited.value = true;
-  columnNameManuallyEdited.value = true;
-  editorMode.value = 'ADVANCED';
-  state.startEditField(updated, property);
-  return {
-    relationId,
-    fieldName: updated.fieldName!,
-    title: updated.title,
-    fieldSpecAlias: updated.fieldSpecAlias,
+    throw new AssistantCapabilityUsageError(
+      'The requested metadata field update does not change the current value',
+    );
+  const property = revising
+    ? normalizeFieldPropertyDraft(state.fieldPropertyDraft.value)
+    : fieldPropertyOf(field);
+  return () => {
+    if (!revising) startNodeEditSession();
+    if (!fieldPlanActive.value)
+      editSession.stageField(relationId, updated, property, stagedNewFieldKey.value);
+    if (!fieldPlanActive.value) stagedNewFieldKey.value = updated.id ? undefined : updated.fieldName;
+    fieldTitleManuallyEdited.value = Boolean(updated.title?.trim());
+    fieldNameManuallyEdited.value = true;
+    columnNameManuallyEdited.value = true;
+    editorMode.value = 'ADVANCED';
+    state.startEditField(updated, property);
+    return {
+      relationId,
+      fieldName: updated.fieldName!,
+      title: updated.title,
+      fieldSpecAlias: updated.fieldSpecAlias,
+    };
   };
 }
 
@@ -978,14 +1088,7 @@ async function prepareAssistantPropertyFieldDraft(
   };
 }
 
-function commitAssistantPropertyFieldDraft(prepared: PreparedMetadataPropertyFieldDraft) {
-  const relationId = selectedRelationId.value;
-  if (!relationId || relationId !== prepared.relationId)
-    throw new Error('The selected metadata relation changed before the candidate could be opened');
-  if (state.fieldEditorOpen.value || sorting.value)
-    throw new Error('Finish or cancel the current metadata editor before adding another field');
-  validateAssistantNewFieldName(relationId, prepared.fieldName);
-  requireEnabledFieldSpec(prepared.fieldSpecAlias);
+function propertyFieldEntry(prepared: PreparedMetadataPropertyFieldDraft) {
   const field: MetadataField = {
     fieldName: prepared.fieldName,
     columnName: prepared.columnName,
@@ -1020,43 +1123,145 @@ function commitAssistantPropertyFieldDraft(prepared: PreparedMetadataPropertyFie
             selectionMode: prepared.dictionary!.selectionMode,
           },
         };
-  startNodeEditSession();
-  editSession.stageField(relationId, field, property);
-  stagedNewFieldKey.value = prepared.fieldName;
+  return { field, property };
+}
+
+async function prepareAssistantFieldPlan(inputs: MetadataFieldPlanInput, signal: AbortSignal) {
+  if (fieldPlanActive.value || state.fieldEditorOpen.value || sorting.value || saving.value)
+    throw new Error('Finish the current candidate before preparing a field plan');
+  const relationId = selectedRelationId.value;
+  if (!relationId) throw new Error('No metadata relation is selected');
+  const entries: Array<{ field: MetadataField; property: MetadataFieldPropertyDraft }> = [];
+  for (const input of inputs) {
+    if (input.kind !== 'BASIC') {
+      entries.push(propertyFieldEntry(await prepareAssistantPropertyFieldDraft(input, signal)));
+    } else {
+      requireEnabledFieldSpec(input.fieldSpecAlias);
+      const fieldName = input.fieldName || generatedBusinessFieldName(input.title, 'BASIC');
+      validateAssistantNewFieldName(relationId, fieldName);
+      entries.push({
+        field: {
+          fieldName,
+          columnName: physicalNameOf(fieldName),
+          title: input.title,
+          fieldSpecAlias: input.fieldSpecAlias,
+          fieldOwnership: 'BUSINESS',
+          fieldForm: 'PHYSICAL',
+          required: input.required ?? false,
+          uniqueField: input.unique ?? false,
+          indexed: input.indexed ?? false,
+          sortableField: input.sortable ?? false,
+          titleField: input.titleField ?? false,
+          enabled: true,
+        },
+        property: { kind: 'BASIC' },
+      });
+    }
+  }
+  const names = entries.map(({ field }) => field.fieldName!.toLowerCase());
+  const columns = entries.map(({ field }) => field.columnName!.toLowerCase());
+  if (new Set(names).size !== names.length || new Set(columns).size !== columns.length)
+    throw new Error('方案包含重复字段名或物理列名，请调整后重新生成。');
+  return () => {
+    if (
+      signal.aborted ||
+      relationId !== selectedRelationId.value ||
+      fieldPlanActive.value ||
+      state.fieldEditorOpen.value ||
+      sorting.value ||
+      saving.value
+    )
+      throw new Error('Field plan is no longer current');
+    for (const { field } of entries) validateAssistantNewFieldName(relationId, field.fieldName!);
+    startNodeEditSession();
+    editSession.stageFields(relationId, entries);
+    fieldPlanActive.value = true;
+    return { saved: false, relationId, fields: entries };
+  };
+}
+
+function editPlanField(field: MetadataField) {
+  if (saving.value) return;
+  const property = fieldPropertyOf(field);
+  stagedNewFieldKey.value = field.fieldName;
+  childNodeType.value = 'FIELD';
   fieldTitleManuallyEdited.value = true;
-  fieldNameManuallyEdited.value = Boolean(prepared.fieldName);
-  columnNameManuallyEdited.value = false;
+  fieldNameManuallyEdited.value = true;
+  columnNameManuallyEdited.value = true;
   editorMode.value = 'ADVANCED';
   state.startEditField(field, property);
-  return {
-    relationId,
-    kind: prepared.kind,
-    fieldName: prepared.fieldName,
-    columnName: prepared.columnName,
-    title: prepared.title,
-    fieldSpecAlias: prepared.fieldSpecAlias,
-    target:
-      prepared.kind === 'MODULE_REFERENCE'
-        ? prepared.reference!.targetModuleAlias
-        : `${prepared.dictionary!.applicationAlias}.${prepared.dictionary!.categoryAlias}`,
+}
+
+function removePlanField(field: MetadataField) {
+  if (saving.value || !selectedRelationId.value || !field.fieldName) return;
+  editSession.discardNewField(selectedRelationId.value, field.fieldName);
+}
+
+function cancelFieldPlan() {
+  if (saving.value) return;
+  fieldPlanActive.value = false;
+  cancelNodeEditor();
+}
+
+function prepareAssistantPropertyFieldCommit(prepared: PreparedMetadataPropertyFieldDraft) {
+  const relationId = selectedRelationId.value;
+  if (!relationId || relationId !== prepared.relationId)
+    throw new AssistantCapabilityUsageError(
+      'The selected metadata relation changed before the candidate could be opened',
+    );
+  if (state.fieldEditorOpen.value || sorting.value)
+    throw new AssistantCapabilityUsageError(
+      'Finish or cancel the current metadata editor before adding another field',
+    );
+  validateAssistantNewFieldName(relationId, prepared.fieldName);
+  requireEnabledFieldSpec(prepared.fieldSpecAlias);
+  const { field, property } = propertyFieldEntry(prepared);
+  return () => {
+    startNodeEditSession();
+    editSession.stageField(relationId, field, property);
+    stagedNewFieldKey.value = prepared.fieldName;
+    fieldTitleManuallyEdited.value = true;
+    fieldNameManuallyEdited.value = Boolean(prepared.fieldName);
+    columnNameManuallyEdited.value = false;
+    editorMode.value = 'ADVANCED';
+    state.startEditField(field, property);
+    return {
+      relationId,
+      kind: prepared.kind,
+      fieldName: prepared.fieldName,
+      columnName: prepared.columnName,
+      title: prepared.title,
+      fieldSpecAlias: prepared.fieldSpecAlias,
+      target:
+        prepared.kind === 'MODULE_REFERENCE'
+          ? prepared.reference!.targetModuleAlias
+          : `${prepared.dictionary!.applicationAlias}.${prepared.dictionary!.categoryAlias}`,
+    };
   };
 }
 
 function validateAssistantNewFieldName(relationId: string, fieldName: string) {
-  if (!isPlatformFieldName(fieldName)) throw new Error('The metadata field name is invalid');
+  if (!isPlatformFieldName(fieldName))
+    throw new AssistantCapabilityUsageError('The metadata field name is invalid');
   if (isDynamicRecordReservedFieldName(fieldName))
-    throw new Error('The metadata field name is reserved by the dynamic record protocol');
+    throw new AssistantCapabilityUsageError(
+      'The metadata field name is reserved by the dynamic record protocol',
+    );
   if (
     editSession
       .fieldsForDisplay(relationId, state.allFields.value)
       .some((field) => field.fieldName?.toLowerCase() === fieldName.toLowerCase())
   )
-    throw new Error(`Metadata field “${fieldName}” already exists in the selected relation`);
+    throw new AssistantCapabilityUsageError(
+      `Metadata field “${fieldName}” already exists in the selected relation`,
+    );
 }
 
 function requireEnabledFieldSpec(alias: string) {
   if (!state.fieldSpecs.value.some((spec) => spec.enabled !== false && (spec.alias ?? spec.id) === alias))
-    throw new Error(`The required metadata field specification is unavailable: ${alias}`);
+    throw new AssistantCapabilityUsageError(
+      `The required metadata field specification is unavailable: ${alias}`,
+    );
 }
 
 function startCreateMainMetadata() {
@@ -1098,12 +1303,13 @@ function startEditField(field: MetadataField, property: MetadataFieldPropertyDra
 function cancelNodeEditor() {
   stagedNewFieldKey.value = undefined;
   state.cancelEditor();
+  if (fieldPlanActive.value) return;
   editSession.cancel();
   if (sorting.value) startNodeEditSession();
 }
 
 function toggleSorting() {
-  if (saving.value) return;
+  if (saving.value || fieldPlanActive.value) return;
   if (sorting.value) {
     editSession.cancel();
     sorting.value = false;
@@ -1117,6 +1323,8 @@ async function previewAndApply(
   operationName = '保存元数据',
   mode: 'confirm' | 'immediate-order' = 'confirm',
 ) {
+  if (saving.value) return;
+  const moduleAlias = props.moduleAlias;
   const proposal = editSession.buildProposal();
   if (!proposal) {
     presentPlatformMessage('当前草稿包含首批不支持的删除操作；请取消编辑后重新调整。', {
@@ -1125,9 +1333,26 @@ async function previewAndApply(
     });
     return;
   }
+  const confirmationState = () =>
+    JSON.stringify({
+      moduleAlias: props.moduleAlias,
+      workspaceLoadRevision,
+      fieldPlanActive: fieldPlanActive.value,
+      relationId: selectedRelationId.value,
+      proposal: editSession.buildProposal(),
+      mode: state.mode.value,
+      field: state.fieldDraft.value,
+      property: state.fieldPropertyDraft.value,
+    });
+  const confirmedState = confirmationState();
+  const requireUnchangedCandidate = () => {
+    if (confirmationState() !== confirmedState) throw new Error('配置候选或基线已变化，请重新预检并确认。');
+  };
+  let committed = false;
   saving.value = true;
   try {
-    const preview = await previewMetadataModelChangeSet(moduleContext.http, props.moduleAlias, proposal);
+    const preview = await previewMetadataModelChangeSet(moduleContext.http, moduleAlias, proposal);
+    requireUnchangedCandidate();
     if (preview.errors.length > 0) {
       presentPlatformMessage(preview.errors.map((item) => item.message).join('；'), {
         source: 'metadata-orchestration',
@@ -1145,16 +1370,24 @@ async function previewAndApply(
       }))
     )
       return;
+    requireUnchangedCandidate();
     await applyMetadataModelChangeSet(
       moduleContext.http,
-      props.moduleAlias,
+      moduleAlias,
       proposal as MetadataModelChangeSetProposal,
       preview.proposalFingerprint,
     );
-    const activationFeedback = await refreshActivation?.(props.moduleAlias);
+    committed = true;
+    requireUnchangedCandidate();
+    if (mode === 'immediate-order') retainCommittedOrder(proposal);
+    else {
+      fieldPlanActive.value = false;
+      editSession.cancel();
+      state.cancelEditor();
+    }
+    const activationFeedback = await refreshActivation?.(moduleAlias);
     if (mode === 'immediate-order') {
       // The write is committed. Keep its order even if the subsequent read fails.
-      retainCommittedOrder(proposal);
       try {
         await synchronizeOrder(proposal);
       } catch (cause) {
@@ -1166,16 +1399,20 @@ async function previewAndApply(
         return;
       }
     } else {
-      editSession.cancel();
-      state.cancelEditor();
       await loadWorkspace();
+      if (workspaceLoadFailed.value) throw new Error('最新元数据读取失败');
     }
     await handlePlatformActionSuccess(
       activationFeedback ?? { message: { text: `${operationName}已保存，生效状态待确认`, type: 'INFO' } },
       { source: 'metadata-orchestration' },
     );
   } catch (cause) {
-    presentPlatformError(cause, { source: 'metadata-orchestration', phase: 'action' });
+    presentPlatformError(cause, { source: 'metadata-orchestration', phase: committed ? 'load' : 'action' });
+    if (committed)
+      presentPlatformMessage(`${operationName}已保存，但生效状态或页面同步失败；请刷新核实，不要重复保存。`, {
+        source: 'metadata-orchestration',
+        phase: 'load',
+      });
   } finally {
     if (mode === 'immediate-order') startNodeEditSession();
     saving.value = false;
@@ -1229,7 +1466,20 @@ function metadataChangeConfirmationText(preview: MetadataChangeSetPreview): stri
   const fieldChanges = preview.fieldImpacts.map((item) => `字段「${item.fieldName}」：${item.description}`);
   const schemaChanges = preview.schemaImpacts.map((item) => item.description);
   const orderChanges = preview.orderImpacts.length > 0 ? ['保存当前排序调整。'] : [];
-  return [...fieldChanges, ...schemaChanges, ...orderChanges].join('\n');
+  const warnings = preview.warnings.map((item) => `注意：${item.message}`);
+  return [...warnings, ...fieldChanges, ...schemaChanges, ...orderChanges].join('\n');
+}
+
+function planFieldConflicts(draft: MetadataField) {
+  return (
+    fieldPlanActive.value &&
+    sessionFields.value.some(
+      (field) =>
+        field.fieldName !== stagedNewFieldKey.value &&
+        (field.fieldName?.toLowerCase() === draft.fieldName?.toLowerCase() ||
+          field.columnName?.toLowerCase() === draft.columnName?.toLowerCase()),
+    )
+  );
 }
 
 function stageFieldDraft() {
@@ -1282,6 +1532,13 @@ function stageFieldDraft() {
   }
   const relationId = selectedRelationId.value;
   if (!relationId) return;
+  if (planFieldConflicts(draft)) {
+    presentPlatformMessage('字段名称或物理列与方案中的其他字段冲突。', {
+      source: 'metadata-orchestration',
+      phase: 'validation',
+    });
+    return;
+  }
   editSession.stageField(
     relationId,
     { ...draft, fieldOwnership: 'BUSINESS', fieldForm: 'PHYSICAL' },
@@ -1289,6 +1546,11 @@ function stageFieldDraft() {
     stagedNewFieldKey.value,
   );
   if (!draft.id) stagedNewFieldKey.value = draft.fieldName;
+  if (fieldPlanActive.value) {
+    state.cancelEditor();
+    stagedNewFieldKey.value = undefined;
+    return;
+  }
   void previewAndApply('保存字段');
 }
 
@@ -1715,7 +1977,7 @@ function capabilityTitleOf(capability: string): string {
         title="元数据"
         :searchable="false"
         :collapse-action="false"
-        :refresh-disabled="saving"
+        :refresh-disabled="saving || fieldPlanActive"
         @refresh="loadWorkspace"
       >
         <template #actions>
@@ -1728,7 +1990,7 @@ function capabilityTitleOf(capability: string): string {
             :title="sorting ? '结束排序' : '调整排序'"
             :aria-label="sorting ? '结束排序' : '调整排序'"
             :selected="sorting"
-            :disabled="saving || loading"
+            :disabled="saving || loading || fieldPlanActive"
             @click="toggleSorting"
           />
           <label class="metadata-system-fields-toggle">
@@ -1783,8 +2045,18 @@ function capabilityTitleOf(capability: string): string {
         <template v-if="state.fieldEditorOpen.value">
           <UiActionButton :disabled="saving" @click="cancelNodeEditor">取消</UiActionButton>
           <UiActionButton emphasis="primary" :loading="saving" @click="stageFieldDraft">
-            {{ creatingChildMetadata ? '创建' : '保存' }}
+            {{ fieldPlanActive ? '保留修改' : creatingChildMetadata ? '创建' : '保存' }}
           </UiActionButton>
+        </template>
+        <template v-else-if="fieldPlanActive">
+          <UiActionButton :disabled="saving" @click="cancelFieldPlan">取消方案</UiActionButton>
+          <UiActionButton
+            emphasis="primary"
+            :loading="saving"
+            :disabled="!fieldPlanEntries.length"
+            @click="previewAndApply('字段方案')"
+            >预检并保存方案</UiActionButton
+          >
         </template>
         <template v-else-if="!selectedNodeIsField">
           <UiDropdown v-slot="{ toggle }" :items="fieldCreationItems" @select="startCreateChildNode">
@@ -1802,7 +2074,7 @@ function capabilityTitleOf(capability: string): string {
           >编辑</UiActionButton
         >
         <UiActionButton
-          v-if="!state.fieldEditorOpen.value"
+          v-if="!state.fieldEditorOpen.value && !fieldPlanActive"
           intent="danger"
           :disabled="saving || (selectedNodeIsField ? !fieldEditableInSession(selectedField!) : false)"
           :title="selectedNodeIsField ? fieldProtectionReason(selectedField!) : undefined"
@@ -1998,6 +2270,30 @@ function capabilityTitleOf(capability: string): string {
         </RecordFormGrid>
       </section>
 
+      <section v-else-if="fieldPlanActive" class="metadata-node-summary" data-testid="metadata-field-plan">
+        <RecordContentSectionHeading
+          title="多字段候选方案"
+          subtitle="尚未保存。逐项修改或移除后，统一预检并确认。"
+        />
+        <article v-for="field in fieldPlanEntries" :key="field.fieldName" class="field-node-card">
+          <strong>新增：{{ field.title }}（{{ field.fieldName }}）</strong>
+          <p>
+            {{ metadataFieldPropertyLabel(fieldPropertyOf(field).kind) }} · {{ field.fieldSpecAlias }} ·
+            {{ field.required ? '必填' : '非必填' }}
+          </p>
+          <p v-if="fieldPropertyOf(field).referenceConfig">
+            引用：{{ fieldPropertyOf(field).referenceConfig?.targetModuleAlias }}
+          </p>
+          <p v-if="fieldPropertyOf(field).dictionaryConfig">
+            字典：{{ fieldPropertyOf(field).dictionaryConfig?.dictionaryApplicationAlias }}.{{
+              fieldPropertyOf(field).dictionaryConfig?.dictionaryCategoryAlias
+            }}
+          </p>
+          <UiActionButton :disabled="saving" @click="editPlanField(field)">修改</UiActionButton>
+          <UiActionButton :disabled="saving" @click="removePlanField(field)">移除</UiActionButton>
+        </article>
+        <p v-if="!fieldPlanEntries.length">方案为空，可取消方案后重新生成。</p>
+      </section>
       <section v-else-if="!selectedNodeIsField" class="metadata-node-summary">
         <RecordContentSectionHeading title="元数据信息" />
         <RecordDetailFields

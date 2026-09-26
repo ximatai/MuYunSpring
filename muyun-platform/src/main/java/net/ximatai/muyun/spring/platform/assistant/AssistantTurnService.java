@@ -211,11 +211,30 @@ public class AssistantTurnService {
         if (payload.length() > MAX_PAYLOAD_LENGTH) {
             throw new PlatformException("assistant turn payload is too large");
         }
+        try {
+            if (!command.results().isEmpty() && objectMapper.writeValueAsString(command.results()).length() + payload.length() > MAX_PAYLOAD_LENGTH) {
+                throw new PlatformException("assistant turn payload is too large");
+            }
+        } catch (JsonProcessingException error) {
+            throw new PlatformException("assistant capability results are not serializable");
+        }
         List<AiChatMessage> messages = new ArrayList<>();
         messages.add(new AiChatMessage(AiChatMessage.Role.SYSTEM,
                 AssistantPlatformKnowledge.appendTo(SYSTEM_PROMPT, command.context(), command.capabilities())));
         command.history().stream().map(AssistantTurnService::toChatMessage).forEach(messages::add);
-        messages.add(new AiChatMessage(AiChatMessage.Role.USER, payload));
+        messages.add(new AiChatMessage(AiChatMessage.Role.USER, command.results().isEmpty() ? payload : command.message()));
+        for (AssistantCapabilityResult result : command.results()) {
+            messages.add(AiChatMessage.call(new AiToolCall(result.callId(), result.capabilityCode(), result.input())));
+            try {
+                messages.add(AiChatMessage.result(result.callId(), objectMapper.writeValueAsString(result)));
+            } catch (JsonProcessingException error) {
+                throw new PlatformException("assistant capability result is not serializable");
+            }
+        }
+        // Latest page facts are separate from historical tool receipts, including after navigation.
+        if (!command.results().isEmpty()) {
+            messages.add(new AiChatMessage(AiChatMessage.Role.USER, payload));
+        }
         List<AiToolDefinition> tools = new ArrayList<>(command.capabilities());
         tools.add(PRESENT_SELECTION);
         if (log.isDebugEnabled()) {
@@ -244,7 +263,7 @@ public class AssistantTurnService {
             throw new PlatformException(message);
         }
         if ((response.text() == null || response.text().isBlank()) && response.toolCalls().isEmpty()
-                && command.results().stream().noneMatch(result -> result.errorCode() == null)) {
+                && command.results().stream().noneMatch(result -> result.errorCode() == null && ("read".equals(result.execution()) || "effect-applied".equals(result.execution())))) {
             throw new PlatformException("模型未返回可执行内容，请重新描述后再试");
         }
         if (response.toolCalls().size() > MAX_TOOL_CALLS) {
@@ -373,7 +392,7 @@ public class AssistantTurnService {
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("userMessage", command.message());
         payload.put("pageContext", command.context());
-        if (!command.results().isEmpty()) payload.put("capabilityResults", command.results());
+
         if (command.selectionResponse() != null) payload.put("selectionResponse", command.selectionResponse());
         try {
             return objectMapper.writeValueAsString(payload);

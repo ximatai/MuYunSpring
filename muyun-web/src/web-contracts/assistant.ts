@@ -19,6 +19,10 @@ export interface AssistantCapabilityCall {
 export interface AssistantCapabilityResult {
   callId: string;
   capabilityCode: string;
+  input: Record<string, unknown>;
+  /** Execution facts, independent of model completion. */
+  execution: 'read' | 'effect-applied' | 'not-applied' | 'unknown';
+  presentation?: AssistantResultPresentation;
   output?: unknown;
   error?: {
     code: string;
@@ -65,4 +69,10 @@ export interface AssistantTurnOutput {
   selection?: AssistantSelectionInteraction;
   finishReason?: string;
   requestId?: string;
+}
+
+/** Trusted local capability presentation; never interpreted from model prose. */
+export interface AssistantResultPresentation {
+  title: string;
+  lines: string[];
 }

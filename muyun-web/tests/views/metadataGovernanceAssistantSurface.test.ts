@@ -1,3 +1,8 @@
+import {
+  AssistantCapabilityUsageError,
+  createAssistantSurfaceRegistry,
+  runAssistantConversation,
+} from '@/web-core';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   createMetadataGovernanceAssistantSurface,
@@ -76,7 +81,7 @@ describe('metadata governance assistant surface', () => {
       title: '考试名称',
       fieldSpecAlias: 'string',
     });
-    expect(adapter.updateFieldDraft).toHaveBeenCalledWith({
+    expect(adapter.prepareFieldUpdate).toHaveBeenCalledWith({
       fieldName: 'title',
       title: '考试名称',
       indexed: true,
@@ -119,7 +124,7 @@ describe('metadata governance assistant surface', () => {
       fieldSpecAlias: 'string',
     });
     expect(applyEffectSpy).toHaveBeenCalledOnce();
-    expect(adapter.addFieldDraft).toHaveBeenCalledWith({
+    expect(adapter.prepareNewFieldDraft).toHaveBeenCalledWith({
       title: '考试备注',
       fieldSpecAlias: 'string',
       required: true,
@@ -163,7 +168,7 @@ describe('metadata governance assistant surface', () => {
         targetLabelField: 'displayName',
       },
     }));
-    adapter.commitPropertyFieldDraft = vi.fn((prepared) => ({
+    adapter.preparePropertyFieldCommit = vi.fn((prepared) => () => ({
       relationId: prepared.relationId,
       kind: prepared.kind,
       fieldName: prepared.fieldName,
@@ -383,14 +388,14 @@ function fixture(
     })),
     fieldSpecAliases: vi.fn(() => ['string', 'integer']),
     editableBasicFieldNames: vi.fn(() => ['title']),
-    addFieldDraft: vi.fn(() => ({
+    prepareNewFieldDraft: vi.fn(() => () => ({
       relationId: 'relation-main',
       fieldName: 'examRemark',
       columnName: 'exam_remark',
       title: '考试备注',
       fieldSpecAlias: 'string',
     })),
-    updateFieldDraft: vi.fn(() => ({
+    prepareFieldUpdate: vi.fn(() => () => ({
       relationId: 'relation-main',
       fieldName: 'title',
       title: '考试名称',
@@ -401,6 +406,7 @@ function fixture(
 
 function capability(code: string) {
   return {
+    effect: 'page' as const,
     descriptor: { code, description: code, inputSchema: {} },
     parseInput: (input: unknown) => input,
     execute: vi.fn(),
@@ -420,3 +426,118 @@ function executionContext() {
     },
   };
 }
+
+it.each([0, 19, 20, 40])('keeps preview errors ahead of %i field impacts', async (count) => {
+  const adapter = fixture();
+  const preview = createMetadataGovernanceAssistantSurface(adapter, vi.fn())
+    .capabilities()
+    .find(({ descriptor }) => descriptor.code === 'configuration.preview-metadata-draft')!;
+  const output = await adapter.preview(proposal, new AbortController().signal);
+  const presentation = preview.present!({
+    ...output,
+    valid: false,
+    fieldImpacts: Array.from({ length: count }, () => output.fieldImpacts[0]!),
+    errors: [{ message: '阻断错误' }],
+    warnings: [{ message: '需要注意的警告' }],
+  });
+  expect(presentation.lines.slice(0, 3)).toEqual(['预检未通过。', '阻断错误', '需要注意的警告']);
+  expect(presentation.lines.length).toBeLessThanOrEqual(20);
+  if (count > 17) expect(presentation.lines.at(-1)).toContain(`${count - 16} 项字段影响未展示`);
+  else expect(presentation.lines.join('')).not.toContain('未展示');
+});
+
+it('reports omitted error and warning counts when preview issues exceed the display budget', async () => {
+  const adapter = fixture();
+  const preview = createMetadataGovernanceAssistantSurface(adapter, vi.fn())
+    .capabilities()
+    .find(({ descriptor }) => descriptor.code === 'configuration.preview-metadata-draft')!;
+  const output = await adapter.preview(proposal, new AbortController().signal);
+  const presentation = preview.present!({
+    ...output,
+    valid: false,
+    errors: Array.from({ length: 22 }, () => ({ message: '错误'.repeat(400) })),
+    warnings: [{ message: '警告' }],
+  });
+  expect(presentation.lines).toHaveLength(20);
+  expect(presentation.lines.at(-1)).toContain('4 项错误、1 项警告、1 项字段影响未展示');
+  expect(presentation.lines.every((line) => line.length <= 500)).toBe(true);
+});
+
+it('validates a bounded mixed field plan and commits only a current fully prepared plan', async () => {
+  const adapter = fixture();
+  const commit = vi.fn(() => ({ saved: false }));
+  adapter.prepareFieldPlan = vi.fn(async () => commit);
+  const tool = createMetadataGovernanceAssistantSurface(adapter, vi.fn())
+    .capabilities()
+    .find(({ descriptor }) => descriptor.code === 'configuration.prepare-metadata-field-plan')!;
+  const input = tool.parseInput({
+    fields: [
+      { kind: 'BASIC', title: '备注', fieldName: 'note', fieldSpecAlias: 'string' },
+      { kind: 'DICTIONARY', title: '状态', target: 'crm.status' },
+    ],
+  });
+  expect(() => tool.parseInput({ fields: [] })).toThrow('1–12');
+  expect(() => tool.parseInput({ fields: Array(13).fill({}) })).toThrow('1–12');
+  expect(() =>
+    tool.parseInput({ fields: [{ kind: 'BASIC', title: 'X', fieldSpecAlias: 'unknown' }] }),
+  ).toThrow('specification');
+  await expect(tool.execute(input, { ...executionContext(), isCurrent: () => false })).rejects.toThrow(
+    'no longer current',
+  );
+  expect(commit).not.toHaveBeenCalled();
+  await tool.execute(input, executionContext());
+  expect(commit).toHaveBeenCalledOnce();
+  adapter.prepareFieldPlan = vi.fn(async () => {
+    throw new Error('Target unavailable');
+  });
+  await expect(tool.execute(input, executionContext())).rejects.toThrow('Target unavailable');
+  expect(commit).toHaveBeenCalledOnce();
+});
+
+it('returns a rejected update to the model as not-applied and continues with corrected input', async () => {
+  const adapter = fixture();
+  const commit = vi.fn(() => ({ relationId: 'relation-main', fieldName: 'title', title: '修正标题' }));
+  adapter.prepareFieldUpdate = vi.fn((input) => {
+    if (input.fieldSpecAlias === 'integer')
+      throw new AssistantCapabilityUsageError('Unsafe field specification');
+    return commit;
+  });
+  const requestTurn = vi
+    .fn()
+    .mockResolvedValueOnce({
+      toolCalls: [
+        {
+          id: 'unsafe',
+          code: 'configuration.update-metadata-field-draft',
+          input: { fieldName: 'title', fieldSpecAlias: 'integer' },
+        },
+      ],
+    })
+    .mockResolvedValueOnce({
+      toolCalls: [
+        {
+          id: 'corrected',
+          code: 'configuration.update-metadata-field-draft',
+          input: { fieldName: 'title', title: '修正标题' },
+        },
+      ],
+    })
+    .mockResolvedValueOnce({ text: '已准备候选，尚未保存', toolCalls: [] });
+  const registry = createAssistantSurfaceRegistry();
+  registry.register({
+    pageInstanceKey: 'page',
+    contextRevision: () => 'current',
+    surface: createMetadataGovernanceAssistantSurface(adapter, requestTurn),
+  });
+  registry.activate('page');
+  const result = await runAssistantConversation(registry, '调整字段');
+  expect(result.termination).toBe('stopped');
+  expect(requestTurn.mock.calls[1][0].results).toMatchObject([
+    {
+      execution: 'not-applied',
+      error: { code: 'CAPABILITY_USAGE_INVALID', message: 'Unsafe field specification' },
+    },
+  ]);
+  expect(result.steps[1].results[0].execution).toBe('effect-applied');
+  expect(commit).toHaveBeenCalledOnce();
+});

@@ -9,7 +9,16 @@ import {
   type HttpRequestOptions,
 } from '@/web-core';
 import MetadataGovernanceSurface from '@/views/MetadataGovernanceSurface.vue';
+import { presentPlatformMessage, handlePlatformActionSuccess } from '@muyun/platform-components';
+import { moduleRuntimeActivationRefreshKey } from '@/views/moduleRuntimeActivation';
 import { confirmAction } from '@muyun/vue-ui-antdv';
+
+vi.mock('@muyun/platform-components', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@muyun/platform-components')>()),
+  presentPlatformMessage: vi.fn(),
+  presentPlatformError: vi.fn(),
+  handlePlatformActionSuccess: vi.fn(),
+}));
 
 vi.mock('@muyun/vue-ui-antdv', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@muyun/vue-ui-antdv')>()),
@@ -172,6 +181,89 @@ it('registers the metadata surface only after a complete load and invalidates ch
   );
 });
 
+it.each([
+  {
+    code: 'configuration.update-metadata-field-draft',
+    input: { fieldName: 'title', fieldSpecAlias: 'integer' },
+    message: 'unsafe',
+  },
+  {
+    code: 'configuration.update-metadata-field-draft',
+    input: { fieldName: 'title', title: '考试名称' },
+    message: 'does not change',
+  },
+  {
+    code: 'configuration.add-metadata-field-draft',
+    input: { fieldName: 'title', title: '重复标题', fieldSpecAlias: 'string' },
+    message: 'already exists',
+  },
+])(
+  'rejects $message before opening an editor and permits a corrected call',
+  async ({ code, input, message }) => {
+    const requests: HttpRequestOptions[] = [];
+    configureModuleContext({
+      http: {
+        request: <T>(request: HttpRequestOptions) => {
+          requests.push(request);
+          if (request.path.endsWith('/record-count'))
+            return Promise.resolve({ relationId: 'rel-main', recordCount: 1 }) as Promise<T>;
+          if (request.path === '/platform.field_spec/query')
+            return Promise.resolve({
+              records: [
+                { id: 'string', alias: 'string', title: '短文本', enabled: true },
+                { id: 'integer', alias: 'integer', title: '整数', enabled: true },
+              ],
+              pages: 1,
+              totalKnown: true,
+            }) as Promise<T>;
+          return Promise.resolve(responseFor(request) as T);
+        },
+      },
+    });
+    const registry = createAssistantSurfaceRegistry();
+    registry.activate('page-1');
+    const Harness = defineComponent({
+      setup() {
+        provideAssistantSurfaceHost({ registry, activePageInstanceKey: () => 'page-1' });
+        return () => h(MetadataGovernanceSurface, { moduleAlias: 'education.exam' });
+      },
+    });
+    const wrapper = shallowMount(Harness, {
+      global: { stubs: { ...governanceStubs(), MetadataGovernanceSurface: false } },
+    });
+    mounted.add(wrapper);
+    await flushPromises();
+    const token = registry.snapshot()!.token;
+    const tree = JSON.stringify(wrapper.findComponent({ name: 'UiTree' }).props('nodes'));
+    await expect(registry.invoke({ id: 'invalid', code, input }, token)).rejects.toMatchObject({
+      name: 'AssistantCapabilityUsageError',
+      code: 'CAPABILITY_USAGE_INVALID',
+      message: expect.stringContaining(message),
+    });
+    await flushPromises();
+    expect(registry.snapshot()!.token).toEqual(token);
+    expect(JSON.stringify(wrapper.findComponent({ name: 'UiTree' }).props('nodes'))).toBe(tree);
+    const description = await registry.invoke(
+      { id: 'describe', code: 'configuration.describe-metadata-model', input: {} },
+      token,
+    );
+    expect(description.value).toMatchObject({ draft: { editorOpen: false, dirty: false } });
+    await registry.invoke(
+      {
+        id: 'corrected',
+        code: 'configuration.update-metadata-field-draft',
+        input: { fieldName: 'title', title: '修正后标题' },
+      },
+      token,
+    );
+    await flushPromises();
+    expect(
+      wrapper.findAllComponents({ name: 'UiInput' }).some((field) => field.props('value') === '修正后标题'),
+    ).toBe(true);
+    expect(requests.some((request) => /change-set-(apply|preview)$/.test(request.path))).toBe(false);
+  },
+);
+
 it('opens an existing ordinary field as a visible assistant update candidate without applying it', async () => {
   const http = fakeHttp();
   const request = vi.spyOn(http, 'request');
@@ -217,7 +309,7 @@ it('opens an existing ordinary field as a visible assistant update candidate wit
     wrapper.findAllComponents({ name: 'UiInput' }).some((input) => input.props('value') === '考试标题'),
   ).toBe(true);
   const candidate = registry.snapshot()!;
-  expect(candidate.capabilities.map((capability) => capability.code)).not.toContain(
+  expect(candidate.capabilities.map((capability) => capability.code)).toContain(
     'configuration.update-metadata-field-draft',
   );
   expect(candidate.capabilities.map((capability) => capability.code)).toContain(
@@ -249,9 +341,64 @@ it('opens an existing ordinary field as a visible assistant update candidate wit
   await flushPromises();
   const manuallyChanged = registry.snapshot()!;
   expect(manuallyChanged.token.contextRevision).not.toBe(candidate.token.contextRevision);
-  expect(manuallyChanged.capabilities.map((capability) => capability.code)).not.toContain(
+  expect(manuallyChanged.capabilities.map((capability) => capability.code)).toContain(
     'configuration.preview-metadata-draft',
   );
+  await expect(
+    registry.invoke(
+      { id: 'stale', code: 'configuration.preview-metadata-draft', input: {} },
+      candidate.token,
+    ),
+  ).rejects.toThrow('no longer matches');
+  const described = await registry.invoke(
+    { id: 'candidate', code: 'configuration.describe-metadata-candidate', input: {} },
+    manuallyChanged.token,
+  );
+  expect(described.value).toMatchObject({
+    operation: 'UPDATE',
+    saved: false,
+    changes: expect.arrayContaining([
+      expect.objectContaining({ property: '显示名称', after: '再次修改的标题' }),
+    ]),
+  });
+  expect(described.presentation?.title).toContain('尚未保存');
+  const manualPreview = await registry.invoke(
+    { id: 'preview-manual', code: 'configuration.preview-metadata-draft', input: {} },
+    registry.snapshot()!.token,
+  );
+  expect(manualPreview.value).toMatchObject({
+    valid: true,
+    candidate: {
+      changes: expect.arrayContaining([
+        expect.objectContaining({ property: '显示名称', after: '再次修改的标题' }),
+      ]),
+    },
+  });
+  expect(
+    JSON.stringify(
+      request.mock.calls.filter(([options]) => options.path.endsWith('change-set-preview')).at(-1)?.[0].body,
+    ),
+  ).toContain('再次修改的标题');
+  await registry.invoke(
+    {
+      id: 'revise',
+      code: 'configuration.update-metadata-field-draft',
+      input: { fieldName: 'title', required: true },
+    },
+    registry.snapshot()!.token,
+  );
+  await flushPromises();
+  expect(
+    wrapper.findAllComponents({ name: 'UiInput' }).some((input) => input.props('value') === '再次修改的标题'),
+  ).toBe(true);
+  const revised = await registry.invoke(
+    { id: 'revised', code: 'configuration.describe-metadata-candidate', input: {} },
+    registry.snapshot()!.token,
+  );
+  expect(revised.value).toMatchObject({
+    changes: expect.arrayContaining([expect.objectContaining({ property: '必填', after: true })]),
+  });
+  expect(request.mock.calls.some(([options]) => options.path.endsWith('change-set-apply'))).toBe(false);
 });
 
 it.each([
@@ -1231,6 +1378,7 @@ function responseFor(options: HttpRequestOptions) {
   if (options.path.endsWith('/metadata-model/change-set-preview'))
     return {
       errors: [],
+      warnings: [],
       fieldImpacts: [
         {
           operation: 'UPDATE',
@@ -1257,3 +1405,220 @@ function deferred<T>() {
   });
   return { promise, resolve, reject };
 }
+
+it.each(['preview', 'confirmation'])('rejects a candidate changed while %s is pending', async (phase) => {
+  const pendingPreview = deferred<unknown>();
+  const confirmation = deferred<boolean>();
+  vi.mocked(confirmAction).mockReturnValue(confirmation.promise);
+  const request = vi.fn(async (options: HttpRequestOptions) => {
+    if (options.path.endsWith('change-set-preview') && phase === 'preview') return pendingPreview.promise;
+    return responseFor(options);
+  });
+  configureModuleContext({ http: { request } as HttpClient });
+  const wrapper = shallowMount(MetadataGovernanceSurface, {
+    props: { moduleAlias: 'education.exam' },
+    global: { stubs: governanceStubs() },
+  });
+  mounted.add(wrapper);
+  await flushPromises();
+  await flushPromises();
+  await wrapper.get('[data-testid="model-tree"]').trigger('click');
+  await wrapper
+    .findAll('[data-testid="action-button"]')
+    .find((button) => button.text() === '编辑')!
+    .trigger('click');
+  await flushPromises();
+  await wrapper
+    .findAll('[data-testid="action-button"]')
+    .find((button) => button.text() === '保存')!
+    .trigger('click');
+  await flushPromises();
+  wrapper
+    .findAllComponents({ name: 'UiInput' })
+    .find((input) => input.props('value') === '考试名称')!
+    .vm.$emit('update:value', '确认期间变更');
+  await flushPromises();
+  pendingPreview.resolve(responseFor({ path: '/metadata-model/change-set-preview' }));
+  confirmation.resolve(true);
+  await flushPromises();
+  expect(request.mock.calls.some(([options]) => options.path.endsWith('change-set-apply'))).toBe(false);
+  expect(
+    wrapper.findAllComponents({ name: 'UiInput' }).some((input) => input.props('value') === '确认期间变更'),
+  ).toBe(true);
+});
+
+it('keeps committed facts when activation refresh fails and includes warnings in confirmation', async () => {
+  vi.mocked(confirmAction).mockResolvedValue(true);
+  const request = vi.fn(async (options: HttpRequestOptions) => {
+    const response = responseFor(options);
+    return options.path.endsWith('change-set-preview')
+      ? { ...response, warnings: [{ message: '已有数据需要注意' }] }
+      : response;
+  });
+  configureModuleContext({ http: { request } as HttpClient });
+  const refresh = vi.fn(async () => {
+    throw new Error('activation unavailable');
+  });
+  const wrapper = shallowMount(MetadataGovernanceSurface, {
+    props: { moduleAlias: 'education.exam' },
+    global: { stubs: governanceStubs(), provide: { [moduleRuntimeActivationRefreshKey as symbol]: refresh } },
+  });
+  mounted.add(wrapper);
+  await flushPromises();
+  await flushPromises();
+  await wrapper.get('[data-testid="model-tree"]').trigger('click');
+  await wrapper
+    .findAll('[data-testid="action-button"]')
+    .find((button) => button.text() === '编辑')!
+    .trigger('click');
+  await flushPromises();
+  await wrapper
+    .findAll('[data-testid="action-button"]')
+    .find((button) => button.text() === '保存')!
+    .trigger('click');
+  await flushPromises();
+  expect(confirmAction).toHaveBeenCalledWith(
+    expect.objectContaining({ content: expect.stringContaining('注意：已有数据需要注意') }),
+  );
+  expect(request.mock.calls.filter(([options]) => options.path.endsWith('change-set-apply'))).toHaveLength(1);
+  expect(wrapper.findAll('[data-testid="action-button"]').some((button) => button.text() === '保存')).toBe(
+    false,
+  );
+  expect(presentPlatformMessage).toHaveBeenCalledWith(
+    expect.stringContaining('已保存，但生效状态或页面同步失败'),
+    expect.anything(),
+  );
+  expect(handlePlatformActionSuccess).not.toHaveBeenCalled();
+});
+
+it('keeps a multi-field plan visible, edits and removes items without publishing, then previews the remainder', async () => {
+  const http = fakeHttp();
+  const original = http.request.bind(http);
+  const request = vi.spyOn(http, 'request').mockImplementation((options) => {
+    if (options.path === '/platform.field_spec/query')
+      return Promise.resolve({
+        records: [{ alias: 'string', title: '文本', enabled: true }],
+        pages: 1,
+      }) as never;
+    return original(options);
+  });
+  configureModuleContext({ http });
+  const registry = createAssistantSurfaceRegistry();
+  registry.activate('page-1');
+  const Harness = defineComponent({
+    setup() {
+      provideAssistantSurfaceHost({ registry, activePageInstanceKey: () => 'page-1' });
+      return () => h(MetadataGovernanceSurface, { moduleAlias: 'education.exam' });
+    },
+  });
+  const wrapper = shallowMount(Harness, {
+    global: { stubs: { ...governanceStubs(), MetadataGovernanceSurface: false } },
+  });
+  mounted.add(wrapper);
+  await flushPromises();
+  await flushPromises();
+  const invokePlan = (fields: unknown[]) =>
+    registry.invoke(
+      { id: 'plan', code: 'configuration.prepare-metadata-field-plan', input: { fields } },
+      registry.snapshot()!.token,
+    );
+  const first = { kind: 'BASIC', title: '备注', fieldName: 'note', fieldSpecAlias: 'string' };
+  await expect(invokePlan([first, first])).rejects.toThrow('重复');
+  expect(wrapper.find('[data-testid="metadata-field-plan"]').exists()).toBe(false);
+  await expect(
+    invokePlan([first, { kind: 'DICTIONARY', title: '未知', target: 'missing.status' }]),
+  ).rejects.toThrow('unavailable');
+  expect(wrapper.find('[data-testid="metadata-field-plan"]').exists()).toBe(false);
+  await invokePlan([
+    first,
+    { kind: 'MODULE_REFERENCE', title: '负责人', fieldName: 'ownerId', target: 'iam.user' },
+    { kind: 'DICTIONARY', title: '状态', fieldName: 'statusCode', target: 'education.status' },
+  ]);
+  await flushPromises();
+  const plan = () => wrapper.find('[data-testid="metadata-field-plan"]');
+  expect(plan().text()).toContain('备注');
+  expect(plan().text()).toContain('iam.user');
+  expect(plan().text()).toContain('education.status');
+  await plan()
+    .findAll('[data-testid="action-button"]')
+    .find((button) => button.text() === '修改')!
+    .trigger('click');
+  await flushPromises();
+  await registry.invoke(
+    {
+      id: 'revise-plan-item',
+      code: 'configuration.update-metadata-field-draft',
+      input: { fieldName: 'note', title: '临时标题' },
+    },
+    registry.snapshot()!.token,
+  );
+  await flushPromises();
+  const visiblePreview = await registry.invoke(
+    { id: 'visible-plan', code: 'configuration.preview-metadata-draft', input: {} },
+    registry.snapshot()!.token,
+  );
+  expect(visiblePreview.value).toMatchObject({
+    plan: [
+      { field: { fieldName: 'note', title: '临时标题' } },
+      { field: { fieldName: 'ownerId' } },
+      { field: { fieldName: 'statusCode' } },
+    ],
+  });
+  await wrapper
+    .findAll('[data-testid="action-button"]')
+    .find((button) => button.text() === '取消')!
+    .trigger('click');
+  await flushPromises();
+  expect(plan().text()).toContain('备注');
+  expect(plan().text()).not.toContain('临时标题');
+  await plan()
+    .findAll('[data-testid="action-button"]')
+    .find((button) => button.text() === '修改')!
+    .trigger('click');
+  await flushPromises();
+  const nameInput = wrapper
+    .findAllComponents({ name: 'UiInput' })
+    .find((input) => input.props('value') === 'note')!;
+  nameInput.vm.$emit('update:value', 'ownerId');
+  await flushPromises();
+  expect(registry.snapshot()!.capabilities.map((tool) => tool.code)).not.toContain(
+    'configuration.preview-metadata-draft',
+  );
+  nameInput.vm.$emit('update:value', 'note');
+  await flushPromises();
+  wrapper
+    .findAllComponents({ name: 'UiInput' })
+    .find((input) => input.props('value') === '备注')!
+    .vm.$emit('update:value', '人工备注');
+  await flushPromises();
+  await wrapper
+    .findAll('[data-testid="action-button"]')
+    .find((button) => button.text() === '保留修改')!
+    .trigger('click');
+  await flushPromises();
+  expect(plan().text()).toContain('人工备注');
+  const cards = plan().findAll('article');
+  await cards[2]!
+    .findAll('[data-testid="action-button"]')
+    .find((button) => button.text() === '移除')!
+    .trigger('click');
+  await cards[1]!
+    .findAll('[data-testid="action-button"]')
+    .find((button) => button.text() === '移除')!
+    .trigger('click');
+  await flushPromises();
+  const preview = await registry.invoke(
+    { id: 'preview-plan', code: 'configuration.preview-metadata-draft', input: {} },
+    registry.snapshot()!.token,
+  );
+  expect(preview.value).toMatchObject({ plan: [{ field: { title: '人工备注', fieldName: 'note' } }] });
+  const body = request.mock.calls
+    .filter(([options]) => options.path.endsWith('change-set-preview'))
+    .at(-1)?.[0].body;
+  expect(body).toMatchObject({
+    relationDrafts: [
+      { fieldDrafts: [{ operation: 'ADD', field: { fieldName: 'note', title: '人工备注' } }] },
+    ],
+  });
+  expect(request.mock.calls.some(([options]) => options.path.endsWith('change-set-apply'))).toBe(false);
+});

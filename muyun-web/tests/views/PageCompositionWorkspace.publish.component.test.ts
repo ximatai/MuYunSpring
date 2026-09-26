@@ -1,3 +1,5 @@
+import { defineComponent, h, ref, KeepAlive } from 'vue';
+import { createAssistantSurfaceRegistry, provideAssistantSurfaceHost } from '@/web-core';
 import { inputComponents } from './pageCompositionComponentFixtures';
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -2490,6 +2492,375 @@ describe('PageCompositionWorkspace publication flow', () => {
       expect(composer.props('listFields')).toMatchObject([{ fieldName: 'title', unavailable: true }]);
       expect(canDiscardChanges(wrapper)).toBe(true);
       expect(wrapper.text()).toContain('来源失效');
+    } finally {
+      wrapper.unmount();
+    }
+  });
+});
+
+describe('page composition assistant collaboration', () => {
+  function mountAssistant(http: HttpClient) {
+    configureModuleContext({ http });
+    const moduleAlias = ref('education.exam');
+    const visible = ref(true);
+    const registry = createAssistantSurfaceRegistry();
+    registry.activate('page-1');
+    const Harness = defineComponent({
+      setup() {
+        provideAssistantSurfaceHost({ registry, activePageInstanceKey: () => 'page-1' });
+        return () =>
+          h(KeepAlive, null, {
+            default: () =>
+              visible.value ? h(PageCompositionWorkspace, { moduleAlias: moduleAlias.value }) : h('div'),
+          });
+      },
+    });
+    return {
+      registry,
+      moduleAlias,
+      visible,
+      wrapper: mount(Harness, { global: { stubs: workspaceStubs() } }),
+    };
+  }
+
+  it('refreshes committed metadata on return, preserves manual properties and blocks stale calls or failed directory reads', async () => {
+    const requests: HttpRequestOptions[] = [];
+    const fields = [
+      {
+        id: 'field-title',
+        fieldName: 'title',
+        title: '考试名称',
+        fieldOwnership: 'BUSINESS',
+        fieldForm: 'PHYSICAL',
+      },
+    ];
+    const base = publicationFlowHttp(requests, initialTree(), fields);
+    let fail = false;
+    const { wrapper, registry, visible } = mountAssistant({
+      request: (request) =>
+        fail && request.path.endsWith('/overview-mode')
+          ? Promise.reject(new Error('字段目录暂时不可用'))
+          : base.request(request),
+    });
+    try {
+      await flushPromises();
+      await registry.invoke(
+        {
+          id: 'initial',
+          code: 'configuration.revise-page-candidate',
+          input: { list: [{ fieldName: 'title', properties: { label: '人工保留标题' } }] },
+        },
+        registry.snapshot()!.token,
+      );
+      await flushPromises();
+      const previous = registry.snapshot()!.token;
+      visible.value = false;
+      await flushPromises();
+      expect(registry.snapshot()).toBeUndefined();
+      fields.push({
+        id: 'field-review-note',
+        fieldName: 'reviewNote',
+        title: '审阅备注',
+        fieldOwnership: 'BUSINESS',
+        fieldForm: 'PHYSICAL',
+      });
+      fail = true;
+      visible.value = true;
+      await flushPromises();
+      expect(wrapper.text()).toContain('字段目录刷新失败');
+      const save = () => wrapper.findAll('button').find((button) => button.text() === '保存并生效')!;
+      expect(save().attributes('disabled')).toBeDefined();
+      expect(
+        registry.snapshot()!.capabilities.some((tool) => tool.code === 'configuration.revise-page-candidate'),
+      ).toBe(false);
+      await expect(
+        registry.invoke(
+          { id: 'stale', code: 'configuration.revise-page-candidate', input: { list: [] } },
+          previous,
+        ),
+      ).rejects.toThrow();
+      fail = false;
+      wrapper.findComponent({ name: 'MetadataSourceTree' }).vm.$emit('refresh');
+      await flushPromises();
+      const directory = await registry.invoke(
+        { id: 'directory', code: 'configuration.describe-page-composition', input: {} },
+        registry.snapshot()!.token,
+      );
+      expect(JSON.stringify(directory)).toContain('reviewNote');
+      const tree = wrapper.findComponent(PageCompositionTree);
+      expect(tree.props('listFields')).toMatchObject([
+        { fieldName: 'title', properties: { label: '人工保留标题' } },
+      ]);
+      await registry.invoke(
+        {
+          id: 'arrange',
+          code: 'configuration.revise-page-candidate',
+          input: {
+            list: [{ fieldName: 'title' }, { fieldName: 'reviewNote' }],
+            form: [{ fieldName: 'reviewNote' }],
+          },
+        },
+        registry.snapshot()!.token,
+      );
+      await flushPromises();
+      expect(tree.props('listFields')).toMatchObject([
+        { fieldName: 'title', properties: { label: '人工保留标题' } },
+        { fieldName: 'reviewNote' },
+      ]);
+      await save().trigger('click');
+      await flushPromises();
+      const publication = requests.filter((request) => request.path.endsWith('/publish'));
+      expect(publication).toHaveLength(1);
+      expect(JSON.stringify(publication[0]!.body)).toContain('reviewNote');
+      expect(canDiscardChanges(wrapper)).toBe(false);
+    } finally {
+      wrapper.unmount();
+    }
+  });
+
+  it('keeps unique authoritative field policies and rejects invalid candidates before recording an effect', async () => {
+    const { wrapper, registry } = mountAssistant(
+      publicationFlowHttp([], initialTree(), [
+        {
+          id: 'created-at',
+          fieldName: 'createdAt',
+          title: '创建时间',
+          fieldOwnership: 'STANDARD',
+          systemManaged: true,
+        },
+      ]),
+    );
+    try {
+      await flushPromises();
+      const token = registry.snapshot()!.token;
+      const directory = await registry.invoke(
+        { id: 'directory', code: 'configuration.describe-page-composition', input: {} },
+        token,
+      );
+      expect(directory.value).toMatchObject({
+        fields: [{ fieldName: 'createdAt', readOnly: true }],
+        fieldsTruncated: false,
+      });
+      expect((directory.value as { fields: unknown[] }).fields).toHaveLength(1);
+      await expect(
+        registry.invoke(
+          {
+            id: 'invalid',
+            code: 'configuration.revise-page-candidate',
+            input: { form: [{ fieldName: 'createdAt', properties: { readOnly: false } }] },
+          },
+          token,
+        ),
+      ).rejects.toMatchObject({ code: 'CAPABILITY_USAGE_INVALID' });
+      expect(wrapper.findComponent(PageCompositionTree).props('formFields')).toEqual([]);
+      await registry.invoke(
+        {
+          id: 'valid',
+          code: 'configuration.revise-page-candidate',
+          input: { form: [{ fieldName: 'createdAt' }] },
+        },
+        token,
+      );
+      await flushPromises();
+      expect(wrapper.findComponent(PageCompositionTree).props('formFields')).toMatchObject([
+        { fieldName: 'createdAt', properties: { readOnly: true } },
+      ]);
+    } finally {
+      wrapper.unmount();
+    }
+  });
+
+  it.each([false, true])(
+    'retries a deferred catalogue refresh after a read completes offscreen=%s',
+    async (offscreen) => {
+      const requests: HttpRequestOptions[] = [];
+      const base = publicationFlowHttp(requests);
+      const pending = deferred<unknown>();
+      let delay = false;
+      let reads = 0;
+      const { wrapper, visible } = mountAssistant({
+        request: (request) => {
+          if (request.path.endsWith('/overview-mode')) {
+            reads++;
+            if (delay) {
+              delay = false;
+              return pending.promise as never;
+            }
+          }
+          return base.request(request);
+        },
+      });
+      try {
+        await flushPromises();
+        delay = true;
+        wrapper.findComponent({ name: 'MetadataSourceTree' }).vm.$emit('refresh');
+        await flushPromises();
+        visible.value = false;
+        await flushPromises();
+        visible.value = true;
+        await flushPromises();
+        expect(reads).toBe(2);
+        if (offscreen) {
+          visible.value = false;
+          await flushPromises();
+        }
+        pending.resolve(compositionProfile());
+        await flushPromises();
+        if (offscreen) {
+          expect(reads).toBe(2);
+          visible.value = true;
+          await flushPromises();
+        }
+        expect(reads).toBe(3);
+        expect(wrapper.text()).not.toContain('字段目录刷新失败');
+      } finally {
+        wrapper.unmount();
+      }
+    },
+  );
+
+  it('exposes a visible candidate, preserves manual editing, rejects stale reads and discards without publishing', async () => {
+    const requests: HttpRequestOptions[] = [];
+    const base = publicationFlowHttp(requests);
+    const pending = deferred<unknown>();
+    let delay = false;
+    const { wrapper, registry } = mountAssistant({
+      request: (request) => {
+        if (delay && request.path.endsWith('/preview')) return pending.promise as never;
+        return base.request(request);
+      },
+    });
+    try {
+      await flushPromises();
+      const before = registry.snapshot()!;
+      expect(before.context.surface).toBe('page-composition');
+      await registry.invoke(
+        {
+          id: 'revise-page',
+          code: 'configuration.revise-page-candidate',
+          input: {
+            list: [{ fieldName: 'title', properties: { label: '候选标题', width: '180px' } }],
+            quickSearchFields: ['title'],
+          },
+        },
+        before.token,
+      );
+      await flushPromises();
+      const tree = wrapper.findComponent(PageCompositionTree);
+      expect(tree.props('listFields')).toMatchObject([
+        { fieldName: 'title', properties: { label: '候选标题' } },
+      ]);
+      expect(wrapper.get('[data-testid="page-composition-candidate"]').text()).toContain('候选标题');
+      expect(
+        requests.some((request) => /\/(publish|update|insert|save-composition)$/.test(request.path)),
+      ).toBe(false);
+      delay = true;
+      const preview = registry.invoke(
+        { id: 'pending-preview', code: 'configuration.preview-page-candidate', input: {} },
+        registry.snapshot()!.token,
+      );
+      const stale = expect(preview).rejects.toThrow();
+      tree.vm.$emit('source-drop', { kind: 'form' }, metadataDrop());
+      await flushPromises();
+      pending.resolve({ uiDescriptor: {} });
+      await stale;
+      delay = false;
+      const result = await registry.invoke(
+        { id: 'current-preview', code: 'configuration.preview-page-candidate', input: {} },
+        registry.snapshot()!.token,
+      );
+      expect(result.value).toMatchObject({
+        valid: true,
+        candidate: { saved: false, current: { form: [{ fieldName: 'title' }] } },
+      });
+      expect(tree.props('listFields')).toMatchObject([{ properties: { label: '候选标题' } }]);
+      vi.mocked(confirmAction).mockResolvedValueOnce(true);
+      await wrapper
+        .findAll('button')
+        .find((button) => button.text() === '放弃本次更改')!
+        .trigger('click');
+      await flushPromises();
+      expect(wrapper.find('[data-testid="page-composition-candidate"]').exists()).toBe(false);
+      expect(requests.some((request) => request.path.endsWith('/publish'))).toBe(false);
+    } finally {
+      wrapper.unmount();
+    }
+    expect(registry.snapshot()).toBeUndefined();
+  });
+
+  it('does not publish a candidate after the workspace changes during preflight', async () => {
+    const requests: HttpRequestOptions[] = [];
+    const base = publicationFlowHttp(requests);
+    const pending = deferred<unknown>();
+    let delay = false;
+    const { wrapper, registry, moduleAlias } = mountAssistant({
+      request: (request) => {
+        if (delay && request.path.endsWith('/preview')) return pending.promise as never;
+        return base.request(request);
+      },
+    });
+    try {
+      await flushPromises();
+      await registry.invoke(
+        {
+          id: 'candidate',
+          code: 'configuration.revise-page-candidate',
+          input: { list: [{ fieldName: 'title' }] },
+        },
+        registry.snapshot()!.token,
+      );
+      await flushPromises();
+      delay = true;
+      await wrapper
+        .findAll('button')
+        .find((button) => button.text() === '保存并生效')!
+        .trigger('click');
+      await flushPromises();
+      moduleAlias.value = 'education.other';
+      await flushPromises();
+      pending.resolve({ uiDescriptor: {} });
+      await flushPromises();
+      expect(requests.some((request) => request.path.endsWith('/publish'))).toBe(false);
+    } finally {
+      wrapper.unmount();
+    }
+  });
+
+  it('keeps the candidate after failed publish preflight and publishes only after successful manual retry', async () => {
+    const requests: HttpRequestOptions[] = [];
+    const base = publicationFlowHttp(requests);
+    let rejectPreview = true;
+    const { wrapper, registry } = mountAssistant({
+      request: (request) => {
+        if (rejectPreview && request.path.endsWith('/preview'))
+          return Promise.reject(new Error('字段来源已变化'));
+        return base.request(request);
+      },
+    });
+    try {
+      await flushPromises();
+      await registry.invoke(
+        {
+          id: 'candidate',
+          code: 'configuration.revise-page-candidate',
+          input: { list: [{ fieldName: 'title' }] },
+        },
+        registry.snapshot()!.token,
+      );
+      await flushPromises();
+      const save = () => wrapper.findAll('button').find((button) => button.text() === '保存并生效')!;
+      await save().trigger('click');
+      await flushPromises();
+      expect(requests.some((request) => request.path.endsWith('/publish'))).toBe(false);
+      expect(wrapper.find('[data-testid="page-composition-candidate"]').exists()).toBe(true);
+      rejectPreview = false;
+      await save().trigger('click');
+      await flushPromises();
+      expect(requests.filter((request) => request.path.endsWith('/publish'))).toHaveLength(1);
+      const publish = requests.find((request) => request.path.endsWith('/publish'))!;
+      expect(publish.body).toMatchObject({ id: 'revision-1', version: 0 });
+      expect(JSON.stringify(publish.body)).toContain('title');
+      expect(wrapper.find('[data-testid="page-composition-candidate"]').exists()).toBe(false);
     } finally {
       wrapper.unmount();
     }

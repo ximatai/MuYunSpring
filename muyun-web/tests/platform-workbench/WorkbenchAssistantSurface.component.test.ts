@@ -94,7 +94,11 @@ it.each([false, true])(
 
     if (interrupted) {
       await flushPromises();
-      const rejected = expect(opening).rejects.toMatchObject({ name: 'AbortError' });
+      const rejected = expect(opening).rejects.toMatchObject({
+        name: 'AssistantEffectInterruptedError',
+        execution: 'effect-applied',
+        cause: expect.objectContaining({ name: 'AbortError' }),
+      });
       switchBack();
       await nextTick();
       await rejected;

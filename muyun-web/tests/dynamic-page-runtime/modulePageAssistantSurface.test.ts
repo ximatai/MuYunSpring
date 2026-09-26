@@ -652,7 +652,13 @@ describe('module page assistant surface', () => {
         },
         registry.snapshot()!.token,
       ),
-    ).rejects.toThrow('Navigator scope selection was replaced before its query settled');
+    ).rejects.toMatchObject({
+      name: 'AssistantEffectInterruptedError',
+      execution: 'effect-applied',
+      cause: expect.objectContaining({
+        message: 'Navigator scope selection was replaced before its query settled',
+      }),
+    });
     stop();
   });
 

@@ -26,6 +26,14 @@ final class AssistantPlatformKnowledge {
                     only the requested choice; never copy a scope or reference title into unrelated fields.
                     For missing required values, ask one concise question based on actual form facts.
                     """,
+            "page-composition", """
+                    The active surface is MuYun template-constrained page composition. Read the current template,
+                    field directory and placements before changing a visible candidate. A supplied region replaces
+                    its ordered root fields; omitted regions, grouped fields, relations and actions remain unchanged.
+                    Use only returned fields and supported presentation properties. Preview the current candidate,
+                    summarize differences and validation, then stop. The user saves and activates through the page;
+                    candidate creation or preview never publishes a page or creates metadata.
+                    """,
             "metadata-governance", """
                     The active surface is MuYun metadata governance. Work only on the visible unsaved candidate.
                     Describe the selected model when facts are missing, resolve reference or dictionary targets before

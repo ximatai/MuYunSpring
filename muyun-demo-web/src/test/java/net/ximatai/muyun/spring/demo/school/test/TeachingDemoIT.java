@@ -770,6 +770,24 @@ public class TeachingDemoIT {
     }
 
     @Test
+    void shouldUseLiteralSubstringSearchOnThePublishedDynamicExamPage() throws Exception {
+        try (CurrentUserContext.Scope user = CurrentUserContext.use(CurrentUser.systemUser("exam-search-test", "Search Test"));
+             TenantContext.Scope ignored = TenantContext.use(DemoBootstrapTask.TENANT_ALIAS)) {
+            MockMvc mvc = webAppContextSetup(webApplicationContext).build();
+            var found = mvc.perform(post("/education.exam/query").contentType("application/json")
+                    .content("{\"quickSearch\":\"数学\",\"quickSearchFields\":[\"title\"]}"))
+                    .andReturn().getResponse();
+            assertThat(found.getStatus()).as(found.getContentAsString()).isEqualTo(200);
+            assertThat(found.getContentAsString()).contains("2026 春季期中数学测评").doesNotContain("2026 春季英语听力测试");
+            var escaped = mvc.perform(post("/education.exam/query").contentType("application/json")
+                    .content("{\"quickSearch\":\"%\",\"quickSearchFields\":[\"title\"]}"))
+                    .andReturn().getResponse();
+            assertThat(escaped.getStatus()).as(escaped.getContentAsString()).isEqualTo(200);
+            assertThat(escaped.getContentAsString()).doesNotContain("2026 春季期中数学测评", "2026 春季英语听力测试");
+        }
+    }
+
+    @Test
     void shouldExposeReferenceTitlesThroughTheExamListWebResponse() throws Exception {
         try (CurrentUserContext.Scope user = CurrentUserContext.use(CurrentUser.systemUser(
                 "inspect-exam-list-projections", "Exam List Projection Inspection"));

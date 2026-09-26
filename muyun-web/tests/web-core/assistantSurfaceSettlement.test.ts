@@ -19,6 +19,7 @@ describe('assistant effect settlement ownership', () => {
         requestTurn: async () => ({ toolCalls: [] }),
         capabilities: () => [
           {
+            effect: 'page',
             descriptor: { code: 'record.start-create', description: 'Open draft', inputSchema: {} },
             parseInput: () => ({}),
             async execute(_input, context) {
@@ -65,7 +66,11 @@ describe('assistant effect settlement ownership', () => {
     const invocation = page.invoke();
     page.editAsUser();
     page.finishSettlement();
-    await expect(invocation).rejects.toBeInstanceOf(StaleAssistantInvocationError);
+    await expect(invocation).rejects.toMatchObject({
+      name: 'AssistantEffectInterruptedError',
+      execution: 'effect-applied',
+      cause: expect.any(StaleAssistantInvocationError),
+    });
   });
 
   it.each([false, true])('requires an adapter-validated replacement token: %s', async (validated) => {
@@ -87,6 +92,7 @@ describe('assistant effect settlement ownership', () => {
         ...destination.surface,
         capabilities: () => [
           {
+            effect: 'page',
             descriptor: { code: 'navigate', description: 'Navigate', inputSchema: {} },
             parseInput: () => ({}),
             async execute(_input, context) {
@@ -112,7 +118,11 @@ describe('assistant effect settlement ownership', () => {
     if (validated) {
       await expect(invocation).resolves.toEqual({ value: { opened: true }, contextChanged: true });
     } else {
-      await expect(invocation).rejects.toBeInstanceOf(StaleAssistantInvocationError);
+      await expect(invocation).rejects.toMatchObject({
+        name: 'AssistantEffectInterruptedError',
+        execution: 'effect-applied',
+        cause: expect.any(StaleAssistantInvocationError),
+      });
     }
   });
 });

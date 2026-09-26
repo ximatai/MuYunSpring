@@ -1,6 +1,7 @@
 package net.ximatai.muyun.spring.dynamic.schema;
 
 import net.ximatai.muyun.database.core.IDatabaseOperations;
+import net.ximatai.muyun.spring.ability.TransactionScopeSupport;
 import net.ximatai.muyun.database.core.orm.MigrationOptions;
 import net.ximatai.muyun.database.core.orm.MigrationResult;
 import net.ximatai.muyun.database.core.orm.SchemaManager;
@@ -13,6 +14,7 @@ import net.ximatai.muyun.spring.dynamic.metadata.ModuleDefinitionValidator;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.function.Function;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 public class DynamicSchemaService {
@@ -48,11 +50,13 @@ public class DynamicSchemaService {
     }
 
     public MigrationResult ensureTable(EntityDefinition entity, MigrationOptions options) {
-        return new SchemaManager(operations).ensureTable(tableMapper.toTable(entity), migrationPolicy.resolve(options));
+        return withSchemaCacheInvalidation(() -> new SchemaManager(operations)
+                .ensureTable(tableMapper.toTable(entity), migrationPolicy.resolve(options)));
     }
 
     public MigrationResult ensureTable(EntityDefinition entity, EntityDefinition previousEntity, MigrationOptions options) {
-        return new SchemaManager(operations).ensureTable(tableMapper.toTable(entity, previousEntity), migrationPolicy.resolve(options));
+        return withSchemaCacheInvalidation(() -> new SchemaManager(operations)
+                .ensureTable(tableMapper.toTable(entity, previousEntity), migrationPolicy.resolve(options)));
     }
 
     /** Removes an empty dynamic entity table after its metadata definition has passed deletion checks. */
@@ -60,8 +64,21 @@ public class DynamicSchemaService {
         validator.validateEntity(entity);
         String table = SchemaBuildRules.qualifiedName(entity.schemaName(), entity.tableName(),
                 operations.getDBInfo().getDatabaseType());
-        operations.execute("DROP TABLE " + table);
-        operations.resetDBInfo();
+        withSchemaCacheInvalidation(() -> {
+            operations.execute("DROP TABLE " + table);
+            operations.resetDBInfo();
+            return null;
+        });
+    }
+
+    private <T> T withSchemaCacheInvalidation(Supplier<T> migration) {
+        try {
+            return migration.get();
+        } finally {
+            // Schema discovery can observe transactional DDL that is later rolled back. Never let
+            // that snapshot survive transaction completion, including failures after ensure returns.
+            TransactionScopeSupport.afterCompletionOrNow(operations::resetDBInfo, operations::resetDBInfo);
+        }
     }
 
     public Map<String, Boolean> ensureModule(ModuleDefinition module) {

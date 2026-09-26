@@ -1,7 +1,7 @@
 import { expect, it, vi } from 'vitest';
 import {
   AssistantCapabilityUsageError,
-  AssistantConversationFollowUpError,
+  AssistantConversationInterruptedError,
   createAssistantSurfaceRegistry,
   runAssistantConversation,
   runAssistantStep,
@@ -21,6 +21,7 @@ it('reports user-facing activity phases from runtime facts', async () => {
       describe: () => ({ surface: 'module-page', facts: {} }),
       capabilities: () => [
         {
+          effect: 'page',
           descriptor: { code: 'page.inspect', description: 'Inspect', inputSchema: {} },
           parseInput: (input) => input,
           execute: async () => ({ inspected: true }),
@@ -59,6 +60,7 @@ it('emits content-free structured diagnostics without affecting execution', asyn
       describe: () => ({ surface: 'module-page', facts: { record: 'private-record' } }),
       capabilities: () => [
         {
+          effect: 'page',
           descriptor: { code: 'page.inspect', description: 'Inspect', inputSchema: {} },
           parseInput: (input) => input,
           execute: async () => ({ detail: 'private-result' }),
@@ -122,7 +124,7 @@ it('ignores synchronous and asynchronous diagnostic observer failures', async ()
         throw new Error('diagnostic adapter failed');
       },
     }),
-  ).resolves.toMatchObject({ completed: true });
+  ).resolves.toMatchObject({ termination: 'stopped' });
 
   await expect(
     runAssistantConversation(registry, 'hello', {
@@ -130,7 +132,7 @@ it('ignores synchronous and asynchronous diagnostic observer failures', async ()
         throw new Error('async diagnostic adapter failed');
       },
     }),
-  ).resolves.toMatchObject({ completed: true });
+  ).resolves.toMatchObject({ termination: 'stopped' });
 });
 
 it('waits for background page transitions before asking the model to decide', async () => {
@@ -163,6 +165,7 @@ it('waits for background page transitions before asking the model to decide', as
 it('executes declared capabilities and ends the step when their effect changes context', async () => {
   let revision = 'draft-before';
   const patch: AssistantCapability = {
+    effect: 'page',
     descriptor: {
       code: 'form.patch-draft',
       description: 'Patch draft',
@@ -195,7 +198,13 @@ it('executes declared capabilities and ends the step when their effect changes c
   const result = await runAssistantStep(registry, 'fill title');
 
   expect(result.results).toEqual([
-    { callId: 'call-1', capabilityCode: 'form.patch-draft', output: { changed: true } },
+    {
+      callId: 'call-1',
+      capabilityCode: 'form.patch-draft',
+      input: { title: 'Done' },
+      execution: 'effect-applied',
+      output: { changed: true },
+    },
   ]);
   expect(result.contextChanged).toBe(true);
   expect(result.appliedEffectCount).toBe(1);
@@ -218,6 +227,7 @@ it('passes clarification history to the model without interpreting it in the exe
       describe: () => ({ surface: 'module-page', facts: {} }),
       capabilities: () => [
         {
+          effect: 'page',
           descriptor: { code: 'form.patch-draft', description: 'Patch draft', inputSchema: {} },
           parseInput: (input) => input,
           async execute(_input, context) {
@@ -254,6 +264,7 @@ it('passes clarification history to the model without interpreting it in the exe
 
 it('returns an ordinary capability failure as a structured result', async () => {
   const failing: AssistantCapability = {
+    effect: 'page',
     descriptor: { code: 'page.fail', description: 'Fail', inputSchema: {} },
     parseInput: (input) => input,
     async execute() {
@@ -280,6 +291,8 @@ it('returns an ordinary capability failure as a structured result', async () => 
     {
       callId: 'call-1',
       capabilityCode: 'page.fail',
+      input: {},
+      execution: 'not-applied',
       error: { code: 'CAPABILITY_FAILED', message: 'Capability execution failed' },
     },
   ]);
@@ -289,6 +302,7 @@ it('returns an ordinary capability failure as a structured result', async () => 
 
 it('returns bounded capability usage feedback so the model can repair its next call', async () => {
   const failing: AssistantCapability = {
+    effect: 'page',
     descriptor: { code: 'form.patch', description: 'Patch', inputSchema: {} },
     parseInput: (input) => input,
     async execute() {
@@ -332,6 +346,7 @@ it('continues from a fresh surface after an effect and stops on the final model 
       describe: () => ({ surface: 'page', facts: { revision } }),
       capabilities: () => [
         {
+          effect: 'page',
           descriptor: { code: 'page.change', description: 'Change page', inputSchema: {} },
           parseInput: (input) => input,
           async execute(_input, context) {
@@ -349,13 +364,21 @@ it('continues from a fresh surface after an effect and stops on the final model 
 
   const result = await runAssistantConversation(registry, 'change it');
 
-  expect(result.completed).toBe(true);
+  expect(result.termination).not.toBe('step-limit');
   expect(result.steps).toHaveLength(2);
   expect(requestTurn).toHaveBeenNthCalledWith(
     2,
     expect.objectContaining({
       message: 'change it',
-      results: [{ callId: 'call-1', capabilityCode: 'page.change', output: { changed: true } }],
+      results: [
+        {
+          callId: 'call-1',
+          capabilityCode: 'page.change',
+          input: {},
+          execution: 'effect-applied',
+          output: { changed: true },
+        },
+      ],
       context: expect.objectContaining({ facts: { revision: 'after' } }),
     }),
     expect.any(AbortSignal),
@@ -379,6 +402,7 @@ it('keeps prior dialogue on every tool step while refreshing page facts', async 
       describe: () => ({ surface: 'page', facts: { revision } }),
       capabilities: () => [
         {
+          effect: 'page',
           descriptor: { code: 'page.change', description: 'Change page', inputSchema: {} },
           parseInput: (input) => input,
           async execute(_input, context) {
@@ -427,6 +451,7 @@ it('preserves successful steps when a later model follow-up fails', async () => 
       describe: () => ({ surface: 'page', facts: {} }),
       capabilities: () => [
         {
+          effect: 'page',
           descriptor: { code: 'form.patch-draft', description: 'Patch draft', inputSchema: {} },
           parseInput: (input) => input,
           async execute(_input, context) {
@@ -443,20 +468,22 @@ it('preserves successful steps when a later model follow-up fails', async () => 
   const conversation = runAssistantConversation(registry, 'change it');
 
   await expect(conversation).rejects.toMatchObject({
-    name: 'AssistantConversationFollowUpError',
+    name: 'AssistantConversationInterruptedError',
     steps: [
       expect.objectContaining({
         results: [
           {
             callId: 'call-1',
             capabilityCode: 'form.patch-draft',
+            input: {},
+            execution: 'effect-applied',
             output: { changed: true },
           },
         ],
       }),
     ],
   });
-  await expect(conversation).rejects.toBeInstanceOf(AssistantConversationFollowUpError);
+  await expect(conversation).rejects.toBeInstanceOf(AssistantConversationInterruptedError);
 });
 
 it('keeps a failed follow-up after a read-only result as the original error', async () => {
@@ -473,6 +500,7 @@ it('keeps a failed follow-up after a read-only result as the original error', as
       describe: () => ({ surface: 'page', facts: {} }),
       capabilities: () => [
         {
+          effect: 'page',
           descriptor: { code: 'page.describe', description: 'Describe', inputSchema: {} },
           parseInput: (input) => input,
           execute: async () => ({ title: 'Page' }),
@@ -499,6 +527,7 @@ it('keeps a stale invoke after a successful effect as a stale invocation error',
       describe: () => ({ surface: 'page', facts: {} }),
       capabilities: () => [
         {
+          effect: 'page',
           descriptor: { code: 'page.change', description: 'Change', inputSchema: {} },
           parseInput: (input) => input,
           async execute(_input, context) {
@@ -507,6 +536,7 @@ it('keeps a stale invoke after a successful effect as a stale invocation error',
           },
         },
         {
+          effect: 'page',
           descriptor: { code: 'page.stale', description: 'Stale', inputSchema: {} },
           parseInput: (input) => input,
           async execute() {
@@ -519,9 +549,11 @@ it('keeps a stale invoke after a successful effect as a stale invocation error',
   });
   registry.activate('tab-a');
 
-  await expect(runAssistantConversation(registry, 'change')).rejects.toBeInstanceOf(
-    StaleAssistantInvocationError,
-  );
+  await expect(runAssistantConversation(registry, 'change')).rejects.toMatchObject({
+    name: 'AssistantConversationInterruptedError',
+    termination: 'context-changed',
+    steps: [expect.objectContaining({ appliedEffectCount: 1 })],
+  });
 });
 
 it('counts an applied effect once when its result is replayed before a failed follow-up', async () => {
@@ -543,6 +575,7 @@ it('counts an applied effect once when its result is replayed before a failed fo
       describe: () => ({ surface: 'page', facts: {} }),
       capabilities: () => [
         {
+          effect: 'page',
           descriptor: { code: 'page.change', description: 'Change', inputSchema: {} },
           parseInput: (input) => input,
           async execute(_input, context) {
@@ -551,6 +584,7 @@ it('counts an applied effect once when its result is replayed before a failed fo
           },
         },
         {
+          effect: 'page',
           descriptor: { code: 'page.describe', description: 'Describe', inputSchema: {} },
           parseInput: (input) => input,
           execute: async () => ({ title: 'Page' }),
@@ -564,7 +598,7 @@ it('counts an applied effect once when its result is replayed before a failed fo
   const conversation = runAssistantConversation(registry, 'change');
 
   await expect(conversation).rejects.toMatchObject({
-    name: 'AssistantConversationFollowUpError',
+    name: 'AssistantConversationInterruptedError',
     steps: [
       expect.objectContaining({ appliedEffectCount: 1 }),
       expect.objectContaining({ appliedEffectCount: 0 }),
@@ -582,6 +616,7 @@ it('stops a conversation at the configured bounded step limit', async () => {
       describe: () => ({ surface: 'page', facts: {} }),
       capabilities: () => [
         {
+          effect: 'page',
           descriptor: { code: 'page.read', description: 'Read', inputSchema: {} },
           parseInput: (input) => input,
           async execute() {
@@ -598,7 +633,7 @@ it('stops a conversation at the configured bounded step limit', async () => {
 
   const result = await runAssistantConversation(registry, 'keep reading', { maxSteps: 2 });
 
-  expect(result.completed).toBe(false);
+  expect(result.termination).toBe('step-limit');
   expect(result.steps).toHaveLength(2);
 });
 
@@ -622,6 +657,7 @@ it('does not execute the same successful capability call twice in one conversati
       describe: () => ({ surface: 'page', facts: {} }),
       capabilities: () => [
         {
+          effect: 'page',
           descriptor: { code: 'page.open', description: 'Open', inputSchema: {} },
           parseInput: (input) => input,
           execute,
@@ -638,10 +674,16 @@ it('does not execute the same successful capability call twice in one conversati
     },
   });
 
-  expect(result.completed).toBe(true);
+  expect(result.termination).not.toBe('step-limit');
   expect(result.steps).toHaveLength(2);
   expect(result.steps[1]?.results).toEqual([
-    { callId: 'call-2', capabilityCode: 'page.open', output: { opened: true } },
+    {
+      callId: 'call-2',
+      capabilityCode: 'page.open',
+      input: { menuId: 'apps' },
+      execution: 'read',
+      output: { opened: true },
+    },
   ]);
   expect(execute).toHaveBeenCalledOnce();
   expect(deliveredSteps).toEqual([
@@ -666,6 +708,7 @@ it('only reuses a successful call in the immediately following model decision', 
       describe: () => ({ surface: 'page', facts: {} }),
       capabilities: () => [
         {
+          effect: 'page',
           descriptor: { code: 'page.read', description: 'Read', inputSchema: {} },
           parseInput: (input) => input,
           execute,
@@ -678,7 +721,7 @@ it('only reuses a successful call in the immediately following model decision', 
 
   const result = await runAssistantConversation(registry, 'read values');
 
-  expect(result.completed).toBe(true);
+  expect(result.termination).not.toBe('step-limit');
   expect(execute).toHaveBeenCalledTimes(3);
   expect(execute).toHaveBeenNthCalledWith(1, { key: 'a' }, expect.anything());
   expect(execute).toHaveBeenNthCalledWith(2, { key: 'b' }, expect.anything());
@@ -712,6 +755,7 @@ it('restarts a post-navigation decision only when the target page replaces its f
       describe: () => ({ surface: 'source-page', facts: {} }),
       capabilities: () => [
         {
+          effect: 'page',
           descriptor: { code: 'page.open', description: 'Open target', inputSchema: {} },
           parseInput: (input) => input,
           async execute(_input, context) {
@@ -741,7 +785,7 @@ it('restarts a post-navigation decision only when the target page replaces its f
 
   const result = await conversation;
 
-  expect(result.completed).toBe(true);
+  expect(result.termination).not.toBe('step-limit');
   expect(result.steps).toHaveLength(2);
   expect(result.steps[1]?.output.text).toBe('page ready');
 });
@@ -801,7 +845,7 @@ it('restarts an initial model decision from a fresh snapshot when the same surfa
 
   const result = await runAssistantConversation(registry, 'describe');
 
-  expect(result.completed).toBe(true);
+  expect(result.termination).not.toBe('step-limit');
   expect(result.steps).toHaveLength(1);
   expect(result.steps[0]?.output.text).toBe('fresh answer');
   expect(requestTurn).toHaveBeenCalledTimes(2);
@@ -834,6 +878,7 @@ it('restarts before invoking the first capability when its decision snapshot jus
       describe: () => ({ surface: 'page', facts: { revision } }),
       capabilities: () => [
         {
+          effect: 'page',
           descriptor: { code: 'page.create', description: 'Create', inputSchema: {} },
           parseInput: (input) => input,
           execute: create,
@@ -846,10 +891,16 @@ it('restarts before invoking the first capability when its decision snapshot jus
 
   const result = await runAssistantConversation(registry, 'create');
 
-  expect(result.completed).toBe(true);
+  expect(result.termination).not.toBe('step-limit');
   expect(create).toHaveBeenCalledOnce();
   expect(result.steps[0]?.results).toEqual([
-    { callId: 'fresh-call', capabilityCode: 'page.create', output: { opened: true } },
+    {
+      callId: 'fresh-call',
+      capabilityCode: 'page.create',
+      input: {},
+      execution: 'read',
+      output: { opened: true },
+    },
   ]);
 });
 
@@ -931,6 +982,7 @@ it('does not replay a post-effect decision when a formal surface is refreshed', 
         }),
     );
   const change: AssistantCapability = {
+    effect: 'page',
     descriptor: { code: 'page.change', description: 'Change', inputSchema: {} },
     parseInput: (input) => input,
     async execute(_input, context) {
@@ -961,7 +1013,11 @@ it('does not replay a post-effect decision when a formal surface is refreshed', 
     surface: { ...formalSurface, requestTurn: async () => ({ text: 'new page', toolCalls: [] }) },
   });
 
-  await expect(conversation).rejects.toBeInstanceOf(StaleAssistantInvocationError);
+  await expect(conversation).rejects.toMatchObject({
+    name: 'AssistantConversationInterruptedError',
+    termination: 'context-changed',
+    steps: [expect.objectContaining({ appliedEffectCount: 1 })],
+  });
   expect(fallbackRequest).not.toHaveBeenCalled();
 });
 
@@ -985,6 +1041,7 @@ it('does not replay a post-effect decision after the same surface context drifts
       describe: () => ({ surface: 'page', facts: {} }),
       capabilities: () => [
         {
+          effect: 'page',
           descriptor: { code: 'page.change', description: 'Change', inputSchema: {} },
           parseInput: (input) => input,
           async execute(_input, context) {
@@ -1004,7 +1061,11 @@ it('does not replay a post-effect decision after the same surface context drifts
   revision = 'user-change';
   resolveSecond({ toolCalls: [] });
 
-  await expect(conversation).rejects.toBeInstanceOf(StaleAssistantInvocationError);
+  await expect(conversation).rejects.toMatchObject({
+    name: 'AssistantConversationInterruptedError',
+    termination: 'context-changed',
+    steps: [expect.objectContaining({ appliedEffectCount: 1 })],
+  });
   expect(requestTurn).toHaveBeenCalledTimes(2);
 });
 
@@ -1060,7 +1121,7 @@ it('waits for a pending fallback to resolve before sending history to its transp
       requestTurn: formal,
     },
   });
-  await expect(pending).resolves.toMatchObject({ completed: true });
+  await expect(pending).resolves.toMatchObject({ termination: 'stopped' });
   expect(fallback).not.toHaveBeenCalled();
   expect(formal).toHaveBeenCalledOnce();
 });
@@ -1078,6 +1139,7 @@ it('does not send the previous goal or results after a capability changes tenant
       requestTurn,
       capabilities: () => [
         {
+          effect: 'page',
           descriptor: { code: 'scope.change', description: 'change', inputSchema: {} },
           parseInput: (value) => value,
           execute: async (_input, context) => {
@@ -1111,6 +1173,7 @@ it('retains compact effect receipts without accumulating old read payloads', asy
       requestTurn,
       capabilities: () => [
         {
+          effect: 'page',
           descriptor: { code: 'page.change', description: 'Change', inputSchema: {} },
           parseInput: (input) => input,
           async execute(_input, context) {
@@ -1121,6 +1184,7 @@ it('retains compact effect receipts without accumulating old read payloads', asy
           },
         },
         {
+          effect: 'page',
           descriptor: { code: 'page.inspect', description: 'Inspect', inputSchema: {} },
           parseInput: (input) => input,
           async execute() {
@@ -1133,7 +1197,130 @@ it('retains compact effect receipts without accumulating old read payloads', asy
   registry.activate('page');
   await runAssistantConversation(registry, 'change and inspect');
   expect(requestTurn.mock.calls[2]?.[0].results).toEqual([
-    { callId: 'effect', capabilityCode: 'page.change', output: { completed: true } },
-    { callId: 'read', capabilityCode: 'page.inspect', output: { current: true } },
+    {
+      callId: 'receipt-0-effect',
+      capabilityCode: 'page.change',
+      input: {},
+      execution: 'effect-applied',
+      output: { completed: true },
+    },
+    {
+      callId: 'read',
+      capabilityCode: 'page.inspect',
+      input: {},
+      execution: 'read',
+      output: { current: true },
+    },
   ]);
+});
+
+it.each(['cancelled', 'failed', 'unknown'] as const)(
+  'preserves bounded execution facts after an effect is %s',
+  async (mode) => {
+    const registry = createAssistantSurfaceRegistry();
+    const cancellation = new AbortController();
+    let mutations = 0;
+    const requestTurn = vi.fn(async () => ({
+      toolCalls: [{ id: 'effect', code: 'draft.change', input: {} }],
+    }));
+    registry.register({
+      pageInstanceKey: 'page',
+      contextRevision: () => String(mutations),
+      surface: {
+        describe: () => ({ surface: 'module-page', facts: {} }),
+        requestTurn,
+        capabilities: () => [
+          {
+            effect: 'draft',
+            descriptor: { code: 'draft.change', description: 'change', inputSchema: {} },
+            parseInput: (input) => input,
+            async execute(_input, context) {
+              context.applyEffect(() => {
+                mutations += 1;
+                if (mode === 'unknown') throw new Error('private failure');
+              });
+              if (mode === 'cancelled') cancellation.abort();
+              if (mode === 'failed') throw new Error('private failure');
+              return { secret: 'must not escape interrupted output' };
+            },
+          },
+        ],
+      },
+    });
+    registry.activate('page');
+    const result = runAssistantConversation(registry, 'change draft', { signal: cancellation.signal });
+    await expect(result).rejects.toMatchObject({
+      name: 'AssistantConversationInterruptedError',
+      termination: mode === 'cancelled' ? 'cancelled' : 'execution-interrupted',
+      steps: [
+        expect.objectContaining({
+          results: [
+            {
+              callId: 'effect',
+              capabilityCode: 'draft.change',
+              input: {},
+              execution: mode === 'unknown' ? 'unknown' : 'effect-applied',
+            },
+          ],
+        }),
+      ],
+    });
+    expect(mutations).toBe(1);
+    expect(requestTurn).toHaveBeenCalledOnce();
+  },
+);
+
+it('rejects page mutations from a declared read capability before any effect', async () => {
+  const mutation = vi.fn();
+  const registry = createAssistantSurfaceRegistry();
+  registry.register({
+    pageInstanceKey: 'page',
+    contextRevision: () => 'stable',
+    surface: {
+      describe: () => ({ surface: 'test', facts: {} }),
+      requestTurn: async () => ({ toolCalls: [{ id: 'read', code: 'page.read', input: {} }] }),
+      capabilities: () => [
+        {
+          effect: 'read',
+          descriptor: { code: 'page.read', description: 'read', inputSchema: {} },
+          parseInput: (input) => input,
+          async execute(_input, context) {
+            context.applyEffect(mutation);
+          },
+        },
+      ],
+    },
+  });
+  registry.activate('page');
+  const step = await runAssistantStep(registry, 'read');
+  expect(mutation).not.toHaveBeenCalled();
+  expect(step.results[0]).toMatchObject({ execution: 'not-applied', error: { code: 'CAPABILITY_FAILED' } });
+});
+
+it('does not retry an unchanged rejected call in the same snapshot', async () => {
+  const execute = vi.fn(async () => {
+    throw new AssistantCapabilityUsageError('Choose an available candidate', 'CANDIDATE_EXPIRED');
+  });
+  const registry = createAssistantSurfaceRegistry();
+  registry.register({
+    pageInstanceKey: 'page',
+    contextRevision: () => 'stable',
+    surface: {
+      describe: () => ({ surface: 'test', facts: {} }),
+      requestTurn: async () => ({ toolCalls: [{ id: 'retry', code: 'draft.change', input: {} }] }),
+      capabilities: () => [
+        {
+          effect: 'draft',
+          descriptor: { code: 'draft.change', description: 'change', inputSchema: {} },
+          parseInput: (input) => input,
+          execute,
+        },
+      ],
+    },
+  });
+  registry.activate('page');
+  const result = await runAssistantConversation(registry, 'change');
+  expect(result.termination).toBe('repeated-call');
+  expect(result.steps[1]?.results[0]?.error?.code).toBe('CANDIDATE_EXPIRED');
+  expect(execute).toHaveBeenCalledOnce();
 });
