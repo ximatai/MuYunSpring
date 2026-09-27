@@ -28,6 +28,15 @@ function fixture() {
     publishDelivery: vi.fn(),
     delivery: vi.fn(),
     progress: vi.fn(),
+    businessObjects: vi.fn(async () => [
+      { alias: 'crm.customer', title: '客户', kind: 'DYNAMIC', referenceReady: true, explanation: '可复用' },
+    ]),
+    referenceTarget: vi.fn(async () => ({
+      targetModuleAlias: 'crm.customer',
+      targetMetadataId: 'customer-metadata',
+      keyFields: [{ fieldName: 'id', title: '标识', defaultField: true, selectable: true }],
+      labelFields: [{ fieldName: 'name', title: '客户名称', defaultField: true, selectable: true }],
+    })),
     describeFields: vi.fn(),
     previewFields: vi.fn(),
     publishFields: vi.fn(),

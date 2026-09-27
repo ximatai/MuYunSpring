@@ -3,7 +3,7 @@ import { computed, onActivated, onDeactivated, onUnmounted, ref, watch } from 'v
 import type { DynamicRuntimeActivationStatus, WebActionResultEnvelope } from '@muyun/web-contracts';
 import { actionResultData, useModuleContext } from '@muyun/web-core';
 import { presentPlatformError, RecordStatusTag } from '@muyun/platform-components';
-import type { ModuleActivationFeedback } from './moduleRuntimeActivation';
+import { moduleActivationFeedback, type ModuleActivationFeedback } from './moduleRuntimeActivation';
 import { UiActionButton, UiPopover } from '@muyun/vue-ui-antdv';
 
 const props = defineProps<{ moduleAlias: string; reloadKey?: number }>();
@@ -35,16 +35,6 @@ const guidance = computed(() => {
   if (loadFailed.value) return '暂时无法查询，请稍后重试。';
   if (status.value?.status === 'FAILED') return '修改已保存，但未能生效。';
   return '完成后将自动关闭提示。';
-});
-const message = computed(() => {
-  if (loadFailed.value) return '暂时无法查询模块运行配置状态';
-  const current = status.value;
-  if (!current || current.status === 'UNTRACKED') return '尚无模块运行配置生效记录';
-  if (current.status === 'FAILED') return '模块运行配置已保存，生效失败';
-  if (current.status === 'PENDING') return '模块运行配置已保存，正在生效';
-  if (current.installedRevision !== current.desiredRevision)
-    return '模块运行配置已保存，当前节点尚未确认生效';
-  return current.status === 'INACTIVE' ? '模块运行配置已生效，业务运行入口已停用' : '模块运行配置已生效';
 });
 const canRetry = computed(
   () =>
@@ -105,17 +95,7 @@ async function load(): Promise<ModuleActivationFeedback | undefined> {
     });
     if (sequence === requestSequence) {
       status.value = result;
-      return {
-        message: {
-          text: message.value,
-          type:
-            result.status === 'FAILED'
-              ? 'WARNING'
-              : waiting.value || result.status === 'UNTRACKED'
-                ? 'INFO'
-                : 'SUCCESS',
-        },
-      };
+      return moduleActivationFeedback(result);
     }
   } catch {
     if (sequence !== requestSequence) return;

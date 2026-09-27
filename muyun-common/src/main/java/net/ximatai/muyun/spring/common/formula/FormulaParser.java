@@ -203,7 +203,8 @@ final class FormulaParser {
         if (isStringLiteral(value)) {
             return value.substring(1, value.length() - 1);
         }
-        return value;
+        throw new FormulaEvaluationException("FORMULA_PARSE_ERROR",
+                "无法识别公式标识符：" + value + "；字段引用请使用 {字段名}，文本常量请使用引号");
     }
 
     private boolean isStringLiteral(String raw) {

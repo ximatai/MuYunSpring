@@ -4,6 +4,7 @@ export * from './sse';
 export * from './query';
 export * from './actionResult';
 export * from './assistantSurface';
+export * from './assistantCatalogPage';
 export * from './assistantRuntime';
 export * from './assistantTurnClient';
 export * from './businessNotifications';

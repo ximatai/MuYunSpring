@@ -43,7 +43,7 @@ class ReferenceTargetFieldCatalogServiceTest {
         targetModule.setModuleKind(ModuleKind.DYNAMIC);
         MetadataField studentNo = field("student-no", "studentNo", "学号");
         studentNo.setUniqueField(true);
-        MetadataField name = field("name", "name", "姓名");
+        MetadataField name = field("name", "title", "姓名");
         name.setTitleField(true);
         MetadataField duplicate = field("duplicate", "duplicate", "重复值");
         MetadataField virtual = field("virtual", "summary", "摘要");
@@ -61,9 +61,9 @@ class ReferenceTargetFieldCatalogServiceTest {
         assertThat(catalog.keyFields()).extracting(ReferenceTargetFieldCandidate::fieldName)
                 .containsExactly("id", "studentNo");
         assertThat(catalog.labelFields()).extracting(ReferenceTargetFieldCandidate::fieldName)
-                .containsExactly("duplicate", "name", "studentNo");
+                .containsExactly("duplicate", "studentNo", "title");
         assertThat(catalog.labelFields()).filteredOn(ReferenceTargetFieldCandidate::defaultField)
-                .extracting(ReferenceTargetFieldCandidate::fieldName).containsExactly("name");
+                .extracting(ReferenceTargetFieldCandidate::fieldName).containsExactly("title");
         verify(fields).list(any(Criteria.class), any(PageRequest.class));
     }
 
@@ -120,12 +120,12 @@ class ReferenceTargetFieldCatalogServiceTest {
     }
 
     @Test
-    void shouldOfferOnlyModulesWithMainMetadataOrRegisteredReferenceAbilityAndCheckSourceScope() {
+    void shouldOfferOnlyReferenceCapableModulesAndCheckSourceScope() {
         ModuleMetadataRelationService relations = mock(ModuleMetadataRelationService.class);
         PlatformModuleService modules = mock(PlatformModuleService.class);
         when(relations.select("source-main")).thenReturn(relation("source-main", "education.exam", "exam-meta"));
         when(relations.list(any(Criteria.class), any(PageRequest.class)))
-                .thenReturn(List.of(relation("target-main", "education.student", "student-meta")));
+                .thenReturn(List.of(relation("target-main", "education.student", "student-meta"), relation("draft-main", "education.draft", "draft-meta")));
         PlatformModule student = new PlatformModule();
         student.setAlias("education.student");
         student.setTitle("学生");
@@ -144,10 +144,16 @@ class ReferenceTargetFieldCatalogServiceTest {
         ReferenceAbility<?> ability = mock(ReferenceAbility.class);
         PlatformAbilityRuntime.configureReferenceTargetResolver(target -> ReferenceTarget.of("iam", "user").equals(target)
                 ? java.util.Optional.of(ability) : java.util.Optional.empty());
-        var service = new ReferenceTargetFieldCatalogService(relations, modules, mock(MetadataFieldService.class), null);
+        var fields = mock(MetadataFieldService.class);
+        var title = field("student-title", "title", "姓名"); title.setTitleField(true); title.setMetadataId("student-meta");
+        when(fields.list(any(Criteria.class), any(PageRequest.class))).thenReturn(List.of(title));
+        var service = new ReferenceTargetFieldCatalogService(relations, modules, fields, null);
         assertThat(service.modules("education.exam", "source-main"))
                 .extracting(ReferenceTargetFieldCatalogService.TargetModule::alias)
                 .containsExactly("education.student", "iam.user");
+        assertThat(service.discoverModules()).filteredOn(module -> module.alias().equals("education.draft"))
+                .singleElement().satisfies(module -> assertThat(module.referenceReady()).isFalse());
+        assertThat(service.modules()).isEqualTo(service.modules("education.exam", "source-main"));
         assertThatThrownBy(() -> service.modules("education.other", "source-main"))
                 .hasMessageContaining("does not belong to module");
     }

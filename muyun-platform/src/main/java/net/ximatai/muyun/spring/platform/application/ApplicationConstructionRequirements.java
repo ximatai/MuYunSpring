@@ -19,6 +19,10 @@ public final class ApplicationConstructionRequirements {
     }
     public static List<Evidence> evaluate(ApplicationConstructionPlanContent content, String objectKey,
                                           List<MetadataField> fields) {
+        return evaluate(content, objectKey, fields, Map.of(), Map.of());
+    }
+    public static List<Evidence> evaluate(ApplicationConstructionPlanContent content, String objectKey,
+            List<MetadataField> fields, Map<String, String> referenceTargets, Map<String, String> objectModules) {
         Map<String, MetadataField> byName = fields.stream()
                 .collect(Collectors.toMap(MetadataField::getFieldName, field -> field));
         var result = new ArrayList<Evidence>();
@@ -37,6 +41,12 @@ public final class ApplicationConstructionRequirements {
                     var status = switch (binding.mode()) {
                         case UNSUPPORTED -> Status.UNSUPPORTED;
                         case MANUAL -> Status.MANUAL_CHECK_REQUIRED;
+                        case REFERENCE -> {
+                            var reference = binding.reference();
+                            var target = reference.moduleAlias().isEmpty() ? objectModules.get(reference.objectKey()) : reference.moduleAlias();
+                            yield field != null && target != null && target.equals(referenceTargets.get(binding.fieldName()))
+                                    ? Status.CONFIGURATION_MATCHED : Status.CONFIGURATION_MISSING;
+                        }
                         case FIELD -> field != null ? Status.CONFIGURATION_MATCHED : Status.CONFIGURATION_MISSING;
                         case REQUIRED -> field != null && Boolean.TRUE.equals(field.getRequired()) ? Status.CONFIGURATION_MATCHED : Status.CONFIGURATION_MISSING;
                         case UNIQUE -> field != null && Boolean.TRUE.equals(field.getUniqueField()) ? Status.CONFIGURATION_MATCHED : Status.CONFIGURATION_MISSING;

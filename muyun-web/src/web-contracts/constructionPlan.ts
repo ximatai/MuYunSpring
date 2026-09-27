@@ -69,6 +69,17 @@ export interface ConstructionField {
   required: boolean;
   unique: boolean;
   indexed: boolean;
+  titleField?: boolean;
+  reference?: {
+    targetModuleAlias: string;
+    targetMetadataId: string | null;
+    targetKeyField: string;
+    targetLabelField: string;
+    cardinality: 'ONE';
+    targetUnavailablePolicy: 'PRESERVE_HISTORY';
+    requireEnabled: boolean;
+    projectionMappings: string[];
+  } | null;
 }
 export interface ConstructionFieldProposal {
   planRevision: number;
@@ -80,6 +91,7 @@ export interface ConstructionFieldDescription {
   moduleAlias: string;
   planRevision: number;
   metadataVersion: number;
+  references?: Record<string, NonNullable<ConstructionField['reference']>>;
   fields: import('./index').MetadataField[];
   specs: {
     alias: string;
@@ -169,9 +181,10 @@ export interface ConstructionRequirement {
   section: 'SCOPE' | 'RULE' | 'RELATION';
   index: number;
   objectKey: string;
-  mode: 'FIELD' | 'REQUIRED' | 'UNIQUE' | 'MANUAL' | 'UNSUPPORTED';
+  mode: 'FIELD' | 'REQUIRED' | 'UNIQUE' | 'REFERENCE' | 'MANUAL' | 'UNSUPPORTED';
   fieldName: string;
   explanation: string;
+  reference?: { objectKey: string; moduleAlias: string } | null;
 }
 export interface ConstructionRequirementEvidence {
   section: ConstructionRequirement['section'];

@@ -1,5 +1,16 @@
 <script setup lang="ts">
-import { computed, nextTick, ref, watch, useId, type ComponentPublicInstance } from 'vue';
+import {
+  computed,
+  nextTick,
+  ref,
+  watch,
+  useId,
+  onMounted,
+  onActivated,
+  onDeactivated,
+  onUnmounted,
+  type ComponentPublicInstance,
+} from 'vue';
 import {
   FormulaExpressionEditor,
   RecordDetailDrawer,
@@ -11,7 +22,11 @@ import {
   type RecordQueryListColumn,
 } from '@muyun/platform-components';
 import { useWorkspaceViewUnsavedState } from '@muyun/platform-workbench';
-import { useModuleContext, withHttpHeaders } from '@muyun/web-core';
+import { useModuleContext, useAssistantSurfaceHost, createAssistantTurnRequester } from '@muyun/web-core';
+import {
+  createBusinessRuleAssistantSurface,
+  type BusinessRuleTrialInput,
+} from './businessRuleAssistantSurface';
 import { useCurrentUserContext } from '../platform-admin-runtime/currentUserContext';
 import {
   UiActionButton,
@@ -35,14 +50,12 @@ import {
   type UiTreeLoadResult,
 } from '@muyun/vue-ui-antdv';
 import {
-  editableProposals,
   businessRuleChangeImpact,
   externalTrialInputFields,
   formulaTemplates,
   insertFormulaText,
   newBusinessRule,
   presentableFormulaExpression,
-  proposalFingerprintOf,
   referencedFormulaFields,
   readonlyRules,
   typedSampleValue,
@@ -50,21 +63,23 @@ import {
   aggregateFieldInsertionReason,
   normalizeFormulaCapabilities,
   portableFormulaCapabilities,
-  type UiControlSnapshot,
   type UiControlTarget,
-  type BusinessRuleApplyResult,
   type BusinessRuleEditableField,
   type BusinessRuleFormulaCapability,
   type BusinessRuleFormulaCatalogEntry,
   type BusinessRuleKind,
-  type BusinessRulePreview,
   type BusinessRuleProposal,
   type BusinessRuleIssue,
-  type BusinessRuleSnapshot,
   type BusinessRuleTrialResult,
   type BusinessRuleReferenceField,
 } from './businessRuleGovernance';
 
+import {
+  createBusinessRuleSession,
+  BusinessRulePrecheckError,
+  type BusinessRuleSession,
+} from './businessRuleSession';
+import { useBusinessRuleWorkspace } from './businessRuleWorkspace';
 import MetadataSourceTree from './MetadataSourceTree.vue';
 import { metadataSourceFieldNode, metadataSourceRoot } from './metadataSourceTree';
 
@@ -78,9 +93,17 @@ const props = defineProps<{
 }>();
 const moduleContext = useModuleContext({ moduleAlias: 'platform.module' });
 const currentUser = useCurrentUserContext();
-const snapshot = ref<BusinessRuleSnapshot>();
-const rules = ref<BusinessRuleProposal[]>([]);
-const uiControlSnapshot = ref<UiControlSnapshot>();
+const sharedWorkspace = useBusinessRuleWorkspace();
+const localSessions = new Map<string, BusinessRuleSession>();
+const session = computed(() => {
+  if (sharedWorkspace) return sharedWorkspace.session(props.moduleAlias);
+  if (!localSessions.has(props.moduleAlias))
+    localSessions.set(props.moduleAlias, createBusinessRuleSession(moduleContext.http, props.moduleAlias));
+  return localSessions.get(props.moduleAlias)!;
+});
+const snapshot = computed(() => session.value.snapshot.value);
+const rules = computed(() => session.value.rules.value);
+const uiControlSnapshot = computed(() => session.value.ui.value);
 const selectedControlForm = computed(() =>
   uiControlSnapshot.value?.forms.find((form) => form.key === selectedRule.value?.formKey),
 );
@@ -104,21 +127,6 @@ function setControlEffect(elementKey: string, effect: 'hide' | 'readOnly', check
 function controlEffect(elementKey: string, effect: keyof Pick<UiControlTarget, 'hide' | 'readOnly'>) {
   return selectedRule.value?.targets?.find((target) => target.elementKey === elementKey)?.[effect] ?? false;
 }
-async function mergeUiRules(loaded: BusinessRuleSnapshot) {
-  const ui = await moduleContext.http.request<UiControlSnapshot>({
-    path: `/platform.module/${encodeURIComponent(loaded.moduleAlias)}/business-rules/ui-controls`,
-  });
-  return {
-    ui,
-    snapshot: {
-      ...loaded,
-      rules: [
-        ...loaded.rules,
-        ...(ui.rules ?? []).map((rule) => ({ ...rule, kind: 'UI_CONTROL', phase: 'UI', editable: true })),
-      ],
-    },
-  };
-}
 function ruleKindLabel(kind: BusinessRuleKind) {
   return { CALCULATION: '字段计算', VALIDATION: '保存校验', UI_CONTROL: '界面控制' }[kind];
 }
@@ -129,13 +137,38 @@ const draftIssues = ref<BusinessRuleIssue[]>([]);
 const ruleSearch = ref('');
 const rulePageNum = ref(1);
 const rulePageSize = ref(10);
-const loading = ref(false);
-const loadFailed = ref(false);
-const applying = ref(false);
+const loading = computed(() => session.value.loading.value);
+const loadFailed = computed(() => session.value.loadFailed.value);
+const applying = computed(() => session.value.applying.value);
 const trial = ref<BusinessRuleTrialResult>();
 const trialVisible = ref(false);
 const trialRunning = ref(false);
 const sampleValues = ref<Record<string, string>>({});
+const sampleChildren = ref<Record<string, Record<string, string>[]>>({});
+const childSampleGroups = computed(() => {
+  const groups = new Map<string, BusinessRuleEditableField[]>();
+  for (const field of snapshot.value?.aggregateFields ?? []) {
+    const relation = field.fieldName.split('.')[0]!;
+    groups.set(relation, [...(groups.get(relation) ?? []), field]);
+  }
+  return [...groups].map(([relation, fields]) => ({ relation, fields }));
+});
+function typedChildSamples() {
+  return Object.fromEntries(
+    childSampleGroups.value.map((group) => [
+      group.relation,
+      (sampleChildren.value[group.relation] ?? []).map((row) =>
+        Object.fromEntries(
+          group.fields.flatMap((field) => {
+            const name = field.fieldName.slice(group.relation.length + 1);
+            const value = typedSampleValue(row[name] ?? '', field.valueType);
+            return value === undefined ? [] : [[name, value]];
+          }),
+        ),
+      ),
+    ]),
+  );
+}
 const capturedTrialInputs = ref<Record<string, unknown>>({});
 const applicationError = ref<string>();
 const applicationIssues = ref<BusinessRuleIssue[]>([]);
@@ -148,7 +181,12 @@ const referenceRootFailed = ref(false);
 const formulaInputs = ref<Record<string, string>>({});
 const selectedFormula = computed(() => (selectedRule.value ? formulaText(selectedRule.value) : ''));
 const expressionSelections = new Map<string, { start: number; end: number }>();
-const trialTenantId = ref('');
+const trialTenantId = computed({
+  get: () => session.value.tenantId.value,
+  set: (value) => {
+    session.value.tenantId.value = value;
+  },
+});
 const trialTenants = ref<Array<{ id: string; title?: string; enabled?: boolean }>>([]);
 const trialTenantLoading = ref(false);
 const trialTenantError = ref('');
@@ -180,10 +218,8 @@ const { begin: beginFunctionDrag, draggingKey: draggingFunctionId } = useUiDragS
   },
   { start: () => undefined, end: () => undefined },
 );
-let baselineProposalFingerprint: string | undefined;
 let loadRequest = 0;
 let trialRequest = 0;
-let applyRequest = 0;
 let editRevision = 0;
 let expressionSelectionOwner: string | undefined;
 let referenceDirectoryEpoch = 0;
@@ -312,12 +348,7 @@ const functionCapabilityGroups = computed(() => {
   });
   return [...groups.entries()].map(([category, capabilities]) => ({ category, capabilities }));
 });
-const hasUnsavedChanges = computed(
-  () =>
-    snapshot.value != null &&
-    baselineProposalFingerprint != null &&
-    proposalFingerprintOf(rules.value) !== baselineProposalFingerprint,
-);
+const hasUnsavedChanges = computed(() => session.value.dirty.value);
 const calculatorUnavailableReason = computed(() =>
   editableFields.value.length === 0 ? '当前模块没有可写的主表字段，不能新增字段计算。' : undefined,
 );
@@ -404,11 +435,15 @@ const locatorFieldOptions = computed(() => [
   { value: '__none__', label: '不定位字段' },
   ...fieldOptions.value,
 ]);
-useWorkspaceViewUnsavedState('业务规则', () => hasUnsavedChanges.value);
+useWorkspaceViewUnsavedState(
+  '业务规则',
+  () => (!sharedWorkspace && hasUnsavedChanges.value) || !!newRuleDraft.value,
+  () => applying.value,
+);
 
 watch(
   () => props.moduleAlias,
-  () => void loadSnapshot(true),
+  () => void loadSnapshot(),
   { immediate: true },
 );
 
@@ -495,17 +530,20 @@ function ruleSummary(rule: BusinessRuleProposal): string {
 function resetExecutionResults() {
   editRevision += 1;
   trialRequest += 1;
-  applyRequest += 1;
   trialRunning.value = false;
-  applying.value = false;
   trial.value = undefined;
   applicationError.value = undefined;
   applicationIssues.value = [];
 }
 
+let changingPageRules = false;
 function replaceRules(nextRules: BusinessRuleProposal[]) {
-  rules.value = nextRules;
-  resetExecutionResults();
+  changingPageRules = true;
+  try {
+    session.value.replace(nextRules);
+  } finally {
+    changingPageRules = false;
+  }
 }
 
 function formulaText(rule: BusinessRuleProposal): string {
@@ -982,15 +1020,11 @@ function saveNewRule() {
   selectedCode.value = draft.code;
 }
 
-async function loadSnapshot(force = false) {
-  if (applying.value && !force) return;
+async function loadSnapshot() {
   const request = ++loadRequest;
+  const selected = session.value;
   resetExecutionResults();
   closeRuleDrawer();
-  snapshot.value = undefined;
-  uiControlSnapshot.value = undefined;
-  baselineProposalFingerprint = undefined;
-  rules.value = [];
   selectedCode.value = undefined;
   expressionSelections.clear();
   formulaInputs.value = {};
@@ -1002,47 +1036,30 @@ async function loadSnapshot(force = false) {
   referenceRootLoading.value = false;
   referenceRootFailed.value = false;
   trialTenantRequest += 1;
-  trialTenantId.value = '';
   trialTenants.value = [];
   trialTenantError.value = '';
   trialTenantLoading.value = false;
-  loading.value = true;
-  loadFailed.value = false;
   try {
-    const loaded = await moduleContext.http.request<BusinessRuleSnapshot>({
-      path: `/platform.module/${encodeURIComponent(props.moduleAlias)}/business-rules`,
-    });
-    if (request !== loadRequest || loaded.moduleAlias !== props.moduleAlias) return;
-    const merged = await mergeUiRules(loaded);
-    if (request !== loadRequest) return;
-    uiControlSnapshot.value = merged.ui;
-    snapshot.value = merged.snapshot;
-    formulaInputs.value = {};
-    const editable = editableProposals(merged.snapshot);
-    rules.value = editable;
-    baselineProposalFingerprint = proposalFingerprintOf(editable);
+    if (!selected.applying.value) await selected.load(!selected.dirty.value);
+    if (request !== loadRequest || session.value !== selected) return;
     selectedCode.value =
-      editable.find((rule) => rule.kind === activeKind.value)?.code ?? editable.at(0)?.code;
-    sampleValues.value = Object.fromEntries(loaded.editableFields.map((field) => [field.fieldName, '']));
+      rules.value.find((rule) => rule.kind === activeKind.value)?.code ?? rules.value.at(0)?.code;
+    sampleChildren.value = {};
+    sampleValues.value = Object.fromEntries(
+      (snapshot.value?.editableFields ?? []).map((field) => [field.fieldName, '']),
+    );
     void loadReferenceRoot();
-    void ensureReferencePaths(loaded.referenceFields?.map((field) => field.path) ?? []);
+    void ensureReferencePaths(snapshot.value?.referenceFields?.map((field) => field.path) ?? []);
   } catch (cause) {
     if (request !== loadRequest) return;
-    loadFailed.value = true;
     presentPlatformError(cause, { source: 'business-rule-governance', phase: 'load' });
-  } finally {
-    if (request === loadRequest) loading.value = false;
   }
 }
-
 function discardChanges() {
-  if (applying.value) return;
-  if (!snapshot.value) return;
+  if (applying.value || !snapshot.value) return;
   formulaInputs.value = {};
-  const editable = editableProposals(snapshot.value);
-  rules.value = editable;
-  baselineProposalFingerprint = proposalFingerprintOf(editable);
-  selectedCode.value = editable.at(0)?.code;
+  session.value.discard();
+  selectedCode.value = rules.value.at(0)?.code;
   resetExecutionResults();
 }
 
@@ -1090,85 +1107,33 @@ function incompleteRuleIssues(proposals: readonly BusinessRuleProposal[]): Busin
   });
 }
 
-async function applyRules() {
-  const currentSnapshot = snapshot.value;
-  if (!currentSnapshot || !hasUnsavedChanges.value || applying.value) return;
-  const request = ++applyRequest;
-  const revision = editRevision;
-  const moduleAlias = props.moduleAlias;
-  const baselineFingerprint = currentSnapshot.baselineFingerprint;
-  const proposedRules = rules.value.map((rule) => ({ ...rule }));
-  const proposalFingerprint = proposalFingerprintOf(proposedRules);
-  applying.value = true;
+async function applyRules(): Promise<boolean> {
+  if (!snapshot.value || !hasUnsavedChanges.value || applying.value) return false;
+  const selected = session.value;
   applicationError.value = undefined;
-  applicationIssues.value = [];
-  const isCurrent = () =>
-    request === applyRequest &&
-    revision === editRevision &&
-    moduleAlias === props.moduleAlias &&
-    snapshot.value?.baselineFingerprint === baselineFingerprint &&
-    proposalFingerprintOf(rules.value) === proposalFingerprint;
+  applicationIssues.value = incompleteRuleIssues(rules.value);
+  if (applicationIssues.value.length) return false;
   try {
-    const localIssues = incompleteRuleIssues(proposedRules);
-    if (localIssues.length) {
-      applicationIssues.value = localIssues;
-      return;
-    }
-    const checked = await moduleContext.http.request<BusinessRulePreview>({
-      method: 'POST',
-      path: `/platform.module/${encodeURIComponent(moduleAlias)}/business-rules/preview`,
-      body: { rules: proposedRules.filter((rule) => rule.kind !== 'UI_CONTROL') },
-    });
-    if (!isCurrent()) return;
-    if (checked.errors.length) {
-      applicationIssues.value = checked.errors;
-      return;
-    }
-    if (!checked.proposalFingerprint) {
-      applicationError.value = '检查结果无效，请重新加载后再应用。未应用更改仍保留。';
-      return;
-    }
-    const result = await moduleContext.http.request<BusinessRuleApplyResult>({
-      method: 'POST',
-      path: `/platform.module/${encodeURIComponent(moduleAlias)}/business-rules/apply`,
-      body: {
-        rules: proposedRules.filter((rule) => rule.kind !== 'UI_CONTROL'),
-        uiRules: proposedRules
-          .filter((rule) => rule.kind === 'UI_CONTROL')
-          .map(({ code, formKey, expression, enabled, targets }) => ({
-            code,
-            formKey,
-            expression,
-            enabled,
-            targets,
-          })),
-        uiBaselineFingerprint: uiControlSnapshot.value?.baselineFingerprint,
-        baselineFingerprint,
-        proposalFingerprint: checked.proposalFingerprint,
-      },
-    });
-    if (!isCurrent()) return;
-    const merged = await mergeUiRules(result.snapshot);
-    if (!isCurrent()) return;
-    uiControlSnapshot.value = merged.ui;
-    snapshot.value = merged.snapshot;
+    await selected.apply(() => selected === session.value);
+    if (selected !== session.value) return false;
     formulaInputs.value = {};
-    const editable = editableProposals(merged.snapshot);
-    rules.value = editable;
-    baselineProposalFingerprint = proposalFingerprintOf(editable);
     selectedCode.value =
-      editable.find((rule) => rule.code === selectedCode.value)?.code ?? editable.at(0)?.code;
+      rules.value.find((rule) => rule.code === selectedCode.value)?.code ?? rules.value.at(0)?.code;
     resetExecutionResults();
     presentPlatformMessage('业务规则已应用并同步生效。', {
       source: 'business-rule-governance',
       phase: 'action',
     });
+    return true;
   } catch (cause) {
-    if (!isCurrent()) return;
+    if (selected !== session.value) return false;
+    if (cause instanceof BusinessRulePrecheckError) {
+      applicationIssues.value = cause.issues;
+      return false;
+    }
     applicationError.value = '应用失败，配置可能已更新；请重新加载后再应用。未应用更改仍保留。';
     presentPlatformError(cause, { source: 'business-rule-governance', phase: 'action' });
-  } finally {
-    if (request === applyRequest) applying.value = false;
+    return false;
   }
 }
 
@@ -1243,14 +1208,7 @@ async function runTrial() {
     }),
   );
   try {
-    const trialHttp = trialTenantId.value
-      ? withHttpHeaders(moduleContext.http, { 'X-MuYun-Tenant-Id': trialTenantId.value })
-      : moduleContext.http;
-    const result = await trialHttp.request<BusinessRuleTrialResult>({
-      method: 'POST',
-      path: `/platform.module/${encodeURIComponent(props.moduleAlias)}/business-rules/trial`,
-      body: { rules: rules.value.filter((rule) => rule.kind !== 'UI_CONTROL'), sampleValues: values },
-    });
+    const result = await requestRuleTrial({ sampleValues: values, sampleChildren: typedChildSamples() });
     if (request !== trialRequest || revision !== editRevision) return;
     trial.value = result;
     capturedTrialInputs.value = values;
@@ -1261,10 +1219,81 @@ async function runTrial() {
     if (request === trialRequest) trialRunning.value = false;
   }
 }
+
+// This adapter shares the visible candidate and standard governance endpoints with manual editing.
+const assistantHost = useAssistantSurfaceHost();
+let unregisterAssistant: (() => void) | undefined;
+function requestRuleTrial(input: BusinessRuleTrialInput, signal?: AbortSignal) {
+  return session.value.trial(input, signal);
+}
+function deactivateAssistant() {
+  sharedWorkspace?.hideEditor(session.value);
+  unregisterAssistant?.();
+  unregisterAssistant = undefined;
+}
+function activateAssistant() {
+  deactivateAssistant();
+  if (sharedWorkspace) {
+    sharedWorkspace.showEditor(session.value);
+    sharedWorkspace.focus(session.value);
+    return;
+  }
+  const assistantPageKey = assistantHost?.activePageInstanceKey();
+  if (!assistantHost || !assistantPageKey) return;
+  unregisterAssistant = assistantHost.registry.register({
+    pageInstanceKey: assistantPageKey,
+    contextRevision: () =>
+      JSON.stringify([
+        props.moduleAlias,
+        snapshot.value?.baselineFingerprint,
+        uiControlSnapshot.value?.baselineFingerprint,
+        rules.value,
+        ruleDrawerOpen.value,
+        loading.value,
+        applying.value,
+        trialTenantId.value,
+      ]),
+    surface: createBusinessRuleAssistantSurface(
+      session.value.adapter,
+      createAssistantTurnRequester(moduleContext.http),
+      () => assistantHost.capabilities?.() ?? [],
+    ),
+  });
+}
+const editorOwner = Symbol('rule-editor');
+watch(
+  [session, ruleDrawerOpen],
+  ([current, open], previous) => {
+    previous?.[0].setEditing(editorOwner, false);
+    current.setEditing(editorOwner, open);
+  },
+  { flush: 'sync' },
+);
+watch(
+  () => session.value.revision.value,
+  () => {
+    resetExecutionResults();
+    if (!changingPageRules) formulaInputs.value = {};
+    if (!rules.value.some((rule) => rule.code === selectedCode.value))
+      selectedCode.value = rules.value.at(0)?.code;
+  },
+  { flush: 'sync' },
+);
+onUnmounted(() => {
+  session.value.setEditing(editorOwner, false);
+  localSessions.forEach((value) => value.dispose());
+});
+onMounted(activateAssistant);
+onActivated(activateAssistant);
+onDeactivated(deactivateAssistant);
+onUnmounted(deactivateAssistant);
 </script>
 
 <template>
   <section class="business-rule-governance">
+    <p v-if="sharedWorkspace && hasUnsavedChanges" role="status">
+      对话与页面共用这份未应用更改。关闭本页后仍可继续编辑；刷新工作区或切换身份后不会恢复。
+    </p>
     <UiSpin v-if="loading" class="business-rule-governance__state" tip="加载业务规则" />
     <div v-else-if="loadFailed" class="business-rule-governance__state">
       <UiEmpty description="业务规则加载失败" />
@@ -1839,6 +1868,46 @@ async function runTrial() {
           </label>
         </div>
       </details>
+      <section
+        v-for="group in childSampleGroups"
+        :key="group.relation"
+        class="business-rule-governance__editor"
+      >
+        <strong>{{ group.fields[0]?.title.split(' · ')[0] || group.relation }}明细样例</strong>
+        <p>填写汇总使用的明细值；本次试算不执行子表行计算，也不保存记录。没有行表示空明细。</p>
+        <div
+          v-for="(row, index) in sampleChildren[group.relation] ?? []"
+          :key="index"
+          class="business-rule-governance__sample-grid"
+        >
+          <label v-for="field in group.fields" :key="field.fieldName">
+            {{ field.title }}
+            <UiInput
+              :value="row[field.fieldName.slice(group.relation.length + 1)]"
+              :type="sampleInputType(field)"
+              @update:value="
+                row[field.fieldName.slice(group.relation.length + 1)] = String($event);
+                invalidateTrial();
+              "
+            />
+          </label>
+          <UiButton
+            @click="
+              sampleChildren[group.relation]?.splice(index, 1);
+              invalidateTrial();
+            "
+            >移除第 {{ index + 1 }} 行</UiButton
+          >
+        </div>
+        <UiButton
+          :disabled="(sampleChildren[group.relation]?.length ?? 0) >= 100"
+          @click="
+            (sampleChildren[group.relation] ??= []).push({});
+            invalidateTrial();
+          "
+          >添加明细样例</UiButton
+        >
+      </section>
       <section v-if="trial" class="business-rule-governance__result" data-testid="business-rule-trial">
         <h3>本次输入、最终计算值与校验结果</h3>
         <dl v-if="Object.keys(capturedTrialInputs).length">

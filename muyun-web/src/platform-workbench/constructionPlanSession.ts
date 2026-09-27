@@ -1,4 +1,5 @@
 import { createConstructionDeliveryCapabilities } from './constructionDelivery';
+import { createConstructionReferenceDiscoveryCapabilities } from './constructionReferenceDiscovery';
 import { createConstructionFieldCapabilities } from './constructionFields';
 import { createConstructionInitializationCapabilities } from './constructionInitialization';
 import { shallowRef } from 'vue';
@@ -64,9 +65,18 @@ export const constructionPlanContentSchema = itemSchema({
       section: { type: 'string', enum: ['SCOPE', 'RULE', 'RELATION'] },
       index: { type: 'integer', minimum: 0, maximum: 15 },
       objectKey: textSchema(64),
-      mode: { type: 'string', enum: ['FIELD', 'REQUIRED', 'UNIQUE', 'MANUAL', 'UNSUPPORTED'] },
+      mode: { type: 'string', enum: ['FIELD', 'REQUIRED', 'UNIQUE', 'REFERENCE', 'MANUAL', 'UNSUPPORTED'] },
       fieldName: { type: 'string', maxLength: 64 },
       explanation: textSchema(500),
+      reference: {
+        anyOf: [
+          { type: 'null' },
+          itemSchema({
+            objectKey: { type: 'string', maxLength: 64 },
+            moduleAlias: { type: 'string', maxLength: 128 },
+          }),
+        ],
+      },
     }),
   },
   decisions: arraySchema(
@@ -119,11 +129,11 @@ export function parseConstructionPlan(value: unknown): ConstructionPlanContent {
       const item = record(entry);
       if (
         !['SCOPE', 'RULE', 'RELATION'].includes(String(item.section)) ||
-        !['FIELD', 'REQUIRED', 'UNIQUE', 'MANUAL', 'UNSUPPORTED'].includes(String(item.mode))
+        !['FIELD', 'REQUIRED', 'UNIQUE', 'REFERENCE', 'MANUAL', 'UNSUPPORTED'].includes(String(item.mode))
       )
         fail('需求兑现方式无效');
       const section = item.section as 'SCOPE' | 'RULE' | 'RELATION';
-      const mode = item.mode as 'FIELD' | 'REQUIRED' | 'UNIQUE' | 'MANUAL' | 'UNSUPPORTED';
+      const mode = item.mode as 'FIELD' | 'REQUIRED' | 'UNIQUE' | 'REFERENCE' | 'MANUAL' | 'UNSUPPORTED';
       const source =
         section === 'SCOPE' ? content.inScope : section === 'RULE' ? content.rules : content.relationships;
       if (!Number.isInteger(item.index) || Number(item.index) < 0 || Number(item.index) >= source.length)
@@ -131,9 +141,29 @@ export function parseConstructionPlan(value: unknown): ConstructionPlanContent {
       const objectKey = text(item.objectKey, 64);
       if (!content.objects.some((object) => object.key === objectKey)) fail('兑现项业务对象不存在');
       const fieldName = typeof item.fieldName === 'string' ? item.fieldName.trim() : '';
-      const field = ['FIELD', 'REQUIRED', 'UNIQUE'].includes(mode);
+      const field = ['FIELD', 'REQUIRED', 'UNIQUE', 'REFERENCE'].includes(mode);
       if (field ? !/^[a-z][a-zA-Z0-9_]{0,63}$/.test(fieldName) : Boolean(fieldName)) fail('兑现检查字段无效');
-      if (section === 'RELATION' && mode !== 'UNSUPPORTED') fail('对象关联尚不支持，须商定后续范围');
+      const reference = item.reference == null ? null : record(item.reference);
+      if ((mode === 'REFERENCE') !== Boolean(reference)) fail('引用兑现项必须声明目标');
+      let target: { objectKey: string; moduleAlias: string } | null = null;
+      if (reference) {
+        const targetObject = typeof reference.objectKey === 'string' ? reference.objectKey.trim() : '';
+        const targetModule = typeof reference.moduleAlias === 'string' ? reference.moduleAlias.trim() : '';
+        if (Boolean(targetObject) === Boolean(targetModule)) fail('请选择方案对象或已有模块之一');
+        if (
+          targetObject &&
+          (!content.objects.some((object) => object.key === targetObject) || targetObject === objectKey)
+        )
+          fail('引用目标必须是方案中的另一个对象');
+        if (
+          targetModule &&
+          (targetModule.length > 128 || !/^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$/.test(targetModule))
+        )
+          fail('引用模块标识无效');
+        target = { objectKey: targetObject, moduleAlias: targetModule };
+      }
+      if (section === 'RELATION' && mode !== 'UNSUPPORTED' && mode !== 'REFERENCE')
+        fail('普通字段不能兑现对象关联');
       const key = [section, item.index, objectKey, mode, fieldName].join(':');
       if (bindings.has(key)) fail('需求兑现项不能重复');
       bindings.add(key);
@@ -144,6 +174,7 @@ export function parseConstructionPlan(value: unknown): ConstructionPlanContent {
         mode,
         fieldName,
         explanation: text(item.explanation, 500),
+        ...(target ? { reference: target } : {}),
       };
     });
   }
@@ -153,19 +184,29 @@ export function parseConstructionPlan(value: unknown): ConstructionPlanContent {
   return content;
 }
 export function presentConstructionPlan(content: ConstructionPlanContent) {
-  return {
-    title: content.title,
-    lines: [
-      content.goal,
-      ...Object.entries(planSections).flatMap(([key, label]) =>
-        content[key as keyof typeof planSections].map((item) => `${label}：${item}`),
-      ),
-      ...content.objects.map((object) => `业务对象：${object.name} — ${object.purpose}`),
-      ...content.decisions.map(
+  const sections = [
+    ...Object.entries(planSections).map(([key, label]) => ({
+      title: label,
+      expanded: ['inScope', 'rules', 'questions'].includes(key),
+      lines: content[key as keyof typeof planSections].map((item) => `${label}：${item}`),
+    })),
+    {
+      title: '业务对象',
+      expanded: true,
+      lines: content.objects.map((object) => `业务对象：${object.name} — ${object.purpose}`),
+    },
+    {
+      title: '用户要求与建议',
+      expanded: false,
+      lines: content.decisions.map(
         (decision) =>
           `${decision.source === 'USER_REQUIREMENT' ? '用户要求' : '建议'}：${decision.statement}`,
       ),
-      ...(content.requirements ?? []).map((item) => {
+    },
+    {
+      title: '逐项兑现方式',
+      expanded: false,
+      lines: (content.requirements ?? []).map((item) => {
         const source =
           item.section === 'SCOPE'
             ? content.inScope
@@ -176,11 +217,20 @@ export function presentConstructionPlan(content: ConstructionPlanContent) {
           FIELD: '核对字段存在',
           REQUIRED: '系统必填',
           UNIQUE: '系统防重复',
+          REFERENCE: '从关联业务中选择一条记录',
           MANUAL: '人工处理并核验',
           UNSUPPORTED: '暂不支持',
         }[item.mode];
         return `兑现方式：${source[item.index]} — ${mode}；${item.explanation}`;
       }),
+    },
+  ].filter((section) => section.lines.length);
+  return {
+    title: content.title,
+    sections,
+    lines: [
+      content.goal,
+      ...sections.flatMap((section) => section.lines),
       '本次仅确认需求范围，不创建或发布业务配置；已有建设结果保留。',
     ],
   };
@@ -399,7 +449,7 @@ export function createConstructionPlanSession(
           ...(manual.length > 3 ? [`另有 ${manual.length - 3} 项人工事项，请展开完整范围核对。`] : []),
           ...unsupported.slice(0, 3).map((item) => `待商定：${item.explanation.slice(0, 140)}`),
           content.relationships.length
-            ? '方案含对象关联，当前对话建设暂不能完整实现；须先商定分期范围，不能直接当作可交付承诺。'
+            ? '方案含对象关联，后续须核实目标并单独确认引用配置；本次不会创建关联。'
             : '下一步再核对可实现范围，逐步建设可用页面。',
         ],
         details: { title: '查看完整范围、规则和验收例子', lines: presentConstructionPlan(content).lines },
@@ -460,9 +510,21 @@ export function createConstructionPlanSession(
             ? '已保存的是需求方案，不代表应用可用或业务单据已保存。'
             : '尚无已保存方案。',
       deliveryScope: {
-        supported: ['独立登记表', '普通字段及必填、唯一约束', '列表、表单、详情及查询'],
-        unsupported: ['对象关联与多行明细', '跨表汇总和自动余额计算', '自动状态流转', '自动授权'],
-        relationshipsNeedScopeDecision: Boolean(value.candidate?.relationships.length),
+        supported: [
+          '独立登记表',
+          '单值模块引用（已有模块或方案内新建对象）',
+          '普通字段及必填、唯一约束',
+          '列表、表单、详情及查询',
+        ],
+        unsupported: ['从零建设多行明细关系', '跨表汇总和自动余额计算', '自动状态流转', '自动授权'],
+        relationshipsNeedScopeDecision: Boolean(
+          value.candidate?.relationships.some(
+            (_, index) =>
+              !value.candidate?.requirements?.some(
+                (item) => item.section === 'RELATION' && item.index === index && item.mode === 'REFERENCE',
+              ),
+          ),
+        ),
       },
       manualEditing: manualEditing.value,
       reviewRequired: !!value.reviewRequired,
@@ -593,6 +655,7 @@ export function createConstructionPlanSession(
     const canBuild =
       initializationAvailable() && !!value.saved && !dirty() && !value.reviewRequired && !manualEditing.value;
     const result: AssistantCapability[] = [
+      ...(initializationAvailable() ? createConstructionReferenceDiscoveryCapabilities(client) : []),
       ...(canBuild && value.saved!.initializations.length
         ? [...fieldCapabilities, ...deliveryCapabilities]
         : []),

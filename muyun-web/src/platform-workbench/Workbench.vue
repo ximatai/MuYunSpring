@@ -13,10 +13,12 @@ import {
   createAssistantSurfaceRegistry,
   provideAssistantSurfaceHost,
   type AssistantTurnRequester,
+  type AssistantWorkspaceContribution,
   type ConstructionPlanClient,
   type AssistantConversationClient,
   userPreferences,
 } from '@muyun/web-core';
+import { createConfigurationCollaboration } from './configurationCollaboration';
 import { createConstructionPlanSession } from './constructionPlanSession';
 import { useWorkbenchNavigation } from './workbenchNavigation';
 import WorkbenchBrandControl from './WorkbenchBrandControl.vue';
@@ -45,6 +47,7 @@ const props = withDefaults(
     constructionPlanClient?: ConstructionPlanClient;
     assistantConversationClient?: AssistantConversationClient;
     assistantRequestTurn?: AssistantTurnRequester;
+    assistantWorkspaceContribution?: AssistantWorkspaceContribution;
     assistantWaitForPageReady?: () => Promise<string>;
   }>(),
   {
@@ -97,14 +100,29 @@ const constructionPlan = props.constructionPlanClient
     )
   : undefined;
 watch(assistantIdentity, () => constructionPlan?.current(), { flush: 'sync' });
-const assistantSurfaceRegistry = createAssistantSurfaceRegistry(
-  assistantIdentity,
-  constructionPlan
-    ? () => {
-        const plan = constructionPlan.current();
-        return {
-          revision: String(plan.generation),
-          facts: {
+const configurationCollaboration = createConfigurationCollaboration();
+const configurationEditor = computed(() => props.assistantWorkspaceContribution?.editor?.());
+const assistantSurfaceRegistry = createAssistantSurfaceRegistry(assistantIdentity, () => {
+  const plan = constructionPlan?.current();
+  const contribution = props.assistantWorkspaceContribution?.current();
+  return {
+    revision: JSON.stringify([
+      plan?.generation,
+      contribution?.revision,
+      configurationCollaboration.revision.value,
+    ]),
+    facts: {
+      ...(contribution?.facts ?? {}),
+      configurationTask: configurationCollaboration.task.value,
+      configurationEditor: configurationEditor.value
+        ? {
+            title: configurationEditor.value.title,
+            hasUnsavedChanges: configurationEditor.value.hasUnsavedChanges,
+            visible: configurationEditor.value.visible,
+          }
+        : undefined,
+      ...(plan
+        ? {
             constructionPlan: {
               generation: plan.generation,
               planId: plan.planId,
@@ -114,14 +132,53 @@ const assistantSurfaceRegistry = createAssistantSurfaceRegistry(
               constructionStatus: plan.saved?.constructionStatus ?? 'NOT_STARTED',
               detailsCapability: 'construction.describe',
             },
-          },
-        };
-      }
-    : undefined,
-);
+          }
+        : {}),
+    },
+  };
+});
 const ASSISTANT_PAGE_READY_TIMEOUT_MS = 15_000;
 const assistantOpen = ref(false);
+async function settleAssistantNavigation(signal?: AbortSignal) {
+  const expectedPageInstanceKey = props.assistantWaitForPageReady
+    ? await props.assistantWaitForPageReady()
+    : await nextTick(() => activePageInstanceKey.value);
+  if (!expectedPageInstanceKey || activePageInstanceKey.value !== expectedPageInstanceKey) {
+    throw new Error('Assistant target page changed before it became ready');
+  }
+  if (activePageDescriptor.value?.hostType !== 'module-page-host') {
+    return assistantSurfaceRegistry.snapshot()?.token;
+  }
+  const pageInstanceKey = expectedPageInstanceKey;
+  const controller = new AbortController();
+  const abort = () => controller.abort();
+  signal?.addEventListener('abort', abort, { once: true });
+  if (signal?.aborted) abort();
+  const stop = watch(
+    activePageInstanceKey,
+    (current) => {
+      if (current !== pageInstanceKey) abort();
+    },
+    { flush: 'sync' },
+  );
+  try {
+    const destination = await assistantSurfaceRegistry.waitForActiveSurface({
+      pageInstanceKey,
+      requireFormal: true,
+      signal: controller.signal,
+      timeoutMs: ASSISTANT_PAGE_READY_TIMEOUT_MS,
+    });
+    if (activePageInstanceKey.value !== pageInstanceKey || controller.signal.aborted) {
+      throw new Error('Assistant target page changed before it became ready');
+    }
+    return destination.token;
+  } finally {
+    stop();
+    signal?.removeEventListener('abort', abort);
+  }
+}
 function workbenchAssistantCapabilities() {
+  const configuration = props.assistantWorkspaceContribution?.capabilities(settleAssistantNavigation) ?? [];
   return [
     ...createWorkbenchAssistantCapabilities(
       () => props.startup?.menus ?? [],
@@ -134,46 +191,11 @@ function workbenchAssistantCapabilities() {
         handleSelectMenu(menu, target);
         return true;
       },
-      async (signal) => {
-        const expectedPageInstanceKey = props.assistantWaitForPageReady
-          ? await props.assistantWaitForPageReady()
-          : await nextTick(() => activePageInstanceKey.value);
-        if (!expectedPageInstanceKey || activePageInstanceKey.value !== expectedPageInstanceKey) {
-          throw new Error('Assistant target page changed before it became ready');
-        }
-        if (activePageDescriptor.value?.hostType !== 'module-page-host') {
-          return assistantSurfaceRegistry.snapshot()?.token;
-        }
-        const pageInstanceKey = expectedPageInstanceKey;
-        const controller = new AbortController();
-        const abort = () => controller.abort();
-        signal?.addEventListener('abort', abort, { once: true });
-        if (signal?.aborted) abort();
-        const stop = watch(
-          activePageInstanceKey,
-          (current) => {
-            if (current !== pageInstanceKey) abort();
-          },
-          { flush: 'sync' },
-        );
-        try {
-          const destination = await assistantSurfaceRegistry.waitForActiveSurface({
-            pageInstanceKey,
-            requireFormal: true,
-            signal: controller.signal,
-            timeoutMs: ASSISTANT_PAGE_READY_TIMEOUT_MS,
-          });
-          if (activePageInstanceKey.value !== pageInstanceKey || controller.signal.aborted) {
-            throw new Error('Assistant target page changed before it became ready');
-          }
-          return destination.token;
-        } finally {
-          stop();
-          signal?.removeEventListener('abort', abort);
-        }
-      },
+      settleAssistantNavigation,
     ),
     ...(constructionPlan?.capabilities() ?? []),
+    ...configurationCollaboration.filter(configuration, configurationEditor.value?.visible),
+    ...(configuration.length ? configurationCollaboration.capabilities() : []),
   ];
 }
 provideAssistantSurfaceHost({
@@ -612,6 +634,8 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
       :registry="assistantSurfaceRegistry"
       :construction-plan="constructionPlan"
       :conversation-client="assistantConversationClient"
+      :configuration-collaboration="configurationCollaboration"
+      :configuration-editor="configurationEditor"
       @close="assistantOpen = false"
     />
   </div>

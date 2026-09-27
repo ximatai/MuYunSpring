@@ -90,21 +90,31 @@ async function run(action: () => unknown) {
               : '尚未建设'
       }}
     </p>
-    <p v-for="item in state.saved?.initializations ?? []" :key="item.objectKey">
-      已初始化：{{ item.moduleAlias }}（依据第 {{ item.planRevision }} 版）{{
-        item.planRevision !== state.saved?.revision ? '；需求版本已变化，后续配置须重新核对' : ''
-      }}
-    </p>
-    <p v-for="delivery in state.saved?.deliveries ?? []" :key="delivery.requestId">
-      {{ delivery.kind === 'PAGE' ? '页面发布' : '入口创建' }}：{{ delivery.moduleAlias }} · 需求第
-      {{ delivery.planRevision }} 版
-    </p>
-    <p v-for="change in state.saved?.fieldChanges ?? []" :key="change.requestId">
-      字段已提交：{{ change.fields.map((field) => field.title).join('、') }}（依据第
-      {{ change.planRevision }} 版）{{
-        change.planRevision !== state.saved?.revision ? '；需求已修订，须核对已有字段' : ''
-      }}；页面和入口状态请查询实际建设进度。
-    </p>
+    <details
+      v-if="
+        state.saved &&
+        (state.saved.initializations.length ||
+          state.saved.deliveries.length ||
+          state.saved.fieldChanges.length)
+      "
+    >
+      <summary>查看配置提交记录</summary>
+      <p v-for="item in state.saved?.initializations ?? []" :key="item.objectKey">
+        已初始化：{{ item.moduleAlias }}（依据第 {{ item.planRevision }} 版）{{
+          item.planRevision !== state.saved?.revision ? '；需求版本已变化，后续配置须重新核对' : ''
+        }}
+      </p>
+      <p v-for="delivery in state.saved?.deliveries ?? []" :key="delivery.requestId">
+        {{ delivery.kind === 'PAGE' ? '页面发布' : '入口创建' }}：{{ delivery.moduleAlias }} · 需求第
+        {{ delivery.planRevision }} 版
+      </p>
+      <p v-for="change in state.saved?.fieldChanges ?? []" :key="change.requestId">
+        字段已提交：{{ change.fields.map((field) => field.title).join('、') }}（依据第
+        {{ change.planRevision }} 版）{{
+          change.planRevision !== state.saved?.revision ? '；需求已修订，须核对已有字段' : ''
+        }}；页面和入口状态请查询实际建设进度。
+      </p>
+    </details>
     <p v-if="state.reviewRequired" role="status">
       目标或范围已修改。原有问题、假设和规则待重新核对，请告诉助手“核对修改后的方案”再确认；不会自动视为已解决。
     </p>
@@ -163,7 +173,14 @@ async function run(action: () => unknown) {
     <p v-if="session.dirty()">本版变化：{{ session.changes().join('、') }}</p>
     <details v-if="presentation">
       <summary>审阅当前候选</summary>
-      <p v-for="(line, index) in presentation.lines" :key="index">{{ line }}</p>
+      <p>{{ state.candidate?.goal }}</p>
+      <details v-for="section in presentation.sections" :key="section.title" :open="section.expanded">
+        <summary>{{ section.title }} · {{ section.lines.length }} 项</summary>
+        <ul>
+          <li v-for="(line, index) in section.lines" :key="index">{{ line }}</li>
+        </ul>
+      </details>
+      <p>本次仅确认需求范围，不创建或发布业务配置；已有建设结果保留。</p>
     </details>
     <UiButton v-if="state.candidate && !editing" :disabled="disabled || working" @click="run(beginEdit)"
       >修改目标与范围</UiButton

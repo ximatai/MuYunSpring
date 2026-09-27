@@ -156,6 +156,7 @@ public class BusinessRuleGovernanceService {
             });
         }
         List<FormulaRule> rules = proposals(command == null ? null : command.rules(), preview.snapshot(), errors);
+        Map<String, List<Map<String, Object>>> children = trialChildren(command, preview.snapshot(), rules, errors);
         if (!errors.isEmpty()) return new BusinessRuleTrialResult(preview, immutableValues(values), List.of(), List.copyOf(errors));
         try {
             FormulaReferenceContext references = trialReferences(moduleAlias, rules);
@@ -167,7 +168,7 @@ public class BusinessRuleGovernanceService {
                 return new BusinessRuleTrialResult(preview, immutableValues(values), List.of(), List.copyOf(errors));
             }
             FormulaExecutionResult result = FormulaRuleExecutionPlan.forMainRecord(rules, fields)
-                    .execute(new FormulaEngine(), FormulaRuntimeData.typed(values, Map.of(), fields,
+                    .execute(new FormulaEngine(), FormulaRuntimeData.typed(values, children, fields,
                             references.paths(), current -> resolveReferences(references, current, referenceTenantId)));
             result.report().errors().forEach(item -> errors.add(new BusinessRuleIssue(item.code(), item.ruleId(),
                     item.fieldPath(), item.message())));
@@ -181,6 +182,49 @@ public class BusinessRuleGovernanceService {
             errors.add(new BusinessRuleIssue("FORMULA_REFERENCE_PATH_INVALID", null, null, exception.getMessage()));
             return new BusinessRuleTrialResult(preview, immutableValues(values), List.of(), List.copyOf(errors));
         }
+    }
+
+    /** Samples are explicit input, never reads of persisted child records or executable child rules. */
+    private Map<String, List<Map<String, Object>>> trialChildren(BusinessRuleTrialCommand command,
+            BusinessRuleGovernanceSnapshot snapshot, List<FormulaRule> rules, List<BusinessRuleIssue> errors) {
+        Map<String, Set<String>> allowed = new LinkedHashMap<>();
+        snapshot.aggregateFields().forEach(field -> {
+            String[] path = field.fieldName().split("\\.", 2);
+            allowed.computeIfAbsent(path[0], key -> new LinkedHashSet<>()).add(path[1]);
+        });
+        Map<String, List<Map<String, Object>>> supplied = command == null || command.sampleChildren() == null
+                ? Map.of() : command.sampleChildren();
+        Map<String, List<Map<String, Object>>> result = new LinkedHashMap<>();
+        if (supplied.size() > 20) {
+            errors.add(new BusinessRuleIssue("TRIAL_CHILD_LIMIT", null, null, "试算最多提供20个子表"));
+            return result;
+        }
+        supplied.forEach((relation, rows) -> {
+            if (!allowed.containsKey(relation) || rows == null || rows.size() > 100) {
+                errors.add(new BusinessRuleIssue("INVALID_TRIAL_CHILD", null, relation,
+                        "子表必须来自当前汇总字段目录，每个子表最多100行"));
+                return;
+            }
+            List<Map<String, Object>> copies = new ArrayList<>();
+            for (Map<String, Object> row : rows) {
+                if (row == null || !allowed.get(relation).containsAll(row.keySet())) {
+                    errors.add(new BusinessRuleIssue("INVALID_TRIAL_CHILD_FIELD", null, relation,
+                            "明细样例只接受目录中声明的直接子表业务字段"));
+                    continue;
+                }
+                copies.add(new LinkedHashMap<>(row));
+            }
+            result.put(relation, copies);
+        });
+        FormulaEngine engine = new FormulaEngine();
+        rules.stream().filter(FormulaRule::enabled).forEach(rule ->
+                engine.valueSideReferencedFields(rule.expression()).stream()
+                        .filter(path -> snapshot.aggregateFields().stream().anyMatch(field -> field.fieldName().equals(path)))
+                        .map(path -> path.substring(0, path.indexOf('.'))).distinct()
+                        .filter(relation -> !supplied.containsKey(relation))
+                        .forEach(relation -> errors.add(new BusinessRuleIssue("TRIAL_CHILD_REQUIRED", rule.id(), relation,
+                                "请提供子表样例；空明细请显式传入空列表，不能把未提供数据当作零条记录"))));
+        return result;
     }
 
     @Transactional

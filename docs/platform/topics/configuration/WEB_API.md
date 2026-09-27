@@ -531,10 +531,17 @@
 
 初始化回执证明配置已提交。首个响应的运行态可以为空，调用状态接口核实提交后激活结果；字段、关系、页面、菜单及业务验收不属于该初始化动作。完整建设边界见 [AI 协作路线](../../AI_COLLABORATION_ROADMAP.md)。
 
+### 业务对象发现与引用目标
+
+- `GET /platform.application-construction-plans/business-objects`：通过公共配置目录列出已有模块及其引用就绪情况；不可引用对象仍保留并说明原因，不能据此视为不存在。
+- `GET /platform.application-construction-plans/reference-target?moduleAlias=...`：读取已启用、具备引用能力的目标键与显示字段目录。动态目标须有标准名称字段，静态目标须有正式引用能力。
+
+两个接口要求系统配置身份及正式元数据预检、发布权限，只返回配置事实，不读取业务记录，也不授权修改目标模块。
+
 ### 建设方案字段节点
 
-- `GET /platform.application-construction-plans/{planId}/objects/{objectKey}/fields`：读取已初始化对象的当前字段、元数据版本及启用规格目录。
-- `POST /platform.application-construction-plans/{planId}/field-changes/preview`：预检同一对象的 1–12 个普通新增字段；返回结构差异、警告、错误和确认指纹。
+- `GET /platform.application-construction-plans/{planId}/objects/{objectKey}/fields`：读取已初始化对象的当前字段、有效引用属性、元数据版本及启用规格目录。
+- `POST /platform.application-construction-plans/{planId}/field-changes/preview`：预检同一对象的 1–12 个新增字段，可声明标准名称字段和经确认的单值引用；返回结构差异、警告、错误和确认指纹。
 - `POST /platform.application-construction-plans/{planId}/field-changes`：提交原提议、指纹与请求标识。复用正式元数据变更集，字段和回执同事务提交，不发布页面或菜单。
 - `GET /platform.application-construction-plans/{planId}/field-changes/{requestId}`：查询该次提交回执与实际运行态；未找到返回 204，不能据此推定请求未执行。
 
@@ -557,6 +564,6 @@
 
 页面提议只接受实际字段名、标题及列表/表单/快速查询投放，不接受模型提交任意 UI JSON。入口仅面向当前系统配置工作台，不隐式授权业务角色。需求和配置修订使旧预检失效；页面、入口各自提交，不承诺跨节点自动回滚。验收表示人工判断，业务规则的执行继续归正式领域能力。
 
-需求内容的 `requirements` 按 `section`（`SCOPE/RULE/RELATION`）与零起始 `index` 对应本期条款，并绑定 `objectKey`。`mode` 为 `FIELD/REQUIRED/UNIQUE/MANUAL/UNSUPPORTED`；前三者须给出 `fieldName`，后两者不接受字段名，均须提供业务解释。关系当前只允许声明不支持，分期排除须经需求版本确认。缺失映射的旧方案仍可读取，但相关建设检查不会自动放行。
+需求内容的 `requirements` 按 `section`（`SCOPE/RULE/RELATION`）与零起始 `index` 对应本期条款，并绑定 `objectKey`。`mode` 为 `FIELD/REQUIRED/UNIQUE/REFERENCE/MANUAL/UNSUPPORTED`；前四者须给出 `fieldName`，后两者不接受字段名，均须提供业务解释。`REFERENCE` 另含 `reference`：`objectKey`（方案内另一对象）与 `moduleAlias`（已有模块）择一非空，其他模式不携带引用目标。关联条款须使用 `REFERENCE` 或明确 `UNSUPPORTED`，不能用普通字段冒充。字段提议的 `titleField=true` 沿用标准名称字段约束；`reference` 复用标准引用草案，仅允许单值、无投影、保留历史引用。缺失映射的旧方案仍可读取，但相关建设检查不会自动放行。
 
-`progress.requirements` 与 `task.objects[].requirements` 返回 `UNMAPPED/UNSUPPORTED/CONFIGURATION_MISSING/CONFIGURATION_MATCHED/MANUAL_CHECK_REQUIRED` 证据；配置匹配只覆盖所声明字段的存在、必填与唯一约束。人工核验不被自动转换为配置证明。任务接口要求系统配置身份和方案所有权。
+`progress.requirements` 与 `task.objects[].requirements` 返回 `UNMAPPED/UNSUPPORTED/CONFIGURATION_MISSING/CONFIGURATION_MATCHED/MANUAL_CHECK_REQUIRED` 证据；配置匹配覆盖所声明字段的存在、必填、唯一约束及已确认的引用目标；不代表完整业务验收。人工核验不被自动转换为配置证明。任务接口要求系统配置身份和方案所有权。

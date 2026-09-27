@@ -18,10 +18,12 @@ class ApplicationConstructionFieldServiceTest {
         var publisher = mock(MetadataModelChangeSetApplyService.class);
         var service = new ApplicationConstructionFieldService(plans, mock(ApplicationConstructionFieldChangeDao.class),
                 mock(MetadataService.class), mock(ModuleMetadataRelationService.class), mock(MetadataFieldService.class),
-                mock(FieldSpecService.class), previews, publisher, mock(DynamicRuntimeActivationService.class), permissions);
+                mock(FieldSpecService.class), previews, publisher, mock(DynamicRuntimeActivationService.class), permissions, mock(ReferenceTargetFieldCatalogService.class), mock(ModuleMetadataFieldPropertySummaryService.class));
         doThrow(new PlatformAccessDeniedException("无字段发布权限")).when(permissions).requireAuthorized(argThat(context -> context.actionCode().equals("applyMetadataModelChangeSet")));
         try (var ignored = CurrentUserContext.use(CurrentUser.systemUser("restricted", "受限管理员"))) {
             assertThatThrownBy(() -> service.describe("plan", "order")).hasMessageContaining("无字段发布权限");
+            assertThatThrownBy(service::businessObjects).hasMessageContaining("无字段发布权限");
+            assertThatThrownBy(() -> service.referenceTarget("crm.customer")).hasMessageContaining("无字段发布权限");
         }
         verifyNoInteractions(plans, previews, publisher);
     }
@@ -33,7 +35,7 @@ class ApplicationConstructionFieldServiceTest {
         var specs = mock(FieldSpecService.class);
         var service = new ApplicationConstructionFieldService(plans, mock(ApplicationConstructionFieldChangeDao.class),
                 metadata, relations, fields, specs, mock(MetadataModelChangeSetPreviewService.class),
-                mock(MetadataModelChangeSetApplyService.class), mock(DynamicRuntimeActivationService.class), mock(ActionExecutionPolicyService.class));
+                mock(MetadataModelChangeSetApplyService.class), mock(DynamicRuntimeActivationService.class), mock(ActionExecutionPolicyService.class), mock(ReferenceTargetFieldCatalogService.class), mock(ModuleMetadataFieldPropertySummaryService.class));
         var content = new ApplicationConstructionPlanContent("登记", "登记", java.util.List.of(), java.util.List.of(),
                 java.util.List.of(new ApplicationConstructionPlanContent.BusinessObject("entry", "登记", "登记")),
                 java.util.List.of(), java.util.List.of(), java.util.List.of(), java.util.List.of(), java.util.List.of(), java.util.List.of(), java.util.List.of());

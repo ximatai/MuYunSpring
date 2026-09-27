@@ -8,6 +8,7 @@ import {
   type HttpClient,
   type HttpRequestOptions,
 } from '@/web-core';
+import { createMetadataWorkspace, provideMetadataWorkspace } from '@/views/metadataWorkspace';
 import MetadataGovernanceSurface from '@/views/MetadataGovernanceSurface.vue';
 import { presentPlatformMessage, handlePlatformActionSuccess } from '@muyun/platform-components';
 import { moduleRuntimeActivationRefreshKey } from '@/views/moduleRuntimeActivation';
@@ -1621,4 +1622,132 @@ it('keeps a multi-field plan visible, edits and removes items without publishing
     ],
   });
   expect(request.mock.calls.some(([options]) => options.path.endsWith('change-set-apply'))).toBe(false);
+});
+
+it.each(['save', 'edit', 'cancel', 'refresh-failure'])(
+  'confirms the visible metadata candidate in conversation (%s)',
+  async (scenario) => {
+    const request = vi.fn(async (options: HttpRequestOptions) =>
+      options.path === '/platform.field_spec/query'
+        ? { records: [{ alias: 'string', title: '文本', enabled: true }], pages: 1 }
+        : responseFor(options),
+    );
+    configureModuleContext({ http: { request } as HttpClient });
+    const registry = createAssistantSurfaceRegistry();
+    registry.activate('page-1');
+    const refresh = vi.fn(async () => {
+      if (scenario === 'refresh-failure') throw new Error('refresh failed');
+    });
+    const Harness = defineComponent({
+      setup() {
+        provideAssistantSurfaceHost({ registry, activePageInstanceKey: () => 'page-1' });
+        return () => h(MetadataGovernanceSurface, { moduleAlias: 'education.exam' });
+      },
+    });
+    const wrapper = shallowMount(Harness, {
+      global: {
+        stubs: { ...governanceStubs(), MetadataGovernanceSurface: false },
+        provide: { [moduleRuntimeActivationRefreshKey as symbol]: refresh },
+      },
+    });
+    mounted.add(wrapper);
+    await flushPromises();
+    await flushPromises();
+    const invoke = (code: string, input: unknown = {}) =>
+      registry.invoke({ id: code, code, input }, registry.snapshot()!.token);
+    await invoke('configuration.add-metadata-field-draft', {
+      title: '备注',
+      fieldName: 'note',
+      fieldSpecAlias: 'string',
+    });
+    await flushPromises();
+    const prepared = await invoke('configuration.prepare-metadata-apply');
+    expect(prepared.value).toEqual({ pendingConfirmation: true, saved: false });
+    expect(prepared.confirmation!.presentation.lines.join('\n')).toContain('新增「备注」');
+    const applies = () => request.mock.calls.filter(([options]) => options.path.endsWith('change-set-apply'));
+    expect(applies()).toHaveLength(0);
+    if (scenario === 'edit') {
+      wrapper
+        .findAllComponents({ name: 'UiInput' })
+        .find((input) => input.props('value') === '备注')!
+        .vm.$emit('update:value', '人工改名');
+      await flushPromises();
+      await prepared.confirmation!.confirm();
+      expect(prepared.confirmation!.state).toBe('expired');
+      expect(applies()).toHaveLength(0);
+      const fresh = await invoke('configuration.prepare-metadata-apply');
+      expect(fresh.confirmation!.presentation.lines.join('\n')).toContain('人工改名');
+    } else if (scenario === 'cancel') {
+      prepared.confirmation!.cancel();
+      await prepared.confirmation!.confirm();
+      expect(prepared.confirmation!.state).toBe('cancelled');
+      expect(applies()).toHaveLength(0);
+    } else {
+      await Promise.all([prepared.confirmation!.confirm(), prepared.confirmation!.confirm()]);
+      expect(applies()).toHaveLength(1);
+      expect(prepared.confirmation!.state).toBe('succeeded');
+      expect(prepared.confirmation!.result?.title).toBe(
+        scenario === 'save' ? '元数据已保存' : '元数据已保存，状态待核实',
+      );
+      expect(applies()[0][0].body).toMatchObject({
+        proposalFingerprint: 'fingerprint',
+        proposal: { relationDrafts: [{ fieldDrafts: [{ field: { title: '备注', fieldName: 'note' } }] }] },
+      });
+    }
+    expect(confirmAction).not.toHaveBeenCalled();
+  },
+);
+
+it('keeps the same metadata candidate after closing and reopening its governance page', async () => {
+  const http = fakeHttp();
+  const workspace = createMetadataWorkspace(
+    http,
+    () => 'identity',
+    () => true,
+  );
+  configureModuleContext({ http });
+  const shared = workspace.session('education.exam');
+  await shared.ensureLoaded();
+  workspace.focus(shared);
+  shared.view.startEditField(shared.view.state.allFields.value[0], { kind: 'BASIC' });
+  shared.view.fieldDraft.value.title = '对话准备的名称';
+  const Harness = defineComponent({
+    setup() {
+      provideMetadataWorkspace(workspace);
+      return () => h(MetadataGovernanceSurface, { moduleAlias: 'education.exam' });
+    },
+  });
+  const open = () => {
+    const wrapper = shallowMount(Harness, {
+      global: { stubs: { ...governanceStubs(), MetadataGovernanceSurface: false } },
+    });
+    mounted.add(wrapper);
+    return wrapper;
+  };
+  try {
+    const first = open();
+    await flushPromises();
+    const input = first
+      .findAllComponents({ name: 'UiInput' })
+      .find((item) => item.props('value') === '对话准备的名称')!;
+    input.vm.$emit('update:value', '页面手工修改');
+    await flushPromises();
+    first.unmount();
+    mounted.delete(first);
+    expect(shared.adapter.candidate!()?.changes).toContainEqual(
+      expect.objectContaining({ property: '显示名称', after: '页面手工修改' }),
+    );
+    shared.adapter.prepareFieldUpdate!({ fieldName: 'title', required: true })();
+    expect(shared.view.fieldDraft.value.title).toBe('页面手工修改');
+    const second = open();
+    await flushPromises();
+    expect(
+      second.findAllComponents({ name: 'UiInput' }).some((item) => item.props('value') === '页面手工修改'),
+    ).toBe(true);
+    expect(shared.view.fieldDraft.value.required).toBe(true);
+    shared.adapter.discardCandidate!();
+    expect(shared.dirty.value).toBe(false);
+  } finally {
+    workspace.dispose();
+  }
 });

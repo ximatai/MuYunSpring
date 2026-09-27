@@ -1,6 +1,7 @@
 import { flushPromises, mount } from '@vue/test-utils';
 import { expect, it, vi } from 'vitest';
 import { ref } from 'vue';
+import { createConfigurationCollaboration } from '@/platform-workbench/configurationCollaboration';
 import WorkbenchAssistantPanel from '@/platform-workbench/WorkbenchAssistantPanel.vue';
 import type { AssistantTurnOutput } from '@muyun/web-contracts';
 import {
@@ -1050,6 +1051,7 @@ it.each([false, true])(
 
 it('restores persisted text after remount without reactivating old confirmation or selection controls', async () => {
   const { createAssistantConversationClient } = await import('@muyun/web-core');
+  const configurationCollaboration = createConfigurationCollaboration();
   let saved: import('@muyun/web-core').AssistantConversationSnapshot | undefined;
   const checkpoints: import('@muyun/web-core').AssistantConversationContent[] = [];
   const client = createAssistantConversationClient({
@@ -1074,19 +1076,31 @@ it('restores persisted text after remount without reactivating old confirmation 
   client.list = vi.fn(async () => [{ id: 'saved', title: '合同需求', updatedAt: '2026-09-26' }]);
   const requestTurn = vi.fn(async () => ({ text: '先整理客户信息，再讨论合同。', toolCalls: [] }));
   let wrapper = mount(WorkbenchAssistantPanel, {
-    props: { open: true, registry: createRegistry(requestTurn), conversationClient: client },
+    props: {
+      open: true,
+      registry: createRegistry(requestTurn),
+      conversationClient: client,
+      configurationCollaboration,
+    },
   });
+  configurationCollaboration.restore({ goal: '调整合同字段', mode: 'visual' });
   await wrapper.get('textarea').setValue('我想记录合同');
   await wrapper.get('button.ant-btn-primary').trigger('click');
   await flushPromises();
   expect(wrapper.text()).toContain('对话已保存');
   expect(saved?.content.messages.map((message) => message.text)).toContain('我想记录合同');
+  expect(saved?.content.configurationTask).toEqual({ goal: '调整合同字段', mode: 'visual' });
   expect(checkpoints[0]?.pendingRequest).toBe('我想记录合同');
   wrapper.unmount();
   saved!.content.messages.push({ role: 'assistant', text: '历史保存提议：确认保存合同；历史状态：待确认' });
   wrapper = mount(WorkbenchAssistantPanel, {
     attachTo: document.body,
-    props: { open: true, registry: createRegistry(requestTurn), conversationClient: client },
+    props: {
+      open: true,
+      registry: createRegistry(requestTurn),
+      conversationClient: client,
+      configurationCollaboration,
+    },
   });
   await wrapper
     .findAll('button')
@@ -1099,7 +1113,9 @@ it('restores persisted text after remount without reactivating old confirmation 
     .trigger('click');
   await flushPromises();
   expect(wrapper.text()).toContain('我想记录合同');
-  expect(wrapper.text()).toContain('未保存草稿和旧确认按钮没有恢复');
+  expect(configurationCollaboration.task.value).toEqual({ goal: '调整合同字段', mode: 'visual' });
+  expect(wrapper.text()).toContain('在配置页面查看和确认');
+  expect(wrapper.text()).toContain('聊天记录不保存草稿，也不会恢复旧确认授权');
   expect(requestTurn).toHaveBeenCalledOnce();
   expect(JSON.stringify(saved?.content.history)).not.toContain('历史会话已恢复。');
   expect(wrapper.findAll('button').some((button) => button.text() === '确认保存合同')).toBe(false);
@@ -1118,6 +1134,13 @@ it('restores persisted text after remount without reactivating old confirmation 
   expect(JSON.stringify(requestTurn.mock.calls.at(-1))).toContain('先别修改，也别保存');
   expect(wrapper.find('[aria-label="继续会话"]').exists()).toBe(false);
   expect(wrapper.findAll('.assistant-message').at(-1)!.isVisible()).toBe(true);
+  await wrapper
+    .findAll('button')
+    .find((button) => button.text() === '新对话')!
+    .trigger('click');
+  await flushPromises();
+  expect(configurationCollaboration.task.value).toBeUndefined();
+  expect(wrapper.find('[aria-label="本次配置协作方式"]').exists()).toBe(false);
   wrapper.unmount();
 });
 
@@ -1197,10 +1220,11 @@ it('does not apply a linked plan after switching to a different archived convers
       ...(id === 'conversation-a' ? { planId: 'plan-a' } : {}),
     },
   });
+  const requestTurn = vi.fn();
   const wrapper = mount(WorkbenchAssistantPanel, {
     props: {
       open: true,
-      registry: createRegistry(vi.fn()),
+      registry: createRegistry(requestTurn),
       constructionPlan: plan,
       conversationClient: {
         list: vi.fn(async () =>
@@ -1225,7 +1249,8 @@ it('does not apply a linked plan after switching to a different archived convers
   };
   await click('历史会话');
   await click('conversation-a');
-  await click('查看关联的已保存建设方案');
+  await click('继续处理');
+  expect(requestTurn).not.toHaveBeenCalled();
   expect(read).toHaveBeenCalledWith('plan-a');
   await click('历史会话');
   await click('conversation-b');
@@ -1253,6 +1278,119 @@ it('does not apply a linked plan after switching to a different archived convers
   });
   await flushPromises();
   expect(plan.current().saved).toBeUndefined();
+  expect(requestTurn).not.toHaveBeenCalled();
   expect(wrapper.text()).toContain('conversation-b');
   expect(wrapper.text()).not.toContain('关联方案暂时无法恢复');
+});
+
+it.each([false, true])(
+  'restores the linked plan before resuming and blocks on read failure: %s',
+  async (fails) => {
+    const { createConstructionPlanSession } = await import('@/platform-workbench/constructionPlanSession');
+    const read = vi.fn(async () => {
+      if (fails) throw new Error('unavailable');
+      return {
+        planId: 'linked-plan',
+        revision: 1,
+        confirmedAt: '',
+        constructionStatus: 'NOT_STARTED',
+        initializations: [],
+        deliveries: [],
+        fieldChanges: [],
+        content: {
+          title: '试用',
+          goal: '登记',
+          inScope: [],
+          outOfScope: [],
+          objects: [],
+          relationships: [],
+          rules: [],
+          questions: [],
+          assumptions: [],
+          decisions: [],
+          acceptanceExamples: [],
+        },
+      } as import('@muyun/web-contracts').ConstructionPlanSnapshot;
+    });
+    const plan = createConstructionPlanSession(
+      { read } as unknown as import('@muyun/web-core').ConstructionPlanClient,
+      () => 'owner',
+    );
+    const requestTurn = vi.fn(async () => {
+      expect(plan.current().saved?.planId).toBe('linked-plan');
+      return { text: '已核实进度', toolCalls: [] };
+    });
+    const wrapper = mount(WorkbenchAssistantPanel, {
+      props: {
+        open: true,
+        registry: createRegistry(requestTurn),
+        constructionPlan: plan,
+        conversationClient: {
+          list: vi.fn(async () => [{ id: 'archived', title: '之前的讨论', updatedAt: '2026-09-27' }]),
+          read: vi.fn(async () => ({
+            id: 'archived',
+            revision: 1,
+            updatedAt: '2026-09-27',
+            content: {
+              title: '之前的讨论',
+              messages: [{ role: 'user' as const, text: '帮我登记' }],
+              history: [],
+              planId: 'linked-plan',
+            },
+          })),
+          save: vi.fn(async (id, _scope, revision, content) => ({
+            id,
+            revision: revision + 1,
+            updatedAt: '2026-09-27',
+            content,
+          })),
+        },
+      },
+    });
+    const click = async (label: string) => {
+      await wrapper
+        .findAll('button')
+        .find((button) => button.text().includes(label))!
+        .trigger('click');
+      await flushPromises();
+    };
+    await click('历史会话');
+    await click('之前的讨论');
+    await click('继续处理');
+    expect(read).toHaveBeenCalledWith('linked-plan');
+    if (fails) {
+      expect(requestTurn).not.toHaveBeenCalled();
+      expect(wrapper.text()).toContain('关联方案暂时无法恢复');
+      expect(wrapper.find('[aria-label="继续会话"]').exists()).toBe(true);
+    } else {
+      expect(requestTurn).toHaveBeenCalledOnce();
+      expect(JSON.stringify(requestTurn.mock.calls)).toContain('先别修改，也别保存');
+    }
+    wrapper.unmount();
+  },
+);
+
+it('offers a return to the hidden editor without changing the chosen collaboration mode', async () => {
+  const configurationCollaboration = createConfigurationCollaboration();
+  const open = vi.fn();
+  const configurationEditor = { title: '合同', visible: false, hasUnsavedChanges: true, open };
+  const wrapper = mount(WorkbenchAssistantPanel, {
+    props: {
+      open: true,
+      registry: createRegistry(vi.fn()),
+      configurationCollaboration,
+      configurationEditor,
+    },
+  });
+  configurationCollaboration.restore({ goal: '修改合同备注', mode: 'visual' });
+  await flushPromises();
+  await wrapper
+    .findAll('button')
+    .find((button) => button.text() === '返回配置页')!
+    .trigger('click');
+  expect(open).toHaveBeenCalledOnce();
+  expect(configurationCollaboration.task.value?.mode).toBe('visual');
+  await wrapper.setProps({ configurationEditor: { ...configurationEditor, visible: true } });
+  expect(wrapper.text()).not.toContain('返回配置页');
+  wrapper.unmount();
 });

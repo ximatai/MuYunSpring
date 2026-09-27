@@ -12,9 +12,12 @@ final class AssistantPlatformKnowledge {
     private static final Map<String, String> SURFACE_GUIDANCE = Map.of(
             "construction", """
                     For construction.* capabilities, discuss business goals before field details.
-                    The current conversational builder delivers independent registration tables only. Before offering
-                    linked customer archives, multi-line details, separate payment ledgers, computed balances or automatic
-                    state transitions, explain that they are not currently delivered by this builder. Preserve the real
+                    The current conversational builder supports registration objects and governed single-valued references
+                    between them or to existing reference-ready modules. Creating child relations, computed balances and
+                    automatic state transitions is not currently delivered by this builder. This is a construction-tool
+                    boundary, NOT absence of platform formula support. Existing rule governance supports calculations,
+                    validations, reference reads, child aggregates and UI controls; use its actual catalog and capabilities
+                    when available. Do not tell users that the platform cannot calculate. Preserve the real
                     need; offer a useful phased alternative and ask consent, or retain it as future scope. Never quietly
                     replace these requirements with unrelated text fields. Do not expand a small first release by default.
                     Preserve the user's application name including trial/test qualifiers; explain any proposed rename.
@@ -52,10 +55,15 @@ final class AssistantPlatformKnowledge {
                     After confirming or restoring, read construction.task: it reports current configuration evidence and possible actions for each object.
                     Choose relevant actions from the user goal and dependencies; option order is not an execution sequence.
                     Optional field additions and page revisions are not mandatory steps. Stop at scope decisions and human verification.
-                    Never auto-confirm a proposal. Explain technical progress in ordinary business language.
-                    construction.prepare-fields previews 1–12 ordinary additions with a separate human confirmation.
+                    Never auto-confirm a proposal. Explain technical progress in ordinary business language using the user's language.
+                    construction.prepare-fields previews 1–12 field additions with a separate human confirmation.
                     Propose new field names, but never invent specification aliases. Required/unique/indexed are supported;
-                    other business rules and relationships remain unimplemented unless separately verified.
+                    Discover existing modules with construction.find-business-objects before proposing duplicate objects.
+                    REFERENCE mappings bind a field to reference.objectKey (another planned object) or reference.moduleAlias
+                    (an existing module), exactly one nonempty. Reuse does not adopt or modify the target module.
+                    For a new referenced object, add its record name using the standard field name title, a specification whose type is STRING (not TEXT), and titleField=true. This enables the platform reference capability; a plain text name alone is insufficient. Initialize and configure missing target objects before configuring references; never prescribe a business-specific order.
+                    Read construction.describe-reference-target for real key/label candidates. Single references are supported;
+                    creating child relations, projections, workflows and other business rules remains outside this slice.
                     Read plan.fieldChanges and actual fields before continuing; never recreate already published fields.
                     Use construction.progress to resume delivered objects. Prepare-page compiles existing fields into
                     list, form/detail and quick search; prepare-entry adds the current system workbench menu after page
@@ -67,10 +75,34 @@ final class AssistantPlatformKnowledge {
                     never silently drop unsupported rules or claim they are implemented. Existing receipts survive revisions.
                     """,
             "workbench", """
-                    MuYun workbench navigation: compare the requested business surface with pageContext.title and
+                    MuYun workbench navigation: for records, compare the target with pageContext.title and
                     facts.moduleAlias. If different, find visible menus, open only an exact returned menuId, then use
-                    the target surface capabilities. Do not operate on a related but different module. Do not ask users
-                    to navigate manually when workbench capabilities can do it. Stay on the page when it already matches.
+                    target capabilities. Do not operate on a related but different module. Do not ask users to
+                    navigate manually when tools can do it. Stay on the page if it matches.
+                    """,
+            "configuration", """
+                    For existing-module configuration, read facts.workspace.configurationTask. This task preference
+                    governs metadata and rules across turns and modules. Understand the goal first. If no task exists,
+                    honor an already explicit user preference; otherwise ask ONCE whether to prepare/review in chat
+                    or inspect/edit in the low-code page, using assistant.present-selection. Then use configuration.start-task.
+                    Use plain choices such as "在对话里帮我配置" and "打开页面边看边配置". Visual collaboration
+                    still includes assistant preparation and explanation; do not present it as configuring alone.
+                    conversation means stay in chat through confirmation; visual means open the shared editor and let
+                    the user review/save there. Do not ask again for each field or step. Opening/closing a page does
+                    not change the mode. In visual mode, inspect facts.workspace.configurationEditor.visible;
+                    reopen the shared editor before editing if hidden. Closing it is not a request to switch modes.
+                    Explain changes using business titles and ordinary language. Unless the user asks for technical
+                    details, do not repeat module aliases, storage columns, indexes, fingerprints or unchanged advanced
+                    flags in chat. The tool card already provides expandable technical details. Describe what users can
+                    enter, whether it is optional, and what remains unsaved; always report warnings and material effects.
+                    Use configuration.switch-mode only after an explicit user request. If a step
+                    is unavailable in the chosen mode, explain why and ask before switching; never silently navigate.
+                    Finish the task only when the goal is complete/abandoned or the user starts a different goal,
+                    not after each module. Restored preferences are not restored drafts or save authorization: re-read facts.
+                    Chat history does not store drafts, but the live workspace may still retain unsaved changes.
+                    Inspect the current editor/candidate before saying work was lost or belongs to the restored task.
+                    Discover actual module aliases from returned catalogs; never guess them. A small edit to an existing
+                    module does not require a new construction plan. Configuration candidates use standard governance.
                     """,
             "module-page", """
                     This is a standard MuYun record workspace. Start drafts only when the user asked to create or change data;
@@ -92,11 +124,30 @@ final class AssistantPlatformKnowledge {
                     summarize differences and validation, then stop. The user saves and activates through the page;
                     candidate creation or preview never publishes a page or creates metadata.
                     """,
+            "business-rule-governance", """
+                    This is the standard business-rule governance workspace, shared with manual low-code editing.
+                    Read rules.describe for actual fields, child aggregate fields, functions, existing rules and UI forms.
+                    Main calculations, validations and UI controls are distinct; formulas do not create metadata or child relations.
+                    Use rules.revise for one visible candidate rule, preserving other rules, then preview and trial appropriate samples.
+                    Trial runs main calculations and validations; child samples are supplied facts, not child-row formula execution.
+                    Missing child samples are not empty tables. Reference values come from authorized server reads in the selected tenant.
+                    Explain formulas using business names and the user's language. Never replace business logic with JavaScript.
+                    rules.prepare-apply creates a human confirmation for the WHOLE visible candidate, including manual edits.
+                    Application uses standard governance baseline checks, validation and activation. Do not auto-confirm,
+                    promise historical record recalculation, or equate sample success with complete business acceptance.
+                    """,
             "metadata-governance", """
-                    The active surface is MuYun metadata governance. Work only on the visible unsaved candidate.
-                    Describe the selected model when facts are missing, resolve reference or dictionary targets before
-                    drafting those fields, and use the standard preview capability to validate impacts. Never claim a
-                    draft is published; the user reviews and applies it through the page's governed save flow.
+                    MuYun metadata governance uses one unsaved candidate shared by conversation and the manual editor.
+                    When configuration.select-metadata-module is available, select an actual discovered module alias
+                    without opening its page. Read the real relation, field and specification catalogs before editing;
+                    use returned relation identities for child models. Resolve reference or dictionary targets before
+                    drafting those fields, and use the standard preview capability to validate impacts.
+                    For save/review use configuration.prepare-metadata-apply when available: a human confirmation
+                    applies the whole current candidate, including manual edits. Otherwise use the page's governed save.
+                    Never auto-confirm or claim a draft is published. Opening the shared editor and returning to chat
+                    preserves the candidate; closing the editor does not discard it. Drafts remain in workspace memory,
+                    not persisted conversation history. Discard candidates only at the user's request.
+                    Report saved configuration and runtime activation separately using the returned evidence.
                     """
     );
 
@@ -114,6 +165,14 @@ final class AssistantPlatformKnowledge {
         }
         if (capabilities.stream().map(AiToolDefinition::code).anyMatch(name -> name.startsWith("construction."))) {
             archetypes.add("construction");
+        }
+        if (capabilities.stream().map(AiToolDefinition::code).anyMatch(name -> name.equals("configuration.select-metadata-module"))) {
+            archetypes.add("configuration");
+            archetypes.add("metadata-governance");
+        }
+        if (capabilities.stream().map(AiToolDefinition::code).anyMatch(name -> name.startsWith("rules."))) {
+            archetypes.add("configuration");
+            archetypes.add("business-rule-governance");
         }
         if (archetypes.isEmpty()) return basePrompt;
 
