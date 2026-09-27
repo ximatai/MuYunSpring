@@ -4,6 +4,7 @@ import { RecordRelationTabs } from '@muyun/platform-components';
 import { useWorkspaceViewNavigation } from '@muyun/platform-workbench';
 import ModuleRuntimeActivationStatus from './ModuleRuntimeActivationStatus.vue';
 import { moduleRuntimeActivationRefreshKey } from './moduleRuntimeActivation';
+import { useMetadataWorkspace } from './metadataWorkspace';
 import { usePageDataChangeHandler } from '../platform-admin-runtime/pageRealtime';
 import ModuleActionManagementView from './ModuleActionManagementView.vue';
 import BusinessRuleGovernanceSurface from './BusinessRuleGovernanceSurface.vue';
@@ -24,6 +25,11 @@ const props = defineProps<{
 const activeTab = ref<ModuleGovernanceTab>(props.governanceTab ?? 'overview');
 const navigation = useWorkspaceViewNavigation();
 const activation = ref<InstanceType<typeof ModuleRuntimeActivationStatus>>();
+const metadataWorkspace = useMetadataWorkspace();
+watch(
+  () => metadataWorkspace?.committedRevision(props.moduleAlias),
+  () => void activation.value?.refresh?.(),
+);
 provide(moduleRuntimeActivationRefreshKey, async (alias) => {
   if (alias !== props.moduleAlias) return;
   return activation.value?.refresh?.();

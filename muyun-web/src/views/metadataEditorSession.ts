@@ -89,6 +89,7 @@ export interface MetadataEditorSessionOptions {
   valid?: () => boolean;
   confirmationScope?: () => boolean;
   refreshActivation?: (moduleAlias: string) => Promise<ModuleActivationFeedback | undefined>;
+  onCommitted?: (moduleAlias: string) => void;
 }
 
 /** Shared editor state and commands; creating a session never mounts a governance page. */
@@ -1306,6 +1307,7 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
       mode: 'confirm' | 'immediate-order',
       requireUnchangedCandidate: () => boolean,
     ) {
+      if (valid()) options.onCommitted?.(moduleAlias);
       if (!requireUnchangedCandidate()) throw new Error('配置候选或基线已变化，请刷新核实。');
       if (mode === 'immediate-order') retainCommittedOrder(proposal);
       else {

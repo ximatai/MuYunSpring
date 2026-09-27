@@ -1,5 +1,5 @@
 import { waitForConfigurationEditor } from './configurationEditorNavigation';
-import { inject, provide, shallowRef, type InjectionKey } from 'vue';
+import { inject, provide, shallowReactive, shallowRef, type InjectionKey } from 'vue';
 import {
   AssistantCapabilityUsageError,
   createAssistantTurnRequester,
@@ -23,6 +23,7 @@ export function createMetadataWorkspace(
 ) {
   let scope = identity();
   const sessions = new Map<string, MetadataEditorSession>();
+  const committedRevisions = shallowReactive(new Map<string, number>());
   const active = shallowRef<MetadataEditorSession>();
   const visible = shallowRef<MetadataEditorSession>();
   function resetScope() {
@@ -30,6 +31,7 @@ export function createMetadataWorkspace(
     scope = identity();
     sessions.forEach((value) => value.dispose());
     sessions.clear();
+    committedRevisions.clear();
     active.value = undefined;
     visible.value = undefined;
   }
@@ -45,6 +47,7 @@ export function createMetadataWorkspace(
         moduleAlias,
         moduleTitle,
         refreshActivation: (alias) => readModuleActivationFeedback(http, alias),
+        onCommitted: (alias) => committedRevisions.set(alias, (committedRevisions.get(alias) ?? 0) + 1),
         valid: () => identity() === owner && sessions.get(moduleAlias) === created,
         confirmationScope: () => active.value === created,
       });
@@ -70,6 +73,7 @@ export function createMetadataWorkspace(
   return {
     session,
     focus,
+    committedRevision: (moduleAlias: string) => committedRevisions.get(moduleAlias) ?? 0,
     showEditor(value: MetadataEditorSession) {
       resetScope();
       if (sessions.get(value.moduleAlias) === value) visible.value = value;
@@ -211,6 +215,7 @@ export function createMetadataWorkspace(
     dispose() {
       sessions.forEach((value) => value.dispose());
       sessions.clear();
+      committedRevisions.clear();
       active.value = undefined;
       visible.value = undefined;
     },

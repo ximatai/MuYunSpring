@@ -1,5 +1,8 @@
 import { type HttpClient } from '@muyun/web-core';
-import type { MetadataModelChangeSetProposal } from './metadataModelEditSession';
+import type {
+  MetadataModelChangeSetProposal,
+  MetadataFieldPropertyChangeSetPayload,
+} from './metadataModelEditSession';
 import {
   applyMetadataModelChangeSet,
   previewMetadataModelChangeSet,
@@ -69,7 +72,7 @@ function metadataChangeConfirmationLines(
     ...preview.warnings.map((item) => `注意：${item.message}`),
     ...preview.fieldImpacts.map((item) => `字段「${item.fieldName}」：${item.description}`),
     ...proposal.relationDrafts.flatMap(({ fieldDrafts }) =>
-      fieldDrafts.flatMap(({ field }) => {
+      fieldDrafts.flatMap(({ field, property }) => {
         if (!field) return [];
         const options = [
           ['必填', field.required],
@@ -84,10 +87,55 @@ function metadataChangeConfirmationLines(
             .filter(([, value]) => value !== undefined)
             .map(([label, value]) => `${label}：${value ? '是' : '否'}`)
             .join('；')}`,
+          ...metadataPropertyConfirmationLines(property),
         ];
       }),
     ),
     ...preview.schemaImpacts.map((item) => item.description),
     ...(preview.orderImpacts.length > 0 ? ['保存当前排序调整。'] : []),
   ];
+}
+
+function metadataPropertyConfirmationLines(property?: MetadataFieldPropertyChangeSetPayload): string[] {
+  if (property?.kind === 'MODULE_REFERENCE' && property.referenceConfig) {
+    const reference = property.referenceConfig;
+    const defaultValue = '按平台默认';
+    return [
+      '关联模块：' + (reference.targetModuleAlias || defaultValue),
+      ...(reference.targetMetadataId ? ['关联元数据：' + reference.targetMetadataId] : []),
+      '关联标识字段：' + (reference.targetKeyField || defaultValue),
+      '关联显示字段：' + (reference.targetLabelField || defaultValue),
+      '选择数量：' +
+        (reference.cardinality === 'ONE' ? '单选' : reference.cardinality === 'MANY' ? '多选' : defaultValue),
+      '目标不可用时：' +
+        (reference.targetUnavailablePolicy
+          ? {
+              PRESERVE_HISTORY: '保留历史引用',
+              RESTRICT: '阻止目标删除',
+              CASCADE_DELETE: '级联删除关联记录',
+            }[reference.targetUnavailablePolicy]
+          : defaultValue),
+      '启用限制：' +
+        (reference.requireEnabled === undefined
+          ? defaultValue
+          : reference.requireEnabled
+            ? '每次保存时要求目标存在且已启用'
+            : '不限制启用状态'),
+      '引用投影：' + (reference.projectionMappings?.length ? reference.projectionMappings.join('；') : '无'),
+    ];
+  }
+  if (property?.kind === 'DICTIONARY' && property.dictionaryConfig) {
+    const dictionary = property.dictionaryConfig;
+    return [
+      '选项字典：' +
+        [dictionary.dictionaryApplicationAlias, dictionary.dictionaryCategoryAlias].filter(Boolean).join('.'),
+      '选择数量：' +
+        (dictionary.selectionMode === 'multiple'
+          ? '多选'
+          : dictionary.selectionMode === 'single'
+            ? '单选'
+            : '按平台默认'),
+    ];
+  }
+  return [];
 }

@@ -167,3 +167,28 @@ it('tracks actual editor visibility and ignores stale return actions after ident
   expect(f.openEditor).toHaveBeenCalledOnce();
   expect(f.workspace.editor()).toBeUndefined();
 });
+
+it('announces a committed change even if activation refresh fails, but never announces a rejected save', async () => {
+  const f = fixture();
+  await f.select();
+  await f.add();
+  const request = f.request.getMockImplementation()!;
+  f.request.mockImplementation(async (options) => {
+    if (options.path.endsWith('/runtime/activation')) throw new Error('activation unavailable');
+    return request(options);
+  });
+  expect(f.workspace.committedRevision('demo.order')).toBe(0);
+  await (await f.invoke('configuration.prepare-metadata-apply')).confirmation!.confirm();
+  expect(f.workspace.committedRevision('demo.order')).toBe(1);
+  expect(f.workspace.committedRevision('demo.customer')).toBe(0);
+  f.identity('other-user');
+  expect(f.workspace.committedRevision('demo.order')).toBe(0);
+  await f.select();
+  await f.add();
+  f.request.mockImplementation(async (options) => {
+    if (options.path.endsWith('change-set-apply')) throw new Error('save rejected');
+    return request(options);
+  });
+  await (await f.invoke('configuration.prepare-metadata-apply')).confirmation!.confirm();
+  expect(f.workspace.committedRevision('demo.order')).toBe(0);
+});

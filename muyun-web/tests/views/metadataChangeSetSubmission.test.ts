@@ -82,3 +82,84 @@ it.each(['errors', 'fingerprint'])('never prepares a submission with invalid %s'
   );
   expect(request).toHaveBeenCalledOnce();
 });
+
+it('distinguishes reference semantics even when the target module and server impact text are identical', async () => {
+  const { http, request, proposal } = fixture();
+  const draft = proposal.relationDrafts[0].fieldDrafts[0];
+  draft.property = {
+    kind: 'MODULE_REFERENCE',
+    referenceConfig: {
+      targetModuleAlias: 'crm.customer',
+      targetMetadataId: 'customer-metadata',
+      targetKeyField: 'id',
+      targetLabelField: 'name',
+      cardinality: 'ONE',
+      targetUnavailablePolicy: 'PRESERVE_HISTORY',
+      requireEnabled: true,
+      projectionMappings: ['name:customerName'],
+    },
+  };
+  const first = await prepareMetadataChangeSetSubmission(http, 'demo.order', proposal, () => true);
+  draft.property.referenceConfig = {
+    ...draft.property.referenceConfig,
+    targetKeyField: 'code',
+    targetLabelField: 'shortName',
+    requireEnabled: false,
+    projectionMappings: ['shortName:customerName', 'phone:customerPhone'],
+  };
+  const second = await prepareMetadataChangeSetSubmission(http, 'demo.order', proposal, () => true);
+  expect(first.details).toEqual(
+    expect.arrayContaining([
+      '关联模块：crm.customer',
+      '关联元数据：customer-metadata',
+      '关联标识字段：id',
+      '关联显示字段：name',
+      '选择数量：单选',
+      '目标不可用时：保留历史引用',
+      '启用限制：每次保存时要求目标存在且已启用',
+      '引用投影：name:customerName',
+    ]),
+  );
+  expect(second.details).toEqual(
+    expect.arrayContaining([
+      '关联标识字段：code',
+      '关联显示字段：shortName',
+      '启用限制：不限制启用状态',
+      '引用投影：shortName:customerName；phone:customerPhone',
+    ]),
+  );
+  await first.apply();
+  expect(request.mock.calls.at(-1)?.[0].body).toMatchObject({
+    proposal: {
+      relationDrafts: [
+        {
+          fieldDrafts: [
+            {
+              property: {
+                referenceConfig: {
+                  targetKeyField: 'id',
+                  requireEnabled: true,
+                  projectionMappings: ['name:customerName'],
+                },
+              },
+            },
+          ],
+        },
+      ],
+    },
+  });
+});
+
+it('shows dictionary selection semantics in the same confirmation details', async () => {
+  const { http, proposal } = fixture();
+  proposal.relationDrafts[0].fieldDrafts[0].property = {
+    kind: 'DICTIONARY',
+    dictionaryConfig: {
+      dictionaryApplicationAlias: 'sales',
+      dictionaryCategoryAlias: 'tags',
+      selectionMode: 'multiple',
+    },
+  };
+  const submission = await prepareMetadataChangeSetSubmission(http, 'demo.order', proposal, () => true);
+  expect(submission.details).toEqual(expect.arrayContaining(['选项字典：sales.tags', '选择数量：多选']));
+});
