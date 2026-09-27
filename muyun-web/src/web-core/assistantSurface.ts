@@ -151,6 +151,23 @@ export interface AssistantSurfaceRegistry {
   }>;
 }
 
+/** Current live editor state; never restored from conversation history. */
+export interface AssistantConfigurationEditor {
+  title: string;
+  hasUnsavedChanges: boolean;
+  visible: boolean;
+  open?(): void;
+}
+
+/** Workbench-owned context and capabilities contributed by a configuration editor or other domain. */
+export interface AssistantWorkspaceContribution {
+  editor?(): AssistantConfigurationEditor | undefined;
+  current(): { revision: string; facts: Record<string, unknown> };
+  capabilities(
+    settleNavigation?: (signal?: AbortSignal) => Promise<void | AssistantInvocationToken>,
+  ): AssistantCapability[];
+}
+
 export interface AssistantSurfaceHost {
   registry: AssistantSurfaceRegistry;
   activePageInstanceKey(): string | undefined;

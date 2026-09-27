@@ -1,3 +1,8 @@
+import {
+  createBusinessRuleWorkspace,
+  provideBusinessRuleWorkspace,
+  type BusinessRuleWorkspace,
+} from '@/views/businessRuleWorkspace';
 import { flushPromises, mount, shallowMount } from '@vue/test-utils';
 import { defineComponent, h, ref } from 'vue';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -271,6 +276,7 @@ function mountSurface(
     forms: [{ key: 'default', title: '考试表单', elements: [{ key: 'quantity', label: '数量' }] }],
   },
   registry?: AssistantSurfaceRegistry,
+  workspace?: BusinessRuleWorkspace,
 ) {
   configureModuleContext({
     http: {
@@ -279,14 +285,17 @@ function mountSurface(
         options.path.endsWith('/ui-controls') ? (Promise.resolve(uiRules) as never) : http.request(options),
     },
   });
-  const target = registry
-    ? defineComponent({
-        setup() {
-          provideAssistantSurfaceHost({ registry, activePageInstanceKey: () => 'rules-page' });
-          return () => h(BusinessRuleGovernanceSurface, { moduleAlias });
-        },
-      })
-    : BusinessRuleGovernanceSurface;
+  const target =
+    registry || workspace
+      ? defineComponent({
+          setup() {
+            if (registry)
+              provideAssistantSurfaceHost({ registry, activePageInstanceKey: () => 'rules-page' });
+            if (workspace) provideBusinessRuleWorkspace(workspace);
+            return () => h(BusinessRuleGovernanceSurface, { moduleAlias });
+          },
+        })
+      : BusinessRuleGovernanceSurface;
   const wrapper = shallowMount(target, {
     attachTo: document.body,
     props: { moduleAlias },
@@ -1478,4 +1487,38 @@ it('uses explicit child sample rows for standard governance trials', async () =>
   await flushPromises();
   const call = vi.mocked(http.request).mock.calls.find(([options]) => options.path.endsWith('/trial'))![0];
   expect(call.body).toMatchObject({ sampleChildren: { lines: [{ amount: 18 }] } });
+});
+
+it('opens an existing conversation candidate without reloading it and shares manual edits back', async () => {
+  const http = fakeHttp();
+  const workspace = createBusinessRuleWorkspace(
+    http,
+    () => 'user',
+    () => true,
+  );
+  const session = workspace.session('education.exam');
+  await session.load();
+  workspace.focus(session);
+  session.adapter.revise({
+    code: 'sharedCalculation',
+    kind: 'CALCULATION',
+    targetField: 'amount',
+    expression: '{quantity} * 3',
+    enabled: true,
+  });
+  const prepared = await session.adapter.prepareConfirmation(new AbortController().signal);
+  const reads = vi.mocked(http.request).mock.calls.length;
+  const wrapper = mountSurface(http, 'education.exam', undefined, undefined, workspace);
+  await flushPromises();
+  expect(wrapper.text()).toContain('对话与页面共用');
+  expect(session.rules.value.some((rule) => rule.code === 'sharedCalculation')).toBe(true);
+  expect(
+    vi
+      .mocked(http.request)
+      .mock.calls.slice(reads)
+      .some(([request]) => request.path.endsWith('/business-rules')),
+  ).toBe(false);
+  await action(wrapper, '放弃更改').trigger('click');
+  expect(session.dirty.value).toBe(false);
+  expect(prepared.isCurrent()).toBe(false);
 });

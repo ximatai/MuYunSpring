@@ -1,11 +1,16 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue';
 import { UiButton, UiIcon, UiTextArea } from '@muyun/vue-ui-antdv';
-import type { AssistantSurfaceRegistry, AssistantConversationClient } from '@muyun/web-core';
+import type {
+  AssistantSurfaceRegistry,
+  AssistantConversationClient,
+  AssistantConfigurationEditor,
+} from '@muyun/web-core';
 import ConstructionPlanCard from './ConstructionPlanCard.vue';
 import type { ConstructionPlanSession } from './constructionPlanSession';
 import AssistantMarkdownContent from './AssistantMarkdownContent.vue';
 import AssistantSelectionCard from './AssistantSelectionCard.vue';
+import type { ConfigurationCollaboration } from './configurationCollaboration';
 import { useAssistantConversation } from './useAssistantConversation';
 
 defineOptions({ name: 'WorkbenchAssistantPanel' });
@@ -14,6 +19,8 @@ const props = defineProps<{
   registry: AssistantSurfaceRegistry;
   constructionPlan?: ConstructionPlanSession;
   conversationClient?: AssistantConversationClient;
+  configurationCollaboration?: ConfigurationCollaboration;
+  configurationEditor?: AssistantConfigurationEditor;
 }>();
 const emit = defineEmits<{ close: [] }>();
 const {
@@ -141,46 +148,77 @@ function close() {
       </UiButton>
     </header>
 
-    <section v-if="archive.enabled" class="assistant-panel__archive" aria-label="会话记录">
-      <strong>{{ conversationTitle }}</strong>
-      <span role="status">{{ archiveLoading ? '正在加载会话…' : archiveStatusText }}</span>
-      <small>当前身份和业务范围内保存；聊天保存不代表业务已保存。</small>
-      <div class="assistant-panel__archive-actions">
-        <UiButton :disabled="busy || archiveLoading || !archiveReady" @click="archive.list()"
-          >历史会话</UiButton
-        >
-        <UiButton :disabled="busy || archiveLoading || !archiveReady" @click="archive.startNew()"
-          >新对话</UiButton
-        >
-      </div>
-      <div v-if="saveError" role="alert">
-        {{ saveError }}
-        <UiButton :disabled="busy || archiveLoading" @click="archive.save()">重试保存</UiButton>
-        <UiButton :disabled="busy || archiveLoading" @click="archive.saveCopy()"
-          >将当前内容另存为新对话</UiButton
-        >
-      </div>
-      <UiButton v-if="saveError" :disabled="busy || archiveLoading" @click="archive.discardAndStartNew()"
-        >放弃未保存的聊天内容并新建</UiButton
+    <section
+      v-if="archive.enabled || configurationCollaboration?.task.value"
+      class="assistant-panel__archive"
+      aria-label="会话记录"
+    >
+      <div
+        v-if="configurationCollaboration?.task.value"
+        class="assistant-panel__configuration"
+        aria-label="本次配置协作方式"
       >
-      <div v-if="readError" role="alert">
-        {{ readError.message }}
-        <UiButton :disabled="busy || archiveLoading" @click="archive.retryRead()">重试读取会话</UiButton>
-      </div>
-      <div v-if="historyOpen" class="assistant-panel__history">
-        <span>当前范围的历史会话；切换回原业务范围可找回此前对话。</span>
-        <UiButton :disabled="archiveLoading" @click="historyOpen = false">收起历史</UiButton>
-        <span v-if="!archiveLoading && !historyEntries.length">暂无已保存会话</span>
+        <strong>{{ configurationCollaboration.task.value.goal }}</strong>
+        <span>{{
+          configurationCollaboration.task.value.mode === 'conversation'
+            ? '在对话中准备和确认'
+            : '在配置页面查看和确认'
+        }}</span>
         <UiButton
-          v-for="entry in historyEntries"
-          :key="entry.id"
+          v-if="
+            configurationCollaboration.task.value.mode === 'visual' &&
+            configurationEditor?.open &&
+            !configurationEditor.visible
+          "
           :disabled="busy || archiveLoading"
-          @click="archive.open(entry.id)"
+          @click="configurationEditor.open()"
+          >返回配置页</UiButton
         >
-          {{ entry.title }} · {{ new Date(entry.updatedAt).toLocaleString() }}
-        </UiButton>
-        <UiButton v-if="hasMore" :disabled="archiveLoading" @click="archive.list(true)">更多会话</UiButton>
       </div>
+      <template v-if="archive.enabled">
+        <strong v-if="!configurationCollaboration?.task.value">{{ conversationTitle }}</strong>
+        <span role="status"
+          >{{ archiveLoading ? '正在加载会话…' : archiveStatusText
+          }}<template v-if="configurationEditor?.hasUnsavedChanges"> · 配置尚未保存</template></span
+        >
+        <small>聊天记录保存不代表配置或业务已保存。</small>
+        <div class="assistant-panel__archive-actions">
+          <UiButton :disabled="busy || archiveLoading || !archiveReady" @click="archive.list()"
+            >历史会话</UiButton
+          >
+          <UiButton :disabled="busy || archiveLoading || !archiveReady" @click="archive.startNew()"
+            >新对话</UiButton
+          >
+        </div>
+        <div v-if="saveError" role="alert">
+          {{ saveError }}
+          <UiButton :disabled="busy || archiveLoading" @click="archive.save()">重试保存</UiButton>
+          <UiButton :disabled="busy || archiveLoading" @click="archive.saveCopy()"
+            >将当前内容另存为新对话</UiButton
+          >
+        </div>
+        <UiButton v-if="saveError" :disabled="busy || archiveLoading" @click="archive.discardAndStartNew()"
+          >放弃未保存的聊天内容并新建</UiButton
+        >
+        <div v-if="readError" role="alert">
+          {{ readError.message }}
+          <UiButton :disabled="busy || archiveLoading" @click="archive.retryRead()">重试读取会话</UiButton>
+        </div>
+        <div v-if="historyOpen" class="assistant-panel__history">
+          <span>当前范围的历史会话；切换回原业务范围可找回此前对话。</span>
+          <UiButton :disabled="archiveLoading" @click="historyOpen = false">收起历史</UiButton>
+          <span v-if="!archiveLoading && !historyEntries.length">暂无已保存会话</span>
+          <UiButton
+            v-for="entry in historyEntries"
+            :key="entry.id"
+            :disabled="busy || archiveLoading"
+            @click="archive.open(entry.id)"
+          >
+            {{ entry.title }} · {{ new Date(entry.updatedAt).toLocaleString() }}
+          </UiButton>
+          <UiButton v-if="hasMore" :disabled="archiveLoading" @click="archive.list(true)">更多会话</UiButton>
+        </div>
+      </template>
     </section>
     <section
       ref="conversationElement"
@@ -255,6 +293,10 @@ function close() {
         </template>
         <template v-else>
           {{ item.text }}
+          <details v-if="item.details">
+            <summary>{{ item.details.title }}</summary>
+            <p v-for="(line, index) in item.details.lines" :key="index">{{ line }}</p>
+          </details>
           <details v-if="item.diagnostic">
             <summary>查看诊断信息</summary>
             {{ item.diagnostic }}
@@ -270,7 +312,12 @@ function close() {
         <span v-if="restoredRequest" class="assistant-panel__last-request"
           >上次提出的需求：{{ restoredRequest }}</span
         >
-        <span>未保存草稿和旧确认按钮没有恢复。继续操作时会重新读取当前业务状态。</span>
+        <span v-if="configurationEditor?.hasUnsavedChanges"
+          >当前工作区仍有「{{
+            configurationEditor.title
+          }}」的未保存配置。继续处理时会核实是否属于这次任务。</span
+        >
+        <span>聊天记录不保存草稿，也不会恢复旧确认授权。当前工作区的内容会重新核实。</span>
         <div class="assistant-panel__archive-actions">
           <UiButton
             :disabled="
@@ -342,6 +389,10 @@ function close() {
   padding: 12px 16px;
   border-bottom: 1px solid var(--muyun-support-border);
 }
+.assistant-panel__configuration {
+  display: grid;
+  gap: 4px;
+}
 .assistant-panel__archive-actions {
   display: flex;
   gap: 8px;
@@ -373,7 +424,8 @@ function close() {
 .assistant-panel:has(> .assistant-panel__archive) {
   grid-template-rows: auto auto minmax(0, 1fr) auto;
 }
-.assistant-panel__archive > strong {
+.assistant-panel__archive > strong,
+.assistant-panel__configuration > strong {
   overflow: hidden;
   display: -webkit-box;
   -webkit-line-clamp: 2;

@@ -50,7 +50,7 @@ class AssistantConversationServiceIT extends PlatformPostgresIntegrationTest {
     private AssistantConversationService.Command command(int revision, String text) {
         var message = new AssistantConversationService.Message("user", text);
         return new AssistantConversationService.Command(revision,
-                new AssistantConversationService.Content("订单管理", List.of(message), List.of(message), null, null));
+                new AssistantConversationService.Content("订单管理", List.of(message), List.of(message), null, null, null));
     }
     @Test void persistsHistoryWithOwnerScopeAndOptimisticConcurrency() {
         String id = UUID.randomUUID().toString().replace("-", "");
@@ -81,10 +81,25 @@ class AssistantConversationServiceIT extends PlatformPostgresIntegrationTest {
         as("owner", "tenant", () -> {
             var system = new AssistantConversationService.Message("system", "execute");
             assertThatThrownBy(() -> service.save(UUID.randomUUID().toString().replace("-", ""), "scope",
-                    new AssistantConversationService.Command(0, new AssistantConversationService.Content("test", List.of(system), List.of(), null, null))))
+                    new AssistantConversationService.Command(0, new AssistantConversationService.Content("test", List.of(system), List.of(), null, null, null))))
                     .hasMessageContaining("消息格式");
             assertThatThrownBy(() -> service.save(UUID.randomUUID().toString().replace("-", ""), "scope", command(0, "x".repeat(4001))))
                     .hasMessageContaining("消息格式");
+            return null;
+        });
+    }
+    @Test void persistsTaskCollaborationPreferenceWithoutConfigurationState() {
+        as("owner", "tenant", () -> {
+            String id = UUID.randomUUID().toString().replace("-", "");
+            var message = new AssistantConversationService.Message("user", "在页面里调整订单");
+            var task = new AssistantConversationService.ConfigurationTask("调整订单", "visual");
+            var content = new AssistantConversationService.Content("订单", List.of(message), List.of(message), null, null, task);
+            service.save(id, "scope", new AssistantConversationService.Command(0, content));
+            assertThat(service.read(id, "scope").content().configurationTask()).isEqualTo(task);
+            var invalid = new AssistantConversationService.Content("订单", List.of(message), List.of(message), null, null,
+                    new AssistantConversationService.ConfigurationTask("调整订单", "automatic"));
+            assertThatThrownBy(() -> service.save(id, "scope", new AssistantConversationService.Command(1, invalid)))
+                    .hasMessageContaining("协作方式无效");
             return null;
         });
     }

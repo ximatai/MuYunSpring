@@ -11,6 +11,10 @@ import {
   watch,
   type Component as VueComponent,
 } from 'vue';
+import { createWorkspaceViewDescriptor } from './platform-workbench/workspaceViews';
+import { moduleGovernanceWorkspaceView } from './views/moduleGovernanceWorkspaceView';
+import { createMetadataWorkspace, provideMetadataWorkspace } from './views/metadataWorkspace';
+import { createBusinessRuleWorkspace, provideBusinessRuleWorkspace } from './views/businessRuleWorkspace';
 import { type RouteLocationNormalizedLoaded } from 'vue-router';
 import { Workbench, pageDescriptorToUrl, type WorkbenchRealtimeStatus } from '@muyun/platform-workbench';
 import {
@@ -194,6 +198,66 @@ const pageCacheGenerations = ref<Record<string, number>>({});
 const pendingTabPageStateDiscards = new Set<string>();
 const pageCacheMax = computed(() => Math.max(startup.value?.tabs?.length ?? 0, 1));
 const currentUser = computed(() => startup.value?.session.currentUser);
+const configurationIdentity = () =>
+  JSON.stringify([
+    currentUser.value?.userId,
+    currentUser.value?.tenantId,
+    currentUser.value?.organizationId,
+    currentUser.value?.system,
+  ]);
+function openConfigurationEditor(
+  moduleAlias: string,
+  governanceTab: 'rules' | 'metadata',
+  moduleTitle?: string,
+) {
+  handleOpenRoute(
+    pageDescriptorToUrl(
+      createWorkspaceViewDescriptor(moduleGovernanceWorkspaceView, {
+        moduleAlias,
+        governanceTab,
+        moduleTitle,
+      }),
+      platformAdminRouteResolveOptions,
+    ),
+  );
+}
+const businessRuleWorkspace = createBusinessRuleWorkspace(
+  createBackendHttpClient(),
+  configurationIdentity,
+  () => currentUser.value?.system === true,
+  (alias) => openConfigurationEditor(alias, 'rules'),
+  () => metadataWorkspace.clearFocus(),
+);
+const metadataWorkspace = createMetadataWorkspace(
+  createBackendHttpClient(),
+  configurationIdentity,
+  () => currentUser.value?.system === true,
+  (alias, title) => openConfigurationEditor(alias, 'metadata', title),
+  () => businessRuleWorkspace.clearFocus(),
+);
+provideBusinessRuleWorkspace(businessRuleWorkspace);
+provideMetadataWorkspace(metadataWorkspace);
+const configurationWorkspace = {
+  editor: () => metadataWorkspace.editor() ?? businessRuleWorkspace.editor(),
+  current() {
+    const rules = businessRuleWorkspace.current();
+    const metadata = metadataWorkspace.current();
+    return {
+      revision: JSON.stringify([rules.revision, metadata.revision]),
+      facts: { ...rules.facts, ...metadata.facts },
+    };
+  },
+  capabilities: (settle?: Parameters<typeof metadataWorkspace.capabilities>[0]) => [
+    ...businessRuleWorkspace.capabilities(settle),
+    ...metadataWorkspace.capabilities(settle),
+  ],
+};
+watch(currentUser, () => configurationWorkspace.current(), { flush: 'sync' });
+onUnmounted(() => {
+  metadataWorkspace.dispose();
+  businessRuleWorkspace.dispose();
+});
+
 const currentTimeZone = computed(() => currentUser.value?.timeZone);
 const loading = ref(true);
 const error = ref<string>();
@@ -1330,6 +1394,7 @@ function componentForCommittedRoute(route: RouteLocationNormalizedLoaded): VueCo
       :locked-tab-keys="lockedTabKeys()"
       :assistant-request-turn="assistantRequestTurn"
       :construction-plan-client="constructionPlanClient"
+      :assistant-workspace-contribution="configurationWorkspace"
       :assistant-conversation-client="assistantConversationClient"
       :assistant-wait-for-page-ready="waitForAssistantPageReady"
       @select-menu="handleSelectMenu"

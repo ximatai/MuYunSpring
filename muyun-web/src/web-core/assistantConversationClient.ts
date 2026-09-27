@@ -1,7 +1,12 @@
 import type { HttpClient } from './http';
 import type { AssistantConversationMessage } from '@muyun/web-contracts';
 
+export interface AssistantConfigurationTask {
+  goal: string;
+  mode: 'conversation' | 'visual';
+}
 export interface AssistantConversationContent {
+  configurationTask?: AssistantConfigurationTask;
   title: string;
   messages: Array<{ role: 'user' | 'assistant' | 'status'; text: string }>;
   history: AssistantConversationMessage[];

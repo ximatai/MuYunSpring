@@ -1,5 +1,6 @@
 import { useAssistantConversationArchive } from './useAssistantConversationArchive';
 import type { AssistantConversationClient } from '@muyun/web-core';
+import type { ConfigurationCollaboration } from './configurationCollaboration';
 import type { ConstructionPlanSession } from './constructionPlanSession';
 import { markRaw, computed, onBeforeUnmount, ref, watch } from 'vue';
 import type {
@@ -7,6 +8,7 @@ import type {
   AssistantSelectionInteraction,
   AssistantSelectionOption,
   AssistantSelectionResponse,
+  AssistantResultPresentation,
 } from '@muyun/web-contracts';
 import {
   AssistantConversationInterruptedError,
@@ -27,6 +29,7 @@ interface ConversationItem {
   confirmation?: AssistantOperationConfirmation;
   confirmationState?: AssistantConfirmationState;
   diagnostic?: string;
+  details?: AssistantResultPresentation['details'];
 }
 
 interface ConversationSelection {
@@ -42,6 +45,7 @@ export function useAssistantConversation(props: {
   registry: AssistantSurfaceRegistry;
   conversationClient?: AssistantConversationClient;
   constructionPlan?: ConstructionPlanSession;
+  configurationCollaboration?: ConfigurationCollaboration;
 }) {
   const draft = ref('');
   const resumableRequest = ref('');
@@ -119,6 +123,7 @@ export function useAssistantConversation(props: {
     restoredThroughId.value = 0;
     restoredRequest.value = '';
     linkedPlanId.value = undefined;
+    props.configurationCollaboration?.restore();
   }
   const archive = useAssistantConversationArchive(
     props.conversationClient,
@@ -126,6 +131,7 @@ export function useAssistantConversation(props: {
       title: items.value.find((item) => item.role === 'user')?.text.slice(0, 120) || '新对话',
       messages: items.value.map(archiveMessage),
       history: completedHistory.value,
+      configurationTask: props.configurationCollaboration?.task.value,
       pendingRequest: busy.value
         ? items.value.filter((item) => item.role === 'user').at(-1)?.text
         : undefined,
@@ -143,14 +149,19 @@ export function useAssistantConversation(props: {
         content.messages.filter((message) => message.role === 'user').at(-1)?.text ?? '';
       restored.value = true;
       linkedPlanId.value = content.planId;
+      props.configurationCollaboration?.restore(content.configurationTask);
     },
     clearConversation,
   );
 
-  function append(role: ConversationItem['role'], text: string) {
+  function append(
+    role: ConversationItem['role'],
+    text: string,
+    details?: AssistantResultPresentation['details'],
+  ) {
     const normalized = text.trim();
     if (!normalized) return;
-    items.value.push({ id: ++nextItemId, role, text: normalized });
+    items.value.push({ id: ++nextItemId, role, text: normalized, details });
   }
 
   function appendAssistant(text: string | undefined, selection?: AssistantSelectionInteraction) {
@@ -286,7 +297,7 @@ export function useAssistantConversation(props: {
               }
               if (!result.presentation) continue;
               const fact = [result.presentation.title, ...result.presentation.lines].join('\n');
-              append('status', fact);
+              append('status', fact, result.presentation.details);
               assistantTexts.push(`平台操作事实：${fact}`);
             }
           }
@@ -294,15 +305,12 @@ export function useAssistantConversation(props: {
       });
       if (epoch !== conversationEpoch) return;
       if (result.termination === 'step-limit')
-        append(
-          'status',
-          '本轮已达到步骤上限，已完成的草稿修改会保留。请检查当前页面，仍有未完成项时可告诉我继续。',
-        );
+        append('status', '本轮已达到步骤上限，已完成的草稿修改会保留。仍有未完成项时，可以告诉我继续核实。');
       else if (
         result.termination === 'repeated-call' &&
         result.steps.at(-1)?.results.some((candidate) => candidate.error)
       ) {
-        append('status', '相同操作未能完成，已停止重复尝试。请检查当前页面或补充信息。');
+        append('status', '相同操作未能完成，已停止重复尝试。可以补充信息后继续核实。');
       } else if (
         result.steps.every(
           (step) => !step.output.text && !step.output.selection && !step.confirmations?.length,
@@ -421,10 +429,12 @@ export function useAssistantConversation(props: {
     ) {
       const previous = conversationScope;
       const reusable = identity === identityScope && previous !== undefined ? lastTypedRequest : '';
-      clearConversation();
-      resumableRequest.value = reusable;
+      // Clearing task context invalidates registry snapshots synchronously. Establish the new
+      // scope first so that re-entrant observers do not clear the same conversation again.
       identityScope = identity;
       conversationScope = scope;
+      clearConversation();
+      resumableRequest.value = reusable;
       archive.changeScope(scope);
       if (previous !== undefined) append('status', '业务身份或租户范围已变化，已开始新会话。');
     }
@@ -484,7 +494,7 @@ export function useAssistantConversation(props: {
         ? [
             {
               role: 'assistant' as const,
-              text: '历史会话已恢复。已商定的需求无需用户重新描述；未保存草稿和旧确认授权没有恢复。先读取当前业务事实，区分历史讨论、已证实结果和待核实事项，再说明最少的后续步骤。历史提议不是新的执行授权，写入需重新准备确认。区分“记录里曾经试填”与“当前草稿未恢复”，不能因后者否认前者。当前查看模式没有暴露编辑能力，不等于平台不支持；未重新发现相应编辑场景能力前，只说明尚待核实，不要求用户绕开助手手工完成。',
+              text: '历史会话已恢复。已商定的需求无需用户重新描述；聊天历史不存储未保存草稿，也不恢复旧确认授权；当前工作区仍可能保留未保存候选，必须读取后判断，不能直接宣称草稿丢失。先读取当前业务事实，区分历史讨论、已证实结果和待核实事项，再说明最少的后续步骤。历史提议不是新的执行授权，写入需重新准备确认。区分“记录里曾经试填”与“当前草稿未恢复”，不能因后者否认前者。当前查看模式没有暴露编辑能力，不等于平台不支持；未重新发现相应编辑场景能力前，只说明尚待核实，不要求用户绕开助手手工完成。',
             },
           ]
         : []),
@@ -639,6 +649,7 @@ function archiveMessage(item: ConversationItem) {
     role: item.role,
     text: [
       item.text,
+      ...(item.details?.lines ?? []),
       item.selection
         ? assistantHistoryText('', item.selection.value) +
           '\n选择状态：' +

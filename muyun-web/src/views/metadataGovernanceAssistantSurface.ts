@@ -2,6 +2,7 @@ import type { AssistantSurfaceContext } from '@muyun/web-contracts';
 import {
   AssistantCapabilityUsageError,
   type AssistantCapability,
+  type AssistantOperationProposal,
   type AssistantSurface,
   type AssistantTurnRequester,
   emptyAssistantCapabilityInputSchema,
@@ -116,6 +117,8 @@ export type MetadataFieldPlanInput = Array<
 
 /** Preparation validates without changing the editor; returned callbacks commit synchronously inside applyEffect. */
 export interface MetadataGovernanceAssistantAdapter {
+  discardCandidate?(): void;
+  prepareConfirmation?(signal: AbortSignal): Promise<AssistantOperationProposal>;
   prepareFieldPlan?(fields: MetadataFieldPlanInput, signal: AbortSignal): Promise<() => unknown>;
   plan?(): unknown;
 
@@ -167,6 +170,26 @@ export function createMetadataGovernanceAssistantSurface(
     capabilities: () => [
       ...contributedCapabilities(),
       describeMetadataModelCapability(adapter),
+      ...(adapter.discardCandidate && adapter.summary().draft.active
+        ? [
+            {
+              effect: 'configuration-draft' as const,
+              descriptor: {
+                code: 'configuration.discard-metadata-draft',
+                description:
+                  'Discard the entire current unsaved metadata candidate, including manual edits, only when the user asks to abandon it. Does not delete persisted fields or undo applied configuration.',
+                inputSchema: emptyAssistantCapabilityInputSchema(),
+              },
+              parseInput: parseEmptyAssistantCapabilityInput,
+              async execute(_input: unknown, context: Parameters<AssistantCapability['execute']>[1]) {
+                return context.applyEffect(() => {
+                  adapter.discardCandidate!();
+                  return { discarded: true, saved: false };
+                });
+              },
+            },
+          ]
+        : []),
       ...(adapter.prepareFieldPlan && canAddFieldDraft(adapter)
         ? [prepareMetadataFieldPlanCapability(adapter)]
         : []),
@@ -176,9 +199,41 @@ export function createMetadataGovernanceAssistantSurface(
       ...(canAddPropertyFieldDraft(adapter)
         ? [findMetadataFieldTargetsCapability(adapter), addMetadataPropertyFieldDraftCapability(adapter)]
         : []),
-      ...(hasChanges(adapter.proposal()) ? [previewMetadataDraftCapability(adapter)] : []),
+      ...(hasChanges(adapter.proposal())
+        ? [
+            previewMetadataDraftCapability(adapter),
+            ...(adapter.prepareConfirmation ? [prepareMetadataConfirmationCapability(adapter)] : []),
+          ]
+        : []),
     ],
     requestTurn,
+  };
+}
+
+function prepareMetadataConfirmationCapability(
+  adapter: MetadataGovernanceAssistantAdapter,
+): AssistantCapability {
+  let prepared: AssistantOperationProposal | undefined;
+  return {
+    effect: 'read',
+    descriptor: {
+      code: 'configuration.prepare-metadata-apply',
+      description:
+        'Prepare human confirmation for the entire current metadata candidate, including manual edits, through the standard change-set precheck. Only a human click saves it. Do not ask the user to leave the conversation to press page save. Configuration persistence does not imply runtime activation.',
+      inputSchema: emptyAssistantCapabilityInputSchema(),
+    },
+    parseInput: parseEmptyAssistantCapabilityInput,
+    async execute(_input, context) {
+      const proposal = await adapter.prepareConfirmation!(context.signal);
+      context.commitInternalState(() => {
+        prepared = proposal;
+      });
+      return { pendingConfirmation: true, saved: false };
+    },
+    propose() {
+      if (!prepared) throw new AssistantCapabilityUsageError('请重新准备配置确认');
+      return prepared;
+    },
   };
 }
 
@@ -336,7 +391,7 @@ function updateMetadataFieldDraftCapability(
     descriptor: {
       code: 'configuration.update-metadata-field-draft',
       description:
-        'Update one editable ordinary business field as a visible, unsaved candidate. When an editor is open, revise only that current candidate; first describe it to inspect the user’s latest changes. The user can review, revise or cancel it before using the page save action.',
+        'Update one editable ordinary business field as a visible, unsaved candidate. When an editor is open, revise only that current candidate; first describe it to inspect the user’s latest changes. The user can review, revise or cancel it before confirming the standard change-set.',
       inputSchema: {
         type: 'object',
         additionalProperties: false,
@@ -373,7 +428,7 @@ function addMetadataFieldDraftCapability(
     descriptor: {
       code: 'configuration.add-metadata-field-draft',
       description:
-        'Add one ordinary business field to the selected metadata relation as a visible, unsaved candidate. The user can edit or cancel it, and must confirm through the page before it takes effect.',
+        'Add one ordinary business field to the selected metadata relation as a visible, unsaved candidate. The user can edit or cancel it, and must confirm the standard change-set before it is saved.',
       inputSchema: {
         type: 'object',
         additionalProperties: false,
@@ -467,13 +522,25 @@ function describeMetadataCandidateCapability(
               ? '是'
               : '否'
             : value.slice(0, 200);
+      const summary = adapter.summary();
+      const name =
+        candidate.changes.find((change) => change.property === '显示名称')?.after ||
+        summary.selectedRelation?.fields.find((field) => field.fieldName === candidate.fieldName)?.title ||
+        candidate.fieldName;
+      const changes = candidate.changes.map(
+        (change) => `${change.property}：${display(change.before)} → ${display(change.after)}`,
+      );
+      const businessChanges = candidate.changes.filter((change) =>
+        ['显示名称', '必填', '唯一', '启用'].includes(change.property),
+      );
       return {
-        title: `字段候选：${candidate.fieldName}（尚未保存）`,
-        lines: candidate.changes.length
-          ? candidate.changes.map(
+        title: `「${name}」的修改（尚未保存）`,
+        lines: businessChanges.length
+          ? businessChanges.map(
               (change) => `${change.property}：${display(change.before)} → ${display(change.after)}`,
             )
-          : ['当前候选与已保存定义一致。'],
+          : [candidate.changes.length ? '已准备配置更改，可查看详细内容。' : '当前内容与已保存配置一致。'],
+        ...(changes.length ? { details: { title: '查看详细配置', lines: changes } } : {}),
       };
     },
   };
@@ -506,7 +573,7 @@ function previewMetadataDraftCapability(adapter: MetadataGovernanceAssistantAdap
       return {
         title: '配置候选预检（尚未生效）',
         lines: [
-          preview.valid ? '预检通过，仍需人工审阅并在页面确认。' : '预检未通过。',
+          preview.valid ? '预检通过，仍需人工审阅并确认保存。' : '预检未通过。',
           ...details.slice(0, visibleCount).map(({ text }) => text.slice(0, 500)),
           ...(omitted.length ? [`另有 ${omittedSummary}未展示，请在配置页面查看完整预检结果。`] : []),
         ],

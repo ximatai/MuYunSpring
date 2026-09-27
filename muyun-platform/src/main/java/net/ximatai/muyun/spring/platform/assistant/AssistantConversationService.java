@@ -25,7 +25,9 @@ public class AssistantConversationService {
         this.conversations = Objects.requireNonNull(conversations);
     }
     public record Message(String role, String text) {}
-    public record Content(String title, List<Message> messages, List<Message> history, String planId, String pendingRequest) {}
+    public record ConfigurationTask(String goal, String mode) {}
+    public record Content(String title, List<Message> messages, List<Message> history, String planId,
+                          String pendingRequest, ConfigurationTask configurationTask) {}
     public record Command(int expectedRevision, Content content) {}
     public record Snapshot(String id, int revision, Instant updatedAt, Content content) {}
     public record Summary(String id, String title, Instant updatedAt) {}
@@ -105,6 +107,10 @@ public class AssistantConversationService {
             throw new IllegalArgumentException("模型历史过长");
         if (content.pendingRequest() != null && content.pendingRequest().length() > 4000) throw new IllegalArgumentException("未完成请求过长");
         if (content.planId() != null) validateId(content.planId());
+        ConfigurationTask task = content.configurationTask();
+        if (task != null && (task.goal() == null || task.goal().isBlank() || task.goal().length() > 200
+                || !("conversation".equals(task.mode()) || "visual".equals(task.mode()))))
+            throw new IllegalArgumentException("配置任务协作方式无效");
         try {
             String json = JSON.writeValueAsString(content);
             if (json.length() > 512000) throw new IllegalArgumentException("会话已达到保存上限，请开启新对话");

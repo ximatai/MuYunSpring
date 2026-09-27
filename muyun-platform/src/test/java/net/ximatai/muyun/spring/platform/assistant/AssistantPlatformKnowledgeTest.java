@@ -45,4 +45,31 @@ class AssistantPlatformKnowledgeTest {
                         "only the requested choice",
                         "never copy a scope or reference title into unrelated fields");
     }
+
+    @Test
+    void suppliesSharedEditorKnowledgeFromCapabilitiesWithoutAnEditorPage() {
+        List<AiToolDefinition> capabilities = List.of(
+                new AiToolDefinition("configuration.select-metadata-module", "Select metadata module", Map.of()),
+                new AiToolDefinition("rules.select-module", "Select rule module", Map.of()));
+
+        assertThat(AssistantPlatformKnowledge.appendTo(
+                "base", Map.of("surface", "workbench"), capabilities))
+                .contains("does not require a new construction plan",
+                        "configuration.prepare-metadata-apply", "including manual edits",
+                        "closing the editor does not discard it", "not persisted conversation history",
+                        "rules.prepare-apply",
+                        "configurationEditor.visible", "reopen the shared editor",
+                        "live workspace may still retain unsaved changes",
+                        "do not repeat module aliases");
+    }
+
+    @Test
+    void deduplicatesSurfaceAndCapabilityKnowledge() {
+        AiToolDefinition select = new AiToolDefinition(
+                "configuration.select-metadata-module", "Select metadata module", Map.of());
+
+        assertThat(AssistantPlatformKnowledge.appendTo(
+                "base", Map.of("surface", "metadata-governance"), List.of(select)))
+                .containsOnlyOnce("MuYun metadata governance");
+    }
 }

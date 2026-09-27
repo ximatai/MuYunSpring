@@ -22,14 +22,7 @@ import {
   type RecordQueryListColumn,
 } from '@muyun/platform-components';
 import { useWorkspaceViewUnsavedState } from '@muyun/platform-workbench';
-import {
-  useModuleContext,
-  withHttpHeaders,
-  useAssistantSurfaceHost,
-  createAssistantTurnRequester,
-  AssistantCapabilityUsageError,
-  type AssistantOperationProposal,
-} from '@muyun/web-core';
+import { useModuleContext, useAssistantSurfaceHost, createAssistantTurnRequester } from '@muyun/web-core';
 import {
   createBusinessRuleAssistantSurface,
   type BusinessRuleTrialInput,
@@ -57,14 +50,12 @@ import {
   type UiTreeLoadResult,
 } from '@muyun/vue-ui-antdv';
 import {
-  editableProposals,
   businessRuleChangeImpact,
   externalTrialInputFields,
   formulaTemplates,
   insertFormulaText,
   newBusinessRule,
   presentableFormulaExpression,
-  proposalFingerprintOf,
   referencedFormulaFields,
   readonlyRules,
   typedSampleValue,
@@ -72,21 +63,23 @@ import {
   aggregateFieldInsertionReason,
   normalizeFormulaCapabilities,
   portableFormulaCapabilities,
-  type UiControlSnapshot,
   type UiControlTarget,
-  type BusinessRuleApplyResult,
   type BusinessRuleEditableField,
   type BusinessRuleFormulaCapability,
   type BusinessRuleFormulaCatalogEntry,
   type BusinessRuleKind,
-  type BusinessRulePreview,
   type BusinessRuleProposal,
   type BusinessRuleIssue,
-  type BusinessRuleSnapshot,
   type BusinessRuleTrialResult,
   type BusinessRuleReferenceField,
 } from './businessRuleGovernance';
 
+import {
+  createBusinessRuleSession,
+  BusinessRulePrecheckError,
+  type BusinessRuleSession,
+} from './businessRuleSession';
+import { useBusinessRuleWorkspace } from './businessRuleWorkspace';
 import MetadataSourceTree from './MetadataSourceTree.vue';
 import { metadataSourceFieldNode, metadataSourceRoot } from './metadataSourceTree';
 
@@ -100,9 +93,17 @@ const props = defineProps<{
 }>();
 const moduleContext = useModuleContext({ moduleAlias: 'platform.module' });
 const currentUser = useCurrentUserContext();
-const snapshot = ref<BusinessRuleSnapshot>();
-const rules = ref<BusinessRuleProposal[]>([]);
-const uiControlSnapshot = ref<UiControlSnapshot>();
+const sharedWorkspace = useBusinessRuleWorkspace();
+const localSessions = new Map<string, BusinessRuleSession>();
+const session = computed(() => {
+  if (sharedWorkspace) return sharedWorkspace.session(props.moduleAlias);
+  if (!localSessions.has(props.moduleAlias))
+    localSessions.set(props.moduleAlias, createBusinessRuleSession(moduleContext.http, props.moduleAlias));
+  return localSessions.get(props.moduleAlias)!;
+});
+const snapshot = computed(() => session.value.snapshot.value);
+const rules = computed(() => session.value.rules.value);
+const uiControlSnapshot = computed(() => session.value.ui.value);
 const selectedControlForm = computed(() =>
   uiControlSnapshot.value?.forms.find((form) => form.key === selectedRule.value?.formKey),
 );
@@ -126,21 +127,6 @@ function setControlEffect(elementKey: string, effect: 'hide' | 'readOnly', check
 function controlEffect(elementKey: string, effect: keyof Pick<UiControlTarget, 'hide' | 'readOnly'>) {
   return selectedRule.value?.targets?.find((target) => target.elementKey === elementKey)?.[effect] ?? false;
 }
-async function mergeUiRules(loaded: BusinessRuleSnapshot) {
-  const ui = await moduleContext.http.request<UiControlSnapshot>({
-    path: `/platform.module/${encodeURIComponent(loaded.moduleAlias)}/business-rules/ui-controls`,
-  });
-  return {
-    ui,
-    snapshot: {
-      ...loaded,
-      rules: [
-        ...loaded.rules,
-        ...(ui.rules ?? []).map((rule) => ({ ...rule, kind: 'UI_CONTROL', phase: 'UI', editable: true })),
-      ],
-    },
-  };
-}
 function ruleKindLabel(kind: BusinessRuleKind) {
   return { CALCULATION: '字段计算', VALIDATION: '保存校验', UI_CONTROL: '界面控制' }[kind];
 }
@@ -151,9 +137,9 @@ const draftIssues = ref<BusinessRuleIssue[]>([]);
 const ruleSearch = ref('');
 const rulePageNum = ref(1);
 const rulePageSize = ref(10);
-const loading = ref(false);
-const loadFailed = ref(false);
-const applying = ref(false);
+const loading = computed(() => session.value.loading.value);
+const loadFailed = computed(() => session.value.loadFailed.value);
+const applying = computed(() => session.value.applying.value);
 const trial = ref<BusinessRuleTrialResult>();
 const trialVisible = ref(false);
 const trialRunning = ref(false);
@@ -195,7 +181,12 @@ const referenceRootFailed = ref(false);
 const formulaInputs = ref<Record<string, string>>({});
 const selectedFormula = computed(() => (selectedRule.value ? formulaText(selectedRule.value) : ''));
 const expressionSelections = new Map<string, { start: number; end: number }>();
-const trialTenantId = ref('');
+const trialTenantId = computed({
+  get: () => session.value.tenantId.value,
+  set: (value) => {
+    session.value.tenantId.value = value;
+  },
+});
 const trialTenants = ref<Array<{ id: string; title?: string; enabled?: boolean }>>([]);
 const trialTenantLoading = ref(false);
 const trialTenantError = ref('');
@@ -227,10 +218,8 @@ const { begin: beginFunctionDrag, draggingKey: draggingFunctionId } = useUiDragS
   },
   { start: () => undefined, end: () => undefined },
 );
-let baselineProposalFingerprint: string | undefined;
 let loadRequest = 0;
 let trialRequest = 0;
-let applyRequest = 0;
 let editRevision = 0;
 let expressionSelectionOwner: string | undefined;
 let referenceDirectoryEpoch = 0;
@@ -359,12 +348,7 @@ const functionCapabilityGroups = computed(() => {
   });
   return [...groups.entries()].map(([category, capabilities]) => ({ category, capabilities }));
 });
-const hasUnsavedChanges = computed(
-  () =>
-    snapshot.value != null &&
-    baselineProposalFingerprint != null &&
-    proposalFingerprintOf(rules.value) !== baselineProposalFingerprint,
-);
+const hasUnsavedChanges = computed(() => session.value.dirty.value);
 const calculatorUnavailableReason = computed(() =>
   editableFields.value.length === 0 ? '当前模块没有可写的主表字段，不能新增字段计算。' : undefined,
 );
@@ -451,11 +435,15 @@ const locatorFieldOptions = computed(() => [
   { value: '__none__', label: '不定位字段' },
   ...fieldOptions.value,
 ]);
-useWorkspaceViewUnsavedState('业务规则', () => hasUnsavedChanges.value);
+useWorkspaceViewUnsavedState(
+  '业务规则',
+  () => (!sharedWorkspace && hasUnsavedChanges.value) || !!newRuleDraft.value,
+  () => applying.value,
+);
 
 watch(
   () => props.moduleAlias,
-  () => void loadSnapshot(true),
+  () => void loadSnapshot(),
   { immediate: true },
 );
 
@@ -542,17 +530,20 @@ function ruleSummary(rule: BusinessRuleProposal): string {
 function resetExecutionResults() {
   editRevision += 1;
   trialRequest += 1;
-  applyRequest += 1;
   trialRunning.value = false;
-  applying.value = false;
   trial.value = undefined;
   applicationError.value = undefined;
   applicationIssues.value = [];
 }
 
+let changingPageRules = false;
 function replaceRules(nextRules: BusinessRuleProposal[]) {
-  rules.value = nextRules;
-  resetExecutionResults();
+  changingPageRules = true;
+  try {
+    session.value.replace(nextRules);
+  } finally {
+    changingPageRules = false;
+  }
 }
 
 function formulaText(rule: BusinessRuleProposal): string {
@@ -1029,15 +1020,11 @@ function saveNewRule() {
   selectedCode.value = draft.code;
 }
 
-async function loadSnapshot(force = false) {
-  if (applying.value && !force) return;
+async function loadSnapshot() {
   const request = ++loadRequest;
+  const selected = session.value;
   resetExecutionResults();
   closeRuleDrawer();
-  snapshot.value = undefined;
-  uiControlSnapshot.value = undefined;
-  baselineProposalFingerprint = undefined;
-  rules.value = [];
   selectedCode.value = undefined;
   expressionSelections.clear();
   formulaInputs.value = {};
@@ -1049,48 +1036,30 @@ async function loadSnapshot(force = false) {
   referenceRootLoading.value = false;
   referenceRootFailed.value = false;
   trialTenantRequest += 1;
-  trialTenantId.value = '';
   trialTenants.value = [];
   trialTenantError.value = '';
   trialTenantLoading.value = false;
-  loading.value = true;
-  loadFailed.value = false;
   try {
-    const loaded = await moduleContext.http.request<BusinessRuleSnapshot>({
-      path: `/platform.module/${encodeURIComponent(props.moduleAlias)}/business-rules`,
-    });
-    if (request !== loadRequest || loaded.moduleAlias !== props.moduleAlias) return;
-    const merged = await mergeUiRules(loaded);
-    if (request !== loadRequest) return;
-    uiControlSnapshot.value = merged.ui;
-    snapshot.value = merged.snapshot;
-    formulaInputs.value = {};
-    const editable = editableProposals(merged.snapshot);
-    rules.value = editable;
-    baselineProposalFingerprint = proposalFingerprintOf(editable);
+    if (!selected.applying.value) await selected.load(!selected.dirty.value);
+    if (request !== loadRequest || session.value !== selected) return;
     selectedCode.value =
-      editable.find((rule) => rule.kind === activeKind.value)?.code ?? editable.at(0)?.code;
+      rules.value.find((rule) => rule.kind === activeKind.value)?.code ?? rules.value.at(0)?.code;
     sampleChildren.value = {};
-    sampleValues.value = Object.fromEntries(loaded.editableFields.map((field) => [field.fieldName, '']));
+    sampleValues.value = Object.fromEntries(
+      (snapshot.value?.editableFields ?? []).map((field) => [field.fieldName, '']),
+    );
     void loadReferenceRoot();
-    void ensureReferencePaths(loaded.referenceFields?.map((field) => field.path) ?? []);
+    void ensureReferencePaths(snapshot.value?.referenceFields?.map((field) => field.path) ?? []);
   } catch (cause) {
     if (request !== loadRequest) return;
-    loadFailed.value = true;
     presentPlatformError(cause, { source: 'business-rule-governance', phase: 'load' });
-  } finally {
-    if (request === loadRequest) loading.value = false;
   }
 }
-
 function discardChanges() {
-  if (applying.value) return;
-  if (!snapshot.value) return;
+  if (applying.value || !snapshot.value) return;
   formulaInputs.value = {};
-  const editable = editableProposals(snapshot.value);
-  rules.value = editable;
-  baselineProposalFingerprint = proposalFingerprintOf(editable);
-  selectedCode.value = editable.at(0)?.code;
+  session.value.discard();
+  selectedCode.value = rules.value.at(0)?.code;
   resetExecutionResults();
 }
 
@@ -1139,73 +1108,17 @@ function incompleteRuleIssues(proposals: readonly BusinessRuleProposal[]): Busin
 }
 
 async function applyRules(): Promise<boolean> {
-  const currentSnapshot = snapshot.value;
-  if (!currentSnapshot || !hasUnsavedChanges.value || applying.value) return false;
-  const request = ++applyRequest;
-  const revision = editRevision;
-  const moduleAlias = props.moduleAlias;
-  const baselineFingerprint = currentSnapshot.baselineFingerprint;
-  const proposedRules = rules.value.map((rule) => ({ ...rule }));
-  const proposalFingerprint = proposalFingerprintOf(proposedRules);
-  applying.value = true;
+  if (!snapshot.value || !hasUnsavedChanges.value || applying.value) return false;
+  const selected = session.value;
   applicationError.value = undefined;
-  applicationIssues.value = [];
-  const isCurrent = () =>
-    request === applyRequest &&
-    revision === editRevision &&
-    moduleAlias === props.moduleAlias &&
-    snapshot.value?.baselineFingerprint === baselineFingerprint &&
-    proposalFingerprintOf(rules.value) === proposalFingerprint;
+  applicationIssues.value = incompleteRuleIssues(rules.value);
+  if (applicationIssues.value.length) return false;
   try {
-    const localIssues = incompleteRuleIssues(proposedRules);
-    if (localIssues.length) {
-      applicationIssues.value = localIssues;
-      return false;
-    }
-    const checked = await moduleContext.http.request<BusinessRulePreview>({
-      method: 'POST',
-      path: `/platform.module/${encodeURIComponent(moduleAlias)}/business-rules/preview`,
-      body: { rules: proposedRules.filter((rule) => rule.kind !== 'UI_CONTROL') },
-    });
-    if (!isCurrent()) return false;
-    if (checked.errors.length) {
-      applicationIssues.value = checked.errors;
-      return false;
-    }
-    if (!checked.proposalFingerprint) {
-      applicationError.value = '检查结果无效，请重新加载后再应用。未应用更改仍保留。';
-      return false;
-    }
-    const result = await moduleContext.http.request<BusinessRuleApplyResult>({
-      method: 'POST',
-      path: `/platform.module/${encodeURIComponent(moduleAlias)}/business-rules/apply`,
-      body: {
-        rules: proposedRules.filter((rule) => rule.kind !== 'UI_CONTROL'),
-        uiRules: proposedRules
-          .filter((rule) => rule.kind === 'UI_CONTROL')
-          .map(({ code, formKey, expression, enabled, targets }) => ({
-            code,
-            formKey,
-            expression,
-            enabled,
-            targets,
-          })),
-        uiBaselineFingerprint: uiControlSnapshot.value?.baselineFingerprint,
-        baselineFingerprint,
-        proposalFingerprint: checked.proposalFingerprint,
-      },
-    });
-    if (!isCurrent()) return false;
-    const merged = await mergeUiRules(result.snapshot);
-    if (!isCurrent()) return false;
-    uiControlSnapshot.value = merged.ui;
-    snapshot.value = merged.snapshot;
+    await selected.apply(() => selected === session.value);
+    if (selected !== session.value) return false;
     formulaInputs.value = {};
-    const editable = editableProposals(merged.snapshot);
-    rules.value = editable;
-    baselineProposalFingerprint = proposalFingerprintOf(editable);
     selectedCode.value =
-      editable.find((rule) => rule.code === selectedCode.value)?.code ?? editable.at(0)?.code;
+      rules.value.find((rule) => rule.code === selectedCode.value)?.code ?? rules.value.at(0)?.code;
     resetExecutionResults();
     presentPlatformMessage('业务规则已应用并同步生效。', {
       source: 'business-rule-governance',
@@ -1213,13 +1126,15 @@ async function applyRules(): Promise<boolean> {
     });
     return true;
   } catch (cause) {
-    if (!isCurrent()) return false;
+    if (selected !== session.value) return false;
+    if (cause instanceof BusinessRulePrecheckError) {
+      applicationIssues.value = cause.issues;
+      return false;
+    }
     applicationError.value = '应用失败，配置可能已更新；请重新加载后再应用。未应用更改仍保留。';
     presentPlatformError(cause, { source: 'business-rule-governance', phase: 'action' });
-  } finally {
-    if (request === applyRequest) applying.value = false;
+    return false;
   }
-  return false;
 }
 
 function openTrial() {
@@ -1308,112 +1223,21 @@ async function runTrial() {
 // This adapter shares the visible candidate and standard governance endpoints with manual editing.
 const assistantHost = useAssistantSurfaceHost();
 let unregisterAssistant: (() => void) | undefined;
-function assistantEditable() {
-  return !!snapshot.value && !loading.value && !applying.value && !loadFailed.value && !ruleDrawerOpen.value;
-}
-function requireAssistantEditable() {
-  if (!assistantEditable()) throw new AssistantCapabilityUsageError('请先完成当前规则编辑或等待加载结束');
-}
-async function previewAssistantRules(signal: AbortSignal) {
-  requireAssistantEditable();
-  const errors = incompleteRuleIssues(rules.value);
-  if (errors.length) throw new AssistantCapabilityUsageError(errors.map((issue) => issue.message).join('；'));
-  return moduleContext.http.request<BusinessRulePreview>({
-    method: 'POST',
-    path: `/platform.module/${encodeURIComponent(props.moduleAlias)}/business-rules/preview`,
-    body: { rules: rules.value.filter((rule) => rule.kind !== 'UI_CONTROL') },
-    signal,
-  });
-}
-async function trialAssistantRules(input: BusinessRuleTrialInput, signal: AbortSignal) {
-  requireAssistantEditable();
-  if (!trialTenantReady.value)
-    throw new AssistantCapabilityUsageError('引用试算需要先在样例试算中选择业务租户');
-  return requestRuleTrial(input, signal);
-}
 function requestRuleTrial(input: BusinessRuleTrialInput, signal?: AbortSignal) {
-  const http = trialTenantId.value
-    ? withHttpHeaders(moduleContext.http, { 'X-MuYun-Tenant-Id': trialTenantId.value })
-    : moduleContext.http;
-  return http.request<BusinessRuleTrialResult>({
-    method: 'POST',
-    path: `/platform.module/${encodeURIComponent(props.moduleAlias)}/business-rules/trial`,
-    body: { rules: rules.value.filter((rule) => rule.kind !== 'UI_CONTROL'), ...input },
-    signal,
-  });
-}
-async function prepareRuleConfirmation(signal: AbortSignal): Promise<AssistantOperationProposal> {
-  requireAssistantEditable();
-  if (!hasUnsavedChanges.value) throw new AssistantCapabilityUsageError('当前没有待应用的规则更改');
-  const alias = props.moduleAlias;
-  const baseline = snapshot.value!.baselineFingerprint;
-  const uiBaseline = uiControlSnapshot.value?.baselineFingerprint;
-  const fingerprint = proposalFingerprintOf(rules.value);
-  const revision = editRevision;
-  const isCurrent = () =>
-    assistantEditable() &&
-    alias === props.moduleAlias &&
-    revision === editRevision &&
-    baseline === snapshot.value?.baselineFingerprint &&
-    uiBaseline === uiControlSnapshot.value?.baselineFingerprint &&
-    fingerprint === proposalFingerprintOf(rules.value);
-  const preview = await previewAssistantRules(signal);
-  if (!isCurrent()) throw new AssistantCapabilityUsageError('规则候选已变化，请重新检查');
-  if (preview.errors.length)
-    throw new AssistantCapabilityUsageError(preview.errors.map((issue) => issue.message).join('；'));
-  const impact = businessRuleChangeImpact(snapshot.value!, rules.value);
-  const describe = (rule: BusinessRuleProposal) => {
-    const details = [
-      `${ruleKindLabel(rule.kind)} ${rule.kind === 'CALCULATION' && rule.targetField ? fieldTitle(rule.targetField) + ' = ' : ''}${presentableFormulaExpression(rule.expression, editableFields.value)}（应用后${rule.enabled ? '启用' : '停用'}）`,
-    ];
-    if (rule.messageTemplate) details.push('失败提示：' + rule.messageTemplate);
-    if (rule.kind === 'UI_CONTROL') {
-      const form = uiControlSnapshot.value?.forms.find((item) => item.key === rule.formKey);
-      details.push('表单：' + (form?.title || rule.formKey));
-      for (const target of rule.targets ?? []) {
-        const element = form?.elements.find((item) => item.key === target.elementKey);
-        details.push(
-          `${element?.label || target.elementKey}：${target.hide ? '隐藏' : '显示'}、${target.readOnly ? '只读' : '可编辑'}`,
-        );
-      }
-    }
-    return details.join('；');
-  };
-  return {
-    presentation: {
-      title: '确认应用业务规则',
-      lines: [
-        props.moduleTitle || alias,
-        ...impact.added.map((rule) => '新增：' + describe(rule)),
-        ...impact.modified.map((rule) => '修改：' + describe(rule)),
-        ...impact.deleted.map((rule) => '删除：' + describe(rule)),
-        '应用当前整组更改，包含页面中已有的人工编辑；影响后续业务操作，不回算历史记录。界面规则由应用接口最终校验。',
-      ],
-    },
-    modelSummary: '规则更改等待用户确认，尚未应用。',
-    confirmLabel: '确认应用规则',
-    expiresAt: Date.now() + 10 * 60_000,
-    isCurrent,
-    async execute() {
-      if (!isCurrent()) throw new Error('规则候选已变化');
-      const success = await applyRules();
-      if (!success) throw new Error('未取得规则应用成功结果，请在治理页面核实');
-      return {
-        title: '业务规则已应用',
-        lines: [alias, '规则已通过标准治理接口提交并同步生效；尚未代替真实业务验收。'],
-      };
-    },
-    async lookup() {
-      return undefined;
-    },
-  };
+  return session.value.trial(input, signal);
 }
 function deactivateAssistant() {
+  sharedWorkspace?.hideEditor(session.value);
   unregisterAssistant?.();
   unregisterAssistant = undefined;
 }
 function activateAssistant() {
   deactivateAssistant();
+  if (sharedWorkspace) {
+    sharedWorkspace.showEditor(session.value);
+    sharedWorkspace.focus(session.value);
+    return;
+  }
   const assistantPageKey = assistantHost?.activePageInstanceKey();
   if (!assistantHost || !assistantPageKey) return;
   unregisterAssistant = assistantHost.registry.register({
@@ -1430,55 +1254,35 @@ function activateAssistant() {
         trialTenantId.value,
       ]),
     surface: createBusinessRuleAssistantSurface(
-      {
-        summary: () => ({
-          moduleAlias: props.moduleAlias,
-          title: props.moduleTitle,
-          editable: assistantEditable(),
-        }),
-        catalog: (section) => {
-          if (section === 'fields') return snapshot.value?.editableFields ?? [];
-          if (section === 'aggregateFields') return snapshot.value?.aggregateFields ?? [];
-          if (section === 'functions') return snapshot.value?.functions ?? [];
-          if (section === 'forms') return uiControlSnapshot.value?.forms ?? [];
-          return [...rules.value, ...readonlyRuleList.value];
-        },
-        revise: (rule) => {
-          requireAssistantEditable();
-          if (readonlyRuleList.value.some((item) => item.code === rule.code))
-            throw new AssistantCapabilityUsageError('不能覆盖只读规则');
-          if (
-            rule.kind === 'CALCULATION' &&
-            !editableFields.value.some((field) => field.fieldName === rule.targetField)
-          )
-            throw new AssistantCapabilityUsageError('计算目标必须来自可写主表字段目录');
-          if (rule.kind === 'UI_CONTROL') {
-            const form = uiControlSnapshot.value?.forms.find((form) => form.key === rule.formKey);
-            if (
-              !form ||
-              rule.targets?.some(
-                (target) => !form.elements.some((element) => element.key === target.elementKey),
-              )
-            )
-              throw new AssistantCapabilityUsageError('界面目标必须来自表单目录');
-          }
-          const existing = rules.value.findIndex((item) => item.code === rule.code);
-          const next = rules.value.map((item) => ({ ...item }));
-          if (existing < 0) next.push(rule);
-          else next[existing] = rule;
-          formulaInputs.value = {};
-          replaceRules(next);
-          selectedCode.value = rule.code;
-        },
-        preview: previewAssistantRules,
-        trial: trialAssistantRules,
-        prepareConfirmation: prepareRuleConfirmation,
-      },
+      session.value.adapter,
       createAssistantTurnRequester(moduleContext.http),
       () => assistantHost.capabilities?.() ?? [],
     ),
   });
 }
+const editorOwner = Symbol('rule-editor');
+watch(
+  [session, ruleDrawerOpen],
+  ([current, open], previous) => {
+    previous?.[0].setEditing(editorOwner, false);
+    current.setEditing(editorOwner, open);
+  },
+  { flush: 'sync' },
+);
+watch(
+  () => session.value.revision.value,
+  () => {
+    resetExecutionResults();
+    if (!changingPageRules) formulaInputs.value = {};
+    if (!rules.value.some((rule) => rule.code === selectedCode.value))
+      selectedCode.value = rules.value.at(0)?.code;
+  },
+  { flush: 'sync' },
+);
+onUnmounted(() => {
+  session.value.setEditing(editorOwner, false);
+  localSessions.forEach((value) => value.dispose());
+});
 onMounted(activateAssistant);
 onActivated(activateAssistant);
 onDeactivated(deactivateAssistant);
@@ -1487,6 +1291,9 @@ onUnmounted(deactivateAssistant);
 
 <template>
   <section class="business-rule-governance">
+    <p v-if="sharedWorkspace && hasUnsavedChanges" role="status">
+      对话与页面共用这份未应用更改。关闭本页后仍可继续编辑；刷新工作区或切换身份后不会恢复。
+    </p>
     <UiSpin v-if="loading" class="business-rule-governance__state" tip="加载业务规则" />
     <div v-else-if="loadFailed" class="business-rule-governance__state">
       <UiEmpty description="业务规则加载失败" />
