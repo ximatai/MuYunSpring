@@ -27,6 +27,12 @@ import org.springframework.messaging.simp.stomp.StompHeaders;
 import org.springframework.messaging.simp.stomp.StompSession;
 import org.springframework.messaging.simp.stomp.StompSessionHandlerAdapter;
 import org.springframework.messaging.simp.user.SimpUserRegistry;
+import org.springframework.messaging.simp.user.SimpSubscription;
+import org.springframework.messaging.simp.user.UserDestinationResolver;
+import org.springframework.messaging.simp.SimpMessageHeaderAccessor;
+import org.springframework.messaging.simp.SimpMessageType;
+import org.springframework.messaging.simp.broker.SimpleBrokerMessageHandler;
+import org.springframework.messaging.support.MessageBuilder;
 import org.springframework.web.socket.client.standard.StandardWebSocketClient;
 import org.springframework.web.socket.WebSocketHttpHeaders;
 import org.springframework.web.socket.messaging.WebSocketStompClient;
@@ -68,6 +74,12 @@ class RealtimeWebSocketIT {
 
     @Autowired
     private SimpUserRegistry userRegistry;
+
+    @Autowired
+    private UserDestinationResolver userDestinationResolver;
+
+    @Autowired
+    private SimpleBrokerMessageHandler broker;
 
     @SpringBootConfiguration
     @EnableAutoConfiguration(excludeName = {
@@ -324,12 +336,36 @@ class RealtimeWebSocketIT {
     private void awaitServerSubscriptions(String destination, int count) throws InterruptedException {
         long deadline = System.nanoTime() + TIMEOUT.toNanos();
         while (System.nanoTime() < deadline) {
-            if (userRegistry.findSubscriptions(subscription -> destination.equals(subscription.getDestination())).size() >= count) {
+            if (userRegistry.findSubscriptions(subscription -> destination.equals(subscription.getDestination())
+                    && isBrokerSubscriptionReady(subscription)).size() >= count) {
                 return;
             }
             TimeUnit.MILLISECONDS.sleep(50);
         }
-        assertThat(userRegistry.findSubscriptions(subscription -> destination.equals(subscription.getDestination())))
+        assertThat(userRegistry.findSubscriptions(subscription -> destination.equals(subscription.getDestination())
+                    && isBrokerSubscriptionReady(subscription)))
                 .hasSizeGreaterThanOrEqualTo(count);
     }
+
+    private boolean isBrokerSubscriptionReady(SimpSubscription subscription) {
+        // The user registry observes SUBSCRIBE before the broker necessarily registers it.
+        // Resolve the actual destination and wait for this session's broker subscription.
+        SimpMessageHeaderAccessor headers = SimpMessageHeaderAccessor.create(SimpMessageType.SUBSCRIBE);
+        headers.setDestination(subscription.getDestination());
+        headers.setSessionId(subscription.getSession().getId());
+        var resolved = userDestinationResolver.resolveDestination(
+                MessageBuilder.createMessage(new byte[0], headers.getMessageHeaders()));
+        if (resolved == null) {
+            return false;
+        }
+        return resolved.getTargetDestinations().stream().allMatch(destination -> {
+            SimpMessageHeaderAccessor message = SimpMessageHeaderAccessor.create(SimpMessageType.MESSAGE);
+            message.setDestination(destination);
+            var subscriptions = broker.getSubscriptionRegistry().findSubscriptions(
+                    MessageBuilder.createMessage(new byte[0], message.getMessageHeaders()));
+            var sessionSubscriptions = subscriptions.get(subscription.getSession().getId());
+            return sessionSubscriptions != null && sessionSubscriptions.contains(subscription.getId());
+        });
+    }
+
 }
