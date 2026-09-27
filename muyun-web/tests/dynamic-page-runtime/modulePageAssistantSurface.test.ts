@@ -1645,6 +1645,43 @@ it('reports actual direct and derived draft changes without exposing hidden valu
   });
 });
 
+it.each(['enum', 'dictionary'] as const)(
+  'shows option titles in draft receipts without changing %s wire values',
+  async (sourceType) => {
+    const view = viewFixture();
+    view.formFields.set('status', {
+      fieldName: 'status',
+      label: '状态',
+      controlType: 'select',
+      fieldControl: { alias: 'select', rendererType: 'SELECT', valueShape: 'SCALAR' },
+      option: {
+        selectionMode: 'SINGLE',
+        binding: { sourceType, source: 'Status' },
+        inlineItems: [
+          { code: 'OLD', title: '历史状态', enabled: false },
+          { code: 'DONE', title: '已完成', enabled: true },
+        ],
+      },
+    } as never);
+    view.editingRecord = { ...view.editingRecord, status: 'OLD' };
+    view.updateDraftFields = vi.fn((changes) => {
+      for (const { fieldName, value } of changes) view.editingRecord![fieldName] = value;
+    });
+    const patch = createModulePageAssistantSurface(view, vi.fn())
+      .capabilities()
+      .find(({ descriptor }) => descriptor.code === 'form.patch-draft')!;
+    const result = await patch.execute(
+      patch.parseInput({ changes: [{ fieldName: 'status', value: 'DONE' }] }),
+      executionContext(),
+    );
+    expect(view.updateDraftFields).toHaveBeenCalledWith(
+      [{ fieldName: 'status', value: 'DONE' }],
+      'assistant',
+    );
+    expect(patch.present!(result).lines).toContain('状态：历史状态 → 已完成');
+  },
+);
+
 it('lists tenant candidates without selecting one or exposing record identifiers', async () => {
   const view = viewFixture();
   view.recordCreationState = () => ({ ready: false, reason: 'TENANT_REQUIRED', message: '请先选择租户' });

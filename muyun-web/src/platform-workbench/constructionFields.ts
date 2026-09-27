@@ -59,13 +59,35 @@ export function createConstructionFieldCapabilities(
       descriptor: {
         code: 'construction.describe-fields',
         description:
-          'Read current fields and actual enabled field specifications for an initialized object. Must run before preparing ordinary field additions; never invent specification aliases.',
-        inputSchema: schema({ objectKey }),
+          'Read paginated current fields and actual enabled specifications. Use fieldOffset/specOffset with nextOffset to continue. Oversized entries are reported separately, never silently truncated. Must run before preparing fields; never invent specification aliases.',
+        inputSchema: {
+          ...schema({ objectKey }),
+          properties: {
+            objectKey,
+            fieldOffset: { type: 'integer', minimum: 0 },
+            specOffset: { type: 'integer', minimum: 0 },
+          },
+        },
       },
-      parseInput: (input) => ({ objectKey: text(object(input).objectKey, 64) }),
+      parseInput(input) {
+        const value = object(input);
+        const fieldOffset = value.fieldOffset ?? 0,
+          specOffset = value.specOffset ?? 0;
+        if (![fieldOffset, specOffset].every((offset) => Number.isSafeInteger(offset) && Number(offset) >= 0))
+          throw new AssistantCapabilityUsageError('目录分页位置无效');
+        return {
+          objectKey: text(value.objectKey, 64),
+          fieldOffset: Number(fieldOffset),
+          specOffset: Number(specOffset),
+        };
+      },
       async execute(input, context) {
         const before = requireConfirmedConstructionPlan(current);
-        const key = (input as { objectKey: string }).objectKey;
+        const {
+          objectKey: key,
+          fieldOffset,
+          specOffset,
+        } = input as { objectKey: string; fieldOffset: number; specOffset: number };
         const description = await client.describeFields(before.saved.planId, key);
         context.commitInternalState(() => {
           catalog = {
@@ -75,7 +97,17 @@ export function createConstructionFieldCapabilities(
             description,
           };
         });
-        return description;
+        const fields = catalogPage(description.fields, fieldOffset);
+        const specs = catalogPage(description.specs, specOffset);
+        return {
+          moduleAlias: description.moduleAlias,
+          planRevision: description.planRevision,
+          metadataVersion: description.metadataVersion,
+          fields: fields.items,
+          specs: specs.items,
+          fieldPage: fields.page,
+          specPage: specs.page,
+        };
       },
     },
     {
@@ -231,4 +263,36 @@ export function createConstructionFieldCapabilities(
           : { title: '尚未查到字段回执', lines: ['不能据此推定操作未提交。'] },
     },
   ];
+}
+
+/** Model observation only; preparation still validates against the full authoritative catalog. */
+function catalogPage<T>(records: T[], offset: number) {
+  const items: T[] = [];
+  const oversized: number[] = [];
+  let remaining = 8_000;
+  let next = Math.min(offset, records.length);
+  while (next < records.length && next - offset < 10) {
+    const item = records[next]!;
+    const size = JSON.stringify(item).length;
+    if (size > 8_000) {
+      oversized.push(next++);
+      continue;
+    }
+    if (size > remaining) break;
+    remaining -= size;
+    items.push(item);
+    next++;
+  }
+  return {
+    items,
+    page: {
+      offset,
+      total: records.length,
+      nextOffset: next < records.length ? next : null,
+      oversizedIndexes: oversized,
+      ...(oversized.length
+        ? { note: '这些条目的完整定义超过单项读取预算，请通过标准配置界面查看；未将其当作不存在。' }
+        : {}),
+    },
+  };
 }

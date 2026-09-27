@@ -1,3 +1,8 @@
+import { createModulePageAssistantSurface } from '@/dynamic-page-runtime/modulePageAssistantSurface';
+import { createRelationDraftRegistry } from '@/dynamic-page-runtime/relationDraftController';
+import { createWorkbenchAssistantCapabilities } from '@/platform-workbench/workbenchAssistantCapabilities';
+import type { ModulePageSessionView } from '@/dynamic-page-runtime/useModulePageSession';
+import type { RecordFormDraftAccess } from '@/dynamic-page-runtime/recordFormDraftAccess';
 import { expect, it, vi } from 'vitest';
 import type {
   ConstructionField,
@@ -175,4 +180,127 @@ it('recovers a committed field receipt after response loss without repeating pub
   expect(prepared.confirmation!.state).toBe('succeeded');
   expect(f.client.publishFields).toHaveBeenCalledOnce();
   expect(f.session.current().saved!.fieldChanges).toHaveLength(1);
+});
+
+it('bounds model catalog pages without losing full metadata or later fields', async () => {
+  const f = await fixture();
+  const base = await f.client.describeFields('plan', 'order');
+  const fields = Array.from({ length: 500 }, (_, index) => ({
+    fieldName: `field${index}`,
+    title: '名称'.repeat(60),
+    fieldType: 'STRING' as const,
+  }));
+  const full = { ...base, fields };
+  expect(JSON.stringify(full).length).toBeGreaterThan(64_000);
+  vi.mocked(f.client.describeFields).mockResolvedValue(full);
+  let offset: number | null = 0;
+  const seen: unknown[] = [];
+  while (offset !== null) {
+    const response = await f.invoke('construction.describe-fields', {
+      objectKey: 'order',
+      fieldOffset: offset,
+    });
+    const page = response.value as { fields: unknown[]; fieldPage: { nextOffset: number | null } };
+    expect(JSON.stringify(page).length).toBeLessThan(17_000);
+    seen.push(...page.fields);
+    offset = page.fieldPage.nextOffset;
+  }
+  expect(seen).toEqual(fields);
+  await f.prepare();
+  expect(f.client.previewFields).toHaveBeenCalled();
+  vi.mocked(f.client.describeFields).mockResolvedValue({
+    ...base,
+    fields: [{ fieldName: 'large', title: 'x'.repeat(9000) }, ...fields.slice(0, 2)],
+  });
+  const response = await f.discover();
+  expect(response.value).toMatchObject({
+    fieldPage: { oversizedIndexes: [0], nextOffset: null },
+    fields: fields.slice(0, 2),
+  });
+});
+
+it('composes initialized construction, navigation and referenced aggregate editors within the turn budget', async () => {
+  const f = await fixture();
+  const formFields = new Map([
+    [
+      'customerId',
+      {
+        fieldName: 'customerId',
+        label: '客户',
+        visible: true,
+        readOnly: false,
+        controlType: 'recordPicker',
+        reference: { cardinality: 'ONE', targetModuleAlias: 'sales.customer' },
+      },
+    ],
+  ]);
+  const referencePickerConfigs = {
+    customerId: {
+      provider: {
+        identity: {
+          targetModuleAlias: 'sales.customer',
+          source: { kind: 'targetReference', id: 'customer' },
+        },
+        searchPage: vi.fn(),
+        resolve: vi.fn(),
+      },
+    },
+  };
+  const relations = createRelationDraftRegistry();
+  const form = {
+    editorMode: 'edit',
+    editingRecord: { id: 'line' },
+    formFields,
+    referencePickerConfigs,
+    contextRevision: () => '1',
+    updateDraftFields: vi.fn(),
+    updateDraftReference: vi.fn(),
+  } as unknown as RecordFormDraftAccess;
+  relations.register({
+    code: 'lines',
+    title: '明细',
+    revision: () => '1',
+    settle: async () => {},
+    rowKeys: () => ['line'],
+    form: () => form,
+    add: vi.fn(),
+    remove: vi.fn(),
+  });
+  const view = {
+    editorMode: 'edit',
+    editingRecord: { id: 'order' },
+    formFields,
+    referencePickerConfigs,
+    context: { moduleAlias: 'sales.order', can: () => false },
+    relationDrafts: relations,
+    recordCreationState: () => ({ ready: false }),
+    assistantNavigatorScopes: () => [],
+    assistantSaveAvailable: true,
+  } as unknown as ModulePageSessionView;
+  const surface = createModulePageAssistantSurface(view, vi.fn(), () => [
+    ...createWorkbenchAssistantCapabilities(
+      () => [],
+      () => false,
+    ),
+    ...f.session.capabilities(),
+  ]);
+  const select = surface.capabilities().find((entry) => entry.descriptor.code === 'relation.select-row')!;
+  await select.execute(select.parseInput({ relationCode: 'lines', rowKey: 'line' }), {
+    signal: new AbortController().signal,
+    isCurrent: () => true,
+    commitInternalState: (commit) => commit(),
+    applyEffect: (commit) => commit(),
+  });
+  const catalog = surface.capabilities().map((entry) => entry.descriptor);
+  expect(catalog.length).toBeGreaterThan(32);
+  expect(catalog.length).toBeLessThanOrEqual(64);
+  expect(catalog.map((entry) => entry.code)).toEqual(
+    expect.arrayContaining([
+      'construction.describe-fields',
+      'workbench.find-menu',
+      'form.prepare-save',
+      'relation.reference.search-options',
+    ]),
+  );
+  expect(JSON.stringify(catalog).length).toBeLessThan(64_000);
 });

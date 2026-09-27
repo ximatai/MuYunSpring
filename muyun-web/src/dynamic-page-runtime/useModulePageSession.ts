@@ -1,3 +1,4 @@
+import { createRelationDraftRegistry } from './relationDraftController';
 import { assistantFieldDisplay, assistantRelationProjection } from './assistantRecordProjection';
 import type { AssistantResultPresentation, OptionItemDescriptor } from '@muyun/web-contracts';
 import type { AssistantOperationProposal } from '@muyun/web-core';
@@ -172,6 +173,7 @@ export function useModulePageSession(
   emit: ModulePageSessionEvents,
   initialized: () => void,
 ) {
+  const relationDrafts = createRelationDraftRegistry();
   let disposed = false;
   onUnmounted(() => {
     disposed = true;
@@ -3047,6 +3049,7 @@ export function useModulePageSession(
     for (let attempt = 0; attempt < 10; attempt += 1) {
       throwIfAssistantSettlementAborted(signal);
       const contextRevision = assistantContextRevision.value;
+      const relationRevision = relationDrafts.revision();
       const controller = listQueryController.value;
       const treeController = treeQueryController.value;
       await controller?.settle(signal);
@@ -3055,11 +3058,14 @@ export function useModulePageSession(
       await nextTick();
       await settlePendingRecord(signal);
       await nextTick();
+      await relationDrafts.settle();
+      await nextTick();
       throwIfAssistantSettlementAborted(signal);
       if (
         controller !== listQueryController.value ||
         treeController !== treeQueryController.value ||
-        contextRevision !== assistantContextRevision.value
+        contextRevision !== assistantContextRevision.value ||
+        relationRevision !== relationDrafts.revision()
       )
         continue;
       const status = controller?.snapshot().status;
@@ -4019,6 +4025,7 @@ export function useModulePageSession(
     detailDisplayFields,
     formFields,
     formSessionKey,
+    relationDrafts,
     assistantContextRevision,
     assistantInteractionRevision,
     listQueryController,

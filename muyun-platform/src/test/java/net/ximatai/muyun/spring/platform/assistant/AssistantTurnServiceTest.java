@@ -33,6 +33,22 @@ import static org.mockito.Mockito.doAnswer;
 
 class AssistantTurnServiceTest {
     @Test
+    void acceptsTheComposedCapabilityBudgetAndPreservesAllTools() {
+        AiModelGateway gateway = mock(AiModelGateway.class);
+        when(gateway.complete(org.mockito.ArgumentMatchers.any())).thenReturn(
+                new AiTurnResponse("完成", List.of(), "stop", "request"));
+        AssistantTurnService service = new AssistantTurnService(gateway, new ObjectMapper());
+        List<AiToolDefinition> capabilities = java.util.stream.IntStream.range(0, 64)
+                .mapToObj(index -> new AiToolDefinition("capability." + index, "Read current facts", Map.of("type", "object"))).toList();
+        try (var ignored = CurrentUserContext.use(CurrentUser.systemUser("system", "System"))) {
+            service.turn(new AssistantTurnCommand("继续", Map.of(), capabilities, List.of()));
+        }
+        ArgumentCaptor<AiTurnRequest> request = ArgumentCaptor.forClass(AiTurnRequest.class);
+        verify(gateway).complete(request.capture());
+        assertThat(request.getValue().tools()).hasSize(65);
+    }
+
+    @Test
     void validatesAndForwardsTheConfiguredOutputBudget() {
         AiModelGateway gateway = mock(AiModelGateway.class);
         when(gateway.complete(org.mockito.ArgumentMatchers.any())).thenReturn(

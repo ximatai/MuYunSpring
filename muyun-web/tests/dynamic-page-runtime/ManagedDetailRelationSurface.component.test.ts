@@ -1,3 +1,10 @@
+import { defineComponent, h } from 'vue';
+import {
+  provideRelationDraftRegistry,
+  createRelationDraftRegistry,
+  type RelationDraftRegistry,
+} from '@/dynamic-page-runtime/relationDraftController';
+import { createRelationDraftAssistantCapabilities } from '@/dynamic-page-runtime/relationDraftAssistantCapabilities';
 import { config, flushPromises, mount, shallowMount } from '@vue/test-utils';
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 import ManagedDetailRelationSurface from '@/dynamic-page-runtime/ManagedDetailRelationSurface.vue';
@@ -19,6 +26,89 @@ afterEach(() => {
 });
 
 describe('managed detail relation surface', () => {
+  it.each(['static.child', 'dynamic_child'])(
+    'shares mounted aggregate draft operations with the assistant (%s)',
+    async (entity) => {
+      const aggregate = relation('properties');
+      aggregate.targetEntityAlias = entity;
+      aggregate.embeddedField = 'properties';
+      aggregate.editing = { mode: 'INLINE', saveMode: 'AGGREGATE_DRAFT' };
+      aggregate.queryContract!.listProjection!.fields.push({ fieldName: 'title', title: '名称' });
+      const ui = descriptor();
+      ui.editorContributions![0]!.resource = entity;
+      for (const field of ui.editorContributions![0]!.editor.fields) field.fieldRef.relationCode = entity;
+      ui.editorContributions![0]!.editor.fields[1]!.assistantPolicy = 'HIDDEN';
+      let registry!: RelationDraftRegistry;
+      const request = vi.fn();
+      const parent = mount(
+        defineComponent({
+          setup() {
+            registry = createRelationDraftRegistry();
+            provideRelationDraftRegistry(() => registry);
+            return () =>
+              h(ManagedDetailRelationInlineSurface, {
+                sourceContext: context(request),
+                uiDescriptor: ui,
+                relation: aggregate,
+                parentRecord: {
+                  id: 'parent',
+                  properties: [{ id: 'existing', attributeAlias: 'old', title: 'secret' }],
+                },
+                mutationEnabled: true,
+              });
+          },
+        }),
+      );
+      await flushPromises();
+      const child = parent.findComponent(ManagedDetailRelationInlineSurface);
+      const displayRevision = registry.revision();
+      child
+        .findAllComponents({ name: 'RecordFormFields' })[0]!
+        .vm.$emit('reference-projections-change', 'attributeAlias', { unrelatedTitle: '已解析名称' });
+      await flushPromises();
+      expect(registry.revision()).toBe(displayRevision);
+      const capabilities = createRelationDraftAssistantCapabilities(registry, registry.revision);
+      const execution = {
+        signal: new AbortController().signal,
+        isCurrent: () => true,
+        commitInternalState: <T>(commit: () => T) => commit(),
+        applyEffect: <T>(commit: () => T) => commit(),
+      };
+      const invoke = async (code: string, input = {}) => {
+        const capability = capabilities().find((item) => item.descriptor.code === code)!;
+        return capability.execute(capability.parseInput(input), execution);
+      };
+      expect(JSON.stringify(await invoke('relation.describe'))).not.toContain('secret');
+      const added = (await invoke('relation.add-row', { relationCode: 'properties' })) as { rowKey: string };
+      await flushPromises();
+      const before = registry.revision();
+      await expect(
+        invoke('relation.form.patch-draft', {
+          changes: [
+            { fieldName: 'attributeAlias', value: 'must-not-apply' },
+            { fieldName: 'title', value: 'blocked' },
+          ],
+        }),
+      ).rejects.toThrow('not editable');
+      expect(registry.revision()).toBe(before);
+      await invoke('relation.form.patch-draft', { changes: [{ fieldName: 'attributeAlias', value: 'new' }] });
+      await flushPromises();
+      expect(child.emitted('records-change')?.at(-1)?.[0]).toEqual([
+        { id: 'existing', attributeAlias: 'old', title: 'secret' },
+        { attributeAlias: 'new' },
+      ]);
+      expect(registry.interactionRevision()).toBe(0);
+      await invoke('relation.remove-row', { relationCode: 'properties', rowKey: added.rowKey });
+      expect(child.emitted('records-change')?.at(-1)?.[0]).toEqual([
+        { id: 'existing', attributeAlias: 'old', title: 'secret' },
+      ]);
+      expect(capabilities().some((item) => item.descriptor.code === 'relation.form.patch-draft')).toBe(false);
+      expect(request).not.toHaveBeenCalled();
+      parent.unmount();
+      expect(capabilities()).toEqual([]);
+    },
+  );
+
   it('allows aggregate draft rows before the parent has been persisted', async () => {
     const aggregate = relation('properties');
     aggregate.embeddedField = 'properties';

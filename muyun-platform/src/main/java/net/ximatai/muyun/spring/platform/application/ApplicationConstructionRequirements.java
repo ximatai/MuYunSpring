@@ -1,5 +1,7 @@
 package net.ximatai.muyun.spring.platform.application;
 
+import net.ximatai.muyun.spring.platform.metadata.MetadataField;
+
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -16,9 +18,9 @@ public final class ApplicationConstructionRequirements {
         return switch (section) { case SCOPE -> content.inScope(); case RULE -> content.rules(); case RELATION -> content.relationships(); };
     }
     public static List<Evidence> evaluate(ApplicationConstructionPlanContent content, String objectKey,
-                                          List<ApplicationConstructionFieldService.Field> fields) {
-        Map<String, ApplicationConstructionFieldService.Field> byName = fields.stream()
-                .collect(Collectors.toMap(ApplicationConstructionFieldService.Field::name, field -> field));
+                                          List<MetadataField> fields) {
+        Map<String, MetadataField> byName = fields.stream()
+                .collect(Collectors.toMap(MetadataField::getFieldName, field -> field));
         var result = new ArrayList<Evidence>();
         for (var section : ApplicationConstructionRequirement.Section.values()) {
             var source = source(content, section);
@@ -36,8 +38,8 @@ public final class ApplicationConstructionRequirements {
                         case UNSUPPORTED -> Status.UNSUPPORTED;
                         case MANUAL -> Status.MANUAL_CHECK_REQUIRED;
                         case FIELD -> field != null ? Status.CONFIGURATION_MATCHED : Status.CONFIGURATION_MISSING;
-                        case REQUIRED -> field != null && field.required() ? Status.CONFIGURATION_MATCHED : Status.CONFIGURATION_MISSING;
-                        case UNIQUE -> field != null && field.unique() ? Status.CONFIGURATION_MATCHED : Status.CONFIGURATION_MISSING;
+                        case REQUIRED -> field != null && Boolean.TRUE.equals(field.getRequired()) ? Status.CONFIGURATION_MATCHED : Status.CONFIGURATION_MISSING;
+                        case UNIQUE -> field != null && Boolean.TRUE.equals(field.getUniqueField()) ? Status.CONFIGURATION_MATCHED : Status.CONFIGURATION_MISSING;
                     };
                     result.add(new Evidence(section, i, source.get(i), objectKey, binding.fieldName(), status, binding.explanation()));
                 }

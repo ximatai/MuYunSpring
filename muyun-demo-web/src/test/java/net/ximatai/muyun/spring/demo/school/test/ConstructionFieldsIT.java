@@ -63,7 +63,7 @@ class ConstructionFieldsIT {
             var initial = new ApplicationConstructionInitializationService.Proposal(1, "entry", "manual" + planId.substring(0, 12), "订单应用", "registration_records");
             construction.confirm(planId, new ApplicationConstructionInitializationService.ConfirmCommand(
                     UUID.randomUUID().toString(), initial, construction.preview(planId, initial).fingerprint()));
-            assertThat(delivery.task(planId).objects().getFirst().stage()).isEqualTo(ApplicationConstructionDeliveryService.TaskStage.CONFIGURE_FIELDS);
+            assertThat(delivery.task(planId).objects().getFirst().options()).extracting(ApplicationConstructionDeliveryService.TaskOption::action).contains(ApplicationConstructionDeliveryService.TaskAction.CONFIGURE_FIELDS);
             var binding = constructionPlans.read(planId).initializations().getFirst();
             var description = constructionFields.describe(planId, "entry");
             var field = new MetadataField();
@@ -76,18 +76,24 @@ class ConstructionFieldsIT {
             var preview = metadataPreviews.preview(binding.moduleAlias(), changeSet);
             metadataPublisher.apply(binding.moduleAlias(), new MetadataModelChangeSetApplyCommand(changeSet, preview.proposalFingerprint()));
             assertThat(constructionPlans.read(planId).fieldChanges()).isEmpty();
-            assertThat(delivery.task(planId).objects().getFirst().stage()).isEqualTo(ApplicationConstructionDeliveryService.TaskStage.PUBLISH_PAGE);
+            assertThat(constructionFields.describe(planId, "entry").fields())
+                    .anySatisfy(actual -> {
+                        assertThat(actual.getFieldName()).isEqualTo("orderNumber");
+                        assertThat(actual.getRequired()).isTrue();
+                        assertThat(actual.getMetadataId()).isEqualTo(binding.metadataId());
+                    });
+            assertThat(delivery.task(planId).objects().getFirst().options()).extracting(ApplicationConstructionDeliveryService.TaskOption::action).contains(ApplicationConstructionDeliveryService.TaskAction.PUBLISH_PAGE);
             var page = new ApplicationConstructionDeliveryService.Proposal(1, "entry", ApplicationConstructionDeliveryService.Kind.PAGE,
                     "订单登记", List.of("orderNumber"), List.of("orderNumber"), List.of("orderNumber"));
             delivery.confirm(planId, new ApplicationConstructionDeliveryService.Command(UUID.randomUUID().toString(), page, delivery.preview(planId, page).fingerprint()));
-            assertThat(delivery.task(planId).objects().getFirst().stage()).isEqualTo(ApplicationConstructionDeliveryService.TaskStage.CREATE_ENTRY);
+            assertThat(delivery.task(planId).objects().getFirst().options()).extracting(ApplicationConstructionDeliveryService.TaskOption::action).contains(ApplicationConstructionDeliveryService.TaskAction.CREATE_ENTRY);
             var entry = new ApplicationConstructionDeliveryService.Proposal(1, "entry", ApplicationConstructionDeliveryService.Kind.ENTRY,
                     "订单登记", List.of(), List.of(), List.of());
             delivery.confirm(planId, new ApplicationConstructionDeliveryService.Command(UUID.randomUUID().toString(), entry, delivery.preview(planId, entry).fingerprint()));
-            assertThat(delivery.task(planId).objects().getFirst().stage()).isEqualTo(ApplicationConstructionDeliveryService.TaskStage.VERIFY_BUSINESS);
+            assertThat(delivery.task(planId).objects().getFirst().options()).extracting(ApplicationConstructionDeliveryService.TaskOption::action).contains(ApplicationConstructionDeliveryService.TaskAction.VERIFY_BUSINESS);
             var acceptance = delivery.previewAcceptance(planId, "entry");
             delivery.confirmAcceptance(planId, new ApplicationConstructionDeliveryService.AcceptanceCommand(UUID.randomUUID().toString(), "entry", acceptance.fingerprint()));
-            assertThat(delivery.task(planId).objects().getFirst().stage()).isEqualTo(ApplicationConstructionDeliveryService.TaskStage.COMPLETE);
+            assertThat(delivery.task(planId).objects().getFirst().complete()).isTrue();
             assertThat(constructionPlans.read(planId).fieldChanges()).isEmpty();
         }
     }
@@ -105,14 +111,14 @@ class ConstructionFieldsIT {
                 new ApplicationConstructionRequirement(ApplicationConstructionRequirement.Section.SCOPE, 1, "entry", ApplicationConstructionRequirement.Mode.FIELD, "remark", "可选填备注")));
         try (var user = CurrentUserContext.use(CurrentUser.systemUser("construction-admin", "建设管理员")); var scope = TenantContext.system("field acceptance")) {
             constructionPlans.confirm(planId, new ApplicationConstructionPlanService.ConfirmCommand(UUID.randomUUID().toString(), 0, content));
-            assertThat(delivery.task(planId).objects().getFirst().stage()).isEqualTo(ApplicationConstructionDeliveryService.TaskStage.INITIALIZE);
+            assertThat(delivery.task(planId).objects().getFirst().options()).extracting(ApplicationConstructionDeliveryService.TaskOption::action).contains(ApplicationConstructionDeliveryService.TaskAction.INITIALIZE);
             var proposal = new ApplicationConstructionInitializationService.Proposal(1, "entry", app, "订单应用", "registration_records");
             var preview = construction.preview(planId, proposal);
             var result = construction.confirm(planId, new ApplicationConstructionInitializationService.ConfirmCommand(UUID.randomUUID().toString(), proposal, preview.fingerprint()));
             MockMvc mvc = webAppContextSetup(webApplicationContext).build();
             var json = new com.fasterxml.jackson.databind.ObjectMapper();
             var description = constructionFields.describe(planId, "entry");
-            assertThat(delivery.task(planId).objects().getFirst().stage()).isEqualTo(ApplicationConstructionDeliveryService.TaskStage.CONFIGURE_FIELDS);
+            assertThat(delivery.task(planId).objects().getFirst().options()).extracting(ApplicationConstructionDeliveryService.TaskOption::action).contains(ApplicationConstructionDeliveryService.TaskAction.CONFIGURE_FIELDS);
             assertThatThrownBy(() -> delivery.preview(planId, new ApplicationConstructionDeliveryService.Proposal(1, "entry",
                     ApplicationConstructionDeliveryService.Kind.PAGE, "订单", List.of("orderNumber"), List.of("orderNumber"), List.of())))
                     .hasMessageContaining("尚未落实到实际字段约束");
@@ -141,7 +147,7 @@ class ConstructionFieldsIT {
             assertThat(fieldHttp.getStatus()).as(fieldHttp.getContentAsString()).isEqualTo(200);
             assertThat(constructionFields.status(planId, fieldCommand.requestId()).runtime().status()).isEqualTo("ACTIVE");
             assertThat(constructionPlans.read(planId).fieldChanges()).hasSize(1);
-            assertThat(delivery.task(planId).objects().getFirst().stage()).isEqualTo(ApplicationConstructionDeliveryService.TaskStage.PUBLISH_PAGE);
+            assertThat(delivery.task(planId).objects().getFirst().options()).extracting(ApplicationConstructionDeliveryService.TaskOption::action).contains(ApplicationConstructionDeliveryService.TaskAction.PUBLISH_PAGE);
             assertThat(constructionDatabase.query("select column_name from information_schema.columns where table_schema = 'public' and table_name = ? and column_name = 'order_number'", preview.tableName())).hasSize(1);
             var duplicateProposal = new net.ximatai.muyun.spring.platform.application.ApplicationConstructionFieldService.Proposal(1, "entry", metadataService.select(result.receipt().metadataId()).getVersion(), fieldProposal.fields());
             assertThat(constructionFields.preview(planId, duplicateProposal).errors()).isNotEmpty();
@@ -159,7 +165,7 @@ class ConstructionFieldsIT {
             var pageReceipt = delivery.confirm(planId, pageCommand);
             assertThat(delivery.confirm(planId, pageCommand)).isEqualTo(pageReceipt);
             assertThat(delivery.progress(planId, "entry").pagePublished()).isTrue();
-            assertThat(delivery.task(planId).objects().getFirst().stage()).isEqualTo(ApplicationConstructionDeliveryService.TaskStage.CREATE_ENTRY);
+            assertThat(delivery.task(planId).objects().getFirst().options()).extracting(ApplicationConstructionDeliveryService.TaskOption::action).contains(ApplicationConstructionDeliveryService.TaskAction.CREATE_ENTRY);
             var installedContext = runtimeContexts.context(result.receipt().moduleAlias());
             var installedPage = installedContext.uiDescriptor();
             assertThat(installedPage.page().detail().editor()).isNotNull();
@@ -174,7 +180,7 @@ class ConstructionFieldsIT {
             var entryReceipt = delivery.confirm(planId, entryCommand);
             assertThat(delivery.confirm(planId, entryCommand)).isEqualTo(entryReceipt);
             assertThat(delivery.progress(planId, "entry").entryVisible()).isTrue();
-            assertThat(delivery.task(planId).objects().getFirst().stage()).isEqualTo(ApplicationConstructionDeliveryService.TaskStage.VERIFY_BUSINESS);
+            assertThat(delivery.task(planId).objects().getFirst().options()).extracting(ApplicationConstructionDeliveryService.TaskOption::action).contains(ApplicationConstructionDeliveryService.TaskAction.VERIFY_BUSINESS);
             assertThat(delivery.progress(planId, "entry").needsReview()).isFalse();
             assertThatThrownBy(() -> delivery.preview(planId, entryProposal)).hasMessageContaining("已有访问入口");
             var businessTenant = new net.ximatai.muyun.spring.iam.tenant.Tenant();
@@ -204,7 +210,7 @@ class ConstructionFieldsIT {
             var acceptanceReceipt = delivery.confirmAcceptance(planId, acceptanceCommand);
             assertThat(delivery.confirmAcceptance(planId, acceptanceCommand)).isEqualTo(acceptanceReceipt);
             assertThat(delivery.progress(planId, "entry").acceptanceConfirmed()).isTrue();
-            assertThat(delivery.task(planId).objects().getFirst().stage()).isEqualTo(ApplicationConstructionDeliveryService.TaskStage.COMPLETE);
+            assertThat(delivery.task(planId).objects().getFirst().complete()).isTrue();
             var changedPage = constructionPages.select(pageReceipt.pageId());
             changedPage.setTitle("调整后的订单登记");
             constructionPages.update(changedPage);

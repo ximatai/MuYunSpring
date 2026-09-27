@@ -80,7 +80,7 @@ export interface ConstructionFieldDescription {
   moduleAlias: string;
   planRevision: number;
   metadataVersion: number;
-  fields: ConstructionField[];
+  fields: import('./index').MetadataField[];
   specs: {
     alias: string;
     title: string;
@@ -192,17 +192,19 @@ export interface ConstructionTask {
   objects: {
     objectKey: string;
     title: string;
-    stage:
-      | 'REVIEW_REQUIREMENTS'
-      | 'INITIALIZE'
-      | 'VERIFY_RUNTIME'
-      | 'CONFIGURE_FIELDS'
-      | 'REVIEW_CONFIGURATION'
-      | 'PUBLISH_PAGE'
-      | 'CREATE_ENTRY'
-      | 'VERIFY_BUSINESS'
-      | 'COMPLETE';
-    nextAction: string;
+    complete: boolean;
+    options: {
+      action:
+        | 'REVIEW_REQUIREMENTS'
+        | 'INITIALIZE'
+        | 'VERIFY_RUNTIME'
+        | 'CONFIGURE_FIELDS'
+        | 'REVIEW_CONFIGURATION'
+        | 'PUBLISH_PAGE'
+        | 'CREATE_ENTRY'
+        | 'VERIFY_BUSINESS';
+      explanation: string;
+    }[];
     requirements: ConstructionRequirementEvidence[];
   }[];
 }

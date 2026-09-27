@@ -137,3 +137,31 @@ it('allows human scope edits without persisting and invalidates a previous confi
   expect(wrapper.text()).toContain('有未确认修改');
   wrapper.unmount();
 });
+
+it('shows independent planning choices without treating their display order as execution', async () => {
+  const { client, session } = fixture();
+  session.edit(content);
+  await session.prepare().execute();
+  vi.mocked(client.task).mockResolvedValue({
+    planRevision: 1,
+    objects: [
+      {
+        objectKey: 'contract',
+        title: '合同',
+        complete: false,
+        options: [
+          { action: 'CONFIGURE_FIELDS', explanation: '需要时补充登记内容' },
+          { action: 'PUBLISH_PAGE', explanation: '已有内容满足要求，可以准备页面' },
+        ],
+        requirements: [],
+      },
+    ],
+  });
+  await session.readTask();
+  const wrapper = mount(ConstructionPlanCard, { props: { session } });
+  expect(wrapper.text()).toContain('需要时补充登记内容');
+  expect(wrapper.text()).toContain('已有内容满足要求，可以准备页面');
+  expect(client.publishFields).not.toHaveBeenCalled();
+  expect(client.publishDelivery).not.toHaveBeenCalled();
+  wrapper.unmount();
+});

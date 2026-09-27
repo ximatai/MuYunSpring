@@ -1,9 +1,12 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, toRaw, watch } from 'vue';
+import { computed, onMounted, ref, toRaw, watch, watchEffect } from 'vue';
+import { useRelationDraftRegistry, type RelationDraftController } from './relationDraftController';
+import type { RecordFormDraftAccess } from './recordFormDraftAccess';
 import { recordMutationPayload } from './recordMutationPayload';
 import { createSourceReferencePickerConfigAssembler } from './sourceReferencePickerConfig';
 import {
   RecordFormFields,
+  referenceDisplayProjections,
   RecordRelationTable,
   RecordSelectionCheckbox,
   RecordRelationValue,
@@ -89,6 +92,8 @@ const recycleBinSourceRecords = ref<QueryListRecord[]>([]);
 const recycleBinSelectedIds = ref(new Set<string>());
 const recoveredSourceIds = ref(new Set<string>());
 const optionItems = ref<Record<string, OptionItemDescriptor[]>>({});
+const draftRegistry = useRelationDraftRegistry();
+const revision = ref(0);
 let draftSequence = 0;
 let recycleBinRequestSequence = 0;
 const sourceReferencePickerConfigFor = createSourceReferencePickerConfigAssembler();
@@ -137,6 +142,13 @@ const formFields = computed(() =>
  * a read-only projection never becomes part of the aggregate mutation payload.
  */
 const referenceProjectionValues = ref<Record<string, Record<string, Record<string, unknown>>>>({});
+watch(
+  () => JSON.stringify([rows.value, optionItems.value]),
+  () => {
+    revision.value += 1;
+  },
+  { flush: 'sync' },
+);
 const columns = computed(
   () => props.relation.listProjection?.fields ?? props.relation.queryContract?.listProjection?.fields ?? [],
 );
@@ -340,7 +352,10 @@ async function load() {
 }
 
 function toDraftRow(record: QueryListRecord): DraftRow {
-  return { ...cloneRecord(record), __draftKey: `persisted:${String(record.id)}` };
+  return {
+    ...cloneRecord(record),
+    __draftKey: record.id == null ? `new:${++draftSequence}` : `persisted:${String(record.id)}`,
+  };
 }
 
 function cloneRecord(record: QueryListRecord): QueryListRecord {
@@ -415,6 +430,7 @@ function setRecycleBinSelected(record: QueryListRecord, selected: boolean) {
 
 function recoverSelected() {
   if (recycleBinSelectedIds.value.size === 0) return;
+  draftRegistry()?.userChanged();
   const recovered = recycleBinRecords.value
     .filter((record) => recycleBinSelectedIds.value.has(String(record.id ?? '')))
     .map((record) => {
@@ -437,11 +453,14 @@ function recoverSelected() {
   publishDraft();
 }
 
-function addRow() {
+function addRow(source: 'user' | 'assistant' = 'user') {
   if (!createAllowed.value) return;
+  if (source === 'user') draftRegistry()?.userChanged();
   draftSequence += 1;
-  rows.value = [...rows.value, { ...inheritedReferenceDefaults(), __draftKey: `new:${draftSequence}` }];
+  const key = `new:${draftSequence}`;
+  rows.value = [...rows.value, { ...inheritedReferenceDefaults(), __draftKey: key }];
   publishDraft();
+  return key;
 }
 
 /**
@@ -465,11 +484,12 @@ function setAllSelected(selected: boolean) {
   selectedKeys.value = selected ? new Set(selectableRows.value.map((row) => row.__draftKey)) : new Set();
 }
 
-function removeSelectedRows() {
+function removeSelectedRows(source: 'user' | 'assistant' = 'user') {
   if (selectedKeys.value.size === 0) return;
   const selected = rows.value.filter((row) => selectedKeys.value.has(row.__draftKey));
   const persisted = selected.filter((row) => row.id != null);
   if (persisted.length > 0 && !deleteAllowed.value) return;
+  if (source === 'user') draftRegistry()?.userChanged();
   removed.value = [...removed.value, ...persisted.map(cloneRecord)];
   const releasedRecycleIds = new Set(
     selected.map((row) => row.__recycleSourceId).filter((value): value is string => Boolean(value)),
@@ -488,12 +508,19 @@ function removeSelectedRows() {
 function undoRemove() {
   const row = removed.value.at(-1);
   if (!row) return;
+  draftRegistry()?.userChanged();
   removed.value = removed.value.slice(0, -1);
   rows.value = [...rows.value, toDraftRow(row)];
   publishDraft();
 }
 
-function updateField(row: DraftRow, fieldName: string, value: RecordFormFieldValue) {
+function updateField(
+  row: DraftRow,
+  fieldName: string,
+  value: RecordFormFieldValue,
+  source: 'user' | 'assistant' = 'user',
+) {
+  if (source === 'user') draftRegistry()?.userChanged();
   const updatedRows = rows.value.map((candidate) =>
     candidate.__draftKey === row.__draftKey
       ? { ...candidate, ...applyReferenceDependencyClears(candidate, fieldName, value, formFields.value) }
@@ -545,9 +572,12 @@ watch(
   () => [parentId.value, props.relation.code, props.reloadKey, props.mutationEnabled],
   () => void load(),
 );
+let pendingOptions = Promise.resolve();
 watch(
   () => [props.uiDescriptor, props.relation.targetEntityAlias],
-  () => void loadOptionFields(),
+  () => {
+    pendingOptions = loadOptionFields();
+  },
   { immediate: true },
 );
 watch(
@@ -574,6 +604,100 @@ watch(
     if (value != null && value !== previous) void openRecycleBin();
   },
 );
+
+function rowForm(rowKey: string): RecordFormDraftAccess | undefined {
+  const current = () => rows.value.find((row) => row.__draftKey === rowKey);
+  if (!current()) return undefined;
+  return {
+    get editorMode() {
+      return editingEnabled.value && current() ? rowMode(current()!) : 'view';
+    },
+    get editingRecord() {
+      return current() ? displayRecord(current()!) : undefined;
+    },
+    get formFields() {
+      return new Map(
+        [...formFields.value]
+          .filter(([name]) => columns.value.some((column) => column.fieldName === name))
+          .map(([name, field]) => [
+            name,
+            {
+              ...field,
+              label: columns.value.find((column) => column.fieldName === name)?.title ?? field.label,
+              ...(field.option && optionItems.value[name]
+                ? { option: { ...field.option, inlineItems: optionItems.value[name] } }
+                : {}),
+            },
+          ]),
+      );
+    },
+    get referencePickerConfigs() {
+      return current() ? pickerConfigsOf(current()!) : {};
+    },
+    contextRevision: () => String(revision.value),
+    updateDraftFields(changes, source) {
+      const row = current();
+      if (!row || !editingEnabled.value) throw new Error('子表草稿已不可编辑');
+      for (const change of changes) updateField(row, change.fieldName, change.value, source);
+    },
+    updateDraftReference(fieldName, candidate, source) {
+      const row = current();
+      if (!row || !editingEnabled.value) throw new Error('子表草稿已不可编辑');
+      updateField(row, fieldName, candidate.id, source);
+      for (const [name, value] of Object.entries(candidate.affectPatch ?? {})) {
+        if (name !== fieldName) updateField(row, name, value as RecordFormFieldValue, source);
+      }
+      updateReferenceProjections(
+        row,
+        fieldName,
+        referenceDisplayProjections(formFields.value.get(fieldName)?.reference, {
+          ...candidate.projections,
+          ...candidate,
+          projections: candidate.projections ? { ...candidate.projections } : undefined,
+        }),
+      );
+    },
+  };
+}
+
+const aggregateLoaded = computed(
+  () => parentId.value == null || Array.isArray(props.parentRecord[embeddedField.value ?? '']),
+);
+watchEffect((cleanup) => {
+  const registry = draftRegistry();
+  if (
+    !aggregateLoaded.value ||
+    !registry ||
+    !props.mutationEnabled ||
+    props.relation.editing?.saveMode !== 'AGGREGATE_DRAFT'
+  )
+    return;
+  const controller: RelationDraftController = {
+    code: props.relation.code,
+    title: props.relation.title ?? props.relation.code,
+    revision: () => String(revision.value),
+    settle: () => pendingOptions,
+    rowKeys: () => rows.value.map((row) => row.__draftKey),
+    form: rowForm,
+    add: () => {
+      const key = addRow('assistant');
+      if (!key) throw new Error('子表草稿已不可编辑');
+      return key;
+    },
+    remove: (key) => {
+      if (!editingEnabled.value || !rows.value.some((row) => row.__draftKey === key))
+        throw new Error('子表草稿行已不可用');
+      const previous = selectedKeys.value;
+      selectedKeys.value = new Set([key]);
+      removeSelectedRows('assistant');
+      selectedKeys.value = new Set(
+        [...previous].filter((key) => rows.value.some((row) => row.__draftKey === key)),
+      );
+    },
+  };
+  cleanup(registry.register(controller));
+});
+
 onMounted(() => void load());
 </script>
 
