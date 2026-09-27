@@ -1197,10 +1197,11 @@ it('does not apply a linked plan after switching to a different archived convers
       ...(id === 'conversation-a' ? { planId: 'plan-a' } : {}),
     },
   });
+  const requestTurn = vi.fn();
   const wrapper = mount(WorkbenchAssistantPanel, {
     props: {
       open: true,
-      registry: createRegistry(vi.fn()),
+      registry: createRegistry(requestTurn),
       constructionPlan: plan,
       conversationClient: {
         list: vi.fn(async () =>
@@ -1225,7 +1226,8 @@ it('does not apply a linked plan after switching to a different archived convers
   };
   await click('历史会话');
   await click('conversation-a');
-  await click('查看关联的已保存建设方案');
+  await click('继续处理');
+  expect(requestTurn).not.toHaveBeenCalled();
   expect(read).toHaveBeenCalledWith('plan-a');
   await click('历史会话');
   await click('conversation-b');
@@ -1253,6 +1255,94 @@ it('does not apply a linked plan after switching to a different archived convers
   });
   await flushPromises();
   expect(plan.current().saved).toBeUndefined();
+  expect(requestTurn).not.toHaveBeenCalled();
   expect(wrapper.text()).toContain('conversation-b');
   expect(wrapper.text()).not.toContain('关联方案暂时无法恢复');
 });
+
+it.each([false, true])(
+  'restores the linked plan before resuming and blocks on read failure: %s',
+  async (fails) => {
+    const { createConstructionPlanSession } = await import('@/platform-workbench/constructionPlanSession');
+    const read = vi.fn(async () => {
+      if (fails) throw new Error('unavailable');
+      return {
+        planId: 'linked-plan',
+        revision: 1,
+        confirmedAt: '',
+        constructionStatus: 'NOT_STARTED',
+        initializations: [],
+        deliveries: [],
+        fieldChanges: [],
+        content: {
+          title: '试用',
+          goal: '登记',
+          inScope: [],
+          outOfScope: [],
+          objects: [],
+          relationships: [],
+          rules: [],
+          questions: [],
+          assumptions: [],
+          decisions: [],
+          acceptanceExamples: [],
+        },
+      } as import('@muyun/web-contracts').ConstructionPlanSnapshot;
+    });
+    const plan = createConstructionPlanSession(
+      { read } as unknown as import('@muyun/web-core').ConstructionPlanClient,
+      () => 'owner',
+    );
+    const requestTurn = vi.fn(async () => {
+      expect(plan.current().saved?.planId).toBe('linked-plan');
+      return { text: '已核实进度', toolCalls: [] };
+    });
+    const wrapper = mount(WorkbenchAssistantPanel, {
+      props: {
+        open: true,
+        registry: createRegistry(requestTurn),
+        constructionPlan: plan,
+        conversationClient: {
+          list: vi.fn(async () => [{ id: 'archived', title: '之前的讨论', updatedAt: '2026-09-27' }]),
+          read: vi.fn(async () => ({
+            id: 'archived',
+            revision: 1,
+            updatedAt: '2026-09-27',
+            content: {
+              title: '之前的讨论',
+              messages: [{ role: 'user' as const, text: '帮我登记' }],
+              history: [],
+              planId: 'linked-plan',
+            },
+          })),
+          save: vi.fn(async (id, _scope, revision, content) => ({
+            id,
+            revision: revision + 1,
+            updatedAt: '2026-09-27',
+            content,
+          })),
+        },
+      },
+    });
+    const click = async (label: string) => {
+      await wrapper
+        .findAll('button')
+        .find((button) => button.text().includes(label))!
+        .trigger('click');
+      await flushPromises();
+    };
+    await click('历史会话');
+    await click('之前的讨论');
+    await click('继续处理');
+    expect(read).toHaveBeenCalledWith('linked-plan');
+    if (fails) {
+      expect(requestTurn).not.toHaveBeenCalled();
+      expect(wrapper.text()).toContain('关联方案暂时无法恢复');
+      expect(wrapper.find('[aria-label="继续会话"]').exists()).toBe(true);
+    } else {
+      expect(requestTurn).toHaveBeenCalledOnce();
+      expect(JSON.stringify(requestTurn.mock.calls)).toContain('先别修改，也别保存');
+    }
+    wrapper.unmount();
+  },
+);

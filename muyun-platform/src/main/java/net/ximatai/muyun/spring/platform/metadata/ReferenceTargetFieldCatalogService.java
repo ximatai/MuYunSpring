@@ -45,17 +45,31 @@ public class ReferenceTargetFieldCatalogService {
     /** Configuration candidates share the same source scope and target capability as field lookup. */
     public List<TargetModule> modules(String sourceModuleAlias, String sourceRelationId) {
         requireSourceRelation(sourceModuleAlias, sourceRelationId);
-        var dynamicTargets = relationService.list(Criteria.of().eq("relationRole", RelationRole.MAIN), ALL)
-                .stream().map(ModuleMetadataRelation::getModuleAlias).collect(java.util.stream.Collectors.toSet());
-        return moduleService.list(Criteria.of(), ALL).stream()
-                .filter(module -> module.getModuleKind() == ModuleKind.DYNAMIC
-                        ? dynamicTargets.contains(module.getAlias())
-                        : PlatformAbilityRuntime.referenceTargetResolver()
-                            .resolve(ReferenceTargets.fromModuleAlias(module.getAlias())).isPresent())
-                .map(module -> new TargetModule(module.getAlias(), module.getTitle()))
-                .sorted(Comparator.comparing(TargetModule::alias))
-                .toList();
+        return modules();
     }
+
+    /** Source-independent configuration discovery; callers enforce configuration access. */
+    public List<TargetModule> modules() {
+        return discoverModules().stream().filter(ModuleCandidate::referenceReady)
+                .map(module -> new TargetModule(module.alias(), module.title())).toList();
+    }
+
+    /** Discovery retains unavailable objects so callers do not mistake them for missing business models. */
+    public List<ModuleCandidate> discoverModules() {
+        var titledMetadata = fieldService.list(Criteria.of().eq("titleField", true).eq("fieldName", "title"), ALL).stream()
+                .map(MetadataField::getMetadataId).collect(java.util.stream.Collectors.toSet());
+        var dynamicTargets = relationService.list(Criteria.of().eq("relationRole", RelationRole.MAIN), ALL)
+                .stream().filter(relation -> titledMetadata.contains(relation.getMetadataId()))
+                .map(ModuleMetadataRelation::getModuleAlias).collect(java.util.stream.Collectors.toSet());
+        return moduleService.list(Criteria.of(), ALL).stream().map(module -> {
+            boolean ready = Boolean.TRUE.equals(module.getEnabled()) && (module.getModuleKind() == ModuleKind.DYNAMIC ? dynamicTargets.contains(module.getAlias())
+                    : PlatformAbilityRuntime.referenceTargetResolver().resolve(ReferenceTargets.fromModuleAlias(module.getAlias())).isPresent());
+            return new ModuleCandidate(module.getAlias(), module.getTitle(), module.getModuleKind(), ready,
+                    ready ? "可通过标准引用配置复用；业务数据访问仍须授权" : "对象已存在，但尚未具备标准引用能力；不能据此重复创建或自动改造");
+        }).sorted(Comparator.comparing(ModuleCandidate::alias)).toList();
+    }
+
+    public record ModuleCandidate(String alias, String title, ModuleKind kind, boolean referenceReady, String explanation) {}
 
     public record TargetModule(String alias, String title) {}
 
@@ -70,9 +84,13 @@ public class ReferenceTargetFieldCatalogService {
     public ReferenceTargetFieldCatalog list(String sourceModuleAlias, String sourceRelationId,
                                             String targetModuleAlias, String targetMetadataId) {
         requireSourceRelation(sourceModuleAlias, sourceRelationId);
+        return target(targetModuleAlias, targetMetadataId);
+    }
+
+    public ReferenceTargetFieldCatalog target(String targetModuleAlias, String targetMetadataId) {
         String targetAlias = PlatformNameRules.requireModuleAlias(targetModuleAlias);
         PlatformModule targetModule = moduleService.select(targetAlias);
-        if (targetModule == null) {
+        if (targetModule == null || !Boolean.TRUE.equals(targetModule.getEnabled())) {
             throw new PlatformException("reference target module does not exist: " + targetAlias);
         }
         return targetModule.getModuleKind() == ModuleKind.DYNAMIC
@@ -89,7 +107,10 @@ public class ReferenceTargetFieldCatalogService {
         if (targetMetadataId != null && !targetMetadataId.isBlank() && !targetMetadataId.equals(main.getMetadataId())) {
             throw new PlatformException("reference target metadata is not the target module main entity: " + targetMetadataId);
         }
-        List<MetadataField> fields = fieldService.list(Criteria.of().eq("metadataId", main.getMetadataId()), ALL).stream()
+        var savedFields = fieldService.list(Criteria.of().eq("metadataId", main.getMetadataId()), ALL);
+        if (savedFields.stream().noneMatch(field -> "title".equals(field.getFieldName()) && Boolean.TRUE.equals(field.getTitleField())))
+            throw new PlatformException("引用目标尚无标准名称字段，请先通过字段配置设置名称：" + targetModuleAlias);
+        List<MetadataField> fields = savedFields.stream()
                 .filter(this::readablePhysicalField)
                 .sorted(Comparator.comparing(MetadataField::getFieldName))
                 .toList();

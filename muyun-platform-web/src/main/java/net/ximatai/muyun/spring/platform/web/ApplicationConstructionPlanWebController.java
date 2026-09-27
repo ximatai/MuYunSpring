@@ -18,6 +18,14 @@ public class ApplicationConstructionPlanWebController {
     public ApplicationConstructionPlanWebController(ApplicationConstructionPlanService plans, ApplicationConstructionInitializationService initialization, ApplicationConstructionFieldService fields, ApplicationConstructionDeliveryService delivery) {
         this.plans = plans; this.initialization = initialization; this.fields = fields; this.delivery = delivery;
     }
+    @GetMapping("/business-objects")
+    public List<net.ximatai.muyun.spring.platform.metadata.ReferenceTargetFieldCatalogService.ModuleCandidate> businessObjects() {
+        return fields.businessObjects();
+    }
+    @GetMapping("/reference-target")
+    public net.ximatai.muyun.spring.platform.metadata.ReferenceTargetFieldCatalog referenceTarget(@RequestParam String moduleAlias) {
+        return fields.referenceTarget(moduleAlias);
+    }
     @PostMapping("/{planId}/initializations/preview")
     public ApplicationConstructionInitializationService.Preview previewInitialization(@PathVariable String planId,
             @RequestBody ApplicationConstructionInitializationService.Proposal proposal) { return initialization.preview(planId, proposal); }

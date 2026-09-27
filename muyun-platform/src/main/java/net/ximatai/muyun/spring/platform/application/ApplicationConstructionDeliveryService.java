@@ -77,7 +77,7 @@ public class ApplicationConstructionDeliveryService {
         if (plan.revision() != proposal.planRevision()) throw new IllegalArgumentException("需求版本已变化，请重新预检");
         ApplicationConstructionRequirements.requireBuildable(plan.content(), proposal.objectKey());
         var description = fields.describe(planId, proposal.objectKey());
-        if (ApplicationConstructionRequirements.missingConfiguration(ApplicationConstructionRequirements.evaluate(plan.content(), proposal.objectKey(), description.fields())))
+        if (ApplicationConstructionRequirements.missingConfiguration(fields.evidence(plan, proposal.objectKey(), description)))
             throw new IllegalArgumentException("已确认要求尚未落实到实际字段约束，请先补齐配置再发布页面或入口");
         var binding = plan.initializations().stream().filter(value -> value.objectKey().equals(proposal.objectKey())).findFirst().orElseThrow();
         try (var ignored = TenantContext.system("construction delivery preview")) {
@@ -203,7 +203,7 @@ public class ApplicationConstructionDeliveryService {
             if (stale) remaining.add("需求或字段基线已变化，请重新核对页面与验收范围");
             if (!"ACTIVE".equals(runtime)) remaining.add("模块运行态尚未激活");
             String baseline = acceptanceBaseline(plan, description, page, menu);
-            var evidence = ApplicationConstructionRequirements.evaluate(plan.content(), objectKey, description.fields());
+            var evidence = fields.evidence(plan, objectKey, description);
             boolean requirementsReady = !ApplicationConstructionRequirements.blocked(evidence) && !ApplicationConstructionRequirements.missingConfiguration(evidence);
             if (!requirementsReady) remaining.add("本期要求尚有未兑现项，请逐项核对，不能以页面发布代替完成");
             boolean accepted = requirementsReady && published && visible && !stale && "ACTIVE".equals(runtime) &&
@@ -322,7 +322,8 @@ public class ApplicationConstructionDeliveryService {
         return content.requirements().stream().filter(item -> item.objectKey().equals(objectKey))
                 .filter(item -> item.mode() == ApplicationConstructionRequirement.Mode.FIELD
                         || item.mode() == ApplicationConstructionRequirement.Mode.REQUIRED
-                        || item.mode() == ApplicationConstructionRequirement.Mode.UNIQUE)
+                        || item.mode() == ApplicationConstructionRequirement.Mode.UNIQUE
+                        || item.mode() == ApplicationConstructionRequirement.Mode.REFERENCE)
                 .map(ApplicationConstructionRequirement::fieldName).distinct().toList();
     }
     private boolean pageCoversRequirements(ApplicationConstructionPlanContent content, String objectKey, Receipt receipt) {

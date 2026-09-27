@@ -28,6 +28,9 @@ public record ApplicationConstructionPlanContent(
             var source = switch (requirement.section()) { case SCOPE -> inScope; case RULE -> rules; case RELATION -> relationships; };
             if (requirement.index() >= source.size() || !keys.contains(requirement.objectKey()))
                 throw new IllegalArgumentException("需求兑现项必须引用本版要求和业务对象");
+            if (requirement.reference() != null && !requirement.reference().objectKey().isEmpty()
+                    && (!keys.contains(requirement.reference().objectKey()) || requirement.objectKey().equals(requirement.reference().objectKey())))
+                throw new IllegalArgumentException("引用目标必须是方案中的另一个业务对象");
             if (!bindings.add(requirement.section() + ":" + requirement.index() + ":" + requirement.objectKey() + ":" + requirement.mode() + ":" + requirement.fieldName()))
                 throw new IllegalArgumentException("需求兑现项不能重复");
         }

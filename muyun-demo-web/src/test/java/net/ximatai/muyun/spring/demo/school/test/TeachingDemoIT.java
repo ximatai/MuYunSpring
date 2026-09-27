@@ -210,7 +210,7 @@ public class TeachingDemoIT {
                 List.of(new net.ximatai.muyun.spring.platform.application.ApplicationConstructionPlanContent.BusinessObject("entry", "业务登记", "记录业务")),
                 List.of(), List.of(), List.of(), List.of(), List.of(), List.of("可录入并查询一条登记"), List.of(new net.ximatai.muyun.spring.platform.application.ApplicationConstructionRequirement(
                     net.ximatai.muyun.spring.platform.application.ApplicationConstructionRequirement.Section.SCOPE, 0, "entry",
-                    net.ximatai.muyun.spring.platform.application.ApplicationConstructionRequirement.Mode.MANUAL, "", "实际录入和查询确认")));
+                    net.ximatai.muyun.spring.platform.application.ApplicationConstructionRequirement.Mode.MANUAL, "", "实际录入和查询确认", null)));
         try (var user = CurrentUserContext.use(CurrentUser.systemUser("construction-admin", "建设管理员"));
              var scope = TenantContext.system("construction acceptance")) {
             constructionPlans.confirm(planId, new net.ximatai.muyun.spring.platform.application.ApplicationConstructionPlanService.ConfirmCommand(UUID.randomUUID().toString(), 0, content));

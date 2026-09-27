@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import type { ReferenceTargetFieldCatalog, ReferenceTargetFieldCandidate } from '@muyun/web-contracts';
 import { computed, inject, onActivated, onDeactivated, onMounted, onUnmounted, ref, watch } from 'vue';
 import { moduleRuntimeActivationRefreshKey } from './moduleRuntimeActivation';
 import {
@@ -193,18 +194,6 @@ type ModuleMetadataCapabilityFact = {
 type ModuleMetadataRelationRecordCount = { relationId: string; recordCount: number };
 type ModuleMetadataCapabilitySnapshot = {
   capabilities: ModuleMetadataCapabilityFact[];
-};
-type ReferenceTargetFieldCandidate = {
-  fieldName: string;
-  title?: string;
-  defaultField?: boolean;
-  selectable?: boolean;
-};
-type ReferenceTargetFieldCatalog = {
-  targetModuleAlias: string;
-  targetMetadataId?: string;
-  keyFields: ReferenceTargetFieldCandidate[];
-  labelFields: ReferenceTargetFieldCandidate[];
 };
 const referenceTargetFieldCatalog = ref<ReferenceTargetFieldCatalog>();
 const referenceTargetFieldCatalogLoading = ref(false);
@@ -1057,7 +1046,7 @@ async function prepareAssistantPropertyFieldDraft(
       required: input.required ?? false,
       reference: {
         targetModuleAlias: input.target,
-        targetMetadataId: catalog.targetMetadataId,
+        targetMetadataId: catalog.targetMetadataId ?? undefined,
         targetKeyField,
         targetLabelField,
       },
@@ -1693,7 +1682,7 @@ async function loadReferenceTargetFieldCatalog(
     referenceTargetFieldCatalog.value = catalog;
     // Target metadata identity is resolved by the server with the same authorization and target rules
     // as candidate fields. It is an internal binding, never a user-entered identifier.
-    reference.targetMetadataId = catalog.targetMetadataId;
+    reference.targetMetadataId = catalog.targetMetadataId ?? undefined;
     // `id/title` is the platform contract, not a catalog preference.  The catalog may only fill
     // a genuinely absent legacy value; it must never replace a newly-created default.
     if (!reference.targetKeyField?.trim()) {

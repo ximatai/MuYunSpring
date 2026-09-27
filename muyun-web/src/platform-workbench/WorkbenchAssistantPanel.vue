@@ -64,7 +64,7 @@ const planRestoreError = ref('');
 const planRestoring = ref(false);
 let planRestoreEpoch = 0;
 watch(
-  [linkedPlanId, archive.id],
+  [linkedPlanId, archive.id, () => props.open],
   () => {
     planRestoreEpoch++;
     planRestoreError.value = '';
@@ -73,19 +73,25 @@ watch(
   { flush: 'sync' },
 );
 async function restoreLinkedPlan() {
-  if (planRestoring.value || !linkedPlanId.value || !props.constructionPlan || props.constructionPlan.dirty())
-    return;
+  if (planRestoring.value) return false;
+  if (!linkedPlanId.value) return true;
+  if (!props.constructionPlan || props.constructionPlan.dirty()) return false;
   const epoch = planRestoreEpoch;
   planRestoreError.value = '';
   planRestoring.value = true;
   try {
     await props.constructionPlan.restore(linkedPlanId.value, () => epoch === planRestoreEpoch);
+    return epoch === planRestoreEpoch;
   } catch {
     if (epoch === planRestoreEpoch)
       planRestoreError.value = '关联方案暂时无法恢复，请检查当前身份和方案状态。';
+    return false;
   } finally {
     if (epoch === planRestoreEpoch) planRestoring.value = false;
   }
+}
+async function resumeConversation() {
+  if (await restoreLinkedPlan()) continueConversation();
 }
 const showEarlierMessages = ref(false);
 watch(restoredThroughId, () => {
@@ -267,8 +273,15 @@ function close() {
         <span>未保存草稿和旧确认按钮没有恢复。继续操作时会重新读取当前业务状态。</span>
         <div class="assistant-panel__archive-actions">
           <UiButton
-            :disabled="busy || archiveLoading || Boolean(draft.trim()) || !registry.snapshot()"
-            @click="continueConversation"
+            :disabled="
+              busy ||
+              planRestoring ||
+              archiveLoading ||
+              Boolean(draft.trim()) ||
+              !registry.snapshot() ||
+              Boolean(linkedPlanId && constructionPlan?.dirty())
+            "
+            @click="resumeConversation"
             >继续处理</UiButton
           >
           <UiButton :disabled="busy || archiveLoading || Boolean(draft.trim())" @click="adjustRequest"

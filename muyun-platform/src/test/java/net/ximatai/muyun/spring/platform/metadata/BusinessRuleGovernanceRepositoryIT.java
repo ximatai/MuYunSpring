@@ -269,6 +269,23 @@ class BusinessRuleGovernanceRepositoryIT extends PlatformPostgresIntegrationTest
     }
 
     @Test
+    void shouldRejectUnquotedFieldInValidationBeforeTrialOrApplication() {
+        BusinessRuleProposal rule = new BusinessRuleProposal("nonNegative", FormulaRuleKind.VALIDATION,
+                null, "quantity >= 0", true, "数量不能为负数");
+        BusinessRuleGovernanceSnapshot baseline = governance.snapshot(moduleAlias);
+        BusinessRulePreview preview = governance.preview(moduleAlias, new BusinessRulePreviewCommand(List.of(rule)));
+        assertThat(preview.valid()).isFalse();
+        assertThat(preview.errors()).extracting(BusinessRuleIssue::code).contains("FORMULA_PARSE_ERROR");
+        BusinessRuleTrialResult result = governance.trial(moduleAlias,
+                new BusinessRuleTrialCommand(List.of(rule), Map.of("quantity", -1)));
+        assertThat(result.errors()).extracting(BusinessRuleIssue::code).contains("FORMULA_PARSE_ERROR");
+        assertThatThrownBy(() -> governance.apply(moduleAlias, new BusinessRuleApplyCommand(List.of(rule),
+                baseline.baselineFingerprint(), preview.proposalFingerprint())))
+                .isInstanceOf(PlatformException.class);
+        assertThat(formulas.listByRelationIds(List.of(mainRelationId()))).isEmpty();
+    }
+
+    @Test
     void shouldRejectDisabledRuleWithInvalidReferencePath() {
         configureSelfReference();
         BusinessRuleProposal disabled = new BusinessRuleProposal("deriveMissingReference", FormulaRuleKind.CALCULATION,
@@ -357,6 +374,31 @@ class BusinessRuleGovernanceRepositoryIT extends PlatformPostgresIntegrationTest
 
         assertThat(mainRelationVersion()).isEqualTo(relationVersion);
         assertThat(formulas.select(stored.getId()).getExpression()).isEqualTo("{total} = ({quantity} * 2)");
+    }
+
+    @Test
+    void shouldTrialExplicitChildSamplesWithoutPersistingOrTreatingMissingRowsAsEmpty() {
+        configureLineItems();
+        BusinessRuleProposal sum = new BusinessRuleProposal("sumAmount", FormulaRuleKind.CALCULATION,
+                "total", "SUM({lines.lineAmount})", true, null);
+        for (int amount : List.of(8, 16)) {
+            BusinessRuleTrialResult result = governance.trial(moduleAlias, new BusinessRuleTrialCommand(List.of(sum),
+                    Map.of(), Map.of("lines", List.of(Map.of("lineAmount", 10), Map.of("lineAmount", amount)))));
+            assertThat(result.errors()).isEmpty();
+            assertThat(new java.math.BigDecimal(result.values().get("total").toString()))
+                    .isEqualByComparingTo(java.math.BigDecimal.valueOf(10 + amount));
+        }
+        assertThat(governance.trial(moduleAlias, new BusinessRuleTrialCommand(List.of(sum), Map.of())).errors())
+                .extracting(BusinessRuleIssue::code).contains("TRIAL_CHILD_REQUIRED");
+        assertThat(governance.trial(moduleAlias, new BusinessRuleTrialCommand(List.of(sum), Map.of(),
+                Map.of("lines", List.of()))).errors()).isEmpty();
+        assertThat(governance.trial(moduleAlias, new BusinessRuleTrialCommand(List.of(sum), Map.of(),
+                Map.of("lines", List.of(Map.of("contractId", "injected"))))).errors())
+                .extracting(BusinessRuleIssue::code).contains("INVALID_TRIAL_CHILD_FIELD");
+        assertThat(governance.trial(moduleAlias, new BusinessRuleTrialCommand(List.of(sum), Map.of(),
+                Map.of("other", List.of()))).errors())
+                .extracting(BusinessRuleIssue::code).contains("INVALID_TRIAL_CHILD");
+        assertThat(formulas.listByRelationIds(List.of(mainRelationId()))).isEmpty();
     }
 
     @Test

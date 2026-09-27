@@ -125,7 +125,8 @@ public record EntityDefinition(
         fields.stream()
                 .filter(FieldDefinition::isPhysical)
                 .filter(FieldDefinition::isUnique)
-                .map(field -> new TenantUniqueConstraintDefinition(List.of(field.fieldName()), ""))
+                .map(field -> new TenantUniqueConstraintDefinition(List.of(field.fieldName()),
+                        (field.name() == null || field.name().isBlank() ? field.fieldName() : field.name()) + "不能重复，请修改后再保存。"))
                 .forEach(constraint -> constraints.putIfAbsent(constraint.fieldNames(), constraint));
         return List.copyOf(constraints.values());
     }

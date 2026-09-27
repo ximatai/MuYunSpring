@@ -10,7 +10,10 @@ import type {
   ConstructionFieldResult,
 } from '@muyun/web-contracts';
 import { createAssistantSurfaceRegistry, type ConstructionPlanClient } from '@muyun/web-core';
-import { createConstructionPlanSession } from '@/platform-workbench/constructionPlanSession';
+import {
+  createConstructionPlanSession,
+  parseConstructionPlan,
+} from '@/platform-workbench/constructionPlanSession';
 
 async function fixture() {
   const field: ConstructionField = {
@@ -70,6 +73,15 @@ async function fixture() {
     publishDelivery: vi.fn(),
     delivery: vi.fn(),
     progress: vi.fn(),
+    businessObjects: vi.fn(async () => [
+      { alias: 'crm.customer', title: '客户', kind: 'DYNAMIC', referenceReady: true, explanation: '可复用' },
+    ]),
+    referenceTarget: vi.fn(async () => ({
+      targetModuleAlias: 'crm.customer',
+      targetMetadataId: 'customer-metadata',
+      keyFields: [{ fieldName: 'id', title: '标识', defaultField: true, selectable: true }],
+      labelFields: [{ fieldName: 'name', title: '客户名称', defaultField: true, selectable: true }],
+    })),
     describeFields: vi.fn(async () => ({
       moduleAlias: 'sales.order',
       planRevision: 1,
@@ -303,4 +315,88 @@ it('composes initialized construction, navigation and referenced aggregate edito
     ]),
   );
   expect(JSON.stringify(catalog).length).toBeLessThan(64_000);
+});
+
+it('discovers reusable objects and freezes a catalog-backed reference without modifying the target', async () => {
+  const f = await fixture();
+  const discovery = await f.invoke('construction.find-business-objects', { search: '客户' });
+  expect(discovery.value).toMatchObject({
+    modules: [
+      { alias: 'crm.customer', title: '客户', kind: 'DYNAMIC', referenceReady: true, explanation: '可复用' },
+    ],
+    nextOffset: null,
+  });
+  const target = await f.invoke('construction.describe-reference-target', { moduleAlias: 'crm.customer' });
+  expect(target.value).toMatchObject({ targetMetadataId: 'customer-metadata' });
+  await f.discover();
+  const reference = { targetModuleAlias: 'crm.customer', targetKeyField: 'id', targetLabelField: 'name' };
+  const prepared = await f.invoke('construction.prepare-fields', {
+    objectKey: 'order',
+    fields: [{ ...f.field, name: 'customerId', title: '客户', reference }],
+  });
+  expect(prepared.confirmation!.presentation.lines.join(' ')).toContain('选择客户中的一条记录');
+  expect(f.client.publishFields).not.toHaveBeenCalled();
+  reference.targetModuleAlias = 'crm.other';
+  await prepared.confirmation!.confirm();
+  expect(f.client.publishFields).toHaveBeenCalledWith(
+    'plan',
+    expect.objectContaining({
+      proposal: expect.objectContaining({
+        fields: [
+          expect.objectContaining({
+            reference: expect.objectContaining({
+              targetModuleAlias: 'crm.customer',
+              targetMetadataId: 'customer-metadata',
+              cardinality: 'ONE',
+              targetUnavailablePolicy: 'PRESERVE_HISTORY',
+            }),
+          }),
+        ],
+      }),
+    }),
+  );
+});
+it('rejects invented reference display fields before preparing publication', async () => {
+  const f = await fixture();
+  await f.discover();
+  await expect(
+    f.invoke('construction.prepare-fields', {
+      objectKey: 'order',
+      fields: [
+        {
+          ...f.field,
+          reference: {
+            targetModuleAlias: 'crm.customer',
+            targetKeyField: 'id',
+            targetLabelField: 'invented',
+          },
+        },
+      ],
+    }),
+  ).rejects.toThrow('不在实际目标目录');
+  expect(f.client.previewFields).not.toHaveBeenCalled();
+});
+
+it('preserves reviewed reuse intent and rejects ambiguous or self-referencing target identities', async () => {
+  const f = await fixture();
+  const content = structuredClone(f.session.current().candidate!);
+  content.requirements = [
+    {
+      section: 'SCOPE',
+      index: 0,
+      objectKey: 'order',
+      mode: 'REFERENCE',
+      fieldName: 'customerId',
+      explanation: '复用客户资料',
+      reference: { objectKey: '', moduleAlias: 'crm.customer' },
+    },
+  ];
+  expect(parseConstructionPlan(content).requirements![0]!.reference).toEqual({
+    objectKey: '',
+    moduleAlias: 'crm.customer',
+  });
+  content.requirements[0]!.reference!.objectKey = 'order';
+  expect(() => parseConstructionPlan(content)).toThrow('之一');
+  content.requirements[0]!.reference!.moduleAlias = '';
+  expect(() => parseConstructionPlan(content)).toThrow('另一个对象');
 });

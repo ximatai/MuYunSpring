@@ -21,6 +21,19 @@ class FormulaEngineTest {
     );
 
     @Test
+    void rejectsBareIdentifiersInsteadOfTreatingMissingFieldBracesAsConstantText() {
+        FormulaRuntimeData data = FormulaRuntimeData.of(Map.of("amount", -1));
+        for (String expression : List.of("amount >= 0", "IF(true, amount, 0)", "{amount} == pending")) {
+            assertThatThrownBy(() -> engine.evaluateValue(expression, data))
+                    .isInstanceOf(FormulaEvaluationException.class)
+                    .hasMessageContaining("字段引用请使用");
+        }
+        assertThat(engine.evaluateBoolean("{amount} >= 0", data)).isFalse();
+        assertThat(engine.evaluateValue("'amount'", data)).isEqualTo("amount");
+        assertThat(engine.evaluateValue("IF(true, null, false)", data)).isNull();
+    }
+
+    @Test
     void shouldEvaluateArithmeticComparisonAndFunctions() {
         FormulaRuntimeData data = FormulaRuntimeData.of(new LinkedHashMap<>(Map.of(
                 "amount", 120,

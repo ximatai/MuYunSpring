@@ -142,3 +142,25 @@ it('shows the complete human confirmation while keeping hidden relation values p
   expect(hidden.count).toBe(21);
   expect(hidden.rows.every((row) => row.values.length === 0)).toBe(true);
 });
+
+it('resolves confirmation reference names through the picker without changing the draft', async () => {
+  const { assistantConfirmationFieldDisplay } =
+    await import('@/dynamic-page-runtime/assistantRecordProjection');
+  const { vi } = await import('vitest');
+  const record = { customerId: 'customer-1' };
+  const resolve = vi.fn(async () => [
+    { id: 'customer-1', title: '试用客户', affectPatch: { secret: 'ignored' } },
+  ]);
+  const field = {
+    fieldName: 'customerId',
+    reference: { cardinality: 'ONE' },
+    pickerConfig: { provider: { resolve } },
+  } as unknown as import('@muyun/platform-components').RecordFormFieldState;
+  expect(await assistantConfirmationFieldDisplay(field, record)).toBe('试用客户');
+  expect(resolve).toHaveBeenCalledWith(['customer-1']);
+  expect(record).toEqual({ customerId: 'customer-1' });
+  resolve.mockResolvedValueOnce([{ id: 'another', title: '其他客户', affectPatch: { secret: 'ignored' } }]);
+  expect(await assistantConfirmationFieldDisplay(field, record)).toBe('已选择（名称暂不可用）');
+  resolve.mockRejectedValueOnce(new Error('permission changed'));
+  await expect(assistantConfirmationFieldDisplay(field, record)).rejects.toThrow('permission changed');
+});

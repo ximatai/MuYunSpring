@@ -18,16 +18,16 @@ class ApplicationConstructionRequirementsTest {
                 List.of(new ApplicationConstructionPlanContent.BusinessObject("order", "订单", "登记")),
                 List.of(), List.of("订单号必填且不重复"), List.of(), List.of(), List.of(), List.of("实际录入"), requirements);
     }
-    private ApplicationConstructionRequirement scope() { return new ApplicationConstructionRequirement(Section.SCOPE, 0, "order", Mode.MANUAL, "", "用户实际录入核验，不是自动证明"); }
+    private ApplicationConstructionRequirement scope() { return new ApplicationConstructionRequirement(Section.SCOPE, 0, "order", Mode.MANUAL, "", "用户实际录入核验，不是自动证明", null); }
     @Test void missingAndUnsupportedRequirementsCannotBecomeCompletedByHavingAField() {
         assertThat(blocked(evaluate(content(null), "order", List.of()))).isTrue();
-        var plan = content(List.of(scope(), new ApplicationConstructionRequirement(Section.RULE, 0, "order", Mode.UNSUPPORTED, "", "暂不支持，须商定范围")));
+        var plan = content(List.of(scope(), new ApplicationConstructionRequirement(Section.RULE, 0, "order", Mode.UNSUPPORTED, "", "暂不支持，须商定范围", null)));
         assertThatThrownBy(() -> requireBuildable(plan, "order")).hasMessageContaining("分期范围");
         assertThat(blocked(evaluate(plan, "order", List.of(field("status", false, false))))).isTrue();
     }
     @Test void actualConstraintsAreEvidenceAndManualChecksNeverBecomeAutomaticProof() {
-        var plan = content(List.of(scope(), new ApplicationConstructionRequirement(Section.RULE, 0, "order", Mode.REQUIRED, "number", "必填"),
-                new ApplicationConstructionRequirement(Section.RULE, 0, "order", Mode.UNIQUE, "number", "防重复")));
+        var plan = content(List.of(scope(), new ApplicationConstructionRequirement(Section.RULE, 0, "order", Mode.REQUIRED, "number", "必填", null),
+                new ApplicationConstructionRequirement(Section.RULE, 0, "order", Mode.UNIQUE, "number", "防重复", null)));
         requireBuildable(plan, "order");
         assertThat(missingConfiguration(evaluate(plan, "order", List.of(field("number", true, false))))).isTrue();
         var evidence = evaluate(plan, "order", List.of(field("number", true, true)));
@@ -36,9 +36,26 @@ class ApplicationConstructionRequirementsTest {
         assertThat(missingConfiguration(evaluate(plan, "order", List.of()))).isTrue();
     }
     @Test void mappingsAreBoundToTheActualRevisionClausesAndObjects() {
-        assertThatThrownBy(() -> content(List.of(new ApplicationConstructionRequirement(Section.RULE, 1, "order", Mode.MANUAL, "", "核验")))).hasMessageContaining("引用本版");
-        assertThatThrownBy(() -> content(List.of(new ApplicationConstructionRequirement(Section.RULE, 0, "other", Mode.MANUAL, "", "核验")))).hasMessageContaining("引用本版");
+        assertThatThrownBy(() -> content(List.of(new ApplicationConstructionRequirement(Section.RULE, 1, "order", Mode.MANUAL, "", "核验", null)))).hasMessageContaining("引用本版");
+        assertThatThrownBy(() -> content(List.of(new ApplicationConstructionRequirement(Section.RULE, 0, "other", Mode.MANUAL, "", "核验", null)))).hasMessageContaining("引用本版");
         assertThatThrownBy(() -> content(List.of(scope(), scope()))).hasMessageContaining("不能重复");
-        assertThatThrownBy(() -> new ApplicationConstructionRequirement(Section.RELATION, 0, "order", Mode.FIELD, "customer", "文本冒充关联")).hasMessageContaining("不能兑现对象关联");
+        assertThatThrownBy(() -> new ApplicationConstructionRequirement(Section.RELATION, 0, "order", Mode.FIELD, "customer", "文本冒充关联", null)).hasMessageContaining("不能兑现对象关联");
     }
+    @Test void referenceEvidenceRequiresTheConfirmedTargetNotJustAnExistingTextField() {
+        var reference = new ApplicationConstructionRequirement(Section.RELATION, 0, "contract", Mode.REFERENCE,
+                "customerId", "选择客户", new Reference("customer", ""));
+        var plan = new ApplicationConstructionPlanContent("合同", "登记合同", List.of(), List.of(),
+                List.of(new ApplicationConstructionPlanContent.BusinessObject("contract", "合同", "登记"),
+                        new ApplicationConstructionPlanContent.BusinessObject("customer", "客户", "复用客户资料")),
+                List.of("合同选择客户"), List.of(), List.of(), List.of(), List.of(), List.of("录入合同并查询客户"), List.of(reference));
+        requireBuildable(plan, "contract");
+        var fields = List.of(field("customerId", true, false));
+        assertThat(missingConfiguration(evaluate(plan, "contract", fields))).isTrue();
+        assertThat(missingConfiguration(evaluate(plan, "contract", fields, java.util.Map.of("customerId", "crm.other"),
+                java.util.Map.of("customer", "crm.customer")))).isTrue();
+        assertThat(missingConfiguration(evaluate(plan, "contract", fields, java.util.Map.of("customerId", "crm.customer"),
+                java.util.Map.of("customer", "crm.customer")))).isFalse();
+        assertThatThrownBy(() -> new Reference("customer", "crm.customer")).hasMessageContaining("之一");
+    }
+
 }

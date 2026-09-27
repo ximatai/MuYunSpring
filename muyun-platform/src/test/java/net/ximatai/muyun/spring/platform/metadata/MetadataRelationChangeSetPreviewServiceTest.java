@@ -88,6 +88,26 @@ class MetadataRelationChangeSetPreviewServiceTest {
     }
 
     @Test
+    void shouldRejectInvalidReferenceNameBeforePublication() {
+        for (String name : List.of("title", "displayName")) {
+            Fixture fixture = fixture(RelationRole.MAIN, List.of());
+            MetadataField field = businessField(name, name.equals("title") ? "title" : "display_name", "name_spec");
+            field.setTitleField(true);
+            var spec = new FieldSpec();
+            spec.setFieldType(name.equals("title") ? net.ximatai.muyun.spring.dynamic.metadata.FieldType.TEXT
+                    : net.ximatai.muyun.spring.dynamic.metadata.FieldType.STRING);
+            when(fixture.fieldSpecService.requireFieldType("name_spec")).thenReturn(spec);
+
+            var result = fixture.service.preview("crm.customer", "main", command(3, Map.of(),
+                    List.of(new MetadataFieldChangeSetDraft(MetadataFieldChangeSetDraft.Operation.ADD, null, field))));
+
+            assertThat(result.valid()).as(name).isFalse();
+            assertThat(result.errors()).extracting(MetadataChangeSetValidationIssue::message)
+                    .anyMatch(message -> message.contains("STRING") && message.contains("title"));
+        }
+    }
+
+    @Test
     void shouldRejectDynamicRecordProtocolFieldNamesDuringPreview() {
         for (String fieldName : List.of("values", "attachments", "record")) {
             Fixture fixture = fixture(RelationRole.MAIN, List.of());

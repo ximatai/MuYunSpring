@@ -2019,3 +2019,5 @@ export type {
   ConstructionRequirementEvidence,
   ConstructionTask,
 } from './constructionPlan';
+
+export type { ReferenceTargetFieldCatalog, ReferenceTargetFieldCandidate } from './referenceTarget';

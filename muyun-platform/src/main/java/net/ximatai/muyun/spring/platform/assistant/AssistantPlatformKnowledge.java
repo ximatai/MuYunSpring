@@ -12,9 +12,12 @@ final class AssistantPlatformKnowledge {
     private static final Map<String, String> SURFACE_GUIDANCE = Map.of(
             "construction", """
                     For construction.* capabilities, discuss business goals before field details.
-                    The current conversational builder delivers independent registration tables only. Before offering
-                    linked customer archives, multi-line details, separate payment ledgers, computed balances or automatic
-                    state transitions, explain that they are not currently delivered by this builder. Preserve the real
+                    The current conversational builder supports registration objects and governed single-valued references
+                    between them or to existing reference-ready modules. Creating child relations, computed balances and
+                    automatic state transitions is not currently delivered by this builder. This is a construction-tool
+                    boundary, NOT absence of platform formula support. Existing rule governance supports calculations,
+                    validations, reference reads, child aggregates and UI controls; use its actual catalog and capabilities
+                    when available. Do not tell users that the platform cannot calculate. Preserve the real
                     need; offer a useful phased alternative and ask consent, or retain it as future scope. Never quietly
                     replace these requirements with unrelated text fields. Do not expand a small first release by default.
                     Preserve the user's application name including trial/test qualifiers; explain any proposed rename.
@@ -52,10 +55,15 @@ final class AssistantPlatformKnowledge {
                     After confirming or restoring, read construction.task: it reports current configuration evidence and possible actions for each object.
                     Choose relevant actions from the user goal and dependencies; option order is not an execution sequence.
                     Optional field additions and page revisions are not mandatory steps. Stop at scope decisions and human verification.
-                    Never auto-confirm a proposal. Explain technical progress in ordinary business language.
-                    construction.prepare-fields previews 1–12 ordinary additions with a separate human confirmation.
+                    Never auto-confirm a proposal. Explain technical progress in ordinary business language using the user's language.
+                    construction.prepare-fields previews 1–12 field additions with a separate human confirmation.
                     Propose new field names, but never invent specification aliases. Required/unique/indexed are supported;
-                    other business rules and relationships remain unimplemented unless separately verified.
+                    Discover existing modules with construction.find-business-objects before proposing duplicate objects.
+                    REFERENCE mappings bind a field to reference.objectKey (another planned object) or reference.moduleAlias
+                    (an existing module), exactly one nonempty. Reuse does not adopt or modify the target module.
+                    For a new referenced object, add its record name using the standard field name title, a specification whose type is STRING (not TEXT), and titleField=true. This enables the platform reference capability; a plain text name alone is insufficient. Initialize and configure missing target objects before configuring references; never prescribe a business-specific order.
+                    Read construction.describe-reference-target for real key/label candidates. Single references are supported;
+                    creating child relations, projections, workflows and other business rules remains outside this slice.
                     Read plan.fieldChanges and actual fields before continuing; never recreate already published fields.
                     Use construction.progress to resume delivered objects. Prepare-page compiles existing fields into
                     list, form/detail and quick search; prepare-entry adds the current system workbench menu after page
@@ -91,6 +99,18 @@ final class AssistantPlatformKnowledge {
                     Use only returned fields and supported presentation properties. Preview the current candidate,
                     summarize differences and validation, then stop. The user saves and activates through the page;
                     candidate creation or preview never publishes a page or creates metadata.
+                    """,
+            "business-rule-governance", """
+                    This is the standard business-rule governance workspace, shared with manual low-code editing.
+                    Read rules.describe for actual fields, child aggregate fields, functions, existing rules and UI forms.
+                    Main calculations, validations and UI controls are distinct; formulas do not create metadata or child relations.
+                    Use rules.revise for one visible candidate rule, preserving other rules, then preview and trial appropriate samples.
+                    Trial runs main calculations and validations; child samples are supplied facts, not child-row formula execution.
+                    Missing child samples are not empty tables. Reference values come from authorized server reads in the selected tenant.
+                    Explain formulas using business names and the user's language. Never replace business logic with JavaScript.
+                    rules.prepare-apply creates a human confirmation for the WHOLE visible candidate, including manual edits.
+                    Application uses standard governance baseline checks, validation and activation. Do not auto-confirm,
+                    promise historical record recalculation, or equate sample success with complete business acceptance.
                     """,
             "metadata-governance", """
                     The active surface is MuYun metadata governance. Work only on the visible unsaved candidate.

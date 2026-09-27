@@ -4,6 +4,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.spring.ability.PlatformAbilityRuntime;
+import net.ximatai.muyun.spring.ability.reference.ReferenceCardinality;
+import net.ximatai.muyun.spring.ability.reference.ReferenceTargetUnavailablePolicy;
+import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.exception.PlatformAccessDeniedException;
 import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
 import net.ximatai.muyun.spring.common.model.EntityLifecycle;
@@ -27,6 +30,8 @@ public class ApplicationConstructionFieldService {
     private final ApplicationConstructionPlanService plans;
     private final ApplicationConstructionFieldChangeDao receipts;
     private final MetadataService metadata;
+    private final ReferenceTargetFieldCatalogService targets;
+    private final ModuleMetadataFieldPropertySummaryService properties;
     private final ModuleMetadataRelationService relations;
     private final MetadataFieldService fields;
     private final FieldSpecService specs;
@@ -38,15 +43,23 @@ public class ApplicationConstructionFieldService {
     public ApplicationConstructionFieldService(ApplicationConstructionPlanService plans, ApplicationConstructionFieldChangeDao receipts,
             MetadataService metadata, ModuleMetadataRelationService relations, MetadataFieldService fields, FieldSpecService specs,
             MetadataModelChangeSetPreviewService previews, MetadataModelChangeSetApplyService publisher,
-            DynamicRuntimeActivationService activation, ActionExecutionPolicyService permissions) {
+            DynamicRuntimeActivationService activation, ActionExecutionPolicyService permissions,
+            ReferenceTargetFieldCatalogService targets, ModuleMetadataFieldPropertySummaryService properties) {
+        this.targets = Objects.requireNonNull(targets); this.properties = Objects.requireNonNull(properties);
         this.plans = Objects.requireNonNull(plans); this.receipts = Objects.requireNonNull(receipts);
         this.metadata = Objects.requireNonNull(metadata); this.relations = Objects.requireNonNull(relations); this.fields = Objects.requireNonNull(fields);
         this.specs = Objects.requireNonNull(specs); this.previews = Objects.requireNonNull(previews);
         this.publisher = Objects.requireNonNull(publisher); this.activation = Objects.requireNonNull(activation);
         this.permissions = Objects.requireNonNull(permissions);
     }
-    public record Field(String name, String title, String specAlias, boolean required, boolean unique, boolean indexed) {
+    public record Field(String name, String title, String specAlias, boolean required, boolean unique, boolean indexed, MetadataFieldReferenceConfigDraft reference, boolean titleField) {
         public Field {
+            if (reference != null && (reference.cardinality() != ReferenceCardinality.ONE
+                    || reference.targetUnavailablePolicy() != ReferenceTargetUnavailablePolicy.PRESERVE_HISTORY
+                    || !reference.projectionMappings().isEmpty())) throw new IllegalArgumentException("当前建设仅支持无投影的单值模块引用");
+            if (reference != null && (reference.targetModuleAlias() == null || reference.targetKeyField() == null
+                    || reference.targetLabelField() == null || reference.targetKeyField().isBlank() || reference.targetLabelField().isBlank()))
+                throw new IllegalArgumentException("请从引用目录选择目标、标识和显示名称");
             if (name == null || !name.matches("[a-z][a-zA-Z0-9_]{0,63}")) throw new IllegalArgumentException("字段名称格式无效");
             if (title == null || title.isBlank() || title.length() > 120) throw new IllegalArgumentException("字段标题无效");
             if (specAlias == null || specAlias.isBlank() || specAlias.length() > 64) throw new IllegalArgumentException("字段规格无效");
@@ -58,13 +71,13 @@ public class ApplicationConstructionFieldService {
                 throw new IllegalArgumentException("请先读取已确认方案与当前字段状态");
             if (objectKey == null || !objectKey.matches("[a-z][a-z0-9_-]{0,63}")) throw new IllegalArgumentException("业务对象标识无效");
             if (fields == null || fields.isEmpty() || fields.size() > 12 || fields.stream().anyMatch(Objects::isNull))
-                throw new IllegalArgumentException("一次新增 1 至 12 个普通字段");
+                throw new IllegalArgumentException("一次新增 1 至 12 个字段");
             fields = List.copyOf(fields);
             if (fields.stream().map(Field::name).distinct().count() != fields.size()) throw new IllegalArgumentException("字段名称不能重复");
         }
     }
     public record Spec(String alias, String title, String type, Integer length, Integer precision, Integer scale) {}
-    public record Description(String moduleAlias, int planRevision, Integer metadataVersion, List<MetadataField> fields, List<Spec> specs) {}
+    public record Description(String moduleAlias, int planRevision, Integer metadataVersion, List<MetadataField> fields, List<Spec> specs, Map<String, MetadataFieldReferenceConfigDraft> references) {}
     public record Preview(Proposal proposal, String moduleAlias, List<MetadataChangeSetFieldImpact> fieldImpacts,
                           List<MetadataChangeSetSchemaImpact> schemaImpacts, List<MetadataChangeSetValidationIssue> warnings,
                           List<MetadataChangeSetValidationIssue> errors, String fingerprint) {}
@@ -82,7 +95,23 @@ public class ApplicationConstructionFieldService {
             var actual = fields.list(Criteria.of().eq("metadataId", entity.getId()), new PageRequest(0, Integer.MAX_VALUE));
             var catalog = specs.list(Criteria.of().eq("enabled", true), new PageRequest(0, Integer.MAX_VALUE)).stream()
                     .map(spec -> new Spec(spec.getAlias(), spec.getTitle(), spec.getFieldType().name(), spec.getDefaultLength(), spec.getDefaultPrecision(), spec.getDefaultScale())).toList();
-            return new Description(binding.moduleAlias(), plan.revision(), entity.getVersion(), actual, catalog);
+            Map<String, MetadataFieldReferenceConfigDraft> referenceBindings = new LinkedHashMap<>();
+            for (var property : properties.list(binding.moduleAlias(), binding.relationId())) {
+                var config = property.reference();
+                if (property.kind() == MetadataFieldPropertyKind.MODULE_REFERENCE && config != null && config.cardinality() == ReferenceCardinality.ONE) {
+                    try {
+                        var target = targets.list(binding.moduleAlias(), binding.relationId(), config.targetModuleAlias(), config.targetMetadataId());
+                        if (target.keyFields().stream().anyMatch(key -> key.fieldName().equals(config.targetKeyField()))
+                                && target.labelFields().stream().anyMatch(label -> label.fieldName().equals(config.targetLabelField())))
+                            referenceBindings.put(property.fieldName(), new MetadataFieldReferenceConfigDraft(config.targetModuleAlias(),
+                                    config.targetMetadataId(), config.targetKeyField(), config.targetLabelField(), config.cardinality(),
+                                    config.targetUnavailablePolicy(), config.projectionMappings(), config.requireEnabled()));
+                    } catch (PlatformException unavailable) {
+                        // An unavailable target is missing evidence, never a fulfilled relationship.
+                    }
+                }
+            }
+            return new Description(binding.moduleAlias(), plan.revision(), entity.getVersion(), actual, catalog, Map.copyOf(referenceBindings));
         }
     }
     public Preview preview(String planId, Proposal proposal) {
@@ -91,7 +120,16 @@ public class ApplicationConstructionFieldService {
         if (proposal == null || proposal.planRevision() != plan.revision()) throw new IllegalArgumentException("需求版本已变化，请重新读取并预检");
         ApplicationConstructionRequirements.requireBuildable(plan.content(), proposal.objectKey());
         var binding = binding(plan, proposal.objectKey());
+        requireConfirmedReferences(plan, proposal);
         try (var ignored = TenantContext.system("construction field preview")) {
+            for (var field : proposal.fields()) {
+                if (field.reference() == null) continue;
+                var reference = field.reference();
+                var catalog = targets.list(binding.moduleAlias(), binding.relationId(), reference.targetModuleAlias(), reference.targetMetadataId());
+                if (catalog.keyFields().stream().noneMatch(key -> key.selectable() && key.fieldName().equals(reference.targetKeyField()))
+                        || catalog.labelFields().stream().noneMatch(label -> label.selectable() && label.fieldName().equals(reference.targetLabelField())))
+                    throw new IllegalArgumentException("引用目标的标识或显示字段已不可用，请重新读取目录");
+            }
             var preview = previews.preview(binding.moduleAlias(), changeSet(binding, proposal));
             return new Preview(proposal, binding.moduleAlias(), preview.fieldImpacts(), preview.schemaImpacts(),
                     preview.warnings(), preview.errors(), digest(json(List.of(planId, proposal, preview.proposalFingerprint()))));
@@ -166,11 +204,45 @@ public class ApplicationConstructionFieldService {
             var field = new MetadataField(); field.setMetadataId(binding.metadataId()); field.setFieldName(value.name());
             field.setColumnName(value.name().replaceAll("([a-z0-9])([A-Z])", "$1_$2").toLowerCase(Locale.ROOT));
             field.setTitle(value.title()); field.setFieldSpecAlias(value.specAlias());
+            field.setTitleField(value.titleField());
             field.setRequired(value.required()); field.setUniqueField(value.unique()); field.setIndexed(value.indexed());
-            return new MetadataFieldChangeSetDraft(MetadataFieldChangeSetDraft.Operation.ADD, null, null, field);
+            return new MetadataFieldChangeSetDraft(MetadataFieldChangeSetDraft.Operation.ADD, null, null, field,
+                    value.reference() == null ? null : new MetadataFieldPropertyDraft(MetadataFieldPropertyKind.MODULE_REFERENCE,
+                            null, value.reference(), null));
         }).toList();
         return new MetadataModelChangeSetPreviewCommand(List.of(new MetadataModelRelationChangeSetDraft(binding.relationId(),
                 proposal.expectedMetadataVersion(), Map.of(), drafts)), List.of(), List.of());
+    }
+    public List<ReferenceTargetFieldCatalogService.ModuleCandidate> businessObjects() {
+        requireOperator();
+        try (var ignored = TenantContext.system("construction reference discovery")) { return targets.discoverModules(); }
+    }
+    public ReferenceTargetFieldCatalog referenceTarget(String moduleAlias) {
+        requireOperator();
+        try (var ignored = TenantContext.system("construction reference discovery")) { return targets.target(moduleAlias, null); }
+    }
+    public List<ApplicationConstructionRequirements.Evidence> evidence(ApplicationConstructionPlanService.Snapshot plan,
+            String objectKey, Description description) {
+        var objectModules = new HashMap<String, String>();
+        plan.initializations().forEach(binding -> objectModules.put(binding.objectKey(), binding.moduleAlias()));
+        var referenceTargets = new HashMap<String, String>();
+        description.references().forEach((field, reference) -> referenceTargets.put(field, reference.targetModuleAlias()));
+        return ApplicationConstructionRequirements.evaluate(plan.content(), objectKey, description.fields(), referenceTargets, objectModules);
+    }
+    private void requireConfirmedReferences(ApplicationConstructionPlanService.Snapshot plan, Proposal proposal) {
+        for (var field : proposal.fields()) {
+            if (field.reference() == null) continue;
+            boolean confirmed = plan.content().requirements().stream().anyMatch(requirement -> {
+                if (!requirement.objectKey().equals(proposal.objectKey()) || !requirement.fieldName().equals(field.name())
+                        || requirement.mode() != ApplicationConstructionRequirement.Mode.REFERENCE) return false;
+                var intent = requirement.reference();
+                String target = intent.moduleAlias().isEmpty() ? plan.initializations().stream()
+                        .filter(value -> value.objectKey().equals(intent.objectKey())).map(ApplicationConstructionPlanService.Initialization::moduleAlias)
+                        .findFirst().orElse(null) : intent.moduleAlias();
+                return target != null && target.equals(field.reference().targetModuleAlias());
+            });
+            if (!confirmed) throw new IllegalArgumentException("引用目标尚未初始化或与已确认需求不一致，请核对对象与复用决定");
+        }
     }
     private void requireOperator() {
         if (!CurrentUserContext.currentUser().map(user -> user.system()).orElse(false)) throw new PlatformAccessDeniedException("字段建设目前要求系统配置身份");

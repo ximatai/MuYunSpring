@@ -29,6 +29,27 @@ export function assistantFieldDisplay(
   return resolveRecordDetailDisplayValue(field, record, { emptyText: '空', optionItems });
 }
 
+/** Resolve confirmation labels through the same authorized provider used by the picker. */
+export async function assistantConfirmationFieldDisplay(
+  field: RecordFormFieldState,
+  record: RecordFormRecord,
+) {
+  const value = record[field.fieldName];
+  if (!field.reference || !field.pickerConfig?.provider || value == null || value === '')
+    return assistantFieldDisplay(field, record);
+  const ids = (Array.isArray(value) ? value : [value]).map(String);
+  if (!ids.length) return '未选择';
+  const candidates = await field.pickerConfig.provider.resolve(ids);
+  return ids
+    .map((id) => {
+      const candidate = candidates.find((item) => item.id === id);
+      if (!candidate || candidate.identifierFallback || !candidate.title || candidate.title === id)
+        return '已选择（名称暂不可用）';
+      return candidate.unavailable ? `${candidate.title}（不可用）` : candidate.title;
+    })
+    .join('、');
+}
+
 export function assistantReadableField(field: RecordFormFieldState) {
   return (
     field.visible &&

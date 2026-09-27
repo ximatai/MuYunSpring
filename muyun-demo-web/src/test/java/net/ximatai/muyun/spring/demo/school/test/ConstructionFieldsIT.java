@@ -57,7 +57,7 @@ class ConstructionFieldsIT {
                 List.of(new ApplicationConstructionPlanContent.BusinessObject("entry", "订单", "登记")),
                 List.of(), List.of(), List.of(), List.of(), List.of(), List.of("录入订单号"),
                 List.of(new ApplicationConstructionRequirement(ApplicationConstructionRequirement.Section.SCOPE, 0,
-                        "entry", ApplicationConstructionRequirement.Mode.REQUIRED, "orderNumber", "订单号必填")));
+                        "entry", ApplicationConstructionRequirement.Mode.REQUIRED, "orderNumber", "订单号必填", null)));
         try (var identity = CurrentUserContext.use(CurrentUser.systemUser("construction-admin", "建设管理员"))) {
             constructionPlans.confirm(planId, new ApplicationConstructionPlanService.ConfirmCommand(UUID.randomUUID().toString(), 0, content));
             var initial = new ApplicationConstructionInitializationService.Proposal(1, "entry", "manual" + planId.substring(0, 12), "订单应用", "registration_records");
@@ -105,10 +105,10 @@ class ConstructionFieldsIT {
             List.of(new ApplicationConstructionPlanContent.BusinessObject("entry", "订单", "登记")),
             List.of(), List.of("订单号必填且不重复"), List.of(), List.of(), List.of(), List.of("录入并查询"), List.of(new net.ximatai.muyun.spring.platform.application.ApplicationConstructionRequirement(
                 net.ximatai.muyun.spring.platform.application.ApplicationConstructionRequirement.Section.SCOPE, 0, "entry",
-                net.ximatai.muyun.spring.platform.application.ApplicationConstructionRequirement.Mode.MANUAL, "", "实际录入并查询一笔订单"),
-                new ApplicationConstructionRequirement(ApplicationConstructionRequirement.Section.RULE, 0, "entry", ApplicationConstructionRequirement.Mode.REQUIRED, "orderNumber", "订单号由系统要求填写"),
-                new ApplicationConstructionRequirement(ApplicationConstructionRequirement.Section.RULE, 0, "entry", ApplicationConstructionRequirement.Mode.UNIQUE, "orderNumber", "系统拒绝重复订单号"),
-                new ApplicationConstructionRequirement(ApplicationConstructionRequirement.Section.SCOPE, 1, "entry", ApplicationConstructionRequirement.Mode.FIELD, "remark", "可选填备注")));
+                net.ximatai.muyun.spring.platform.application.ApplicationConstructionRequirement.Mode.MANUAL, "", "实际录入并查询一笔订单", null),
+                new ApplicationConstructionRequirement(ApplicationConstructionRequirement.Section.RULE, 0, "entry", ApplicationConstructionRequirement.Mode.REQUIRED, "orderNumber", "订单号由系统要求填写", null),
+                new ApplicationConstructionRequirement(ApplicationConstructionRequirement.Section.RULE, 0, "entry", ApplicationConstructionRequirement.Mode.UNIQUE, "orderNumber", "系统拒绝重复订单号", null),
+                new ApplicationConstructionRequirement(ApplicationConstructionRequirement.Section.SCOPE, 1, "entry", ApplicationConstructionRequirement.Mode.FIELD, "remark", "可选填备注", null)));
         try (var user = CurrentUserContext.use(CurrentUser.systemUser("construction-admin", "建设管理员")); var scope = TenantContext.system("field acceptance")) {
             constructionPlans.confirm(planId, new ApplicationConstructionPlanService.ConfirmCommand(UUID.randomUUID().toString(), 0, content));
             assertThat(delivery.task(planId).objects().getFirst().options()).extracting(ApplicationConstructionDeliveryService.TaskOption::action).contains(ApplicationConstructionDeliveryService.TaskAction.INITIALIZE);
@@ -124,7 +124,7 @@ class ConstructionFieldsIT {
                     .hasMessageContaining("尚未落实到实际字段约束");
             String spec = description.specs().stream().filter(value -> value.type().equals("STRING")).findFirst().orElseThrow().alias();
             var fieldProposal = new net.ximatai.muyun.spring.platform.application.ApplicationConstructionFieldService.Proposal(1, "entry", description.metadataVersion(),
-                    List.of(new net.ximatai.muyun.spring.platform.application.ApplicationConstructionFieldService.Field("orderNumber", "订单号", spec, true, true, true), new ApplicationConstructionFieldService.Field("remark", "备注", spec, false, false, false)));
+                    List.of(new net.ximatai.muyun.spring.platform.application.ApplicationConstructionFieldService.Field("orderNumber", "订单号", spec, true, true, true, null, false), new ApplicationConstructionFieldService.Field("remark", "备注", spec, false, false, false, null, false)));
             var fieldPreview = constructionFields.preview(planId, fieldProposal);
             assertThat(fieldPreview.errors()).isEmpty();
             var fieldCommand = new net.ximatai.muyun.spring.platform.application.ApplicationConstructionFieldService.Command(UUID.randomUUID().toString(), fieldProposal, fieldPreview.fingerprint());
@@ -199,8 +199,10 @@ class ConstructionFieldsIT {
             var detail = mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/" + module + "/view/" + savedRecord.getId())).andReturn().getResponse();
             assertThat(detail.getStatus()).as(detail.getContentAsString()).isEqualTo(200);
             assertThat(detail.getContentAsString()).contains("ACCEPT-001");
-            assertThat(mvc.perform(post("/" + module + "/insert").contentType("application/json")
-                    .content("{\"values\":{\"orderNumber\":\"ACCEPT-001\"}}" )).andReturn().getResponse().getStatus()).isGreaterThanOrEqualTo(400);
+            var duplicate = mvc.perform(post("/" + module + "/insert").contentType("application/json")
+                    .content("{\"values\":{\"orderNumber\":\"ACCEPT-001\"}}" )).andReturn().getResponse();
+            assertThat(duplicate.getStatus()).isGreaterThanOrEqualTo(400);
+            assertThat(duplicate.getContentAsString(java.nio.charset.StandardCharsets.UTF_8)).contains("订单号不能重复");
             assertThat(mvc.perform(post("/" + module + "/insert").contentType("application/json")
                     .content("{\"values\":{}}" )).andReturn().getResponse().getStatus()).isGreaterThanOrEqualTo(400);
             }
@@ -231,4 +233,105 @@ class ConstructionFieldsIT {
             assertThatThrownBy(() -> constructionFields.describe(planId, "entry")).isInstanceOf(net.ximatai.muyun.spring.common.exception.PlatformAccessDeniedException.class);
         }
     }
+    @Test void buildsReferencesAcrossNewObjectsAndReusesExistingModulesWithoutAdoptingThem() throws Exception {
+        String planId = UUID.randomUUID().toString().replace("-", "");
+        String app = "linked" + planId.substring(0, 10);
+        var objects = List.of(new ApplicationConstructionPlanContent.BusinessObject("party", "往来单位", "登记名称"),
+                new ApplicationConstructionPlanContent.BusinessObject("agreement", "协议", "选择往来单位"));
+        var content = new ApplicationConstructionPlanContent("协议登记", "关联登记", List.of("登记单位与协议"), List.of(), objects,
+                List.of("协议选择已登记单位"), List.of(), List.of(), List.of(), List.of(), List.of("录入单位后选择它登记协议"),
+                List.of(new ApplicationConstructionRequirement(ApplicationConstructionRequirement.Section.SCOPE, 0, "party", ApplicationConstructionRequirement.Mode.MANUAL, "", "实际登记单位核验", null),
+                        new ApplicationConstructionRequirement(ApplicationConstructionRequirement.Section.SCOPE, 0, "agreement", ApplicationConstructionRequirement.Mode.MANUAL, "", "实际登记协议核验", null),
+                        new ApplicationConstructionRequirement(ApplicationConstructionRequirement.Section.RELATION, 0, "agreement",
+                        ApplicationConstructionRequirement.Mode.REFERENCE, "partyId", "从单位中选择一条，不重复抄写名称",
+                        new ApplicationConstructionRequirement.Reference("party", ""))));
+        try (var user = CurrentUserContext.use(CurrentUser.systemUser("construction-admin", "建设管理员"));
+             var system = TenantContext.system("reference construction acceptance")) {
+            constructionPlans.confirm(planId, new ApplicationConstructionPlanService.ConfirmCommand(UUID.randomUUID().toString(), 0, content));
+            for (var object : objects) {
+                var proposal = new ApplicationConstructionInitializationService.Proposal(1, object.key(), app, "关联登记", object.key());
+                construction.confirm(planId, new ApplicationConstructionInitializationService.ConfirmCommand(
+                        UUID.randomUUID().toString(), proposal, construction.preview(planId, proposal).fingerprint()));
+            }
+            var targetBefore = constructionFields.describe(planId, "party");
+            String spec = targetBefore.specs().stream().filter(value -> value.type().equals("STRING") && value.length() != null && value.length() >= 32)
+                    .findFirst().orElseThrow().alias();
+            publishFields(planId, "party", List.of(new ApplicationConstructionFieldService.Field("title", "单位名称", spec, true, false, false, null, true)));
+            var targetPage = new ApplicationConstructionDeliveryService.Proposal(1, "party", ApplicationConstructionDeliveryService.Kind.PAGE,
+                    "单位资料", List.of("title"), List.of("title"), List.of("title"));
+            delivery.confirm(planId, new ApplicationConstructionDeliveryService.Command(UUID.randomUUID().toString(), targetPage, delivery.preview(planId, targetPage).fingerprint()));
+            String targetAlias = app + ".party";
+            assertThat(constructionFields.businessObjects()).extracting(ReferenceTargetFieldCatalogService.ModuleCandidate::alias).contains(targetAlias);
+            var target = constructionFields.referenceTarget(targetAlias);
+            assertThat(target.labelFields()).extracting(ReferenceTargetFieldCandidate::fieldName).contains("title");
+            var reference = new MetadataFieldReferenceConfigDraft(targetAlias, target.targetMetadataId(), "id", "title",
+                    net.ximatai.muyun.spring.ability.reference.ReferenceCardinality.ONE,
+                    net.ximatai.muyun.spring.ability.reference.ReferenceTargetUnavailablePolicy.PRESERVE_HISTORY, List.of(), false);
+            var field = new ApplicationConstructionFieldService.Field("partyId", "往来单位", spec, false, false, false, reference, false);
+            var before = constructionFields.describe(planId, "agreement");
+            var wrongReference = new MetadataFieldReferenceConfigDraft(app + ".agreement", before.fields().getFirst().getMetadataId(), "id", "id",
+                    reference.cardinality(), reference.targetUnavailablePolicy(), List.of(), false);
+            assertThatThrownBy(() -> constructionFields.preview(planId, new ApplicationConstructionFieldService.Proposal(1, "agreement", before.metadataVersion(),
+                    List.of(new ApplicationConstructionFieldService.Field("partyId", "往来单位", spec, true, false, false, wrongReference, false)))))
+                    .hasMessageContaining("已确认需求不一致");
+            var command = publishFields(planId, "agreement", List.of(field, new ApplicationConstructionFieldService.Field("subject", "主题", spec, false, false, false, null, false)));
+            assertThat(constructionFields.confirm(planId, command).receipt().fields()).contains(field);
+            assertThat(constructionFields.describe(planId, "agreement").references().get("partyId").targetModuleAlias()).isEqualTo(targetAlias);
+            assertThat(delivery.task(planId).objects().stream().filter(item -> item.objectKey().equals("agreement")).findFirst().orElseThrow().requirements())
+                    .filteredOn(item -> item.section() == ApplicationConstructionRequirement.Section.RELATION)
+                    .allSatisfy(item -> assertThat(item.status()).isEqualTo(ApplicationConstructionRequirements.Status.CONFIGURATION_MATCHED));
+            var page = new ApplicationConstructionDeliveryService.Proposal(1, "agreement", ApplicationConstructionDeliveryService.Kind.PAGE,
+                    "协议登记", List.of("partyId"), List.of("partyId"), List.of());
+            var missingFieldPage = new ApplicationConstructionDeliveryService.Proposal(1, "agreement", ApplicationConstructionDeliveryService.Kind.PAGE,
+                    "协议登记", List.of("partyId"), List.of("subject"), List.of());
+            assertThatThrownBy(() -> delivery.preview(planId, missingFieldPage)).hasMessageContaining("包含选填字段");
+            delivery.confirm(planId, new ApplicationConstructionDeliveryService.Command(UUID.randomUUID().toString(), page, delivery.preview(planId, page).fingerprint()));
+
+            // A second, unrelated business reuses the same public target without adopting its configuration.
+            String reusePlan = UUID.randomUUID().toString().replace("-", "");
+            var reuseContent = new ApplicationConstructionPlanContent("走访登记", "记录走访单位", List.of("登记走访"), List.of(),
+                    List.of(new ApplicationConstructionPlanContent.BusinessObject("visit", "走访", "登记")), List.of("选择已有单位"),
+                    List.of(), List.of(), List.of(), List.of(), List.of("选择单位登记走访"),
+                    List.of(new ApplicationConstructionRequirement(ApplicationConstructionRequirement.Section.SCOPE, 0, "visit", ApplicationConstructionRequirement.Mode.MANUAL, "", "实际录入走访核验", null),
+                            new ApplicationConstructionRequirement(ApplicationConstructionRequirement.Section.RELATION, 0, "visit",
+                            ApplicationConstructionRequirement.Mode.REFERENCE, "partyId", "复用已有单位资料",
+                            new ApplicationConstructionRequirement.Reference("", targetAlias))));
+            constructionPlans.confirm(reusePlan, new ApplicationConstructionPlanService.ConfirmCommand(UUID.randomUUID().toString(), 0, reuseContent));
+            var reuse = new ApplicationConstructionInitializationService.Proposal(1, "visit", app, "关联登记", "visit");
+            construction.confirm(reusePlan, new ApplicationConstructionInitializationService.ConfirmCommand(UUID.randomUUID().toString(), reuse, construction.preview(reusePlan, reuse).fingerprint()));
+            int targetVersion = constructionFields.describe(planId, "party").metadataVersion();
+            publishFields(reusePlan, "visit", List.of(field));
+            assertThat(constructionPlans.read(reusePlan).initializations()).hasSize(1);
+            assertThat(constructionFields.describe(planId, "party").metadataVersion()).isEqualTo(targetVersion);
+            assertThat(constructionFields.describe(reusePlan, "visit").references().get("partyId").targetModuleAlias()).isEqualTo(targetAlias);
+
+            var tenant = new net.ximatai.muyun.spring.iam.tenant.Tenant();
+            tenant.setTitle("关联验收"); tenant.setAlias("linked_" + planId.substring(0, 10));
+            String tenantId = tenants.insert(tenant);
+            var mvc = webAppContextSetup(webApplicationContext).build();
+            try (var business = TenantContext.use(tenantId)) {
+                var created = mvc.perform(post("/" + targetAlias + "/insert").contentType("application/json")
+                        .content("{\"values\":{\"title\":\"晨光公司\"}}" )).andReturn().getResponse();
+                assertThat(created.getStatus()).as(created.getContentAsString()).isEqualTo(201);
+                var party = dynamicRecords.mainEntity(targetAlias).list(net.ximatai.muyun.database.core.orm.Criteria.of().eq("title", "晨光公司"),
+                        net.ximatai.muyun.database.core.orm.PageRequest.of(1, 10)).getFirst();
+                var saved = mvc.perform(post("/" + app + ".agreement/insert").contentType("application/json")
+                        .content("{\"values\":{\"partyId\":\"" + party.getId() + "\"}}" )).andReturn().getResponse();
+                assertThat(saved.getStatus()).as(saved.getContentAsString()).isEqualTo(201);
+                assertThat(mvc.perform(post("/" + app + ".agreement/insert").contentType("application/json")
+                        .content("{\"values\":{\"partyId\":\"missing-record\"}}" )).andReturn().getResponse().getStatus()).isGreaterThanOrEqualTo(400);
+            }
+        }
+    }
+
+    private ApplicationConstructionFieldService.Command publishFields(String planId, String objectKey, List<ApplicationConstructionFieldService.Field> fields) {
+        var description = constructionFields.describe(planId, objectKey);
+        var proposal = new ApplicationConstructionFieldService.Proposal(description.planRevision(), objectKey, description.metadataVersion(), fields);
+        var preview = constructionFields.preview(planId, proposal);
+        assertThat(preview.errors()).isEmpty();
+        var command = new ApplicationConstructionFieldService.Command(UUID.randomUUID().toString(), proposal, preview.fingerprint());
+        constructionFields.confirm(planId, command);
+        return command;
+    }
+
 }

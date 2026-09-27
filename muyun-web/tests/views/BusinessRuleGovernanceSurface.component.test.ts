@@ -1,7 +1,14 @@
 import { flushPromises, mount, shallowMount } from '@vue/test-utils';
 import { defineComponent, h, ref } from 'vue';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { configureModuleContext, type HttpClient, type HttpRequestOptions } from '@/web-core';
+import {
+  configureModuleContext,
+  provideAssistantSurfaceHost,
+  createAssistantSurfaceRegistry,
+  type AssistantSurfaceRegistry,
+  type HttpClient,
+  type HttpRequestOptions,
+} from '@/web-core';
 import BusinessRuleGovernanceSurface from '@/views/BusinessRuleGovernanceSurface.vue';
 import { provideCurrentUserContext } from '@/platform-admin-runtime/currentUserContext';
 
@@ -152,7 +159,7 @@ function snapshot(moduleAlias = 'education.exam', fields = true) {
       : [],
     rules: [
       {
-        code: 'calculation_amount',
+        code: 'calculationAmount',
         kind: 'CALCULATION',
         phase: 'FORM_COMPUTE',
         targetField: 'amount',
@@ -161,7 +168,7 @@ function snapshot(moduleAlias = 'education.exam', fields = true) {
         editable: true,
       },
       {
-        code: 'validation_quantity',
+        code: 'validationQuantity',
         kind: 'VALIDATION',
         phase: 'BEFORE_SAVE',
         targetField: 'quantity',
@@ -171,7 +178,7 @@ function snapshot(moduleAlias = 'education.exam', fields = true) {
         editable: true,
       },
       {
-        code: 'legacy_default',
+        code: 'legacyDefault',
         kind: 'DEFAULT',
         phase: 'BEFORE_SAVE',
         expression: '1',
@@ -233,7 +240,7 @@ function fakeHttp(): HttpClient {
         return {
           snapshot: snapshot(),
           proposalFingerprint: 'proposal-1',
-          executionOrder: ['calculation_amount', 'validation_quantity'],
+          executionOrder: ['calculationAmount', 'validationQuantity'],
           errors: [],
         } as never;
       if (options.path.endsWith('/trial'))
@@ -263,6 +270,7 @@ function mountSurface(
     rules: [],
     forms: [{ key: 'default', title: '考试表单', elements: [{ key: 'quantity', label: '数量' }] }],
   },
+  registry?: AssistantSurfaceRegistry,
 ) {
   configureModuleContext({
     http: {
@@ -271,11 +279,20 @@ function mountSurface(
         options.path.endsWith('/ui-controls') ? (Promise.resolve(uiRules) as never) : http.request(options),
     },
   });
-  const wrapper = shallowMount(BusinessRuleGovernanceSurface, {
+  const target = registry
+    ? defineComponent({
+        setup() {
+          provideAssistantSurfaceHost({ registry, activePageInstanceKey: () => 'rules-page' });
+          return () => h(BusinessRuleGovernanceSurface, { moduleAlias });
+        },
+      })
+    : BusinessRuleGovernanceSurface;
+  const wrapper = shallowMount(target, {
     attachTo: document.body,
     props: { moduleAlias },
     global: {
       stubs: {
+        BusinessRuleGovernanceSurface: false,
         MetadataSourceTree: false,
         UiButton,
         UiActionButton: UiButton,
@@ -523,7 +540,7 @@ describe('BusinessRuleGovernanceSurface', () => {
     await flushPromises();
     expect(list.props('quickSearchValue')).toBe('quantity');
     expect(list.props('pageNum')).toBe(1);
-    expect(list.props('rows')).toEqual([expect.objectContaining({ code: 'validation_quantity' })]);
+    expect(list.props('rows')).toEqual([expect.objectContaining({ code: 'validationQuantity' })]);
     expect(vi.mocked(http.request).mock.calls.length).toBe(calls);
     expect(action(wrapper, '应用更改')).toBeUndefined();
   });
@@ -1046,7 +1063,7 @@ describe('BusinessRuleGovernanceSurface', () => {
           proposalFingerprint: 'proposal-invalid',
           executionOrder: [],
           errors: [
-            { code: 'INVALID_RULE_EXPRESSION', ruleCode: 'validation_quantity', message: '表达式不合法' },
+            { code: 'INVALID_RULE_EXPRESSION', ruleCode: 'validationQuantity', message: '表达式不合法' },
           ],
         }) as never;
       return fakeHttp().request(options);
@@ -1319,7 +1336,7 @@ describe('BusinessRuleGovernanceSurface', () => {
     resolvePreview({
       snapshot: snapshot(),
       proposalFingerprint: 'old',
-      executionOrder: ['calculation_amount'],
+      executionOrder: ['calculationAmount'],
       errors: [],
     });
     await flushPromises();
@@ -1380,4 +1397,85 @@ describe('BusinessRuleGovernanceSurface', () => {
     await flushPromises();
     expect(action(wrapper, '新增规则').attributes('title')).toContain('没有可写的主表字段');
   });
+});
+
+describe('assistant uses the same business-rule candidate and application', () => {
+  it('preserves manual rules, rejects read-only replacement and submits only after confirmation', async () => {
+    const http = fakeHttp();
+    const registry = createAssistantSurfaceRegistry();
+    registry.activate('rules-page');
+    mountSurface(http, 'education.exam', undefined, registry);
+    await flushPromises();
+    const invoke = (code: string, input: unknown = {}) =>
+      registry.invoke({ id: 'test', code, input }, registry.snapshot()!.token);
+    await expect(
+      invoke('rules.revise', {
+        code: 'legacyDefault',
+        kind: 'VALIDATION',
+        expression: 'true',
+        enabled: true,
+      }),
+    ).rejects.toThrow();
+    await invoke('rules.revise', {
+      code: 'calculationAmount',
+      kind: 'CALCULATION',
+      targetField: 'amount',
+      expression: '{quantity} * 2',
+      enabled: true,
+    });
+    await flushPromises();
+    const prepared = await invoke('rules.prepare-apply');
+    expect(prepared.confirmation!.presentation.lines.join('；')).toContain('应用后启用');
+    expect(prepared.confirmation!.presentation.lines.join('；')).not.toContain('calculationAmount');
+    expect(
+      vi.mocked(http.request).mock.calls.filter(([options]) => options.path.endsWith('/apply')),
+    ).toHaveLength(0);
+    await prepared.confirmation!.confirm();
+    await flushPromises();
+    expect(prepared.confirmation!.state).toBe('succeeded');
+    const sent = vi.mocked(http.request).mock.calls.find(([options]) => options.path.endsWith('/apply'))![0]
+      .body as { rules: Array<{ code: string; expression: string }> };
+    expect(sent.rules).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: 'calculationAmount', expression: '{quantity} * 2' }),
+        expect.objectContaining({ code: 'validationQuantity', expression: '{quantity} > 0' }),
+      ]),
+    );
+    expect(sent.rules.some((rule) => rule.code === 'legacyDefault')).toBe(false);
+  });
+});
+
+it('uses explicit child sample rows for standard governance trials', async () => {
+  const http = fakeHttp();
+  const request = http.request;
+  http.request = vi.fn(async (options) => {
+    const result = await request(options);
+    return options.path.endsWith('/business-rules')
+      ? ({
+          ...(result as object),
+          aggregateFields: [
+            {
+              fieldName: 'lines.amount',
+              title: '明细 · 小计',
+              fieldSpecAlias: 'decimal',
+              valueType: 'DECIMAL',
+              aggregateFunctions: ['SUM'],
+            },
+          ],
+        } as never)
+      : (result as never);
+  });
+  const wrapper = mountSurface(http);
+  await flushPromises();
+  await action(wrapper, '试算整组规则').trigger('click');
+  await flushPromises();
+  await action(wrapper, '添加明细样例').trigger('click');
+  await flushPromises();
+  const child = wrapper.findAll('label').find((label) => label.text().includes('明细 · 小计'))!;
+  child.findComponent({ name: 'UiInput' }).vm.$emit('update:value', '18');
+  await flushPromises();
+  wrapper.findComponent({ name: 'UiModal' }).vm.$emit('confirm');
+  await flushPromises();
+  const call = vi.mocked(http.request).mock.calls.find(([options]) => options.path.endsWith('/trial'))![0];
+  expect(call.body).toMatchObject({ sampleChildren: { lines: [{ amount: 18 }] } });
 });

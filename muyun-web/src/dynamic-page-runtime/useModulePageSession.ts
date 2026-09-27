@@ -1,5 +1,5 @@
 import { createRelationDraftRegistry } from './relationDraftController';
-import { assistantFieldDisplay, assistantRelationProjection } from './assistantRecordProjection';
+import { assistantConfirmationFieldDisplay, assistantRelationProjection } from './assistantRecordProjection';
 import type { AssistantResultPresentation, OptionItemDescriptor } from '@muyun/web-contracts';
 import type { AssistantOperationProposal } from '@muyun/web-core';
 import { recordCreationReadiness } from './recordCreationReadiness';
@@ -3335,6 +3335,25 @@ export function useModulePageSession(
       title: '保存成功',
       lines: [`${modulePageTitle.value}已保存`, `记录标识：${recordId}`],
     });
+    const displayFields = [...formFields.value.keys()]
+      .map((fieldName) =>
+        resolveRecordFormFieldState(fieldName, {
+          fields: formFields.value,
+          pickerConfigs: referencePickerConfigs.value,
+          record: editingRecord.value!,
+        }),
+      )
+      .filter(
+        (field) =>
+          field.visible && field.assistantPolicy !== 'HIDDEN' && field.fieldControl?.alias !== 'password',
+      );
+    const fieldLines = await Promise.all(
+      displayFields.map(
+        async (field) =>
+          `${field.label}：${await assistantConfirmationFieldDisplay(field, editingRecord.value!)}`,
+      ),
+    );
+    if (!isCurrent()) throw new AssistantOperationRejectedError('草稿已变化，请重新确认');
     return {
       modelSummary:
         '保存当前表单及随单明细，等待用户确认，尚未提交。字段值仅依据当前表单能力返回的授权事实。',
@@ -3348,20 +3367,7 @@ export function useModulePageSession(
           ...relationFacts.map(
             (relation) => `${relation.title}：保存 ${relation.count} 行，移除 ${relation.removedCount} 行`,
           ),
-          ...[...formFields.value.keys()]
-            .map((fieldName) =>
-              resolveRecordFormFieldState(fieldName, {
-                fields: formFields.value,
-                record: editingRecord.value!,
-              }),
-            )
-            .filter(
-              (field) =>
-                field.visible &&
-                field.assistantPolicy !== 'HIDDEN' &&
-                field.fieldControl?.alias !== 'password',
-            )
-            .map((field) => `${field.label}：${assistantFieldDisplay(field, editingRecord.value!)}`),
+          ...fieldLines,
         ],
       },
       expiresAt: Date.now() + 5 * 60_000,

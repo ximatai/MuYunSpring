@@ -1,5 +1,6 @@
 import type {
   ConstructionPlanContent,
+  ReferenceTargetFieldCatalog,
   ConstructionTask,
   ConstructionAcceptancePreview,
   ConstructionAcceptanceReceipt,
@@ -19,6 +20,10 @@ import type {
 } from '@muyun/web-contracts';
 import type { HttpClient } from './http';
 export interface ConstructionPlanClient {
+  businessObjects(): Promise<
+    { alias: string; title: string; kind: string; referenceReady: boolean; explanation: string }[]
+  >;
+  referenceTarget(moduleAlias: string): Promise<ReferenceTargetFieldCatalog>;
   task(id: string): Promise<ConstructionTask>;
   previewAcceptance(id: string, objectKey: string): Promise<ConstructionAcceptancePreview>;
   confirmAcceptance(
@@ -62,6 +67,9 @@ export function createConstructionPlanClient(http: HttpClient): ConstructionPlan
   const root = '/platform.application-construction-plans';
   const path = (id: string) => `${root}/${encodeURIComponent(id)}`;
   return {
+    businessObjects: () => http.request({ path: `${root}/business-objects` }),
+    referenceTarget: (moduleAlias) =>
+      http.request({ path: `${root}/reference-target`, query: { moduleAlias } }),
     task: (id) => http.request({ path: `${path(id)}/task` }),
     previewAcceptance: (id, objectKey) =>
       http.request({ path: `${path(id)}/objects/${encodeURIComponent(objectKey)}/acceptance-preview` }),
