@@ -19,6 +19,7 @@ const props = withDefaults(
     filterOption?: boolean;
     loading?: boolean;
     /** Marks an unresolved free-text draft without changing the selected option value. */
+    invalid?: boolean;
     unmatched?: boolean;
     id?: string;
     ariaLabel?: string;
@@ -33,6 +34,7 @@ const props = withDefaults(
     searchValue: undefined,
     filterOption: true,
     loading: false,
+    invalid: false,
     unmatched: false,
     id: undefined,
     ariaLabel: undefined,
@@ -84,6 +86,7 @@ function handleDoubleClick(event: MouseEvent) {
   >
     <ASelect
       :allow-clear="allowClear"
+      :id="id"
       :mode="mode"
       :value="value ?? undefined"
       :options="options"
@@ -94,9 +97,9 @@ function handleDoubleClick(event: MouseEvent) {
       :filter-option="filterOption"
       :loading="loading"
       :show-arrow="!$slots.suffixAction"
-      :id="id"
       :aria-label="ariaLabel"
-      :aria-invalid="unmatched || undefined"
+      :aria-invalid="invalid || unmatched || undefined"
+      :status="invalid || unmatched ? 'error' : undefined"
       :class="[
         $attrs.class,
         {
@@ -105,8 +108,8 @@ function handleDoubleClick(event: MouseEvent) {
         },
       ]"
       :open="dropdownOpen"
-      @dropdown-visible-change="dropdownOpen = $event"
       :style="$attrs.style"
+      @dropdown-visible-change="dropdownOpen = $event"
       v-on="searchListeners"
       @update:value="normalize"
       @update:search-value="emit('update:searchValue', $event)"

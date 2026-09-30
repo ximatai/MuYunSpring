@@ -11,6 +11,7 @@ const props = withDefaults(
     value?: string;
     placeholder?: string;
     disabled?: boolean;
+    invalid?: boolean;
     rows?: number;
     maxlength?: number;
     /** Enables adapter-owned, selection-aware drops without exposing the underlying textarea DOM. */
@@ -20,6 +21,7 @@ const props = withDefaults(
     value: '',
     placeholder: undefined,
     disabled: false,
+    invalid: false,
     rows: 4,
     maxlength: undefined,
     acceptDrop: undefined,
@@ -202,6 +204,8 @@ defineExpose({ selection, focusSelection });
       :disabled="disabled"
       :rows="rows"
       :maxlength="maxlength"
+      :status="invalid ? 'error' : undefined"
+      :aria-invalid="invalid || undefined"
       @focus="rememberTextarea"
       @select="rememberTextarea"
       @click="rememberTextarea"

@@ -9,6 +9,7 @@ defineProps<{
   type?: 'text' | 'password' | 'email' | 'search' | 'number' | 'url' | 'date' | 'datetime-local';
   placeholder?: string;
   disabled?: boolean;
+  invalid?: boolean;
   autofocus?: boolean;
   allowClear?: boolean;
   autocomplete?: string;
@@ -31,6 +32,8 @@ const emit = defineEmits<{
     :type="type"
     :placeholder="placeholder"
     :disabled="disabled"
+    :status="invalid ? 'error' : undefined"
+    :aria-invalid="invalid || undefined"
     :autofocus="autofocus"
     :allow-clear="allowClear"
     :autocomplete="autocomplete"

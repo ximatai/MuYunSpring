@@ -26,6 +26,7 @@ const props = withDefaults(
     filterTreeNode?: boolean;
     loading?: boolean;
     /** Marks an unresolved free-text draft without changing the selected option value. */
+    invalid?: boolean;
     unmatched?: boolean;
   }>(),
   {
@@ -38,6 +39,7 @@ const props = withDefaults(
     searchValue: undefined,
     filterTreeNode: true,
     loading: false,
+    invalid: false,
     unmatched: false,
   },
 );
@@ -103,7 +105,8 @@ function handleDoubleClick(event: MouseEvent) {
       :style="$attrs.style"
       :open="dropdownOpen"
       :show-arrow="!$slots.suffixAction"
-      :aria-invalid="unmatched || undefined"
+      :aria-invalid="invalid || unmatched || undefined"
+      :status="invalid || unmatched ? 'error' : undefined"
       @dropdown-visible-change="dropdownOpen = $event"
       @update:value="normalize"
       @update:search-value="emit('update:searchValue', $event)"

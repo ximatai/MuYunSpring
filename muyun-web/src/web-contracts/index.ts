@@ -1060,6 +1060,8 @@ export interface ResolvedViewFieldDescriptor {
     requiredOnInsert: boolean;
     requiredOnUpdate: boolean;
     maxLength?: number | null;
+    validationRegex?: string | null;
+    textNormalization?: 'NONE' | 'TRIM' | 'TRIM_TO_NULL' | null;
     precision?: number | null;
     scale?: number | null;
   };

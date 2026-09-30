@@ -30,6 +30,7 @@ import FileSizeText from './FileSizeText.vue';
 import RecordContentSectionHeading from './RecordContentSectionHeading.vue';
 import {
   recordFormInputConstraintError,
+  recordFormRequiredError,
   resolveRecordFormFieldNames,
   resolveRecordFormFieldState,
   resolveRecordBooleanStatusValue,
@@ -144,16 +145,12 @@ const referenceSelectionValues = computed(() =>
     .filter(([, field]) => field.reference?.cardinality === 'ONE')
     .map(([fieldName]) => [fieldName, recordPickerFieldValue(fieldName)] as const),
 );
+const touchedFields = ref<Record<string, boolean>>({});
 const requiredFieldErrors = computed<Record<string, string>>(() => {
   const errors: Record<string, string> = {};
   for (const field of fieldStates.value) {
-    if (!field.required) continue;
-    const value = props.record[field.fieldName];
-    const missing =
-      value == null ||
-      (typeof value === 'string' && value.trim() === '') ||
-      (Array.isArray(value) && value.length === 0);
-    if (missing) errors[field.fieldName] = `请填写${field.label}`;
+    const error = recordFormRequiredError(field, props.record[field.fieldName]);
+    if (error) errors[field.fieldName] = error;
   }
   return errors;
 });
@@ -192,6 +189,7 @@ watch([() => props.fields, () => props.optionEntityAlias], () => {
 });
 watch([() => props.record.id, () => props.formSessionKey], () => {
   // A new record/session must never inherit parser failures from its predecessor.
+  touchedFields.value = {};
   editorFieldErrors.value = {};
   referenceFieldValidity.value = {};
   dictionaryFieldValidity.value = {};
@@ -469,6 +467,7 @@ function resolvedFileTransferContext() {
 }
 
 function updateField(fieldName: string, value: RecordFormFieldValue) {
+  touchedFields.value = { ...touchedFields.value, [fieldName]: true };
   emit('update:field', fieldName, value);
 }
 
@@ -605,6 +604,11 @@ function clearEditorFieldError(fieldName: string) {
 function editorFieldError(field: RecordFormFieldState) {
   return (
     editorFieldErrors.value[field.fieldName] ??
+    (!field.readOnly &&
+    field.visible &&
+    (touchedFields.value[field.fieldName] || props.validationRequestKey > 0)
+      ? requiredFieldError(field)
+      : undefined) ??
     recordFormInputConstraintError(field, props.record[field.fieldName])
   );
 }
@@ -625,6 +629,19 @@ function referenceFieldError(field: RecordFormFieldState) {
   )
     return undefined;
   return validity.message ?? `请完成${field.label}的选择`;
+}
+
+function fieldShowsError(field: RecordFormFieldState) {
+  return (
+    !fieldDisabled(field) &&
+    field.visible &&
+    Boolean(
+      editorFieldError(field) ||
+      optionFieldError(field) ||
+      dictionaryRendererErrorOf(field) ||
+      referenceFieldError(field),
+    )
+  );
 }
 
 function fieldInvalid(field: RecordFormFieldState) {
@@ -730,17 +747,45 @@ function groupEndsAt(field: RecordFormFieldState, index: number) {
             : undefined
         "
         :class="{
+          'record-form-field--invalid': fieldShowsError(field),
           'record-form-field-full-row': field.columnSpan === 2,
           'record-form-field--compact': compact,
           'record-form-field--validation-pulse': validationRequestKey > 0 && fieldInvalid(field),
         }"
+        @focusout="touchedFields[field.fieldName] = true"
       >
-        <RecordFieldLabel
-          v-if="showLabels && field.controlType !== 'imageFileTransfer'"
-          :required="field.required"
+        <div
+          v-if="
+            (showLabels && field.controlType !== 'imageFileTransfer') ||
+            optionFieldError(field) ||
+            (!field.readOnly && editorFieldError(field))
+          "
+          class="record-form-field-heading"
+          :class="{
+            'record-form-field-heading--unlabelled': !showLabels || field.controlType === 'imageFileTransfer',
+          }"
         >
-          {{ field.label }}
-        </RecordFieldLabel>
+          <RecordFieldLabel
+            v-if="showLabels && field.controlType !== 'imageFileTransfer'"
+            :required="field.required"
+          >
+            {{ field.label }}
+          </RecordFieldLabel>
+          <div v-if="optionFieldError(field)" class="record-form-field-error">
+            <span>{{ optionFieldError(field) }}</span>
+            <UiButton
+              v-if="optionFieldLoadError(field)"
+              type="link"
+              :disabled="optionFieldLoading(field)"
+              @click="retryOptionField(field)"
+            >
+              重试
+            </UiButton>
+          </div>
+          <div v-if="!field.readOnly && editorFieldError(field)" class="record-form-field-error" role="alert">
+            {{ editorFieldError(field) }}
+          </div>
+        </div>
         <div class="record-form-field-control">
           <RecordStatusSwitch
             v-if="field.controlType === 'enabledStatus'"
@@ -759,6 +804,7 @@ function groupEndsAt(field: RecordFormFieldState, index: number) {
           />
           <UiSelect
             v-else-if="isOverrideField(field)"
+            :invalid="fieldShowsError(field)"
             :value="overrideEditorValue(field)"
             :options="overrideOptions(field)"
             :disabled="fieldDisabled(field)"
@@ -778,6 +824,7 @@ function groupEndsAt(field: RecordFormFieldState, index: number) {
                 field.pickerConfig.provider &&
                 (field.pickerConfig.mode !== 'tree' || !field.pickerConfig.scopedTree)
               "
+              :invalid="fieldShowsError(field)"
               :value="recordPickerFieldValue(field.fieldName)"
               :provider="field.pickerConfig.provider"
               :reload-key="field.pickerConfig.reloadKey"
@@ -793,6 +840,7 @@ function groupEndsAt(field: RecordFormFieldState, index: number) {
             />
             <RecordPicker
               v-else
+              :invalid="fieldShowsError(field)"
               :value="recordPickerFieldValue(field.fieldName)"
               :context="field.pickerConfig.context"
               :load-options="field.pickerConfig.loadOptions"
@@ -842,6 +890,7 @@ function groupEndsAt(field: RecordFormFieldState, index: number) {
               field.pickerConfig?.provider &&
               (field.pickerConfig.mode !== 'tree' || !field.pickerConfig.scopedTree)
             "
+            :invalid="fieldShowsError(field)"
             :value="stringArrayFieldValue(field.fieldName)"
             :provider="field.pickerConfig.provider"
             :reload-key="field.pickerConfig.reloadKey"
@@ -857,6 +906,7 @@ function groupEndsAt(field: RecordFormFieldState, index: number) {
           />
           <RecordMultiPicker
             v-else-if="field.controlType === 'recordMultiPicker' && field.pickerConfig"
+            :invalid="fieldShowsError(field)"
             :value="stringArrayFieldValue(field.fieldName)"
             :context="field.pickerConfig.context"
             :load-options="field.pickerConfig.loadOptions"
@@ -876,6 +926,7 @@ function groupEndsAt(field: RecordFormFieldState, index: number) {
           />
           <DictionaryPicker
             v-else-if="dictionaryPickerMode(field)"
+            :invalid="fieldShowsError(field)"
             :value="dictionaryPickerValue(field.fieldName)"
             :items="optionFieldItems(field)"
             :selection-mode="field.optionSelectionMode ?? 'SINGLE'"
@@ -931,6 +982,7 @@ function groupEndsAt(field: RecordFormFieldState, index: number) {
           />
           <UiTreeSelect
             v-else-if="field.controlType === 'select' && optionFieldIsTree(field)"
+            :invalid="fieldShowsError(field)"
             :value="optionFieldValue(field.fieldName)"
             :tree-data="optionFieldTree(field)"
             :mode="optionFieldMultiple(field) ? 'multiple' : undefined"
@@ -944,6 +996,7 @@ function groupEndsAt(field: RecordFormFieldState, index: number) {
             v-else-if="
               field.controlType === 'select' && (field.hasOption || optionFieldOptions(field).length > 0)
             "
+            :invalid="fieldShowsError(field)"
             :value="optionFieldValue(field.fieldName)"
             :options="optionFieldOptions(field)"
             :mode="optionFieldMultiple(field) ? 'multiple' : undefined"
@@ -955,6 +1008,7 @@ function groupEndsAt(field: RecordFormFieldState, index: number) {
           />
           <UiTextArea
             v-else-if="field.controlType === 'textarea'"
+            :invalid="fieldShowsError(field)"
             :value="editorFieldValue(field)"
             :disabled="fieldDisabled(field)"
             :placeholder="field.placeholder"
@@ -962,6 +1016,7 @@ function groupEndsAt(field: RecordFormFieldState, index: number) {
           />
           <UiInput
             v-else-if="field.controlType === 'numberInput'"
+            :invalid="fieldShowsError(field)"
             :value="editorFieldValue(field)"
             type="number"
             step="any"
@@ -971,6 +1026,7 @@ function groupEndsAt(field: RecordFormFieldState, index: number) {
           />
           <UiInput
             v-else-if="field.controlType === 'dateInput'"
+            :invalid="fieldShowsError(field)"
             :value="editorFieldValue(field)"
             type="date"
             :disabled="fieldDisabled(field)"
@@ -979,6 +1035,7 @@ function groupEndsAt(field: RecordFormFieldState, index: number) {
           />
           <UiInput
             v-else-if="field.controlType === 'dateTimeInput'"
+            :invalid="fieldShowsError(field)"
             :value="editorFieldValue(field)"
             type="datetime-local"
             step="1"
@@ -1005,26 +1062,13 @@ function groupEndsAt(field: RecordFormFieldState, index: number) {
           </div>
           <UiInput
             v-else
+            :invalid="fieldShowsError(field)"
             :value="scalarFieldValue(field.fieldName)"
             :type="field.fieldControl?.alias === 'password' ? 'password' : 'text'"
             :disabled="fieldDisabled(field)"
             :placeholder="field.placeholder"
             @update:value="updateField(field.fieldName, $event)"
           />
-        </div>
-        <div v-if="optionFieldError(field)" class="record-form-field-error">
-          <span>{{ optionFieldError(field) }}</span>
-          <UiButton
-            v-if="optionFieldLoadError(field)"
-            type="link"
-            :disabled="optionFieldLoading(field)"
-            @click="retryOptionField(field)"
-          >
-            重试
-          </UiButton>
-        </div>
-        <div v-if="editorFieldError(field)" class="record-form-field-error" role="alert">
-          {{ editorFieldError(field) }}
         </div>
       </label>
     </div>
@@ -1054,9 +1098,36 @@ function groupEndsAt(field: RecordFormFieldState, index: number) {
 
 .record-form-field {
   display: grid;
+  align-content: start;
   gap: var(--muyun-record-form-label-gap, 6px);
   color: var(--muyun-text-muted);
   font-size: 13px;
+}
+
+.record-form-field-heading {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 2px 12px;
+  min-width: 0;
+}
+.record-form-field-heading > .record-field-label {
+  flex: 0 0 auto;
+  max-width: 100%;
+}
+.record-form-field-heading > .record-form-field-error {
+  flex: 1 1 auto;
+  justify-content: flex-end;
+  text-align: right;
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+.record-form-field-heading--unlabelled {
+  order: 1;
+}
+.record-form-field-heading--unlabelled > .record-form-field-error {
+  justify-content: flex-start;
+  text-align: left;
 }
 
 .record-form-field-full-row {

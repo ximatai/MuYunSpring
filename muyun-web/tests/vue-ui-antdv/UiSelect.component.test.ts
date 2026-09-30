@@ -44,3 +44,12 @@ it('keeps a suffix action inside the select and closes its dropdown without chan
     wrapper.unmount();
   }
 });
+
+it('keeps unmatched state when a form error is cleared', async () => {
+  const wrapper = mount(UiSelect, { props: { options: [], invalid: true, unmatched: true } });
+  expect(wrapper.find('.ant-select-status-error').exists()).toBe(true);
+  await wrapper.setProps({ invalid: false });
+  expect(wrapper.find('.ant-select-status-error').exists()).toBe(true);
+  await wrapper.setProps({ unmatched: false });
+  expect(wrapper.find('.ant-select-status-error').exists()).toBe(false);
+});

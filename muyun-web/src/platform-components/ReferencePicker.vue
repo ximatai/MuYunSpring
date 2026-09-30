@@ -48,6 +48,7 @@ const props = withDefaults(
     mode?: 'dialog' | 'dropdown';
     columns?: readonly ReferencePickerColumn[];
     placeholder?: string;
+    invalid?: boolean;
     disabled?: boolean;
     allowClear?: boolean;
     pageSize?: number;
@@ -64,6 +65,7 @@ const props = withDefaults(
     mode: 'dialog',
     columns: () => [{ key: 'title', title: '名称' }],
     placeholder: '搜索并选择',
+    invalid: false,
     disabled: false,
     allowClear: true,
     pageSize: 20,
@@ -694,6 +696,7 @@ function retryCompactError() {
   <div class="reference-picker">
     <template v-if="mode === 'dropdown'">
       <UiSelect
+        :invalid="invalid"
         class="reference-picker-select"
         :value="multiple ? externalIds : externalIds[0]"
         :options="dropdownOptions"
@@ -723,6 +726,7 @@ function retryCompactError() {
     </template>
     <ObjectPickerInput
       v-else
+      :invalid="invalid"
       :value="inputSummary"
       :selection-version="selectionVersion"
       :unmatched="validity.status === 'unmatched'"

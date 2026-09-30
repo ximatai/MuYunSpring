@@ -1,6 +1,8 @@
 package net.ximatai.muyun.spring.platform.web;
 
 import net.ximatai.muyun.spring.common.model.constraint.FieldInputRequirements;
+import net.ximatai.muyun.spring.common.model.constraint.StaticFieldWriteRules;
+import net.ximatai.muyun.spring.common.model.constraint.TextNormalization;
 
 import net.ximatai.muyun.spring.dynamic.metadata.EntityDefinition;
 import net.ximatai.muyun.spring.dynamic.metadata.FieldDefinition;
@@ -28,12 +30,17 @@ final class FieldWriteRuleProjection {
         Class<?> modelClass = definition.modelClass();
         if (modelClass == null) return fields;
         // Standard identity fields are omitted from dynamic entity business fields. The standard
-        // alias editor addresses the model ID, so use that same column's declared capacity.
+        // alias editor addresses the model ID, so preserve its input constraints and write rules.
         var id = org.springframework.util.ReflectionUtils.findField(modelClass, "id");
         var column = id == null ? null : id.getAnnotation(net.ximatai.muyun.database.core.annotation.Column.class);
         if (column != null && column.length() > 0
                 && org.springframework.beans.BeanUtils.getPropertyDescriptor(modelClass, "alias") != null) {
-            fields.putIfAbsent(new ViewFieldRef(null, "alias", null), FieldDefinition.string("alias", "alias").length(column.length()));
+            var alias = FieldDefinition.string("alias", "alias").length(column.length());
+            var binding = StaticFieldWriteRules.resolve(modelClass).get("id");
+            if (binding != null) alias = alias.writeRules(binding.rules());
+            var pattern = id.getAnnotation(net.ximatai.muyun.spring.common.model.constraint.FieldPattern.class);
+            if (pattern != null) alias = alias.validationRegex(pattern.value());
+            fields.putIfAbsent(new ViewFieldRef(null, "alias", null), alias);
         }
         return fields;
     }
@@ -71,8 +78,10 @@ final class FieldWriteRuleProjection {
             Integer maxLength = model.type() == FieldType.STRING ? model.length() : null;
             Integer precision = model.type() == FieldType.DECIMAL ? model.precision() : null;
             Integer scale = model.type() == FieldType.DECIMAL ? model.scale() : null;
-            if (!insert && !update && maxLength == null && precision == null && scale == null) return field;
-            return field.withInputRequirements(new FieldInputRequirements(insert, update, maxLength, precision, scale));
+            String regex = model.behavior().validationRegex();
+            if (!insert && !update && maxLength == null && precision == null && scale == null && regex == null
+                    && rules.textNormalization() == TextNormalization.NONE) return field;
+            return field.withInputRequirements(new FieldInputRequirements(insert, update, maxLength, precision, scale, regex, rules.textNormalization()));
         }).toList());
     }
 }

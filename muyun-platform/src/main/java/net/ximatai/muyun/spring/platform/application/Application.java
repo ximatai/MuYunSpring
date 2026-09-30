@@ -17,6 +17,7 @@ import net.ximatai.muyun.spring.common.model.standard.StandardEnabledSortableEnt
 @Getter
 @Setter
 public class Application extends StandardEnabledSortableEntity implements PlatformManagedCapable {
+    @net.ximatai.muyun.spring.common.model.constraint.FieldPattern(net.ximatai.muyun.spring.common.util.PlatformNameRules.IDENTIFIER_PATTERN)
     @Id
     @Column(name = "id", type = ColumnType.VARCHAR, length = 64, nullable = false, comment = "Application alias")
     private String id;

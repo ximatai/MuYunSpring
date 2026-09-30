@@ -28,6 +28,7 @@ const props = withDefaults(
     reloadKey?: string | number;
     mode?: RecordPickerMode;
     placeholder?: string;
+    invalid?: boolean;
     disabled?: boolean;
     allowClear?: boolean;
     constraints?: PickerConstraint<RecordPickerRecord>[];
@@ -43,6 +44,7 @@ const props = withDefaults(
     reloadKey: undefined,
     mode: 'auto',
     placeholder: '请选择',
+    invalid: false,
     disabled: false,
     allowClear: true,
     constraints: () => [],
@@ -212,6 +214,7 @@ function updateValue(value: string | number | (string | number)[] | null) {
 <template>
   <UiTreeSelect
     v-if="actualMode === 'tree'"
+    :invalid="invalid"
     :value="value"
     :tree-data="treeData"
     :placeholder="placeholder"
@@ -225,6 +228,7 @@ function updateValue(value: string | number | (string | number)[] | null) {
   />
   <UiSelect
     v-else
+    :invalid="invalid"
     :value="value"
     :options="listOptions"
     :placeholder="placeholder"

@@ -15,6 +15,7 @@ class StaticFieldWriteRulesCompilerTest {
         EntityDefinition entity = new StaticEntityDefinitionCompiler().compile("entry", "Entry", Entry.class);
         FieldDefinition code = entity.fields().stream().filter(field -> field.code().equals("code")).findFirst().orElseThrow();
         assertThat(code.isRequired()).isFalse();
+        assertThat(code.behavior().validationRegex()).isEqualTo("[A-Z]+");
         assertThat(code.behavior().writeRules()).isEqualTo(new FieldWriteRules(true, false, TextNormalization.TRIM));
         FieldDefinition storageOnly = entity.fields().stream().filter(field -> field.code().equals("storageOnly")).findFirst().orElseThrow();
         assertThat(storageOnly.isRequired()).isTrue();
@@ -24,7 +25,7 @@ class StaticFieldWriteRulesCompilerTest {
     }
 
     static class Parent extends StandardEntity {
-        @Required(on = WriteOperation.INSERT) @NormalizeText
+        @Required(on = WriteOperation.INSERT) @NormalizeText @FieldPattern("[A-Z]+")
         @Column(name = "code", type = ColumnType.VARCHAR)
         private String code;
     }
