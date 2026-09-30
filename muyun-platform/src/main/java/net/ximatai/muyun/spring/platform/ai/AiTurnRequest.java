@@ -38,8 +38,8 @@ public record AiTurnRequest(
         if (temperature != null && (temperature < 0 || temperature > 2)) {
             throw new IllegalArgumentException("AI temperature must be between 0 and 2");
         }
-        if (maxOutputTokens != null && (maxOutputTokens < 1 || maxOutputTokens > 32_768)) {
-            throw new IllegalArgumentException("AI maxOutputTokens must be between 1 and 32768");
+        if (maxOutputTokens != null && maxOutputTokens < 1) {
+            throw new IllegalArgumentException("AI maxOutputTokens must be positive");
         }
     }
 }

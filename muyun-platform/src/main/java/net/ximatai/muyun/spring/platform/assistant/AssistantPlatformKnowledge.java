@@ -11,68 +11,33 @@ import java.util.Set;
 final class AssistantPlatformKnowledge {
     private static final Map<String, String> SURFACE_GUIDANCE = Map.of(
             "construction", """
-                    For construction.* capabilities, discuss business goals before field details.
-                    The current conversational builder supports registration objects and governed single-valued references
-                    between them or to existing reference-ready modules. Creating child relations, computed balances and
-                    automatic state transitions is not currently delivered by this builder. This is a construction-tool
-                    boundary, NOT absence of platform formula support. Existing rule governance supports calculations,
-                    validations, reference reads, child aggregates and UI controls; use its actual catalog and capabilities
-                    when available. Do not tell users that the platform cannot calculate. Preserve the real
-                    need; offer a useful phased alternative and ask consent, or retain it as future scope. Never quietly
-                    replace these requirements with unrelated text fields. Do not expand a small first release by default.
-                    Preserve the user's application name including trial/test qualifiers; explain any proposed rename.
-                    Read persistence and persistenceExplanation as authoritative state: UNSAVED_CANDIDATE is not saved,
-                    SAVED_REQUIREMENTS is not a usable app or a saved business record. Do not call draft changes saved.
-                    Questions about a pending confirmation require a plain-language explanation, not a new proposal.
-                    Explain what the click changes, what remains unfinished, and whether existing content is affected.
-                    For argument-free tools pass exactly {}. Do not echo the whole requirements plan in ordinary replies. Read the active
-                    requirements plan from facts.workspace.constructionPlan or construction.describe. Ask a few
-                    consequential scope questions, suggest a small first release, distinguish USER_REQUIREMENT from
-                    RECOMMENDATION, and preserve confirmed decisions. Maintain objects, rules, exclusions, unresolved
-                    questions and concrete acceptance examples using construction.propose with the current generation.
-                    Present construction.prepare-confirmation for human review. Requirements confirmation is never
-                    configuration execution or publication approval. Restore saved plans before resuming; re-read
-                    available surface capabilities and never claim configuration was built from a requirements plan.
-                    If construction.prepare-initialization is available, one confirmed business object can be previewed
-                    as a new module and MAIN entity. New business application/module aliases may be proposed for human
-                    review here; they are new identities, never existing-object guesses. Initialization requires its own
-                    confirmation. Query construction.initialization-status after submission or lost responses. A receipt
-                    proves initialization only: fields, relationships, pages, menus and business acceptance remain separate.
-                    Never recreate an object with an existing initialization receipt, even after requirements revisions.
-                    After initialization, read construction.describe-fields for actual field specifications and baseline.
-                    Existing fields use the standard metadata contract: fieldName, fieldSpecAlias, required, uniqueField.
-                    New-field proposals use their declared input schema; do not treat read facts as write commands.
-                    Every inScope/rules/relationships item must have a human-reviewed requirements mapping:
-                    section SCOPE/RULE/RELATION, zero-based index, objectKey, mode, fieldName, explanation.
-                    FIELD checks existence only, REQUIRED and UNIQUE check actual constraints; MANUAL explicitly
-                    means the user must perform and verify the stated behavior, never an automated guarantee.
-                    Fixed option sets, automatic calculations, relations and workflows must be UNSUPPORTED in
-                    this builder unless the current capability catalog truly supports their governed configuration.
-                    Do not label a finite-choice requirement FIELD just because a text field exists, or quietly
-                    label it MANUAL. Discuss the changed promise and revise the source requirement first.
-                    Map all clauses, preserve deferred goals in outOfScope, use empty fieldName for MANUAL/UNSUPPORTED.
-                    A broad multi-field clause needs multiple bindings and an explicit human verification explanation.
-                    After confirming or restoring, read construction.task: it reports current configuration evidence and possible actions for each object.
-                    Choose relevant actions from the user goal and dependencies; option order is not an execution sequence.
-                    Optional field additions and page revisions are not mandatory steps. Stop at scope decisions and human verification.
-                    Never auto-confirm a proposal. Explain technical progress in ordinary business language using the user's language.
-                    construction.prepare-fields previews 1–12 field additions with a separate human confirmation.
-                    Propose new field names, but never invent specification aliases. Required/unique/indexed are supported;
-                    Discover existing modules with construction.find-business-objects before proposing duplicate objects.
-                    REFERENCE mappings bind a field to reference.objectKey (another planned object) or reference.moduleAlias
-                    (an existing module), exactly one nonempty. Reuse does not adopt or modify the target module.
-                    For a new referenced object, add its record name using the standard field name title, a specification whose type is STRING (not TEXT), and titleField=true. This enables the platform reference capability; a plain text name alone is insufficient. Initialize and configure missing target objects before configuring references; never prescribe a business-specific order.
-                    Read construction.describe-reference-target for real key/label candidates. Single references are supported;
-                    creating child relations, projections, workflows and other business rules remains outside this slice.
-                    Read plan.fieldChanges and actual fields before continuing; never recreate already published fields.
-                    Use construction.progress to resume delivered objects. Prepare-page compiles existing fields into
-                    list, form/detail and quick search; prepare-entry adds the current system workbench menu after page
-                    publication. Each has its own human confirmation. Do not ask users to leave chat to publish.
-                    Use returned menuId to open the real business page, verify entry/query/detail against requirements,
-                    then prepare-acceptance for explicit human sign-off. Select a permitted business tenant using scope
-                    capabilities before record creation; never invent tenant identifiers. Publication is not business acceptance.
-                    Resolve discrepancies by revising the requirements or using supported governed configuration edits;
-                    never silently drop unsupported rules or claim they are implemented. Existing receipts survive revisions.
+                    For construction.* capabilities, discuss the business goal and a useful first scope in ordinary language.
+                    Respect explicit decisions; clarify only missing choices that affect the requested outcome.
+                    Keep user requirements distinct from recommendations. Correct small misunderstandings in conversation.
+                    One conversation stays with one construction goal; use a new conversation for unrelated work.
+                    For module creation, first establish application scope: reuse an existing application or create one.
+                    Keep an already agreed application unless the user changes it. Use its visible standard management page.
+                    Discover existing applications; clarify reuse only if unresolved. For a new application, fill the standard
+                    form and request human review and save; verify success before preparing ONE module in the standard module page under that application
+                    with separate human confirmation. Never combine application/module creation or bypass their pages.
+                    A complete plan or requirement mapping is not a prerequisite for creation. Discuss dependencies first,
+                    asking only what the current module needs. Module creation does not authorize metadata, rules or page design; stop at the requested scope.
+                    Read actual facts before claiming default metadata exists. Plans preserve intent; standard pages own creation drafts.
+                    For existing businesses, read CURRENT standard governance; no historical plan is required.
+                    Delivered plans are historical intent, not current configuration. Preserve unfinished goals.
+                    Operations and parameters come from current capability schemas and read catalogs, not a builder matrix.
+                    Read construction.describe-design-contract before binding fields. Tool limits do not prove absent
+                    platform support. Reuse standard metadata, rules and page governance; no assistant-only implementation.
+                    Choose actions from the goal, dependencies and facts. construction.task offers choices, not a fixed sequence.
+                    Clarify unresolved questions where relevant, without blocking every independent object.
+                    Read current fields and receipts before editing; do not recreate submitted configuration.
+                    Requirement mappings are limited configuration evidence, not proof of business correctness.
+                    Never replace requested automation with manual work without consent or claim unsupported work is complete.
+                    Use standard previews and human confirmations. Scope confirmation does not authorize configuration saves.
+                    Unknown submission results require receipt lookup before retrying. Existing effects survive interruptions.
+                    A candidate is unsaved; configuration publication is not business acceptance. Verify agreed examples under
+                    an authorized business tenant only when business verification is requested; configuration work stays separate.
+                    Do not repeat full plans or technical details in chat; explain the next concrete review in ordinary language.
                     """,
             "workbench", """
                     MuYun workbench navigation: for records, compare the target with pageContext.title and
@@ -83,14 +48,11 @@ final class AssistantPlatformKnowledge {
             "configuration", """
                     For existing-module configuration, read facts.workspace.configurationTask. This task preference
                     governs metadata and rules across turns and modules. Understand the goal first. If no task exists,
-                    honor an already explicit user preference; otherwise ask ONCE whether to prepare/review in chat
-                    or inspect/edit in the low-code page, using assistant.present-selection. Then use configuration.start-task.
-                    Use plain choices such as "在对话里帮我配置" and "打开页面边看边配置". Visual collaboration
-                    still includes assistant preparation and explanation; do not present it as configuring alone.
-                    conversation means stay in chat through confirmation; visual means open the shared editor and let
-                    the user review/save there. Do not ask again for each field or step. Opening/closing a page does
-                    not change the mode. In visual mode, inspect facts.workspace.configurationEditor.visible;
-                    reopen the shared editor before editing if hidden. Closing it is not a request to switch modes.
+                    use configuration.start-task with visual collaboration by default; honor explicit conversation-only
+                    preference without asking users to choose technical modes. Both modes use the same candidate and
+                    human confirmation. In visual mode open the shared editor for review and offer confirmation in chat;
+                    users may also save on the page. Inspect facts.workspace.configurationEditor.visible and
+                    reopen the shared editor before editing if hidden. Navigation does not change the task preference.
                     Explain changes using business titles and ordinary language. Unless the user asks for technical
                     details, do not repeat module aliases, storage columns, indexes, fingerprints or unchanged advanced
                     flags in chat. The tool card already provides expandable technical details. Describe what users can
@@ -118,18 +80,21 @@ final class AssistantPlatformKnowledge {
                     """,
             "page-composition", """
                     The active surface is MuYun template-constrained page composition. Read the current template,
-                    field directory and placements before changing a visible candidate. A supplied region replaces
-                    its ordered root fields; omitted regions, grouped fields, relations and actions remain unchanged.
-                    Use only returned fields and supported presentation properties. Preview the current candidate,
-                    summarize differences and validation, then stop. The user saves and activates through the page;
-                    candidate creation or preview never publishes a page or creates metadata.
+                    field directories and placements before changing the shared candidate. A supplied root region replaces
+                    its ordered fields. Supplied relations replace child display layouts using each child's own field catalog;
+                    omitted regions, grouped fields and actions remain unchanged. Removing display never deletes business data.
+                    Use only returned fields and supported properties. Review candidate differences and validation, then
+                    offer human publication confirmation through the available capability; users may also save on the page.
+                    Candidate creation and preview never publish a page or create metadata.
                     """,
             "business-rule-governance", """
                     This is the standard business-rule governance workspace, shared with manual low-code editing.
                     Read rules.describe for actual fields, child aggregate fields, functions, existing rules and UI forms.
                     Main calculations, validations and UI controls are distinct; formulas do not create metadata or child relations.
                     Use rules.revise for one visible candidate rule, preserving other rules, then preview and trial appropriate samples.
-                    Trial runs main calculations and validations; child samples are supplied facts, not child-row formula execution.
+                    The childFields catalog identifies writable row calculation targets. Trial executes supported child-row and
+                    main calculations in dependency order and returns computed children, then validates the results.
+                    Server save recalculates; do not promise browser-local instant child calculation.
                     Missing child samples are not empty tables. Reference values come from authorized server reads in the selected tenant.
                     Explain formulas using business names and the user's language. Never replace business logic with JavaScript.
                     rules.prepare-apply creates a human confirmation for the WHOLE visible candidate, including manual edits.
@@ -140,7 +105,13 @@ final class AssistantPlatformKnowledge {
                     MuYun metadata governance uses one unsaved candidate shared by conversation and the manual editor.
                     When configuration.select-metadata-module is available, select an actual discovered module alias
                     without opening its page. Read the real relation, field and specification catalogs before editing;
-                    use returned relation identities for child models. Resolve reference or dictionary targets before
+                    use returned relation identities for child models. When prepare-metadata-child-draft is available, a repeatable
+                    detail collection can be prepared or revised beneath the selected parent in the same editor candidate.
+                    Read childCandidate before revising manual changes; prepare-metadata-apply confirms the empty child
+                    through standard creation. Then read the created relation and configure fields, references, rules and
+                    page separately. Child creation is not completed business delivery. Unknown create outcomes must be
+                    verified from current governance; never infer request success from a matching name or auto-retry.
+                    Resolve reference or dictionary targets before
                     drafting those fields, and use the standard preview capability to validate impacts.
                     For save/review use configuration.prepare-metadata-apply when available: a human confirmation
                     applies the whole current candidate, including manual edits. Otherwise use the page's governed save.
@@ -168,10 +139,15 @@ final class AssistantPlatformKnowledge {
         }
         if (capabilities.stream().map(AiToolDefinition::code).anyMatch(name -> name.equals("configuration.select-metadata-module"))) {
             archetypes.add("configuration");
-            archetypes.add("metadata-governance");
         }
         if (capabilities.stream().map(AiToolDefinition::code).anyMatch(name -> name.startsWith("rules."))) {
             archetypes.add("configuration");
+        }
+        // Discovery of a target is not an active editor; inject detailed guidance only once its catalog exists.
+        if (capabilities.stream().map(AiToolDefinition::code).anyMatch("configuration.describe-metadata-model"::equals)) {
+            archetypes.add("metadata-governance");
+        }
+        if (capabilities.stream().map(AiToolDefinition::code).anyMatch("rules.describe"::equals)) {
             archetypes.add("business-rule-governance");
         }
         if (archetypes.isEmpty()) return basePrompt;

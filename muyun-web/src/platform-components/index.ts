@@ -251,6 +251,7 @@ export type {
   PlatformDateTimePrecision,
 } from './platformDateTime';
 export {
+  recordFormInputConstraintError,
   applyReferenceDependencyClears,
   childResourceDefaultFormViewCode,
   decodeDateTimeLocalEditorValue,

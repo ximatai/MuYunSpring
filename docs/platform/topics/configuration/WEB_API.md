@@ -47,6 +47,14 @@
 | 模型供应商           | `AiModelProviderService`                | `/platform.ai_model_provider`                                                             |
 | 智能模型配置         | `AiModelConfigurationService`           | `/platform.ai_model_configuration`                                                        |
 
+### 子元数据创建与结果查询
+
+`POST /platform.module/{moduleAlias}/metadata-relations/{relationId}/create-child-metadata`
+接受 `alias`、`title`、可选 `schemaName` / `tableName` 和 `requestId`。标准编辑器提交请求标识；同一用户与租户范围内的相同请求只创建一次，改变父节点或内容后复用标识会拒绝。未提供标识的既有调用保留普通创建语义。
+
+`GET /platform.module/{moduleAlias}/metadata-relations/{relationId}/child-metadata-creations/{requestId}`
+查询原请求的 `metadataId`、`relationId`；未找到回执返回 204，不能据此自动重发。查询沿用 `createChildMetadata` 权限并重新校验父节点范围，其他身份或租户不能取得原回执。回执只证明提交，不保证后续配置仍存在或运行态已激活。
+
 ## 标准维护接口
 
 应用、模块、元数据、字段类型和字段 UI 类型使用平台标准维护风格。模块树按应用聚合，不提供无应用边界的全局树。
@@ -515,6 +523,8 @@
 ## 业务建设方案与模块初始化
 
 方案属于登录用户及其登录租户的个人配置工作区，独立于活动业务页的数据租户。确认需求只保存业务范围，不授予配置发布权限。
+
+快照的 `constructionStatus` 区分 `NOT_STARTED`、`INITIALIZED`、`PARTIALLY_DELIVERED` 与 `DELIVERED`，`deliveredObjectKeys` 记录已有人工交付验收的对象。交付是历史事实，不随后续治理修改回退；已交付对象拒绝新的建设写入，全量交付方案拒绝需求修订，原请求的幂等回执仍可查询。改进现有业务直接读取标准治理配置，不要求访问原个人方案。
 
 | 方法 | 路径 | 契约 |
 | --- | --- | --- |

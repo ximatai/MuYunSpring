@@ -2523,6 +2523,280 @@ describe('page composition assistant collaboration', () => {
     };
   }
 
+  it('prepares editing in chat without publishing and can continue on the same surface', async () => {
+    const requests: HttpRequestOptions[] = [];
+    const base = publicationFlowHttp(requests);
+    let created = false;
+    const { wrapper, registry } = mountAssistant({
+      request: (request) => {
+        if (request.path.endsWith('/revisions/query') && !created)
+          return Promise.resolve({
+            records: JSON.stringify(request.body).includes('draft')
+              ? []
+              : [
+                  {
+                    id: 'published-1',
+                    status: 'published',
+                    revisionNo: 1,
+                    templateAlias: 'management',
+                    templateVersion: 1,
+                    uiTreeJson: initialTree(),
+                  },
+                ],
+            pages: 1,
+            totalKnown: true,
+          }) as never;
+        if (request.path.endsWith('/revisions/insert')) created = true;
+        return base.request(request);
+      },
+    });
+    try {
+      await flushPromises();
+      const result = await registry.invoke(
+        { id: 'start', code: 'configuration.prepare-page-editing', input: {} },
+        registry.snapshot()!.token,
+      );
+      expect(created).toBe(false);
+      await result.confirmation!.confirm();
+      expect(result.confirmation!.state).toBe('succeeded');
+      expect(created).toBe(true);
+      expect(result.confirmation!.takeContinuation()).toContain('继续本次用户需求');
+      expect(requests.some((r) => r.path.endsWith('/publish'))).toBe(false);
+    } finally {
+      wrapper.unmount();
+    }
+  });
+
+  it('shares child layout candidates with manual editing and publishes only after renewed confirmation', async () => {
+    const requests: HttpRequestOptions[] = [];
+    const { wrapper, registry } = mountAssistant(publicationFlowHttp(requests));
+    const invoke = (code: string, input: unknown = {}) =>
+      registry.invoke({ id: code, code, input }, registry.snapshot()!.token);
+    try {
+      await flushPromises();
+      const catalog = await invoke('configuration.describe-page-relations');
+      expect(catalog.value).toMatchObject({ items: [{ relationCode: '参考学生', fieldCount: 1 }] });
+      const fields = await invoke('configuration.describe-page-relations', { relationCode: '参考学生' });
+      expect(fields.value).toMatchObject({ items: [{ fieldName: 'studentName', title: '学生姓名' }] });
+      const change = {
+        relations: [
+          {
+            relationCode: '参考学生',
+            title: '参加人员',
+            fields: [{ fieldName: 'studentName', properties: { label: '姓名', width: '140px' } }],
+          },
+        ],
+      };
+      await vi.waitFor(() =>
+        expect(wrapper.findComponent(PageCompositionDescriptorPreview).exists()).toBe(true),
+      );
+      const originalMode = wrapper.findComponent(PageCompositionDescriptorPreview).props('mode');
+      await expect(
+        invoke('configuration.revise-page-candidate', {
+          relations: [{ ...change.relations[0], fields: [{ fieldName: 'invented' }] }],
+        }),
+      ).rejects.toThrow();
+      expect(wrapper.findComponent(PageCompositionDescriptorPreview).props('mode')).toBe(originalMode);
+      await invoke('configuration.revise-page-candidate', change);
+      await flushPromises();
+      expect(wrapper.findComponent(PageCompositionDescriptorPreview).props('mode')).toBe('edit');
+      const tree = wrapper.findComponent(PageCompositionTree);
+      expect(tree.props('formRelations')[0]).toMatchObject({
+        title: '参加人员',
+        fields: [{ fieldName: 'studentName', properties: { label: '姓名' } }],
+      });
+      const first = (await invoke('configuration.prepare-page-publication')).confirmation!;
+      expect(first.presentation.lines.join(' ')).toContain('姓名');
+      tree.vm.$emit('node-action', 'remove', 'ui:relation:form:relation-participant');
+      await flushPromises();
+      await first.confirm();
+      expect(first.state).toBe('expired');
+      expect(requests.some((request) => request.path.endsWith('/publish'))).toBe(false);
+      await invoke('configuration.revise-page-candidate', change);
+      const next = (await invoke('configuration.prepare-page-publication')).confirmation!;
+      await next.confirm();
+      expect(next.state).toBe('succeeded');
+      const publishes = requests.filter((request) => request.path.endsWith('/publish'));
+      expect(publishes).toHaveLength(1);
+      expect(
+        JSON.parse((publishes[0]!.body as { uiTreeJson: string }).uiTreeJson).nodes.find(
+          (node: { slot: string }) => node.slot === 'form',
+        ).relations,
+      ).toEqual([
+        {
+          relation: '参考学生',
+          title: '参加人员',
+          fields: [{ field: 'studentName', props: { label: '姓名', width: '140px' } }],
+        },
+      ]);
+    } finally {
+      wrapper.unmount();
+    }
+  });
+
+  it.each([false, true])(
+    'does not acknowledge publication after switching workspace during preflight (request fails: %s)',
+    async (fails) => {
+      const requests: HttpRequestOptions[] = [];
+      const base = publicationFlowHttp(requests);
+      const pending = deferred<unknown>();
+      let delay = false;
+      const { wrapper, registry, moduleAlias } = mountAssistant({
+        request: (request) =>
+          delay && request.path.endsWith('/preview') ? (pending.promise as never) : base.request(request),
+      });
+      try {
+        await flushPromises();
+        await registry.invoke(
+          {
+            id: 'edit',
+            code: 'configuration.revise-page-candidate',
+            input: { form: [{ fieldName: 'title' }] },
+          },
+          registry.snapshot()!.token,
+        );
+        const result = await registry.invoke(
+          { id: 'publish', code: 'configuration.prepare-page-publication', input: {} },
+          registry.snapshot()!.token,
+        );
+        delay = true;
+        const confirmation = result.confirmation!;
+        const confirming = confirmation.confirm();
+        await flushPromises();
+        moduleAlias.value = 'education.other';
+        await flushPromises();
+        if (fails) pending.reject(new Error('preflight failed'));
+        else pending.resolve({ uiDescriptor: {} });
+        await confirming;
+        expect(confirmation.state).toBe(fails ? 'unknown' : 'expired');
+        expect(confirmation.result?.title).not.toBe('页面已保存并生效');
+        expect(requests.some((request) => request.path.endsWith('/publish'))).toBe(false);
+      } finally {
+        wrapper.unmount();
+      }
+    },
+  );
+
+  it('acknowledges chat publication when preparing the next editor state fails', async () => {
+    const requests: HttpRequestOptions[] = [];
+    const base = publicationFlowHttp(requests);
+    let published = false;
+    const { wrapper, registry } = mountAssistant({
+      request: async (request) => {
+        if (
+          published &&
+          (request.path.endsWith('/revisions/insert') || request.path.endsWith('/pages/query'))
+        )
+          throw new Error('editor refresh failed');
+        const result = await base.request(request);
+        if (request.path.endsWith('/publish')) published = true;
+        return result as never;
+      },
+    });
+    try {
+      await flushPromises();
+      await registry.invoke(
+        {
+          id: 'edit',
+          code: 'configuration.revise-page-candidate',
+          input: { form: [{ fieldName: 'title' }] },
+        },
+        registry.snapshot()!.token,
+      );
+      const result = await registry.invoke(
+        { id: 'publish', code: 'configuration.prepare-page-publication', input: {} },
+        registry.snapshot()!.token,
+      );
+      await result.confirmation!.confirm();
+      expect(result.confirmation!.state).toBe('succeeded');
+      expect(result.confirmation!.result?.title).toBe('页面已保存并生效');
+      expect(requests.filter((request) => request.path.endsWith('/publish'))).toHaveLength(1);
+    } finally {
+      wrapper.unmount();
+    }
+  });
+
+  it('checks an uncertain publication receipt without submitting it again', async () => {
+    const requests: HttpRequestOptions[] = [];
+    const base = publicationFlowHttp(requests);
+    let saved: Record<string, unknown> | undefined;
+    const { wrapper, registry } = mountAssistant({
+      request: async (request) => {
+        if (saved && request.path.endsWith('/revisions/query'))
+          return {
+            records: [{ ...saved, id: 'revision-1', status: 'published' }],
+            pages: 1,
+            totalKnown: true,
+          } as never;
+        const result = await base.request(request);
+        if (request.path.endsWith('/publish')) {
+          saved = request.body as Record<string, unknown>;
+          throw new Error('response lost');
+        }
+        return result as never;
+      },
+    });
+    try {
+      await flushPromises();
+      await registry.invoke(
+        {
+          id: 'edit',
+          code: 'configuration.revise-page-candidate',
+          input: { form: [{ fieldName: 'title' }] },
+        },
+        registry.snapshot()!.token,
+      );
+      const result = await registry.invoke(
+        { id: 'publish', code: 'configuration.prepare-page-publication', input: {} },
+        registry.snapshot()!.token,
+      );
+      await result.confirmation!.confirm();
+      expect(result.confirmation!.state).toBe('unknown');
+      await result.confirmation!.confirm();
+      await result.confirmation!.check();
+      expect(result.confirmation!.state).toBe('succeeded');
+      expect(requests.filter((r) => r.path.endsWith('/publish'))).toHaveLength(1);
+    } finally {
+      wrapper.unmount();
+    }
+  });
+
+  it('confirms the shared page candidate in chat and expires confirmation after manual changes', async () => {
+    const requests: HttpRequestOptions[] = [];
+    const fields = [
+      {
+        id: 'title-field',
+        fieldName: 'title',
+        title: '名称',
+        fieldOwnership: 'BUSINESS',
+        fieldForm: 'PHYSICAL',
+      },
+    ];
+    const { wrapper, registry } = mountAssistant(publicationFlowHttp(requests, initialTree(), fields));
+    const invoke = (code: string, input = {}) =>
+      registry.invoke({ id: code, code, input }, registry.snapshot()!.token);
+    try {
+      await flushPromises();
+      await invoke('configuration.revise-page-candidate', { form: [{ fieldName: 'title' }] });
+      const first = await invoke('configuration.prepare-page-publication');
+      expect(requests.filter((r) => r.path.endsWith('/publish'))).toHaveLength(0);
+      wrapper
+        .findComponent(PageCompositionTree)
+        .vm.$emit('node-action', 'remove', 'ui:field:form:title-field');
+      await flushPromises();
+      expect(first.confirmation!.state).toBe('expired');
+      await first.confirmation!.confirm();
+      expect(requests.filter((r) => r.path.endsWith('/publish'))).toHaveLength(0);
+      await invoke('configuration.revise-page-candidate', { form: [{ fieldName: 'title' }] });
+      const next = await invoke('configuration.prepare-page-publication');
+      await Promise.all([next.confirmation!.confirm(), next.confirmation!.confirm()]);
+      expect(next.confirmation!.state).toBe('succeeded');
+      expect(requests.filter((r) => r.path.endsWith('/publish'))).toHaveLength(1);
+    } finally {
+      wrapper.unmount();
+    }
+  });
+
   it('refreshes committed metadata on return, preserves manual properties and blocks stale calls or failed directory reads', async () => {
     const requests: HttpRequestOptions[] = [];
     const fields = [
@@ -2530,6 +2804,8 @@ describe('page composition assistant collaboration', () => {
         id: 'field-title',
         fieldName: 'title',
         title: '考试名称',
+        fieldSpecAlias: 'string',
+        required: false,
         fieldOwnership: 'BUSINESS',
         fieldForm: 'PHYSICAL',
       },
@@ -2548,7 +2824,10 @@ describe('page composition assistant collaboration', () => {
         {
           id: 'initial',
           code: 'configuration.revise-page-candidate',
-          input: { list: [{ fieldName: 'title', properties: { label: '人工保留标题' } }] },
+          input: {
+            list: [{ fieldName: 'title', properties: { label: '人工保留标题', width: '180px' } }],
+            form: [{ fieldName: 'title', properties: { columnSpan: 2 } }],
+          },
         },
         registry.snapshot()!.token,
       );
@@ -2557,10 +2836,13 @@ describe('page composition assistant collaboration', () => {
       visible.value = false;
       await flushPromises();
       expect(registry.snapshot()).toBeUndefined();
+      Object.assign(fields[0]!, { title: '考试说明', fieldSpecAlias: 'text', required: true });
       fields.push({
         id: 'field-review-note',
         fieldName: 'reviewNote',
         title: '审阅备注',
+        fieldSpecAlias: 'string',
+        required: false,
         fieldOwnership: 'BUSINESS',
         fieldForm: 'PHYSICAL',
       });
@@ -2589,8 +2871,18 @@ describe('page composition assistant collaboration', () => {
       expect(JSON.stringify(directory)).toContain('reviewNote');
       const tree = wrapper.findComponent(PageCompositionTree);
       expect(tree.props('listFields')).toMatchObject([
-        { fieldName: 'title', properties: { label: '人工保留标题' } },
+        {
+          fieldName: 'title',
+          title: '考试说明',
+          fieldSpecAlias: 'text',
+          required: true,
+          properties: { label: '人工保留标题', width: '180px' },
+        },
       ]);
+      expect(tree.props('formFields')).toMatchObject([
+        { fieldName: 'title', title: '考试说明', required: true, properties: { columnSpan: 2 } },
+      ]);
+      expect(canDiscardChanges(wrapper)).toBe(true);
       await registry.invoke(
         {
           id: 'arrange',
@@ -2891,10 +3183,12 @@ function treeNode(
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
-  const promise = new Promise<T>((nextResolve) => {
+  let reject!: (reason: unknown) => void;
+  const promise = new Promise<T>((nextResolve, nextReject) => {
     resolve = nextResolve;
+    reject = nextReject;
   });
-  return { promise, resolve };
+  return { promise, resolve, reject };
 }
 
 function page(records: unknown[]) {

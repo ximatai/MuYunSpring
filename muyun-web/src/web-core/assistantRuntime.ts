@@ -2,6 +2,7 @@ import { AppError, platformErrorCodes } from './errors';
 import type { AssistantOperationConfirmation } from './assistantConfirmation';
 import type {
   AssistantCapabilityResult,
+  AssistantExecutionBudget,
   AssistantConversationMessage,
   AssistantSelectionResponse,
   AssistantTurnOutput,
@@ -21,6 +22,12 @@ const MAX_CALLS_PER_STEP = 8;
 function capabilityFailure(error: unknown) {
   if (error instanceof AssistantCapabilityUsageError)
     return { code: error.code, message: error.message.slice(0, 500) };
+  if (error instanceof AppError && (error.status === 403 || error.status === 404))
+    return {
+      code: 'RESOURCE_UNAVAILABLE',
+      message:
+        '当前身份或范围无法访问该资源，或资源已不存在。不要重复相同请求或绕过访问限制；请向用户说明阻断原因并核实范围。',
+    };
   // Only the public validation contract is suitable for model self-correction.
   // Never forward arbitrary HTTP errors, transport errors, causes or server details.
   if (
@@ -73,6 +80,7 @@ export interface AssistantRuntimeStepResult {
 
 interface InternalAssistantRuntimeStepResult extends AssistantRuntimeStepResult {
   attemptedCallCount: number;
+  restoredReadContext?: boolean;
   continuationToken?: AssistantInvocationToken;
   replayableCalls: Map<string, AssistantCapabilityResult>;
 }
@@ -86,6 +94,8 @@ export interface AssistantConversationOptions {
   /** Structured answer to a selection shown by the immediately preceding assistant message. */
   selectionResponse?: AssistantSelectionResponse;
   onStep?(step: AssistantRuntimeStepResult): void | Promise<void>;
+  /** A validated navigation crossed execution scopes; previous model observations were discarded. */
+  onExecutionScopeChange?(): void;
   onTextDelta?(text: string, stepIndex: number): void;
   onTextDiscard?(stepIndex: number): void;
   onActivity?(phase: AssistantActivityPhase, stepIndex: number): void;
@@ -131,6 +141,18 @@ export type AssistantRuntimeDiagnosticEvent =
       pageEffectApplied: boolean;
     }
   | {
+      type: 'budget.progress';
+      stepIndex: number;
+      newObservations: number;
+      appliedEffects: number;
+      extended: boolean;
+    }
+  | {
+      type: 'summary.completed';
+      succeeded: boolean;
+      reason?: 'truncated' | 'undeclared-tool' | 'provider-rejected' | 'invalid-summary' | 'request-failed';
+    }
+  | {
       type: 'conversation.completed';
       stepCount: number;
       bounded: boolean;
@@ -157,6 +179,7 @@ export class AssistantConversationInterruptedError extends Error {
 }
 
 const DEFAULT_MAX_STEPS = 8;
+const HARD_MAX_STEPS = 12;
 const MAX_DECISION_RESTARTS = 3;
 
 class AssistantDecisionContextChangedError extends Error {
@@ -186,13 +209,18 @@ export async function runAssistantConversation(
   }
   let initial = registry.snapshot();
   const identityScope = initial?.token.identityScopeKey;
-  if (initial?.token.conversationScopePending) initial = await waitForFormalSurface(initial.token);
+  if (initial?.token.executionScopePending) initial = await waitForFormalSurface(initial.token);
   if (initial?.token.identityScopeKey !== identityScope) throw new StaleAssistantInvocationError();
-  const conversationScope = initial?.token.conversationScopeKey;
+  let executionScope = initial?.token.executionScopeKey;
+  let history = options.history ?? [];
   const maxSteps = options.maxSteps ?? DEFAULT_MAX_STEPS;
   if (!Number.isInteger(maxSteps) || maxSteps < 1 || maxSteps > DEFAULT_MAX_STEPS) {
     throw new Error(`Assistant conversation maxSteps must be between 1 and ${DEFAULT_MAX_STEPS}`);
   }
+  const hardLimit = options.maxSteps === undefined ? HARD_MAX_STEPS : maxSteps;
+  const observations = new Set<string>();
+  let unproductiveSteps = 0;
+  let madeProgress = false;
   const steps: AssistantRuntimeStepResult[] = [];
   let results: AssistantCapabilityResult[] = [];
   const completedEffects: AssistantCapabilityResult[] = [];
@@ -200,12 +228,13 @@ export async function runAssistantConversation(
   let settledCalls = new Map<string, AssistantCapabilityResult>();
   let expectedReplacementToken: AssistantInvocationToken | undefined;
   let decisionRestarts = 0;
-  for (let index = 0; index < maxSteps; index += 1) {
+  for (let index = 0; index < hardLimit; index += 1) {
+    if ((index >= maxSteps && !madeProgress) || unproductiveSteps >= 2) break;
     let current = registry.snapshot();
-    if (current?.token.conversationScopePending) current = await waitForFormalSurface(current.token);
+    if (current?.token.executionScopePending) current = await waitForFormalSurface(current.token);
     if (
       current?.token.identityScopeKey !== identityScope ||
-      current?.token.conversationScopeKey !== conversationScope
+      current?.token.executionScopeKey !== executionScope
     ) {
       throw new StaleAssistantInvocationError();
     }
@@ -215,7 +244,7 @@ export async function runAssistantConversation(
       step = await runAssistantStepWithSettledCalls({
         registry,
         message,
-        history: options.history ?? [],
+        history,
         previousResults: results,
         signal: options.signal,
         settledCalls,
@@ -231,6 +260,7 @@ export async function runAssistantConversation(
           : undefined,
         readContext,
         executionPolicy: options.executionPolicy,
+        executionBudget: { phase: 'work', step: index + 1, normalLimit: maxSteps, hardLimit },
       });
     } catch (error) {
       if (streamedText) options.onTextDiscard?.(index);
@@ -291,9 +321,50 @@ export async function runAssistantConversation(
     }
     decisionRestarts = 0;
     expectedReplacementToken = step.continuationToken;
-    settledCalls = step.replayableCalls;
+    const crossedScope =
+      step.continuationToken?.executionScopeKey !== undefined &&
+      step.continuationToken.executionScopeKey !== executionScope;
+    if (crossedScope) {
+      const replacement = registry.snapshot()?.token;
+      if (
+        step.continuationToken?.identityScopeKey !== identityScope ||
+        step.continuationToken?.pageInstanceKey === current?.token.pageInstanceKey ||
+        !sameAssistantInvocationToken(step.continuationToken, replacement)
+      )
+        throw new StaleAssistantInvocationError();
+      executionScope = step.continuationToken?.executionScopeKey;
+      history = [];
+      results = [];
+      completedEffects.length = 0;
+      readContext.results = [];
+      readContext.token = undefined;
+      observations.clear();
+    }
+    settledCalls = crossedScope ? new Map() : step.replayableCalls;
+    let newObservations = 0;
+    for (const result of step.results) {
+      if (result.error || result.execution !== 'read') continue;
+      const key = JSON.stringify([result.capabilityCode, result.output]);
+      if (!observations.has(key)) {
+        observations.add(key);
+        newObservations += 1;
+      }
+    }
+    madeProgress = newObservations > 0 || step.appliedEffectCount > 0;
+    unproductiveSteps = madeProgress ? 0 : unproductiveSteps + 1;
+    emitDiagnostic(options.onDiagnostic, {
+      type: 'budget.progress',
+      stepIndex: index,
+      newObservations,
+      appliedEffects: step.appliedEffectCount,
+      extended: index >= maxSteps,
+    });
     const publicStep = toPublicStep(step);
     steps.push(publicStep);
+    if (crossedScope) {
+      options.onExecutionScopeChange?.();
+      continue;
+    }
     if (step.confirmations?.length) {
       await options.onStep?.(publicStep);
       return { steps, termination: 'waiting-for-user' };
@@ -307,13 +378,15 @@ export async function runAssistantConversation(
       });
       return { steps, termination: step.output.selection ? 'waiting-for-user' : 'stopped' };
     }
-    if (step.attemptedCallCount === 0) {
+    if (step.attemptedCallCount === 0 && !step.restoredReadContext) {
       await options.onStep?.({ ...publicStep, results: [] });
       emitDiagnostic(options.onDiagnostic, {
         type: 'conversation.completed',
         stepCount: steps.length,
         bounded: false,
       });
+      results = [...completedEffects.slice(-8), ...step.results];
+      await summarize();
       return { steps, termination: 'repeated-call' };
     }
     await options.onStep?.(publicStep);
@@ -358,7 +431,58 @@ export async function runAssistantConversation(
     stepCount: steps.length,
     bounded: true,
   });
+  await summarize();
   return { steps, termination: 'step-limit' };
+
+  async function summarize() {
+    const token = registry.snapshot()?.token;
+    try {
+      if (!token || token.identityScopeKey !== identityScope || token.executionScopeKey !== executionScope)
+        throw new StaleAssistantInvocationError();
+      const output = await registry.requestTurn(
+        {
+          message,
+          history,
+          results: withReadContext(results, readContext, token),
+          executionBudget: { phase: 'summary', step: steps.length + 1, normalLimit: maxSteps, hardLimit },
+        },
+        token,
+        options.signal,
+        undefined,
+        options.executionPolicy,
+      );
+      // A summary is never an execution step, even if a provider ignores the empty tool catalog.
+      if (output.toolCalls.length || output.selection || !output.text?.trim())
+        throw new Error('Invalid summary');
+      const summary = { output, results: [], contextChanged: false, appliedEffectCount: 0 };
+      await options.onStep?.(summary);
+      steps.push(summary);
+      emitDiagnostic(options.onDiagnostic, { type: 'summary.completed', succeeded: true });
+    } catch (error) {
+      if (options.signal?.aborted || error instanceof StaleAssistantInvocationError || isAbortError(error)) {
+        if (hasAppliedCapabilityEffect(steps))
+          throw new AssistantConversationInterruptedError(
+            steps,
+            error,
+            options.signal?.aborted || isAbortError(error) ? 'cancelled' : 'context-changed',
+          );
+        throw error;
+      }
+      const message = error instanceof Error ? error.message : '';
+      const reason =
+        message === '模型响应被截断，请缩短描述后重试'
+          ? 'truncated'
+          : message === 'AI model requested an undeclared tool' ||
+              message === 'assistant model returned an undeclared capability call'
+            ? 'undeclared-tool'
+            : message.startsWith('AI model request was rejected')
+              ? 'provider-rejected'
+              : message === 'Invalid summary'
+                ? 'invalid-summary'
+                : 'request-failed';
+      emitDiagnostic(options.onDiagnostic, { type: 'summary.completed', succeeded: false, reason });
+    }
+  }
 }
 
 function hasAppliedCapabilityEffect(steps: readonly AssistantRuntimeStepResult[]) {
@@ -411,6 +535,7 @@ interface AssistantStepRequest {
   onTextDelta?: (text: string) => void;
   readContext?: AssistantReadContext;
   executionPolicy?: AssistantExecutionPolicy;
+  executionBudget?: AssistantExecutionBudget;
 }
 
 async function runAssistantStepWithSettledCalls({
@@ -427,6 +552,7 @@ async function runAssistantStepWithSettledCalls({
   onTextDelta,
   readContext,
   executionPolicy,
+  executionBudget,
 }: AssistantStepRequest): Promise<InternalAssistantRuntimeStepResult> {
   const initialSnapshot = registry.snapshot();
   if (!initialSnapshot) throw new Error('No assistant surface is active');
@@ -456,7 +582,13 @@ async function runAssistantStepWithSettledCalls({
   try {
     output = onTextDelta
       ? await registry.requestTurn(
-          { message, history, results: previousResults, ...(selectionResponse ? { selectionResponse } : {}) },
+          {
+            message,
+            history,
+            results: previousResults,
+            executionBudget,
+            ...(selectionResponse ? { selectionResponse } : {}),
+          },
           snapshot.token,
           signal,
           {
@@ -468,7 +600,13 @@ async function runAssistantStepWithSettledCalls({
           executionPolicy,
         )
       : await registry.requestTurn(
-          { message, history, results: previousResults, ...(selectionResponse ? { selectionResponse } : {}) },
+          {
+            message,
+            history,
+            results: previousResults,
+            executionBudget,
+            ...(selectionResponse ? { selectionResponse } : {}),
+          },
           snapshot.token,
           signal,
           undefined,
@@ -497,14 +635,28 @@ async function runAssistantStepWithSettledCalls({
   }
   if (output.toolCalls.length > 0) onActivity?.('executing', stepIndex);
   const results: AssistantCapabilityResult[] = [];
-  const replayableCalls = new Map<string, AssistantCapabilityResult>();
+  // Keep earlier same-context calls as well as the immediately previous step.
+  const replayableCalls = new Map(settledCalls);
   let attemptedCallCount = 0;
   let appliedEffectCount = 0;
+  let restoredReadContext = false;
   for (const call of output.toolCalls) {
     const callKey = capabilityCallKey(snapshot.token, call.code, call.input);
     const settled = settledCalls.get(callKey);
     if (settled) {
       results.push({ ...settled, callId: call.id });
+      // Evicted evidence may be requested again without repeating its execution.
+      // Let the model use it before treating another identical request as a loop.
+      if (
+        settled.execution === 'read' &&
+        !settled.error &&
+        !previousResults.some(
+          (result) =>
+            capabilityCallKey(snapshot.token, result.capabilityCode, result.input) === callKey &&
+            JSON.stringify(result.output) === JSON.stringify(settled.output),
+        )
+      )
+        restoredReadContext = true;
       replayableCalls.set(callKey, settled);
       emitDiagnostic(onDiagnostic, {
         type: 'capability.completed',
@@ -633,6 +785,7 @@ async function runAssistantStepWithSettledCalls({
     results,
     contextChanged: false,
     attemptedCallCount,
+    restoredReadContext,
     appliedEffectCount,
     replayableCalls,
   };
@@ -675,9 +828,7 @@ function diagnosticCapabilityCode(code: string) {
 }
 
 function capabilityCallKey(token: AssistantInvocationToken, code: string, input: unknown) {
-  return `${token.pageInstanceKey}:${token.surfaceGeneration}:${token.contextRevision}:${code}:${JSON.stringify(
-    canonicalCapabilityInput(input),
-  )}`;
+  return JSON.stringify([token, code, canonicalCapabilityInput(input)]);
 }
 
 function canonicalCapabilityInput(input: unknown): unknown {

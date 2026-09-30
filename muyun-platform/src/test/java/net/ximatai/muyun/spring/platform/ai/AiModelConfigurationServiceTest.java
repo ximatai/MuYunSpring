@@ -250,12 +250,12 @@ class AiModelConfigurationServiceTest {
         try (TenantContext.Scope ignored = TenantContext.system("admin updates tenant configuration")) {
             assertThatThrownBy(() -> service.beforeUpdate(incoming, existing))
                     .isInstanceOf(PlatformException.class)
-                    .hasMessage("an AI model configuration already exists for tenant: tenant-b");
+                    .hasMessage("该租户已有启用的模型配置，请先停用后再启用其他配置");
         }
     }
 
     @Test
-    void rejectsAnotherConfigurationInTheSameOwnershipScope() {
+    void rejectsAnotherEnabledConfigurationInTheSameOwnershipScope() {
         BaseDao<AiModelConfiguration, String> dao = mock(BaseDao.class);
         when(dao.count(any())).thenReturn(1L);
         tenantExists("tenant-a");
@@ -263,14 +263,14 @@ class AiModelConfigurationServiceTest {
 
         assertThatThrownBy(() -> service.beforeInsert(input("global-model", "global-secret")))
                 .isInstanceOf(PlatformException.class)
-                .hasMessage("a platform AI model configuration already exists");
+                .hasMessage("平台已有启用的模型配置，请先停用后再启用其他配置");
 
         AiModelConfiguration tenantInput = input("tenant-model", "tenant-secret");
         tenantInput.setTenantId("tenant-a");
         try (TenantContext.Scope ignored = TenantContext.system("admin creates duplicate tenant configuration")) {
             assertThatThrownBy(() -> service.beforeInsert(tenantInput))
                     .isInstanceOf(PlatformException.class)
-                    .hasMessage("an AI model configuration already exists for tenant: tenant-a");
+                    .hasMessage("该租户已有启用的模型配置，请先停用后再启用其他配置");
         }
     }
 

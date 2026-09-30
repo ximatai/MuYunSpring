@@ -7,6 +7,8 @@ export interface AssistantConfigurationTask {
 }
 export interface AssistantConversationContent {
   configurationTask?: AssistantConfigurationTask;
+  /** Scope of model history, not conversation ownership or permission. */
+  executionScopeKey?: string;
   title: string;
   messages: Array<{ role: 'user' | 'assistant' | 'status'; text: string }>;
   history: AssistantConversationMessage[];

@@ -40,6 +40,10 @@ public class PlatformModule extends StandardEnabledTreeEntity implements Platfor
     @OptionField(type = OptionSourceType.ENUM)
     private ModuleKind moduleKind = ModuleKind.STATIC;
 
+    /** Optional discovery hint, not an executable capability declaration. */
+    @Column(name = "description", type = ColumnType.VARCHAR, length = 512, comment = "Module purpose")
+    private String description;
+
     /** Stable management overview pattern for a dynamic module. */
     @Column(name = "overview_mode", type = ColumnType.VARCHAR, length = 32, comment = "Dynamic module overview mode",
             defaultVal = @Default(varchar = "list_card"))

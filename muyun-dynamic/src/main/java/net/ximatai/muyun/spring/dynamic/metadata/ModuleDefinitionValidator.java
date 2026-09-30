@@ -69,7 +69,8 @@ public class ModuleDefinitionValidator {
             requireUnique(relationCodes, relation.parentEntityAlias() + "." + relation.code(), "relation code");
         }
         validateFormulaRuleTargets(module, entities);
-        validateMainBeforeSaveFormulaPlans(module, entities);
+        validateBeforeSaveFormulaPlans(module, entities);
+        validateAggregateFormulaOwnership(module, entities);
         for (EntityReferenceDefinition reference : module.references()) {
             validateReference(reference, entities, module.moduleAlias(), module.references());
         }
@@ -305,14 +306,14 @@ public class ModuleDefinitionValidator {
         }
     }
 
-    private void validateMainBeforeSaveFormulaPlans(ModuleDefinition module,
+    private void validateBeforeSaveFormulaPlans(ModuleDefinition module,
                                                     Map<String, EntityDefinition> entities) {
         for (EntityDefinition entity : module.entities()) {
             List<FormulaRule> candidates = entity.orderedFormulaRules().stream()
                     .filter(EntityFormulaRuleDefinition::enabled)
                     .filter(rule -> rule.phase() == FormulaRulePhase.BEFORE_SAVE)
                     .map(EntityFormulaRuleDefinition::toRuntimeRule)
-                    .filter(this::isMainRecordPlanCandidate)
+                    .filter(FormulaRuleExecutionPlan::supportsDependencyPlanning)
                     .toList();
             if (candidates.isEmpty()) {
                 continue;
@@ -326,49 +327,39 @@ public class ModuleDefinitionValidator {
                         ReferenceTarget.of(module.moduleAlias(), entity.alias()), candidates,
                         PlatformAbilityRuntime.referenceTargetResolver(), childRelations);
                 fields.addAll(references.fields());
-                FormulaRuleExecutionPlan plan = FormulaRuleExecutionPlan.forMainRecord(candidates, fields);
-                rejectChildCalculationDependingOnMainPlan(entity, candidates, plan);
+                var plan = FormulaRuleExecutionPlan.forAggregateRecord(candidates, fields, childRelations);
+                plan.validatePrecedingCalculations(entity.orderedFormulaRules().stream()
+                        .map(EntityFormulaRuleDefinition::toRuntimeRule).toList());
             } catch (FormulaEvaluationException | IllegalArgumentException exception) {
-                throw new ModuleDefinitionException("invalid main formula rule plan: " + entity.alias()
+                throw new ModuleDefinitionException("invalid save formula rule plan: " + entity.alias()
                         + ", " + exception.getMessage());
             }
         }
     }
 
-    private boolean isMainRecordPlanCandidate(FormulaRule rule) {
-        if (rule.kind() == FormulaRuleKind.VALIDATION) {
-            return rule.targetField() == null || !rule.targetField().contains(".");
-        }
-        if (rule.kind() != FormulaRuleKind.CALCULATION) {
-            return false;
-        }
-        if (rule.targetField() != null) {
-            return !rule.targetField().contains(".");
-        }
-        return formulaEngine.assignedFields(rule.expression()).stream().noneMatch(field -> field.contains("."));
-    }
 
-    private void rejectChildCalculationDependingOnMainPlan(EntityDefinition entity,
-                                                            List<FormulaRule> candidates,
-                                                            FormulaRuleExecutionPlan plan) {
-        Set<FormulaRule> planned = Set.copyOf(candidates);
-        Set<String> mainCalculationTargets = Set.copyOf(plan.calculationTargetFieldsByRule().values());
-        for (EntityFormulaRuleDefinition definition : entity.orderedFormulaRules()) {
-            if (!definition.enabled() || definition.phase() != FormulaRulePhase.BEFORE_SAVE) {
-                continue;
+    /** Parent formulas run before child lifecycle formulas; do not publish contradictory results. */
+    private void validateAggregateFormulaOwnership(ModuleDefinition module, Map<String, EntityDefinition> entities) {
+        for (EntityRelationDefinition relation : module.relations()) {
+            EntityDefinition parent = entities.get(relation.parentEntityAlias());
+            EntityDefinition child = entities.get(relation.childEntityAlias());
+            Set<String> childWrites = new HashSet<>();
+            for (EntityFormulaRuleDefinition rule : child.orderedFormulaRules()) {
+                if (!rule.enabled() || rule.kind() != FormulaRuleKind.CALCULATION
+                        || rule.phase() != FormulaRulePhase.BEFORE_SAVE && rule.phase() != FormulaRulePhase.DEFAULT_VALUE) continue;
+                formulaEngine.assignedFields(rule.expression()).stream().filter(field -> !field.contains("."))
+                        .map(field -> relation.code() + "." + field).forEach(childWrites::add);
+                if (rule.targetField() != null && !rule.targetField().contains("."))
+                    childWrites.add(relation.code() + "." + rule.targetField());
             }
-            FormulaRule rule = definition.toRuntimeRule();
-            if (rule.kind() != FormulaRuleKind.CALCULATION || planned.contains(rule)) {
-                continue;
-            }
-            String dependency = formulaEngine.valueSideReferencedFields(rule.expression()).stream()
-                    .filter(mainCalculationTargets::contains)
-                    .findFirst()
-                    .orElse(null);
-            if (dependency != null) {
-                throw new FormulaEvaluationException("FORMULA_PLAN_CHILD_DEPENDS_ON_MAIN_CALCULATION", dependency,
-                        "child calculation depends on planned main-record calculation field " + dependency
-                                + ": " + rule.id());
+            if (childWrites.isEmpty()) continue;
+            for (EntityFormulaRuleDefinition rule : parent.orderedFormulaRules()) {
+                if (!rule.enabled() || rule.phase() != FormulaRulePhase.BEFORE_SAVE) continue;
+                Set<String> accessed = new HashSet<>(formulaEngine.referencedFields(rule.expression()));
+                if (rule.targetField() != null) accessed.add(rule.targetField());
+                accessed.retainAll(childWrites);
+                if (!accessed.isEmpty()) throw new ModuleDefinitionException(
+                        "parent formula depends on child lifecycle calculation; declare dependent row calculations on the parent aggregate: " + accessed);
             }
         }
     }

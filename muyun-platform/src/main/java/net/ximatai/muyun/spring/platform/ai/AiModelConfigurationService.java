@@ -22,7 +22,6 @@ import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
-import java.util.Objects;
 
 /** Resolves the enabled tenant configuration, then an explicitly exposed platform fallback. */
 @Service
@@ -63,13 +62,13 @@ public class AiModelConfigurationService extends AbstractAbilityService<AiModelC
     public QueryDescriptor queryDescriptor() {
         return QueryDescriptors.fromModel(MODULE_ALIAS, AiModelConfiguration.class,
                 List.of("id", "tenantId", "title", "provider", "configurationLevel", "tenantFallbackEnabled",
-                        "modelId", "credentialSource", "apiKeyEnvironmentVariable", "apiKeyConfigured", "enabled", "createdAt", "updatedAt"));
+                        "modelId", "contextWindowTokens", "maxOutputTokens", "defaultOutputTokens", "credentialSource", "apiKeyEnvironmentVariable", "apiKeyConfigured", "enabled", "createdAt", "updatedAt"));
     }
 
     @Override
     public void beforeInsert(AiModelConfiguration configuration) {
         normalize(configuration, null);
-        requireNoConfigurationForScope(configuration);
+        requireNoEnabledConfigurationForScope(configuration, null);
         applyNewApiKey(configuration, null);
     }
 
@@ -79,9 +78,7 @@ public class AiModelConfigurationService extends AbstractAbilityService<AiModelC
             throw new PlatformException("AI model configuration does not exist");
         }
         normalize(configuration, existing);
-        if (!Objects.equals(configuration.getTenantId(), existing.getTenantId())) {
-            requireNoConfigurationForScope(configuration);
-        }
+        requireNoEnabledConfigurationForScope(configuration, existing.getId());
         applyNewApiKey(configuration, existing);
     }
 
@@ -118,6 +115,7 @@ public class AiModelConfigurationService extends AbstractAbilityService<AiModelC
     }
 
     private void normalize(AiModelConfiguration configuration, AiModelConfiguration existing) {
+        AiModelLimits.from(configuration);
         AiModelProvider provider = providerService.requireEnabled(configuration.getProvider());
         configuration.setProvider(provider.getId());
         if (configuration.getTitle() == null || configuration.getTitle().isBlank()) {
@@ -142,10 +140,11 @@ public class AiModelConfigurationService extends AbstractAbilityService<AiModelC
         if (!platformLevel || configuration.getTenantFallbackEnabled() == null) {
             configuration.setTenantFallbackEnabled(Boolean.FALSE);
         }
-        configuration.setOwnershipScopeKey(configuration.getTenantId() == null ? "P" : "T:" + configuration.getTenantId());
         if (configuration.getEnabled() == null) {
             configuration.setEnabled(Boolean.TRUE);
         }
+        configuration.setOwnershipScopeKey(Boolean.TRUE.equals(configuration.getEnabled())
+                ? (configuration.getTenantId() == null ? "P" : "T:" + configuration.getTenantId()) : null);
     }
 
     /**
@@ -219,11 +218,15 @@ public class AiModelConfigurationService extends AbstractAbilityService<AiModelC
         return configuration;
     }
 
-    private void requireNoConfigurationForScope(AiModelConfiguration configuration) {
-        if (count(Criteria.of().eq("ownershipScopeKey", configuration.getOwnershipScopeKey())) > 0) {
+    private void requireNoEnabledConfigurationForScope(AiModelConfiguration configuration, String existingId) {
+        if (!Boolean.TRUE.equals(configuration.getEnabled())) return;
+        Criteria criteria = enabledCriteria(configuration.getTenantId() == null
+                ? Criteria.of().isNull("tenantId") : Criteria.of().eq("tenantId", configuration.getTenantId()));
+        if (existingId != null) criteria.ne("id", existingId);
+        if (count(criteria) > 0) {
             throw new PlatformException(configuration.getTenantId() == null
-                    ? "a platform AI model configuration already exists"
-                    : "an AI model configuration already exists for tenant: " + configuration.getTenantId());
+                    ? "平台已有启用的模型配置，请先停用后再启用其他配置"
+                    : "该租户已有启用的模型配置，请先停用后再启用其他配置");
         }
     }
 }

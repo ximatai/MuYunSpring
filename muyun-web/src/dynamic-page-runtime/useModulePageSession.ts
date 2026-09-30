@@ -1511,6 +1511,15 @@ export function useModulePageSession(
   const enhancementDetailDrawer = computed<ModulePageDetailDrawer | undefined>(
     () => pageEnhancement.value?.recordView?.drawer,
   );
+  // Relation tables need room before their rows load. Keep the width stable across view/edit
+  // and let the shared drawer clamp it to its workspace on smaller screens.
+  const detailDrawerWidth = computed(() =>
+    enhancementDetailDrawer.value
+      ? (enhancementDetailDrawer.value.width ?? 'standard')
+      : executableDetailRelations.value.some((relation) => relation.visible?.constant !== false)
+        ? 'extraWide'
+        : 'standard',
+  );
   const enhancementCardAssistant = computed(() => pageEnhancement.value?.card?.assistant);
   const cardAssistantContext = computed<ModulePageCardAssistantContext | undefined>(() => {
     if (!enhancementCardAssistant.value) return undefined;
@@ -4144,6 +4153,7 @@ export function useModulePageSession(
     persistentTreeDetail,
     detailOpen,
     enhancementDetailDrawer,
+    detailDrawerWidth,
     closeRecordOnlyDetail,
     closeDetail,
     confirmDetailDrawerClose,

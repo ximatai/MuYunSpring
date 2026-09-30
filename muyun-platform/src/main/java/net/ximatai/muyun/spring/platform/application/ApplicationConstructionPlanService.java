@@ -19,7 +19,10 @@ import java.security.MessageDigest;
 import java.time.Instant;
 import java.util.HexFormat;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 /** Owns personal workspace requirements and revision history, never configuration publication. */
 @Service
@@ -29,20 +32,27 @@ public class ApplicationConstructionPlanService {
     private final ApplicationConstructionInitializationDao initializations;
     private final ApplicationConstructionFieldChangeDao fieldChanges;
     private final ApplicationConstructionDeliveryDao deliveries;
+    private final ApplicationConstructionAcceptanceDao acceptances;
     private static final ObjectMapper JSON = new ObjectMapper();
 
     public ApplicationConstructionPlanService(BaseDao<ApplicationConstructionPlan, String> plans,
-            BaseDao<ApplicationConstructionPlanRevision, String> revisions, ApplicationConstructionInitializationDao initializations, ApplicationConstructionFieldChangeDao fieldChanges, ApplicationConstructionDeliveryDao deliveries) {
+            BaseDao<ApplicationConstructionPlanRevision, String> revisions, ApplicationConstructionInitializationDao initializations, ApplicationConstructionFieldChangeDao fieldChanges, ApplicationConstructionDeliveryDao deliveries, ApplicationConstructionAcceptanceDao acceptances) {
         this.plans = Objects.requireNonNull(plans);
         this.revisions = Objects.requireNonNull(revisions);
         this.initializations = Objects.requireNonNull(initializations);
         this.fieldChanges = Objects.requireNonNull(fieldChanges);
         this.deliveries = Objects.requireNonNull(deliveries);
+        this.acceptances = Objects.requireNonNull(acceptances);
     }
 
     public record ConfirmCommand(String requestId, int expectedRevision, ApplicationConstructionPlanContent content) {}
     public record Snapshot(String planId, int revision, ApplicationConstructionPlanContent content,
-                           Instant confirmedAt, String constructionStatus, List<Initialization> initializations, List<ApplicationConstructionFieldService.Receipt> fieldChanges, List<ApplicationConstructionDeliveryService.Receipt> deliveries) {}
+                           Instant confirmedAt, String constructionStatus, List<Initialization> initializations, List<ApplicationConstructionFieldService.Receipt> fieldChanges, List<ApplicationConstructionDeliveryService.Receipt> deliveries, List<String> deliveredObjectKeys) {
+        public void requireOpen(String objectKey) {
+            if ("DELIVERED".equals(constructionStatus) || objectKey != null && deliveredObjectKeys.contains(objectKey))
+                throw BusinessExceptions.warning("platform.construction-plan.delivered", "此业务已交付，请读取当前低代码治理配置进行改进；历史方案不再用于建设");
+        }
+    }
     public record Initialization(String objectKey, int planRevision, String moduleAlias, String metadataId, String relationId, String requestId) {}
     public static Initialization initialization(ApplicationConstructionInitialization receipt) {
         return new Initialization(receipt.getObjectKey(), receipt.getPlanRevision(), receipt.getModuleAlias(), receipt.getMetadataId(), receipt.getRelationId(), receipt.getRequestId());
@@ -104,6 +114,11 @@ public class ApplicationConstructionPlanService {
         int currentRevision = plan == null ? 0 : plan.getVersion() + 1;
         if (command.expectedRevision() != currentRevision)
             throw BusinessExceptions.warning("platform.construction-plan.stale", "方案已被修改，请读取最新版本后重新确认");
+        if (plan != null) {
+            var current = read(planId);
+            current.requireOpen(null);
+            requireDeliveredContentUnchanged(current, command.content());
+        }
         if (plan != null && json.equals(plan.getContentJson()))
             throw new IllegalArgumentException("方案内容未变化，无需重复确认");
         Instant now = Instant.now();
@@ -131,6 +146,30 @@ public class ApplicationConstructionPlanService {
         }
     }
 
+    /** An acceptance belongs to its object and requirement meaning, not the current list indexes. */
+    private static void requireDeliveredContentUnchanged(Snapshot current, ApplicationConstructionPlanContent candidate) {
+        for (String key : current.deliveredObjectKeys()) {
+            var original = current.content().objects().stream().filter(object -> object.key().equals(key)).findFirst();
+            var replacement = candidate.objects().stream().filter(object -> object.key().equals(key)).findFirst();
+            if (!original.equals(replacement)
+                    || !requirementMeanings(current.content(), key).equals(requirementMeanings(candidate, key)))
+                throw BusinessExceptions.warning("platform.construction-plan.delivered",
+                        "已交付业务对象及其需求不能修改或移除，请读取当前低代码治理配置进行改进");
+        }
+    }
+
+    private record RequirementMeaning(ApplicationConstructionRequirement.Section section, String statement,
+            ApplicationConstructionRequirement.Mode mode, String fieldName, String explanation,
+            ApplicationConstructionRequirement.Reference reference) {}
+
+    private static Map<RequirementMeaning, Long> requirementMeanings(ApplicationConstructionPlanContent content, String key) {
+        return content.requirements().stream().filter(requirement -> requirement.objectKey().equals(key))
+                .map(requirement -> new RequirementMeaning(requirement.section(),
+                        ApplicationConstructionRequirements.source(content, requirement.section()).get(requirement.index()),
+                        requirement.mode(), requirement.fieldName(), requirement.explanation(), requirement.reference()))
+                .collect(Collectors.groupingBy(Function.identity(), Collectors.counting()));
+    }
+
     private ApplicationConstructionPlan requirePlan(String id) {
         requireId(id);
         var plan = plans.findById(id);
@@ -154,7 +193,12 @@ public class ApplicationConstructionPlanService {
     }
     private Snapshot snapshot(String planId, int revision, ApplicationConstructionPlanContent content, Instant confirmedAt) {
         var bindings = initializations.list(Criteria.of().eq("planId", planId)).stream().map(ApplicationConstructionPlanService::initialization).toList();
-        return new Snapshot(planId, revision, content, confirmedAt, bindings.isEmpty() ? "NOT_STARTED" : "INITIALIZED", bindings, fieldChanges.list(Criteria.of().eq("planId", planId)).stream().map(ApplicationConstructionFieldService::receipt).toList(), deliveries.list(Criteria.of().eq("planId", planId)).stream().map(ApplicationConstructionDeliveryService::receipt).toList());
+        var delivered = acceptances.list(Criteria.of().eq("planId", planId)).stream()
+                .map(ApplicationConstructionAcceptance::getObjectKey).distinct().sorted().toList();
+        // Delivery is historical: later governance edits do not reopen the old construction plan.
+        String status = !content.objects().isEmpty() && content.objects().stream().allMatch(object -> delivered.contains(object.key()))
+                ? "DELIVERED" : !delivered.isEmpty() ? "PARTIALLY_DELIVERED" : bindings.isEmpty() ? "NOT_STARTED" : "INITIALIZED";
+        return new Snapshot(planId, revision, content, confirmedAt, status, bindings, fieldChanges.list(Criteria.of().eq("planId", planId)).stream().map(ApplicationConstructionFieldService::receipt).toList(), deliveries.list(Criteria.of().eq("planId", planId)).stream().map(ApplicationConstructionDeliveryService::receipt).toList(), delivered);
     }
     private static void requireId(String value) {
         if (value == null || !value.matches("[a-f0-9]{32}")) throw new IllegalArgumentException("方案标识格式无效");

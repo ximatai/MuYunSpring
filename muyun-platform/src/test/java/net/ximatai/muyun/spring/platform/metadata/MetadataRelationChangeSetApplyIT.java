@@ -30,8 +30,15 @@ import net.ximatai.muyun.spring.platform.module.PlatformModuleService;
 import net.ximatai.muyun.spring.platform.runtime.PlatformDynamicRuntimeRefreshCoordinator;
 import net.ximatai.muyun.spring.platform.support.PlatformPostgresIntegrationTest;
 import net.ximatai.muyun.spring.ability.BaseDao;
+import net.ximatai.muyun.spring.ability.MutationTransactionOperator;
+import net.ximatai.muyun.spring.ability.PlatformAbilityRuntime;
+import net.ximatai.muyun.spring.common.identity.CurrentUser;
+import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
+import net.ximatai.muyun.spring.common.tenant.TenantContext;
+import net.ximatai.muyun.spring.common.platform.ActionExecutionPolicyService;
 import net.ximatai.muyun.spring.platform.support.TestBeanProviders;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.SpringBootConfiguration;
@@ -42,6 +49,9 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.transaction.annotation.EnableTransactionManagement;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.mockito.Mockito;
 
 import javax.sql.DataSource;
@@ -51,6 +61,10 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.Optional;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.function.Supplier;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -88,6 +102,10 @@ class MetadataRelationChangeSetApplyIT extends PlatformPostgresIntegrationTest {
     @Autowired private net.ximatai.muyun.database.core.IDatabaseOperations<?> operations;
     @Autowired private ModuleMetadataOrchestrationService orchestration;
     @Autowired private MetadataModelDeletionService deletion;
+    @Autowired private ModuleChildMetadataCreationService childCreation;
+    @Autowired private ModuleChildMetadataCreationReceiptDao childReceipts;
+    @Autowired private ActionExecutionPolicyService childCreationPermissions;
+    @Autowired private PlatformTransactionManager transactionManager;
 
     @Autowired private PlatformPageDefinitionDao pageDao;
     @Autowired private PlatformPresentationVariantDao variantDao;
@@ -101,7 +119,7 @@ class MetadataRelationChangeSetApplyIT extends PlatformPostgresIntegrationTest {
 
     @BeforeEach
     void setUp() {
-        reset(moduleService, refreshCoordinator, recordService);
+        reset(moduleService, refreshCoordinator, recordService, childCreationPermissions);
         when(recordService.schemaGovernanceFacts()).thenReturn(schemaFacts);
         schemaEnsureService.failAfterEnsure = false;
         String suffix = UUID.randomUUID().toString().replace("-", "").substring(0, 8);
@@ -172,6 +190,129 @@ class MetadataRelationChangeSetApplyIT extends PlatformPostgresIntegrationTest {
         relation.setRelationAlias(metadata.getAlias());
         relation.setTitle(metadata.getTitle());
         relationId = relationService.insert(relation);
+    }
+
+    @AfterEach
+    void resetChildCreationTransactionRuntime() {
+        PlatformAbilityRuntime.resetMutationTransactionOperator();
+    }
+
+    @Test
+    void childCreationReceiptRollsBackWithSchemaAndCanRetryTheSameRequest() {
+        installChildCreationTransactions();
+        var command = childCreationCommand();
+        var owner = CurrentUser.systemUser("receipt-owner", "owner");
+        asConfigurationUser(owner, () -> {
+            schemaEnsureService.failAfterEnsure = true;
+            assertThatThrownBy(() -> childCreation.create(moduleAlias, relationId, command))
+                    .hasMessageContaining("forced schema failure");
+            assertNoChildCreation(command);
+            schemaEnsureService.failAfterEnsure = false;
+            new TransactionTemplate(transactionManager).execute(status -> {
+                childCreation.create(moduleAlias, relationId, command);
+                assertThat(childCreation.lookup(moduleAlias, relationId, command.requestId())).isNotNull();
+                status.setRollbackOnly();
+                return null;
+            });
+            assertNoChildCreation(command);
+            var committed = childCreation.create(moduleAlias, relationId, command);
+            assertThat(childCreation.lookup(moduleAlias, relationId, command.requestId()))
+                    .isEqualTo(new ModuleChildMetadataCreationService.Receipt(committed.metadata().getId(), committed.relation().getId()));
+            assertThat(columnExists(command.tableName(), "id")).isTrue();
+            assertThat(childReceipts.list(Criteria.of().eq("moduleAlias", moduleAlias))).hasSize(1);
+            return null;
+        });
+    }
+
+    @Test
+    void concurrentChildCreationRetriesCommitOneChildAndOneReceipt() throws Exception {
+        installChildCreationTransactions();
+        var command = childCreationCommand();
+        var owner = CurrentUser.systemUser("receipt-owner", "owner");
+        var ready = new CountDownLatch(2);
+        var start = new CountDownLatch(1);
+        try (var pool = Executors.newFixedThreadPool(2)) {
+            var futures = java.util.stream.IntStream.range(0, 2).mapToObj(index -> pool.submit(() -> {
+                ready.countDown();
+                if (!start.await(10, TimeUnit.SECONDS)) throw new IllegalStateException("concurrent start timed out");
+                return asConfigurationUser(owner, () -> childCreation.create(moduleAlias, relationId, command));
+            })).toList();
+            assertThat(ready.await(10, TimeUnit.SECONDS)).isTrue();
+            start.countDown();
+            var first = futures.getFirst().get(30, TimeUnit.SECONDS);
+            var second = futures.getLast().get(30, TimeUnit.SECONDS);
+            assertThat(second.metadata().getId()).isEqualTo(first.metadata().getId());
+            assertThat(second.relation().getId()).isEqualTo(first.relation().getId());
+            assertThat(metadataService.list(Criteria.of().eq("alias", command.alias()))).hasSize(1);
+            assertThat(relationService.list(Criteria.of().eq("moduleAlias", moduleAlias).eq("relationRole", RelationRole.CHILD)))
+                    .singleElement().extracting(ModuleMetadataRelation::getMetadataId).isEqualTo(first.metadata().getId());
+            assertThat(childReceipts.list(Criteria.of().eq("moduleAlias", moduleAlias)))
+                    .singleElement().extracting(ModuleChildMetadataCreationReceipt::getMetadataId).isEqualTo(first.metadata().getId());
+            assertThat(columnExists(command.tableName(), "id")).isTrue();
+        }
+    }
+
+    @Test
+    void childCreationReceiptRejectsChangedPayloadAndRemainsScopedAndAuthorized() {
+        installChildCreationTransactions();
+        var command = childCreationCommand();
+        var owner = CurrentUser.tenantUser("receipt-owner", "owner", "receipt-tenant");
+        var result = asConfigurationUser(owner, () -> childCreation.create(moduleAlias, relationId, command));
+        asConfigurationUser(owner, () -> {
+            var altered = new ModuleChildMetadataCreateCommand(command.alias(), "篡改标题", command.schemaName(),
+                    command.tableName(), command.requestId());
+            assertThatThrownBy(() -> childCreation.create(moduleAlias, relationId, altered))
+                    .hasMessageContaining("请求内容已变化");
+            assertThat(childCreation.lookup(moduleAlias, relationId, command.requestId()).metadataId())
+                    .isEqualTo(result.metadata().getId());
+            return null;
+        });
+        assertThat(asConfigurationUser(CurrentUser.tenantUser("other-owner", "other", "receipt-tenant"),
+                () -> childCreation.lookup(moduleAlias, relationId, command.requestId()))).isNull();
+        assertThat(asConfigurationUser(CurrentUser.tenantUser("receipt-owner", "owner", "other-tenant"),
+                () -> childCreation.lookup(moduleAlias, relationId, command.requestId()))).isNull();
+        Mockito.doThrow(new net.ximatai.muyun.spring.common.exception.PlatformAccessDeniedException("creation permission revoked"))
+                .when(childCreationPermissions).requireAuthorized(any());
+        asConfigurationUser(owner, () -> {
+            assertThatThrownBy(() -> childCreation.lookup(moduleAlias, relationId, command.requestId()))
+                    .hasMessageContaining("permission revoked");
+            assertThatThrownBy(() -> childCreation.create(moduleAlias, relationId, command))
+                    .hasMessageContaining("permission revoked");
+            return null;
+        });
+        assertThat(childReceipts.list(Criteria.of().eq("moduleAlias", moduleAlias))).hasSize(1);
+    }
+
+    private ModuleChildMetadataCreateCommand childCreationCommand() {
+        String key = UUID.randomUUID().toString().replace("-", "");
+        return new ModuleChildMetadataCreateCommand("child_" + key, "明细", "public", "app_child_" + key,
+                UUID.randomUUID().toString());
+    }
+
+    private void assertNoChildCreation(ModuleChildMetadataCreateCommand command) {
+        assertThat(childCreation.lookup(moduleAlias, relationId, command.requestId())).isNull();
+        assertThat(childReceipts.list(Criteria.of().eq("moduleAlias", moduleAlias))).isEmpty();
+        assertThat(metadataService.list(Criteria.of().eq("alias", command.alias()))).isEmpty();
+        assertThat(relationService.list(Criteria.of().eq("moduleAlias", moduleAlias).eq("relationRole", RelationRole.CHILD))).isEmpty();
+        assertThat(columnExists(command.tableName(), "id")).isFalse();
+    }
+
+    private <T> T asConfigurationUser(CurrentUser user, Supplier<T> operation) {
+        try (var identity = CurrentUserContext.use(user); var scope = TenantContext.system("child creation receipt contract")) {
+            return operation.get();
+        }
+    }
+
+    private void installChildCreationTransactions() {
+        var jdbc = new JdbcTemplate(dataSource);
+        PlatformAbilityRuntime.configureMutationTransactionOperator(new MutationTransactionOperator() {
+            @Override public <T> T execute(Supplier<T> work) {
+                return new TransactionTemplate(transactionManager).execute(status -> work.get());
+            }
+            @Override public void lock(String scope, String key) {
+                jdbc.queryForObject("select pg_advisory_xact_lock(hashtextextended(?, 0))", Object.class, scope + ":" + key);
+            }
+        });
     }
 
     @org.junit.jupiter.params.ParameterizedTest
@@ -756,6 +897,12 @@ class MetadataRelationChangeSetApplyIT extends PlatformPostgresIntegrationTest {
                 PlatformDynamicRuntimeRefreshCoordinator refresh) {
             return new ModuleMetadataOrchestrationService(modules, metadata, relations, fields, schema, refresh);
         }
+        @Bean ActionExecutionPolicyService childCreationPermissions() { return mock(ActionExecutionPolicyService.class); }
+        @Bean ModuleChildMetadataCreationService childCreation(ModuleChildMetadataCreationReceiptDao receipts,
+                ModuleMetadataOrchestrationService orchestration, ModuleMetadataRelationService relations,
+                MetadataService metadata, ActionExecutionPolicyService permissions) {
+            return new ModuleChildMetadataCreationService(receipts, orchestration, relations, metadata, permissions);
+        }
         @Bean MetadataModelDeletionService deletion(ModuleMetadataRelationService relations, MetadataService metadata,
                 MetadataFieldService fields, PlatformMetadataEntityDefinitionCompiler compiler, TestSchemaEnsureService schema,
                 DynamicRecordService records, PlatformDynamicRuntimeRefreshCoordinator refresh) {
@@ -769,7 +916,9 @@ class MetadataRelationChangeSetApplyIT extends PlatformPostgresIntegrationTest {
                 MetadataRelationChangeSetApplyService apply, ModuleMetadataRelationService relations, MetadataService metadata, ModuleMetadataOrchestrationService orchestration, MetadataFieldService fields) {
             return new net.ximatai.muyun.spring.platform.ui.PageCompositionSaveService(revisions, variants, pages, preview, apply,
                     new net.ximatai.muyun.spring.platform.ui.PlatformPresentationRevisionPublishService(revisions, variants, pages,
-                            new net.ximatai.muyun.spring.platform.ui.PlatformPresentationTemplateCatalog()), relations, metadata, orchestration, fields);
+                            new net.ximatai.muyun.spring.platform.ui.PlatformPresentationTemplateCatalog(),
+                            TestBeanProviders.empty(net.ximatai.muyun.spring.platform.ui.PublishedPageExecutionCoordinator.class),
+                            net.ximatai.muyun.spring.ability.event.RuntimeEventPublisher.noop()), relations, metadata, orchestration, fields);
         }
         @Bean MetadataService metadataService(MetadataDao dao) { return new MetadataService(
                 dao,

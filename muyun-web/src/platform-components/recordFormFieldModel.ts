@@ -248,6 +248,7 @@ export interface RecordFormFieldPickerConfig {
 }
 
 export interface RecordFormFieldState {
+  inputRequirements?: ResolvedViewFieldDescriptor['inputRequirements'];
   assistantPolicy?: import('@muyun/web-contracts').AssistantFieldPolicy;
   fieldName: string;
   label: string;
@@ -469,6 +470,7 @@ export function resolveRecordFormFieldState(
       ? resolveReferencePickerPresentation(field?.fieldControl)
       : undefined;
   const baseState: RecordFormFieldState = {
+    ...(field?.inputRequirements ? { inputRequirements: field.inputRequirements } : {}),
     fieldName,
     ...(field?.assistantPolicy ? { assistantPolicy: field.assistantPolicy } : {}),
     label,
@@ -802,4 +804,15 @@ export function referenceDisplayProjections(
     if (value !== undefined) projections[projection.outputField] = value;
   }
   return projections;
+}
+
+/** Storage text capacity counts Unicode characters, matching PostgreSQL VARCHAR semantics. */
+export function recordFormInputConstraintError(
+  field: RecordFormFieldState,
+  value: unknown,
+): string | undefined {
+  const maxLength = field.inputRequirements?.maxLength;
+  if (maxLength != null && typeof value === 'string' && [...value].length > maxLength)
+    return `${field.label}最多允许 ${maxLength} 个字符`;
+  return undefined;
 }

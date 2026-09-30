@@ -13,6 +13,7 @@ function menuTree(): MenuTreeNode[] {
             title: '日报填报',
             schemeId: 'default',
             moduleAlias: 'work.daily_report',
+            moduleDescription: '登记每天的工作进展',
             entryType: 'module',
             openMode: 'tab',
           },
@@ -33,6 +34,20 @@ describe('workbench assistant capabilities', () => {
     expect(result).toEqual([
       expect.objectContaining({ menuId: 'daily-report', moduleAlias: 'work.daily_report' }),
     ]);
+  });
+
+  it('discovers a visible module by its optional purpose without loading detailed capabilities', async () => {
+    const find = createWorkbenchAssistantCapabilities(menuTree, () => true)[0]!;
+    expect(await find.execute(find.parseInput({ query: '工作进展' }), executionContext())).toEqual([
+      expect.objectContaining({ menuId: 'daily-report', description: '登记每天的工作进展' }),
+    ]);
+    const unavailable = createWorkbenchAssistantCapabilities(
+      () => [],
+      () => true,
+    )[0]!;
+    expect(
+      await unavailable.execute(unavailable.parseInput({ query: '工作进展' }), executionContext()),
+    ).toEqual([]);
   });
 
   it('rechecks menu visibility immediately before opening', async () => {

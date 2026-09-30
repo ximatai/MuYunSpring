@@ -513,6 +513,8 @@ export function hasExecutableDetailRelationMutationContract(
 export type MenuEntryType = 'module' | 'route' | 'link';
 
 export interface MenuRecord extends StandardEnabledTreeEntity {
+  /** Read-only hint from the target module; never maintained on menus. */
+  moduleDescription?: string;
   id: string;
   title: string;
   schemeId: string;
@@ -1054,7 +1056,13 @@ export interface ResolvedFieldControlBindingDescriptor {
 }
 
 export interface ResolvedViewFieldDescriptor {
-  inputRequirements?: { requiredOnInsert: boolean; requiredOnUpdate: boolean };
+  inputRequirements?: {
+    requiredOnInsert: boolean;
+    requiredOnUpdate: boolean;
+    maxLength?: number | null;
+    precision?: number | null;
+    scale?: number | null;
+  };
   assistantPolicy?: AssistantFieldPolicy;
   fieldRef: ViewFieldRef;
   label?: string;

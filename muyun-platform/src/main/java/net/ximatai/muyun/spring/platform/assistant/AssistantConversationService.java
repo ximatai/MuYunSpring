@@ -16,7 +16,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Objects;
 
-/** Personal transcript storage. Historical text never restores an execution authorization. */
+/** Personal transcript storage. Scope keys record provenance, never restrict navigation within one identity. Historical text never restores an execution authorization. */
 @Service
 public class AssistantConversationService {
     private static final ObjectMapper JSON = new ObjectMapper();
@@ -27,7 +27,7 @@ public class AssistantConversationService {
     public record Message(String role, String text) {}
     public record ConfigurationTask(String goal, String mode) {}
     public record Content(String title, List<Message> messages, List<Message> history, String planId,
-                          String pendingRequest, ConfigurationTask configurationTask) {}
+                          String pendingRequest, ConfigurationTask configurationTask, String executionScopeKey) {}
     public record Command(int expectedRevision, Content content) {}
     public record Snapshot(String id, int revision, Instant updatedAt, Content content) {}
     public record Summary(String id, String title, Instant updatedAt) {}
@@ -36,7 +36,7 @@ public class AssistantConversationService {
         validateScope(scopeKey);
         if (page < 1 || page > 10000) throw new IllegalArgumentException("无效页码");
         Scope scope = scope();
-        Criteria criteria = Criteria.of().eq("ownerId", scope.owner()).eq("scopeKey", scopeKey);
+        Criteria criteria = Criteria.of().eq("ownerId", scope.owner());
         if (scope.tenant() == null) criteria.isNull("tenantId");
         else criteria.eq("tenantId", scope.tenant());
         return conversations.query(criteria, PageRequest.of(page, 30), Sort.desc("updatedAt")).stream()
@@ -44,7 +44,7 @@ public class AssistantConversationService {
     }
     public Snapshot read(String id, String scopeKey) {
         validateId(id); validateScope(scopeKey);
-        return snapshot(requireOwner(conversations.findById(id), scopeKey, scope()));
+        return snapshot(requireOwner(conversations.findById(id), scope()));
     }
     @Transactional
     public Snapshot save(String id, String scopeKey, Command command) {
@@ -55,7 +55,10 @@ public class AssistantConversationService {
         PlatformAbilityRuntime.lockMutationPartition("platform.assistant-conversation", id);
         var row = conversations.findById(id);
         if (row != null) {
-            requireOwner(row, scopeKey, scope);
+            requireOwner(row, scope);
+            String boundPlan = snapshot(row).content().planId();
+            if (boundPlan != null && !boundPlan.equals(command.content().planId()))
+                throw BusinessExceptions.warning("platform.assistant-conversation.plan-bound", "当前对话已关联一个建设目标，讨论其他独立目标请新建对话");
             if (row.getContentJson().equals(json)) return snapshot(row);
         }
         int revision = row == null ? 0 : row.getVersion() + 1;
@@ -79,9 +82,9 @@ public class AssistantConversationService {
             return snapshot(row);
         }
     }
-    private AssistantConversation requireOwner(AssistantConversation row, String scopeKey, Scope scope) {
+    private AssistantConversation requireOwner(AssistantConversation row, Scope scope) {
         if (row == null || !Objects.equals(row.getOwnerId(), scope.owner()) ||
-                !Objects.equals(row.getTenantId(), scope.tenant()) || !row.getScopeKey().equals(scopeKey))
+                !Objects.equals(row.getTenantId(), scope.tenant()))
             throw new PlatformAccessDeniedException("会话不存在或无权访问");
         return row;
     }
@@ -107,6 +110,7 @@ public class AssistantConversationService {
             throw new IllegalArgumentException("模型历史过长");
         if (content.pendingRequest() != null && content.pendingRequest().length() > 4000) throw new IllegalArgumentException("未完成请求过长");
         if (content.planId() != null) validateId(content.planId());
+        if (content.executionScopeKey() != null) validateScope(content.executionScopeKey());
         ConfigurationTask task = content.configurationTask();
         if (task != null && (task.goal() == null || task.goal().isBlank() || task.goal().length() > 200
                 || !("conversation".equals(task.mode()) || "visual".equals(task.mode()))))

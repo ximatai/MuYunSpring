@@ -54,7 +54,16 @@ export interface AssistantSelectionResponse {
   label: string;
 }
 
+/** Execution budget is informational; it never grants permission to invoke a capability. */
+export interface AssistantExecutionBudget {
+  phase: 'work' | 'summary';
+  step: number;
+  normalLimit: number;
+  hardLimit: number;
+}
+
 export interface AssistantTurnInput {
+  executionBudget?: AssistantExecutionBudget;
   message: string;
   history?: AssistantConversationMessage[];
   context: AssistantSurfaceContext;

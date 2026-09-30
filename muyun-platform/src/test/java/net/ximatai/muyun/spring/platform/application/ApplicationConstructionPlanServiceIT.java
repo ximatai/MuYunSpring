@@ -23,6 +23,7 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 import javax.sql.DataSource;
 import java.util.UUID;
+import java.util.List;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -36,6 +37,7 @@ class ApplicationConstructionPlanServiceIT extends PlatformPostgresIntegrationTe
     }
     @Autowired ApplicationConstructionPlanService service;
     @Autowired DataSource source;
+    @Autowired ApplicationConstructionAcceptanceDao acceptances;
     @Autowired PlatformTransactionManager transactions;
     JdbcTemplate jdbc;
 
@@ -118,6 +120,112 @@ class ApplicationConstructionPlanServiceIT extends PlatformPostgresIntegrationTe
         });
         assertThatThrownBy(() -> service.list()).isInstanceOf(net.ximatai.muyun.spring.common.exception.PlatformAccessDeniedException.class);
     }
+    @Test void deliveredPlansRemainHistoricalAndCannotBeReopenedByRequirementEdits() {
+        String planId = id(); var first = command(0, "已建业务");
+        as("owner", "tenant", () -> {
+            service.confirm(planId, first);
+            var receipt = new ApplicationConstructionAcceptance();
+            receipt.setId(id()); receipt.setPlanId(planId); receipt.setPlanRevision(1);
+            receipt.setObjectKey("order"); receipt.setRequestId(UUID.randomUUID().toString());
+            receipt.setBaseline("historical-baseline"); receipt.setRequestDigest("historical-request");
+            net.ximatai.muyun.spring.common.model.EntityLifecycle.prepareInsert(receipt, java.time.Instant.now());
+            acceptances.insert(receipt);
+            var historical = service.read(planId);
+            assertThat(historical.constructionStatus()).isEqualTo("DELIVERED");
+            assertThat(historical.deliveredObjectKeys()).containsExactly("order");
+            assertThatThrownBy(() -> historical.requireOpen("order")).hasMessageContaining("当前低代码治理配置");
+            assertThatThrownBy(() -> service.confirm(planId, command(1, "按旧设计再改一版"))).hasMessageContaining("已交付");
+            // The original confirmation remains queryable/idempotent after delivery.
+            assertThat(service.confirm(planId, first).revision()).isEqualTo(1);
+            assertThat(service.history(planId)).hasSize(1);
+            return null;
+        });
+    }
+    @Test void partialDeliveryFreezesAcceptedObjectAndRequirementMeaning() {
+        String planId = id();
+        var original = partialContent();
+        as("owner", "tenant", () -> {
+            service.confirm(planId, new ApplicationConstructionPlanService.ConfirmCommand(UUID.randomUUID().toString(), 0, original));
+            acceptOrder(planId);
+            var changedObjects = List.of(new ApplicationConstructionPlanContent.BusinessObject("order", "新订单", "改变用途"), original.objects().get(1));
+            var changedBindings = new java.util.ArrayList<>(original.requirements());
+            changedBindings.set(0, new ApplicationConstructionRequirement(ApplicationConstructionRequirement.Section.SCOPE,
+                    0, "order", ApplicationConstructionRequirement.Mode.REQUIRED, "title", "订单录入", null));
+            var withoutOrderBinding = original.requirements().stream().filter(requirement -> !requirement.objectKey().equals("order")).toList();
+            var candidates = List.of(
+                    revise(original, changedObjects, original.inScope(), original.rules(), original.requirements()),
+                    revise(original, List.of(original.objects().get(1)), original.inScope(), original.rules(), withoutOrderBinding),
+                    revise(original, original.objects(), List.of("订单必须新增审批", "客户录入"), original.rules(), original.requirements()),
+                    revise(original, original.objects(), original.inScope(), List.of("订单编号不再必填"), original.requirements()),
+                    revise(original, original.objects(), original.inScope(), original.rules(), changedBindings),
+                    revise(original, original.objects(), original.inScope(), original.rules(), withoutOrderBinding));
+            for (var candidate : candidates)
+                assertThatThrownBy(() -> service.confirm(planId,
+                        new ApplicationConstructionPlanService.ConfirmCommand(UUID.randomUUID().toString(), 1, candidate)))
+                        .hasMessageContaining("已交付业务对象及其需求不能修改或移除");
+            assertThat(service.read(planId).revision()).isEqualTo(1);
+            assertThat(service.read(planId).constructionStatus()).isEqualTo("PARTIALLY_DELIVERED");
+            return null;
+        });
+    }
+
+    @Test void partialDeliveryAllowsRemainingWorkAndRequirementIndexReordering() {
+        String planId = id();
+        var original = partialContent();
+        as("owner", "tenant", () -> {
+            var first = new ApplicationConstructionPlanService.ConfirmCommand(UUID.randomUUID().toString(), 0, original);
+            service.confirm(planId, first);
+            acceptOrder(planId);
+            var requirements = List.of(
+                    new ApplicationConstructionRequirement(ApplicationConstructionRequirement.Section.SCOPE, 0,
+                            "customer", ApplicationConstructionRequirement.Mode.REQUIRED, "name", "客户实名登记", null),
+                    new ApplicationConstructionRequirement(ApplicationConstructionRequirement.Section.SCOPE, 1,
+                            "order", ApplicationConstructionRequirement.Mode.FIELD, "title", "订单录入", null),
+                    original.requirements().get(2));
+            var candidate = revise(original, List.of(
+                    new ApplicationConstructionPlanContent.BusinessObject("customer", "实名客户", "补齐客户登记"), original.objects().getFirst()),
+                    List.of("客户实名录入", "订单录入"), original.rules(), requirements);
+            var command = new ApplicationConstructionPlanService.ConfirmCommand(UUID.randomUUID().toString(), 1, candidate);
+            var updated = service.confirm(planId, command);
+            assertThat(updated.revision()).isEqualTo(2);
+            assertThat(updated.constructionStatus()).isEqualTo("PARTIALLY_DELIVERED");
+            assertThat(updated.deliveredObjectKeys()).containsExactly("order");
+            assertThat(service.confirm(planId, command).revision()).isEqualTo(2);
+            assertThat(service.confirm(planId, first).content()).isEqualTo(original);
+            return null;
+        });
+    }
+
+    private void acceptOrder(String planId) {
+        var receipt = new ApplicationConstructionAcceptance();
+        receipt.setId(id()); receipt.setPlanId(planId); receipt.setPlanRevision(1);
+        receipt.setObjectKey("order"); receipt.setRequestId(UUID.randomUUID().toString());
+        receipt.setBaseline("historical-baseline"); receipt.setRequestDigest("historical-request");
+        net.ximatai.muyun.spring.common.model.EntityLifecycle.prepareInsert(receipt, java.time.Instant.now());
+        acceptances.insert(receipt);
+    }
+
+    private ApplicationConstructionPlanContent partialContent() {
+        var original = content("订单与客户");
+        return revise(original, List.of(original.objects().getFirst(),
+                new ApplicationConstructionPlanContent.BusinessObject("customer", "客户", "记录客户")),
+                List.of("订单录入", "客户录入"), List.of("订单编号必填"), List.of(
+                        new ApplicationConstructionRequirement(ApplicationConstructionRequirement.Section.SCOPE, 0,
+                                "order", ApplicationConstructionRequirement.Mode.FIELD, "title", "订单录入", null),
+                        new ApplicationConstructionRequirement(ApplicationConstructionRequirement.Section.SCOPE, 1,
+                                "customer", ApplicationConstructionRequirement.Mode.FIELD, "name", "客户录入", null),
+                        new ApplicationConstructionRequirement(ApplicationConstructionRequirement.Section.RULE, 0,
+                                "order", ApplicationConstructionRequirement.Mode.REQUIRED, "number", "编号必须填写", null)));
+    }
+
+    private ApplicationConstructionPlanContent revise(ApplicationConstructionPlanContent original,
+            List<ApplicationConstructionPlanContent.BusinessObject> objects, List<String> scope, List<String> rules,
+            List<ApplicationConstructionRequirement> requirements) {
+        return new ApplicationConstructionPlanContent(original.title(), original.goal(), scope, original.outOfScope(),
+                objects, original.relationships(), rules, original.questions(), original.assumptions(), original.decisions(),
+                original.acceptanceExamples(), requirements);
+    }
+
     @SpringBootConfiguration
     @EnableAutoConfiguration
     @EnableMuYunRepositories(basePackageClasses = ApplicationConstructionPlanDao.class)
@@ -126,6 +234,6 @@ class ApplicationConstructionPlanServiceIT extends PlatformPostgresIntegrationTe
             return DataSourceBuilder.create().url(postgres.getJdbcUrl()).username(postgres.getUsername())
                 .password(postgres.getPassword()).driverClassName(postgres.getDriverClassName()).build();
         }
-        @Bean ApplicationConstructionPlanService plans(ApplicationConstructionPlanDao dao, ApplicationConstructionPlanRevisionDao revisions, ApplicationConstructionInitializationDao initializations, ApplicationConstructionFieldChangeDao fieldChanges, ApplicationConstructionDeliveryDao deliveries) { return new ApplicationConstructionPlanService(dao, revisions, initializations, fieldChanges, deliveries); }
+        @Bean ApplicationConstructionPlanService plans(ApplicationConstructionPlanDao dao, ApplicationConstructionPlanRevisionDao revisions, ApplicationConstructionInitializationDao initializations, ApplicationConstructionFieldChangeDao fieldChanges, ApplicationConstructionDeliveryDao deliveries, ApplicationConstructionAcceptanceDao acceptances) { return new ApplicationConstructionPlanService(dao, revisions, initializations, fieldChanges, deliveries, acceptances); }
     }
 }

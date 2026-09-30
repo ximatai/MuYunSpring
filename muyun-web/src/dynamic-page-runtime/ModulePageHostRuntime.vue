@@ -1212,7 +1212,7 @@ export default defineComponent({
         :title="businessVisible ? detailTitle : ''"
         :render-mode="props.recordOnly?.renderMode ?? 'inline'"
         :scope="props.recordOnly?.scope ?? 'tab'"
-        :width="enhancementDetailDrawer?.width"
+        :width="detailDrawerWidth"
         :mode="editorMode"
         :loading="detailLoading"
         :load-failed="detailLoadFailed"

@@ -17,8 +17,11 @@ import { useWorkspaceViewUnsavedState } from '@muyun/platform-workbench';
 import {
   createStaticResourceCrudClient,
   createAssistantTurnRequester,
+  pageAssistantCatalog,
   useAssistantSurfaceHost,
   AssistantCapabilityUsageError,
+  AssistantOperationRejectedError,
+  type AssistantOperationProposal,
   pageActionEntryDescription,
   pageActionEntryTitle,
   normalizeError,
@@ -79,8 +82,13 @@ import {
   pageCompositionChangeLines,
   type PageCompositionCandidateInput,
 } from './pageCompositionCandidate';
+import { waitForConfigurationEditor } from './configurationEditorNavigation';
 import { createPageCompositionAssistantSurface } from './pageCompositionAssistantSurface';
 import { pageCompositionTransport } from './pageCompositionTransport';
+import {
+  createPageCompositionPublicationCommand,
+  type PresentationRevision,
+} from './pageCompositionPublication';
 import PageCompositionDescriptorPreview from './PageCompositionDescriptorPreview.vue';
 import PageQuerySummaryEditor, { type PageQuerySummaryEditorIssues } from './PageQuerySummaryEditor.vue';
 import MetadataSourceTree from './MetadataSourceTree.vue';
@@ -358,6 +366,7 @@ let metadataLoadSequence = 0;
 const draftParseError = ref<string>();
 const draftConflict = ref(false);
 const compositionLoading = ref(false);
+const workspaceLoading = ref(false);
 let compositionLoadSequence = 0;
 
 const hasListPreview = computed(() => previewDescriptor.value?.page?.template === 'LIST_DETAIL_CARD');
@@ -611,7 +620,8 @@ const hasPendingChanges = computed(() =>
 );
 useWorkspaceViewUnsavedState('页面配置', () => hasUnsavedChanges.value);
 const isMutating = computed(
-  () => saving.value || publishing.value || loading.value || compositionLoading.value,
+  () =>
+    saving.value || publishing.value || loading.value || compositionLoading.value || workspaceLoading.value,
 );
 watch([catalogueRefreshPending, isMutating, workspaceActive], ([pending, busy, active]) => {
   if (!pending || busy || !active) return;
@@ -850,18 +860,6 @@ type PresentationVariant = {
   scopeType?: 'global' | 'tenant' | 'organization';
   enabled?: boolean;
 };
-type PresentationRevision = {
-  id?: string;
-  version?: number;
-  title?: string;
-  variantId?: string;
-  revisionNo?: number;
-  templateAlias?: string;
-  templateVersion?: number;
-  uiTreeJson?: string;
-  status?: 'draft' | 'published' | 'archived';
-  enabled?: boolean;
-};
 type PresentationRevisionPreview = {
   pageId: string;
   variantId: string;
@@ -907,10 +905,15 @@ async function applyConfiguredMode() {
 async function loadWorkspace() {
   const requestSequence = ++workspaceLoadSequence;
   const moduleAlias = props.moduleAlias;
-  if (!(await loadMetadataTree(requestSequence, moduleAlias))) return;
-  if (requestSequence !== workspaceLoadSequence) return;
-  compositionMode.value = configuredMode.value;
-  await loadComposition(requestSequence, moduleAlias);
+  workspaceLoading.value = true;
+  try {
+    if (!(await loadMetadataTree(requestSequence, moduleAlias))) return;
+    if (requestSequence !== workspaceLoadSequence) return;
+    compositionMode.value = configuredMode.value;
+    await loadComposition(requestSequence, moduleAlias);
+  } finally {
+    if (requestSequence === workspaceLoadSequence) workspaceLoading.value = false;
+  }
 }
 
 async function loadMetadataTree(requestSequence = workspaceLoadSequence, moduleAlias = props.moduleAlias) {
@@ -1796,6 +1799,16 @@ async function initializeComposition() {
     const latestPublished = latestRevision(
       revisions.filter((item) => item.status === pageCompositionTransport.publishedRevision),
     );
+    const existingDraft = latestRevision(
+      revisions.filter((item) => item.status === pageCompositionTransport.draftRevision),
+    );
+    if (existingDraft) {
+      revision.value = existingDraft;
+      publishedRevision.value = latestPublished;
+      savedDraftApplied.value = sameComposition(existingDraft, latestPublished);
+      await hydrateDraft(existingDraft);
+      return;
+    }
     if (latestPublished) await hydrateDraft(latestPublished, false);
     else actionPlacements.value = defaultPageActionEntries(moduleActions.value);
     const treeJsonToPersist = currentUiTreeJson.value;
@@ -1824,6 +1837,38 @@ async function initializeComposition() {
 }
 
 async function saveAndApply() {
+  try {
+    await publishComposition();
+  } catch {
+    /* The shared command already presents its failure. */
+  }
+}
+function pagePublicationCommand(requireCurrent: () => void) {
+  const variantId = variant.value!.id!;
+  const tree = currentUiTreeJson.value;
+  const hasComposition = activeComponents.value.length || activeChildren.value.length;
+  if (hasComposition && !componentCatalog.value) throw new Error('请重新打开组件库后保存');
+  return createPageCompositionPublicationCommand({
+    http: moduleContext.http,
+    variantId,
+    revision: { ...revision.value, templateVersion: JSON.parse(tree).templateVersion, uiTreeJson: tree },
+    previewBody: pagePreviewBody(tree),
+    composition: hasComposition
+      ? {
+          relationId: componentCatalog.value!.relationId,
+          expectedMetadataVersion: componentCatalog.value!.metadataVersion,
+          newFields: activeComponents.value.map(componentFieldForSave),
+          newChildren: activeChildren.value.map((child) => ({
+            ...child,
+            fields: child.fields.map(componentFieldForSave),
+          })),
+        }
+      : undefined,
+    requireCurrent,
+    readRevisions: () => loadAllFromClient(revisionClient(variantId)),
+  });
+}
+async function publishComposition() {
   if (hasCatalogDependentSummary.value && !summaryCatalog.value && !summaryCatalogLoading.value)
     await loadSummaryCatalog();
   if (
@@ -1849,7 +1894,6 @@ async function saveAndApply() {
   const current = () => sequence === workspaceLoadSequence;
   const variantId = variant.value?.id;
   if (!variantId) return;
-  let treeJsonToPublish = currentUiTreeJson.value;
   const reviewState = () =>
     JSON.stringify({
       sequence: workspaceLoadSequence,
@@ -1860,46 +1904,16 @@ async function saveAndApply() {
     });
   const reviewedState = reviewState();
   const requireReviewedCandidate = () => {
-    if (reviewState() !== reviewedState) throw new Error('页面候选或基线已变化，请重新预检后保存。');
+    if (reviewState() !== reviewedState)
+      throw new AssistantOperationRejectedError('页面候选或基线已变化，请重新预检后保存。');
   };
   publishing.value = true;
   try {
-    await moduleContext.http.request<PresentationRevisionPreview>({
-      method: 'POST',
-      path: pageCompositionTransport.previewRevisionPath(variantId, revision.value!.id!),
-      body: pagePreviewBody(treeJsonToPublish),
-    });
-    requireReviewedCandidate();
-    let publicationCandidate: PresentationRevision = {
-      ...revision.value,
-      templateVersion: JSON.parse(treeJsonToPublish).templateVersion,
-      uiTreeJson: treeJsonToPublish,
-    };
-    if (activeComponents.value.length || activeChildren.value.length) {
-      if (!componentCatalog.value) throw new Error('请重新打开组件库后保存');
-      publicationCandidate = await moduleContext.http.request<PresentationRevision>({
-        method: 'POST',
-        path: `/platform.presentation_publish/revisions/${encodeURIComponent(publicationCandidate.id!)}/save-composition`,
-        body: {
-          revision: publicationCandidate,
-          relationId: componentCatalog.value.relationId,
-          expectedMetadataVersion: componentCatalog.value.metadataVersion,
-          newFields: activeComponents.value.map(componentFieldForSave),
-          newChildren: activeChildren.value.map((child) => ({
-            ...child,
-            fields: child.fields.map(componentFieldForSave),
-          })),
-        },
-      });
-      treeJsonToPublish = publicationCandidate.uiTreeJson!;
-    } else {
-      await moduleContext.http.request<number>({
-        method: 'POST',
-        path: `/platform.presentation_publish/revisions/${encodeURIComponent(publicationCandidate.id!)}/publish`,
-        body: publicationCandidate,
-      });
-    }
-    if (!current()) return;
+    const publication = await pagePublicationCommand(requireReviewedCandidate).execute();
+    const publicationCandidate = publication.revision;
+    const receipt = publication.receipt;
+    const treeJsonToPublish = publicationCandidate.uiTreeJson!;
+    if (!current()) return receipt;
     // A successful publication makes this revision immutable, even if the following read fails.
     publishedRevision.value = {
       ...publicationCandidate,
@@ -1914,7 +1928,7 @@ async function saveAndApply() {
     try {
       if (pendingComponents.value.length || pendingChildren.value.length) {
         await loadMetadataTree();
-        if (!current()) return;
+        if (!current()) return receipt;
         componentSession.reset();
         componentCatalog.value = undefined;
       }
@@ -1925,20 +1939,33 @@ async function saveAndApply() {
         await hydrateDraft(nextDraft);
       }
     } catch {
-      if (!current()) return;
-      await loadComposition();
-      if (!current()) return;
+      if (!current()) return receipt;
+      try {
+        await loadComposition();
+      } catch {
+        /* The committed receipt remains authoritative. */
+      }
+      if (!current()) return receipt;
       presentPlatformError(new Error('页面已生效，但编辑准备失败；请点击“继续编辑”重试。'), {
         source: 'page-composition',
         phase: 'action',
       });
-      return;
+      return receipt;
     }
-    if (current()) await loadComposition();
+    if (current()) {
+      try {
+        await loadComposition();
+      } catch {
+        /* Publication is already committed. */
+      }
+    }
+    return receipt;
   } catch (cause) {
-    if (!current()) return;
-    if (normalizeError(cause).code === platformErrorCodes.conflictVersion) draftConflict.value = true;
-    presentPlatformError(cause, { source: 'page-composition', phase: 'action' });
+    if (current()) {
+      if (normalizeError(cause).code === platformErrorCodes.conflictVersion) draftConflict.value = true;
+      presentPlatformError(cause, { source: 'page-composition', phase: 'action' });
+    }
+    throw cause;
   } finally {
     if (current()) publishing.value = false;
   }
@@ -2879,7 +2906,21 @@ let assistantPageKey: string | undefined;
 let unregisterAssistant: (() => void) | undefined;
 const assistantRevision = ref(0);
 const candidateChanges = computed(() =>
-  pageCompositionChangeLines(savedUiTreeJson.value, currentUiTreeJson.value),
+  pageCompositionChangeLines(
+    savedUiTreeJson.value,
+    currentUiTreeJson.value,
+    (name) =>
+      assistantFieldDirectory.value.find((field) => field.fieldName === name)?.title ??
+      assistantRelationDirectory.value
+        .flatMap((relation) =>
+          relation.fields.map((field) => ({
+            path: `${relation.relationCode}.${field.fieldName}`,
+            title: field.title,
+          })),
+        )
+        .find((field) => field.path === name)?.title ??
+      name,
+  ),
 );
 const assistantFieldDirectory = computed(() => {
   const fields = new Map<string, PageComposerField>();
@@ -2890,6 +2931,53 @@ const assistantFieldDirectory = computed(() => {
   return [...fields.values()];
 });
 const assistantSources = computed(() => assistantFieldDirectory.value.slice(0, 100));
+const assistantRelationDirectory = computed(() =>
+  metadataRelations.value
+    .filter(
+      (candidate) =>
+        candidate.relationAlias &&
+        candidate.parentMetadataId === relation.value?.metadataId &&
+        candidate.relationRole?.toUpperCase() === 'CHILD',
+    )
+    .map((candidate) => {
+      const id = candidate.id ?? candidate.metadataId!;
+      return {
+        id,
+        relationCode: candidate.relationAlias!,
+        title: candidate.title ?? candidate.relationAlias!,
+        fields: (childMetadataFields.value.get(id) ?? []).filter(
+          (field) => !field.unavailable && !field.pending,
+        ),
+      };
+    }),
+);
+function assistantRelationCatalog({ relationCode, offset = 0 }: { relationCode?: string; offset?: number }) {
+  if (relationCode !== undefined) {
+    const relation = assistantRelationDirectory.value.find(
+      (relation) => relation.relationCode === relationCode,
+    );
+    if (!relation) throw new AssistantCapabilityUsageError('明细不在当前页面的实际目录中');
+    return {
+      relationCode,
+      ...pageAssistantCatalog(
+        relation.fields.map((field) => ({
+          fieldName: field.fieldName,
+          title: field.title,
+          readOnly: field.platformReadOnly,
+        })),
+        offset,
+      ),
+    };
+  }
+  return pageAssistantCatalog(
+    assistantRelationDirectory.value.map((relation) => ({
+      relationCode: relation.relationCode,
+      title: relation.title,
+      fieldCount: relation.fields.length,
+    })),
+    offset,
+  );
+}
 function assistantEditingProblem() {
   if (isMutating.value || catalogueRefreshPending.value) return '页面正在加载或保存。';
   if (metadataLoadProblem.value) return metadataLoadProblem.value;
@@ -2911,6 +2999,8 @@ function assistantPageDescription() {
     moduleAlias: props.moduleAlias,
     title: `${props.moduleTitle ?? props.moduleAlias} · 页面配置`,
     editable: !assistantEditingProblem(),
+    canStartEditing:
+      !isMutating.value && !!relation.value?.id && !revision.value && !metadataLoadProblem.value,
     editingProblem: assistantEditingProblem(),
     template: revision.value?.templateAlias,
     templateVersion: JSON.parse(currentUiTreeJson.value).templateVersion,
@@ -2926,6 +3016,12 @@ function assistantPageDescription() {
       searchable: searchableFields.value.includes(field.fieldName),
     })),
     fieldsTruncated: assistantFieldDirectory.value.length > 100,
+    availableRelations: assistantRelationCatalog({}),
+    relations: state.formRelations.value.map((relation) => ({
+      relationCode: relation.relationCode,
+      title: relation.title,
+      fields: relation.fields.map(placement),
+    })),
     list: state.listFields.value.map(placement),
     form: state.layouts.value.form.fields.map(placement),
     detail: state.separateDetail.value ? state.layouts.value.detail.fields.map(placement) : undefined,
@@ -2960,16 +3056,27 @@ function prepareAssistantPage(input: PageCompositionCandidateInput) {
       quickSearchFields: quickSearchFields.value,
       fields: assistantSources.value,
       searchableFields: searchableFields.value,
+      relations: state.formRelations.value,
+      availableRelations: assistantRelationDirectory.value,
     },
     input,
   );
   // Validation finishes before the effect boundary; only this callback changes the shared editor.
   return () => {
+    state.formRelations.value = candidate.relations;
     state.listFields.value = candidate.list;
     state.layouts.value = { form: candidate.form, detail: candidate.detail };
     quickSearchFields.value = candidate.quickSearchFields;
     state.selectedNodeId.value = undefined;
     editorMode.value = 'fields';
+    const mode =
+      input.form !== undefined || input.relations !== undefined
+        ? 'edit'
+        : input.detail !== undefined
+          ? 'detail'
+          : 'list';
+    state.selectLayout(mode === 'detail' ? 'detail' : 'form');
+    state.previewMode.value = mode;
     return assistantPageCandidate();
   };
 }
@@ -3001,22 +3108,102 @@ async function previewAssistantPage(signal: AbortSignal) {
     return { valid: false, errors: [normalizeError(cause).message] };
   }
 }
+function pageCandidateFingerprint() {
+  return JSON.stringify([
+    workspaceLoadSequence,
+    props.moduleAlias,
+    variant.value,
+    revision.value,
+    currentUiTreeJson.value,
+    pagePreviewBody(currentUiTreeJson.value),
+  ]);
+}
+function preparePageEditing(): AssistantOperationProposal {
+  const sequence = workspaceLoadSequence;
+  const fingerprint = pageCandidateFingerprint();
+  const current = () => assistantActive && fingerprint === pageCandidateFingerprint() && !isMutating.value;
+  return {
+    presentation: { title: '准备页面编辑', lines: ['创建或恢复页面草稿，已有业务页面不会因此改变。'] },
+    confirmLabel: '开始编辑',
+    expiresAt: Date.now() + 300_000,
+    isCurrent: current,
+    continuation: {
+      message: '页面编辑已准备，请核实当前草稿并继续本次用户需求，发布仍需确认。',
+      isCurrent: () => assistantActive,
+    },
+    async execute() {
+      if (!current()) throw new AssistantOperationRejectedError('页面状态已变化，请重新准备。');
+      await initializeComposition();
+      if (sequence !== workspaceLoadSequence || !revision.value?.id)
+        throw new Error('编辑准备结果需要重新核实。');
+      return { title: '页面编辑已准备', lines: ['尚未发布业务配置。'] };
+    },
+    async lookup() {
+      const moduleAlias = props.moduleAlias;
+      await loadWorkspace();
+      if (moduleAlias !== props.moduleAlias || !revision.value?.id) return;
+      return { title: '页面编辑已准备', lines: ['已重新读取服务端草稿，尚未发布业务配置。'] };
+    },
+  };
+}
+async function preparePagePublication(signal: AbortSignal): Promise<AssistantOperationProposal> {
+  const problem = assistantEditingProblem();
+  if (problem || !hasPendingChanges.value)
+    throw new AssistantCapabilityUsageError(problem ?? '没有待生效的更改。');
+  const fingerprint = pageCandidateFingerprint();
+  const command = pagePublicationCommand(() => {});
+  const preview = await previewAssistantPage(signal);
+  if (!preview.valid || fingerprint !== pageCandidateFingerprint())
+    throw new AssistantCapabilityUsageError(preview.errors.join('；') || '候选已变化，请重新预检。');
+  const current = () =>
+    assistantActive && fingerprint === pageCandidateFingerprint() && !assistantEditingProblem();
+  return {
+    presentation: {
+      title: '确认页面配置',
+      lines: candidateChanges.value.length
+        ? [...candidateChanges.value]
+        : ['将当前已保存草稿发布到业务页面。'],
+    },
+    confirmLabel: '确认保存并生效',
+    expiresAt: Date.now() + 300_000,
+    isCurrent: current,
+    async execute() {
+      if (!current()) throw new AssistantOperationRejectedError('页面候选已变化，请重新预检。');
+      const result = await publishComposition();
+      if (!result) throw new AssistantOperationRejectedError('页面当前不能发布，请核实校验结果。');
+      return result;
+    },
+    lookup: command.lookup,
+  };
+}
 function clearPageAssistant() {
   unregisterAssistant?.();
   unregisterAssistant = undefined;
 }
 function syncPageAssistant() {
-  clearPageAssistant();
-  if (!assistantHost || !assistantActive || !assistantPageKey || isMutating.value) return;
+  if (
+    unregisterAssistant ||
+    !assistantHost ||
+    !assistantActive ||
+    !assistantPageKey ||
+    isMutating.value ||
+    catalogueRefreshPending.value
+  )
+    return;
   unregisterAssistant = assistantHost.registry.register({
     pageInstanceKey: assistantPageKey,
+    settle: (signal) =>
+      waitForConfigurationEditor(() => !isMutating.value && !catalogueRefreshPending.value, signal),
     contextRevision: () => `${props.moduleAlias}:${assistantRevision.value}`,
     surface: createPageCompositionAssistantSurface(
       {
         describe: assistantPageDescription,
         candidate: assistantPageCandidate,
+        relations: assistantRelationCatalog,
         prepare: prepareAssistantPage,
         preview: previewAssistantPage,
+        prepareEditing: preparePageEditing,
+        prepareConfirmation: preparePagePublication,
       },
       createAssistantTurnRequester(moduleContext.http),
       () => assistantHost.capabilities?.() ?? [],
@@ -3035,6 +3222,8 @@ watch(
       revision.value,
       variant.value,
       metadataFields.value,
+      metadataRelations.value,
+      [...childMetadataFields.value],
       [...referenceFieldDirectories.value],
       searchableFields.value,
       skeleton.value,
@@ -3052,7 +3241,7 @@ watch(
   },
   { flush: 'sync' },
 );
-watch(isMutating, syncPageAssistant);
+watch([isMutating, catalogueRefreshPending], syncPageAssistant);
 onMounted(activatePageAssistant);
 onActivated(activatePageAssistant);
 onDeactivated(() => {

@@ -96,7 +96,7 @@ UI adapter 的职责不是重写成熟 UI 库。下拉菜单、模态框、抽�
 
 记录与配置抽屉使用统一纵向骨架：header 只承载标题、状态和关闭；body 独立滚动；所有业务操作进入固定“操作区域”（`operation` 插槽），包括查看态的编辑、删除、刷新以及编辑态的取消、保存、确认。纯查看态可按页面语义允许点击外部关闭，编辑、创建和配置态默认不允许。
 
-业务只在 `operation` 中声明操作事实；`DrawerOperationBar` 统一按钮对齐、主操作顺序和窄屏布局。`RecordDetailDrawer` 与 `RecordModeDrawer` 仅受控暴露 `width`、`scope`，默认分别为 `520` 与 `tab`；需要覆盖浏览器窗口时，业务必须显式声明 `scope="viewport"`。
+业务只在 `operation` 中声明操作事实；`DrawerOperationBar` 统一按钮对齐、主操作顺序和窄屏布局。`RecordDetailDrawer` 与 `RecordModeDrawer` 仅受控暴露 `width`、`scope`，默认分别为 `520` 与 `tab`；需要覆盖浏览器窗口时，业务必须显式声明 `scope="viewport"`。标准模块宿主根据可执行关联描述为含明细的记录选择 `extraWide`，普通表单保留 `standard`，查看与编辑使用同一宽度；显式定制抽屉仍按其宽度声明。标准业务入口和已发布业务预览共用此规则，实际宽度受工作区可用空间约束。
 
 具备稳定对象身份的内容应声明为**工作视图**，而非“抽屉任务”或“Tab 页面”。工作视图定义唯一的类型、可序列化稳定输入、恢复校验和允许的承载方式；`drawer` 与 `tab` 只是同一视图实例的表现。平台注册表负责 URL、输入校验、按参数去重、激活页签和恢复，重复类型必须启动失败。`WorkspaceViewOutlet` 为两种承载提供统一宿主事实和关闭语义：URL 恢复 `drawer` 时，视图在当前 tab 的 `UiSidePanelHost` 中呈现；关闭后由宿主回到去除工作视图参数的普通路由。业务不得临时拼接路由，也不得把承载方式编码为另一套业务页面。
 

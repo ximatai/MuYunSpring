@@ -21,11 +21,14 @@ export function createConfigurationCollaboration() {
     const value = input as Record<string, unknown>;
     if (
       Object.keys(value).some((key) => !(starting ? ['goal', 'mode'] : ['mode']).includes(key)) ||
-      (value.mode !== 'conversation' && value.mode !== 'visual') ||
+      (value.mode !== 'conversation' && value.mode !== 'visual' && !(starting && value.mode === undefined)) ||
       (starting && (typeof value.goal !== 'string' || !value.goal.trim() || value.goal.length > 200))
     )
       throw new AssistantCapabilityUsageError('请提供配置目标和有效的协作方式');
-    return { mode: value.mode as AssistantConfigurationTask['mode'], goal: String(value.goal ?? '').trim() };
+    return {
+      mode: (value.mode ?? 'visual') as AssistantConfigurationTask['mode'],
+      goal: String(value.goal ?? '').trim(),
+    };
   }
   function capabilities(): AssistantCapability[] {
     const starting = !task.value;
@@ -35,12 +38,12 @@ export function createConfigurationCollaboration() {
         descriptor: {
           code: starting ? 'configuration.start-task' : 'configuration.switch-mode',
           description: starting
-            ? 'Start the current configuration task after understanding the goal and the user has chosen conversation or visual collaboration. If not already explicit, ask once with assistant.present-selection. Never choose for the user. This preference lasts for the whole task, across modules and turns. Does not save configuration or open a page.'
+            ? 'Start the current configuration task after understanding the goal. Default to visual collaboration unless the user prefers conversation-only; do not ask users to choose technical modes. In visual collaboration open the shared editor to show complex changes, then offer confirmation in this conversation. This preference lasts for the whole task, across modules and turns. Does not save configuration or open a page.'
             : 'Change the current task collaboration mode ONLY when the user explicitly requests a switch. Keep the goal and all configuration candidates. Never switch because navigation changed or a capability is unavailable; explain limitations and ask first. Does not save or open a page.',
           inputSchema: {
             type: 'object',
             additionalProperties: false,
-            required: starting ? ['goal', 'mode'] : ['mode'],
+            required: starting ? ['goal'] : ['mode'],
             properties: {
               mode: { type: 'string', enum: ['conversation', 'visual'] },
               ...(starting ? { goal: { type: 'string', minLength: 1, maxLength: 200 } } : {}),
@@ -89,10 +92,9 @@ export function createConfigurationCollaboration() {
         if (!task.value) return capability.effect === 'read' && !capability.propose;
         if (task.value.mode === 'conversation') return capability.effect !== 'page';
         return (
-          !capability.propose &&
-          (capability.effect !== 'configuration-draft' ||
-            editorVisible ||
-            capability.descriptor.code === 'configuration.discard-metadata-draft')
+          capability.effect !== 'configuration-draft' ||
+          editorVisible ||
+          capability.descriptor.code === 'configuration.discard-metadata-draft'
         );
       })
       .map((capability) => {
@@ -116,6 +118,14 @@ export function createConfigurationCollaboration() {
         } satisfies AssistantCapability;
       });
   }
-  return { task, revision, restore, capabilities, filter };
+  function filterConstruction(capabilities: AssistantCapability[]) {
+    return capabilities.flatMap((capability) => {
+      if (capability.descriptor.code !== 'construction.prepare-page') return [capability];
+      // The headless page workspace is not yet available. Keep the existing bounded publisher
+      // only for an explicit conversation-only task; visual work uses the shared page candidate.
+      return task.value?.mode === 'conversation' ? filter([capability]) : [];
+    });
+  }
+  return { task, revision, restore, capabilities, filter, filterConstruction };
 }
 export type ConfigurationCollaboration = ReturnType<typeof createConfigurationCollaboration>;

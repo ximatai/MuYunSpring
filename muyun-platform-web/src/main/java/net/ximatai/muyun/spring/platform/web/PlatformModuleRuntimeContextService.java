@@ -503,7 +503,9 @@ public class PlatformModuleRuntimeContextService {
                 .filter(field -> field.fieldRef().relationCode() == null)
                 .map(field -> new ModuleMutationFieldValidation(null, field.fieldRef().fieldName(),
                         Boolean.TRUE.equals(field.readOnly().constant()),
-                        Boolean.TRUE.equals(field.required().constant()) || isRequired(mainEntity, field.fieldRef().fieldName())))
+                        !Boolean.TRUE.equals(field.readOnly().constant())
+                                && (Boolean.TRUE.equals(field.required().constant())
+                                    || isRequired(mainEntity, field.fieldRef().fieldName()))))
                 .toList();
         String versionKey = "dynamic-runtime-" + dynamicRecordService.runtimeRevision(moduleAlias)
                 + "-page-" + publishedPage.revision().getId()

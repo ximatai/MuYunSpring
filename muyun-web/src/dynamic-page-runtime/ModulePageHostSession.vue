@@ -21,6 +21,7 @@ import {
 } from '@muyun/web-core';
 import type { StandardModulePageDescriptor } from '@muyun/web-contracts';
 import { RecordPanelButton, RecordPanelState, type QueryListRecord } from '@muyun/platform-components';
+import { usePageDataChange } from '../platform-admin-runtime/pageRealtime';
 import ModulePageHostRuntime from './ModulePageHostRuntime.vue';
 import { assistantBusinessScopeKey } from './assistantBusinessScope';
 import ModulePageBusinessSession from './ModulePageBusinessSession';
@@ -49,6 +50,20 @@ const controlContext = useModuleContext<QueryListRecord>({
   moduleAlias: props.descriptor.target.moduleAlias,
 });
 const blocked = ref(false);
+const configurationChanged = ref(false);
+usePageDataChange({
+  moduleAlias: props.descriptor.target.moduleAlias,
+  predicate: (change) => change.type === 'module-page-configuration-changed',
+  handler: () => {
+    configurationChanged.value = true;
+    reloadConfigurationWhenIdle();
+  },
+});
+function reloadConfigurationWhenIdle() {
+  if (!configurationChanged.value || blocked.value) return;
+  configurationChanged.value = false;
+  startBusinessSession();
+}
 const tenantController = useTenantScopeController(controlContext, Boolean(props.recordOnly), blocked);
 const tenantScope = tenantController.selected;
 const inheritedAssistantScope = inject(assistantBusinessScopeKey, undefined);
@@ -104,6 +119,7 @@ function rejectSession(session: ModulePageSessionView, message: string) {
 function interactionChanged(state: { editing: boolean; busy: boolean; dirty?: boolean }) {
   blocked.value = state.editing || state.busy;
   emit('interaction-state-change', state);
+  reloadConfigurationWhenIdle();
 }
 function refreshList() {
   if (pending.value || failure.value) return;
@@ -224,7 +240,7 @@ function syncAssistantSurface() {
         assistantSurfaceSettlement = undefined;
         unregisterAssistantSurface = assistantHost.registry.register({
           pageInstanceKey,
-          conversationScopeKey: () => effectiveAssistantScope.value ?? '',
+          executionScopeKey: () => effectiveAssistantScope.value ?? '',
           settle: (signal) => session.settleAssistantPageState(signal),
           contextRevision: () => modulePageAssistantContextRevision(session),
           interactionRevision: () => modulePageAssistantInteractionRevision(session),
@@ -271,6 +287,9 @@ defineExpose({ refreshList, retry: startBusinessSession });
 </script>
 
 <template>
+  <p v-if="configurationChanged" role="status" class="module-page-configuration-status">
+    页面配置已更新，当前填写内容已保留。结束本次编辑后将加载新配置；保存时仍会校验配置版本。
+  </p>
   <ModulePageBusinessSession
     :key="generation"
     :descriptor="descriptor"

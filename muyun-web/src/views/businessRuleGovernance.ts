@@ -428,7 +428,14 @@ export function aggregateFieldInsertionReason(
   field: BusinessRuleReferenceField,
   expression: string,
   selectionStart: number,
+  childTargets: readonly string[] = [],
 ): string | undefined {
+  const assignment = /^\s*\{([^{}]+)\}\s*=(?!=)/.exec(expression);
+  const target = assignment?.[1]?.trim();
+  const onTarget = !assignment || selectionStart < assignment[0].length;
+  if (onTarget && childTargets.includes(field.name)) return undefined;
+  if (target && childTargets.includes(target) && target.split('.')[0] === field.name.split('.')[0])
+    return undefined;
   const allowed = field.aggregateFunctions;
   if (!allowed?.length) return undefined;
   const aggregate = enclosingAggregateFunction(expression, selectionStart);
@@ -513,6 +520,8 @@ export interface BusinessRuleSnapshot {
   referenceFields?: Array<{ path: string; title: string; valueType: string }>;
   /** Direct child fields, which may only appear within a child aggregation function. */
   aggregateFields?: BusinessRuleEditableField[];
+  /** Writable direct-child targets; never reference target fields. */
+  childFields?: BusinessRuleEditableField[];
   /** Additive portable function directory emitted by the server. */
   functions?: BusinessRuleFormulaCatalogEntry[];
   rules: BusinessRuleSnapshotRule[];
@@ -547,7 +556,17 @@ export interface BusinessRuleTrialResult {
   preview: BusinessRulePreview;
   values: Record<string, unknown>;
   changedFields: string[];
+  children?: Record<string, Record<string, unknown>[]>;
   errors: BusinessRuleIssue[];
+}
+
+export function businessRuleTrialValue(
+  result: Pick<BusinessRuleTrialResult, 'values' | 'children'>,
+  field: string,
+): unknown {
+  const dot = field.indexOf('.');
+  const rows = dot < 0 ? undefined : result.children?.[field.slice(0, dot)];
+  return rows ? rows.map((row) => row[field.slice(dot + 1)]) : result.values[field];
 }
 
 export interface BusinessRuleApplyResult {

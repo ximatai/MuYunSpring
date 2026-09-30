@@ -179,3 +179,22 @@ it('retries the failed conversation read without starting another conversation',
   expect(restore).toHaveBeenCalledOnce();
   expect(archive.readError.value).toBeUndefined();
 });
+
+it('does not leave a conversation while a construction confirmation has an unknown result', async () => {
+  const clear = vi.fn();
+  const read = vi.fn();
+  const archive = useAssistantConversationArchive(
+    { read, list: vi.fn(), save: vi.fn() },
+    () => ({ title: '建设', messages: [], history: [] }),
+    vi.fn(),
+    clear,
+    () => '先查询原确认结果',
+  );
+  archive.changeScope('scope');
+  await archive.open('other');
+  await archive.startNew();
+  archive.discardAndStartNew();
+  expect(read).not.toHaveBeenCalled();
+  expect(clear).not.toHaveBeenCalled();
+  expect(archive.saveError.value).toBe('先查询原确认结果');
+});

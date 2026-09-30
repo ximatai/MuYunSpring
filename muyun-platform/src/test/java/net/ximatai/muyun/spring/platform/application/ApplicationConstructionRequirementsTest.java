@@ -18,21 +18,22 @@ class ApplicationConstructionRequirementsTest {
                 List.of(new ApplicationConstructionPlanContent.BusinessObject("order", "订单", "登记")),
                 List.of(), List.of("订单号必填且不重复"), List.of(), List.of(), List.of(), List.of("实际录入"), requirements);
     }
-    private ApplicationConstructionRequirement scope() { return new ApplicationConstructionRequirement(Section.SCOPE, 0, "order", Mode.MANUAL, "", "用户实际录入核验，不是自动证明", null); }
+    private ApplicationConstructionRequirement scope() { return new ApplicationConstructionRequirement(Section.SCOPE, 0, "order", Mode.MANUAL, "", "由经办人联系客户确认交期", null); }
     @Test void missingAndUnsupportedRequirementsCannotBecomeCompletedByHavingAField() {
         assertThat(blocked(evaluate(content(null), "order", List.of()))).isTrue();
         var plan = content(List.of(scope(), new ApplicationConstructionRequirement(Section.RULE, 0, "order", Mode.UNSUPPORTED, "", "暂不支持，须商定范围", null)));
         assertThatThrownBy(() -> requireBuildable(plan, "order")).hasMessageContaining("分期范围");
         assertThat(blocked(evaluate(plan, "order", List.of(field("status", false, false))))).isTrue();
     }
-    @Test void actualConstraintsAreEvidenceAndManualChecksNeverBecomeAutomaticProof() {
+    @Test void actualConstraintsAndAgreedHumanResponsibilitiesAreSeparateEvidence() {
         var plan = content(List.of(scope(), new ApplicationConstructionRequirement(Section.RULE, 0, "order", Mode.REQUIRED, "number", "必填", null),
                 new ApplicationConstructionRequirement(Section.RULE, 0, "order", Mode.UNIQUE, "number", "防重复", null)));
         requireBuildable(plan, "order");
         assertThat(missingConfiguration(evaluate(plan, "order", List.of(field("number", true, false))))).isTrue();
         var evidence = evaluate(plan, "order", List.of(field("number", true, true)));
         assertThat(missingConfiguration(evidence)).isFalse();
-        assertThat(evidence).extracting(Evidence::status).containsExactly(Status.MANUAL_CHECK_REQUIRED, Status.CONFIGURATION_MATCHED, Status.CONFIGURATION_MATCHED);
+        assertThat(blocked(evidence)).isFalse();
+        assertThat(evidence).extracting(Evidence::status).containsExactly(Status.MANUAL_RESPONSIBILITY, Status.CONFIGURATION_MATCHED, Status.CONFIGURATION_MATCHED);
         assertThat(missingConfiguration(evaluate(plan, "order", List.of()))).isTrue();
     }
     @Test void mappingsAreBoundToTheActualRevisionClausesAndObjects() {
@@ -56,6 +57,23 @@ class ApplicationConstructionRequirementsTest {
         assertThat(missingConfiguration(evaluate(plan, "contract", fields, java.util.Map.of("customerId", "crm.customer"),
                 java.util.Map.of("customer", "crm.customer")))).isFalse();
         assertThatThrownBy(() -> new Reference("customer", "crm.customer")).hasMessageContaining("之一");
+    }
+
+    @Test void detailAndCalculationChecksCannotBeSatisfiedBySameNamedMainFields() {
+        var plan = content(List.of(scope(),
+                new ApplicationConstructionRequirement(Section.RULE, 0, "order", Mode.CALCULATION, "lines.amount", "保存计算后试算核验", null)));
+        var mainFields = List.of(field("amount", false, false));
+        assertThat(missingConfiguration(evaluate(plan, "order", mainFields))).isTrue();
+        var childFields = java.util.Map.of("lines.amount", field("amount", false, false));
+        assertThat(missingConfiguration(evaluate(plan, "order", mainFields, java.util.Map.of(), java.util.Map.of(), childFields,
+                java.util.Set.of("lines"), java.util.Set.of()))).isTrue();
+        assertThat(missingConfiguration(evaluate(plan, "order", mainFields, java.util.Map.of(), java.util.Map.of(), childFields,
+                java.util.Set.of("lines"), java.util.Set.of("lines.amount")))).isFalse();
+        childFields.get("lines.amount").setEnabled(false);
+        assertThat(missingConfiguration(evaluate(plan, "order", mainFields, java.util.Map.of(), java.util.Map.of(), childFields,
+                java.util.Set.of("lines"), java.util.Set.of("lines.amount")))).isTrue();
+        assertThatThrownBy(() -> new ApplicationConstructionRequirement(Section.RULE, 0, "order", Mode.CALCULATION,
+                "lines.product.price", "不能将引用路径作为子表计算目标", null)).isInstanceOf(IllegalArgumentException.class);
     }
 
 }

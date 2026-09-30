@@ -33,6 +33,41 @@ import static org.mockito.Mockito.doAnswer;
 
 class AssistantTurnServiceTest {
     @Test
+    void failureDiagnosticsClassifyLimitsWithoutLoggingUntrustedMessages() {
+        assertThat(AssistantTurnService.diagnosticFailureReason(new PlatformException("模型响应被截断，请缩短描述后重试")))
+                .isEqualTo("output-truncated");
+        assertThat(AssistantTurnService.diagnosticFailureReason(new PlatformException("AI model response body timed out")))
+                .isEqualTo("response-timeout");
+        assertThat(AssistantTurnService.diagnosticFailureReason(new PlatformException("private provider payload")))
+                .isEqualTo("unclassified");
+    }
+
+    @Test
+    void summaryRequestExposesNoToolsAndRejectsProviderToolCalls() {
+        AiModelGateway gateway = mock(AiModelGateway.class);
+        var service = new AssistantTurnService(gateway, new ObjectMapper());
+        var command = new AssistantTurnCommand("检查业务", List.of(), Map.of(),
+                List.of(new AiToolDefinition("page.read", "Read", Map.of())),
+                List.of(new AssistantCapabilityResult("read", "page.read", Map.of(), "read", Map.of("title", "当前业务"), null, null)), null,
+                new AssistantTurnCommand.ExecutionBudget("summary", 9, 8, 12));
+        when(gateway.complete(org.mockito.ArgumentMatchers.any())).thenReturn(
+                new AiTurnResponse("已查到部分内容", List.of(), "stop", "summary"));
+        try (var ignored = CurrentUserContext.use(CurrentUser.systemUser("system", "System"))) {
+            service.turn(command);
+            var request = ArgumentCaptor.forClass(AiTurnRequest.class);
+            verify(gateway).complete(request.capture());
+            assertThat(request.getValue().tools()).isEmpty();
+            assertThat(request.getValue().messages().getFirst().content()).contains("No tools are available")
+                    .doesNotContain("Use only declared capabilities");
+            assertThat(request.getValue().messages().getLast().content()).contains("executionBudget", "summary", "observations", "当前业务");
+            assertThat(request.getValue().messages()).noneMatch(message -> message.role() == AiChatMessage.Role.TOOL);
+            when(gateway.complete(org.mockito.ArgumentMatchers.any())).thenReturn(
+                    new AiTurnResponse("", List.of(new AiToolCall("call", "page.read", Map.of())), "tool_calls", "invalid"));
+            assertThatThrownBy(() -> service.turn(command)).hasMessageContaining("undeclared");
+        }
+    }
+
+    @Test
     void acceptsTheComposedCapabilityBudgetAndPreservesAllTools() {
         AiModelGateway gateway = mock(AiModelGateway.class);
         when(gateway.complete(org.mockito.ArgumentMatchers.any())).thenReturn(
@@ -46,6 +81,7 @@ class AssistantTurnServiceTest {
         ArgumentCaptor<AiTurnRequest> request = ArgumentCaptor.forClass(AiTurnRequest.class);
         verify(gateway).complete(request.capture());
         assertThat(request.getValue().tools()).hasSize(65);
+        assertThat(request.getValue().maxOutputTokens()).isNull();
     }
 
     @Test
@@ -60,10 +96,9 @@ class AssistantTurnServiceTest {
         ArgumentCaptor<AiTurnRequest> request = ArgumentCaptor.forClass(AiTurnRequest.class);
         verify(gateway).complete(request.capture());
         assertThat(request.getValue().maxOutputTokens()).isEqualTo(4_096);
-        assertThatThrownBy(() -> new AssistantTurnService(gateway, new ObjectMapper(), 0))
+        assertThatThrownBy(() -> new AssistantTurnService(gateway, new ObjectMapper(), -1))
                 .isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> new AssistantTurnService(gateway, new ObjectMapper(), 32_769))
-                .isInstanceOf(IllegalArgumentException.class);
+
     }
 
     @Test

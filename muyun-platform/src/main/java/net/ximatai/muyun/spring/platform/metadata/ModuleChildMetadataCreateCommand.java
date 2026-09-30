@@ -5,5 +5,9 @@ public record ModuleChildMetadataCreateCommand(
         String alias,
         String title,
         String schemaName,
-        String tableName) {
+        String tableName,
+        String requestId) {
+    public ModuleChildMetadataCreateCommand(String alias, String title, String schemaName, String tableName) {
+        this(alias, title, schemaName, tableName, null);
+    }
 }

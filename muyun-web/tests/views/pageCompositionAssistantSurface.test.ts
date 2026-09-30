@@ -14,6 +14,8 @@ function fixture(): PageCompositionCandidateState {
   const note = { id: 'note-id', fieldName: 'note', title: '备注' };
   const system = { id: 'system-id', fieldName: 'createdAt', title: '创建时间', platformReadOnly: true };
   return {
+    relations: [],
+    availableRelations: [],
     list: [{ ...title, properties: { label: '人工标题', width: '180px' } }],
     form: {
       fields: [title],
@@ -85,6 +87,104 @@ describe('template constrained page candidates', () => {
     expect(() => parsePageCompositionCandidateInput(input)).toThrow();
   });
 
+  it('prepares child layouts from their own directories, preserving manual properties and omitted layouts', () => {
+    const current = fixture();
+    const line = {
+      id: 'lines',
+      relationCode: 'lines',
+      title: '明细',
+      fields: [
+        { id: 'quantity', fieldName: 'quantity', title: '数量' },
+        { id: 'subtotal', fieldName: 'subtotal', title: '小计', platformReadOnly: true },
+      ],
+    };
+    current.availableRelations = [line];
+    current.relations = [
+      {
+        ...line,
+        title: '人工标题',
+        fields: [{ ...line.fields[0]!, properties: { width: '90px', label: '购买数量' } }],
+      },
+    ];
+    const before = JSON.stringify(current);
+    const result = preparePageCompositionCandidate(
+      current,
+      parsePageCompositionCandidateInput({
+        relations: [
+          {
+            relationCode: 'lines',
+            fields: [{ fieldName: 'subtotal' }, { fieldName: 'quantity', properties: { align: 'right' } }],
+          },
+        ],
+      }),
+    );
+    expect(result.relations[0]!.title).toBe('人工标题');
+    expect(result.relations[0]!.fields[1]!.properties).toEqual({
+      width: '90px',
+      label: '购买数量',
+      align: 'right',
+    });
+    expect(result.form).toBe(current.form);
+    expect(preparePageCompositionCandidate(current, { list: [] }).relations).toBe(current.relations);
+    expect(preparePageCompositionCandidate(current, { relations: [] }).relations).toEqual([]);
+    for (const relation of [
+      { relationCode: 'invented', fields: [{ fieldName: 'quantity' }] },
+      { relationCode: 'lines', fields: [{ fieldName: 'title' }] },
+    ])
+      expect(() => preparePageCompositionCandidate(current, { list: [], relations: [relation] })).toThrow();
+    expect(JSON.stringify(current)).toBe(before);
+  });
+
+  it.each([
+    { relations: [{ relationCode: 'lines', fields: [] }] },
+    {
+      relations: [
+        { relationCode: 'lines', fields: [{ fieldName: 'quantity', properties: { readOnly: false } }] },
+      ],
+    },
+    {
+      relations: [{ relationCode: 'lines', fields: [{ fieldName: 'quantity' }, { fieldName: 'quantity' }] }],
+    },
+    { relations: [{ relationCode: 'lines', fields: [{ fieldName: 'quantity' }], metadataId: 'invented' }] },
+    {
+      relations: [
+        { relationCode: 'lines', fields: [{ fieldName: 'quantity' }] },
+        { relationCode: 'lines', fields: [{ fieldName: 'quantity' }] },
+      ],
+    },
+  ])('rejects invalid child layouts without accepting metadata commands: %j', (input) => {
+    expect(() => parsePageCompositionCandidateInput(input)).toThrow();
+  });
+
+  it('describes child field changes and display removal without implying data deletion', () => {
+    const before = JSON.stringify({
+      nodes: [{ slot: 'form', relations: [{ relation: 'lines', title: '明细', fields: ['quantity'] }] }],
+    });
+    const changed = JSON.stringify({
+      nodes: [
+        {
+          slot: 'form',
+          relations: [
+            {
+              relation: 'lines',
+              title: '明细',
+              fields: [{ field: 'quantity', props: { label: '购买数量' } }],
+            },
+          ],
+        },
+      ],
+    });
+    const title = (name: string) => (name === 'lines.quantity' ? '数量' : name);
+    expect(pageCompositionChangeLines(before, changed, title).join(' ')).toContain('数量（标题：购买数量）');
+    expect(
+      pageCompositionChangeLines(
+        before,
+        JSON.stringify({ nodes: [{ slot: 'form', relations: [] }] }),
+        title,
+      ).join(' '),
+    ).toContain('移除展示（不删除数据）');
+  });
+
   it('compares manual presentation changes and removal against the saved revision', () => {
     const before = JSON.stringify({
       nodes: [{ slot: 'list', fields: ['title', 'note'] }],
@@ -96,6 +196,9 @@ describe('template constrained page candidates', () => {
     });
     expect(pageCompositionChangeLines(before, after).join('\n')).toContain('人工标题');
     expect(pageCompositionChangeLines(before, after).join('\n')).toContain('快速查询：title → 无');
+    expect(
+      pageCompositionChangeLines(before, after, (name) => (name === 'title' ? '名称' : name)).join('\n'),
+    ).toContain('快速查询：名称 → 无');
   });
 
   it('exposes only local candidate effects and rejects a stale preview result', async () => {

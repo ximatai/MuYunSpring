@@ -103,6 +103,52 @@ describe('ModulePageHost', () => {
     window.localStorage.removeItem('muyun.preference.module-page.list-page-size.crm.customer');
   });
 
+  it.each(['STATIC', 'DYNAMIC'])(
+    'gives %s relation forms a stable wide drawer without changing simple forms',
+    async (moduleKind) => {
+      let relations: object[] = [];
+      globalThis.fetch = async () =>
+        Response.json({
+          moduleAlias: 'crm.customer',
+          moduleKind,
+          capabilities: [],
+          actions: [{ actionCode: 'create', authorized: true }],
+          uiDescriptor: { moduleAlias: 'crm.customer', page: page(), detailRelations: relations },
+        });
+      configureModuleContext({ httpFactory: () => createHttpClient({ baseUrl: 'http://api.local' }) });
+      window.localStorage.setItem(
+        'muyun.preference.module-page.detail-surface.crm.customer',
+        JSON.stringify('drawer'),
+      );
+      for (const [detailRelations, expectedWidth] of [
+        [[], 'standard'],
+        [[embeddedRelation('lines', 'line', 'amount')], 'extraWide'],
+        [[{ ...embeddedRelation('lines', 'line', 'amount'), visible: { constant: false } }], 'standard'],
+      ] as const) {
+        relations = [...detailRelations];
+        const wrapper = shallowMount(ModulePageHost, {
+          global: { stubs: { ManagementWorkspace: { template: '<section><slot /></section>' } } },
+          props: {
+            descriptor: {
+              pageType: 'dynamic-module',
+              openMode: 'dynamic-runner',
+              hostType: 'module-page-host',
+              tabPolicy: { identity: 'by-menu' },
+              target: { moduleAlias: 'crm.customer', pageMode: 'LIST' },
+            },
+          },
+        });
+        await flushPromises();
+        const drawer = wrapper.findComponent({ name: 'RecordModeDrawer' });
+        expect(drawer.props('width')).toBe(expectedWidth);
+        wrapper.findComponent({ name: 'RecordQueryListPanel' }).vm.$emit('action', { key: 'create' });
+        await flushPromises();
+        expect(drawer.props('width')).toBe(expectedWidth);
+        wrapper.unmount();
+      }
+    },
+  );
+
   it.each(['FLAT_MANAGEMENT', 'LIST_DETAIL_CARD', 'TREE_MANAGEMENT'] as const)(
     'routes %s navigator interaction through PageNavigatorExplorer',
     async (template) => {

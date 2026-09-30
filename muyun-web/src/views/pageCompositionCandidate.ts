@@ -2,6 +2,7 @@ import type {
   PageComposerField,
   PageComposerFieldProperties,
   PageComposerLayout,
+  PageComposerRelation,
 } from './pageCompositionDraftState';
 import { orderedFormItems } from './pageCompositionDraftState';
 
@@ -9,6 +10,12 @@ export interface PageCompositionCandidateInput {
   list?: Array<{ fieldName: string; properties?: PageComposerFieldProperties }>;
   form?: Array<{ fieldName: string; properties?: PageComposerFieldProperties }>;
   detail?: Array<{ fieldName: string; properties?: PageComposerFieldProperties }>;
+  /** Supplied relations replace the complete child layout; omission preserves it. */
+  relations?: Array<{
+    relationCode: string;
+    title?: string;
+    fields: Array<{ fieldName: string; properties?: PageComposerFieldProperties }>;
+  }>;
   quickSearchFields?: string[];
 }
 export interface PageCompositionCandidateState {
@@ -20,6 +27,8 @@ export interface PageCompositionCandidateState {
   quickSearchFields: string[];
   fields: PageComposerField[];
   searchableFields: string[];
+  relations: PageComposerRelation[];
+  availableRelations: PageComposerRelation[];
 }
 
 /** Resolve every source and placement before mutating the shared editor. */
@@ -36,12 +45,13 @@ export function preparePageCompositionCandidate(
     items: NonNullable<PageCompositionCandidateInput['list']>,
     previous: PageComposerField[],
     layout?: PageComposerLayout,
+    directory = fields,
   ) => {
     const grouped = new Set(
       layout?.groups.flatMap((group) => group.fields.map((field) => field.fieldName)) ?? [],
     );
     return items.map(({ fieldName, properties }) => {
-      const source = fields.get(fieldName);
+      const source = directory.get(fieldName);
       if (!source) throw new Error(`Field is unavailable: ${fieldName}`);
       if (grouped.has(fieldName)) throw new Error(`Field already belongs to a group: ${fieldName}`);
       if (layout && source.platformReadOnly && properties?.readOnly === false)
@@ -70,7 +80,31 @@ export function preparePageCompositionCandidate(
     input.quickSearchFields?.some((field) => !fields.has(field) || !current.searchableFields.includes(field))
   )
     throw new Error('Quick search contains an unavailable or non-searchable field');
+  const availableRelations = new Map(
+    current.availableRelations
+      .filter((relation) => !relation.unavailable && !relation.pending)
+      .map((relation) => [relation.relationCode, relation]),
+  );
+  const relations =
+    input.relations?.map((inputRelation) => {
+      const source = availableRelations.get(inputRelation.relationCode);
+      if (!source) throw new Error(`Child relation is unavailable: ${inputRelation.relationCode}`);
+      const previous = current.relations.find(
+        (relation) => relation.relationCode === inputRelation.relationCode,
+      );
+      const directory = new Map(
+        source.fields
+          .filter((field) => !field.unavailable && !field.pending)
+          .map((field) => [field.fieldName, field]),
+      );
+      return {
+        ...source,
+        title: inputRelation.title ?? previous?.title ?? source.title,
+        fields: resolve(inputRelation.fields, previous?.fields ?? [], undefined, directory),
+      };
+    }) ?? current.relations;
   return {
+    relations,
     list: input.list ? resolve(input.list, current.list) : current.list,
     form: layout(current.form, input.form),
     detail: layout(current.detail, input.detail),
@@ -79,7 +113,11 @@ export function preparePageCompositionCandidate(
 }
 
 /** Compare template declarations, including manual edits, without exposing arbitrary UI JSON to the model. */
-export function pageCompositionChangeLines(before: string | undefined, after: string): string[] {
+export function pageCompositionChangeLines(
+  before: string | undefined,
+  after: string,
+  fieldTitle: (name: string) => string = (name) => name,
+): string[] {
   if (!before || before === after) return [];
   try {
     const previous = JSON.parse(before);
@@ -90,12 +128,15 @@ export function pageCompositionChangeLines(before: string | undefined, after: st
       const oldNode = previous.nodes?.find((node: { slot: string }) => node.slot === slot);
       const newNode = current.nodes?.find((node: { slot: string }) => node.slot === slot);
       if (JSON.stringify(oldNode) === JSON.stringify(newNode)) continue;
-      const display = (node: { fields?: Array<string | { field: string; props?: unknown }> } | undefined) =>
+      const display = (
+        node: { fields?: Array<string | { field: string; props?: unknown }> } | undefined,
+        prefix = '',
+      ) =>
         node?.fields
           ?.map((field) =>
             typeof field === 'string'
-              ? field
-              : `${field.field}（${Object.entries(field.props ?? {})
+              ? fieldTitle(prefix + field)
+              : `${fieldTitle(prefix + field.field)}（${Object.entries(field.props ?? {})
                   .map(
                     ([key, value]) =>
                       `${({ label: '标题', width: '列宽', align: '对齐', columnSpan: '占列', readOnly: '只读', fieldUiControlAlias: '控件' } as Record<string, string>)[key] ?? key}：${String(value)}`,
@@ -106,12 +147,31 @@ export function pageCompositionChangeLines(before: string | undefined, after: st
       lines.push(`${labels[slot]}：${display(oldNode)} → ${display(newNode)}`);
       if (JSON.stringify(oldNode?.groups) !== JSON.stringify(newNode?.groups))
         lines.push(`${labels[slot]}分组已调整。`);
-      if (JSON.stringify(oldNode?.relations) !== JSON.stringify(newNode?.relations))
-        lines.push(`${labels[slot]}关联区域已调整。`);
+      if (JSON.stringify(oldNode?.relations) !== JSON.stringify(newNode?.relations)) {
+        const order = (node: typeof oldNode) =>
+          (node?.relations ?? [])
+            .map((relation: { relation: string; title?: string }) => relation.title ?? relation.relation)
+            .join('、') || '无';
+        if (order(oldNode) !== order(newNode)) lines.push(`明细排列：${order(oldNode)} → ${order(newNode)}`);
+        for (const code of new Set<string>(
+          [...(oldNode?.relations ?? []), ...(newNode?.relations ?? [])].map((relation) => relation.relation),
+        )) {
+          const oldRelation = oldNode?.relations?.find(
+            (relation: { relation: string }) => relation.relation === code,
+          );
+          const newRelation = newNode?.relations?.find(
+            (relation: { relation: string }) => relation.relation === code,
+          );
+          if (JSON.stringify(oldRelation) !== JSON.stringify(newRelation))
+            lines.push(
+              `明细“${newRelation?.title ?? oldRelation?.title ?? code}”：${oldRelation ? display(oldRelation, code + '.') : '未展示'} → ${newRelation ? display(newRelation, code + '.') : '移除展示（不删除数据）'}`,
+            );
+        }
+      }
     }
     if (JSON.stringify(previous.quickSearchFields) !== JSON.stringify(current.quickSearchFields))
       lines.push(
-        `快速查询：${(previous.quickSearchFields ?? []).join('、') || '无'} → ${(current.quickSearchFields ?? []).join('、') || '无'}`,
+        `快速查询：${(previous.quickSearchFields ?? []).map(fieldTitle).join('、') || '无'} → ${(current.quickSearchFields ?? []).map(fieldTitle).join('、') || '无'}`,
       );
     if (JSON.stringify(previous.actions) !== JSON.stringify(current.actions))
       lines.push('页面动作展示已调整。');

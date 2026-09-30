@@ -33,6 +33,20 @@ class BusinessRuleFormProjectionTest {
                         FormulaRuleKind.CALCULATION, FormulaRulePhase.BEFORE_SAVE, "contractAmount")
         )).defaultEditor();
 
+        var serverDescriptor = BusinessRuleFormProjection.projectLenient(descriptor, List.of(
+                new FormulaRule("contractAmountSum", "{contractAmount} = SUM({lines.lineAmount})",
+                        FormulaRuleKind.CALCULATION, FormulaRulePhase.BEFORE_SAVE, "contractAmount"),
+                new FormulaRule("lineAmount", "10", FormulaRuleKind.CALCULATION,
+                        FormulaRulePhase.BEFORE_SAVE, "lines.lineAmount")));
+        var serverOnly = serverDescriptor.defaultEditor();
+        assertThat(serverOnly.formComputeRules()).isEmpty();
+        assertThat(serverOnly.fields().getFirst().readOnly().constant()).isTrue();
+        assertThat(serverOnly.fields().getFirst().readOnly().disabledHint()).contains("保存时自动计算");
+        var childOutput = serverDescriptor.editorContributions().getFirst().editor().fields().getFirst();
+        assertThat(childOutput.readOnly().constant()).isTrue();
+        assertThat(childOutput.required().constant()).isFalse();
+        assertThat(childOutput.readOnly().disabledHint()).contains("保存时自动计算");
+
         assertThat(projected.formComputeRules()).singleElement().satisfies(rule -> {
             assertThat(rule.code()).isEqualTo("contractAmountSum");
             assertThat(rule.triggerFields()).containsExactly("lines.lineAmount");
@@ -40,6 +54,31 @@ class BusinessRuleFormProjectionTest {
         });
         assertThat(projected.fields()).singleElement().satisfies(field ->
                 assertThat(field.readOnly().constant()).isTrue());
+    }
+
+    @Test
+    void preservesManualInputsForConditionalSelfDependentDisabledAndConflictingWriters() {
+        for (ModuleKind kind : List.of(ModuleKind.STATIC, ModuleKind.DYNAMIC)) {
+            var editor = new ResolvedViewDescriptor("editor", ModuleViewKind.FORM, ModuleUiClientType.WEB, null,
+                    List.of(field("amount"), field("guarded"), field("manual"), field("disabled"), field("conflict")));
+            var descriptor = new ResolvedModuleUiDescriptor(null, "sales.contract", kind, "合同", List.of(),
+                    null, List.of(), null, editor, List.of(), List.of(), List.of());
+            var projected = BusinessRuleFormProjection.projectLenient(descriptor, List.of(
+                    new FormulaRule("amount", "{amount} = {customer.credit}"),
+                    new FormulaRule("guarded", "{guarded} = 10 WHEN {enabled}"),
+                    new FormulaRule("manual", "{manual} = {manual} * 2"),
+                    new FormulaRule("disabled", "{disabled} = 10", false),
+                    new FormulaRule("conflict1", "{conflict} = {hidden}"),
+                    new FormulaRule("conflict2", "{conflict} = 10 WHEN {enabled}")
+            )).defaultEditor();
+            assertThat(projected.formComputeRules()).isEmpty();
+            assertThat(projected.fields().getFirst().readOnly().constant()).isTrue();
+            assertThat(projected.fields().getFirst().required().constant()).isFalse();
+            assertThat(projected.fields().subList(1, 5)).allSatisfy(field -> {
+                assertThat(field.readOnly().constant()).isFalse();
+                assertThat(field.required().constant()).isTrue();
+            });
+        }
     }
 
     private static ResolvedViewDescriptor form(String code, ResolvedViewFieldDescriptor field) {
@@ -55,7 +94,7 @@ class BusinessRuleFormProjectionTest {
     }
 
     private static ResolvedViewFieldDescriptor resolvedField(ViewFieldRef field) {
-        return new ResolvedViewFieldDescriptor(field, field.fieldName(), UiRule.constant(true), UiRule.constant(false),
+        return new ResolvedViewFieldDescriptor(field, field.fieldName(), UiRule.constant(true), UiRule.constant(true),
                 UiRule.constant(false), null, FieldValueType.DECIMAL, null, 1, null, null, null, null, null, null);
     }
 }

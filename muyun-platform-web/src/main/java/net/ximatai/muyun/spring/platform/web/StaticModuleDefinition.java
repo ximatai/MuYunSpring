@@ -23,6 +23,7 @@ public final class StaticModuleDefinition implements StaticModuleRegistration {
     private final String applicationAlias;
     private final String moduleAlias;
     private final String title;
+    private final String description;
     private final String parentModuleAlias;
     private final ModuleEntryType entryType;
     private final String entryRoute;
@@ -46,6 +47,7 @@ public final class StaticModuleDefinition implements StaticModuleRegistration {
     private StaticModuleDefinition(String applicationAlias,
                                    String moduleAlias,
                                    String title,
+                                   String description,
                                    String parentModuleAlias,
                                    ModuleEntryType entryType,
                                    String entryRoute,
@@ -100,6 +102,7 @@ public final class StaticModuleDefinition implements StaticModuleRegistration {
         this.applicationAlias = applicationAlias;
         this.moduleAlias = moduleAlias;
         this.title = title;
+        this.description = description == null || description.isBlank() ? null : description.trim();
         this.parentModuleAlias = parentModuleAlias;
         this.entryType = entryType;
         this.entryRoute = entryRoute;
@@ -125,6 +128,7 @@ public final class StaticModuleDefinition implements StaticModuleRegistration {
     public String applicationAlias() { return applicationAlias; }
     public String moduleAlias() { return moduleAlias; }
     public String title() { return title; }
+    public String description() { return description; }
     public String parentModuleAlias() { return parentModuleAlias; }
     public ModuleEntryType entryType() { return entryType; }
     public String entryRoute() { return entryRoute; }
@@ -149,6 +153,7 @@ public final class StaticModuleDefinition implements StaticModuleRegistration {
     public String getApplicationAlias() { return applicationAlias; }
     public String getModuleAlias() { return moduleAlias; }
     public String getTitle() { return title; }
+    public String getDescription() { return description; }
     public String getParentModuleAlias() { return parentModuleAlias; }
     public ModuleEntryType getEntryType() { return entryType; }
     public String getEntryRoute() { return entryRoute; }
@@ -176,6 +181,7 @@ public final class StaticModuleDefinition implements StaticModuleRegistration {
         return Objects.equals(applicationAlias, that.applicationAlias)
                 && Objects.equals(moduleAlias, that.moduleAlias)
                 && Objects.equals(title, that.title)
+                && Objects.equals(description, that.description)
                 && Objects.equals(parentModuleAlias, that.parentModuleAlias)
                 && entryType == that.entryType
                 && Objects.equals(entryRoute, that.entryRoute)
@@ -199,7 +205,7 @@ public final class StaticModuleDefinition implements StaticModuleRegistration {
 
     @Override
     public int hashCode() {
-        return Objects.hash(applicationAlias, moduleAlias, title, parentModuleAlias, entryType, entryRoute,
+        return Objects.hash(applicationAlias, moduleAlias, title, description, parentModuleAlias, entryType, entryRoute,
                 entryExternalUrl, capabilities, actions, actionInvocations, entities, uiDefinition, pageContextBindings, references, readProjections,
                 modelClass, sortPartitionFields, entityModelClasses, projectionJoins, queryDescriptor, openApiAvailable, tenantRequired);
     }
@@ -239,6 +245,7 @@ public final class StaticModuleDefinition implements StaticModuleRegistration {
 
     public Builder toBuilder() {
         return builder(applicationAlias, moduleAlias, title)
+                .description(description)
                 .parentModuleAlias(parentModuleAlias)
                 .entry(entryType, entryRoute, entryExternalUrl)
                 .capabilities(capabilities)
@@ -262,6 +269,7 @@ public final class StaticModuleDefinition implements StaticModuleRegistration {
         private final String applicationAlias;
         private final String moduleAlias;
         private final String title;
+        private String description;
         private String parentModuleAlias;
         private ModuleEntryType entryType = ModuleEntryType.MODULE;
         private String entryRoute;
@@ -376,8 +384,13 @@ public final class StaticModuleDefinition implements StaticModuleRegistration {
             return this;
         }
 
+        public Builder description(String value) {
+            this.description = value;
+            return this;
+        }
+
         public StaticModuleDefinition build() {
-            return new StaticModuleDefinition(applicationAlias, moduleAlias, title, parentModuleAlias, entryType,
+            return new StaticModuleDefinition(applicationAlias, moduleAlias, title, description, parentModuleAlias, entryType,
                     entryRoute, entryExternalUrl, capabilities, actions, actionInvocations, entities, uiDefinition, pageContextBindings, references,
                     readProjections, modelClass, sortPartitionFields, entityModelClasses, projectionJoins, queryDescriptor, openApiAvailable, tenantRequired);
         }

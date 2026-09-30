@@ -34,7 +34,7 @@ function findMenuCapability(menus: () => MenuTreeNode[]): AssistantCapability<{ 
       return flattenMenus(menus())
         .filter(({ menu }) => getMenuNavigationTarget(menu) !== undefined)
         .filter(({ menu, path }) =>
-          [menu.title, menu.moduleAlias, path.join(' ')].some((value) =>
+          [menu.title, menu.moduleAlias, menu.moduleDescription, path.join(' ')].some((value) =>
             value?.toLocaleLowerCase().includes(normalized),
           ),
         )
@@ -43,6 +43,7 @@ function findMenuCapability(menus: () => MenuTreeNode[]): AssistantCapability<{ 
           menuId: menu.id,
           title: menu.title,
           moduleAlias: menu.moduleAlias,
+          description: menu.moduleDescription,
           path,
         }));
     },

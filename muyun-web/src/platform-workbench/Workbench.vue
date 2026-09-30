@@ -130,6 +130,8 @@ const assistantSurfaceRegistry = createAssistantSurfaceRegistry(assistantIdentit
               goal: plan.candidate?.goal,
               title: plan.candidate?.title,
               constructionStatus: plan.saved?.constructionStatus ?? 'NOT_STARTED',
+              configurationSource: 'CURRENT_GOVERNANCE',
+              historicalDesign: plan.saved?.constructionStatus === 'DELIVERED',
               detailsCapability: 'construction.describe',
             },
           }
@@ -139,14 +141,14 @@ const assistantSurfaceRegistry = createAssistantSurfaceRegistry(assistantIdentit
 });
 const ASSISTANT_PAGE_READY_TIMEOUT_MS = 15_000;
 const assistantOpen = ref(false);
-async function settleAssistantNavigation(signal?: AbortSignal) {
+async function settleAssistantNavigation(signal?: AbortSignal, requireFormal = false) {
   const expectedPageInstanceKey = props.assistantWaitForPageReady
     ? await props.assistantWaitForPageReady()
     : await nextTick(() => activePageInstanceKey.value);
   if (!expectedPageInstanceKey || activePageInstanceKey.value !== expectedPageInstanceKey) {
     throw new Error('Assistant target page changed before it became ready');
   }
-  if (activePageDescriptor.value?.hostType !== 'module-page-host') {
+  if (!requireFormal && activePageDescriptor.value?.hostType !== 'module-page-host') {
     return assistantSurfaceRegistry.snapshot()?.token;
   }
   const pageInstanceKey = expectedPageInstanceKey;
@@ -179,6 +181,7 @@ async function settleAssistantNavigation(signal?: AbortSignal) {
 }
 function workbenchAssistantCapabilities() {
   const configuration = props.assistantWorkspaceContribution?.capabilities(settleAssistantNavigation) ?? [];
+  const shared = configurationCollaboration.filter(configuration, configurationEditor.value?.visible);
   return [
     ...createWorkbenchAssistantCapabilities(
       () => props.startup?.menus ?? [],
@@ -193,8 +196,8 @@ function workbenchAssistantCapabilities() {
       },
       settleAssistantNavigation,
     ),
-    ...(constructionPlan?.capabilities() ?? []),
-    ...configurationCollaboration.filter(configuration, configurationEditor.value?.visible),
+    ...configurationCollaboration.filterConstruction(constructionPlan?.capabilities() ?? []),
+    ...(constructionPlan?.continueConfiguration(shared, configurationEditor.value?.moduleAlias) ?? shared),
     ...(configuration.length ? configurationCollaboration.capabilities() : []),
   ];
 }
@@ -214,7 +217,7 @@ watch(
     unregisterWorkbenchAssistantSurface = assistantSurfaceRegistry.register({
       pageInstanceKey,
       fallback: true,
-      conversationScopePending: activePageDescriptor.value?.hostType === 'module-page-host',
+      executionScopePending: activePageDescriptor.value?.hostType === 'module-page-host',
       contextRevision: () => 'workbench',
       surface: {
         describe: () => ({
@@ -652,7 +655,7 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
 }
 
 .workbench-layout--assistant {
-  grid-template-columns: minmax(0, 1fr) 380px;
+  grid-template-columns: minmax(0, 1fr) clamp(380px, 38vw, 600px);
 }
 
 @media (max-width: 900px) {

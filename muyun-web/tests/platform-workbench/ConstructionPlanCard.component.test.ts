@@ -28,6 +28,11 @@ function fixture() {
     publishDelivery: vi.fn(),
     delivery: vi.fn(),
     progress: vi.fn(),
+    designContract: vi.fn(async () => ({
+      recordName: { fieldName: 'title', columnName: 'title', fieldType: 'STRING' },
+      inheritedFields: ['id'],
+      declarableCapabilities: { capabilities: [], metadataFields: [] },
+    })),
     businessObjects: vi.fn(async () => [
       { alias: 'crm.customer', title: '客户', kind: 'DYNAMIC', referenceReady: true, explanation: '可复用' },
     ]),
@@ -41,8 +46,6 @@ function fixture() {
     previewFields: vi.fn(),
     publishFields: vi.fn(),
     fieldChange: vi.fn(),
-    previewInitialization: vi.fn(),
-    initialize: vi.fn(),
     initialization: vi.fn(),
     list: vi.fn(async () => []),
     history: vi.fn(async () => []),
@@ -54,6 +57,7 @@ function fixture() {
       content: command.content,
       confirmedAt: '',
       constructionStatus: 'NOT_STARTED' as const,
+      deliveredObjectKeys: [],
       deliveries: [],
       fieldChanges: [],
       initializations: [],
@@ -119,7 +123,7 @@ it.each([false, true])(
     expect(client.confirm).toHaveBeenCalledTimes(rejectFirst ? 2 : 1);
     expect(requestTurn).toHaveBeenCalledTimes(2);
     expect(wrapper.text()).toContain('需求方案已确认');
-    expect(wrapper.text()).toContain('尚未建设');
+    expect(wrapper.text()).toContain('尚无建设记录');
     wrapper.unmount();
   },
 );
@@ -172,5 +176,91 @@ it('shows independent planning choices without treating their display order as e
   expect(wrapper.text()).toContain('已有内容满足要求，可以准备页面');
   expect(client.publishFields).not.toHaveBeenCalled();
   expect(client.publishDelivery).not.toHaveBeenCalled();
+  wrapper.unmount();
+});
+
+it('shows delivered design as read-only history without switching or rebuilding controls', async () => {
+  const { session, client } = fixture();
+  session.edit(content);
+  await session.prepare().execute();
+  const snapshot = {
+    ...session.current().saved!,
+    constructionStatus: 'DELIVERED' as const,
+    deliveredObjectKeys: ['order'],
+  };
+  vi.mocked(client.read).mockResolvedValue(snapshot);
+  await session.restore(snapshot.planId);
+  const wrapper = mount(ConstructionPlanCard, { props: { session } });
+  expect(wrapper.text()).toContain('历史建设记录');
+  expect(wrapper.text()).toContain('不代表当前配置');
+  expect(wrapper.text()).toContain('查看当时的设计');
+  for (const text of ['修改目标与范围', '恢复讨论', '读取已保存方案', '查看下一步', '放弃候选并开始新方案'])
+    expect(wrapper.findAll('button').some((button) => button.text() === text)).toBe(false);
+  wrapper.unmount();
+});
+
+it('loads current progress on restore without asking the user to query or writing configuration', async () => {
+  const { client, session } = fixture();
+  session.edit(content);
+  await session.prepare().execute();
+  vi.mocked(client.task).mockResolvedValue({
+    planRevision: 1,
+    objects: [
+      {
+        objectKey: 'customer',
+        title: '客户',
+        complete: false,
+        requirements: [],
+        options: [{ action: 'PUBLISH_PAGE', explanation: '准备录入页面' }],
+        progress: {
+          objectKey: 'customer',
+          moduleAlias: 'trial.customer',
+          runtimeStatus: 'ACTIVE',
+          pagePublished: false,
+          entryVisible: false,
+          menuId: null,
+          needsReview: false,
+          acceptanceConfirmed: false,
+          businessDataStatus: 'NOT_QUERIED',
+          remainingWork: [],
+          receipts: [],
+          requirements: [],
+        },
+      },
+    ],
+  });
+  const wrapper = mount(ConstructionPlanCard, { props: { session } });
+  await flushPromises();
+  expect(wrapper.get('[aria-label="当前建设进度"]').text()).toContain('客户：登记内容已配置，页面尚未发布');
+  expect(client.publishDelivery).not.toHaveBeenCalled();
+  session.resetConversation();
+  await flushPromises();
+  expect(wrapper.find('[aria-label="当前建设进度"]').exists()).toBe(false);
+  wrapper.unmount();
+});
+
+it('does not infer missing configuration from absent construction field and page receipts', async () => {
+  const { client, session } = fixture();
+  session.edit(content);
+  await session.prepare().execute();
+  const snapshot = {
+    ...session.current().saved!,
+    constructionStatus: 'INITIALIZED' as const,
+    initializations: [
+      {
+        objectKey: 'order',
+        planRevision: 1,
+        moduleAlias: 'demo.order',
+        metadataId: 'meta',
+        relationId: 'main',
+        requestId: 'init',
+      },
+    ],
+  };
+  vi.mocked(client.read).mockResolvedValue(snapshot);
+  await session.restore(snapshot.planId);
+  const wrapper = mount(ConstructionPlanCard, { props: { session } });
+  expect(wrapper.text()).toContain('当前配置与验收状态以实际查询为准');
+  expect(wrapper.text()).not.toContain('仍待建设');
   wrapper.unmount();
 });

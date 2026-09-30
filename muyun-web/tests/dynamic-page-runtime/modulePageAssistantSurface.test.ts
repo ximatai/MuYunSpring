@@ -85,6 +85,31 @@ describe('module page assistant surface', () => {
     expect(surface.capabilities().map(({ descriptor }) => descriptor.code)).not.toContain('page.describe');
   });
 
+  it('exposes declared capacity and rejects oversized patches without changing the draft', async () => {
+    const view = viewFixture();
+    const field = view.formFields.get('summary')!;
+    field.inputRequirements = { requiredOnInsert: false, requiredOnUpdate: false, maxLength: 2 };
+    const surface = createModulePageAssistantSurface(view, vi.fn());
+    const describe = surface.capabilities().find(({ descriptor }) => descriptor.code === 'form.describe')!;
+    const result = (await describe.execute(describe.parseInput({}), executionContext())) as {
+      fields: unknown[];
+    };
+    expect(result.fields).toContainEqual(
+      expect.objectContaining({
+        fieldName: 'summary',
+        inputRequirements: expect.objectContaining({ maxLength: 2 }),
+      }),
+    );
+    const patch = surface.capabilities().find(({ descriptor }) => descriptor.code === 'form.patch-draft')!;
+    await expect(
+      patch.execute(
+        patch.parseInput({ changes: [{ fieldName: 'summary', value: 'abc' }] }),
+        executionContext(),
+      ),
+    ).rejects.toThrow('最多允许 2 个字符');
+    expect(view.updateDraftFields).not.toHaveBeenCalled();
+  });
+
   it('accepts normalized model values without requiring literal user quotes', async () => {
     const view = viewFixture();
     view.formFields.set('hireDate', {

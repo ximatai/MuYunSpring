@@ -58,7 +58,12 @@ class AiModelConfigurationRepositoryIT extends PlatformPostgresIntegrationTest {
             jdbc.execute("ALTER TABLE platform_ai_model_configuration ALTER COLUMN availability_scope DROP NOT NULL");
             AiModelConfiguration platform = environmentInput();
             platform.setTenantFallbackEnabled(Boolean.TRUE);
+            platform.setContextWindowTokens(131072);
+            platform.setMaxOutputTokens(32768);
+            platform.setDefaultOutputTokens(16384);
             String platformId = configurations.insert(platform);
+            assertThat(AiModelLimits.from(dao.findById(platformId)))
+                    .isEqualTo(new AiModelLimits(131072, 32768, 16384));
             assertThat(dao.findById(platformId).getApiKey()).isNull();
             assertThat(dao.findById(platformId).getApiKeySignature()).isNull();
             var credential = new java.util.concurrent.atomic.AtomicReference<>("environment-key");
@@ -128,13 +133,54 @@ class AiModelConfigurationRepositoryIT extends PlatformPostgresIntegrationTest {
                     assertThat(configurations.requireEffectiveConfiguration().getId()).isEqualTo(tenantId);
                 }
                 exerciseCredentialUpdates(tenantId);
+                exerciseEnabledConfigurationSwitch(tenantId);
                 configurations.disable(tenantId);
                 AiModelConfiguration disabled = dao.findById(tenantId);
                 disabled.setApiKey("invalid-old-ciphertext");
                 dao.updateById(disabled);
                 assertThat(configurations.requireEffectiveConfiguration().getId()).isEqualTo(platformId);
             }
+            exerciseEnabledConfigurationSwitch(platformId);
         }
+    }
+
+    private void exerciseEnabledConfigurationSwitch(String originalId) {
+        assertThatThrownBy(() -> configurations.insert(input("duplicate-key")))
+                .hasMessageContaining("已有启用的模型配置");
+        AiModelConfiguration candidate = input("candidate-key");
+        candidate.setEnabled(Boolean.FALSE);
+        String candidateId = configurations.insert(candidate);
+        AiModelConfiguration spare = input("spare-key");
+        spare.setEnabled(Boolean.FALSE);
+        String spareId = configurations.insert(spare);
+        assertThat(dao.findById(candidateId).getOwnershipScopeKey()).isNull();
+        assertThat(dao.findById(spareId).getOwnershipScopeKey()).isNull();
+        assertThat(configurations.requireEffectiveConfiguration().getId()).isEqualTo(originalId);
+
+        configurations.disable(originalId);
+        assertThat(dao.findById(originalId).getOwnershipScopeKey()).isNull();
+        String newlyCreatedId = configurations.insert(input("new-active-key"));
+        assertThat(configurations.requireEffectiveConfiguration().getId()).isEqualTo(newlyCreatedId);
+        configurations.disable(newlyCreatedId);
+        configurations.enable(candidateId);
+        assertThat(configurations.requireEffectiveConfiguration().getId()).isEqualTo(candidateId);
+        assertCredential(candidateId, "candidate-key");
+        assertThatThrownBy(() -> configurations.enable(originalId))
+                .hasMessageContaining("已有启用的模型配置");
+        AiModelConfiguration edit = configurations.select(originalId);
+        edit.setEnabled(Boolean.TRUE);
+        assertThatThrownBy(() -> configurations.update(edit)).hasMessageContaining("已有启用的模型配置");
+        assertThat(dao.findById(originalId).getEnabled()).isFalse();
+
+        // The database also rejects competing activations that race past the service precheck.
+        var jdbc = new org.springframework.jdbc.core.JdbcTemplate(dataSource);
+        assertThatThrownBy(() -> jdbc.update(
+                "UPDATE platform_ai_model_configuration SET ownership_scope_key = ?, enabled = true WHERE id = ?",
+                dao.findById(candidateId).getOwnershipScopeKey(), originalId))
+                .hasStackTraceContaining("duplicate key");
+        configurations.disable(candidateId);
+        configurations.enable(originalId);
+        assertThat(configurations.requireEffectiveConfiguration().getId()).isEqualTo(originalId);
     }
 
     private void exerciseCredentialUpdates(String id) {

@@ -207,7 +207,7 @@ const configurationIdentity = () =>
   ]);
 function openConfigurationEditor(
   moduleAlias: string,
-  governanceTab: 'rules' | 'metadata',
+  governanceTab: 'rules' | 'metadata' | 'ui',
   moduleTitle?: string,
 ) {
   handleOpenRoute(
@@ -234,6 +234,7 @@ const metadataWorkspace = createMetadataWorkspace(
   () => currentUser.value?.system === true,
   (alias, title) => openConfigurationEditor(alias, 'metadata', title),
   () => businessRuleWorkspace.clearFocus(),
+  (alias, title) => openConfigurationEditor(alias, 'ui', title),
 );
 provideBusinessRuleWorkspace(businessRuleWorkspace);
 provideMetadataWorkspace(metadataWorkspace);

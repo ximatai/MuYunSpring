@@ -146,7 +146,7 @@ it('detail sections share one internal and inter-section spacing rhythm', () => 
   assert.match(extensionSource, /gap: var\(--muyun-detail-section-inner-gap, 8px\)/);
   assert.match(extensionSource, /margin-top: var\(--muyun-detail-section-block-gap, 16px\)/);
   assert.match(extensionSource, /padding-top: var\(--muyun-detail-section-inner-gap, 8px\)/);
-  assert.match(metaSource, /gap: var\(--muyun-detail-section-inner-gap, 8px\)/);
+  assert.match(metaSource, /margin: var\(--muyun-detail-section-inner-gap, 8px\) 0 0/);
   assert.match(metaSource, /margin-top: var\(--muyun-detail-section-block-gap, 16px\)/);
   assert.match(metaSource, /padding-top: var\(--muyun-detail-section-inner-gap, 8px\)/);
   assert.match(metaSource, /border-top: 1px solid var\(--muyun-border-subtle\)/);

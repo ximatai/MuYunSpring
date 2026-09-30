@@ -4,6 +4,7 @@ import net.ximatai.muyun.spring.common.model.constraint.FieldInputRequirements;
 
 import net.ximatai.muyun.spring.dynamic.metadata.EntityDefinition;
 import net.ximatai.muyun.spring.dynamic.metadata.FieldDefinition;
+import net.ximatai.muyun.spring.dynamic.metadata.FieldType;
 
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -18,6 +19,21 @@ final class FieldWriteRuleProjection {
         for (var entity : entities) {
             String resource = entity.alias().equals(mainEntityAlias) ? null : entity.alias();
             entity.fields().forEach(field -> fields.put(new ViewFieldRef(resource, field.fieldName(), null), field));
+        }
+        return fields;
+    }
+
+    static Map<ViewFieldRef, FieldDefinition> staticFields(StaticModuleDefinition definition) {
+        var fields = fields(definition.entities(), definition.entities().isEmpty() ? null : definition.entities().getFirst().alias());
+        Class<?> modelClass = definition.modelClass();
+        if (modelClass == null) return fields;
+        // Standard identity fields are omitted from dynamic entity business fields. The standard
+        // alias editor addresses the model ID, so use that same column's declared capacity.
+        var id = org.springframework.util.ReflectionUtils.findField(modelClass, "id");
+        var column = id == null ? null : id.getAnnotation(net.ximatai.muyun.database.core.annotation.Column.class);
+        if (column != null && column.length() > 0
+                && org.springframework.beans.BeanUtils.getPropertyDescriptor(modelClass, "alias") != null) {
+            fields.putIfAbsent(new ViewFieldRef(null, "alias", null), FieldDefinition.string("alias", "alias").length(column.length()));
         }
         return fields;
     }
@@ -51,8 +67,12 @@ final class FieldWriteRuleProjection {
             boolean insert = rules.requiredOnInsert() && (model.behavior().defaultValue() == null
                     || model.behavior().defaultValue().isBlank());
             boolean update = rules.requiredOnUpdate();
-            if (!insert && !update) return field;
-            return field.withInputRequirements(new FieldInputRequirements(insert, update));
+            // TEXT has no VARCHAR capacity, even when a legacy declaration carries a length hint.
+            Integer maxLength = model.type() == FieldType.STRING ? model.length() : null;
+            Integer precision = model.type() == FieldType.DECIMAL ? model.precision() : null;
+            Integer scale = model.type() == FieldType.DECIMAL ? model.scale() : null;
+            if (!insert && !update && maxLength == null && precision == null && scale == null) return field;
+            return field.withInputRequirements(new FieldInputRequirements(insert, update, maxLength, precision, scale));
         }).toList());
     }
 }

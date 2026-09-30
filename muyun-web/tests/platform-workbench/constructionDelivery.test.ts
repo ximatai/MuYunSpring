@@ -13,6 +13,7 @@ function fixture() {
     revision: 1,
     confirmedAt: '',
     constructionStatus: 'INITIALIZED',
+    deliveredObjectKeys: [],
     initializations: [],
     fieldChanges: [],
     deliveries: [],
@@ -151,4 +152,18 @@ it('keeps committed success when the workbench menu refresh fails', async () => 
   expect(result.confirmation!.state).toBe('succeeded');
   expect(client.publishDelivery).toHaveBeenCalledOnce();
   expect(result.confirmation!.result?.lines.join(' ')).toContain('刷新失败');
+});
+
+it('freezes actual child page placements in human confirmation and rejects empty detail layouts', async () => {
+  const { invoke, client } = fixture();
+  const childFields = { lines: ['quantity', 'price', 'amount'] };
+  const pending = await invoke('construction.prepare-page', { ...proposal, childFields });
+  childFields.lines.pop();
+  await pending.confirmation!.confirm();
+  expect(client.publishDelivery.mock.calls[0][1].proposal.childFields).toEqual({
+    lines: ['quantity', 'price', 'amount'],
+  });
+  await expect(
+    invoke('construction.prepare-page', { ...proposal, childFields: { lines: [] } }),
+  ).rejects.toThrow();
 });

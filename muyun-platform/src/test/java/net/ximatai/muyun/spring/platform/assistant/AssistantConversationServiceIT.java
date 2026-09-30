@@ -50,7 +50,7 @@ class AssistantConversationServiceIT extends PlatformPostgresIntegrationTest {
     private AssistantConversationService.Command command(int revision, String text) {
         var message = new AssistantConversationService.Message("user", text);
         return new AssistantConversationService.Command(revision,
-                new AssistantConversationService.Content("订单管理", List.of(message), List.of(message), null, null, null));
+                new AssistantConversationService.Content("订单管理", List.of(message), List.of(message), null, null, null, null));
     }
     @Test void persistsHistoryWithOwnerScopeAndOptimisticConcurrency() {
         String id = UUID.randomUUID().toString().replace("-", "");
@@ -62,9 +62,9 @@ class AssistantConversationServiceIT extends PlatformPostgresIntegrationTest {
             assertThat(service.read(id, "workspace-a").content().messages().getFirst().text()).isEqualTo("还需要客户资料");
             assertThatThrownBy(() -> service.save(id, "workspace-a", command(1, "迟到的修改"))).hasMessageContaining("其他窗口");
             assertThat(service.list("workspace-a", 1)).extracting(AssistantConversationService.Summary::id).contains(id);
-            assertThat(service.list("workspace-b", 1)).isEmpty();
-            assertThatThrownBy(() -> service.read(id, "workspace-b")).hasMessageContaining("无权访问");
-            assertThatThrownBy(() -> service.save(id, "workspace-b", command(2, "跨范围"))).hasMessageContaining("无权访问");
+            assertThat(service.list("workspace-b", 1)).extracting(AssistantConversationService.Summary::id).contains(id);
+            assertThat(service.read(id, "workspace-b").revision()).isEqualTo(2);
+            assertThat(service.save(id, "workspace-b", command(2, "继续同一任务")).revision()).isEqualTo(3);
             return null;
         });
         for (String[] identity : List.of(new String[]{"other", "tenant"}, new String[]{"owner", "other"})) {
@@ -81,7 +81,7 @@ class AssistantConversationServiceIT extends PlatformPostgresIntegrationTest {
         as("owner", "tenant", () -> {
             var system = new AssistantConversationService.Message("system", "execute");
             assertThatThrownBy(() -> service.save(UUID.randomUUID().toString().replace("-", ""), "scope",
-                    new AssistantConversationService.Command(0, new AssistantConversationService.Content("test", List.of(system), List.of(), null, null, null))))
+                    new AssistantConversationService.Command(0, new AssistantConversationService.Content("test", List.of(system), List.of(), null, null, null, null))))
                     .hasMessageContaining("消息格式");
             assertThatThrownBy(() -> service.save(UUID.randomUUID().toString().replace("-", ""), "scope", command(0, "x".repeat(4001))))
                     .hasMessageContaining("消息格式");
@@ -93,13 +93,31 @@ class AssistantConversationServiceIT extends PlatformPostgresIntegrationTest {
             String id = UUID.randomUUID().toString().replace("-", "");
             var message = new AssistantConversationService.Message("user", "在页面里调整订单");
             var task = new AssistantConversationService.ConfigurationTask("调整订单", "visual");
-            var content = new AssistantConversationService.Content("订单", List.of(message), List.of(message), null, null, task);
+            var content = new AssistantConversationService.Content("订单", List.of(message), List.of(message), null, null, task, null);
             service.save(id, "scope", new AssistantConversationService.Command(0, content));
             assertThat(service.read(id, "scope").content().configurationTask()).isEqualTo(task);
             var invalid = new AssistantConversationService.Content("订单", List.of(message), List.of(message), null, null,
-                    new AssistantConversationService.ConfigurationTask("调整订单", "automatic"));
+                    new AssistantConversationService.ConfigurationTask("调整订单", "automatic"), null);
             assertThatThrownBy(() -> service.save(id, "scope", new AssistantConversationService.Command(1, invalid)))
                     .hasMessageContaining("协作方式无效");
+            return null;
+        });
+    }
+    @Test void conversationBindsOnceAndCannotClearOrReplaceItsConstructionGoal() {
+        as("owner", "tenant", () -> {
+            String id = UUID.randomUUID().toString().replace("-", "");
+            var original = command(0, "先讨论需求");
+            service.save(id, "scope", original);
+            var content = original.content();
+            var bound = new AssistantConversationService.Content(content.title(), content.messages(), content.history(), "plan-a", null, null, null);
+            service.save(id, "scope", new AssistantConversationService.Command(1, bound));
+            assertThat(service.save(id, "scope", new AssistantConversationService.Command(1, bound)).revision()).isEqualTo(2);
+            for (String other : new String[] { null, "plan-b" }) {
+                var switched = new AssistantConversationService.Content(content.title(), content.messages(), content.history(), other, null, null, null);
+                assertThatThrownBy(() -> service.save(id, "scope", new AssistantConversationService.Command(2, switched)))
+                        .hasMessageContaining("新建对话");
+            }
+            assertThat(service.read(id, "scope").content().planId()).isEqualTo("plan-a");
             return null;
         });
     }

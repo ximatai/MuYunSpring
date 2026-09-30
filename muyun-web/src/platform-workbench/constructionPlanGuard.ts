@@ -28,3 +28,16 @@ export function requireConfirmedConstructionPlan(current: () => ConstructionPlan
     },
   };
 }
+
+/** Live catalog: capabilities may outlive a plan revision or restoration. */
+export function constructionObjectKeySchema(current: () => ConstructionPlanState) {
+  return {
+    type: 'string',
+    minLength: 1,
+    maxLength: 64,
+    description: 'Confirmed independent module object key, not a child relation, moduleAlias or metadataId.',
+    get enum() {
+      return current().saved?.content.objects.map((object) => object.key) ?? [];
+    },
+  };
+}

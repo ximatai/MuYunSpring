@@ -243,7 +243,8 @@ public class TeachingDemoIT {
             for (int retry = 0; retry < 2; retry++) {
                 var response = mvc.perform(post("/platform.application-construction-plans/" + planId + "/initializations")
                         .contentType("application/json").content(json.writeValueAsString(command))).andReturn().getResponse();
-                assertThat(response.getStatus()).as(response.getContentAsString()).isEqualTo(200);
+                // Combined assistant creation is no longer a public write route.
+                assertThat(response.getStatus()).as(response.getContentAsString()).isEqualTo(404);
             }
             var result = construction.status(planId, "entry");
             assertThat(result.receipt().moduleAlias()).isEqualTo(app + ".registration_records");
@@ -261,6 +262,34 @@ public class TeachingDemoIT {
         }
         try (var user = CurrentUserContext.use(CurrentUser.tenantUser("tenant-user", "用户", "tenant"))) {
             assertThatThrownBy(() -> construction.status(planId, "entry")).isInstanceOf(net.ximatai.muyun.spring.common.exception.PlatformAccessDeniedException.class);
+        }
+    }
+
+    @Test
+    void shouldCreateApplicationThenModuleThroughStandardFormsWithoutConstructionPlan() throws Exception {
+        MockMvc mvc = webAppContextSetup(webApplicationContext).build();
+        String app = "guided_application_long_identifier_" + serial();
+        try (var user = CurrentUserContext.use(CurrentUser.systemUser("guided-admin", "配置管理员"));
+             var scope = TenantContext.system("standard creation contract")) {
+            var application = mvc.perform(post("/platform.application/insert")
+                    .header("X-Muyun-Save-Request", UUID.randomUUID().toString())
+                    .contentType("application/json")
+                    .content("{\"alias\":\"" + app + "\",\"title\":\"引导创建应用\"}")).andReturn().getResponse();
+            assertThat(application.getStatus()).as(application.getContentAsString()).isEqualTo(201);
+            String requestId = UUID.randomUUID().toString();
+            String body = "{\"alias\":\"" + app + ".entry\",\"applicationAlias\":\"" + app
+                    + "\",\"title\":\"登记\",\"moduleKind\":\"dynamic\",\"entryType\":\"module\",\"description\":\"记录日常登记事项\"}";
+            for (int retry = 0; retry < 2; retry++) {
+                var module = mvc.perform(post("/platform.module/insert")
+                        .header("X-MuYun-Page-Context", "{\"application\":\"" + app + "\"}")
+                        .header("X-Muyun-Save-Request", requestId).contentType("application/json")
+                        .content(body)).andReturn().getResponse();
+                assertThat(module.getStatus()).as(module.getContentAsString()).isEqualTo(201);
+            }
+            var stored = webApplicationContext.getBean(net.ximatai.muyun.spring.platform.module.PlatformModuleService.class)
+                    .select(app + ".entry");
+            assertThat(stored.getApplicationAlias()).isEqualTo(app);
+            assertThat(stored.getDescription()).isEqualTo("记录日常登记事项");
         }
     }
 

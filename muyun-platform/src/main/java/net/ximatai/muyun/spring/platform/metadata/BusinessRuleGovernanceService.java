@@ -46,7 +46,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 
-/** Governs portable main-record formulas while preserving and validating every other module rule. */
+/** Governs main and direct-child save formulas while preserving and validating other module rules. */
 @Service
 public class BusinessRuleGovernanceService {
     private static final PageRequest ALL = new PageRequest(0, Integer.MAX_VALUE);
@@ -96,15 +96,18 @@ public class BusinessRuleGovernanceService {
         List<ModuleMetadataFormulaRule> stored = storedRules(main);
         List<BusinessRuleReferenceField> referenceFields = referenceFields(alias, stored);
         List<BusinessRuleField> aggregateFields = aggregateFields(alias);
+        List<BusinessRuleField> childFields = childFields(alias, aggregateFields);
+        List<String> writable = new ArrayList<>(editableFields.stream().map(BusinessRuleField::fieldName).toList());
+        writable.addAll(childFields.stream().map(BusinessRuleField::fieldName).toList());
         List<String> readableFields = new ArrayList<>(editableFields.stream().map(BusinessRuleField::fieldName).toList());
         readableFields.addAll(referenceFields.stream().map(BusinessRuleReferenceField::path).toList());
         readableFields.addAll(aggregateFields.stream().map(BusinessRuleField::fieldName).toList());
         List<BusinessRuleSnapshotRule> rules = stored.stream()
-                .map(rule -> snapshotRule(rule, editableFields.stream().map(BusinessRuleField::fieldName).toList(),
+                .map(rule -> snapshotRule(rule, writable,
                         readableFields, aggregateFields)).toList();
         return new SnapshotContext(main, new BusinessRuleGovernanceSnapshot(alias,
-                fingerprint(main, fields, relevantConfigs(fields, main), rules, aggregateFields), editableFields, rules,
-                referenceFields, aggregateFields, functionCatalog()));
+                fingerprint(List.of(fingerprint(main, fields, relevantConfigs(fields, main), rules, aggregateFields), childFields)), editableFields, rules,
+                referenceFields, aggregateFields, functionCatalog(), childFields));
     }
 
     public BusinessRulePreview preview(String moduleAlias, BusinessRulePreviewCommand command) {
@@ -118,7 +121,7 @@ public class BusinessRuleGovernanceService {
                 FormulaReferenceContext references = trialReferences(alias, declaredReferenceRules(rules));
                 List<FormulaFieldDefinition> fields = new ArrayList<>(trialFields(alias));
                 fields.addAll(references.fields());
-                FormulaRuleExecutionPlan plan = FormulaRuleExecutionPlan.forMainRecord(rules, fields);
+                FormulaRuleExecutionPlan plan = FormulaRuleExecutionPlan.forAggregateRecord(rules, fields, childRelations(snapshot));
                 validateCandidate(alias, snapshot, storedRules(mainRelation(alias)), rules);
                 order = plan.orderedRules().stream().map(FormulaRule::id).toList();
             } catch (FormulaEvaluationException exception) {
@@ -130,7 +133,7 @@ public class BusinessRuleGovernanceService {
         return new BusinessRulePreview(snapshot, fingerprint(rules), order, List.copyOf(errors));
     }
 
-    /** Executes only first-phase, main-record rules using the same typed conversion boundary as save. */
+    /** Trials the governed save rules using the same dependency and typed-value boundaries as save. */
     public BusinessRuleTrialResult trial(String moduleAlias, BusinessRuleTrialCommand command) {
         return trial(moduleAlias, command, TenantContext.currentTenantId().orElse(null));
     }
@@ -167,14 +170,14 @@ public class BusinessRuleGovernanceService {
                         "引用试算需要请求租户上下文"));
                 return new BusinessRuleTrialResult(preview, immutableValues(values), List.of(), List.copyOf(errors));
             }
-            FormulaExecutionResult result = FormulaRuleExecutionPlan.forMainRecord(rules, fields)
+            FormulaExecutionResult result = FormulaRuleExecutionPlan.forAggregateRecord(rules, fields, childRelations(preview.snapshot()))
                     .execute(new FormulaEngine(), FormulaRuntimeData.typed(values, children, fields,
                             references.paths(), current -> resolveReferences(references, current, referenceTenantId)));
             result.report().errors().forEach(item -> errors.add(new BusinessRuleIssue(item.code(), item.ruleId(),
                     item.fieldPath(), item.message())));
             Map<String, Object> responseValues = new LinkedHashMap<>(values);
             responseValues.putAll(resolveReferences(references, values, referenceTenantId));
-            return new BusinessRuleTrialResult(preview, immutableValues(responseValues), result.changedFields(), List.copyOf(errors));
+            return new BusinessRuleTrialResult(preview, immutableValues(responseValues), result.changedFields(), List.copyOf(errors), children);
         } catch (FormulaEvaluationException exception) {
             errors.add(issue(exception, null));
             return new BusinessRuleTrialResult(preview, immutableValues(values), List.of(), List.copyOf(errors));
@@ -184,7 +187,7 @@ public class BusinessRuleGovernanceService {
         }
     }
 
-    /** Samples are explicit input, never reads of persisted child records or executable child rules. */
+    /** Samples are explicit input; their copies are computed without reading or writing business records. */
     private Map<String, List<Map<String, Object>>> trialChildren(BusinessRuleTrialCommand command,
             BusinessRuleGovernanceSnapshot snapshot, List<FormulaRule> rules, List<BusinessRuleIssue> errors) {
         Map<String, Set<String>> allowed = new LinkedHashMap<>();
@@ -218,7 +221,8 @@ public class BusinessRuleGovernanceService {
         });
         FormulaEngine engine = new FormulaEngine();
         rules.stream().filter(FormulaRule::enabled).forEach(rule ->
-                engine.valueSideReferencedFields(rule.expression()).stream()
+                java.util.stream.Stream.concat(engine.valueSideReferencedFields(rule.expression()).stream(),
+                                rule.targetField() == null ? java.util.stream.Stream.empty() : java.util.stream.Stream.of(rule.targetField()))
                         .filter(path -> snapshot.aggregateFields().stream().anyMatch(field -> field.fieldName().equals(path)))
                         .map(path -> path.substring(0, path.indexOf('.'))).distinct()
                         .filter(relation -> !supplied.containsKey(relation))
@@ -326,6 +330,7 @@ public class BusinessRuleGovernanceService {
         if (proposals == null) return List.of();
         Set<String> fields = snapshot.editableFields().stream().map(BusinessRuleField::fieldName)
                 .collect(java.util.stream.Collectors.toSet());
+        snapshot.childFields().forEach(field -> fields.add(field.fieldName()));
         Set<String> readableFields = new LinkedHashSet<>(fields);
         snapshot.referenceFields().forEach(field -> readableFields.add(field.path()));
         snapshot.aggregateFields().forEach(field -> readableFields.add(field.fieldName()));
@@ -349,12 +354,12 @@ public class BusinessRuleGovernanceService {
                 errors.add(new BusinessRuleIssue("UNSUPPORTED_RULE_KIND", code, null, "首期仅支持计算和校验规则"));
                 continue;
             }
-            if (proposal.expression() == null || proposal.expression().isBlank()) {
-                errors.add(new BusinessRuleIssue("INVALID_RULE_EXPRESSION", code, proposal.targetField(), "表达式不能为空且不能包含赋值"));
+            if (proposal.expression() == null || proposal.expression().isBlank() || proposal.expression().length() > 4000) {
+                errors.add(new BusinessRuleIssue("INVALID_RULE_EXPRESSION", code, proposal.targetField(), "表达式不能为空或超过4000字符"));
                 continue;
             }
             if (proposal.kind() == FormulaRuleKind.CALCULATION && !fields.contains(proposal.targetField())) {
-                errors.add(new BusinessRuleIssue("INVALID_RULE_TARGET", code, proposal.targetField(), "计算目标必须是可配置主表字段"));
+                errors.add(new BusinessRuleIssue("INVALID_RULE_TARGET", code, proposal.targetField(), "计算目标必须来自主表或直接子表的可写字段目录"));
                 continue;
             }
             String expression = storedExpression(proposal);
@@ -363,7 +368,11 @@ public class BusinessRuleGovernanceService {
                     errors.add(new BusinessRuleIssue("INVALID_RULE_EXPRESSION", code, proposal.targetField(), "表达式不能为空且不能包含赋值"));
                     continue;
                 }
-                if (proposal.kind() == FormulaRuleKind.CALCULATION) engine.compileFormComputeProgram(expression);
+                if (proposal.kind() == FormulaRuleKind.CALCULATION) {
+                    if (snapshot.childFields().stream().anyMatch(field -> field.fieldName().equals(proposal.targetField())))
+                        engine.validateTargetFieldExpressionScope(proposal.targetField(), expression);
+                    else engine.compileFormComputeProgram(expression);
+                }
                 else if (engine.parse(code, expression) == null) throw new FormulaEvaluationException("FORMULA_EXPRESSION_REQUIRED", "formula expression is required");
                 Set<String> invalidInputs = engine.valueSideReferencedFields(expression).stream()
                         .filter(field -> !readableFields.contains(field)
@@ -374,7 +383,8 @@ public class BusinessRuleGovernanceService {
                         .filter(field -> snapshot.aggregateFields().stream()
                                 .map(BusinessRuleField::fieldName).anyMatch(field::equals))
                         .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new));
-                if (!scalarChildInputs.isEmpty()) {
+                if (!scalarChildInputs.isEmpty() && (proposal.targetField() == null || !snapshot.childFields().stream()
+                        .anyMatch(field -> field.fieldName().equals(proposal.targetField())))) {
                     scalarChildInputs.forEach(field -> errors.add(new BusinessRuleIssue("SUBTABLE_AGGREGATE_REQUIRED", code, field,
                             "子表字段只能作为 COUNT、SUM、AVG、MAX 或 MIN 的汇总参数")));
                     continue;
@@ -386,7 +396,7 @@ public class BusinessRuleGovernanceService {
                 }
                 if (!invalidInputs.isEmpty()) {
                     invalidInputs.forEach(field -> errors.add(new BusinessRuleIssue("INVALID_RULE_INPUT", code, field,
-                            "业务规则输入必须是可配置主表字段: " + field)));
+                            "业务规则输入必须来自字段目录: " + field)));
                     continue;
                 }
                 result.add(new FormulaRule(code, expression, proposal.kind(), FormulaRulePhase.BEFORE_SAVE,
@@ -449,6 +459,18 @@ public class BusinessRuleGovernanceService {
         return List.copyOf(result);
     }
 
+    private List<BusinessRuleField> childFields(String moduleAlias, List<BusinessRuleField> aggregateFields) {
+        var writable = trialFields(moduleAlias).stream().filter(FormulaFieldDefinition::writable)
+                .map(field -> field.fieldPath().dataIndex()).collect(java.util.stream.Collectors.toSet());
+        return aggregateFields.stream().filter(field -> writable.contains(field.fieldName()))
+                .filter(field -> !field.valueType().equals("JSON")).toList();
+    }
+
+    private static Set<String> childRelations(BusinessRuleGovernanceSnapshot snapshot) {
+        return snapshot.aggregateFields().stream().map(field -> field.fieldName().split("\\.", 2)[0])
+                .collect(java.util.stream.Collectors.toSet());
+    }
+
     private static boolean aggregateBusinessField(MetadataField field, ModuleMetadataRelation relation) {
         return field != null
                 && field.getFieldOwnership() == MetadataFieldOwnership.BUSINESS
@@ -485,7 +507,9 @@ public class BusinessRuleGovernanceService {
         EntityDefinition main = definition.entities().stream().filter(entity -> entity.alias().equals(definition.mainEntityAlias()))
                 .findFirst().orElseThrow(() -> new PlatformException("compiled module has no main entity: " + moduleAlias));
         return FormulaReferenceContext.compile(ReferenceTarget.of(definition.moduleAlias(), main.alias()), rules,
-                PlatformAbilityRuntime.referenceTargetResolver());
+                PlatformAbilityRuntime.referenceTargetResolver(), definition.relations().stream()
+                        .filter(relation -> main.alias().equals(relation.parentEntityAlias()))
+                        .map(EntityRelationDefinition::code).collect(java.util.stream.Collectors.toSet()));
     }
 
     private List<BusinessRuleReferenceField> referenceFields(String moduleAlias,
@@ -596,8 +620,9 @@ public class BusinessRuleGovernanceService {
                         || rule.getRuleKind() == FormulaRuleKind.CALCULATION;
                 editable &= engine.valueSideReferencedFields(rule.getExpression()).stream()
                         .allMatch(readableFields::contains);
-                editable &= engine.nonAggregateChildFieldReferences(rule.getExpression()).stream()
-                        .noneMatch(field -> aggregateFields.stream().map(BusinessRuleField::fieldName).anyMatch(field::equals));
+                if (rule.getTargetField() == null || !rule.getTargetField().contains("."))
+                    editable &= engine.nonAggregateChildFieldReferences(rule.getExpression()).stream()
+                            .noneMatch(field -> aggregateFields.stream().map(BusinessRuleField::fieldName).anyMatch(field::equals));
                 editable &= aggregateTypeErrors(engine, rule.getExpression(), aggregateFields, rule.getAlias()).isEmpty();
             } catch (FormulaEvaluationException exception) {
                 editable = false;
@@ -605,11 +630,19 @@ public class BusinessRuleGovernanceService {
         }
         return new BusinessRuleSnapshotRule(rule.getAlias(), rule.getRuleKind(), rule.getRulePhase(), rule.getTargetField(), expression,
                 Boolean.TRUE.equals(rule.getEnabled()), rule.getSeverity(), rule.getMessageTemplate(), Boolean.TRUE.equals(rule.getStopOnError()),
-                editable, editable ? null : "首期仅支持可无损编辑的主表 BEFORE_SAVE 业务规则");
+                editable, editable ? null : "仅支持可无损编辑的保存前计算与校验规则");
     }
 
     private static String calculationRhs(ModuleMetadataFormulaRule rule) {
         if (rule.getTargetField() == null || rule.getExpression() == null) return null;
+        if (rule.getTargetField().contains(".")) {
+            try {
+                var engine = new FormulaEngine();
+                if (engine.containsAssignment(rule.getExpression())) return null;
+                engine.validateTargetFieldExpressionScope(rule.getTargetField(), rule.getExpression());
+                return rule.getExpression().trim();
+            } catch (FormulaEvaluationException invalid) { return null; }
+        }
         String prefix = "{" + rule.getTargetField() + "}";
         String value = rule.getExpression().trim();
         if (!value.startsWith(prefix)) return null;
@@ -626,7 +659,7 @@ public class BusinessRuleGovernanceService {
     }
 
     private static String storedExpression(BusinessRuleProposal proposal) {
-        return proposal.kind() == FormulaRuleKind.CALCULATION
+        return proposal.kind() == FormulaRuleKind.CALCULATION && !proposal.targetField().contains(".")
                 ? "{" + proposal.targetField() + "} = (" + proposal.expression().trim() + ")" : proposal.expression().trim();
     }
 

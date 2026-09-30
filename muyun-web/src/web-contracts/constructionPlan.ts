@@ -18,7 +18,8 @@ export interface ConstructionPlanSnapshot {
   revision: number;
   content: ConstructionPlanContent;
   confirmedAt: string;
-  constructionStatus: 'NOT_STARTED' | 'INITIALIZED';
+  constructionStatus: 'NOT_STARTED' | 'INITIALIZED' | 'PARTIALLY_DELIVERED' | 'DELIVERED';
+  deliveredObjectKeys: string[];
   initializations: ConstructionInitialization[];
   fieldChanges: ConstructionFieldReceipt[];
   deliveries: ConstructionDeliveryReceipt[];
@@ -88,6 +89,16 @@ export interface ConstructionFieldProposal {
   fields: ConstructionField[];
 }
 export interface ConstructionFieldDescription {
+  children?: Record<
+    string,
+    {
+      relation: import('./index').ModuleMetadataRelation;
+      metadataVersion: number;
+      fields: import('./index').MetadataField[];
+      references: Record<string, NonNullable<ConstructionField['reference']>>;
+    }
+  >;
+  calculationRules?: { alias: string; targetField?: string | null; expression: string; version?: number }[];
   moduleAlias: string;
   planRevision: number;
   metadataVersion: number;
@@ -124,6 +135,7 @@ export interface ConstructionFieldResult {
 }
 
 export interface ConstructionDeliveryProposal {
+  childFields?: Record<string, string[]>;
   planRevision: number;
   objectKey: string;
   kind: 'PAGE' | 'ENTRY';
@@ -159,6 +171,8 @@ export interface ConstructionProgress {
   menuId: string | null;
   needsReview: boolean;
   acceptanceConfirmed: boolean;
+  /** Configuration progress is not an observation of tenant business records. */
+  businessDataStatus: 'NOT_QUERIED';
   remainingWork: string[];
   receipts: ConstructionDeliveryReceipt[];
   requirements?: ConstructionRequirementEvidence[];
@@ -181,7 +195,7 @@ export interface ConstructionRequirement {
   section: 'SCOPE' | 'RULE' | 'RELATION';
   index: number;
   objectKey: string;
-  mode: 'FIELD' | 'REQUIRED' | 'UNIQUE' | 'REFERENCE' | 'MANUAL' | 'UNSUPPORTED';
+  mode: 'FIELD' | 'REQUIRED' | 'UNIQUE' | 'REFERENCE' | 'CHILD' | 'CALCULATION' | 'MANUAL' | 'UNSUPPORTED';
   fieldName: string;
   explanation: string;
   reference?: { objectKey: string; moduleAlias: string } | null;
@@ -197,7 +211,7 @@ export interface ConstructionRequirementEvidence {
     | 'UNSUPPORTED'
     | 'CONFIGURATION_MISSING'
     | 'CONFIGURATION_MATCHED'
-    | 'MANUAL_CHECK_REQUIRED';
+    | 'MANUAL_RESPONSIBILITY';
   explanation: string;
 }
 export interface ConstructionTask {
@@ -208,6 +222,7 @@ export interface ConstructionTask {
     complete: boolean;
     options: {
       action:
+        | 'REVIEW_CURRENT_CONFIGURATION'
         | 'REVIEW_REQUIREMENTS'
         | 'INITIALIZE'
         | 'VERIFY_RUNTIME'
@@ -219,5 +234,6 @@ export interface ConstructionTask {
       explanation: string;
     }[];
     requirements: ConstructionRequirementEvidence[];
+    progress?: ConstructionProgress | null;
   }[];
 }

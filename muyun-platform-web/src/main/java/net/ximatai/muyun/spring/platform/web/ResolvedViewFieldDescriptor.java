@@ -252,4 +252,11 @@ public record ResolvedViewFieldDescriptor(ViewFieldRef fieldRef,
                 valueType, valuePresentation, width, columnSpan, align, fixed, booleanStatus, option, reference,
                 referenceSummary, maxDisplayLines, treeRootTitle, overrideOf, assistantPolicy, inputRequirements);
     }
+
+    public ResolvedViewFieldDescriptor withComputedValue(String hint) {
+        return new ResolvedViewFieldDescriptor(fieldRef, label, visible, UiRule.constant(false),
+                new UiRule<>(true, null, hint), uiType, fieldControl,
+                valueType, valuePresentation, width, columnSpan, align, fixed, booleanStatus, option, reference,
+                referenceSummary, maxDisplayLines, treeRootTitle, overrideOf, assistantPolicy, inputRequirements);
+    }
 }

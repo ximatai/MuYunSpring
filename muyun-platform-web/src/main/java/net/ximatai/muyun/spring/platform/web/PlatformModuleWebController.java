@@ -33,7 +33,7 @@ import java.util.List;
 
 @RestController
 @PlatformStaticModule(application = net.ximatai.muyun.spring.platform.application.PlatformApplication.class,
-        alias = PlatformModuleService.MODULE_ALIAS, title = "平台模块")
+        alias = PlatformModuleService.MODULE_ALIAS, title = "平台模块", description = "查找、新建和管理业务模块，选择所属应用；配置模块字段、规则与页面")
 @StaticModuleOpenApi
 @PlatformMenu(parent = PlatformMenuGroups.MODELING, title = "模块管理", order = 20)
 @RequestMapping("/platform.module")
@@ -49,6 +49,7 @@ public class PlatformModuleWebController extends StaticModuleWebControllerAdapte
     private static final ModuleUiField APPLICATION_ALIAS = ModuleUiField.of("applicationAlias");
     private static final ModuleUiField ID = ModuleUiField.of("id");
     private static final ModuleUiField ALIAS = ModuleUiField.of("alias");
+    private static final ModuleUiField DESCRIPTION = ModuleUiField.of("description");
     private static final ModuleUiField TITLE = ModuleUiField.of("title");
     private static final ModuleUiField PARENT_ID = ModuleUiField.of("parentId");
     private static final ModuleUiField MODULE_KIND = ModuleUiField.of("moduleKind");
@@ -96,6 +97,7 @@ public class PlatformModuleWebController extends StaticModuleWebControllerAdapte
                                         .field(APPLICATION_ALIAS, field -> field.label("所属应用"))
                                         .field(ALIAS, field -> field.label("模块 alias"))
                                         .field(TITLE, field -> field.label("模块名称"))
+                                        .field(DESCRIPTION, field -> field.label("用途说明"))
                                         .field(PARENT_ID, field -> field.label("上级模块").treeRootTitle("根模块"))
                                         .field(MODULE_KIND, field -> field.label("模块类型"))
                                         .field(ENTRY_TYPE, field -> field.label("入口类型"))
@@ -109,6 +111,7 @@ public class PlatformModuleWebController extends StaticModuleWebControllerAdapte
                                         .field(ALIAS, field -> field.label("模块 alias").required()
                                                 .enabledWhen(UiFormula.booleanExpression("!(PRESENT({" + ID.name() + "}))")))
                                         .field(TITLE, field -> field.label("模块名称").required())
+                                        .field(DESCRIPTION, field -> field.label("用途说明"))
                                         .field(APPLICATION_ALIAS, field -> field.label("所属应用").required().hidden())
                                         .field(PARENT_ID, field -> field.label("上级模块").recordPicker())
                                         .field(MODULE_KIND, field -> field.label("模块类型").required().select())

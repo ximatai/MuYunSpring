@@ -219,6 +219,13 @@ public class MenuService extends AbstractAbilityService<Menu> implements
      * Containers intentionally have no type; an entry with a missing module is left unresolved so
      * the web client can report its configuration error instead of guessing a route.
      */
+    /** Module-owned discovery text projected only for already visible menu entries. */
+    public String navigationModuleDescription(Menu menu) {
+        if (menu == null || !hasText(menu.getModuleAlias())) return null;
+        PlatformModule module = moduleService.resolveVisibleModule(menu.getModuleAlias());
+        return module == null ? null : module.getDescription();
+    }
+
     public ModuleEntryType navigationEntryType(Menu menu) {
         if (menu == null || !hasText(menu.getModuleAlias())) {
             return null;

@@ -29,6 +29,7 @@ import SingleImageFileReferenceField from './SingleImageFileReferenceField.vue';
 import FileSizeText from './FileSizeText.vue';
 import RecordContentSectionHeading from './RecordContentSectionHeading.vue';
 import {
+  recordFormInputConstraintError,
   resolveRecordFormFieldNames,
   resolveRecordFormFieldState,
   resolveRecordBooleanStatusValue,
@@ -163,6 +164,11 @@ const formValidity = computed<RecordFormValidity>(() => {
     ...editorFieldErrors.value,
   };
   for (const field of fieldStates.value) {
+    const constraintError =
+      !field.readOnly && field.visible
+        ? recordFormInputConstraintError(field, props.record[field.fieldName])
+        : undefined;
+    if (constraintError) errors[field.fieldName] = constraintError;
     const dictionaryRendererError = dictionaryRendererErrorOf(field);
     if (dictionaryRendererError) errors[field.fieldName] = dictionaryRendererError;
     const dictionaryPickerError = dictionaryPickerErrorOf(field);
@@ -597,7 +603,10 @@ function clearEditorFieldError(fieldName: string) {
 }
 
 function editorFieldError(field: RecordFormFieldState) {
-  return editorFieldErrors.value[field.fieldName];
+  return (
+    editorFieldErrors.value[field.fieldName] ??
+    recordFormInputConstraintError(field, props.record[field.fieldName])
+  );
 }
 
 function requiredFieldError(field: RecordFormFieldState) {

@@ -1,4 +1,4 @@
-import { defineComponent, h } from 'vue';
+import { defineComponent, h, ref } from 'vue';
 import {
   provideRelationDraftRegistry,
   createRelationDraftRegistry,
@@ -15,6 +15,7 @@ import {
   referenceRecordDetailBrowserKey,
 } from '@/platform-components/referenceRecordDetailBrowser';
 import type { HttpClient, ModuleContext } from '@muyun/web-core';
+import type { QueryListRecord } from '@muyun/platform-components';
 import type { ResolvedDetailRelationDescriptor, ResolvedModuleUiDescriptor } from '@muyun/web-contracts';
 
 const originalStubs = config.global.stubs;
@@ -26,6 +27,40 @@ afterEach(() => {
 });
 
 describe('managed detail relation surface', () => {
+  it('preserves loaded children when opening an editable aggregate with parent draft feedback', async () => {
+    const aggregate = relation('properties');
+    aggregate.embeddedField = 'properties';
+    aggregate.editing = { mode: 'INLINE', saveMode: 'AGGREGATE_DRAFT' };
+    const original = [{ id: 'existing', attributeAlias: 'old' }];
+    const draft = ref<{ id: string; properties: QueryListRecord[] }>({ id: 'parent', properties: original });
+    const sourceContext = context(vi.fn());
+    const uiDescriptor = descriptor();
+    const wrapper = mount(
+      defineComponent({
+        setup: () => () =>
+          h(ManagedDetailRelationInlineSurface, {
+            sourceContext,
+            uiDescriptor,
+            relation: aggregate,
+            parentRecord: draft.value,
+            mutationEnabled: true,
+            'onRecords-change': (records: QueryListRecord[]) => {
+              draft.value = { ...draft.value, properties: records };
+            },
+          }),
+      }),
+    );
+    await flushPromises();
+    const child = wrapper.findComponent(ManagedDetailRelationInlineSurface);
+    expect(
+      child
+        .emitted('records-change')
+        ?.every(([records]) => JSON.stringify(records) === JSON.stringify(original)),
+    ).toBe(true);
+    expect(draft.value.properties).toEqual(original);
+    wrapper.unmount();
+  });
+
   it.each(['static.child', 'dynamic_child'])(
     'shares mounted aggregate draft operations with the assistant (%s)',
     async (entity) => {

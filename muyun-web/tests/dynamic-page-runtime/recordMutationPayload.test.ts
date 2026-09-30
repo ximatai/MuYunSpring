@@ -1,6 +1,19 @@
 import { expect, it } from 'vitest';
 import { recordMutationPayload } from '@/dynamic-page-runtime/recordMutationPayload';
 
+it('omits computed and other constant read-only values without losing mutation identity', () => {
+  const record = { id: 'row-1', version: 3, quantity: 2, amount: '11.00', guarded: 'manual' };
+  expect(
+    recordMutationPayload(record, [
+      { fieldRef: { fieldName: 'id' }, readOnly: { constant: true } },
+      { fieldRef: { fieldName: 'version' }, readOnly: { constant: true } },
+      { fieldRef: { fieldName: 'amount' }, readOnly: { constant: true } },
+      { fieldRef: { fieldName: 'guarded' }, readOnly: { constant: false } },
+    ]),
+  ).toEqual({ id: 'row-1', version: 3, quantity: 2, guarded: 'manual' });
+  expect(record.amount).toBe('11.00');
+});
+
 it('removes only declared read outputs and keeps selected IDs and explicitly writable patches', () => {
   const record = {
     id: 'order-1',

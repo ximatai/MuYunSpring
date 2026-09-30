@@ -463,6 +463,43 @@ it('reports omitted error and warning counts when preview issues exceed the disp
   expect(presentation.lines.every((line) => line.length <= 500)).toBe(true);
 });
 
+it.each([false, true])('advertises disjoint reference and dictionary inputs (multiple=%s)', (multiple) => {
+  const adapter = fixture();
+  adapter.fieldSpecAliases = () => (multiple ? ['string', 'json_set'] : ['string']);
+  adapter.prepareFieldPlan = vi.fn();
+  adapter.findFieldTargets = vi.fn();
+  adapter.preparePropertyFieldDraft = vi.fn();
+  adapter.preparePropertyFieldCommit = vi.fn();
+  const capabilities = createMetadataGovernanceAssistantSurface(adapter, vi.fn()).capabilities();
+  const single = capabilities.find(
+    ({ descriptor }) => descriptor.code === 'configuration.add-metadata-property-field-draft',
+  )!;
+  const batch = capabilities.find(
+    ({ descriptor }) => descriptor.code === 'configuration.prepare-metadata-field-plan',
+  )!;
+  const variants = single.descriptor.inputSchema.anyOf as Array<{
+    additionalProperties: boolean;
+    properties: { kind: { enum: string[] }; selectionMode?: { enum: string[] } };
+  }>;
+  expect(variants).toHaveLength(2);
+  expect(variants[0]!.properties.kind.enum).toEqual(['MODULE_REFERENCE']);
+  expect(variants[0]!.properties).not.toHaveProperty('selectionMode');
+  expect(variants[0]!.additionalProperties).toBe(false);
+  expect(variants[1]!.properties.kind.enum).toEqual(['DICTIONARY']);
+  expect(variants[1]!.properties.selectionMode!.enum).toEqual(multiple ? ['SINGLE', 'MULTIPLE'] : ['SINGLE']);
+  const schema = batch.descriptor.inputSchema as { properties: { fields: { items: { anyOf: unknown[] } } } };
+  expect(schema.properties.fields.items.anyOf.slice(1)).toEqual(variants);
+  const reference = { kind: 'MODULE_REFERENCE', title: '负责人', target: 'iam.user' };
+  expect(single.parseInput(reference)).toEqual(reference);
+  expect(batch.parseInput({ fields: [reference] })).toEqual([reference]);
+  for (const selectionMode of ['SINGLE', 'MULTIPLE']) {
+    expect(() => single.parseInput({ ...reference, selectionMode })).toThrow('only supported for dictionary');
+    expect(() => batch.parseInput({ fields: [{ ...reference, selectionMode }] })).toThrow(
+      'only supported for dictionary',
+    );
+  }
+});
+
 it('validates a bounded mixed field plan and commits only a current fully prepared plan', async () => {
   const adapter = fixture();
   const commit = vi.fn(() => ({ saved: false }));

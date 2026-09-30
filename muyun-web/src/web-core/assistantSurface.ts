@@ -66,9 +66,9 @@ export interface AssistantSurface {
 export interface AssistantSurfaceRegistration {
   pageInstanceKey: string;
   /** Opaque execution-data boundary, never sent to the model. */
-  conversationScopeKey?(): string;
+  executionScopeKey?(): string;
   /** A fallback awaiting its real page transport must not issue model requests. */
-  conversationScopePending?: boolean;
+  executionScopePending?: boolean;
   fallback?: boolean;
   /**
    * Waits for background page transitions to finish before the model receives a
@@ -90,8 +90,8 @@ interface RegisteredAssistantSurface extends AssistantSurfaceRegistration {
 
 export interface AssistantInvocationToken {
   identityScopeKey?: string;
-  conversationScopePending?: boolean;
-  conversationScopeKey?: string;
+  executionScopePending?: boolean;
+  executionScopeKey?: string;
   pageInstanceKey: string;
   surfaceGeneration: number;
   contextRevision: string;
@@ -153,6 +153,7 @@ export interface AssistantSurfaceRegistry {
 
 /** Current live editor state; never restored from conversation history. */
 export interface AssistantConfigurationEditor {
+  moduleAlias?: string;
   title: string;
   hasUnsavedChanges: boolean;
   visible: boolean;
@@ -164,7 +165,10 @@ export interface AssistantWorkspaceContribution {
   editor?(): AssistantConfigurationEditor | undefined;
   current(): { revision: string; facts: Record<string, unknown> };
   capabilities(
-    settleNavigation?: (signal?: AbortSignal) => Promise<void | AssistantInvocationToken>,
+    settleNavigation?: (
+      signal?: AbortSignal,
+      requireFormal?: boolean,
+    ) => Promise<void | AssistantInvocationToken>,
   ): AssistantCapability[];
 }
 
@@ -282,14 +286,12 @@ export function createAssistantSurfaceRegistry(
 
   function tokenOf(registration: RegisteredAssistantSurface): AssistantInvocationToken {
     const identity = identityScope();
-    const scope = registration.conversationScopeKey?.() ?? pageScopes.get(registration.pageInstanceKey) ?? '';
-    if (registration.conversationScopeKey) pageScopes.set(registration.pageInstanceKey, scope);
+    const scope = registration.executionScopeKey?.() ?? pageScopes.get(registration.pageInstanceKey) ?? '';
+    if (registration.executionScopeKey) pageScopes.set(registration.pageInstanceKey, scope);
     return {
       identityScopeKey: identity,
-      conversationScopePending: registration.conversationScopePending,
-      conversationScopeKey: registration.conversationScopePending
-        ? undefined
-        : JSON.stringify([identity, scope]),
+      executionScopePending: registration.executionScopePending,
+      executionScopeKey: registration.executionScopePending ? undefined : JSON.stringify([identity, scope]),
       pageInstanceKey: registration.pageInstanceKey,
       surfaceGeneration: registration.surfaceGeneration,
       contextRevision: workspaceContext
@@ -421,13 +423,15 @@ export function createAssistantSurfaceRegistry(
       }
     },
     requestTurn(input, token, signal, progress, policy) {
-      if (token.conversationScopePending) return Promise.reject(new StaleAssistantInvocationError());
+      if (token.executionScopePending) return Promise.reject(new StaleAssistantInvocationError());
       return controlled(token, signal, true, (registration, controlledSignal) => {
         const current = requireCurrent(token);
         const request = {
           ...input,
           context: describe(current),
-          capabilities: validateAssistantCapabilities(current.surface.capabilities())
+          capabilities: validateAssistantCapabilities(
+            input.executionBudget?.phase === 'summary' ? [] : current.surface.capabilities(),
+          )
             .filter((capability) => permitted(capability, policy))
             .map(({ descriptor }) => descriptor),
         };
@@ -571,7 +575,7 @@ export function createAssistantSurfaceRegistry(
                     current.identityScopeKey === token.identityScopeKey &&
                     current.pageInstanceKey === token.pageInstanceKey &&
                     current.surfaceGeneration === token.surfaceGeneration &&
-                    current.conversationScopeKey === token.conversationScopeKey
+                    current.executionScopeKey === token.executionScopeKey
                   );
                 }),
               }
@@ -600,8 +604,8 @@ export function sameAssistantInvocationToken(
   if (!left || !right) return left === right;
   return (
     left.identityScopeKey === right.identityScopeKey &&
-    left.conversationScopePending === right.conversationScopePending &&
-    left.conversationScopeKey === right.conversationScopeKey &&
+    left.executionScopePending === right.executionScopePending &&
+    left.executionScopeKey === right.executionScopeKey &&
     left.pageInstanceKey === right.pageInstanceKey &&
     left.surfaceGeneration === right.surfaceGeneration &&
     left.contextRevision === right.contextRevision &&
@@ -613,8 +617,8 @@ export function sameAssistantInvocationToken(
 function sameExecutionScope(left: AssistantInvocationToken, right: AssistantInvocationToken) {
   return (
     left.identityScopeKey === right.identityScopeKey &&
-    left.conversationScopePending === right.conversationScopePending &&
-    left.conversationScopeKey === right.conversationScopeKey &&
+    left.executionScopePending === right.executionScopePending &&
+    left.executionScopeKey === right.executionScopeKey &&
     left.pageInstanceKey === right.pageInstanceKey &&
     left.surfaceGeneration === right.surfaceGeneration &&
     left.interactionRevision === right.interactionRevision &&

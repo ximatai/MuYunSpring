@@ -2,6 +2,7 @@ package net.ximatai.muyun.spring.platform.application;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import net.ximatai.muyun.spring.ability.PlatformAbilityRuntime;
+import net.ximatai.muyun.spring.ability.action.DataChangeRecorder;
 import net.ximatai.muyun.spring.common.exception.PlatformAccessDeniedException;
 import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
 import net.ximatai.muyun.spring.common.model.EntityLifecycle;
@@ -43,11 +44,12 @@ public class ApplicationConstructionInitializationService {
     private final DynamicRuntimeActivationService activation;
     private final ActionExecutionPolicyService permissions;
     private final IDatabaseOperations<?> database;
+    private final DataChangeRecorder changes;
 
     public ApplicationConstructionInitializationService(ApplicationConstructionPlanService plans,
             ApplicationConstructionInitializationDao receipts, ApplicationService applications,
             PlatformModuleService modules, ModuleMetadataOrchestrationService orchestration, MetadataService metadata,
-            DynamicRuntimeActivationService activation, ActionExecutionPolicyService permissions, IDatabaseOperations<?> database) {
+            DynamicRuntimeActivationService activation, ActionExecutionPolicyService permissions, IDatabaseOperations<?> database, DataChangeRecorder changes) {
         this.plans = Objects.requireNonNull(plans);
         this.receipts = Objects.requireNonNull(receipts);
         this.applications = Objects.requireNonNull(applications);
@@ -57,6 +59,7 @@ public class ApplicationConstructionInitializationService {
         this.activation = Objects.requireNonNull(activation);
         this.permissions = Objects.requireNonNull(permissions);
         this.database = Objects.requireNonNull(database);
+        this.changes = Objects.requireNonNull(changes);
     }
 
     public record Proposal(int planRevision, String objectKey, String applicationAlias, String applicationTitle,
@@ -86,6 +89,7 @@ public class ApplicationConstructionInitializationService {
     public Preview preview(String planId, Proposal proposal) {
         requireOperator();
         var plan = plans.read(planId);
+        plan.requireOpen(proposal == null ? null : proposal.objectKey());
         if (proposal == null || plan.revision() != proposal.planRevision())
             throw new IllegalArgumentException("需求方案版本已变化，请重新读取并预检");
         ApplicationConstructionRequirements.requireBuildable(plan.content(), proposal.objectKey());
@@ -146,14 +150,16 @@ public class ApplicationConstructionInitializationService {
                 var application = new Application();
                 application.setAlias(proposal.applicationAlias());
                 application.setTitle(preview.applicationTitle());
-                applications.insert(application);
+                String applicationId = applications.insert(application);
+                changes.created(ApplicationService.class, applicationId);
             }
             var module = new PlatformModule();
             module.setAlias(preview.moduleAlias());
             module.setApplicationAlias(proposal.applicationAlias());
             module.setModuleKind(ModuleKind.DYNAMIC);
             module.setTitle(preview.moduleTitle());
-            modules.insert(module);
+            String moduleId = modules.insert(module);
+            changes.created(PlatformModuleService.class, moduleId);
             var created = orchestration.createMainMetadata(preview.moduleAlias(), new ModuleMainMetadataCreateCommand(
                     proposal.moduleName(), preview.moduleTitle(), preview.schemaName(), preview.tableName(), false));
             var receipt = new ApplicationConstructionInitialization();

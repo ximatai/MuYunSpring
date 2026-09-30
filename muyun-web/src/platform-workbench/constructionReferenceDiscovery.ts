@@ -1,4 +1,6 @@
 import {
+  emptyAssistantCapabilityInputSchema,
+  parseEmptyAssistantCapabilityInput,
   pageAssistantCatalog,
   AssistantCapabilityUsageError,
   type AssistantCapability,
@@ -13,9 +15,20 @@ export function createConstructionReferenceDiscoveryCapabilities(
     {
       effect: 'read',
       descriptor: {
+        code: 'construction.describe-design-contract',
+        description:
+          'Read the standard platform contract BEFORE proposing technical field bindings, even before any module exists. Record names used for reference display must use recordName with titleField enabled; labels are customizable. Bind FIELD/REQUIRED/UNIQUE for that same business name to the same standard field. Do not duplicate it under a business-specific alias. inheritedFields already belong to the platform; declarableCapabilities lists optional capabilities and their managed fields, not enabled capabilities. Existing business changes still require reading current metadata. This catalog is not authorization or a replacement for field specifications and publish preflight.',
+        inputSchema: emptyAssistantCapabilityInputSchema(),
+      },
+      parseInput: parseEmptyAssistantCapabilityInput,
+      execute: () => client.designContract(),
+    },
+    {
+      effect: 'read',
+      descriptor: {
         code: 'construction.find-business-objects',
         description:
-          'Discover existing business modules before proposing new objects. referenceReady distinguishes reusable references from existing objects that need configuration work; never treat an unready object as absent or silently duplicate/modify it. Search titles or aliases and page with offset. Results are configuration candidates, not business-record permissions or approval to modify these modules. Discuss reuse with the user.',
+          'Discover existing business modules before proposing new objects. referenceReady distinguishes reusable references from existing objects that need configuration work; never treat an unready object as absent or silently duplicate/modify it. Search titles or aliases and page with offset. Results are configuration candidates, not business-record permissions or approval to modify these modules. Respect explicit user decisions to create isolated new objects or reuse existing ones. Ask about reuse only when that choice is unresolved; discovery must not reopen an already answered scope decision.',
         inputSchema: {
           type: 'object',
           additionalProperties: false,

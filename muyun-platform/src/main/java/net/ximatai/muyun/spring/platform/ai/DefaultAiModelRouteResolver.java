@@ -31,6 +31,6 @@ final class DefaultAiModelRouteResolver implements AiModelRouteResolver {
         }
         AiModelProvider provider = providerService.requireEnabled(configuration.getProvider());
         return new ResolvedAiModelRoute(provider.getId(), provider.getProtocol(), provider.getBaseUrl(),
-                configuration.getModelId(), credentialResolver.resolve(configuration));
+                configuration.getModelId(), credentialResolver.resolve(configuration), AiModelLimits.from(configuration));
     }
 }

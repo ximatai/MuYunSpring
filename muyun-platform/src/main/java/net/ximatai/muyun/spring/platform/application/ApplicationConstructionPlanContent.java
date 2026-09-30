@@ -35,6 +35,7 @@ public record ApplicationConstructionPlanContent(
                 throw new IllegalArgumentException("需求兑现项不能重复");
         }
     }
+    /** Independently managed module scope. Owned details belong to its CHILD requirements, not another object. */
     public record BusinessObject(String key, String name, String purpose) {
         public BusinessObject {
             key = text(key, 64); name = text(name, 120); purpose = text(purpose, 500);

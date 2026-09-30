@@ -162,6 +162,7 @@ describe('ModulePageHost tenant scope', () => {
   const originalFetch = globalThis.fetch;
   afterEach(() => {
     globalThis.fetch = originalFetch;
+    sessionStorage.clear();
   });
 
   const tenantUsers = [
@@ -315,6 +316,30 @@ describe('ModulePageHost tenant scope', () => {
     expect(navigator.exists()).toBe(true);
     expect(navigator.props('scopeSubtitle')).toBe('租户：甲租户');
     wrapper.unmount();
+    const restored = render({ userId: 'system-user-1', username: 'system-user', system: true });
+    await flushPromises();
+    restored
+      .findComponent(tenantExplorerStub)
+      .vm.$emit('loaded', [{ id: 'tenant-a', title: '甲租户' }], true, 2);
+    await flushPromises();
+    expect(restored.findComponent(tenantExplorerStub).props('selectedId')).toBe('tenant-a');
+    restored.unmount();
+    const unavailable = render({ userId: 'system-user-1', username: 'system-user', system: true });
+    await flushPromises();
+    unavailable
+      .findComponent(tenantExplorerStub)
+      .vm.$emit('loaded', [{ id: 'tenant-b', title: '乙租户' }], true, 2);
+    await flushPromises();
+    expect(unavailable.findComponent(tenantExplorerStub).props('selectedId')).toBeUndefined();
+    unavailable.unmount();
+    const otherUser = render({ userId: 'another-user', username: 'another', system: true });
+    await flushPromises();
+    otherUser
+      .findComponent(tenantExplorerStub)
+      .vm.$emit('loaded', [{ id: 'tenant-a', title: '甲租户' }], true, 2);
+    await flushPromises();
+    expect(otherUser.findComponent(tenantExplorerStub).props('selectedId')).toBeUndefined();
+    otherUser.unmount();
   });
 
   it('does not replace an editing tenant session and allows the next selection after cancel', async () => {

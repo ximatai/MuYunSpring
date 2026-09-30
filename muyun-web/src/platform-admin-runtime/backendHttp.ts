@@ -1,15 +1,27 @@
-import { createHttpClient } from '@muyun/web-core';
+import { createHttpClient, type HttpRequestOptions } from '@muyun/web-core';
 import { effectiveAuthToken } from './authSession';
 import { recoverAuthentication } from './sessionRecovery';
 
 export function createBackendHttpClient(options: { withAuth?: boolean } = {}) {
-  return createHttpClient({
-    baseUrl: import.meta.env.VITE_MUYUN_API_BASE_URL,
-    token: options.withAuth === false ? undefined : effectiveAuthToken(import.meta.env.VITE_MUYUN_AUTH_TOKEN),
-    credentials: credentialsOf(import.meta.env.VITE_MUYUN_CREDENTIALS),
-    onAuthenticationRequired:
-      options.withAuth === false ? undefined : (error, token) => recoverAuthentication(error, token),
-  });
+  const currentClient = () =>
+    createHttpClient({
+      baseUrl: import.meta.env.VITE_MUYUN_API_BASE_URL,
+      token:
+        options.withAuth === false ? undefined : effectiveAuthToken(import.meta.env.VITE_MUYUN_AUTH_TOKEN),
+      credentials: credentialsOf(import.meta.env.VITE_MUYUN_CREDENTIALS),
+      onAuthenticationRequired:
+        options.withAuth === false ? undefined : (error, token) => recoverAuthentication(error, token),
+    });
+  // Resolve authentication once per request, including streams. Long-lived clients
+  // survive login, while a late 401 must still identify the token it actually used.
+  return {
+    request<T>(request: HttpRequestOptions) {
+      return currentClient().request<T>(request);
+    },
+    stream(request: HttpRequestOptions) {
+      return currentClient().stream(request);
+    },
+  };
 }
 
 function credentialsOf(value: string | undefined) {

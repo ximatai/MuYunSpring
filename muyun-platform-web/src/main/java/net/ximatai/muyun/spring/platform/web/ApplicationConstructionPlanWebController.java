@@ -18,6 +18,10 @@ public class ApplicationConstructionPlanWebController {
     public ApplicationConstructionPlanWebController(ApplicationConstructionPlanService plans, ApplicationConstructionInitializationService initialization, ApplicationConstructionFieldService fields, ApplicationConstructionDeliveryService delivery) {
         this.plans = plans; this.initialization = initialization; this.fields = fields; this.delivery = delivery;
     }
+    @GetMapping("/design-contract")
+    public net.ximatai.muyun.spring.platform.metadata.MetadataCapabilityCatalog.DesignContract designContract() {
+        return fields.designContract();
+    }
     @GetMapping("/business-objects")
     public List<net.ximatai.muyun.spring.platform.metadata.ReferenceTargetFieldCatalogService.ModuleCandidate> businessObjects() {
         return fields.businessObjects();
@@ -26,12 +30,6 @@ public class ApplicationConstructionPlanWebController {
     public net.ximatai.muyun.spring.platform.metadata.ReferenceTargetFieldCatalog referenceTarget(@RequestParam String moduleAlias) {
         return fields.referenceTarget(moduleAlias);
     }
-    @PostMapping("/{planId}/initializations/preview")
-    public ApplicationConstructionInitializationService.Preview previewInitialization(@PathVariable String planId,
-            @RequestBody ApplicationConstructionInitializationService.Proposal proposal) { return initialization.preview(planId, proposal); }
-    @PostMapping("/{planId}/initializations")
-    public ApplicationConstructionInitializationService.Result initialize(@PathVariable String planId,
-            @RequestBody ApplicationConstructionInitializationService.ConfirmCommand command) { return initialization.confirm(planId, command); }
     @GetMapping("/{planId}/initializations/{objectKey}")
     public ResponseEntity<ApplicationConstructionInitializationService.Result> initialization(@PathVariable String planId, @PathVariable String objectKey) {
         var result = initialization.status(planId, objectKey);

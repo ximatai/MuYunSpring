@@ -67,7 +67,7 @@ class PlatformPageCompositionDomainContractTest {
             new PlatformPresentationRevisionResolver(variantService, revisionService);
     private final PlatformPresentationRevisionPublishService revisionPublishService =
             new PlatformPresentationRevisionPublishService(revisionService, variantService, pageService,
-                    new PlatformPresentationTemplateCatalog());
+                    new PlatformPresentationTemplateCatalog(), TestBeanProviders.empty(PublishedPageExecutionCoordinator.class), net.ximatai.muyun.spring.ability.event.RuntimeEventPublisher.noop());
 
     @AfterEach
     void tearDown() {
@@ -408,9 +408,10 @@ class PlatformPageCompositionDomainContractTest {
     void shouldPrepareTheDynamicPageExecutionPlanBeforeThePublicationTransactionCommits() {
         String pageId = seedPage();
         AtomicReference<String> preparedModuleAlias = new AtomicReference<>();
+        AtomicReference<net.ximatai.muyun.spring.ability.event.RuntimeEvent> event = new AtomicReference<>();
         PlatformPresentationRevisionPublishService service = new PlatformPresentationRevisionPublishService(
                 revisionService, variantService, pageService, new PlatformPresentationTemplateCatalog(),
-                preparedModuleAlias::set);
+                TestBeanProviders.of(PublishedPageExecutionCoordinator.class, preparedModuleAlias::set), event::set);
         try (TenantContext.Scope ignored = TenantContext.system("publish presentation revision with runtime preparation")) {
             String variantId = variantService.insert(variant(pageId, PlatformPresentationScopeType.GLOBAL, null));
             String revisionId = revisionService.insert(revision(variantId, 1,
@@ -419,6 +420,8 @@ class PlatformPageCompositionDomainContractTest {
             service.publish(revisionId);
 
             assertThat(preparedModuleAlias.get()).isEqualTo("crm.customer");
+            assertThat(event.get().moduleAlias()).isEqualTo("crm.customer");
+            assertThat(event.get().eventType()).isEqualTo(net.ximatai.muyun.spring.ability.event.RuntimeEventType.MODULE_PAGE_CONFIG_PUBLISHED);
         }
     }
 

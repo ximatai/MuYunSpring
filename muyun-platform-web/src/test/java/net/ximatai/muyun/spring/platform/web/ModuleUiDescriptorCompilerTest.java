@@ -43,28 +43,30 @@ class ModuleUiDescriptorCompilerTest {
         var insert = new net.ximatai.muyun.spring.common.model.constraint.FieldWriteRules(true, false, null);
         var both = new net.ximatai.muyun.spring.common.model.constraint.FieldWriteRules(true, true, null);
         var entity = new EntityDefinition("task", "task", "任务", List.of(
-                FieldDefinition.string("code", "编码").writeRules(insert),
+                FieldDefinition.string("code", "编码").length(24).writeRules(insert),
                 FieldDefinition.string("generated", "自动值").writeRules(both).defaultValue("generated"),
                 FieldDefinition.string("readOnly", "只读").writeRules(both),
                 FieldDefinition.string("protected", "保护").writeRules(both).writeProtected(),
                 FieldDefinition.string("hidden", "未暴露").writeRules(both),
-                FieldDefinition.string("storedOnly", "仅存储非空").required()));
+                FieldDefinition.string("storedOnly", "仅存储非空").required(),
+                FieldDefinition.text("notes", "长文本").length(255)));
         var ui = ModuleUiDefinition.builder("demo.task")
                 .editors(editors -> editors.defaultEditor(editor -> editor.field("code", field -> field.required(UiRule.constant(false)))
-                        .field("generated").field("readOnly", field -> field.readOnly()).field("protected").field("storedOnly")))
+                        .field("generated").field("readOnly", field -> field.readOnly()).field("protected").field("storedOnly").field("notes")))
                 .build();
         var descriptor = ModuleUiDescriptorCompiler.compile(StaticModuleDefinition.builder("demo", "demo.task", "任务")
                 .entities(List.of(entity)).uiDefinition(ui).build());
         assertThat(descriptor.defaultEditor().fields()).extracting(field -> field.fieldRef().fieldName())
-                .containsExactly("code", "generated", "readOnly", "protected", "storedOnly");
+                .containsExactly("code", "generated", "readOnly", "protected", "storedOnly", "notes");
         var fields = descriptor.defaultEditor().fields();
         assertThat(fields.get(0).required().constant()).isFalse();
-        assertThat(fields.get(0).inputRequirements()).isEqualTo(new FieldInputRequirements(true, false));
+        assertThat(fields.get(0).inputRequirements()).isEqualTo(new FieldInputRequirements(true, false, 24, null, null));
         assertThat(fields.get(1).inputRequirements()).isEqualTo(new FieldInputRequirements(false, true));
         assertThat(fields.get(2).inputRequirements()).isNull();
         assertThat(fields.get(3).inputRequirements()).isNull();
         assertThat(fields.get(4).inputRequirements()).isNull();
         assertThat(fields.get(4).required().constant()).isFalse();
+        assertThat(fields.get(5).inputRequirements()).isNull();
     }
 
     @Test

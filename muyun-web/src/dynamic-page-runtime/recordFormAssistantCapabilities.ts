@@ -8,6 +8,7 @@ import {
   parseEmptyAssistantCapabilityInput,
 } from '@muyun/web-core';
 import {
+  recordFormInputConstraintError,
   decodeDateTimeLocalEditorValue,
   decodeNumberEditorValue,
   resolveRecordFormFieldState,
@@ -319,6 +320,7 @@ function formDescribeCapability(view: RecordFormDraftAccess): AssistantCapabilit
             required: field.required,
             readOnly: field.readOnly,
             valueType: field.valueType,
+            ...(field.inputRequirements ? { inputRequirements: field.inputRequirements } : {}),
             ...(assistantValueHint(field) ? { valueHint: assistantValueHint(field) } : {}),
             controlType: field.controlType,
             assistantWritable: writeMode !== undefined,
@@ -631,6 +633,8 @@ function assistantFieldValue(field: RecordFormFieldState, value: unknown): Recor
     return assistantOptionValue(field, value);
   }
   if (typeof value !== 'string' || value.length > 10_000) throw invalidFieldValue(field);
+  const constraintError = recordFormInputConstraintError(field, value);
+  if (constraintError) throw new AssistantCapabilityUsageError(constraintError);
   return value;
 }
 

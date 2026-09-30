@@ -3,6 +3,7 @@ import {
   emptyAssistantCapabilityInputSchema,
   parseEmptyAssistantCapabilityInput,
   type AssistantCapability,
+  type AssistantOperationProposal,
   type AssistantSurface,
   type AssistantTurnRequester,
 } from '@muyun/web-core';
@@ -11,7 +12,10 @@ import type { PageCompositionCandidateInput } from './pageCompositionCandidate';
 
 export interface PageCompositionAssistantAdapter {
   describe(): { moduleAlias: string; title?: string; editable: boolean; [key: string]: unknown };
+  relations?(input: { relationCode?: string; offset: number }): unknown;
   candidate(): { changes: string[]; [key: string]: unknown };
+  prepareEditing?(): AssistantOperationProposal;
+  prepareConfirmation?(signal: AbortSignal): Promise<AssistantOperationProposal>;
   prepare(input: PageCompositionCandidateInput): () => unknown;
   preview(signal: AbortSignal): Promise<{ valid: boolean; errors: string[] }>;
 }
@@ -21,6 +25,7 @@ export function createPageCompositionAssistantSurface(
   requestTurn: AssistantTurnRequester,
   contributedCapabilities: () => AssistantCapability[] = () => [],
 ): AssistantSurface {
+  let prepared: AssistantOperationProposal | undefined;
   const read = (code: string, description: string, value: () => unknown): AssistantCapability => ({
     effect: 'read',
     descriptor: { code, description, inputSchema: emptyAssistantCapabilityInputSchema() },
@@ -37,9 +42,92 @@ export function createPageCompositionAssistantSurface(
     }),
     capabilities: () => [
       ...contributedCapabilities(),
+      ...(adapter.prepareEditing && !adapter.describe().editable && adapter.describe().canStartEditing
+        ? [
+            {
+              effect: 'read' as const,
+              descriptor: {
+                code: 'configuration.prepare-page-editing',
+                description:
+                  'Prepare confirmation to initialize or resume the standard page draft. This only prepares editing; it does not publish or change the running page.',
+                inputSchema: emptyAssistantCapabilityInputSchema(),
+              },
+              parseInput: parseEmptyAssistantCapabilityInput,
+              async execute(_input: unknown, context: Parameters<AssistantCapability['execute']>[1]) {
+                context.commitInternalState(() => {
+                  prepared = adapter.prepareEditing!();
+                });
+                return { pendingConfirmation: true, published: false };
+              },
+              propose: () => prepared!,
+            },
+          ]
+        : []),
+      ...(adapter.prepareConfirmation && adapter.describe().editable
+        ? [
+            {
+              effect: 'read' as const,
+              descriptor: {
+                code: 'configuration.prepare-page-publication',
+                description:
+                  'Validate the complete shared page candidate and prepare human confirmation to save and activate it. Includes manual edits; never publishes before the user confirms.',
+                inputSchema: emptyAssistantCapabilityInputSchema(),
+              },
+              parseInput: parseEmptyAssistantCapabilityInput,
+              async execute(_input: unknown, context: Parameters<AssistantCapability['execute']>[1]) {
+                const proposal = await adapter.prepareConfirmation!(context.signal);
+                context.commitInternalState(() => {
+                  prepared = proposal;
+                });
+                return { pendingConfirmation: true, published: false };
+              },
+              propose: () => prepared!,
+            },
+          ]
+        : []),
+      ...(adapter.relations
+        ? [
+            {
+              effect: 'read' as const,
+              descriptor: {
+                code: 'configuration.describe-page-relations',
+                description:
+                  'Read existing direct child relations, or a named child’s field directory. Use nextOffset to continue; omitted or oversized entries are not absent. Does not create metadata or change layout.',
+                inputSchema: {
+                  type: 'object',
+                  additionalProperties: false,
+                  properties: {
+                    relationCode: { type: 'string', minLength: 1, maxLength: 255 },
+                    offset: { type: 'integer', minimum: 0 },
+                  },
+                },
+              },
+              parseInput(input: unknown) {
+                if (
+                  !record(input) ||
+                  Object.keys(input).some((key) => !['relationCode', 'offset'].includes(key)) ||
+                  (input.relationCode !== undefined &&
+                    (typeof input.relationCode !== 'string' ||
+                      !input.relationCode.trim() ||
+                      input.relationCode.length > 255)) ||
+                  (input.offset !== undefined &&
+                    (!Number.isSafeInteger(input.offset) || Number(input.offset) < 0))
+                )
+                  throw new AssistantCapabilityUsageError('Invalid child catalog input');
+                return {
+                  relationCode: input.relationCode as string | undefined,
+                  offset: Number(input.offset ?? 0),
+                };
+              },
+              async execute(input: { relationCode?: string; offset: number }) {
+                return adapter.relations!(input);
+              },
+            } satisfies AssistantCapability<{ relationCode?: string; offset: number }>,
+          ]
+        : []),
       read(
         'configuration.describe-page-composition',
-        'Read the current template, available fields, root placements and editing constraints before proposing changes. Only listed fields can be used. Grouped fields, relations, actions and omitted regions are preserved.',
+        'Read the current template, available fields, root placements and editing constraints before proposing changes. Only listed fields can be used. Read availableRelations and current relations for child layouts. Grouped fields, actions and omitted regions are preserved.',
         () => adapter.describe(),
       ),
       read(
@@ -54,7 +142,7 @@ export function createPageCompositionAssistantSurface(
               descriptor: {
                 code: 'configuration.revise-page-candidate',
                 description:
-                  'Revise the visible unsaved page candidate using existing fields. Each supplied region replaces its complete ordered ROOT field list (empty removes root placements); omitted regions and unspecified field properties are preserved. Groups and child relations are untouched. Do not send arbitrary UI JSON. Preview once after revision, then summarize and stop. Only the user can save and activate the page.',
+                  'Revise the visible unsaved page candidate using existing fields. Each supplied region replaces its complete ordered ROOT field list (empty removes root placements); omitted regions and unspecified field properties are preserved. Groups are untouched. Supplied relations replace the complete ordered child layout (empty removes child display, never data); each child needs explicit existing fields from its own directory. Omitted relations preserve all children. Do not send arbitrary UI JSON. Preview after revision, then prepare publication confirmation if the user wants to save. Never claim the candidate is already published.',
                 inputSchema: candidateInputSchema(),
               },
               parseInput: parsePageCompositionCandidateInput,
@@ -78,7 +166,7 @@ export function createPageCompositionAssistantSurface(
         descriptor: {
           code: 'configuration.preview-page-candidate',
           description:
-            'Validate the current visible page candidate through the standard template compiler without saving or activating. Returns candidate changes and validation; summarize and stop after this result unless the candidate changes.',
+            'Validate the current visible page candidate through the standard template compiler without saving or activating. Returns candidate changes and validation; use a valid result to prepare publication confirmation; do not repeat unless the candidate changes.',
           inputSchema: emptyAssistantCapabilityInputSchema(),
         },
         parseInput: parseEmptyAssistantCapabilityInput,
@@ -145,6 +233,20 @@ function candidateInputSchema(): Record<string, unknown> {
       list: region(false),
       form: region(true),
       detail: region(true),
+      relations: {
+        type: 'array',
+        maxItems: 16,
+        items: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['relationCode', 'fields'],
+          properties: {
+            relationCode: { type: 'string', minLength: 1, maxLength: 255 },
+            title: { type: 'string', minLength: 1, maxLength: 100 },
+            fields: { ...region(false), minItems: 1 },
+          },
+        },
+      },
       quickSearchFields: {
         type: 'array',
         maxItems: 40,
@@ -162,7 +264,9 @@ export function parsePageCompositionCandidateInput(input: unknown): PageComposit
   if (
     !record(input) ||
     !Object.keys(input).length ||
-    Object.keys(input).some((key) => !['list', 'form', 'detail', 'quickSearchFields'].includes(key))
+    Object.keys(input).some(
+      (key) => !['list', 'form', 'detail', 'quickSearchFields', 'relations'].includes(key),
+    )
   )
     return fail('Unsupported page candidate input');
   const result: PageCompositionCandidateInput = {};
@@ -208,6 +312,37 @@ export function parsePageCompositionCandidateInput(input: unknown): PageComposit
     });
     if (region === 'quickSearchFields') result.quickSearchFields = entries.map((entry) => entry.fieldName);
     else result[region] = entries;
+  }
+  if (input.relations !== undefined) {
+    if (!Array.isArray(input.relations) || input.relations.length > 16)
+      return fail('At most 16 child layouts');
+    const codes = new Set<string>();
+    result.relations = input.relations.map((relation) => {
+      if (
+        !record(relation) ||
+        Object.keys(relation).some((key) => !['relationCode', 'title', 'fields'].includes(key)) ||
+        typeof relation.relationCode !== 'string' ||
+        !relation.relationCode.trim() ||
+        relation.relationCode.length > 255
+      )
+        return fail('Invalid child relation');
+      const relationCode = relation.relationCode.trim();
+      if (codes.has(relationCode)) return fail('Duplicate child relation');
+      codes.add(relationCode);
+      if (
+        relation.title !== undefined &&
+        (typeof relation.title !== 'string' || !relation.title.trim() || relation.title.length > 100)
+      )
+        return fail('Invalid child title');
+      if (!Array.isArray(relation.fields) || !relation.fields.length)
+        return fail('Child layouts require explicit fields');
+      const fields = parsePageCompositionCandidateInput({ list: relation.fields }).list!;
+      return {
+        relationCode,
+        fields,
+        ...(relation.title === undefined ? {} : { title: (relation.title as string).trim() }),
+      };
+    });
   }
   return result;
 }

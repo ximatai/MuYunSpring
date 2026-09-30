@@ -54,6 +54,7 @@ export function createBusinessRuleSession(
         !!snapshot.value &&
         proposalFingerprintOf(rules.value) !== proposalFingerprintOf(editableProposals(snapshot.value)),
     );
+    const ready = computed(() => !!snapshot.value && !loading.value && !applying.value && !loadFailed.value);
     const path = `/platform.module/${encodeURIComponent(moduleAlias)}/business-rules`;
     let loadEpoch = 0;
     watch([rules, snapshot, ui, tenantId], () => revision.value++, { deep: true, flush: 'sync' });
@@ -62,8 +63,7 @@ export function createBusinessRuleSession(
     }
     function requireReady() {
       requireValid();
-      if (!snapshot.value || loading.value || applying.value || loadFailed.value)
-        throw new AssistantCapabilityUsageError('请等待规则加载或应用完成');
+      if (!ready.value) throw new AssistantCapabilityUsageError('请等待规则加载或应用完成');
     }
     async function merge(loaded: BusinessRuleSnapshot) {
       const controls = await http.request<UiControlSnapshot>({ path: path + '/ui-controls' });
@@ -190,24 +190,20 @@ export function createBusinessRuleSession(
     const adapter: BusinessRuleAssistantAdapter = {
       summary: () => ({
         moduleAlias,
-        editable:
-          valid() &&
-          !!snapshot.value &&
-          !loading.value &&
-          !loadFailed.value &&
-          !applying.value &&
-          !editing.value,
+        editable: valid() && ready.value && !editing.value,
       }),
       catalog: (section) =>
         section === 'fields'
           ? (snapshot.value?.editableFields ?? [])
-          : section === 'aggregateFields'
-            ? (snapshot.value?.aggregateFields ?? [])
-            : section === 'functions'
-              ? (snapshot.value?.functions ?? [])
-              : section === 'forms'
-                ? (ui.value?.forms ?? [])
-                : [...rules.value, ...(snapshot.value ? readonlyRules(snapshot.value) : [])],
+          : section === 'childFields'
+            ? (snapshot.value?.childFields ?? [])
+            : section === 'aggregateFields'
+              ? (snapshot.value?.aggregateFields ?? [])
+              : section === 'functions'
+                ? (snapshot.value?.functions ?? [])
+                : section === 'forms'
+                  ? (ui.value?.forms ?? [])
+                  : [...rules.value, ...(snapshot.value ? readonlyRules(snapshot.value) : [])],
       revise(rule) {
         requireReady();
         if (editing.value) throw new AssistantCapabilityUsageError('请先完成页面中的规则编辑');
@@ -215,9 +211,11 @@ export function createBusinessRuleSession(
           throw new AssistantCapabilityUsageError('不能覆盖只读规则');
         if (
           rule.kind === 'CALCULATION' &&
-          !snapshot.value!.editableFields.some((field) => field.fieldName === rule.targetField)
+          ![...snapshot.value!.editableFields, ...(snapshot.value!.childFields ?? [])].some(
+            (field) => field.fieldName === rule.targetField,
+          )
         )
-          throw new AssistantCapabilityUsageError('计算目标必须来自可写主表字段目录');
+          throw new AssistantCapabilityUsageError('计算目标必须来自主表或直接子表的可写字段目录');
         if (rule.kind === 'UI_CONTROL') {
           const form = ui.value?.forms.find((form) => form.key === rule.formKey);
           if (
@@ -246,7 +244,11 @@ export function createBusinessRuleSession(
         if (checked.errors.length) throw new BusinessRulePrecheckError(checked.errors);
         const impact = businessRuleChangeImpact(snapshot.value!, rules.value);
         const describe = (rule: BusinessRuleProposal) => {
-          const fields = snapshot.value!.editableFields;
+          const fields = [
+            ...snapshot.value!.editableFields,
+            ...(snapshot.value!.aggregateFields ?? []),
+            ...(snapshot.value!.childFields ?? []),
+          ];
           const target = fields.find((field) => field.fieldName === rule.targetField);
           const details = [
             `${{ CALCULATION: '字段计算', VALIDATION: '保存校验', UI_CONTROL: '界面控制' }[rule.kind]} ${rule.kind === 'CALCULATION' ? (target?.title || rule.targetField) + ' = ' : ''}${presentableFormulaExpression(rule.expression, fields)}（应用后${rule.enabled ? '启用' : '停用'}）`,
@@ -294,6 +296,7 @@ export function createBusinessRuleSession(
       },
       invalidateConfirmations: () => revision.value++,
       snapshot,
+      ready,
       ui,
       rules,
       loading,
@@ -302,6 +305,7 @@ export function createBusinessRuleSession(
       tenantId,
       revision,
       dirty,
+      editing,
       adapter,
       load,
       replace,

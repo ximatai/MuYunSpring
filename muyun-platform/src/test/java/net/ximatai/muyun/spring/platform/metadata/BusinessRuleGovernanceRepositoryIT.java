@@ -402,6 +402,62 @@ class BusinessRuleGovernanceRepositoryIT extends PlatformPostgresIntegrationTest
     }
 
     @Test
+    void shouldComputeChildRowsBeforeTotalsInTrialAndRealAggregateSave() {
+        configureLineItems();
+        var child = relations.list(Criteria.of().eq("moduleAlias", moduleAlias).eq("relationRole", RelationRole.CHILD)).getFirst();
+        fields.insert(field(child.getMetadataId(), "quantity", "quantity", "integer"));
+        fields.insert(field(child.getMetadataId(), "price", "price", "decimal"));
+        var rules = List.of(new BusinessRuleProposal("sumAmount", FormulaRuleKind.CALCULATION,
+                "total", "SUM({lines.lineAmount})", true, null),
+                new BusinessRuleProposal("lineAmount", FormulaRuleKind.CALCULATION,
+                        "lines.lineAmount", "{lines.quantity} * {lines.price}", true, null));
+        var baseline = governance.snapshot(moduleAlias);
+        assertThat(baseline.childFields()).extracting(BusinessRuleField::fieldName)
+                .contains("lines.lineAmount").doesNotContain("lines.contractId");
+        var checked = governance.preview(moduleAlias, new BusinessRulePreviewCommand(rules));
+        assertThat(checked.errors()).isEmpty();
+        assertThat(checked.executionOrder()).containsExactly("lineAmount", "sumAmount");
+        var sample = Map.<String, List<Map<String, Object>>>of("lines", List.of(
+                Map.of("quantity", 2, "price", 12, "lineAmount", 999),
+                Map.of("quantity", 3, "price", 9, "lineAmount", 999)));
+        var trial = governance.trial(moduleAlias, new BusinessRuleTrialCommand(rules, Map.of(), sample));
+        assertThat(trial.errors()).isEmpty();
+        assertThat(new java.math.BigDecimal(trial.values().get("total").toString())).isEqualByComparingTo("51");
+        assertThat(new java.math.BigDecimal(trial.children().get("lines").getFirst().get("lineAmount").toString()))
+                .isEqualByComparingTo("24");
+        assertThat(sample.get("lines").getFirst()).containsEntry("lineAmount", 999);
+        governance.apply(moduleAlias, new BusinessRuleApplyCommand(rules, baseline.baselineFingerprint(), checked.proposalFingerprint()));
+        assertThat(governance.snapshot(moduleAlias).rules()).allMatch(BusinessRuleSnapshotRule::editable);
+        var definition = definitionCompiler.compile(moduleAlias);
+        new DynamicModuleRuntimeRefresher(schemaService, dynamicRuntime).refresh(definition);
+        String main = definition.mainEntityAlias();
+        String line = definition.relations().getFirst().childEntityAlias();
+        try (var tenant = TenantContext.use("aggregate-rule-test")) {
+            var record = recordService.newRecord(moduleAlias, main).setValue("total", new java.math.BigDecimal("999"));
+            record.setChildren("lines", List.of(
+                    recordService.newRecord(moduleAlias, line).setValue("quantity", 2).setValue("price", new java.math.BigDecimal("12")).setValue("lineAmount", new java.math.BigDecimal("999")),
+                    recordService.newRecord(moduleAlias, line).setValue("quantity", 3).setValue("price", new java.math.BigDecimal("9")).setValue("lineAmount", new java.math.BigDecimal("999"))));
+            String id = recordService.create(moduleAlias, main, record);
+            var saved = recordService.select(moduleAlias, main, id);
+            saved.setChildren("lines", recordService.aggregateChildrenForView(moduleAlias, id, "lines"));
+            assertThat((java.math.BigDecimal) saved.getValue("total")).isEqualByComparingTo("51");
+            assertThat((java.math.BigDecimal) saved.getChildren("lines").getFirst().getValue("lineAmount")).isEqualByComparingTo("24");
+            saved.getChildren("lines").getFirst().setValue("quantity", 4);
+            recordService.update(moduleAlias, main, saved);
+            saved = recordService.select(moduleAlias, main, id);
+            saved.setChildren("lines", recordService.aggregateChildrenForView(moduleAlias, id, "lines"));
+            assertThat((java.math.BigDecimal) saved.getValue("total")).isEqualByComparingTo("75");
+            saved.setChildren("lines", List.of(saved.getChildren("lines").getFirst()));
+            recordService.update(moduleAlias, main, saved);
+            saved = recordService.select(moduleAlias, main, id);
+            assertThat((java.math.BigDecimal) saved.getValue("total")).isEqualByComparingTo("48");
+            saved.setChildren("lines", List.of());
+            recordService.update(moduleAlias, main, saved);
+            assertThat((java.math.BigDecimal) recordService.select(moduleAlias, main, id).getValue("total")).isEqualByComparingTo("0");
+        }
+    }
+
+    @Test
     void shouldRestrictChildAggregationsToFieldTypeAndHideRelationKey() {
         configureLineItems();
         BusinessRuleGovernanceSnapshot baseline = governance.snapshot(moduleAlias);

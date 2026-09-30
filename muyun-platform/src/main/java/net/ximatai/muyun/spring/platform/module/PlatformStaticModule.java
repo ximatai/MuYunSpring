@@ -23,6 +23,9 @@ public @interface PlatformStaticModule {
 
     String title();
 
+    /** Short optional business-purpose hint for discovery. */
+    String description() default "";
+
     String parent() default "";
 
     String route() default "";

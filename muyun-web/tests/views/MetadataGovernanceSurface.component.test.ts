@@ -1624,6 +1624,69 @@ it('keeps a multi-field plan visible, edits and removes items without publishing
   expect(request.mock.calls.some(([options]) => options.path.endsWith('change-set-apply'))).toBe(false);
 });
 
+it('builds multiple fields manually without losing earlier shared draft entries', async () => {
+  vi.mocked(confirmAction).mockResolvedValue(false);
+  const request = vi.fn(async (options: HttpRequestOptions) =>
+    options.path === '/platform.field_spec/query'
+      ? { records: [{ alias: 'string', title: '短文本', enabled: true }], pages: 1 }
+      : responseFor(options),
+  );
+  configureModuleContext({ http: { request } as HttpClient });
+  const wrapper = shallowMount(MetadataGovernanceSurface, {
+    props: { moduleAlias: 'education.exam' },
+    global: { stubs: governanceStubs() },
+  });
+  mounted.add(wrapper);
+  await flushPromises();
+  const click = async (label: string) => {
+    await wrapper
+      .findAll('[data-testid="action-button"]')
+      .find((button) => button.text() === label)!
+      .trigger('click');
+    await flushPromises();
+  };
+  const addField = async (title: string) => {
+    await click('普通字段');
+    wrapper
+      .findAll('label')
+      .find((label) => label.text() === '显示名称')!
+      .findComponent({ name: 'UiInput' })
+      .vm.$emit('update:value', title);
+    wrapper.findComponent({ name: 'UiSelect' }).vm.$emit('update:value', 'string');
+    await flushPromises();
+    expect(wrapper.findComponent({ name: 'UiRadioGroup' }).props('value')).toBe('SIMPLE');
+    expect(wrapper.text()).not.toContain('物理列名');
+    wrapper.findAllComponents({ name: 'UiCheckbox' })[0]!.vm.$emit('update:checked', true);
+    await click('保留修改');
+  };
+  await click('批量添加字段');
+  await addField('备注');
+  await addField('说明');
+  const entries = () => wrapper.get('[data-testid="metadata-field-plan"]').findAll('article');
+  expect(entries()).toHaveLength(2);
+  expect(request.mock.calls.some(([options]) => options.path.endsWith('change-set-apply'))).toBe(false);
+  await click('普通字段');
+  await click('取消');
+  expect(entries()).toHaveLength(2);
+  await click('预检并保存');
+  const preview = request.mock.calls.find(([options]) => options.path.endsWith('change-set-preview'))![0];
+  expect(preview.body).toMatchObject({
+    relationDrafts: [
+      {
+        fieldDrafts: [
+          { operation: 'ADD', field: { title: '备注', required: true } },
+          { operation: 'ADD', field: { title: '说明', required: true } },
+        ],
+      },
+    ],
+  });
+  // Declining confirmation keeps the candidate available for correction.
+  expect(entries()).toHaveLength(2);
+  await click('放弃更改');
+  expect(wrapper.find('[data-testid="metadata-field-plan"]').exists()).toBe(false);
+  expect(request.mock.calls.some(([options]) => options.path.endsWith('change-set-apply'))).toBe(false);
+});
+
 it.each(['save', 'edit', 'cancel', 'refresh-failure'])(
   'confirms the visible metadata candidate in conversation (%s)',
   async (scenario) => {

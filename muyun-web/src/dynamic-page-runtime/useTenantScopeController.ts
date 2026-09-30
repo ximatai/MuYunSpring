@@ -27,13 +27,39 @@ export function useTenantScopeController(
   const tenantScopeExplorerVisible = computed(() => required.value && currentUser?.value?.system !== false);
   const tenantScopeExplorerCount = computed(() => (tenantScopeExplorerVisible.value ? 1 : 0));
   const initialScopeLoaded = ref(false);
+  function preferenceKey() {
+    return JSON.stringify(['muyun.business-scope', currentUser?.value?.userId, context.moduleAlias]);
+  }
+  function rememberedScope() {
+    if (!currentUser?.value?.userId) return null;
+    try {
+      return sessionStorage.getItem(preferenceKey());
+    } catch {
+      return null;
+    }
+  }
+  function rememberScope(id: string) {
+    if (!currentUser?.value?.userId) return;
+    try {
+      if (id) sessionStorage.setItem(preferenceKey(), id);
+      else sessionStorage.removeItem(preferenceKey());
+    } catch {
+      /* Scope selection still works when browser storage is unavailable. */
+    }
+  }
   function changeTenantScope(record: QueryListRecord | undefined) {
     if (blocked.value || recordOnly) return;
     if (String(record?.id ?? '') === selectedId.value) return;
     selected.value = record;
+    rememberScope(String(record?.id ?? ''));
   }
   function handleTenantScopeLoaded(records: QueryListRecord[], initialFullResult = false, total?: number) {
     if (!initialFullResult) return;
+    if (!selectedId.value && currentUser?.value?.system !== false) {
+      const remembered = rememberedScope();
+      const available = records.find((record) => String(record.id) === remembered);
+      if (available) changeTenantScope(available);
+    }
     if (total === 1 && !selectedId.value && records.length === 1 && records[0]?.id != null) {
       changeTenantScope(records[0]);
     }

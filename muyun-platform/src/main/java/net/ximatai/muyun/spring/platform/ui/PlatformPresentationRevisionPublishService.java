@@ -6,6 +6,12 @@ import net.ximatai.muyun.database.core.orm.Sort;
 import net.ximatai.muyun.spring.ability.action.BusinessExceptions;
 import org.springframework.stereotype.Service;
 import org.springframework.beans.factory.ObjectProvider;
+import net.ximatai.muyun.spring.ability.event.RuntimeEvent;
+import net.ximatai.muyun.spring.ability.event.RuntimeEventPublisher;
+import net.ximatai.muyun.spring.ability.event.RuntimeEventType;
+import net.ximatai.muyun.spring.ability.event.RuntimeMutationSource;
+import java.util.Map;
+import java.util.Objects;
 import org.springframework.transaction.annotation.Transactional;
 
 /** Publishes one validated immutable revision atomically inside a presentation variant. */
@@ -15,7 +21,8 @@ public class PlatformPresentationRevisionPublishService {
     private final PlatformPresentationVariantService variantService;
     private final PlatformPageDefinitionService pageService;
     private final PlatformPresentationTemplateCatalog templateCatalog;
-    private final PublishedPageExecutionCoordinator pageExecutionCoordinator;
+    private final ObjectProvider<PublishedPageExecutionCoordinator> pageExecutionCoordinator;
+    private final RuntimeEventPublisher runtimeEventPublisher;
 
     @org.springframework.beans.factory.annotation.Autowired
     private net.ximatai.muyun.spring.platform.module.PlatformModuleActionService moduleActionService;
@@ -23,32 +30,15 @@ public class PlatformPresentationRevisionPublishService {
     public PlatformPresentationRevisionPublishService(PlatformPresentationRevisionService revisionService,
                                                       PlatformPresentationVariantService variantService,
                                                       PlatformPageDefinitionService pageService,
-                                                      PlatformPresentationTemplateCatalog templateCatalog) {
-        this(revisionService, variantService, pageService, templateCatalog, PublishedPageExecutionCoordinator.noop());
-    }
-
-    @org.springframework.beans.factory.annotation.Autowired
-    public PlatformPresentationRevisionPublishService(PlatformPresentationRevisionService revisionService,
-                                                      PlatformPresentationVariantService variantService,
-                                                      PlatformPageDefinitionService pageService,
                                                       PlatformPresentationTemplateCatalog templateCatalog,
-                                                      ObjectProvider<PublishedPageExecutionCoordinator> pageExecutionCoordinator) {
-        this(revisionService, variantService, pageService, templateCatalog,
-                pageExecutionCoordinator == null ? PublishedPageExecutionCoordinator.noop()
-                        : pageExecutionCoordinator.getIfAvailable(PublishedPageExecutionCoordinator::noop));
-    }
-
-    PlatformPresentationRevisionPublishService(PlatformPresentationRevisionService revisionService,
-                                               PlatformPresentationVariantService variantService,
-                                               PlatformPageDefinitionService pageService,
-                                               PlatformPresentationTemplateCatalog templateCatalog,
-                                               PublishedPageExecutionCoordinator pageExecutionCoordinator) {
-        this.revisionService = revisionService;
-        this.variantService = variantService;
-        this.pageService = pageService;
-        this.templateCatalog = templateCatalog;
-        this.pageExecutionCoordinator = pageExecutionCoordinator == null
-                ? PublishedPageExecutionCoordinator.noop() : pageExecutionCoordinator;
+                                                      ObjectProvider<PublishedPageExecutionCoordinator> pageExecutionCoordinator,
+                                                      RuntimeEventPublisher runtimeEventPublisher) {
+        this.revisionService = Objects.requireNonNull(revisionService);
+        this.variantService = Objects.requireNonNull(variantService);
+        this.pageService = Objects.requireNonNull(pageService);
+        this.templateCatalog = Objects.requireNonNull(templateCatalog);
+        this.pageExecutionCoordinator = Objects.requireNonNull(pageExecutionCoordinator);
+        this.runtimeEventPublisher = Objects.requireNonNull(runtimeEventPublisher);
     }
 
     /** Saves the caller's complete working copy and publishes it in one transaction. */
@@ -113,7 +103,11 @@ public class PlatformPresentationRevisionPublishService {
         // Compile the candidate while this transaction still exposes its published state. The
         // delivery adapter installs its immutable plan only after commit, so a compile failure
         // preserves both the prior revision and the prior executable page.
-        pageExecutionCoordinator.prepareAfterPublishedConfigurationChange(page.getModuleAlias());
+        pageExecutionCoordinator.getIfAvailable(PublishedPageExecutionCoordinator::noop)
+                .prepareAfterPublishedConfigurationChange(page.getModuleAlias());
+        runtimeEventPublisher.publishAfterCommit(RuntimeEvent.of(RuntimeEventType.MODULE_PAGE_CONFIG_PUBLISHED,
+                page.getModuleAlias(), null, null, null, null, true, "published presentation revision",
+                RuntimeMutationSource.SYSTEM, Map.of()));
         return requireRevision(revisionId);
     }
 

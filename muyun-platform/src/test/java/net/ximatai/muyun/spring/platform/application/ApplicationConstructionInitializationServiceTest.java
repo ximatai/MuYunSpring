@@ -26,7 +26,7 @@ class ApplicationConstructionInitializationServiceTest {
         };
         var service = new ApplicationConstructionInitializationService(plans, mock(ApplicationConstructionInitializationDao.class),
                 mock(ApplicationService.class), modules, orchestration, mock(MetadataService.class),
-                mock(DynamicRuntimeActivationService.class), permissions, mock(IDatabaseOperations.class));
+                mock(DynamicRuntimeActivationService.class), permissions, mock(IDatabaseOperations.class), new net.ximatai.muyun.spring.ability.action.DataChangeRecorder());
         try (var user = CurrentUserContext.use(CurrentUser.systemUser("operator", "Operator"))) {
             assertThatThrownBy(() -> service.preview("plan", null)).hasMessageContaining("权限已撤销");
             assertThat(actions).anyMatch(code -> code.contains("platform.module_metadata_relation") && code.contains("createMainMetadata"));
@@ -46,7 +46,7 @@ class ApplicationConstructionInitializationServiceTest {
         var orchestration = mock(ModuleMetadataOrchestrationService.class);
         var service = new ApplicationConstructionInitializationService(plans, mock(ApplicationConstructionInitializationDao.class),
                 applications, modules, orchestration, mock(MetadataService.class), mock(DynamicRuntimeActivationService.class),
-                context -> {}, mock(IDatabaseOperations.class));
+                context -> {}, mock(IDatabaseOperations.class), new net.ximatai.muyun.spring.ability.action.DataChangeRecorder());
         try (var user = CurrentUserContext.use(CurrentUser.systemUser("operator", "Operator"))) {
             assertThatThrownBy(() -> service.preview("plan", new ApplicationConstructionInitializationService.Proposal(1, "order", "trial", "试用", "order")))
                     .hasMessageContaining("先商定并确认分期范围");

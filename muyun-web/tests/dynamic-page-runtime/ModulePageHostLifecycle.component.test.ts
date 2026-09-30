@@ -1,3 +1,4 @@
+import { appDataChangeDispatcher } from '@/platform-admin-runtime/realtime';
 import { flushPromises, mount } from '@vue/test-utils';
 import { describe, expect, it, vi } from 'vitest';
 import { computed, defineComponent, h, onMounted, provide } from 'vue';
@@ -732,7 +733,46 @@ it('keeps the inherited business scope when a record-only reference host takes o
   try {
     await flushPromises();
     await flushPromises();
-    expect(JSON.parse(registry.snapshot()!.token.conversationScopeKey!)[1]).toBe('tenant-a');
+    expect(JSON.parse(registry.snapshot()!.token.executionScopeKey!)[1]).toBe('tenant-a');
+  } finally {
+    wrapper.unmount();
+  }
+});
+
+it('reloads published configuration when idle and defers replacement while a form is open', async () => {
+  let title = 'Before';
+  configureModuleContext({ http: { request: async () => runtime('crm.customer', { title }) as never } });
+  const wrapper = mount(ModulePageHost, {
+    props: { descriptor: descriptor('crm.customer') },
+    global: { stubs: hostStubs },
+  });
+  const change = (id: string, moduleAlias = 'crm.customer') =>
+    appDataChangeDispatcher.dispatch({
+      changeSetId: id,
+      changes: [{ type: 'module-page-configuration-changed', moduleAlias }],
+    });
+  try {
+    await flushPromises();
+    const uid = controlSessionUid(wrapper);
+    title = 'Published';
+    await change('publication-1', 'crm.other');
+    await flushPromises();
+    expect(runtimeContextOf(wrapper).runtime.snapshot()?.title).toBe('Before');
+    await change('publication-2');
+    await flushPromises();
+    expect(runtimeContextOf(wrapper).runtime.snapshot()?.title).toBe('Published');
+    expect(controlSessionUid(wrapper)).toBe(uid);
+    const business = wrapper.findComponent({ name: 'ModulePageBusinessSession' });
+    business.vm.$emit('interaction-state-change', { editing: true, busy: false, dirty: true });
+    title = 'Next';
+    await change('publication-3');
+    await flushPromises();
+    expect(runtimeContextOf(wrapper).runtime.snapshot()?.title).toBe('Published');
+    expect(wrapper.text()).toContain('当前填写内容已保留');
+    business.vm.$emit('interaction-state-change', { editing: false, busy: false, dirty: false });
+    await flushPromises();
+    expect(runtimeContextOf(wrapper).runtime.snapshot()?.title).toBe('Next');
+    expect(wrapper.text()).not.toContain('当前填写内容已保留');
   } finally {
     wrapper.unmount();
   }

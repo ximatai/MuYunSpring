@@ -3,8 +3,6 @@ package net.ximatai.muyun.spring.platform.metadata;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.spring.common.platform.EntityCapability;
-import net.ximatai.muyun.spring.common.schema.PlatformAbilityFields;
-import net.ximatai.muyun.spring.dynamic.metadata.FieldType;
 import net.ximatai.muyun.spring.common.util.PlatformNameRules;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecordService;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecordProtocolFields;
@@ -578,8 +576,7 @@ public class MetadataRelationChangeSetPreviewService {
             PlatformNameRules.requireDatabaseName(field.getColumnName(), "columnName");
             PlatformNameRules.requireIdentifier(field.getFieldSpecAlias(), "fieldSpecAlias");
             var type = fieldSpecService.requireFieldType(field.getFieldSpecAlias());
-            if (Boolean.TRUE.equals(field.getTitleField()) && (!PlatformAbilityFields.TITLE_FIELD.equals(field.getFieldName())
-                    || !PlatformAbilityFields.TITLE_COLUMN.equals(field.getColumnName()) || type.getFieldType() != FieldType.STRING)) {
+            if (Boolean.TRUE.equals(field.getTitleField()) && !MetadataCapabilityCatalog.recordName().accepts(field.getFieldName(), field.getColumnName(), type.getFieldType().name())) {
                 throw new IllegalArgumentException("记录名称须使用标准 title 字段与 title 列，并选择 STRING 规格；TEXT 长文本不能作为引用名称。");
             }
             return true;

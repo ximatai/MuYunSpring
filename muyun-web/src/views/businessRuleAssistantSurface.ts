@@ -14,7 +14,7 @@ import type {
   BusinessRuleTrialResult,
   BusinessRuleSnapshotRule,
 } from './businessRuleGovernance';
-import { toProposal } from './businessRuleGovernance';
+import { toProposal, businessRuleTrialValue } from './businessRuleGovernance';
 
 export interface BusinessRuleTrialInput {
   sampleValues: Record<string, unknown>;
@@ -28,7 +28,7 @@ export interface BusinessRuleAssistantAdapter {
   trial(input: BusinessRuleTrialInput, signal: AbortSignal): Promise<BusinessRuleTrialResult>;
   prepareConfirmation(signal: AbortSignal): Promise<AssistantOperationProposal>;
 }
-const sections = ['fields', 'aggregateFields', 'functions', 'rules', 'forms'] as const;
+const sections = ['fields', 'childFields', 'aggregateFields', 'functions', 'rules', 'forms'] as const;
 const object = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === 'object' && !Array.isArray(value);
 function fail(message: string): never {
@@ -117,7 +117,10 @@ function catalogPage(records: unknown[], offset = 0, budget = 6000) {
   const { items, page } = pageAssistantCatalog(records, offset, budget);
   return { items, total: page.total, nextOffset: page.nextOffset, oversizedIndexes: page.oversizedIndexes };
 }
-interface TrialObservation extends Pick<BusinessRuleTrialResult, 'values' | 'changedFields' | 'errors'> {
+interface TrialObservation extends Pick<
+  BusinessRuleTrialResult,
+  'values' | 'children' | 'changedFields' | 'errors'
+> {
   sample: BusinessRuleTrialInput;
   labels: Record<string, string>;
   enabledRuleCount: number;
@@ -157,7 +160,7 @@ export function createBusinessRuleAssistantSurface(
         descriptor: {
           code: 'rules.describe',
           description:
-            'Read only missing standard governance facts by section and offset; current fields and rules are already in surface facts. Do not read functions for simple operators or forms for calculations/validations. Fields are writable main targets; aggregateFields are only readable inside aggregate functions; forms are UI targets; rules include current unsaved edits and read-only rules. Never infer missing records from a partial page.',
+            'Read only missing standard governance facts by section and offset; current fields and rules are already in surface facts. Do not read functions for simple operators or forms for calculations/validations. Fields are writable main targets; childFields are writable direct-child targets such as lines.amount, calculated per row from the same child. aggregateFields can be read by main formulas only inside aggregate functions; forms are UI targets; rules include current unsaved edits and read-only rules. Never infer missing records from a partial page.',
           inputSchema: {
             type: 'object',
             additionalProperties: false,
@@ -263,7 +266,7 @@ export function createBusinessRuleAssistantSurface(
         descriptor: {
           code: 'rules.trial',
           description:
-            'Execute current main-record calculations and validations on explicit sampleValues and sampleChildren without saving. Only enabled candidate rules execute. After each requested sample is trialed, report the results and stop; do not repeatedly read unchanged catalogs. Child rows are input facts, not computed by this trial. Explicit empty child arrays mean zero rows. Does not trial UI controls. Reference facts are resolved by the server using the business tenant selected in the governance page, never submit dotted reference values.',
+            'Execute current main and direct-child calculations and validations on explicit sampleValues and sampleChildren without saving. Only enabled candidate rules execute. After each requested sample is trialed, report the results and stop; do not repeatedly read unchanged catalogs. Returned children contain computed row values; main aggregates consume these results. Explicit empty child arrays mean zero rows. Does not trial UI controls. Reference facts are resolved by the server using the business tenant selected in the governance page, never submit dotted reference values.',
           inputSchema: {
             type: 'object',
             additionalProperties: false,
@@ -302,7 +305,7 @@ export function createBusinessRuleAssistantSurface(
                 ? []
                 : ['当前没有启用的计算或保存校验；本次不能证明预期规则有效。']),
               ...result.changedFields.map(
-                (field) => `结果 · ${label(field)}：${value(result.values[field])}`,
+                (field) => `结果 · ${label(field)}：${value(businessRuleTrialValue(result, field))}`,
               ),
               ...(result.errors.length
                 ? result.errors.map((error) => error.message)
@@ -329,6 +332,7 @@ export function createBusinessRuleAssistantSurface(
             labels,
             enabledRuleCount,
             values: result.values,
+            children: result.children,
             changedFields: result.changedFields,
             errors: result.errors,
             saved: false,

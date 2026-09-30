@@ -6,6 +6,51 @@ import type { RecordFormFieldDescriptor } from '@/platform-components/recordForm
 import type { ModuleContext } from '@muyun/web-core';
 
 describe('RecordFormFields', () => {
+  it('keeps server-computed values read-only without inline explanations or required input', async () => {
+    const fields = new Map<string, RecordFormFieldDescriptor>([
+      [
+        'amount',
+        {
+          fieldRef: { fieldName: 'amount' },
+          label: '合计',
+          valueType: 'DECIMAL',
+          readOnly: { constant: true, disabledHint: '保存时自动计算，保存前显示原值或留空' },
+          required: { constant: false },
+          inputRequirements: { requiredOnInsert: true, requiredOnUpdate: true },
+        },
+      ],
+    ]);
+    const wrapper = mount(RecordFormFields, { props: { fields, record: {}, mode: 'create' } });
+    await flushPromises();
+    expect(wrapper.text()).not.toContain('保存时自动计算');
+    expect(wrapper.get('input').attributes('disabled')).toBeDefined();
+    expect(wrapper.emitted('validity-change')?.at(-1)?.[0]).toMatchObject({ valid: true });
+    await wrapper.setProps({ record: { amount: '11.00' }, mode: 'edit' });
+    expect((wrapper.get('input').element as HTMLInputElement).value).toBe('11.00');
+    expect(wrapper.text()).not.toContain('保存前显示原值或留空');
+  });
+
+  it('validates declared text capacity for manual and prefilled values using Unicode characters', async () => {
+    const fields = new Map<string, RecordFormFieldDescriptor>([
+      [
+        'code',
+        {
+          fieldRef: { fieldName: 'code' },
+          label: '编码',
+          inputRequirements: { requiredOnInsert: false, requiredOnUpdate: false, maxLength: 2 },
+        },
+      ],
+    ]);
+    const wrapper = mount(RecordFormFields, { props: { fields, record: { code: 'abc' }, mode: 'create' } });
+    await flushPromises();
+    expect(wrapper.emitted('validity-change')?.at(-1)?.[0]).toMatchObject({
+      valid: false,
+      errors: { code: '编码最多允许 2 个字符' },
+    });
+    await wrapper.setProps({ record: { code: '😀文' } });
+    expect(wrapper.emitted('validity-change')?.at(-1)?.[0]).toMatchObject({ valid: true });
+  });
+
   it('validates insert requirements using the supplied mode even with a preallocated id', async () => {
     const fields = new Map<string, RecordFormFieldDescriptor>([
       [

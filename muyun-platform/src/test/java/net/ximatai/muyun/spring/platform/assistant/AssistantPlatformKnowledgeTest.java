@@ -47,13 +47,20 @@ class AssistantPlatformKnowledgeTest {
     }
 
     @Test
-    void suppliesSharedEditorKnowledgeFromCapabilitiesWithoutAnEditorPage() {
+    void discoversCollaborationBeforeLoadingDetailedSharedEditorKnowledge() {
         List<AiToolDefinition> capabilities = List.of(
                 new AiToolDefinition("configuration.select-metadata-module", "Select metadata module", Map.of()),
                 new AiToolDefinition("rules.select-module", "Select rule module", Map.of()));
 
+        assertThat(AssistantPlatformKnowledge.appendTo("base", Map.of("surface", "workbench"), capabilities))
+                .contains("configuration.start-task", "does not require a new construction plan")
+                .doesNotContain("MuYun metadata governance", "standard business-rule governance workspace",
+                        "configuration.prepare-metadata-apply", "rules.prepare-apply");
+        var selectedCapabilities = new java.util.ArrayList<>(capabilities);
+        selectedCapabilities.add(new AiToolDefinition("configuration.describe-metadata-model", "Read metadata", Map.of()));
+        selectedCapabilities.add(new AiToolDefinition("rules.describe", "Read rules", Map.of()));
         assertThat(AssistantPlatformKnowledge.appendTo(
-                "base", Map.of("surface", "workbench"), capabilities))
+                "base", Map.of("surface", "workbench"), selectedCapabilities))
                 .contains("does not require a new construction plan",
                         "configuration.prepare-metadata-apply", "including manual edits",
                         "closing the editor does not discard it", "not persisted conversation history",
@@ -61,6 +68,17 @@ class AssistantPlatformKnowledgeTest {
                         "configurationEditor.visible", "reopen the shared editor",
                         "live workspace may still retain unsaved changes",
                         "do not repeat module aliases");
+    }
+
+    @Test
+    void constructionGuidanceStaysBoundedAndDoesNotDuplicateFieldOrWorkflowContracts() {
+        var guidance = AssistantPlatformKnowledge.appendTo("base", Map.of("surface", "construction"),
+                List.of(new AiToolDefinition("construction.describe", "Read the current design", Map.of())));
+        assertThat(guidance.length()).isLessThan(3000);
+        assertThat(guidance).contains("current capability schemas and read catalogs", "human confirmations",
+                "CURRENT standard governance", "not a fixed sequence", "limited configuration evidence",
+                "visible standard management page", "separate human confirmation", "standard pages own creation drafts")
+                .doesNotContain("titleField=true", "1–12", "BEFORE_SAVE", "customer", "product");
     }
 
     @Test
