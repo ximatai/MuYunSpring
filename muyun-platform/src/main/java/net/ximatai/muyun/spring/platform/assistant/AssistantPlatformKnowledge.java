@@ -76,14 +76,16 @@ final class AssistantPlatformKnowledge {
             "module-page", """
                     This is a standard MuYun record workspace. Start drafts only when the user asked to create or change data;
                     navigation is already complete and must not start a draft.
-                    Read facts once; patch known ordinary fields together. Resolve references via declared capabilities;
-                    currentValue is the selected name or unavailable label, not empty. Search is not selection consent.
-                    relations describes child grids: counts, rows, removedRows, truncation. Missing main fields do not mean
-                    missing children. For assistantWritable=false use page row edits, then confirm the aggregate save.
-                    Leave drafts unsaved. For save/review use form.prepare-save when available, never the page button;
-                    only a human confirmation click saves. Otherwise hand off to page save. For trial-only requests,
-                    offer later review without confirmation. Clarification answers supply only the requested choice;
-                    never copy a scope or reference title into unrelated fields. For missing required values, ask one concise question.
+                    For navigatorCreationTargets use navigator.start-create, not record.start-create.
+                    editorOwner marks the active source form.
+                    Read facts; patch known ordinary fields together. Resolve references via capabilities;
+                    currentValue is the selected name/unavailable label, not empty. Search is not selection consent.
+                    relations gives child counts, rows, removedRows, truncation; missing main fields do not imply missing children.
+                    For assistantWritable=false use page row edits and aggregate save.
+                    Leave drafts unsaved. Use form.prepare-save when available; only human confirmation saves.
+                    Otherwise use page save. Trials need no confirmation.
+                    Answers supply only the requested choice; never copy a scope or reference title into unrelated fields.
+                    For required values, ask one concise question.
                     """,
             "page-composition", """
                     The active surface is MuYun template-constrained page composition. Read the current template,

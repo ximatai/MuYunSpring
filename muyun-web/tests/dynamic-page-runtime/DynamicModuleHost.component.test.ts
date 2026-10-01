@@ -2,6 +2,7 @@ import { config, flushPromises, mount, shallowMount } from '@vue/test-utils';
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { defineComponent } from 'vue';
 import ModulePageHost from '@/dynamic-page-runtime/ModulePageHost.vue';
+import type { ModulePageSessionView } from '@/dynamic-page-runtime/useModulePageSession';
 import { configureModuleContext, createHttpClient } from '@muyun/web-core';
 import { configureModulePageEnhancements } from '@/dynamic-page-runtime/modulePageEnhancements.ts';
 import { refreshModulePageList } from '@/dynamic-page-runtime/modulePageListRefresh.ts';
@@ -1748,6 +1749,14 @@ describe('ModulePageHost', () => {
     expect(list.props('externalQueryValues')).toEqual({ tenantId: 'tenant-a' });
     expect(wrapper.findComponent({ name: 'PageNavigatorExplorer' }).exists()).toBe(true);
     expect(navigator.props('createDisabled')).toBe(false);
+    const session = wrapper
+      .findComponent({ name: 'ModulePageHostRuntime' })
+      .props('session') as ModulePageSessionView;
+    const staleCreate = await session.prepareAssistantNavigatorCreate('tenant');
+    navigator.vm.$emit('select', { id: 'tenant-b', title: '乙租户' });
+    await flushPromises();
+    expect(() => staleCreate()).toThrow('导航范围或编辑状态已变化');
+    expect(session.assistantNavigatorEditor).toBeUndefined();
 
     navigator.vm.$emit('deselect');
     await flushPromises();
@@ -3976,7 +3985,7 @@ describe('ModulePageHost', () => {
     );
   });
 
-  it('adds lazy organization expansion to the tenant-scoped menu scheme editor without replacing its picker', async () => {
+  it.each(['user', 'assistant'])('preserves scoped navigator picker behavior (%s)', async (source) => {
     const organizationBodies: Array<Record<string, unknown>> = [];
     globalThis.fetch = async (input, init) => {
       const request = new Request(input, init);
@@ -3984,7 +3993,7 @@ describe('ModulePageHost', () => {
         return Response.json({
           moduleAlias: 'platform.menu',
           capabilities: [],
-          actions: [],
+          actions: [{ actionCode: 'create', authorized: true }],
           uiDescriptor: {
             schemaVersion: '1',
             moduleAlias: 'platform.menu',
@@ -4091,10 +4100,26 @@ describe('ModulePageHost', () => {
     await flushPromises();
 
     const navigator = wrapper.findComponent({ name: 'PageNavigatorExplorer' });
-    navigator.vm.$emit('create');
+    const session = wrapper
+      .findComponent({ name: 'ModulePageHostRuntime' })
+      .props('session') as ModulePageSessionView;
+    expect(session.recordCreationState().ready).toBe(true);
+    if (source === 'user') navigator.vm.$emit('create');
+    else {
+      expect(session.assistantNavigatorCreationTargets()).toEqual([{ key: 'scheme', title: '菜单方案' }]);
+      (await session.prepareAssistantNavigatorCreate('scheme'))();
+    }
     await flushPromises();
     const editor = wrapper.findComponent({ name: 'NavigatorManagementEditor' });
     expect(editor.props('open')).toBe(true);
+    expect(session.assistantNavigatorEditor).toMatchObject({
+      key: 'scheme',
+      moduleAlias: 'platform.menu_scheme',
+    });
+    expect(session.recordCreationState().ready).toBe(false);
+    expect(session.assistantNavigatorScopes()).toEqual([]);
+    expect(session.assistantNavigatorCreationTargets()).toEqual([]);
+    await expect(session.prepareAssistantNavigatorCreate('scheme')).rejects.toThrow('未保存草稿');
 
     expect(wrapper.emitted('interaction-state-change')?.at(-1)?.[0]).toMatchObject({
       editing: true,

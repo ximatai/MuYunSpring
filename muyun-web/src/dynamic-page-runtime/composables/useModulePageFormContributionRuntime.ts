@@ -83,24 +83,32 @@ export function useModulePageFormContributionRuntime(options: UseModulePageFormC
   }
 
   function stateSnapshot(): ModulePageFormContributionState {
-    const draft = options.draft.value ?? {};
-    return {
-      mode: options.mode.value,
-      draft: createReadonlyCardRecordSnapshot(draft),
-      fields: [...options.fields.value.keys()].map((fieldName) =>
-        detachedReadonlyFieldState(
-          resolveRecordFormFieldState(fieldName, {
-            fields: options.fields.value,
-            record: draft,
-            mode: options.mode.value,
-          }),
-        ),
-      ),
-      formSessionKey: options.formSessionKey.value,
-    };
+    return createModulePageFormState(
+      options.mode.value,
+      options.draft.value ?? {},
+      options.fields.value,
+      options.formSessionKey.value,
+    );
   }
 
   return { valid, contextFor, stateSnapshot };
+}
+
+/** One read projection for form presentation policies and controlled editor adapters. */
+export function createModulePageFormState(
+  mode: 'create' | 'edit' | 'view',
+  draft: RecordFormRecord,
+  fields: Map<string, RecordFormFieldDescriptor>,
+  formSessionKey: number,
+): ModulePageFormContributionState {
+  return {
+    mode,
+    draft: createReadonlyCardRecordSnapshot(draft),
+    fields: [...fields.keys()].map((fieldName) =>
+      detachedReadonlyFieldState(resolveRecordFormFieldState(fieldName, { fields, record: draft, mode })),
+    ),
+    formSessionKey,
+  };
 }
 
 function detachedReadonlyFieldState(state: RecordFormFieldState): Readonly<RecordFormFieldState> {

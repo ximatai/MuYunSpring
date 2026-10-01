@@ -266,10 +266,10 @@ export default defineComponent({
             :navigator-host-module-alias="context.moduleAlias"
             :ready="navigatorManagementScopeReady(navigatorLevelAt(index - tenantScopeExplorerCount)!)"
             :create-disabled="
-              !navigatorManagementScopeReady(navigatorLevelAt(index - tenantScopeExplorerCount)!)
+              !navigatorRecordCreationState(navigatorLevelAt(index - tenantScopeExplorerCount)!).ready
             "
             :create-disabled-reason="
-              navigatorManagementScopeDisabledReason(navigatorLevelAt(index - tenantScopeExplorerCount)!)
+              navigatorRecordCreationState(navigatorLevelAt(index - tenantScopeExplorerCount)!).message
             "
             :scope-subtitle="
               navigatorPanelScopeContext(navigatorLevelAt(index - tenantScopeExplorerCount)!.descriptor.key)
@@ -570,8 +570,8 @@ export default defineComponent({
             :external-query-values="navigatorExplorerQueryValues(level.descriptor.key)"
             :navigator-host-module-alias="context.moduleAlias"
             :ready="navigatorManagementScopeReady(level)"
-            :create-disabled="!navigatorManagementScopeReady(level)"
-            :create-disabled-reason="navigatorManagementScopeDisabledReason(level)"
+            :create-disabled="!navigatorRecordCreationState(level).ready"
+            :create-disabled-reason="navigatorRecordCreationState(level).message"
             :scope-subtitle="navigatorPanelScopeContext(level.descriptor.key)"
             :tree-parent-policy="navigatorTreeParentPolicy(level)"
             :actions-of="(record) => navigatorInlineActions(level, record)"
@@ -846,8 +846,8 @@ export default defineComponent({
             :external-query-values="navigatorExplorerQueryValues(level.descriptor.key)"
             :navigator-host-module-alias="context.moduleAlias"
             :ready="navigatorManagementScopeReady(level)"
-            :create-disabled="!navigatorManagementScopeReady(level)"
-            :create-disabled-reason="navigatorManagementScopeDisabledReason(level)"
+            :create-disabled="!navigatorRecordCreationState(level).ready"
+            :create-disabled-reason="navigatorRecordCreationState(level).message"
             :scope-subtitle="navigatorPanelScopeContext(level.descriptor.key)"
             :tree-parent-policy="navigatorTreeParentPolicy(level)"
             :actions-of="(record) => navigatorInlineActions(level, record)"

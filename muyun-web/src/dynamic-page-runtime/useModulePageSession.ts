@@ -3,6 +3,8 @@ import { assistantConfirmationFieldDisplay, assistantRelationProjection } from '
 import type { AssistantResultPresentation, OptionItemDescriptor } from '@muyun/web-contracts';
 import type { AssistantOperationProposal } from '@muyun/web-core';
 import { recordCreationReadiness } from './recordCreationReadiness';
+import type { RecordFormDraftAccess } from './recordFormDraftAccess';
+import { createModulePageFormState } from './composables/useModulePageFormContributionRuntime';
 import { formActionResult, hasFormActionRecordPatch } from './formActionResult';
 import { useInputValidationActionStatus } from './inputValidationActionStatus';
 import { invokePageAction } from './pageActionInvocation';
@@ -2509,14 +2511,27 @@ export function useModulePageSession(
     };
   }
 
-  function createNavigatorRecord(level: NavigatorLevelRuntime, parentId?: string) {
-    if (
-      !navigatorManagementAvailable(level) ||
-      !navigatorManagementScopeReady(level) ||
-      level.context.can('create') !== true
-    )
-      return;
-    markAssistantUserInteraction();
+  function navigatorRecordCreationState(level: NavigatorLevelRuntime) {
+    const readiness = recordCreationReadiness({
+      tenantReady: tenantScopeReady.value,
+      pageReady: pageReady.value && level.context.runtime.snapshot() != null,
+      permitted: navigatorManagementAvailable(level) && level.context.can('create') === true,
+      editing: interactionEditing.value,
+      busy: interactionBusy.value,
+      scopeReady: navigatorManagementScopeReady(level),
+    });
+    return readiness.reason === 'SCOPE_REQUIRED'
+      ? { ...readiness, message: navigatorManagementScopeDisabledReason(level) }
+      : readiness;
+  }
+
+  function createNavigatorRecord(
+    level: NavigatorLevelRuntime,
+    parentId?: string,
+    source: 'user' | 'assistant' = 'user',
+  ) {
+    if (!navigatorRecordCreationState(level).ready) return;
+    if (source === 'user') markAssistantUserInteraction();
     navigatorManagementSession += 1;
     navigatorManagementTogglingEnabled.value = false;
     navigatorManagementFormValid.value = true;
@@ -2646,17 +2661,28 @@ export function useModulePageSession(
     fieldName: string,
     value: import('@muyun/platform-components').RecordFormFieldValue,
   ) {
+    updateNavigatorManagementDraftFields([{ fieldName, value }]);
+  }
+
+  function updateNavigatorManagementDraftFields(
+    changes: Parameters<RecordFormDraftAccess['updateDraftFields']>[0],
+    source: 'user' | 'assistant' = 'user',
+  ) {
     const draft = navigatorManagementDetail.draft.value;
-    if (!draft) return;
-    markAssistantUserInteraction();
+    if (!draft || changes.length === 0 || interactionBusy.value) return;
+    if (source === 'user') markAssistantUserInteraction();
     const level = navigatorManagementLevel.value;
-    navigatorManagementDetail.draft.value = applyFormComputeAfterChange(
-      applyReferenceDependencyClears(draft, fieldName, value, navigatorManagementFormFields.value),
-      fieldName,
+    let next = draft;
+    for (const { fieldName, value } of changes)
+      next = applyReferenceDependencyClears(next, fieldName, value, navigatorManagementFormFields.value);
+    navigatorManagementDetail.draft.value = new FormComputeCoordinator(
       formComputeRulesOf(
         level?.context.runtime.snapshot()?.uiDescriptor,
         level?.descriptor.management?.editorSurface,
       ),
+    ).applyAfterChange(
+      next,
+      changes.map(({ fieldName }) => fieldName),
     );
   }
 
@@ -2940,14 +2966,6 @@ export function useModulePageSession(
     return false;
   }
 
-  function applyFormComputeAfterChange(
-    draft: RecordFormRecord,
-    fieldName: string,
-    rules: readonly ResolvedFormComputeRuleDescriptor[] | undefined,
-  ): RecordFormRecord {
-    return applyFormComputeAfterChanges(draft, [fieldName], rules);
-  }
-
   function applyFormComputeAfterChanges(
     draft: RecordFormRecord,
     changedFields: readonly string[],
@@ -3005,7 +3023,7 @@ export function useModulePageSession(
       tenantReady: tenantScopeReady.value,
       pageReady: pageReady.value,
       permitted: context.can('create') === true,
-      editing: editorMode.value !== 'view',
+      editing: interactionEditing.value,
       busy: interactionBusy.value,
       scopeReady: treeResource.value ? mainTreeScopeReady.value : navigatorListScopeReady.value,
     });
@@ -3036,13 +3054,119 @@ export function useModulePageSession(
     };
   }
 
+  function assistantNavigatorCreationTargets() {
+    return visibleNavigatorLevels.value
+      .filter((level) => navigatorRecordCreationState(level).ready)
+      .map((level) => ({ key: level.descriptor.key, title: level.descriptor.title }));
+  }
+
+  async function prepareAssistantNavigatorCreate(levelKey: string) {
+    const level = visibleNavigatorLevels.value.find((candidate) => candidate.descriptor.key === levelKey);
+    if (!level || !navigatorRecordCreationState(level).ready)
+      throw new Error('当前导航区不支持新建，或已有未保存草稿');
+    const revision = assistantNavigatorScopeRevision(levelKey);
+    return () => {
+      if (
+        !visibleNavigatorLevels.value.includes(level) ||
+        revision !== assistantNavigatorScopeRevision(levelKey) ||
+        !navigatorRecordCreationState(level).ready
+      )
+        throw new Error('导航范围或编辑状态已变化，请重新准备新建');
+      createNavigatorRecord(level, undefined, 'assistant');
+      return { scopeKey: levelKey, moduleAlias: level.context.moduleAlias, saved: false };
+    };
+  }
+
+  const assistantNavigatorEditor = computed(() => {
+    const level = navigatorManagementLevel.value;
+    if (
+      !level ||
+      !navigatorManagementDetail.open.value ||
+      navigatorManagementDetail.loading.value ||
+      navigatorManagementDetail.loadFailed.value ||
+      navigatorManagementDetail.mode.value === 'view' ||
+      !navigatorManagementDetail.draft.value
+    )
+      return undefined;
+    const form: RecordFormDraftAccess = {
+      get editorMode() {
+        return navigatorManagementDetail.mode.value;
+      },
+      get editingRecord() {
+        return navigatorManagementDetail.draft.value;
+      },
+      get selectedRecord() {
+        return navigatorManagementDetail.record.value;
+      },
+      get formFields() {
+        // Enabled is rendered as a separate status action, outside this editor's form.
+        const state = createModulePageFormState(
+          navigatorManagementDetail.mode.value,
+          navigatorManagementDetail.draft.value ?? {},
+          navigatorManagementFormFields.value,
+          navigatorManagementDetail.formSessionKey.value,
+        );
+        return new Map(
+          [...navigatorManagementFormFields.value].filter(
+            ([name]) =>
+              name !== 'enabled' &&
+              navigatorManagementFormFieldPolicies.value
+                .find((policy) => policy.fieldName === name)
+                ?.visible?.(state) !== false,
+          ),
+        );
+      },
+      get referencePickerConfigs() {
+        return navigatorManagementPickerConfigs.value;
+      },
+      contextRevision: () => String(assistantContextRevision.value),
+      updateDraftFields: updateNavigatorManagementDraftFields,
+      updateDraftReference(fieldName, candidate, source) {
+        updateNavigatorManagementDraftFields(
+          [
+            { fieldName, value: candidate.id },
+            ...Object.entries(candidate.affectPatch ?? {})
+              .filter(([name]) => name !== fieldName)
+              .map(([fieldName, value]) => ({
+                fieldName,
+                value: value as Parameters<RecordFormDraftAccess['updateDraftFields']>[0][number]['value'],
+              })),
+          ],
+          source,
+        );
+      },
+    };
+    return {
+      key: level.descriptor.key,
+      moduleAlias: level.context.moduleAlias,
+      busy: interactionBusy.value,
+      title: level.descriptor.title,
+      dirty: navigatorManagementDetail.isDirty.value,
+      form,
+    };
+  });
+
+  watch(
+    [
+      () => navigatorManagementLevel.value?.descriptor.key,
+      navigatorManagementDetail.open,
+      navigatorManagementDetail.mode,
+      navigatorManagementDetail.draft,
+      navigatorManagementDetail.saving,
+    ],
+    () => {
+      assistantContextRevision.value += 1;
+    },
+    { deep: true, flush: 'sync' },
+  );
+
   /**
    * Exposes only the navigator scopes that the mounted page currently lets a user change.
    * The assistant must not derive this from raw navigator descriptors because visibility,
    * locked-entry policy and an active draft all belong to the page session.
    */
   function assistantNavigatorScopes() {
-    if (editorMode.value !== 'view' || interactionBusy.value || detailDirty.value) return [];
+    if (interactionEditing.value || interactionBusy.value || sessionDirty.value) return [];
     return visibleNavigatorLevels.value.filter(
       (level) => !isLockedNavigator(level.descriptor.key) && navigatorManagementScopeReady(level),
     );
@@ -4004,6 +4128,7 @@ export function useModulePageSession(
     navigatorExplorerQueryValues,
     context,
     navigatorManagementScopeReady,
+    navigatorRecordCreationState,
     navigatorManagementScopeDisabledReason,
     navigatorPanelScopeContext,
     navigatorTreeParentPolicy,
@@ -4100,6 +4225,9 @@ export function useModulePageSession(
     prepareAssistantCreate,
     prepareAssistantEdit,
     assistantNavigatorScopes,
+    assistantNavigatorCreationTargets,
+    prepareAssistantNavigatorCreate,
+    assistantNavigatorEditor,
     assistantNavigatorScopeRevision,
     applyAssistantNavigatorSelection,
     settleAssistantPageState,

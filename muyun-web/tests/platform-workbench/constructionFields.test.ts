@@ -220,6 +220,7 @@ it('composes initialized construction, navigation and referenced aggregate edito
     relationDrafts: relations,
     recordCreationState: () => ({ ready: false }),
     assistantNavigatorScopes: () => [],
+    assistantNavigatorCreationTargets: () => [],
     assistantSaveAvailable: true,
   } as unknown as ModulePageSessionView;
   const surface = createModulePageAssistantSurface(view, vi.fn(), () => [

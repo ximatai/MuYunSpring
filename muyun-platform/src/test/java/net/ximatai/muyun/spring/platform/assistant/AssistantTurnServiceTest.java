@@ -544,7 +544,8 @@ class AssistantTurnServiceTest {
                 .contains("standard MuYun record workspace", "patch known ordinary fields together",
                         "only when the user asked to create or change", "already complete and must not start a draft",
                         "Leave drafts unsaved", "ask one concise question", "workbench navigation",
-                        "creation.reason", "scope.search", "missing capabilities alone do not prove denied permission")
+                        "creation.reason", "scope.search", "missing capabilities alone do not prove denied permission",
+                        "navigatorCreationTargets", "navigator.start-create", "record.start-create", "editorOwner")
                 .doesNotContain("employee", "department", "daily report");
     }
 
