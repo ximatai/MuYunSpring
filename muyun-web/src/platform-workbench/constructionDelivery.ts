@@ -1,4 +1,8 @@
-import { requireConfirmedConstructionPlan, type ConstructionPlanState } from './constructionPlanGuard';
+import {
+  constructionObjectKeySchema,
+  requireConfirmedConstructionPlan,
+  type ConstructionPlanState,
+} from './constructionPlanGuard';
 import type { ConstructionDeliveryProposal, ConstructionDeliveryReceipt } from '@muyun/web-contracts';
 import {
   AppError,
@@ -13,6 +17,7 @@ export function createConstructionDeliveryCapabilities(
   client: ConstructionPlanClient,
   current: () => ConstructionPlanState,
   accept: (receipt: ConstructionDeliveryReceipt) => void | Promise<void>,
+  onAccepted: () => Promise<void> = async () => {},
 ): AssistantCapability[] {
   const objectSchema = (properties: Record<string, unknown>) => ({
     type: 'object',
@@ -46,10 +51,26 @@ export function createConstructionDeliveryCapabilities(
       throw new AssistantCapabilityUsageError('页面字段必须来自目录，且不能重复');
     return value as string[];
   };
+  const children = (value: unknown) => {
+    if (value === undefined) return {};
+    const input = parseObject(value);
+    if (
+      Object.keys(input).length > 16 ||
+      Object.keys(input).some((alias) => !/^[a-z][a-z0-9_]{0,62}$/.test(alias))
+    )
+      throw new AssistantCapabilityUsageError('请从实际目录选择明细，最多 16 组');
+    return Object.fromEntries(
+      Object.entries(input).map(([alias, fields]) => {
+        const checked = names(fields);
+        if (!checked.length) throw new AssistantCapabilityUsageError('明细至少展示一个字段');
+        return [alias, checked];
+      }),
+    );
+  };
   const presentation = (receipt: ConstructionDeliveryReceipt) => ({
     title: receipt.kind === 'PAGE' ? '页面配置已发布' : '访问入口已创建',
     lines: [
-      receipt.moduleAlias,
+      current().saved?.content.objects.find((object) => object.key === receipt.objectKey)?.name ?? '业务页面',
       `依据需求第 ${receipt.planRevision} 版`,
       '请查询建设进度核实页面与入口，再按验收例子检查实际业务行为。',
     ],
@@ -73,15 +94,29 @@ export function createConstructionDeliveryCapabilities(
         code: kind === 'PAGE' ? 'construction.prepare-page' : 'construction.prepare-entry',
         description:
           kind === 'PAGE'
-            ? 'Prepare a separately confirmed management page (list, form, shared detail and quick search) for an initialized object. Read actual fields first; use existing field names, include all required business fields in formFields. Replaces this construction plan’s page layout; never changes field rules. Human confirmation publishes.'
-            : 'Prepare a separately confirmed menu entry for an already published construction page in the current system workbench. Does not grant business permissions. Query progress first; do not recreate an existing entry.',
-        inputSchema: objectSchema({
-          objectKey: textSchema,
-          title: textSchema,
-          ...(kind === 'PAGE'
-            ? { listFields: fieldsSchema, formFields: fieldsSchema, searchFields: fieldsSchema }
-            : {}),
-        }),
+            ? 'Prepare a separately confirmed management page (list, form, shared detail and quick search) for an initialized object. Read actual fields first; use existing field names, include all required business fields in formFields. Optional childFields maps discovered direct-child aliases to their actual field names; include all required child business fields and all confirmed requirement fields. Does not create relations. Replaces this construction plan’s page layout; never changes field rules. Human confirmation publishes.'
+            : 'Prepare a separately confirmed menu entry for the current published standard management page in the system workbench, regardless of which governance entry published it. Does not grant business permissions. Query progress first; do not recreate an existing entry.',
+        inputSchema: {
+          ...objectSchema({
+            objectKey: constructionObjectKeySchema(current),
+            title: textSchema,
+            ...(kind === 'PAGE'
+              ? { listFields: fieldsSchema, formFields: fieldsSchema, searchFields: fieldsSchema }
+              : {}),
+          }),
+          properties: {
+            objectKey: constructionObjectKeySchema(current),
+            title: textSchema,
+            ...(kind === 'PAGE'
+              ? {
+                  listFields: fieldsSchema,
+                  formFields: fieldsSchema,
+                  searchFields: fieldsSchema,
+                  childFields: { type: 'object', maxProperties: 16, additionalProperties: fieldsSchema },
+                }
+              : {}),
+          },
+        },
       },
       parseInput(input) {
         const value = parseObject(input);
@@ -92,6 +127,9 @@ export function createConstructionDeliveryCapabilities(
           listFields: kind === 'PAGE' ? names(value.listFields) : [],
           formFields: kind === 'PAGE' ? names(value.formFields) : [],
           searchFields: kind === 'PAGE' ? names(value.searchFields) : [],
+          ...(kind === 'PAGE' && value.childFields !== undefined
+            ? { childFields: children(value.childFields) }
+            : {}),
         };
       },
       async execute(input, context) {
@@ -115,7 +153,8 @@ export function createConstructionDeliveryCapabilities(
             isCurrent,
             presentation: {
               title: kind === 'PAGE' ? '发布业务页面' : '创建工作台入口',
-              lines: [stable.moduleAlias, ...stable.lines],
+              lines: [stable.proposal.title, ...stable.lines],
+              details: { title: '查看配置标识', lines: [stable.moduleAlias] },
             },
             async execute() {
               if (!isCurrent()) throw new AssistantOperationRejectedError('需求已变化，请重新预检');
@@ -154,7 +193,7 @@ export function createConstructionDeliveryCapabilities(
       code: 'construction.prepare-acceptance',
       description:
         'Present human business acceptance checklist after actual record entry, query and detail verification. Do not infer acceptance from publication receipts. Resolve requirements discrepancies and unsupported rules first. Only an explicit human click records acceptance of the current baseline.',
-      inputSchema: objectSchema({ objectKey: textSchema }),
+      inputSchema: objectSchema({ objectKey: constructionObjectKeySchema(current) }),
     },
     parseInput: (input) => ({ objectKey: text(parseObject(input).objectKey) }),
     async execute(input, context) {
@@ -169,8 +208,21 @@ export function createConstructionDeliveryCapabilities(
       const { isCurrent } = before;
       const result = {
         title: '已记录人工验收通过',
-        lines: ['仅适用于已核对的需求与配置基线；后续变更需要重新验收。'],
+        lines: ['本次建设验收已记录；后续改进读取当前治理配置，历史验收不证明修改后的配置正确。'],
       };
+      async function accepted() {
+        if (isCurrent()) {
+          try {
+            await onAccepted();
+          } catch {
+            return {
+              ...result,
+              lines: [...result.lines, '验收已记录，建设状态刷新失败；请重新读取，勿重复验收。'],
+            };
+          }
+        }
+        return result;
+      }
       context.commitInternalState(() => {
         acceptance = {
           modelSummary:
@@ -190,7 +242,7 @@ export function createConstructionDeliveryCapabilities(
             if (!isCurrent()) throw new AssistantOperationRejectedError('验收上下文已变化');
             try {
               await client.confirmAcceptance(planId, command);
-              return result;
+              return accepted();
             } catch (error) {
               if (error instanceof AppError && [400, 401, 403, 404, 409, 422].includes(error.status ?? 0))
                 throw new AssistantOperationRejectedError(error.message);
@@ -198,7 +250,7 @@ export function createConstructionDeliveryCapabilities(
             }
           },
           async lookup() {
-            return (await client.acceptance(planId, command.requestId)) ? result : undefined;
+            return (await client.acceptance(planId, command.requestId)) ? accepted() : undefined;
           },
         };
       });
@@ -218,8 +270,8 @@ export function createConstructionDeliveryCapabilities(
       descriptor: {
         code: 'construction.progress',
         description:
-          'Read actual publication, visible entry, runtime and pending acceptance for an initialized object. Restores progress after a page reload. A publication receipt never proves business acceptance. Use returned menuId with workbench navigation to test the actual page.',
-        inputSchema: objectSchema({ objectKey: textSchema }),
+          'Read actual publication, visible entry, runtime and pending acceptance for an initialized object. Restores progress after a page reload. This is configuration evidence only: businessDataStatus is NOT_QUERIED regardless of acceptance; use authorized business queries to establish whether records exist. Use returned menuId with workbench navigation to test the actual page.',
+        inputSchema: objectSchema({ objectKey: constructionObjectKeySchema(current) }),
       },
       parseInput: (input) => ({ objectKey: text(parseObject(input).objectKey) }),
       async execute(input) {
@@ -230,14 +282,28 @@ export function createConstructionDeliveryCapabilities(
       present: (value) => {
         const progress = value as Awaited<ReturnType<ConstructionPlanClient['progress']>>;
         return {
-          title: '应用建设进度',
+          title:
+            current().saved?.content.objects.find((item) => item.key === progress.objectKey)?.name ??
+            '业务配置进度',
           lines: [
-            progress.moduleAlias,
-            `运行态：${progress.runtimeStatus}`,
-            `页面：${progress.pagePublished ? '已发布' : '未完成'}；入口：${progress.entryVisible ? '当前用户可见' : '不可见'}`,
-            `人工验收：${progress.acceptanceConfirmed ? '当前基线已确认通过' : '待核对'}`,
-            ...progress.remainingWork,
+            progress.pagePublished &&
+            progress.entryVisible &&
+            progress.runtimeStatus === 'ACTIVE' &&
+            !progress.needsReview
+              ? '页面和入口已可用。'
+              : '配置尚需完善，请按当前进度继续。',
+            progress.acceptanceConfirmed ? '本版业务效果已确认。' : '业务效果尚待验收，不代表没有录入数据。',
           ],
+          details: {
+            title: '查看配置证据与待办',
+            lines: [
+              progress.moduleAlias,
+              `运行态：${progress.runtimeStatus}`,
+              `页面：${progress.pagePublished ? '已发布' : '未完成'}；入口：${progress.entryVisible ? '当前用户可见' : '不可见'}`,
+              '此进度未查询业务记录；是否已有数据须在当前业务范围内查询。',
+              ...progress.remainingWork,
+            ],
+          },
         };
       },
     },

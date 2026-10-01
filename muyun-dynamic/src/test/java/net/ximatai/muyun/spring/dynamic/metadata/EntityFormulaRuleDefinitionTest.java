@@ -133,6 +133,20 @@ class EntityFormulaRuleDefinitionTest {
     }
 
     @Test
+    void shouldRejectParentReadingOrOverwritingAChildLifecycleCalculation() {
+        for (var parentRule : List.of(
+                EntityFormulaRuleDefinition.calculation("total", "amount", "SUM({items.lineAmount})"),
+                EntityFormulaRuleDefinition.calculation("line", "items.lineAmount", "{items.quantity} * {items.price}"))) {
+            var module = ModuleDefinition.builder("sales.invoice", "Invoice").entities(List.of(
+                    invoiceEntity().withFormulaRules(parentRule),
+                    invoiceLineEntity().withFormulaRules(EntityFormulaRuleDefinition.calculation("ownAmount", "lineAmount", "{quantity} * {price}"))))
+                    .relations(List.of(EntityRelationDefinition.child("items", "invoice", "invoice_line", "invoiceId"))).build();
+            assertThatThrownBy(() -> validator.validate(module)).isInstanceOf(ModuleDefinitionException.class)
+                    .hasMessageContaining("parent formula depends on child lifecycle calculation");
+        }
+    }
+
+    @Test
     void shouldRejectUnknownMainTargetField() {
         EntityDefinition entity = invoiceEntity()
                 .withFormulaRules(EntityFormulaRuleDefinition.calculation("amountCalc", "totalAmount", "{quantity} * {price}"));

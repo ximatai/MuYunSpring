@@ -31,6 +31,6 @@ public class MenuWebController {
                 .stream()
                 .map(this::node)
                 .toList();
-        return new WebTreeNode<>(MenuNavigationView.from(menu, menuService.navigationEntryType(menu)), children);
+        return new WebTreeNode<>(MenuNavigationView.from(menu, menuService.navigationEntryType(menu), menuService.navigationModuleDescription(menu)), children);
     }
 }

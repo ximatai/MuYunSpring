@@ -9,6 +9,8 @@ import net.ximatai.muyun.spring.ability.reference.ReferenceCandidateField;
 import net.ximatai.muyun.spring.ability.reference.ReferenceTarget;
 import net.ximatai.muyun.spring.common.security.FieldProtectionDefinition;
 import net.ximatai.muyun.spring.common.model.standard.StandardTitledEntity;
+import net.ximatai.muyun.spring.platform.application.Application;
+import net.ximatai.muyun.spring.platform.application.ApplicationService;
 import net.ximatai.muyun.spring.platform.module.ModuleKind;
 import net.ximatai.muyun.spring.platform.module.PlatformModule;
 import net.ximatai.muyun.spring.platform.module.PlatformModuleService;
@@ -54,7 +56,7 @@ class ReferenceTargetFieldCatalogServiceTest {
         when(fields.list(any(Criteria.class), any(PageRequest.class))).thenReturn(List.of(studentNo, name, duplicate, virtual));
         when(protections.definition(any())).thenReturn(FieldProtectionDefinition.NONE);
 
-        ReferenceTargetFieldCatalog catalog = new ReferenceTargetFieldCatalogService(relations, modules, fields, protections)
+        ReferenceTargetFieldCatalog catalog = new ReferenceTargetFieldCatalogService(relations, modules, mock(ApplicationService.class), fields, protections)
                 .list("education.exam", "source-main", "education.student", "student-meta");
 
         assertThat(catalog.targetMetadataId()).isEqualTo("student-meta");
@@ -80,7 +82,7 @@ class ReferenceTargetFieldCatalogServiceTest {
         when(modules.select("education.student")).thenReturn(targetModule);
         when(relations.list(any(Criteria.class), any(PageRequest.class))).thenReturn(List.of(target));
 
-        assertThatThrownBy(() -> new ReferenceTargetFieldCatalogService(relations, modules,
+        assertThatThrownBy(() -> new ReferenceTargetFieldCatalogService(relations, modules, mock(ApplicationService.class),
                 mock(MetadataFieldService.class), mock(MetadataFieldProtectionConfigService.class))
                 .list("education.exam", "source-main", "education.student", "child-meta"))
                 .hasMessageContaining("not the target module main entity");
@@ -108,7 +110,7 @@ class ReferenceTargetFieldCatalogServiceTest {
         when(relations.select("source-main")).thenReturn(source);
         when(modules.select("iam.user")).thenReturn(targetModule);
 
-        ReferenceTargetFieldCatalog catalog = new ReferenceTargetFieldCatalogService(relations, modules,
+        ReferenceTargetFieldCatalog catalog = new ReferenceTargetFieldCatalogService(relations, modules, mock(ApplicationService.class),
                 mock(MetadataFieldService.class), null)
                 .list("education.exam", "source-main", "iam.user", null);
 
@@ -147,7 +149,7 @@ class ReferenceTargetFieldCatalogServiceTest {
         var fields = mock(MetadataFieldService.class);
         var title = field("student-title", "title", "姓名"); title.setTitleField(true); title.setMetadataId("student-meta");
         when(fields.list(any(Criteria.class), any(PageRequest.class))).thenReturn(List.of(title));
-        var service = new ReferenceTargetFieldCatalogService(relations, modules, fields, null);
+        var service = new ReferenceTargetFieldCatalogService(relations, modules, mock(ApplicationService.class), fields, null);
         assertThat(service.modules("education.exam", "source-main"))
                 .extracting(ReferenceTargetFieldCatalogService.TargetModule::alias)
                 .containsExactly("education.student", "iam.user");
@@ -156,6 +158,41 @@ class ReferenceTargetFieldCatalogServiceTest {
         assertThat(service.modules()).isEqualTo(service.modules("education.exam", "source-main"));
         assertThatThrownBy(() -> service.modules("education.other", "source-main"))
                 .hasMessageContaining("does not belong to module");
+    }
+
+    @Test
+    void discoveryUsesAuthoritativeApplicationOwnershipAndRetainsUnknownApplications() {
+        var relations = mock(ModuleMetadataRelationService.class);
+        var modules = mock(PlatformModuleService.class);
+        var applications = mock(ApplicationService.class);
+        var fields = mock(MetadataFieldService.class);
+        Application application = new Application();
+        application.setAlias("qinghe");
+        application.setTitle("青禾文具");
+        when(applications.list(any(Criteria.class), any(PageRequest.class))).thenReturn(List.of(application));
+        PlatformModule customer = new PlatformModule();
+        customer.setAlias("qinghe.customer"); customer.setTitle("客户");
+        customer.setApplicationAlias("qinghe"); customer.setModuleKind(ModuleKind.DYNAMIC);
+        PlatformModule missing = new PlatformModule();
+        missing.setAlias("other.customer"); missing.setTitle("客户");
+        missing.setApplicationAlias("other"); missing.setModuleKind(ModuleKind.DYNAMIC);
+        when(modules.list(any(Criteria.class), any(PageRequest.class))).thenReturn(List.of(customer, missing));
+
+        var catalog = new ReferenceTargetFieldCatalogService(relations, modules, applications, fields, null)
+                .discoverModules();
+
+        assertThat(catalog).filteredOn(module -> module.alias().equals("qinghe.customer"))
+                .singleElement().satisfies(module -> {
+                    assertThat(module.applicationAlias()).isEqualTo("qinghe");
+                    assertThat(module.applicationTitle()).isEqualTo("青禾文具");
+                    assertThat(module.referenceReady()).isFalse();
+                });
+        assertThat(catalog).filteredOn(module -> module.alias().equals("other.customer"))
+                .singleElement().satisfies(module -> {
+                    assertThat(module.applicationAlias()).isEqualTo("other");
+                    assertThat(module.applicationTitle()).isNull();
+                });
+        verify(applications).list(any(Criteria.class), any(PageRequest.class));
     }
 
     private ModuleMetadataRelation relation(String id, String moduleAlias, String metadataId) {

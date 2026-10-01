@@ -128,3 +128,67 @@ it.each([false, true])(
     wrapper.unmount();
   },
 );
+
+it('supplies current candidate state without another construction.describe round trip', async () => {
+  let host: AssistantSurfaceHost | undefined;
+  const Probe = defineComponent({
+    setup() {
+      host = useAssistantSurfaceHost();
+      return () => h('div');
+    },
+  });
+  const confirm = vi.fn();
+  const wrapper = mount(Workbench, {
+    props: {
+      startup: {
+        session: { currentUser: { userId: 'user-1', system: true } },
+        menus: [],
+        tabs: [{ key: 'page', instanceKey: 'page-instance', title: 'Page' }],
+        activeTabKey: 'page',
+      },
+      assistantRequestTurn: vi.fn(),
+      constructionPlanClient: { confirm } as unknown as import('@muyun/web-core').ConstructionPlanClient,
+    },
+    slots: { default: () => h(Probe) },
+  });
+  await nextTick();
+  const before = host!.registry.snapshot()!;
+  const workspace = before.context.facts.workspace as { constructionPlan: Record<string, unknown> };
+  expect(workspace.constructionPlan).toMatchObject({ persistence: 'NO_PLAN', dirty: false });
+  await host!.registry.invoke(
+    {
+      id: 'proposal',
+      code: 'construction.propose',
+      input: {
+        generation: workspace.constructionPlan.generation,
+        content: {
+          title: '通讯录',
+          goal: '管理联系信息',
+          inScope: ['名称查询'],
+          outOfScope: [],
+          objects: [],
+          relationships: [],
+          rules: [],
+          questions: [],
+          assumptions: [],
+          acceptanceExamples: ['可以查询名称'],
+          decisions: [],
+          requirements: [],
+        },
+      },
+    },
+    before.token,
+  );
+  const after = host!.registry.snapshot()!;
+  expect((after.context.facts.workspace as typeof workspace).constructionPlan).toMatchObject({
+    title: '通讯录',
+    persistence: 'UNSAVED_CANDIDATE',
+    dirty: true,
+    manualEditing: false,
+    reviewRequired: false,
+    confirmationResultUnknown: false,
+  });
+  expect(after.token.contextRevision).not.toBe(before.token.contextRevision);
+  expect(confirm).not.toHaveBeenCalled();
+  wrapper.unmount();
+});

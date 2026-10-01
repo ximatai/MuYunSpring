@@ -88,6 +88,7 @@ public class StaticModuleDefinitionRegistrar implements PlatformBootstrapTask {
                     ? TreeAbility.ROOT_ID
                     : definition.parentModuleAlias());
             module.setTitle(definition.title());
+            module.setDescription(definition.description());
             module.setModuleKind(ModuleKind.STATIC);
             module.setEntryType(definition.entryType());
             module.setEntryRoute(definition.entryRoute());
@@ -101,6 +102,7 @@ public class StaticModuleDefinitionRegistrar implements PlatformBootstrapTask {
                 ? TreeAbility.ROOT_ID
                 : definition.parentModuleAlias());
         module.setTitle(definition.title());
+        module.setDescription(definition.description());
         module.setModuleKind(ModuleKind.STATIC);
         module.setEntryType(definition.entryType());
         module.setEntryRoute(definition.entryRoute());

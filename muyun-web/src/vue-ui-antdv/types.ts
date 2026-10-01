@@ -136,6 +136,7 @@ export type UiTreeChangeReason = 'interaction' | 'filter' | 'reset';
 export interface UiConfirmOptions {
   title: string;
   content?: string;
+  details?: { title: string; lines: readonly string[] };
   okText?: string;
   cancelText?: string;
   danger?: boolean;

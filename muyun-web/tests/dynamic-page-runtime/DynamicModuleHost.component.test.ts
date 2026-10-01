@@ -103,6 +103,52 @@ describe('ModulePageHost', () => {
     window.localStorage.removeItem('muyun.preference.module-page.list-page-size.crm.customer');
   });
 
+  it.each(['STATIC', 'DYNAMIC'])(
+    'gives %s relation forms a stable wide drawer without changing simple forms',
+    async (moduleKind) => {
+      let relations: object[] = [];
+      globalThis.fetch = async () =>
+        Response.json({
+          moduleAlias: 'crm.customer',
+          moduleKind,
+          capabilities: [],
+          actions: [{ actionCode: 'create', authorized: true }],
+          uiDescriptor: { moduleAlias: 'crm.customer', page: page(), detailRelations: relations },
+        });
+      configureModuleContext({ httpFactory: () => createHttpClient({ baseUrl: 'http://api.local' }) });
+      window.localStorage.setItem(
+        'muyun.preference.module-page.detail-surface.crm.customer',
+        JSON.stringify('drawer'),
+      );
+      for (const [detailRelations, expectedWidth] of [
+        [[], 'standard'],
+        [[embeddedRelation('lines', 'line', 'amount')], 'extraWide'],
+        [[{ ...embeddedRelation('lines', 'line', 'amount'), visible: { constant: false } }], 'standard'],
+      ] as const) {
+        relations = [...detailRelations];
+        const wrapper = shallowMount(ModulePageHost, {
+          global: { stubs: { ManagementWorkspace: { template: '<section><slot /></section>' } } },
+          props: {
+            descriptor: {
+              pageType: 'dynamic-module',
+              openMode: 'dynamic-runner',
+              hostType: 'module-page-host',
+              tabPolicy: { identity: 'by-menu' },
+              target: { moduleAlias: 'crm.customer', pageMode: 'LIST' },
+            },
+          },
+        });
+        await flushPromises();
+        const drawer = wrapper.findComponent({ name: 'RecordModeDrawer' });
+        expect(drawer.props('width')).toBe(expectedWidth);
+        wrapper.findComponent({ name: 'RecordQueryListPanel' }).vm.$emit('action', { key: 'create' });
+        await flushPromises();
+        expect(drawer.props('width')).toBe(expectedWidth);
+        wrapper.unmount();
+      }
+    },
+  );
+
   it.each(['FLAT_MANAGEMENT', 'LIST_DETAIL_CARD', 'TREE_MANAGEMENT'] as const)(
     'routes %s navigator interaction through PageNavigatorExplorer',
     async (template) => {
@@ -1529,6 +1575,101 @@ describe('ModulePageHost', () => {
     expect(wrapper.findComponent({ name: 'CrudRecordListExplorer' }).exists()).toBe(false);
   });
 
+  it('waits for the navigator query and its initial selection before completing page settlement', async () => {
+    const requests: string[] = [];
+    let releaseQuery!: (response: Response) => void;
+    const pendingQuery = new Promise<Response>((resolve) => (releaseQuery = resolve));
+    globalThis.fetch = async (input) => {
+      const request = new Request(input);
+      requests.push(request.url);
+      if (request.url.endsWith('/platform.module/demo.position/context')) {
+        return Response.json({
+          moduleAlias: 'demo.position',
+          capabilities: [],
+          actions: [],
+          uiDescriptor: {
+            schemaVersion: '1',
+            moduleAlias: 'demo.position',
+            page: page({
+              navigator: {
+                contextBindings: [
+                  { source: 'NAVIGATOR', sourceKey: 'tenant', target: 'LIST_QUERY', targetKey: 'tenantId' },
+                ],
+                levels: [
+                  {
+                    key: 'tenant',
+                    kind: 'MICRO_LIST',
+                    sourceModuleAlias: 'iam.tenant',
+                    title: '租户',
+                    initialSelectionPolicy: 'FIRST_RECORD',
+                    management: {},
+                  },
+                ],
+              },
+            }),
+          },
+        });
+      }
+      if (request.url.endsWith('/platform.module/iam.tenant/reference-context')) {
+        return Response.json({ moduleAlias: 'iam.tenant', capabilities: ['CRUD'], actions: [] });
+      }
+      if (request.url.endsWith('/iam.tenant/navigator/reference/query')) return pendingQuery;
+      return Response.json({ records: [], total: 0 });
+    };
+    configureModuleContext({ httpFactory: () => createHttpClient({ baseUrl: 'http://api.local' }) });
+    const wrapper = shallowMount(ModulePageHost, {
+      props: {
+        descriptor: {
+          pageType: 'dynamic-module',
+          openMode: 'dynamic-runner',
+          hostType: 'dynamic-module-host',
+          tabPolicy: { identity: 'by-menu' },
+          target: { moduleAlias: 'demo.position', pageMode: 'LIST' },
+        },
+      },
+      global: {
+        stubs: {
+          PageNavigatorExplorer: false,
+          CrudRecordListExplorer: false,
+          ManagementWorkspace: { template: '<section><slot /></section>' },
+          ManagementExplorerColumn: { template: '<aside><slot /></aside>' },
+          RecordExplorerPanel: { template: '<section><slot /></section>' },
+        },
+      },
+    });
+    try {
+      await flushPromises();
+      expect(wrapper.findComponent({ name: 'PageNavigatorExplorer' }).exists()).toBe(true);
+      expect(requests.join('\n')).toContain('http://api.local/iam.tenant/navigator/reference/query');
+      const session = wrapper
+        .findComponent({ name: 'ModulePageHostRuntime' })
+        .props('session') as import('@/dynamic-page-runtime/useModulePageSession').ModulePageSessionView;
+      let settled = false;
+      const settlement = session.settleAssistantPageState(new AbortController().signal).then(() => {
+        settled = true;
+      });
+      await flushPromises();
+      expect(settled).toBe(false);
+      releaseQuery(
+        Response.json({
+          records: [
+            { id: 'demo', title: '演示租户' },
+            { id: 'other', title: '其他租户' },
+          ],
+          total: 2,
+        }),
+      );
+      await settlement;
+      expect(session.selectedNavigatorRecords.tenant?.id).toBe('demo');
+      expect(wrapper.findComponent({ name: 'RecordQueryListPanel' }).props('externalQueryValues')).toEqual({
+        tenantId: 'demo',
+      });
+    } finally {
+      releaseQuery(Response.json({ records: [], total: 0 }));
+      wrapper.unmount();
+    }
+  });
+
   it('selects the first declared navigator record without hiding a multi-record source', async () => {
     globalThis.fetch = async (input) => {
       const request = new Request(input);
@@ -1620,57 +1761,81 @@ describe('ModulePageHost', () => {
     expect(list.props('externalQueryValues')).toBeUndefined();
   });
 
-  it('blocks every list runner when its menu bootstrap fails', async () => {
-    globalThis.fetch = async (input) => {
-      const request = new Request(input);
-      if (request.url.endsWith('/platform.menu/organization-menu/entry?clientType=WEB')) {
-        return new Response(JSON.stringify({ message: '页面入口不可用' }), {
-          status: 500,
-          headers: { 'content-type': 'application/json' },
-        });
-      }
-      if (request.url.endsWith('/platform.module/iam.organization/context')) {
-        return Response.json({
-          moduleAlias: 'iam.organization',
-          capabilities: ['TREE'],
-          abilities: ['tree'],
-          actions: [],
-        });
-      }
-      throw new Error(`Unexpected request: ${request.url}`);
-    };
-    configureModuleContext({
-      httpFactory: () => createHttpClient({ baseUrl: 'http://api.local' }),
-    });
+  it.each(['page-button', 'workbench-refresh'])(
+    'blocks failed bootstrap and recovers through %s',
+    async (retry) => {
+      let unavailable = true;
+      let entryRequests = 0;
+      globalThis.fetch = async (input) => {
+        const request = new Request(input);
+        if (request.url.endsWith('/platform.menu/organization-menu/entry?clientType=WEB')) {
+          entryRequests += 1;
+          if (!unavailable)
+            return Response.json({
+              entry: { moduleAlias: 'iam.organization', pageMode: 'LIST' },
+              clientType: 'WEB',
+              mainEntityAlias: 'organization',
+              resolvedConfig: { uiFields: [], queryItems: [] },
+              openApiPath: '/iam.organization/openapi',
+            });
+          return new Response(JSON.stringify({ message: '页面入口不可用' }), {
+            status: 500,
+            headers: { 'content-type': 'application/json' },
+          });
+        }
+        if (request.url.endsWith('/platform.module/iam.organization/context')) {
+          return Response.json({
+            moduleAlias: 'iam.organization',
+            capabilities: ['TREE'],
+            abilities: ['tree'],
+            actions: [],
+          });
+        }
+        throw new Error(`Unexpected request: ${request.url}`);
+      };
+      configureModuleContext({
+        httpFactory: () => createHttpClient({ baseUrl: 'http://api.local' }),
+      });
 
-    const wrapper = shallowMount(ModulePageHost, {
-      props: {
-        descriptor: {
-          pageType: 'dynamic-module',
-          openMode: 'dynamic-runner',
-          hostType: 'dynamic-module-host',
-          menuId: 'organization-menu',
-          tabPolicy: { identity: 'by-menu' },
-          target: { moduleAlias: 'iam.organization', pageMode: 'LIST' },
-        },
-      },
-      global: {
-        stubs: {
-          RecordPanelState: {
-            props: ['description'],
-            template: '<div class="record-panel-state">{{ description }}</div>',
+      const wrapper = shallowMount(ModulePageHost, {
+        props: {
+          descriptor: {
+            pageType: 'dynamic-module',
+            openMode: 'dynamic-runner',
+            hostType: 'dynamic-module-host',
+            menuId: 'organization-menu',
+            tabPolicy: { identity: 'by-menu' },
+            target: { moduleAlias: 'iam.organization', pageMode: 'LIST' },
           },
         },
-      },
-    });
+        global: {
+          stubs: {
+            RecordPanelState: {
+              props: ['description'],
+              template: '<div class="record-panel-state">{{ description }}</div>',
+            },
+          },
+        },
+      });
 
-    await flushPromises();
+      await flushPromises();
 
-    expect(wrapper.text()).toContain('页面入口不可用');
-    expect(wrapper.find('management-workspace-stub').exists()).toBe(false);
-    expect(wrapper.find('tree-record-explorer-stub').exists()).toBe(false);
-    expect(wrapper.find('record-query-list-panel-stub').exists()).toBe(false);
-  });
+      expect(wrapper.text()).toContain('页面入口不可用');
+      expect(wrapper.find('management-workspace-stub').exists()).toBe(false);
+      expect(wrapper.find('tree-record-explorer-stub').exists()).toBe(false);
+      expect(wrapper.find('record-query-list-panel-stub').exists()).toBe(false);
+      unavailable = false;
+      if (retry === 'page-button')
+        await wrapper.findComponent({ name: 'RecordPanelButton' }).trigger('click');
+      else wrapper.vm.refreshList();
+      await flushPromises();
+      expect(entryRequests).toBe(2);
+      expect(wrapper.text()).not.toContain('页面入口不可用');
+      const session = wrapper.findComponent({ name: 'ModulePageHostRuntime' }).props('session');
+      expect(session.pageReady).toBe(true);
+      expect(session.pageBootstrapError).toBeUndefined();
+    },
+  );
 
   it('uses the bootstrap page mode instead of a stale menu snapshot', async () => {
     const requests: string[] = [];
@@ -1884,10 +2049,22 @@ describe('ModulePageHost', () => {
     await flushPromises();
     expect(organizationTree?.props('selectedId')).toBe('organization-1');
 
+    const session = wrapper
+      .findComponent({ name: 'ModulePageHostRuntime' })
+      .props('session') as import('@/dynamic-page-runtime/useModulePageSession').ModulePageSessionView;
+    (await session.prepareAssistantCreate({ asChildOfSelectedRecord: true }))();
+    await flushPromises();
+    expect(session.editorMode).toBe('create');
+    expect(session.editingRecord).toMatchObject({ tenantId: 'tenant-1', parentId: 'organization-1' });
+    session.closeTreeCardEditor();
+    await flushPromises();
+    const staleChild = await session.prepareAssistantCreate({ asChildOfSelectedRecord: true });
+
     tenantExplorer.vm.$emit('select', { id: 'tenant-2', title: '乙租户' });
     await flushPromises();
     expect(organizationTree?.props('selectedId')).toBeUndefined();
     expect(organizationTree?.props('externalQueryValues')).toEqual({ tenantId: 'tenant-2' });
+    expect(staleChild).toThrow('Record creation is unavailable');
   });
 
   it('preselects a navigator only from its reference-authorized loaded records and consumes the entry once', async () => {

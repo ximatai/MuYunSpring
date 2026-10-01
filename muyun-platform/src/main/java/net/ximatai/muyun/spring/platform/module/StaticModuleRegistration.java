@@ -10,6 +10,8 @@ public interface StaticModuleRegistration {
 
     String title();
 
+    default String description() { return null; }
+
     String parentModuleAlias();
 
     ModuleEntryType entryType();

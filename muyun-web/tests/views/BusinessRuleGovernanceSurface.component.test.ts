@@ -319,6 +319,11 @@ function mountSurface(
         RecordQueryListCell: RuleListCell,
         RecordQueryListSurface: RuleListSurface,
         RecordQueryEnumFilter: RuleKindFilter,
+        UiDataTable: {
+          props: ['columns', 'rows'],
+          template:
+            '<table><thead><tr><th v-for="column in columns">{{ column.title }}</th></tr></thead><tbody><tr v-for="row in rows"><td v-for="column in columns"><slot name="cell" :column="column" :record="row" /></td></tr></tbody></table>',
+        },
       },
     },
   });
@@ -1400,11 +1405,11 @@ describe('BusinessRuleGovernanceSurface', () => {
     );
   });
 
-  it('disables calculation creation when no writable main field exists', async () => {
+  it('disables calculation creation when no writable main or child field exists', async () => {
     const http: HttpClient = { request: vi.fn(async () => snapshot('education.exam', false) as never) };
     const wrapper = mountSurface(http);
     await flushPromises();
-    expect(action(wrapper, '新增规则').attributes('title')).toContain('没有可写的主表字段');
+    expect(action(wrapper, '新增规则').attributes('title')).toContain('没有可写的主表或明细字段');
   });
 });
 
@@ -1454,6 +1459,80 @@ describe('assistant uses the same business-rule candidate and application', () =
   });
 });
 
+it('authors a child calculation through the same governance draft and apply boundary', async () => {
+  const http = fakeHttp();
+  const request = http.request;
+  http.request = vi.fn(async (options) => {
+    const result = await request(options);
+    return options.path.endsWith('/business-rules')
+      ? ({
+          ...(result as object),
+          childFields: [
+            { fieldName: 'lines.amount', title: '明细小计', fieldSpecAlias: 'decimal', valueType: 'DECIMAL' },
+          ],
+        } as never)
+      : (result as never);
+  });
+  const wrapper = mountSurface(http);
+  await flushPromises();
+  await action(wrapper, '新增规则').trigger('click');
+  wrapper
+    .findComponent(UiTextArea)
+    .vm.$emit('update:value', '{lines.amount} = {lines.quantity} * {lines.price}');
+  await flushPromises();
+  await action(wrapper, '保存').trigger('click');
+  await flushPromises();
+  expect(wrapper.text()).toContain('明细小计');
+  expect(vi.mocked(http.request).mock.calls.some(([options]) => options.path.endsWith('/apply'))).toBe(false);
+  await action(wrapper, '应用更改').trigger('click');
+  await flushPromises();
+  const applied = vi.mocked(http.request).mock.calls.find(([options]) => options.path.endsWith('/apply'))![0];
+  expect(applied.body).toMatchObject({
+    rules: expect.arrayContaining([
+      expect.objectContaining({
+        targetField: 'lines.amount',
+        expression: '{lines.quantity} * {lines.price}',
+      }),
+    ]),
+  });
+});
+
+it('limits validation error locations to main fields while keeping child calculations available', async () => {
+  const http = fakeHttp();
+  const request = http.request;
+  http.request = vi.fn(async (options) => {
+    const result = await request(options);
+    return options.path.endsWith('/business-rules')
+      ? ({
+          ...(result as object),
+          childFields: [
+            { fieldName: 'lines.amount', title: '明细小计', fieldSpecAlias: 'decimal', valueType: 'DECIMAL' },
+          ],
+        } as never)
+      : (result as never);
+  });
+  const wrapper = mountSurface(http);
+  await flushPromises();
+  await action(wrapper, '新增规则').trigger('click');
+  const kind = wrapper
+    .findAllComponents({ name: 'UiSelect' })
+    .find((item) => item.classes().includes('business-rule-governance__type-select'))!;
+  kind.vm.$emit('update:value', 'VALIDATION');
+  await flushPromises();
+  const location = wrapper.find('details.business-rule-governance__validation-location');
+  const options = location.findComponent({ name: 'UiSelect' }).props('options');
+  expect(options).toEqual(expect.arrayContaining([{ value: 'quantity', label: expect.any(String) }]));
+  expect(options.map((item: { value: string }) => item.value)).not.toContain('lines.amount');
+  expect(wrapper.text()).toContain('检查明细时使用汇总函数');
+  kind.vm.$emit('update:value', 'CALCULATION');
+  await flushPromises();
+  wrapper.findComponent(UiTextArea).vm.$emit('update:value', '{lines.amount} = 1');
+  await flushPromises();
+  await action(wrapper, '保存').trigger('click');
+  await flushPromises();
+  expect(wrapper.text()).toContain('明细小计');
+});
+
 it('uses explicit child sample rows for standard governance trials', async () => {
   const http = fakeHttp();
   const request = http.request;
@@ -1480,13 +1559,73 @@ it('uses explicit child sample rows for standard governance trials', async () =>
   await flushPromises();
   await action(wrapper, '添加明细样例').trigger('click');
   await flushPromises();
-  const child = wrapper.findAll('label').find((label) => label.text().includes('明细 · 小计'))!;
-  child.findComponent({ name: 'UiInput' }).vm.$emit('update:value', '18');
+  const child = wrapper
+    .findAllComponents({ name: 'UiInput' })
+    .find((input) => input.attributes('aria-label') === '第 1 行 · 明细 · 小计')!;
+  child.vm.$emit('update:value', '18');
   await flushPromises();
   wrapper.findComponent({ name: 'UiModal' }).vm.$emit('confirm');
   await flushPromises();
   const call = vi.mocked(http.request).mock.calls.find(([options]) => options.path.endsWith('/trial'))![0];
   expect(call.body).toMatchObject({ sampleChildren: { lines: [{ amount: 18 }] } });
+});
+
+it('shows server-calculated child rows alongside the main total and invalidates them on sample changes', async () => {
+  const http = fakeHttp();
+  const request = http.request;
+  http.request = vi.fn(async (options) => {
+    if (options.path.endsWith('/trial'))
+      return {
+        preview: {},
+        values: { amount: '12.50' },
+        changedFields: ['amount', 'lines.amount'],
+        errors: [],
+        children: {
+          lines: [
+            { quantity: 3, amount: '4.50' },
+            { quantity: 1, amount: '8.00' },
+          ],
+        },
+      } as never;
+    const result = await request(options);
+    return options.path.endsWith('/business-rules')
+      ? ({
+          ...(result as object),
+          aggregateFields: [
+            {
+              fieldName: 'lines.quantity',
+              title: '商品明细 · 数量',
+              fieldSpecAlias: 'integer',
+              valueType: 'INTEGER',
+              aggregateFunctions: ['SUM'],
+            },
+            {
+              fieldName: 'lines.amount',
+              title: '商品明细 · 小计',
+              fieldSpecAlias: 'decimal',
+              valueType: 'DECIMAL',
+              aggregateFunctions: ['SUM'],
+            },
+          ],
+        } as never)
+      : (result as never);
+  });
+  const wrapper = mountSurface(http);
+  await flushPromises();
+  await action(wrapper, '试算整组规则').trigger('click');
+  wrapper.findComponent({ name: 'UiModal' }).vm.$emit('confirm');
+  await flushPromises();
+  const result = wrapper.get('[data-testid="business-rule-trial"]');
+  expect(result.text()).toContain('最终值：12.50');
+  expect(result.text()).toContain('商品明细 · 试算后明细（2 行）');
+  expect(result.findAll('tbody tr').map((row) => row.findAll('td').map((cell) => cell.text()))).toEqual([
+    ['1', '3', '4.50'],
+    ['2', '1', '8.00'],
+  ]);
+  expect(result.text()).not.toContain('["4.50","8.00"]');
+  expect(wrapper.text()).not.toContain('不执行子表行计算');
+  await action(wrapper, '添加明细样例').trigger('click');
+  expect(wrapper.find('[data-testid="business-rule-trial"]').exists()).toBe(false);
 });
 
 it('opens an existing conversation candidate without reloading it and shares manual edits back', async () => {

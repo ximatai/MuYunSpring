@@ -134,7 +134,8 @@ public class AssistantWebController {
                 request.history().stream().map(AssistantConversationMessageWeb::toDomain).toList(),
                 request.context(), request.capabilities(),
                 request.results().stream().map(AssistantCapabilityResultWeb::toDomain).toList(),
-                request.selectionResponse() == null ? null : request.selectionResponse().toDomain());
+                request.selectionResponse() == null ? null : request.selectionResponse().toDomain(),
+                request.executionBudget() == null ? null : request.executionBudget().toDomain());
     }
 
     private static AssistantTurnWebResponse response(AssistantTurnResult response) {
@@ -158,7 +159,14 @@ record AssistantTurnWebRequest(String message,
                                Map<String, Object> context,
                                List<AiToolDefinition> capabilities,
                                List<AssistantCapabilityResultWeb> results,
-                               AssistantSelectionResponseWeb selectionResponse) {
+                               AssistantSelectionResponseWeb selectionResponse,
+                               AssistantExecutionBudgetWeb executionBudget) {
+    AssistantTurnWebRequest(String message, List<AssistantConversationMessageWeb> history,
+                            Map<String, Object> context, List<AiToolDefinition> capabilities,
+                            List<AssistantCapabilityResultWeb> results, AssistantSelectionResponseWeb selectionResponse) {
+        this(message, history, context, capabilities, results, selectionResponse, null);
+    }
+
     AssistantTurnWebRequest {
         if (history != null && history.stream().anyMatch(Objects::isNull)) {
             throw new IllegalArgumentException("assistant history item must not be null");
@@ -179,6 +187,12 @@ record AssistantTurnWebRequest(String message,
                             Map<String, Object> context, List<AiToolDefinition> capabilities,
                             List<AssistantCapabilityResultWeb> results) {
         this(message, history, context, capabilities, results, null);
+    }
+}
+
+record AssistantExecutionBudgetWeb(String phase, int step, int normalLimit, int hardLimit) {
+    AssistantTurnCommand.ExecutionBudget toDomain() {
+        return new AssistantTurnCommand.ExecutionBudget(phase, step, normalLimit, hardLimit);
     }
 }
 

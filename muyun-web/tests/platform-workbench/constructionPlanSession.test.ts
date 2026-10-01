@@ -35,8 +35,21 @@ function fixture() {
     publishDelivery: vi.fn(),
     delivery: vi.fn(),
     progress: vi.fn(),
+    designContract: vi.fn(async () => ({
+      recordName: { fieldName: 'title', columnName: 'title', fieldType: 'STRING' },
+      inheritedFields: ['id'],
+      declarableCapabilities: { capabilities: [], metadataFields: [] },
+    })),
     businessObjects: vi.fn(async () => [
-      { alias: 'crm.customer', title: '客户', kind: 'DYNAMIC', referenceReady: true, explanation: '可复用' },
+      {
+        alias: 'crm.customer',
+        title: '客户',
+        applicationAlias: 'crm',
+        applicationTitle: '客户管理',
+        kind: 'DYNAMIC',
+        referenceReady: true,
+        explanation: '可复用',
+      },
     ]),
     referenceTarget: vi.fn(async () => ({
       targetModuleAlias: 'crm.customer',
@@ -48,8 +61,6 @@ function fixture() {
     previewFields: vi.fn(),
     publishFields: vi.fn(),
     fieldChange: vi.fn(),
-    previewInitialization: vi.fn(),
-    initialize: vi.fn(),
     initialization: vi.fn(),
     list: vi.fn(async () => [
       { planId: snapshot.planId, title: snapshot.content.title, revision: snapshot.revision, updatedAt: '' },
@@ -63,6 +74,7 @@ function fixture() {
         revision: command.expectedRevision + 1,
         confirmedAt: '',
         constructionStatus: 'NOT_STARTED',
+        deliveredObjectKeys: [],
         deliveries: [],
         fieldChanges: [],
         initializations: [],
@@ -128,7 +140,7 @@ it('queries the original confirmation after a lost response without repeating a 
   expect(confirmation.state).toBe('unknown');
   expect(session.facts().persistence).toBe('UNKNOWN');
   expect(session.facts().persistenceExplanation).toContain('尚未确定');
-  expect(() => session.newPlan()).toThrow('尚未查明');
+  expect(() => session.discardCandidate()).toThrow('尚未查明');
   await session.recovery.value?.();
   expect(session.current().saved?.revision).toBe(1);
   expect(session.recovery.value).toBeUndefined();
@@ -255,7 +267,7 @@ it('keeps explicit realization visible in review and rejects invalid clause refe
   };
   const { session } = fixture();
   session.edit(mapped);
-  expect(session.prepare().presentation.details?.lines.join('\n')).toContain('人工处理并核验');
+  expect(session.prepare().presentation.details?.lines.join('\n')).toContain('按约定由人处理');
   expect(() =>
     parseConstructionPlan({ ...mapped, requirements: [{ ...mapped.requirements[0], index: 1 }] }),
   ).toThrow('本版要求');
@@ -311,7 +323,8 @@ it('discovers construction operations only after their local prerequisites are s
   expect(codes()).not.toContain('construction.task');
   await session.prepare().execute();
   expect(codes()).toContain('construction.task');
-  expect(codes()).toContain('construction.prepare-initialization');
+  expect(codes()).not.toContain('construction.prepare-initialization');
+  expect(codes()).toContain('construction.initialization-status');
   expect(codes()).not.toContain('construction.prepare-fields');
   expect(codes()).not.toContain('construction.prepare-page');
   session.beginManualEdit();
@@ -332,9 +345,179 @@ it('rejects a late restore before applying it when its caller context has change
       }),
   );
   let current = true;
-  const restoring = session.restore('other', () => current);
+  const restoring = session.restore(original.planId, () => current);
   current = false;
-  finish({ ...original, planId: 'other' });
+  finish(original);
   await expect(restoring).rejects.toThrow('恢复入口已变化');
   expect(session.current().saved?.planId).toBe(original.planId);
+});
+
+it('binds one design per conversation and discards edits without switching its identity', async () => {
+  const { session, client } = fixture();
+  session.edit(content);
+  await session.prepare().execute();
+  const id = session.current().planId;
+  await expect(session.restore('another-plan')).rejects.toThrow('新建对话');
+  expect(client.read).not.toHaveBeenCalled();
+  session.edit({ ...content, title: '修改标题' });
+  session.discardCandidate();
+  expect(session.current().planId).toBe(id);
+  expect(session.current().candidate).toEqual(content);
+  session.resetConversation();
+  expect(session.current().planId).toBeUndefined();
+  session.edit(content);
+  expect(session.current().planId).not.toBe(id);
+});
+it('keeps delivered design as history and routes further work to current governance', async () => {
+  const { session, client } = fixture();
+  session.edit(content);
+  await session.prepare().execute();
+  const saved = {
+    ...session.current().saved!,
+    constructionStatus: 'DELIVERED' as const,
+    deliveredObjectKeys: ['order'],
+  };
+  vi.mocked(client.read).mockResolvedValue(saved);
+  await session.restore(saved.planId);
+  expect(session.facts().persistence).toBe('DELIVERY_HISTORY');
+  expect(session.facts().candidate).toBeUndefined();
+  expect(session.facts().configurationSource).toBe('CURRENT_GOVERNANCE');
+  expect(() => session.edit(content)).toThrow('当前低代码治理配置');
+  expect(() => session.beginManualEdit()).toThrow('当前低代码治理配置');
+  expect(() => session.prepare()).toThrow('当前低代码治理配置');
+  expect(session.capabilities().map((item) => item.descriptor.code)).not.toContain(
+    'construction.prepare-initialization',
+  );
+  expect(session.current().saved?.content).toEqual(content);
+});
+
+it('keeps child relationships and calculated field requirements distinct from plain fields', () => {
+  const candidate = {
+    ...content,
+    relationships: ['一单填写多条明细'],
+    rules: ['逐行计算小计'],
+    requirements: [
+      {
+        section: 'RELATION',
+        index: 0,
+        objectKey: 'order',
+        mode: 'CHILD',
+        fieldName: 'lines',
+        explanation: '明细属于订单',
+      },
+      {
+        section: 'RULE',
+        index: 0,
+        objectKey: 'order',
+        mode: 'CALCULATION',
+        fieldName: 'lines.amount',
+        explanation: '保存计算并试算核验',
+      },
+    ],
+  };
+  expect(parseConstructionPlan(candidate).requirements).toEqual(candidate.requirements);
+  expect(() =>
+    parseConstructionPlan({ ...candidate, requirements: [{ ...candidate.requirements[0], mode: 'FIELD' }] }),
+  ).toThrow();
+  expect(() =>
+    parseConstructionPlan({
+      ...candidate,
+      requirements: [{ ...candidate.requirements[1], fieldName: 'lines.product.price' }],
+    }),
+  ).toThrow();
+});
+
+it('exposes revision history only after a confirmed plan has been loaded or saved', async () => {
+  const { session } = fixture();
+  const codes = () => session.capabilities().map((item) => item.descriptor.code);
+  expect(codes()).not.toContain('construction.history');
+  session.edit(content);
+  expect(codes()).not.toContain('construction.history');
+  await createAssistantOperationConfirmation(session.prepare(), () => true).confirm();
+  expect(codes()).toContain('construction.history');
+  session.resetConversation();
+  expect(codes()).not.toContain('construction.history');
+});
+
+it('reports the exact oversized section and mode-specific field contract without losing requirements', () => {
+  expect(() => parseConstructionPlan({ ...content, rules: Array(17).fill('规则') })).toThrow(
+    'rules 当前 17 项',
+  );
+  const input = {
+    ...content,
+    requirements: [
+      {
+        section: 'SCOPE',
+        index: 0,
+        objectKey: 'order',
+        mode: 'MANUAL',
+        fieldName: 'title',
+        explanation: '人工检查',
+      },
+    ],
+  };
+  expect(() => parseConstructionPlan(input)).toThrow('requirements[0].fieldName 与 MANUAL 不匹配');
+  input.requirements[0]!.fieldName = '';
+  expect(parseConstructionPlan(input).requirements).toHaveLength(1);
+});
+
+it('does not advertise design writes before the linked persisted plan has been read', async () => {
+  const { session, client } = fixture();
+  session.edit(content);
+  await createAssistantOperationConfirmation(session.prepare(), () => true).confirm();
+  const id = session.current().saved!.planId;
+  session.resetConversation(id);
+  const codes = () => session.capabilities().map((capability) => capability.descriptor.code);
+  expect(codes()).not.toContain('construction.propose');
+  expect(codes()).not.toContain('construction.prepare-confirmation');
+  expect(codes()).toContain('construction.restore');
+  vi.mocked(client.read).mockRejectedValueOnce(new Error('offline'));
+  await expect(session.restore(id)).rejects.toThrow('offline');
+  expect(codes()).not.toContain('construction.propose');
+  await session.restore(id);
+  expect(codes()).toContain('construction.propose');
+});
+
+it('uses live confirmed object keys rather than module aliases in cached construction capabilities', async () => {
+  const { constructionObjectKeySchema } = await import('@/platform-workbench/constructionPlanGuard');
+  const { session } = fixture();
+  const schema = constructionObjectKeySchema(() => ({
+    ...session.current(),
+    dirty: session.dirty(),
+    editing: false,
+  }));
+  expect(schema.enum).toEqual([]);
+  session.edit(content);
+  await createAssistantOperationConfirmation(session.prepare(), () => true).confirm();
+  expect(JSON.parse(JSON.stringify(schema)).enum).toEqual(['order']);
+  session.edit({
+    ...content,
+    objects: [...content.objects, { key: 'catalog', name: '目录', purpose: '独立管理' }],
+  });
+  await createAssistantOperationConfirmation(session.prepare(), () => true).confirm();
+  expect(schema.enum).toEqual(['order', 'catalog']);
+});
+
+it('saves business consensus before technical mapping without treating agreed human work as an unresolved decision', async () => {
+  const { session, client } = fixture();
+  session.edit({ ...content, requirements: [] });
+  await session.prepare().execute();
+  expect(client.confirm).toHaveBeenCalledOnce();
+  session.edit({
+    ...content,
+    requirements: [
+      {
+        section: 'SCOPE',
+        index: 0,
+        objectKey: 'order',
+        mode: 'MANUAL',
+        fieldName: '',
+        explanation: '由经办人联系客户核对交期',
+      },
+    ],
+  });
+  const proposal = session.prepare();
+  expect(proposal.presentation.lines.join('\n')).toContain('已约定由人处理');
+  expect(proposal.presentation.lines.join('\n')).not.toContain('暂不能完整交付');
+  expect(proposal.presentation.lines.join('\n')).not.toContain('待映射');
 });

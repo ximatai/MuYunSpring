@@ -12,7 +12,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 @RestController
 @PlatformStaticModule(application = net.ximatai.muyun.spring.platform.application.PlatformApplication.class,
-        alias = ApplicationService.MODULE_ALIAS, title = "平台应用")
+        alias = ApplicationService.MODULE_ALIAS, title = "平台应用", description = "查找、复用或新建应用，确定业务模块所属的应用范围")
 @StaticModuleOpenApi
 @PlatformMenu(parent = PlatformMenuGroups.MODELING, title = "应用管理", order = 10)
 @RequestMapping("/platform.application")

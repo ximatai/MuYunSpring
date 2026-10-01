@@ -6,9 +6,15 @@ record ResolvedAiModelRoute(
         AiModelProtocol protocol,
         String baseUrl,
         String modelId,
-        String apiKey
+        String apiKey,
+        AiModelLimits limits
 ) {
+    ResolvedAiModelRoute(String provider, AiModelProtocol protocol, String baseUrl, String modelId, String apiKey) {
+        this(provider, protocol, baseUrl, modelId, apiKey, AiModelLimits.UNKNOWN);
+    }
+
     ResolvedAiModelRoute {
+        java.util.Objects.requireNonNull(limits, "limits must not be null");
         provider = requireText(provider, "provider");
         if (protocol == null) throw new IllegalArgumentException("protocol must not be null");
         baseUrl = requireText(baseUrl, "baseUrl");

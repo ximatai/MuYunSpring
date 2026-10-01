@@ -26,6 +26,7 @@ import java.util.function.Predicate;
 /** Minimal OpenAI chat-completions adapter shared by the allowed first-stage providers. */
 @Service
 final class OpenAiCompatibleModelClient implements AiModelClient {
+    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(OpenAiCompatibleModelClient.class);
     private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(60);
     private static final int MAX_STRUCTURED_RESPONSE_BYTES = 1_048_576;
     // SSE framing and provider metadata are bounded separately from accumulated output.
@@ -58,22 +59,25 @@ final class OpenAiCompatibleModelClient implements AiModelClient {
     @Override
     public AiTextResponse generate(ResolvedAiModelRoute route, AiTextRequest request) {
         try {
-            HttpResponse<String> response = httpClient.send(request(route, request, false),
-                    HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
-            requireSuccess(response.statusCode());
-            JsonNode root = readResponseObject(response.body(), "AI model returned an invalid response");
+            HttpResponse<InputStream> response = send(request(route, request, false));
+            final JsonNode root;
+            try (InputStream body = new TimedResponseBody(response.body(), bodyTimeout)) {
+                root = readResponseObject(readBoundedStructuredBody(body), "AI model returned an invalid response");
+            }
             JsonNode choice = root.path("choices").path(0);
             String text = choice.path("message").path("content").asText(null);
             if (text == null) throw new PlatformException("AI model response does not contain text");
+            log.info("AI text response completed finishReason={} textCharacters={}",
+                    safeFinishReason(textOrNull(choice.path("finish_reason"))), text.length());
             return new AiTextResponse(text, textOrNull(choice.path("finish_reason")), response.headers()
-                    .firstValue("x-request-id").orElse(null));
+                    .firstValue("x-request-id").orElse(null), usage(root));
         } catch (PlatformException exception) {
             throw exception;
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
-            throw new PlatformException("AI model request interrupted", exception);
+            throw new PlatformException("AI_MODEL_INTERRUPTED", 503, "模型请求已中断。");
         } catch (Exception exception) {
-            throw new PlatformException("AI model request failed", exception);
+            throw transportFailure(exception);
         }
     }
 
@@ -81,31 +85,27 @@ final class OpenAiCompatibleModelClient implements AiModelClient {
     public void stream(ResolvedAiModelRoute route, AiTextRequest request, AiTextStreamConsumer consumer) {
         Objects.requireNonNull(consumer, "consumer must not be null");
         try {
-            HttpResponse<InputStream> response = httpClient.send(request(route, request, true),
-                    HttpResponse.BodyHandlers.ofInputStream());
+            HttpResponse<InputStream> response = send(request(route, request, true));
             try (InputStream body = new TimedResponseBody(response.body(), bodyTimeout)) {
-                requireSuccess(response.statusCode());
                 if (consumeSseStream(body, payload -> consumeStreamEvent(payload, consumer))) return;
-                throw new PlatformException("AI model stream ended before completion");
+                throw new PlatformException("AI_MODEL_INCOMPLETE_RESPONSE", 502, "模型回复在完成前断开。");
             }
         } catch (PlatformException exception) {
             throw exception;
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
-            throw new PlatformException("AI model streaming request interrupted", exception);
+            throw new PlatformException("AI_MODEL_INTERRUPTED", 503, "模型请求已中断。");
         } catch (Exception exception) {
-            throw new PlatformException("AI model streaming request failed", exception);
+            throw transportFailure(exception);
         }
     }
 
     @Override
     public AiTurnResponse complete(ResolvedAiModelRoute route, AiTurnRequest request) {
         try {
-            HttpResponse<InputStream> response = httpClient.send(turnRequest(route, request, false),
-                    HttpResponse.BodyHandlers.ofInputStream());
+            HttpResponse<InputStream> response = send(turnRequest(route, request, false));
             final JsonNode root;
             try (InputStream body = new TimedResponseBody(response.body(), bodyTimeout)) {
-                requireSuccess(response.statusCode());
                 root = readResponseObject(readBoundedStructuredBody(body),
                         "AI model returned an invalid structured response");
             }
@@ -119,14 +119,14 @@ final class OpenAiCompatibleModelClient implements AiModelClient {
             List<AiToolCall> calls = toolCalls(message.path("tool_calls"), request.tools());
             String text = textOrNull(message.path("content"));
             return new AiTurnResponse(text, calls, textOrNull(choice.path("finish_reason")),
-                    response.headers().firstValue("x-request-id").orElse(null));
+                    response.headers().firstValue("x-request-id").orElse(null), usage(root));
         } catch (PlatformException exception) {
             throw exception;
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
-            throw new PlatformException("AI model structured request interrupted", exception);
+            throw new PlatformException("AI_MODEL_INTERRUPTED", 503, "模型请求已中断。");
         } catch (Exception exception) {
-            throw new PlatformException("AI model structured request failed", exception);
+            throw transportFailure(exception);
         }
     }
 
@@ -134,22 +134,20 @@ final class OpenAiCompatibleModelClient implements AiModelClient {
     public void stream(ResolvedAiModelRoute route, AiTurnRequest request, AiTurnStreamConsumer consumer) {
         Objects.requireNonNull(consumer, "consumer must not be null");
         try {
-            HttpResponse<InputStream> response = httpClient.send(turnRequest(route, request, true),
-                    HttpResponse.BodyHandlers.ofInputStream());
+            HttpResponse<InputStream> response = send(turnRequest(route, request, true));
             try (InputStream body = new TimedResponseBody(response.body(), bodyTimeout)) {
-                requireSuccess(response.statusCode());
                 StructuredTurnAccumulator accumulator = new StructuredTurnAccumulator(request.tools(), consumer,
                         response.headers().firstValue("x-request-id").orElse(null));
                 if (consumeSseStream(body, payload -> consumeStructuredStreamEvent(payload, accumulator))) return;
-                throw new PlatformException("AI model structured stream ended before completion");
+                throw new PlatformException("AI_MODEL_INCOMPLETE_RESPONSE", 502, "模型回复在完成前断开。");
             }
         } catch (PlatformException exception) {
             throw exception;
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
-            throw new PlatformException("AI model structured streaming request interrupted", exception);
+            throw new PlatformException("AI_MODEL_INTERRUPTED", 503, "模型请求已中断。");
         } catch (Exception exception) {
-            throw new PlatformException("AI model structured streaming request failed", exception);
+            throw transportFailure(exception);
         }
     }
 
@@ -186,7 +184,7 @@ final class OpenAiCompatibleModelClient implements AiModelClient {
         }
 
         private void checkDeadline() {
-            if (expired) throw new PlatformException("AI model response body timed out");
+            if (expired) throw new PlatformException("AI_MODEL_TIMEOUT", 504, "等待模型回复超时，请稍后重试。");
         }
 
         @Override
@@ -202,11 +200,44 @@ final class OpenAiCompatibleModelClient implements AiModelClient {
         if (payload.isEmpty()) return false;
         if ("[DONE]".equals(payload)) return true;
         JsonNode event = readResponseObject(payload, "AI model stream contains an invalid event");
+        usage(event);
         JsonNode delta = event.path("choices").path(0).path("delta").path("content");
         if (!delta.isMissingNode() && !delta.isNull() && !delta.asText().isEmpty()) {
             consumer.accept(delta.asText());
         }
         return false;
+    }
+
+    /** Conservative UTF-8 estimate, not a provider tokenizer. Never trim business content here. */
+    private void checkContextBudget(ResolvedAiModelRoute route, Map<String, Object> body) throws IOException {
+        Map<String, Object> input = new LinkedHashMap<>();
+        input.put("messages", body.get("messages"));
+        if (body.containsKey("tools")) input.put("tools", body.get("tools"));
+        long estimatedInput = objectMapper.writeValueAsBytes(input).length + 256L;
+        int output = (Integer) body.get("max_tokens");
+        Integer capacity = route.limits().contextWindowTokens();
+        long reserve = capacity == null ? 0 : Math.max(256, capacity / 20);
+        log.info("AI invocation budget contextCapacity={} estimatedInputTokens={} outputBudget={} reserveTokens={} estimator=utf8-conservative",
+                capacity, estimatedInput, output, reserve);
+        if (capacity != null && estimatedInput + output + reserve > capacity) {
+            throw new PlatformException("AI_CONTEXT_BUDGET_EXCEEDED", 422,
+                    "本次内容预计超过模型上下文预算，尚未发送给模型。请缩小本次处理范围，或核对智能模型配置中的容量与输出预算");
+        }
+    }
+
+    private AiTokenUsage usage(JsonNode root) {
+        JsonNode value = root.path("usage");
+        if (!value.isObject()) return null;
+        Long input = tokenCount(value.path("prompt_tokens"));
+        Long output = tokenCount(value.path("completion_tokens"));
+        Long total = tokenCount(value.path("total_tokens"));
+        if (input == null && output == null && total == null) return null;
+        log.info("AI provider usage inputTokens={} outputTokens={} totalTokens={}", input, output, total);
+        return new AiTokenUsage(input, output, total);
+    }
+
+    private Long tokenCount(JsonNode node) {
+        return node.isIntegralNumber() && node.canConvertToLong() && node.longValue() >= 0 ? node.longValue() : null;
     }
 
     private JsonNode readResponseObject(String payload, String invalidMessage) {
@@ -221,7 +252,8 @@ final class OpenAiCompatibleModelClient implements AiModelClient {
             throw new PlatformException(invalidMessage);
         }
         if (response.hasNonNull("error")) {
-            throw new PlatformException("AI model request was rejected by provider");
+            log.warn("AI provider rejected response transport=body");
+            throw new PlatformException("AI_PROVIDER_REQUEST_REJECTED", 502, "模型服务拒绝了本次请求，请联系管理员检查模型配置与服务状态。");
         }
         return response;
     }
@@ -234,8 +266,9 @@ final class OpenAiCompatibleModelClient implements AiModelClient {
         body.put("model", route.modelId());
         body.put("messages", wireMessages(request.messages()));
         if (request.temperature() != null) body.put("temperature", request.temperature());
-        if (request.maxOutputTokens() != null) body.put("max_tokens", request.maxOutputTokens());
+        body.put("max_tokens", route.limits().outputBudget(request.maxOutputTokens()));
         if (stream) body.put("stream", true);
+        checkContextBudget(route, body);
         return HttpRequest.newBuilder(URI.create(route.chatCompletionsUrl()))
                 .timeout(REQUEST_TIMEOUT)
                 .header("Content-Type", "application/json")
@@ -261,10 +294,13 @@ final class OpenAiCompatibleModelClient implements AiModelClient {
                         "parameters", providerParameters(tool.inputSchema()))));
             }
             body.put("tools", tools);
+        } else {
+            body.put("tool_choice", "none");
         }
         if (request.temperature() != null) body.put("temperature", request.temperature());
-        if (request.maxOutputTokens() != null) body.put("max_tokens", request.maxOutputTokens());
+        body.put("max_tokens", route.limits().outputBudget(request.maxOutputTokens()));
         if (stream) body.put("stream", true);
+        checkContextBudget(route, body);
         return HttpRequest.newBuilder(URI.create(route.chatCompletionsUrl()))
                 .timeout(REQUEST_TIMEOUT)
                 .header("Content-Type", "application/json")
@@ -332,6 +368,7 @@ final class OpenAiCompatibleModelClient implements AiModelClient {
         private final StringBuilder text = new StringBuilder();
         private final Map<Integer, StructuredToolCallAccumulator> calls = new LinkedHashMap<>();
         private String finishReason;
+        private AiTokenUsage usage;
         private boolean sawChoice;
         private int accumulatedBytes;
 
@@ -343,6 +380,8 @@ final class OpenAiCompatibleModelClient implements AiModelClient {
         }
 
         private void accept(JsonNode root) {
+            AiTokenUsage reported = usage(root);
+            if (reported != null) usage = reported;
             JsonNode choices = root.path("choices");
             if (!choices.isArray()) {
                 throw new PlatformException("AI model structured stream contains an invalid event");
@@ -415,8 +454,10 @@ final class OpenAiCompatibleModelClient implements AiModelClient {
                     .sorted(Map.Entry.comparingByKey())
                     .map(entry -> entry.getValue().toToolCall(tools))
                     .toList();
+            log.info("AI structured stream completed finishReason={} textCharacters={} toolCallCount={} outputBytes={}",
+                    safeFinishReason(finishReason), text.length(), toolCalls.size(), accumulatedBytes);
             consumer.onComplete(new AiTurnResponse(text.isEmpty() ? null : text.toString(), toolCalls,
-                    finishReason, requestId));
+                    finishReason, requestId, usage));
         }
     }
 
@@ -530,10 +571,79 @@ final class OpenAiCompatibleModelClient implements AiModelClient {
         throw new PlatformException("AI model requested an undeclared tool");
     }
 
-    private void requireSuccess(int statusCode) {
-        if (statusCode < 200 || statusCode >= 300) {
-            throw new PlatformException("AI model request was rejected with HTTP status " + statusCode);
+    /** Retry only before accepting a successful response; never replay a partially consumed stream. */
+    private HttpResponse<InputStream> send(HttpRequest request) throws IOException, InterruptedException {
+        for (int attempt = 0; ; attempt++) {
+            String reason;
+            try {
+                HttpResponse<InputStream> response = httpClient.send(request, HttpResponse.BodyHandlers.ofInputStream());
+                int status = response.statusCode();
+                if (status >= 200 && status < 300) return response;
+                log.warn("AI provider rejected response transport=http status={} attempt={}", status, attempt + 1);
+                boolean retryable = false;
+                try (InputStream body = new TimedResponseBody(response.body(), bodyTimeout)) {
+                    // Only a structured upstream failure qualifies; never infer retryability from free text.
+                    if (attempt == 0 && (status == 500 || status == 502 || status == 503 || status == 504)) {
+                        byte[] bytes = body.readNBytes(8193);
+                        if (bytes.length <= 8192) {
+                            try {
+                                JsonNode error = objectMapper.readTree(bytes);
+                                retryable = error != null && "upstream_unavailable".equals(error.path("error").path("code").asText());
+                            } catch (IOException ignored) {
+                                // Malformed or non-JSON errors remain ordinary provider failures.
+                            }
+                        }
+                    }
+                }
+                if (!retryable) throw providerHttpFailure(status);
+                reason = "upstream_unavailable";
+            } catch (java.net.http.HttpConnectTimeoutException exception) {
+                if (attempt != 0) throw exception;
+                reason = "connect-timeout";
+            }
+            log.info("AI model connection retry attempt=1 maxRetries=1 reason={}", reason);
+            Thread.sleep(500);
         }
+    }
+
+    private static PlatformException providerHttpFailure(int status) {
+        // Provider authentication failures belong to the model connection, not the user's login session.
+        String suffix = "（HTTP " + status + "）";
+        if (status == 401 || status == 403) {
+            return new PlatformException("AI_PROVIDER_AUTHENTICATION_FAILED", 502,
+                    "模型连接鉴权失败" + suffix + "，请联系管理员检查凭据及模型访问权限。");
+        }
+        if (status == 429) {
+            return new PlatformException("AI_PROVIDER_RATE_LIMITED", 429,
+                    "模型服务限制了本次请求" + suffix + "，请稍后重试；持续失败时请管理员检查额度。");
+        }
+        if (status >= 500) {
+            return new PlatformException("AI_PROVIDER_UNAVAILABLE", 503,
+                    "模型服务暂时不可用" + suffix + "，请稍后重试。");
+        }
+        return new PlatformException("AI_PROVIDER_REQUEST_REJECTED", 502,
+                "模型服务拒绝了本次请求" + suffix + "，请联系管理员检查模型配置与服务状态。");
+    }
+
+    private static PlatformException transportFailure(Exception failure) {
+        // Network exceptions may include endpoints or credentials; retain only their category.
+        if (failure instanceof java.net.http.HttpTimeoutException) {
+            return new PlatformException("AI_MODEL_TIMEOUT", 504, "等待模型回复超时，请稍后重试。");
+        }
+        if (failure instanceof IOException) {
+            return new PlatformException("AI_MODEL_CONNECTION_FAILED", 502,
+                    "模型连接失败，请联系管理员检查网络与模型服务状态。");
+        }
+        return new PlatformException("AI_MODEL_CALL_FAILED", 502,
+                "模型调用未能完成，请联系管理员检查模型服务状态。");
+    }
+
+    static String safeFinishReason(String reason) {
+        if (reason == null) return "missing";
+        return switch (reason) {
+            case "stop", "tool_calls", "length", "content_filter" -> reason;
+            default -> "other";
+        };
     }
 
     private String textOrNull(JsonNode node) {

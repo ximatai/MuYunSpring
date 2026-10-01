@@ -193,13 +193,15 @@ class StaticModuleDefinitionScannerTest {
                     new ResolvedPageContextBindingDescriptor(PageContextSource.NAVIGATOR, "application",
                             PageContextTarget.PICKER_QUERY, "applicationAlias", null, "parentId"));
             assertThat(page.detail().display().fields()).extracting(field -> field.fieldRef().fieldName())
-                    .containsExactly("applicationAlias", "alias", "title", "parentId", "moduleKind", "entryType",
+                    .containsExactly("applicationAlias", "alias", "title", "description", "parentId", "moduleKind", "entryType",
                             "entryRoute", "entryExternalUrl");
             assertThat(page.detail().display().fields()).filteredOn(field -> field.fieldRef().fieldName()
                     .equals("parentId")).singleElement().satisfies(field -> assertThat(field.treeRootTitle())
                     .isEqualTo("根模块"));
+            assertThat(page.detail().editor().fields()).filteredOn(field -> field.fieldRef().fieldName().equals("alias"))
+                    .singleElement().satisfies(field -> assertThat(field.inputRequirements().maxLength()).isEqualTo(128));
             assertThat(page.detail().editor().fields()).extracting(field -> field.fieldRef().fieldName())
-                    .containsExactly("alias", "title", "applicationAlias", "parentId", "moduleKind", "entryType",
+                    .containsExactly("alias", "title", "description", "applicationAlias", "parentId", "moduleKind", "entryType",
                             "entryRoute", "entryExternalUrl", "enabled");
             assertThat(page.detail().editor().fields()).filteredOn(field -> field.fieldRef().fieldName()
                     .equals("moduleKind")).singleElement().satisfies(field -> assertThat(field.option().binding()

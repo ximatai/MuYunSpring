@@ -180,6 +180,7 @@ public class StaticModuleDefinitionScanner implements StaticModuleRegistrationSo
         Class<?> modelClass = modelClass(bean);
         List<EntityDefinition> entities = entities(bean, module, projectionJoins);
         return StaticModuleDefinition.builder(application.alias(), module.alias(), module.title())
+                .description(module.description())
                 .tenantRequired(tenantRequired(bean, beanClass))
                 .parentModuleAlias(module.parent().isBlank() ? null : module.parent())
                 .entry(entryType(module), module.route(), module.externalUrl())

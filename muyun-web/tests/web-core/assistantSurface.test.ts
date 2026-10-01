@@ -480,7 +480,7 @@ it('invalidates both requests and effects when identity or execution tenant chan
   registry.register({
     pageInstanceKey: 'a',
     contextRevision: () => '',
-    conversationScopeKey: () => tenant,
+    executionScopeKey: () => tenant,
     surface: {
       describe: () => ({ surface: 'test', facts: {} }),
       capabilities: () => [],

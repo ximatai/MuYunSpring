@@ -27,3 +27,12 @@ it('forwards typed tree-search text to the owner', async () => {
     wrapper.unmount();
   }
 });
+
+it('renders native validation state and preserves unmatched errors independently', async () => {
+  const wrapper = mount(UiTreeSelect, { props: { treeData: [], invalid: true, unmatched: true } });
+  expect(wrapper.find('.ant-select-status-error').exists()).toBe(true);
+  await wrapper.setProps({ invalid: false });
+  expect(wrapper.find('.ant-select-status-error').exists()).toBe(true);
+  await wrapper.setProps({ unmatched: false });
+  expect(wrapper.find('.ant-select-status-error').exists()).toBe(false);
+});

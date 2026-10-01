@@ -39,32 +39,100 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class ModuleUiDescriptorCompilerTest {
     @Test
+    void applicationAliasInheritsTheActualIdPattern() {
+        var definition = StaticModuleDefinition.builder("platform", "platform.application", "应用")
+                .modelClass(net.ximatai.muyun.spring.platform.application.Application.class).build();
+        assertThat(FieldWriteRuleProjection.staticFields(definition).get(new ViewFieldRef(null, "alias", null))
+                .behavior().validationRegex()).isEqualTo(net.ximatai.muyun.spring.common.util.PlatformNameRules.IDENTIFIER_PATTERN);
+    }
+
+    @Test
+    void moduleCreationFormExposesTheActualAliasFormatBeforeSaving() {
+        var definition = StaticModuleDefinition.builder("platform", "platform.module", "模块")
+                .modelClass(net.ximatai.muyun.spring.platform.module.PlatformModule.class)
+                .uiDefinition(new PlatformModuleWebController().moduleUiDefinition()).build();
+        var alias = ModuleUiDescriptorCompiler.compile(definition).page().detail().editor().fields().stream()
+                .filter(field -> "alias".equals(field.fieldRef().fieldName())).findFirst().orElseThrow();
+        assertThat(alias.inputRequirements().maxLength()).isEqualTo(128);
+        String pattern = alias.inputRequirements().validationRegex();
+        assertThat(pattern).isEqualTo(net.ximatai.muyun.spring.common.util.PlatformNameRules.MODULE_ALIAS_PATTERN);
+        assertThat("shop.customer".matches(pattern)).isTrue();
+        assertThat("shop.sales.order".matches(pattern)).isTrue();
+        assertThat("shop_customer".matches(pattern)).isFalse();
+        assertThat("shop.Customer".matches(pattern)).isFalse();
+    }
+
+    @Test
+    void aliasEditorInheritsIdNormalizationAndWriteRequirements() {
+        var ui = ModuleUiDefinition.builder("demo.alias")
+                .editors(editors -> editors.defaultEditor(editor -> editor.field("alias"))).build();
+        var descriptor = ModuleUiDescriptorCompiler.compile(StaticModuleDefinition.builder("demo", "demo.alias", "别名")
+                .modelClass(NormalizedAliasRecord.class).uiDefinition(ui).build());
+        assertThat(descriptor.defaultEditor().fields()).singleElement().satisfies(field ->
+                assertThat(field.inputRequirements()).isEqualTo(new FieldInputRequirements(
+                        true, true, 64, null, null, "[a-z]+",
+                        net.ximatai.muyun.spring.common.model.constraint.TextNormalization.TRIM)));
+    }
+
+    @Test
+    void normalizationOnlyTextRetainsModelRulesAlongsidePageRequiredRule() {
+        var rules = new net.ximatai.muyun.spring.common.model.constraint.FieldWriteRules(false, false,
+                net.ximatai.muyun.spring.common.model.constraint.TextNormalization.TRIM_TO_NULL);
+        var entity = new EntityDefinition("task", "task", "任务", List.of(
+                FieldDefinition.text("notes", "说明").writeRules(rules)));
+        var ui = ModuleUiDefinition.builder("demo.task")
+                .editors(editors -> editors.defaultEditor(editor -> editor
+                        .field("notes", field -> field.required(UiRule.constant(true))))).build();
+        var descriptor = ModuleUiDescriptorCompiler.compile(StaticModuleDefinition.builder("demo", "demo.task", "任务")
+                .entities(List.of(entity)).uiDefinition(ui).build());
+        assertThat(descriptor.defaultEditor().fields()).singleElement().satisfies(field -> {
+            assertThat(field.required().constant()).isTrue();
+            assertThat(field.inputRequirements()).isEqualTo(new FieldInputRequirements(
+                    false, false, null, null, null, null,
+                    net.ximatai.muyun.spring.common.model.constraint.TextNormalization.TRIM_TO_NULL));
+        });
+    }
+
+    public static class NormalizedAliasRecord {
+        @net.ximatai.muyun.database.core.annotation.Column(length = 64)
+        @net.ximatai.muyun.spring.common.model.constraint.NormalizeText
+        @net.ximatai.muyun.spring.common.model.constraint.Required
+        @net.ximatai.muyun.spring.common.model.constraint.FieldPattern("[a-z]+")
+        private String id;
+
+        public String getAlias() { return id; }
+        public void setAlias(String alias) { id = alias; }
+    }
+
+    @Test
     void projectsOperationRequirementsWithoutExpandingFieldsOrOverridingPageRules() {
-        var insert = new net.ximatai.muyun.spring.common.model.constraint.FieldWriteRules(true, false, null);
+        var insert = new net.ximatai.muyun.spring.common.model.constraint.FieldWriteRules(true, false, net.ximatai.muyun.spring.common.model.constraint.TextNormalization.TRIM);
         var both = new net.ximatai.muyun.spring.common.model.constraint.FieldWriteRules(true, true, null);
         var entity = new EntityDefinition("task", "task", "任务", List.of(
-                FieldDefinition.string("code", "编码").writeRules(insert),
+                FieldDefinition.string("code", "编码").length(24).writeRules(insert).validationRegex("[a-z]+"),
                 FieldDefinition.string("generated", "自动值").writeRules(both).defaultValue("generated"),
                 FieldDefinition.string("readOnly", "只读").writeRules(both),
                 FieldDefinition.string("protected", "保护").writeRules(both).writeProtected(),
                 FieldDefinition.string("hidden", "未暴露").writeRules(both),
-                FieldDefinition.string("storedOnly", "仅存储非空").required()));
+                FieldDefinition.string("storedOnly", "仅存储非空").required(),
+                FieldDefinition.text("notes", "长文本").length(255)));
         var ui = ModuleUiDefinition.builder("demo.task")
                 .editors(editors -> editors.defaultEditor(editor -> editor.field("code", field -> field.required(UiRule.constant(false)))
-                        .field("generated").field("readOnly", field -> field.readOnly()).field("protected").field("storedOnly")))
+                        .field("generated").field("readOnly", field -> field.readOnly()).field("protected").field("storedOnly").field("notes")))
                 .build();
         var descriptor = ModuleUiDescriptorCompiler.compile(StaticModuleDefinition.builder("demo", "demo.task", "任务")
                 .entities(List.of(entity)).uiDefinition(ui).build());
         assertThat(descriptor.defaultEditor().fields()).extracting(field -> field.fieldRef().fieldName())
-                .containsExactly("code", "generated", "readOnly", "protected", "storedOnly");
+                .containsExactly("code", "generated", "readOnly", "protected", "storedOnly", "notes");
         var fields = descriptor.defaultEditor().fields();
         assertThat(fields.get(0).required().constant()).isFalse();
-        assertThat(fields.get(0).inputRequirements()).isEqualTo(new FieldInputRequirements(true, false));
+        assertThat(fields.get(0).inputRequirements()).isEqualTo(new FieldInputRequirements(true, false, 24, null, null, "[a-z]+", net.ximatai.muyun.spring.common.model.constraint.TextNormalization.TRIM));
         assertThat(fields.get(1).inputRequirements()).isEqualTo(new FieldInputRequirements(false, true));
         assertThat(fields.get(2).inputRequirements()).isNull();
         assertThat(fields.get(3).inputRequirements()).isNull();
         assertThat(fields.get(4).inputRequirements()).isNull();
         assertThat(fields.get(4).required().constant()).isFalse();
+        assertThat(fields.get(5).inputRequirements()).isNull();
     }
 
     @Test

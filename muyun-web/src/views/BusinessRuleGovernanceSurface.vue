@@ -32,6 +32,7 @@ import {
   UiActionButton,
   UiButton,
   UiCheckbox,
+  UiDataTable,
   UiEmpty,
   UiIcon,
   UiInput,
@@ -61,6 +62,7 @@ import {
   typedSampleValue,
   formulaFieldUnusableReason,
   aggregateFieldInsertionReason,
+  businessRuleTrialValue,
   normalizeFormulaCapabilities,
   portableFormulaCapabilities,
   type UiControlTarget,
@@ -151,8 +153,57 @@ const childSampleGroups = computed(() => {
     const relation = field.fieldName.split('.')[0]!;
     groups.set(relation, [...(groups.get(relation) ?? []), field]);
   }
-  return [...groups].map(([relation, fields]) => ({ relation, fields }));
+  return [...groups].map(([relation, fields]) => ({
+    relation,
+    fields,
+    columns: childTableColumns(fields),
+    rows: childTableRows(sampleChildren.value[relation] ?? []),
+  }));
 });
+const childTrialResults = computed(() =>
+  Object.entries(trial.value?.children ?? {}).map(([relation, rows]) => {
+    const fields = childSampleGroups.value.find((group) => group.relation === relation)?.fields ?? [];
+    return {
+      relation,
+      title: fields[0]?.title.split(' · ')[0] || relation,
+      columns: childTableColumns(
+        fields.filter((field) =>
+          rows.some((row) => Object.hasOwn(row, field.fieldName.slice(relation.length + 1))),
+        ),
+      ),
+      rows: childTableRows(rows),
+    };
+  }),
+);
+const mainTrialChangedFields = computed(() =>
+  (trial.value?.changedFields ?? []).filter(
+    (field) => !Object.hasOwn(trial.value?.children ?? {}, field.split('.')[0]!),
+  ),
+);
+function childTableColumns(fields: BusinessRuleEditableField[]): UiDataTableColumn[] {
+  return [
+    { key: '__rowNumber', title: '行号', width: 64 },
+    ...fields.map((field) => ({ key: field.fieldName, title: field.title, width: 140 })),
+  ];
+}
+function childTableRows(rows: Record<string, unknown>[]): UiDataTableRecord[] {
+  return rows.map((values, index) => ({ id: String(index), rowNumber: index + 1, values }));
+}
+function updateChildSample(relation: string, rowIndex: number, field: string, value: string) {
+  const row = sampleChildren.value[relation]?.[rowIndex];
+  if (!row || applying.value) return;
+  row[field.slice(relation.length + 1)] = value;
+  invalidateTrial();
+}
+function trialValueText(value: unknown): string {
+  if (value == null || value === '') return '—';
+  if (typeof value === 'boolean') return value ? '是' : '否';
+  return typeof value === 'object' ? JSON.stringify(value) : String(value);
+}
+function childTrialValue(record: UiDataTableRecord, relation: string, field: string): string {
+  if (field === '__rowNumber') return String(record.rowNumber);
+  return trialValueText((record.values as Record<string, unknown>)[field.slice(relation.length + 1)]);
+}
 function typedChildSamples() {
   return Object.fromEntries(
     childSampleGroups.value.map((group) => [
@@ -226,6 +277,7 @@ let referenceDirectoryEpoch = 0;
 let trialTenantRequest = 0;
 
 const editableFields = computed(() => snapshot.value?.editableFields ?? []);
+const calculationFields = computed(() => [...editableFields.value, ...(snapshot.value?.childFields ?? [])]);
 const activeRules = computed(() => rules.value.filter((rule) => rule.kind === activeKind.value));
 const filteredActiveRules = computed(() => {
   const keyword = ruleSearch.value.trim().toLocaleLowerCase();
@@ -350,10 +402,7 @@ const functionCapabilityGroups = computed(() => {
 });
 const hasUnsavedChanges = computed(() => session.value.dirty.value);
 const calculatorUnavailableReason = computed(() =>
-  editableFields.value.length === 0 ? '当前模块没有可写的主表字段，不能新增字段计算。' : undefined,
-);
-const fieldOptions = computed(() =>
-  editableFields.value.map((field) => ({ value: field.fieldName, label: fieldLabel(field) })),
+  calculationFields.value.length === 0 ? '当前模块没有可写的主表或明细字段，不能新增字段计算。' : undefined,
 );
 const externalInputFields = computed(() =>
   externalTrialInputFields(
@@ -433,7 +482,7 @@ const changedRuleCodes = computed(
 );
 const locatorFieldOptions = computed(() => [
   { value: '__none__', label: '不定位字段' },
-  ...fieldOptions.value,
+  ...editableFields.value.map((field) => ({ value: field.fieldName, label: fieldLabel(field) })),
 ]);
 useWorkspaceViewUnsavedState(
   '业务规则',
@@ -498,7 +547,7 @@ function fieldTitle(fieldName: string): string {
 function ruleChoiceLabel(rule: BusinessRuleProposal): string {
   if (rule.kind === 'UI_CONTROL')
     return `界面控制 · ${uiControlSnapshot.value?.forms.find((form) => form.key === rule.formKey)?.title ?? '未选择表单'} · ${rule.enabled ? '启用' : '停用'}`;
-  const target = editableFields.value.find((field) => field.fieldName === rule.targetField);
+  const target = calculationFields.value.find((field) => field.fieldName === rule.targetField);
   const purpose =
     rule.kind === 'CALCULATION'
       ? `计算${target?.title || rule.targetField || '未选择目标字段'}`
@@ -517,7 +566,7 @@ function issueText(issue: BusinessRuleIssue): string {
 
 function ruleSummary(rule: BusinessRuleProposal): string {
   if (rule.kind === 'UI_CONTROL') return `公式为真时，控制所选表单中的 ${rule.targets?.length ?? 0} 个元素。`;
-  const target = editableFields.value.find((field) => field.fieldName === rule.targetField);
+  const target = calculationFields.value.find((field) => field.fieldName === rule.targetField);
   const targetText = target ? fieldLabel(target) : rule.targetField || '未定位字段';
   const dependencies = referencedFormulaFields(rule.expression).map((name) => {
     const field = editableFields.value.find((candidate) => candidate.fieldName === name);
@@ -802,6 +851,9 @@ function insertFieldNode(node: UiTreeNode) {
     field,
     selectedFormula.value,
     selection?.start ?? selectedFormula.value.length,
+    selectedRule.value.kind === 'CALCULATION'
+      ? (snapshot.value?.childFields ?? []).map((field) => field.fieldName)
+      : [],
   );
   if (aggregateReason) {
     presentPlatformMessage(aggregateReason, { source: 'business-rule-governance', phase: 'validation' });
@@ -851,7 +903,14 @@ function handleFormulaDrop(event: { source: UiDragSource; selection: { start: nu
     return;
   const field = catalogFields.value.get(payload.fieldName);
   const aggregateReason = field
-    ? aggregateFieldInsertionReason(field, selectedFormula.value, event.selection.start)
+    ? aggregateFieldInsertionReason(
+        field,
+        selectedFormula.value,
+        event.selection.start,
+        selectedRule.value?.kind === 'CALCULATION'
+          ? (snapshot.value?.childFields ?? []).map((field) => field.fieldName)
+          : [],
+      )
     : undefined;
   if (aggregateReason) {
     presentPlatformMessage(aggregateReason, { source: 'business-rule-governance', phase: 'validation' });
@@ -1089,7 +1148,7 @@ function incompleteRuleIssues(proposals: readonly BusinessRuleProposal[]): Busin
     const invalidTarget =
       rule.kind === 'CALCULATION' &&
       !missingTarget &&
-      !editableFields.value.some((field) => field.fieldName === rule.targetField);
+      !calculationFields.value.some((field) => field.fieldName === rule.targetField);
     if (!missingTarget && !missingExpression && !invalidTarget) return [];
     return [
       {
@@ -1703,6 +1762,7 @@ onUnmounted(deactivateAssistant);
                 <div>
                   <h2>未通过时的提示</h2>
                   <p v-if="selectedRule.kind === 'VALIDATION'">公式为真时允许保存，为假时显示失败提示。</p>
+                  <p>保存校验针对主记录；检查明细时使用汇总函数，提示只能定位主记录字段。</p>
                 </div>
                 <div class="business-rule-governance__rule-basics">
                   <details class="business-rule-governance__validation-location">
@@ -1783,7 +1843,7 @@ onUnmounted(deactivateAssistant);
     <UiModal
       :open="trialVisible"
       title="样例试算"
-      :width="680"
+      :width="childSampleGroups.length ? 960 : 680"
       confirm-text="试算"
       :confirm-loading="trialRunning"
       :confirm-disabled="applying || !trialTenantReady"
@@ -1817,7 +1877,10 @@ onUnmounted(deactivateAssistant);
       >
         请选择业务租户后再读取引用字段试算。
       </p>
-      <p v-if="trialInputFields.length === 0" class="business-rule-governance__empty">
+      <p
+        v-if="trialInputFields.length === 0 && childSampleGroups.length === 0"
+        class="business-rule-governance__empty"
+      >
         当前启用规则没有需要输入的外部字段，可直接试算。
       </p>
       <div class="business-rule-governance__sample-grid">
@@ -1873,32 +1936,68 @@ onUnmounted(deactivateAssistant);
         :key="group.relation"
         class="business-rule-governance__editor"
       >
-        <strong>{{ group.fields[0]?.title.split(' · ')[0] || group.relation }}明细样例</strong>
-        <p>填写汇总使用的明细值；本次试算不执行子表行计算，也不保存记录。没有行表示空明细。</p>
-        <div
-          v-for="(row, index) in sampleChildren[group.relation] ?? []"
-          :key="index"
-          class="business-rule-governance__sample-grid"
+        <strong>{{ group.fields[0]?.title.split(' · ')[0] || group.relation }} · 样例</strong>
+        <p>填写明细输入，试算会执行当前规则组中的明细计算与主表汇总，不保存记录。没有行表示空明细。</p>
+        <UiDataTable
+          :columns="group.columns"
+          :rows="group.rows"
+          size="small"
+          horizontal-scroll
+          show-action-column
+          :action-column-width="128"
+          empty-description="尚未添加样例行"
         >
-          <label v-for="field in group.fields" :key="field.fieldName">
-            {{ field.title }}
-            <UiInput
-              :value="row[field.fieldName.slice(group.relation.length + 1)]"
-              :type="sampleInputType(field)"
-              @update:value="
-                row[field.fieldName.slice(group.relation.length + 1)] = String($event);
+          <template #cell="{ column, record }">
+            <span v-if="column.key === '__rowNumber'">{{ record.rowNumber }}</span>
+            <template
+              v-for="field in group.fields.filter((field) => field.fieldName === column.key)"
+              :key="field.fieldName"
+            >
+              <UiSwitch
+                v-if="field.valueType === 'BOOLEAN'"
+                :aria-label="`第 ${record.rowNumber} 行 · ${field.title}`"
+                :checked="
+                  (record.values as Record<string, string>)[
+                    field.fieldName.slice(group.relation.length + 1)
+                  ] === 'true'
+                "
+                :disabled="applying"
+                checked-text="是"
+                unchecked-text="否"
+                @update:checked="
+                  updateChildSample(
+                    group.relation,
+                    Number(record.id),
+                    field.fieldName,
+                    $event ? 'true' : 'false',
+                  )
+                "
+              />
+              <UiInput
+                v-else
+                :aria-label="`第 ${record.rowNumber} 行 · ${field.title}`"
+                :value="
+                  (record.values as Record<string, string>)[field.fieldName.slice(group.relation.length + 1)]
+                "
+                :type="sampleInputType(field)"
+                :disabled="applying"
+                @update:value="
+                  updateChildSample(group.relation, Number(record.id), field.fieldName, String($event))
+                "
+              />
+            </template>
+          </template>
+          <template #rowActions="{ record }">
+            <UiButton
+              :disabled="applying"
+              @click="
+                sampleChildren[group.relation]?.splice(Number(record.id), 1);
                 invalidateTrial();
               "
-            />
-          </label>
-          <UiButton
-            @click="
-              sampleChildren[group.relation]?.splice(index, 1);
-              invalidateTrial();
-            "
-            >移除第 {{ index + 1 }} 行</UiButton
-          >
-        </div>
+              >移除第 {{ record.rowNumber }} 行</UiButton
+            >
+          </template>
+        </UiDataTable>
         <UiButton
           :disabled="(sampleChildren[group.relation]?.length ?? 0) >= 100"
           @click="
@@ -1921,12 +2020,26 @@ onUnmounted(deactivateAssistant);
             <dd>输入：{{ String(capturedTrialInputs[field.fieldName] ?? '') }}</dd>
           </template>
         </dl>
-        <dl v-if="trial.changedFields.length">
-          <template v-for="fieldName in trial.changedFields" :key="fieldName">
+        <dl v-if="mainTrialChangedFields.length">
+          <template v-for="fieldName in mainTrialChangedFields" :key="fieldName">
             <dt>{{ fieldTitle(fieldName) }}</dt>
-            <dd>最终值：{{ String(trial.values[fieldName] ?? '') }}</dd>
+            <dd>最终值：{{ trialValueText(businessRuleTrialValue(trial, fieldName)) }}</dd>
           </template>
         </dl>
+        <section v-for="group in childTrialResults" :key="group.relation">
+          <h4>{{ group.title }} · 试算后明细（{{ group.rows.length }} 行）</h4>
+          <UiDataTable
+            :columns="group.columns"
+            :rows="group.rows"
+            size="small"
+            horizontal-scroll
+            empty-description="本次试算为空明细"
+          >
+            <template #cell="{ column, record }">
+              {{ childTrialValue(record, group.relation, column.key) }}
+            </template>
+          </UiDataTable>
+        </section>
         <dl v-if="snapshot?.referenceFields?.some((field) => field.path in (trial?.values ?? {}))">
           <template v-for="field in snapshot?.referenceFields ?? []" :key="field.path">
             <template v-if="field.path in (trial?.values ?? {})">

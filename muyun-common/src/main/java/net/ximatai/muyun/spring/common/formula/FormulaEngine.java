@@ -122,6 +122,25 @@ public class FormulaEngine {
         return FormulaExpressionSupport.assignedFields(parsed.ast());
     }
 
+    /** The single field always written by a calculation, excluding guards, nested writes and self-input. */
+    public String unconditionalCalculationTarget(FormulaRule rule) {
+        if (rule == null || !rule.enabled() || rule.kind() != FormulaRuleKind.CALCULATION) return null;
+        var parsed = parse(rule.id(), rule.expression());
+        if (parsed == null) return null;
+        String target;
+        if (!FormulaExpressionSupport.containsAssignment(parsed.ast())) {
+            target = rule.targetField();
+        } else if (parsed.ast() instanceof AssignNode assignment && assignment.condition == null
+                && assignment.left instanceof FieldNode field
+                && !FormulaExpressionSupport.containsAssignment(assignment.right)) {
+            target = field.dataIndex;
+        } else {
+            return null;
+        }
+        return target != null && !FormulaExpressionSupport.valueSideReferencedFields(parsed.ast()).contains(target)
+                ? target : null;
+    }
+
     /** Returns fields read from expression values, excluding assignment left-hand sides. */
     public Set<String> valueSideReferencedFields(String expression) {
         FormulaExpressionSupport.ParsedExpression parsed = parse("expression", expression);

@@ -157,7 +157,7 @@ it('registers the metadata surface only after a complete load and invalidates ch
   expect(draftedModel.value).toEqual(
     expect.objectContaining({
       selectedRelation: expect.objectContaining({ fieldCount: 3 }),
-      draft: { active: true, dirty: true, editorOpen: true },
+      draft: { active: true, dirty: true, editorOpen: true, fieldPlanOpen: false },
     }),
   );
   expect(requests.some((options) => options.path.endsWith('change-set-preview'))).toBe(false);
@@ -177,7 +177,7 @@ it('registers the metadata surface only after a complete load and invalidates ch
   expect(modelAfterBlockedSwitch.value).toEqual(
     expect.objectContaining({
       selectedRelation: expect.objectContaining({ relationId: 'rel-main', fieldCount: 3 }),
-      draft: { active: true, dirty: true, editorOpen: true },
+      draft: { active: true, dirty: true, editorOpen: true, fieldPlanOpen: false },
     }),
   );
 });
@@ -546,11 +546,19 @@ it.each([
       .trigger('click');
     await flushPromises();
     expect(confirmAction).toHaveBeenCalledWith(
-      expect.objectContaining({ content: expect.stringContaining(targetValue) }),
+      expect.objectContaining({
+        details: expect.objectContaining({
+          lines: expect.arrayContaining([expect.stringContaining(targetValue)]),
+        }),
+      }),
     );
     if (input.kind === 'DICTIONARY')
       expect(confirmAction).toHaveBeenCalledWith(
-        expect.objectContaining({ content: expect.stringContaining('MULTIPLE') }),
+        expect.objectContaining({
+          details: expect.objectContaining({
+            lines: expect.arrayContaining([expect.stringContaining('MULTIPLE')]),
+          }),
+        }),
       );
     expect(request.mock.calls.some(([options]) => options.path.endsWith('change-set-apply'))).toBe(false);
   },
@@ -903,7 +911,11 @@ it('keeps the field editor open while save confirmation is pending', async () =>
 
   expect(vi.mocked(confirmAction)).toHaveBeenCalledTimes(1);
   expect(vi.mocked(confirmAction)).toHaveBeenCalledWith(
-    expect.objectContaining({ content: expect.stringContaining('字段将增加普通索引。') }),
+    expect.objectContaining({
+      details: expect.objectContaining({
+        lines: expect.arrayContaining([expect.stringContaining('字段将增加普通索引。')]),
+      }),
+    }),
   );
   expect(wrapper.text()).toContain('存储字段规格');
   confirmation.resolve(false);
@@ -1621,6 +1633,69 @@ it('keeps a multi-field plan visible, edits and removes items without publishing
       { fieldDrafts: [{ operation: 'ADD', field: { fieldName: 'note', title: '人工备注' } }] },
     ],
   });
+  expect(request.mock.calls.some(([options]) => options.path.endsWith('change-set-apply'))).toBe(false);
+});
+
+it('builds multiple fields manually without losing earlier shared draft entries', async () => {
+  vi.mocked(confirmAction).mockResolvedValue(false);
+  const request = vi.fn(async (options: HttpRequestOptions) =>
+    options.path === '/platform.field_spec/query'
+      ? { records: [{ alias: 'string', title: '短文本', enabled: true }], pages: 1 }
+      : responseFor(options),
+  );
+  configureModuleContext({ http: { request } as HttpClient });
+  const wrapper = shallowMount(MetadataGovernanceSurface, {
+    props: { moduleAlias: 'education.exam' },
+    global: { stubs: governanceStubs() },
+  });
+  mounted.add(wrapper);
+  await flushPromises();
+  const click = async (label: string) => {
+    await wrapper
+      .findAll('[data-testid="action-button"]')
+      .find((button) => button.text() === label)!
+      .trigger('click');
+    await flushPromises();
+  };
+  const addField = async (title: string) => {
+    await click('普通字段');
+    wrapper
+      .findAll('label')
+      .find((label) => label.text() === '显示名称')!
+      .findComponent({ name: 'UiInput' })
+      .vm.$emit('update:value', title);
+    wrapper.findComponent({ name: 'UiSelect' }).vm.$emit('update:value', 'string');
+    await flushPromises();
+    expect(wrapper.findComponent({ name: 'UiRadioGroup' }).props('value')).toBe('SIMPLE');
+    expect(wrapper.text()).not.toContain('物理列名');
+    wrapper.findAllComponents({ name: 'UiCheckbox' })[0]!.vm.$emit('update:checked', true);
+    await click('保留修改');
+  };
+  await click('批量添加字段');
+  await addField('备注');
+  await addField('说明');
+  const entries = () => wrapper.get('[data-testid="metadata-field-plan"]').findAll('article');
+  expect(entries()).toHaveLength(2);
+  expect(request.mock.calls.some(([options]) => options.path.endsWith('change-set-apply'))).toBe(false);
+  await click('普通字段');
+  await click('取消');
+  expect(entries()).toHaveLength(2);
+  await click('预检并保存');
+  const preview = request.mock.calls.find(([options]) => options.path.endsWith('change-set-preview'))![0];
+  expect(preview.body).toMatchObject({
+    relationDrafts: [
+      {
+        fieldDrafts: [
+          { operation: 'ADD', field: { title: '备注', required: true } },
+          { operation: 'ADD', field: { title: '说明', required: true } },
+        ],
+      },
+    ],
+  });
+  // Declining confirmation keeps the candidate available for correction.
+  expect(entries()).toHaveLength(2);
+  await click('放弃更改');
+  expect(wrapper.find('[data-testid="metadata-field-plan"]').exists()).toBe(false);
   expect(request.mock.calls.some(([options]) => options.path.endsWith('change-set-apply'))).toBe(false);
 });
 

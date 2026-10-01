@@ -5,6 +5,7 @@ import { createConfigurationCollaboration } from '@/platform-workbench/configura
 import WorkbenchAssistantPanel from '@/platform-workbench/WorkbenchAssistantPanel.vue';
 import type { AssistantTurnOutput } from '@muyun/web-contracts';
 import {
+  AppError,
   createAssistantSurfaceRegistry,
   AssistantCapabilityUsageError,
   StaleAssistantInvocationError,
@@ -15,6 +16,37 @@ import {
 function createRegistry(requestTurn: AssistantTurnRequester) {
   return createRegistryWithCapabilities(requestTurn, []);
 }
+
+it.each([
+  ['AI_PROVIDER_AUTHENTICATION_FAILED', '模型连接鉴权失败'],
+  ['AI_PROVIDER_RATE_LIMITED', '模型服务限制了本次请求'],
+  ['AI_PROVIDER_UNAVAILABLE', '模型服务暂时不可用'],
+  ['AI_PROVIDER_REQUEST_REJECTED', '模型服务拒绝了本次请求'],
+  ['AI_MODEL_TIMEOUT', '等待模型回复超时'],
+  ['AI_MODEL_CONNECTION_FAILED', '模型连接失败'],
+  ['AI_MODEL_INCOMPLETE_RESPONSE', '模型回复在完成前断开'],
+  ['AI_MODEL_INTERRUPTED', '模型请求已中断'],
+])(
+  'explains the model connection failure by stable code without replaying the request: %s',
+  async (code, explanation) => {
+    const requestTurn = vi.fn(async () => {
+      throw new AppError('opaque diagnostic', { code });
+    });
+    const wrapper = mount(WorkbenchAssistantPanel, {
+      props: { open: true, registry: createRegistry(requestTurn) },
+    });
+    await wrapper.get('textarea').setValue('查看当前客户配置，先不要改');
+    await wrapper.get('button.ant-btn-primary').trigger('click');
+    await flushPromises();
+    expect(wrapper.text()).toContain(explanation);
+    expect(wrapper.text()).toContain('待确认内容没有提交');
+    if (['AI_MODEL_TIMEOUT', 'AI_MODEL_INCOMPLETE_RESPONSE', 'AI_MODEL_INTERRUPTED'].includes(code))
+      expect(wrapper.text()).toContain('请核实当前页面后继续处理');
+    expect(wrapper.text()).not.toContain('opaque diagnostic');
+    expect(requestTurn).toHaveBeenCalledOnce();
+    wrapper.unmount();
+  },
+);
 
 function createRegistryWithCapabilities(
   requestTurn: AssistantTurnRequester,
@@ -179,7 +211,7 @@ it('renders optional suggestions and submits a structured selection response', a
   expect(wrapper.text()).toContain('我会继续新增记录');
 });
 
-it('blocks free text until a required confirmation is answered', async () => {
+it('keeps free text available while a required choice can still be answered', async () => {
   const requestTurn = vi
     .fn()
     .mockResolvedValueOnce({
@@ -205,8 +237,8 @@ it('blocks free text until a required confirmation is answered', async () => {
   await wrapper.get('button.ant-btn-primary').trigger('click');
   await flushPromises();
 
-  expect(wrapper.get('textarea').attributes('disabled')).toBeDefined();
-  expect(wrapper.get('textarea').attributes('placeholder')).toBe('请先完成上方选择');
+  expect(wrapper.get('textarea').attributes('disabled')).toBeUndefined();
+  expect(wrapper.get('textarea').attributes('placeholder')).toBe('可以选择上方选项，也可以补充说明');
   const cancelButton = wrapper.findAll('.assistant-selection__options button')[1]!;
   await cancelButton.trigger('click');
   await flushPromises();
@@ -227,37 +259,41 @@ it('blocks free text until a required confirmation is answered', async () => {
   expect(wrapper.text()).toContain('已选择：取消');
 });
 
-it('expires optional suggestions when the user continues with free text', async () => {
-  const requestTurn = vi
-    .fn()
-    .mockResolvedValueOnce({
-      toolCalls: [],
-      selection: {
-        interactionId: 'selection-1',
-        prompt: '你可以继续：',
-        inputPolicy: 'free_text_allowed',
-        presentation: 'options',
-        options: [
-          { id: 'summary', label: '总结当前页面' },
-          { id: 'next', label: '执行下一步' },
-        ],
-      },
-    })
-    .mockResolvedValueOnce({ text: '我会按你的新描述继续。', toolCalls: [] });
-  const wrapper = mount(WorkbenchAssistantPanel, {
-    props: { open: true, registry: createRegistry(requestTurn) },
-  });
+it.each(['free_text_allowed', 'selection_required'] as const)(
+  'supersedes %s choices when the user supplies text without selecting an option',
+  async (inputPolicy) => {
+    const requestTurn = vi
+      .fn()
+      .mockResolvedValueOnce({
+        toolCalls: [],
+        selection: {
+          interactionId: 'selection-1',
+          prompt: '你可以继续：',
+          inputPolicy,
+          presentation: 'options',
+          options: [
+            { id: 'summary', label: '总结当前页面' },
+            { id: 'next', label: '执行下一步' },
+          ],
+        },
+      })
+      .mockResolvedValueOnce({ text: '我会按你的新描述继续。', toolCalls: [] });
+    const wrapper = mount(WorkbenchAssistantPanel, {
+      props: { open: true, registry: createRegistry(requestTurn) },
+    });
 
-  await wrapper.get('textarea').setValue('给我几个建议');
-  await wrapper.get('button.ant-btn-primary').trigger('click');
-  await flushPromises();
-  await wrapper.get('textarea').setValue('我想换一个处理方式');
-  await wrapper.get('button.ant-btn-primary').trigger('click');
-  await flushPromises();
+    await wrapper.get('textarea').setValue('给我几个建议');
+    await wrapper.get('button.ant-btn-primary').trigger('click');
+    await flushPromises();
+    await wrapper.get('textarea').setValue('我想换一个处理方式');
+    await wrapper.get('button.ant-btn-primary').trigger('click');
+    await flushPromises();
 
-  expect(wrapper.text()).toContain('此选择已更新');
-  expect(wrapper.findAll('button').some((button) => button.text().includes('总结当前页面'))).toBe(false);
-});
+    expect(requestTurn.mock.calls[1]![0].selectionResponse).toBeUndefined();
+    expect(wrapper.text()).toContain('此选择已更新');
+    expect(wrapper.findAll('button').some((button) => button.text().includes('总结当前页面'))).toBe(false);
+  },
+);
 
 it('continues a broad user goal after clarification with bounded dialogue history', async () => {
   const requestTurn = vi
@@ -532,6 +568,40 @@ it('keeps successful operation feedback when the model follow-up fails', async (
   );
 });
 
+it.each([
+  ['AI model response body timed out', '等待模型回复超时'],
+  ['模型本次回复在返回可用内容前中止，请稍后重试', '模型服务未返回可用内容'],
+  ['AI model request was rejected by provider', '模型服务拒绝了本次请求'],
+  ['AI model request was rejected with HTTP status 429', '模型服务拒绝了本次请求'],
+  ['模型响应被截断，请缩短描述后重试', '模型本次回复达到长度上限'],
+])('retains a safe model failure reason after an applied draft: %s', async (message, expected) => {
+  const requestTurn = vi
+    .fn()
+    .mockResolvedValueOnce({ toolCalls: [{ id: 'draft', code: 'form.patch-draft', input: {} }] })
+    .mockRejectedValueOnce(new Error(message));
+  const apply = vi.fn();
+  const registry = createRegistryWithCapabilities(requestTurn, [
+    {
+      effect: 'configuration-draft',
+      descriptor: { code: 'form.patch-draft', description: '', inputSchema: {} },
+      parseInput: (input) => input,
+      async execute(_input, context) {
+        context.applyEffect(apply);
+        return { saved: false };
+      },
+    },
+  ]);
+  const wrapper = mount(WorkbenchAssistantPanel, { props: { open: true, registry } });
+  await wrapper.get('textarea').setValue('准备草稿');
+  await wrapper.get('button.ant-btn-primary').trigger('click');
+  await flushPromises();
+  expect(apply).toHaveBeenCalledOnce();
+  expect(requestTurn).toHaveBeenCalledTimes(2);
+  expect(wrapper.text()).toContain(expected);
+  expect(wrapper.text()).toContain('待确认内容没有提交');
+  expect(wrapper.text()).toContain('前面的 1 项页面操作已生效');
+});
+
 const requiredChoice: AssistantTurnOutput = {
   toolCalls: [],
   selection: {
@@ -588,7 +658,7 @@ it.each(['navigation', 'unregister', 'context'] as const)(
     await wrapper.get('textarea').setValue('录入职员');
     await wrapper.get('.assistant-panel__actions button').trigger('click');
     await flushPromises();
-    expect(wrapper.get('textarea').attributes('disabled')).toBeDefined();
+    expect(wrapper.get('textarea').attributes('disabled')).toBeUndefined();
     if (change === 'navigation') registry.activate('tab-b');
     else if (change === 'unregister') unregister();
     else revision.value = 'changed';
@@ -620,44 +690,101 @@ it('does not append missing-response feedback after a selection-only follow-up',
   expect(wrapper.text()).not.toContain('未生成可展示的说明');
 });
 
-it('clears history and input across tenant scopes and discards an old in-flight response', async () => {
+it.each([false, true])(
+  'retains the task across execution scopes and rejects late responses, including returning to the old scope: %s',
+  async (returnToOriginal) => {
+    const scope = ref('tenant-a');
+    const registry = createAssistantSurfaceRegistry();
+    let finish!: (value: AssistantTurnOutput) => void;
+    const requestTurn = vi.fn<AssistantTurnRequester>(
+      () =>
+        new Promise<AssistantTurnOutput>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    registry.register({
+      pageInstanceKey: 'a',
+      contextRevision: () => 'stable',
+      executionScopeKey: () => scope.value,
+      surface: { describe: () => ({ surface: 'test', facts: {} }), capabilities: () => [], requestTurn },
+    });
+    registry.activate('a');
+    const { createConstructionPlanSession } = await import('@/platform-workbench/constructionPlanSession');
+    const plan = createConstructionPlanSession(
+      {} as import('@muyun/web-core').ConstructionPlanClient,
+      () => 'owner',
+    );
+    const wrapper = mount(WorkbenchAssistantPanel, {
+      props: { open: true, registry, constructionPlan: plan },
+    });
+    plan.resetConversation('old-plan');
+    await wrapper.get('textarea').setValue('tenant-a secret');
+    await wrapper.get('button.ant-btn-primary').trigger('click');
+    await flushPromises();
+    scope.value = 'tenant-b';
+    await flushPromises();
+    if (returnToOriginal) {
+      scope.value = 'tenant-a';
+      await flushPromises();
+    }
+    finish({ text: 'old answer', toolCalls: [] });
+    await flushPromises();
+    expect(wrapper.text()).toContain('tenant-a secret');
+    expect(wrapper.text()).not.toContain('old answer');
+    expect(plan.current().planId).toBe('old-plan');
+    expect(wrapper.text()).toContain('对话与建设目标保留');
+    expect(requestTurn).toHaveBeenCalledTimes(1);
+    expect(wrapper.text()).not.toContain('本轮已暂停');
+    expect(wrapper.findAll('button').some((button) => button.text() === '调整需求')).toBe(false);
+    expect((wrapper.get('textarea').element as HTMLTextAreaElement).value).toBe('');
+    expect(requestTurn).toHaveBeenCalledTimes(1);
+    requestTurn.mockResolvedValue({ text: 'new answer', toolCalls: [] });
+    await wrapper.get('textarea').setValue('new request');
+    await wrapper.get('button.ant-btn-primary').trigger('click');
+    await flushPromises();
+    expect(requestTurn.mock.calls.at(-1)?.[0]).toMatchObject({ history: [] });
+  },
+);
+
+it('ends a submitting choice when its execution scope changes without accepting the late reply', async () => {
   const scope = ref('tenant-a');
   const registry = createAssistantSurfaceRegistry();
   let finish!: (value: AssistantTurnOutput) => void;
-  const requestTurn = vi.fn<AssistantTurnRequester>(
-    () =>
-      new Promise<AssistantTurnOutput>((resolve) => {
-        finish = resolve;
-      }),
-  );
+  const requestTurn = vi
+    .fn<AssistantTurnRequester>()
+    .mockResolvedValueOnce(requiredChoice)
+    .mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
   registry.register({
     pageInstanceKey: 'a',
     contextRevision: () => 'stable',
-    conversationScopeKey: () => scope.value,
+    executionScopeKey: () => scope.value,
     surface: { describe: () => ({ surface: 'test', facts: {} }), capabilities: () => [], requestTurn },
   });
   registry.activate('a');
   const wrapper = mount(WorkbenchAssistantPanel, { props: { open: true, registry } });
-  await wrapper.get('textarea').setValue('tenant-a secret');
-  await wrapper.get('button.ant-btn-primary').trigger('click');
+  await wrapper.get('textarea').setValue('录入职员');
+  await wrapper.get('.assistant-panel__actions button').trigger('click');
   await flushPromises();
+  await wrapper
+    .findAll('button')
+    .find((button) => button.text() === '租户甲')!
+    .trigger('click');
+  await flushPromises();
+  expect(wrapper.find('.ant-btn-loading').exists()).toBe(true);
   scope.value = 'tenant-b';
   await flushPromises();
+  expect(wrapper.find('.ant-btn-loading').exists()).toBe(false);
+  expect(wrapper.text()).toContain('此选择已更新');
   finish({ text: 'old answer', toolCalls: [] });
   await flushPromises();
-  expect(wrapper.text()).not.toContain('tenant-a secret');
   expect(wrapper.text()).not.toContain('old answer');
-  expect(wrapper.text()).toContain('已开始新会话');
-  expect(requestTurn).toHaveBeenCalledTimes(1);
-  const reuse = wrapper.findAll('button').find((button) => button.text() === '调整需求')!;
-  await reuse.trigger('click');
-  expect((wrapper.get('textarea').element as HTMLTextAreaElement).value).toBe('tenant-a secret');
-  expect(requestTurn).toHaveBeenCalledTimes(1);
-  requestTurn.mockResolvedValue({ text: 'new answer', toolCalls: [] });
-  await wrapper.get('textarea').setValue('new request');
-  await wrapper.get('button.ant-btn-primary').trigger('click');
-  await flushPromises();
-  expect(requestTurn.mock.calls.at(-1)?.[0]).toMatchObject({ history: [] });
+  expect(wrapper.get('textarea').attributes('disabled')).toBeUndefined();
+  wrapper.unmount();
 });
 
 it('renders trusted capability presentations without knowing the capability code', async () => {
@@ -1032,7 +1159,10 @@ it.each([false, true])(
     await wrapper.get('.assistant-panel__actions button').trigger('click');
     await flushPromises();
     requestTurn.mockClear();
-    requestTurn.mockResolvedValue({ text: '下一步需要你核对', toolCalls: [] });
+    requestTurn.mockResolvedValue({
+      text: '下一步需要你核对',
+      toolCalls: [{ id: 'next', code: 'construction.prepare-test', input: {} }],
+    });
     if (typing) await wrapper.get('textarea').setValue('我还有一个要求');
     await wrapper
       .findAll('button')
@@ -1042,8 +1172,21 @@ it.each([false, true])(
     expect(execute).toHaveBeenCalledOnce();
     expect(requestTurn).toHaveBeenCalledTimes(typing ? 0 : 1);
     if (!typing) {
+      expect(requestTurn.mock.calls[0]?.[0].message).toContain('用户最近明确提出的要求：帮我准备');
       expect(wrapper.text()).toContain('正在核实已完成结果并准备下一步');
       expect(wrapper.findAll('.assistant-message--user').map((item) => item.text())).toEqual(['帮我准备']);
+      for (let index = 0; index < 4; index++) {
+        await wrapper
+          .findAll('button')
+          .find((button) => button.text() === '确认保存')!
+          .trigger('click');
+        await flushPromises();
+      }
+      const resumed = requestTurn.mock.calls.at(-1)![0];
+      expect(
+        resumed.history?.filter((item) => item.role === 'user').every((item) => item.text === '帮我准备'),
+      ).toBe(true);
+      expect(resumed.message).toContain('用户最近明确提出的要求：帮我准备');
     } else expect((wrapper.get('textarea').element as HTMLTextAreaElement).value).toBe('我还有一个要求');
     wrapper.unmount();
   },
@@ -1114,8 +1257,9 @@ it('restores persisted text after remount without reactivating old confirmation 
   await flushPromises();
   expect(wrapper.text()).toContain('我想记录合同');
   expect(configurationCollaboration.task.value).toEqual({ goal: '调整合同字段', mode: 'visual' });
-  expect(wrapper.text()).toContain('在配置页面查看和确认');
-  expect(wrapper.text()).toContain('聊天记录不保存草稿，也不会恢复旧确认授权');
+  expect(wrapper.text()).toContain('边看配置页面，边在对话中确认');
+  expect(wrapper.text()).toContain('已建业务按当前配置继续改进');
+  expect(wrapper.text()).toContain('历史记录不会恢复旧确认授权');
   expect(requestTurn).toHaveBeenCalledOnce();
   expect(JSON.stringify(saved?.content.history)).not.toContain('历史会话已恢复。');
   expect(wrapper.findAll('button').some((button) => button.text() === '确认保存合同')).toBe(false);
@@ -1131,7 +1275,7 @@ it('restores persisted text after remount without reactivating old confirmation 
     .trigger('click');
   await flushPromises();
   expect(JSON.stringify(requestTurn.mock.calls.at(-1))).toContain('我想记录合同');
-  expect(JSON.stringify(requestTurn.mock.calls.at(-1))).toContain('先别修改，也别保存');
+  expect(JSON.stringify(requestTurn.mock.calls.at(-1))).toContain('暂不修改或保存');
   expect(wrapper.find('[aria-label="继续会话"]').exists()).toBe(false);
   expect(wrapper.findAll('.assistant-message').at(-1)!.isVisible()).toBe(true);
   await wrapper
@@ -1196,104 +1340,19 @@ it('shows read recovery instead of discard controls for a history failure', asyn
   expect(list).toHaveBeenCalledTimes(2);
 });
 
-it('does not apply a linked plan after switching to a different archived conversation', async () => {
-  const { createConstructionPlanSession } = await import('@/platform-workbench/constructionPlanSession');
-  let finish!: (value: import('@muyun/web-contracts').ConstructionPlanSnapshot) => void;
-  const read = vi.fn(
-    () =>
-      new Promise<import('@muyun/web-contracts').ConstructionPlanSnapshot>((resolve) => {
-        finish = resolve;
-      }),
-  );
-  const plan = createConstructionPlanSession(
-    { read } as unknown as import('@muyun/web-core').ConstructionPlanClient,
-    () => 'owner',
-  );
-  const snapshot = (id: string) => ({
-    id,
-    revision: 1,
-    updatedAt: '2026-09-27',
-    content: {
-      title: id,
-      messages: [{ role: 'user' as const, text: id }],
-      history: [],
-      ...(id === 'conversation-a' ? { planId: 'plan-a' } : {}),
-    },
-  });
-  const requestTurn = vi.fn();
-  const wrapper = mount(WorkbenchAssistantPanel, {
-    props: {
-      open: true,
-      registry: createRegistry(requestTurn),
-      constructionPlan: plan,
-      conversationClient: {
-        list: vi.fn(async () =>
-          ['conversation-a', 'conversation-b'].map((id) => ({ id, title: id, updatedAt: '2026-09-27' })),
-        ),
-        read: vi.fn(async (id) => snapshot(id)),
-        save: vi.fn(async (id, _scope, revision, content) => ({
-          id,
-          revision: revision + 1,
-          updatedAt: '2026-09-27',
-          content,
-        })),
-      },
-    },
-  });
-  const click = async (label: string) => {
-    await wrapper
-      .findAll('button')
-      .find((button) => button.text().includes(label))!
-      .trigger('click');
-    await flushPromises();
-  };
-  await click('历史会话');
-  await click('conversation-a');
-  await click('继续处理');
-  expect(requestTurn).not.toHaveBeenCalled();
-  expect(read).toHaveBeenCalledWith('plan-a');
-  await click('历史会话');
-  await click('conversation-b');
-  finish({
-    planId: 'plan-a',
-    revision: 1,
-    confirmedAt: '',
-    constructionStatus: 'NOT_STARTED',
-    initializations: [],
-    deliveries: [],
-    fieldChanges: [],
-    content: {
-      title: '客户',
-      goal: '登记客户',
-      inScope: [],
-      outOfScope: [],
-      objects: [],
-      relationships: [],
-      rules: [],
-      questions: [],
-      assumptions: [],
-      decisions: [],
-      acceptanceExamples: [],
-    },
-  });
-  await flushPromises();
-  expect(plan.current().saved).toBeUndefined();
-  expect(requestTurn).not.toHaveBeenCalled();
-  expect(wrapper.text()).toContain('conversation-b');
-  expect(wrapper.text()).not.toContain('关联方案暂时无法恢复');
-});
-
-it.each([false, true])(
-  'restores the linked plan before resuming and blocks on read failure: %s',
+it.each([false, true, 'denied'])(
+  'continues from current business without requiring a historical plan lookup: %s',
   async (fails) => {
     const { createConstructionPlanSession } = await import('@/platform-workbench/constructionPlanSession');
     const read = vi.fn(async () => {
+      if (fails === 'denied') throw new AppError('private server detail', { status: 403 });
       if (fails) throw new Error('unavailable');
       return {
         planId: 'linked-plan',
         revision: 1,
         confirmedAt: '',
         constructionStatus: 'NOT_STARTED',
+        deliveredObjectKeys: [],
         initializations: [],
         deliveries: [],
         fieldChanges: [],
@@ -1317,7 +1376,8 @@ it.each([false, true])(
       () => 'owner',
     );
     const requestTurn = vi.fn(async () => {
-      expect(plan.current().saved?.planId).toBe('linked-plan');
+      expect(plan.current().planId).toBe('linked-plan');
+      expect(plan.current().saved?.planId).toBe(fails ? undefined : 'linked-plan');
       return { text: '已核实进度', toolCalls: [] };
     });
     const wrapper = mount(WorkbenchAssistantPanel, {
@@ -1356,16 +1416,19 @@ it.each([false, true])(
     };
     await click('历史会话');
     await click('之前的讨论');
+    if (fails === 'denied') {
+      expect(wrapper.text()).toContain('关联方案不存在或当前身份无权访问');
+      expect(wrapper.text()).not.toContain('private server detail');
+      expect(wrapper.text()).not.toContain('未完成设计请稍后重试读取');
+    }
     await click('继续处理');
     expect(read).toHaveBeenCalledWith('linked-plan');
-    if (fails) {
-      expect(requestTurn).not.toHaveBeenCalled();
-      expect(wrapper.text()).toContain('关联方案暂时无法恢复');
-      expect(wrapper.find('[aria-label="继续会话"]').exists()).toBe(true);
-    } else {
-      expect(requestTurn).toHaveBeenCalledOnce();
-      expect(JSON.stringify(requestTurn.mock.calls)).toContain('先别修改，也别保存');
-    }
+    expect(requestTurn).toHaveBeenCalledOnce();
+    expect(JSON.stringify(requestTurn.mock.calls)).toContain('暂不修改或保存');
+    expect(wrapper.text()).not.toContain('查看关联的已保存建设方案');
+    await click('新对话');
+    expect(plan.current().planId).toBeUndefined();
+    expect(plan.current().candidate).toBeUndefined();
     wrapper.unmount();
   },
 );
@@ -1394,3 +1457,320 @@ it('offers a return to the hidden editor without changing the chosen collaborati
   expect(wrapper.text()).not.toContain('返回配置页');
   wrapper.unmount();
 });
+
+it('resumes the original request with a fresh budget without inventing a new user message', async () => {
+  let sequence = 0;
+  const requestTurn = vi.fn<AssistantTurnRequester>(async (input) => {
+    if (input.executionBudget?.phase === 'summary')
+      return { text: '已查到客户登记，订单部分还需核实。', toolCalls: [] };
+    return { toolCalls: [{ id: `read-${sequence}`, code: 'page.read', input: { offset: sequence++ } }] };
+  });
+  const read = vi.fn(async () => ({ title: '客户登记' }));
+  const registry = createRegistryWithCapabilities(requestTurn, [
+    {
+      effect: 'read',
+      descriptor: { code: 'page.read', description: 'Read', inputSchema: {} },
+      parseInput: (input) => input,
+      execute: read,
+    },
+  ]);
+  const wrapper = mount(WorkbenchAssistantPanel, { props: { open: true, registry } });
+  await wrapper.get('textarea').setValue('看看能不能记订单，先别改');
+  await wrapper.get('button.ant-btn-primary').trigger('click');
+  await flushPromises();
+  expect(wrapper.text()).toContain('订单部分还需核实');
+  expect(wrapper.text()).toContain('读取信息不代表修改或保存');
+  expect(wrapper.text()).not.toContain('草稿修改会保留');
+  expect(read).toHaveBeenCalledTimes(3);
+  requestTurn.mockResolvedValue({ text: '已重新核实当前配置', toolCalls: [] });
+  await wrapper
+    .findAll('button')
+    .find((button) => button.text() === '继续处理')!
+    .trigger('click');
+  await flushPromises();
+  expect(wrapper.text()).toContain('已重新核实当前配置');
+  expect(requestTurn.mock.calls.at(-1)?.[0].executionBudget?.step).toBe(1);
+  expect(requestTurn.mock.calls.at(-1)?.[0].message).toContain('看看能不能记订单，先别改');
+  expect(requestTurn.mock.calls.at(-1)?.[0].message).toContain('新的保存仍须重新确认');
+  wrapper.unmount();
+});
+
+it.each([
+  ['模型响应被截断，请缩短描述后重试', '模型本次回复达到长度上限'],
+  ['AI model response body timed out', '等待模型回复超时'],
+  ['模型本次回复在返回可用内容前中止，请稍后重试', '模型服务未返回可用内容'],
+  ['AI model request was rejected by provider', '模型服务拒绝了本次请求'],
+  ['AI model request was rejected with HTTP status 429', '模型服务拒绝了本次请求'],
+  ['本次内容预计超过模型上下文预算，尚未发送给模型', '本次内容预计超过模型上下文预算'],
+  ['本次输出预算超过模型容量，请调整配置', '本次输出预算超过模型容量'],
+])(
+  'explains a known model interruption without suggesting that the business was saved: %s',
+  async (failure, explanation) => {
+    const requestTurn = vi.fn(async () => {
+      throw new Error(failure);
+    });
+    const wrapper = mount(WorkbenchAssistantPanel, {
+      props: { open: true, registry: createRegistry(requestTurn) },
+    });
+    await wrapper.get('textarea').setValue('新建晨光小店，不继续旧方案');
+    await wrapper.get('button.ant-btn-primary').trigger('click');
+    await flushPromises();
+    expect(wrapper.text()).toContain(explanation);
+    if (failure.startsWith('AI model request was rejected')) {
+      expect(wrapper.text()).not.toContain('可以调整需求');
+      expect(wrapper.text()).not.toContain(failure);
+      expect(requestTurn).toHaveBeenCalledOnce();
+    }
+    expect(wrapper.text()).toContain('待确认内容没有提交');
+    requestTurn.mockResolvedValue({ text: '核实当前需求', toolCalls: [] } as never);
+    await wrapper
+      .findAll('button')
+      .find((button) => button.text() === '继续处理')!
+      .trigger('click');
+    await flushPromises();
+    expect(JSON.stringify(requestTurn.mock.calls.at(-1))).toContain('新建晨光小店，不继续旧方案');
+    wrapper.unmount();
+  },
+);
+
+it('does not persist an unsaved candidate as a restorable plan, but retains confirmed and uncertain bindings', async () => {
+  const { createConstructionPlanSession } = await import('@/platform-workbench/constructionPlanSession');
+  const plan = createConstructionPlanSession(
+    {} as import('@muyun/web-core').ConstructionPlanClient,
+    () => 'owner',
+  );
+  const save = vi.fn<import('@muyun/web-core').AssistantConversationClient['save']>(
+    async (id, _scope, revision, content) => ({
+      id,
+      revision: revision + 1,
+      content,
+      updatedAt: '',
+    }),
+  );
+  const wrapper = mount(WorkbenchAssistantPanel, {
+    props: {
+      open: true,
+      registry: createRegistry(vi.fn(async () => ({ text: '已读取', toolCalls: [] }))),
+      constructionPlan: plan,
+      conversationClient: { save, list: vi.fn(), read: vi.fn() },
+    },
+  });
+  plan.edit({
+    title: '小店试用',
+    goal: '登记订单',
+    inScope: [],
+    outOfScope: [],
+    objects: [],
+    relationships: [],
+    rules: [],
+    questions: [],
+    assumptions: [],
+    decisions: [],
+    acceptanceExamples: [],
+  });
+  expect(plan.current().planId).toBeTruthy();
+  const send = async () => {
+    await wrapper.get('textarea').setValue('核实当前进度，先不保存');
+    await wrapper.get('button.ant-btn-primary').trigger('click');
+    await flushPromises();
+  };
+  await send();
+  expect(save.mock.calls.at(-1)?.[3].planId).toBeUndefined();
+  plan.recovery.value = async () => undefined;
+  await send();
+  expect(save.mock.calls.at(-1)?.[3].planId).toBe(plan.current().planId);
+  plan.recovery.value = undefined;
+  plan.state.value = {
+    ...plan.current(),
+    saved: {
+      planId: plan.current().planId!,
+      content: plan.current().candidate!,
+      revision: 1,
+      confirmedAt: '',
+      constructionStatus: 'NOT_STARTED',
+      deliveredObjectKeys: [],
+      initializations: [],
+      fieldChanges: [],
+      deliveries: [],
+    },
+  };
+  await send();
+  expect(save.mock.calls.at(-1)?.[3].planId).toBe(plan.current().planId);
+  wrapper.unmount();
+});
+
+it('keeps the same archived conversation across governance navigation and expires old confirmations', async () => {
+  const identity = ref('owner');
+  const scope = ref('tenant-a');
+  const write = vi.fn(async () => ({ title: '已保存', lines: [] }));
+  const requestTurn = vi
+    .fn<AssistantTurnRequester>()
+    .mockResolvedValueOnce({
+      toolCalls: [{ id: 'confirm', code: 'record.prepare', input: {} }],
+    })
+    .mockResolvedValue({ text: '请确认', toolCalls: [] });
+  const registry = createAssistantSurfaceRegistry(() => identity.value);
+  const surface = {
+    describe: () => ({ surface: 'test', facts: {} }),
+    requestTurn,
+    capabilities: () => [
+      {
+        effect: 'read' as const,
+        descriptor: { code: 'record.prepare', description: '', inputSchema: {} },
+        parseInput: (value: unknown) => value,
+        execute: async () => ({}),
+        propose: () => ({
+          presentation: { title: '准备保存', lines: [] },
+          modelSummary: '旧范围候选',
+          confirmLabel: '确认保存',
+          expiresAt: Date.now() + 60000,
+          isCurrent: () => true,
+          execute: write,
+          lookup: async () => undefined,
+        }),
+      },
+    ],
+  };
+  registry.register({
+    pageInstanceKey: 'business',
+    contextRevision: () => '',
+    executionScopeKey: () => scope.value,
+    surface,
+  });
+  registry.register({ pageInstanceKey: 'governance', contextRevision: () => '', surface });
+  registry.activate('business');
+  const save = vi.fn(async (id, _scope, revision, content) => ({
+    id,
+    revision: revision + 1,
+    updatedAt: '',
+    content,
+  }));
+  const wrapper = mount(WorkbenchAssistantPanel, {
+    props: { open: true, registry, conversationClient: { save, list: vi.fn(async () => []), read: vi.fn() } },
+  });
+  await wrapper.get('textarea').setValue('准备保存当前记录');
+  await wrapper.get('button.ant-btn-primary').trigger('click');
+  await flushPromises();
+  const id = save.mock.calls[0]![0];
+  registry.activate('governance');
+  await flushPromises();
+  expect(wrapper.text()).toContain('准备保存当前记录');
+  expect(wrapper.text()).toContain('内容或范围已变化');
+  expect(write).not.toHaveBeenCalled();
+  expect(new Set(save.mock.calls.map(([savedId]) => savedId))).toEqual(new Set([id]));
+  identity.value = 'another-owner';
+  await flushPromises();
+  expect(wrapper.text()).not.toContain('准备保存当前记录');
+  expect(write).not.toHaveBeenCalled();
+});
+
+it('continues in the same conversation after an agent opens a page in another execution scope', async () => {
+  const registry = createAssistantSurfaceRegistry();
+  const targetRequest = vi.fn<AssistantTurnRequester>(async () => ({
+    text: '已准备好，请查看页面',
+    toolCalls: [],
+  }));
+  registry.register({
+    pageInstanceKey: 'governance',
+    executionScopeKey: () => '',
+    contextRevision: () => 'stable',
+    surface: {
+      describe: () => ({ surface: 'test', facts: {} }),
+      capabilities: () => [],
+      requestTurn: targetRequest,
+    },
+  });
+  registry.register({
+    pageInstanceKey: 'business',
+    executionScopeKey: () => 'tenant-a',
+    contextRevision: () => 'stable',
+    surface: {
+      describe: () => ({ surface: 'test', facts: {} }),
+      requestTurn: async () => ({ toolCalls: [{ id: 'open', code: 'page.open', input: {} }] }),
+      capabilities: () => [
+        {
+          effect: 'page',
+          descriptor: { code: 'page.open', description: 'Open', inputSchema: {} },
+          parseInput: (value) => value,
+          execute: async (_input, context) => {
+            context.applyEffect(
+              () => registry.activate('governance'),
+              async () => registry.snapshot()?.token,
+            );
+            await flushPromises();
+            return { opened: true };
+          },
+        },
+      ],
+    },
+  });
+  registry.activate('business');
+  const wrapper = mount(WorkbenchAssistantPanel, { props: { open: true, registry } });
+  await wrapper.get('textarea').setValue('帮我准备商品表单');
+  await wrapper.get('button.ant-btn-primary').trigger('click');
+  await flushPromises();
+  await vi.waitFor(() => expect(targetRequest, wrapper.text()).toHaveBeenCalledOnce());
+  expect(wrapper.text()).toContain('帮我准备商品表单');
+  expect(wrapper.text()).toContain('已准备好，请查看页面');
+  expect(wrapper.text()).not.toContain('本轮已暂停');
+});
+
+it.each(['继续处理', '调整需求'])(
+  'recovers the user goal after automatic continuation fails via %s',
+  async (action) => {
+    const execute = vi.fn(async () => ({ title: '配置已提交', lines: [] }));
+    const requestTurn = vi
+      .fn<AssistantTurnRequester>()
+      .mockResolvedValueOnce({
+        toolCalls: [{ id: 'prepare', code: 'configuration.prepare-test', input: {} }],
+      })
+      .mockRejectedValueOnce(new Error('temporary failure'))
+      .mockResolvedValue({ text: '已核实，继续准备下一项候选。', toolCalls: [] });
+    const registry = createRegistryWithCapabilities(requestTurn, [
+      {
+        effect: 'read',
+        descriptor: { code: 'configuration.prepare-test', description: 'prepare', inputSchema: {} },
+        parseInput: (input) => input,
+        async execute() {
+          return {};
+        },
+        propose: () => ({
+          presentation: { title: '确认当前配置', lines: [] },
+          expiresAt: Date.now() + 60000,
+          isCurrent: () => true,
+          execute,
+          lookup: async () => undefined,
+          continuation: { message: '内部续接：读取 configuration.task', isCurrent: () => true },
+        }),
+      },
+    ]);
+    const wrapper = mount(WorkbenchAssistantPanel, { props: { open: true, registry } });
+    await wrapper.get('textarea').setValue('给订单加送货日期');
+    await wrapper.get('.assistant-panel__actions button').trigger('click');
+    await flushPromises();
+    await wrapper
+      .findAll('button')
+      .find((button) => button.text() === '确认保存')!
+      .trigger('click');
+    await flushPromises();
+    expect(execute).toHaveBeenCalledOnce();
+    await wrapper
+      .findAll('button')
+      .find((button) => button.text() === action)!
+      .trigger('click');
+    await flushPromises();
+    if (action === '调整需求') {
+      expect((wrapper.get('textarea').element as HTMLTextAreaElement).value).toBe('给订单加送货日期');
+    } else {
+      const resumed = requestTurn.mock.calls.at(-1)![0];
+      expect(resumed.message).toContain('给订单加送货日期');
+      expect(resumed.message).not.toContain('内部续接');
+      expect(JSON.stringify(resumed.history)).not.toContain('内部续接');
+    }
+    expect(wrapper.findAll('.assistant-message--user').map((item) => item.text())).toEqual([
+      '给订单加送货日期',
+    ]);
+    expect(execute).toHaveBeenCalledOnce();
+    wrapper.unmount();
+  },
+);

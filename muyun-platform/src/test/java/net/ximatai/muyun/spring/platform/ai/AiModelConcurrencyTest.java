@@ -33,7 +33,7 @@ class AiModelConcurrencyTest {
             assertThat(release.await(5, TimeUnit.SECONDS)).isTrue();
             return null;
         });
-        var gateway = new DefaultAiModelGateway(mock(AiModelRouteResolver.class), client, 2, 1);
+        var gateway = new DefaultAiModelGateway(routes(), client, 2, 1);
         try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
             var first = executor.submit(() -> call(gateway, mode, "a"));
             assertThat(firstEntered.await(5, TimeUnit.SECONDS)).isTrue();
@@ -62,7 +62,7 @@ class AiModelConcurrencyTest {
             if (failing.get()) throw new CancellationException("cancelled");
             return null;
         });
-        var gateway = new DefaultAiModelGateway(mock(AiModelRouteResolver.class), client, 1, 1);
+        var gateway = new DefaultAiModelGateway(routes(), client, 1, 1);
         assertThatThrownBy(() -> call(gateway, mode, "a")).isInstanceOf(CancellationException.class);
         failing.set(false);
         call(gateway, mode, "a");
@@ -73,10 +73,21 @@ class AiModelConcurrencyTest {
     @EnumSource(Mode.class)
     void releasesPermitsWhenRouteResolutionFails(Mode mode) {
         var routes = mock(AiModelRouteResolver.class);
-        when(routes.resolveCurrent()).thenThrow(new PlatformException("missing route")).thenReturn(null);
+        when(routes.resolveCurrent()).thenThrow(new PlatformException("missing route")).thenReturn(route());
         var gateway = new DefaultAiModelGateway(routes, mock(AiModelClient.class), 1, 1);
         assertThatThrownBy(() -> call(gateway, mode, "a")).hasMessage("missing route");
         call(gateway, mode, "a");
+    }
+
+    private static ResolvedAiModelRoute route() {
+        return new ResolvedAiModelRoute("provider", AiModelProtocol.OPENAI_COMPATIBLE,
+                "https://example.test/v1", "model", "secret");
+    }
+
+    private static AiModelRouteResolver routes() {
+        var routes = mock(AiModelRouteResolver.class);
+        when(routes.resolveCurrent()).thenReturn(route());
+        return routes;
     }
 
     private static void assertLimit(Runnable invocation, String message) {

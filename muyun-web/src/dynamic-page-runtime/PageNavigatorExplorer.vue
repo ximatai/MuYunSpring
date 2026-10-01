@@ -5,6 +5,8 @@ import {
   RecordPanelState,
   TreeRecordExplorer,
   type QueryListRecord,
+  type RecordQueryListQueryController,
+  type RecordTreeQueryController,
 } from '@muyun/platform-components';
 import { computed } from 'vue';
 import type { RecordInlineAction } from '@muyun/web-contracts';
@@ -41,6 +43,10 @@ const emit = defineEmits<{
   select: [record: QueryListRecord];
   deselect: [];
   loaded: [records: QueryListRecord[]];
+  queryControllerChange: [
+    levelKey: string,
+    controller: RecordQueryListQueryController | RecordTreeQueryController | undefined,
+  ];
   action: [action: RecordInlineAction, record: QueryListRecord];
   'toggle-sorting': [];
 }>();
@@ -97,6 +103,7 @@ function itemOf(record: NavigatorItemRecord) {
       :can-drop-inside="treeParentPolicy?.canUseAsParent"
       :sorting="sort.active"
       @loaded="emit('loaded', $event as QueryListRecord[])"
+      @query-controller-change="emit('queryControllerChange', level.descriptor.key, $event)"
       @select="emit('select', $event as QueryListRecord)"
       @deselect="emit('deselect')"
       @action="(action, record) => emit('action', action, record as QueryListRecord)"
@@ -115,6 +122,7 @@ function itemOf(record: NavigatorItemRecord) {
       :actions-of="managementAvailable ? actionsOf : undefined"
       :sorting="sort.active"
       @loaded="emit('loaded', $event as QueryListRecord[])"
+      @query-controller-change="emit('queryControllerChange', level.descriptor.key, $event)"
       @select="emit('select', $event as QueryListRecord)"
       @deselect="emit('deselect')"
       @action="(action, record) => emit('action', action, record as QueryListRecord)"

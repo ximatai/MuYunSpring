@@ -188,3 +188,13 @@ it('marks unmatched text accessibly and removes the mark when the owner clears i
     wrapper.unmount();
   }
 });
+
+it('propagates a form error to the compact input without clearing its unmatched draft', async () => {
+  const wrapper = mount(ObjectPickerInput, { props: { value: '待确认', invalid: true, unmatched: true } });
+  expect(wrapper.get('input').attributes('aria-invalid')).toBe('true');
+  await wrapper.setProps({ invalid: false });
+  expect(wrapper.get('input').attributes('aria-invalid')).toBe('true');
+  expect(wrapper.get('input').element.value).toBe('待确认');
+  await wrapper.setProps({ unmatched: false });
+  expect(wrapper.get('input').attributes('aria-invalid')).toBeUndefined();
+});

@@ -201,7 +201,7 @@ class PlatformModuleRuntimeContextServiceTest {
 
         assertThat(preview).usingRecursiveComparison().isEqualTo(published);
         assertThat(preview.page().detail().editor().fields().getFirst().inputRequirements())
-                .isEqualTo(new FieldInputRequirements(true, false));
+                .isEqualTo(new FieldInputRequirements(true, false, 128, null, null));
         if (mode == net.ximatai.muyun.spring.platform.module.DynamicModuleOverviewMode.LIST_CARD) {
             assertThat(preview.page().list().searchPlaceholder()).isEqualTo("搜索合同");
         }
@@ -468,7 +468,7 @@ class PlatformModuleRuntimeContextServiceTest {
                         .list(list -> list.fields(fields -> fields.field("title",
                                 field -> field.label("合同名称").width("180px").align("center"))))
                         .detail(detail -> detail.editor(fields -> fields.field("title",
-                                field -> field.label("合同主题").columnSpan(2).readOnly())))))
+                                field -> field.label("合同主题").columnSpan(2).required().readOnly())))))
                 .build();
         when(moduleService.resolveVisibleModule("sales.contract"))
                 .thenReturn(module("sales.contract", "合同", ModuleKind.DYNAMIC));
@@ -491,7 +491,11 @@ class PlatformModuleRuntimeContextServiceTest {
         assertThat(plan.readModel().fields()).extracting(ResolvedModuleReadField::fieldName)
                 .containsExactly("title");
         assertThat(plan.mutationFieldValidations()).singleElement()
-                .satisfies(field -> assertThat(field.fieldName()).isEqualTo("title"));
+                .satisfies(field -> {
+                    assertThat(field.fieldName()).isEqualTo("title");
+                    assertThat(field.readOnly()).isTrue();
+                    assertThat(field.required()).isFalse();
+                });
         ModuleUiDefinition detailOnly = ModuleUiDefinition.builder("sales.contract")
                 .page(PageTemplates.listDetailCard(candidate -> candidate
                         .list(list -> list.fields(fields -> fields.field("title")))

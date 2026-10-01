@@ -252,81 +252,33 @@ final class DynamicFormulaRuntime {
                 .toList();
     }
 
-    /**
-     * Keep default-value initialization and child-table rules on their established execution path.
-     * Only BEFORE_SAVE main-record calculations and validations enter the shared dependency plan.
-     */
+    /** Default initialization keeps its phase; save calculations share a dependency plan. */
     private List<FormulaRule> orderedRuntimeRules(List<FormulaRule> rules) {
-        if (rules.isEmpty() || rules.stream().noneMatch(rule -> rule.phase() == FormulaRulePhase.BEFORE_SAVE)) {
-            return rules;
-        }
-        List<FormulaRule> preBeforeSave = rules.stream()
-                .filter(rule -> rule.phase() != FormulaRulePhase.BEFORE_SAVE)
-                .toList();
-        List<FormulaRule> beforeSave = rules.stream()
+        List<FormulaRule> candidates = rules.stream()
                 .filter(rule -> rule.phase() == FormulaRulePhase.BEFORE_SAVE)
+                .filter(FormulaRuleExecutionPlan::supportsDependencyPlanning)
                 .toList();
-        List<FormulaRule> planCandidates = beforeSave.stream()
-                .filter(this::isMainRecordPlanCandidate)
-                .toList();
-        if (planCandidates.isEmpty()) {
-            return rules;
-        }
-        FormulaReferenceContext references = referenceContext(planCandidates);
-        List<net.ximatai.muyun.spring.common.formula.FormulaFieldDefinition> fields = new ArrayList<>(
-                DynamicFormulaDataSupport.fieldDefinitions(entity, module));
+        if (candidates.isEmpty()) return rules;
+        FormulaReferenceContext references = referenceContext(candidates);
+        var fields = new ArrayList<>(DynamicFormulaDataSupport.fieldDefinitions(entity, module));
         fields.addAll(references.fields());
-        FormulaRuleExecutionPlan plan = FormulaRuleExecutionPlan.forMainRecord(planCandidates, fields);
-        Set<FormulaRule> planned = new HashSet<>(planCandidates);
-        rejectChildCalculationDependingOnMainPlan(beforeSave, planned, plan);
-        List<FormulaRule> ordered = new ArrayList<>(preBeforeSave);
-        // Existing child writes settle before main-record aggregate calculations consume them.
-        beforeSave.stream()
-                .filter(rule -> rule.kind() == net.ximatai.muyun.spring.common.formula.FormulaRuleKind.CALCULATION)
-                .filter(rule -> !planned.contains(rule))
-                .forEach(ordered::add);
+        Set<String> children = module == null ? Set.of() : module.relations().stream()
+                .filter(relation -> entity.alias().equals(relation.parentEntityAlias()))
+                .map(EntityRelationDefinition::code).collect(java.util.stream.Collectors.toSet());
+        var plan = FormulaRuleExecutionPlan.forAggregateRecord(candidates, fields, children);
+        plan.validatePrecedingCalculations(rules);
+        List<FormulaRule> ordered = new ArrayList<>();
+        rules.stream().filter(rule -> rule.phase() != FormulaRulePhase.BEFORE_SAVE).forEach(ordered::add);
+        rules.stream().filter(rule -> rule.phase() == FormulaRulePhase.BEFORE_SAVE
+                && rule.kind() == net.ximatai.muyun.spring.common.formula.FormulaRuleKind.CALCULATION
+                && !candidates.contains(rule)).forEach(ordered::add);
         ordered.addAll(plan.orderedRules());
-        beforeSave.stream()
-                .filter(rule -> rule.kind() != net.ximatai.muyun.spring.common.formula.FormulaRuleKind.CALCULATION)
-                .filter(rule -> !planned.contains(rule))
+        rules.stream().filter(rule -> rule.phase() == FormulaRulePhase.BEFORE_SAVE
+                && rule.kind() != net.ximatai.muyun.spring.common.formula.FormulaRuleKind.CALCULATION && !candidates.contains(rule))
                 .forEach(ordered::add);
         return List.copyOf(ordered);
     }
 
-    private void rejectChildCalculationDependingOnMainPlan(List<FormulaRule> beforeSave,
-                                                            Set<FormulaRule> planned,
-                                                            FormulaRuleExecutionPlan plan) {
-        Set<String> mainCalculationTargets = Set.copyOf(plan.calculationTargetFieldsByRule().values());
-        for (FormulaRule rule : beforeSave) {
-            if (rule.kind() != net.ximatai.muyun.spring.common.formula.FormulaRuleKind.CALCULATION
-                    || planned.contains(rule)) {
-                continue;
-            }
-            String dependency = engine.valueSideReferencedFields(rule.expression()).stream()
-                    .filter(mainCalculationTargets::contains)
-                    .findFirst()
-                    .orElse(null);
-            if (dependency != null) {
-                throw new net.ximatai.muyun.spring.common.formula.FormulaEvaluationException(
-                        "FORMULA_PLAN_CHILD_DEPENDS_ON_MAIN_CALCULATION", dependency,
-                        "child calculation depends on planned main-record calculation field " + dependency
-                                + ": " + rule.id());
-            }
-        }
-    }
-
-    private boolean isMainRecordPlanCandidate(FormulaRule rule) {
-        if (rule.kind() == net.ximatai.muyun.spring.common.formula.FormulaRuleKind.VALIDATION) {
-            return rule.targetField() == null || !rule.targetField().contains(".");
-        }
-        if (rule.kind() != net.ximatai.muyun.spring.common.formula.FormulaRuleKind.CALCULATION) {
-            return false;
-        }
-        if (rule.targetField() != null) {
-            return !rule.targetField().contains(".");
-        }
-        return engine.assignedFields(rule.expression()).stream().noneMatch(field -> field.contains("."));
-    }
 
     private FormulaReferenceContext referenceContext(List<FormulaRule> rules) {
         Set<String> childRelations = module == null ? Set.of() : module.relations().stream()

@@ -32,11 +32,12 @@ class AiModelConfigurationJsonTest {
 
         assertThat(page.detail().display().fields())
                 .extracting(field -> field.fieldRef().fieldName())
-                .contains("tenantId", "configurationLevel", "tenantFallbackEnabled", "apiKeyConfigured")
+                .contains("tenantId", "configurationLevel", "tenantFallbackEnabled", "apiKeyConfigured",
+                        "contextWindowTokens", "maxOutputTokens", "defaultOutputTokens")
                 .doesNotContain("apiKeyInput");
         assertThat(page.detail().editor().fields())
                 .extracting(field -> field.fieldRef().fieldName())
-                .contains("tenantFallbackEnabled", "apiKeyInput")
+                .contains("tenantFallbackEnabled", "apiKeyInput", "contextWindowTokens", "maxOutputTokens", "defaultOutputTokens")
                 .doesNotContain("apiKeyConfigured");
         assertThat(page.detail().editor().fields())
                 .filteredOn(field -> field.fieldRef().fieldName().equals("apiKeyInput"))

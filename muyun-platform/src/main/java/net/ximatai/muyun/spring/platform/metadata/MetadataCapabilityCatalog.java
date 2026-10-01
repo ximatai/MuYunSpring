@@ -26,6 +26,26 @@ public final class MetadataCapabilityCatalog {
     private MetadataCapabilityCatalog() {
     }
 
+    /** Discovery before metadata exists; shared with the standard metadata validation path. */
+    public record RecordNameContract(String fieldName, String columnName, String fieldType) {
+        public boolean accepts(String name, String column, String type) {
+            return fieldName.equals(name) && columnName.equals(column) && fieldType.equals(type);
+        }
+    }
+
+    public record DesignContract(RecordNameContract recordName, List<String> inheritedFields,
+                                 MetadataCapabilityPlan declarableCapabilities) {}
+
+    public static RecordNameContract recordName() {
+        return new RecordNameContract(PlatformAbilityFields.TITLE_FIELD, PlatformAbilityFields.TITLE_COLUMN,
+                net.ximatai.muyun.spring.dynamic.metadata.FieldType.STRING.name());
+    }
+
+    public static DesignContract designContract() {
+        return new DesignContract(recordName(),
+                net.ximatai.muyun.spring.common.schema.StandardEntitySchema.fieldNames(), plan(DECLARABLE));
+    }
+
     public static boolean isDeclarable(EntityCapability capability) {
         return capability != null && DECLARABLE.contains(capability);
     }

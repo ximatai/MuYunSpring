@@ -86,7 +86,7 @@ public class MenuSchemeService extends AbstractAbilityService<MenuScheme> implem
 
     @Override
     public QueryDescriptor queryDescriptor() {
-        return QueryDescriptors.fromModel(MODULE_ALIAS, MenuScheme.class, java.util.List.of("id", "alias", "scopeType", "tenantId", "organizationId", "enabled", "sortOrder", "createdAt", "updatedAt"),
+        return QueryDescriptors.fromModel(MODULE_ALIAS, MenuScheme.class, java.util.List.of("id", "alias", "title", "scopeType", "tenantId", "organizationId", "enabled", "sortOrder", "createdAt", "updatedAt"),
                 net.ximatai.muyun.database.core.orm.Sort.asc("sortOrder"),
                 net.ximatai.muyun.database.core.orm.Sort.asc("alias"));
     }

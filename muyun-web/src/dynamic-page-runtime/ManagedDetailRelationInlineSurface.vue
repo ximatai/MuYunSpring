@@ -324,12 +324,14 @@ function blankValue(value: unknown) {
   );
 }
 
+let rowsLoaded = false;
 async function load() {
   const recycleRequest = ++recycleBinRequestSequence;
   const field = embeddedField.value;
   if (!embedded.value || !field) throw new Error('inline relation requires an embedded child field');
   const records = Array.isArray(props.parentRecord[field]) ? props.parentRecord[field] : [];
   rows.value = records.map((record) => toDraftRow(record as QueryListRecord));
+  rowsLoaded = true;
   referenceProjectionValues.value = {};
   removed.value = [];
   selectedKeys.value = new Set();
@@ -555,6 +557,9 @@ function updateValidity(row: DraftRow, fieldName: string, value: boolean) {
 }
 
 function publishDraft() {
+  // Option discovery can finish during setup, before the aggregate rows are mounted.
+  // An uninitialized table must never replace the parent's loaded child collection.
+  if (!rowsLoaded) return;
   emit(
     'records-change',
     rows.value

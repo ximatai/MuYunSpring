@@ -24,6 +24,7 @@ import java.util.Set;
 @net.ximatai.muyun.spring.ability.SortPartitionBy(
         fields = "applicationAlias", message = "Module sort can only move records within the same application")
 public class PlatformModule extends StandardEnabledTreeEntity implements PlatformManagedCapable {
+    @net.ximatai.muyun.spring.common.model.constraint.FieldPattern(net.ximatai.muyun.spring.common.util.PlatformNameRules.MODULE_ALIAS_PATTERN)
     @Id
     @Column(name = "id", type = ColumnType.VARCHAR, length = 128, nullable = false, comment = "Module alias")
     private String id;
@@ -39,6 +40,10 @@ public class PlatformModule extends StandardEnabledTreeEntity implements Platfor
             defaultVal = @Default(varchar = "static"))
     @OptionField(type = OptionSourceType.ENUM)
     private ModuleKind moduleKind = ModuleKind.STATIC;
+
+    /** Optional discovery hint, not an executable capability declaration. */
+    @Column(name = "description", type = ColumnType.VARCHAR, length = 512, comment = "Module purpose")
+    private String description;
 
     /** Stable management overview pattern for a dynamic module. */
     @Column(name = "overview_mode", type = ColumnType.VARCHAR, length = 32, comment = "Dynamic module overview mode",

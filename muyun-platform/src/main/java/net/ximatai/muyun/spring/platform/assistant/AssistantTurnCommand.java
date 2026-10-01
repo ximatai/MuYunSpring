@@ -15,8 +15,25 @@ public record AssistantTurnCommand(
         Map<String, Object> context,
         List<AiToolDefinition> capabilities,
         List<AssistantCapabilityResult> results,
-        AssistantSelectionResponse selectionResponse
+        AssistantSelectionResponse selectionResponse,
+        ExecutionBudget executionBudget
 ) {
+    public record ExecutionBudget(String phase, int step, int normalLimit, int hardLimit) {
+        public ExecutionBudget {
+            if (!("work".equals(phase) || "summary".equals(phase)) || normalLimit < 1
+                    || hardLimit < normalLimit || hardLimit > 12 || step < 1 || step > hardLimit + 1)
+                throw new IllegalArgumentException("invalid assistant execution budget");
+        }
+    }
+
+    public boolean summaryOnly() { return executionBudget != null && "summary".equals(executionBudget.phase()); }
+
+    public AssistantTurnCommand(String message, List<AssistantConversationMessage> history,
+                                Map<String, Object> context, List<AiToolDefinition> capabilities,
+                                List<AssistantCapabilityResult> results, AssistantSelectionResponse selectionResponse) {
+        this(message, history, context, capabilities, results, selectionResponse, null);
+    }
+
     public AssistantTurnCommand {
         if (history != null && history.stream().anyMatch(Objects::isNull)) {
             throw new IllegalArgumentException("assistant history item must not be null");

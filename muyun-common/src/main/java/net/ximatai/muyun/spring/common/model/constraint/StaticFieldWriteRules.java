@@ -30,6 +30,14 @@ public final class StaticFieldWriteRules {
                 Set<String> requiredFields = new HashSet<>();
                 Set<String> normalizedFields = new HashSet<>();
                 for (Field field : owner.getDeclaredFields()) {
+                    FieldPattern pattern = field.getAnnotation(FieldPattern.class);
+                    if (pattern != null) {
+                        requireUnshadowed(fields, field);
+                        if (field.getType() != String.class) throw new IllegalArgumentException("field pattern requires String: " + field.getName());
+                        if (pattern.value().isBlank()) throw new IllegalArgumentException("field pattern must not be blank: " + field.getName());
+                        java.util.regex.Pattern.compile(pattern.value());
+                        bind(bindings, field, bindingRules(bindings, field));
+                    }
                     for (Required rule : field.getDeclaredAnnotationsByType(Required.class)) {
                         requireLocal(rule.fields(), field);
                         requireUnshadowed(fields, field);
@@ -134,7 +142,14 @@ public final class StaticFieldWriteRules {
     /** Shares validation with standard CRUD without running a second lifecycle or changing values. */
     public static void validate(Class<?> type, Object record, WriteOperation operation) {
         Objects.requireNonNull(operation, "operation");
-        resolve(type).forEach((name, binding) -> binding.rules().validate(name, binding.read(record), operation == WriteOperation.UPDATE));
+        resolve(type).forEach((name, binding) -> {
+            Object value = binding.read(record);
+            binding.rules().validate(name, value, operation == WriteOperation.UPDATE);
+            FieldPattern pattern = binding.field().getAnnotation(FieldPattern.class);
+            if (pattern != null && value instanceof String text && !text.matches(pattern.value())) {
+                throw new IllegalArgumentException("field value does not match validationRegex: " + name);
+            }
+        });
     }
 
     public record Binding(Field field, FieldWriteRules rules) {

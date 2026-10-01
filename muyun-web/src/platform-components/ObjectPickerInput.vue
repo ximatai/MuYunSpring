@@ -19,6 +19,7 @@ const props = withDefaults(
     /** Changes on confirmed selection, including reselecting the same value. */
     selectionVersion?: number;
     placeholder?: string;
+    invalid?: boolean;
     disabled?: boolean;
     browseLabel?: string;
   }>(),
@@ -29,6 +30,7 @@ const props = withDefaults(
     preserveDraft: false,
     selectionVersion: 0,
     placeholder: '搜索并选择',
+    invalid: false,
     disabled: false,
     browseLabel: '打开候选选择',
   },
@@ -109,6 +111,7 @@ function completeDraft(event: FocusEvent) {
 
 <template>
   <UiSearchInput
+    :invalid="invalid"
     class="object-picker-input-control"
     :value="inputValue"
     :placeholder="placeholder"

@@ -12,8 +12,8 @@ defineProps<{
 </script>
 
 <template>
-  <section class="record-meta">
-    <RecordContentSectionHeading title="系统信息" />
+  <details class="record-meta">
+    <summary><RecordContentSectionHeading title="系统信息" /></summary>
     <dl>
       <div>
         <dt>ID</dt>
@@ -36,13 +36,11 @@ defineProps<{
         <dd><DateTimeText :value="record.updatedAt" /></dd>
       </div>
     </dl>
-  </section>
+  </details>
 </template>
 
 <style scoped>
 .record-meta {
-  display: grid;
-  gap: var(--muyun-detail-section-inner-gap, 8px);
   margin-top: var(--muyun-detail-section-block-gap, 16px);
   padding-top: var(--muyun-detail-section-inner-gap, 8px);
   border-top: 1px solid var(--muyun-border-subtle);
@@ -53,11 +51,18 @@ defineProps<{
   padding-top: 0;
 }
 
+summary {
+  cursor: pointer;
+}
+summary :deep(.record-content-section-heading) {
+  display: inline-flex;
+}
+
 dl {
   display: grid;
   grid-template-columns: repeat(2, minmax(220px, 1fr));
   gap: 10px 16px;
-  margin: 0;
+  margin: var(--muyun-detail-section-inner-gap, 8px) 0 0;
 }
 
 dl div {

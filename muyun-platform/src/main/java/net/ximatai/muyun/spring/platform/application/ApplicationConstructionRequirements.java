@@ -10,7 +10,7 @@ import java.util.stream.Collectors;
 /** Computes evidence from confirmed requirements and actual configuration, never model completion claims. */
 public final class ApplicationConstructionRequirements {
     private ApplicationConstructionRequirements() {}
-    public enum Status { UNMAPPED, UNSUPPORTED, CONFIGURATION_MISSING, CONFIGURATION_MATCHED, MANUAL_CHECK_REQUIRED }
+    public enum Status { UNMAPPED, UNSUPPORTED, CONFIGURATION_MISSING, CONFIGURATION_MATCHED, MANUAL_RESPONSIBILITY }
     public record Evidence(ApplicationConstructionRequirement.Section section, int index, String statement,
                            String objectKey, String fieldName, Status status, String explanation) {}
 
@@ -23,8 +23,15 @@ public final class ApplicationConstructionRequirements {
     }
     public static List<Evidence> evaluate(ApplicationConstructionPlanContent content, String objectKey,
             List<MetadataField> fields, Map<String, String> referenceTargets, Map<String, String> objectModules) {
+        return evaluate(content, objectKey, fields, referenceTargets, objectModules, Map.of(), java.util.Set.of(), java.util.Set.of());
+    }
+    public static List<Evidence> evaluate(ApplicationConstructionPlanContent content, String objectKey,
+            List<MetadataField> fields, Map<String, String> referenceTargets, Map<String, String> objectModules,
+            Map<String, MetadataField> childFields, java.util.Set<String> childRelations, java.util.Set<String> calculationTargets) {
         Map<String, MetadataField> byName = fields.stream()
                 .collect(Collectors.toMap(MetadataField::getFieldName, field -> field));
+        byName.putAll(childFields);
+        byName.values().removeIf(field -> Boolean.FALSE.equals(field.getEnabled()));
         var result = new ArrayList<Evidence>();
         for (var section : ApplicationConstructionRequirement.Section.values()) {
             var source = source(content, section);
@@ -40,13 +47,15 @@ public final class ApplicationConstructionRequirements {
                     var field = byName.get(binding.fieldName());
                     var status = switch (binding.mode()) {
                         case UNSUPPORTED -> Status.UNSUPPORTED;
-                        case MANUAL -> Status.MANUAL_CHECK_REQUIRED;
+                        case MANUAL -> Status.MANUAL_RESPONSIBILITY;
                         case REFERENCE -> {
                             var reference = binding.reference();
                             var target = reference.moduleAlias().isEmpty() ? objectModules.get(reference.objectKey()) : reference.moduleAlias();
                             yield field != null && target != null && target.equals(referenceTargets.get(binding.fieldName()))
                                     ? Status.CONFIGURATION_MATCHED : Status.CONFIGURATION_MISSING;
                         }
+                        case CHILD -> childRelations.contains(binding.fieldName()) ? Status.CONFIGURATION_MATCHED : Status.CONFIGURATION_MISSING;
+                        case CALCULATION -> field != null && calculationTargets.contains(binding.fieldName()) ? Status.CONFIGURATION_MATCHED : Status.CONFIGURATION_MISSING;
                         case FIELD -> field != null ? Status.CONFIGURATION_MATCHED : Status.CONFIGURATION_MISSING;
                         case REQUIRED -> field != null && Boolean.TRUE.equals(field.getRequired()) ? Status.CONFIGURATION_MATCHED : Status.CONFIGURATION_MISSING;
                         case UNIQUE -> field != null && Boolean.TRUE.equals(field.getUniqueField()) ? Status.CONFIGURATION_MATCHED : Status.CONFIGURATION_MISSING;

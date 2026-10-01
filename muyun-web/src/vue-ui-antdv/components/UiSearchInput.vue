@@ -16,6 +16,7 @@ const props = withDefaults(
     searchIconOnly?: boolean;
     /** The displayed text represents an associated record rather than a search draft. */
     linked?: boolean;
+    invalid?: boolean;
     unmatched?: boolean;
   }>(),
   {
@@ -26,6 +27,7 @@ const props = withDefaults(
     searchText: undefined,
     searchIconOnly: false,
     linked: false,
+    invalid: false,
     unmatched: false,
   },
 );
@@ -87,7 +89,8 @@ function handleKeydown(event: KeyboardEvent) {
       },
     ]"
     :style="$attrs.style"
-    :aria-invalid="unmatched || undefined"
+    :aria-invalid="invalid || unmatched || undefined"
+    :status="invalid || unmatched ? 'error' : undefined"
     @update:value="emit('update:value', $event)"
     @search="handleSearch"
     @blur="emit('blur', $event)"

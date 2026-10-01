@@ -1,9 +1,12 @@
 package net.ximatai.muyun.spring.platform.web;
 
 import net.ximatai.muyun.spring.common.model.constraint.FieldInputRequirements;
+import net.ximatai.muyun.spring.common.model.constraint.StaticFieldWriteRules;
+import net.ximatai.muyun.spring.common.model.constraint.TextNormalization;
 
 import net.ximatai.muyun.spring.dynamic.metadata.EntityDefinition;
 import net.ximatai.muyun.spring.dynamic.metadata.FieldDefinition;
+import net.ximatai.muyun.spring.dynamic.metadata.FieldType;
 
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -18,6 +21,26 @@ final class FieldWriteRuleProjection {
         for (var entity : entities) {
             String resource = entity.alias().equals(mainEntityAlias) ? null : entity.alias();
             entity.fields().forEach(field -> fields.put(new ViewFieldRef(resource, field.fieldName(), null), field));
+        }
+        return fields;
+    }
+
+    static Map<ViewFieldRef, FieldDefinition> staticFields(StaticModuleDefinition definition) {
+        var fields = fields(definition.entities(), definition.entities().isEmpty() ? null : definition.entities().getFirst().alias());
+        Class<?> modelClass = definition.modelClass();
+        if (modelClass == null) return fields;
+        // Standard identity fields are omitted from dynamic entity business fields. The standard
+        // alias editor addresses the model ID, so preserve its input constraints and write rules.
+        var id = org.springframework.util.ReflectionUtils.findField(modelClass, "id");
+        var column = id == null ? null : id.getAnnotation(net.ximatai.muyun.database.core.annotation.Column.class);
+        if (column != null && column.length() > 0
+                && org.springframework.beans.BeanUtils.getPropertyDescriptor(modelClass, "alias") != null) {
+            var alias = FieldDefinition.string("alias", "alias").length(column.length());
+            var binding = StaticFieldWriteRules.resolve(modelClass).get("id");
+            if (binding != null) alias = alias.writeRules(binding.rules());
+            var pattern = id.getAnnotation(net.ximatai.muyun.spring.common.model.constraint.FieldPattern.class);
+            if (pattern != null) alias = alias.validationRegex(pattern.value());
+            fields.putIfAbsent(new ViewFieldRef(null, "alias", null), alias);
         }
         return fields;
     }
@@ -51,8 +74,14 @@ final class FieldWriteRuleProjection {
             boolean insert = rules.requiredOnInsert() && (model.behavior().defaultValue() == null
                     || model.behavior().defaultValue().isBlank());
             boolean update = rules.requiredOnUpdate();
-            if (!insert && !update) return field;
-            return field.withInputRequirements(new FieldInputRequirements(insert, update));
+            // TEXT has no VARCHAR capacity, even when a legacy declaration carries a length hint.
+            Integer maxLength = model.type() == FieldType.STRING ? model.length() : null;
+            Integer precision = model.type() == FieldType.DECIMAL ? model.precision() : null;
+            Integer scale = model.type() == FieldType.DECIMAL ? model.scale() : null;
+            String regex = model.behavior().validationRegex();
+            if (!insert && !update && maxLength == null && precision == null && scale == null && regex == null
+                    && rules.textNormalization() == TextNormalization.NONE) return field;
+            return field.withInputRequirements(new FieldInputRequirements(insert, update, maxLength, precision, scale, regex, rules.textNormalization()));
         }).toList());
     }
 }

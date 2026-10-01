@@ -34,6 +34,23 @@ import static org.mockito.Mockito.doThrow;
 
 class AssistantWebControllerTest {
     @Test
+    void preservesSummaryBudgetFromJsonThroughTheWebBoundary() throws Exception {
+        var service = mock(AssistantTurnService.class);
+        when(service.turn(org.mockito.ArgumentMatchers.any())).thenReturn(
+                new AssistantTurnResult("已核实", List.of(), null, "stop", "summary"));
+        var request = new com.fasterxml.jackson.databind.ObjectMapper().readValue("""
+                {"message":"核实当前业务","context":{},"capabilities":[],"results":[],
+                 "executionBudget":{"phase":"summary","step":9,"normalLimit":8,"hardLimit":12}}
+                """, AssistantTurnWebRequest.class);
+        new AssistantWebController(service).turn(request);
+        var command = ArgumentCaptor.forClass(AssistantTurnCommand.class);
+        verify(service).turn(command.capture());
+        assertThat(command.getValue().summaryOnly()).isTrue();
+        assertThat(command.getValue().executionBudget()).isEqualTo(
+                new AssistantTurnCommand.ExecutionBudget("summary", 9, 8, 12));
+    }
+
+    @Test
     void rejectsNullDialogueItemsAsAValidationError() {
         assertThatThrownBy(() -> new AssistantTurnWebRequest("continue",
                 java.util.Collections.singletonList(null), Map.of(), List.of(), List.of()))

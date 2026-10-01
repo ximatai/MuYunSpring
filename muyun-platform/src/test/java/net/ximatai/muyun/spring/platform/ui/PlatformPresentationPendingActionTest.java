@@ -11,13 +11,30 @@ import static org.mockito.Mockito.*;
 
 class PlatformPresentationPendingActionTest {
     @Test
+    void domainServiceCanBeAssembledWithoutAWebExecutionCoordinator() {
+        try (var context = new org.springframework.context.annotation.AnnotationConfigApplicationContext()) {
+            context.registerBean(PlatformPresentationRevisionService.class, () -> mock(PlatformPresentationRevisionService.class));
+            context.registerBean(PlatformPresentationVariantService.class, () -> mock(PlatformPresentationVariantService.class));
+            context.registerBean(PlatformPageDefinitionService.class, () -> mock(PlatformPageDefinitionService.class));
+            context.registerBean(PlatformModuleActionService.class, () -> mock(PlatformModuleActionService.class));
+            context.registerBean(PlatformPresentationTemplateCatalog.class, PlatformPresentationTemplateCatalog::new);
+            context.registerBean(net.ximatai.muyun.spring.ability.event.RuntimeEventPublisher.class,
+                    net.ximatai.muyun.spring.ability.event.RuntimeEventPublisher::noop);
+            context.register(PlatformPresentationRevisionPublishService.class);
+            context.refresh();
+            assertThat(context.getBeansOfType(PublishedPageExecutionCoordinator.class)).isEmpty();
+            assertThat(context.getBean(PlatformPresentationRevisionPublishService.class)).isNotNull();
+        }
+    }
+
+    @Test
     void rejectsReferencedPendingActionBeforePublishingButAllowsUnreferencedDeclarations() {
         var revisions = mock(PlatformPresentationRevisionService.class);
         var variants = mock(PlatformPresentationVariantService.class);
         var pages = mock(PlatformPageDefinitionService.class);
         var actions = mock(PlatformModuleActionService.class);
         var service = new PlatformPresentationRevisionPublishService(revisions, variants, pages,
-                new PlatformPresentationTemplateCatalog());
+                new PlatformPresentationTemplateCatalog(), net.ximatai.muyun.spring.platform.support.TestBeanProviders.empty(PublishedPageExecutionCoordinator.class), net.ximatai.muyun.spring.ability.event.RuntimeEventPublisher.noop());
         ReflectionTestUtils.setField(service, "moduleActionService", actions);
         var page = new PlatformPageDefinition();
         page.setId("page"); page.setModuleAlias("sales.entry"); page.setEnabled(true);

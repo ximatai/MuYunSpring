@@ -126,6 +126,7 @@ const selectMetadataTreeNode = binding('selectMetadataTreeNode');
 const editPlanField = binding('editPlanField');
 const removePlanField = binding('removePlanField');
 const cancelFieldPlan = binding('cancelFieldPlan');
+const startFieldPlan = binding('startFieldPlan');
 const startCreateMainMetadata = binding('startCreateMainMetadata');
 const startCreateChildNode = binding('startCreateChildNode');
 const startCreateChildMetadataNode = binding('startCreateChildMetadataNode');
@@ -216,9 +217,6 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <p v-if="workspace && session.dirty.value" class="metadata-shared-draft">
-    对话与页面共用这份未保存候选。关闭本页后可继续；刷新工作区或切换身份后不会恢复。
-  </p>
   <ManagementWorkspace
     class="metadata-model-workspace"
     layout="default"
@@ -295,6 +293,9 @@ onUnmounted(() => {
               : state.selectedMetadata.value.alias
       "
     >
+      <template v-if="session.dirty.value" #status>
+        <span class="metadata-edit-status" role="status">未保存 · 刷新工作区或切换身份后不会恢复</span>
+      </template>
       <template #actions>
         <template v-if="state.fieldEditorOpen.value">
           <UiActionButton :disabled="saving" @click="cancelNodeEditor">取消</UiActionButton>
@@ -303,19 +304,25 @@ onUnmounted(() => {
           </UiActionButton>
         </template>
         <template v-else-if="fieldPlanActive">
-          <UiActionButton :disabled="saving" @click="cancelFieldPlan">取消方案</UiActionButton>
+          <UiDropdown v-slot="{ toggle }" :items="fieldCreationItems" @select="startCreateChildNode">
+            <UiActionButton :disabled="saving || loading" @click.stop="toggle">＋ 字段</UiActionButton>
+          </UiDropdown>
+          <UiActionButton :disabled="saving" @click="cancelFieldPlan">放弃更改</UiActionButton>
           <UiActionButton
             emphasis="primary"
             :loading="saving"
             :disabled="!fieldPlanEntries.length"
-            @click="previewAndApply('字段方案')"
-            >预检并保存方案</UiActionButton
+            @click="previewAndApply('字段更改')"
+            >预检并保存</UiActionButton
           >
         </template>
         <template v-else-if="!selectedNodeIsField">
           <UiDropdown v-slot="{ toggle }" :items="fieldCreationItems" @select="startCreateChildNode">
             <UiActionButton :disabled="saving || loading" @click.stop="toggle">＋ 字段</UiActionButton>
           </UiDropdown>
+          <UiActionButton :disabled="saving || loading || sorting" @click="startFieldPlan"
+            >批量添加字段</UiActionButton
+          >
           <UiActionButton :disabled="saving || loading" @click="startCreateChildMetadataNode"
             >＋ 子元数据</UiActionButton
           >
@@ -338,6 +345,9 @@ onUnmounted(() => {
         </UiActionButton>
       </template>
 
+      <p v-if="!state.fieldEditorOpen.value && !fieldPlanActive" class="metadata-page-guidance">
+        字段保存后，如需在业务页面展示或录入，请到“页面配置”编排并保存生效。
+      </p>
       <section v-if="state.fieldEditorOpen.value" class="metadata-inline-editor">
         <div class="metadata-editor-mode">
           <UiRadioGroup v-model:value="editorMode" :options="editorModeOptions" size="small" />
@@ -515,9 +525,11 @@ onUnmounted(() => {
                   style="width: 100%"
               /></label>
             </template>
-            <div v-if="editorMode === 'ADVANCED'" class="orchestration-form-flags record-form-full-row">
+            <div class="orchestration-form-flags record-form-full-row">
               <UiCheckbox v-model:checked="fieldDraft.required">必填</UiCheckbox>
               <UiCheckbox v-model:checked="fieldDraft.uniqueField">唯一</UiCheckbox>
+            </div>
+            <div v-if="editorMode === 'ADVANCED'" class="orchestration-form-flags record-form-full-row">
               <UiCheckbox v-model:checked="fieldDraft.indexed">建立索引</UiCheckbox>
               <UiCheckbox v-model:checked="fieldDraft.sortableField">排序字段</UiCheckbox>
               <UiCheckbox v-model:checked="fieldDraft.titleField">标题字段</UiCheckbox>
@@ -529,13 +541,14 @@ onUnmounted(() => {
 
       <section v-else-if="fieldPlanActive" class="metadata-node-summary" data-testid="metadata-field-plan">
         <RecordContentSectionHeading
-          title="多字段候选方案"
-          subtitle="尚未保存。逐项修改或移除后，统一预检并确认。"
+          title="待新增字段"
+          subtitle="可继续添加、修改或移除，完成后统一预检并确认保存。"
         />
         <article v-for="field in fieldPlanEntries" :key="field.fieldName" class="field-node-card">
-          <strong>新增：{{ field.title }}（{{ field.fieldName }}）</strong>
+          <strong>{{ field.title }}</strong>
           <p>
-            {{ metadataFieldPropertyLabel(fieldPropertyOf(field).kind) }} · {{ field.fieldSpecAlias }} ·
+            {{ metadataFieldPropertyLabel(fieldPropertyOf(field).kind) }} ·
+            {{ fieldSpecDisplayLabel(field.fieldSpecAlias, state.fieldSpecs.value) }} ·
             {{ field.required ? '必填' : '非必填' }}
           </p>
           <p v-if="fieldPropertyOf(field).referenceConfig">
@@ -546,10 +559,12 @@ onUnmounted(() => {
               fieldPropertyOf(field).dictionaryConfig?.dictionaryCategoryAlias
             }}
           </p>
-          <UiActionButton :disabled="saving" @click="editPlanField(field)">修改</UiActionButton>
-          <UiActionButton :disabled="saving" @click="removePlanField(field)">移除</UiActionButton>
+          <div class="metadata-toolbar__actions">
+            <UiActionButton :disabled="saving" @click="editPlanField(field)">修改</UiActionButton>
+            <UiActionButton :disabled="saving" @click="removePlanField(field)">移除</UiActionButton>
+          </div>
         </article>
-        <p v-if="!fieldPlanEntries.length">方案为空，可取消方案后重新生成。</p>
+        <p v-if="!fieldPlanEntries.length">点击“＋ 字段”开始添加。当前没有需要保存的字段。</p>
       </section>
       <section v-else-if="!selectedNodeIsField" class="metadata-node-summary">
         <RecordContentSectionHeading title="元数据信息" />
@@ -625,6 +640,7 @@ onUnmounted(() => {
         </UiActionButton>
       </template>
       <section v-if="state.mainEditorOpen.value" class="metadata-inline-editor">
+        <p role="status">本步先创建数据结构。确认保存后，再配置要记录的字段和明细；本步不录入业务记录。</p>
         <RecordFormGrid @submit.prevent="createMainMetadata">
           <label v-if="editorMode === 'ADVANCED'">
             <RecordFieldLabel required>元数据标识（alias）</RecordFieldLabel>
@@ -734,6 +750,12 @@ onUnmounted(() => {
 
 .metadata-edit-status span {
   color: var(--muyun-text-muted);
+}
+
+.metadata-page-guidance {
+  margin: 0;
+  color: var(--muyun-text-muted);
+  font-size: 12px;
 }
 
 .metadata-node-summary,

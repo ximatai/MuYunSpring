@@ -138,6 +138,19 @@ it('passes standard appearance and connection state through to the workbench', (
   expect(workbench.props('realtimeStatus')).toBe('connected');
 });
 
+it('forwards a failed-load retry to the consumer that owns startup', async () => {
+  const wrapper = mount(AppWorkbenchShell, {
+    props: { startup: startup(), location: '/a', error: '服务暂时未就绪' },
+  });
+  await wrapper
+    .findAll('button')
+    .find((button) => button.text() === '重试加载')!
+    .trigger('click');
+  expect(wrapper.emitted('retryLoad')).toHaveLength(1);
+  expect(wrapper.emitted('navigate')).toBeUndefined();
+  wrapper.unmount();
+});
+
 it('uses the consumer router to apply an active tab change', async () => {
   const router = createRouter({
     history: createMemoryHistory(),

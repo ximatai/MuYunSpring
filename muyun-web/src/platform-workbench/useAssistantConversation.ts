@@ -11,6 +11,8 @@ import type {
   AssistantResultPresentation,
 } from '@muyun/web-contracts';
 import {
+  AppError,
+  modelFailureMessage,
   AssistantConversationInterruptedError,
   runAssistantConversation,
   sameAssistantInvocationToken,
@@ -48,9 +50,7 @@ export function useAssistantConversation(props: {
   configurationCollaboration?: ConfigurationCollaboration;
 }) {
   const draft = ref('');
-  const resumableRequest = ref('');
-  const interruptedRequest = ref('');
-  let lastTypedRequest = '';
+  const interruptedRequest = ref<{ userGoal: string; readOnly: boolean }>();
   const items = ref<ConversationItem[]>([]);
   const completedHistory = ref<AssistantConversationMessage[]>([]);
   const busy = ref(false);
@@ -80,7 +80,9 @@ export function useAssistantConversation(props: {
   let nextItemId = 0;
   let controller: AbortController | undefined;
   let conversationEpoch = 0;
-  let conversationScope: string | undefined;
+  let executionScope: string | undefined;
+  let executionGeneration = 0;
+  let requestGeneration: number | undefined;
   let identityScope: string | undefined;
   let streamingItemId: number | undefined;
   let pendingStreamText = '';
@@ -91,19 +93,33 @@ export function useAssistantConversation(props: {
   const restored = ref(false);
   const restoredThroughId = ref(0);
   const restoredRequest = ref('');
-  const recoveryRequest = computed(() => interruptedRequest.value || resumableRequest.value);
+  const recoveryRequest = computed(() => interruptedRequest.value?.userGoal ?? '');
+  const recoveryReadOnly = computed(() => interruptedRequest.value?.readOnly ?? true);
   function adjustRequest() {
     draft.value = recoveryRequest.value || restoredRequest.value;
-    interruptedRequest.value = '';
-    resumableRequest.value = '';
+    interruptedRequest.value = undefined;
   }
   function continueConversation() {
-    if (draft.value.trim() || busy.value || archive.loading.value) return;
-    draft.value = '帮我看看上次的事情做到哪了，还需要做什么。先别修改，也别保存。';
-    submit(true);
+    if (
+      draft.value.trim() ||
+      busy.value ||
+      archive.loading.value ||
+      activeRequiredSelection.value ||
+      !props.registry.snapshot()
+    )
+      return;
+    const userGoal = recoveryRequest.value || restoredRequest.value;
+    const readOnly = interruptedRequest.value?.readOnly ?? true;
+    const message = readOnly
+      ? `请核实当前需求的实际进度并建议下一步，暂不修改或保存。用户需求：${userGoal}`
+      : `请先核实当前事实，再继续准备用户需求尚缺的配置或业务候选；已有操作结果未知时先查询结果，不重提。新的保存仍须重新确认。用户需求：${userGoal}`;
+    restored.value = false;
+    interruptedRequest.value = undefined;
+    supersedePendingSelections();
+    void submitMessage(message, conversationHistory(), undefined, undefined, { userGoal }, readOnly);
   }
   const linkedPlanId = ref<string>();
-  function clearConversation() {
+  function clearConversation(resetDesign = false) {
     conversationEpoch++;
     controller?.abort();
     controller = undefined;
@@ -114,15 +130,14 @@ export function useAssistantConversation(props: {
     items.value = [];
     completedHistory.value = [];
     draft.value = '';
-    interruptedRequest.value = '';
-    resumableRequest.value = '';
-    lastTypedRequest = '';
+    interruptedRequest.value = undefined;
     streamingItemId = undefined;
     pendingStreamText = '';
     restored.value = false;
     restoredThroughId.value = 0;
     restoredRequest.value = '';
     linkedPlanId.value = undefined;
+    if (resetDesign) props.constructionPlan?.resetConversation();
     props.configurationCollaboration?.restore();
   }
   const archive = useAssistantConversationArchive(
@@ -132,36 +147,65 @@ export function useAssistantConversation(props: {
       messages: items.value.map(archiveMessage),
       history: completedHistory.value,
       configurationTask: props.configurationCollaboration?.task.value,
-      pendingRequest: busy.value
-        ? items.value.filter((item) => item.role === 'user').at(-1)?.text
-        : undefined,
-      planId: linkedPlanId.value ?? props.constructionPlan?.current().saved?.planId,
+      executionScopeKey: executionScope,
+      pendingRequest:
+        busy.value && requestGeneration === executionGeneration
+          ? items.value.filter((item) => item.role === 'user').at(-1)?.text
+          : undefined,
+      planId:
+        linkedPlanId.value ??
+        props.constructionPlan?.current().saved?.planId ??
+        (props.constructionPlan?.recovery.value ? props.constructionPlan.current().planId : undefined),
     }),
-    (content) => {
-      clearConversation();
+    async (content) => {
+      clearConversation(true);
       items.value = content.messages.map((message) => ({ ...message, id: ++nextItemId }));
-      completedHistory.value = boundedHistory([
-        ...content.history,
-        ...(content.pendingRequest ? [{ role: 'user' as const, text: content.pendingRequest }] : []),
-      ]);
+      const sameScope = content.executionScopeKey === executionScope;
+      completedHistory.value = sameScope
+        ? boundedHistory([
+            ...content.history,
+            ...(content.pendingRequest ? [{ role: 'user' as const, text: content.pendingRequest }] : []),
+          ])
+        : [];
       restoredThroughId.value = items.value.at(-1)?.id ?? 0;
-      restoredRequest.value =
-        content.messages.filter((message) => message.role === 'user').at(-1)?.text ?? '';
+      restoredRequest.value = sameScope
+        ? (content.pendingRequest ??
+          content.messages.filter((message) => message.role === 'user').at(-1)?.text ??
+          '')
+        : '';
       restored.value = true;
       linkedPlanId.value = content.planId;
+      props.constructionPlan?.resetConversation(content.planId);
       props.configurationCollaboration?.restore(content.configurationTask);
+      const epoch = conversationEpoch;
+      if (content.planId && props.constructionPlan) {
+        try {
+          await props.constructionPlan.restore(content.planId, () => epoch === conversationEpoch);
+        } catch (cause) {
+          if (epoch === conversationEpoch)
+            append(
+              'status',
+              cause instanceof AppError && (cause.status === 403 || cause.status === 404)
+                ? '聊天记录已恢复，但关联方案不存在或当前身份无权访问，暂不能继续修改该方案。可以核对登录身份与业务范围；如需重新整理，请新建对话。已有业务仍可按当前配置核实。'
+                : '历史建设记录暂时无法读取，仍可直接核实和改进当前业务。未完成设计请稍后重试读取。',
+            );
+        }
+      }
     },
-    clearConversation,
+    () => clearConversation(true),
+    () =>
+      props.constructionPlan?.recovery.value ? '建设确认结果尚未确定，请先查询结果再切换对话。' : undefined,
   );
 
   function append(
     role: ConversationItem['role'],
     text: string,
     details?: AssistantResultPresentation['details'],
+    diagnostic?: string,
   ) {
     const normalized = text.trim();
     if (!normalized) return;
-    items.value.push({ id: ++nextItemId, role, text: normalized, details });
+    items.value.push({ id: ++nextItemId, role, text: normalized, details, diagnostic });
   }
 
   function appendAssistant(text: string | undefined, selection?: AssistantSelectionInteraction) {
@@ -175,24 +219,15 @@ export function useAssistantConversation(props: {
     });
   }
 
-  function submit(readOnly = false) {
+  function submit() {
     const message = draft.value.trim();
-    if (
-      !message ||
-      archive.loading.value ||
-      busy.value ||
-      activeRequiredSelection.value ||
-      !props.registry.snapshot()
-    )
-      return;
+    if (!message || archive.loading.value || busy.value || !props.registry.snapshot()) return;
     restored.value = false;
     const history = conversationHistory();
-    lastTypedRequest = message;
-    resumableRequest.value = '';
     draft.value = '';
-    supersedeOpenSelections();
-    interruptedRequest.value = '';
-    void submitMessage(message, history, undefined, undefined, false, readOnly);
+    supersedePendingSelections();
+    interruptedRequest.value = undefined;
+    void submitMessage(message, history);
   }
 
   async function submitMessage(
@@ -200,7 +235,7 @@ export function useAssistantConversation(props: {
     history: AssistantConversationMessage[],
     selectionResponse?: AssistantSelectionResponse,
     sourceSelection?: ConversationSelection,
-    automatic = false,
+    continuation?: { userGoal: string },
     readOnly = false,
   ) {
     const beforeSync = conversationEpoch;
@@ -208,19 +243,31 @@ export function useAssistantConversation(props: {
     if (beforeSync !== conversationEpoch) return;
     if (!message || busy.value || archive.loading.value || !props.registry.snapshot()) return;
     const epoch = conversationEpoch;
+    let requestScope = executionGeneration;
+    requestGeneration = requestScope;
+    const userGoal = continuation?.userGoal ?? message;
+    const rememberInterruption = () => {
+      interruptedRequest.value = { userGoal, readOnly };
+    };
+    const commitTurn = (texts: string[]) => commitConversation(continuation ? undefined : userGoal, texts);
     append(
-      automatic ? 'status' : 'user',
-      automatic ? '正在核实已完成结果并准备下一步，可随时停止。' : message,
+      continuation ? 'status' : 'user',
+      continuation
+        ? readOnly
+          ? '正在核实当前进度，暂不修改或保存。'
+          : '正在核实已完成结果并准备下一步，可随时停止。'
+        : message,
     );
     busy.value = true;
     activity.value = 'understanding';
     controller = new AbortController();
     const assistantTexts: string[] = [];
+    const diagnostics: string[] = [];
     try {
       const saved = await archive.save();
-      if (epoch !== conversationEpoch) return;
+      if (epoch !== conversationEpoch || requestScope !== executionGeneration) return;
       if (!saved) {
-        interruptedRequest.value = message;
+        rememberInterruption();
         reopenSelection(sourceSelection);
         return;
       }
@@ -229,12 +276,27 @@ export function useAssistantConversation(props: {
         executionPolicy: { readOnly },
         history,
         ...(selectionResponse ? { selectionResponse } : {}),
-        onActivity(phase) {
+        onDiagnostic(event) {
+          if (event.type === 'capability.completed')
+            diagnostics.push(`${event.stepIndex + 1}: ${event.capabilityCode} · ${event.outcome}`);
+          else if (event.type === 'summary.completed')
+            diagnostics.push(`结果整理：${event.succeeded ? '完成' : (event.reason ?? '未完成')}`);
+        },
+        onExecutionScopeChange() {
           if (epoch !== conversationEpoch) return;
+          expireStaleSelections();
+          requestScope = executionGeneration;
+          requestGeneration = requestScope;
+          assistantTexts.length = 0;
+          streamingItemId = undefined;
+          pendingStreamText = '';
+        },
+        onActivity(phase) {
+          if (epoch !== conversationEpoch || requestScope !== executionGeneration) return;
           activity.value = phase;
         },
         onTextDelta(text) {
-          if (epoch !== conversationEpoch) return;
+          if (epoch !== conversationEpoch || requestScope !== executionGeneration) return;
           if (!text) return;
           if (streamingItemId === undefined) {
             pendingStreamText += text;
@@ -250,7 +312,7 @@ export function useAssistantConversation(props: {
           if (item) item.text += text;
         },
         onTextDiscard() {
-          if (epoch !== conversationEpoch) return;
+          if (epoch !== conversationEpoch || requestScope !== executionGeneration) return;
           if (streamingItemId !== undefined) {
             items.value = items.value.filter(({ id }) => id !== streamingItemId);
           }
@@ -258,7 +320,7 @@ export function useAssistantConversation(props: {
           pendingStreamText = '';
         },
         onStep(step) {
-          if (epoch !== conversationEpoch) return;
+          if (epoch !== conversationEpoch || requestScope !== executionGeneration) return;
           refreshConfirmations();
           if (step.output.text || step.output.selection) {
             assistantTexts.push(assistantHistoryText(step.output.text, step.output.selection));
@@ -303,14 +365,23 @@ export function useAssistantConversation(props: {
           }
         },
       });
-      if (epoch !== conversationEpoch) return;
+      if (epoch !== conversationEpoch || requestScope !== executionGeneration) return;
       if (result.termination === 'step-limit')
-        append('status', '本轮已达到步骤上限，已完成的草稿修改会保留。仍有未完成项时，可以告诉我继续核实。');
-      else if (
-        result.termination === 'repeated-call' &&
-        result.steps.at(-1)?.results.some((candidate) => candidate.error)
-      ) {
-        append('status', '相同操作未能完成，已停止重复尝试。可以补充信息后继续核实。');
+        append(
+          'status',
+          result.steps.some((step) => step.appliedEffectCount > 0)
+            ? '本轮已暂停，已完成的操作保留；这不代表配置或业务已保存。可以继续核实剩余事项。'
+            : '本轮已暂停，尚未完成的事项可以继续核实；读取信息不代表修改或保存。',
+          undefined,
+          diagnostics.join('\n'),
+        );
+      else if (result.termination === 'repeated-call') {
+        append(
+          'status',
+          '已停止重复操作，可以根据已查明的内容继续核实或补充需求。',
+          undefined,
+          diagnostics.join('\n'),
+        );
       } else if (
         result.steps.every(
           (step) => !step.output.text && !step.output.selection && !step.confirmations?.length,
@@ -326,36 +397,29 @@ export function useAssistantConversation(props: {
           assistantTexts.push('信息已读取，但未生成可展示的说明，请重新提问。');
         }
       }
-      if (
-        result.termination === 'step-limit' ||
-        (result.termination === 'repeated-call' &&
-          result.steps.at(-1)?.results.some((candidate) => candidate.error))
-      )
-        interruptedRequest.value = message;
-      commitConversation(message, assistantTexts);
+      if (result.termination === 'step-limit' || result.termination === 'repeated-call')
+        rememberInterruption();
+      commitTurn(assistantTexts);
       if (sourceSelection) sourceSelection.state = 'answered';
     } catch (error) {
-      if (epoch !== conversationEpoch) return;
-      interruptedRequest.value = message;
+      if (epoch !== conversationEpoch || requestScope !== executionGeneration) return;
+      rememberInterruption();
       if (isAbortError(error)) {
-        interruptedRequest.value = '';
-        commitConversation(message, [
-          ...assistantTexts,
-          '用户已停止本轮执行。需求仅作为讨论记录保留，不得自动继续执行。',
-        ]);
+        interruptedRequest.value = undefined;
+        commitTurn([...assistantTexts, '用户已停止本轮执行。需求仅作为讨论记录保留，不得自动继续执行。']);
         reopenSelection(sourceSelection);
         append('status', '已停止本次操作。');
       } else if (error instanceof StaleAssistantInvocationError) {
         reopenSelection(sourceSelection);
-        commitConversation(message, []);
+        commitTurn([]);
         append(
           'status',
           '页面发生了与当前任务冲突的变化，本轮已暂停。请确认当前页面后告诉我继续或调整目标。',
         );
       } else if (error instanceof AssistantConversationInterruptedError) {
-        if (error.termination === 'cancelled') interruptedRequest.value = '';
+        if (error.termination === 'cancelled') interruptedRequest.value = undefined;
         if (sourceSelection) sourceSelection.state = 'answered';
-        commitConversation(message, assistantTexts);
+        commitTurn(assistantTexts);
         const applied = error.steps.reduce((total, step) => total + step.appliedEffectCount, 0);
         const unknown = error.steps.some((step) =>
           step.results.some((result) => result.execution === 'unknown'),
@@ -370,15 +434,15 @@ export function useAssistantConversation(props: {
           'status',
           unknown
             ? `${reason}，有页面操作的结果尚不确定。请检查当前页面；不会自动重试。`
-            : `前面的 ${applied} 项页面操作已生效，${reason}，目标可能尚未完成。请检查草稿和待填项，再告诉我继续。`,
+            : `前面的 ${applied} 项页面操作已生效，${reason}，目标可能尚未完成。请检查草稿和待填项，再告诉我继续。` +
+                (error.termination === 'model-failed' ? `\n${assistantFailureMessage(error.cause)}` : ''),
+          undefined,
+          diagnostics.join('\n'),
         );
       } else {
         reopenSelection(sourceSelection);
-        commitConversation(message, assistantTexts);
-        append(
-          'status',
-          '本轮回复未能完成。已确认的保存结果仍有效，待确认内容不会因此自动提交。可以调整需求后继续处理。',
-        );
+        commitTurn(assistantTexts);
+        append('status', assistantFailureMessage(error));
       }
     } finally {
       if (epoch === conversationEpoch) {
@@ -417,26 +481,29 @@ export function useAssistantConversation(props: {
 
   function expireStaleSelections() {
     const token = props.registry.snapshot()?.token;
-    const scope = token?.conversationScopeKey;
+    const scope = token?.executionScopeKey;
     const identity = token?.identityScopeKey;
-    if (identity === identityScope && conversationScope === undefined && scope !== undefined) {
-      conversationScope = scope;
-      archive.changeScope(scope);
-    }
-    if (
-      (identity !== undefined && identity !== identityScope) ||
-      (scope !== undefined && scope !== conversationScope)
-    ) {
-      const previous = conversationScope;
-      const reusable = identity === identityScope && previous !== undefined ? lastTypedRequest : '';
-      // Clearing task context invalidates registry snapshots synchronously. Establish the new
-      // scope first so that re-entrant observers do not clear the same conversation again.
+    if (identity !== undefined && identity !== identityScope) {
+      const hadIdentity = identityScope !== undefined;
       identityScope = identity;
-      conversationScope = scope;
-      clearConversation();
-      resumableRequest.value = reusable;
-      archive.changeScope(scope);
-      if (previous !== undefined) append('status', '业务身份或租户范围已变化，已开始新会话。');
+      executionScope = scope;
+      clearConversation(hadIdentity);
+      // Personal history belongs to the authenticated identity, not the active page tenant.
+      archive.changeScope(JSON.stringify([identity]));
+    } else if (scope !== undefined && scope !== executionScope) {
+      const hadScope = executionScope !== undefined;
+      executionScope = scope;
+      executionGeneration++;
+      if (hadScope) {
+        // Retain the task and transcript, but never feed old business observations or
+        // pending requests into a different execution scope. Invocation tokens invalidate
+        // outstanding tools and confirmations independently of this conversation.
+        completedHistory.value = [];
+        interruptedRequest.value = undefined;
+        restoredRequest.value = '';
+        supersedePendingSelections();
+        append('status', '业务范围已变化，对话与建设目标保留；后续操作将重新核实当前页面的数据。');
+      }
     }
     refreshConfirmations();
     for (const item of items.value) {
@@ -462,7 +529,7 @@ export function useAssistantConversation(props: {
       return;
     }
     const history = conversationHistory();
-    supersedeOpenSelections(selection);
+    supersedePendingSelections(selection);
     selection.state = 'submitting';
     selection.retryable = false;
     selection.selectedOptionId = option.id;
@@ -478,9 +545,13 @@ export function useAssistantConversation(props: {
     );
   }
 
-  function supersedeOpenSelections(except?: ConversationSelection) {
+  function supersedePendingSelections(except?: ConversationSelection) {
     for (const item of items.value) {
-      if (item.selection && item.selection !== except && item.selection.state === 'open') {
+      if (
+        item.selection &&
+        item.selection !== except &&
+        (item.selection.state === 'open' || item.selection.state === 'submitting')
+      ) {
         item.selection.state = 'superseded';
       }
     }
@@ -507,10 +578,10 @@ export function useAssistantConversation(props: {
     ]);
   }
 
-  function commitConversation(message: string, assistantTexts: string[]) {
+  function commitConversation(message: string | undefined, assistantTexts: string[]) {
     completedHistory.value = boundedHistory([
       ...completedHistory.value,
-      { role: 'user', text: message },
+      ...(message ? [{ role: 'user' as const, text: message }] : []),
       ...assistantTexts.map((text): AssistantConversationMessage => ({ role: 'assistant', text })),
     ]);
   }
@@ -534,6 +605,7 @@ export function useAssistantConversation(props: {
   async function confirmOperation(item: ConversationItem, check = false) {
     if (!item.confirmation || busy.value || archive.loading.value) return;
     const epoch = conversationEpoch;
+    const operationScope = executionGeneration;
     busy.value = true;
     activity.value = 'executing';
     operationPending.value = true;
@@ -546,9 +618,8 @@ export function useAssistantConversation(props: {
       const result = item.confirmation.result;
       if (result) {
         append('status', [result.title, ...result.lines].join('\n'));
-        commitConversation(check ? '查询操作结果' : item.confirmation.confirmLabel, [
-          [result.title, ...result.lines].join('\n'),
-        ]);
+        if (operationScope === executionGeneration)
+          commitConversation(undefined, [[result.title, ...result.lines].join('\n')]);
       }
     } finally {
       if (epoch === conversationEpoch) {
@@ -557,9 +628,25 @@ export function useAssistantConversation(props: {
         activity.value = 'idle';
       }
     }
-    if (epoch === conversationEpoch && props.open && !draft.value.trim() && !activeRequiredSelection.value) {
+    if (
+      epoch === conversationEpoch &&
+      operationScope === executionGeneration &&
+      props.open &&
+      !draft.value.trim() &&
+      !activeRequiredSelection.value
+    ) {
       const next = item.confirmation.takeContinuation();
-      if (next) await submitMessage(next, conversationHistory(), undefined, undefined, true);
+      if (next) {
+        // Confirmation receipts can displace the user's request from bounded model history.
+        // Recover it from the conversation, where automatic continuation is never a user message.
+        const request = items.value.filter((entry) => entry.role === 'user').at(-1)?.text;
+        const message = request
+          ? `${next}\n用户最近明确提出的要求：${request.slice(0, MAX_HISTORY_MESSAGE_LENGTH)}\n仅续办该要求；任务清单不是扩大范围的授权。用户暂缓的事项继续保留，不重新提议建设；当前目标完成后说明结果并停止。`
+          : next;
+        await submitMessage(message, conversationHistory(), undefined, undefined, {
+          userGoal: request ?? '',
+        });
+      }
     }
   }
 
@@ -621,6 +708,7 @@ export function useAssistantConversation(props: {
     restoredThroughId,
     restoredRequest,
     recoveryRequest,
+    recoveryReadOnly,
     adjustRequest,
     continueConversation,
     items,
@@ -636,6 +724,32 @@ export function useAssistantConversation(props: {
     confirmOperation,
     cancelOperation,
   };
+}
+
+function assistantFailureMessage(error: unknown) {
+  if (error instanceof AppError) {
+    const modelMessage = modelFailureMessage(error);
+    if (modelMessage) {
+      const recovery = ['AI_MODEL_TIMEOUT', 'AI_MODEL_INCOMPLETE_RESPONSE', 'AI_MODEL_INTERRUPTED'].includes(
+        error.code,
+      )
+        ? '请核实当前页面后继续处理。'
+        : '';
+      return `${modelMessage}${recovery}已确认的保存结果仍有效，待确认内容没有提交。`;
+    }
+  }
+  const message = error instanceof Error ? error.message : '';
+  if (message === '模型本次回复在返回可用内容前中止，请稍后重试')
+    return '模型服务未返回可用内容。请稍后重试；持续失败时联系管理员检查模型服务状态。已确认的保存结果仍有效，待确认内容没有提交。';
+  if (message === '模型响应被截断，请缩短描述后重试')
+    return '模型本次回复达到长度上限，未能完成。已确认的保存结果仍有效，待确认内容没有提交。可以分步处理，或联系管理员调整回复上限。';
+  if (message.startsWith('本次内容预计超过模型上下文预算') || message.startsWith('本次输出预算超过模型容量'))
+    return `${message}。已确认的保存结果仍有效，待确认内容没有提交。`;
+  if (message.startsWith('AI model request was rejected'))
+    return '模型服务拒绝了本次请求。请稍后重试；持续失败时联系管理员检查模型配置与服务状态。已确认的保存结果仍有效，待确认内容没有提交。';
+  if (message === 'AI model response body timed out')
+    return '等待模型回复超时。已确认的保存结果仍有效，待确认内容没有提交。稍后可以继续核实当前需求。';
+  return '本轮回复未能完成。已确认的保存结果仍有效，待确认内容不会因此自动提交。可以调整需求后继续处理。';
 }
 
 function assistantHistoryText(text: string | undefined, selection?: AssistantSelectionInteraction) {

@@ -96,6 +96,10 @@ class StaticQuerySchemaContractTest {
         assertField(metadataField, "fieldName", QueryValueType.STRING);
         assertThat(metadataField.quickSearch().fields()).contains("fieldName", "columnName");
 
+        QuerySchema menuScheme = new MenuSchemeService(new TestMemoryDao<MenuScheme>()).querySchema();
+        assertField(menuScheme, "title", QueryValueType.STRING);
+        assertThat(menuScheme.quickSearch().fields()).contains("alias", "title");
+
         QuerySchema menu = new MenuService(new TestMemoryDao<Menu>(),
                 new MenuSchemeService(new TestMemoryDao<MenuScheme>()),
                 new PlatformModuleService(new TestMemoryDao<PlatformModule>(), event -> {})).querySchema();

@@ -114,7 +114,10 @@ class PlatformModuleServiceContractTest {
 
         assertThatThrownBy(() -> service.insert(module))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("moduleAlias");
+                .hasMessageContaining("模块标识与所属应用不匹配", "crm.");
+        assertThat(service.select("sales.customer")).isNull();
+        module.setAlias("crm.customer");
+        assertThat(service.insert(module)).isEqualTo("crm.customer");
     }
 
     @Test

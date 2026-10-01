@@ -6,6 +6,140 @@ import type { RecordFormFieldDescriptor } from '@/platform-components/recordForm
 import type { ModuleContext } from '@muyun/web-core';
 
 describe('RecordFormFields', () => {
+  it('keeps normalized required errors consistent with validity without changing the draft', async () => {
+    const fields = new Map<string, RecordFormFieldDescriptor>([
+      [
+        'code',
+        {
+          fieldRef: { fieldName: 'code' },
+          label: '编码',
+          inputRequirements: {
+            requiredOnInsert: true,
+            requiredOnUpdate: false,
+            textNormalization: 'TRIM_TO_NULL',
+            validationRegex: '[A-Z]+',
+            maxLength: 3,
+          },
+        },
+      ],
+    ]);
+    const record = { code: '\u001c' };
+    const wrapper = mount(RecordFormFields, { props: { fields, record, mode: 'create' } });
+    expect(wrapper.emitted('validity-change')?.at(-1)?.[0]).toMatchObject({
+      valid: false,
+      errors: { code: '请填写编码' },
+    });
+    expect(wrapper.find('[role="alert"]').exists()).toBe(false);
+    await wrapper.get('input').trigger('focusout');
+    expect(wrapper.get('[role="alert"]').text()).toBe('请填写编码');
+    expect(record.code).toBe('\u001c');
+    await wrapper.setProps({ record: { code: ' ABC ' } });
+    expect(wrapper.emitted('validity-change')?.at(-1)?.[0]).toMatchObject({ valid: true });
+    expect(wrapper.get('input').element.value).toBe(' ABC ');
+  });
+
+  it('shows required selection errors on the native control and clears them after correction', async () => {
+    const fields = new Map<string, RecordFormFieldDescriptor>([
+      [
+        'categories',
+        {
+          fieldRef: { fieldName: 'categories' },
+          label: '分类',
+          required: { constant: true },
+          fieldControl: { alias: 'multi_select', rendererType: 'MULTI_SELECT', valueShape: 'COLLECTION' },
+          option: {
+            binding: { sourceType: 'dictionary', source: 'crm.category' },
+            selectionMode: 'MULTIPLE',
+            inlineItems: [{ code: 'vip', title: '重点客户', enabled: true }],
+          },
+        },
+      ],
+    ]);
+    const wrapper = mount(RecordFormFields, { props: { fields, record: { categories: [] } } });
+    await flushPromises();
+    expect(wrapper.find('.ant-select-status-error').exists()).toBe(false);
+    await wrapper.setProps({ validationRequestKey: 1 });
+    expect(wrapper.find('.ant-select-status-error').exists()).toBe(true);
+    expect(wrapper.get('[role="alert"]').text()).toBe('请填写分类');
+    await wrapper.setProps({ record: { categories: ['vip'] } });
+    expect(wrapper.find('.ant-select-status-error').exists()).toBe(false);
+    expect(wrapper.find('[role="alert"]').exists()).toBe(false);
+  });
+
+  it('reports pattern errors immediately and clears them when corrected', async () => {
+    const fields = new Map<string, RecordFormFieldDescriptor>([
+      [
+        'alias',
+        {
+          fieldRef: { fieldName: 'alias' },
+          label: '应用 alias',
+          inputRequirements: {
+            requiredOnInsert: true,
+            requiredOnUpdate: false,
+            maxLength: 64,
+            validationRegex: '[a-z][a-z0-9_]{0,62}',
+          },
+        },
+      ],
+    ]);
+    const wrapper = mount(RecordFormFields, { props: { fields, record: { alias: '中文' }, mode: 'create' } });
+    expect(wrapper.get('[role="alert"]').text()).toContain('格式不符合要求');
+    expect(wrapper.find('.record-form-field--invalid').exists()).toBe(true);
+    expect(wrapper.text()).not.toContain('最多 64 个字符');
+    expect(wrapper.get('input').attributes('aria-invalid')).toBe('true');
+    await wrapper.setProps({ record: { alias: 'sales_order' } });
+    expect(wrapper.find('[role="alert"]').exists()).toBe(false);
+    expect(wrapper.get('input').attributes('aria-invalid')).toBeUndefined();
+    expect(wrapper.emitted('validity-change')?.at(-1)?.[0]).toMatchObject({ valid: true });
+    await wrapper.setProps({ record: { alias: '' }, validationRequestKey: 1 });
+    expect(wrapper.get('[role="alert"]').text()).toBe('请填写应用 alias');
+  });
+
+  it('keeps server-computed values read-only without inline explanations or required input', async () => {
+    const fields = new Map<string, RecordFormFieldDescriptor>([
+      [
+        'amount',
+        {
+          fieldRef: { fieldName: 'amount' },
+          label: '合计',
+          valueType: 'DECIMAL',
+          readOnly: { constant: true, disabledHint: '保存时自动计算，保存前显示原值或留空' },
+          required: { constant: false },
+          inputRequirements: { requiredOnInsert: true, requiredOnUpdate: true },
+        },
+      ],
+    ]);
+    const wrapper = mount(RecordFormFields, { props: { fields, record: {}, mode: 'create' } });
+    await flushPromises();
+    expect(wrapper.text()).not.toContain('保存时自动计算');
+    expect(wrapper.get('input').attributes('disabled')).toBeDefined();
+    expect(wrapper.emitted('validity-change')?.at(-1)?.[0]).toMatchObject({ valid: true });
+    await wrapper.setProps({ record: { amount: '11.00' }, mode: 'edit' });
+    expect((wrapper.get('input').element as HTMLInputElement).value).toBe('11.00');
+    expect(wrapper.text()).not.toContain('保存前显示原值或留空');
+  });
+
+  it('validates declared text capacity for manual and prefilled values using Unicode characters', async () => {
+    const fields = new Map<string, RecordFormFieldDescriptor>([
+      [
+        'code',
+        {
+          fieldRef: { fieldName: 'code' },
+          label: '编码',
+          inputRequirements: { requiredOnInsert: false, requiredOnUpdate: false, maxLength: 2 },
+        },
+      ],
+    ]);
+    const wrapper = mount(RecordFormFields, { props: { fields, record: { code: 'abc' }, mode: 'create' } });
+    await flushPromises();
+    expect(wrapper.emitted('validity-change')?.at(-1)?.[0]).toMatchObject({
+      valid: false,
+      errors: { code: '编码最多允许 2 个字符' },
+    });
+    await wrapper.setProps({ record: { code: '😀文' } });
+    expect(wrapper.emitted('validity-change')?.at(-1)?.[0]).toMatchObject({ valid: true });
+  });
+
   it('validates insert requirements using the supplied mode even with a preallocated id', async () => {
     const fields = new Map<string, RecordFormFieldDescriptor>([
       [
@@ -384,10 +518,12 @@ describe('RecordFormFields', () => {
       { valid: false, errors: { primaryValueKey: '请填写主分量键' } },
     ]);
 
+    await wrapper.get('input').trigger('focusout');
+    expect(wrapper.get('[role="alert"]').text()).toBe('请填写主分量键');
     await wrapper.setProps({ validationRequestKey: 1 });
     await wrapper.vm.$nextTick();
     expect(wrapper.find('.record-form-field--validation-pulse').exists()).toBe(true);
-    expect(wrapper.find('[role="alert"]').exists()).toBe(false);
+    expect(wrapper.get('[role="alert"]').text()).toBe('请填写主分量键');
 
     await wrapper.setProps({ record: { valueShape: 'COMPOSITE', primaryValueKey: 'value' } });
     expect(wrapper.find('.record-form-field--validation-pulse').exists()).toBe(false);
@@ -532,6 +668,35 @@ describe('RecordFormFields', () => {
     textarea.vm.$emit('update:value', '"not an object"');
     await wrapper.vm.$nextTick();
     expect(wrapper.find('[role="alert"]').text()).toContain('有效 JSON');
+  });
+
+  it('keeps malformed required JSON errors through blur and submit, then recovers', async () => {
+    const fields = new Map<string, RecordFormFieldDescriptor>([
+      [
+        'payload',
+        {
+          fieldRef: { fieldName: 'payload' },
+          label: '扩展信息',
+          required: { constant: true },
+          fieldControl: { alias: 'json', rendererType: 'JSON', valueShape: 'SCALAR' },
+        },
+      ],
+    ]);
+    const wrapper = mount(RecordFormFields, { props: { record: { payload: null }, fields } });
+    const textarea = wrapper.findComponent({ name: 'UiTextArea' });
+    textarea.vm.$emit('update:value', '{bad');
+    await wrapper.get('textarea').trigger('focusout');
+    expect(wrapper.get('[role="alert"]').text()).toBe('请输入有效 JSON');
+    await wrapper.setProps({ validationRequestKey: 1 });
+    expect(wrapper.get('[role="alert"]').text()).toBe('请输入有效 JSON');
+    expect(wrapper.emitted('validity-change')?.at(-1)).toEqual([
+      expect.objectContaining({ valid: false, errors: { payload: '请输入有效 JSON' } }),
+    ]);
+    textarea.vm.$emit('update:value', '{"level":3}');
+    expect(wrapper.emitted('update:field')).toContainEqual(['payload', { level: 3 }]);
+    await wrapper.setProps({ record: { payload: { level: 3 } } });
+    expect(wrapper.find('[role="alert"]').exists()).toBe(false);
+    expect(wrapper.emitted('validity-change')?.at(-1)).toEqual([expect.objectContaining({ valid: true })]);
   });
 
   it('publishes invalid editor and unsupported-control state, then recovers after correction', async () => {

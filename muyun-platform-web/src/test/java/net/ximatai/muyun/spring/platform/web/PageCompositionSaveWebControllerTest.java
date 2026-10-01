@@ -12,6 +12,19 @@ import static org.mockito.Mockito.*;
 class PageCompositionSaveWebControllerTest {
     @ParameterizedTest
     @ValueSource(booleans = {true, false})
+    void resultCheckOnlyReadsTheCompositionReceipt(boolean committed) {
+        var service = mock(PageCompositionSaveService.class);
+        var command = new net.ximatai.muyun.spring.platform.ui.PageCompositionSaveCommand(
+                new net.ximatai.muyun.spring.platform.ui.PlatformPresentationRevision(), "relation", 1, java.util.List.of());
+        when(service.committed("revision", command)).thenReturn(committed);
+        var controller = new PageCompositionSaveWebController(service, new ActionEndpointContextResolver(), mock(ActionExecutionPolicyService.class));
+        assertThat(controller.committed("revision", command)).isEqualTo(committed);
+        verify(service).committed("revision", command);
+        verifyNoMoreInteractions(service);
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
     void catalogReflectsChildPermissionWithoutHidingFieldComponents(boolean allowed) {
         var service = mock(PageCompositionSaveService.class);
         when(service.catalog("revision")).thenReturn(new PageCompositionSaveService.ComponentCatalog(

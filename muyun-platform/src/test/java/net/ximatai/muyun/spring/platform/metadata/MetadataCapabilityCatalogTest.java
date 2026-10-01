@@ -12,6 +12,18 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class MetadataCapabilityCatalogTest {
     @Test
+    void designDiscoveryUsesTheStandardSchemaAndTheSameRecordNameValidation() {
+        var contract = MetadataCapabilityCatalog.designContract();
+        assertThat(contract.inheritedFields()).isEqualTo(
+                net.ximatai.muyun.spring.common.schema.StandardEntitySchema.fieldNames());
+        assertThat(contract.declarableCapabilities()).isEqualTo(MetadataCapabilityCatalog.plan(
+                Set.of(EntityCapability.TREE, EntityCapability.SORT, EntityCapability.ENABLE, EntityCapability.RECYCLE_BIN)));
+        assertThat(contract.recordName().accepts("title", "title", "STRING")).isTrue();
+        assertThat(contract.recordName().accepts("customerName", "customer_name", "STRING")).isFalse();
+        assertThat(contract.recordName().accepts("title", "title", "TEXT")).isFalse();
+    }
+
+    @Test
     void shouldUseFieldInferenceOnlyForLegacyNullDeclarations() {
         Metadata legacy = metadata();
         MetadataField parent = field("parentId", "parent_id");

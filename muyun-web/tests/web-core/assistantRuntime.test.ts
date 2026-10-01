@@ -693,7 +693,7 @@ it('does not execute the same successful capability call twice in one conversati
   ]);
 });
 
-it('only reuses a successful call in the immediately following model decision', async () => {
+it('reuses nonadjacent calls while their context is unchanged', async () => {
   const execute = vi.fn(async (input) => input);
   const requestTurn = vi
     .fn()
@@ -723,10 +723,11 @@ it('only reuses a successful call in the immediately following model decision', 
   const result = await runAssistantConversation(registry, 'read values');
 
   expect(result.termination).not.toBe('step-limit');
-  expect(execute).toHaveBeenCalledTimes(3);
+  expect(execute).toHaveBeenCalledTimes(2);
   expect(execute).toHaveBeenNthCalledWith(1, { key: 'a' }, expect.anything());
   expect(execute).toHaveBeenNthCalledWith(2, { key: 'b' }, expect.anything());
-  expect(execute).toHaveBeenNthCalledWith(3, { key: 'a' }, expect.anything());
+  expect(result.termination).toBe('repeated-call');
+  expect(result.steps.at(-1)?.output.text).toBe('done');
 });
 
 it('restarts a post-navigation decision only when the target page replaces its fallback surface', async () => {
@@ -1102,7 +1103,7 @@ it('waits for a pending fallback to resolve before sending history to its transp
   registry.register({
     pageInstanceKey: 'a',
     fallback: true,
-    conversationScopePending: true,
+    executionScopePending: true,
     contextRevision: () => '',
     surface: {
       describe: () => ({ surface: 'workbench', facts: {} }),
@@ -1114,7 +1115,7 @@ it('waits for a pending fallback to resolve before sending history to its transp
   const pending = runAssistantConversation(registry, 'hello');
   registry.register({
     pageInstanceKey: 'a',
-    conversationScopeKey: () => 'tenant-a',
+    executionScopeKey: () => 'tenant-a',
     contextRevision: () => '',
     surface: {
       describe: () => ({ surface: 'test', facts: {} }),
@@ -1133,7 +1134,7 @@ it('does not send the previous goal or results after a capability changes tenant
   const requestTurn = vi.fn(async () => ({ toolCalls: [{ id: 'call', code: 'scope.change', input: {} }] }));
   registry.register({
     pageInstanceKey: 'a',
-    conversationScopeKey: () => scope,
+    executionScopeKey: () => scope,
     contextRevision: () => '',
     surface: {
       describe: () => ({ surface: 'test', facts: {} }),
@@ -1158,13 +1159,16 @@ it('does not send the previous goal or results after a capability changes tenant
   expect(requestTurn).toHaveBeenCalledOnce();
 });
 
-it('retains compact effect receipts without accumulating old read payloads', async () => {
+it.each([false, true])('retains compact effect receipts when repeated read is %s', async (repeatRead) => {
   let revision = 'before';
   const requestTurn = vi
     .fn()
-    .mockResolvedValueOnce({ toolCalls: [{ id: 'effect', code: 'page.change', input: {} }] })
-    .mockResolvedValueOnce({ toolCalls: [{ id: 'read', code: 'page.inspect', input: {} }] })
-    .mockResolvedValueOnce({ text: 'Done', toolCalls: [] });
+    .mockResolvedValueOnce({ toolCalls: [{ id: 'effect', code: 'page.change', input: { quantity: 5 } }] })
+    .mockResolvedValueOnce({ toolCalls: [{ id: 'read', code: 'page.inspect', input: {} }] });
+  if (repeatRead) {
+    requestTurn.mockResolvedValueOnce({ toolCalls: [{ id: 'read-again', code: 'page.inspect', input: {} }] });
+  }
+  requestTurn.mockResolvedValueOnce({ text: 'Done', toolCalls: [] });
   const registry = createAssistantSurfaceRegistry();
   registry.register({
     pageInstanceKey: 'page',
@@ -1197,16 +1201,16 @@ it('retains compact effect receipts without accumulating old read payloads', asy
   });
   registry.activate('page');
   await runAssistantConversation(registry, 'change and inspect');
-  expect(requestTurn.mock.calls[2]?.[0].results).toEqual([
+  expect(requestTurn.mock.calls.at(-1)?.[0].results).toEqual([
     {
       callId: 'receipt-0-effect',
       capabilityCode: 'page.change',
-      input: {},
+      input: { quantity: 5 },
       execution: 'effect-applied',
       output: { completed: true },
     },
     {
-      callId: 'read',
+      callId: repeatRead ? 'read-again' : 'read',
       capabilityCode: 'page.inspect',
       input: {},
       execution: 'read',
@@ -1397,6 +1401,60 @@ it('evicts oversized historical observations without truncating the latest tool 
   expect(requestTurn.mock.calls[2]![0].results[0].output.value).toBe('small');
 });
 
+it.each([false, true])(
+  'restores evicted evidence once without repeating execution (repeat=%s)',
+  async (repeat) => {
+    const large = { id: 'large', code: 'page.read', input: { large: true } };
+    const requestTurn = vi
+      .fn()
+      .mockResolvedValueOnce({ toolCalls: [large] })
+      .mockResolvedValueOnce({ toolCalls: [{ id: 'small', code: 'page.read', input: { large: false } }] })
+      .mockResolvedValueOnce({ toolCalls: [{ ...large, id: 'restore' }] })
+      .mockResolvedValueOnce(
+        repeat ? { toolCalls: [{ ...large, id: 'repeat' }] } : { text: 'Evidence reconciled', toolCalls: [] },
+      )
+      .mockResolvedValueOnce({ text: 'Stopped repeating the same evidence', toolCalls: [] });
+    const execute = vi.fn(async (input: unknown) => ({
+      value: (input as { large: boolean }).large ? 'x'.repeat(13_000) : 'small',
+    }));
+    const registry = createAssistantSurfaceRegistry();
+    registry.register({
+      pageInstanceKey: 'page',
+      contextRevision: () => 'stable',
+      surface: {
+        describe: () => ({ surface: 'page', facts: {} }),
+        requestTurn,
+        capabilities: () => [
+          {
+            effect: 'read',
+            descriptor: { code: 'page.read', description: 'Read', inputSchema: {} },
+            parseInput: (input) => input,
+            execute,
+          },
+        ],
+      },
+    });
+    registry.activate('page');
+    const result = await runAssistantConversation(registry, 'Reconcile the evidence');
+    expect(execute).toHaveBeenCalledTimes(2);
+    expect(requestTurn.mock.calls[2]![0].results.map((entry: { output: unknown }) => entry.output)).toEqual([
+      { value: 'small' },
+    ]);
+    expect(requestTurn.mock.calls[3]![0].results).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ callId: 'restore', output: { value: 'x'.repeat(13_000) } }),
+      ]),
+    );
+    expect(result.termination).toBe(repeat ? 'repeated-call' : 'stopped');
+    if (repeat)
+      expect(requestTurn.mock.calls[4]![0].results).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ callId: 'repeat', output: { value: 'x'.repeat(13_000) } }),
+        ]),
+      );
+  },
+);
+
 it.each([
   ['VALIDATION_FAILED', 400, true],
   ['CONFLICT_VERSION', 409, true],
@@ -1498,5 +1556,219 @@ it.each([false, true])(
     ).toHaveLength(2);
     await runAssistantConversation(registry, '正常讨论');
     expect(requestTurn.mock.calls.at(-1)![0].capabilities).toHaveLength(3);
+  },
+);
+
+function budgetTrial(
+  options: { sameResult?: boolean; summaryCallsTool?: boolean; summaryFails?: boolean } = {},
+) {
+  const registry = createAssistantSurfaceRegistry();
+  let sequence = 0;
+  const execute = vi.fn(async (input) => (options.sameResult ? { ready: true } : input));
+  const request = vi.fn(async (input) => {
+    if (input.executionBudget?.phase === 'summary') {
+      expect(input.capabilities).toEqual([]);
+      if (options.summaryFails) throw new Error('provider failed');
+      return options.summaryCallsTool
+        ? { toolCalls: [{ id: 'forbidden', code: 'page.read', input: {} }] }
+        : { text: '已核实部分内容，仍有待查事项。', toolCalls: [] };
+    }
+    return { toolCalls: [{ id: `read-${sequence}`, code: 'page.read', input: { offset: sequence++ } }] };
+  });
+  registry.register({
+    pageInstanceKey: 'budget',
+    contextRevision: () => 'stable',
+    surface: {
+      describe: () => ({ surface: 'page', facts: {} }),
+      capabilities: () => [
+        {
+          effect: 'read',
+          descriptor: { code: 'page.read', description: 'Read', inputSchema: {} },
+          parseInput: (input) => input,
+          execute,
+        },
+      ],
+      requestTurn: request,
+    },
+  });
+  registry.activate('budget');
+  return { registry, execute, request };
+}
+
+it('extends only progressing work to twelve decisions then requests a tool-free summary', async () => {
+  const { registry, execute, request } = budgetTrial();
+  const result = await runAssistantConversation(registry, '检查当前业务');
+  expect(execute).toHaveBeenCalledTimes(12);
+  expect(request).toHaveBeenCalledTimes(13);
+  expect(request.mock.calls[8]?.[0].executionBudget).toEqual({
+    phase: 'work',
+    step: 9,
+    normalLimit: 8,
+    hardLimit: 12,
+  });
+  expect(result.termination).toBe('step-limit');
+  expect(result.steps.at(-1)?.output.text).toContain('待查');
+});
+
+it('stops changing-argument reads that bring no new facts before spending the normal budget', async () => {
+  const { registry, execute } = budgetTrial({ sameResult: true });
+  await runAssistantConversation(registry, '检查');
+  expect(execute).toHaveBeenCalledTimes(3);
+});
+
+it.each([{ summaryCallsTool: true }, { summaryFails: true }])(
+  'preserves results without executing an invalid or failed summary: %j',
+  async (options) => {
+    const { registry, execute } = budgetTrial(options);
+    const result = await runAssistantConversation(registry, '检查', { maxSteps: 2 });
+    expect(execute).toHaveBeenCalledTimes(2);
+    expect(result.steps).toHaveLength(2);
+    expect(result.termination).toBe('step-limit');
+  },
+);
+
+it('discards a summary when the user changes context while it is being generated', async () => {
+  let resolveSummary!: (value: { text: string; toolCalls: never[] }) => void;
+  const pending = new Promise<{ text: string; toolCalls: never[] }>((resolve) => {
+    resolveSummary = resolve;
+  });
+  let markStarted!: () => void;
+  const started = new Promise<void>((resolve) => {
+    markStarted = resolve;
+  });
+  let revision = 'before';
+  const registry = createAssistantSurfaceRegistry();
+  registry.register({
+    pageInstanceKey: 'summary',
+    contextRevision: () => revision,
+    surface: {
+      describe: () => ({ surface: 'page', facts: {} }),
+      capabilities: () => [
+        {
+          effect: 'read',
+          descriptor: { code: 'page.read', description: 'Read', inputSchema: {} },
+          parseInput: (input) => input,
+          execute: async () => ({ known: true }),
+        },
+      ],
+      requestTurn: async (input) => {
+        if (input.executionBudget?.phase === 'summary') {
+          markStarted();
+          return pending;
+        }
+        return { toolCalls: [{ id: 'read', code: 'page.read', input: {} }] };
+      },
+    },
+  });
+  registry.activate('summary');
+  const onStep = vi.fn();
+  const running = runAssistantConversation(registry, '检查', { maxSteps: 1, onStep });
+  const rejected = expect(running).rejects.toBeInstanceOf(StaleAssistantInvocationError);
+  await started;
+  revision = 'after';
+  resolveSummary({ text: '过期总结', toolCalls: [] });
+  await rejected;
+  expect(onStep).toHaveBeenCalledTimes(1);
+});
+
+it.each([403, 404])('reports inaccessible resources without leaking server details: %s', async (status) => {
+  const registry = createAssistantSurfaceRegistry();
+  registry.register({
+    pageInstanceKey: 'test',
+    contextRevision: () => 'stable',
+    surface: {
+      describe: () => ({ surface: 'page', facts: {} }),
+      capabilities: () => [
+        {
+          effect: 'read',
+          descriptor: { code: 'resource.read', description: 'Read', inputSchema: {} },
+          parseInput: (input) => input,
+          execute: async () => {
+            throw new AppError('secret-resource-detail', { status });
+          },
+        },
+      ],
+      requestTurn: async () => ({ toolCalls: [{ id: 'read', code: 'resource.read', input: {} }] }),
+    },
+  });
+  registry.activate('test');
+  const result = await runAssistantStep(registry, '继续');
+  expect(result.results[0]?.error?.code).toBe('RESOURCE_UNAVAILABLE');
+  expect(result.results[0]?.error?.message).toContain('不要重复相同请求');
+  expect(JSON.stringify(result.results)).not.toContain('secret-resource-detail');
+});
+
+it.each([false, true])(
+  'continues validated cross-scope navigation without old observations, identity changed: %s',
+  async (changeIdentity) => {
+    let identity = 'owner';
+    const registry = createAssistantSurfaceRegistry(() => identity);
+    const targetRequest = vi.fn<(input: unknown) => Promise<{ text: string; toolCalls: never[] }>>(
+      async () => ({ text: 'Target ready', toolCalls: [] }),
+    );
+    registry.register({
+      pageInstanceKey: 'governance',
+      executionScopeKey: () => '',
+      contextRevision: () => '',
+      surface: {
+        describe: () => ({ surface: 'test', facts: {} }),
+        capabilities: () => [],
+        requestTurn: targetRequest,
+      },
+    });
+    registry.register({
+      pageInstanceKey: 'business',
+      executionScopeKey: () => 'tenant-a',
+      contextRevision: () => '',
+      surface: {
+        describe: () => ({ surface: 'test', facts: {} }),
+        requestTurn: vi
+          .fn()
+          .mockResolvedValueOnce({ toolCalls: [{ id: 'read', code: 'page.read', input: {} }] })
+          .mockResolvedValueOnce({ toolCalls: [{ id: 'open', code: 'page.open', input: {} }] }),
+        capabilities: () => [
+          {
+            effect: 'read',
+            descriptor: { code: 'page.read', description: 'Read', inputSchema: {} },
+            parseInput: (value) => value,
+            execute: async () => ({ privateData: 'old tenant observation' }),
+          },
+          {
+            effect: 'page',
+            descriptor: { code: 'page.open', description: 'Open', inputSchema: {} },
+            parseInput: (value) => value,
+            execute: async (_input, context) => {
+              context.applyEffect(
+                () => {
+                  if (changeIdentity) identity = 'other';
+                  registry.activate('governance');
+                },
+                async () => registry.snapshot()?.token,
+              );
+              return { opened: true };
+            },
+          },
+        ],
+      },
+    });
+    registry.activate('business');
+    const scopeChanged = vi.fn();
+    const run = runAssistantConversation(registry, 'Prepare the form', {
+      history: [{ role: 'user', text: 'old scope history' }],
+      onExecutionScopeChange: scopeChanged,
+    });
+    if (changeIdentity) {
+      await expect(run).rejects.toThrow();
+      expect(targetRequest).not.toHaveBeenCalled();
+      expect(scopeChanged).not.toHaveBeenCalled();
+    } else {
+      expect((await run).termination).toBe('stopped');
+      expect(scopeChanged).toHaveBeenCalledOnce();
+      expect(targetRequest.mock.calls[0]?.[0]).toMatchObject({
+        message: 'Prepare the form',
+        history: [],
+        results: [],
+      });
+    }
   },
 );

@@ -9,6 +9,7 @@ import {
   type AssistantTurnRequester,
   emptyAssistantCapabilityInputSchema,
   parseEmptyAssistantCapabilityInput,
+  pageAssistantCatalog,
 } from '@muyun/web-core';
 import type { RecordQueryListQuerySnapshot } from '@muyun/platform-components';
 import {
@@ -22,6 +23,7 @@ import type { ModulePageSessionView } from './useModulePageSession';
 import { assistantEditableRecordIds, hasActiveRecordEditor } from './assistantRecordEditorPolicy';
 import {
   modulePageScopeCapabilities,
+  modulePageScopeCandidateFacts,
   type ModulePageAssistantTenantScope,
   type AssistantScopeCandidate,
 } from './modulePageAssistantScope';
@@ -31,14 +33,14 @@ export function modulePageAssistantContextRevision(view: ModulePageSessionView):
   return JSON.stringify({
     page: view.assistantContextRevision,
     relations: view.relationDrafts?.revision(),
-    query: querySnapshot ? assistantQueryProjectionDigest(querySnapshot) : null,
+    query: querySnapshot ? assistantQueryProjectionDigest(view, querySnapshot) : null,
     tree: view.treeQueryController?.revision() ?? null,
   });
 }
 
-function assistantQueryProjectionDigest(snapshot: RecordQueryListQuerySnapshot) {
+function assistantQueryProjectionDigest(view: ModulePageSessionView, snapshot: RecordQueryListQuerySnapshot) {
   const projection = JSON.stringify({
-    mode: snapshot.mode,
+    preview: assistantQueryContext(view, snapshot),
     quickSearchEnabled: snapshot.quickSearchEnabled,
     rowIds: snapshot.rows.map((row) => row.id ?? null),
   });
@@ -103,7 +105,16 @@ export function createModulePageAssistantSurface(
       : []),
   ];
   return {
-    describe: () => surfaceContext(view, tenantScope),
+    describe: () => {
+      const context = surfaceContext(view, tenantScope);
+      return {
+        ...context,
+        facts: {
+          ...context.facts,
+          scopeCandidates: modulePageScopeCandidateFacts(view, tenantScope, scopeCandidates),
+        },
+      };
+    },
     capabilities,
     requestTurn,
   };
@@ -119,7 +130,8 @@ function recordEditorCapabilities(view: ModulePageSessionView): AssistantCapabil
       effect: 'page',
       descriptor: {
         code: 'record.start-create',
-        description: '打开当前模块的标准新增表单并建立未保存草稿；需要新建单据或记录时使用。它不会保存。',
+        description:
+          '打开当前模块的标准新增表单并建立未保存草稿；树页面创建根记录。要在已有树记录下面创建子项，应先选中父记录，再使用 record.start-create-child。它不会保存。',
         inputSchema: emptyAssistantCapabilityInputSchema(),
       },
       parseInput: parseEmptyAssistantCapabilityInput,
@@ -130,6 +142,24 @@ function recordEditorCapabilities(view: ModulePageSessionView): AssistantCapabil
         );
       },
     });
+    if (view.persistentTreeDetail && !view.managedPageActions && view.selectedRecord?.id != null) {
+      capabilities.push({
+        effect: 'page',
+        descriptor: {
+          code: 'record.start-create-child',
+          description:
+            '在当前已选中的树记录下面打开标准新增子项表单。复用当前导航范围并自动填写上级记录，建立未保存草稿；先通过 tree.select-record 选中真实父节点。它不会保存。',
+          inputSchema: emptyAssistantCapabilityInputSchema(),
+        },
+        parseInput: parseEmptyAssistantCapabilityInput,
+        async execute(_input, context) {
+          const commit = await view.prepareAssistantCreate({ asChildOfSelectedRecord: true });
+          return context.applyEffect(commit, () =>
+            view.settleAssistantPageState(context.cancellationSignal ?? context.signal),
+          );
+        },
+      });
+    }
   }
   const editableRecordIds = assistantEditableRecordIds(view.selectedRecord?.id, querySnapshot);
   if (view.context.can('update') === true && editableRecordIds.length > 0) {
@@ -227,7 +257,8 @@ function queryCapabilities(view: ModulePageSessionView): AssistantCapability[] {
       effect: 'read',
       descriptor: {
         code: 'query.describe',
-        description: '读取当前标准列表的查询状态和可见结果页；它不会筛选记录，仅在需要了解当前结果时使用。',
+        description:
+          '读取当前标准列表的完整受限结果页；优先复用 facts.query 中的当前结果，仅在摘要截断或缺少所需信息时读取。它不会筛选记录。',
         inputSchema: emptyAssistantCapabilityInputSchema(),
       },
       parseInput: parseEmptyAssistantCapabilityInput,
@@ -256,7 +287,7 @@ function treeQueryCapabilities(view: ModulePageSessionView): AssistantCapability
     },
   };
   const selectionKeys = controller.snapshot().nodes.map(({ selectionKey }) => selectionKey);
-  return [
+  const capabilities: AssistantCapability[] = [
     {
       effect: 'read',
       descriptor: {
@@ -269,50 +300,52 @@ function treeQueryCapabilities(view: ModulePageSessionView): AssistantCapability
         return controller.snapshot();
       },
     },
-    {
-      effect: 'page',
-      descriptor: {
-        code: 'tree.select-record',
-        description:
-          '使用 tree.describe 返回的不透明 selectionKey 选中当前树中的记录；不得猜测 selectionKey。',
-        inputSchema: {
-          type: 'object',
-          additionalProperties: false,
-          required: ['selectionKey'],
-          properties: { selectionKey: { type: 'string', enum: selectionKeys } },
-        },
-      },
-      parseInput(input) {
-        if (
-          !isRecord(input) ||
-          typeof input.selectionKey !== 'string' ||
-          !selectionKeys.includes(input.selectionKey)
-        ) {
-          throw new AssistantCapabilityUsageError(
-            'tree.select-record requires a selectionKey from tree.describe',
-          );
-        }
-        return { selectionKey: input.selectionKey };
-      },
-      async execute({ selectionKey }, context) {
-        let selected!: ReturnType<typeof controller.select>;
-        context.applyEffect(
-          () => {
-            selected = controller.select(selectionKey);
-          },
-          () => view.settleAssistantPageState(context.cancellationSignal ?? context.signal),
-        );
-        return selected;
+  ];
+  if (selectionKeys.length === 0) return capabilities;
+  capabilities.push({
+    effect: 'page',
+    descriptor: {
+      code: 'tree.select-record',
+      description: '使用 tree.describe 返回的不透明 selectionKey 选中当前树中的记录；不得猜测 selectionKey。',
+      inputSchema: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['selectionKey'],
+        properties: { selectionKey: { type: 'string', enum: selectionKeys } },
       },
     },
-  ];
+    parseInput(input) {
+      if (
+        !isRecord(input) ||
+        typeof input.selectionKey !== 'string' ||
+        !selectionKeys.includes(input.selectionKey)
+      ) {
+        throw new AssistantCapabilityUsageError(
+          'tree.select-record requires a selectionKey from tree.describe',
+        );
+      }
+      return { selectionKey: input.selectionKey };
+    },
+    async execute({ selectionKey }, context) {
+      let selected!: ReturnType<typeof controller.select>;
+      context.applyEffect(
+        () => {
+          selected = controller.select(selectionKey);
+        },
+        () => view.settleAssistantPageState(context.cancellationSignal ?? context.signal),
+      );
+      return selected;
+    },
+  });
+  return capabilities;
 }
 
 function surfaceContext(
   view: ModulePageSessionView,
   tenantScope?: ModulePageAssistantTenantScope,
 ): AssistantSurfaceContext {
-  const navigatorScopes = view.assistantNavigatorScopes().map((level) => {
+  // A draft locks scope changes, but its visible ownership remains a readable fact.
+  const navigatorScopes = (view.visibleNavigatorLevels ?? []).map((level) => {
     const selected = view.selectedNavigatorRecords[level.descriptor.key];
     const selectedTitle = selected ? recordTitle(selected) : undefined;
     return {
@@ -331,6 +364,9 @@ function surfaceContext(
       editing: hasEditableDraft(view),
       dirty: view.detailDirty,
       creation: view.recordCreationState(),
+      ...(view.listQueryController
+        ? { query: assistantQueryContext(view, view.listQueryController.snapshot()) }
+        : {}),
       relations: assistantRelationFacts(view),
       ...(tenantScope?.tenantScopeExplorerVisible.value
         ? { tenant: tenantScope.selected.value ? recordTitle(tenantScope.selected.value) : null }
@@ -387,6 +423,27 @@ function assistantReadableName(view: ModulePageSessionView, name: string): boole
           candidate.fieldControl?.alias === 'password'),
     ),
   );
+}
+
+/** A bounded preview of the same protected list projection used by query.describe. */
+function assistantQueryContext(view: ModulePageSessionView, snapshot: RecordQueryListQuerySnapshot) {
+  const result = assistantQueryResult(assistantQuerySnapshot(view, snapshot));
+  const preview = pageAssistantCatalog(result.status === 'ready' ? result.rows : [], 0, 4_000);
+  return {
+    mode: result.mode,
+    status: result.status,
+    appliedQuickSearch: result.appliedQuickSearch,
+    standardQuery: result.standardQuery,
+    pageNum: result.pageNum,
+    pageSize: result.pageSize,
+    total: result.total,
+    totalKnown: result.totalKnown,
+    columns: result.columns,
+    rows: preview.items,
+    truncated:
+      result.truncated || preview.page.nextOffset !== null || preview.page.oversizedIndexes.length > 0,
+    detailsCapability: 'query.describe',
+  };
 }
 
 function assistantQuerySnapshot(

@@ -35,6 +35,7 @@ const props = withDefaults(
     title?: string;
     placeholder?: string;
     searchPlaceholder?: string;
+    invalid?: boolean;
     disabled?: boolean;
     allowClear?: boolean;
   }>(),
@@ -45,6 +46,7 @@ const props = withDefaults(
     title: '选择字典项',
     placeholder: '搜索并选择',
     searchPlaceholder: '按名称或编码搜索',
+    invalid: false,
     disabled: false,
     allowClear: true,
   },
@@ -255,6 +257,7 @@ function dictionaryDraftMatches(draft: string, items: readonly OptionItemDescrip
     <template v-if="mode === 'dropdown'">
       <UiTreeSelect
         v-if="hasHierarchy"
+        :invalid="invalid"
         :value="dropdownPickerValue"
         :tree-data="dropdownTreeData"
         :mode="selectionMode === 'MULTIPLE' ? 'multiple' : undefined"
@@ -287,6 +290,7 @@ function dictionaryDraftMatches(draft: string, items: readonly OptionItemDescrip
       </UiTreeSelect>
       <UiSelect
         v-else
+        :invalid="invalid"
         :value="dropdownPickerValue"
         :options="dropdownOptions"
         :mode="selectionMode === 'MULTIPLE' ? 'multiple' : undefined"
@@ -320,6 +324,7 @@ function dictionaryDraftMatches(draft: string, items: readonly OptionItemDescrip
     </template>
     <ObjectPickerInput
       v-else
+      :invalid="invalid"
       :value="selectionSummary"
       :selection-version="compactInputVersion"
       :linked="externalCodes.length > 0"

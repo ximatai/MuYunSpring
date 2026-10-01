@@ -6,7 +6,8 @@ import org.springframework.stereotype.Service;
 /** Privileged configuration diagnostic; it intentionally returns no model content or credential detail. */
 @Service
 public class AiModelConnectionTester {
-    private static final AiTextRequest PROBE = AiTextRequest.userText("Reply with exactly OK.");
+    private static final AiTextRequest PROBE = new AiTextRequest(
+            java.util.List.of(new AiChatMessage(AiChatMessage.Role.USER, "Reply with exactly OK.")), null, 32);
 
     private final AiModelConfigurationService configurationService;
     private final AiModelRouteResolver routeResolver;
@@ -45,6 +46,7 @@ public class AiModelConnectionTester {
             candidate.setCredentialSource(AiModelCredentialSource.ENVIRONMENT);
             String name = draft.getApiKeyEnvironmentVariable();
             candidate.setApiKeyEnvironmentVariable(name == null ? null : name.trim());
+            copyLimits(draft, candidate);
             return testCandidate(candidate);
         }
         String apiKey = draft.getApiKeyInput();
@@ -59,12 +61,23 @@ public class AiModelConnectionTester {
         candidate.setProvider(draft.getProvider().trim());
         candidate.setModelId(draft.getModelId().trim());
         candidate.setApiKey(apiKey.trim());
+        copyLimits(draft, candidate);
         return testCandidate(candidate);
+    }
+
+    private void copyLimits(AiModelConfiguration source, AiModelConfiguration target) {
+        target.setContextWindowTokens(source.getContextWindowTokens());
+        target.setMaxOutputTokens(source.getMaxOutputTokens());
+        target.setDefaultOutputTokens(source.getDefaultOutputTokens());
     }
 
     private AiModelConnectionTestResult testCandidate(AiModelConfiguration configuration) {
         long startedAt = System.nanoTime();
-        client.generate(routeResolver.resolveCandidate(configuration), PROBE);
+        AiTextResponse response = client.generate(routeResolver.resolveCandidate(configuration), PROBE);
+        if (response == null || response.text() == null || response.text().isBlank()
+                || !"stop".equalsIgnoreCase(response.finishReason())) {
+            throw new PlatformException("模型服务未返回完整的非空回复，请检查模型配置或服务状态");
+        }
         return new AiModelConnectionTestResult(true, (System.nanoTime() - startedAt) / 1_000_000L);
     }
 }

@@ -40,20 +40,31 @@ class AssistantPlatformKnowledgeTest {
                 .contains("standard MuYun record workspace", "MuYun workbench navigation",
                         "with pageContext.title",
                         "facts.moduleAlias",
-                        "find visible menus, open only an exact returned menuId",
-                        "Do not operate on a related but different module",
+                        "open only an exact returned menuId",
+                        "Use the correct module", "Entry configuration stays in menu governance",
                         "only the requested choice",
                         "never copy a scope or reference title into unrelated fields");
+        assertThat(AssistantPlatformKnowledge.appendTo(
+                "base", Map.of("surface", "page-composition"), List.of(navigation)))
+                .contains("active page", "visible standard governance entry",
+                        "open it to acquire its capabilities", "standard menu management");
     }
 
     @Test
-    void suppliesSharedEditorKnowledgeFromCapabilitiesWithoutAnEditorPage() {
+    void discoversCollaborationBeforeLoadingDetailedSharedEditorKnowledge() {
         List<AiToolDefinition> capabilities = List.of(
                 new AiToolDefinition("configuration.select-metadata-module", "Select metadata module", Map.of()),
                 new AiToolDefinition("rules.select-module", "Select rule module", Map.of()));
 
+        assertThat(AssistantPlatformKnowledge.appendTo("base", Map.of("surface", "workbench"), capabilities))
+                .contains("configuration.start-task", "does not require a new construction plan")
+                .doesNotContain("MuYun metadata governance", "standard business-rule governance workspace",
+                        "configuration.prepare-metadata-apply", "rules.prepare-apply");
+        var selectedCapabilities = new java.util.ArrayList<>(capabilities);
+        selectedCapabilities.add(new AiToolDefinition("configuration.describe-metadata-model", "Read metadata", Map.of()));
+        selectedCapabilities.add(new AiToolDefinition("rules.describe", "Read rules", Map.of()));
         assertThat(AssistantPlatformKnowledge.appendTo(
-                "base", Map.of("surface", "workbench"), capabilities))
+                "base", Map.of("surface", "workbench"), selectedCapabilities))
                 .contains("does not require a new construction plan",
                         "configuration.prepare-metadata-apply", "including manual edits",
                         "closing the editor does not discard it", "not persisted conversation history",
@@ -61,6 +72,21 @@ class AssistantPlatformKnowledgeTest {
                         "configurationEditor.visible", "reopen the shared editor",
                         "live workspace may still retain unsaved changes",
                         "do not repeat module aliases");
+    }
+
+    @Test
+    void constructionGuidanceStaysBoundedAndDoesNotDuplicateFieldOrWorkflowContracts() {
+        var guidance = AssistantPlatformKnowledge.appendTo("base", Map.of("surface", "construction"),
+                List.of(new AiToolDefinition("construction.describe", "Read the current design", Map.of())));
+        assertThat(guidance.length()).isLessThan(3500);
+        assertThat(guidance).contains("current capability schemas and read catalogs", "human confirmations",
+                "CURRENT standard governance", "not a fixed sequence", "limited configuration evidence",
+                "visible standard management page", "separate human confirmation", "standard pages own creation drafts",
+                "requirements=[]", "facts.workspace.constructionPlan", "prepare human confirmation instead",
+                "selected applicationAlias + '.'", "choose technical IDs for users",
+                "calibrate ONE foundation module", "Existing modules also need business calibration",
+                "Do not inspect every module before this discussion")
+                .doesNotContain("titleField=true", "1–12", "BEFORE_SAVE", "customer", "product");
     }
 
     @Test

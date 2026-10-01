@@ -81,7 +81,7 @@ it('asks for a task mode before edits and holds that choice until an explicit sw
   expect(f.codes()).toContain('rules.open-editor');
   expect(f.codes()).not.toContain('rules.revise');
   expect(f.codes(true)).toContain('rules.revise');
-  expect(f.codes()).not.toContain('rules.prepare-apply');
+  expect(f.codes()).toContain('rules.prepare-apply');
   await f.invoke('configuration.switch-mode', { mode: 'conversation' });
   await confirmation.confirm();
   expect(f.saved).not.toHaveBeenCalled();
@@ -93,7 +93,6 @@ it('asks for a task mode before edits and holds that choice until an explicit sw
 it('restores only the task preference and rejects malformed or implicit choices', async () => {
   const f = fixture();
   for (const input of [
-    { goal: 'test' },
     { goal: 'test', mode: ['visual'] },
     { goal: '', mode: 'visual' },
     { goal: 'x', mode: 'auto' },
@@ -103,8 +102,47 @@ it('restores only the task preference and rejects malformed or implicit choices'
   f.collaboration.restore(snapshot);
   snapshot.goal = 'changed outside';
   expect(f.collaboration.task.value?.goal).toBe('调整字段');
-  expect(f.codes()).not.toContain('rules.prepare-apply');
+  expect(f.codes()).toContain('rules.prepare-apply');
   expect(f.saved).not.toHaveBeenCalled();
   f.collaboration.restore();
   expect(f.codes()).toEqual(['rules.select-module', 'rules.describe']);
+});
+
+it('defaults to visual collaboration and supports conversation confirmation with the same proposal', async () => {
+  const f = fixture();
+  await f.invoke('configuration.start-task', { goal: '整理登记内容' });
+  expect(f.collaboration.task.value?.mode).toBe('visual');
+  const confirmation = (await f.invoke('rules.prepare-apply')).confirmation!;
+  expect(f.saved).not.toHaveBeenCalled();
+  await confirmation.confirm();
+  expect(f.saved).toHaveBeenCalledOnce();
+});
+
+it('uses shared page candidates by default and confines legacy page publication to explicit conversation mode', async () => {
+  const collaboration = createConfigurationCollaboration();
+  const publish = vi.fn(async () => ({ title: 'published', lines: [] }));
+  const page: AssistantCapability = {
+    descriptor: { code: 'construction.prepare-page', description: '', inputSchema: {} },
+    effect: 'read',
+    parseInput: (v) => v,
+    execute: vi.fn(),
+    propose: () => ({
+      modelSummary: '',
+      presentation: { title: '', lines: [] },
+      confirmLabel: '',
+      expiresAt: Date.now() + 60_000,
+      lookup: async () => undefined,
+      isCurrent: () => true,
+      execute: publish,
+    }),
+  };
+  expect(collaboration.filterConstruction([page])).toEqual([]);
+  collaboration.restore({ goal: '页面配置', mode: 'visual' });
+  expect(collaboration.filterConstruction([page])).toEqual([]);
+  collaboration.restore({ goal: '页面配置', mode: 'conversation' });
+  const proposal = collaboration.filterConstruction([page])[0]!.propose!({});
+  collaboration.restore({ goal: '页面配置', mode: 'visual' });
+  expect(proposal.isCurrent()).toBe(false);
+  await expect(proposal.execute()).rejects.toThrow();
+  expect(publish).not.toHaveBeenCalled();
 });

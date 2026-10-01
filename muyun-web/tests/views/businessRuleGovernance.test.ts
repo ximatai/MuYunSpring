@@ -13,6 +13,7 @@ import {
   typedSampleValue,
   formulaFieldUnusableReason,
   aggregateFieldInsertionReason,
+  businessRuleTrialValue,
   normalizeFormulaCapabilities,
   searchableFormulaCapabilities,
   type BusinessRuleSnapshot,
@@ -106,6 +107,32 @@ describe('business-rule governance proposal mapping', () => {
     expect(aggregateFieldInsertionReason(productName, 'SUM(', 4)).toContain('不能用于 SUM');
     expect(aggregateFieldInsertionReason(productName, 'COUNT(', 6)).toBeUndefined();
     expect(aggregateFieldInsertionReason(productName, '{amount} + ', 11)).toContain('只能作为');
+  });
+
+  it('permits declared row targets and same-row inputs without widening other formulas', () => {
+    const amount = {
+      id: 'lines.amount',
+      name: 'lines.amount',
+      label: '小计',
+      valueType: 'DECIMAL',
+      aggregateFunctions: ['SUM', 'COUNT'],
+    };
+    const targets = ['lines.amount'];
+    expect(aggregateFieldInsertionReason(amount, '', 0, targets)).toBeUndefined();
+    const quantity = { ...amount, name: 'lines.quantity' };
+    const row = '{lines.amount} = ';
+    expect(aggregateFieldInsertionReason(quantity, row, row.length, targets)).toBeUndefined();
+    const main = '{total} = ';
+    expect(aggregateFieldInsertionReason(quantity, main, main.length, targets)).toContain('只能作为');
+    expect(
+      aggregateFieldInsertionReason({ ...quantity, name: 'other.quantity' }, row, row.length, targets),
+    ).toContain('只能作为');
+    expect(
+      businessRuleTrialValue(
+        { values: { total: 51 }, children: { lines: [{ amount: 24 }, { amount: 27 }] } },
+        'lines.amount',
+      ),
+    ).toEqual([24, 27]);
   });
 
   it('does not treat field-shaped text in a quoted literal as a dependency', () => {

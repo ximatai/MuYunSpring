@@ -4,7 +4,7 @@ package net.ximatai.muyun.spring.platform.application;
 public record ApplicationConstructionRequirement(Section section, int index, String objectKey,
                                                 Mode mode, String fieldName, String explanation, Reference reference) {
     public enum Section { SCOPE, RULE, RELATION }
-    public enum Mode { FIELD, REQUIRED, UNIQUE, REFERENCE, MANUAL, UNSUPPORTED }
+    public enum Mode { FIELD, REQUIRED, UNIQUE, REFERENCE, CHILD, CALCULATION, MANUAL, UNSUPPORTED }
     public record Reference(String objectKey, String moduleAlias) {
         public Reference {
             objectKey = objectKey == null ? "" : objectKey.trim();
@@ -22,11 +22,12 @@ public record ApplicationConstructionRequirement(Section section, int index, Str
             throw new IllegalArgumentException("请说明本项如何兑现及仍需人工核对的内容");
         explanation = explanation.trim();
         fieldName = fieldName == null ? "" : fieldName.trim();
-        boolean field = mode == Mode.FIELD || mode == Mode.REQUIRED || mode == Mode.UNIQUE || mode == Mode.REFERENCE;
-        if (field ? !fieldName.matches("[a-z][a-zA-Z0-9_]{0,63}") : !fieldName.isEmpty())
+        boolean field = mode == Mode.FIELD || mode == Mode.REQUIRED || mode == Mode.UNIQUE || mode == Mode.REFERENCE || mode == Mode.CALCULATION;
+        if (field ? !fieldName.matches("[a-z][a-zA-Z0-9_]{0,63}(\\.[a-z][a-zA-Z0-9_]{0,63})?")
+                : mode == Mode.CHILD ? !fieldName.matches("[a-z][a-z0-9_]{0,62}") : !fieldName.isEmpty())
             throw new IllegalArgumentException("配置检查须绑定字段，人工或未支持项不能伪装为字段检查");
         if ((mode == Mode.REFERENCE) != (reference != null)) throw new IllegalArgumentException("引用兑现项必须声明目标，其他兑现项不能携带引用目标");
-        if (section == Section.RELATION && mode != Mode.UNSUPPORTED && mode != Mode.REFERENCE)
-            throw new IllegalArgumentException("普通字段不能兑现对象关联，请使用单值引用或明确暂不支持");
+        if (section == Section.RELATION && mode != Mode.UNSUPPORTED && mode != Mode.REFERENCE && mode != Mode.CHILD)
+            throw new IllegalArgumentException("普通字段不能兑现对象关联，请使用单值引用、主子关系或明确暂不支持");
     }
 }

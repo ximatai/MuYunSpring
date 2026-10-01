@@ -21,6 +21,23 @@ class FormulaEngineTest {
     );
 
     @Test
+    void distinguishesComputedOutputsFromConditionalAndSelfDependentInputs() {
+        assertThat(engine.unconditionalCalculationTarget(new FormulaRule("total", "{total} = SUM({lines.amount})")))
+                .isEqualTo("total");
+        assertThat(engine.unconditionalCalculationTarget(new FormulaRule("amount", "{lines.amount} = {lines.qty} * 2")))
+                .isEqualTo("lines.amount");
+        assertThat(engine.unconditionalCalculationTarget(new FormulaRule("constant", "10",
+                FormulaRuleKind.CALCULATION, FormulaRulePhase.BEFORE_SAVE, "amount"))).isEqualTo("amount");
+        for (String expression : List.of("{amount} = 10 WHEN {enabled}", "{amount} = {amount} * 2",
+                "IF({enabled}, {amount} = 10, 0)", "others({lines.primary}) = false WHEN {lines.primary}")) {
+            assertThat(engine.unconditionalCalculationTarget(new FormulaRule("input", expression)))
+                    .as(expression).isNull();
+        }
+        assertThat(engine.unconditionalCalculationTarget(new FormulaRule("disabled", "{amount} = 1", false))).isNull();
+        assertThat(engine.unconditionalCalculationTarget(new FormulaRule("empty", ""))).isNull();
+    }
+
+    @Test
     void rejectsBareIdentifiersInsteadOfTreatingMissingFieldBracesAsConstantText() {
         FormulaRuntimeData data = FormulaRuntimeData.of(Map.of("amount", -1));
         for (String expression : List.of("amount >= 0", "IF(true, amount, 0)", "{amount} == pending")) {

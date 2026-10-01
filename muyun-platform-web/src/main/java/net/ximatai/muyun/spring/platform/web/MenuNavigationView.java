@@ -38,9 +38,10 @@ public record MenuNavigationView(
         String defaultUiConfigId,
         String defaultQueryTemplateId,
         String entryParamsJson,
-        ModuleEntryType entryType
+        ModuleEntryType entryType,
+        String moduleDescription
 ) {
-    public static MenuNavigationView from(Menu menu, ModuleEntryType entryType) {
+    public static MenuNavigationView from(Menu menu, ModuleEntryType entryType, String moduleDescription) {
         return new MenuNavigationView(
                 menu.getId(),
                 menu.getTenantId(),
@@ -65,7 +66,8 @@ public record MenuNavigationView(
                 menu.getDefaultUiConfigId(),
                 menu.getDefaultQueryTemplateId(),
                 menu.getEntryParamsJson(),
-                entryType
+                entryType,
+                moduleDescription
         );
     }
 }

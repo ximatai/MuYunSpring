@@ -11,27 +11,42 @@ export function createConfirmAction(confirm: typeof Modal.confirm) {
       let typedText = '';
       const modal = confirm({
         title: options.title,
-        content: requiredText
-          ? () =>
-              h('div', [
-                options.content ? h('p', options.content) : undefined,
-                h('p', `请输入「${requiredText}」以确认此操作。`),
-                h(Input, {
-                  value: typedText,
-                  placeholder: requiredText,
-                  autofocus: true,
-                  'onUpdate:value': (value: string) => {
-                    typedText = value;
-                    modal.update({
-                      okButtonProps: {
-                        danger: options.danger,
-                        disabled: !matchesRequiredText(requiredText, typedText),
-                      },
-                    });
-                  },
-                }),
-              ])
-          : options.content,
+        content:
+          requiredText || options.details
+            ? () =>
+                h('div', [
+                  options.content
+                    ? h('p', { style: { whiteSpace: 'pre-line' } }, options.content)
+                    : undefined,
+                  requiredText ? h('p', `请输入「${requiredText}」以确认此操作。`) : undefined,
+                  requiredText
+                    ? h(Input, {
+                        value: typedText,
+                        placeholder: requiredText,
+                        autofocus: true,
+                        'onUpdate:value': (value: string) => {
+                          typedText = value;
+                          modal.update({
+                            okButtonProps: {
+                              danger: options.danger,
+                              disabled: !matchesRequiredText(requiredText, typedText),
+                            },
+                          });
+                        },
+                      })
+                    : undefined,
+                  options.details
+                    ? h('details', [
+                        h('summary', options.details.title),
+                        h(
+                          'div',
+                          { style: { whiteSpace: 'pre-line', maxHeight: '45vh', overflow: 'auto' } },
+                          options.details.lines.join('\n'),
+                        ),
+                      ])
+                    : undefined,
+                ])
+            : options.content,
         okText: options.okText ?? '确认',
         cancelText: options.cancelText ?? '取消',
         okButtonProps: {

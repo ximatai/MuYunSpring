@@ -126,10 +126,31 @@ function presentation(slot: GlobalErrorSlot, error: AppError): GlobalErrorPresen
 }
 
 export function userFacingErrorMessage(error: AppError) {
+  if (error.code === platformErrorCodes.networkError) {
+    return '暂时无法连接服务，请稍后重试；持续失败时请联系管理员检查连接。';
+  }
+  const modelMessage = modelFailureMessage(error);
+  if (modelMessage) return modelMessage;
   if (isUnexpectedPlatformError(error)) {
     return '系统异常，操作未完成';
   }
   return error.message;
+}
+
+/** Fixed explanations for known model failures; never expose arbitrary upstream 5xx text. */
+export function modelFailureMessage(error: AppError): string | undefined {
+  const messages: Record<string, string> = {
+    AI_PROVIDER_AUTHENTICATION_FAILED: '模型连接鉴权失败。请联系管理员检查凭据及模型访问权限。',
+    AI_PROVIDER_RATE_LIMITED: '模型服务限制了本次请求。请稍后重试；持续失败时请管理员检查额度。',
+    AI_PROVIDER_UNAVAILABLE: '模型服务暂时不可用，请稍后重试。',
+    AI_PROVIDER_REQUEST_REJECTED: '模型服务拒绝了本次请求。请联系管理员检查模型配置与服务状态。',
+    AI_MODEL_TIMEOUT: '等待模型回复超时，请稍后重试。',
+    AI_MODEL_CONNECTION_FAILED: '模型连接失败。请联系管理员检查网络与模型服务状态。',
+    AI_MODEL_INCOMPLETE_RESPONSE: '模型回复在完成前断开。',
+    AI_MODEL_INTERRUPTED: '模型请求已中断。',
+    AI_MODEL_CALL_FAILED: '模型调用未能完成，请联系管理员检查模型服务状态。',
+  };
+  return Object.hasOwn(messages, error.code) ? messages[error.code] : undefined;
 }
 
 export function isUnexpectedPlatformError(error: AppError) {

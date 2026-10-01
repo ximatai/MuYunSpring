@@ -47,6 +47,15 @@ public class AiModelConfiguration extends StandardEnabledEntity {
     @NormalizeText
     private String modelId;
 
+    @Column(name = "context_window_tokens", type = ColumnType.INT, comment = "Declared deployment context capacity")
+    private Integer contextWindowTokens;
+
+    @Column(name = "max_output_tokens", type = ColumnType.INT, comment = "Declared deployment output capacity")
+    private Integer maxOutputTokens;
+
+    @Column(name = "default_output_tokens", type = ColumnType.INT, comment = "Default output budget")
+    private Integer defaultOutputTokens;
+
     @OptionField(type = OptionSourceType.ENUM)
     @Column(name = "credential_source", type = ColumnType.VARCHAR, length = 32, nullable = false,
             defaultVal = @Default(varchar = "direct"), comment = "API key source")
@@ -75,9 +84,9 @@ public class AiModelConfiguration extends StandardEnabledEntity {
             comment = "Whether API key is configured", defaultVal = @Default(bool = TrueOrFalse.FALSE))
     private Boolean apiKeyConfigured = Boolean.FALSE;
 
-    /** Internal unique key for the one-global-or-one-per-tenant invariant. */
+    /** Occupied only while enabled; null lets disabled configurations coexist in the same scope. */
     @JsonIgnore
     @Column(name = "ownership_scope_key", type = ColumnType.VARCHAR, length = 64,
-            comment = "Unique AI configuration ownership key")
+            comment = "Unique enabled AI configuration ownership key")
     private String ownershipScopeKey;
 }

@@ -9,8 +9,9 @@ import type {
 export function useAssistantConversationArchive(
   client: AssistantConversationClient | undefined,
   content: () => AssistantConversationContent,
-  restore: (content: AssistantConversationContent) => void,
+  restore: (content: AssistantConversationContent) => void | Promise<void>,
   clear: () => void,
+  leaveBlockedReason: () => string | undefined = () => undefined,
 ) {
   const id = ref<string>();
   const title = ref('新对话');
@@ -119,7 +120,14 @@ export function useAssistantConversationArchive(
       if (epoch === generation) loading.value = false;
     }
   }
+  function canLeave() {
+    const reason = leaveBlockedReason();
+    if (!reason) return true;
+    saveError.value = reason;
+    return false;
+  }
   async function open(conversationId: string) {
+    if (!canLeave()) return;
     const beforeSave = generation;
     if (!client || !scope || loading.value || !(await save()) || beforeSave !== generation) return;
     const epoch = ++generation,
@@ -133,7 +141,8 @@ export function useAssistantConversationArchive(
       revision = result.revision;
       saved = JSON.stringify(result.content);
       title.value = result.content.title;
-      restore(result.content);
+      await restore(result.content);
+      if (epoch !== generation) return;
       status.value = 'restored';
       historyOpen.value = false;
     } catch (cause) {
@@ -156,11 +165,13 @@ export function useAssistantConversationArchive(
     await save();
   }
   async function startNew() {
+    if (!canLeave()) return;
     const epoch = generation;
     if (loading.value || !(await save()) || epoch !== generation) return;
     discardAndStartNew();
   }
   function discardAndStartNew() {
+    if (!canLeave()) return;
     if (loading.value || saving) return;
     generation++;
     resetRecord();

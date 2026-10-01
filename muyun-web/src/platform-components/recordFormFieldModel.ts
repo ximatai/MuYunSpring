@@ -248,6 +248,7 @@ export interface RecordFormFieldPickerConfig {
 }
 
 export interface RecordFormFieldState {
+  inputRequirements?: ResolvedViewFieldDescriptor['inputRequirements'];
   assistantPolicy?: import('@muyun/web-contracts').AssistantFieldPolicy;
   fieldName: string;
   label: string;
@@ -469,6 +470,7 @@ export function resolveRecordFormFieldState(
       ? resolveReferencePickerPresentation(field?.fieldControl)
       : undefined;
   const baseState: RecordFormFieldState = {
+    ...(field?.inputRequirements ? { inputRequirements: field.inputRequirements } : {}),
     fieldName,
     ...(field?.assistantPolicy ? { assistantPolicy: field.assistantPolicy } : {}),
     label,
@@ -802,4 +804,75 @@ export function referenceDisplayProjections(
     if (value !== undefined) projections[projection.outputField] = value;
   }
   return projections;
+}
+
+/** Deliberately conservative Java/JS common subset: flat ASCII atoms, no groups or escapes.
+ * Unsupported expressions remain authoritative on the server; never reinterpret Java syntax.
+ * At most one variable repetition avoids ambiguous repeated partitions in the browser.
+ */
+export function portableFieldPattern(source: string): RegExp | undefined {
+  const body = source.replace(/^\^/, '').replace(/\$$/, '');
+  const atom = /^(?:[A-Za-z0-9_@-]|\[[A-Za-z0-9_@-]+\])(?:[?*+]|\{[0-9]+(?:,[0-9]*)?\})?/;
+  let rest = body;
+  let variableRepetitions = 0;
+  while (rest) {
+    const token = atom.exec(rest)?.[0];
+    if (!token) return undefined;
+    if (/[?*+]|\{[0-9]+,/.test(token) && ++variableRepetitions > 1) return undefined;
+    rest = rest.slice(token.length);
+  }
+  if (!body) return undefined;
+  try {
+    return new RegExp(`^(?:${body})$`);
+  } catch {
+    return undefined;
+  }
+}
+
+/** Java Character.isWhitespace excludes non-breaking spaces, unlike JS trim. */
+function javaBlank(value: string): boolean {
+  // eslint-disable-next-line no-control-regex -- Match Java's whitespace contract.
+  return /^[\u0009-\u000d\u001c-\u0020\u1680\u2000-\u2006\u2008-\u200a\u2028\u2029\u205f\u3000]*$/.test(
+    value,
+  );
+}
+
+function normalizedInputValue(field: RecordFormFieldState, value: unknown): unknown {
+  const normalization = field.inputRequirements?.textNormalization;
+  if (typeof value !== 'string' || (normalization !== 'TRIM' && normalization !== 'TRIM_TO_NULL'))
+    return value;
+  // eslint-disable-next-line no-control-regex -- Java trim removes only code points <= U+0020.
+  const trimmed = value.replace(/^[\u0000-\u0020]+|[\u0000-\u0020]+$/g, '');
+  return normalization === 'TRIM_TO_NULL' && javaBlank(trimmed) ? null : trimmed;
+}
+
+export function recordFormRequiredError(field: RecordFormFieldState, value: unknown): string | undefined {
+  if (!field.required) return undefined;
+  value = normalizedInputValue(field, value);
+  return value == null ||
+    (typeof value === 'string' && javaBlank(value)) ||
+    (Array.isArray(value) && value.length === 0)
+    ? `请填写${field.label}`
+    : undefined;
+}
+
+/** Storage text capacity counts Unicode characters, matching PostgreSQL VARCHAR semantics. */
+export function recordFormInputConstraintError(
+  field: RecordFormFieldState,
+  value: unknown,
+): string | undefined {
+  value = normalizedInputValue(field, value);
+  if (recordFormRequiredError(field, value)) return undefined;
+  const maxLength = field.inputRequirements?.maxLength;
+  if (maxLength != null && typeof value === 'string' && [...value].length > maxLength)
+    return `${field.label}最多允许 ${maxLength} 个字符`;
+  const source = field.inputRequirements?.validationRegex;
+  if (source && typeof value === 'string' && (value.length > 0 || !field.required)) {
+    const pattern = portableFieldPattern(source);
+    if (pattern) {
+      const match = pattern.exec(value);
+      if (!match || match[0].length !== value.length) return `${field.label}格式不符合要求`;
+    }
+  }
+  return undefined;
 }

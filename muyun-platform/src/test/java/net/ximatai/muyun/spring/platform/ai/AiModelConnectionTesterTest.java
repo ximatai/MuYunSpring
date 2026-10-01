@@ -16,6 +16,7 @@ class AiModelConnectionTesterTest {
         AiModelConfigurationService configurations = mock(AiModelConfigurationService.class);
         AiModelRouteResolver routes = passthroughRouteResolver();
         AiModelClient client = mock(AiModelClient.class);
+        when(client.generate(any(), any())).thenReturn(new AiTextResponse("OK", "stop", null));
         AiModelConfiguration stored = new AiModelConfiguration();
         stored.setApiKey("stored-secret");
         when(configurations.select("config-1")).thenReturn(stored);
@@ -41,6 +42,7 @@ class AiModelConnectionTesterTest {
         AiModelConfigurationService configurations = mock(AiModelConfigurationService.class);
         AiModelRouteResolver routes = passthroughRouteResolver();
         AiModelClient client = mock(AiModelClient.class);
+        when(client.generate(any(), any())).thenReturn(new AiTextResponse("OK", "stop", null));
         AiModelConfiguration draft = new AiModelConfiguration();
         draft.setProvider("deepseek");
         draft.setModelId("deepseek-chat");
@@ -78,6 +80,7 @@ class AiModelConnectionTesterTest {
         AiModelRouteResolver routes = new DefaultAiModelRouteResolver(configurations, providers,
                 new AiModelCredentialResolver(name -> "environment-secret"));
         AiModelClient client = mock(AiModelClient.class);
+        when(client.generate(any(), any())).thenReturn(new AiTextResponse("OK", "stop", null));
         AiModelConnectionTester tester = new AiModelConnectionTester(configurations, routes, client);
         AiModelConfiguration draft = new AiModelConfiguration();
         draft.setProvider("test");
@@ -94,6 +97,26 @@ class AiModelConnectionTesterTest {
         assertThat(route.getValue().apiKey()).isEqualTo("environment-secret");
         assertThat(draft.getApiKey()).isNull();
         org.mockito.Mockito.verifyNoInteractions(configurations);
+    }
+
+    @Test
+    void rejectsEmptyAndIncompleteProbeResponsesForStoredAndDraftConfigurations() {
+        AiModelConfigurationService configurations = mock(AiModelConfigurationService.class);
+        AiModelConfiguration configuration = new AiModelConfiguration();
+        configuration.setProvider("test");
+        configuration.setModelId("test-model");
+        configuration.setApiKeyInput("test-secret");
+        configuration.setApiKey("test-secret");
+        when(configurations.select("config-1")).thenReturn(configuration);
+        AiModelClient client = mock(AiModelClient.class);
+        AiModelConnectionTester tester = new AiModelConnectionTester(configurations, passthroughRouteResolver(), client);
+        for (AiTextResponse response : new AiTextResponse[] {
+                null, new AiTextResponse(null, "stop", null), new AiTextResponse("  ", "stop", null),
+                new AiTextResponse("partial", "length", null), new AiTextResponse("OK", null, null) }) {
+            when(client.generate(any(), any())).thenReturn(response);
+            assertThatThrownBy(() -> tester.test("config-1")).hasMessageContaining("未返回完整的非空回复");
+            assertThatThrownBy(() -> tester.testDraft(configuration)).hasMessageContaining("未返回完整的非空回复");
+        }
     }
 
     private AiModelRouteResolver passthroughRouteResolver() {

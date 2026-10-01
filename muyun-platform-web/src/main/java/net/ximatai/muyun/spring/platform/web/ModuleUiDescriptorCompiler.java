@@ -125,8 +125,7 @@ public final class ModuleUiDescriptorCompiler {
         List<ResolvedDetailRelationDescriptor> detailRelations = staticDetailRelations(definition, descriptor);
         validateListRelationExpansions(descriptor.page(), detailRelations);
         descriptor = AssistantFieldPolicyProjection.protectStatic(descriptor, definition);
-        descriptor = FieldWriteRuleProjection.project(descriptor, FieldWriteRuleProjection.fields(definition.entities(),
-                definition.entities().isEmpty() ? null : definition.entities().getFirst().alias()));
+        descriptor = FieldWriteRuleProjection.project(descriptor, FieldWriteRuleProjection.staticFields(definition));
         return new ModuleUiCompilationResult(
                 descriptor.withFileReferences(fileReferences(definition.entities(), uiDefinition))
                         .withDetailRelations(detailRelations),

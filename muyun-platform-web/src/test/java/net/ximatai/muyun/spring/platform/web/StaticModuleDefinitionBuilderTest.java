@@ -29,12 +29,14 @@ class StaticModuleDefinitionBuilderTest {
     void toBuilderPreservesDefinitionAndSupportsNamedChanges() {
         StaticModuleDefinition original = StaticModuleDefinition
                 .builder("sales", "sales.contract", "Contract")
+                .description("维护合同与签约信息")
                 .build();
 
         StaticModuleDefinition changed = original.toBuilder()
                 .parentModuleAlias("sales.root")
                 .build();
 
+        assertThat(changed.description()).isEqualTo("维护合同与签约信息");
         assertThat(changed.applicationAlias()).isEqualTo(original.applicationAlias());
         assertThat(changed.moduleAlias()).isEqualTo(original.moduleAlias());
         assertThat(changed.parentModuleAlias()).isEqualTo("sales.root");

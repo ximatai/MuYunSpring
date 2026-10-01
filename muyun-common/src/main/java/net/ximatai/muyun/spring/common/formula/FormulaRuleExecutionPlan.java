@@ -13,12 +13,12 @@ import java.util.Objects;
 import java.util.Set;
 
 /**
- * An executable plan for deterministic main-record save rules.
+ * An executable dependency plan for deterministic save calculations and validations.
  *
  * <p>The plan does not introduce a second expression language. It orders existing
  * {@link FormulaRule FormulaRules} and delegates execution to {@link FormulaEngine}. Calculation
- * targets must be main-record fields; inputs can include any declared path, including existing
- * child-table inputs used by aggregate calculations. Validation rules are always ordered after
+ * targets are main-record fields or explicitly declared direct-child fields; inputs can include
+ * declared child-table inputs used by aggregate calculations. Validation rules are always ordered after
  * every calculation.</p>
  */
 public final class FormulaRuleExecutionPlan {
@@ -47,7 +47,7 @@ public final class FormulaRuleExecutionPlan {
      */
     public static FormulaRuleExecutionPlan forMainRecord(List<FormulaRule> rules,
                                                            Collection<String> declaredFieldPaths) {
-        return build(rules, writableFields(declaredFieldPaths));
+        return build(rules, writableFields(declaredFieldPaths), Set.of());
     }
 
     /**
@@ -61,10 +61,31 @@ public final class FormulaRuleExecutionPlan {
             declaredFields.stream().filter(Objects::nonNull).forEach(field ->
                     fields.put(field.fieldPath().dataIndex(), field.writable()));
         }
-        return build(rules, fields);
+        return build(rules, fields, Set.of());
     }
 
-    private static FormulaRuleExecutionPlan build(List<FormulaRule> rules, Map<String, Boolean> declared) {
+    /** Legacy formulas with nested writes retain their explicit execution order. */
+    public static boolean supportsDependencyPlanning(FormulaRule rule) {
+        if (rule.kind() == FormulaRuleKind.VALIDATION)
+            return rule.targetField() == null || !rule.targetField().contains(".");
+        if (rule.kind() != FormulaRuleKind.CALCULATION) return false;
+        var parsed = new FormulaEngine().parse(rule.id(), rule.expression());
+        return parsed != null && !FormulaExpressionSupport.hasNestedAssignment(parsed.ast())
+                && (rule.targetField() != null || FormulaExpressionSupport.rootAssignedField(parsed.ast()) != null);
+    }
+
+    /** Orders direct-child calculations before their consumers using the same expression engine.
+     * Reference paths are not writable child paths; callers must supply declared relation codes.
+     */
+    public static FormulaRuleExecutionPlan forAggregateRecord(List<FormulaRule> rules,
+            List<FormulaFieldDefinition> declaredFields, Set<String> directChildRelations) {
+        LinkedHashMap<String, Boolean> fields = new LinkedHashMap<>();
+        if (declaredFields != null) declaredFields.stream().filter(Objects::nonNull).forEach(field ->
+                fields.put(field.fieldPath().dataIndex(), field.writable()));
+        return build(rules, fields, Set.copyOf(directChildRelations));
+    }
+
+    private static FormulaRuleExecutionPlan build(List<FormulaRule> rules, Map<String, Boolean> declared, Set<String> children) {
         FormulaEngine engine = new FormulaEngine();
         List<RuleDetails> calculations = new ArrayList<>();
         List<RuleDetails> validations = new ArrayList<>();
@@ -87,7 +108,7 @@ public final class FormulaRuleExecutionPlan {
                 throw failure("FORMULA_PLAN_EXPRESSION_REQUIRED", rule, null,
                         "formula plan requires an expression");
             }
-            RuleDetails details = inspect(rule, parsed, index, declared);
+            RuleDetails details = inspect(rule, parsed, index, declared, children);
             inputs.put(rule.id(), details.inputs());
             if (rule.kind() == FormulaRuleKind.CALCULATION) {
                 calculations.add(details);
@@ -99,7 +120,36 @@ public final class FormulaRuleExecutionPlan {
                         "main-record save plan only supports calculation and validation rules");
             }
         }
+        Set<String> mainTargets = calculations.stream().map(RuleDetails::target)
+                .filter(target -> !target.contains(".")).collect(java.util.stream.Collectors.toSet());
+        for (RuleDetails calculation : calculations) {
+            if (!calculation.target().contains(".")) continue;
+            for (String input : calculation.inputs()) {
+                if (mainTargets.contains(input)) throw failure("FORMULA_PLAN_CHILD_DEPENDS_ON_MAIN_CALCULATION",
+                        calculation.rule(), input, "child calculation depends on planned main-record calculation field " + input);
+            }
+        }
         return new FormulaRuleExecutionPlan(orderCalculations(calculations), orderValidations(validations), inputs, targets);
+    }
+
+    /** Legacy calculations run before this plan and must not overwrite or depend on its outputs. */
+    public void validatePrecedingCalculations(List<FormulaRule> rules) {
+        FormulaEngine engine = new FormulaEngine();
+        Set<String> targets = Set.copyOf(calculationTargetFieldsByRule.values());
+        for (FormulaRule rule : rules) {
+            if (!rule.enabled() || rule.phase() != FormulaRulePhase.BEFORE_SAVE
+                    || rule.kind() != FormulaRuleKind.CALCULATION || orderedRules.contains(rule)) continue;
+            Set<String> writes = new LinkedHashSet<>(engine.assignedFields(rule.expression()));
+            if (rule.targetField() != null) writes.add(rule.targetField());
+            for (String target : writes) {
+                if (targets.contains(target)) throw failure("FORMULA_PLAN_DUPLICATE_WRITER", rule, target,
+                        "multiple calculation rules write field " + target);
+            }
+            for (String input : engine.valueSideReferencedFields(rule.expression())) {
+                if (targets.contains(input)) throw failure("FORMULA_PLAN_CHILD_DEPENDS_ON_MAIN_CALCULATION", rule, input,
+                        "legacy calculation depends on planned calculation field " + input);
+            }
+        }
     }
 
     public List<FormulaRule> calculationRules() {
@@ -120,7 +170,7 @@ public final class FormulaRuleExecutionPlan {
         return inputFieldsByRule;
     }
 
-    /** Declared main-record target for each calculation rule. */
+    /** Declared target for each calculation rule. */
     public Map<String, String> calculationTargetFieldsByRule() {
         return calculationTargetFieldsByRule;
     }
@@ -132,7 +182,7 @@ public final class FormulaRuleExecutionPlan {
     private static RuleDetails inspect(FormulaRule rule,
                                        FormulaExpressionSupport.ParsedExpression parsed,
                                        int index,
-                                       Map<String, Boolean> declared) {
+                                       Map<String, Boolean> declared, Set<String> children) {
         Set<String> inputs = FormulaExpressionSupport.valueSideReferencedFields(parsed.ast());
         for (String input : inputs) {
             requireDeclared(rule, input, declared, "formula input field is not declared");
@@ -166,7 +216,14 @@ public final class FormulaRuleExecutionPlan {
                     "calculation target must match its root assignment");
         }
         requireDeclared(rule, target, declared, "formula calculation target is not declared");
-        requireMainField(rule, target, "formula calculation target must be a main-record field");
+        FormulaFieldPath targetPath = FormulaFieldPath.parse(target);
+        if (targetPath.tableKey() != null && children.contains(targetPath.tableKey())) {
+            if (assignedTarget != null) throw failure("FORMULA_PLAN_CHILD_ASSIGNMENT_UNSUPPORTED", rule, target,
+                    "child calculations require an explicit target with a value expression");
+            new FormulaEngine().validateTargetFieldExpressionScope(target, rule.expression());
+        } else {
+            requireMainField(rule, target, "formula calculation target must be a main-record field or declared direct child field");
+        }
         if (!Boolean.TRUE.equals(declared.get(target))) {
             throw failure("FORMULA_PLAN_TARGET_READ_ONLY", rule, target,
                     "formula calculation target must be writable: " + target);

@@ -4,11 +4,7 @@ import { createWorkbenchAssistantCapabilities } from '@/platform-workbench/workb
 import type { ModulePageSessionView } from '@/dynamic-page-runtime/useModulePageSession';
 import type { RecordFormDraftAccess } from '@/dynamic-page-runtime/recordFormDraftAccess';
 import { expect, it, vi } from 'vitest';
-import type {
-  ConstructionField,
-  ConstructionPlanSnapshot,
-  ConstructionFieldResult,
-} from '@muyun/web-contracts';
+import type { ConstructionPlanSnapshot } from '@muyun/web-contracts';
 import { createAssistantSurfaceRegistry, type ConstructionPlanClient } from '@muyun/web-core';
 import {
   createConstructionPlanSession,
@@ -16,19 +12,12 @@ import {
 } from '@/platform-workbench/constructionPlanSession';
 
 async function fixture() {
-  const field: ConstructionField = {
-    name: 'orderNumber',
-    title: '订单号',
-    specAlias: 'text-32',
-    required: true,
-    unique: true,
-    indexed: false,
-  };
   const snapshot: ConstructionPlanSnapshot = {
     planId: 'plan',
     revision: 1,
     confirmedAt: '',
     constructionStatus: 'INITIALIZED',
+    deliveredObjectKeys: [],
     deliveries: [],
     fieldChanges: [],
     initializations: [
@@ -55,15 +44,12 @@ async function fixture() {
       acceptanceExamples: ['可以登记'],
     },
   };
-  let receipt: ConstructionFieldResult | undefined;
   const client: ConstructionPlanClient = {
     read: vi.fn(async () => structuredClone(snapshot)),
     list: vi.fn(),
     history: vi.fn(),
     confirm: vi.fn(),
     confirmation: vi.fn(),
-    previewInitialization: vi.fn(),
-    initialize: vi.fn(),
     initialization: vi.fn(),
     task: vi.fn(),
     previewAcceptance: vi.fn(),
@@ -73,8 +59,21 @@ async function fixture() {
     publishDelivery: vi.fn(),
     delivery: vi.fn(),
     progress: vi.fn(),
+    designContract: vi.fn(async () => ({
+      recordName: { fieldName: 'title', columnName: 'title', fieldType: 'STRING' },
+      inheritedFields: ['id'],
+      declarableCapabilities: { capabilities: [], metadataFields: [] },
+    })),
     businessObjects: vi.fn(async () => [
-      { alias: 'crm.customer', title: '客户', kind: 'DYNAMIC', referenceReady: true, explanation: '可复用' },
+      {
+        alias: 'crm.customer',
+        title: '客户',
+        applicationAlias: 'crm',
+        applicationTitle: '客户管理',
+        kind: 'DYNAMIC',
+        referenceReady: true,
+        explanation: '可复用',
+      },
     ]),
     referenceTarget: vi.fn(async () => ({
       targetModuleAlias: 'crm.customer',
@@ -91,29 +90,9 @@ async function fixture() {
         { alias: 'text-32', title: '短文本', type: 'STRING', length: 32, precision: null, scale: null },
       ],
     })),
-    previewFields: vi.fn(async (_id, proposal) => ({
-      proposal,
-      moduleAlias: 'sales.order',
-      fieldImpacts: [],
-      schemaImpacts: [],
-      warnings: [],
-      errors: [],
-      fingerprint: 'private-proof',
-    })),
-    publishFields: vi.fn(async (_id, command) => {
-      receipt = {
-        receipt: {
-          requestId: command.requestId,
-          objectKey: 'order',
-          planRevision: 1,
-          moduleAlias: 'sales.order',
-          fields: command.proposal.fields,
-        },
-        runtime: null,
-      };
-      return structuredClone(receipt);
-    }),
-    fieldChange: vi.fn(async () => receipt),
+    previewFields: vi.fn(),
+    publishFields: vi.fn(),
+    fieldChange: vi.fn(),
   };
   const session = createConstructionPlanSession(
     client,
@@ -138,60 +117,16 @@ async function fixture() {
   const invoke = (code: string, input: unknown) =>
     registry.invoke({ id: code, code, input }, registry.snapshot()!.token);
   const discover = () => invoke('construction.describe-fields', { objectKey: 'order' });
-  const prepare = () => invoke('construction.prepare-fields', { objectKey: 'order', fields: [field] });
-  return { client, session, field, discover, prepare, invoke };
+  return { client, session, discover, invoke, snapshot };
 }
-it('requires an actual catalog and publishes only the frozen reviewed fields after a human click', async () => {
+it('exposes construction evidence without a parallel field publication candidate', async () => {
   const f = await fixture();
-  await expect(f.prepare()).rejects.toThrow('请先读取');
+  expect(f.session.capabilities().map((capability) => capability.descriptor.code)).not.toContain(
+    'construction.prepare-fields',
+  );
   await f.discover();
-  const prepared = await f.prepare();
+  expect(f.client.previewFields).not.toHaveBeenCalled();
   expect(f.client.publishFields).not.toHaveBeenCalled();
-  expect(JSON.stringify(prepared.value)).not.toContain('private-proof');
-  expect(prepared.confirmation!.presentation.lines.join(' ')).toContain('短文本');
-  f.field.title = 'changed after preview';
-  await Promise.all([prepared.confirmation!.confirm(), prepared.confirmation!.confirm()]);
-  expect(f.client.publishFields).toHaveBeenCalledOnce();
-  expect(f.session.current().saved!.fieldChanges[0]!.fields[0]!.title).toBe('订单号');
-  expect(prepared.confirmation!.result!.lines.join(' ')).toContain('页面、入口和业务验收请查询实际建设进度');
-});
-it('rejects invented specifications, invalid previews and old requirements', async () => {
-  const f = await fixture();
-  await f.discover();
-  f.field.specAlias = 'invented';
-  await expect(f.prepare()).rejects.toThrow('不在实际目录');
-  f.field.specAlias = 'text-32';
-  vi.mocked(f.client.previewFields).mockResolvedValueOnce({
-    proposal: { planRevision: 1, objectKey: 'order', expectedMetadataVersion: 4, fields: [f.field] },
-    moduleAlias: 'sales.order',
-    fieldImpacts: [],
-    schemaImpacts: [],
-    warnings: [],
-    errors: [{ code: 'DUPLICATE', message: '字段已存在' }],
-    fingerprint: 'invalid',
-  });
-  await expect(f.prepare()).rejects.toThrow('字段已存在');
-  const prepared = await f.prepare();
-  f.session.edit({ ...f.session.current().candidate!, goal: '调整范围' });
-  await prepared.confirmation!.confirm();
-  expect(prepared.confirmation!.state).toBe('expired');
-  expect(f.client.publishFields).not.toHaveBeenCalled();
-});
-it('recovers a committed field receipt after response loss without repeating publication', async () => {
-  const f = await fixture();
-  const publish = f.client.publishFields;
-  f.client.publishFields = vi.fn(async (...args: Parameters<ConstructionPlanClient['publishFields']>) => {
-    await publish(...args);
-    throw new Error('response lost');
-  });
-  await f.discover();
-  const prepared = await f.prepare();
-  await prepared.confirmation!.confirm();
-  expect(prepared.confirmation!.state).toBe('unknown');
-  await prepared.confirmation!.check();
-  expect(prepared.confirmation!.state).toBe('succeeded');
-  expect(f.client.publishFields).toHaveBeenCalledOnce();
-  expect(f.session.current().saved!.fieldChanges).toHaveLength(1);
 });
 
 it('bounds model catalog pages without losing full metadata or later fields', async () => {
@@ -218,8 +153,6 @@ it('bounds model catalog pages without losing full metadata or later fields', as
     offset = page.fieldPage.nextOffset;
   }
   expect(seen).toEqual(fields);
-  await f.prepare();
-  expect(f.client.previewFields).toHaveBeenCalled();
   vi.mocked(f.client.describeFields).mockResolvedValue({
     ...base,
     fields: [{ fieldName: 'large', title: 'x'.repeat(9000) }, ...fields.slice(0, 2)],
@@ -317,64 +250,13 @@ it('composes initialized construction, navigation and referenced aggregate edito
   expect(JSON.stringify(catalog).length).toBeLessThan(64_000);
 });
 
-it('discovers reusable objects and freezes a catalog-backed reference without modifying the target', async () => {
+it('discovers reusable objects and their authoritative reference catalog', async () => {
   const f = await fixture();
   const discovery = await f.invoke('construction.find-business-objects', { search: '客户' });
-  expect(discovery.value).toMatchObject({
-    modules: [
-      { alias: 'crm.customer', title: '客户', kind: 'DYNAMIC', referenceReady: true, explanation: '可复用' },
-    ],
-    nextOffset: null,
-  });
+  expect(discovery.value).toMatchObject({ modules: [{ alias: 'crm.customer', title: '客户' }] });
   const target = await f.invoke('construction.describe-reference-target', { moduleAlias: 'crm.customer' });
   expect(target.value).toMatchObject({ targetMetadataId: 'customer-metadata' });
-  await f.discover();
-  const reference = { targetModuleAlias: 'crm.customer', targetKeyField: 'id', targetLabelField: 'name' };
-  const prepared = await f.invoke('construction.prepare-fields', {
-    objectKey: 'order',
-    fields: [{ ...f.field, name: 'customerId', title: '客户', reference }],
-  });
-  expect(prepared.confirmation!.presentation.lines.join(' ')).toContain('选择客户中的一条记录');
   expect(f.client.publishFields).not.toHaveBeenCalled();
-  reference.targetModuleAlias = 'crm.other';
-  await prepared.confirmation!.confirm();
-  expect(f.client.publishFields).toHaveBeenCalledWith(
-    'plan',
-    expect.objectContaining({
-      proposal: expect.objectContaining({
-        fields: [
-          expect.objectContaining({
-            reference: expect.objectContaining({
-              targetModuleAlias: 'crm.customer',
-              targetMetadataId: 'customer-metadata',
-              cardinality: 'ONE',
-              targetUnavailablePolicy: 'PRESERVE_HISTORY',
-            }),
-          }),
-        ],
-      }),
-    }),
-  );
-});
-it('rejects invented reference display fields before preparing publication', async () => {
-  const f = await fixture();
-  await f.discover();
-  await expect(
-    f.invoke('construction.prepare-fields', {
-      objectKey: 'order',
-      fields: [
-        {
-          ...f.field,
-          reference: {
-            targetModuleAlias: 'crm.customer',
-            targetKeyField: 'id',
-            targetLabelField: 'invented',
-          },
-        },
-      ],
-    }),
-  ).rejects.toThrow('不在实际目标目录');
-  expect(f.client.previewFields).not.toHaveBeenCalled();
 });
 
 it('preserves reviewed reuse intent and rejects ambiguous or self-referencing target identities', async () => {
@@ -399,4 +281,50 @@ it('preserves reviewed reuse intent and rejects ambiguous or self-referencing ta
   expect(() => parseConstructionPlan(content)).toThrow('之一');
   content.requirements[0]!.reference!.moduleAlias = '';
   expect(() => parseConstructionPlan(content)).toThrow('另一个对象');
+});
+
+it('discovers child configuration and calculation evidence without treating it as main field creation', async () => {
+  const f = await fixture();
+  vi.mocked(f.client.describeFields).mockResolvedValue({
+    moduleAlias: 'sales.order',
+    planRevision: 1,
+    metadataVersion: 4,
+    fields: [],
+    specs: [],
+    children: {
+      lines: {
+        relation: { id: 'child', relationAlias: 'lines', relationRole: 'CHILD' },
+        metadataVersion: 7,
+        fields: [{ fieldName: 'amount', title: '小计' }],
+        references: {},
+      },
+    },
+    calculationRules: [
+      { alias: 'amount', targetField: 'lines.amount', expression: '{lines.quantity} * {lines.price}' },
+    ],
+  });
+  const read = await f.invoke('construction.describe-fields', { objectKey: 'order' });
+  expect(read.value).toMatchObject({
+    children: { lines: { relation: { id: 'child' }, fields: [{ fieldName: 'amount' }] } },
+    calculationRules: [{ targetField: 'lines.amount' }],
+  });
+  expect(f.client.publishFields).not.toHaveBeenCalled();
+});
+
+it('reads historical field receipts without preparing or replaying a publication', async () => {
+  const f = await fixture();
+  vi.mocked(f.client.fieldChange).mockResolvedValue({
+    receipt: {
+      requestId: 'previous-request',
+      objectKey: 'order',
+      planRevision: 1,
+      moduleAlias: 'sales.order',
+      fields: [],
+    },
+    runtime: null,
+  });
+  const status = await f.invoke('construction.field-change-status', { requestId: 'previous-request' });
+  expect(status.value).toMatchObject({ receipt: { requestId: 'previous-request' } });
+  expect(f.session.current().saved!.fieldChanges).toHaveLength(1);
+  expect(f.client.publishFields).not.toHaveBeenCalled();
 });

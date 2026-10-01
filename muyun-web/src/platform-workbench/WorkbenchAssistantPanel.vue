@@ -26,11 +26,11 @@ const emit = defineEmits<{ close: [] }>();
 const {
   archive,
   restored,
-  linkedPlanId,
   draft,
   restoredThroughId,
   restoredRequest,
   recoveryRequest,
+  recoveryReadOnly,
   adjustRequest,
   continueConversation,
   items,
@@ -67,39 +67,6 @@ const archiveStatusText = computed(
       restored: '历史对话已恢复',
     })[archiveStatus.value],
 );
-const planRestoreError = ref('');
-const planRestoring = ref(false);
-let planRestoreEpoch = 0;
-watch(
-  [linkedPlanId, archive.id, () => props.open],
-  () => {
-    planRestoreEpoch++;
-    planRestoreError.value = '';
-    planRestoring.value = false;
-  },
-  { flush: 'sync' },
-);
-async function restoreLinkedPlan() {
-  if (planRestoring.value) return false;
-  if (!linkedPlanId.value) return true;
-  if (!props.constructionPlan || props.constructionPlan.dirty()) return false;
-  const epoch = planRestoreEpoch;
-  planRestoreError.value = '';
-  planRestoring.value = true;
-  try {
-    await props.constructionPlan.restore(linkedPlanId.value, () => epoch === planRestoreEpoch);
-    return epoch === planRestoreEpoch;
-  } catch {
-    if (epoch === planRestoreEpoch)
-      planRestoreError.value = '关联方案暂时无法恢复，请检查当前身份和方案状态。';
-    return false;
-  } finally {
-    if (epoch === planRestoreEpoch) planRestoring.value = false;
-  }
-}
-async function resumeConversation() {
-  if (await restoreLinkedPlan()) continueConversation();
-}
 const showEarlierMessages = ref(false);
 watch(restoredThroughId, () => {
   showEarlierMessages.value = false;
@@ -162,7 +129,7 @@ function close() {
         <span>{{
           configurationCollaboration.task.value.mode === 'conversation'
             ? '在对话中准备和确认'
-            : '在配置页面查看和确认'
+            : '边看配置页面，边在对话中确认'
         }}</span>
         <UiButton
           v-if="
@@ -205,7 +172,7 @@ function close() {
           <UiButton :disabled="busy || archiveLoading" @click="archive.retryRead()">重试读取会话</UiButton>
         </div>
         <div v-if="historyOpen" class="assistant-panel__history">
-          <span>当前范围的历史会话；切换回原业务范围可找回此前对话。</span>
+          <span>当前登录身份的历史会话；切换页面可以继续同一个建设目标。</span>
           <UiButton :disabled="archiveLoading" @click="historyOpen = false">收起历史</UiButton>
           <span v-if="!archiveLoading && !historyEntries.length">暂无已保存会话</span>
           <UiButton
@@ -232,7 +199,14 @@ function close() {
         @click="showEarlierMessages = !showEarlierMessages"
         >{{ showEarlierMessages ? '收起之前的对话' : '查看之前的对话' }}</UiButton
       >
-      <ConstructionPlanCard v-if="constructionPlan" :session="constructionPlan" :disabled="busy" />
+      <ConstructionPlanCard
+        v-if="
+          constructionPlan &&
+          (constructionPlan.state.value.planId || constructionPlan.savedPlans.value.length)
+        "
+        :session="constructionPlan"
+        :disabled="busy"
+      />
       <div v-if="items.length === 0" class="assistant-panel__welcome">
         <strong>我可以帮你操作当前工作区</strong>
         <span>例如：梳理订单管理的本期范围，或填写当前表单。</span>
@@ -308,7 +282,7 @@ function close() {
 
     <footer class="assistant-panel__composer">
       <div v-if="restored" class="assistant-panel__welcome" aria-label="继续会话">
-        <strong>需求和讨论已保留，可以接着处理。</strong>
+        <strong>讨论已保留，可以继续描述要做的事。</strong>
         <span v-if="restoredRequest" class="assistant-panel__last-request"
           >上次提出的需求：{{ restoredRequest }}</span
         >
@@ -317,18 +291,11 @@ function close() {
             configurationEditor.title
           }}」的未保存配置。继续处理时会核实是否属于这次任务。</span
         >
-        <span>聊天记录不保存草稿，也不会恢复旧确认授权。当前工作区的内容会重新核实。</span>
+        <span>已建业务按当前配置继续改进；未完成设计会核实后接续。历史记录不会恢复旧确认授权。</span>
         <div class="assistant-panel__archive-actions">
           <UiButton
-            :disabled="
-              busy ||
-              planRestoring ||
-              archiveLoading ||
-              Boolean(draft.trim()) ||
-              !registry.snapshot() ||
-              Boolean(linkedPlanId && constructionPlan?.dirty())
-            "
-            @click="resumeConversation"
+            :disabled="busy || archiveLoading || Boolean(draft.trim()) || !registry.snapshot()"
+            @click="continueConversation"
             >继续处理</UiButton
           >
           <UiButton :disabled="busy || archiveLoading || Boolean(draft.trim())" @click="adjustRequest"
@@ -336,19 +303,12 @@ function close() {
           >
         </div>
         <small>继续处理会先核实进度并建议下一步，保存仍需重新确认。</small>
-        <UiButton
-          v-if="linkedPlanId && constructionPlan"
-          :disabled="busy || planRestoring || constructionPlan.dirty()"
-          @click="restoreLinkedPlan"
-          >{{ planRestoring ? '正在读取关联方案…' : '查看关联的已保存建设方案' }}</UiButton
-        >
-        <span v-if="planRestoreError" role="alert">{{ planRestoreError }}</span>
-        <span v-if="linkedPlanId && constructionPlan?.dirty()"
-          >当前建设方案有未确认修改，请先处理后再切换方案。</span
-        >
       </div>
       <div v-if="recoveryRequest && !busy" class="assistant-panel__welcome">
-        <span>本轮已暂停。已有内容保留，可调整需求后继续；切换业务范围后请核对操作对象。</span>
+        <span>本轮已暂停。继续前会核实当前状态，保存仍需确认。</span>
+        <UiButton :disabled="archiveLoading || Boolean(draft.trim())" @click="continueConversation">{{
+          recoveryReadOnly ? '继续核实' : '继续处理'
+        }}</UiButton>
         <UiButton :disabled="archiveLoading || Boolean(draft.trim())" @click="adjustRequest"
           >调整需求</UiButton
         >
@@ -358,20 +318,15 @@ function close() {
         v-model:value="draft"
         :rows="3"
         :maxlength="4000"
-        :disabled="busy || archiveLoading || Boolean(activeRequiredSelection)"
-        :placeholder="activeRequiredSelection ? '请先完成上方选择' : '描述你想完成的事情'"
+        :disabled="busy || archiveLoading"
+        :placeholder="activeRequiredSelection ? '可以选择上方选项，也可以补充说明' : '描述你想完成的事情'"
         @keydown="handleKeydown"
       />
       <div class="assistant-panel__actions">
         <span>Enter 发送，Shift + Enter 换行</span>
         <span v-if="operationPending">正在核实操作结果</span>
         <UiButton v-else-if="busy" @click="cancel">停止</UiButton>
-        <UiButton
-          v-else
-          type="primary"
-          :disabled="!draft.trim() || Boolean(activeRequiredSelection) || !registry.snapshot()"
-          @click="submit"
-        >
+        <UiButton v-else type="primary" :disabled="!draft.trim() || !registry.snapshot()" @click="submit">
           发送
         </UiButton>
       </div>

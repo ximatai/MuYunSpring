@@ -1,4 +1,4 @@
-import type { AssistantSurfaceContext } from '@muyun/web-contracts';
+import type { AssistantSurfaceContext, MetadataField } from '@muyun/web-contracts';
 import {
   AssistantCapabilityUsageError,
   type AssistantCapability,
@@ -24,19 +24,34 @@ export interface MetadataGovernanceAssistantModelSummary {
     relationId: string;
     title?: string;
     fieldCount: number;
-    fields: Array<{
-      fieldName: string;
-      title?: string;
-      fieldSpecAlias?: string;
-      propertyKind: string;
-      governance: string;
-    }>;
+    fields: Array<
+      Pick<
+        MetadataField,
+        'required' | 'uniqueField' | 'indexed' | 'sortableField' | 'titleField' | 'enabled'
+      > & {
+        fieldName: string;
+        title?: string;
+        fieldSpecAlias?: string;
+        propertyKind: string;
+        governance: string;
+      }
+    >;
     truncated: boolean;
   };
+  mainCandidate?: {
+    alias: string;
+    title: string;
+    schemaName: string;
+    tableName: string;
+    saved: false;
+    nextStep: 'REVIEW_AND_SAVE_STRUCTURE_BEFORE_FIELDS';
+  };
+  childCandidate?: { alias: string; title: string; parentRelationId: string; saved: false };
   draft: {
     active: boolean;
     dirty: boolean;
     editorOpen: boolean;
+    fieldPlanOpen?: boolean;
   };
   fieldSpecs: Array<{ alias: string; title?: string }>;
 }
@@ -117,6 +132,8 @@ export type MetadataFieldPlanInput = Array<
 
 /** Preparation validates without changing the editor; returned callbacks commit synchronously inside applyEffect. */
 export interface MetadataGovernanceAssistantAdapter {
+  prepareMainDraft?(input: { title: string }): () => unknown;
+  prepareChildDraft?(input: { alias: string; title: string }): () => unknown;
   discardCandidate?(): void;
   prepareConfirmation?(signal: AbortSignal): Promise<AssistantOperationProposal>;
   prepareFieldPlan?(fields: MetadataFieldPlanInput, signal: AbortSignal): Promise<() => unknown>;
@@ -170,6 +187,16 @@ export function createMetadataGovernanceAssistantSurface(
     capabilities: () => [
       ...contributedCapabilities(),
       describeMetadataModelCapability(adapter),
+      ...(adapter.prepareMainDraft &&
+      adapter.summary().relationCount === 0 &&
+      (!adapter.summary().draft.active || adapter.summary().mainCandidate)
+        ? [prepareMetadataMainDraftCapability(adapter)]
+        : []),
+      ...(adapter.prepareChildDraft &&
+      adapter.summary().selectedRelation &&
+      (!adapter.summary().draft.active || adapter.summary().childCandidate)
+        ? [prepareMetadataChildDraftCapability(adapter)]
+        : []),
       ...(adapter.discardCandidate && adapter.summary().draft.active
         ? [
             {
@@ -190,7 +217,7 @@ export function createMetadataGovernanceAssistantSurface(
             },
           ]
         : []),
-      ...(adapter.prepareFieldPlan && canAddFieldDraft(adapter)
+      ...(adapter.prepareFieldPlan && canAddFieldDraft(adapter) && !adapter.summary().draft.active
         ? [prepareMetadataFieldPlanCapability(adapter)]
         : []),
       ...(adapter.candidate?.() ? [describeMetadataCandidateCapability(adapter)] : []),
@@ -199,14 +226,71 @@ export function createMetadataGovernanceAssistantSurface(
       ...(canAddPropertyFieldDraft(adapter)
         ? [findMetadataFieldTargetsCapability(adapter), addMetadataPropertyFieldDraftCapability(adapter)]
         : []),
-      ...(hasChanges(adapter.proposal())
-        ? [
-            previewMetadataDraftCapability(adapter),
-            ...(adapter.prepareConfirmation ? [prepareMetadataConfirmationCapability(adapter)] : []),
-          ]
+      ...(hasChanges(adapter.proposal()) ? [previewMetadataDraftCapability(adapter)] : []),
+      ...(adapter.prepareConfirmation && (hasChanges(adapter.proposal()) || adapter.summary().childCandidate)
+        ? [prepareMetadataConfirmationCapability(adapter)]
         : []),
     ],
     requestTurn,
+  };
+}
+
+function prepareMetadataMainDraftCapability(
+  adapter: MetadataGovernanceAssistantAdapter,
+): AssistantCapability {
+  return {
+    effect: 'configuration-draft',
+    descriptor: {
+      code: 'configuration.prepare-metadata-main-draft',
+      description:
+        'Prepare the missing main entity in the standard metadata editor. Available only when the module has no metadata relations. The standard editor derives its identifier from the module; provide the business title. This only prepares a visible draft, never creates storage. Open the metadata editor and ask the user to review and save there; then reread metadata before adding fields. Preserve existing manual storage settings.',
+      inputSchema: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['title'],
+        properties: { title: { type: 'string', minLength: 1, maxLength: 120 } },
+      },
+    },
+    parseInput(input) {
+      if (!isRecord(input) || Object.keys(input).some((key) => key !== 'title'))
+        throw new AssistantCapabilityUsageError('请提供主实体名称');
+      return { title: boundedString(input.title, 'title', 120, true) };
+    },
+    async execute(input, context) {
+      return context.applyEffect(adapter.prepareMainDraft!(input as { title: string }));
+    },
+  };
+}
+
+function prepareMetadataChildDraftCapability(
+  adapter: MetadataGovernanceAssistantAdapter,
+): AssistantCapability {
+  return {
+    effect: 'configuration-draft',
+    descriptor: {
+      code: 'configuration.prepare-metadata-child-draft',
+      description:
+        'Prepare or revise one child table under the selected metadata relation in the shared editor. Use for repeatable line items belonging to a parent record, not independently managed objects. Does not create storage. Read the candidate with describe-metadata-model, then use prepare-metadata-apply for human confirmation. After creation configure its fields, references, formulas and page through standard governance; an empty child is not business completion.',
+      inputSchema: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['alias', 'title'],
+        properties: {
+          alias: { type: 'string', pattern: '^[a-z][a-z0-9_]{0,62}$', maxLength: 63 },
+          title: { type: 'string', minLength: 1, maxLength: 120 },
+        },
+      },
+    },
+    parseInput(input) {
+      if (!isRecord(input) || Object.keys(input).some((key) => !['alias', 'title'].includes(key)))
+        throw new AssistantCapabilityUsageError('请提供明细名称和标识');
+      const alias = boundedString(input.alias, 'alias', 63, true);
+      if (!/^[a-z][a-z0-9_]{0,62}$/.test(alias)) throw new AssistantCapabilityUsageError('明细标识格式无效');
+      return { alias, title: boundedString(input.title, 'title', 120, true) };
+    },
+    async execute(input, context) {
+      return context.applyEffect(adapter.prepareChildDraft!(input as { alias: string; title: string }));
+    },
   };
 }
 
@@ -219,7 +303,7 @@ function prepareMetadataConfirmationCapability(
     descriptor: {
       code: 'configuration.prepare-metadata-apply',
       description:
-        'Prepare human confirmation for the entire current metadata candidate, including manual edits, through the standard change-set precheck. Only a human click saves it. Do not ask the user to leave the conversation to press page save. Configuration persistence does not imply runtime activation.',
+        'Prepare human confirmation for the entire current metadata candidate, including manual edits, through standard metadata governance. A child-table candidate creates only its empty storage and parent relationship; field candidates use the change-set precheck. Only a human click saves it. Do not ask the user to leave the conversation to press page save. Configuration persistence does not imply runtime activation.',
       inputSchema: emptyAssistantCapabilityInputSchema(),
     },
     parseInput: parseEmptyAssistantCapabilityInput,
@@ -241,7 +325,7 @@ function prepareMetadataFieldPlanCapability(
   adapter: MetadataGovernanceAssistantAdapter,
 ): AssistantCapability<MetadataFieldPlanInput> {
   const basicSchema = addMetadataFieldDraftCapability(adapter).descriptor.inputSchema;
-  const propertySchema = addMetadataPropertyFieldDraftCapability(adapter).descriptor.inputSchema;
+  const propertySchemas = metadataPropertyFieldSchemas(adapter);
   return {
     effect: 'configuration-draft',
     descriptor: {
@@ -267,7 +351,7 @@ function prepareMetadataFieldPlanCapability(
                     kind: { type: 'string', enum: ['BASIC'] },
                   },
                 },
-                propertySchema,
+                ...propertySchemas,
               ],
             },
           },
@@ -335,6 +419,35 @@ function findMetadataFieldTargetsCapability(
   };
 }
 
+/** Disjoint variants expose the same field-kind boundary enforced by the parser. */
+function metadataPropertyFieldSchemas(adapter: MetadataGovernanceAssistantAdapter) {
+  return (['MODULE_REFERENCE', 'DICTIONARY'] as const).map((kind) => ({
+    type: 'object',
+    additionalProperties: false,
+    required: ['kind', 'title', 'target'],
+    properties: {
+      kind: { type: 'string', enum: [kind] },
+      title: { type: 'string', minLength: 1, maxLength: 100 },
+      fieldName: {
+        type: 'string',
+        minLength: 1,
+        maxLength: 63,
+        pattern: PLATFORM_FIELD_NAME_PATTERN,
+      },
+      target: { type: 'string', minLength: 1, maxLength: 255 },
+      ...(kind === 'DICTIONARY'
+        ? {
+            selectionMode: {
+              type: 'string',
+              enum: adapter.fieldSpecAliases().includes('json_set') ? ['SINGLE', 'MULTIPLE'] : ['SINGLE'],
+            },
+          }
+        : {}),
+      required: { type: 'boolean' },
+    },
+  }));
+}
+
 function addMetadataPropertyFieldDraftCapability(
   adapter: MetadataGovernanceAssistantAdapter,
 ): AssistantCapability<AddMetadataPropertyFieldDraftInput> {
@@ -349,24 +462,7 @@ function addMetadataPropertyFieldDraftCapability(
       code: 'configuration.add-metadata-property-field-draft',
       description:
         'Add a module-reference or dictionary field as a visible, unsaved metadata candidate. First resolve target with configuration.find-metadata-field-targets, then pass the exact returned target.',
-      inputSchema: {
-        type: 'object',
-        additionalProperties: false,
-        required: ['kind', 'title', 'target'],
-        properties: {
-          kind: { type: 'string', enum: ['MODULE_REFERENCE', 'DICTIONARY'] },
-          title: { type: 'string', minLength: 1, maxLength: 100 },
-          fieldName: {
-            type: 'string',
-            minLength: 1,
-            maxLength: 63,
-            pattern: PLATFORM_FIELD_NAME_PATTERN,
-          },
-          target: { type: 'string', minLength: 1, maxLength: 255 },
-          selectionMode: { type: 'string', enum: dictionarySelectionModes },
-          required: { type: 'boolean' },
-        },
-      },
+      inputSchema: { type: 'object', anyOf: metadataPropertyFieldSchemas(adapter) },
     },
     parseInput: (input) => parseAddPropertyFieldDraftInput(input, dictionarySelectionModes),
     async execute(input, context) {
@@ -391,7 +487,7 @@ function updateMetadataFieldDraftCapability(
     descriptor: {
       code: 'configuration.update-metadata-field-draft',
       description:
-        'Update one editable ordinary business field as a visible, unsaved candidate. When an editor is open, revise only that current candidate; first describe it to inspect the user’s latest changes. The user can review, revise or cancel it before confirming the standard change-set.',
+        'Update one editable ordinary business field as a visible, unsaved candidate, including one field in an unsaved batch plan while preserving its other fields. When an individual field editor is open, revise only that current candidate; first describe it to inspect the user’s latest changes. The user can review, revise or cancel it before confirming the standard change-set.',
       inputSchema: {
         type: 'object',
         additionalProperties: false,
@@ -428,7 +524,7 @@ function addMetadataFieldDraftCapability(
     descriptor: {
       code: 'configuration.add-metadata-field-draft',
       description:
-        'Add one ordinary business field to the selected metadata relation as a visible, unsaved candidate. The user can edit or cancel it, and must confirm the standard change-set before it is saved.',
+        'Add one ordinary business field, including an addition to the current batch, as a visible unsaved candidate; preserve other fields. Stored result columns are ordinary writable metadata. Calculation rules provide their read-only form projection; apply those rules before publishing the form. The user must confirm the standard change-set to save.',
       inputSchema: {
         type: 'object',
         additionalProperties: false,
@@ -467,6 +563,7 @@ function surfaceContext(summary: MetadataGovernanceAssistantModelSummary): Assis
     facts: {
       moduleAlias: summary.moduleAlias,
       relationCount: summary.relationCount,
+      mainCandidate: summary.mainCandidate,
       selectedRelationId: summary.selectedRelation?.relationId,
       editing: summary.draft.active,
       dirty: summary.draft.dirty,
@@ -482,7 +579,7 @@ function describeMetadataModelCapability(
     descriptor: {
       code: 'configuration.describe-metadata-model',
       description:
-        'Describe the current module metadata model, selected relation, visible fields and local draft state. It does not change configuration.',
+        'Describe the current module metadata model, selected relation, visible fields with their current required, unique, index, sorting, title and enabled settings, and local draft state. Includes staged fields in a batch plan. Reuse these facts to compare the requested business constraints; settings already satisfied need no update. It does not change configuration.',
       inputSchema: emptyAssistantCapabilityInputSchema(),
     },
     parseInput: parseEmptyAssistantCapabilityInput,
@@ -623,7 +720,7 @@ function canAddFieldDraft(adapter: MetadataGovernanceAssistantAdapter): boolean 
   return Boolean(
     adapter.prepareNewFieldDraft &&
     summary.selectedRelation &&
-    !summary.draft.editorOpen &&
+    (!summary.draft.editorOpen || summary.draft.fieldPlanOpen) &&
     adapter.fieldSpecAliases().length > 0,
   );
 }
@@ -633,7 +730,7 @@ function canUpdateFieldDraft(adapter: MetadataGovernanceAssistantAdapter): boole
   return Boolean(
     adapter.prepareFieldUpdate &&
     summary.selectedRelation &&
-    (!summary.draft.editorOpen || adapter.candidate?.()?.editable === true) &&
+    (!summary.draft.editorOpen || summary.draft.fieldPlanOpen || adapter.candidate?.()?.editable === true) &&
     adapter.editableBasicFieldNames().length > 0,
   );
 }
@@ -645,7 +742,7 @@ function canAddPropertyFieldDraft(adapter: MetadataGovernanceAssistantAdapter): 
     adapter.preparePropertyFieldDraft &&
     adapter.preparePropertyFieldCommit &&
     summary.selectedRelation &&
-    !summary.draft.editorOpen &&
+    (!summary.draft.editorOpen || summary.draft.fieldPlanOpen) &&
     adapter.fieldSpecAliases().includes('string'),
   );
 }

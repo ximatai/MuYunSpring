@@ -11,6 +11,7 @@ import net.ximatai.muyun.spring.platform.metadata.ModuleMainMetadataCreationResu
 import net.ximatai.muyun.spring.platform.metadata.ModuleChildMetadataCreateCommand;
 import net.ximatai.muyun.spring.platform.metadata.ModuleMetadataRelationService;
 import net.ximatai.muyun.spring.platform.metadata.ModuleMetadataOrchestrationService;
+import net.ximatai.muyun.spring.platform.metadata.ModuleChildMetadataCreationService;
 import net.ximatai.muyun.spring.platform.metadata.ModuleMetadataCapabilitySnapshot;
 import net.ximatai.muyun.spring.platform.metadata.MetadataModelDeletionService;
 import net.ximatai.muyun.spring.platform.metadata.ModuleMetadataCapabilitySnapshotService;
@@ -39,6 +40,7 @@ public class PlatformModuleMetadataRelationWebController
         extends NestedSortableCrudWebSupport<ModuleMetadataRelation, ModuleMetadataRelationService> {
 
     private final ModuleMetadataOrchestrationService orchestrationService;
+    private final ModuleChildMetadataCreationService childCreationService;
     private final ModuleMetadataCapabilitySnapshotService capabilitySnapshotService;
     private final ModuleMetadataFieldPropertySummaryService propertySummaryService;
     private final ReferenceTargetFieldCatalogService referenceTargetFieldCatalogService;
@@ -50,7 +52,9 @@ public class PlatformModuleMetadataRelationWebController
                                                        ModuleMetadataFieldPropertySummaryService propertySummaryService,
                                                        ReferenceTargetFieldCatalogService referenceTargetFieldCatalogService,
                                                        MetadataModelDeletionService deletionService,
-                                                       ModuleMetadataRelationRecordCountService recordCountService) {
+                                                       ModuleMetadataRelationRecordCountService recordCountService,
+                                                       ModuleChildMetadataCreationService childCreationService) {
+        this.childCreationService = Objects.requireNonNull(childCreationService, "childCreationService must not be null");
         this.orchestrationService = Objects.requireNonNull(orchestrationService, "orchestrationService must not be null");
         this.capabilitySnapshotService = Objects.requireNonNull(capabilitySnapshotService, "capabilitySnapshotService must not be null");
         this.propertySummaryService = Objects.requireNonNull(propertySummaryService, "propertySummaryService must not be null");
@@ -74,7 +78,21 @@ public class PlatformModuleMetadataRelationWebController
     public ModuleMainMetadataCreationResult createChildMetadata(HttpServletRequest request,
                                                                 @org.springframework.web.bind.annotation.PathVariable String relationId,
                                                                 @RequestBody ModuleChildMetadataCreateCommand command) {
-        return webScope(() -> orchestrationService.createChildMetadata(moduleAlias(request), relationId, command));
+        return webScope(() -> command.requestId() == null
+                ? orchestrationService.createChildMetadata(moduleAlias(request), relationId, command)
+                : childCreationService.create(moduleAlias(request), relationId, command));
+    }
+
+    @GetMapping("/{relationId}/child-metadata-creations/{requestId}")
+    @CustomActionEndpoint(value = "createChildMetadata", title = "创建子元数据",
+            level = PlatformActionLevel.RECORD, dataAuth = false)
+    public org.springframework.http.ResponseEntity<ModuleChildMetadataCreationService.Receipt> childCreation(
+            HttpServletRequest request,
+            @org.springframework.web.bind.annotation.PathVariable String relationId,
+            @org.springframework.web.bind.annotation.PathVariable String requestId) {
+        var result = webScope(() -> childCreationService.lookup(moduleAlias(request), relationId, requestId));
+        return result == null ? org.springframework.http.ResponseEntity.noContent().build()
+                : org.springframework.http.ResponseEntity.ok(result);
     }
 
     @DeleteMapping("/{relationId}/fields/{fieldId}")

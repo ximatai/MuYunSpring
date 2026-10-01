@@ -216,6 +216,8 @@ public class StaticEntityDefinitionCompiler {
             }
             var writeBinding = writeBindings.get(field.getName());
             if (writeBinding != null) definition = definition.writeRules(writeBinding.rules());
+            var pattern = field.getAnnotation(net.ximatai.muyun.spring.common.model.constraint.FieldPattern.class);
+            if (pattern != null) definition = definition.validationRegex(pattern.value());
             definition = StaticMeasureUnitFieldDefinitionCompiler.compile(definition, field);
             definition = StaticMoneyFieldDefinitionCompiler.compile(definition, field);
             fields.add(definition);

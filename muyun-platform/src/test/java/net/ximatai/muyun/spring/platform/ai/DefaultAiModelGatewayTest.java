@@ -11,6 +11,33 @@ import static org.mockito.Mockito.when;
 
 class DefaultAiModelGatewayTest {
     @Test
+    void appliesRouteDefaultsToAllTransportsAndRejectsExplicitExcess() {
+        var resolver = mock(AiModelRouteResolver.class);
+        var client = mock(AiModelClient.class);
+        var route = new ResolvedAiModelRoute("provider", AiModelProtocol.OPENAI_COMPATIBLE,
+                "https://example.test/v1", "model", "secret", new AiModelLimits(131072, 32768, 16384));
+        when(resolver.resolveCurrent()).thenReturn(route);
+        var gateway = new DefaultAiModelGateway(resolver, client);
+        var text = AiTextRequest.userText("hello");
+        var turn = new AiTurnRequest(text.messages(), java.util.List.of(), null, null);
+        var effectiveText = new AiTextRequest(text.messages(), null, 16384);
+        var effectiveTurn = new AiTurnRequest(text.messages(), java.util.List.of(), null, 16384);
+        var textConsumer = mock(AiTextStreamConsumer.class);
+        var turnConsumer = mock(AiTurnStreamConsumer.class);
+        gateway.generate(text);
+        gateway.stream(text, textConsumer);
+        gateway.complete(turn);
+        gateway.stream(turn, turnConsumer);
+        verify(client).generate(route, effectiveText);
+        verify(client).stream(route, effectiveText, textConsumer);
+        verify(client).complete(route, effectiveTurn);
+        verify(client).stream(route, effectiveTurn, turnConsumer);
+        assertThatThrownBy(() -> gateway.complete(new AiTurnRequest(text.messages(), java.util.List.of(), null, 32769)))
+                .hasMessageContaining("输出预算超过");
+        org.mockito.Mockito.verifyNoMoreInteractions(client);
+    }
+
+    @Test
     void structuredStreamingDefaultsToOneCompletedTurnForExistingGatewayImplementations() {
         AiTurnResponse expected = new AiTurnResponse("ready", java.util.List.of(), "stop", "request-default");
         AiModelGateway gateway = new AiModelGateway() {
@@ -54,7 +81,7 @@ class DefaultAiModelGatewayTest {
         AiModelClient client = mock(AiModelClient.class);
         ResolvedAiModelRoute route = new ResolvedAiModelRoute("provider",
                 AiModelProtocol.OPENAI_COMPATIBLE, "https://example.test/v1", "model", "secret");
-        AiTextRequest request = AiTextRequest.userText("hello");
+        AiTextRequest request = new AiTextRequest(java.util.List.of(new AiChatMessage(AiChatMessage.Role.USER, "hello")), null, 8192);
         AiTextResponse expected = new AiTextResponse("world", "stop", "request-1");
         when(routes.resolveCurrent()).thenReturn(route);
         when(client.generate(route, request)).thenReturn(expected);
@@ -75,7 +102,7 @@ class DefaultAiModelGatewayTest {
         AiModelClient client = mock(AiModelClient.class);
         ResolvedAiModelRoute route = new ResolvedAiModelRoute("provider",
                 AiModelProtocol.OPENAI_COMPATIBLE, "https://example.test/v1", "model", "secret");
-        AiTextRequest request = AiTextRequest.userText("hello");
+        AiTextRequest request = new AiTextRequest(java.util.List.of(new AiChatMessage(AiChatMessage.Role.USER, "hello")), null, 8192);
         AiTextStreamConsumer consumer = mock(AiTextStreamConsumer.class);
         when(routes.resolveCurrent()).thenReturn(route);
 
@@ -92,7 +119,7 @@ class DefaultAiModelGatewayTest {
         ResolvedAiModelRoute route = new ResolvedAiModelRoute("provider",
                 AiModelProtocol.OPENAI_COMPATIBLE, "https://example.test/v1", "model", "secret");
         AiTurnRequest request = new AiTurnRequest(java.util.List.of(
-                new AiChatMessage(AiChatMessage.Role.USER, "open customers")), java.util.List.of(), null, null);
+                new AiChatMessage(AiChatMessage.Role.USER, "open customers")), java.util.List.of(), null, 8192);
         AiTurnResponse expected = new AiTurnResponse("done", java.util.List.of(), "stop", "request-1");
         when(routes.resolveCurrent()).thenReturn(route);
         when(client.complete(route, request)).thenReturn(expected);
@@ -111,7 +138,7 @@ class DefaultAiModelGatewayTest {
         ResolvedAiModelRoute route = new ResolvedAiModelRoute("provider",
                 AiModelProtocol.OPENAI_COMPATIBLE, "https://example.test/v1", "model", "secret");
         AiTurnRequest request = new AiTurnRequest(java.util.List.of(
-                new AiChatMessage(AiChatMessage.Role.USER, "open customers")), java.util.List.of(), null, null);
+                new AiChatMessage(AiChatMessage.Role.USER, "open customers")), java.util.List.of(), null, 8192);
         AiTurnStreamConsumer consumer = mock(AiTurnStreamConsumer.class);
         when(routes.resolveCurrent()).thenReturn(route);
 

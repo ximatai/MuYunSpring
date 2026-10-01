@@ -19,6 +19,9 @@ function fixture() {
     moduleAlias: 'demo.order',
     baselineFingerprint: 'base',
     editableFields: [{ fieldName: 'amount', title: '金额', valueType: 'DECIMAL', fieldSpecAlias: 'decimal' }],
+    childFields: [
+      { fieldName: 'lines.amount', title: '明细小计', valueType: 'DECIMAL', fieldSpecAlias: 'decimal' },
+    ],
     rules: [],
   };
   const http: HttpClient = {
@@ -74,6 +77,24 @@ function fixture() {
     },
   };
 }
+
+it('shares direct-child calculation targets between the assistant and governance session', async () => {
+  const { workspace, invoke } = fixture();
+  await invoke('rules.select-module', { moduleAlias: 'demo.order' });
+  const rule: BusinessRuleProposal = {
+    code: 'lineAmount',
+    kind: 'CALCULATION',
+    targetField: 'lines.amount',
+    expression: '{lines.quantity} * {lines.price}',
+    enabled: true,
+  };
+  await invoke('rules.revise', rule);
+  expect(workspace.session('demo.order').rules.value).toEqual([rule]);
+  const prepared = await invoke('rules.prepare-apply');
+  expect(prepared.confirmation!.presentation.lines.join('；')).toContain('明细小计');
+  await expect(invoke('rules.revise', { ...rule, targetField: 'supplier.amount' })).rejects.toThrow();
+  expect(workspace.session('demo.order').rules.value).toEqual([rule]);
+});
 
 it('prepares and trials without a mounted page, shares edits, and invalidates the old confirmation', async () => {
   const { workspace, invoke, rule, http } = fixture();
@@ -218,4 +239,47 @@ it('revokes pending confirmation and mutations when the workspace is disposed', 
   workspace.dispose();
   expect(confirmation.isCurrent()).toBe(false);
   expect(() => session.replace([])).toThrow();
+});
+
+it('refreshes clean rules from governance without discarding an open manual editor', async () => {
+  const { workspace, invoke, http } = fixture();
+  await invoke('rules.select-module', { moduleAlias: 'demo.order' });
+  const session = workspace.session('demo.order');
+  vi.mocked(http.request).mockImplementation(async (options) => {
+    if (options.path.endsWith('/ui-controls'))
+      return { baselineFingerprint: 'ui', forms: [], rules: [] } as never;
+    return { ...session.snapshot.value, baselineFingerprint: 'changed-by-another-user' } as never;
+  });
+  await invoke('rules.select-module', { moduleAlias: 'demo.order', refresh: true });
+  expect(session.snapshot.value?.baselineFingerprint).toBe('changed-by-another-user');
+  const editor = Symbol('manual');
+  session.setEditing(editor, true);
+  const requests = vi.mocked(http.request).mock.calls.length;
+  await invoke('rules.select-module', { moduleAlias: 'demo.order' });
+  expect(vi.mocked(http.request).mock.calls.length).toBe(requests);
+  expect(session.editing.value).toBe(true);
+});
+
+it('does not reload or announce progress when reselecting the active rule workspace', async () => {
+  const { invoke, http } = fixture();
+  await invoke('rules.select-module', { moduleAlias: 'demo.order' });
+  const requests = vi.mocked(http.request).mock.calls.length;
+  expect((await invoke('rules.select-module', { moduleAlias: 'demo.order' })).contextChanged).toBe(false);
+  expect(vi.mocked(http.request).mock.calls.length).toBe(requests);
+});
+
+it('waits for a mounted editor to finish loading before continuing navigation', async () => {
+  const { workspace, invoke, openRules, settleNavigation } = fixture();
+  await invoke('rules.select-module', { moduleAlias: 'demo.order' });
+  const session = workspace.session('demo.order');
+  openRules.mockImplementation(() => {
+    session.loading.value = true;
+    workspace.showEditor(session);
+  });
+  const opening = invoke('rules.open-editor');
+  await Promise.resolve();
+  expect(settleNavigation).not.toHaveBeenCalled();
+  session.loading.value = false;
+  await opening;
+  expect(settleNavigation).toHaveBeenCalledOnce();
 });

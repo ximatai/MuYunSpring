@@ -35,6 +35,7 @@ public class ApplicationConstructionDeliveryService {
     private final PlatformPresentationVariantService variants;
     private final PlatformPresentationRevisionService revisions;
     private final PlatformPresentationRevisionPublishService publisher;
+    private final PlatformPresentationRevisionResolver presentationResolver;
     private final PlatformPresentationTemplateCatalog templates;
     private final ApplicationConstructionPageCompiler compiler;
     private final MenuService menus;
@@ -44,23 +45,37 @@ public class ApplicationConstructionDeliveryService {
 
     public ApplicationConstructionDeliveryService(net.ximatai.muyun.database.core.IDatabaseOperations<?> database, ApplicationConstructionPlanService plans, ApplicationConstructionFieldService fields,
             ApplicationConstructionDeliveryDao receipts, ApplicationConstructionAcceptanceDao acceptances, PlatformPageDefinitionService pages, PlatformPresentationVariantService variants,
-            PlatformPresentationRevisionService revisions, PlatformPresentationRevisionPublishService publisher,
+            PlatformPresentationRevisionService revisions, PlatformPresentationRevisionPublishService publisher, PlatformPresentationRevisionResolver presentationResolver,
             PlatformPresentationTemplateCatalog templates, ApplicationConstructionPageCompiler compiler, MenuService menus,
             MenuSchemeService schemes, DynamicRuntimeActivationService activation, ActionExecutionPolicyService permissions) {
+        this.presentationResolver = Objects.requireNonNull(presentationResolver);
         this.database = Objects.requireNonNull(database); this.plans = Objects.requireNonNull(plans); this.fields = Objects.requireNonNull(fields); this.receipts = Objects.requireNonNull(receipts); this.acceptances = Objects.requireNonNull(acceptances); this.pages = Objects.requireNonNull(pages); this.variants = Objects.requireNonNull(variants);
         this.revisions = Objects.requireNonNull(revisions); this.publisher = Objects.requireNonNull(publisher); this.templates = Objects.requireNonNull(templates); this.compiler = Objects.requireNonNull(compiler);
         this.menus = Objects.requireNonNull(menus); this.schemes = Objects.requireNonNull(schemes); this.activation = Objects.requireNonNull(activation); this.permissions = Objects.requireNonNull(permissions);
     }
     public enum Kind { PAGE, ENTRY }
     public record Proposal(int planRevision, String objectKey, Kind kind, String title,
-                           List<String> listFields, List<String> formFields, List<String> searchFields) {
+                           List<String> listFields, List<String> formFields, List<String> searchFields, Map<String, List<String>> childFields) {
+        public Proposal(int planRevision, String objectKey, Kind kind, String title,
+                        List<String> listFields, List<String> formFields, List<String> searchFields) {
+            this(planRevision, objectKey, kind, title, listFields, formFields, searchFields, Map.of());
+        }
         public Proposal {
             if (planRevision < 1 || kind == null || objectKey == null || !objectKey.matches("[a-z][a-z0-9_-]{0,63}"))
                 throw new IllegalArgumentException("建设节点参数无效");
             if (title == null || title.isBlank() || title.length() > 120) throw new IllegalArgumentException("标题不能为空或过长");
             listFields = checkedNames(listFields); formFields = checkedNames(formFields); searchFields = checkedNames(searchFields);
+            var children = new TreeMap<String, List<String>>();
+            if (childFields != null) childFields.forEach((alias, names) -> {
+                if (alias == null || !alias.matches("[a-z][a-z0-9_]{0,62}")) throw new IllegalArgumentException("明细标识无效");
+                var checked = checkedNames(names);
+                if (checked.isEmpty()) throw new IllegalArgumentException("明细至少展示一个字段");
+                children.put(alias, checked);
+            });
+            if (children.size() > 16) throw new IllegalArgumentException("页面明细最多 16 组");
+            childFields = Collections.unmodifiableMap(children);
             if (kind == Kind.PAGE && (listFields.isEmpty() || formFields.isEmpty())) throw new IllegalArgumentException("列表和表单至少需要一个字段");
-            if (kind == Kind.ENTRY && (!listFields.isEmpty() || !formFields.isEmpty() || !searchFields.isEmpty()))
+            if (kind == Kind.ENTRY && (!listFields.isEmpty() || !formFields.isEmpty() || !searchFields.isEmpty() || !childFields.isEmpty()))
                 throw new IllegalArgumentException("入口确认不包含页面配置");
         }
     }
@@ -69,24 +84,31 @@ public class ApplicationConstructionDeliveryService {
     public record Receipt(String requestId, String objectKey, int planRevision, Kind kind, String moduleAlias,
                           String pageId, String variantId, String revisionId, String menuId, int metadataVersion) {}
     public record Progress(String objectKey, String moduleAlias, String runtimeStatus, boolean pagePublished,
-                           boolean entryVisible, String menuId, boolean needsReview, boolean acceptanceConfirmed, List<String> remainingWork, List<Receipt> receipts, List<ApplicationConstructionRequirements.Evidence> requirements) {}
+                           boolean entryVisible, String menuId, boolean needsReview, boolean acceptanceConfirmed, List<String> remainingWork, List<Receipt> receipts, List<ApplicationConstructionRequirements.Evidence> requirements) {
+        /** Configuration progress never queries tenant business records or proves their absence. */
+        @com.fasterxml.jackson.annotation.JsonProperty
+        public String businessDataStatus() { return "NOT_QUERIED"; }
+    }
 
     public Preview preview(String planId, Proposal proposal) {
-        requireOperator(); requirePermissions(proposal.kind());
+        requireOperator();
+        if (proposal == null) throw new IllegalArgumentException("建设节点参数无效");
+        requirePermissions(proposal.kind());
         var plan = plans.read(planId);
+        plan.requireOpen(proposal.objectKey());
         if (plan.revision() != proposal.planRevision()) throw new IllegalArgumentException("需求版本已变化，请重新预检");
         ApplicationConstructionRequirements.requireBuildable(plan.content(), proposal.objectKey());
         var description = fields.describe(planId, proposal.objectKey());
         if (ApplicationConstructionRequirements.missingConfiguration(fields.evidence(plan, proposal.objectKey(), description)))
-            throw new IllegalArgumentException("已确认要求尚未落实到实际字段约束，请先补齐配置再发布页面或入口");
+            throw new IllegalArgumentException("已确认要求尚未落实到字段、关系或计算配置，请先补齐再发布页面或入口");
         var binding = plan.initializations().stream().filter(value -> value.objectKey().equals(proposal.objectKey())).findFirst().orElseThrow();
         try (var ignored = TenantContext.system("construction delivery preview")) {
             var own = latest(planId, proposal.objectKey(), Kind.PAGE);
             var page = own == null ? null : pages.select(own.pageId());
-            if (own != null && (page == null || !page.getModuleAlias().equals(binding.moduleAlias()) || !page.getMainRelationId().equals(binding.relationId())))
+            if (proposal.kind() == Kind.PAGE && own != null && (page == null || !page.getModuleAlias().equals(binding.moduleAlias()) || !page.getMainRelationId().equals(binding.relationId())))
                 throw new IllegalArgumentException("已建页面绑定发生变化，请核对后继续");
-            if (own != null && !published(own)) throw new IllegalArgumentException("已建页面已被其他修订替换或停用，请先核对正式页面");
-            if (page == null && pages.resolveGlobalPage(binding.moduleAlias(), "management").isPresent())
+            if (proposal.kind() == Kind.PAGE && own != null && !published(own)) throw new IllegalArgumentException("已建页面已被其他修订替换或停用，请先核对正式页面");
+            if (proposal.kind() == Kind.PAGE && page == null && pages.resolveGlobalPage(binding.moduleAlias(), "management").isPresent())
                 throw new IllegalArgumentException("模块已有独立页面，不能自动接管");
             var lines = new ArrayList<String>();
             Object baseline;
@@ -99,12 +121,30 @@ public class ApplicationConstructionDeliveryService {
                     if (Boolean.TRUE.equals(field.getRequired()) && !SYSTEM_FIELDS.contains(field.getFieldName()) && !proposal.formFields().contains(field.getFieldName()))
                         throw new IllegalArgumentException("表单必须包含必填字段：" + field.getTitle());
                 }
+                var placed = new HashSet<>(proposal.formFields());
+                for (var placement : proposal.childFields().entrySet()) {
+                    var child = description.children().get(placement.getKey());
+                    if (child == null) throw new IllegalArgumentException("明细不在当前主表的实际目录中：" + placement.getKey());
+                    var byChildName = new LinkedHashMap<String, MetadataField>();
+                    child.fields().stream().filter(field -> !Boolean.FALSE.equals(field.getEnabled()))
+                            .forEach(field -> byChildName.put(field.getFieldName(), field));
+                    for (String name : placement.getValue()) {
+                        if (!byChildName.containsKey(name) || SYSTEM_FIELDS.contains(name) || name.equals(child.relation().getForeignKey()))
+                            throw new IllegalArgumentException("明细字段不可放入表单：" + placement.getKey() + "." + name);
+                        placed.add(placement.getKey() + "." + name);
+                    }
+                    for (var field : byChildName.values())
+                        if (Boolean.TRUE.equals(field.getRequired()) && !SYSTEM_FIELDS.contains(field.getFieldName())
+                                && !field.getFieldName().equals(child.relation().getForeignKey()) && !placement.getValue().contains(field.getFieldName()))
+                            throw new IllegalArgumentException("明细表单必须包含必填字段：" + field.getTitle());
+                    lines.add("明细“" + child.relation().getTitle() + "”：" + titles(placement.getValue(), byChildName));
+                }
                 var requiredInputs = requiredInputs(plan.content(), proposal.objectKey());
-                if (!proposal.formFields().containsAll(requiredInputs))
+                if (!placed.containsAll(requiredInputs) || !proposal.childFields().keySet().containsAll(requiredChildren(plan.content(), proposal.objectKey())))
                     throw new IllegalArgumentException("页面表单必须包含已确认需求对应的登记字段，包含选填字段");
                 if (proposal.formFields().stream().anyMatch(SYSTEM_FIELDS::contains)) throw new IllegalArgumentException("系统字段不能作为可编辑表单字段");
                 var candidate = page == null ? page(binding, proposal.title()) : page;
-                var revision = revision(null, proposal, 1);
+                var revision = revision(null, proposal, 1, description);
                 templates.validateUiTree(revision, templates.require("management", PlatformPresentationTemplateCatalog.MODE_AWARE_VERSION, PlatformPresentationClientType.WEB, PlatformPageContractType.MANAGEMENT));
                 compiler.validate(candidate, revision);
                 lines.add("列表：" + titles(proposal.listFields(), byName));
@@ -113,14 +153,17 @@ public class ApplicationConstructionDeliveryService {
                 lines.add("仅发布列表、表单、详情及查询配置；不修改字段约束、关系或其他业务规则。");
                 baseline = page == null ? "NEW" : List.of(page, variants.requireVisibleVariant(own.variantId()), revisions.list(Criteria.of().eq("variantId", own.variantId())));
             } else {
-                if (own == null || !published(own)) throw new IllegalArgumentException("请先完成页面发布");
-                if (latest(planId, proposal.objectKey(), Kind.ENTRY) != null || menus.currentUserVisibleModuleMenu(binding.moduleAlias()) != null)
+                var currentPage = currentPage(plan, proposal.objectKey());
+                if (currentPage == null) throw new IllegalArgumentException("请先完成页面发布");
+                if (!pageCoversRequirements(plan.content(), proposal.objectKey(), currentPage.revision()))
+                    throw new IllegalArgumentException("请先核对正式页面是否覆盖已确认需求");
+                if (menus.currentUserVisibleModuleMenu(binding.moduleAlias()) != null)
                     throw new IllegalArgumentException("已有访问入口，请查询进度，不要重复创建");
                 var scheme = schemes.resolveCurrentUserScheme(CurrentUserContext.currentUser().orElseThrow());
                 if (scheme.getScopeType() != MenuScopeType.SYSTEM) throw new IllegalArgumentException("当前仅支持系统配置工作台入口");
                 lines.add("在当前系统工作台菜单方案“" + scheme.getTitle() + "”下创建入口：" + proposal.title());
                 lines.add("入口使用已发布页面，不授予角色或租户业务用户新的业务权限。");
-                baseline = List.of(own, scheme, revisions.select(own.revisionId()));
+                baseline = List.of(currentPage, scheme);
             }
             lines.add("依据需求第 " + plan.revision() + " 版；业务可用性仍需按验收例子核对。");
             return new Preview(proposal, binding.moduleAlias(), List.copyOf(lines), digest(json(List.of(planId, proposal, description, baseline))));
@@ -160,18 +203,20 @@ public class ApplicationConstructionDeliveryService {
                     pageId = old.pageId(); variantId = old.variantId();
                     number = revisions.list(Criteria.of().eq("variantId", variantId)).stream().mapToInt(PlatformPresentationRevision::getRevisionNo).max().orElse(0) + 1;
                 }
-                var revision = revision(variantId, proposal, number);
+                var description = fields.describe(planId, proposal.objectKey());
+                var revision = revision(variantId, proposal, number, description);
                 String revisionId = revisions.insert(revision);
                 publisher.publish(revisionId);
                 result = new Receipt(command.requestId(), proposal.objectKey(), plan.revision(), Kind.PAGE, binding.moduleAlias(), pageId, variantId, revisionId, null,
-                        fields.describe(planId, proposal.objectKey()).metadataVersion());
+                        description.metadataVersion());
             } else {
                 var scheme = schemes.resolveCurrentUserScheme(CurrentUserContext.currentUser().orElseThrow());
                 var menu = new Menu(); menu.setSchemeId(scheme.getId()); menu.setParentId(TreeAbility.ROOT_ID);
                 menu.setTitle(proposal.title()); menu.setModuleAlias(binding.moduleAlias()); menu.setEnabled(true);
                 menu.setOpenMode(MenuOpenMode.TAB); menu.setPageMode(MenuPageMode.LIST);
                 String menuId = menus.insert(menu);
-                result = new Receipt(command.requestId(), proposal.objectKey(), plan.revision(), Kind.ENTRY, binding.moduleAlias(), old.pageId(), old.variantId(), old.revisionId(), menuId, old.metadataVersion());
+                var currentPage = Objects.requireNonNull(currentPage(plan, proposal.objectKey()));
+                result = new Receipt(command.requestId(), proposal.objectKey(), plan.revision(), Kind.ENTRY, binding.moduleAlias(), currentPage.page().getId(), currentPage.variant().getId(), currentPage.revision().getId(), menuId, fields.describe(planId, proposal.objectKey()).metadataVersion());
             }
             var stored = new ApplicationConstructionDelivery(); stored.setId(id); stored.setPlanId(planId); stored.setPlanRevision(plan.revision());
             stored.setObjectKey(proposal.objectKey()); stored.setRequestId(command.requestId()); stored.setRequestDigest(digest(json(command)));
@@ -189,18 +234,16 @@ public class ApplicationConstructionDeliveryService {
         requireOperator(); var plan = plans.read(planId);
         var description = fields.describe(planId, objectKey);
         try (var ignored = TenantContext.system("construction progress")) {
-            var page = latest(planId, objectKey, Kind.PAGE);
-            var entry = latest(planId, objectKey, Kind.ENTRY);
-            boolean published = page != null && published(page);
-            var menu = entry == null ? null : menus.currentUserVisibleMenu(entry.menuId());
+            var page = currentPage(plan, objectKey);
+            boolean published = page != null;
+            var menu = menus.currentUserVisibleModuleMenu(description.moduleAlias());
             boolean visible = menu != null && menu.getModuleAlias().equals(description.moduleAlias());
-            boolean stale = page != null && (page.planRevision() != plan.revision() || page.metadataVersion() != description.metadataVersion()
-                    || !pageCoversRequirements(plan.content(), objectKey, page));
+            boolean stale = page != null && !pageCoversRequirements(plan.content(), objectKey, page.revision());
             String runtime = activation.status(description.moduleAlias()).status();
             var remaining = new ArrayList<String>();
-            if (!published) remaining.add("页面尚未发布或已被其他修订替换");
+            if (!published) remaining.add("当前正式页面尚未发布或不可用");
             if (!visible) remaining.add("工作台入口尚不可见");
-            if (stale) remaining.add("需求或字段基线已变化，请重新核对页面与验收范围");
+            if (stale) remaining.add("当前页面未覆盖已确认需求，请核对页面与验收范围");
             if (!"ACTIVE".equals(runtime)) remaining.add("模块运行态尚未激活");
             String baseline = acceptanceBaseline(plan, description, page, menu);
             var evidence = fields.evidence(plan, objectKey, description);
@@ -214,10 +257,10 @@ public class ApplicationConstructionDeliveryService {
         }
     }
     /** Planning choices are not execution grants; every proposal is still preflighted and confirmed. */
-    public enum TaskAction { REVIEW_REQUIREMENTS, INITIALIZE, VERIFY_RUNTIME, CONFIGURE_FIELDS, REVIEW_CONFIGURATION, PUBLISH_PAGE, CREATE_ENTRY, VERIFY_BUSINESS }
+    public enum TaskAction { REVIEW_CURRENT_CONFIGURATION, REVIEW_REQUIREMENTS, INITIALIZE, VERIFY_RUNTIME, CONFIGURE_FIELDS, REVIEW_CONFIGURATION, PUBLISH_PAGE, CREATE_ENTRY, VERIFY_BUSINESS }
     public record TaskOption(TaskAction action, String explanation) {}
     public record TaskObject(String objectKey, String title, boolean complete, List<TaskOption> options,
-                             List<ApplicationConstructionRequirements.Evidence> requirements) {}
+                             List<ApplicationConstructionRequirements.Evidence> requirements, Progress progress) {}
     public record Task(int planRevision, List<TaskObject> objects) {}
 
     /** Recompute choices from current facts. No persisted cursor or prescribed order across objects. */
@@ -226,38 +269,52 @@ public class ApplicationConstructionDeliveryService {
         var plan = plans.read(planId);
         var objects = new ArrayList<TaskObject>();
         for (var object : plan.content().objects()) {
+            if (plan.deliveredObjectKeys().contains(object.key())) {
+                objects.add(new TaskObject(object.key(), object.name(), true,
+                        List.of(new TaskOption(TaskAction.REVIEW_CURRENT_CONFIGURATION, "已交付；后续改进读取当前低代码治理配置，历史方案仅供参考")), List.of(), null));
+                continue;
+            }
             boolean initialized = plan.initializations().stream().anyMatch(item -> item.objectKey().equals(object.key()));
             var evidence = ApplicationConstructionRequirements.evaluate(plan.content(), object.key(), List.of());
             var options = new ArrayList<TaskOption>();
             boolean complete = false;
-            if (ApplicationConstructionRequirements.blocked(evidence) || !plan.content().questions().isEmpty()) {
-                options.add(new TaskOption(TaskAction.REVIEW_REQUIREMENTS, "先商定本期兑现方式与未决问题"));
-            } else if (!initialized) {
-                options.add(new TaskOption(TaskAction.INITIALIZE, "准备建立此业务对象，尚不能录入业务"));
+            Progress progress = initialized ? progress(planId, object.key()) : null;
+            if (progress != null) evidence = progress.requirements();
+            if (!initialized) {
+                options.add(new TaskOption(TaskAction.INITIALIZE, "先核对当前标准应用与模块目录；缺少时逐页准备可见表单并分别确认，已有对象直接进入标准治理，不以完整需求映射为创建前置"));
+            } else if (ApplicationConstructionRequirements.blocked(evidence)) {
+                options.add(new TaskOption(TaskAction.REVIEW_REQUIREMENTS, "此对象仍有未兑现要求，请说明阻断项；不能承诺下一步自动完成"));
+                options.add(new TaskOption(TaskAction.REVIEW_CONFIGURATION, "已有配置保留，可核对当前成果；不要重复初始化或将局部成果视为完整交付"));
             } else {
-                var progress = progress(planId, object.key());
-                evidence = progress.requirements();
                 complete = progress.acceptanceConfirmed();
                 if (!"ACTIVE".equals(progress.runtimeStatus())) {
                     options.add(new TaskOption(TaskAction.VERIFY_RUNTIME, "先核实已提交配置的可用状态，不重复创建"));
                 } else if (!complete) {
                     boolean missing = ApplicationConstructionRequirements.missingConfiguration(evidence);
-                    options.add(new TaskOption(TaskAction.CONFIGURE_FIELDS, missing
-                            ? "对照尚缺的配置证据补齐登记内容" : "如本期内容仍需补充，可准备字段变更；无需为推进进度额外增加字段"));
-                    if (progress.needsReview())
-                        options.add(new TaskOption(TaskAction.REVIEW_CONFIGURATION, "核对需求与配置变化，保留已生效成果"));
+                    boolean sharedGovernance = evidence.stream().filter(item -> item.status() == ApplicationConstructionRequirements.Status.CONFIGURATION_MISSING)
+                            .anyMatch(item -> plan.content().requirements().stream().anyMatch(requirement -> requirement.objectKey().equals(object.key())
+                                    && requirement.section() == item.section() && requirement.index() == item.index()
+                                    && requirement.fieldName().equals(item.fieldName())
+                                    && (requirement.mode() == ApplicationConstructionRequirement.Mode.CHILD
+                                    || requirement.mode() == ApplicationConstructionRequirement.Mode.CALCULATION || requirement.fieldName().contains("."))));
+                    if (missing && !sharedGovernance)
+                        options.add(new TaskOption(TaskAction.CONFIGURE_FIELDS, "通过标准元数据候选补齐登记内容，保留已有配置"));
+                    if (progress.needsReview() || sharedGovernance)
+                        options.add(new TaskOption(TaskAction.REVIEW_CONFIGURATION, sharedGovernance ? "通过标准元数据与规则治理补齐明细、引用和计算，保留已有配置" : "核对需求与配置变化，保留已生效成果"));
                     if (!missing) {
-                        options.add(new TaskOption(TaskAction.PUBLISH_PAGE, progress.pagePublished()
-                                ? "如需调整页面，可准备新修订；已有页面无需重复发布" : "依据实际字段准备录入和查询页面"));
+                        if (!progress.pagePublished())
+                            options.add(new TaskOption(TaskAction.PUBLISH_PAGE, "依据实际字段准备录入和查询页面"));
                         if (progress.pagePublished() && !progress.needsReview()) {
                             if (!progress.entryVisible())
                                 options.add(new TaskOption(TaskAction.CREATE_ENTRY, "核实已有入口后准备访问入口，不自动授权"));
-                            else options.add(new TaskOption(TaskAction.VERIFY_BUSINESS, "实际试用并核对人工项，再由用户确认验收"));
+                            else if (!plan.content().questions().isEmpty())
+                                options.add(new TaskOption(TaskAction.REVIEW_REQUIREMENTS, "页面和入口已可用；最终验收前请收口方案未决问题，无需重复建设"));
+                            else options.add(new TaskOption(TaskAction.VERIFY_BUSINESS, "页面和入口已可用，可以开始试用；核对实际效果后确认验收，无需重复建设"));
                         }
                     }
                 }
             }
-            objects.add(new TaskObject(object.key(), object.name(), complete, List.copyOf(options), evidence));
+            objects.add(new TaskObject(object.key(), object.name(), complete, List.copyOf(options), evidence, progress));
         }
         return new Task(plan.revision(), List.copyOf(objects));
     }
@@ -267,6 +324,7 @@ public class ApplicationConstructionDeliveryService {
     public record AcceptanceReceipt(String requestId, String objectKey, int planRevision, String baseline) {}
 
     public AcceptancePreview previewAcceptance(String planId, String objectKey) {
+        plans.read(planId).requireOpen(objectKey);
         var progress = progress(planId, objectKey);
         if (!progress.pagePublished() || !progress.entryVisible() || progress.needsReview() || !"ACTIVE".equals(progress.runtimeStatus()))
             throw new IllegalArgumentException("页面、入口或建设基线尚未就绪，不能确认验收");
@@ -276,12 +334,12 @@ public class ApplicationConstructionDeliveryService {
         if (!plan.content().questions().isEmpty()) throw new IllegalArgumentException("方案仍有未决问题，请先澄清并重新确认范围");
         try (var ignored = TenantContext.system("construction acceptance preview")) {
             var description = fields.describe(planId, objectKey);
-            var page = latest(planId, objectKey, Kind.PAGE);
+            var page = currentPage(plan, objectKey);
             var menu = menus.currentUserVisibleMenu(progress.menuId());
             var checks = new ArrayList<String>();
             checks.add("请实际验证以下需求，而非仅根据配置发布成功确认；未支持的要求应先修订方案。");
             for (var evidence : progress.requirements())
-                checks.add((evidence.status() == ApplicationConstructionRequirements.Status.MANUAL_CHECK_REQUIRED ? "需实际人工核验：" : "配置证据匹配，仍须业务试用：")
+                checks.add((evidence.status() == ApplicationConstructionRequirements.Status.MANUAL_RESPONSIBILITY ? "已约定由人处理，验收时核对实际执行：" : "配置证据匹配，仍须业务试用：")
                         + evidence.statement() + " — " + evidence.explanation());
             checks.addAll(plan.content().rules().stream().map(rule -> "业务规则：" + rule).toList());
             checks.addAll(plan.content().acceptanceExamples().stream().map(example -> "验收例子：" + example).toList());
@@ -323,40 +381,64 @@ public class ApplicationConstructionDeliveryService {
                 .filter(item -> item.mode() == ApplicationConstructionRequirement.Mode.FIELD
                         || item.mode() == ApplicationConstructionRequirement.Mode.REQUIRED
                         || item.mode() == ApplicationConstructionRequirement.Mode.UNIQUE
-                        || item.mode() == ApplicationConstructionRequirement.Mode.REFERENCE)
+                        || item.mode() == ApplicationConstructionRequirement.Mode.REFERENCE
+                        || item.mode() == ApplicationConstructionRequirement.Mode.CALCULATION)
                 .map(ApplicationConstructionRequirement::fieldName).distinct().toList();
     }
-    private boolean pageCoversRequirements(ApplicationConstructionPlanContent content, String objectKey, Receipt receipt) {
-        var revision = revisions.select(receipt.revisionId());
-        if (revision == null) return false;
+    private static List<String> requiredChildren(ApplicationConstructionPlanContent content, String objectKey) {
+        return content.requirements().stream().filter(item -> item.objectKey().equals(objectKey)
+                        && item.mode() == ApplicationConstructionRequirement.Mode.CHILD)
+                .map(ApplicationConstructionRequirement::fieldName).distinct().toList();
+    }
+    private boolean pageCoversRequirements(ApplicationConstructionPlanContent content, String objectKey, PlatformPresentationRevision revision) {
         try {
             var formFields = new HashSet<String>();
+            var childRelations = new HashSet<String>();
             for (var node : JSON.readTree(revision.getUiTreeJson()).path("nodes"))
-                if ("form".equals(node.path("slot").asText()))
-                    node.path("fields").forEach(field -> formFields.add(field.asText()));
-            return formFields.containsAll(requiredInputs(content, objectKey));
+                if ("form".equals(node.path("slot").asText())) {
+                    addPlacedFields(node, "", formFields);
+                    for (var child : node.path("relations")) {
+                        String alias = child.path("relation").asText();
+                        childRelations.add(alias);
+                        addPlacedFields(child, alias + ".", formFields);
+                    }
+                }
+            return formFields.containsAll(requiredInputs(content, objectKey)) && childRelations.containsAll(requiredChildren(content, objectKey));
         } catch (com.fasterxml.jackson.core.JsonProcessingException error) {
             return false;
         }
     }
-    private String acceptanceBaseline(ApplicationConstructionPlanService.Snapshot plan, ApplicationConstructionFieldService.Description description, Receipt page, Menu menu) {
-        // Bind acceptance to actual configuration, not only to a model-authored completion statement.
-        return digest(json(Arrays.asList(plan.planId(), plan.revision(), description, page,
-                page == null ? null : pages.select(page.pageId()),
-                page == null ? null : variants.select(page.variantId()),
-                page == null ? null : revisions.select(page.revisionId()), menu)));
+    private static void addPlacedFields(com.fasterxml.jackson.databind.JsonNode node, String prefix, Set<String> fields) {
+        node.path("fields").forEach(field -> fields.add(prefix + (field.isTextual() ? field.asText() : field.path("field").asText())));
+        node.path("groups").forEach(group -> addPlacedFields(group, prefix, fields));
+    }
+    private record CurrentPage(PlatformPageDefinition page, PlatformPresentationVariant variant, PlatformPresentationRevision revision) {}
+    /** Receipts prove past writes; standard resolution determines what is effective now. */
+    private CurrentPage currentPage(ApplicationConstructionPlanService.Snapshot plan, String objectKey) {
+        var binding = plan.initializations().stream().filter(value -> value.objectKey().equals(objectKey)).findFirst().orElseThrow();
+        var page = pages.resolveGlobalPage(binding.moduleAlias(), "management").orElse(null);
+        if (page == null || !Objects.equals(page.getMainRelationId(), binding.relationId())
+                || page.getContractType() != PlatformPageContractType.MANAGEMENT) return null;
+        var revision = presentationResolver.resolve(page.getId(), PlatformPresentationClientType.WEB, null, null).orElse(null);
+        return revision == null ? null : new CurrentPage(page, variants.select(revision.getVariantId()), revision);
+    }
+    private String acceptanceBaseline(ApplicationConstructionPlanService.Snapshot plan, ApplicationConstructionFieldService.Description description, CurrentPage page, Menu menu) {
+        return digest(json(Arrays.asList(plan.planId(), plan.revision(), description, page, menu)));
     }
     private void lockBaseline(String planId, String objectKey) {
         var binding = plans.read(planId).initializations().stream().filter(value -> value.objectKey().equals(objectKey)).findFirst()
                 .orElseThrow(() -> new IllegalArgumentException("业务对象尚未初始化"));
-        database.query("select id from platform_metadata where id = ? for update", binding.metadataId());
-        var page = latest(planId, objectKey, Kind.PAGE);
-        if (page != null) {
-            database.query("select id from platform_page_definition where id = ? for update", page.pageId());
-            database.query("select id from platform_presentation_variant where id = ? for update", page.variantId());
+        database.query("select id from platform_metadata where id in (select metadata_id from platform_module_metadata_relation where module_alias = ?) order by id for update", binding.moduleAlias());
+        database.query("select id from platform_module_metadata_relation where module_alias = ? order by id for update", binding.moduleAlias());
+        try (var ignored = TenantContext.system("lock current construction delivery")) {
+            var page = currentPage(plans.read(planId), objectKey);
+            if (page != null) {
+                database.query("select id from platform_page_definition where id = ? for update", page.page().getId());
+                database.query("select id from platform_presentation_variant where id = ? for update", page.variant().getId());
+            }
+            var menu = menus.currentUserVisibleModuleMenu(binding.moduleAlias());
+            if (menu != null) database.query("select id from platform_menu where id = ? for update", menu.getId());
         }
-        var entry = latest(planId, objectKey, Kind.ENTRY);
-        if (entry != null) database.query("select id from platform_menu where id = ? for update", entry.menuId());
     }
     private boolean published(Receipt receipt) {
         var page = pages.select(receipt.pageId()); var variant = variants.select(receipt.variantId()); var revision = revisions.select(receipt.revisionId());
@@ -381,13 +463,15 @@ public class ApplicationConstructionDeliveryService {
         return page;
     }
     /** This node owns field placement, while the mode-aware template inherits standard module actions. */
-    private static PlatformPresentationRevision revision(String variantId, Proposal proposal, int number) {
+    private static PlatformPresentationRevision revision(String variantId, Proposal proposal, int number, ApplicationConstructionFieldService.Description description) {
         var revision = new PlatformPresentationRevision(); revision.setVariantId(variantId); revision.setRevisionNo(number);
         revision.setTemplateAlias("management"); revision.setTemplateVersion(PlatformPresentationTemplateCatalog.MODE_AWARE_VERSION); revision.setEnabled(true); revision.setTitle(proposal.title());
         revision.setStatus(PlatformPresentationRevisionStatus.DRAFT);
         revision.setUiTreeJson(json(Map.of("template", "management", "templateVersion", PlatformPresentationTemplateCatalog.MODE_AWARE_VERSION, "mode", "LIST_CARD", "quickSearchFields", proposal.searchFields(),
                 "nodes", List.of(Map.of("slot", "list", "title", proposal.title(), "fields", proposal.listFields()),
-                        Map.of("slot", "form", "title", proposal.title(), "fields", proposal.formFields())))));
+                        Map.of("slot", "form", "title", proposal.title(), "fields", proposal.formFields(),
+                                "relations", proposal.childFields().entrySet().stream().map(entry ->
+                                        Map.of("relation", entry.getKey(), "title", description.children().get(entry.getKey()).relation().getTitle(), "fields", entry.getValue())).toList())))));
         return revision;
     }
     private void requireOperator() {

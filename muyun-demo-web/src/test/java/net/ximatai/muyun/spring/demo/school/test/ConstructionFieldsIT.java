@@ -3,6 +3,7 @@ package net.ximatai.muyun.spring.demo.school.test;
 import net.ximatai.muyun.spring.boot.MuYunSpringApplication;
 import net.ximatai.muyun.spring.platform.application.*;
 import net.ximatai.muyun.spring.platform.metadata.*;
+import net.ximatai.muyun.spring.platform.ui.*;
 import net.ximatai.muyun.database.core.IDatabaseOperations;
 import net.ximatai.muyun.spring.common.identity.CurrentUser;
 import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
@@ -36,6 +37,8 @@ class ConstructionFieldsIT {
         registry.add("spring.datasource.driver-class-name", postgres::getDriverClassName);
         registry.add("muyun.database.repository-schema-mode", () -> "ENSURE");
     }
+    @Autowired ModuleMetadataOrchestrationService orchestration;
+    @Autowired BusinessRuleGovernanceService businessRules;
     @Autowired ApplicationConstructionPlanService constructionPlans;
     @Autowired ApplicationConstructionInitializationService construction;
     @Autowired ApplicationConstructionFieldService constructionFields;
@@ -51,14 +54,21 @@ class ConstructionFieldsIT {
     @Autowired net.ximatai.muyun.spring.platform.web.PlatformModuleRuntimeContextService runtimeContexts;
     @Autowired net.ximatai.muyun.spring.platform.ui.PlatformPageDefinitionService constructionPages;
 
-    @Test void recognizesStandardMetadataPublicationWithoutAssistantFieldReceipts() {
+    @Autowired net.ximatai.muyun.spring.platform.menu.MenuService constructionMenus;
+    @Autowired net.ximatai.muyun.spring.platform.menu.MenuSchemeService constructionMenuSchemes;
+    @Autowired PlatformPresentationVariantService presentationVariants;
+    @Autowired PlatformPresentationRevisionService presentationRevisions;
+    @Autowired PlatformPresentationRevisionPublishService presentationPublisher;
+
+    @Test void recognizesStandardGovernanceWithoutConstructionPublicationReceipts() {
         String planId = UUID.randomUUID().toString().replace("-", "");
         var content = new ApplicationConstructionPlanContent("订单", "登记订单", List.of("登记订单号"), List.of(),
                 List.of(new ApplicationConstructionPlanContent.BusinessObject("entry", "订单", "登记")),
                 List.of(), List.of(), List.of(), List.of(), List.of(), List.of("录入订单号"),
                 List.of(new ApplicationConstructionRequirement(ApplicationConstructionRequirement.Section.SCOPE, 0,
                         "entry", ApplicationConstructionRequirement.Mode.REQUIRED, "orderNumber", "订单号必填", null)));
-        try (var identity = CurrentUserContext.use(CurrentUser.systemUser("construction-admin", "建设管理员"))) {
+        try (var identity = CurrentUserContext.use(CurrentUser.systemUser("construction-admin", "建设管理员"));
+             var scope = TenantContext.system("standard governance construction test")) {
             constructionPlans.confirm(planId, new ApplicationConstructionPlanService.ConfirmCommand(UUID.randomUUID().toString(), 0, content));
             var initial = new ApplicationConstructionInitializationService.Proposal(1, "entry", "manual" + planId.substring(0, 12), "订单应用", "registration_records");
             construction.confirm(planId, new ApplicationConstructionInitializationService.ConfirmCommand(
@@ -83,16 +93,49 @@ class ConstructionFieldsIT {
                         assertThat(actual.getMetadataId()).isEqualTo(binding.metadataId());
                     });
             assertThat(delivery.task(planId).objects().getFirst().options()).extracting(ApplicationConstructionDeliveryService.TaskOption::action).contains(ApplicationConstructionDeliveryService.TaskAction.PUBLISH_PAGE);
-            var page = new ApplicationConstructionDeliveryService.Proposal(1, "entry", ApplicationConstructionDeliveryService.Kind.PAGE,
-                    "订单登记", List.of("orderNumber"), List.of("orderNumber"), List.of("orderNumber"));
-            delivery.confirm(planId, new ApplicationConstructionDeliveryService.Command(UUID.randomUUID().toString(), page, delivery.preview(planId, page).fingerprint()));
+            var page = new PlatformPageDefinition();
+            page.setModuleAlias(binding.moduleAlias()); page.setAlias("management"); page.setTitle("订单登记");
+            page.setMainRelationId(binding.relationId()); page.setContractType(PlatformPageContractType.MANAGEMENT); page.setEnabled(true);
+            var pageId = constructionPages.insert(page);
+            var variant = new PlatformPresentationVariant(); variant.setPageId(pageId); variant.setTitle("订单登记");
+            variant.setClientType(PlatformPresentationClientType.WEB); variant.setScopeType(PlatformPresentationScopeType.GLOBAL); variant.setEnabled(true);
+            var variantId = presentationVariants.insert(variant);
+            var revision = standardRevision(variantId, 1, "登记信息");
+            var revisionId = presentationRevisions.insert(revision);
+            assertThat(delivery.progress(planId, "entry").pagePublished()).isFalse();
+            presentationPublisher.publish(revisionId);
+            assertThat(delivery.progress(planId, "entry").pagePublished()).isTrue();
+            assertThat(delivery.progress(planId, "entry").needsReview()).isFalse();
+            assertThat(constructionPlans.read(planId).deliveries()).isEmpty();
             assertThat(delivery.task(planId).objects().getFirst().options()).extracting(ApplicationConstructionDeliveryService.TaskOption::action).contains(ApplicationConstructionDeliveryService.TaskAction.CREATE_ENTRY);
             var entry = new ApplicationConstructionDeliveryService.Proposal(1, "entry", ApplicationConstructionDeliveryService.Kind.ENTRY,
                     "订单登记", List.of(), List.of(), List.of());
+            var manualMenu = new net.ximatai.muyun.spring.platform.menu.Menu();
+            manualMenu.setSchemeId(constructionMenuSchemes.resolveCurrentUserScheme(CurrentUserContext.currentUser().orElseThrow()).getId());
+            manualMenu.setParentId(net.ximatai.muyun.spring.ability.TreeAbility.ROOT_ID); manualMenu.setTitle("人工配置入口");
+            manualMenu.setModuleAlias(binding.moduleAlias()); manualMenu.setEnabled(true);
+            manualMenu.setOpenMode(net.ximatai.muyun.spring.platform.menu.MenuOpenMode.TAB);
+            manualMenu.setPageMode(net.ximatai.muyun.spring.platform.menu.MenuPageMode.LIST);
+            String manualMenuId = constructionMenus.insert(manualMenu);
+            assertThat(delivery.progress(planId, "entry").entryVisible()).isTrue();
+            assertThat(constructionPlans.read(planId).deliveries()).isEmpty();
+            assertThatThrownBy(() -> delivery.preview(planId, entry)).hasMessageContaining("已有访问入口");
+            var disabledMenu = constructionMenus.select(manualMenuId); disabledMenu.setEnabled(false); constructionMenus.update(disabledMenu);
+            assertThat(delivery.progress(planId, "entry").entryVisible()).isFalse();
             delivery.confirm(planId, new ApplicationConstructionDeliveryService.Command(UUID.randomUUID().toString(), entry, delivery.preview(planId, entry).fingerprint()));
             assertThat(delivery.task(planId).objects().getFirst().options()).extracting(ApplicationConstructionDeliveryService.TaskOption::action).contains(ApplicationConstructionDeliveryService.TaskAction.VERIFY_BUSINESS);
             var acceptance = delivery.previewAcceptance(planId, "entry");
-            delivery.confirmAcceptance(planId, new ApplicationConstructionDeliveryService.AcceptanceCommand(UUID.randomUUID().toString(), "entry", acceptance.fingerprint()));
+            var nextRevisionId = presentationRevisions.insert(standardRevision(variantId, 2, "订单资料"));
+            presentationPublisher.publish(nextRevisionId);
+            assertThat(delivery.progress(planId, "entry").pagePublished()).isTrue();
+            assertThat(delivery.progress(planId, "entry").needsReview()).isFalse();
+            assertThatThrownBy(() -> delivery.confirmAcceptance(planId, new ApplicationConstructionDeliveryService.AcceptanceCommand(
+                    UUID.randomUUID().toString(), "entry", acceptance.fingerprint()))).hasMessageContaining("验收基线已变化");
+            var disabledPage = constructionPages.select(pageId); disabledPage.setEnabled(false); constructionPages.update(disabledPage);
+            assertThat(delivery.progress(planId, "entry").pagePublished()).isFalse();
+            disabledPage.setEnabled(true); constructionPages.update(disabledPage);
+            var currentAcceptance = delivery.previewAcceptance(planId, "entry");
+            delivery.confirmAcceptance(planId, new ApplicationConstructionDeliveryService.AcceptanceCommand(UUID.randomUUID().toString(), "entry", currentAcceptance.fingerprint()));
             assertThat(delivery.task(planId).objects().getFirst().complete()).isTrue();
             assertThat(constructionPlans.read(planId).fieldChanges()).isEmpty();
         }
@@ -114,14 +157,29 @@ class ConstructionFieldsIT {
             assertThat(delivery.task(planId).objects().getFirst().options()).extracting(ApplicationConstructionDeliveryService.TaskOption::action).contains(ApplicationConstructionDeliveryService.TaskAction.INITIALIZE);
             var proposal = new ApplicationConstructionInitializationService.Proposal(1, "entry", app, "订单应用", "registration_records");
             var preview = construction.preview(planId, proposal);
-            var result = construction.confirm(planId, new ApplicationConstructionInitializationService.ConfirmCommand(UUID.randomUUID().toString(), proposal, preview.fingerprint()));
+            var initializationCommand = new ApplicationConstructionInitializationService.ConfirmCommand(UUID.randomUUID().toString(), proposal, preview.fingerprint());
+            var mutations = new net.ximatai.muyun.spring.ability.action.MutationContext();
+            ApplicationConstructionInitializationService.Result result;
+            try (var mutationScope = net.ximatai.muyun.spring.ability.action.MutationContextHolder.use(mutations)) {
+                result = construction.confirm(planId, initializationCommand);
+            }
+            var changes = mutations.committedChangeSet(type -> type == ApplicationService.class ? "platform.application" : "platform.module").changes();
+            assertThat(changes).extracting(net.ximatai.muyun.spring.ability.action.DataChange::moduleAlias)
+                    .containsExactly("platform.application", "platform.module");
+            assertThat(changes).extracting(net.ximatai.muyun.spring.ability.action.DataChange::recordId)
+                    .containsExactly(app, result.receipt().moduleAlias());
+            var retried = new net.ximatai.muyun.spring.ability.action.MutationContext();
+            try (var mutationScope = net.ximatai.muyun.spring.ability.action.MutationContextHolder.use(retried)) {
+                construction.confirm(planId, initializationCommand);
+            }
+            assertThat(retried.committedChangeSet(type -> "unused").changes()).isEmpty();
             MockMvc mvc = webAppContextSetup(webApplicationContext).build();
             var json = new com.fasterxml.jackson.databind.ObjectMapper();
             var description = constructionFields.describe(planId, "entry");
             assertThat(delivery.task(planId).objects().getFirst().options()).extracting(ApplicationConstructionDeliveryService.TaskOption::action).contains(ApplicationConstructionDeliveryService.TaskAction.CONFIGURE_FIELDS);
             assertThatThrownBy(() -> delivery.preview(planId, new ApplicationConstructionDeliveryService.Proposal(1, "entry",
                     ApplicationConstructionDeliveryService.Kind.PAGE, "订单", List.of("orderNumber"), List.of("orderNumber"), List.of())))
-                    .hasMessageContaining("尚未落实到实际字段约束");
+                    .hasMessageContaining("尚未落实到字段、关系或计算配置");
             String spec = description.specs().stream().filter(value -> value.type().equals("STRING")).findFirst().orElseThrow().alias();
             var fieldProposal = new net.ximatai.muyun.spring.platform.application.ApplicationConstructionFieldService.Proposal(1, "entry", description.metadataVersion(),
                     List.of(new net.ximatai.muyun.spring.platform.application.ApplicationConstructionFieldService.Field("orderNumber", "订单号", spec, true, true, true, null, false), new ApplicationConstructionFieldService.Field("remark", "备注", spec, false, false, false, null, false)));
@@ -213,18 +271,25 @@ class ConstructionFieldsIT {
             assertThat(delivery.confirmAcceptance(planId, acceptanceCommand)).isEqualTo(acceptanceReceipt);
             assertThat(delivery.progress(planId, "entry").acceptanceConfirmed()).isTrue();
             assertThat(delivery.task(planId).objects().getFirst().complete()).isTrue();
-            var changedPage = constructionPages.select(pageReceipt.pageId());
-            changedPage.setTitle("调整后的订单登记");
-            constructionPages.update(changedPage);
+            try (var other = CurrentUserContext.use(CurrentUser.systemUser("other-governor", "其他配置人员"))) {
+                var changedPage = constructionPages.select(pageReceipt.pageId());
+                changedPage.setTitle("调整后的订单登记");
+                constructionPages.update(changedPage);
+                assertThat(constructionPages.select(pageReceipt.pageId()).getTitle()).isEqualTo("调整后的订单登记");
+            }
+            // Current governance can change independently of the original author's historical design.
             assertThat(delivery.progress(planId, "entry").acceptanceConfirmed()).isFalse();
-
-            constructionPlans.confirm(planId, new ApplicationConstructionPlanService.ConfirmCommand(UUID.randomUUID().toString(), 1,
-                new ApplicationConstructionPlanContent("修订订单", content.goal(), content.inScope(), content.outOfScope(), content.objects(), content.relationships(), content.rules(), content.questions(), content.assumptions(), content.decisions(), content.acceptanceExamples(), content.requirements())));
+            assertThat(constructionPlans.read(planId).constructionStatus()).isEqualTo("DELIVERED");
+            assertThat(delivery.task(planId).objects().getFirst().options())
+                    .extracting(ApplicationConstructionDeliveryService.TaskOption::action)
+                    .containsExactly(ApplicationConstructionDeliveryService.TaskAction.REVIEW_CURRENT_CONFIGURATION);
+            assertThatThrownBy(() -> constructionPlans.confirm(planId, new ApplicationConstructionPlanService.ConfirmCommand(UUID.randomUUID().toString(), 1,
+                new ApplicationConstructionPlanContent("修订订单", content.goal(), content.inScope(), content.outOfScope(), content.objects(), content.relationships(), content.rules(), content.questions(), content.assumptions(), content.decisions(), content.acceptanceExamples(), content.requirements()))))
+                    .hasMessageContaining("已交付");
             assertThat(constructionFields.confirm(planId, fieldCommand).receipt().fields()).hasSize(2);
-            assertThat(delivery.progress(planId, "entry").needsReview()).isTrue();
-            assertThat(delivery.progress(planId, "entry").acceptanceConfirmed()).isFalse();
-            assertThatThrownBy(() -> delivery.previewAcceptance(planId, "entry")).hasMessageContaining("尚未就绪");
-            assertThatThrownBy(() -> constructionFields.preview(planId, fieldProposal)).hasMessageContaining("需求版本已变化");
+            assertThat(delivery.confirm(planId, pageCommand)).isEqualTo(pageReceipt);
+            assertThatThrownBy(() -> delivery.previewAcceptance(planId, "entry")).hasMessageContaining("已交付");
+            assertThatThrownBy(() -> constructionFields.preview(planId, fieldProposal)).hasMessageContaining("当前低代码治理配置");
             try (var other = CurrentUserContext.use(CurrentUser.systemUser("other-owner", "其他用户"))) {
                 assertThatThrownBy(() -> constructionFields.status(planId, fieldCommand.requestId())).isInstanceOf(net.ximatai.muyun.spring.common.exception.PlatformAccessDeniedException.class);
             }
@@ -256,6 +321,14 @@ class ConstructionFieldsIT {
             var targetBefore = constructionFields.describe(planId, "party");
             String spec = targetBefore.specs().stream().filter(value -> value.type().equals("STRING") && value.length() != null && value.length() >= 32)
                     .findFirst().orElseThrow().alias();
+            // A record name can enable references without an assistant-specific FIELD binding.
+            // Its structure is still checked by the standard metadata publisher.
+            var invalidName = constructionFields.preview(planId, new ApplicationConstructionFieldService.Proposal(
+                    1, "party", targetBefore.metadataVersion(), List.of(new ApplicationConstructionFieldService.Field(
+                    "partyName", "单位名称", spec, true, false, false, null, true))));
+            assertThat(invalidName.errors()).extracting(MetadataChangeSetValidationIssue::message)
+                    .anyMatch(message -> message.contains("标准 title"));
+            assertThat(constructionFields.describe(planId, "party").metadataVersion()).isEqualTo(targetBefore.metadataVersion());
             publishFields(planId, "party", List.of(new ApplicationConstructionFieldService.Field("title", "单位名称", spec, true, false, false, null, true)));
             var targetPage = new ApplicationConstructionDeliveryService.Proposal(1, "party", ApplicationConstructionDeliveryService.Kind.PAGE,
                     "单位资料", List.of("title"), List.of("title"), List.of("title"));
@@ -322,6 +395,245 @@ class ConstructionFieldsIT {
                         .content("{\"values\":{\"partyId\":\"missing-record\"}}" )).andReturn().getResponse().getStatus()).isGreaterThanOrEqualTo(400);
             }
         }
+    }
+
+    @Test void childAndCalculationEvidenceUsesCurrentGovernanceAndPagePlacement() {
+        String planId = UUID.randomUUID().toString().replace("-", "");
+        var content = new ApplicationConstructionPlanContent("订货", "一单多项并计算金额", List.of("记录单号和数量"), List.of(),
+                List.of(new ApplicationConstructionPlanContent.BusinessObject("entry", "订货单", "登记")),
+                List.of("一单包含多条明细"), List.of("小计与总额自动计算"), List.of(), List.of(), List.of(),
+                List.of("两行明细保存后重开，修改和删除明细重新核算"), List.of(
+                new ApplicationConstructionRequirement(ApplicationConstructionRequirement.Section.SCOPE, 0, "entry", ApplicationConstructionRequirement.Mode.FIELD, "number", "记录单号", null),
+                new ApplicationConstructionRequirement(ApplicationConstructionRequirement.Section.SCOPE, 0, "entry", ApplicationConstructionRequirement.Mode.REQUIRED, "lines.quantity", "逐行填写数量", null),
+                new ApplicationConstructionRequirement(ApplicationConstructionRequirement.Section.RELATION, 0, "entry", ApplicationConstructionRequirement.Mode.CHILD, "lines", "明细属于该单据", null),
+                new ApplicationConstructionRequirement(ApplicationConstructionRequirement.Section.RULE, 0, "entry", ApplicationConstructionRequirement.Mode.CALCULATION, "lines.amount", "数量乘成交价，需样例试算", null),
+                new ApplicationConstructionRequirement(ApplicationConstructionRequirement.Section.RULE, 0, "entry", ApplicationConstructionRequirement.Mode.CALCULATION, "total", "汇总明细，需样例试算", null)));
+        try (var identity = CurrentUserContext.use(CurrentUser.systemUser("construction-admin", "建设管理员"));
+             var scope = TenantContext.system("child construction contract")) {
+            constructionPlans.confirm(planId, new ApplicationConstructionPlanService.ConfirmCommand(UUID.randomUUID().toString(), 0, content));
+            var initial = new ApplicationConstructionInitializationService.Proposal(1, "entry", "child" + planId.substring(0, 12), "订货", "orders");
+            construction.confirm(planId, new ApplicationConstructionInitializationService.ConfirmCommand(UUID.randomUUID().toString(), initial, construction.preview(planId, initial).fingerprint()));
+            var binding = constructionPlans.read(planId).initializations().getFirst();
+            var description = constructionFields.describe(planId, "entry");
+            String text = description.specs().stream().filter(spec -> spec.type().equals("STRING")).findFirst().orElseThrow().alias();
+            String decimal = description.specs().stream().filter(spec -> spec.type().equals("DECIMAL")).findFirst().orElseThrow().alias();
+            publishFields(planId, "entry", List.of(new ApplicationConstructionFieldService.Field("number", "单号", text, true, false, false, null, false),
+                    new ApplicationConstructionFieldService.Field("total", "合计", decimal, false, false, false, null, false),
+                    new ApplicationConstructionFieldService.Field("lines", "同名备注", text, false, false, false, null, false)));
+            var child = orchestration.createChildMetadata(binding.moduleAlias(), binding.relationId(),
+                    new ModuleChildMetadataCreateCommand("lines", "订货明细", "public", "child_" + planId));
+            var childDrafts = List.of("quantity", "price", "amount").stream().map(name -> {
+                var field = new MetadataField(); field.setFieldName(name); field.setColumnName(name); field.setTitle(name);
+                field.setFieldSpecAlias(decimal); field.setRequired(name.equals("quantity"));
+                return new MetadataFieldChangeSetDraft(MetadataFieldChangeSetDraft.Operation.ADD, null, null, field);
+            }).toList();
+            var childChange = new MetadataModelChangeSetPreviewCommand(List.of(new MetadataModelRelationChangeSetDraft(
+                    child.relation().getId(), child.metadata().getVersion(), java.util.Map.of(), childDrafts)), List.of(), List.of());
+            var checked = metadataPreviews.preview(binding.moduleAlias(), childChange);
+            assertThat(checked.errors()).isEmpty();
+            metadataPublisher.apply(binding.moduleAlias(), new MetadataModelChangeSetApplyCommand(childChange, checked.proposalFingerprint()));
+            var status = delivery.progress(planId, "entry");
+            assertThat(status.requirements()).filteredOn(item -> item.fieldName().equals("lines")).allSatisfy(item ->
+                    assertThat(item.status()).isEqualTo(ApplicationConstructionRequirements.Status.CONFIGURATION_MATCHED));
+            assertThat(status.requirements()).filteredOn(item -> item.section() == ApplicationConstructionRequirement.Section.RULE)
+                    .allSatisfy(item -> assertThat(item.status()).isEqualTo(ApplicationConstructionRequirements.Status.CONFIGURATION_MISSING));
+            var page = new ApplicationConstructionDeliveryService.Proposal(1, "entry", ApplicationConstructionDeliveryService.Kind.PAGE,
+                    "订货单", List.of("number", "total"), List.of("number", "total"), List.of(),
+                    java.util.Map.of("lines", List.of("quantity", "price", "amount")));
+            assertThatThrownBy(() -> delivery.preview(planId, page)).hasMessageContaining("尚未落实");
+            var rules = List.of(new BusinessRuleProposal("lineAmount", net.ximatai.muyun.spring.common.formula.FormulaRuleKind.CALCULATION,
+                            "lines.amount", "{lines.quantity} * {lines.price}", true, null),
+                    new BusinessRuleProposal("total", net.ximatai.muyun.spring.common.formula.FormulaRuleKind.CALCULATION, "total", "SUM({lines.amount})", true, null));
+            var rulePreview = businessRules.preview(binding.moduleAlias(), new BusinessRulePreviewCommand(rules));
+            assertThat(rulePreview.errors()).isEmpty();
+            businessRules.apply(binding.moduleAlias(), new BusinessRuleApplyCommand(rules, rulePreview.snapshot().baselineFingerprint(), rulePreview.proposalFingerprint()));
+            var missingChild = new ApplicationConstructionDeliveryService.Proposal(1, "entry", ApplicationConstructionDeliveryService.Kind.PAGE,
+                    "订货单", List.of("number", "total"), List.of("number", "total", "lines"), List.of());
+            assertThatThrownBy(() -> delivery.preview(planId, missingChild)).hasMessageContaining("包含选填字段");
+            var pagePreview = delivery.preview(planId, page);
+            var published = delivery.confirm(planId, new ApplicationConstructionDeliveryService.Command(UUID.randomUUID().toString(), page, pagePreview.fingerprint()));
+            assertThat(delivery.progress(planId, "entry").needsReview()).isFalse();
+            assertThat(delivery.progress(planId, "entry").requirements()).allSatisfy(item ->
+                    assertThat(item.status()).isEqualTo(ApplicationConstructionRequirements.Status.CONFIGURATION_MATCHED));
+            var entry = new ApplicationConstructionDeliveryService.Proposal(1, "entry", ApplicationConstructionDeliveryService.Kind.ENTRY,
+                    "订货单", List.of(), List.of(), List.of());
+            delivery.confirm(planId, new ApplicationConstructionDeliveryService.Command(UUID.randomUUID().toString(), entry, delivery.preview(planId, entry).fingerprint()));
+            var acceptance = delivery.previewAcceptance(planId, "entry");
+            // Changing the formula without changing its target must invalidate the previous approval baseline.
+            var revisedRules = List.of(rules.getFirst(), new BusinessRuleProposal("total", net.ximatai.muyun.spring.common.formula.FormulaRuleKind.CALCULATION,
+                    "total", "SUM({lines.amount}) + 1", true, null));
+            var revised = businessRules.preview(binding.moduleAlias(), new BusinessRulePreviewCommand(revisedRules));
+            businessRules.apply(binding.moduleAlias(), new BusinessRuleApplyCommand(revisedRules, revised.snapshot().baselineFingerprint(), revised.proposalFingerprint()));
+            assertThatThrownBy(() -> delivery.confirmAcceptance(planId, new ApplicationConstructionDeliveryService.AcceptanceCommand(
+                    UUID.randomUUID().toString(), "entry", acceptance.fingerprint()))).hasMessageContaining("验收基线已变化");
+            var noCalculations = businessRules.preview(binding.moduleAlias(), new BusinessRulePreviewCommand(List.of()));
+            businessRules.apply(binding.moduleAlias(), new BusinessRuleApplyCommand(List.of(), noCalculations.snapshot().baselineFingerprint(), noCalculations.proposalFingerprint()));
+            assertThatThrownBy(() -> delivery.previewAcceptance(planId, "entry")).hasMessageContaining("配置证据");
+            assertThat(published.pageId()).isNotBlank();
+        }
+    }
+
+    @Test void standardGovernanceDeliversAnOrderWhoseTenantBusinessSaveRecalculatesDetails() throws Exception {
+        String planId = UUID.randomUUID().toString().replace("-", "");
+        String app = "sales" + planId.substring(0, 12);
+        var content = new ApplicationConstructionPlanContent("订单登记", "选择客户并登记订单明细", List.of("登记订单"), List.of(),
+                List.of(new ApplicationConstructionPlanContent.BusinessObject("customer", "客户", "客户资料"),
+                        new ApplicationConstructionPlanContent.BusinessObject("order", "订单", "订单登记")),
+                List.of("引用已有客户", "订单包含明细"), List.of("逐行计算小计并汇总总额"), List.of(), List.of(), List.of(),
+                List.of("保存、重开并修改明细"), List.of(
+                new ApplicationConstructionRequirement(ApplicationConstructionRequirement.Section.SCOPE, 0, "customer",
+                        ApplicationConstructionRequirement.Mode.FIELD, "title", "客户名称", null),
+                new ApplicationConstructionRequirement(ApplicationConstructionRequirement.Section.SCOPE, 0, "order",
+                        ApplicationConstructionRequirement.Mode.FIELD, "number", "订单号", null),
+                new ApplicationConstructionRequirement(ApplicationConstructionRequirement.Section.RELATION, 0, "order",
+                        ApplicationConstructionRequirement.Mode.REFERENCE, "customerId", "选择已有客户",
+                        new ApplicationConstructionRequirement.Reference("customer", "")),
+                new ApplicationConstructionRequirement(ApplicationConstructionRequirement.Section.RELATION, 1, "order",
+                        ApplicationConstructionRequirement.Mode.CHILD, "lines", "订单明细", null),
+                new ApplicationConstructionRequirement(ApplicationConstructionRequirement.Section.RULE, 0, "order",
+                        ApplicationConstructionRequirement.Mode.CALCULATION, "lines.amount", "明细小计", null),
+                new ApplicationConstructionRequirement(ApplicationConstructionRequirement.Section.RULE, 0, "order",
+                        ApplicationConstructionRequirement.Mode.CALCULATION, "total", "订单合计", null)));
+        try (var identity = CurrentUserContext.use(CurrentUser.systemUser("construction-admin", "建设管理员"));
+             var system = TenantContext.system("order delivery contract")) {
+            constructionPlans.confirm(planId, new ApplicationConstructionPlanService.ConfirmCommand(UUID.randomUUID().toString(), 0, content));
+            for (String object : List.of("customer", "order")) {
+                var proposal = new ApplicationConstructionInitializationService.Proposal(1, object, app, "订单登记", object);
+                construction.confirm(planId, new ApplicationConstructionInitializationService.ConfirmCommand(
+                        UUID.randomUUID().toString(), proposal, construction.preview(planId, proposal).fingerprint()));
+            }
+            var bindings = constructionPlans.read(planId).initializations();
+            var customer = bindings.stream().filter(item -> item.objectKey().equals("customer")).findFirst().orElseThrow();
+            var order = bindings.stream().filter(item -> item.objectKey().equals("order")).findFirst().orElseThrow();
+            var description = constructionFields.describe(planId, "order");
+            String text = description.specs().stream().filter(spec -> spec.type().equals("STRING") && spec.length() != null && spec.length() >= 32)
+                    .findFirst().orElseThrow().alias();
+            String decimal = description.specs().stream().filter(spec -> spec.type().equals("DECIMAL")).findFirst().orElseThrow().alias();
+            var customerTitle = governedField("title", text);
+            customerTitle.field().setRequired(true); customerTitle.field().setTitleField(true);
+            applyGovernedFields(customer.moduleAlias(), customer.relationId(), metadataService.select(customer.metadataId()).getVersion(), List.of(customerTitle));
+            var customerPage = new ApplicationConstructionDeliveryService.Proposal(1, "customer", ApplicationConstructionDeliveryService.Kind.PAGE,
+                    "客户资料", List.of("title"), List.of("title"), List.of());
+            delivery.confirm(planId, new ApplicationConstructionDeliveryService.Command(UUID.randomUUID().toString(), customerPage,
+                    delivery.preview(planId, customerPage).fingerprint()));
+            var customerReference = new MetadataFieldReferenceConfigDraft(customer.moduleAlias(), customer.metadataId(), "id", "title",
+                    net.ximatai.muyun.spring.ability.reference.ReferenceCardinality.ONE,
+                    net.ximatai.muyun.spring.ability.reference.ReferenceTargetUnavailablePolicy.PRESERVE_HISTORY, List.of(), false);
+            var referenceField = governedField("customerId", text).field();
+            applyGovernedFields(order.moduleAlias(), order.relationId(), description.metadataVersion(), List.of(
+                    governedField("number", text), governedField("total", decimal),
+                    new MetadataFieldChangeSetDraft(MetadataFieldChangeSetDraft.Operation.ADD, null, null, referenceField,
+                            new MetadataFieldPropertyDraft(MetadataFieldPropertyKind.MODULE_REFERENCE, null, customerReference, null))));
+            var child = orchestration.createChildMetadata(order.moduleAlias(), order.relationId(),
+                    new ModuleChildMetadataCreateCommand("lines", "订单明细", "public", "order_lines_" + planId));
+            applyGovernedFields(order.moduleAlias(), child.relation().getId(), child.metadata().getVersion(),
+                    List.of(governedField("quantity", decimal), governedField("price", decimal), governedField("amount", decimal)));
+            var rules = List.of(new BusinessRuleProposal("lineAmount", net.ximatai.muyun.spring.common.formula.FormulaRuleKind.CALCULATION,
+                            "lines.amount", "{lines.quantity} * {lines.price}", true, null),
+                    new BusinessRuleProposal("total", net.ximatai.muyun.spring.common.formula.FormulaRuleKind.CALCULATION,
+                            "total", "SUM({lines.amount})", true, null));
+            var checked = businessRules.preview(order.moduleAlias(), new BusinessRulePreviewCommand(rules));
+            assertThat(checked.errors()).isEmpty();
+            businessRules.apply(order.moduleAlias(), new BusinessRuleApplyCommand(rules, checked.snapshot().baselineFingerprint(), checked.proposalFingerprint()));
+            var page = new ApplicationConstructionDeliveryService.Proposal(1, "order", ApplicationConstructionDeliveryService.Kind.PAGE,
+                    "订单登记", List.of("number", "customerId", "total"), List.of("number", "customerId", "total"), List.of(),
+                    java.util.Map.of("lines", List.of("quantity", "price", "amount")));
+            delivery.confirm(planId, new ApplicationConstructionDeliveryService.Command(UUID.randomUUID().toString(), page, delivery.preview(planId, page).fingerprint()));
+            var entry = new ApplicationConstructionDeliveryService.Proposal(1, "order", ApplicationConstructionDeliveryService.Kind.ENTRY,
+                    "订单登记", List.of(), List.of(), List.of());
+            delivery.confirm(planId, new ApplicationConstructionDeliveryService.Command(UUID.randomUUID().toString(), entry, delivery.preview(planId, entry).fingerprint()));
+            // Configuration readiness is distinct from acceptance of actual tenant business behavior.
+            var progress = delivery.progress(planId, "order");
+            assertThat(progress.pagePublished()).isTrue();
+            assertThat(progress.entryVisible()).isTrue();
+            assertThat(progress.needsReview()).isFalse();
+            assertThat(delivery.task(planId).objects()).filteredOn(item -> item.objectKey().equals("order"))
+                    .singleElement().satisfies(item -> assertThat(item.complete()).isFalse());
+            assertThat(constructionPlans.read(planId).fieldChanges()).isEmpty();
+            var tenant = new net.ximatai.muyun.spring.iam.tenant.Tenant();
+            tenant.setTitle("订单业务验收"); tenant.setAlias("sales_" + planId.substring(0, 10));
+            String tenantId = tenants.insert(tenant);
+            var mvc = webAppContextSetup(webApplicationContext).build();
+            // Business acceptance uses the standard HTTP mutation and detail paths in an explicit tenant.
+            try (var business = TenantContext.use(tenantId)) {
+                var createdCustomer = mvc.perform(post("/" + customer.moduleAlias() + "/insert").contentType("application/json")
+                        .content("{\"values\":{\"title\":\"晨光客户\"}}")).andReturn().getResponse();
+                assertThat(createdCustomer.getStatus()).as(createdCustomer.getContentAsString()).isEqualTo(201);
+                var customerRecord = dynamicRecords.mainEntity(customer.moduleAlias()).list(net.ximatai.muyun.database.core.orm.Criteria.of()
+                        .eq("title", "晨光客户"), net.ximatai.muyun.database.core.orm.PageRequest.of(1, 10)).getFirst();
+                String body = """
+                        {"values":{"number":"SO-001","customerId":"%s"},"children":{"lines":[
+                         {"values":{"quantity":2,"price":12.5}}, {"values":{"quantity":3,"price":7}}]}}
+                        """.formatted(customerRecord.getId());
+                var created = mvc.perform(post("/" + order.moduleAlias() + "/insert").contentType("application/json").content(body)).andReturn().getResponse();
+                assertThat(created.getStatus()).as(created.getContentAsString()).isEqualTo(201);
+                var records = dynamicRecords.mainEntity(order.moduleAlias());
+                var saved = records.select(records.list(net.ximatai.muyun.database.core.orm.Criteria.of().eq("number", "SO-001"),
+                        net.ximatai.muyun.database.core.orm.PageRequest.of(1, 10)).getFirst().getId());
+                assertThat(saved.getTenantId()).isEqualTo(tenantId);
+                assertThat(saved.getValue("customerId")).isEqualTo(customerRecord.getId());
+                assertThat(new java.math.BigDecimal(saved.getValue("total").toString())).isEqualByComparingTo("46");
+                var childRecords = dynamicRecords.entity(order.moduleAlias(), child.metadata().getAlias());
+                var lineScope = net.ximatai.muyun.database.core.orm.Criteria.of().eq(child.relation().getForeignKey(), saved.getId());
+                var lines = childRecords.list(lineScope, net.ximatai.muyun.database.core.orm.PageRequest.of(1, 10));
+                assertThat(lines).hasSize(2).allSatisfy(line -> {
+                    var expected = new java.math.BigDecimal(line.getValue("quantity").toString())
+                            .multiply(new java.math.BigDecimal(line.getValue("price").toString()));
+                    assertThat(new java.math.BigDecimal(line.getValue("amount").toString())).isEqualByComparingTo(expected);
+                });
+                var retained = lines.getFirst();
+                String update = """
+                        {"version":%d,"values":{"number":"SO-001","customerId":"%s"},"children":{"lines":[
+                         {"id":"%s","version":%d,"values":{"quantity":4,"price":12.5}}]}}
+                        """.formatted(saved.getVersion(), customerRecord.getId(), retained.getId(), retained.getVersion());
+                var updated = mvc.perform(post("/" + order.moduleAlias() + "/update/" + saved.getId())
+                        .contentType("application/json").content(update)).andReturn().getResponse();
+                assertThat(updated.getStatus()).as(updated.getContentAsString()).isEqualTo(200);
+                var reopened = records.select(saved.getId());
+                assertThat(new java.math.BigDecimal(reopened.getValue("total").toString())).isEqualByComparingTo("50");
+                assertThat(childRecords.list(lineScope, net.ximatai.muyun.database.core.orm.PageRequest.of(1, 10)))
+                        .singleElement().satisfies(line -> {
+                    assertThat(line.getId()).isEqualTo(retained.getId());
+                    assertThat(new java.math.BigDecimal(line.getValue("amount").toString())).isEqualByComparingTo("50");
+                });
+                var viewed = mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get(
+                        "/" + order.moduleAlias() + "/view/" + saved.getId())).andReturn().getResponse();
+                assertThat(viewed.getStatus()).as(viewed.getContentAsString()).isEqualTo(200);
+                assertThat(viewed.getContentAsString()).contains("SO-001", "晨光客户");
+            }
+            var acceptance = delivery.previewAcceptance(planId, "order");
+            delivery.confirmAcceptance(planId, new ApplicationConstructionDeliveryService.AcceptanceCommand(
+                    UUID.randomUUID().toString(), "order", acceptance.fingerprint()));
+            assertThat(delivery.task(planId).objects()).filteredOn(item -> item.objectKey().equals("order"))
+                    .singleElement().satisfies(item -> assertThat(item.complete()).isTrue());
+        }
+    }
+
+    private static MetadataFieldChangeSetDraft governedField(String name, String spec) {
+        var field = new MetadataField(); field.setFieldName(name); field.setColumnName(name.replaceAll("([a-z])([A-Z])", "$1_$2").toLowerCase());
+        field.setTitle(name); field.setFieldSpecAlias(spec);
+        return new MetadataFieldChangeSetDraft(MetadataFieldChangeSetDraft.Operation.ADD, null, null, field);
+    }
+
+    private void applyGovernedFields(String module, String relation, int version, List<MetadataFieldChangeSetDraft> fields) {
+        var changes = new MetadataModelChangeSetPreviewCommand(List.of(new MetadataModelRelationChangeSetDraft(
+                relation, version, java.util.Map.of(), fields)), List.of(), List.of());
+        var preview = metadataPreviews.preview(module, changes);
+        assertThat(preview.errors()).isEmpty();
+        metadataPublisher.apply(module, new MetadataModelChangeSetApplyCommand(changes, preview.proposalFingerprint()));
+    }
+
+    private static PlatformPresentationRevision standardRevision(String variantId, int number, String groupTitle) {
+        var revision = new PlatformPresentationRevision(); revision.setVariantId(variantId); revision.setRevisionNo(number);
+        revision.setTitle("订单页面"); revision.setEnabled(true); revision.setStatus(PlatformPresentationRevisionStatus.DRAFT);
+        revision.setTemplateAlias("management"); revision.setTemplateVersion(PlatformPresentationTemplateCatalog.MODE_AWARE_VERSION);
+        revision.setUiTreeJson("""
+                {"template":"management","templateVersion":2,"mode":"LIST_CARD","quickSearchFields":[],"nodes":[
+                  {"slot":"list","title":"订单列表","fields":["orderNumber"]},
+                  {"slot":"form","title":"订单表单","fields":[],"groups":[{"group":"basic","title":"%s","fields":[{"field":"orderNumber","props":{"label":"订单号"}}]}]}
+                ]}
+                """.formatted(groupTitle));
+        return revision;
     }
 
     private ApplicationConstructionFieldService.Command publishFields(String planId, String objectKey, List<ApplicationConstructionFieldService.Field> fields) {

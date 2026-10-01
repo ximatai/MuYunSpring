@@ -80,7 +80,27 @@ final class BusinessRuleFormProjection {
         List<ResolvedEditorSurfaceDescriptor> surfaces = descriptor.editorSurfaces().stream()
                 .map(surface -> new ResolvedEditorSurfaceDescriptor(surface.key(), project(surface.editor(), rules, childFields)))
                 .toList();
-        return descriptor.withEditors(page, defaultEditor, surfaces);
+        Set<String> computedTargets = unconditionalTargets(writers(rules.stream()
+                .filter(rule -> rule != null && rule.enabled()).toList()));
+        List<ResolvedPageDetailEditorContribution> contributions = descriptor.editorContributions().stream()
+                .map(contribution -> {
+                    var relation = descriptor.detailRelations().stream()
+                            .filter(candidate -> candidate.embeddedField() != null
+                                    && candidate.targetEntityAlias().equals(contribution.resource()))
+                            .findFirst().orElse(null);
+                    if (relation == null) return contribution;
+                    Set<String> immediateTargets = relation.formComputeRules().stream()
+                            .map(net.ximatai.muyun.spring.platform.ui.ResolvedRelationFormComputeRuleDescriptor::targetField)
+                            .collect(Collectors.toSet());
+                    var fields = contribution.editor().fields().stream().map(field ->
+                            computedTargets.contains(relation.parentBinding() + "." + field.fieldRef().fieldName())
+                                    ? field.withComputedValue(immediateTargets.contains(field.fieldRef().fieldName())
+                                        ? "自动计算，保存时以服务端校验结果为准"
+                                        : "保存时自动计算，保存前显示原值或留空") : field).toList();
+                    return new ResolvedPageDetailEditorContribution(contribution.resource(),
+                            contribution.editor().withFields(fields));
+                }).toList();
+        return descriptor.withEditors(page, defaultEditor, surfaces).withEditorContributions(contributions);
     }
 
     /** Compiles portable static DSL validation rules after the concrete form fields have been resolved. */
@@ -111,6 +131,7 @@ final class BusinessRuleFormProjection {
         if (enabled.isEmpty()) return view;
         Map<String, List<FormulaRule>> allWriters = writers(enabled);
         Set<String> serverCalculationTargets = allWriters.keySet();
+        Set<String> computedTargets = unconditionalTargets(allWriters);
         List<ResolvedFormValidationRuleDescriptor> validations = validationDescriptors(enabled, definitions, fields);
         List<Candidate> candidates = new ArrayList<>();
         Set<String> codes = new LinkedHashSet<>();
@@ -123,7 +144,7 @@ final class BusinessRuleFormProjection {
             candidates.add(candidate);
         }
         if (candidates.isEmpty()) {
-            return withAuthoritativeRules(view, List.of(), validations, serverCalculationTargets);
+            return withAuthoritativeRules(view, List.of(), validations, serverCalculationTargets, computedTargets);
         }
 
         Map<String, Candidate> candidatesByTarget = uniqueCandidatesByTarget(candidates);
@@ -131,13 +152,13 @@ final class BusinessRuleFormProjection {
         List<Candidate> portable = candidates.stream()
                 .filter(candidate -> portableTargets.contains(candidate.targetField()))
                 .toList();
-        if (portable.isEmpty()) return withAuthoritativeRules(view, List.of(), validations, serverCalculationTargets);
+        if (portable.isEmpty()) return withAuthoritativeRules(view, List.of(), validations, serverCalculationTargets, computedTargets);
 
         FormulaRuleExecutionPlan plan;
         try {
             plan = FormulaRuleExecutionPlan.forMainRecord(portable.stream().map(Candidate::rule).toList(), definitions);
         } catch (FormulaEvaluationException exception) {
-            return withAuthoritativeRules(view, List.of(), validations, serverCalculationTargets);
+            return withAuthoritativeRules(view, List.of(), validations, serverCalculationTargets, computedTargets);
         }
         Map<String, Candidate> byCode = portable.stream()
                 .collect(Collectors.toMap(candidate -> candidate.rule().id(), Function.identity(), (left, right) -> left,
@@ -145,20 +166,24 @@ final class BusinessRuleFormProjection {
         List<ResolvedFormComputeRuleDescriptor> automatic = plan.orderedRules().stream()
                 .map(rule -> descriptor(byCode.get(rule.id())))
                 .toList();
-        return withAuthoritativeRules(view, automatic, validations, serverCalculationTargets);
+        return withAuthoritativeRules(view, automatic, validations, serverCalculationTargets, computedTargets);
     }
 
     private static ResolvedViewDescriptor withAuthoritativeRules(ResolvedViewDescriptor view,
                                                                   List<ResolvedFormComputeRuleDescriptor> automatic,
                                                                   List<ResolvedFormValidationRuleDescriptor> validations,
-                                                                  Set<String> serverCalculationTargets) {
+                                                                  Set<String> serverCalculationTargets,
+                                                                  Set<String> computedTargets) {
         Set<String> automaticTargets = automatic.stream().map(ResolvedFormComputeRuleDescriptor::targetField)
                 .collect(Collectors.toSet());
         Set<String> automaticCodes = automatic.stream().map(ResolvedFormComputeRuleDescriptor::code)
                 .collect(Collectors.toSet());
         List<ResolvedViewFieldDescriptor> projectedFields = view.fields().stream()
-                .map(field -> automaticTargets.contains(field.fieldRef().fieldName()) && field.fieldRef().relationCode() == null
-                        ? field.withReadOnly(UiRule.constant(true)) : field)
+                .map(field -> field.fieldRef().relationCode() != null ? field
+                        : automaticTargets.contains(field.fieldRef().fieldName())
+                            ? field.withComputedValue("自动计算，保存时以服务端校验结果为准")
+                            : computedTargets.contains(field.fieldRef().fieldName())
+                                ? field.withComputedValue("保存时自动计算，保存前显示原值或留空") : field)
                 .toList();
         List<ResolvedFormComputeRuleDescriptor> remainingAuthored = serverAuthoritativeAuthoredRules(
                 view.formComputeRules(), serverCalculationTargets, automaticTargets, automaticCodes);
@@ -286,25 +311,27 @@ final class BusinessRuleFormProjection {
         Map<String, List<FormulaRule>> writers = new LinkedHashMap<>();
         for (FormulaRule rule : rules) {
             if (rule.kind() != FormulaRuleKind.CALCULATION || rule.phase() != FormulaRulePhase.BEFORE_SAVE) continue;
-            String target = mainTarget(rule);
-            if (target != null) {
+            Set<String> targets = new LinkedHashSet<>();
+            if (rule.targetField() != null) targets.add(rule.targetField());
+            try { targets.addAll(ENGINE.assignedFields(rule.expression())); }
+            catch (FormulaEvaluationException ignored) { /* Invalid rules are never projected. */ }
+            for (String target : targets)
                 writers.computeIfAbsent(target, ignored -> new ArrayList<>()).add(rule);
-            }
         }
         return writers;
     }
 
-    private static String mainTarget(FormulaRule rule) {
-        String target = rule.targetField();
-        if (target == null) {
+    private static Set<String> unconditionalTargets(Map<String, List<FormulaRule>> writers) {
+        Set<String> targets = new LinkedHashSet<>();
+        writers.forEach((target, rules) -> {
+            if (rules.size() != 1) return;
             try {
-                target = ENGINE.assignedFields(rule.expression()).stream().findFirst().orElse(null);
+                if (target.equals(ENGINE.unconditionalCalculationTarget(rules.getFirst()))) targets.add(target);
             } catch (FormulaEvaluationException ignored) {
-                return null;
+                // Invalid or ambiguous rules must not take manual input away from the form.
             }
-        }
-        FormulaFieldPath path = FormulaFieldPath.parse(target);
-        return path.tableKey() == null && !path.fieldName().isBlank() ? path.fieldName() : null;
+        });
+        return Set.copyOf(targets);
     }
 
     private static Map<String, Candidate> uniqueCandidatesByTarget(List<Candidate> candidates) {

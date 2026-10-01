@@ -215,7 +215,12 @@ public class PlatformModuleService extends AbstractAbilityService<PlatformModule
     }
 
     private String requireModuleAlias(String moduleAlias, String applicationAlias) {
-        return PlatformNameRules.requireModuleAliasInApplication(moduleAlias, applicationAlias);
+        String validAlias = PlatformNameRules.requireModuleAlias(moduleAlias);
+        try {
+            return PlatformNameRules.requireModuleAliasInApplication(validAlias, applicationAlias);
+        } catch (IllegalArgumentException cause) {
+            throw new IllegalArgumentException("模块标识与所属应用不匹配，请以“" + applicationAlias + ".”开头。", cause);
+        }
     }
 
     private void validateParentApplication(PlatformModule module) {

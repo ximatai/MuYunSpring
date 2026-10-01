@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
-import type { ConstructionPlanSnapshot, ConstructionProgress } from '@muyun/web-contracts';
+import type { ConstructionPlanSnapshot, ConstructionProgress, ConstructionTask } from '@muyun/web-contracts';
 import { UiButton } from '@muyun/vue-ui-antdv';
 import { presentConstructionPlan, type ConstructionPlanSession } from './constructionPlanSession';
 const props = defineProps<{ session: ConstructionPlanSession; disabled?: boolean }>();
@@ -47,6 +47,33 @@ watch(
   },
 );
 const state = computed(() => props.session.state.value);
+const delivered = computed(() => state.value.saved?.constructionStatus === 'DELIVERED');
+const currentTask = computed(() => props.session.currentTask());
+const taskError = ref('');
+async function refreshTask() {
+  const generation = state.value.generation;
+  taskError.value = '';
+  if (!state.value.saved || props.session.dirty() || state.value.reviewRequired || delivered.value) return;
+  try {
+    await props.session.readTask();
+  } catch {
+    if (generation === state.value.generation) taskError.value = '实际建设进度暂时无法读取，请重试。';
+  }
+}
+watch(() => state.value.generation, refreshTask, { immediate: true });
+function progressLabel(object: ConstructionTask['objects'][number]) {
+  if (object.complete) return '已验收；后续修改以当前配置为准';
+  const value = object.progress;
+  if (!value) return '尚未建立';
+  if (value.runtimeStatus !== 'ACTIVE') return '配置已提交，正在等待可用状态确认';
+  if (value.needsReview) return '已有配置，需要核对最新变化';
+  if (value.entryVisible && value.pagePublished) return '页面和入口已可用，待实际试用';
+  if (value.pagePublished) return '页面已发布，访问入口待完成';
+  if (value.requirements?.some((item) => item.status === 'CONFIGURATION_MISSING'))
+    return '已建立，登记内容待补齐，页面尚未发布';
+  return '登记内容已配置，页面尚未发布';
+}
+
 const presentation = computed(() => state.value.candidate && presentConstructionPlan(state.value.candidate));
 async function run(action: () => unknown) {
   error.value = '';
@@ -61,33 +88,48 @@ async function run(action: () => unknown) {
 }
 </script>
 <template>
+  <section v-if="currentTask" class="construction-plan" aria-label="当前建设进度">
+    <strong>当前建设进度</strong>
+    <p v-for="object in currentTask.objects" :key="object.objectKey">
+      {{ object.title }}：{{ progressLabel(object) }}
+      <span v-if="object.options.some((option) => option.action === 'REVIEW_REQUIREMENTS')">
+        仍有要求待商定，尚不能完整交付。
+      </span>
+    </p>
+    <UiButton size="small" :disabled="disabled" @click="refreshTask">刷新实际进度</UiButton>
+  </section>
+  <p v-if="taskError" role="status">
+    {{ taskError }} <UiButton size="small" :disabled="disabled" @click="refreshTask">重试读取进度</UiButton>
+  </p>
   <details class="construction-plan">
     <summary>
-      业务建设方案{{ state.candidate ? `：${state.candidate.title}` : '' }}
+      {{ delivered ? '历史建设记录' : '本次建设设计'
+      }}{{ state.candidate ? `：${state.candidate.title}` : '' }}
       <span v-if="state.candidate" class="construction-plan__persistence">
         {{
-          session.recovery.value
-            ? '保存结果待查询'
-            : session.dirty()
-              ? '当前修改未保存'
-              : state.saved
-                ? `需求已保存 · 第 ${state.saved.revision} 版`
-                : '尚未保存'
+          delivered
+            ? '已交付 · 后续改进以当前配置为准'
+            : session.recovery.value
+              ? '保存结果待查询'
+              : session.dirty()
+                ? '当前修改未保存'
+                : state.saved
+                  ? `需求已保存 · 第 ${state.saved.revision} 版`
+                  : '尚未保存'
         }}
       </span>
     </summary>
-    <p>与助手讨论业务目标、范围和验收方式，在对话中确认方案。确认需求不会发布业务配置。</p>
-    <p v-if="state.candidate">
+    <p v-if="delivered">
+      业务已交付。这份记录保留当时的设计与交付结果，不代表当前配置。直接告诉助手要改进什么，无需重新恢复或修改此方案。
+    </p>
+    <p v-else>在这里商定本次建设的目标与范围。改进已有业务可直接读取当前配置，无需另建方案。</p>
+    <p v-if="state.candidate && !delivered">
       {{ state.saved ? `已确认第 ${state.saved.revision} 版` : '尚未确认' }} ·
       {{ session.dirty() ? '有未确认修改' : '与已确认版本一致' }} ·
       {{
-        state.saved?.deliveries.length
-          ? '已有页面或入口提交，请查询实际建设和验收状态'
-          : state.saved?.fieldChanges.length
-            ? '已有字段提交，页面与访问入口仍待建设'
-            : state.saved?.constructionStatus === 'INITIALIZED'
-              ? '已初始化模块，字段与页面仍待建设'
-              : '尚未建设'
+        state.saved?.initializations.length
+          ? '已有建设记录，当前配置与验收状态以实际查询为准'
+          : '尚无建设记录'
       }}
     </p>
     <details
@@ -119,13 +161,14 @@ async function run(action: () => unknown) {
       目标或范围已修改。原有问题、假设和规则待重新核对，请告诉助手“核对修改后的方案”再确认；不会自动视为已解决。
     </p>
     <UiButton
-      v-if="state.saved?.initializations.length"
+      v-if="state.saved?.initializations.length && !delivered"
       :disabled="disabled || working"
       @click="
         run(async () => {
           const loaded: ConstructionProgress[] = [];
           for (const object of state.saved?.initializations ?? [])
-            loaded.push(await session.progress(object.objectKey));
+            if (!state.saved?.deliveredObjectKeys.includes(object.objectKey))
+              loaded.push(await session.progress(object.objectKey));
           progress = loaded;
         })
       "
@@ -141,7 +184,7 @@ async function run(action: () => unknown) {
       <p v-for="line in item.remainingWork" :key="line">{{ line }}</p>
     </section>
     <UiButton
-      v-if="state.saved && session.facts().initializationAvailable"
+      v-if="state.saved && !delivered && session.facts().initializationAvailable"
       :disabled="disabled || working || session.dirty()"
       @click="run(() => session.readTask())"
       >查看下一步</UiButton
@@ -151,7 +194,7 @@ async function run(action: () => unknown) {
       :key="object.objectKey"
       aria-label="建设任务"
     >
-      <p>{{ object.title }}：{{ object.complete ? '当前配置已验收' : '可继续处理的事项' }}</p>
+      <p>{{ object.title }}：{{ object.complete ? '已交付，后续以当前治理配置为准' : '可继续处理的事项' }}</p>
       <ul v-if="!object.complete">
         <li v-for="option in object.options" :key="option.action">{{ option.explanation }}</li>
       </ul>
@@ -164,7 +207,7 @@ async function run(action: () => unknown) {
               UNSUPPORTED: '暂不支持',
               CONFIGURATION_MISSING: '所需配置尚未就绪',
               CONFIGURATION_MATCHED: '配置已核对，仍须业务试用',
-              MANUAL_CHECK_REQUIRED: '需要人工核验',
+              MANUAL_RESPONSIBILITY: '按约定由人处理',
             }[item.status]
           }}。{{ item.explanation }}
         </p>
@@ -172,7 +215,7 @@ async function run(action: () => unknown) {
     </section>
     <p v-if="session.dirty()">本版变化：{{ session.changes().join('、') }}</p>
     <details v-if="presentation">
-      <summary>审阅当前候选</summary>
+      <summary>{{ delivered ? '查看当时的设计' : '审阅当前候选' }}</summary>
       <p>{{ state.candidate?.goal }}</p>
       <details v-for="section in presentation.sections" :key="section.title" :open="section.expanded">
         <summary>{{ section.title }} · {{ section.lines.length }} 项</summary>
@@ -180,9 +223,12 @@ async function run(action: () => unknown) {
           <li v-for="(line, index) in section.lines" :key="index">{{ line }}</li>
         </ul>
       </details>
-      <p>本次仅确认需求范围，不创建或发布业务配置；已有建设结果保留。</p>
+      <p v-if="!delivered">本次仅确认需求范围，不创建或发布业务配置；已有建设结果保留。</p>
     </details>
-    <UiButton v-if="state.candidate && !editing" :disabled="disabled || working" @click="run(beginEdit)"
+    <UiButton
+      v-if="state.candidate && !editing && !delivered"
+      :disabled="disabled || working"
+      @click="run(beginEdit)"
       >修改目标与范围</UiButton
     >
     <section v-if="editing" aria-label="修改方案候选">
@@ -211,20 +257,22 @@ async function run(action: () => unknown) {
         </p>
       </details>
     </details>
-    <UiButton :disabled="disabled || working" @click="run(() => session.listSaved())"
-      >读取已保存方案</UiButton
-    >
-    <select v-model="selected" aria-label="已保存的建设方案" :disabled="disabled || working">
-      <option value="">选择方案</option>
-      <option v-for="plan in session.savedPlans.value" :key="plan.planId" :value="plan.planId">
-        {{ plan.title }} · 第 {{ plan.revision }} 版
-      </option>
-    </select>
-    <UiButton
-      :disabled="disabled || working || !selected || session.dirty()"
-      @click="run(() => session.restore(selected))"
-      >恢复讨论</UiButton
-    >
+    <template v-if="!state.planId">
+      <UiButton :disabled="disabled || working" @click="run(() => session.listSaved())"
+        >读取已保存方案</UiButton
+      >
+      <select v-model="selected" aria-label="已保存的建设方案" :disabled="disabled || working">
+        <option value="">选择方案</option>
+        <option v-for="plan in session.savedPlans.value" :key="plan.planId" :value="plan.planId">
+          {{ plan.title }} · 第 {{ plan.revision }} 版
+        </option>
+      </select>
+      <UiButton
+        :disabled="disabled || working || !selected || session.dirty()"
+        @click="run(() => session.restore(selected))"
+        >恢复讨论</UiButton
+      >
+    </template>
     <p v-if="session.recovery.value">结果未确定，请先查询确认结果；在查明前不能重新提交或修改本次方案。</p>
     <UiButton
       v-if="session.recovery.value"
@@ -237,13 +285,14 @@ async function run(action: () => unknown) {
       "
       >查询上次确认结果</UiButton
     >
-    <details v-if="state.candidate">
-      <summary>放弃当前候选 / 另建方案</summary>
+    <details v-if="session.dirty() && !delivered">
+      <summary>放弃未确认修改</summary>
       <p>已确认的历史版本仍然保留，未确认修改将被丢弃。</p>
-      <UiButton :disabled="disabled || working" @click="run(() => session.newPlan())"
-        >放弃候选并开始新方案</UiButton
+      <UiButton :disabled="disabled || working" @click="run(() => session.discardCandidate())"
+        >放弃本次未确认修改</UiButton
       >
     </details>
+    <p v-if="state.planId && !delivered">此对话围绕同一个建设目标；讨论其他独立业务请新建对话。</p>
     <p v-if="error" role="alert">{{ error }}</p>
   </details>
 </template>

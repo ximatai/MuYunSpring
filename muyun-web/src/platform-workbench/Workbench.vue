@@ -72,6 +72,7 @@ const emit = defineEmits<{
   toggleTabLock: [key: string];
   reorderTabs: [keys: string[]];
   refreshPage: [key: string];
+  retryLoad: [];
   'update:activeTabKey': [key: string];
   userCommand: [key: string];
 }>();
@@ -104,6 +105,7 @@ const configurationCollaboration = createConfigurationCollaboration();
 const configurationEditor = computed(() => props.assistantWorkspaceContribution?.editor?.());
 const assistantSurfaceRegistry = createAssistantSurfaceRegistry(assistantIdentity, () => {
   const plan = constructionPlan?.current();
+  const planFacts = constructionPlan?.facts();
   const contribution = props.assistantWorkspaceContribution?.current();
   return {
     revision: JSON.stringify([
@@ -130,6 +132,13 @@ const assistantSurfaceRegistry = createAssistantSurfaceRegistry(assistantIdentit
               goal: plan.candidate?.goal,
               title: plan.candidate?.title,
               constructionStatus: plan.saved?.constructionStatus ?? 'NOT_STARTED',
+              configurationSource: 'CURRENT_GOVERNANCE',
+              historicalDesign: plan.saved?.constructionStatus === 'DELIVERED',
+              persistence: planFacts?.persistence,
+              dirty: planFacts?.dirty,
+              manualEditing: planFacts?.manualEditing,
+              reviewRequired: planFacts?.reviewRequired,
+              confirmationResultUnknown: planFacts?.confirmationResultUnknown,
               detailsCapability: 'construction.describe',
             },
           }
@@ -139,14 +148,14 @@ const assistantSurfaceRegistry = createAssistantSurfaceRegistry(assistantIdentit
 });
 const ASSISTANT_PAGE_READY_TIMEOUT_MS = 15_000;
 const assistantOpen = ref(false);
-async function settleAssistantNavigation(signal?: AbortSignal) {
+async function settleAssistantNavigation(signal?: AbortSignal, requireFormal = false) {
   const expectedPageInstanceKey = props.assistantWaitForPageReady
     ? await props.assistantWaitForPageReady()
     : await nextTick(() => activePageInstanceKey.value);
   if (!expectedPageInstanceKey || activePageInstanceKey.value !== expectedPageInstanceKey) {
     throw new Error('Assistant target page changed before it became ready');
   }
-  if (activePageDescriptor.value?.hostType !== 'module-page-host') {
+  if (!requireFormal && activePageDescriptor.value?.hostType !== 'module-page-host') {
     return assistantSurfaceRegistry.snapshot()?.token;
   }
   const pageInstanceKey = expectedPageInstanceKey;
@@ -179,6 +188,7 @@ async function settleAssistantNavigation(signal?: AbortSignal) {
 }
 function workbenchAssistantCapabilities() {
   const configuration = props.assistantWorkspaceContribution?.capabilities(settleAssistantNavigation) ?? [];
+  const shared = configurationCollaboration.filter(configuration, configurationEditor.value?.visible);
   return [
     ...createWorkbenchAssistantCapabilities(
       () => props.startup?.menus ?? [],
@@ -193,8 +203,8 @@ function workbenchAssistantCapabilities() {
       },
       settleAssistantNavigation,
     ),
-    ...(constructionPlan?.capabilities() ?? []),
-    ...configurationCollaboration.filter(configuration, configurationEditor.value?.visible),
+    ...configurationCollaboration.filterConstruction(constructionPlan?.capabilities() ?? []),
+    ...(constructionPlan?.continueConfiguration(shared, configurationEditor.value?.moduleAlias) ?? shared),
     ...(configuration.length ? configurationCollaboration.capabilities() : []),
   ];
 }
@@ -214,7 +224,7 @@ watch(
     unregisterWorkbenchAssistantSurface = assistantSurfaceRegistry.register({
       pageInstanceKey,
       fallback: true,
-      conversationScopePending: activePageDescriptor.value?.hostType === 'module-page-host',
+      executionScopePending: activePageDescriptor.value?.hostType === 'module-page-host',
       contextRevision: () => 'workbench',
       surface: {
         describe: () => ({
@@ -611,7 +621,10 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
 
           <section class="app-content">
             <UiSpin v-if="loading" />
-            <UiError v-else-if="error" :message="error" />
+            <div v-else-if="error" class="workbench-load-error">
+              <UiError :message="error" />
+              <UiButton icon="reload" @click="emit('retryLoad')">重试加载</UiButton>
+            </div>
             <div v-else-if="activeTab" class="tab-panel-host">
               <div
                 class="tab-page"
@@ -642,6 +655,12 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
 </template>
 
 <style scoped>
+.workbench-load-error {
+  display: grid;
+  justify-items: start;
+  gap: 12px;
+}
+
 .workbench-layout {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
@@ -652,7 +671,7 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
 }
 
 .workbench-layout--assistant {
-  grid-template-columns: minmax(0, 1fr) 380px;
+  grid-template-columns: minmax(0, 1fr) clamp(380px, 38vw, 600px);
 }
 
 @media (max-width: 900px) {

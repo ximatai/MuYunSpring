@@ -420,6 +420,19 @@ export function useModulePageSession(
   };
   const listQueryController = shallowRef<RecordQueryListQueryController>();
   const treeQueryController = shallowRef<RecordTreeQueryController>();
+  const navigatorQueryControllers = new Map<
+    string,
+    RecordQueryListQueryController | RecordTreeQueryController
+  >();
+  function bindNavigatorQueryController(
+    levelKey: string,
+    controller: RecordQueryListQueryController | RecordTreeQueryController | undefined,
+  ) {
+    if (navigatorQueryControllers.get(levelKey) === controller) return;
+    if (controller) navigatorQueryControllers.set(levelKey, controller);
+    else navigatorQueryControllers.delete(levelKey);
+    assistantContextRevision.value += 1;
+  }
   function bindListQueryController(controller: RecordQueryListQueryController | undefined) {
     if (listQueryController.value === controller) return;
     listQueryController.value = controller;
@@ -1510,6 +1523,15 @@ export function useModulePageSession(
   );
   const enhancementDetailDrawer = computed<ModulePageDetailDrawer | undefined>(
     () => pageEnhancement.value?.recordView?.drawer,
+  );
+  // Relation tables need room before their rows load. Keep the width stable across view/edit
+  // and let the shared drawer clamp it to its workspace on smaller screens.
+  const detailDrawerWidth = computed(() =>
+    enhancementDetailDrawer.value
+      ? (enhancementDetailDrawer.value.width ?? 'standard')
+      : executableDetailRelations.value.some((relation) => relation.visible?.constant !== false)
+        ? 'extraWide'
+        : 'standard',
   );
   const enhancementCardAssistant = computed(() => pageEnhancement.value?.card?.assistant);
   const cardAssistantContext = computed<ModulePageCardAssistantContext | undefined>(() => {
@@ -2989,13 +3011,25 @@ export function useModulePageSession(
     });
   }
 
-  async function prepareAssistantCreate() {
+  async function prepareAssistantCreate(options: { asChildOfSelectedRecord?: boolean } = {}) {
     const readiness = recordCreationState();
     if (!readiness.ready) throw new Error(readiness.message);
+    const parentId = options.asChildOfSelectedRecord
+      ? selectedRecord.value?.id == null
+        ? undefined
+        : String(selectedRecord.value.id)
+      : undefined;
+    const childTargetCurrent = () =>
+      !options.asChildOfSelectedRecord ||
+      (persistentTreeDetail.value &&
+        !managedPageActions.value &&
+        parentId !== undefined &&
+        String(selectedRecord.value?.id) === parentId);
+    if (!childTargetCurrent()) throw new Error('Child record creation requires the selected tree record');
     await (resolvedSelectionFormDefaultsRequest ?? loadResolvedSelectionFormDefaults());
-    const defaults = { ...navigatorCreateDefaults.value };
+    const defaults = { ...navigatorCreateDefaults.value, ...(parentId ? { parentId } : {}) };
     return () => {
-      if (!recordCreationState().ready || !commitCreateRecord(defaults)) {
+      if (!recordCreationState().ready || !childTargetCurrent() || !commitCreateRecord(defaults)) {
         throw new Error('Record creation is unavailable');
       }
       return assistantEditorState();
@@ -3052,6 +3086,12 @@ export function useModulePageSession(
       const relationRevision = relationDrafts.revision();
       const controller = listQueryController.value;
       const treeController = treeQueryController.value;
+      // Initial navigator loads may select FIRST_RECORD and change the main query scope.
+      // Settle those sources before treating the page as ready for an operation.
+      for (const navigatorController of [...navigatorQueryControllers.values()]) {
+        await navigatorController.settle(signal);
+        await nextTick();
+      }
       await controller?.settle(signal);
       await nextTick();
       await treeController?.settle(signal);
@@ -4037,6 +4077,7 @@ export function useModulePageSession(
     listQueryController,
     treeQueryController,
     bindListQueryController,
+    bindNavigatorQueryController,
     bindTreeQueryController,
     formValidationRequestKey,
     referencePickerConfigs,
@@ -4144,6 +4185,7 @@ export function useModulePageSession(
     persistentTreeDetail,
     detailOpen,
     enhancementDetailDrawer,
+    detailDrawerWidth,
     closeRecordOnlyDetail,
     closeDetail,
     confirmDetailDrawerClose,

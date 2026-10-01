@@ -5,6 +5,34 @@ import org.junit.jupiter.api.Test;
 import static org.assertj.core.api.Assertions.*;
 
 class StaticFieldWriteRulesTest {
+    static class PatternRecord {
+        @FieldPattern("[a-z][a-z0-9_]{0,62}") String alias;
+    }
+    static class BlankPatternRecord {
+        @FieldPattern("") String alias;
+    }
+    static class InvalidPatternRecord {
+        @FieldPattern("[") String alias;
+    }
+    @Test
+    void patternUsesFullStringSemanticsOnBothWriteOperationsAndAllowsNull() {
+        var record = new PatternRecord();
+        StaticFieldWriteRules.validate(PatternRecord.class, record, WriteOperation.INSERT);
+        record.alias = "sales_order";
+        StaticFieldWriteRules.validate(PatternRecord.class, record, WriteOperation.INSERT);
+        for (String invalid : java.util.List.of("中文", "Sales", "sales\n", "")) {
+            record.alias = invalid;
+            for (var operation : WriteOperation.values()) {
+                assertThatThrownBy(() -> StaticFieldWriteRules.validate(PatternRecord.class, record, operation))
+                        .hasMessageContaining("alias");
+            }
+        }
+        assertThatThrownBy(() -> StaticFieldWriteRules.resolve(BlankPatternRecord.class))
+                .hasMessageContaining("must not be blank");
+        assertThatThrownBy(() -> StaticFieldWriteRules.resolve(InvalidPatternRecord.class))
+                .isInstanceOf(java.util.regex.PatternSyntaxException.class);
+    }
+
     @Test
     void namedInheritedRulesAreModelLocalAndEachFacetCanBeSpecializedIndependently() {
         Child value = new Child();

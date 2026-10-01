@@ -41,28 +41,45 @@ final class DefaultAiModelGateway implements AiModelGateway {
 
     @Override
     public AiTextResponse generate(AiTextRequest request) {
-        return invoke(() -> client.generate(routeResolver.resolveCurrent(), request));
+        return invoke(() -> {
+            ResolvedAiModelRoute route = routeResolver.resolveCurrent();
+            return client.generate(route, budgeted(route, request));
+        });
     }
 
     @Override
     public void stream(AiTextRequest request, AiTextStreamConsumer consumer) {
         invoke(() -> {
-            client.stream(routeResolver.resolveCurrent(), request, consumer);
+            ResolvedAiModelRoute route = routeResolver.resolveCurrent();
+            client.stream(route, budgeted(route, request), consumer);
             return null;
         });
     }
 
     @Override
     public AiTurnResponse complete(AiTurnRequest request) {
-        return invoke(() -> client.complete(routeResolver.resolveCurrent(), request));
+        return invoke(() -> {
+            ResolvedAiModelRoute route = routeResolver.resolveCurrent();
+            return client.complete(route, budgeted(route, request));
+        });
     }
 
     @Override
     public void stream(AiTurnRequest request, AiTurnStreamConsumer consumer) {
         invoke(() -> {
-            client.stream(routeResolver.resolveCurrent(), request, consumer);
+            ResolvedAiModelRoute route = routeResolver.resolveCurrent();
+            client.stream(route, budgeted(route, request), consumer);
             return null;
         });
+    }
+
+    private AiTextRequest budgeted(ResolvedAiModelRoute route, AiTextRequest request) {
+        return new AiTextRequest(request.messages(), request.temperature(), route.limits().outputBudget(request.maxOutputTokens()));
+    }
+
+    private AiTurnRequest budgeted(ResolvedAiModelRoute route, AiTurnRequest request) {
+        return new AiTurnRequest(request.messages(), request.tools(), request.temperature(),
+                route.limits().outputBudget(request.maxOutputTokens()));
     }
 
     private <T> T invoke(Supplier<T> invocation) {

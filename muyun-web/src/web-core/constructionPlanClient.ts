@@ -12,16 +12,36 @@ import type {
   ConstructionFieldProposal,
   ConstructionFieldPreview,
   ConstructionFieldResult,
-  ConstructionInitializationProposal,
-  ConstructionInitializationPreview,
   ConstructionInitializationResult,
   ConstructionPlanSnapshot,
   ConstructionPlanSummary,
 } from '@muyun/web-contracts';
 import type { HttpClient } from './http';
 export interface ConstructionPlanClient {
+  designContract(): Promise<{
+    recordName: { fieldName: string; columnName: string; fieldType: string };
+    inheritedFields: string[];
+    declarableCapabilities: {
+      capabilities: string[];
+      metadataFields: {
+        fieldName: string;
+        columnName: string;
+        fieldSpecAlias: string;
+        defaultKind: string;
+        defaultDescription: string;
+      }[];
+    };
+  }>;
   businessObjects(): Promise<
-    { alias: string; title: string; kind: string; referenceReady: boolean; explanation: string }[]
+    {
+      alias: string;
+      title: string;
+      applicationAlias: string;
+      applicationTitle: string | null;
+      kind: string;
+      referenceReady: boolean;
+      explanation: string;
+    }[]
   >;
   referenceTarget(moduleAlias: string): Promise<ReferenceTargetFieldCatalog>;
   task(id: string): Promise<ConstructionTask>;
@@ -45,14 +65,6 @@ export interface ConstructionPlanClient {
     command: { requestId: string; proposal: ConstructionFieldProposal; fingerprint: string },
   ): Promise<ConstructionFieldResult>;
   fieldChange(id: string, requestId: string): Promise<ConstructionFieldResult | undefined>;
-  previewInitialization(
-    id: string,
-    proposal: ConstructionInitializationProposal,
-  ): Promise<ConstructionInitializationPreview>;
-  initialize(
-    id: string,
-    command: { requestId: string; proposal: ConstructionInitializationProposal; fingerprint: string },
-  ): Promise<ConstructionInitializationResult>;
   initialization(id: string, objectKey: string): Promise<ConstructionInitializationResult | undefined>;
   list(): Promise<ConstructionPlanSummary[]>;
   read(id: string): Promise<ConstructionPlanSnapshot>;
@@ -67,6 +79,7 @@ export function createConstructionPlanClient(http: HttpClient): ConstructionPlan
   const root = '/platform.application-construction-plans';
   const path = (id: string) => `${root}/${encodeURIComponent(id)}`;
   return {
+    designContract: () => http.request({ path: `${root}/design-contract` }),
     businessObjects: () => http.request({ path: `${root}/business-objects` }),
     referenceTarget: (moduleAlias) =>
       http.request({ path: `${root}/reference-target`, query: { moduleAlias } }),
@@ -93,10 +106,6 @@ export function createConstructionPlanClient(http: HttpClient): ConstructionPlan
       http.request({ path: `${path(id)}/field-changes`, method: 'POST', body: command }),
     fieldChange: (id, requestId) =>
       http.request({ path: `${path(id)}/field-changes/${encodeURIComponent(requestId)}` }),
-    previewInitialization: (id, proposal) =>
-      http.request({ path: `${path(id)}/initializations/preview`, method: 'POST', body: proposal }),
-    initialize: (id, command) =>
-      http.request({ path: `${path(id)}/initializations`, method: 'POST', body: command }),
     initialization: (id, objectKey) =>
       http.request({ path: `${path(id)}/initializations/${encodeURIComponent(objectKey)}` }),
     list: () => http.request({ path: root }),

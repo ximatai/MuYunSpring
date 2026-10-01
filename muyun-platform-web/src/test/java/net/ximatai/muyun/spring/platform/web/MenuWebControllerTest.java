@@ -71,10 +71,12 @@ class MenuWebControllerTest {
         when(menuService.visibleChildren("scheme-1", "root-1")).thenReturn(List.of(child));
         when(menuService.visibleChildren("scheme-1", "menu-1")).thenReturn(List.of());
         when(menuService.navigationEntryType(child)).thenReturn(ModuleEntryType.MODULE);
+        when(menuService.navigationModuleDescription(child)).thenReturn("维护购买方信息");
 
         mvc.perform(get("/platform.menu/mine"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.records[0].record.id").value("root-1"))
+                .andExpect(jsonPath("$.records[0].children[0].record.moduleDescription").value("维护购买方信息"))
                 .andExpect(jsonPath("$.records[0].children[0].record.openMode").value("tab"))
                 .andExpect(jsonPath("$.records[0].children[0].record.moduleAlias").value("crm.customer"))
                 .andExpect(jsonPath("$.records[0].children[0].record.entryType").value("module"));

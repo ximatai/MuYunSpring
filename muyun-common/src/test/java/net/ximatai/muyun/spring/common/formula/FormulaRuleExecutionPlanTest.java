@@ -98,6 +98,33 @@ class FormulaRuleExecutionPlanTest {
                 .isEqualTo("FORMULA_PLAN_TARGET_READ_ONLY");
     }
 
+    @Test
+    void shouldOrderRowCalculationsBeforeTheirAggregateRegardlessOfDeclarationOrder() {
+        var fields = List.of("lines.quantity", "lines.price", "lines.amount", "lines.net", "total").stream()
+                .map(name -> FormulaFieldDefinition.of(name, FormulaValueType.DECIMAL)).toList();
+        var rules = List.of(calculation("total", "total", "SUM({lines.net})"),
+                calculation("net", "lines.net", "{lines.amount} - 1"),
+                calculation("amount", "lines.amount", "{lines.quantity} * {lines.price}"));
+        var plan = FormulaRuleExecutionPlan.forAggregateRecord(rules, fields, Set.of("lines"));
+        assertThat(plan.orderedRules()).extracting(FormulaRule::id).containsExactly("amount", "net", "total");
+        var values = new LinkedHashMap<String, Object>();
+        Map<String, List<Map<String, Object>>> children = Map.of("lines", List.of(
+                new LinkedHashMap<>(Map.of("quantity", 2, "price", 10)),
+                new LinkedHashMap<>(Map.of("quantity", 3, "price", 5))));
+        assertThat(plan.execute(engine, FormulaRuntimeData.typed(values, children, fields)).report().errors()).isEmpty();
+        assertThat(new java.math.BigDecimal(values.get("total").toString())).isEqualByComparingTo("33");
+        assertThat(new java.math.BigDecimal(children.get("lines").getFirst().get("net").toString())).isEqualByComparingTo("19");
+        assertThatThrownBy(() -> FormulaRuleExecutionPlan.forAggregateRecord(List.of(
+                calculation("a", "lines.amount", "{lines.net}"),
+                calculation("b", "lines.net", "{lines.amount}")), fields, Set.of("lines")))
+                .isInstanceOf(FormulaEvaluationException.class).hasMessageContaining("dependency cycle");
+        assertThatThrownBy(() -> FormulaRuleExecutionPlan.forAggregateRecord(List.of(
+                calculation("a", "lines.amount", "1"), calculation("b", "lines.amount", "2")), fields, Set.of("lines")))
+                .isInstanceOf(FormulaEvaluationException.class).hasMessageContaining("multiple calculation rules");
+        assertThatThrownBy(() -> FormulaRuleExecutionPlan.forAggregateRecord(rules, fields, Set.of()))
+                .isInstanceOf(FormulaEvaluationException.class).hasMessageContaining("declared direct child");
+    }
+
     private static FormulaRule calculation(String id, String target, String expression) {
         return new FormulaRule(id, expression, FormulaRuleKind.CALCULATION, FormulaRulePhase.BEFORE_SAVE, target);
     }

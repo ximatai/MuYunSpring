@@ -1,7 +1,6 @@
 import { expect, it, vi } from 'vitest';
 import type {
   ConstructionPlanContent,
-  ConstructionInitializationPreview,
   ConstructionInitializationResult,
   ConstructionPlanSnapshot,
 } from '@muyun/web-contracts';
@@ -28,27 +27,10 @@ function fixture() {
     content,
     confirmedAt: '',
     constructionStatus: 'NOT_STARTED',
+    deliveredObjectKeys: [],
     deliveries: [],
     fieldChanges: [],
     initializations: [],
-  };
-  const preview: ConstructionInitializationPreview = {
-    proposal: {
-      planRevision: 1,
-      objectKey: 'entry',
-      applicationAlias: 'business',
-      applicationTitle: '业务',
-      moduleName: 'entry',
-    },
-    applicationTitle: '业务',
-    createsApplication: true,
-    applicationVersion: null,
-    moduleAlias: 'business.entry',
-    moduleTitle: '登记',
-    schemaName: 'public',
-    tableName: 'app_new',
-    remainingWork: ['字段与页面仍待建设'],
-    fingerprint: 'server-proof',
   };
   const result: ConstructionInitializationResult = {
     receipt: {
@@ -75,8 +57,21 @@ function fixture() {
     publishDelivery: vi.fn(),
     delivery: vi.fn(),
     progress: vi.fn(),
+    designContract: vi.fn(async () => ({
+      recordName: { fieldName: 'title', columnName: 'title', fieldType: 'STRING' },
+      inheritedFields: ['id'],
+      declarableCapabilities: { capabilities: [], metadataFields: [] },
+    })),
     businessObjects: vi.fn(async () => [
-      { alias: 'crm.customer', title: '客户', kind: 'DYNAMIC', referenceReady: true, explanation: '可复用' },
+      {
+        alias: 'crm.customer',
+        title: '客户',
+        applicationAlias: 'crm',
+        applicationTitle: '客户管理',
+        kind: 'DYNAMIC',
+        referenceReady: true,
+        explanation: '可复用',
+      },
     ]),
     referenceTarget: vi.fn(async () => ({
       targetModuleAlias: 'crm.customer',
@@ -88,11 +83,6 @@ function fixture() {
     previewFields: vi.fn(),
     publishFields: vi.fn(),
     fieldChange: vi.fn(),
-    previewInitialization: vi.fn(async () => preview),
-    initialize: vi.fn(async (_id, command) => {
-      result.receipt.requestId = command.requestId;
-      return structuredClone(result);
-    }),
     initialization: vi.fn(async () => structuredClone(result)),
   };
   const session = createConstructionPlanSession(
@@ -134,7 +124,6 @@ function fixture() {
     session,
     registry,
     prepare,
-    preview,
     result,
     switchIdentity() {
       identity = 'other';
@@ -142,73 +131,13 @@ function fixture() {
     },
   };
 }
-it('previews without writing and keeps the publication fingerprint out of model messages', async () => {
-  const { session, client, prepare, preview } = fixture();
-  await session.restore('plan');
-  const proposal = await prepare();
-  expect(client.initialize).not.toHaveBeenCalled();
-  expect(JSON.stringify(proposal.value)).not.toContain('server-proof');
-  expect(proposal.confirmation?.presentation.lines.join('\n')).toContain('还不能记单');
-  preview.fingerprint = 'tampered-after-review';
-  preview.proposal.moduleName = 'changed';
-  await Promise.all([proposal.confirmation!.confirm(), proposal.confirmation!.confirm()]);
-  expect(client.initialize).toHaveBeenCalledOnce();
-  expect(client.initialize).toHaveBeenCalledWith(
-    'plan',
-    expect.objectContaining({
-      fingerprint: 'server-proof',
-      proposal: expect.objectContaining({ moduleName: 'entry' }),
-    }),
-  );
-  expect(session.current().saved?.initializations).toHaveLength(1);
-  expect(proposal.confirmation!.result?.lines.join('\n')).toContain('尚待核实');
-  expect(session.facts().constructionStatus).toBe('INITIALIZED');
+it('does not expose a combined application and module creation command after scope confirmation', async () => {
+  const f = fixture();
+  f.session.edit(content);
+  await f.session.prepare().execute();
+  await expect(f.prepare()).rejects.toThrow();
 });
-it('requires confirmed scope and invalidates initialization when a human starts revising it', async () => {
-  const { session, client, prepare } = fixture();
-  session.edit(content);
-  await expect(prepare()).rejects.toThrow('Capability is no longer available');
-  expect(client.previewInitialization).not.toHaveBeenCalled();
-  session.newPlan();
-  await session.restore('plan');
-  const proposal = await prepare();
-  session.beginManualEdit();
-  await proposal.confirmation!.confirm();
-  expect(proposal.confirmation!.state).toBe('expired');
-  expect(client.initialize).not.toHaveBeenCalled();
-});
-it('queries the exact initialization receipt after a lost response without reissuing the write', async () => {
-  const { session, client, prepare } = fixture();
-  await session.restore('plan');
-  const original = client.initialize;
-  client.initialize = vi.fn(async (...args: Parameters<ConstructionPlanClient['initialize']>) => {
-    await original(...args);
-    throw new Error('lost response');
-  });
-  const proposal = await prepare();
-  await proposal.confirmation!.confirm();
-  expect(proposal.confirmation!.state).toBe('unknown');
-  await proposal.confirmation!.check();
-  expect(proposal.confirmation!.state).toBe('succeeded');
-  expect(client.initialize).toHaveBeenCalledOnce();
-  expect(session.current().saved?.initializations).toHaveLength(1);
-});
-it('does not accept another request receipt or restore execution authorization after identity changes', async () => {
-  const { session, client, prepare, switchIdentity } = fixture();
-  await session.restore('plan');
-  client.initialize = vi.fn(async () => {
-    throw new Error('not delivered');
-  });
-  const proposal = await prepare();
-  await proposal.confirmation!.confirm();
-  await proposal.confirmation!.check();
-  expect(proposal.confirmation!.state).toBe('unknown');
-  expect(session.current().saved?.initializations).toEqual([]);
-  switchIdentity();
-  await proposal.confirmation!.check();
-  expect(client.initialization).toHaveBeenCalledOnce();
-  expect(session.current().saved).toBeUndefined();
-});
+
 it('refreshes durable progress through a read capability without turning initialization into completion', async () => {
   const { session, registry } = fixture();
   await session.restore('plan');

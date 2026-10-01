@@ -83,6 +83,7 @@ export function createBusinessRuleWorkspace(
       const value = active.value;
       if (!value) return;
       return {
+        moduleAlias: value.moduleAlias,
         title: value.moduleAlias,
         hasUnsavedChanges: value.dirty.value,
         visible: visible.value === value,
@@ -144,7 +145,10 @@ export function createBusinessRuleWorkspace(
                     () => openRules(selected.moduleAlias),
                     async () => {
                       const signal = context.cancellationSignal ?? context.signal;
-                      await waitForConfigurationEditor(() => visible.value === selected, signal);
+                      await waitForConfigurationEditor(
+                        () => visible.value === selected && selected.ready.value,
+                        signal,
+                      );
                       return settleNavigation(signal);
                     },
                   );
@@ -160,12 +164,12 @@ export function createBusinessRuleWorkspace(
           descriptor: {
             code: 'rules.select-module',
             description:
-              'Select an existing module for shared rule configuration without opening its governance page. Use an actual module alias from discovery or current context. Reads standard authorized governance snapshots; no business write. Existing unsaved candidates are retained per module. After selection, use rules capabilities and current workspace ruleConfiguration facts. Drafts last only for this workspace. No approval or business tenant is inferred from chat history.',
+              'Select an existing module for shared rule configuration without opening its governance page. Use an actual module alias from discovery or current context. Reselecting the current target is a no-op; set refresh=true to reread changed governance. Reads standard authorized governance snapshots; no business write. Existing unsaved candidates are retained per module. After selection, use rules capabilities and current workspace ruleConfiguration facts. Drafts last only for this workspace. No approval or business tenant is inferred from chat history.',
             inputSchema: {
               type: 'object',
               additionalProperties: false,
               required: ['moduleAlias'],
-              properties: { moduleAlias: { type: 'string', maxLength: 128 } },
+              properties: { moduleAlias: { type: 'string', maxLength: 128 }, refresh: { type: 'boolean' } },
             },
           },
           parseInput(input) {
@@ -176,16 +180,27 @@ export function createBusinessRuleWorkspace(
               !/^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$/.test(alias)
             )
               throw new AssistantCapabilityUsageError('请提供真实模块标识');
-            return alias;
+            const refresh = (input as { refresh?: unknown }).refresh;
+            if (refresh !== undefined && typeof refresh !== 'boolean')
+              throw new AssistantCapabilityUsageError('刷新选项必须为布尔值');
+            return { moduleAlias: alias, refresh: refresh === true };
           },
           async execute(input, context) {
-            const selected = session(input as string);
-            await selected.load(false, (accept) => {
-              context.applyEffect(() => {
-                accept();
-                focus(selected);
-              });
-            });
+            const value = input as { moduleAlias: string; refresh: boolean };
+            const selected = session(value.moduleAlias);
+            if (active.value === selected && selected.ready.value && !value.refresh)
+              return { moduleAlias: selected.moduleAlias, saved: false };
+            await selected.load(
+              (value.refresh || active.value !== selected) &&
+                !selected.dirty.value &&
+                !selected.editing.value,
+              (accept) => {
+                context.applyEffect(() => {
+                  accept();
+                  focus(selected);
+                });
+              },
+            );
             return { moduleAlias: selected.moduleAlias, saved: false };
           },
         },
