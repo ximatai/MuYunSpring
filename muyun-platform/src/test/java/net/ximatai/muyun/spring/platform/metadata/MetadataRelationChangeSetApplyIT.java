@@ -335,11 +335,13 @@ class MetadataRelationChangeSetApplyIT extends PlatformPostgresIntegrationTest {
         var command = new net.ximatai.muyun.spring.platform.ui.PageCompositionSaveCommand(revision, relationId,
                 metadataService.select(metadata.getId()).getVersion(), List.of(), List.of(child));
         String id = revision.getId();
+        assertThat(compositionCommitted(id, command)).isFalse();
         if (invalidPage) {
             assertThatThrownBy(() -> saveComposition(id, command)).hasMessageContaining("not registered");
             assertThat(metadataService.list(Criteria.of().eq("alias", alias))).isEmpty();
             assertThat(columnExists(alias, "id")).isFalse();
             assertThat(revisionService.select(id).getStatus()).isEqualTo(PlatformPresentationRevisionStatus.DRAFT);
+            assertThat(compositionCommitted(id, command)).isFalse();
         } else {
             saveComposition(id, command);
             var saved = metadataService.list(Criteria.of().eq("alias", alias)).getFirst();
@@ -350,6 +352,7 @@ class MetadataRelationChangeSetApplyIT extends PlatformPostgresIntegrationTest {
             assertThat(columnExists(saved.getTableName(), "shuo_ming")).isTrue();
             assertThat(revisionService.select(id).getUiTreeJson()).contains("shuoMing").doesNotContain("field" + fieldKey);
             assertThat(revisionService.select(id).getStatus()).isEqualTo(PlatformPresentationRevisionStatus.PUBLISHED);
+            assertThat(compositionCommitted(id, command)).isTrue();
         }
     }
 
@@ -363,7 +366,20 @@ class MetadataRelationChangeSetApplyIT extends PlatformPostgresIntegrationTest {
         var command = new net.ximatai.muyun.spring.platform.ui.PageCompositionSaveCommand(revision, relationId,
                 metadataService.select(metadata.getId()).getVersion(),
                 List.of(new net.ximatai.muyun.spring.platform.ui.PageCompositionSaveCommand.NewField(key, "联系电话", "text", true, "lianXiDianHua")));
+        assertThat(compositionCommitted(revision.getId(), command)).isFalse();
+        String originalTree = command.revision().getUiTreeJson();
         saveComposition(revision.getId(), command);
+        assertThat(compositionCommitted(revision.getId(), command)).isTrue();
+        try (var identity = CurrentUserContext.use(CurrentUser.systemUser("different-publisher", "另一发布人"))) {
+            assertThat(compositionCommitted(revision.getId(), command)).isFalse();
+        }
+        assertThat(revisionService.select(revision.getId()).getUiTreeJson()).isNotEqualTo(originalTree);
+        var otherInput = new net.ximatai.muyun.spring.platform.ui.PageCompositionSaveCommand(command.revision(),
+                command.relationId(), command.expectedMetadataVersion(),
+                List.of(new net.ximatai.muyun.spring.platform.ui.PageCompositionSaveCommand.NewField(key, "其他电话", "text", true, "lianXiDianHua")));
+        assertThat(compositionCommitted(revision.getId(), otherInput)).isFalse();
+        assertThat(compositionCommitted(revision.getId(), new net.ximatai.muyun.spring.platform.ui.PageCompositionSaveCommand(
+                command.revision(), command.relationId(), command.expectedMetadataVersion() + 1, command.newFields()))).isFalse();
         assertThat(revisionService.select(revision.getId()).getStatus()).isEqualTo(PlatformPresentationRevisionStatus.PUBLISHED);
         assertThat(fieldService.list(Criteria.of().eq("metadataId", metadata.getId()).eq("fieldName", name))).hasSize(1);
         assertThat(fieldService.list(Criteria.of().eq("metadataId", metadata.getId()).eq("fieldName", name)))
@@ -395,6 +411,29 @@ class MetadataRelationChangeSetApplyIT extends PlatformPostgresIntegrationTest {
         assertThat(saved.getStatus()).isEqualTo(PlatformPresentationRevisionStatus.PUBLISHED);
         assertThat(saved.getUiTreeJson()).contains("chaXunMingCheng").doesNotContain("field" + key);
         assertThat(columnExists(metadata.getTableName(), "cha_xun_ming_cheng")).isTrue();
+    }
+
+    @Test
+    void shouldRollBackCompositionReceiptWithItsFieldAndPage() {
+        String key = UUID.randomUUID().toString().replace("-", "");
+        var revision = pageRevision("""
+                {"template":"management","templateVersion":1,"nodes":[
+                {"slot":"list","title":"列表","fields":[]},
+                {"slot":"form","title":"表单","fields":["field%s"]}]}
+                """.formatted(key));
+        var command = new net.ximatai.muyun.spring.platform.ui.PageCompositionSaveCommand(
+                revisionService.select(revision.getId()), relationId, metadataService.select(metadata.getId()).getVersion(),
+                List.of(new net.ximatai.muyun.spring.platform.ui.PageCompositionSaveCommand.NewField(key, "名称", "text", false, "rolledBackName")));
+        new TransactionTemplate(transactionManager).execute(status -> {
+            saveComposition(revision.getId(), command);
+            assertThat(compositionCommitted(revision.getId(), command)).isTrue();
+            status.setRollbackOnly();
+            return null;
+        });
+        assertThat(compositionCommitted(revision.getId(), command)).isFalse();
+        assertThat(revisionService.select(revision.getId()).getStatus()).isEqualTo(PlatformPresentationRevisionStatus.DRAFT);
+        assertThat(fieldService.list(Criteria.of().eq("metadataId", metadata.getId()).eq("fieldName", "rolledBackName"))).isEmpty();
+        assertThat(columnExists(metadata.getTableName(), "rolled_back_name")).isFalse();
     }
 
     @Test
@@ -667,6 +706,12 @@ class MetadataRelationChangeSetApplyIT extends PlatformPostgresIntegrationTest {
         }
     }
 
+    private boolean compositionCommitted(String id, net.ximatai.muyun.spring.platform.ui.PageCompositionSaveCommand command) {
+        try (var ignored = TenantContext.system("test page composition receipt")) {
+            return compositionSave.committed(id, command);
+        }
+    }
+
     private PlatformPresentationRevision pageRevision(String tree) {
         PlatformPageDefinition page = new PlatformPageDefinition();
         page.setId(UUID.randomUUID().toString().replace("-", ""));
@@ -913,12 +958,13 @@ class MetadataRelationChangeSetApplyIT extends PlatformPostgresIntegrationTest {
         @Bean net.ximatai.muyun.spring.platform.ui.PageCompositionSaveService compositionSave(
                 PlatformPresentationRevisionService revisions, PlatformPresentationVariantService variants,
                 PlatformPageDefinitionService pages, MetadataRelationChangeSetPreviewService preview,
-                MetadataRelationChangeSetApplyService apply, ModuleMetadataRelationService relations, MetadataService metadata, ModuleMetadataOrchestrationService orchestration, MetadataFieldService fields) {
+                MetadataRelationChangeSetApplyService apply, ModuleMetadataRelationService relations, MetadataService metadata, ModuleMetadataOrchestrationService orchestration, MetadataFieldService fields,
+                net.ximatai.muyun.spring.platform.ui.PageCompositionSaveReceiptDao receipts) {
             return new net.ximatai.muyun.spring.platform.ui.PageCompositionSaveService(revisions, variants, pages, preview, apply,
                     new net.ximatai.muyun.spring.platform.ui.PlatformPresentationRevisionPublishService(revisions, variants, pages,
                             new net.ximatai.muyun.spring.platform.ui.PlatformPresentationTemplateCatalog(),
                             TestBeanProviders.empty(net.ximatai.muyun.spring.platform.ui.PublishedPageExecutionCoordinator.class),
-                            net.ximatai.muyun.spring.ability.event.RuntimeEventPublisher.noop()), relations, metadata, orchestration, fields);
+                            net.ximatai.muyun.spring.ability.event.RuntimeEventPublisher.noop()), relations, metadata, orchestration, fields, receipts);
         }
         @Bean MetadataService metadataService(MetadataDao dao) { return new MetadataService(
                 dao,

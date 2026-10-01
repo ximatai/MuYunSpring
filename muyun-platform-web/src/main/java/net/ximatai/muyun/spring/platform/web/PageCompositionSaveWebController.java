@@ -57,4 +57,10 @@ public class PageCompositionSaveWebController extends WebSupport<PageComposition
                 ModuleMetadataRelationService.MODULE_ALIAS, "createChildMetadata", Set.of()));
         return webScope(() -> service().save(id, command));
     }
+
+    @PostMapping("/{id}/composition-result")
+    @CustomActionEndpoint(value = "publish", title = "核实页面保存结果", level = PlatformActionLevel.RECORD)
+    public boolean committed(@PathVariable String id, @RequestBody PageCompositionSaveCommand command) {
+        return webScope(() -> service().committed(id, command));
+    }
 }

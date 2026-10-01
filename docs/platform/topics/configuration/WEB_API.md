@@ -4,6 +4,8 @@
 
 ## 配置维护入口
 
+页面组合通过 `POST /platform.presentation_publish/revisions/{id}/save-composition` 原子保存新增字段、明细和页面修订。响应丢失时，可将同一原始保存报文提交到 `POST /platform.presentation_publish/revisions/{id}/composition-result`，只读核实本次提交回执；返回布尔值，不重放保存。回执与配置在同一事务提交，并绑定发布人、执行作用域、源版本和完整候选；它证明历史提交，不证明该修订仍是当前生效配置。未命中回执时仍应视为结果未知，不能据此断言保存失败。
+
 | 对象                 | 当前服务线索                           | Web API                                                                                   |
 | -------------------- | -------------------------------------- | ----------------------------------------------------------------------------------------- |
 | 应用                 | `ApplicationService`                   | `/platform.application`                                                                   |

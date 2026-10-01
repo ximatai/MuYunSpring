@@ -54,6 +54,16 @@ export function createPageCompositionPublicationCommand(options: {
       return { revision: published, receipt: receipt() };
     },
     async lookup() {
+      if (composition) {
+        const committed = await options.http.request<boolean>({
+          method: 'POST',
+          path: `/platform.presentation_publish/revisions/${encodeURIComponent(candidate.id!)}/composition-result`,
+          body: { ...composition, revision: candidate },
+        });
+        return committed
+          ? { title: '页面保存已确认', lines: ['本次配置已提交；当前页面以最新发布修订为准。'] }
+          : undefined;
+      }
       const saved = (await options.readRevisions()).find((value) => value.id === candidate.id);
       return saved?.status === pageCompositionTransport.publishedRevision &&
         saved.uiTreeJson === candidate.uiTreeJson
