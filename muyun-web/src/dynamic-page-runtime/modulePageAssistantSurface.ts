@@ -20,6 +20,7 @@ import {
 } from './recordFormAssistantCapabilities';
 import { assistantQueryResult, createAssistantQueryCapabilities } from './assistantQueryCapabilities';
 import type { ModulePageSessionView } from './useModulePageSession';
+import type { RecordFormDraftAccess } from './recordFormDraftAccess';
 import { assistantEditableRecordIds, hasActiveRecordEditor } from './assistantRecordEditorPolicy';
 import {
   modulePageScopeCapabilities,
@@ -252,7 +253,7 @@ function recordEditorCapabilities(view: ModulePageSessionView): AssistantCapabil
   return capabilities;
 }
 
-function hasEditableDraft(view: ModulePageSessionView) {
+function hasEditableDraft(view: Pick<RecordFormDraftAccess, 'editorMode' | 'editingRecord'>) {
   return hasActiveRecordEditor(view.editorMode, view.editingRecord);
 }
 
@@ -417,7 +418,7 @@ function surfaceContext(
           ? view.assistantNavigatorEditor.form.selectedRecord
           : view.selectedRecord,
       ),
-      editing: Boolean(view.assistantNavigatorEditor) || hasEditableDraft(view),
+      editing: hasEditableDraft(view.assistantNavigatorEditor?.form ?? view),
       dirty: view.assistantNavigatorEditor?.dirty ?? view.detailDirty,
       ...(view.assistantNavigatorEditor
         ? {
@@ -426,6 +427,8 @@ function surfaceContext(
               key: view.assistantNavigatorEditor.key,
               moduleAlias: view.assistantNavigatorEditor.moduleAlias,
               title: view.assistantNavigatorEditor.title,
+              loading: view.assistantNavigatorEditor.loading,
+              loadFailed: view.assistantNavigatorEditor.loadFailed,
             },
           }
         : {}),

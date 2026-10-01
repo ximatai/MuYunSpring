@@ -137,6 +137,7 @@ describe('module page assistant surface', () => {
       editing: true,
       editorOwner: { kind: 'NAVIGATOR', key: 'catalog', moduleAlias: 'work.catalog', title: '目录' },
     });
+    expect(surface.describe().facts?.selectedRecordId).toBeUndefined();
     const revision = modulePageAssistantContextRevision(view);
     Object.assign(view.assistantNavigatorEditor!, { key: 'other' });
     expect(modulePageAssistantContextRevision(view)).not.toBe(revision);

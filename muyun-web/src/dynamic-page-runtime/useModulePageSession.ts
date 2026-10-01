@@ -1007,6 +1007,7 @@ export function useModulePageSession(
       detailActionBusy.value ||
       recordOnlyAuthorizing.value ||
       localEditSaving.value ||
+      navigatorManagementDetail.loading.value ||
       navigatorManagementDetail.saving.value ||
       navigatorManagementTogglingEnabled.value ||
       referenceRecordDetailInteraction.value.busy,
@@ -1014,7 +1015,7 @@ export function useModulePageSession(
   const interactionEditing = computed(
     () =>
       Boolean(detailOpen.value && editorMode.value !== 'view') ||
-      Boolean(navigatorManagementDetail.open.value && navigatorManagementDetail.mode.value !== 'view') ||
+      navigatorManagementDetail.open.value ||
       localEditOpen.value ||
       referenceRecordDetailInteraction.value.editing,
   );
@@ -2451,7 +2452,14 @@ export function useModulePageSession(
     if (!navigatorManagementAvailable(level)) return [];
     const actions: RecordInlineAction[] = [];
     if (level.tree && level.context.can('create') === true) {
-      actions.push({ key: 'create-child', title: '新建子项', iconName: 'plus' });
+      const readiness = navigatorRecordCreationState(level);
+      actions.push({
+        key: 'create-child',
+        title: '新建子项',
+        iconName: 'plus',
+        disabled: !readiness.ready,
+        disabledReason: readiness.message,
+      });
     }
     if (level.context.can('update') === true) {
       actions.push(
@@ -2489,6 +2497,15 @@ export function useModulePageSession(
     const decision = level.context
       .recordActionsSnapshot(recordId)
       ?.actions.find((candidate) => candidate.actionCode === actionCode);
+    if (key === 'edit' && !recordEditInteractionReady())
+      return {
+        key,
+        actionCode,
+        title,
+        iconName,
+        disabled: true,
+        disabledReason: '请先处理当前编辑会话或等待操作完成',
+      };
     if (!decision) {
       return {
         key,
@@ -2669,7 +2686,11 @@ export function useModulePageSession(
     source: 'user' | 'assistant' = 'user',
   ) {
     const draft = navigatorManagementDetail.draft.value;
-    if (!draft || changes.length === 0 || interactionBusy.value) return;
+    if (!draft || interactionBusy.value) {
+      if (source === 'assistant') throw new Error('导航表单尚未就绪，请等待或重新打开编辑器');
+      return;
+    }
+    if (changes.length === 0) return;
     if (source === 'user') markAssistantUserInteraction();
     const level = navigatorManagementLevel.value;
     let next = draft;
@@ -2688,7 +2709,14 @@ export function useModulePageSession(
 
   async function editNavigatorRecord(level: NavigatorLevelRuntime, record: NavigatorRecord) {
     const id = record.id == null ? undefined : String(record.id);
-    if (!navigatorManagementAvailable(level) || !id || level.context.can('update') !== true) return;
+    if (
+      !navigatorManagementAvailable(level) ||
+      !id ||
+      level.context.can('update') !== true ||
+      !navigatorManagementScopeReady(level) ||
+      !recordEditInteractionReady()
+    )
+      return;
     markAssistantUserInteraction();
     const session = ++navigatorManagementSession;
     navigatorManagementTogglingEnabled.value = false;
@@ -2984,7 +3012,14 @@ export function useModulePageSession(
 
   async function createRecord(parentId?: string) {
     if (!recordCreationState().ready) return false;
+    const revision = recordCreationContextRevision();
     await (resolvedSelectionFormDefaultsRequest ?? loadResolvedSelectionFormDefaults());
+    if (
+      !recordCreationState().ready ||
+      revision !== recordCreationContextRevision() ||
+      (parentId && String(selectedRecord.value?.id) !== parentId)
+    )
+      return false;
     const defaults = { ...navigatorCreateDefaults.value, ...(parentId ? { parentId } : {}) };
     const created = commitCreateRecord(defaults);
     if (created) assistantInteractionRevision.value += 1;
@@ -3029,9 +3064,23 @@ export function useModulePageSession(
     });
   }
 
+  function recordCreationContextRevision() {
+    return JSON.stringify({
+      contextRevision: assistantContextRevision.value,
+      tenantId: tenantScopeId.value,
+      selection: navigatorExtensionSelection.value,
+      navigators: navigatorLevels.value.map((level) => [
+        level.descriptor.key,
+        selectedNavigatorRecords.value[level.descriptor.key]?.id ?? null,
+      ]),
+      treeScopeId: treeResourceScopeRecord.value?.id ?? null,
+    });
+  }
+
   async function prepareAssistantCreate(options: { asChildOfSelectedRecord?: boolean } = {}) {
     const readiness = recordCreationState();
     if (!readiness.ready) throw new Error(readiness.message);
+    const revision = recordCreationContextRevision();
     const parentId = options.asChildOfSelectedRecord
       ? selectedRecord.value?.id == null
         ? undefined
@@ -3047,7 +3096,12 @@ export function useModulePageSession(
     await (resolvedSelectionFormDefaultsRequest ?? loadResolvedSelectionFormDefaults());
     const defaults = { ...navigatorCreateDefaults.value, ...(parentId ? { parentId } : {}) };
     return () => {
-      if (!recordCreationState().ready || !childTargetCurrent() || !commitCreateRecord(defaults)) {
+      if (
+        !recordCreationState().ready ||
+        revision !== recordCreationContextRevision() ||
+        !childTargetCurrent() ||
+        !commitCreateRecord(defaults)
+      ) {
         throw new Error('Record creation is unavailable');
       }
       return assistantEditorState();
@@ -3079,15 +3133,7 @@ export function useModulePageSession(
 
   const assistantNavigatorEditor = computed(() => {
     const level = navigatorManagementLevel.value;
-    if (
-      !level ||
-      !navigatorManagementDetail.open.value ||
-      navigatorManagementDetail.loading.value ||
-      navigatorManagementDetail.loadFailed.value ||
-      navigatorManagementDetail.mode.value === 'view' ||
-      !navigatorManagementDetail.draft.value
-    )
-      return undefined;
+    if (!level || !navigatorManagementDetail.open.value) return undefined;
     const form: RecordFormDraftAccess = {
       get editorMode() {
         return navigatorManagementDetail.mode.value;
@@ -3139,7 +3185,13 @@ export function useModulePageSession(
     return {
       key: level.descriptor.key,
       moduleAlias: level.context.moduleAlias,
-      busy: interactionBusy.value,
+      loading: navigatorManagementDetail.loading.value,
+      loadFailed: navigatorManagementDetail.loadFailed.value,
+      busy:
+        interactionBusy.value ||
+        navigatorManagementDetail.loadFailed.value ||
+        navigatorManagementDetail.mode.value === 'view' ||
+        !navigatorManagementDetail.draft.value,
       title: level.descriptor.title,
       dirty: navigatorManagementDetail.isDirty.value,
       form,
@@ -3151,6 +3203,8 @@ export function useModulePageSession(
       () => navigatorManagementLevel.value?.descriptor.key,
       navigatorManagementDetail.open,
       navigatorManagementDetail.mode,
+      navigatorManagementDetail.loading,
+      navigatorManagementDetail.loadFailed,
       navigatorManagementDetail.draft,
       navigatorManagementDetail.saving,
     ],
@@ -3274,11 +3328,12 @@ export function useModulePageSession(
   }
 
   async function editRecord(record: QueryListRecord, cancelDestination: 'close' | 'restore-view' = 'close') {
-    if (context.can('update') !== true) return;
+    if (!recordEditReady() || context.can('update') !== true) return;
     if (props.recordOnly) {
       const recordId = record.id == null ? undefined : String(record.id);
       if (!recordId) return;
       if (!(await recordOnlyActionAvailable(recordId, 'update'))) return;
+      if (!recordEditReady()) return;
     }
     if (selectedRecord.value?.id === record.id && detail.beginEdit({ cancelDestination })) {
       assistantInteractionRevision.value += 1;
@@ -3288,8 +3343,22 @@ export function useModulePageSession(
     if (editorMode.value === 'edit') assistantInteractionRevision.value += 1;
   }
 
+  function recordEditInteractionReady() {
+    return !interactionEditing.value && !interactionBusy.value && !sessionDirty.value;
+  }
+
+  function recordEditReady() {
+    return pageReady.value && editorMode.value === 'view' && recordEditInteractionReady();
+  }
+
+  function assistantRecordEditReady() {
+    // Row edits may reload a new target; assistant proposals reuse current detail facts.
+    return recordEditReady() && !detailLoading.value && !detailLoadFailed.value;
+  }
+
   async function prepareAssistantEdit(recordId: string) {
-    if (editorMode.value !== 'view' || detailLoading.value) throw new Error('A form draft is already active');
+    if (!assistantRecordEditReady()) throw new Error('A form draft is already active');
+    const revision = assistantContextRevision.value;
     const normalizedId = recordId.trim();
     const querySnapshot = listQueryController.value?.snapshot();
     if (querySnapshot?.mode === 'recycleBin') {
@@ -3309,6 +3378,12 @@ export function useModulePageSession(
         ? selected
         : await context.crud.view(normalizedId);
     return () => {
+      if (
+        revision !== assistantContextRevision.value ||
+        !assistantRecordEditReady() ||
+        context.can('update') !== true
+      )
+        throw new Error('编辑状态或范围已变化，请重新准备编辑');
       commitLoadedRecord(loaded, 'edit', {
         cancelDestination: assistantEditCancelDestination(detailOpen.value, selected?.id, normalizedId),
       });

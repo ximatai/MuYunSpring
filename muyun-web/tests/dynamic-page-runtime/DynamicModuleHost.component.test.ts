@@ -3,6 +3,7 @@ import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vites
 import { defineComponent } from 'vue';
 import ModulePageHost from '@/dynamic-page-runtime/ModulePageHost.vue';
 import type { ModulePageSessionView } from '@/dynamic-page-runtime/useModulePageSession';
+import { createModulePageAssistantSurface } from '@/dynamic-page-runtime/modulePageAssistantSurface';
 import { configureModuleContext, createHttpClient } from '@muyun/web-core';
 import { configureModulePageEnhancements } from '@/dynamic-page-runtime/modulePageEnhancements.ts';
 import { refreshModulePageList } from '@/dynamic-page-runtime/modulePageListRefresh.ts';
@@ -2779,11 +2780,15 @@ describe('ModulePageHost', () => {
   });
 
   it.each([
-    { key: 'platform', ownerScopeType: 'platform', ownerScopeId: null },
-    { key: 'tenant:demo', ownerScopeType: 'tenant', ownerScopeId: 'demo' },
-    { key: 'organization:org-1', ownerScopeType: 'organization', ownerScopeId: 'org-1' },
-  ])('initializes a new record with resolved selection defaults for $key', async (scope) => {
+    { key: 'platform', ownerScopeType: 'platform', ownerScopeId: null, interrupt: false },
+    { key: 'tenant:demo', ownerScopeType: 'tenant', ownerScopeId: 'demo', interrupt: false },
+    { key: 'organization:org-1', ownerScopeType: 'organization', ownerScopeId: 'org-1', interrupt: false },
+    { key: 'platform', ownerScopeType: 'platform', ownerScopeId: null, interrupt: true },
+  ])('preserves resolved selection defaults for $key (interrupted=$interrupt)', async (scope) => {
     const defaults = { ownerScopeType: scope.ownerScopeType, ownerScopeId: scope.ownerScopeId };
+    const interrupt = scope.interrupt;
+    let resolveDefaults!: (response: Response) => void;
+    const pendingDefaults = new Promise<Response>((resolve) => (resolveDefaults = resolve));
     const calls: Headers[] = [];
     globalThis.fetch = async (input, init) => {
       const request = new Request(input, init);
@@ -2791,7 +2796,10 @@ describe('ModulePageHost', () => {
         return Response.json({
           moduleAlias: 'iam.role',
           capabilities: [],
-          actions: [{ actionCode: 'create', authorized: true }],
+          actions: [
+            { actionCode: 'create', authorized: true },
+            { actionCode: 'update', authorized: true },
+          ],
           uiDescriptor: {
             moduleAlias: 'iam.role',
             page: page({
@@ -2809,8 +2817,12 @@ describe('ModulePageHost', () => {
         });
       if (request.url.endsWith('/page-context/form-defaults')) {
         calls.push(request.headers);
-        return Response.json(defaults);
+        return interrupt ? pendingDefaults : Response.json(defaults);
       }
+      if (request.url.endsWith('/iam.role/view/role-1'))
+        return Response.json({ id: 'role-1', title: '审批员', version: 1 });
+      if (request.url.endsWith('/iam.role/actions/role-1'))
+        return Response.json({ actions: [{ actionCode: 'update', available: true }] });
       throw new Error(`Unexpected request: ${request.url}`);
     };
     configureModuleContext({ httpFactory: () => createHttpClient({ baseUrl: 'http://api.local' }) });
@@ -2846,6 +2858,20 @@ describe('ModulePageHost', () => {
       },
     });
     await flushPromises();
+    if (interrupt) {
+      const session = wrapper
+        .findComponent({ name: 'ModulePageHostRuntime' })
+        .props('session') as ModulePageSessionView;
+      const pendingCreate = session.createRootRecord();
+      await session.editRecord({ id: 'role-1', title: '审批员' });
+      expect(session.editorMode).toBe('edit');
+      resolveDefaults(Response.json(defaults));
+      await expect(pendingCreate).resolves.toBe(false);
+      expect(session.editorMode).toBe('edit');
+      expect(session.editingRecord?.id).toBe('role-1');
+      wrapper.unmount();
+      return;
+    }
     wrapper.findComponent({ name: 'RecordQueryListPanel' }).vm.$emit('action', { key: 'create' });
     await flushPromises();
     expect(calls.length).toBeGreaterThan(0);
@@ -3984,6 +4010,159 @@ describe('ModulePageHost', () => {
       ]),
     );
   });
+
+  it.each(['complete', 'fail'])(
+    'retains navigator ownership while its detail loads (%s)',
+    async (outcome) => {
+      let resolveView!: (response: Response) => void;
+      const pendingView = new Promise<Response>((resolve) => (resolveView = resolve));
+      let resolveFailedMain!: (response: Response) => void;
+      const pendingFailedMain = new Promise<Response>((resolve) => (resolveFailedMain = resolve));
+      globalThis.fetch = async (input) => {
+        const request = new Request(input);
+        if (request.url.endsWith('/platform.module/demo.main/context'))
+          return Response.json({
+            moduleAlias: 'demo.main',
+            capabilities: ['TREE'],
+            abilities: ['tree'],
+            actions: [{ actionCode: 'update', authorized: true }],
+            uiDescriptor: {
+              moduleAlias: 'demo.main',
+              page: page({
+                template: 'TREE_MANAGEMENT',
+                navigator: {
+                  levels: [
+                    {
+                      key: 'catalog',
+                      kind: 'MICRO_LIST',
+                      sourceModuleAlias: 'demo.catalog',
+                      title: '分类',
+                      management: { editorSurface: 'default_form' },
+                    },
+                  ],
+                },
+              }),
+            },
+          });
+        if (request.url.endsWith('/platform.module/demo.catalog/reference-context'))
+          return Response.json({
+            moduleAlias: 'demo.catalog',
+            capabilities: [],
+            actions: [{ actionCode: 'update', authorized: true }],
+          });
+        if (request.url.endsWith('/demo.catalog/view/catalog-1')) return pendingView;
+        if (request.url.endsWith('/demo.main/view/main-1'))
+          return Response.json({ id: 'main-1', title: '主记录', version: 1 });
+        if (request.url.endsWith('/demo.main/view/failed-main')) return pendingFailedMain;
+        if (request.url.includes('/actions/'))
+          return Response.json({ actions: [{ actionCode: 'update', available: true }] });
+        throw new Error(`Unexpected request: ${request.url}`);
+      };
+      configureModuleContext({ httpFactory: () => createHttpClient({ baseUrl: 'http://api.local' }) });
+      const wrapper = shallowMount(ModulePageHost, {
+        props: {
+          descriptor: {
+            pageType: 'dynamic-module',
+            openMode: 'dynamic-runner',
+            hostType: 'dynamic-module-host',
+            tabPolicy: { identity: 'by-menu' },
+            target: { moduleAlias: 'demo.main', pageMode: 'LIST' },
+          },
+        },
+        global: {
+          stubs: {
+            ManagementWorkspace: { template: '<section><slot /></section>' },
+            ManagementExplorerColumn: { template: '<aside><slot /></aside>' },
+            RecordExplorerPanel: { template: '<section><slot /><slot name="actions" /></section>' },
+            PageNavigatorExplorer: {
+              name: 'PageNavigatorExplorer',
+              emits: ['action'],
+              template: '<section><slot name="editor" /></section>',
+            },
+          },
+        },
+      });
+      await flushPromises();
+      wrapper
+        .findComponent({ name: 'TreeRecordExplorer' })
+        .vm.$emit('select', { id: 'main-1', title: '主记录' });
+      await flushPromises();
+      const session = wrapper
+        .findComponent({ name: 'ModulePageHostRuntime' })
+        .props('session') as ModulePageSessionView;
+      const surface = createModulePageAssistantSurface(session, vi.fn());
+      expect(surface.capabilities().map(({ descriptor }) => descriptor.code)).toContain('record.start-edit');
+      const staleEdit = await session.prepareAssistantEdit('main-1');
+      wrapper
+        .findComponent({ name: 'PageNavigatorExplorer' })
+        .vm.$emit('action', { key: 'edit' }, { id: 'catalog-1', title: '分类一' });
+      await flushPromises();
+      const editor = wrapper.findComponent({ name: 'NavigatorManagementEditor' });
+      expect(editor.props('loading')).toBe(true);
+      expect(session.assistantNavigatorEditor).toMatchObject({ key: 'catalog', busy: true });
+      expect(surface.capabilities().map(({ descriptor }) => descriptor.code)).not.toContain(
+        'record.start-edit',
+      );
+      expect(surface.capabilities().map(({ descriptor }) => descriptor.code)).not.toContain(
+        'form.patch-draft',
+      );
+      await expect(session.prepareAssistantEdit('main-1')).rejects.toThrow('A form draft is already active');
+      expect(() => staleEdit()).toThrow('编辑状态或范围已变化');
+      resolveView(
+        outcome === 'complete'
+          ? Response.json({ id: 'catalog-1', title: '分类一', version: 1 })
+          : Response.json({}, { status: 500 }),
+      );
+      await flushPromises();
+      expect(editor.props('loading')).toBe(false);
+      expect(editor.props('loadFailed')).toBe(outcome === 'fail');
+      expect(session.assistantNavigatorEditor).toMatchObject({ key: 'catalog', busy: outcome === 'fail' });
+      expect(session.editorMode).toBe('view');
+      expect(surface.capabilities().map(({ descriptor }) => descriptor.code)).not.toContain(
+        'record.start-edit',
+      );
+      expect(surface.capabilities().some(({ descriptor }) => descriptor.code === 'form.describe')).toBe(
+        outcome === 'complete',
+      );
+      await expect(session.prepareAssistantEdit('main-1')).rejects.toThrow('A form draft is already active');
+      editor.vm.$emit('close');
+      await flushPromises();
+      expect(session.assistantNavigatorEditor).toBeUndefined();
+      expect(() => staleEdit()).toThrow('编辑状态或范围已变化');
+      (await session.prepareAssistantEdit('main-1'))();
+      expect(session.editorMode).toBe('edit');
+      wrapper
+        .findComponent({ name: 'PageNavigatorExplorer' })
+        .vm.$emit('action', { key: 'edit' }, { id: 'catalog-1', title: '分类一' });
+      await flushPromises();
+      expect(session.assistantNavigatorEditor).toBeUndefined();
+      expect(session.editorMode).toBe('edit');
+      await session.closeTreeCardEditor();
+      wrapper
+        .findComponent({ name: 'TreeRecordExplorer' })
+        .vm.$emit('select', { id: 'failed-main', title: '加载失败的旧记录' });
+      await flushPromises();
+      expect(session.detailLoading).toBe(true);
+      await session.editRecord({ id: 'main-1', title: '主记录' });
+      expect(session.editorMode).toBe('edit');
+      expect(session.editingRecord?.id).toBe('main-1');
+      resolveFailedMain(Response.json({}, { status: 500 }));
+      await flushPromises();
+      expect(session.detailLoadFailed).toBe(false);
+      expect(session.editingRecord?.id).toBe('main-1');
+      await session.closeTreeCardEditor();
+      wrapper
+        .findComponent({ name: 'TreeRecordExplorer' })
+        .vm.$emit('select', { id: 'failed-main', title: '加载失败的旧记录' });
+      await flushPromises();
+      expect(session.detailLoadFailed).toBe(true);
+      await session.editRecord({ id: 'main-1', title: '主记录' });
+      expect(session.detailLoadFailed).toBe(false);
+      expect(session.editorMode).toBe('edit');
+      expect(session.editingRecord?.id).toBe('main-1');
+      wrapper.unmount();
+    },
+  );
 
   it.each(['user', 'assistant'])('preserves scoped navigator picker behavior (%s)', async (source) => {
     const organizationBodies: Array<Record<string, unknown>> = [];
