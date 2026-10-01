@@ -16,6 +16,7 @@ it.each([
   (code, status, text) => {
     const error = new AppError('private provider body', { code, status });
     expect(userFacingErrorMessage(error)).toContain(text);
+    expect(userFacingErrorMessage(error)).not.toMatch(/当前页面|当前需求|保存|待确认/);
     const presentation = resolveGlobalErrorPresentation(error);
     expect(presentation.message).toContain(text);
     expect(presentation.message).not.toContain('private provider body');

@@ -207,7 +207,8 @@ class OpenAiCompatibleModelClientTest {
         StringBuilder partial = new StringBuilder();
         assertThatThrownBy(() ->
                 client.stream(route(), AiTextRequest.userText("hello"), partial::append))
-                .hasMessageContaining("完成前断开").satisfies(error -> assertThat(((PlatformException) error).code()).isEqualTo("AI_MODEL_INCOMPLETE_RESPONSE"));
+                .hasMessageContaining("完成前断开").hasMessageNotContaining("当前页面")
+                .satisfies(error -> assertThat(((PlatformException) error).code()).isEqualTo("AI_MODEL_INCOMPLETE_RESPONSE"));
         assertThat(partial).hasToString("partial");
     }
 
@@ -356,7 +357,8 @@ class OpenAiCompatibleModelClientTest {
             public void onComplete(AiTurnResponse response) {
                 throw new AssertionError("interrupted streams must not complete");
             }
-        })).isInstanceOf(PlatformException.class).hasMessageContaining("完成前断开").satisfies(error -> assertThat(((PlatformException) error).code()).isEqualTo("AI_MODEL_INCOMPLETE_RESPONSE"));
+        })).isInstanceOf(PlatformException.class).hasMessageContaining("完成前断开").hasMessageNotContaining("当前页面")
+                .satisfies(error -> assertThat(((PlatformException) error).code()).isEqualTo("AI_MODEL_INCOMPLETE_RESPONSE"));
         assertThat(deltas).containsExactly("partial");
     }
 
@@ -633,7 +635,8 @@ class OpenAiCompatibleModelClientTest {
                     .isInstanceOf(PlatformException.class)
                     .hasNoCause()
                     .satisfies(error -> assertThat(((PlatformException) error).code())
-                            .isEqualTo(interrupt ? "AI_MODEL_INTERRUPTED" : "AI_MODEL_TIMEOUT"));
+                            .isEqualTo(interrupt ? "AI_MODEL_INTERRUPTED" : "AI_MODEL_TIMEOUT"))
+                    .hasMessageNotContaining("当前页面");
             org.mockito.Mockito.verify(http, org.mockito.Mockito.times(interrupt ? 1 : 2))
                     .send(org.mockito.ArgumentMatchers.any(java.net.http.HttpRequest.class),
                             org.mockito.ArgumentMatchers.<java.net.http.HttpResponse.BodyHandler<java.io.InputStream>>any());

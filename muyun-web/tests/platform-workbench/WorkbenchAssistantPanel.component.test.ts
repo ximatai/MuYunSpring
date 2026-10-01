@@ -25,6 +25,7 @@ it.each([
   ['AI_MODEL_TIMEOUT', '等待模型回复超时'],
   ['AI_MODEL_CONNECTION_FAILED', '模型连接失败'],
   ['AI_MODEL_INCOMPLETE_RESPONSE', '模型回复在完成前断开'],
+  ['AI_MODEL_INTERRUPTED', '模型请求已中断'],
 ])(
   'explains the model connection failure by stable code without replaying the request: %s',
   async (code, explanation) => {
@@ -39,6 +40,8 @@ it.each([
     await flushPromises();
     expect(wrapper.text()).toContain(explanation);
     expect(wrapper.text()).toContain('待确认内容没有提交');
+    if (['AI_MODEL_TIMEOUT', 'AI_MODEL_INCOMPLETE_RESPONSE', 'AI_MODEL_INTERRUPTED'].includes(code))
+      expect(wrapper.text()).toContain('请核实当前页面后继续处理');
     expect(wrapper.text()).not.toContain('opaque diagnostic');
     expect(requestTurn).toHaveBeenCalledOnce();
     wrapper.unmount();

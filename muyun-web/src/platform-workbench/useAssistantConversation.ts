@@ -727,8 +727,17 @@ export function useAssistantConversation(props: {
 }
 
 function assistantFailureMessage(error: unknown) {
-  const modelMessage = error instanceof AppError ? modelFailureMessage(error) : undefined;
-  if (modelMessage) return `${modelMessage}已确认的保存结果仍有效，待确认内容没有提交。`;
+  if (error instanceof AppError) {
+    const modelMessage = modelFailureMessage(error);
+    if (modelMessage) {
+      const recovery = ['AI_MODEL_TIMEOUT', 'AI_MODEL_INCOMPLETE_RESPONSE', 'AI_MODEL_INTERRUPTED'].includes(
+        error.code,
+      )
+        ? '请核实当前页面后继续处理。'
+        : '';
+      return `${modelMessage}${recovery}已确认的保存结果仍有效，待确认内容没有提交。`;
+    }
+  }
   const message = error instanceof Error ? error.message : '';
   if (message === '模型本次回复在返回可用内容前中止，请稍后重试')
     return '模型服务未返回可用内容。请稍后重试；持续失败时联系管理员检查模型服务状态。已确认的保存结果仍有效，待确认内容没有提交。';

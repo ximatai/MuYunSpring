@@ -75,7 +75,7 @@ final class OpenAiCompatibleModelClient implements AiModelClient {
             throw exception;
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
-            throw new PlatformException("AI_MODEL_INTERRUPTED", 503, "模型请求已中断，请核实当前页面后继续处理。");
+            throw new PlatformException("AI_MODEL_INTERRUPTED", 503, "模型请求已中断。");
         } catch (Exception exception) {
             throw transportFailure(exception);
         }
@@ -88,13 +88,13 @@ final class OpenAiCompatibleModelClient implements AiModelClient {
             HttpResponse<InputStream> response = send(request(route, request, true));
             try (InputStream body = new TimedResponseBody(response.body(), bodyTimeout)) {
                 if (consumeSseStream(body, payload -> consumeStreamEvent(payload, consumer))) return;
-                throw new PlatformException("AI_MODEL_INCOMPLETE_RESPONSE", 502, "模型回复在完成前断开，请核实当前页面后继续处理。");
+                throw new PlatformException("AI_MODEL_INCOMPLETE_RESPONSE", 502, "模型回复在完成前断开。");
             }
         } catch (PlatformException exception) {
             throw exception;
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
-            throw new PlatformException("AI_MODEL_INTERRUPTED", 503, "模型请求已中断，请核实当前页面后继续处理。");
+            throw new PlatformException("AI_MODEL_INTERRUPTED", 503, "模型请求已中断。");
         } catch (Exception exception) {
             throw transportFailure(exception);
         }
@@ -124,7 +124,7 @@ final class OpenAiCompatibleModelClient implements AiModelClient {
             throw exception;
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
-            throw new PlatformException("AI_MODEL_INTERRUPTED", 503, "模型请求已中断，请核实当前页面后继续处理。");
+            throw new PlatformException("AI_MODEL_INTERRUPTED", 503, "模型请求已中断。");
         } catch (Exception exception) {
             throw transportFailure(exception);
         }
@@ -139,13 +139,13 @@ final class OpenAiCompatibleModelClient implements AiModelClient {
                 StructuredTurnAccumulator accumulator = new StructuredTurnAccumulator(request.tools(), consumer,
                         response.headers().firstValue("x-request-id").orElse(null));
                 if (consumeSseStream(body, payload -> consumeStructuredStreamEvent(payload, accumulator))) return;
-                throw new PlatformException("AI_MODEL_INCOMPLETE_RESPONSE", 502, "模型回复在完成前断开，请核实当前页面后继续处理。");
+                throw new PlatformException("AI_MODEL_INCOMPLETE_RESPONSE", 502, "模型回复在完成前断开。");
             }
         } catch (PlatformException exception) {
             throw exception;
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
-            throw new PlatformException("AI_MODEL_INTERRUPTED", 503, "模型请求已中断，请核实当前页面后继续处理。");
+            throw new PlatformException("AI_MODEL_INTERRUPTED", 503, "模型请求已中断。");
         } catch (Exception exception) {
             throw transportFailure(exception);
         }
