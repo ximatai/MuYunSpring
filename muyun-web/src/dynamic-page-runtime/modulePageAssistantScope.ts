@@ -22,6 +22,47 @@ export interface AssistantScopeCandidate {
   revision: string;
 }
 
+function availableScopeKeys(
+  view: ModulePageSessionView,
+  tenantScope: ModulePageAssistantTenantScope | undefined,
+) {
+  return [
+    ...(tenantScope?.tenantScopeExplorerVisible.value === true &&
+    tenantScope.tenantScopeContext.value &&
+    !tenantScope.blocked.value
+      ? ['tenant']
+      : []),
+    ...(view.assistantNavigatorScopes?.() ?? []).map((level) => level.descriptor.key),
+  ];
+}
+
+/** Keep live, authorized search choices available across the user's clarification turn. */
+export function modulePageScopeCandidateFacts(
+  view: ModulePageSessionView,
+  tenantScope: ModulePageAssistantTenantScope | undefined,
+  candidates: Map<string, AssistantScopeCandidate>,
+) {
+  const scopeKeys = new Set(availableScopeKeys(view, tenantScope));
+  return [...candidates.entries()]
+    .filter(
+      ([, candidate]) =>
+        scopeKeys.has(candidate.scopeKey) &&
+        candidate.revision === scopeRevision(view, tenantScope, candidate.scopeKey),
+    )
+    .map(([selectionKey, { scopeKey, record }]) => ({
+      scopeKey,
+      selectionKey,
+      title: scopeRecordTitle(record),
+      label: scopeRecordDisplayTitle(
+        record,
+        scopeKey === 'tenant'
+          ? 'alias'
+          : view.assistantNavigatorScopes().find((level) => level.descriptor.key === scopeKey)?.descriptor
+              .secondaryField,
+      ),
+    }));
+}
+
 function scopeRevision(
   view: ModulePageSessionView,
   tenantScope: ModulePageAssistantTenantScope | undefined,
@@ -39,31 +80,28 @@ export function modulePageScopeCapabilities(
   candidates: Map<string, AssistantScopeCandidate>,
 ): AssistantCapability[] {
   const capabilities: AssistantCapability[] = [];
-  if (
-    tenantScope?.tenantScopeExplorerVisible.value === true &&
-    tenantScope.tenantScopeContext.value &&
-    !tenantScope.blocked.value
-  ) {
-    capabilities.push(tenantScopeSelectionCapability(tenantScope));
-  }
-  const navigatorKeys = (view.assistantNavigatorScopes?.() ?? []).map((level) => level.descriptor.key);
+  const scopeKeys = availableScopeKeys(view, tenantScope);
+  if (scopeKeys.includes('tenant')) capabilities.push(tenantScopeSelectionCapability(tenantScope!));
+  const navigatorKeys = scopeKeys.filter((key) => key !== 'tenant');
   if (navigatorKeys.length > 0) capabilities.push(navigatorScopeSelectionCapability(view, navigatorKeys));
-  const scopeKeys = [
-    ...(capabilities.some(({ descriptor }) => descriptor.code === 'scope.select-tenant') ? ['tenant'] : []),
-    ...navigatorKeys,
-  ];
   if (scopeKeys.length) {
     capabilities.push(scopeSearchCapability(view, tenantScope, scopeKeys, candidates));
+    const selectionKeys = modulePageScopeCandidateFacts(view, tenantScope, candidates).map(
+      ({ selectionKey }) => selectionKey,
+    );
     capabilities.push({
       effect: 'page',
       descriptor: {
         code: 'scope.select-candidate',
-        description: '应用 scope.search 返回的 selectionKey。使用候选凭据，不把展示标签当作名称重新搜索。',
+        description:
+          '应用 scope.search 或 facts.scopeCandidates 返回的 selectionKey。用户确认候选后使用此能力，不把展示标签当作名称重新搜索。',
         inputSchema: {
           type: 'object',
           additionalProperties: false,
           required: ['selectionKey'],
-          properties: { selectionKey: { type: 'string' } },
+          properties: {
+            selectionKey: { type: 'string', ...(selectionKeys.length ? { enum: selectionKeys } : {}) },
+          },
         },
       },
       parseInput(input) {
@@ -190,9 +228,24 @@ function scopeSearchCapability(
         throw new AssistantCapabilityUsageError('Scope search is no longer current');
       const options = records
         .filter((record) => record.id != null && scopeRecordTitle(record))
-        .map((record) => ({ selectionKey: crypto.randomUUID(), record }));
+        .map((record) => ({
+          selectionKey:
+            [...candidates.entries()].find(
+              ([, candidate]) =>
+                candidate.scopeKey === scopeKey &&
+                candidate.revision === revision &&
+                String(candidate.record.id) === String(record.id),
+            )?.[0] ?? crypto.randomUUID(),
+          record,
+        }));
       context.commitInternalState(() => {
-        candidates.clear();
+        for (const [key, candidate] of candidates) {
+          if (
+            candidate.scopeKey === scopeKey ||
+            candidate.revision !== scopeRevision(view, tenantScope, candidate.scopeKey)
+          )
+            candidates.delete(key);
+        }
         for (const option of options)
           candidates.set(option.selectionKey, { scopeKey, record: option.record, revision });
       });

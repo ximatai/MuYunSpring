@@ -162,8 +162,10 @@ public class BusinessRuleGovernanceService {
         Map<String, List<Map<String, Object>>> children = trialChildren(command, preview.snapshot(), rules, errors);
         if (!errors.isEmpty()) return new BusinessRuleTrialResult(preview, immutableValues(values), List.of(), List.copyOf(errors));
         try {
-            FormulaReferenceContext references = trialReferences(moduleAlias, rules);
             List<FormulaFieldDefinition> fields = new ArrayList<>(trialFields(moduleAlias));
+            normalizeTrialInputs(fields, values, children, preview.snapshot(), errors);
+            if (!errors.isEmpty()) return new BusinessRuleTrialResult(preview, immutableValues(values), List.of(), List.copyOf(errors));
+            FormulaReferenceContext references = trialReferences(moduleAlias, rules);
             fields.addAll(references.fields());
             if (!references.isEmpty() && (referenceTenantId == null || referenceTenantId.isBlank())) {
                 errors.add(new BusinessRuleIssue("FORMULA_REFERENCE_TENANT_REQUIRED", null, null,
@@ -184,6 +186,49 @@ public class BusinessRuleGovernanceService {
         } catch (IllegalArgumentException exception) {
             errors.add(new BusinessRuleIssue("FORMULA_REFERENCE_PATH_INVALID", null, null, exception.getMessage()));
             return new BusinessRuleTrialResult(preview, immutableValues(values), List.of(), List.copyOf(errors));
+        }
+    }
+
+    private void normalizeTrialInputs(List<FormulaFieldDefinition> fields, Map<String, Object> values,
+            Map<String, List<Map<String, Object>>> children, BusinessRuleGovernanceSnapshot snapshot,
+            List<BusinessRuleIssue> errors) {
+        Map<String, String> titles = java.util.stream.Stream.concat(snapshot.editableFields().stream(),
+                        snapshot.aggregateFields().stream())
+                .collect(java.util.stream.Collectors.toMap(BusinessRuleField::fieldName,
+                        field -> field.title() == null || field.title().isBlank() ? field.fieldName() : field.title(),
+                        (first, ignored) -> first));
+        for (FormulaFieldDefinition field : fields) {
+            String relation = field.fieldPath().tableKey();
+            if (relation == null) normalizeTrialValue(values, field, titles, null, errors);
+            else {
+                List<Map<String, Object>> rows = children.getOrDefault(relation, List.of());
+                for (int index = 0; index < rows.size(); index++)
+                    normalizeTrialValue(rows.get(index), field, titles, index + 1, errors);
+            }
+        }
+    }
+
+    private void normalizeTrialValue(Map<String, Object> values, FormulaFieldDefinition field,
+            Map<String, String> titles, Integer rowNumber, List<BusinessRuleIssue> errors) {
+        String name = field.fieldPath().fieldName();
+        Object value = values.get(name);
+        // A rule trial can omit required business inputs and calculated outputs; it is not a record save.
+        if (value == null) return;
+        try {
+            values.put(name, field.normalizeValue(value));
+        } catch (FormulaEvaluationException exception) {
+            String path = field.fieldPath().dataIndex();
+            String expected = switch (field.type()) {
+                case INTEGER, LONG -> "整数";
+                case DECIMAL -> "数值";
+                case BOOLEAN -> "布尔值";
+                case DATE -> "日期";
+                case TIMESTAMP -> "时间";
+                default -> "字段声明的类型";
+            };
+            errors.add(new BusinessRuleIssue(exception.code(), null, path,
+                    "试算输入「" + titles.getOrDefault(path, path) + "」必须是" + expected
+                            + (rowNumber == null ? "" : "（第" + rowNumber + "行）")));
         }
     }
 

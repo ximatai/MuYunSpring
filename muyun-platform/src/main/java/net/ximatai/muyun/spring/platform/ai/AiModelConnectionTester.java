@@ -73,7 +73,11 @@ public class AiModelConnectionTester {
 
     private AiModelConnectionTestResult testCandidate(AiModelConfiguration configuration) {
         long startedAt = System.nanoTime();
-        client.generate(routeResolver.resolveCandidate(configuration), PROBE);
+        AiTextResponse response = client.generate(routeResolver.resolveCandidate(configuration), PROBE);
+        if (response == null || response.text() == null || response.text().isBlank()
+                || !"stop".equalsIgnoreCase(response.finishReason())) {
+            throw new PlatformException("模型服务未返回完整的非空回复，请检查模型配置或服务状态");
+        }
         return new AiModelConnectionTestResult(true, (System.nanoTime() - startedAt) / 1_000_000L);
     }
 }

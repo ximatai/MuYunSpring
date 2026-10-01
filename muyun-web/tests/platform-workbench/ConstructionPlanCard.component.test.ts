@@ -34,7 +34,15 @@ function fixture() {
       declarableCapabilities: { capabilities: [], metadataFields: [] },
     })),
     businessObjects: vi.fn(async () => [
-      { alias: 'crm.customer', title: '客户', kind: 'DYNAMIC', referenceReady: true, explanation: '可复用' },
+      {
+        alias: 'crm.customer',
+        title: '客户',
+        applicationAlias: 'crm',
+        applicationTitle: '客户管理',
+        kind: 'DYNAMIC',
+        referenceReady: true,
+        explanation: '可复用',
+      },
     ]),
     referenceTarget: vi.fn(async () => ({
       targetModuleAlias: 'crm.customer',

@@ -157,7 +157,7 @@ it('registers the metadata surface only after a complete load and invalidates ch
   expect(draftedModel.value).toEqual(
     expect.objectContaining({
       selectedRelation: expect.objectContaining({ fieldCount: 3 }),
-      draft: { active: true, dirty: true, editorOpen: true },
+      draft: { active: true, dirty: true, editorOpen: true, fieldPlanOpen: false },
     }),
   );
   expect(requests.some((options) => options.path.endsWith('change-set-preview'))).toBe(false);
@@ -177,7 +177,7 @@ it('registers the metadata surface only after a complete load and invalidates ch
   expect(modelAfterBlockedSwitch.value).toEqual(
     expect.objectContaining({
       selectedRelation: expect.objectContaining({ relationId: 'rel-main', fieldCount: 3 }),
-      draft: { active: true, dirty: true, editorOpen: true },
+      draft: { active: true, dirty: true, editorOpen: true, fieldPlanOpen: false },
     }),
   );
 });
@@ -546,11 +546,19 @@ it.each([
       .trigger('click');
     await flushPromises();
     expect(confirmAction).toHaveBeenCalledWith(
-      expect.objectContaining({ content: expect.stringContaining(targetValue) }),
+      expect.objectContaining({
+        details: expect.objectContaining({
+          lines: expect.arrayContaining([expect.stringContaining(targetValue)]),
+        }),
+      }),
     );
     if (input.kind === 'DICTIONARY')
       expect(confirmAction).toHaveBeenCalledWith(
-        expect.objectContaining({ content: expect.stringContaining('MULTIPLE') }),
+        expect.objectContaining({
+          details: expect.objectContaining({
+            lines: expect.arrayContaining([expect.stringContaining('MULTIPLE')]),
+          }),
+        }),
       );
     expect(request.mock.calls.some(([options]) => options.path.endsWith('change-set-apply'))).toBe(false);
   },
@@ -903,7 +911,11 @@ it('keeps the field editor open while save confirmation is pending', async () =>
 
   expect(vi.mocked(confirmAction)).toHaveBeenCalledTimes(1);
   expect(vi.mocked(confirmAction)).toHaveBeenCalledWith(
-    expect.objectContaining({ content: expect.stringContaining('字段将增加普通索引。') }),
+    expect.objectContaining({
+      details: expect.objectContaining({
+        lines: expect.arrayContaining([expect.stringContaining('字段将增加普通索引。')]),
+      }),
+    }),
   );
   expect(wrapper.text()).toContain('存储字段规格');
   confirmation.resolve(false);

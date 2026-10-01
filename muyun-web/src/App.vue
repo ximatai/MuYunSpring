@@ -44,6 +44,8 @@ import {
   provideModuleContextConfig,
   StaleAssistantInvocationError,
   userPreferences,
+  normalizeError,
+  userFacingErrorMessage,
   type AppError,
   type RealtimeConnectionState,
 } from '@muyun/web-core';
@@ -70,6 +72,8 @@ import {
 } from './platform-admin-runtime/authSession';
 import { configureAuthenticationRecovery } from './platform-admin-runtime/sessionRecovery';
 import { platformMessage } from './app/platformMessage';
+import { useWorkbenchMenuRefresh } from './app/useWorkbenchMenuRefresh';
+import { createWorkbenchMenuRefresh } from './app/workbenchMenuRefresh';
 import { provideCurrentUserContext } from './platform-admin-runtime/currentUserContext';
 import { loadAppWorkbenchStartupState, usesMockStartup } from './app/appWorkbenchStartup';
 import { createBackendHttpClient } from './platform-admin-runtime/backendHttp';
@@ -78,7 +82,7 @@ import {
   platformAdminRouteLayouts,
   platformAdminRoutePrefixes,
 } from './platform-admin-runtime/platformAdminRoutes';
-import { connectAppRealtime } from './platform-admin-runtime/realtime';
+import { connectAppRealtime, disconnectAppRealtime } from './platform-admin-runtime/realtime';
 import './platform-admin-runtime/workspaceViews';
 import ChangeOwnPasswordDialog from './app/ChangeOwnPasswordDialog.vue';
 import CurrentUserProfileDialog from './app/CurrentUserProfileDialog.vue';
@@ -259,6 +263,12 @@ onUnmounted(() => {
   businessRuleWorkspace.dispose();
 });
 
+// A script HMR update can replace this module's local connection handle before Vue unmounts it.
+// Release the application-owned connection before the updated setup runs.
+if (import.meta.hot) {
+  import.meta.hot.dispose(() => void disconnectAppRealtime());
+}
+
 const currentTimeZone = computed(() => currentUser.value?.timeZone);
 const loading = ref(true);
 const error = ref<string>();
@@ -361,18 +371,33 @@ configureModuleContext({ httpFactory: createBackendHttpClient });
 provideModuleContextConfig({ httpFactory: createBackendHttpClient });
 provideCurrentUserContext(currentUser);
 providePlatformTimeZoneContext(currentTimeZone);
-provideWorkbenchNavigation({
-  refreshMenus: async () => {
-    const token = effectiveAuthToken(import.meta.env.VITE_MUYUN_AUTH_TOKEN);
-    const { records } = await createMenuClient(createBackendHttpClient()).mine();
-    if (!startup.value || token !== effectiveAuthToken(import.meta.env.VITE_MUYUN_AUTH_TOKEN)) {
-      throw new Error('登录状态已变化，请重新打开菜单配置');
-    }
+const menuRefresh = createWorkbenchMenuRefresh({
+  ready: () => Boolean(startup.value) && !loginRequired.value && !logoutLoading.value,
+  identity: () =>
+    JSON.stringify([
+      effectiveAuthToken(import.meta.env.VITE_MUYUN_AUTH_TOKEN),
+      storedAuthSessionId(),
+      configurationIdentity(),
+    ]),
+  menus: () => startup.value?.menus ?? [],
+  read: async () => (await createMenuClient(createBackendHttpClient()).mine()).records,
+  installRoutes: (records) => {
     resetMenuRoutes();
-    await ensureMenuRoutes(records);
-    startup.value = { ...startup.value, menus: records };
-    return records;
+    return ensureMenuRoutes(records);
   },
+  commit: (records) => {
+    if (startup.value) startup.value = { ...startup.value, menus: records };
+  },
+});
+watch(currentUser, menuRefresh.invalidate, { flush: 'sync' });
+onUnmounted(menuRefresh.dispose);
+if (import.meta.hot) import.meta.hot.dispose(menuRefresh.dispose);
+useWorkbenchMenuRefresh({
+  ready: () => Boolean(startup.value) && !usesMockStartup(),
+  refresh: refreshWorkbenchMenus,
+});
+provideWorkbenchNavigation({
+  refreshMenus: refreshWorkbenchMenus,
   openMenu: (menu) => {
     const target = getMenuNavigationTarget(menu);
     if (target) handleSelectMenu(menu, target);
@@ -385,6 +410,10 @@ provideWorkbenchNavigation({
   closePage: handleCloseTab,
   setTabName: handleSetTabName,
 });
+
+async function refreshWorkbenchMenus() {
+  return menuRefresh.refresh();
+}
 
 const anonymousHttpClient = createBackendHttpClient({ withAuth: false });
 const authClient = createAuthClient(anonymousHttpClient);
@@ -442,6 +471,7 @@ watch(
 );
 
 async function loadWorkbench() {
+  menuRefresh.invalidate();
   loading.value = true;
   error.value = undefined;
   try {
@@ -492,13 +522,14 @@ async function loadWorkbench() {
       });
       return;
     }
-    error.value = cause instanceof Error ? cause.message : 'Workbench startup failed';
+    error.value = userFacingErrorMessage(normalizeError(cause));
   } finally {
     loading.value = false;
   }
 }
 
 async function handleAuthenticated(result: LoginResult) {
+  menuRefresh.invalidate();
   saveAuthToken(result.token);
   saveAuthSessionId(result.sessionId);
   loginRequired.value = false;
@@ -711,6 +742,7 @@ async function handleLogout() {
   if (logoutLoading.value) {
     return;
   }
+  menuRefresh.invalidate();
   logoutLoading.value = true;
   const token = effectiveAuthToken(import.meta.env.VITE_MUYUN_AUTH_TOKEN);
   try {
@@ -874,6 +906,7 @@ function forceLocalLogout() {
   if (loginRequired.value && !startup.value) {
     return;
   }
+  menuRefresh.invalidate();
   clearSecurityLogoutTimer();
   clearAuthToken();
   clearWorkbenchSessionTabs();
@@ -1405,6 +1438,7 @@ function componentForCommittedRoute(route: RouteLocationNormalizedLoaded): VueCo
       @toggle-tab-lock="handleToggleTabLock"
       @reorder-tabs="handleReorderTabs"
       @refresh-page="refreshPage"
+      @retry-load="!loading && loadWorkbench()"
       @user-command="handleUserCommand"
     >
       <template #default>

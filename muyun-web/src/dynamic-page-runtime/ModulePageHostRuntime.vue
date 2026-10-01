@@ -184,6 +184,7 @@ export default defineComponent({
     class="module-unsupported"
   >
     <RecordPanelState class="module-bootstrap-error" :description="pageBootstrapError" />
+    <RecordPanelButton type="link" @click="retryBusinessSession">重试</RecordPanelButton>
   </section>
   <section v-else-if="businessVisible && !props.recordOnly && !pageReady" class="module-unsupported">
     <RecordPanelState loading loading-tip="加载页面入口" description="" />
@@ -284,6 +285,7 @@ export default defineComponent({
             @refresh="scopeReloadKey += 1"
             @create="createNavigatorRecord(navigatorLevelAt(index - tenantScopeExplorerCount)!)"
             @loaded="handleNavigatorLoaded(navigatorLevelAt(index - tenantScopeExplorerCount)!, $event)"
+            @query-controller-change="bindNavigatorQueryController"
             @select="
               selectNavigatorRecord(
                 navigatorLevelAt(index - tenantScopeExplorerCount)!.descriptor.key,
@@ -578,6 +580,7 @@ export default defineComponent({
             @refresh="scopeReloadKey += 1"
             @create="createNavigatorRecord(level)"
             @loaded="handleNavigatorLoaded(level, $event)"
+            @query-controller-change="bindNavigatorQueryController"
             @select="selectNavigatorRecord(level.descriptor.key, $event)"
             @deselect="clearNavigatorRecord(level.descriptor.key)"
             @action="(action, record) => handleNavigatorInlineAction(level, action, record)"
@@ -853,6 +856,7 @@ export default defineComponent({
             @refresh="scopeReloadKey += 1"
             @create="createNavigatorRecord(level)"
             @loaded="handleNavigatorLoaded(level, $event)"
+            @query-controller-change="bindNavigatorQueryController"
             @select="selectNavigatorRecord(level.descriptor.key, $event)"
             @deselect="clearNavigatorRecord(level.descriptor.key)"
             @action="(action, record) => handleNavigatorInlineAction(level, action, record)"

@@ -24,4 +24,9 @@ public record FormulaFieldDefinition(
     public FormulaFieldDefinition readonly() {
         return new FormulaFieldDefinition(fieldPath, type, required, false);
     }
+
+    /** Converts a supplied value using the same type and nullability contract as formula writes. */
+    public Object normalizeValue(Object value) {
+        return FormulaValueConverter.convertForWrite(this, value);
+    }
 }

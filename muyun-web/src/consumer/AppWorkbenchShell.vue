@@ -69,6 +69,7 @@ const emit = defineEmits<{
   'update:startup': [value: WorkbenchStartupState];
   navigate: [navigation: AppWorkbenchNavigation];
   refreshPage: [key: string];
+  retryLoad: [];
   userCommand: [key: string];
 }>();
 
@@ -392,6 +393,7 @@ async function restoreLockedTabs() {
     @toggle-tab-lock="toggleTabLock"
     @refresh-page="emit('refreshPage', $event)"
     @user-command="emit('userCommand', $event)"
+    @retry-load="emit('retryLoad')"
   >
     <template #default="{ pageDescriptor }">
       <slot :page-descriptor="pageDescriptor" />

@@ -550,71 +550,70 @@ describe('ModulePageHost lifecycle boundaries', () => {
     }
   });
 
-  it('keeps the tenant controller and stable layout after a failed switch, then retries with a frozen new tenant client', async () => {
-    const requests: Array<{ path: string; tenantId?: string }> = [];
-    let tenantBFailures = 0;
-    const http: HttpClient = {
-      async request(options) {
-        const selectedTenant = tenantHeader(options);
-        requests.push({ path: options.path, tenantId: selectedTenant });
-        if (
-          options.path === '/platform.module/crm.customer/context' &&
-          selectedTenant === 'tenant-b' &&
-          tenantBFailures++ === 0
-        )
-          throw new Error('tenant runtime unavailable');
-        if (options.path === '/crm.customer/query')
-          return { records: [], total: 0, pageNum: 1, pageSize: 20, pages: 0, totalKnown: true } as never;
-        return runtime('crm.customer', { tenantRequired: !options.path.includes('iam.tenant') }) as never;
-      },
-    };
-    configureModuleContext({ http });
-    const wrapper = mount(ModulePageHost, {
-      props: { descriptor: descriptor('crm.customer') },
-      global: { stubs: hostStubs },
-    });
-    try {
-      await flushPromises();
-      const workspace = wrapper.findComponent({ name: 'ManagementWorkspace' }).element;
-      const tenant = () => wrapper.findComponent(tenantExplorerStub);
-      tenant().vm.$emit('select', { id: 'tenant-a', title: '甲租户' });
-      await flushPromises();
-      expect(tenant().props('selectedId')).toBe('tenant-a');
+  it.each(['page-button', 'workbench-refresh'])(
+    'keeps tenant scope after a failed switch and retries via %s with a frozen client',
+    async (retry) => {
+      const requests: Array<{ path: string; tenantId?: string }> = [];
+      let tenantBFailures = 0;
+      const http: HttpClient = {
+        async request(options) {
+          const selectedTenant = tenantHeader(options);
+          requests.push({ path: options.path, tenantId: selectedTenant });
+          if (
+            options.path === '/platform.module/crm.customer/context' &&
+            selectedTenant === 'tenant-b' &&
+            tenantBFailures++ === 0
+          )
+            throw new Error('tenant runtime unavailable');
+          if (options.path === '/crm.customer/query')
+            return { records: [], total: 0, pageNum: 1, pageSize: 20, pages: 0, totalKnown: true } as never;
+          return runtime('crm.customer', { tenantRequired: !options.path.includes('iam.tenant') }) as never;
+        },
+      };
+      configureModuleContext({ http });
+      const wrapper = mount(ModulePageHost, {
+        props: { descriptor: descriptor('crm.customer') },
+        global: { stubs: hostStubs },
+      });
+      try {
+        await flushPromises();
+        const workspace = wrapper.findComponent({ name: 'ManagementWorkspace' }).element;
+        const tenant = () => wrapper.findComponent(tenantExplorerStub);
+        tenant().vm.$emit('select', { id: 'tenant-a', title: '甲租户' });
+        await flushPromises();
+        expect(tenant().props('selectedId')).toBe('tenant-a');
 
-      tenant().vm.$emit('select', { id: 'tenant-b', title: '乙租户' });
-      await wrapper.vm.$nextTick();
-      expect(wrapper.find('.module-business-session-state').exists()).toBe(true);
-      expect(wrapper.findComponent(queryListStub).exists()).toBe(false);
-      const publicHost = wrapper.vm as unknown as { refreshList(): void };
-      const requestsBeforePendingRefresh = requests.length;
-      publicHost.refreshList();
-      expect(requests).toHaveLength(requestsBeforePendingRefresh);
-      await flushPromises();
-      expect(wrapper.findAll('.module-business-session-state')).toHaveLength(1);
-      expect(wrapper.text()).toContain('tenant runtime unavailable');
-      expect(tenant().exists()).toBe(true);
-      expect(tenant().props('selectedId')).toBe('tenant-b');
-      expect(wrapper.findComponent({ name: 'ManagementWorkspace' }).element).toBe(workspace);
-      const requestsBeforeFailedRefresh = requests.length;
-      publicHost.refreshList();
-      await flushPromises();
-      expect(requests).toHaveLength(requestsBeforeFailedRefresh);
+        tenant().vm.$emit('select', { id: 'tenant-b', title: '乙租户' });
+        await wrapper.vm.$nextTick();
+        expect(wrapper.find('.module-business-session-state').exists()).toBe(true);
+        expect(wrapper.findComponent(queryListStub).exists()).toBe(false);
+        const publicHost = wrapper.vm as unknown as { refreshList(): void };
+        const requestsBeforePendingRefresh = requests.length;
+        publicHost.refreshList();
+        expect(requests).toHaveLength(requestsBeforePendingRefresh);
+        await flushPromises();
+        expect(wrapper.findAll('.module-business-session-state')).toHaveLength(1);
+        expect(wrapper.text()).toContain('tenant runtime unavailable');
+        expect(tenant().exists()).toBe(true);
+        expect(tenant().props('selectedId')).toBe('tenant-b');
+        expect(wrapper.findComponent({ name: 'ManagementWorkspace' }).element).toBe(workspace);
+        if (retry === 'workbench-refresh') publicHost.refreshList();
+        else await wrapper.get('.module-business-session-state button').trigger('click');
+        await flushPromises();
+        const retriedList = wrapper.findComponent(queryListStub);
+        await retriedList.props('context').crud.query();
+        expect(tenant().props('selectedId')).toBe('tenant-b');
+        expect(requests.at(-1)).toMatchObject({ path: '/crm.customer/query', tenantId: 'tenant-b' });
 
-      await wrapper.get('.module-business-session-state button').trigger('click');
-      await flushPromises();
-      const retriedList = wrapper.findComponent(queryListStub);
-      await retriedList.props('context').crud.query();
-      expect(tenant().props('selectedId')).toBe('tenant-b');
-      expect(requests.at(-1)).toMatchObject({ path: '/crm.customer/query', tenantId: 'tenant-b' });
-
-      tenant().vm.$emit('select', { id: 'tenant-a', title: '甲租户' });
-      await flushPromises();
-      await wrapper.findComponent(queryListStub).props('context').crud.query();
-      expect(requests.at(-1)).toMatchObject({ path: '/crm.customer/query', tenantId: 'tenant-a' });
-    } finally {
-      wrapper.unmount();
-    }
-  });
+        tenant().vm.$emit('select', { id: 'tenant-a', title: '甲租户' });
+        await flushPromises();
+        await wrapper.findComponent(queryListStub).props('context').crud.query();
+        expect(requests.at(-1)).toMatchObject({ path: '/crm.customer/query', tenantId: 'tenant-a' });
+      } finally {
+        wrapper.unmount();
+      }
+    },
+  );
 
   it('does not let a disposed delayed tenant session overwrite the replacement tenant policy', async () => {
     let resolveTenantA: (() => void) | undefined;

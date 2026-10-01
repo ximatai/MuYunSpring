@@ -255,6 +255,12 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
         fieldName: field.fieldName ?? '',
         title: field.title,
         fieldSpecAlias: field.fieldSpecAlias,
+        required: field.required ?? false,
+        uniqueField: field.uniqueField ?? false,
+        indexed: field.indexed ?? false,
+        sortableField: field.sortableField ?? false,
+        titleField: field.titleField ?? false,
+        enabled: field.enabled !== false,
         propertyKind: fieldPropertyOf(field).kind,
         governance: metadataFieldGovernanceLabel(
           metadataFieldGovernanceKind(field, relation, capabilityFieldNames.value),
@@ -274,6 +280,13 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
                 fields: projectedFields,
                 truncated: projectedFields.length < fields.length,
               },
+        mainCandidate: state.mainEditorOpen.value
+          ? {
+              ...state.mainMetadataDraft.value,
+              saved: false as const,
+              nextStep: 'REVIEW_AND_SAVE_STRUCTURE_BEFORE_FIELDS' as const,
+            }
+          : undefined,
         childCandidate:
           creatingChildMetadata.value && relation?.id
             ? {
@@ -285,8 +298,13 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
             : undefined,
         draft: {
           active: editSession.editing.value || state.mode.value !== 'view',
-          dirty: editSession.isDirty.value || creatingChildMetadata.value,
-          editorOpen: state.fieldEditorOpen.value || sorting.value || fieldPlanActive.value,
+          fieldPlanOpen: fieldPlanActive.value && !state.fieldEditorOpen.value,
+          dirty: editSession.isDirty.value || creatingChildMetadata.value || state.mainEditorOpen.value,
+          editorOpen:
+            state.mainEditorOpen.value ||
+            state.fieldEditorOpen.value ||
+            sorting.value ||
+            fieldPlanActive.value,
         },
         fieldSpecs: state.fieldSpecs.value
           .filter((spec) => spec.enabled !== false)
@@ -867,7 +885,6 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
       if (
         sorting.value ||
         saving.value ||
-        (fieldPlanActive.value && !revising) ||
         (revising && (!candidate?.editable || candidate.fieldName !== input.fieldName))
       )
         throw new AssistantCapabilityUsageError(
@@ -876,7 +893,9 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
         );
       const field = revising
         ? normalizeFieldDraft(state.fieldDraft.value)
-        : state.allFields.value.find((item) => item.fieldName === input.fieldName);
+        : editSession
+            .fieldsForDisplay(relationId, state.allFields.value)
+            .find((item) => item.fieldName === input.fieldName);
       if (
         !field ||
         (!revising && (!fieldEditableInSession(field) || fieldPropertyOf(field).kind !== 'BASIC'))
@@ -910,6 +929,15 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
         ? normalizeFieldPropertyDraft(state.fieldPropertyDraft.value)
         : fieldPropertyOf(field);
       return () => {
+        if (fieldPlanActive.value && !revising) {
+          editSession.stageField(relationId, updated, property, field.fieldName);
+          return {
+            relationId,
+            fieldName: updated.fieldName!,
+            title: updated.title,
+            fieldSpecAlias: updated.fieldSpecAlias,
+          };
+        }
         if (!revising) startNodeEditSession();
         if (!fieldPlanActive.value)
           editSession.stageField(relationId, updated, property, stagedNewFieldKey.value);
@@ -1071,7 +1099,7 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
     }
 
     async function prepareAssistantFieldPlan(inputs: MetadataFieldPlanInput, signal: AbortSignal) {
-      if (fieldPlanActive.value || state.fieldEditorOpen.value || sorting.value || saving.value)
+      if (editSession.editing.value || state.fieldEditorOpen.value || sorting.value || saving.value)
         throw new Error('Finish the current candidate before preparing a field plan');
       const relationId = selectedRelationId.value;
       if (!relationId) throw new Error('No metadata relation is selected');
@@ -1167,7 +1195,7 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
       requireEnabledFieldSpec(prepared.fieldSpecAlias);
       const { field, property } = propertyFieldEntry(prepared);
       return () => {
-        startNodeEditSession();
+        if (!editSession.editing.value) startNodeEditSession();
         editSession.stageField(relationId, field, property);
         stagedNewFieldKey.value = prepared.fieldName;
         fieldTitleManuallyEdited.value = true;
@@ -1293,13 +1321,17 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
           moduleAlias,
           proposal,
           requireUnchangedCandidate,
+          undefined,
+          Object.fromEntries(
+            state.fieldSpecs.value.map((spec) => [spec.alias ?? '', spec.title || spec.alias || '']),
+          ),
         );
-        const impacts = submission.details.join('\n');
         if (
           mode === 'confirm' &&
           !(await confirmAction({
             title: `确认${operationName}`,
-            content: impacts || '将保存当前配置。',
+            content: submission.lines.join('\n') || '将保存当前配置。',
+            details: { title: '查看详细配置和影响', lines: submission.details },
             okText: '保存',
           }))
         )
@@ -1598,6 +1630,21 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
         return;
       }
       void previewAndApply('保存字段');
+    }
+
+    function prepareAssistantMainDraft(input: { title: string }) {
+      requireValid();
+      if (saving.value || loading.value || !workspaceReady.value)
+        throw new AssistantCapabilityUsageError('请先读取模块元数据');
+      if (state.relations.value.length > 0)
+        throw new AssistantCapabilityUsageError('模块已有元数据，请选择现有节点继续配置');
+      if (dirty.value && !state.mainEditorOpen.value)
+        throw new AssistantCapabilityUsageError('请先保存或放弃当前候选');
+      return () => {
+        if (!state.mainEditorOpen.value) startCreateMainMetadata();
+        state.mainMetadataDraft.value.title = input.title;
+        return assistantSummary().mainCandidate;
+      };
     }
 
     function prepareAssistantChildDraft(input: { alias: string; title: string }) {
@@ -2151,6 +2198,7 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
       { deep: true, flush: 'sync' },
     );
     const adapter: MetadataGovernanceAssistantAdapter = {
+      prepareMainDraft: prepareAssistantMainDraft,
       prepareChildDraft: prepareAssistantChildDraft,
       discardCandidate() {
         requireValid();

@@ -404,9 +404,6 @@ const hasUnsavedChanges = computed(() => session.value.dirty.value);
 const calculatorUnavailableReason = computed(() =>
   calculationFields.value.length === 0 ? '当前模块没有可写的主表或明细字段，不能新增字段计算。' : undefined,
 );
-const fieldOptions = computed(() =>
-  calculationFields.value.map((field) => ({ value: field.fieldName, label: fieldLabel(field) })),
-);
 const externalInputFields = computed(() =>
   externalTrialInputFields(
     editableFields.value,
@@ -485,7 +482,7 @@ const changedRuleCodes = computed(
 );
 const locatorFieldOptions = computed(() => [
   { value: '__none__', label: '不定位字段' },
-  ...fieldOptions.value,
+  ...editableFields.value.map((field) => ({ value: field.fieldName, label: fieldLabel(field) })),
 ]);
 useWorkspaceViewUnsavedState(
   '业务规则',
@@ -1765,6 +1762,7 @@ onUnmounted(deactivateAssistant);
                 <div>
                   <h2>未通过时的提示</h2>
                   <p v-if="selectedRule.kind === 'VALIDATION'">公式为真时允许保存，为假时显示失败提示。</p>
+                  <p>保存校验针对主记录；检查明细时使用汇总函数，提示只能定位主记录字段。</p>
                 </div>
                 <div class="business-rule-governance__rule-basics">
                   <details class="business-rule-governance__validation-location">

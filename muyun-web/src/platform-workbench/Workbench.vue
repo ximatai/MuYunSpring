@@ -72,6 +72,7 @@ const emit = defineEmits<{
   toggleTabLock: [key: string];
   reorderTabs: [keys: string[]];
   refreshPage: [key: string];
+  retryLoad: [];
   'update:activeTabKey': [key: string];
   userCommand: [key: string];
 }>();
@@ -104,6 +105,7 @@ const configurationCollaboration = createConfigurationCollaboration();
 const configurationEditor = computed(() => props.assistantWorkspaceContribution?.editor?.());
 const assistantSurfaceRegistry = createAssistantSurfaceRegistry(assistantIdentity, () => {
   const plan = constructionPlan?.current();
+  const planFacts = constructionPlan?.facts();
   const contribution = props.assistantWorkspaceContribution?.current();
   return {
     revision: JSON.stringify([
@@ -132,6 +134,11 @@ const assistantSurfaceRegistry = createAssistantSurfaceRegistry(assistantIdentit
               constructionStatus: plan.saved?.constructionStatus ?? 'NOT_STARTED',
               configurationSource: 'CURRENT_GOVERNANCE',
               historicalDesign: plan.saved?.constructionStatus === 'DELIVERED',
+              persistence: planFacts?.persistence,
+              dirty: planFacts?.dirty,
+              manualEditing: planFacts?.manualEditing,
+              reviewRequired: planFacts?.reviewRequired,
+              confirmationResultUnknown: planFacts?.confirmationResultUnknown,
               detailsCapability: 'construction.describe',
             },
           }
@@ -614,7 +621,10 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
 
           <section class="app-content">
             <UiSpin v-if="loading" />
-            <UiError v-else-if="error" :message="error" />
+            <div v-else-if="error" class="workbench-load-error">
+              <UiError :message="error" />
+              <UiButton icon="reload" @click="emit('retryLoad')">重试加载</UiButton>
+            </div>
             <div v-else-if="activeTab" class="tab-panel-host">
               <div
                 class="tab-page"
@@ -645,6 +655,12 @@ function targetLabelOf(descriptor: PageDescriptor | undefined) {
 </template>
 
 <style scoped>
+.workbench-load-error {
+  display: grid;
+  justify-items: start;
+  gap: 12px;
+}
+
 .workbench-layout {
   display: grid;
   grid-template-columns: minmax(0, 1fr);

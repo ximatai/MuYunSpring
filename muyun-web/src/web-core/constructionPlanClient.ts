@@ -33,7 +33,15 @@ export interface ConstructionPlanClient {
     };
   }>;
   businessObjects(): Promise<
-    { alias: string; title: string; kind: string; referenceReady: boolean; explanation: string }[]
+    {
+      alias: string;
+      title: string;
+      applicationAlias: string;
+      applicationTitle: string | null;
+      kind: string;
+      referenceReady: boolean;
+      explanation: string;
+    }[]
   >;
   referenceTarget(moduleAlias: string): Promise<ReferenceTargetFieldCatalog>;
   task(id: string): Promise<ConstructionTask>;

@@ -122,7 +122,11 @@ function interactionChanged(state: { editing: boolean; busy: boolean; dirty?: bo
   reloadConfigurationWhenIdle();
 }
 function refreshList() {
-  if (pending.value || failure.value) return;
+  if (pending.value || blocked.value) return;
+  if (failure.value) {
+    startBusinessSession();
+    return;
+  }
   view.value?.refreshList();
 }
 function clearAssistantSurface() {

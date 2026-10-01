@@ -32,7 +32,11 @@ describe('workbench assistant capabilities', () => {
     const result = await find.execute(find.parseInput({ query: 'DAILY_report' }), executionContext());
 
     expect(result).toEqual([
-      expect.objectContaining({ menuId: 'daily-report', moduleAlias: 'work.daily_report' }),
+      expect.objectContaining({
+        menuId: 'daily-report',
+        schemeId: 'default',
+        moduleAlias: 'work.daily_report',
+      }),
     ]);
   });
 

@@ -1773,7 +1773,7 @@ async function initializeComposition() {
           alias: 'management',
           contractType: pageCompositionTransport.managementContract,
           mainRelationId: relation.value.id,
-          title: `${props.moduleTitle ?? props.moduleAlias}管理页`,
+          title: `${(props.moduleTitle !== props.moduleAlias && props.moduleTitle) || relation.value.title || props.moduleAlias}管理页`,
           enabled: true,
         })
       ).record;

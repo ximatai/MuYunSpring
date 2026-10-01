@@ -16,6 +16,55 @@ vi.mock('@muyun/vue-ui-antdv', async (importOriginal) => ({
 }));
 
 describe('PageCompositionWorkspace publication flow', () => {
+  it.each([undefined, 'education.exam', '考试登记'])(
+    'uses the known business title for first page creation with module title %s',
+    async (moduleTitle) => {
+      const requests: HttpRequestOptions[] = [];
+      const base = publicationFlowHttp(requests);
+      configureModuleContext({
+        http: {
+          request: (request) => {
+            if (request.path.endsWith('/metadata-relations/query'))
+              return Promise.resolve({
+                records: [
+                  { id: 'relation-1', metadataId: 'metadata-1', relationRole: 'main', title: '考试' },
+                ],
+                pages: 1,
+                totalKnown: true,
+              }) as never;
+            if (request.path.endsWith('/pages/query'))
+              return Promise.resolve({ records: [], pages: 1, totalKnown: true }) as never;
+            if (request.path.endsWith('/pages/insert')) {
+              requests.push(request);
+              return Promise.resolve({ record: { ...(request.body as object), id: 'page-1' } }) as never;
+            }
+            if (request.path.endsWith('/presentation-variants/insert'))
+              return Promise.resolve({ record: { ...(request.body as object), id: 'variant-1' } }) as never;
+            return base.request(request);
+          },
+        },
+      });
+      const wrapper = mount(PageCompositionWorkspace, {
+        props: { moduleAlias: 'education.exam', moduleTitle },
+        global: { stubs: workspaceStubs() },
+      });
+      try {
+        await flushPromises();
+        await wrapper
+          .findAll('button')
+          .find((button) => button.text() === '配置页面')!
+          .trigger('click');
+        await flushPromises();
+        expect(requests.find((request) => request.path.endsWith('/pages/insert'))?.body).toMatchObject({
+          title: `${moduleTitle === '考试登记' ? moduleTitle : '考试'}管理页`,
+        });
+        expect(requests.some((request) => request.path.endsWith('/publish'))).toBe(false);
+      } finally {
+        wrapper.unmount();
+      }
+    },
+  );
+
   it('does not create child drafts when the catalog denies child creation', async () => {
     const base = publicationFlowHttp([]);
     configureModuleContext({

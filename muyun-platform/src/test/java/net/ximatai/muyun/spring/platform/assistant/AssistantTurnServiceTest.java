@@ -20,6 +20,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.slf4j.LoggerFactory;
 
+import java.io.IOException;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -32,6 +33,63 @@ import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.doAnswer;
 
 class AssistantTurnServiceTest {
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.CsvSource({
+            "AI_PROVIDER_AUTHENTICATION_FAILED,provider-authentication-failed",
+            "AI_PROVIDER_RATE_LIMITED,provider-rate-limited",
+            "AI_PROVIDER_UNAVAILABLE,provider-unavailable",
+            "AI_PROVIDER_REQUEST_REJECTED,provider-rejected",
+            "AI_MODEL_TIMEOUT,response-timeout",
+            "AI_MODEL_CONNECTION_FAILED,connection-failed",
+            "AI_MODEL_INCOMPLETE_RESPONSE,incomplete-response",
+            "AI_MODEL_INTERRUPTED,interrupted",
+            "AI_MODEL_CALL_FAILED,model-call-failed",
+            "AI_CONTEXT_BUDGET_EXCEEDED,context-budget-exceeded",
+            "AI_OUTPUT_BUDGET_EXCEEDED,output-budget-exceeded",
+            "AI_MODEL_LIMITS_INVALID,model-limits-invalid",
+            "AI_CONCURRENCY_LIMIT,concurrency-limit"})
+    void failureDiagnosticsPreferStableCodesOverMessages(String code, String expected) {
+        assertThat(AssistantTurnService.diagnosticFailureReason(
+                new PlatformException(code, 502, "private provider payload"))).isEqualTo(expected);
+        assertThat(AssistantTurnService.diagnosticFailureReason(
+                new PlatformException(code, 502, "模型响应被截断，请缩短描述后重试"))).isEqualTo(expected);
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {false, true})
+    void failureLogsContainOnlyFixedCategories(boolean streaming) {
+        AiModelGateway gateway = mock(AiModelGateway.class);
+        PlatformException failure = new PlatformException("AI_PROVIDER_AUTHENTICATION_FAILED", 502,
+                "private provider payload", new IOException("private endpoint and credential"));
+        when(gateway.complete(org.mockito.ArgumentMatchers.any())).thenThrow(failure);
+        org.mockito.Mockito.doThrow(failure).when(gateway).stream(
+                org.mockito.ArgumentMatchers.any(AiTurnRequest.class),
+                org.mockito.ArgumentMatchers.any(AiTurnStreamConsumer.class));
+        AssistantTurnService service = new AssistantTurnService(gateway, new ObjectMapper());
+        Logger logger = (Logger) LoggerFactory.getLogger(AssistantTurnService.class);
+        ListAppender<ILoggingEvent> events = new ListAppender<>();
+        events.start();
+        logger.addAppender(events);
+        try (CurrentUserContext.Scope ignored = CurrentUserContext.use(CurrentUser.systemUser("system", "System"))) {
+            AssistantTurnCommand command = new AssistantTurnCommand("describe", Map.of(), List.of(), List.of());
+            assertThatThrownBy(() -> {
+                if (streaming) service.stream(command, new AssistantTurnStreamConsumer() {
+                    public void onTextDelta(String text) { }
+                    public void onComplete(AssistantTurnResult result) { }
+                });
+                else service.turn(command);
+            }).isSameAs(failure);
+        } finally {
+            logger.detachAppender(events);
+            events.stop();
+        }
+        assertThat(events.list).extracting(ILoggingEvent::getFormattedMessage)
+                .anySatisfy(message -> assertThat(message)
+                        .contains("Assistant turn failed", "reason=provider-authentication-failed"))
+                .noneSatisfy(message -> assertThat(message).contains("private"));
+        assertThat(events.list).allSatisfy(event -> assertThat(event.getThrowableProxy()).isNull());
+    }
+
     @Test
     void failureDiagnosticsClassifyLimitsWithoutLoggingUntrustedMessages() {
         assertThat(AssistantTurnService.diagnosticFailureReason(new PlatformException("模型响应被截断，请缩短描述后重试")))
@@ -255,6 +313,38 @@ class AssistantTurnServiceTest {
                     throw new AssertionError("truncated responses must not complete");
                 }
             })).isInstanceOf(PlatformException.class).hasMessageContaining("截断");
+        }
+    }
+
+    @Test
+    void rejectsEmptyTruncatedResponsesWithoutBlamingTheUserDescription() {
+        AiModelGateway gateway = mock(AiModelGateway.class);
+        AiTurnResponse truncated = new AiTurnResponse("", List.of(), "length", "request-truncated");
+        when(gateway.complete(org.mockito.ArgumentMatchers.any())).thenReturn(truncated);
+        doAnswer(invocation -> {
+            AiTurnStreamConsumer consumer = invocation.getArgument(1);
+            consumer.onTextDelta("");
+            consumer.onComplete(truncated);
+            return null;
+        }).when(gateway).stream(org.mockito.ArgumentMatchers.any(AiTurnRequest.class),
+                org.mockito.ArgumentMatchers.any(AiTurnStreamConsumer.class));
+        AssistantTurnService service = new AssistantTurnService(gateway, new ObjectMapper());
+        AssistantTurnCommand command = new AssistantTurnCommand("describe", Map.of(), List.of(), List.of());
+
+        try (CurrentUserContext.Scope ignored = CurrentUserContext.use(CurrentUser.systemUser("system", "System"))) {
+            assertThatThrownBy(() -> service.turn(command))
+                    .isInstanceOf(PlatformException.class)
+                    .hasMessage("模型本次回复在返回可用内容前中止，请稍后重试");
+            assertThatThrownBy(() -> service.stream(command, new AssistantTurnStreamConsumer() {
+                @Override
+                public void onTextDelta(String text) {
+                }
+
+                @Override
+                public void onComplete(AssistantTurnResult response) {
+                    throw new AssertionError("truncated responses must not complete");
+                }
+            })).isInstanceOf(PlatformException.class).hasMessage("模型本次回复在返回可用内容前中止，请稍后重试");
         }
     }
 
@@ -560,7 +650,7 @@ class AssistantTurnServiceTest {
         AssistantTurnService service = new AssistantTurnService(gateway, new ObjectMapper());
         AssistantTurnCommand command = new AssistantTurnCommand("continue", Map.of(),
                 List.of(new AiToolDefinition("page.describe", "Describe page", Map.of())),
-                List.of(new AssistantCapabilityResult("call-1", "other.capability", Map.of(), "read", Map.of(), null, null)));
+                List.of(new AssistantCapabilityResult("call-1", "other.capability", Map.of("search", "unique-input-marker"), "not-applied", Map.of("found", false), "NOT_FOUND", "No matching record")));
 
         try (CurrentUserContext.Scope ignored = CurrentUserContext.use(CurrentUser.systemUser("system", "System"))) {
             assertThat(service.turn(command).text()).isEqualTo("continued");
@@ -568,8 +658,13 @@ class AssistantTurnServiceTest {
 
         ArgumentCaptor<AiTurnRequest> request = ArgumentCaptor.forClass(AiTurnRequest.class);
         verify(gateway).complete(request.capture());
-        assertThat(request.getValue().messages().get(3).content())
-                .contains("other.capability", "call-1");
+        AiChatMessage call = request.getValue().messages().get(2);
+        AiChatMessage result = request.getValue().messages().get(3);
+        assertThat(call.toolCalls().getFirst().code()).isEqualTo("other.capability");
+        assertThat(call.toolCalls().getFirst().arguments()).containsEntry("search", "unique-input-marker");
+        assertThat(result.toolCallId()).isEqualTo("call-1");
+        assertThat(result.content()).contains("not-applied", "found", "NOT_FOUND", "No matching record")
+                .doesNotContain("unique-input-marker", "capabilityCode", "callId");
     }
 
 
@@ -598,7 +693,7 @@ class AssistantTurnServiceTest {
                     new AiTurnResponse(null, List.of(), "length", "request-5"));
             assertThatThrownBy(() -> service.turn(continuation))
                     .isInstanceOf(PlatformException.class)
-                    .hasMessageContaining("截断");
+                    .hasMessage("模型本次回复在返回可用内容前中止，请稍后重试");
 
             when(gateway.complete(org.mockito.ArgumentMatchers.any())).thenReturn(blank);
             AssistantTurnCommand failedContinuation = new AssistantTurnCommand("continue", Map.of(), List.of(),

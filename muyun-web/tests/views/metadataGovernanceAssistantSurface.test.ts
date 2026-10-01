@@ -465,6 +465,8 @@ it('reports omitted error and warning counts when preview issues exceed the disp
 
 it.each([false, true])('advertises disjoint reference and dictionary inputs (multiple=%s)', (multiple) => {
   const adapter = fixture();
+  const summary = adapter.summary();
+  adapter.summary = () => ({ ...summary, draft: { ...summary.draft, active: false, dirty: false } });
   adapter.fieldSpecAliases = () => (multiple ? ['string', 'json_set'] : ['string']);
   adapter.prepareFieldPlan = vi.fn();
   adapter.findFieldTargets = vi.fn();
@@ -502,6 +504,8 @@ it.each([false, true])('advertises disjoint reference and dictionary inputs (mul
 
 it('validates a bounded mixed field plan and commits only a current fully prepared plan', async () => {
   const adapter = fixture();
+  const summary = adapter.summary();
+  adapter.summary = () => ({ ...summary, draft: { ...summary.draft, active: false, dirty: false } });
   const commit = vi.fn(() => ({ saved: false }));
   adapter.prepareFieldPlan = vi.fn(async () => commit);
   const tool = createMetadataGovernanceAssistantSurface(adapter, vi.fn())

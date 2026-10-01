@@ -1497,6 +1497,42 @@ it('authors a child calculation through the same governance draft and apply boun
   });
 });
 
+it('limits validation error locations to main fields while keeping child calculations available', async () => {
+  const http = fakeHttp();
+  const request = http.request;
+  http.request = vi.fn(async (options) => {
+    const result = await request(options);
+    return options.path.endsWith('/business-rules')
+      ? ({
+          ...(result as object),
+          childFields: [
+            { fieldName: 'lines.amount', title: '明细小计', fieldSpecAlias: 'decimal', valueType: 'DECIMAL' },
+          ],
+        } as never)
+      : (result as never);
+  });
+  const wrapper = mountSurface(http);
+  await flushPromises();
+  await action(wrapper, '新增规则').trigger('click');
+  const kind = wrapper
+    .findAllComponents({ name: 'UiSelect' })
+    .find((item) => item.classes().includes('business-rule-governance__type-select'))!;
+  kind.vm.$emit('update:value', 'VALIDATION');
+  await flushPromises();
+  const location = wrapper.find('details.business-rule-governance__validation-location');
+  const options = location.findComponent({ name: 'UiSelect' }).props('options');
+  expect(options).toEqual(expect.arrayContaining([{ value: 'quantity', label: expect.any(String) }]));
+  expect(options.map((item: { value: string }) => item.value)).not.toContain('lines.amount');
+  expect(wrapper.text()).toContain('检查明细时使用汇总函数');
+  kind.vm.$emit('update:value', 'CALCULATION');
+  await flushPromises();
+  wrapper.findComponent(UiTextArea).vm.$emit('update:value', '{lines.amount} = 1');
+  await flushPromises();
+  await action(wrapper, '保存').trigger('click');
+  await flushPromises();
+  expect(wrapper.text()).toContain('明细小计');
+});
+
 it('uses explicit child sample rows for standard governance trials', async () => {
   const http = fakeHttp();
   const request = http.request;

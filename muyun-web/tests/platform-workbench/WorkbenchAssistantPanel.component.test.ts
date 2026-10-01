@@ -17,6 +17,34 @@ function createRegistry(requestTurn: AssistantTurnRequester) {
   return createRegistryWithCapabilities(requestTurn, []);
 }
 
+it.each([
+  ['AI_PROVIDER_AUTHENTICATION_FAILED', '模型连接鉴权失败'],
+  ['AI_PROVIDER_RATE_LIMITED', '模型服务限制了本次请求'],
+  ['AI_PROVIDER_UNAVAILABLE', '模型服务暂时不可用'],
+  ['AI_PROVIDER_REQUEST_REJECTED', '模型服务拒绝了本次请求'],
+  ['AI_MODEL_TIMEOUT', '等待模型回复超时'],
+  ['AI_MODEL_CONNECTION_FAILED', '模型连接失败'],
+  ['AI_MODEL_INCOMPLETE_RESPONSE', '模型回复在完成前断开'],
+])(
+  'explains the model connection failure by stable code without replaying the request: %s',
+  async (code, explanation) => {
+    const requestTurn = vi.fn(async () => {
+      throw new AppError('opaque diagnostic', { code });
+    });
+    const wrapper = mount(WorkbenchAssistantPanel, {
+      props: { open: true, registry: createRegistry(requestTurn) },
+    });
+    await wrapper.get('textarea').setValue('查看当前客户配置，先不要改');
+    await wrapper.get('button.ant-btn-primary').trigger('click');
+    await flushPromises();
+    expect(wrapper.text()).toContain(explanation);
+    expect(wrapper.text()).toContain('待确认内容没有提交');
+    expect(wrapper.text()).not.toContain('opaque diagnostic');
+    expect(requestTurn).toHaveBeenCalledOnce();
+    wrapper.unmount();
+  },
+);
+
 function createRegistryWithCapabilities(
   requestTurn: AssistantTurnRequester,
   capabilities: AssistantCapability[],
@@ -539,6 +567,9 @@ it('keeps successful operation feedback when the model follow-up fails', async (
 
 it.each([
   ['AI model response body timed out', '等待模型回复超时'],
+  ['模型本次回复在返回可用内容前中止，请稍后重试', '模型服务未返回可用内容'],
+  ['AI model request was rejected by provider', '模型服务拒绝了本次请求'],
+  ['AI model request was rejected with HTTP status 429', '模型服务拒绝了本次请求'],
   ['模型响应被截断，请缩短描述后重试', '模型本次回复达到长度上限'],
 ])('retains a safe model failure reason after an applied draft: %s', async (message, expected) => {
   const requestTurn = vi
@@ -1464,6 +1495,9 @@ it('resumes the original request with a fresh budget without inventing a new use
 it.each([
   ['模型响应被截断，请缩短描述后重试', '模型本次回复达到长度上限'],
   ['AI model response body timed out', '等待模型回复超时'],
+  ['模型本次回复在返回可用内容前中止，请稍后重试', '模型服务未返回可用内容'],
+  ['AI model request was rejected by provider', '模型服务拒绝了本次请求'],
+  ['AI model request was rejected with HTTP status 429', '模型服务拒绝了本次请求'],
   ['本次内容预计超过模型上下文预算，尚未发送给模型', '本次内容预计超过模型上下文预算'],
   ['本次输出预算超过模型容量，请调整配置', '本次输出预算超过模型容量'],
 ])(
@@ -1479,6 +1513,11 @@ it.each([
     await wrapper.get('button.ant-btn-primary').trigger('click');
     await flushPromises();
     expect(wrapper.text()).toContain(explanation);
+    if (failure.startsWith('AI model request was rejected')) {
+      expect(wrapper.text()).not.toContain('可以调整需求');
+      expect(wrapper.text()).not.toContain(failure);
+      expect(requestTurn).toHaveBeenCalledOnce();
+    }
     expect(wrapper.text()).toContain('待确认内容没有提交');
     requestTurn.mockResolvedValue({ text: '核实当前需求', toolCalls: [] } as never);
     await wrapper

@@ -12,6 +12,7 @@ import type {
 } from '@muyun/web-contracts';
 import {
   AppError,
+  modelFailureMessage,
   AssistantConversationInterruptedError,
   runAssistantConversation,
   sameAssistantInvocationToken,
@@ -726,11 +727,17 @@ export function useAssistantConversation(props: {
 }
 
 function assistantFailureMessage(error: unknown) {
+  const modelMessage = error instanceof AppError ? modelFailureMessage(error) : undefined;
+  if (modelMessage) return `${modelMessage}已确认的保存结果仍有效，待确认内容没有提交。`;
   const message = error instanceof Error ? error.message : '';
+  if (message === '模型本次回复在返回可用内容前中止，请稍后重试')
+    return '模型服务未返回可用内容。请稍后重试；持续失败时联系管理员检查模型服务状态。已确认的保存结果仍有效，待确认内容没有提交。';
   if (message === '模型响应被截断，请缩短描述后重试')
     return '模型本次回复达到长度上限，未能完成。已确认的保存结果仍有效，待确认内容没有提交。可以分步处理，或联系管理员调整回复上限。';
   if (message.startsWith('本次内容预计超过模型上下文预算') || message.startsWith('本次输出预算超过模型容量'))
     return `${message}。已确认的保存结果仍有效，待确认内容没有提交。`;
+  if (message.startsWith('AI model request was rejected'))
+    return '模型服务拒绝了本次请求。请稍后重试；持续失败时联系管理员检查模型配置与服务状态。已确认的保存结果仍有效，待确认内容没有提交。';
   if (message === 'AI model response body timed out')
     return '等待模型回复超时。已确认的保存结果仍有效，待确认内容没有提交。稍后可以继续核实当前需求。';
   return '本轮回复未能完成。已确认的保存结果仍有效，待确认内容不会因此自动提交。可以调整需求后继续处理。';

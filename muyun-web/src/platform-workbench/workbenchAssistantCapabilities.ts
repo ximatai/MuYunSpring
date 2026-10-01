@@ -16,7 +16,8 @@ function findMenuCapability(menus: () => MenuTreeNode[]): AssistantCapability<{ 
     effect: 'read',
     descriptor: {
       code: 'workbench.find-menu',
-      description: 'Find candidate business entries from the current user visible menu tree',
+      description:
+        'Find candidate business entries from the current user visible menu tree. Each entry includes its actual menu schemeId; use that discovered scheme to identify the current navigation scope when configuring entries, rather than assuming the menu management page’s initial scope is the current user’s scheme.',
       inputSchema: {
         type: 'object',
         additionalProperties: false,
@@ -41,6 +42,7 @@ function findMenuCapability(menus: () => MenuTreeNode[]): AssistantCapability<{ 
         .slice(0, 10)
         .map(({ menu, path }) => ({
           menuId: menu.id,
+          schemeId: menu.schemeId,
           title: menu.title,
           moduleAlias: menu.moduleAlias,
           description: menu.moduleDescription,

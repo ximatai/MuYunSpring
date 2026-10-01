@@ -10,6 +10,8 @@ import net.ximatai.muyun.spring.ability.reference.ReferenceTargets;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.security.FieldProtectionDefinition;
 import net.ximatai.muyun.spring.common.util.PlatformNameRules;
+import net.ximatai.muyun.spring.platform.application.Application;
+import net.ximatai.muyun.spring.platform.application.ApplicationService;
 import net.ximatai.muyun.spring.platform.module.ModuleKind;
 import net.ximatai.muyun.spring.platform.module.PlatformModule;
 import net.ximatai.muyun.spring.platform.module.PlatformModuleService;
@@ -29,15 +31,18 @@ public class ReferenceTargetFieldCatalogService {
 
     private final ModuleMetadataRelationService relationService;
     private final PlatformModuleService moduleService;
+    private final ApplicationService applicationService;
     private final MetadataFieldService fieldService;
     private final MetadataFieldProtectionConfigService protectionService;
 
     public ReferenceTargetFieldCatalogService(ModuleMetadataRelationService relationService,
                                               PlatformModuleService moduleService,
+                                              ApplicationService applicationService,
                                               MetadataFieldService fieldService,
                                               MetadataFieldProtectionConfigService protectionService) {
         this.relationService = relationService;
         this.moduleService = moduleService;
+        this.applicationService = applicationService;
         this.fieldService = fieldService;
         this.protectionService = protectionService;
     }
@@ -56,6 +61,9 @@ public class ReferenceTargetFieldCatalogService {
 
     /** Discovery retains unavailable objects so callers do not mistake them for missing business models. */
     public List<ModuleCandidate> discoverModules() {
+        var applicationTitles = applicationService.list(Criteria.of(), ALL).stream()
+                .filter(application -> application.getTitle() != null)
+                .collect(java.util.stream.Collectors.toMap(Application::getAlias, Application::getTitle));
         var titledMetadata = fieldService.list(Criteria.of().eq("titleField", true).eq("fieldName", "title"), ALL).stream()
                 .map(MetadataField::getMetadataId).collect(java.util.stream.Collectors.toSet());
         var dynamicTargets = relationService.list(Criteria.of().eq("relationRole", RelationRole.MAIN), ALL)
@@ -64,12 +72,13 @@ public class ReferenceTargetFieldCatalogService {
         return moduleService.list(Criteria.of(), ALL).stream().map(module -> {
             boolean ready = Boolean.TRUE.equals(module.getEnabled()) && (module.getModuleKind() == ModuleKind.DYNAMIC ? dynamicTargets.contains(module.getAlias())
                     : PlatformAbilityRuntime.referenceTargetResolver().resolve(ReferenceTargets.fromModuleAlias(module.getAlias())).isPresent());
-            return new ModuleCandidate(module.getAlias(), module.getTitle(), module.getModuleKind(), ready,
+            return new ModuleCandidate(module.getAlias(), module.getTitle(), module.getApplicationAlias(),
+                    applicationTitles.get(module.getApplicationAlias()), module.getModuleKind(), ready,
                     ready ? "可通过标准引用配置复用；业务数据访问仍须授权" : "对象已存在，但尚未具备标准引用能力；不能据此重复创建或自动改造");
         }).sorted(Comparator.comparing(ModuleCandidate::alias)).toList();
     }
 
-    public record ModuleCandidate(String alias, String title, ModuleKind kind, boolean referenceReady, String explanation) {}
+    public record ModuleCandidate(String alias, String title, String applicationAlias, String applicationTitle, ModuleKind kind, boolean referenceReady, String explanation) {}
 
     public record TargetModule(String alias, String title) {}
 

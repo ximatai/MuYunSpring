@@ -287,6 +287,14 @@ wait_for_postgres
 ensure_field_protection_key
 ensure_frontend_dependencies
 
+# BootRun and the watcher share compiler outputs; finish their initial build before starting both.
+echo "Preparing $RUN_MODE backend classes..."
+if [[ "$RUN_MODE" == "demo" ]]; then
+  ./gradlew demoClasses
+else
+  ./gradlew :muyun-boot:classes
+fi
+
 echo "Starting $RUN_MODE backend, continuous compilation and frontend..."
 start_process backend-compiler watch_backend_classes
 start_process backend start_backend

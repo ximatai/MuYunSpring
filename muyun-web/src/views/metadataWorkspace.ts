@@ -188,14 +188,13 @@ export function createMetadataWorkspace(
           descriptor: {
             code: 'configuration.select-metadata-module',
             description:
-              'Select an existing module metadata editor without opening a page. Use a discovered module alias. Keeps existing unsaved candidates; defaults to the existing selected relation or main relation. Optional relationId must come from current metadataConfiguration relations. Reselecting the current target is a no-op; set refresh=true only to reread changed governance. This does not save, create a module or alter schema.',
+              'Select an existing module metadata editor without opening a page. Use a discovered module alias. Keeps existing unsaved candidates; defaults to the existing selected relation or main relation. Do not pass relationId. After selection, use configuration.select-metadata-relation to choose a real existing node if needed. Reselecting the current target is a no-op; set refresh=true only to reread changed governance. This does not save, create a module or alter schema.',
             inputSchema: {
               type: 'object',
               additionalProperties: false,
               required: ['moduleAlias'],
               properties: {
                 moduleAlias: { type: 'string', maxLength: 128 },
-                relationId: { type: 'string', maxLength: 128 },
                 refresh: { type: 'boolean' },
               },
             },
@@ -211,36 +210,31 @@ export function createMetadataWorkspace(
               !/^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$/.test(value.moduleAlias)
             )
               throw new AssistantCapabilityUsageError('请提供真实模块标识');
-            if (
-              value.relationId !== undefined &&
-              (typeof value.relationId !== 'string' || !value.relationId || value.relationId.length > 128)
-            )
-              throw new AssistantCapabilityUsageError('请提供真实元数据节点');
+            if ('relationId' in value)
+              throw new AssistantCapabilityUsageError(
+                '选择模块时请省略 relationId；选定模块后通过 configuration.select-metadata-relation 选择实际存在的节点。',
+              );
             if (value.refresh !== undefined && typeof value.refresh !== 'boolean')
               throw new AssistantCapabilityUsageError('刷新选项必须为布尔值');
             return {
               moduleAlias: value.moduleAlias,
-              relationId: value.relationId as string | undefined,
               refresh: value.refresh === true,
             };
           },
           async execute(input, context) {
-            const value = input as { moduleAlias: string; relationId?: string; refresh: boolean };
+            const value = input as { moduleAlias: string; refresh: boolean };
             const target = session(value.moduleAlias);
             if (
               active.value === target &&
               target.workspaceReady.value &&
               !target.loading.value &&
               !target.saving.value &&
-              !value.refresh &&
-              (!value.relationId ||
-                value.relationId === target.adapter.summary().selectedRelation?.relationId)
+              !value.refresh
             )
               return { moduleAlias: target.moduleAlias, saved: false };
             await target.ensureLoaded(value.refresh || active.value !== target, (accept) => {
               context.applyEffect(() => {
                 accept();
-                if (value.relationId) target.selectRelation(value.relationId);
                 focus(target);
               });
             });
@@ -250,6 +244,9 @@ export function createMetadataWorkspace(
         ...(selected && selected.workspaceReady.value && !selected.loading.value && !selected.saving.value
           ? [
               ...surface()!.capabilities(),
+              ...(selected.relations.value.some((relation) => relation.id)
+                ? [metadataRelationSelectionCapability(selected)]
+                : []),
               ...(openEditor && settleNavigation
                 ? [
                     {
@@ -296,6 +293,49 @@ export function createMetadataWorkspace(
   };
 }
 export type MetadataWorkspace = ReturnType<typeof createMetadataWorkspace>;
+
+function metadataRelationSelectionCapability(target: MetadataEditorSession): AssistantCapability {
+  const relationIds = target.relations.value.flatMap((relation) => (relation.id ? [relation.id] : []));
+  return {
+    effect: 'configuration-draft',
+    descriptor: {
+      code: 'configuration.select-metadata-relation',
+      description:
+        'Select an existing node in the currently selected metadata module. Only the returned real relation IDs are accepted. Does not create nodes, save configuration or discard drafts.',
+      inputSchema: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['relationId'],
+        properties: { relationId: { type: 'string', enum: relationIds } },
+      },
+    },
+    parseInput(input) {
+      const value = input as Record<string, unknown> | undefined;
+      if (
+        !value ||
+        typeof value !== 'object' ||
+        Array.isArray(value) ||
+        Object.keys(value).some((key) => key !== 'relationId') ||
+        typeof value.relationId !== 'string' ||
+        !relationIds.includes(value.relationId)
+      )
+        throw new AssistantCapabilityUsageError('请选择当前模块目录中的真实元数据节点');
+      return { relationId: value.relationId };
+    },
+    async execute(input, context) {
+      const { relationId } = input as { relationId: string };
+      if (target.adapter.summary().selectedRelation?.relationId === relationId)
+        return { relationId, saved: false };
+      if (target.dirty.value)
+        throw new AssistantCapabilityUsageError('请先保存或取消当前字段候选，再切换元数据');
+      return context.applyEffect(() => {
+        target.selectRelation(relationId);
+        return { relationId, saved: false };
+      });
+    },
+  };
+}
+
 const key: InjectionKey<MetadataWorkspace> = Symbol('metadata-workspace');
 export function provideMetadataWorkspace(workspace: MetadataWorkspace) {
   provide(key, workspace);

@@ -640,6 +640,7 @@ onUnmounted(() => {
         </UiActionButton>
       </template>
       <section v-if="state.mainEditorOpen.value" class="metadata-inline-editor">
+        <p role="status">本步先创建数据结构。确认保存后，再配置要记录的字段和明细；本步不录入业务记录。</p>
         <RecordFormGrid @submit.prevent="createMainMetadata">
           <label v-if="editorMode === 'ADVANCED'">
             <RecordFieldLabel required>元数据标识（alias）</RecordFieldLabel>

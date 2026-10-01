@@ -26,6 +26,15 @@ it('rejects unsupported commands and oversized samples without evaluating expres
   expect(parseBusinessRuleTrial({ sampleValues: {}, sampleChildren: { lines: [] } }).sampleChildren).toEqual({
     lines: [],
   });
+  expect(() =>
+    parseBusinessRuleProposal({
+      code: 'positiveQuantity',
+      kind: 'VALIDATION',
+      targetField: 'lines.quantity',
+      expression: '{lines.quantity} > 0',
+      enabled: true,
+    }),
+  ).toThrow('主记录字段');
 });
 
 describe('business-rule assistant boundary', () => {
@@ -91,6 +100,52 @@ describe('business-rule assistant boundary', () => {
       expect.any(AbortSignal),
     );
     expect(execute).not.toHaveBeenCalled();
+  });
+  it('exposes bounded child calculation and aggregate catalogs before further discovery calls', () => {
+    const { registry, adapter } = fixture();
+    adapter.catalog = ((section: string) =>
+      Array.from({ length: 200 }, (_, index) => ({
+        fieldName: `${section === 'fields' ? '' : 'lines.'}amount${index}`,
+        title: '明细金额',
+      }))) as BusinessRuleAssistantAdapter['catalog'];
+    const facts = registry.snapshot()!.context.facts;
+    for (const section of ['fields', 'childFields', 'aggregateFields']) {
+      expect(facts[section]).toMatchObject({ total: 200 });
+      expect(JSON.stringify(facts[section]).length).toBeLessThan(3500);
+    }
+    expect(facts.childFields).toMatchObject({ nextOffset: expect.any(Number) });
+  });
+  it('declares calculation, validation and UI-control inputs separately without asking for empty optional values', () => {
+    const { adapter } = fixture();
+    const surface = createBusinessRuleAssistantSurface(adapter, vi.fn());
+    const schema = surface.capabilities().find((item) => item.descriptor.code === 'rules.revise')!.descriptor
+      .inputSchema as {
+      oneOf: Array<{
+        additionalProperties: boolean;
+        required: string[];
+        properties: Record<string, unknown>;
+      }>;
+    };
+    const [calculation, validation, uiControl] = schema.oneOf;
+    expect(calculation.required).toContain('targetField');
+    expect(calculation.properties).not.toHaveProperty('formKey');
+    expect(validation.properties.kind).toEqual({ type: 'string', const: 'VALIDATION' });
+    expect(validation.properties).not.toHaveProperty('formKey');
+    expect(validation.properties).not.toHaveProperty('targets');
+    expect(validation.properties.messageTemplate).toMatchObject({ minLength: 1, maxLength: 500 });
+    expect(validation.properties.targetField).toMatchObject({ pattern: '^[^.]+$' });
+    expect(uiControl.required).toEqual(expect.arrayContaining(['formKey', 'targets']));
+    expect(uiControl.properties).not.toHaveProperty('targetField');
+    for (const branch of schema.oneOf) expect(branch.additionalProperties).toBe(false);
+    expect(
+      parseBusinessRuleProposal({
+        code: 'priceNonNegative',
+        kind: 'VALIDATION',
+        expression: '{price} >= 0',
+        messageTemplate: '售价不能小于零',
+        enabled: true,
+      }),
+    ).toMatchObject({ kind: 'VALIDATION', messageTemplate: '售价不能小于零' });
   });
   it('provides current facts and advances past oversized catalog entries explicitly', async () => {
     const { adapter, registry, invoke } = fixture();

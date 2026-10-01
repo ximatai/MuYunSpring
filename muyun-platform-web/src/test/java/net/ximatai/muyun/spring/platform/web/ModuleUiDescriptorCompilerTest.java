@@ -47,6 +47,22 @@ class ModuleUiDescriptorCompilerTest {
     }
 
     @Test
+    void moduleCreationFormExposesTheActualAliasFormatBeforeSaving() {
+        var definition = StaticModuleDefinition.builder("platform", "platform.module", "模块")
+                .modelClass(net.ximatai.muyun.spring.platform.module.PlatformModule.class)
+                .uiDefinition(new PlatformModuleWebController().moduleUiDefinition()).build();
+        var alias = ModuleUiDescriptorCompiler.compile(definition).page().detail().editor().fields().stream()
+                .filter(field -> "alias".equals(field.fieldRef().fieldName())).findFirst().orElseThrow();
+        assertThat(alias.inputRequirements().maxLength()).isEqualTo(128);
+        String pattern = alias.inputRequirements().validationRegex();
+        assertThat(pattern).isEqualTo(net.ximatai.muyun.spring.common.util.PlatformNameRules.MODULE_ALIAS_PATTERN);
+        assertThat("shop.customer".matches(pattern)).isTrue();
+        assertThat("shop.sales.order".matches(pattern)).isTrue();
+        assertThat("shop_customer".matches(pattern)).isFalse();
+        assertThat("shop.Customer".matches(pattern)).isFalse();
+    }
+
+    @Test
     void aliasEditorInheritsIdNormalizationAndWriteRequirements() {
         var ui = ModuleUiDefinition.builder("demo.alias")
                 .editors(editors -> editors.defaultEditor(editor -> editor.field("alias"))).build();

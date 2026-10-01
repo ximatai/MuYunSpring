@@ -67,15 +67,17 @@ final class OpenAiCompatibleModelClient implements AiModelClient {
             JsonNode choice = root.path("choices").path(0);
             String text = choice.path("message").path("content").asText(null);
             if (text == null) throw new PlatformException("AI model response does not contain text");
+            log.info("AI text response completed finishReason={} textCharacters={}",
+                    safeFinishReason(textOrNull(choice.path("finish_reason"))), text.length());
             return new AiTextResponse(text, textOrNull(choice.path("finish_reason")), response.headers()
                     .firstValue("x-request-id").orElse(null), usage(root));
         } catch (PlatformException exception) {
             throw exception;
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
-            throw new PlatformException("AI model request interrupted", exception);
+            throw new PlatformException("AI_MODEL_INTERRUPTED", 503, "模型请求已中断，请核实当前页面后继续处理。");
         } catch (Exception exception) {
-            throw new PlatformException("AI model request failed", exception);
+            throw transportFailure(exception);
         }
     }
 
@@ -86,15 +88,15 @@ final class OpenAiCompatibleModelClient implements AiModelClient {
             HttpResponse<InputStream> response = send(request(route, request, true));
             try (InputStream body = new TimedResponseBody(response.body(), bodyTimeout)) {
                 if (consumeSseStream(body, payload -> consumeStreamEvent(payload, consumer))) return;
-                throw new PlatformException("AI model stream ended before completion");
+                throw new PlatformException("AI_MODEL_INCOMPLETE_RESPONSE", 502, "模型回复在完成前断开，请核实当前页面后继续处理。");
             }
         } catch (PlatformException exception) {
             throw exception;
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
-            throw new PlatformException("AI model streaming request interrupted", exception);
+            throw new PlatformException("AI_MODEL_INTERRUPTED", 503, "模型请求已中断，请核实当前页面后继续处理。");
         } catch (Exception exception) {
-            throw new PlatformException("AI model streaming request failed", exception);
+            throw transportFailure(exception);
         }
     }
 
@@ -122,9 +124,9 @@ final class OpenAiCompatibleModelClient implements AiModelClient {
             throw exception;
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
-            throw new PlatformException("AI model structured request interrupted", exception);
+            throw new PlatformException("AI_MODEL_INTERRUPTED", 503, "模型请求已中断，请核实当前页面后继续处理。");
         } catch (Exception exception) {
-            throw new PlatformException("AI model structured request failed", exception);
+            throw transportFailure(exception);
         }
     }
 
@@ -137,15 +139,15 @@ final class OpenAiCompatibleModelClient implements AiModelClient {
                 StructuredTurnAccumulator accumulator = new StructuredTurnAccumulator(request.tools(), consumer,
                         response.headers().firstValue("x-request-id").orElse(null));
                 if (consumeSseStream(body, payload -> consumeStructuredStreamEvent(payload, accumulator))) return;
-                throw new PlatformException("AI model structured stream ended before completion");
+                throw new PlatformException("AI_MODEL_INCOMPLETE_RESPONSE", 502, "模型回复在完成前断开，请核实当前页面后继续处理。");
             }
         } catch (PlatformException exception) {
             throw exception;
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
-            throw new PlatformException("AI model structured streaming request interrupted", exception);
+            throw new PlatformException("AI_MODEL_INTERRUPTED", 503, "模型请求已中断，请核实当前页面后继续处理。");
         } catch (Exception exception) {
-            throw new PlatformException("AI model structured streaming request failed", exception);
+            throw transportFailure(exception);
         }
     }
 
@@ -182,7 +184,7 @@ final class OpenAiCompatibleModelClient implements AiModelClient {
         }
 
         private void checkDeadline() {
-            if (expired) throw new PlatformException("AI model response body timed out");
+            if (expired) throw new PlatformException("AI_MODEL_TIMEOUT", 504, "等待模型回复超时，请稍后重试。");
         }
 
         @Override
@@ -250,7 +252,8 @@ final class OpenAiCompatibleModelClient implements AiModelClient {
             throw new PlatformException(invalidMessage);
         }
         if (response.hasNonNull("error")) {
-            throw new PlatformException("AI model request was rejected by provider");
+            log.warn("AI provider rejected response transport=body");
+            throw new PlatformException("AI_PROVIDER_REQUEST_REJECTED", 502, "模型服务拒绝了本次请求，请联系管理员检查模型配置与服务状态。");
         }
         return response;
     }
@@ -451,6 +454,8 @@ final class OpenAiCompatibleModelClient implements AiModelClient {
                     .sorted(Map.Entry.comparingByKey())
                     .map(entry -> entry.getValue().toToolCall(tools))
                     .toList();
+            log.info("AI structured stream completed finishReason={} textCharacters={} toolCallCount={} outputBytes={}",
+                    safeFinishReason(finishReason), text.length(), toolCalls.size(), accumulatedBytes);
             consumer.onComplete(new AiTurnResponse(text.isEmpty() ? null : text.toString(), toolCalls,
                     finishReason, requestId, usage));
         }
@@ -574,6 +579,7 @@ final class OpenAiCompatibleModelClient implements AiModelClient {
                 HttpResponse<InputStream> response = httpClient.send(request, HttpResponse.BodyHandlers.ofInputStream());
                 int status = response.statusCode();
                 if (status >= 200 && status < 300) return response;
+                log.warn("AI provider rejected response transport=http status={} attempt={}", status, attempt + 1);
                 boolean retryable = false;
                 try (InputStream body = new TimedResponseBody(response.body(), bodyTimeout)) {
                     // Only a structured upstream failure qualifies; never infer retryability from free text.
@@ -589,7 +595,7 @@ final class OpenAiCompatibleModelClient implements AiModelClient {
                         }
                     }
                 }
-                if (!retryable) throw new PlatformException("AI model request was rejected with HTTP status " + status);
+                if (!retryable) throw providerHttpFailure(status);
                 reason = "upstream_unavailable";
             } catch (java.net.http.HttpConnectTimeoutException exception) {
                 if (attempt != 0) throw exception;
@@ -598,6 +604,46 @@ final class OpenAiCompatibleModelClient implements AiModelClient {
             log.info("AI model connection retry attempt=1 maxRetries=1 reason={}", reason);
             Thread.sleep(500);
         }
+    }
+
+    private static PlatformException providerHttpFailure(int status) {
+        // Provider authentication failures belong to the model connection, not the user's login session.
+        String suffix = "（HTTP " + status + "）";
+        if (status == 401 || status == 403) {
+            return new PlatformException("AI_PROVIDER_AUTHENTICATION_FAILED", 502,
+                    "模型连接鉴权失败" + suffix + "，请联系管理员检查凭据及模型访问权限。");
+        }
+        if (status == 429) {
+            return new PlatformException("AI_PROVIDER_RATE_LIMITED", 429,
+                    "模型服务限制了本次请求" + suffix + "，请稍后重试；持续失败时请管理员检查额度。");
+        }
+        if (status >= 500) {
+            return new PlatformException("AI_PROVIDER_UNAVAILABLE", 503,
+                    "模型服务暂时不可用" + suffix + "，请稍后重试。");
+        }
+        return new PlatformException("AI_PROVIDER_REQUEST_REJECTED", 502,
+                "模型服务拒绝了本次请求" + suffix + "，请联系管理员检查模型配置与服务状态。");
+    }
+
+    private static PlatformException transportFailure(Exception failure) {
+        // Network exceptions may include endpoints or credentials; retain only their category.
+        if (failure instanceof java.net.http.HttpTimeoutException) {
+            return new PlatformException("AI_MODEL_TIMEOUT", 504, "等待模型回复超时，请稍后重试。");
+        }
+        if (failure instanceof IOException) {
+            return new PlatformException("AI_MODEL_CONNECTION_FAILED", 502,
+                    "模型连接失败，请联系管理员检查网络与模型服务状态。");
+        }
+        return new PlatformException("AI_MODEL_CALL_FAILED", 502,
+                "模型调用未能完成，请联系管理员检查模型服务状态。");
+    }
+
+    static String safeFinishReason(String reason) {
+        if (reason == null) return "missing";
+        return switch (reason) {
+            case "stop", "tool_calls", "length", "content_filter" -> reason;
+            default -> "other";
+        };
     }
 
     private String textOrNull(JsonNode node) {

@@ -75,6 +75,8 @@ export function parseBusinessRuleProposal(input: unknown): BusinessRuleProposal 
   if (input.targetField !== undefined) rule.targetField = text(input.targetField, 255);
   if (input.messageTemplate !== undefined) rule.messageTemplate = text(input.messageTemplate, 500);
   if (rule.kind === 'CALCULATION' && !rule.targetField) return fail('请选择计算目标字段');
+  if (rule.kind === 'VALIDATION' && rule.targetField?.includes('.'))
+    return fail('保存校验只能定位主记录字段；检查明细请使用汇总函数，不要将明细字段作为定位目标');
   if (rule.kind === 'UI_CONTROL') {
     rule.formKey = text(input.formKey, 255);
     if (!Array.isArray(input.targets) || !input.targets.length || input.targets.length > 40)
@@ -93,6 +95,53 @@ export function parseBusinessRuleProposal(input: unknown): BusinessRuleProposal 
     return fail('只有界面规则可以指定表单元素');
   return rule;
 }
+function businessRuleProposalInputSchema() {
+  const boundedText = (maxLength: number) => ({ type: 'string', minLength: 1, maxLength });
+  const common = {
+    code: { ...boundedText(64), pattern: '^[a-z][A-Za-z0-9]{0,63}$' },
+    expression: boundedText(4000),
+    enabled: { type: 'boolean' },
+  };
+  const branch = (kind: string, properties: Record<string, unknown>, required: string[] = []) => ({
+    type: 'object',
+    additionalProperties: false,
+    required: ['code', 'kind', 'expression', 'enabled', ...required],
+    properties: { ...common, kind: { type: 'string', const: kind }, ...properties },
+  });
+  return {
+    type: 'object',
+    oneOf: [
+      branch('CALCULATION', { targetField: boundedText(255) }, ['targetField']),
+      branch('VALIDATION', {
+        targetField: { ...boundedText(255), pattern: '^[^.]+$' },
+        messageTemplate: boundedText(500),
+      }),
+      branch(
+        'UI_CONTROL',
+        {
+          formKey: boundedText(255),
+          targets: {
+            type: 'array',
+            minItems: 1,
+            maxItems: 40,
+            items: {
+              type: 'object',
+              additionalProperties: false,
+              required: ['elementKey', 'hide', 'readOnly'],
+              properties: {
+                elementKey: boundedText(255),
+                hide: { type: 'boolean' },
+                readOnly: { type: 'boolean' },
+              },
+            },
+          },
+        },
+        ['formKey', 'targets'],
+      ),
+    ],
+  };
+}
+
 export function parseBusinessRuleTrial(input: unknown): BusinessRuleTrialInput {
   if (
     !object(input) ||
@@ -144,12 +193,14 @@ export function createBusinessRuleAssistantSurface(
       facts: {
         ...adapter.summary(),
         fields: catalogPage(adapter.catalog('fields'), 0, 3000),
+        childFields: catalogPage(adapter.catalog('childFields'), 0, 3000),
+        aggregateFields: catalogPage(adapter.catalog('aggregateFields'), 0, 3000),
         rules: catalogPage(adapter.catalog('rules'), 0, 3000),
         catalogCounts: Object.fromEntries(
           sections.map((section) => [section, adapter.catalog(section).length]),
         ),
         guidance:
-          'Use these current fields and rules directly when complete. Read only missing pages or relevant catalogs; validation does not need the function or UI form catalog. All user-facing text, including progress, must use the user language.',
+          'Use these current fields, childFields, aggregateFields and rules directly when complete. Read only missing pages or relevant catalogs. Validation runs on the main record, with an optional main-field error location; check child rows through aggregate functions, not scalar child references or child targets. All user-facing text, including progress, must use the user language.',
       },
     }),
     requestTurn,
@@ -193,35 +244,8 @@ export function createBusinessRuleAssistantSurface(
               descriptor: {
                 code: 'rules.revise',
                 description:
-                  'Add or replace ONE editable rule in the visible unsaved governance candidate; keep the same code when correcting it. Other rules are preserved. enabled describes behavior AFTER application, not whether saved: for a trial-only request use an enabled unsaved candidate, never add a second disabled copy. Use discovered fields/functions/forms. Field references MUST use braces, e.g. {amount} >= 0; quote text literals. expression is RHS for calculation; targetField is separate. No persistence. Trial already performs server precheck; when samples are requested, trial directly after revision. Otherwise preview. Ask for application confirmation only when requested.',
-                inputSchema: {
-                  type: 'object',
-                  additionalProperties: false,
-                  required: ['code', 'kind', 'expression', 'enabled'],
-                  properties: {
-                    code: { type: 'string', maxLength: 64, pattern: '^[a-z][A-Za-z0-9]{0,63}$' },
-                    kind: { type: 'string', enum: ['CALCULATION', 'VALIDATION', 'UI_CONTROL'] },
-                    expression: { type: 'string', maxLength: 4000 },
-                    enabled: { type: 'boolean' },
-                    targetField: { type: 'string' },
-                    messageTemplate: { type: 'string' },
-                    formKey: { type: 'string' },
-                    targets: {
-                      type: 'array',
-                      maxItems: 40,
-                      items: {
-                        type: 'object',
-                        additionalProperties: false,
-                        required: ['elementKey', 'hide', 'readOnly'],
-                        properties: {
-                          elementKey: { type: 'string' },
-                          hide: { type: 'boolean' },
-                          readOnly: { type: 'boolean' },
-                        },
-                      },
-                    },
-                  },
-                },
+                  'Add or replace ONE editable rule in the visible unsaved governance candidate; keep the same code when correcting it. Other rules are preserved. enabled describes behavior AFTER application, not whether saved: for a trial-only request use an enabled unsaved candidate, never add a second disabled copy. Use discovered fields/functions/forms. Field references MUST use braces, e.g. {amount} >= 0; quote text literals. expression is RHS for calculation; targetField is separate. VALIDATION runs on the main record: optional targetField is a main-field error location; child fields require aggregate functions, never scalar child references or child targets. Omit formKey and targets; messageTemplate is the failure message. Omit unused optional properties instead of empty strings. No persistence. Trial already performs server precheck; when samples are requested, trial directly after revision. Otherwise preview. Ask for application confirmation only when requested.',
+                inputSchema: businessRuleProposalInputSchema(),
               },
               parseInput: parseBusinessRuleProposal,
               async execute(input: BusinessRuleProposal, context) {

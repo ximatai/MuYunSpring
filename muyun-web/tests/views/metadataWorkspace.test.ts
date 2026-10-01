@@ -5,6 +5,7 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { createAssistantSurfaceRegistry, type HttpClient, type HttpRequestOptions } from '@/web-core';
 import { createMetadataWorkspace, type MetadataWorkspace } from '@/views/metadataWorkspace';
 import { presentPlatformMessage, handlePlatformActionSuccess } from '@muyun/platform-components';
+import { confirmAction } from '@muyun/vue-ui-antdv';
 
 vi.mock('@muyun/platform-components', async () => ({
   ...(await import('@/platform-components/selectionRefresh')),
@@ -28,7 +29,7 @@ function fixture(
   let identity = 'a';
   const rows = (records: unknown[]) => ({ records, pages: 1, totalKnown: true });
   let createdChild = false;
-  const request = vi.fn(async ({ path }: HttpRequestOptions) => {
+  const request = vi.fn(async ({ path }: HttpRequestOptions): Promise<unknown> => {
     if (path.endsWith('/metadata-relations/query'))
       return rows([
         { id: 'main', metadataId: 'meta', relationRole: 'main' },
@@ -56,7 +57,7 @@ function fixture(
     if (path.endsWith('change-set-preview'))
       return {
         errors: [],
-        warnings: [],
+        warnings: [] as { message: string }[],
         fieldImpacts: [],
         schemaImpacts: [],
         orderImpacts: [],
@@ -176,6 +177,96 @@ it('prepares, revises and confirms without mounting a page, and opens exactly th
   expect(shared.dirty.value).toBe(false);
 });
 
+it('manual metadata confirmation presents business changes and warnings while keeping technical impacts in details', async () => {
+  const f = fixture();
+  const original = f.request.getMockImplementation()!;
+  f.request.mockImplementation(async (request) =>
+    request.path.endsWith('change-set-preview')
+      ? {
+          errors: [],
+          warnings: [{ message: '需要刷新生效' }],
+          fieldImpacts: [],
+          schemaImpacts: [],
+          orderImpacts: [],
+          proposalFingerprint: 'checked',
+        }
+      : original(request),
+  );
+  await f.select();
+  await f.add();
+  vi.mocked(confirmAction).mockResolvedValueOnce(false);
+  await f.workspace.session('demo.order').view.previewAndApply();
+  const options = vi.mocked(confirmAction).mock.calls.at(-1)![0];
+  expect(options.content).toContain('备注');
+  expect(options.content).toContain('文本');
+  expect(options.content).toContain('需要刷新生效');
+  expect(options.details?.lines.join('\n')).toContain('note');
+  expect(f.request.mock.calls.some(([request]) => request.path.endsWith('change-set-apply'))).toBe(false);
+});
+
+it('reads existing business constraints and staged field changes without writing configuration', async () => {
+  const f = fixture();
+  const originalRequest = f.request.getMockImplementation()!;
+  f.request.mockImplementation(async (request) =>
+    request.path.endsWith('/fields/query')
+      ? {
+          records: [
+            {
+              id: 'name',
+              fieldName: 'name',
+              title: '姓名',
+              fieldSpecAlias: 'string',
+              required: true,
+              uniqueField: true,
+              indexed: true,
+              sortableField: true,
+              titleField: true,
+              enabled: false,
+            },
+            { id: 'remarks', fieldName: 'remarks', title: '备注', fieldSpecAlias: 'string' },
+            { id: 'system', fieldName: 'version', systemManaged: true, required: true },
+          ],
+          pages: 1,
+          totalKnown: true,
+        }
+      : originalRequest(request),
+  );
+  await f.select();
+  const readFields = async () => {
+    const result = await f.invoke('configuration.describe-metadata-model');
+    return (
+      result.value as import('@/views/metadataGovernanceAssistantSurface').MetadataGovernanceAssistantModelSummary
+    ).selectedRelation!.fields;
+  };
+  expect(await readFields()).toEqual([
+    expect.objectContaining({
+      fieldName: 'name',
+      required: true,
+      uniqueField: true,
+      indexed: true,
+      sortableField: true,
+      titleField: true,
+      enabled: false,
+    }),
+    expect.objectContaining({
+      fieldName: 'remarks',
+      required: false,
+      uniqueField: false,
+      indexed: false,
+      sortableField: false,
+      titleField: false,
+      enabled: true,
+    }),
+  ]);
+  await f.invoke('configuration.prepare-metadata-field-plan', {
+    fields: [{ kind: 'BASIC', title: '联系电话', fieldName: 'phone', fieldSpecAlias: 'string' }],
+  });
+  expect(await readFields()).toContainEqual(expect.objectContaining({ fieldName: 'phone', required: false }));
+  await f.invoke('configuration.update-metadata-field-draft', { fieldName: 'phone', required: true });
+  expect(await readFields()).toContainEqual(expect.objectContaining({ fieldName: 'phone', required: true }));
+  expect(f.request.mock.calls.some(([request]) => request.path.endsWith('change-set-apply'))).toBe(false);
+});
+
 it('preserves separate module candidates but never revives their old confirmations after focus or identity switches', async () => {
   const f = fixture();
   await f.select();
@@ -195,19 +286,30 @@ it('preserves separate module candidates but never revives their old confirmatio
   expect(f.request.mock.calls.some(([request]) => request.path.endsWith('change-set-apply'))).toBe(false);
 });
 
+it.each(['', null])(
+  'explains how to select a module without an invalid optional relation %s',
+  async (relationId) => {
+    const f = fixture();
+    await expect(
+      f.invoke('configuration.select-metadata-module', { moduleAlias: 'demo.order', relationId }),
+    ).rejects.toThrow('请省略 relationId');
+    expect(f.request).not.toHaveBeenCalled();
+    await f.select();
+    expect(f.workspace.session('demo.order').adapter.summary().selectedRelation?.relationId).toBe('main');
+  },
+);
+
 it('requires explicit relation selection, refuses dirty target changes, and discards only unsaved candidates', async () => {
   const f = fixture();
   await f.select();
   await f.add();
-  await expect(
-    f.invoke('configuration.select-metadata-module', { moduleAlias: 'demo.order', relationId: 'child' }),
-  ).rejects.toThrow();
+  await expect(f.invoke('configuration.select-metadata-relation', { relationId: 'child' })).rejects.toThrow();
   const confirmation = await f.workspace.session('demo.order').adapter.prepareConfirmation!(
     new AbortController().signal,
   );
   await f.invoke('configuration.discard-metadata-draft');
   expect(confirmation.isCurrent()).toBe(false);
-  await f.invoke('configuration.select-metadata-module', { moduleAlias: 'demo.order', relationId: 'child' });
+  await f.invoke('configuration.select-metadata-relation', { relationId: 'child' });
   await f.add();
   const proposal = f.workspace.session('demo.order').adapter.proposal();
   expect(proposal?.relationDrafts[0].relationId).toBe('child');
@@ -600,4 +702,157 @@ it('continues initialized construction in the shared metadata candidate and hono
   await unrelated.confirm();
   expect(unrelated.state).toBe('succeeded');
   expect(unrelated.takeContinuation()).toBeUndefined();
+});
+
+it('revises one field in a batch candidate while preserving manual changes and invalidating old confirmation', async () => {
+  const f = fixture();
+  await f.select();
+  await f.invoke('configuration.prepare-metadata-field-plan', {
+    fields: [
+      { kind: 'BASIC', title: '姓名', fieldName: 'name', fieldSpecAlias: 'string' },
+      { kind: 'BASIC', title: '备注', fieldName: 'note', fieldSpecAlias: 'string' },
+    ],
+  });
+  const shared = f.workspace.session('demo.order');
+  shared.view.editPlanField(shared.view.fieldPlanEntries.value[1]!);
+  shared.view.fieldDraft.value.title = '人工修改的备注';
+  await shared.view.stageFieldDraft();
+  const originalNote = { ...shared.view.fieldPlanEntries.value[1]! };
+  const confirmation = await shared.adapter.prepareConfirmation!(new AbortController().signal);
+  await f.invoke('configuration.update-metadata-field-draft', { fieldName: 'name', required: true });
+  expect(shared.view.fieldPlanEntries.value).toHaveLength(2);
+  expect(shared.view.fieldPlanEntries.value[0]).toMatchObject({ fieldName: 'name', required: true });
+  expect(shared.view.fieldPlanEntries.value[1]).toEqual(originalNote);
+  expect(shared.view.state.fieldEditorOpen.value).toBe(false);
+  expect(confirmation.isCurrent()).toBe(false);
+  expect(f.request.mock.calls.some(([r]) => r.path.endsWith('change-set-apply'))).toBe(false);
+});
+
+it.each(['BASIC', 'MODULE_REFERENCE'] as const)(
+  'appends a %s field to a batch without losing manual edits',
+  async (kind) => {
+    const f = fixture();
+    const request = f.request.getMockImplementation()!;
+    f.request.mockImplementation(async (r) => {
+      if (r.path.endsWith('/reference-target-modules')) return [{ alias: 'iam.user', title: '用户' }];
+      if (r.path.includes('/reference-target-field-catalog?'))
+        return {
+          keyFields: [{ fieldName: 'id', defaultField: true, selectable: true }],
+          labelFields: [{ fieldName: 'title', defaultField: true, selectable: true }],
+        };
+      return request(r);
+    });
+    await f.select();
+    await f.invoke('configuration.prepare-metadata-field-plan', {
+      fields: [{ kind: 'BASIC', title: '备注', fieldName: 'note', fieldSpecAlias: 'string' }],
+    });
+    const shared = f.workspace.session('demo.order');
+    shared.view.editPlanField(shared.view.fieldPlanEntries.value[0]!);
+    shared.view.fieldDraft.value.title = '人工补充的备注';
+    await shared.view.stageFieldDraft();
+    const original = { ...shared.view.fieldPlanEntries.value[0]! };
+    const confirmation = await shared.adapter.prepareConfirmation!(new AbortController().signal);
+    expect(f.workspace.capabilities(async () => {}).map((c) => c.descriptor.code)).not.toContain(
+      'configuration.prepare-metadata-field-plan',
+    );
+    await f.invoke(
+      kind === 'BASIC'
+        ? 'configuration.add-metadata-field-draft'
+        : 'configuration.add-metadata-property-field-draft',
+      kind === 'BASIC'
+        ? { title: '附加说明', fieldName: 'extra', fieldSpecAlias: 'string' }
+        : { kind, title: '经办人', fieldName: 'extra', target: 'iam.user' },
+    );
+    await shared.view.stageFieldDraft();
+    expect(shared.view.fieldPlanEntries.value).toHaveLength(2);
+    expect(shared.view.fieldPlanEntries.value[0]).toEqual(original);
+    expect(shared.view.fieldPlanEntries.value[1]).toMatchObject({ fieldName: 'extra' });
+    expect(confirmation.isCurrent()).toBe(false);
+    expect(f.request.mock.calls.some(([r]) => r.path.endsWith('change-set-apply'))).toBe(false);
+  },
+);
+
+it('rejects an invented relation before changing the active workspace or accepting a loaded baseline', async () => {
+  const f = fixture();
+  await f.select();
+  const original = f.workspace.editor();
+  const capabilities = f.workspace.capabilities(async () => {});
+  expect(
+    capabilities.find((item) => item.descriptor.code === 'configuration.select-metadata-module')!.descriptor
+      .inputSchema.properties,
+  ).not.toHaveProperty('relationId');
+  expect(
+    capabilities.find((item) => item.descriptor.code === 'configuration.select-metadata-relation')!.descriptor
+      .inputSchema.properties,
+  ).toMatchObject({ relationId: { enum: ['main', 'child'] } });
+  await expect(
+    f.invoke('configuration.select-metadata-relation', { relationId: 'invented' }),
+  ).rejects.toThrow('真实元数据节点');
+  const existingRequest = f.request.getMockImplementation()!;
+  f.request.mockImplementation(async (request) =>
+    request.path === '/platform.module/demo.product/metadata-relations/query'
+      ? { records: [], pages: 1, totalKnown: true }
+      : existingRequest(request),
+  );
+  await expect(
+    f.invoke('configuration.select-metadata-module', { moduleAlias: 'demo.product', relationId: 'main' }),
+  ).rejects.toThrow('请省略 relationId');
+  expect(f.workspace.editor()?.moduleAlias).toBe(original?.moduleAlias);
+  expect(f.workspace.session('demo.product').workspaceReady.value).toBe(false);
+  await f.select('demo.product');
+  expect(f.workspace.session('demo.product').adapter.summary().relationCount).toBe(0);
+  expect(
+    f.workspace
+      .capabilities(async () => {})
+      .some((item) => item.descriptor.code === 'configuration.select-metadata-relation'),
+  ).toBe(false);
+});
+
+it('prepares a missing main entity in the shared editor without creating storage or replacing manual settings', async () => {
+  const f = fixture();
+  const existingRequest = f.request.getMockImplementation()!;
+  let createdMain = false;
+  f.request.mockImplementation(async (request) => {
+    if (request.path.endsWith('/metadata-relations/query') && !createdMain)
+      return { records: [], pages: 1, totalKnown: true };
+    if (request.path.endsWith('/create-main-metadata')) {
+      createdMain = true;
+      return { metadata: { id: 'meta-main' }, relation: { id: 'main' } };
+    }
+    return existingRequest(request);
+  });
+  await f.select();
+  await f.invoke('configuration.prepare-metadata-main-draft', { title: '客户' });
+  const shared = f.workspace.session('demo.order');
+  expect(shared.adapter.summary()).toMatchObject({
+    relationCount: 0,
+    mainCandidate: {
+      alias: 'order',
+      title: '客户',
+      saved: false,
+      nextStep: 'REVIEW_AND_SAVE_STRUCTURE_BEFORE_FIELDS',
+    },
+    draft: { active: true, dirty: true, editorOpen: true },
+  });
+  expect(
+    f.request.mock.calls.some(([r]) => r.method === 'POST' && r.path.endsWith('/create-main-metadata')),
+  ).toBe(false);
+  await f.invoke('configuration.open-metadata-editor');
+  shared.view.mainMetadataDraft.value.tableName = 'manual_customer';
+  const beforeEdit = shared.contextRevision.value;
+  shared.view.mainMetadataDraft.value.schemaName = 'public';
+  expect(shared.contextRevision.value).toBeGreaterThan(beforeEdit);
+  await f.invoke('configuration.prepare-metadata-main-draft', { title: '客户资料' });
+  expect(shared.adapter.summary().mainCandidate).toMatchObject({
+    title: '客户资料',
+    tableName: 'manual_customer',
+    schemaName: 'public',
+  });
+  await shared.view.createMainMetadata();
+  expect(f.request.mock.calls.filter(([r]) => r.path.endsWith('/create-main-metadata'))).toHaveLength(1);
+  expect(shared.adapter.summary().mainCandidate).toBeUndefined();
+  expect(shared.adapter.summary().selectedRelation?.relationId).toBe('main');
+  await expect(
+    f.invoke('configuration.prepare-metadata-main-draft', { title: '重复创建' }),
+  ).rejects.toThrow();
 });

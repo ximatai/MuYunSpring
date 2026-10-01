@@ -11,39 +11,46 @@ import java.util.Set;
 final class AssistantPlatformKnowledge {
     private static final Map<String, String> SURFACE_GUIDANCE = Map.of(
             "construction", """
-                    For construction.* capabilities, discuss the business goal and a useful first scope in ordinary language.
-                    Respect explicit decisions; clarify only missing choices that affect the requested outcome.
-                    Keep user requirements distinct from recommendations. Correct small misunderstandings in conversation.
+                    Discuss the business goal and first scope in ordinary language. Respect decisions; distinguish user
+                    requirements from recommendations. Clarify only missing choices affecting the outcome.
                     One conversation stays with one construction goal; use a new conversation for unrelated work.
                     For module creation, first establish application scope: reuse an existing application or create one.
-                    Keep an already agreed application unless the user changes it. Use its visible standard management page.
+                    Keep the agreed application; use its visible standard management page.
+                    For multiple modules, explain dependencies and calibrate ONE foundation module with the user first,
+                    then dependent modules. Existing modules also need business calibration before changes; catalog
+                    reference readiness does not prove they meet the goal. Do not inspect every module before this discussion.
                     Discover existing applications; clarify reuse only if unresolved. For a new application, fill the standard
                     form and request human review and save; verify success before preparing ONE module in the standard module page under that application
                     with separate human confirmation. Never combine application/module creation or bypass their pages.
-                    A complete plan or requirement mapping is not a prerequisite for creation. Discuss dependencies first,
-                    asking only what the current module needs. Module creation does not authorize metadata, rules or page design; stop at the requested scope.
+                    New module aliases must start with selected applicationAlias + '.'; choose technical IDs for users.
+                    Plans are not creation prerequisites. Respect requested scope for metadata, rules and pages.
                     Read actual facts before claiming default metadata exists. Plans preserve intent; standard pages own creation drafts.
                     For existing businesses, read CURRENT standard governance; no historical plan is required.
                     Delivered plans are historical intent, not current configuration. Preserve unfinished goals.
                     Operations and parameters come from current capability schemas and read catalogs, not a builder matrix.
-                    Read construction.describe-design-contract before binding fields. Tool limits do not prove absent
-                    platform support. Reuse standard metadata, rules and page governance; no assistant-only implementation.
-                    Choose actions from the goal, dependencies and facts. construction.task offers choices, not a fixed sequence.
-                    Clarify unresolved questions where relevant, without blocking every independent object.
+                    For a requirements-only review, propose business scope with requirements=[]; defer technical field
+                    bindings and construction.describe-design-contract until needed for implementation.
+                    Read construction.describe-design-contract before binding fields. Reuse standard metadata, rules
+                    and page governance; no assistant-only implementation. Tool limits do not prove absent platform support.
+                    construction.task offers choices, not a fixed sequence. Clarify only relevant unresolved dependencies.
                     Read current fields and receipts before editing; do not recreate submitted configuration.
                     Requirement mappings are limited configuration evidence, not proof of business correctness.
                     Never replace requested automation with manual work without consent or claim unsupported work is complete.
                     Use standard previews and human confirmations. Scope confirmation does not authorize configuration saves.
                     Unknown submission results require receipt lookup before retrying. Existing effects survive interruptions.
                     A candidate is unsaved; configuration publication is not business acceptance. Verify agreed examples under
-                    an authorized business tenant only when business verification is requested; configuration work stays separate.
-                    Do not repeat full plans or technical details in chat; explain the next concrete review in ordinary language.
+                    an authorized business tenant only when business verification is requested.
+                    Use facts.workspace.constructionPlan for current generation and persistence; construction.describe
+                    is for missing design details, not a mandatory step. After proposing the requested review candidate,
+                    prepare human confirmation instead of continuing discovery or navigation unless an unresolved
+                    dependency changes its scope. Reuse current observations; do not reread facts already supplied.
                     """,
             "workbench", """
-                    MuYun workbench navigation: for records, compare the target with pageContext.title and
-                    facts.moduleAlias. If different, find visible menus, open only an exact returned menuId, then use
-                    target capabilities. Do not operate on a related but different module. Do not ask users to
-                    navigate manually when tools can do it. Stay on the page if it matches.
+                    MuYun workbench navigation: compare with pageContext.title and facts.moduleAlias.
+                    Find visible menus; open only an exact returned menuId. Use the correct module; never ask users to navigate manually.
+                    Entry configuration stays in menu governance; entry/module titles may differ.
+                    Missing active page tools: find visible standard governance entry (standard menu management);
+                    open it to acquire its capabilities.
                     """,
             "configuration", """
                     For existing-module configuration, read facts.workspace.configurationTask. This task preference
@@ -70,12 +77,12 @@ final class AssistantPlatformKnowledge {
                     This is a standard MuYun record workspace. Start drafts only when the user asked to create or change data;
                     navigation is already complete and must not start a draft.
                     Read facts once; patch known ordinary fields together. Resolve references via declared capabilities;
-                    currentValue is the selected name or unavailable label (not empty). Search is not selection consent.
+                    currentValue is the selected name or unavailable label, not empty. Search is not selection consent.
                     relations describes child grids: counts, rows, removedRows, truncation. Missing main fields do not mean
                     missing children. For assistantWritable=false use page row edits, then confirm the aggregate save.
                     Leave drafts unsaved. For save/review use form.prepare-save when available, never the page button;
                     only a human confirmation click saves. Otherwise hand off to page save. For trial-only requests,
-                    offer later review here without preparing confirmation. Clarification answers supply only the requested choice;
+                    offer later review without confirmation. Clarification answers supply only the requested choice;
                     never copy a scope or reference title into unrelated fields. For missing required values, ask one concise question.
                     """,
             "page-composition", """

@@ -28,6 +28,15 @@ class OpenAiCompatibleModelClientTest {
     }
 
     @Test
+    void finishDiagnosticsOnlyExposeKnownProtocolValues() {
+        assertThat(OpenAiCompatibleModelClient.safeFinishReason("length")).isEqualTo("length");
+        assertThat(OpenAiCompatibleModelClient.safeFinishReason("tool_calls")).isEqualTo("tool_calls");
+        assertThat(OpenAiCompatibleModelClient.safeFinishReason(null)).isEqualTo("missing");
+        assertThat(OpenAiCompatibleModelClient.safeFinishReason("private provider payload\nsecret"))
+                .isEqualTo("other");
+    }
+
+    @Test
     void guardsAllTransportsBeforeSendingWithoutDroppingToolsOrMessages() {
         var client = new OpenAiCompatibleModelClient(new ObjectMapper());
         var route = new ResolvedAiModelRoute("provider", AiModelProtocol.OPENAI_COMPATIBLE,
@@ -117,7 +126,7 @@ class OpenAiCompatibleModelClientTest {
                 assertThatThrownBy(() -> client.stream(route(), request, new AiTurnStreamConsumer() {
                     public void onTextDelta(String text) { }
                     public void onComplete(AiTurnResponse result) { throw new AssertionError("Incomplete stream cannot complete"); }
-                })).isInstanceOf(PlatformException.class).hasMessageContaining("timed out"));
+                })).isInstanceOf(PlatformException.class).hasMessageContaining("超时").satisfies(error -> assertThat(((PlatformException) error).code()).isEqualTo("AI_MODEL_TIMEOUT")));
         } finally { release.countDown(); }
     }
 
@@ -187,7 +196,7 @@ class OpenAiCompatibleModelClientTest {
         assertThatThrownBy(() ->
                 client.stream(route(), AiTextRequest.userText("hello"), delta -> {}))
                 .isInstanceOf(PlatformException.class)
-                .hasMessageContaining("rejected by provider")
+                .hasMessageContaining("模型服务拒绝了本次请求").satisfies(error -> assertThat(((PlatformException) error).code()).isEqualTo("AI_PROVIDER_REQUEST_REJECTED"))
                 .hasNoCause().hasMessageNotContaining("private-provider-detail");
     }
 
@@ -198,7 +207,7 @@ class OpenAiCompatibleModelClientTest {
         StringBuilder partial = new StringBuilder();
         assertThatThrownBy(() ->
                 client.stream(route(), AiTextRequest.userText("hello"), partial::append))
-                .hasMessageContaining("ended before completion");
+                .hasMessageContaining("完成前断开").satisfies(error -> assertThat(((PlatformException) error).code()).isEqualTo("AI_MODEL_INCOMPLETE_RESPONSE"));
         assertThat(partial).hasToString("partial");
     }
 
@@ -227,7 +236,7 @@ class OpenAiCompatibleModelClientTest {
         assertThatThrownBy(() ->
                 client.stream(route(), AiTextRequest.userText("hello"), delta -> {
                     throw new AssertionError("failed response must not produce deltas");
-                })).hasMessageContaining("HTTP status 429").hasNoCause().hasMessageNotContaining("private-provider-detail");
+                })).hasMessageContaining("HTTP 429").hasNoCause().hasMessageNotContaining("private-provider-detail");
     }
 
     @Test
@@ -347,7 +356,7 @@ class OpenAiCompatibleModelClientTest {
             public void onComplete(AiTurnResponse response) {
                 throw new AssertionError("interrupted streams must not complete");
             }
-        })).isInstanceOf(PlatformException.class).hasMessageContaining("ended before completion");
+        })).isInstanceOf(PlatformException.class).hasMessageContaining("完成前断开").satisfies(error -> assertThat(((PlatformException) error).code()).isEqualTo("AI_MODEL_INCOMPLETE_RESPONSE"));
         assertThat(deltas).containsExactly("partial");
     }
 
@@ -368,7 +377,7 @@ class OpenAiCompatibleModelClientTest {
                 throw new AssertionError("failed responses must not complete");
             }
         })).isInstanceOf(PlatformException.class)
-                .hasMessageContaining("HTTP status 429")
+                .hasMessageContaining("HTTP 429")
                 .hasNoCause()
                 .hasMessageNotContaining("private-provider-detail");
     }
@@ -550,10 +559,18 @@ class OpenAiCompatibleModelClientTest {
     }
 
     @org.junit.jupiter.params.ParameterizedTest
-    @org.junit.jupiter.params.provider.CsvSource({"503,upstream_unavailable,2", "500,upstream_unavailable,2",
-            "502,upstream_unavailable,2", "504,upstream_unavailable,2", "401,upstream_unavailable,1",
-            "429,upstream_unavailable,1", "400,upstream_unavailable,1", "503,invalid_api_key,1"})
-    void boundsRetriesAndDoesNotRetryOtherProviderErrors(int status, String code, int expected) throws Exception {
+    @org.junit.jupiter.params.provider.CsvSource({
+            "503,upstream_unavailable,2,AI_PROVIDER_UNAVAILABLE,503",
+            "500,upstream_unavailable,2,AI_PROVIDER_UNAVAILABLE,503",
+            "502,upstream_unavailable,2,AI_PROVIDER_UNAVAILABLE,503",
+            "504,upstream_unavailable,2,AI_PROVIDER_UNAVAILABLE,503",
+            "401,upstream_unavailable,1,AI_PROVIDER_AUTHENTICATION_FAILED,502",
+            "403,upstream_unavailable,1,AI_PROVIDER_AUTHENTICATION_FAILED,502",
+            "429,upstream_unavailable,1,AI_PROVIDER_RATE_LIMITED,429",
+            "400,upstream_unavailable,1,AI_PROVIDER_REQUEST_REJECTED,502",
+            "503,invalid_api_key,1,AI_PROVIDER_UNAVAILABLE,503"})
+    void boundsRetriesAndDoesNotRetryOtherProviderErrors(int status, String code, int expected,
+                                                       String errorCode, int platformStatus) throws Exception {
         var count = new java.util.concurrent.atomic.AtomicInteger();
         server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         server.createContext("/v1/chat/completions", exchange -> {
@@ -567,8 +584,12 @@ class OpenAiCompatibleModelClientTest {
         server.start();
         var client = new OpenAiCompatibleModelClient(new ObjectMapper());
         assertThatThrownBy(() -> client.generate(route(), AiTextRequest.userText("hello")))
-                .isInstanceOf(PlatformException.class).hasMessageContaining("HTTP status " + status)
-                .hasMessageNotContaining("private detail");
+                .isInstanceOf(PlatformException.class).hasMessageContaining("HTTP " + status)
+                .hasMessageNotContaining("private detail").hasNoCause()
+                .satisfies(error -> {
+                    assertThat(((PlatformException) error).code()).isEqualTo(errorCode);
+                    assertThat(((PlatformException) error).httpStatus()).isEqualTo(platformStatus);
+                });
         assertThat(count.get()).isEqualTo(expected);
     }
 
@@ -610,7 +631,9 @@ class OpenAiCompatibleModelClientTest {
         try {
             assertThatThrownBy(() -> client.generate(route, AiTextRequest.userText("hello")))
                     .isInstanceOf(PlatformException.class)
-                    .hasCauseInstanceOf(interrupt ? InterruptedException.class : java.net.http.HttpConnectTimeoutException.class);
+                    .hasNoCause()
+                    .satisfies(error -> assertThat(((PlatformException) error).code())
+                            .isEqualTo(interrupt ? "AI_MODEL_INTERRUPTED" : "AI_MODEL_TIMEOUT"));
             org.mockito.Mockito.verify(http, org.mockito.Mockito.times(interrupt ? 1 : 2))
                     .send(org.mockito.ArgumentMatchers.any(java.net.http.HttpRequest.class),
                             org.mockito.ArgumentMatchers.<java.net.http.HttpResponse.BodyHandler<java.io.InputStream>>any());
@@ -618,6 +641,38 @@ class OpenAiCompatibleModelClientTest {
         } finally {
             Thread.interrupted();
         }
+    }
+
+    @Test
+    void sanitizesNetworkFailuresAcrossAllInvocationTransports() throws Exception {
+        var http = org.mockito.Mockito.mock(java.net.http.HttpClient.class);
+        org.mockito.Mockito.when(http.send(org.mockito.ArgumentMatchers.any(java.net.http.HttpRequest.class),
+                org.mockito.ArgumentMatchers.<java.net.http.HttpResponse.BodyHandler<java.io.InputStream>>any()))
+                .thenThrow(new IOException("private endpoint and credential"));
+        var client = new OpenAiCompatibleModelClient(http, new ObjectMapper());
+        var route = new ResolvedAiModelRoute("test", AiModelProtocol.OPENAI_COMPATIBLE,
+                "http://127.0.0.1:1/v1", "test", "secret");
+        AiTurnRequest turn = new AiTurnRequest(List.of(new AiChatMessage(AiChatMessage.Role.USER, "hello")),
+                List.of(), null, 512);
+        List<org.assertj.core.api.ThrowableAssert.ThrowingCallable> invocations = List.of(
+                () -> client.generate(route, AiTextRequest.userText("hello")),
+                () -> client.stream(route, AiTextRequest.userText("hello"), text -> {}),
+                () -> client.complete(route, turn),
+                () -> client.stream(route, turn, new AiTurnStreamConsumer() {
+                    public void onTextDelta(String text) {}
+                    public void onComplete(AiTurnResponse response) {}
+                }));
+        for (var invocation : invocations) {
+            assertThatThrownBy(invocation).isInstanceOf(PlatformException.class).hasNoCause()
+                    .hasMessageNotContaining("private endpoint")
+                    .satisfies(error -> {
+                        assertThat(((PlatformException) error).code()).isEqualTo("AI_MODEL_CONNECTION_FAILED");
+                        assertThat(((PlatformException) error).httpStatus()).isEqualTo(502);
+                    });
+        }
+        org.mockito.Mockito.verify(http, org.mockito.Mockito.times(4)).send(
+                org.mockito.ArgumentMatchers.any(java.net.http.HttpRequest.class),
+                org.mockito.ArgumentMatchers.<java.net.http.HttpResponse.BodyHandler<java.io.InputStream>>any());
     }
 
     private OpenAiCompatibleModelClient responseClient(int status, String response) throws IOException {

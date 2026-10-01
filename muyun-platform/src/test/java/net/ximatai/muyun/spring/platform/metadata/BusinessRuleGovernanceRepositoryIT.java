@@ -14,6 +14,7 @@ import net.ximatai.muyun.spring.platform.module.ModuleKind;
 import net.ximatai.muyun.spring.platform.module.PlatformModule;
 import net.ximatai.muyun.spring.platform.module.PlatformModuleActionService;
 import net.ximatai.muyun.spring.platform.module.PlatformModuleService;
+import net.ximatai.muyun.spring.platform.module.PlatformModuleDao;
 import net.ximatai.muyun.spring.platform.runtime.PlatformDynamicRuntimeRefreshCoordinator;
 import net.ximatai.muyun.spring.platform.runtime.PlatformModuleDefinitionCompiler;
 import net.ximatai.muyun.spring.dynamic.runtime.DynamicRecordRuntime;
@@ -25,6 +26,7 @@ import net.ximatai.muyun.database.core.IDatabaseOperations;
 import net.ximatai.muyun.spring.ability.PlatformAbilityRuntime;
 import net.ximatai.muyun.spring.ability.MutationTransactionOperator;
 import net.ximatai.muyun.spring.platform.reference.PlatformReferenceTargetResolver;
+import net.ximatai.muyun.spring.platform.reference.StaticAbilityCatalog;
 import net.ximatai.muyun.spring.platform.support.PlatformPostgresIntegrationTest;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -32,6 +34,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Primary;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -86,13 +89,13 @@ class BusinessRuleGovernanceRepositoryIT extends PlatformPostgresIntegrationTest
                 return statements.execute(status -> work.get());
             }
         });
-        reset(modules, refresh);
+        reset(refresh);
         recordService = new DynamicRecordService(dynamicRuntime);
         String suffix = UUID.randomUUID().toString().replace("-", "").substring(0, 8);
         moduleAlias = "crm.rule_" + suffix;
         PlatformModule module = new PlatformModule();
         module.setAlias(moduleAlias); module.setApplicationAlias("crm"); module.setModuleKind(ModuleKind.DYNAMIC); module.setTitle("rules");
-        when(modules.select(moduleAlias)).thenReturn(module);
+        modules.insert(module);
         ensureSpec("integer", FieldType.INTEGER);
         ensureSpec("decimal", FieldType.DECIMAL);
         ensureSpec("string", FieldType.STRING);
@@ -153,7 +156,7 @@ class BusinessRuleGovernanceRepositoryIT extends PlatformPostgresIntegrationTest
         // Register the declared dynamic reference before governance validates the proposed formula.
         installDeclaredModel();
         PlatformAbilityRuntime.configureReferenceTargetResolver(
-                new PlatformReferenceTargetResolver(null, dynamicRuntime, recordService));
+                new PlatformReferenceTargetResolver(new StaticAbilityCatalog(List.of(modules)), dynamicRuntime, recordService));
 
         BusinessRuleProposal rule = new BusinessRuleProposal("deriveTotal", FormulaRuleKind.CALCULATION,
                 "total", "{supplierId.quantity}", true, null);
@@ -458,6 +461,36 @@ class BusinessRuleGovernanceRepositoryIT extends PlatformPostgresIntegrationTest
     }
 
     @Test
+    void shouldValidateProvidedTrialInputTypesBeforeMainAndChildCalculations() {
+        configureLineItems();
+        var child = relations.list(Criteria.of().eq("moduleAlias", moduleAlias)
+                .eq("relationRole", RelationRole.CHILD)).getFirst();
+        fields.insert(field(child.getMetadataId(), "quantity", "quantity", "integer"));
+        fields.insert(field(child.getMetadataId(), "price", "price", "decimal"));
+        var rules = List.of(new BusinessRuleProposal("sumAmount", FormulaRuleKind.CALCULATION,
+                "total", "SUM({lines.lineAmount})", true, null),
+                new BusinessRuleProposal("lineAmount", FormulaRuleKind.CALCULATION,
+                        "lines.lineAmount", "{lines.quantity} * {lines.price}", true, null));
+        var sample = Map.<String, List<Map<String, Object>>>of("lines", List.of(
+                Map.of("quantity", "2", "price", "3.5"), Map.of("quantity", 1, "price", 20)));
+        var valid = governance.trial(moduleAlias, new BusinessRuleTrialCommand(rules, Map.of(), sample));
+        assertThat(valid.errors()).isEmpty();
+        assertThat(new java.math.BigDecimal(valid.values().get("total").toString())).isEqualByComparingTo("27");
+        assertThat(sample.get("lines").getFirst()).containsEntry("quantity", "2");
+        for (Object invalid : List.of(1.5, "1.5", 2147483648L)) {
+            var badChild = governance.trial(moduleAlias, new BusinessRuleTrialCommand(rules, Map.of(),
+                    Map.of("lines", List.of(Map.of("quantity", invalid, "price", 3.5)))));
+            assertThat(badChild.errors()).extracting(BusinessRuleIssue::code).contains("FORMULA_TYPE_MISMATCH");
+            assertThat(badChild.errors()).extracting(BusinessRuleIssue::field).contains("lines.quantity");
+            assertThat(badChild.changedFields()).isEmpty();
+            var badMain = governance.trial(moduleAlias, new BusinessRuleTrialCommand(rules,
+                    Map.of("quantity", invalid), sample));
+            assertThat(badMain.errors()).extracting(BusinessRuleIssue::field).contains("quantity");
+        }
+        assertThat(formulas.listByRelationIds(List.of(mainRelationId()))).isEmpty();
+    }
+
+    @Test
     void shouldRestrictChildAggregationsToFieldTypeAndHideRelationKey() {
         configureLineItems();
         BusinessRuleGovernanceSnapshot baseline = governance.snapshot(moduleAlias);
@@ -590,7 +623,7 @@ class BusinessRuleGovernanceRepositoryIT extends PlatformPostgresIntegrationTest
         referenceConfigs.insert(reference);
         installDeclaredModel();
         PlatformAbilityRuntime.configureReferenceTargetResolver(
-                new PlatformReferenceTargetResolver(null, dynamicRuntime, recordService));
+                new PlatformReferenceTargetResolver(new StaticAbilityCatalog(List.of(modules)), dynamicRuntime, recordService));
     }
     private void installDeclaredModel() {
         // This isolated governance fixture mocks the platform activation coordinator.
@@ -612,8 +645,11 @@ class BusinessRuleGovernanceRepositoryIT extends PlatformPostgresIntegrationTest
     }
 
     @TestConfiguration
-    @EnableMuYunRepositories(basePackageClasses = ModuleMetadataFormulaRuleDao.class)
+    @EnableMuYunRepositories(basePackageClasses = {ModuleMetadataFormulaRuleDao.class, PlatformModuleDao.class})
     static class Config {
+        @Bean @Primary PlatformModuleService persistedModules(PlatformModuleDao dao) {
+            return new PlatformModuleService(dao, event -> {});
+        }
         @Bean ModuleDefinitionValidator moduleDefinitionValidator() { return new ModuleDefinitionValidator(); }
         @Bean ModuleMetadataFormulaRuleService formulaService(ModuleMetadataFormulaRuleDao dao, ModuleMetadataRelationService relations,
                                                               MetadataFieldService fields,

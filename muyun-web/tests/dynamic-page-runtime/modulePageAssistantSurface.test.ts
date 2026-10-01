@@ -284,15 +284,33 @@ describe('module page assistant surface', () => {
       reason: 'SCOPE_REQUIRED',
       message: '请选择机构',
     }));
-    view.assistantNavigatorScopes = vi.fn(() => [
-      { descriptor: { key: 'organization', title: '机构' } },
-    ]) as never;
+    view.visibleNavigatorLevels = [{ descriptor: { key: 'organization', title: '机构' } }] as never;
     view.selectedNavigatorRecords = {};
 
     expect(createModulePageAssistantSurface(view, vi.fn()).describe().facts).toMatchObject({
       creation: { ready: false, reason: 'SCOPE_REQUIRED' },
       navigatorScopes: [{ key: 'organization', title: '机构', selected: null }],
     });
+  });
+
+  it('preserves visible scope facts while a draft disables scope selection', () => {
+    const view = viewFixture();
+    view.visibleNavigatorLevels = [{ descriptor: { key: 'application', title: '应用' } }] as never;
+    view.selectedNavigatorRecords = {
+      application: { id: 'private-id', title: '青禾文具店' },
+      hidden: { id: 'hidden-id', title: 'Hidden scope' },
+    };
+    view.assistantNavigatorScopes = vi.fn(() => []);
+    const surface = createModulePageAssistantSurface(view, vi.fn());
+    expect(surface.describe().facts.navigatorScopes).toEqual([
+      { key: 'application', title: '应用', selected: '青禾文具店' },
+    ]);
+    expect(surface.capabilities().map(({ descriptor }) => descriptor.code)).not.toContain('scope.search');
+    expect(surface.capabilities().map(({ descriptor }) => descriptor.code)).not.toContain(
+      'scope.select-navigator',
+    );
+    view.visibleNavigatorLevels = [];
+    expect(surface.describe().facts).not.toHaveProperty('navigatorScopes');
   });
 
   it('keeps same-page reactive changes inside the serialized assistant turn', () => {
@@ -325,6 +343,34 @@ describe('module page assistant surface', () => {
 
     queryInteraction = 'page-2';
     expect(modulePageAssistantInteractionRevision(view)).not.toBe(afterNavigator);
+  });
+
+  it('keeps empty trees readable and offers selection only after nodes become available', async () => {
+    const view = viewFixture();
+    view.editorMode = 'view';
+    let nodes: { selectionKey: string; title: string }[] = [];
+    view.treeQueryController = {
+      revision: () => nodes.length,
+      settle: vi.fn(async () => {}),
+      snapshot: () => ({ status: 'ready', nodes, truncated: false }),
+      select: vi.fn(() => nodes[0]!),
+    };
+    const surface = createModulePageAssistantSurface(view, vi.fn());
+    const empty = surface.capabilities();
+    expect(empty.map(({ descriptor }) => descriptor.code)).not.toContain('tree.select-record');
+    const describe = empty.find(({ descriptor }) => descriptor.code === 'tree.describe')!;
+    await expect(describe.execute(describe.parseInput({}), executionContext())).resolves.toMatchObject({
+      nodes: [],
+    });
+
+    nodes = [{ selectionKey: '1:0', title: '供应商通讯录' }];
+    const select = surface.capabilities().find(({ descriptor }) => descriptor.code === 'tree.select-record')!;
+    expect(select.parseInput({ selectionKey: '1:0' })).toEqual({ selectionKey: '1:0' });
+    expect(() => select.parseInput({ selectionKey: 'invented' })).toThrow(AssistantCapabilityUsageError);
+    nodes = [];
+    expect(surface.capabilities().map(({ descriptor }) => descriptor.code)).not.toContain(
+      'tree.select-record',
+    );
   });
 
   it('describes and selects an exact record through the mounted tree controller', async () => {
@@ -503,10 +549,16 @@ describe('module page assistant surface', () => {
     const before = modulePageAssistantContextRevision(view);
 
     status = 'loading';
+    expect(modulePageAssistantContextRevision(view)).not.toBe(before);
+    expect(createModulePageAssistantSurface(view, vi.fn()).describe().facts.query).toMatchObject({
+      status: 'loading',
+      rows: [],
+    });
+    status = 'ready';
     expect(modulePageAssistantContextRevision(view)).toBe(before);
 
     rows[0]!.cells[0]!.value = 'Enriched display value';
-    expect(modulePageAssistantContextRevision(view)).toBe(before);
+    expect(modulePageAssistantContextRevision(view)).not.toBe(before);
 
     rows = [
       {
@@ -852,6 +904,40 @@ describe('module page assistant surface', () => {
       'record.start-edit requires a recordId from the current page',
     );
     expect(capabilities.map(({ descriptor }) => descriptor.code)).not.toContain('record.save');
+  });
+
+  it('prepares a child only through the selected standard tree session', async () => {
+    const view = viewFixture();
+    view.editorMode = 'view';
+    view.persistentTreeDetail = true;
+    view.managedPageActions = false;
+    view.prepareAssistantCreate = vi.fn(async () => () => ({
+      editorMode: 'create' as const,
+      recordId: undefined,
+      editable: true,
+      dirty: false,
+    }));
+    const surface = createModulePageAssistantSurface(view, vi.fn());
+    const child = surface
+      .capabilities()
+      .find(({ descriptor }) => descriptor.code === 'record.start-create-child')!;
+    expect(child).toBeDefined();
+    await child.execute(child.parseInput({}), executionContext());
+    expect(view.prepareAssistantCreate).toHaveBeenCalledWith({ asChildOfSelectedRecord: true });
+    view.selectedRecord = undefined;
+    expect(surface.capabilities().map(({ descriptor }) => descriptor.code)).not.toContain(
+      'record.start-create-child',
+    );
+    view.selectedRecord = { id: 'record-1' };
+    view.persistentTreeDetail = false;
+    expect(surface.capabilities().map(({ descriptor }) => descriptor.code)).not.toContain(
+      'record.start-create-child',
+    );
+    view.persistentTreeDetail = true;
+    view.managedPageActions = true;
+    expect(surface.capabilities().map(({ descriptor }) => descriptor.code)).not.toContain(
+      'record.start-create-child',
+    );
   });
 
   it('settles editor transitions before exposing their post-effect page state', async () => {
@@ -1729,16 +1815,38 @@ it('lists tenant candidates without selecting one or exposing record identifiers
   expect(query).toHaveBeenCalledWith({ page: { pageNum: 2, pageSize: 20 } });
   expect(result).toMatchObject({ candidates: [{ title: 'Demo', label: 'Demo demo' }], hasMore: false });
   expect(JSON.stringify(result)).not.toMatch(/private-id|hidden/);
+  // The next user turn contains only the clicked label. Its live surface must retain the lookup key.
+  expect(surface.describe().facts).toMatchObject({
+    scopeCandidates: [
+      {
+        scopeKey: 'tenant',
+        selectionKey: expect.any(String),
+        title: 'Demo',
+        label: 'Demo demo',
+      },
+    ],
+  });
+  expect(JSON.stringify(surface.describe().facts)).not.toMatch(/private-id|hidden/);
   expect(changeTenantScope).not.toHaveBeenCalled();
   expect(() => search.parseInput({ scopeKey: 'unknown' })).toThrow();
   const select = surface
     .capabilities()
     .find(({ descriptor }) => descriptor.code === 'scope.select-candidate')!;
   const key = (result as { candidates: Array<{ selectionKey: string }> }).candidates[0]!.selectionKey;
+  expect(select.descriptor.inputSchema).toMatchObject({
+    properties: { selectionKey: { enum: [key] } },
+  });
+  // Repeating a lookup must not invalidate the same authorized candidate from an earlier tool result.
+  const repeated = await search.execute(
+    search.parseInput({ scopeKey: 'tenant', page: 2 }),
+    executionContext(),
+  );
+  expect(repeated).toMatchObject({ candidates: [{ selectionKey: key }] });
   await select.execute(select.parseInput({ selectionKey: key }), executionContext());
-  expect(query).toHaveBeenCalledTimes(1);
+  expect(query).toHaveBeenCalledTimes(2);
   expect(changeTenantScope).toHaveBeenCalledWith(expect.objectContaining({ id: 'private-id' }));
   selected.value = { id: 'different-tenant' };
+  expect(surface.describe().facts).toMatchObject({ scopeCandidates: [] });
   await expect(select.execute(select.parseInput({ selectionKey: key }), executionContext())).rejects.toThrow(
     'expired',
   );
@@ -1816,6 +1924,11 @@ it.each(['HIDDEN', 'DESCRIBE'] as const)(
     const result = await list.execute({}, executionContext());
     expect(JSON.stringify(result)).not.toMatch(/protected-value|privateValue/);
     expect(result).toMatchObject({ rows: [{ values: ['Public'] }] });
+    expect(surface.describe().facts.query).toMatchObject({ rows: [{ values: ['Public'] }] });
+    expect(JSON.stringify(surface.describe())).not.toMatch(/protected-value|privateValue/);
+    const protectedRevision = modulePageAssistantContextRevision(view);
+    snapshot.rows[0]!.cells[1]!.value = 'changed-protected-value';
+    expect(modulePageAssistantContextRevision(view)).toBe(protectedRevision);
     const tree = surface.capabilities().find(({ descriptor }) => descriptor.code === 'tree.describe')!;
     expect(await tree.execute({}, executionContext())).toMatchObject({
       nodes: [{ selectionKey: 'node-1', title: 'Public' }],
@@ -1858,4 +1971,45 @@ it('describes precision-safe numeric input and makes rejected values repairable'
     [{ fieldName: 'amount', value: '9007199254740993.12' }],
     'assistant',
   );
+});
+
+it('bounds visible list facts and preserves the explicit route to omitted records', async () => {
+  const view = viewFixture();
+  const snapshot = {
+    mode: 'normal' as const,
+    status: 'ready' as const,
+    quickSearchEnabled: true,
+    quickSearchFields: [],
+    pageNum: 1,
+    pageSize: 20,
+    total: 12,
+    totalKnown: true,
+    rows: Array.from({ length: 12 }, (_, index) => ({
+      id: String(index),
+      cells: [{ fieldName: 'title', title: 'Title', value: 'Entry ' + index }],
+    })),
+    truncated: false,
+  };
+  view.listQueryController = {
+    revision: () => 1,
+    snapshot: () => snapshot,
+    applyQuickSearch: vi.fn(),
+    settle: vi.fn(async () => snapshot),
+  };
+  const surface = createModulePageAssistantSurface(view, vi.fn());
+  const query = () => surface.describe().facts.query as { rows: unknown[]; truncated: boolean };
+  expect(query()).toMatchObject({
+    total: 12,
+    totalKnown: true,
+    truncated: true,
+    detailsCapability: 'query.describe',
+    columns: [{ fieldName: 'title', title: 'Title' }],
+  });
+  expect(query().rows).toHaveLength(10);
+  const describe = surface.capabilities().find(({ descriptor }) => descriptor.code === 'query.describe')!;
+  expect(await describe.execute({}, executionContext())).toMatchObject({
+    rows: expect.arrayContaining([{ id: '11', values: ['Entry 11'] }]),
+  });
+  snapshot.rows = [{ id: 'large', cells: [{ fieldName: 'title', title: 'Title', value: 'x'.repeat(4100) }] }];
+  expect(query()).toMatchObject({ rows: [], truncated: true });
 });
