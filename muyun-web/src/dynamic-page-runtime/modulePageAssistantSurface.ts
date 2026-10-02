@@ -21,7 +21,7 @@ import {
 import { assistantQueryResult, createAssistantQueryCapabilities } from './assistantQueryCapabilities';
 import type { ModulePageSessionView } from './useModulePageSession';
 import type { RecordFormDraftAccess } from './recordFormDraftAccess';
-import { assistantEditableRecordIds, hasActiveRecordEditor } from './assistantRecordEditorPolicy';
+import { assistantVisibleRecordIds, hasActiveRecordEditor } from './assistantRecordEditorPolicy';
 import {
   modulePageScopeCapabilities,
   modulePageScopeCandidateFacts,
@@ -214,36 +214,43 @@ function recordEditorCapabilities(view: ModulePageSessionView): AssistantCapabil
       });
     }
   }
-  const editableRecordIds = assistantEditableRecordIds(view.selectedRecord?.id, querySnapshot);
-  if (view.context.can('update') === true && editableRecordIds.length > 0) {
+  const visibleRecordIds = assistantVisibleRecordIds(view.selectedRecord?.id, querySnapshot);
+  for (const mode of ['view', 'edit'] as const) {
+    if (mode === 'view' && view.pageEnhancement?.recordView) continue;
+    if (view.context.can(mode === 'view' ? 'view' : 'update') !== true || visibleRecordIds.length === 0)
+      continue;
+    const code = mode === 'view' ? 'record.open-view' : 'record.start-edit';
     capabilities.push({
       effect: 'page',
       descriptor: {
-        code: 'record.start-edit',
+        code,
         description:
-          '打开当前页面已选中或当前列表结果中某条记录的标准编辑表单；只能使用当前页面提供的 recordId。它不会保存。',
+          mode === 'view'
+            ? '只读打开当前页面已选中或当前列表中的记录详情，读取正式保存的字段和明细。查看、解释或核对数据时使用，不建立编辑草稿；只能使用当前页面提供的 recordId。'
+            : '用户要求修改记录时，打开当前页面已选中或当前列表中的记录的标准编辑表单。仅查看数据应使用 record.open-view；只能使用当前页面提供的 recordId。它不会保存。',
         inputSchema: {
           type: 'object',
           additionalProperties: false,
           required: ['recordId'],
-          properties: { recordId: { type: 'string', enum: editableRecordIds } },
+          properties: { recordId: { type: 'string', enum: visibleRecordIds } },
         },
       },
       parseInput(input) {
         if (
           !isRecord(input) ||
+          Object.keys(input).some((key) => key !== 'recordId') ||
           typeof input.recordId !== 'string' ||
-          !editableRecordIds.includes(input.recordId)
+          !visibleRecordIds.includes(input.recordId)
         ) {
-          throw new AssistantCapabilityUsageError(
-            'record.start-edit requires a recordId from the current page',
-          );
+          throw new AssistantCapabilityUsageError(`${code} requires a recordId from the current page`);
         }
         return { recordId: input.recordId };
       },
       async execute(input, context) {
         const { recordId } = input as { recordId: string };
-        const commit = await view.prepareAssistantEdit(recordId);
+        const commit = await (mode === 'view'
+          ? view.prepareAssistantView(recordId)
+          : view.prepareAssistantEdit(recordId));
         return context.applyEffect(commit, () =>
           view.settleAssistantPageState(context.cancellationSignal ?? context.signal),
         );

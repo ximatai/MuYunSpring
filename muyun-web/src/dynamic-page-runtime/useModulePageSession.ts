@@ -75,9 +75,10 @@ import {
 } from '@muyun/web-core';
 import { canMutateModuleDetail } from './moduleDetailStateModel';
 import {
-  assistantEditableRecordIds,
+  assistantVisibleRecordIds,
   assistantEditCancelDestination,
-  hasAvailableRecordUpdate,
+  hasActiveRecordEditor,
+  hasAvailableRecordAction,
 } from './assistantRecordEditorPolicy';
 import { recordMutationPayload } from './recordMutationPayload';
 import { createSourceReferencePickerConfigAssembler } from './sourceReferencePickerConfig';
@@ -3351,27 +3352,38 @@ export function useModulePageSession(
     return pageReady.value && editorMode.value === 'view' && recordEditInteractionReady();
   }
 
-  function assistantRecordEditReady() {
+  function assistantRecordOpenReady() {
     // Row edits may reload a new target; assistant proposals reuse current detail facts.
     return recordEditReady() && !detailLoading.value && !detailLoadFailed.value;
   }
 
-  async function prepareAssistantEdit(recordId: string) {
-    if (!assistantRecordEditReady()) throw new Error('A form draft is already active');
+  function prepareAssistantView(recordId: string) {
+    // Dedicated record-view contributions own their presentation and authorization contract.
+    if (pageEnhancement.value?.recordView) throw new Error('Standard record viewing is unavailable');
+    return prepareAssistantRecord(recordId, 'view');
+  }
+
+  function prepareAssistantEdit(recordId: string) {
+    return prepareAssistantRecord(recordId, 'edit');
+  }
+
+  async function prepareAssistantRecord(recordId: string, mode: 'view' | 'edit') {
+    const actionCode = mode === 'view' ? 'view' : 'update';
+    if (!assistantRecordOpenReady()) throw new Error('A form draft is already active');
     const revision = assistantContextRevision.value;
     const normalizedId = recordId.trim();
     const querySnapshot = listQueryController.value?.snapshot();
     if (querySnapshot?.mode === 'recycleBin') {
       throw new Error('Record editing is unavailable in recycle bin mode');
     }
-    const visibleIds = new Set(assistantEditableRecordIds(selectedRecord.value?.id, querySnapshot));
+    const visibleIds = new Set(assistantVisibleRecordIds(selectedRecord.value?.id, querySnapshot));
     if (!normalizedId || !visibleIds.has(normalizedId)) {
       throw new Error(`Record is not available on the current page: ${recordId}`);
     }
     const selected = selectedRecord.value;
-    if (context.can('update') !== true) throw new Error('Record editing is unavailable');
-    if (!(await assistantRecordUpdateAvailable(normalizedId))) {
-      throw new Error('Record editing is unavailable');
+    if (context.can(actionCode) !== true) throw new Error('Record action is unavailable');
+    if (!(await assistantRecordActionAvailable(normalizedId, actionCode))) {
+      throw new Error('Record action is unavailable');
     }
     const loaded =
       selected?.id != null && String(selected.id) === normalizedId
@@ -3380,21 +3392,25 @@ export function useModulePageSession(
     return () => {
       if (
         revision !== assistantContextRevision.value ||
-        !assistantRecordEditReady() ||
-        context.can('update') !== true
+        !assistantRecordOpenReady() ||
+        context.can(actionCode) !== true ||
+        (mode === 'view' && Boolean(pageEnhancement.value?.recordView)) ||
+        !assistantVisibleRecordIds(selectedRecord.value?.id, listQueryController.value?.snapshot()).includes(
+          normalizedId,
+        )
       )
-        throw new Error('编辑状态或范围已变化，请重新准备编辑');
-      commitLoadedRecord(loaded, 'edit', {
+        throw new Error('编辑状态或范围已变化，请重新准备操作');
+      commitLoadedRecord(loaded, mode, {
         cancelDestination: assistantEditCancelDestination(detailOpen.value, selected?.id, normalizedId),
       });
       return assistantEditorState();
     };
   }
 
-  async function assistantRecordUpdateAvailable(recordId: string) {
+  async function assistantRecordActionAvailable(recordId: string, actionCode: 'view' | 'update') {
     try {
       const availability = await context.recordActions(recordId);
-      return hasAvailableRecordUpdate(availability);
+      return hasAvailableRecordAction(availability, actionCode);
     } catch (cause) {
       presentPlatformError(cause, { source: 'module-assistant', phase: 'authorization' });
       return false;
@@ -3405,7 +3421,7 @@ export function useModulePageSession(
     return {
       editorMode: editorMode.value,
       recordId: editingRecord.value?.id == null ? undefined : String(editingRecord.value.id),
-      editable: Boolean(editingRecord.value),
+      editable: hasActiveRecordEditor(editorMode.value, editingRecord.value),
       dirty: detailDirty.value,
     };
   }
@@ -4311,6 +4327,7 @@ export function useModulePageSession(
     recordCreationState,
     prepareAssistantCreate,
     prepareAssistantEdit,
+    prepareAssistantView,
     assistantNavigatorScopes,
     assistantNavigatorCreationTargets,
     prepareAssistantNavigatorCreate,

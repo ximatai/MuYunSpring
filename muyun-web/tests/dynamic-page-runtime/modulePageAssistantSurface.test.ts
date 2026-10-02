@@ -990,6 +990,39 @@ describe('module page assistant surface', () => {
     expect(capabilities.map(({ descriptor }) => descriptor.code)).not.toContain('record.save');
   });
 
+  it('opens readonly details with view permission and never exposes draft writes', async () => {
+    const view = viewFixture();
+    view.editorMode = 'view';
+    view.context.can = vi.fn((action) => action === 'view');
+    view.prepareAssistantView = vi.fn(async (recordId: string) => () => ({
+      editorMode: 'view' as const,
+      recordId,
+      editable: false,
+      dirty: false,
+    }));
+    const surface = createModulePageAssistantSurface(view, vi.fn());
+    const capabilities = surface.capabilities();
+    const open = capabilities.find(({ descriptor }) => descriptor.code === 'record.open-view')!;
+    expect(open.effect).toBe('page');
+    await expect(
+      open.execute(open.parseInput({ recordId: 'record-1' }), executionContext()),
+    ).resolves.toMatchObject({ editorMode: 'view', editable: false, dirty: false });
+    expect(view.prepareAssistantView).toHaveBeenCalledWith('record-1');
+    expect(() => open.parseInput({ recordId: 'outside' })).toThrow();
+    expect(() => open.parseInput({ recordId: 'record-1', edit: true })).toThrow();
+    for (const code of ['record.start-edit', 'form.patch-draft', 'form.prepare-save']) {
+      expect(capabilities.map(({ descriptor }) => descriptor.code)).not.toContain(code);
+    }
+    view.pageEnhancement = { recordView: {} } as ModulePageSessionView['pageEnhancement'];
+    expect(surface.capabilities().map(({ descriptor }) => descriptor.code)).not.toContain('record.open-view');
+    view.pageEnhancement = undefined;
+    view.editorMode = 'edit';
+    expect(surface.capabilities().map(({ descriptor }) => descriptor.code)).not.toContain('record.open-view');
+    view.editorMode = 'view';
+    view.context.can = vi.fn(() => false);
+    expect(surface.capabilities().map(({ descriptor }) => descriptor.code)).not.toContain('record.open-view');
+  });
+
   it('prepares a child only through the selected standard tree session', async () => {
     const view = viewFixture();
     view.editorMode = 'view';

@@ -5,7 +5,7 @@ export function hasActiveRecordEditor(mode: string, draft: unknown) {
   return (mode === 'create' || mode === 'edit') && Boolean(draft);
 }
 
-export function assistantEditableRecordIds(
+export function assistantVisibleRecordIds(
   selectedRecordId: unknown,
   querySnapshot: RecordQueryListQuerySnapshot | undefined,
 ) {
@@ -16,8 +16,11 @@ export function assistantEditableRecordIds(
   ].filter((id, index, ids) => ids.indexOf(id) === index);
 }
 
-export function hasAvailableRecordUpdate(availability: ModuleRecordActionAvailability) {
-  return availability.actions.some((action) => action.actionCode === 'update' && action.available);
+export function hasAvailableRecordAction(
+  availability: ModuleRecordActionAvailability,
+  actionCode: 'view' | 'update',
+) {
+  return availability.actions.some((action) => action.actionCode === actionCode && action.available);
 }
 
 export function assistantEditCancelDestination(

@@ -4014,6 +4014,7 @@ describe('ModulePageHost', () => {
   it.each(['complete', 'fail'])(
     'retains navigator ownership while its detail loads (%s)',
     async (outcome) => {
+      let viewAvailable = true;
       let resolveView!: (response: Response) => void;
       const pendingView = new Promise<Response>((resolve) => (resolveView = resolve));
       let resolveFailedMain!: (response: Response) => void;
@@ -4025,7 +4026,10 @@ describe('ModulePageHost', () => {
             moduleAlias: 'demo.main',
             capabilities: ['TREE'],
             abilities: ['tree'],
-            actions: [{ actionCode: 'update', authorized: true }],
+            actions: [
+              { actionCode: 'update', authorized: true },
+              { actionCode: 'view', authorized: true },
+            ],
             uiDescriptor: {
               moduleAlias: 'demo.main',
               page: page({
@@ -4055,7 +4059,12 @@ describe('ModulePageHost', () => {
           return Response.json({ id: 'main-1', title: '主记录', version: 1 });
         if (request.url.endsWith('/demo.main/view/failed-main')) return pendingFailedMain;
         if (request.url.includes('/actions/'))
-          return Response.json({ actions: [{ actionCode: 'update', available: true }] });
+          return Response.json({
+            actions: [
+              { actionCode: 'update', available: true },
+              { actionCode: 'view', available: viewAvailable },
+            ],
+          });
         throw new Error(`Unexpected request: ${request.url}`);
       };
       configureModuleContext({ httpFactory: () => createHttpClient({ baseUrl: 'http://api.local' }) });
@@ -4092,6 +4101,22 @@ describe('ModulePageHost', () => {
         .props('session') as ModulePageSessionView;
       const surface = createModulePageAssistantSurface(session, vi.fn());
       expect(surface.capabilities().map(({ descriptor }) => descriptor.code)).toContain('record.start-edit');
+      viewAvailable = false;
+      await expect(session.prepareAssistantView('main-1')).rejects.toThrow('Record action is unavailable');
+      expect(session.editorMode).toBe('view');
+      viewAvailable = true;
+      await expect(session.prepareAssistantView('outside-page')).rejects.toThrow('Record is not available');
+      const openView = await session.prepareAssistantView('main-1');
+      expect(openView()).toMatchObject({
+        editorMode: 'view',
+        recordId: 'main-1',
+        editable: false,
+        dirty: false,
+      });
+      expect(surface.capabilities().map(({ descriptor }) => descriptor.code)).not.toContain(
+        'form.patch-draft',
+      );
+      const staleView = await session.prepareAssistantView('main-1');
       const staleEdit = await session.prepareAssistantEdit('main-1');
       wrapper
         .findComponent({ name: 'PageNavigatorExplorer' })
@@ -4108,6 +4133,7 @@ describe('ModulePageHost', () => {
       );
       await expect(session.prepareAssistantEdit('main-1')).rejects.toThrow('A form draft is already active');
       expect(() => staleEdit()).toThrow('编辑状态或范围已变化');
+      expect(() => staleView()).toThrow('编辑状态或范围已变化');
       resolveView(
         outcome === 'complete'
           ? Response.json({ id: 'catalog-1', title: '分类一', version: 1 })
@@ -4131,6 +4157,7 @@ describe('ModulePageHost', () => {
       expect(() => staleEdit()).toThrow('编辑状态或范围已变化');
       (await session.prepareAssistantEdit('main-1'))();
       expect(session.editorMode).toBe('edit');
+      await expect(session.prepareAssistantView('main-1')).rejects.toThrow('A form draft is already active');
       wrapper
         .findComponent({ name: 'PageNavigatorExplorer' })
         .vm.$emit('action', { key: 'edit' }, { id: 'catalog-1', title: '分类一' });
