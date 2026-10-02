@@ -22,7 +22,12 @@ import {
   type RecordQueryListColumn,
 } from '@muyun/platform-components';
 import { useWorkspaceViewUnsavedState } from '@muyun/platform-workbench';
-import { useModuleContext, useAssistantSurfaceHost, createAssistantTurnRequester } from '@muyun/web-core';
+import {
+  OperationRejectedError,
+  useModuleContext,
+  useAssistantSurfaceHost,
+  createAssistantTurnRequester,
+} from '@muyun/web-core';
 import {
   createBusinessRuleAssistantSurface,
   type BusinessRuleTrialInput,
@@ -1173,16 +1178,21 @@ async function applyRules(): Promise<boolean> {
   applicationIssues.value = incompleteRuleIssues(rules.value);
   if (applicationIssues.value.length) return false;
   try {
-    await selected.apply(() => selected === session.value);
+    const outcome = await selected.apply(() => selected === session.value);
     if (selected !== session.value) return false;
     formulaInputs.value = {};
     selectedCode.value =
       rules.value.find((rule) => rule.code === selectedCode.value)?.code ?? rules.value.at(0)?.code;
     resetExecutionResults();
-    presentPlatformMessage('业务规则已应用并同步生效。', {
-      source: 'business-rule-governance',
-      phase: 'action',
-    });
+    presentPlatformMessage(
+      outcome?.synchronized === false
+        ? '业务规则已提交，界面尚未同步；请重新加载后继续编辑。'
+        : '业务规则已应用并同步生效。',
+      {
+        source: 'business-rule-governance',
+        phase: 'action',
+      },
+    );
     return true;
   } catch (cause) {
     if (selected !== session.value) return false;
@@ -1190,7 +1200,10 @@ async function applyRules(): Promise<boolean> {
       applicationIssues.value = cause.issues;
       return false;
     }
-    applicationError.value = '应用失败，配置可能已更新；请重新加载后再应用。未应用更改仍保留。';
+    applicationError.value =
+      cause instanceof OperationRejectedError
+        ? cause.message
+        : '应用失败，配置可能已更新；请重新加载后再应用。未应用更改仍保留。';
     presentPlatformError(cause, { source: 'business-rule-governance', phase: 'action' });
     return false;
   }
@@ -1355,7 +1368,13 @@ onUnmounted(deactivateAssistant);
     </p>
     <UiSpin v-if="loading" class="business-rule-governance__state" tip="加载业务规则" />
     <div v-else-if="loadFailed" class="business-rule-governance__state">
-      <UiEmpty description="业务规则加载失败" />
+      <UiEmpty
+        :description="
+          session.committedNeedsReload.value
+            ? '业务规则已提交，界面同步失败；请重新加载后继续编辑，不要重复提交。'
+            : '业务规则加载失败'
+        "
+      />
       <UiButton @click="() => loadSnapshot()">重试</UiButton>
     </div>
     <div v-else>

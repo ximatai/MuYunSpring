@@ -43,6 +43,18 @@ class ConfigurationReferenceContributorConfiguration {
     @Bean ConfigurationReferenceContributor fieldReferenceReference(ObjectProvider<MetadataFieldReferenceConfigService> service) {
         return contributor(ConfigurationReferenceTarget.METADATA_FIELD, "fieldReference", "字段引用配置", "metadataFieldId", service);
     }
+    @Bean ConfigurationReferenceContributor fieldReferenceAffectReference(ObjectProvider<MetadataFieldReferenceConfigService> service) {
+        return new ConfigurationReferenceContributor() {
+            @Override public ConfigurationReferenceTarget target() { return ConfigurationReferenceTarget.METADATA_FIELD; }
+            @Override public ConfigurationReference reference() {
+                return new ConfigurationReference("fieldReferenceAffect", "引用选择回填配置", "affectMappings");
+            }
+            @Override public Optional<String> findReferenceId(String targetId) {
+                var references = service.getIfAvailable();
+                return references == null ? Optional.empty() : references.findAffectReferenceId(targetId);
+            }
+        };
+    }
     @Bean ConfigurationReferenceContributor fieldReferenceTargetMetadataReference(ObjectProvider<MetadataFieldReferenceConfigService> service) {
         return contributor(ConfigurationReferenceTarget.METADATA, "fieldReferenceTargetMetadata", "字段引用配置", "targetMetadataId", service);
     }

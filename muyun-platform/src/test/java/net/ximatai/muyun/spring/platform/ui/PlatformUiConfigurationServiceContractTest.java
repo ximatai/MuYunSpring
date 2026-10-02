@@ -1,5 +1,7 @@
 package net.ximatai.muyun.spring.platform.ui;
 
+import net.ximatai.muyun.spring.platform.metadata.MetadataFieldReferenceConfigService;
+
 import net.ximatai.muyun.spring.platform.dictionary.DictionaryCategoryService;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.CriteriaClause;
@@ -123,7 +125,8 @@ class PlatformUiConfigurationServiceContractTest {
             TestBeanProviders.empty(PlatformMetadataSchemaEnsureService.class),
             TestBeanProviders.empty(ConfigurationReferenceDeletionGuard.class),
             TestBeanProviders.empty(ModuleMetadataRelationService.class),
-            TestBeanProviders.empty(PlatformModuleService.class));
+            TestBeanProviders.empty(PlatformModuleService.class),
+                TestBeanProviders.empty(MetadataFieldReferenceConfigService.class));
     private final ModuleMetadataRelationService relationService =
             new ModuleMetadataRelationService(
                     relationDao,

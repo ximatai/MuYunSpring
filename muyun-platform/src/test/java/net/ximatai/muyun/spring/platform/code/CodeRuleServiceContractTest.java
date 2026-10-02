@@ -1,5 +1,7 @@
 package net.ximatai.muyun.spring.platform.code;
 
+import net.ximatai.muyun.spring.platform.metadata.MetadataFieldReferenceConfigService;
+
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.formula.FormulaEngine;
 import net.ximatai.muyun.spring.common.platform.OrganizationHierarchyService;
@@ -256,7 +258,8 @@ class CodeRuleServiceContractTest {
                 TestBeanProviders.empty(PlatformMetadataSchemaEnsureService.class),
                 TestBeanProviders.empty(ConfigurationReferenceDeletionGuard.class),
                 TestBeanProviders.empty(ModuleMetadataRelationService.class),
-                TestBeanProviders.empty(PlatformModuleService.class));
+                TestBeanProviders.empty(PlatformModuleService.class),
+                TestBeanProviders.empty(MetadataFieldReferenceConfigService.class));
         ModuleMetadataRelationService relationService = new ModuleMetadataRelationService(
                 new TestMemoryDao<>(),
                 moduleService,

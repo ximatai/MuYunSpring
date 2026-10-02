@@ -31,6 +31,7 @@ public class MetadataFieldService extends AbstractAbilityService<MetadataField> 
         QueryAbility<MetadataField> {
     public static final String MODULE_ALIAS = "platform.metadata_field";
 
+    private final ObjectProvider<MetadataFieldReferenceConfigService> referenceConfigServiceProvider;
     private final MetadataService metadataService;
     private final FieldSpecService fieldTypeService;
     private final ObjectProvider<PlatformDynamicRuntimeRefreshCoordinator> runtimeRefreshCoordinatorProvider;
@@ -46,8 +47,10 @@ public class MetadataFieldService extends AbstractAbilityService<MetadataField> 
                                 ObjectProvider<PlatformMetadataSchemaEnsureService> schemaEnsureServiceProvider,
                                 ObjectProvider<ConfigurationReferenceDeletionGuard> referenceGuardProvider,
                                 ObjectProvider<ModuleMetadataRelationService> relationServiceProvider,
-                                ObjectProvider<PlatformModuleService> moduleServiceProvider) {
+                                ObjectProvider<PlatformModuleService> moduleServiceProvider,
+                                ObjectProvider<MetadataFieldReferenceConfigService> referenceConfigServiceProvider) {
         super(MODULE_ALIAS, MetadataField.class, fieldDao);
+        this.referenceConfigServiceProvider = Objects.requireNonNull(referenceConfigServiceProvider, "referenceConfigServiceProvider");
         this.metadataService = Objects.requireNonNull(metadataService, "metadataService");
         this.fieldTypeService = Objects.requireNonNull(fieldTypeService, "fieldTypeService");
         this.runtimeRefreshCoordinatorProvider = Objects.requireNonNull(runtimeRefreshCoordinatorProvider,
@@ -94,6 +97,8 @@ public class MetadataFieldService extends AbstractAbilityService<MetadataField> 
     public void beforeUpdate(MetadataField field) {
         assertGovernedMainMetadataWrite(field == null ? null : field.getMetadataId());
         normalizeAndValidate(field);
+        var references = referenceConfigServiceProvider.getIfAvailable();
+        if (references != null) references.validateAffectFieldChange(select(field.getId()), field);
     }
 
     @Override

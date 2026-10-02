@@ -73,7 +73,8 @@ class PlatformMetadataSchemaEnsureServiceTest {
                 TestBeanProviders.of(PlatformMetadataSchemaEnsureService.class, schemaEnsureService),
                 TestBeanProviders.empty(ConfigurationReferenceDeletionGuard.class),
                 TestBeanProviders.empty(ModuleMetadataRelationService.class),
-                TestBeanProviders.empty(PlatformModuleService.class));
+                TestBeanProviders.empty(PlatformModuleService.class),
+                TestBeanProviders.empty(MetadataFieldReferenceConfigService.class));
         String metadataId = metadataService.insert(metadata("crm", "customer"));
 
         fieldService.insert(field(metadataId, "customerName", "customer_name", "string"));
@@ -221,7 +222,8 @@ class PlatformMetadataSchemaEnsureServiceTest {
                 TestBeanProviders.empty(PlatformMetadataSchemaEnsureService.class),
                 TestBeanProviders.empty(ConfigurationReferenceDeletionGuard.class),
                 TestBeanProviders.empty(ModuleMetadataRelationService.class),
-                TestBeanProviders.empty(PlatformModuleService.class));
+                TestBeanProviders.empty(PlatformModuleService.class),
+                TestBeanProviders.empty(MetadataFieldReferenceConfigService.class));
         MetadataFieldConfigService configService = mock(MetadataFieldConfigService.class);
         MetadataFieldDefinitionCompiler fieldCompiler =
                 new MetadataFieldDefinitionCompiler(fieldTypeService, configService,

@@ -10,10 +10,23 @@ import java.util.Set;
 /** Server-owned operating knowledge for stable MuYun surface archetypes. */
 final class AssistantPlatformKnowledge {
     private static final Map<String, String> SURFACE_GUIDANCE = Map.of(
+            "construction-discovery", """
+                    Construction capabilities are available when the user wants to design or build an application.
+                    Their availability does not make ordinary queries or navigation construction work.
+                    Plans are optional; discover current platform capabilities and use standard governance with
+                    human save confirmations. Do not start a construction workflow for unrelated requests.
+                    """,
+            "configuration-discovery", """
+                    When the user requests configuration changes, use configuration.start-task to establish the
+                    collaboration preference. A small edit does not require a new construction plan.
+                    Discovery alone does not start an editing workflow or authorize a save.
+                    """,
             "construction", """
+                    Apply this workflow only to requests advancing the current construction goal. Unrelated reads
+                    and navigation use ordinary platform capabilities without construction prerequisites.
                     Discuss the business goal and first scope in ordinary language. Respect decisions; distinguish user
                     requirements from recommendations. Clarify only missing choices affecting the outcome.
-                    One conversation stays with one construction goal; use a new conversation for unrelated work.
+                    Preserve unfinished construction intent when answering unrelated requests.
                     For module creation, first establish application scope: reuse an existing application or create one.
                     Keep the agreed application; use its visible standard management page.
                     For multiple modules, explain dependencies and calibrate ONE foundation module with the user first,
@@ -153,14 +166,17 @@ final class AssistantPlatformKnowledge {
         if (capabilityCodes.stream().anyMatch(name -> name.startsWith("workbench."))) {
             archetypes.add("workbench");
         }
-        if (capabilityCodes.stream().anyMatch(name -> name.startsWith("construction."))) {
-            archetypes.add("construction");
+        Map<?, ?> workspace = workspace(context);
+        if (capabilityCodes.stream().anyMatch(name -> name.startsWith("construction."))
+                && !archetypes.contains("construction")) {
+            archetypes.add(activeConstruction(workspace) ? "construction" : "construction-discovery");
         }
-        if (capabilityCodes.stream().anyMatch(name -> name.equals("configuration.select-metadata-module"))) {
-            archetypes.add("configuration");
-        }
-        if (capabilityCodes.stream().anyMatch(name -> name.startsWith("rules."))) {
-            archetypes.add("configuration");
+        if (capabilityCodes.stream().anyMatch(name -> name.startsWith("configuration.") || name.startsWith("rules."))) {
+            boolean configurationActive = hasGoal(workspace.get("configurationTask"))
+                    || Set.of("configuration", "metadata-governance", "business-rule-governance", "page-composition").contains(surface instanceof String name ? name : "")
+                    || capabilityCodes.contains("configuration.describe-metadata-model")
+                    || capabilityCodes.contains("rules.describe");
+            archetypes.add(configurationActive ? "configuration" : "configuration-discovery");
         }
         // Discovery of a target is not an active editor; inject detailed guidance only once its catalog exists.
         if (capabilityCodes.stream().anyMatch("configuration.describe-metadata-model"::equals)) {
@@ -178,4 +194,20 @@ final class AssistantPlatformKnowledge {
                 .orElseThrow();
         return basePrompt + "\n\nPlatform operating knowledge:\n" + guidance;
     }
+    private static Map<?, ?> workspace(Map<String, Object> context) {
+        return context.get("facts") instanceof Map<?, ?> facts && facts.get("workspace") instanceof Map<?, ?> workspace
+                ? workspace : Map.of();
+    }
+
+    private static boolean hasGoal(Object value) {
+        return value instanceof Map<?, ?> task && task.get("goal") instanceof String goal && !goal.isBlank();
+    }
+
+    private static boolean activeConstruction(Map<?, ?> workspace) {
+        Object value = workspace.get("constructionPlan");
+        return hasGoal(value) && value instanceof Map<?, ?> plan
+                && !Boolean.TRUE.equals(plan.get("historicalDesign"))
+                && !"DELIVERED".equals(plan.get("constructionStatus"));
+    }
+
 }

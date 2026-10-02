@@ -1,5 +1,7 @@
 package net.ximatai.muyun.spring.platform.generation;
 
+import net.ximatai.muyun.spring.platform.metadata.MetadataFieldReferenceConfigService;
+
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.dynamic.metadata.FieldType;
 import net.ximatai.muyun.spring.platform.metadata.Metadata;
@@ -213,7 +215,8 @@ class RecordGenerationRuleServiceTest {
                 TestBeanProviders.empty(PlatformMetadataSchemaEnsureService.class),
                 TestBeanProviders.empty(ConfigurationReferenceDeletionGuard.class),
                 TestBeanProviders.empty(ModuleMetadataRelationService.class),
-                TestBeanProviders.empty(PlatformModuleService.class));
+                TestBeanProviders.empty(PlatformModuleService.class),
+                TestBeanProviders.empty(MetadataFieldReferenceConfigService.class));
         ModuleMetadataRelationService relationService = new ModuleMetadataRelationService(
                 new TestMemoryDao<>(),
                 moduleService,

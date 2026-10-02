@@ -357,7 +357,8 @@ class PlatformDynamicRuntimeRefresherIT extends PlatformPostgresIntegrationTest 
                 TestBeanProviders.empty(PlatformMetadataSchemaEnsureService.class),
                 TestBeanProviders.empty(ConfigurationReferenceDeletionGuard.class),
                 TestBeanProviders.empty(ModuleMetadataRelationService.class),
-                TestBeanProviders.empty(PlatformModuleService.class));
+                TestBeanProviders.empty(PlatformModuleService.class),
+                TestBeanProviders.empty(MetadataFieldReferenceConfigService.class));
         ModuleMetadataRelationService relationService =
                 new ModuleMetadataRelationService(
                         relationDao,

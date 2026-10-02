@@ -996,7 +996,8 @@ class MetadataRelationChangeSetApplyIT extends PlatformPostgresIntegrationTest {
                     empty.getBeanProvider(PlatformMetadataSchemaEnsureService.class),
                     guard,
                     empty.getBeanProvider(ModuleMetadataRelationService.class),
-                    empty.getBeanProvider(PlatformModuleService.class));
+                    empty.getBeanProvider(PlatformModuleService.class),
+                TestBeanProviders.empty(MetadataFieldReferenceConfigService.class));
         }
         @Bean PlatformPageDefinitionService pageService(PlatformPageDefinitionDao dao, PlatformModuleService modules, ModuleMetadataRelationService relations) {
             return new PlatformPageDefinitionService(dao, modules, relations);

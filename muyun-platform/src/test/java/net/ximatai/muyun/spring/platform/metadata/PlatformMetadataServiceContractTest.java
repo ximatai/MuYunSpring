@@ -12,6 +12,7 @@ import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.database.core.orm.PageResult;
 import net.ximatai.muyun.database.core.orm.Sort;
 import net.ximatai.muyun.spring.ability.BaseDao;
+import net.ximatai.muyun.spring.ability.PageRequests;
 import net.ximatai.muyun.spring.ability.PlatformManagedMutationContext;
 import net.ximatai.muyun.spring.ability.PlatformAbilityRuntime;
 import net.ximatai.muyun.spring.ability.reference.ReferenceTargets;
@@ -101,6 +102,7 @@ import java.util.Map;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyMap;
 import static org.mockito.ArgumentMatchers.argThat;
@@ -176,7 +178,8 @@ class PlatformMetadataServiceContractTest {
             TestBeanProviders.of(PlatformMetadataSchemaEnsureService.class, schemaEnsureService),
             TestBeanProviders.empty(ConfigurationReferenceDeletionGuard.class),
             TestBeanProviders.empty(ModuleMetadataRelationService.class),
-            TestBeanProviders.empty(PlatformModuleService.class));
+            TestBeanProviders.empty(PlatformModuleService.class),
+                TestBeanProviders.empty(MetadataFieldReferenceConfigService.class));
     private final ModuleMetadataRelationService relationService =
             new ModuleMetadataRelationService(
                     relationDao,
@@ -1467,9 +1470,46 @@ class PlatformMetadataServiceContractTest {
         assertThat(saved.affects()).containsExactly(new net.ximatai.muyun.spring.dynamic.metadata.EntityReferenceAffectDefinition("price", "dealPrice"));
         var draft = MetadataFieldReferenceConfigDraft.fromConfig(saved);
         assertThat(draft.toConfig().affects()).isEqualTo(saved.affects());
-        for (String invalid : List.of("price:id", "price:productId", "price:missing", "missing:dealPrice", "price:dealPrice,price:dealPrice")) {
+        for (String invalid : List.of("price:id", "price:productId", "price:missing", "missing:dealPrice", "price:dealPrice,price:dealPrice", "title:dealPrice")) {
             saved.setAffectMappings(invalid);
             assertThatThrownBy(() -> referenceConfigService.update(saved)).isInstanceOf(PlatformException.class);
+        }
+    }
+
+    @Test
+    void selectionAffectsRejectStructuredAndNarrowingTypesButAllowNumericWidening() {
+        fieldTypeService.insert(fieldType("long", FieldType.LONG, null));
+        String productId = metadataService.insert(metadata("crm", "product"));
+        String lineId = metadataService.insert(metadata("crm", "line"));
+        fieldService.insert(titleField(productId));
+        fieldService.insert(field(productId, "details", "details", FieldType.JSON));
+        fieldService.insert(field(productId, "quantity", "quantity", FieldType.LONG));
+        fieldService.insert(field(lineId, "amount", "amount", FieldType.DECIMAL));
+        fieldService.insert(field(lineId, "count", "count", FieldType.INTEGER));
+        MetadataField product = field(lineId, "productId", "product_id", FieldType.STRING);
+        fieldService.insert(product);
+        for (String invalid : List.of("details:amount", "quantity:count")) {
+            var config = referenceConfig(product.getId(), productId);
+            config.setAffectMappings(invalid);
+            assertThatThrownBy(() -> referenceConfigService.validateDraft(config, product, null))
+                    .isInstanceOf(PlatformException.class).hasMessageContaining("类型不兼容");
+        }
+        var config = referenceConfig(product.getId(), productId);
+        config.setAffectMappings("quantity:amount");
+        assertThatCode(() -> referenceConfigService.validateDraft(config, product, null)).doesNotThrowAnyException();
+        referenceConfigService.insert(config);
+        var guardedFields = new MetadataFieldService(fieldDao, metadataService, fieldTypeService,
+                TestBeanProviders.empty(PlatformDynamicRuntimeRefreshCoordinator.class),
+                TestBeanProviders.empty(PlatformMetadataSchemaEnsureService.class),
+                TestBeanProviders.empty(ConfigurationReferenceDeletionGuard.class),
+                TestBeanProviders.empty(ModuleMetadataRelationService.class),
+                TestBeanProviders.empty(PlatformModuleService.class),
+                TestBeanProviders.of(MetadataFieldReferenceConfigService.class, referenceConfigService));
+        for (var target : List.of(fieldService.list(Criteria.of().eq("metadataId", productId).eq("fieldName", "quantity"), PageRequests.all()).getFirst(),
+                fieldService.list(Criteria.of().eq("metadataId", lineId).eq("fieldName", "amount"), PageRequests.all()).getFirst())) {
+            var changed = field(target.getMetadataId(), target.getFieldName(), target.getColumnName(), FieldType.STRING);
+            changed.setId(target.getId()); changed.setVersion(target.getVersion());
+            assertThatThrownBy(() -> guardedFields.update(changed)).hasMessageContaining("类型不兼容");
         }
     }
 
@@ -1546,6 +1586,15 @@ class PlatformMetadataServiceContractTest {
         config.setTargetLabelField("displayName");
         config.setProjectionMappings("displayName:customerDisplayName");
 
+        fieldService.insert(field(metadataId, "copiedName", "copied_name", FieldType.STRING));
+        fieldService.insert(field(metadataId, "amount", "amount", FieldType.DECIMAL));
+        config.setAffectMappings("displayName:amount");
+        assertThatThrownBy(() -> referenceConfigService.validateDraft(config, customerCode, relationService.select(relationId)))
+                .isInstanceOf(PlatformException.class).hasMessageContaining("类型不兼容");
+        config.setAffectMappings("tags:copiedName");
+        assertThatThrownBy(() -> referenceConfigService.validateDraft(config, customerCode, relationService.select(relationId)))
+                .isInstanceOf(PlatformException.class).hasMessageContaining("类型不兼容");
+        config.setAffectMappings("title:copiedName");
         String id = referenceConfigService.insert(config);
 
         assertThat(referenceConfigService.select(id)).extracting(MetadataFieldReferenceConfig::getTargetKeyField,
@@ -3164,6 +3213,7 @@ class PlatformMetadataServiceContractTest {
     private static class StaticCustomerReferenceTarget extends StandardTitledEntity {
         private String code;
         private String displayName;
+        private List<String> tags;
     }
 
     private static class MemoryDao<T extends EntityContract> implements BaseDao<T, String> {
