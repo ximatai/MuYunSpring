@@ -1765,15 +1765,18 @@ class PlatformMetadataServiceContractTest {
                 .hasMessageContaining("reference projection output field conflicts with source field");
     }
 
-    @Test
-    void shouldCreateDynamicModuleMainMetadataAsOneOrchestrationOperation() {
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.NullAndEmptySource
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"   "})
+    void shouldCreateDynamicModuleMainMetadataAsOneOrchestrationOperation(String blankStorageSetting) {
         moduleService.insert(module("crm.customer", "crm", ModuleKind.DYNAMIC));
 
         ModuleMainMetadataCreationResult result = orchestrationService.createMainMetadata("crm.customer",
-                new ModuleMainMetadataCreateCommand("customer", "客户", null, null, true));
+                new ModuleMainMetadataCreateCommand("customer", "客户", blankStorageSetting, blankStorageSetting, true));
 
         assertThat(result.metadata().getApplicationAlias()).isEqualTo("crm");
         assertThat(result.metadata().getAlias()).isEqualTo("customer");
+        assertThat(result.metadata().getSchemaName()).isEqualTo("public");
         assertThat(result.metadata().getTableName()).isEqualTo("crm_customer");
         assertThat(result.metadata().getDataScopeEnabled()).isTrue();
         assertThat(result.metadata().getCapabilityDeclarations()).isEmpty();

@@ -830,6 +830,7 @@ it('prepares a missing main entity in the shared editor without creating storage
       alias: 'order',
       title: '客户',
       saved: false,
+      storageDefaultsOnSave: ['schemaName', 'tableName'],
       nextStep: 'REVIEW_AND_SAVE_STRUCTURE_BEFORE_FIELDS',
     },
     draft: { active: true, dirty: true, editorOpen: true },
@@ -839,6 +840,7 @@ it('prepares a missing main entity in the shared editor without creating storage
   ).toBe(false);
   await f.invoke('configuration.open-metadata-editor');
   shared.view.mainMetadataDraft.value.tableName = 'manual_customer';
+  expect(shared.adapter.summary().mainCandidate?.storageDefaultsOnSave).toEqual(['schemaName']);
   const beforeEdit = shared.contextRevision.value;
   shared.view.mainMetadataDraft.value.schemaName = 'public';
   expect(shared.contextRevision.value).toBeGreaterThan(beforeEdit);
@@ -847,7 +849,11 @@ it('prepares a missing main entity in the shared editor without creating storage
     title: '客户资料',
     tableName: 'manual_customer',
     schemaName: 'public',
+    storageDefaultsOnSave: [],
   });
+  shared.view.mainMetadataDraft.value.schemaName = '   ';
+  expect(shared.adapter.summary().mainCandidate?.storageDefaultsOnSave).toEqual(['schemaName']);
+  expect(shared.view.mainMetadataDraft.value.tableName).toBe('manual_customer');
   await shared.view.createMainMetadata();
   expect(f.request.mock.calls.filter(([r]) => r.path.endsWith('/create-main-metadata'))).toHaveLength(1);
   expect(shared.adapter.summary().mainCandidate).toBeUndefined();
