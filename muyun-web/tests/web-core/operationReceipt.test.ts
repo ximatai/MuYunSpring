@@ -13,6 +13,8 @@ const reference: OperationReceiptReference = {
   requestId: 'original-request-123',
   tenantId: 'tenant-a',
   menuId: 'platform.menu.module.platform.application',
+  pageContext: { application: 'app-a' },
+  pageSelection: { kind: 'organization', key: 'department-a' },
 };
 it('queries the original record request using current authorization without replaying writes', async () => {
   const request = vi.fn(async () => ({ committed: true, recordId: 'record' }));
@@ -24,8 +26,19 @@ it('queries the original record request using current authorization without repl
     headers: {
       'X-MuYun-Tenant-Id': 'tenant-a',
       'X-MuYun-Menu-Id': 'platform.menu.module.platform.application',
+      'X-MuYun-Page-Context': JSON.stringify({ application: 'app-a' }),
+      'X-MuYun-Page-Selection': JSON.stringify({ kind: 'organization', key: 'department-a' }),
     },
   });
+  expect(() =>
+    parseOperationReceiptReference({ ...reference, pageContext: { application: { payload: 1 } } }),
+  ).toThrow();
+  expect(() =>
+    parseOperationReceiptReference({
+      ...reference,
+      pageSelection: { kind: 'organization', key: 'a', payload: {} },
+    }),
+  ).toThrow();
   expect(() => parseOperationReceiptReference({ ...reference, payload: { total: 1 } })).toThrow();
   expect(() => parseOperationReceiptReference({ ...reference, moduleAlias: '../outside' })).toThrow();
 });

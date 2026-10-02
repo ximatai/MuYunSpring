@@ -20,7 +20,7 @@ export function parseOperationReceiptReference(value: unknown): OperationReceipt
   } else if (v.kind === 'record-save' || v.kind === 'child-metadata') {
     keys =
       v.kind === 'record-save'
-        ? ['kind', 'moduleAlias', 'requestId', 'tenantId', 'menuId']
+        ? ['kind', 'moduleAlias', 'requestId', 'tenantId', 'menuId', 'pageContext', 'pageSelection']
         : ['kind', 'moduleAlias', 'requestId', 'relationId'];
     if (
       !id('moduleAlias', module) ||
@@ -32,6 +32,39 @@ export function parseOperationReceiptReference(value: unknown): OperationReceipt
     )
       throw new Error('无效操作查询引用');
   } else throw new Error('不支持的操作查询引用');
+  if (v.kind === 'record-save') {
+    const scopeValue = (value: unknown) =>
+      typeof value === 'string' &&
+      value.trim().length > 0 &&
+      value.length <= 512 &&
+      Array.from(value).every(
+        (character) => character.charCodeAt(0) >= 32 && character.charCodeAt(0) !== 127,
+      );
+    if (
+      v.pageContext !== undefined &&
+      (!v.pageContext ||
+        typeof v.pageContext !== 'object' ||
+        Array.isArray(v.pageContext) ||
+        Object.keys(v.pageContext).length > 16 ||
+        Object.entries(v.pageContext).some(
+          ([key, value]) => !/^[A-Za-z0-9_.:-]{1,80}$/.test(key) || !scopeValue(value),
+        ))
+    )
+      throw new Error('无效页面范围查询引用');
+    if (v.pageSelection !== undefined) {
+      const selection = v.pageSelection as Record<string, unknown>;
+      if (
+        !selection ||
+        typeof selection !== 'object' ||
+        Array.isArray(selection) ||
+        Object.keys(selection).some((key) => !['kind', 'key'].includes(key)) ||
+        typeof selection.kind !== 'string' ||
+        !/^[A-Za-z0-9_.:-]{1,80}$/.test(selection.kind) ||
+        !scopeValue(selection.key)
+      )
+        throw new Error('无效页面选择查询引用');
+    }
+  }
   if (Object.keys(v).some((key) => !keys.includes(key))) throw new Error('操作查询引用不能携带执行参数');
   return structuredClone(v) as unknown as OperationReceiptReference;
 }
@@ -59,6 +92,10 @@ export async function lookupOperationReceipt(
       headers: {
         ...(reference.tenantId ? { 'X-MuYun-Tenant-Id': reference.tenantId } : {}),
         ...(reference.menuId ? { 'X-MuYun-Menu-Id': reference.menuId } : {}),
+        ...(reference.pageContext ? { 'X-MuYun-Page-Context': JSON.stringify(reference.pageContext) } : {}),
+        ...(reference.pageSelection
+          ? { 'X-MuYun-Page-Selection': JSON.stringify(reference.pageSelection) }
+          : {}),
       },
     });
     return result.committed && result.recordId

@@ -148,7 +148,7 @@ public class AssistantConversationService {
             receiptField(value, "revisionId", "[a-zA-Z0-9_-]{1,80}");
             receiptField(value, "contentDigest", "[a-f0-9]{64}");
         } else if ("record-save".equals(kind) || "child-metadata".equals(kind)) {
-            keys = "record-save".equals(kind) ? java.util.Set.of("kind", "moduleAlias", "requestId", "tenantId", "menuId")
+            keys = "record-save".equals(kind) ? java.util.Set.of("kind", "moduleAlias", "requestId", "tenantId", "menuId", "pageContext", "pageSelection")
                     : java.util.Set.of("kind", "moduleAlias", "requestId", "relationId");
             receiptField(value, "moduleAlias", "[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+");
             if (value.path("moduleAlias").asText().length() > 128) throw new IllegalArgumentException("操作模块标识过长");
@@ -157,9 +157,31 @@ public class AssistantConversationService {
             if (value.has("tenantId")) receiptField(value, "tenantId", "[a-zA-Z0-9_-]{1,80}");
             if (value.has("menuId")) receiptField(value, "menuId", "[a-zA-Z0-9_.:-]{1,128}");
         } else throw new IllegalArgumentException("不支持的操作查询引用");
+        if ("record-save".equals(kind)) {
+            var context = value.get("pageContext");
+            if (context != null) {
+                if (!context.isObject() || context.size() > 16) throw new IllegalArgumentException("页面查询范围无效");
+                context.fields().forEachRemaining(entry -> {
+                    if (!entry.getKey().matches("[a-zA-Z0-9_.:-]{1,80}")) throw new IllegalArgumentException("页面查询范围无效");
+                    receiptScopeValue(entry.getValue());
+                });
+            }
+            var selection = value.get("pageSelection");
+            if (selection != null) {
+                if (!selection.isObject() || selection.size() != 2 || !selection.has("kind") || !selection.has("key"))
+                    throw new IllegalArgumentException("页面选择查询引用无效");
+                receiptField(selection, "kind", "[a-zA-Z0-9_.:-]{1,80}");
+                receiptScopeValue(selection.get("key"));
+            }
+        }
         value.fieldNames().forEachRemaining(key -> {
             if (!keys.contains(key)) throw new IllegalArgumentException("操作查询引用不能包含写入参数");
         });
+    }
+    private static void receiptScopeValue(com.fasterxml.jackson.databind.JsonNode value) {
+        if (!value.isTextual() || value.asText().isBlank() || value.asText().length() > 512
+                || value.asText().chars().anyMatch(c -> c < 32 || c == 127))
+            throw new IllegalArgumentException("页面范围查询标识无效");
     }
     private static void receiptField(com.fasterxml.jackson.databind.JsonNode value, String key, String pattern) {
         if (!value.path(key).isTextual() || !value.path(key).asText().matches(pattern))
