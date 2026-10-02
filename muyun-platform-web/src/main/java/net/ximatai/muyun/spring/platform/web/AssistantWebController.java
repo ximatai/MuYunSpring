@@ -3,6 +3,7 @@ package net.ximatai.muyun.spring.platform.web;
 import jakarta.annotation.PreDestroy;
 import net.ximatai.muyun.spring.common.exception.PlatformException;
 import net.ximatai.muyun.spring.common.exception.PlatformErrorCodes;
+import net.ximatai.muyun.spring.platform.ai.AiTokenUsage;
 import net.ximatai.muyun.spring.platform.ai.AiToolCall;
 import net.ximatai.muyun.spring.platform.ai.AiToolDefinition;
 import net.ximatai.muyun.spring.platform.assistant.AssistantCapabilityResult;
@@ -142,7 +143,7 @@ public class AssistantWebController {
         return new AssistantTurnWebResponse(response.text(),
                 response.toolCalls().stream().map(AssistantCapabilityCallWeb::from).toList(),
                 AssistantSelectionWeb.from(response.selection()),
-                response.finishReason(), response.requestId());
+                response.finishReason(), response.requestId(), response.usage());
     }
 
     @PreDestroy
@@ -229,7 +230,8 @@ record AssistantTurnWebResponse(String text,
                                 List<AssistantCapabilityCallWeb> toolCalls,
                                 AssistantSelectionWeb selection,
                                 String finishReason,
-                                String requestId) {
+                                String requestId,
+                                AiTokenUsage usage) {
 }
 
 record AssistantSelectionWeb(String interactionId,

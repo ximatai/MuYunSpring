@@ -5,6 +5,7 @@ import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
 import net.ximatai.muyun.spring.common.tenant.TenantContext;
 import net.ximatai.muyun.spring.common.exception.PlatformErrorCodes;
 import net.ximatai.muyun.spring.common.web.RequestTraceContext;
+import net.ximatai.muyun.spring.platform.ai.AiTokenUsage;
 import net.ximatai.muyun.spring.platform.ai.AiToolCall;
 import net.ximatai.muyun.spring.platform.ai.AiToolDefinition;
 import net.ximatai.muyun.spring.platform.ai.AiTurnResponse;
@@ -14,11 +15,19 @@ import net.ximatai.muyun.spring.platform.assistant.AssistantTurnService;
 import net.ximatai.muyun.spring.platform.assistant.AssistantTurnStreamConsumer;
 import net.ximatai.muyun.spring.platform.assistant.AssistantSelectionInteraction;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
+import org.springframework.http.MediaType;
+import org.springframework.http.converter.json.MappingJackson2HttpMessageConverter;
 import org.mockito.ArgumentCaptor;
 import org.slf4j.MDC;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
+import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
 import java.util.List;
+import java.util.stream.Stream;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -31,8 +40,63 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.asyncDispatch;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup;
 
 class AssistantWebControllerTest {
+    static Stream<Arguments> providerUsageCases() {
+        return Stream.of(false, true).flatMap(streaming -> Arrays.asList(
+                new AiTokenUsage(42L, 10L, 52L),
+                new AiTokenUsage(0L, 0L, 0L),
+                new AiTokenUsage(42L, null, null),
+                (AiTokenUsage) null).stream().map(usage -> Arguments.of(streaming, usage)));
+    }
+
+    @ParameterizedTest
+    @MethodSource("providerUsageCases")
+    void preservesReportedAndUnknownUsageInJsonAndSse(boolean streaming, AiTokenUsage usage) throws Exception {
+        var service = mock(AssistantTurnService.class);
+        var result = new AssistantTurnResult("已核实", List.of(), null, "stop", "request-usage", usage);
+        when(service.turn(org.mockito.ArgumentMatchers.any())).thenReturn(result);
+        doAnswer(invocation -> {
+            AssistantTurnStreamConsumer consumer = invocation.getArgument(1);
+            consumer.onComplete(result);
+            return null;
+        }).when(service).stream(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
+        var controller = new AssistantWebController(service);
+        var mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+        var mvc = standaloneSetup(controller)
+                .setMessageConverters(new MappingJackson2HttpMessageConverter(mapper)).build();
+        try (CurrentUserContext.Scope ignoredUser = CurrentUserContext.use(
+                CurrentUser.tenantUser("user-1", "User", "tenant-1"));
+             TenantContext.Scope ignoredTenant = TenantContext.use("tenant-1")) {
+            var initial = mvc.perform(post("/platform.assistant/turn" + (streaming ? "/stream" : ""))
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"message\":\"核实当前页面\",\"context\":{},\"capabilities\":[],\"results\":[]}"))
+                    .andReturn();
+            String body;
+            if (streaming) {
+                assertThat(initial.getRequest().isAsyncStarted()).isTrue();
+                initial.getAsyncResult(2_000);
+                String events = mvc.perform(asyncDispatch(initial)).andExpect(status().isOk())
+                        .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+                assertThat(events).contains("event:complete");
+                body = events.lines().filter(line -> line.startsWith("data:"))
+                        .map(line -> line.substring(5)).findFirst().orElseThrow();
+            } else {
+                assertThat(initial.getResponse().getStatus()).isEqualTo(200);
+                body = initial.getResponse().getContentAsString(StandardCharsets.UTF_8);
+            }
+            var actual = mapper.readTree(body).path("usage");
+            if (usage == null) assertThat(actual.isMissingNode() || actual.isNull()).isTrue();
+            else assertThat(mapper.treeToValue(actual, AiTokenUsage.class)).isEqualTo(usage);
+        } finally {
+            controller.closeStreams();
+        }
+    }
+
     @Test
     void preservesSummaryBudgetFromJsonThroughTheWebBoundary() throws Exception {
         var service = mock(AssistantTurnService.class);
