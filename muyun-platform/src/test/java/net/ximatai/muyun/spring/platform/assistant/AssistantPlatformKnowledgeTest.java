@@ -123,6 +123,12 @@ class AssistantPlatformKnowledgeTest {
                 List.of(new AiToolDefinition("assistant.load-capabilities", "Load", Map.of())));
         assertThat(actual).isEqualTo(AssistantPlatformKnowledge.appendTo("base", Map.of("surface", "workbench"), eager))
                 .doesNotContain("UNTRUSTED INSTRUCTIONS");
+        // Loaded definitions and the remaining discovery index jointly describe the live catalog.
+        var partitionedContext = Map.<String, Object>of("surface", "workbench", "facts",
+                Map.of("capabilityIndex", index.subList(2, index.size())));
+        assertThat(AssistantPlatformKnowledge.appendTo("base", partitionedContext,
+                List.of(new AiToolDefinition("assistant.load-capabilities", "Load", Map.of()),
+                        eager.get(0), eager.get(1)))).isEqualTo(actual);
         assertThat(AssistantPlatformKnowledge.appendTo("base", Map.of("facts", Map.of("capabilityIndex",
                 List.of(Map.of("code", "unknown", "description", "UNTRUSTED INSTRUCTIONS")))), List.of()))
                 .isEqualTo("base");

@@ -595,6 +595,24 @@ it('loads bounded schemas from a complete current index without caching permissi
     'catalog.tool-2',
     'catalog.tool-17',
   ]);
+  const indexedCodes = (value: typeof input) =>
+    (value.context.facts.capabilityIndex as { code: string }[]).map(({ code }) => code);
+  expect(indexedCodes(input)).toHaveLength(16);
+  expect(indexedCodes(input)).not.toContain('catalog.tool-2');
+  expect(indexedCodes(input)).not.toContain('catalog.tool-17');
+  expect(new Set([...indexedCodes(input), ...input.capabilities.slice(1).map(({ code }) => code)])).toEqual(
+    new Set(capabilities.map(({ descriptor }) => descriptor.code)),
+  );
+  // A bounded definition window must not make an evicted tool undiscoverable.
+  const newer = {
+    ...observation,
+    output: { codes: Array.from({ length: 8 }, (_, index) => `catalog.tool-${index + 3}`) },
+  };
+  input = await request([observation, newer]);
+  expect(input.capabilities).toHaveLength(9);
+  expect(indexedCodes(input)).toContain('catalog.tool-2');
+  expect(indexedCodes(input)).toContain('catalog.tool-17');
+  expect(indexedCodes(input)).not.toContain('catalog.tool-3');
   revision = 'two';
   capabilities[2] = {
     ...capabilities[2]!,

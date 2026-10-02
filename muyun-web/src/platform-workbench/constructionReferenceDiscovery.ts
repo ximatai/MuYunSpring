@@ -33,8 +33,19 @@ export function createConstructionReferenceDiscoveryCapabilities(
           type: 'object',
           additionalProperties: false,
           properties: {
-            applicationAlias: { type: 'string', pattern: '^[a-z][a-z0-9_]*$', maxLength: 64 },
-            search: { type: 'string', maxLength: 120 },
+            applicationAlias: {
+              type: 'string',
+              pattern: '^[a-z][a-z0-9_]*$',
+              maxLength: 64,
+              description:
+                'Optional exact application alias from observed facts. Omit to search across applications or when the alias is unknown; do not guess an alias or use a placeholder such as all. An empty filtered result does not establish that the application is absent.',
+            },
+            search: {
+              type: 'string',
+              maxLength: 120,
+              description:
+                'One known module or application title/alias; omit or use an empty string to list all matches in the chosen scope.',
+            },
             offset: { type: 'integer', minimum: 0 },
           },
         },

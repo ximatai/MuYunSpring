@@ -79,10 +79,14 @@ export function assistantCapabilityCatalog(capabilities: AssistantCapability[]) 
           discovery.descriptor,
           ...[...new Set(codes)].flatMap((code) => (byCode.has(code) ? [byCode.get(code)!.descriptor] : [])),
         ],
-        index: capabilities.map(({ descriptor }) => ({
-          code: descriptor.code,
-          description: descriptor.description,
-        })),
+        // Declared tools already carry their full description. Keep only the remaining
+        // tools in discovery; eviction makes a tool discoverable again on the next turn.
+        index: capabilities
+          .filter(({ descriptor }) => !codes.includes(descriptor.code))
+          .map(({ descriptor }) => ({
+            code: descriptor.code,
+            description: descriptor.description,
+          })),
       };
     },
   };
