@@ -62,6 +62,7 @@ import { FormulaRuntime } from '../formula/FormulaRuntime';
 import {
   AppError,
   AssistantOperationRejectedError,
+  OperationUsageError,
   createModuleContext,
   createReferenceResolveClient,
   createStaticResourceTreeClient,
@@ -4173,6 +4174,25 @@ export function useModulePageSession(
     }
   }
 
+  function canLeaveUnchangedEditor() {
+    return (
+      pageReady.value &&
+      editorMode.value === 'edit' &&
+      !sessionDirty.value &&
+      !interactionBusy.value &&
+      !navigatorManagementDetail.open.value &&
+      !localEditOpen.value &&
+      !referenceRecordDetailInteraction.value.editing &&
+      !detailLoading.value &&
+      !detailLoadFailed.value
+    );
+  }
+
+  function leaveUnchangedEditor() {
+    if (!canLeaveUnchangedEditor()) throw new OperationUsageError('编辑状态已变化，请先审阅当前草稿');
+    return cancelDetailEditing();
+  }
+
   async function closeTreeCardEditor() {
     if (saving.value) return;
     assistantInteractionRevision.value += 1;
@@ -4382,6 +4402,8 @@ export function useModulePageSession(
     placedDetailButtons,
     placedFormActions,
     cancelDetailEditing,
+    canLeaveUnchangedEditor,
+    leaveUnchangedEditor,
     saveRecord,
     prepareAssistantSave,
     assistantSaveAvailable,

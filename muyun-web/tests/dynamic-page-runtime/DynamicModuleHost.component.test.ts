@@ -4164,7 +4164,30 @@ describe('ModulePageHost', () => {
       await flushPromises();
       expect(session.assistantNavigatorEditor).toBeUndefined();
       expect(session.editorMode).toBe('edit');
-      await session.closeTreeCardEditor();
+      const leaveEditor = surface
+        .capabilities()
+        .find(({ descriptor }) => descriptor.code === 'record.leave-unchanged-editor')!;
+      expect(leaveEditor).toBeDefined();
+      session.updateReferenceRecordDetailInteraction({ editing: true, busy: false, dirty: false });
+      expect(session.canLeaveUnchangedEditor()).toBe(false);
+      expect(() => session.leaveUnchangedEditor()).toThrow('编辑状态已变化');
+      session.updateReferenceRecordDetailInteraction({ editing: false, busy: true, dirty: false });
+      expect(session.canLeaveUnchangedEditor()).toBe(false);
+      session.updateReferenceRecordDetailInteraction({ editing: false, busy: false, dirty: true });
+      expect(session.canLeaveUnchangedEditor()).toBe(false);
+      session.updateReferenceRecordDetailInteraction({ editing: false, busy: false, dirty: false });
+      await leaveEditor.execute(
+        {},
+        {
+          signal: new AbortController().signal,
+          isCurrent: () => true,
+          commitInternalState: (commit) => commit(),
+          applyEffect: (effect) => effect(),
+        },
+      );
+      expect(session.editorMode).toBe('view');
+      expect(session.selectedRecord?.id).toBe('main-1');
+      expect(session.sessionDirty).toBe(false);
       wrapper
         .findComponent({ name: 'TreeRecordExplorer' })
         .vm.$emit('select', { id: 'failed-main', title: '加载失败的旧记录' });

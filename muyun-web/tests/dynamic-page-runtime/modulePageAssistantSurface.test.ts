@@ -60,6 +60,33 @@ function viewFixture(): ModulePageSessionView {
 }
 
 describe('module page assistant surface', () => {
+  it('leaves only unchanged editors through the standard cancel operation and rechecks stale calls', async () => {
+    const view = viewFixture();
+    view.canLeaveUnchangedEditor = () =>
+      view.editorMode === 'edit' && !view.sessionDirty && !view.detailActionBusy;
+    view.sessionDirty = false;
+    view.leaveUnchangedEditor = vi.fn(async () => {
+      view.editorMode = 'view';
+    });
+    const surface = createModulePageAssistantSurface(view, vi.fn());
+    const leave = () =>
+      surface.capabilities().find(({ descriptor }) => descriptor.code === 'record.leave-unchanged-editor');
+    const stale = leave()!;
+    expect(stale).toBeDefined();
+    view.sessionDirty = true;
+    expect(leave()).toBeUndefined();
+    await expect(stale.execute({}, executionContext())).rejects.toThrow('编辑状态已变化');
+    expect(view.leaveUnchangedEditor).not.toHaveBeenCalled();
+    view.sessionDirty = false;
+    view.detailActionBusy = true;
+    expect(leave()).toBeUndefined();
+    view.detailActionBusy = false;
+    const result = await leave()!.execute({}, executionContext());
+    expect(result).toEqual({ editing: false, saved: false });
+    expect(view.leaveUnchangedEditor).toHaveBeenCalledOnce();
+    expect(view.editorMode).toBe('view');
+    expect(leave()).toBeUndefined();
+  });
   it('opens an authorized navigator draft through its standard management entry', async () => {
     const view = viewFixture();
     view.editorMode = 'view';
@@ -1008,6 +1035,7 @@ describe('module page assistant surface', () => {
       open.execute(open.parseInput({ recordId: 'record-1' }), executionContext()),
     ).resolves.toMatchObject({ editorMode: 'view', editable: false, dirty: false });
     expect(view.prepareAssistantView).toHaveBeenCalledWith('record-1');
+    expect(open.present?.({})).toMatchObject({ lines: ['当前为只读查看，未修改记录。'] });
     expect(() => open.parseInput({ recordId: 'outside' })).toThrow();
     expect(() => open.parseInput({ recordId: 'record-1', edit: true })).toThrow();
     for (const code of ['record.start-edit', 'form.patch-draft', 'form.prepare-save']) {

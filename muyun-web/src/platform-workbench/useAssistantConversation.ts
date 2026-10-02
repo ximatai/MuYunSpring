@@ -460,6 +460,11 @@ export function useAssistantConversation(props: {
         const unknown = error.steps.some((step) =>
           step.results.some((result) => result.execution === 'unknown'),
         );
+        const hasPresentedEffects =
+          error.steps
+            .flatMap((step) => step.results)
+            .filter((result) => result.execution === 'effect-applied' && result.presentation).length >=
+          applied;
         const reason =
           error.termination === 'cancelled'
             ? '本轮已取消'
@@ -470,7 +475,12 @@ export function useAssistantConversation(props: {
           'status',
           unknown
             ? `${reason}，有页面操作的结果尚不确定。请检查当前页面；不会自动重试。`
-            : `前面的 ${applied} 项页面操作已生效，${reason}，目标可能尚未完成。请检查草稿和待填项，再告诉我继续。` +
+            : `${reason}，目标尚未核实完成。` +
+                (applied > 0
+                  ? hasPresentedEffects
+                    ? '已生效步骤见上方平台操作记录；打开页面、准备草稿不代表保存。'
+                    : '本轮已有页面操作生效，但缺少具体结果说明，请核对当前页面；不能据此判断已保存。'
+                  : '本轮没有已确认生效的页面操作。') +
                 (error.termination === 'model-failed' ? `\n${assistantFailureMessage(error.cause)}` : ''),
           undefined,
           diagnostics.join('\n'),

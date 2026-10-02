@@ -108,6 +108,7 @@ export function createModulePageAssistantSurface(
     ...(!view.assistantNavigatorEditor && view.listQueryController ? queryCapabilities(view) : []),
     ...(!view.assistantNavigatorEditor && view.treeQueryController ? treeQueryCapabilities(view) : []),
     ...recordEditorCapabilities(view),
+    ...cleanEditorExitCapabilities(view),
     ...(!view.assistantNavigatorEditor && hasEditableDraft(view) ? relationCapabilities() : []),
     ...(view.assistantNavigatorEditor?.busy ? [] : formCapabilities()),
     ...(!view.assistantNavigatorEditor && hasEditableDraft(view) && view.assistantSaveAvailable
@@ -188,6 +189,10 @@ function recordEditorCapabilities(view: ModulePageSessionView): AssistantCapabil
         inputSchema: emptyAssistantCapabilityInputSchema(),
       },
       parseInput: parseEmptyAssistantCapabilityInput,
+      present: () => ({
+        title: `已打开${view.modulePageTitle}新增表单`,
+        lines: ['已建立未保存草稿，尚未新增正式记录。'],
+      }),
       async execute(_input, context) {
         const commit = await view.prepareAssistantCreate();
         return context.applyEffect(commit, () =>
@@ -246,6 +251,14 @@ function recordEditorCapabilities(view: ModulePageSessionView): AssistantCapabil
         }
         return { recordId: input.recordId };
       },
+      present: () => ({
+        title: `已打开${view.modulePageTitle}${mode === 'view' ? '详情' : '编辑表单'}`,
+        lines: [
+          mode === 'view'
+            ? '当前为只读查看，未修改记录。'
+            : '仅打开编辑表单，尚未提交修改；后续填写仍需审阅保存。',
+        ],
+      }),
       async execute(input, context) {
         const { recordId } = input as { recordId: string };
         const commit = await (mode === 'view'
@@ -262,6 +275,36 @@ function recordEditorCapabilities(view: ModulePageSessionView): AssistantCapabil
 
 function hasEditableDraft(view: Pick<RecordFormDraftAccess, 'editorMode' | 'editingRecord'>) {
   return hasActiveRecordEditor(view.editorMode, view.editingRecord);
+}
+
+function cleanEditorExitCapabilities(view: ModulePageSessionView): AssistantCapability[] {
+  const ready = () => view.canLeaveUnchangedEditor?.() === true;
+  if (!ready()) return [];
+  return [
+    {
+      effect: 'page',
+      descriptor: {
+        code: 'record.leave-unchanged-editor',
+        description:
+          '用户要求退出编辑或返回查看时，退出没有未保存更改的标准编辑表单，按页面原有规则回到详情或列表。不保存、不丢弃更改；存在未保存更改时不可用，应交由用户审阅处理。',
+        inputSchema: emptyAssistantCapabilityInputSchema(),
+      },
+      parseInput: parseEmptyAssistantCapabilityInput,
+      async execute(_input, context) {
+        if (!ready()) throw new AssistantCapabilityUsageError('编辑状态已变化，请先审阅当前草稿');
+        let pending!: Promise<void>;
+        context.applyEffect(
+          () => {
+            pending = view.leaveUnchangedEditor();
+          },
+          () => pending,
+        );
+        await pending;
+        return { editing: false, saved: false };
+      },
+      present: () => ({ title: '已退出未修改的编辑表单', lines: ['原有保存记录保留，本次没有提交修改。'] }),
+    },
+  ];
 }
 
 function queryCapabilities(view: ModulePageSessionView): AssistantCapability[] {

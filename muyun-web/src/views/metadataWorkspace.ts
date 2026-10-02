@@ -277,6 +277,17 @@ export function createMetadataWorkspace(
             });
             return { moduleAlias: target.moduleAlias, saved: false };
           },
+          present() {
+            return {
+              title: `已选中配置对象：${active.value?.title.value ?? '当前模块'}`,
+              lines: [
+                visible.value === active.value
+                  ? '共享编辑页当前可见。'
+                  : '当前仅在工作区选中对象，尚未打开对应编辑页。',
+                '本次选择不创建或保存配置，已有候选保留。',
+              ],
+            };
+          },
         },
         ...(selected && selected.workspaceReady.value && !selected.loading.value && !selected.saving.value
           ? [
@@ -313,6 +324,10 @@ export function createMetadataWorkspace(
                         );
                         return { moduleAlias: selected.moduleAlias, opened: true, saved: false };
                       },
+                      present: () => ({
+                        title: `已打开配置编辑页：${selected.title.value}`,
+                        lines: ['展示当前共享候选，尚未提交新的配置。'],
+                      }),
                     },
                   ]
                 : []),

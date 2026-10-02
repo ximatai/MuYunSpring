@@ -61,9 +61,7 @@ final class AssistantPlatformKnowledge {
             "workbench", """
                     MuYun workbench navigation: compare with pageContext.title and facts.moduleAlias.
                     Find visible menus; open only an exact returned menuId. Use the correct module; never ask users to navigate manually.
-                    Entry configuration stays in menu governance; entry/module titles may differ.
-                    Missing active page tools: find visible standard governance entry (standard menu management);
-                    open it to acquire its capabilities.
+                    Missing tools: find the matching business entry. Configuration governance requires an explicit configuration goal.
                     """,
             "configuration", """
                     For existing-module configuration, read facts.workspace.configurationTask. This task preference
@@ -91,13 +89,13 @@ final class AssistantPlatformKnowledge {
                     navigation is already complete and must not start a draft.
                     navigatorCreationTargets: navigator.start-create; record.start-create opens main drafts. editorOwner owns the form.
                     Reuse facts; patch known ordinary fields together before resolving remaining references.
-                    Opening is not filling. Tree child records need a saved parent; aggregate child drafts save together.
-                    References use capabilities; currentValue is a selected/unavailable label, not empty.
-                    Search is not consent. relations reports children even without main fields.
-                    assistantWritable=false: page row edits, aggregate save.
-                    Leave drafts unsaved; form.prepare-save or page save; only human confirmation saves. Trials need none.
-                    Answers supply only the requested choice; never copy a scope or reference title into unrelated fields.
-                    For missing required or ambiguous values, ask one concise question; reuse clear answers.
+                    Opening is not filling. Tree children need saved parents; aggregate children save together.
+                    References use capabilities; currentValue is a label, not empty. Search is not consent.
+                    relations includes children without main fields; assistantWritable=false means page row edits.
+                    Leave drafts unsaved; form.prepare-save or page save; only human confirmation saves.
+                    Missing values: ask one concise question. Never copy scope/reference answers into unrelated fields.
+                    Missing form fields: say what remains unsaved and preserve saved records. Do not offer schema changes
+                    for a business data request. Configuration needs a separate explicit goal and authorized capabilities.
                     """,
             "page-composition", """
                     The active surface is MuYun template-constrained page composition. Read the current template,

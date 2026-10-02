@@ -546,6 +546,7 @@ it('keeps successful operation feedback when the model follow-up fails', async (
       effect: 'page',
       descriptor: { code: 'form.patch-draft', description: 'Patch draft', inputSchema: {} },
       parseInput: (input) => input,
+      present: () => ({ title: '已打开编辑表单', lines: ['未填写、未保存'] }),
       async execute(_input, context) {
         context.applyEffect(() => undefined);
         return { changed: true };
@@ -559,14 +560,23 @@ it('keeps successful operation feedback when the model follow-up fails', async (
   await flushPromises();
 
   expect(wrapper.text()).not.toContain('已应用 1 项页面操作');
-  expect(wrapper.text()).toContain('前面的 1 项页面操作已生效，后续处理失败，目标可能尚未完成');
+  expect(wrapper.text()).toContain('后续处理失败，目标尚未核实完成');
+  expect(wrapper.text()).toContain('已生效步骤见上方平台操作记录');
+  expect(wrapper.text()).toContain('已打开编辑表单');
+  expect(wrapper.text()).toContain('未填写、未保存');
   expect(wrapper.text()).not.toContain('model returned no executable content');
 
   await wrapper.get('textarea').setValue('继续');
   await wrapper.get('.assistant-panel__actions button').trigger('click');
   await flushPromises();
   expect(requestTurn).toHaveBeenLastCalledWith(
-    expect.objectContaining({ message: '继续', history: [{ role: 'user', text: '填写当前草稿' }] }),
+    expect.objectContaining({
+      message: '继续',
+      history: [
+        { role: 'user', text: '填写当前草稿' },
+        { role: 'assistant', text: '平台操作事实：已打开编辑表单\n未填写、未保存' },
+      ],
+    }),
     expect.any(AbortSignal),
     expect.any(Object),
   );
@@ -603,7 +613,7 @@ it.each([
   expect(requestTurn).toHaveBeenCalledTimes(2);
   expect(wrapper.text()).toContain(expected);
   expect(wrapper.text()).toContain('待确认内容没有提交');
-  expect(wrapper.text()).toContain('前面的 1 项页面操作已生效');
+  expect(wrapper.text()).toContain('本轮已有页面操作生效，但缺少具体结果说明');
 });
 
 const requiredChoice: AssistantTurnOutput = {

@@ -118,6 +118,7 @@ it.each([false, true])(
     });
     await expect(opening).resolves.toEqual({
       value: { openedMenuId: 'customers', title: 'Customers' },
+      presentation: { title: '已打开Customers', lines: ['仅切换页面，未修改或保存业务数据。'] },
       contextChanged: true,
     });
     expect(host?.registry.snapshot()?.context.surface).toBe('static-page');

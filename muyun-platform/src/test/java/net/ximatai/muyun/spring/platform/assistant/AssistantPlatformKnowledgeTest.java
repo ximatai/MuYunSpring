@@ -35,9 +35,9 @@ class AssistantPlatformKnowledgeTest {
     void guidesAuthorizedDraftProgressWithoutBypassingDependenciesOrHumanSave() {
         assertThat(AssistantPlatformKnowledge.appendTo("base", Map.of("surface", "module-page"), List.of()))
                 .contains("patch known ordinary fields together before resolving remaining references",
-                        "Opening is not filling", "Tree child records need a saved parent",
-                        "aggregate child drafts save together", "only human confirmation saves",
-                        "missing required or ambiguous values", "reuse clear answers")
+                        "Opening is not filling", "Tree children need saved parents",
+                        "aggregate children save together", "only human confirmation saves",
+                        "Missing values: ask one concise question")
                 .doesNotContain("platform.menu", "customer", "product");
         assertThat(AssistantPlatformKnowledge.appendTo("base", Map.of("surface", "page-composition"), List.of()))
                 .contains("Reuse supplied catalogs", "revise and preview the candidate",
@@ -55,13 +55,12 @@ class AssistantPlatformKnowledgeTest {
                         "with pageContext.title",
                         "facts.moduleAlias",
                         "open only an exact returned menuId",
-                        "Use the correct module", "Entry configuration stays in menu governance",
-                        "only the requested choice",
-                        "never copy a scope or reference title into unrelated fields");
+                        "Use the correct module", "Never copy scope/reference answers into unrelated fields");
         assertThat(AssistantPlatformKnowledge.appendTo(
                 "base", Map.of("surface", "page-composition"), List.of(navigation)))
-                .contains("active page", "visible standard governance entry",
-                        "open it to acquire its capabilities", "standard menu management");
+                .contains("find the matching business entry",
+                        "Configuration governance requires an explicit configuration goal")
+                .doesNotContain("find visible standard governance entry");
     }
 
     @Test
@@ -147,9 +146,12 @@ class AssistantPlatformKnowledgeTest {
                 List.of(new AiToolDefinition("assistant.load-capabilities", "Load", Map.of())));
         assertThat(lazy).isEqualTo(ordinary);
         assertThat(ordinary).contains("standard MuYun record workspace", "only human confirmation saves",
-                        "MuYun workbench navigation", "configuration.start-task")
+                        "MuYun workbench navigation", "configuration.start-task",
+                        "Configuration governance requires an explicit configuration goal",
+                        "Do not offer schema", "say what remains unsaved", "unrelated fields")
                 .doesNotContain("calibrate ONE foundation module", "Read construction.describe-design-contract",
-                        "One conversation stays", "reopen the shared editor", "configurationEditor.visible");
+                        "One conversation stays", "reopen the shared editor", "configurationEditor.visible",
+                        "find visible standard governance entry");
         var active = AssistantPlatformKnowledge.appendTo("base", Map.of("surface", "module-page",
                 "facts", Map.of("workspace", Map.of("constructionPlan",
                         Map.of("goal", "建立业务应用", "constructionStatus", "NOT_STARTED")))), eager);

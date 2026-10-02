@@ -156,14 +156,19 @@ it.each([{}, { moduleAlias: '../outside' }, { moduleAlias: 'demo.order', url: '/
 
 it('prepares, revises and confirms without mounting a page, and opens exactly the same candidate on request', async () => {
   const f = fixture();
-  await f.select();
+  const selection = await f.select();
+  expect(selection.presentation).toMatchObject({
+    title: '已选中配置对象：订单',
+    lines: expect.arrayContaining(['当前仅在工作区选中对象，尚未打开对应编辑页。']),
+  });
   await f.add();
   expect(f.openEditor).not.toHaveBeenCalled();
   const shared = f.workspace.session('demo.order');
   shared.view.fieldDraft.value.title = '人工修改';
   await f.invoke('configuration.update-metadata-field-draft', { fieldName: 'note', required: true });
   expect(shared.view.fieldDraft.value.title).toBe('人工修改');
-  await f.invoke('configuration.open-metadata-editor');
+  const opened = await f.invoke('configuration.open-metadata-editor');
+  expect(opened.presentation?.title).toBe('已打开配置编辑页：订单');
   expect(f.openEditor).toHaveBeenCalledExactlyOnceWith('demo.order', '订单');
   await shared.ensureLoaded();
   expect(shared.view.fieldDraft.value.title).toBe('人工修改');
