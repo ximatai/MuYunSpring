@@ -341,13 +341,15 @@ function formDescribeCapability(
       const visibleFields = formFieldStates(view).filter(
         (field) => field.visible && !isSensitiveField(field),
       );
+      // Persisted details already carry authorized projections; candidate eligibility is a draft concern.
+      const resolveDraftReferences = resolveReferenceNames && hasEditableDraft(view);
       const resolved = new Map<string, { display: string; unavailable?: boolean }>();
       let remainingReferences = 20;
       let referencesTruncated = false;
       await Promise.all(
         visibleFields.map(async (field) => {
           if (
-            !resolveReferenceNames ||
+            !resolveDraftReferences ||
             !field.reference ||
             field.assistantPolicy === 'DESCRIBE' ||
             field.fileReference ||

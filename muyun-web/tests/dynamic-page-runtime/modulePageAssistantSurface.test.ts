@@ -1415,9 +1415,40 @@ describe('module page assistant surface', () => {
     ).rejects.toThrow('Form field is not editable by the assistant: ownerId');
   });
 
+  it.each([
+    { title: '详情授权名称', expected: '详情授权名称' },
+    { title: undefined, expected: '已选择（名称暂不可用）' },
+  ])('reads detail reference projection $title without querying candidates', async ({ title, expected }) => {
+    const view = referenceViewFixture([]);
+    view.formFields.get('tenantId')!.reference!.titleField = 'tenantTitle';
+    view.editorMode = 'view';
+    view.recordDetailReady = () => true;
+    view.detailDisplayFields = view.formFields;
+    view.selectedRecord = { id: 'record-1', tenantId: 'tenant-internal', tenantTitle: title };
+    const provider = view.referencePickerConfigs.tenantId!.provider!;
+    vi.mocked(provider.resolve).mockResolvedValue([]);
+    const surface = createModulePageAssistantSurface(view, vi.fn());
+    const describe = surface.capabilities().find(({ descriptor }) => descriptor.code === 'form.describe')!;
+    const result = await describe.execute({}, executionContext());
+    expect(result).toMatchObject({
+      editable: false,
+      currentValuesTruncated: false,
+      fields: expect.arrayContaining([
+        expect.objectContaining({ fieldName: 'tenantId', currentValue: expected, assistantWritable: false }),
+      ]),
+    });
+    expect(provider.resolve).not.toHaveBeenCalled();
+    expect(provider.searchPage).not.toHaveBeenCalled();
+    expect(JSON.stringify(result)).not.toContain('tenant-internal');
+    expect(view.updateDraftReference).not.toHaveBeenCalled();
+  });
+
   it('reads authorized reference labels without reselecting or exposing candidate internals', async () => {
     const view = referenceViewFixture([]);
+    view.formFields.get('tenantId')!.reference!.titleField = 'tenantTitle';
+    view.selectedRecord = { id: 'record-1', tenantId: 'previous-tenant', tenantTitle: '旧投影名称' };
     view.editingRecord!.tenantId = 'tenant-internal';
+    view.editingRecord!.tenantTitle = '旧投影名称';
     const resolve = vi.fn(async () => [
       { id: 'tenant-internal', title: '示范租户', subtitle: '华东', projections: { secret: 'private' } },
     ]);
@@ -1428,7 +1459,7 @@ describe('module page assistant surface', () => {
     const result = await describe.execute({}, executionContext());
     expect(resolve).toHaveBeenCalledWith(['tenant-internal']);
     expect(JSON.stringify(result)).toContain('示范租户');
-    expect(JSON.stringify(result)).not.toMatch(/tenant-internal|private|secret/);
+    expect(JSON.stringify(result)).not.toMatch(/tenant-internal|private|secret|旧投影名称/);
     expect(view.updateDraftReference).not.toHaveBeenCalled();
     view.formFields.get('tenantId')!.assistantPolicy = 'DESCRIBE';
     resolve.mockClear();
