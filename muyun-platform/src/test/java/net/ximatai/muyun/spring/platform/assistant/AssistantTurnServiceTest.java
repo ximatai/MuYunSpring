@@ -35,6 +35,7 @@ import static org.mockito.Mockito.doAnswer;
 class AssistantTurnServiceTest {
     @org.junit.jupiter.params.ParameterizedTest
     @org.junit.jupiter.params.provider.CsvSource({
+            "CONFIG_MISSING,configuration-missing",
             "AI_PROVIDER_AUTHENTICATION_FAILED,provider-authentication-failed",
             "AI_PROVIDER_RATE_LIMITED,provider-rate-limited",
             "AI_PROVIDER_UNAVAILABLE,provider-unavailable",

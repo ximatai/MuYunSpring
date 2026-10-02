@@ -18,6 +18,7 @@ function createRegistry(requestTurn: AssistantTurnRequester) {
 }
 
 it.each([
+  ['CONFIG_MISSING', '当前身份缺少可用的模型配置'],
   ['AI_PROVIDER_AUTHENTICATION_FAILED', '模型连接鉴权失败'],
   ['AI_PROVIDER_RATE_LIMITED', '模型服务限制了本次请求'],
   ['AI_PROVIDER_UNAVAILABLE', '模型服务暂时不可用'],
@@ -43,6 +44,7 @@ it.each([
     if (['AI_MODEL_TIMEOUT', 'AI_MODEL_INCOMPLETE_RESPONSE', 'AI_MODEL_INTERRUPTED'].includes(code))
       expect(wrapper.text()).toContain('请核实当前页面后继续处理');
     expect(wrapper.text()).not.toContain('opaque diagnostic');
+    if (code === 'CONFIG_MISSING') expect(wrapper.text()).not.toContain('可以调整需求后继续处理');
     expect(requestTurn).toHaveBeenCalledOnce();
     wrapper.unmount();
   },

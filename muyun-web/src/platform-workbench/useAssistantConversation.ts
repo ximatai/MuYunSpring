@@ -767,6 +767,9 @@ export function useAssistantConversation(props: {
 
 function assistantFailureMessage(error: unknown) {
   if (error instanceof AppError) {
+    if (error.code === 'CONFIG_MISSING') {
+      return '当前身份缺少可用的模型配置。请联系管理员检查租户模型连接、平台共享范围及凭据配置。已确认的保存结果仍有效，待确认内容没有提交。';
+    }
     const modelMessage = modelFailureMessage(error);
     if (modelMessage) {
       const recovery = ['AI_MODEL_TIMEOUT', 'AI_MODEL_INCOMPLETE_RESPONSE', 'AI_MODEL_INTERRUPTED'].includes(

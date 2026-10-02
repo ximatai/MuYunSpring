@@ -179,6 +179,7 @@ public class AssistantTurnService {
     static String diagnosticFailureReason(RuntimeException error) {
         if (error instanceof PlatformException platformError) {
             String reason = switch (platformError.code()) {
+                case "CONFIG_MISSING" -> "configuration-missing";
                 case "AI_PROVIDER_AUTHENTICATION_FAILED" -> "provider-authentication-failed";
                 case "AI_PROVIDER_RATE_LIMITED" -> "provider-rate-limited";
                 case "AI_PROVIDER_UNAVAILABLE" -> "provider-unavailable";
