@@ -72,7 +72,15 @@ export interface AssistantTurnInput {
   selectionResponse?: AssistantSelectionResponse;
 }
 
+/** Provider-reported counts only. Missing counts are unknown, never estimated as zero. */
+export interface AssistantTokenUsage {
+  inputTokens?: number;
+  outputTokens?: number;
+  totalTokens?: number;
+}
+
 export interface AssistantTurnOutput {
+  usage?: AssistantTokenUsage;
   text?: string;
   toolCalls: AssistantCapabilityCall[];
   selection?: AssistantSelectionInteraction;

@@ -72,6 +72,7 @@ it('emits content-free structured diagnostics without affecting execution', asyn
         .mockResolvedValueOnce({
           text: 'private-model-text',
           requestId: 'request-1',
+          usage: { inputTokens: 42, outputTokens: 10, totalTokens: 52 },
           finishReason: 'tool_calls',
           toolCalls: [{ id: 'call-1', code: 'page.inspect', input: { secret: 'private-input' } }],
         })
@@ -92,6 +93,7 @@ it('emits content-free structured diagnostics without affecting execution', asyn
       expect.objectContaining({
         type: 'decision.completed',
         toolCallCount: 1,
+        usage: { inputTokens: 42, outputTokens: 10, totalTokens: 52 },
       }),
       expect.objectContaining({
         type: 'capability.completed',

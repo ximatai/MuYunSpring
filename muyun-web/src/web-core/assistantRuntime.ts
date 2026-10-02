@@ -117,6 +117,7 @@ export type AssistantRuntimeDiagnosticEvent =
     }
   | {
       type: 'decision.completed';
+      usage?: AssistantTurnOutput['usage'];
       stepIndex: number;
       finishReason?: AssistantDiagnosticFinishReason;
       toolCallCount: number;
@@ -149,6 +150,7 @@ export type AssistantRuntimeDiagnosticEvent =
     }
   | {
       type: 'summary.completed';
+      usage?: AssistantTurnOutput['usage'];
       succeeded: boolean;
       reason?: 'truncated' | 'undeclared-tool' | 'provider-rejected' | 'invalid-summary' | 'request-failed';
     }
@@ -457,7 +459,11 @@ export async function runAssistantConversation(
       const summary = { output, results: [], contextChanged: false, appliedEffectCount: 0 };
       await options.onStep?.(summary);
       steps.push(summary);
-      emitDiagnostic(options.onDiagnostic, { type: 'summary.completed', succeeded: true });
+      emitDiagnostic(options.onDiagnostic, {
+        type: 'summary.completed',
+        succeeded: true,
+        ...(output.usage ? { usage: output.usage } : {}),
+      });
     } catch (error) {
       if (options.signal?.aborted || error instanceof StaleAssistantInvocationError || isAbortError(error)) {
         if (hasAppliedCapabilityEffect(steps))
@@ -625,6 +631,7 @@ async function runAssistantStepWithSettledCalls({
   }
   emitDiagnostic(onDiagnostic, {
     type: 'decision.completed',
+    ...(output.usage ? { usage: output.usage } : {}),
     stepIndex,
     ...(output.finishReason ? { finishReason: diagnosticFinishReason(output.finishReason) } : {}),
     toolCallCount: output.toolCalls.length,

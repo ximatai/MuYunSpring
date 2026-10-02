@@ -294,7 +294,10 @@ final class OpenAiCompatibleModelClient implements AiModelClient {
         body.put("messages", wireMessages(request.messages()));
         if (request.temperature() != null) body.put("temperature", request.temperature());
         body.put("max_tokens", route.limits().outputBudget(request.maxOutputTokens()));
-        if (stream) body.put("stream", true);
+        if (stream) {
+            body.put("stream", true);
+            body.put("stream_options", Map.of("include_usage", true));
+        }
         checkContextBudget(route, body);
         return HttpRequest.newBuilder(URI.create(route.chatCompletionsUrl()))
                 .timeout(REQUEST_TIMEOUT)
@@ -326,7 +329,10 @@ final class OpenAiCompatibleModelClient implements AiModelClient {
         }
         if (request.temperature() != null) body.put("temperature", request.temperature());
         body.put("max_tokens", route.limits().outputBudget(request.maxOutputTokens()));
-        if (stream) body.put("stream", true);
+        if (stream) {
+            body.put("stream", true);
+            body.put("stream_options", Map.of("include_usage", true));
+        }
         checkContextBudget(route, body);
         return HttpRequest.newBuilder(URI.create(route.chatCompletionsUrl()))
                 .timeout(REQUEST_TIMEOUT)

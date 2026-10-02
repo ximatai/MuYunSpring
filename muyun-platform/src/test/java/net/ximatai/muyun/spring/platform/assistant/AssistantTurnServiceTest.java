@@ -91,6 +91,17 @@ class AssistantTurnServiceTest {
     }
 
     @Test
+    void preservesProviderUsageWithoutEstimatingMissingCounts() {
+        AiModelGateway gateway = mock(AiModelGateway.class);
+        var usage = new net.ximatai.muyun.spring.platform.ai.AiTokenUsage(42L, null, null);
+        when(gateway.complete(org.mockito.ArgumentMatchers.any())).thenReturn(new AiTurnResponse("ready", List.of(), "stop", "request", usage));
+        var service = new AssistantTurnService(gateway, new ObjectMapper());
+        try (var ignored = CurrentUserContext.use(CurrentUser.systemUser("system", "System"))) {
+            assertThat(service.turn(new AssistantTurnCommand("describe", Map.of(), List.of(), List.of())).usage()).isEqualTo(usage);
+        }
+    }
+
+    @Test
     void failureDiagnosticsClassifyLimitsWithoutLoggingUntrustedMessages() {
         assertThat(AssistantTurnService.diagnosticFailureReason(new PlatformException("模型响应被截断，请缩短描述后重试")))
                 .isEqualTo("output-truncated");
@@ -292,7 +303,8 @@ class AssistantTurnServiceTest {
         doAnswer(invocation -> {
             AiTurnStreamConsumer consumer = invocation.getArgument(1);
             consumer.onTextDelta("partial");
-            consumer.onComplete(truncated);
+            try { consumer.onComplete(truncated); }
+            catch (RuntimeException failure) { throw new PlatformException("AI_MODEL_CALL_FAILED", 502, "sanitized transport error"); }
             return null;
         }).when(gateway).stream(org.mockito.ArgumentMatchers.any(AiTurnRequest.class),
                 org.mockito.ArgumentMatchers.any(AiTurnStreamConsumer.class));

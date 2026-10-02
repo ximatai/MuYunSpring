@@ -116,14 +116,6 @@ export function createMetadataWorkspace(
           metadataConfiguration: active.value
             ? {
                 ...surface()!.describe(),
-                relations: active.value.relations.value
-                  .slice(0, 80)
-                  .map(({ id, relationAlias, relationRole }) => ({
-                    relationId: id,
-                    alias: relationAlias,
-                    role: relationRole,
-                  })),
-                relationsTruncated: active.value.relations.value.length > 80,
                 draftLifetime: '元数据候选保留在当前工作区，关闭页面可继续；刷新或切换身份后不会恢复。',
               }
             : undefined,
@@ -140,6 +132,51 @@ export function createMetadataWorkspace(
       if (!enabled()) return [];
       const selected = active.value;
       return [
+        ...(selected
+          ? [
+              {
+                effect: 'read' as const,
+                descriptor: {
+                  code: 'configuration.list-metadata-relations',
+                  description:
+                    'Read the current module metadata relation identities and roles before selecting a main entity or child table. Returns a bounded page; use offset to read further relations. Does not change the selected relation or candidate.',
+                  inputSchema: {
+                    type: 'object',
+                    additionalProperties: false,
+                    properties: { offset: { type: 'integer', minimum: 0 } },
+                  },
+                },
+                parseInput(input: unknown) {
+                  if (!input || typeof input !== 'object' || Array.isArray(input))
+                    throw new AssistantCapabilityUsageError('请提供目录分页参数');
+                  const value = input as Record<string, unknown>;
+                  if (
+                    Object.keys(value).some((key) => key !== 'offset') ||
+                    (value.offset !== undefined &&
+                      (!Number.isSafeInteger(value.offset) || Number(value.offset) < 0))
+                  )
+                    throw new AssistantCapabilityUsageError('目录分页位置无效');
+                  return Number(value.offset ?? 0);
+                },
+                async execute(offset: unknown) {
+                  const start = offset as number;
+                  const relations = selected.relations.value;
+                  return {
+                    moduleAlias: selected.moduleAlias,
+                    relations: relations
+                      .slice(start, start + 40)
+                      .map(({ id, relationAlias, relationRole }) => ({
+                        relationId: id,
+                        alias: relationAlias,
+                        role: relationRole,
+                      })),
+                    total: relations.length,
+                    nextOffset: start + 40 < relations.length ? start + 40 : null,
+                  };
+                },
+              },
+            ]
+          : []),
         ...(openPageEditor && settleNavigation
           ? [
               {
