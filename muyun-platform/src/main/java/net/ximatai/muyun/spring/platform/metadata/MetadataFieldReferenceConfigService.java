@@ -128,6 +128,38 @@ public class MetadataFieldReferenceConfigService extends AbstractAbilityService<
         return Optional.empty();
     }
 
+    /** A later field specification edit must not invalidate an already published selection mapping. */
+    public void validateAffectFieldChange(MetadataField existing, MetadataField proposed) {
+        if (existing == null) return;
+        FieldType proposedType = fieldTypeService.requireFieldType(proposed.getFieldSpecAlias()).getFieldType();
+        if (Objects.equals(existing.getFieldName(), proposed.getFieldName())
+                && Objects.equals(existing.getMetadataId(), proposed.getMetadataId())
+                && fieldTypeService.requireFieldType(existing.getFieldSpecAlias()).getFieldType() == proposedType) return;
+        for (var config : list(Criteria.of().isNotNull("affectMappings"), PageRequests.all())) {
+            MetadataField owner = fieldService.select(config.getMetadataFieldId());
+            if (owner == null) continue;
+            for (var mapping : config.affects()) {
+                boolean changesSource = Objects.equals(existing.getMetadataId(), config.getTargetMetadataId())
+                        && existing.getFieldName().equals(mapping.referenceField());
+                boolean changesDestination = Objects.equals(existing.getMetadataId(), owner.getMetadataId())
+                        && existing.getFieldName().equals(mapping.targetField());
+                if (!changesSource && !changesDestination) continue;
+                if (!Objects.equals(existing.getFieldName(), proposed.getFieldName())
+                        || !Objects.equals(existing.getMetadataId(), proposed.getMetadataId())) {
+                    throw new PlatformException("字段仍被选择回填占用，请先移除映射：" + existing.getFieldName());
+                }
+                ReferenceTarget target = targetsStaticEntity(config)
+                        ? ReferenceTargets.fromModuleAlias(config.getTargetModuleAlias()) : null;
+                FieldType sourceType = changesSource ? proposedType : affectSourceType(config, target, mapping.referenceField());
+                MetadataField destination = fieldService.list(Criteria.of().eq("metadataId", owner.getMetadataId())
+                        .eq("fieldName", mapping.targetField()), PageRequests.all()).getFirst();
+                FieldType destinationType = changesDestination ? proposedType
+                        : fieldTypeService.requireFieldType(destination.getFieldSpecAlias()).getFieldType();
+                requireAffectAssignment(sourceType, destinationType, mapping.referenceField(), mapping.targetField());
+            }
+        }
+    }
+
     private void normalizeAndValidate(MetadataFieldReferenceConfig config) {
         MetadataField sourceField = requireField(config.getMetadataFieldId(), "source metadata field");
         ModuleMetadataRelation sourceRelation = normalizeRelation(config, sourceField);
@@ -163,7 +195,6 @@ public class MetadataFieldReferenceConfigService extends AbstractAbilityService<
                     + sourceField.getFieldName());
         }
         validateTargetKey(config, target);
-        validateAffects(config, sourceField, target);
         if (config.getTargetUnavailablePolicy() == null) {
             config.setTargetUnavailablePolicy(ReferenceTargetUnavailablePolicy.PRESERVE_HISTORY);
         }
@@ -186,12 +217,14 @@ public class MetadataFieldReferenceConfigService extends AbstractAbilityService<
             validateTargetIntegrity(config, target);
             normalizeStandardLabelProjection(config, sourceField, target);
             validateOutputFields(config, sourceField.getMetadataId(), target);
+            validateAffects(config, sourceField, target);
             return target;
         }
         ReferenceTarget target = resolveDynamicTarget(config, sourceField, sourceRelation);
         validateTargetIntegrity(config, target);
         normalizeStandardLabelProjection(config, sourceField, target);
         validateOutputFields(config, sourceField.getMetadataId(), target);
+        validateAffects(config, sourceField, target);
         return target;
     }
 
@@ -466,14 +499,17 @@ public class MetadataFieldReferenceConfigService extends AbstractAbilityService<
                 throw new PlatformException("选择回填目标必须是当前实体已保存的普通业务字段：" + mapping.targetField());
             FieldType sourceType = affectSourceType(config, target, mapping.referenceField());
             FieldType destinationType = fieldTypeService.requireFieldType(destination.getFieldSpecAlias()).getFieldType();
-            if (!canAssignAffect(sourceType, destinationType)) {
-                throw new PlatformException("选择回填字段类型不兼容：" + mapping.referenceField() + " → "
-                        + mapping.targetField());
-            }
+            requireAffectAssignment(sourceType, destinationType, mapping.referenceField(), mapping.targetField());
             if (!destinations.add(mapping.targetField()))
                 throw new PlatformException("选择回填目标不能重复：" + mapping.targetField());
         }
         config.setAffectMappings(MetadataFieldReferenceConfig.encodeProjections(MetadataFieldReferenceConfig.affectMappings(config)));
+    }
+
+    private static void requireAffectAssignment(FieldType source, FieldType destination, String from, String to) {
+        if (!canAssignAffect(source, destination)) {
+            throw new PlatformException("选择回填字段类型不兼容：" + from + " → " + to);
+        }
     }
 
     private FieldType affectSourceType(MetadataFieldReferenceConfig config, ReferenceTarget target, String name) {

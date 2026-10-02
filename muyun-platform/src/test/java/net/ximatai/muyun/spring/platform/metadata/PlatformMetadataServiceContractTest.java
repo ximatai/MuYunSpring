@@ -12,6 +12,7 @@ import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.database.core.orm.PageResult;
 import net.ximatai.muyun.database.core.orm.Sort;
 import net.ximatai.muyun.spring.ability.BaseDao;
+import net.ximatai.muyun.spring.ability.PageRequests;
 import net.ximatai.muyun.spring.ability.PlatformManagedMutationContext;
 import net.ximatai.muyun.spring.ability.PlatformAbilityRuntime;
 import net.ximatai.muyun.spring.ability.reference.ReferenceTargets;
@@ -177,7 +178,8 @@ class PlatformMetadataServiceContractTest {
             TestBeanProviders.of(PlatformMetadataSchemaEnsureService.class, schemaEnsureService),
             TestBeanProviders.empty(ConfigurationReferenceDeletionGuard.class),
             TestBeanProviders.empty(ModuleMetadataRelationService.class),
-            TestBeanProviders.empty(PlatformModuleService.class));
+            TestBeanProviders.empty(PlatformModuleService.class),
+                TestBeanProviders.empty(MetadataFieldReferenceConfigService.class));
     private final ModuleMetadataRelationService relationService =
             new ModuleMetadataRelationService(
                     relationDao,
@@ -1495,6 +1497,20 @@ class PlatformMetadataServiceContractTest {
         var config = referenceConfig(product.getId(), productId);
         config.setAffectMappings("quantity:amount");
         assertThatCode(() -> referenceConfigService.validateDraft(config, product, null)).doesNotThrowAnyException();
+        referenceConfigService.insert(config);
+        var guardedFields = new MetadataFieldService(fieldDao, metadataService, fieldTypeService,
+                TestBeanProviders.empty(PlatformDynamicRuntimeRefreshCoordinator.class),
+                TestBeanProviders.empty(PlatformMetadataSchemaEnsureService.class),
+                TestBeanProviders.empty(ConfigurationReferenceDeletionGuard.class),
+                TestBeanProviders.empty(ModuleMetadataRelationService.class),
+                TestBeanProviders.empty(PlatformModuleService.class),
+                TestBeanProviders.of(MetadataFieldReferenceConfigService.class, referenceConfigService));
+        for (var target : List.of(fieldService.list(Criteria.of().eq("metadataId", productId).eq("fieldName", "quantity"), PageRequests.all()).getFirst(),
+                fieldService.list(Criteria.of().eq("metadataId", lineId).eq("fieldName", "amount"), PageRequests.all()).getFirst())) {
+            var changed = field(target.getMetadataId(), target.getFieldName(), target.getColumnName(), FieldType.STRING);
+            changed.setId(target.getId()); changed.setVersion(target.getVersion());
+            assertThatThrownBy(() -> guardedFields.update(changed)).hasMessageContaining("类型不兼容");
+        }
     }
 
     @Test

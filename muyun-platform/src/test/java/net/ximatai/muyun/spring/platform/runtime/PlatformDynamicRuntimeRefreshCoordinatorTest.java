@@ -1,5 +1,7 @@
 package net.ximatai.muyun.spring.platform.runtime;
 
+import net.ximatai.muyun.spring.platform.metadata.MetadataFieldReferenceConfigService;
+
 import net.ximatai.muyun.spring.dynamic.metadata.ModuleDefinition;
 import net.ximatai.muyun.spring.dynamic.refresh.DynamicModuleRefreshResult;
 import net.ximatai.muyun.spring.platform.metadata.MetadataField;
@@ -147,7 +149,8 @@ class PlatformDynamicRuntimeRefreshCoordinatorTest {
                 TestBeanProviders.empty(PlatformMetadataSchemaEnsureService.class),
                 TestBeanProviders.empty(ConfigurationReferenceDeletionGuard.class),
                 TestBeanProviders.empty(ModuleMetadataRelationService.class),
-                TestBeanProviders.empty(PlatformModuleService.class));
+                TestBeanProviders.empty(PlatformModuleService.class),
+                TestBeanProviders.empty(MetadataFieldReferenceConfigService.class));
         ModuleMetadataFieldService moduleFieldHook = new ModuleMetadataFieldService(
                 new TestMemoryDao<>(), mock(ModuleMetadataRelationService.class), mock(MetadataService.class),
                 mock(MetadataFieldService.class), null, Optional.empty(), Optional.of(refreshCoordinator));

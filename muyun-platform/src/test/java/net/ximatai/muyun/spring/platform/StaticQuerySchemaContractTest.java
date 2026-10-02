@@ -1,5 +1,7 @@
 package net.ximatai.muyun.spring.platform;
 
+import net.ximatai.muyun.spring.platform.metadata.MetadataFieldReferenceConfigService;
+
 import net.ximatai.muyun.spring.ability.query.QuerySchema;
 import net.ximatai.muyun.spring.ability.query.QueryValueType;
 import net.ximatai.muyun.spring.platform.application.Application;
@@ -90,7 +92,8 @@ class StaticQuerySchemaContractTest {
                 TestBeanProviders.empty(PlatformMetadataSchemaEnsureService.class),
                 TestBeanProviders.empty(ConfigurationReferenceDeletionGuard.class),
                 TestBeanProviders.empty(ModuleMetadataRelationService.class),
-                TestBeanProviders.empty(PlatformModuleService.class)).querySchema();
+                TestBeanProviders.empty(PlatformModuleService.class),
+                TestBeanProviders.empty(MetadataFieldReferenceConfigService.class)).querySchema();
         assertField(metadataField, "required", QueryValueType.BOOLEAN);
         assertField(metadataField, "uniqueField", QueryValueType.BOOLEAN);
         assertField(metadataField, "fieldName", QueryValueType.STRING);

@@ -60,6 +60,7 @@ class ConstructionFieldsIT {
     @Autowired PlatformPresentationRevisionService presentationRevisions;
     @Autowired PlatformPresentationRevisionPublishService presentationPublisher;
 
+    @Autowired FieldSpecService fieldSpecs;
     @Autowired MetadataFieldService metadataFields;
     @Autowired MetadataModelDeletionService modelDeletion;
     @Autowired MetadataFieldReferenceConfigService referenceConfigs;
@@ -112,6 +113,20 @@ class ConstructionFieldsIT {
                     List.of(new MetadataFieldChangeSetDraft(MetadataFieldChangeSetDraft.Operation.ADD, null, null,
                             governedField("productId", text).field(),
                             new MetadataFieldPropertyDraft(MetadataFieldPropertyKind.MODULE_REFERENCE, null, reference, null))));
+            var compatibleSpec = new FieldSpec();
+            compatibleSpec.setAlias("decimal_" + planId.substring(0, 12));
+            compatibleSpec.setTitle("兼容小数");
+            compatibleSpec.setFieldType(net.ximatai.muyun.spring.dynamic.metadata.FieldType.DECIMAL);
+            compatibleSpec.setDefaultPrecision(18); compatibleSpec.setDefaultScale(2);
+            fieldSpecs.insert(compatibleSpec);
+            var compatibleField = metadataFields.list(net.ximatai.muyun.database.core.orm.Criteria.of()
+                    .eq("metadataId", product.metadataId()).eq("fieldName", "price"), net.ximatai.muyun.spring.ability.PageRequests.all()).getFirst();
+            compatibleField.setMetadataId(null); // Standard UPDATE drafts need not repeat persisted ownership.
+            compatibleField.setFieldSpecAlias(compatibleSpec.getAlias());
+            applyGovernedFields(product.moduleAlias(), product.relationId(), metadataService.select(product.metadataId()).getVersion(),
+                    List.of(new MetadataFieldChangeSetDraft(MetadataFieldChangeSetDraft.Operation.UPDATE,
+                            compatibleField.getId(), compatibleField.getVersion(), compatibleField)));
+            assertThat(metadataFields.select(compatibleField.getId()).getFieldSpecAlias()).isEqualTo(compatibleSpec.getAlias());
             for (var binding : List.of(product, order)) {
                 var field = metadataFields.list(net.ximatai.muyun.database.core.orm.Criteria.of()
                         .eq("metadataId", binding.metadataId()).eq("fieldName", "price"), net.ximatai.muyun.spring.ability.PageRequests.all()).getFirst();
@@ -120,6 +135,18 @@ class ConstructionFieldsIT {
                         .satisfies(error -> assertThat(((net.ximatai.muyun.spring.common.exception.PlatformException) error).details())
                                 .containsEntry("referencedResource", "fieldReferenceAffect"));
                 assertThat(metadataFields.select(field.getId())).isNotNull();
+                field.setFieldSpecAlias(text);
+                var changedType = new MetadataModelChangeSetPreviewCommand(List.of(new MetadataModelRelationChangeSetDraft(
+                        binding.relationId(), metadataService.select(binding.metadataId()).getVersion(), java.util.Map.of(),
+                        List.of(new MetadataFieldChangeSetDraft(MetadataFieldChangeSetDraft.Operation.UPDATE,
+                                field.getId(), field.getVersion(), field)))), List.of(), List.of());
+                var typePreview = metadataPreviews.preview(binding.moduleAlias(), changedType);
+                assertThat(typePreview.errors()).anySatisfy(error -> assertThat(error.message()).contains("类型不兼容"));
+                assertThatThrownBy(() -> metadataPublisher.apply(binding.moduleAlias(),
+                        new MetadataModelChangeSetApplyCommand(changedType, typePreview.proposalFingerprint())))
+                        .isInstanceOf(RuntimeException.class);
+                assertThat(metadataFields.select(field.getId()).getFieldSpecAlias())
+                        .isEqualTo(binding == product ? compatibleSpec.getAlias() : decimal);
             }
             var unrelated = metadataFields.list(net.ximatai.muyun.database.core.orm.Criteria.of()
                     .eq("metadataId", other.metadataId()).eq("fieldName", "price"), net.ximatai.muyun.spring.ability.PageRequests.all()).getFirst();

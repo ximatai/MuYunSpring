@@ -279,6 +279,12 @@ public class MetadataRelationChangeSetPreviewService {
      */
     private boolean validateFieldSpecChange(Context context, MetadataField existing, MetadataField proposed,
                                             List<MetadataChangeSetValidationIssue> errors) {
+        try {
+            if (referenceConfigService != null) referenceConfigService.validateAffectFieldChange(existing, overlayBusinessAttributes(existing, proposed));
+        } catch (RuntimeException exception) {
+            error(errors, "INVALID_REFERENCE_AFFECT_TYPE", existing.getFieldName(), exception.getMessage());
+            return false;
+        }
         if (recordService == null) {
             error(errors, "FIELD_SPEC_CHANGE_UNAVAILABLE", existing.getFieldName(),
                     "当前环境未配置数据预检，不能修改存储字段规格。");
