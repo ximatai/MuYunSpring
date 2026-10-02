@@ -32,6 +32,28 @@ const relation = {
   targetEntityAlias: 'member',
 } as ResolvedDetailRelationDescriptor;
 
+it('marks unsaved calculated values in context and confirmation while retaining saved facts', () => {
+  const calculated = structuredClone(descriptor);
+  calculated.editorContributions![0]!.editor.fields = [
+    {
+      fieldRef: { fieldName: 'amount' },
+      label: '小计',
+      readOnly: { constant: true },
+      calculationTiming: 'ON_SAVE',
+    },
+  ];
+  const record = { members: [{ id: '1', amount: '65.00' }] };
+  const baseline = { members: [{ id: '2', amount: '20.00' }] };
+  for (const options of [{ draft: true }, { purpose: 'confirmation' as const }]) {
+    const result = assistantRelationProjection(calculated, [relation], record, { ...options, baseline });
+    expect(result[0]!.rows[0]!.values[0]!.value).toBe('保存后计算');
+    expect(result[0]!.removedRows[0]!.values[0]!.value).toBe('20.00');
+  }
+  expect(assistantRelationProjection(calculated, [relation], record)[0]!.rows[0]!.values[0]!.value).toBe(
+    '65.00',
+  );
+});
+
 it('projects aggregate rows and removals without revealing hidden fields or inventing edit capability', () => {
   const result = assistantRelationProjection(
     descriptor,

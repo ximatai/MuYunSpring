@@ -25,6 +25,7 @@ import { FormulaRuntime } from '../formula/FormulaRuntime';
 
 export type RecordFormFieldDescriptor = (ViewFieldDefinition | ResolvedViewFieldDescriptor) & {
   inputRequirements?: ResolvedViewFieldDescriptor['inputRequirements'];
+  calculationTiming?: ResolvedViewFieldDescriptor['calculationTiming'];
   /** Optional during the protocol migration; resolved descriptors take precedence over legacy uiType. */
   fieldControl?: ResolvedFieldControlDescriptor;
   option?: ResolvedOptionFieldDescriptor;
@@ -248,7 +249,9 @@ export interface RecordFormFieldPickerConfig {
 }
 
 export interface RecordFormFieldState {
+  calculationPending?: boolean;
   inputRequirements?: ResolvedViewFieldDescriptor['inputRequirements'];
+  calculationTiming?: ResolvedViewFieldDescriptor['calculationTiming'];
   assistantPolicy?: import('@muyun/web-contracts').AssistantFieldPolicy;
   fieldName: string;
   label: string;
@@ -470,6 +473,12 @@ export function resolveRecordFormFieldState(
       ? resolveReferencePickerPresentation(field?.fieldControl)
       : undefined;
   const baseState: RecordFormFieldState = {
+    ...(field?.calculationTiming ? { calculationTiming: field.calculationTiming } : {}),
+    ...(readOnly &&
+    field?.calculationTiming === 'ON_SAVE' &&
+    ['create', 'edit'].includes(options.mode ?? 'view')
+      ? { calculationPending: true }
+      : {}),
     ...(field?.inputRequirements ? { inputRequirements: field.inputRequirements } : {}),
     fieldName,
     ...(field?.assistantPolicy ? { assistantPolicy: field.assistantPolicy } : {}),

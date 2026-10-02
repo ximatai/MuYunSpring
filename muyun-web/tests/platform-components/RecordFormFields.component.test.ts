@@ -6,6 +6,39 @@ import type { RecordFormFieldDescriptor } from '@/platform-components/recordForm
 import type { ModuleContext } from '@muyun/web-core';
 
 describe('RecordFormFields', () => {
+  it('does not present persisted server calculations as current draft values', async () => {
+    const fields = new Map<string, RecordFormFieldDescriptor>([
+      [
+        'amount',
+        {
+          fieldRef: { fieldName: 'amount' },
+          label: '金额',
+          valueType: 'DECIMAL',
+          readOnly: { constant: true },
+          calculationTiming: 'ON_SAVE',
+        },
+      ],
+    ]);
+    const record = { amount: '65.00' };
+    const wrapper = mount(RecordFormFields, { props: { fields, record, mode: 'edit' } });
+    expect(wrapper.text()).toContain('保存后计算');
+    expect(wrapper.find('input').exists()).toBe(false);
+    expect(record.amount).toBe('65.00');
+    expect(wrapper.emitted('update:field')).toBeUndefined();
+    await wrapper.setProps({ mode: 'view' });
+    expect(wrapper.text()).not.toContain('保存后计算');
+    expect(wrapper.get('input').element.value).toBe('65.00');
+    await wrapper.setProps({ mode: 'create', record: {} });
+    expect(wrapper.text()).toContain('保存后计算');
+    await wrapper.setProps({
+      mode: 'edit',
+      record,
+      fields: new Map([['amount', { ...fields.get('amount')!, calculationTiming: 'IMMEDIATE' }]]),
+    });
+    expect(wrapper.text()).not.toContain('保存后计算');
+    expect(wrapper.get('input').element.value).toBe('65.00');
+  });
+
   it('keeps normalized required errors consistent with validity without changing the draft', async () => {
     const fields = new Map<string, RecordFormFieldDescriptor>([
       [

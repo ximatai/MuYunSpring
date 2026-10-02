@@ -12,6 +12,8 @@ import net.ximatai.muyun.spring.common.formula.FormulaRulePhase;
 import net.ximatai.muyun.spring.common.formula.FormulaValueType;
 import net.ximatai.muyun.spring.common.schema.PlatformFieldPolicy;
 
+import static net.ximatai.muyun.spring.platform.web.ResolvedViewFieldDescriptor.CalculationTiming.*;
+
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.LinkedHashMap;
@@ -96,7 +98,8 @@ final class BusinessRuleFormProjection {
                             computedTargets.contains(relation.parentBinding() + "." + field.fieldRef().fieldName())
                                     ? field.withComputedValue(immediateTargets.contains(field.fieldRef().fieldName())
                                         ? "自动计算，保存时以服务端校验结果为准"
-                                        : "保存时自动计算，保存前显示原值或留空") : field).toList();
+                                        : "保存时自动计算",
+                                        immediateTargets.contains(field.fieldRef().fieldName()) ? IMMEDIATE : ON_SAVE) : field).toList();
                     return new ResolvedPageDetailEditorContribution(contribution.resource(),
                             contribution.editor().withFields(fields));
                 }).toList();
@@ -181,9 +184,9 @@ final class BusinessRuleFormProjection {
         List<ResolvedViewFieldDescriptor> projectedFields = view.fields().stream()
                 .map(field -> field.fieldRef().relationCode() != null ? field
                         : automaticTargets.contains(field.fieldRef().fieldName())
-                            ? field.withComputedValue("自动计算，保存时以服务端校验结果为准")
+                            ? field.withComputedValue("自动计算，保存时以服务端校验结果为准", IMMEDIATE)
                             : computedTargets.contains(field.fieldRef().fieldName())
-                                ? field.withComputedValue("保存时自动计算，保存前显示原值或留空") : field)
+                                ? field.withComputedValue("保存时自动计算", ON_SAVE) : field)
                 .toList();
         List<ResolvedFormComputeRuleDescriptor> remainingAuthored = serverAuthoritativeAuthoredRules(
                 view.formComputeRules(), serverCalculationTargets, automaticTargets, automaticCodes);

@@ -3580,6 +3580,7 @@ export function useModulePageSession(
           fields: formFields.value,
           pickerConfigs: referencePickerConfigs.value,
           record: editingRecord.value!,
+          mode: editorMode.value,
         }),
       )
       .filter(

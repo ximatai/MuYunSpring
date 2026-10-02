@@ -453,6 +453,7 @@ function assistantRelationFacts(view: ModulePageSessionView) {
     view.assistantDisplayRecord ?? view.editingRecord ?? view.selectedRecord ?? {},
     {
       baseline: view.selectedRecord,
+      draft: view.editorMode !== 'view',
       relationOptions: view.assistantRelationOptions,
       editableRelations: new Set(view.relationDrafts?.list().map((item) => item.code) ?? []),
     },

@@ -332,6 +332,7 @@ function formDescribeCapability(view: RecordFormDraftAccess): AssistantCapabilit
             label: field.label,
             required: field.required,
             readOnly: field.readOnly,
+            ...(field.calculationPending ? { calculationPending: true } : {}),
             valueType: field.valueType,
             ...(field.inputRequirements ? { inputRequirements: field.inputRequirements } : {}),
             ...(assistantValueHint(field) ? { valueHint: assistantValueHint(field) } : {}),
@@ -529,9 +530,11 @@ function assistantCurrentValue(
 ) {
   if (isSensitiveField(field) || field.assistantPolicy === 'DESCRIBE' || field.fileReference)
     return undefined;
-  const value = field.reference
-    ? assistantFieldDisplay(field, view.editingRecord ?? view.selectedRecord ?? {}).slice(0, 500)
-    : (view.editingRecord ?? view.selectedRecord)?.[field.fieldName];
+  const value = field.calculationPending
+    ? '保存后计算'
+    : field.reference
+      ? assistantFieldDisplay(field, view.editingRecord ?? view.selectedRecord ?? {}).slice(0, 500)
+      : (view.editingRecord ?? view.selectedRecord)?.[field.fieldName];
   let candidate: null | string | number | boolean | Array<string | number | boolean> | undefined;
   if (value === undefined) return undefined;
   if (value === null || typeof value === 'number' || typeof value === 'boolean') candidate = value;

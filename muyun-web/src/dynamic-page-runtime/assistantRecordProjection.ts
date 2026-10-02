@@ -19,6 +19,7 @@ export function assistantFieldDisplay(
   record: RecordFormRecord,
   optionItems?: OptionItemDescriptor[],
 ): string {
+  if (field.calculationPending) return '保存后计算';
   if (field.reference) {
     const value = record[field.fieldName];
     if (value == null || value === '' || (Array.isArray(value) && !value.length)) return '未选择';
@@ -70,9 +71,11 @@ export function assistantRelationProjection(
   {
     baseline = {},
     purpose = 'context',
+    draft = purpose === 'confirmation',
     relationOptions = {},
     editableRelations = new Set<string>(),
   }: {
+    draft?: boolean;
     editableRelations?: ReadonlySet<string>;
     baseline?: RecordFormRecord;
     purpose?: 'context' | 'confirmation';
@@ -95,10 +98,14 @@ export function assistantRelationProjection(
     const removed = loaded
       ? before.filter((row) => row.id != null && !rows.some((next) => next.id === row.id))
       : [];
-    const project = (row: RecordFormRecord, index: number) => ({
+    const project = (row: RecordFormRecord, index: number, pending = draft) => ({
       row: index + 1,
       values: [...fields.keys()].flatMap((name) => {
-        const field = resolveRecordFormFieldState(name, { fields, record: row });
+        const field = resolveRecordFormFieldState(name, {
+          fields,
+          record: row,
+          mode: pending ? 'edit' : 'view',
+        });
         return !hidden && assistantReadableField(field)
           ? [
               {
@@ -130,8 +137,8 @@ export function assistantRelationProjection(
         count: loaded ? rows.length : null,
         removedCount: removed.length,
         truncated: !confirmation && (rows.length > 20 || removed.length > 20),
-        rows: rows.slice(0, rowLimit).map(project),
-        removedRows: removed.slice(0, rowLimit).map(project),
+        rows: rows.slice(0, rowLimit).map((row, index) => project(row, index)),
+        removedRows: removed.slice(0, rowLimit).map((row, index) => project(row, index, false)),
       },
     ];
   });
