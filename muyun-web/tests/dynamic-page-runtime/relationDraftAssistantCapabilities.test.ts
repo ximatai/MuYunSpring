@@ -91,7 +91,7 @@ it('reads selected aggregate reference names through the row provider without mo
     title: '明细',
     revision: () => '1',
     settle: async () => {},
-    rowKeys: () => ['row'],
+    rowKeys: () => Array.from({ length: 20 }, (_, index) => `row-${index}`),
     form: () => form,
     add: vi.fn(),
     remove: vi.fn(),
@@ -104,7 +104,12 @@ it('reads selected aggregate reference names through the row provider without mo
     applyEffect: <T>(fn: () => T) => fn(),
   };
   const describe = capabilities().find((item) => item.descriptor.code === 'relation.describe')!;
-  const result = await describe.execute(describe.parseInput({}), context);
+  await describe.execute(describe.parseInput({}), context);
+  expect(resolve).not.toHaveBeenCalled();
+  const select = capabilities().find((item) => item.descriptor.code === 'relation.select-row')!;
+  await select.execute(select.parseInput({ relationCode: 'lines', rowKey: 'row-0' }), context);
+  const selected = capabilities().find((item) => item.descriptor.code === 'relation.form.describe')!;
+  const result = await selected.execute({}, context);
   expect(resolve).toHaveBeenCalledWith(['product-id']);
   expect(JSON.stringify(result)).toContain('业务商品');
   expect(JSON.stringify(result)).not.toMatch(/product-id|hidden|secret/);

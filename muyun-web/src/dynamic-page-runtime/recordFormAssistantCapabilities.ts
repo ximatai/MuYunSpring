@@ -18,11 +18,18 @@ import {
   type RecordFormFieldValue,
 } from '@muyun/platform-components';
 
-export function createRecordFormAssistantCapabilities(view: RecordFormDraftAccess) {
+export function createRecordFormAssistantCapabilities(
+  view: RecordFormDraftAccess,
+  { resolveReferenceNames = true }: { resolveReferenceNames?: boolean } = {},
+) {
   const references: AssistantReferenceSelectionState = { selections: new Map(), searchRevision: 0 };
   return () =>
     hasEditableDraft(view)
-      ? [formDescribeCapability(view), formPatchCapability(view), ...referenceCapabilities(view, references)]
+      ? [
+          formDescribeCapability(view, resolveReferenceNames),
+          formPatchCapability(view),
+          ...referenceCapabilities(view, references),
+        ]
       : [];
 }
 
@@ -311,7 +318,10 @@ function hasEditableDraft(view: RecordFormDraftAccess) {
   return hasActiveRecordEditor(view.editorMode, view.editingRecord);
 }
 
-function formDescribeCapability(view: RecordFormDraftAccess): AssistantCapability<Record<string, never>> {
+function formDescribeCapability(
+  view: RecordFormDraftAccess,
+  resolveReferenceNames: boolean,
+): AssistantCapability<Record<string, never>> {
   return {
     effect: 'read',
     descriptor: {
@@ -332,6 +342,7 @@ function formDescribeCapability(view: RecordFormDraftAccess): AssistantCapabilit
       await Promise.all(
         visibleFields.map(async (field) => {
           if (
+            !resolveReferenceNames ||
             !field.reference ||
             field.assistantPolicy === 'DESCRIBE' ||
             field.fileReference ||
