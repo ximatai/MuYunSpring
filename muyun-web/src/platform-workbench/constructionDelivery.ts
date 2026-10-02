@@ -26,13 +26,13 @@ export function createConstructionDeliveryCapabilities(
     properties,
   });
   const textSchema = { type: 'string', minLength: 1, maxLength: 120 };
-  const fieldsSchema = {
-    type: 'array',
-    maxItems: 40,
-    items: { type: 'string', minLength: 1, maxLength: 64 },
-  };
-  const parseObject = (input: unknown): Record<string, unknown> => {
-    if (!input || typeof input !== 'object' || Array.isArray(input))
+  const parseObject = (input: unknown, allowed = ['objectKey']): Record<string, unknown> => {
+    if (
+      !input ||
+      typeof input !== 'object' ||
+      Array.isArray(input) ||
+      Object.keys(input).some((key) => !allowed.includes(key))
+    )
       throw new AssistantCapabilityUsageError('建设参数无效');
     return input as Record<string, unknown>;
   };
@@ -41,34 +41,8 @@ export function createConstructionDeliveryCapabilities(
       throw new AssistantCapabilityUsageError('建设参数为空或过长');
     return value.trim();
   };
-  const names = (value: unknown) => {
-    if (
-      !Array.isArray(value) ||
-      value.length > 40 ||
-      value.some((item) => typeof item !== 'string' || !/^[a-z][a-zA-Z0-9_]{0,63}$/.test(item)) ||
-      new Set(value).size !== value.length
-    )
-      throw new AssistantCapabilityUsageError('页面字段必须来自目录，且不能重复');
-    return value as string[];
-  };
-  const children = (value: unknown) => {
-    if (value === undefined) return {};
-    const input = parseObject(value);
-    if (
-      Object.keys(input).length > 16 ||
-      Object.keys(input).some((alias) => !/^[a-z][a-z0-9_]{0,62}$/.test(alias))
-    )
-      throw new AssistantCapabilityUsageError('请从实际目录选择明细，最多 16 组');
-    return Object.fromEntries(
-      Object.entries(input).map(([alias, fields]) => {
-        const checked = names(fields);
-        if (!checked.length) throw new AssistantCapabilityUsageError('明细至少展示一个字段');
-        return [alias, checked];
-      }),
-    );
-  };
   const presentation = (receipt: ConstructionDeliveryReceipt) => ({
-    title: receipt.kind === 'PAGE' ? '页面配置已发布' : '访问入口已创建',
+    title: '访问入口已创建',
     lines: [
       current().saved?.content.objects.find((object) => object.key === receipt.objectKey)?.name ?? '业务页面',
       `依据需求第 ${receipt.planRevision} 版`,
@@ -86,50 +60,25 @@ export function createConstructionDeliveryCapabilities(
     }
     return result;
   }
-  function prepare(kind: 'PAGE' | 'ENTRY'): AssistantCapability {
+  function prepareEntry(): AssistantCapability {
     let prepared: AssistantOperationProposal | undefined;
     return {
       effect: 'read',
       descriptor: {
-        code: kind === 'PAGE' ? 'construction.prepare-page' : 'construction.prepare-entry',
+        code: 'construction.prepare-entry',
         description:
-          kind === 'PAGE'
-            ? 'Prepare a separately confirmed management page (list, form, shared detail and quick search) for an initialized object. Read actual fields first; use existing field names, include all required business fields in formFields. Optional childFields maps discovered direct-child aliases to their actual field names; include all required child business fields and all confirmed requirement fields. Does not create relations. Replaces this construction plan’s page layout; never changes field rules. Human confirmation publishes.'
-            : 'Prepare a separately confirmed menu entry for the current published standard management page in the system workbench, regardless of which governance entry published it. Does not grant business permissions. Query progress first; do not recreate an existing entry.',
-        inputSchema: {
-          ...objectSchema({
-            objectKey: constructionObjectKeySchema(current),
-            title: textSchema,
-            ...(kind === 'PAGE'
-              ? { listFields: fieldsSchema, formFields: fieldsSchema, searchFields: fieldsSchema }
-              : {}),
-          }),
-          properties: {
-            objectKey: constructionObjectKeySchema(current),
-            title: textSchema,
-            ...(kind === 'PAGE'
-              ? {
-                  listFields: fieldsSchema,
-                  formFields: fieldsSchema,
-                  searchFields: fieldsSchema,
-                  childFields: { type: 'object', maxProperties: 16, additionalProperties: fieldsSchema },
-                }
-              : {}),
-          },
-        },
+          'Prepare a separately confirmed menu entry for the current published standard management page in the system workbench, regardless of which governance entry published it. Does not grant business permissions. Query progress first; do not recreate an existing entry.',
+        inputSchema: objectSchema({ objectKey: constructionObjectKeySchema(current), title: textSchema }),
       },
       parseInput(input) {
-        const value = parseObject(input);
+        const value = parseObject(input, ['objectKey', 'title']);
         return {
-          kind,
+          kind: 'ENTRY',
           objectKey: text(value.objectKey),
           title: text(value.title),
-          listFields: kind === 'PAGE' ? names(value.listFields) : [],
-          formFields: kind === 'PAGE' ? names(value.formFields) : [],
-          searchFields: kind === 'PAGE' ? names(value.searchFields) : [],
-          ...(kind === 'PAGE' && value.childFields !== undefined
-            ? { childFields: children(value.childFields) }
-            : {}),
+          listFields: [],
+          formFields: [],
+          searchFields: [],
         };
       },
       async execute(input, context) {
@@ -144,15 +93,12 @@ export function createConstructionDeliveryCapabilities(
         const { isCurrent } = before;
         context.commitInternalState(() => {
           prepared = {
-            modelSummary:
-              kind === 'PAGE'
-                ? '发布已预检的列表、表单和查询页面配置，不修改业务字段或规则。'
-                : '创建已发布页面的工作台入口，不授予额外业务权限。',
-            confirmLabel: kind === 'PAGE' ? '确认发布页面' : '确认创建入口',
+            modelSummary: '创建已发布页面的工作台入口，不授予额外业务权限。',
+            confirmLabel: '确认创建入口',
             expiresAt: Date.now() + 5 * 60_000,
             isCurrent,
             presentation: {
-              title: kind === 'PAGE' ? '发布业务页面' : '创建工作台入口',
+              title: '创建工作台入口',
               lines: [stable.proposal.title, ...stable.lines],
               details: { title: '查看配置标识', lines: [stable.moduleAlias] },
             },
@@ -262,8 +208,7 @@ export function createConstructionDeliveryCapabilities(
     },
   };
   return [
-    prepare('PAGE'),
-    prepare('ENTRY'),
+    prepareEntry(),
     acceptanceCapability,
     {
       effect: 'read',

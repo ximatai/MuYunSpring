@@ -738,7 +738,7 @@ export function createConstructionPlanSession(
           ...proposal,
           continuation: proposal.continuation ?? {
             message:
-              '平台续接：上一项已经确认成功。先核对已商定的应用范围；新建应用必须先经标准表单填写、人工确认并保存成功，再沿标准应用、模块管理页面打开或新建一个模块。已选应用继续沿用，归属不清才询问。不要把整份需求映射当作创建前置，不重复创建、不自动保存；创建模块不代表已配置字段和页面，达到本次请求范围即停止。',
+              '上一项已确认成功。读取当前平台事实，继续用户目标中尚未完成的部分；已提交内容不重建，新的保存须另行确认。需求方案只提供范围与验收依据，现行配置是事实来源。',
             isCurrent: () =>
               current().saved?.planId === planId &&
               current().saved?.revision === revision &&

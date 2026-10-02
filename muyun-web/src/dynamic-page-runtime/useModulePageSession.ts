@@ -3594,6 +3594,13 @@ export function useModulePageSession(
     );
     if (!isCurrent()) throw new AssistantOperationRejectedError('草稿已变化，请重新确认');
     return {
+      receiptReference: {
+        kind: 'record-save',
+        moduleAlias: context.moduleAlias,
+        requestId,
+        ...(tenantScopeId.value ? { tenantId: tenantScopeId.value } : {}),
+        ...(props.descriptor.menuId ? { menuId: props.descriptor.menuId } : {}),
+      },
       modelSummary:
         '保存当前表单及随单明细，等待用户确认，尚未提交。字段值仅依据当前表单能力返回的授权事实。',
       presentation: {

@@ -263,7 +263,7 @@ subprojects {
             systemProperty("junit.jupiter.execution.parallel.enabled", "false")
 
             if (name == "test") {
-                exclude("**/*IT.class")
+                exclude("**/*IT.class", "**/*IT\$*.class")
             }
 
             if (project.name == "muyun-platform") {

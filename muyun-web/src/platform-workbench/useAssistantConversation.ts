@@ -13,6 +13,8 @@ import type {
 import {
   AppError,
   modelFailureMessage,
+  restoreAssistantOperationReceipt,
+  parseOperationReceiptReference,
   AssistantConversationInterruptedError,
   runAssistantConversation,
   sameAssistantInvocationToken,
@@ -30,6 +32,7 @@ interface ConversationItem {
   selection?: ConversationSelection;
   confirmation?: AssistantOperationConfirmation;
   confirmationState?: AssistantConfirmationState;
+  confirmationScope?: string;
   diagnostic?: string;
   details?: AssistantResultPresentation['details'];
 }
@@ -159,7 +162,30 @@ export function useAssistantConversation(props: {
     }),
     async (content) => {
       clearConversation(true);
-      items.value = content.messages.map((message) => ({ ...message, id: ++nextItemId }));
+      const restoredEpoch = conversationEpoch;
+      items.value = content.messages.map((message) => {
+        const item: ConversationItem = { role: message.role, text: message.text, id: ++nextItemId };
+        if (message.operationReceipt && props.conversationClient?.lookupOperation) {
+          try {
+            const reference = parseOperationReceiptReference(message.operationReceipt.reference);
+            const scope = message.operationReceipt.executionScopeKey;
+            item.confirmationScope = scope;
+            item.confirmation = markRaw(
+              restoreAssistantOperationReceipt(
+                reference,
+                () => props.conversationClient!.lookupOperation!(reference),
+                () =>
+                  restoredEpoch === conversationEpoch &&
+                  props.registry.snapshot()?.token.executionScopeKey === scope,
+              ),
+            );
+            item.confirmationState = 'unknown';
+          } catch {
+            /* Historical invalid references never become requests. */
+          }
+        }
+        return item;
+      });
       const sameScope = content.executionScopeKey === executionScope;
       completedHistory.value = sameScope
         ? boundedHistory([
@@ -342,6 +368,7 @@ export function useAssistantConversation(props: {
               text: '',
               confirmation: markRaw(confirmation),
               confirmationState: confirmation.state,
+              confirmationScope: props.registry.snapshot()?.token.executionScopeKey,
             });
           }
           if (step.results.length > 0) {
@@ -609,9 +636,21 @@ export function useAssistantConversation(props: {
     busy.value = true;
     activity.value = 'executing';
     operationPending.value = true;
-    const pending = check ? item.confirmation.check() : item.confirmation.confirm();
-    item.confirmationState = item.confirmation.state;
     try {
+      // Persist the read-only identity before sending a write, so refresh during transport can recover it.
+      if (!check && item.confirmation.receiptReference) {
+        item.confirmationState = 'executing';
+        if (
+          !(await archive.save()) ||
+          epoch !== conversationEpoch ||
+          operationScope !== executionGeneration
+        ) {
+          item.confirmationState = item.confirmation.state;
+          return;
+        }
+      }
+      const pending = check ? item.confirmation.check() : item.confirmation.confirm();
+      item.confirmationState = item.confirmation.state;
       await pending;
       if (epoch !== conversationEpoch) return;
       item.confirmationState = item.confirmation.state;
@@ -761,6 +800,16 @@ function assistantHistoryText(text: string | undefined, selection?: AssistantSel
 function archiveMessage(item: ConversationItem) {
   return {
     role: item.role,
+    ...(item.confirmation?.receiptReference &&
+    item.confirmationScope &&
+    ['executing', 'checking', 'unknown'].includes(item.confirmationState ?? '')
+      ? {
+          operationReceipt: {
+            reference: item.confirmation.receiptReference,
+            executionScopeKey: item.confirmationScope,
+          },
+        }
+      : {}),
     text: [
       item.text,
       ...(item.details?.lines ?? []),

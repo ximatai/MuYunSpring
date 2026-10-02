@@ -32,14 +32,13 @@ class ApplicationConstructionDeliveryServiceTest {
         var service = new ApplicationConstructionDeliveryService(mock(IDatabaseOperations.class), plans,
                 mock(ApplicationConstructionFieldService.class), mock(ApplicationConstructionDeliveryDao.class),
                 mock(ApplicationConstructionAcceptanceDao.class), mock(PlatformPageDefinitionService.class),
-                mock(PlatformPresentationVariantService.class), mock(PlatformPresentationRevisionService.class), publisher, mock(PlatformPresentationRevisionResolver.class),
-                mock(PlatformPresentationTemplateCatalog.class), mock(ApplicationConstructionPageCompiler.class), menus,
+                mock(PlatformPresentationVariantService.class), mock(PlatformPresentationRevisionResolver.class), menus,
                 mock(MenuSchemeService.class), mock(DynamicRuntimeActivationService.class), permissions);
         doThrow(new PlatformAccessDeniedException("无发布权限")).when(permissions).requireAuthorized(argThat(context ->
                 context.actionCode().equals("publish") || context.moduleAlias().equals("platform.menu") && context.actionCode().equals("create")));
         try (var user = CurrentUserContext.use(CurrentUser.systemUser("restricted", "受限管理员"))) {
             assertThatThrownBy(() -> service.preview("plan", new ApplicationConstructionDeliveryService.Proposal(1, "order", ApplicationConstructionDeliveryService.Kind.PAGE, "订单", List.of("number"), List.of("number"), List.of())))
-                    .hasMessageContaining("无发布权限");
+                    .hasMessageContaining("标准页面编排");
             assertThatThrownBy(() -> service.preview("plan", new ApplicationConstructionDeliveryService.Proposal(1, "order", ApplicationConstructionDeliveryService.Kind.ENTRY, "订单", List.of(), List.of(), List.of())))
                     .hasMessageContaining("无发布权限");
         }
@@ -52,8 +51,7 @@ class ApplicationConstructionDeliveryServiceTest {
         var service = spy(new ApplicationConstructionDeliveryService(mock(IDatabaseOperations.class), plans,
                 mock(ApplicationConstructionFieldService.class), mock(ApplicationConstructionDeliveryDao.class),
                 mock(ApplicationConstructionAcceptanceDao.class), mock(PlatformPageDefinitionService.class),
-                mock(PlatformPresentationVariantService.class), mock(PlatformPresentationRevisionService.class), publisher, mock(PlatformPresentationRevisionResolver.class),
-                mock(PlatformPresentationTemplateCatalog.class), mock(ApplicationConstructionPageCompiler.class), menus,
+                mock(PlatformPresentationVariantService.class), mock(PlatformPresentationRevisionResolver.class), menus,
                 mock(MenuSchemeService.class), mock(DynamicRuntimeActivationService.class), mock(ActionExecutionPolicyService.class)));
         var content = new ApplicationConstructionPlanContent("登记", "登记两个独立对象", List.of("记录基本信息"), List.of(),
                 List.of(new ApplicationConstructionPlanContent.BusinessObject("first", "对象一", "登记"),
@@ -127,7 +125,7 @@ class ApplicationConstructionDeliveryServiceTest {
             assertThat(resumed.objects().get(1).options()).extracting(ApplicationConstructionDeliveryService.TaskOption::action)
                     .containsExactly(ApplicationConstructionDeliveryService.TaskAction.INITIALIZE);
             assertThatThrownBy(() -> service.preview("plan", new ApplicationConstructionDeliveryService.Proposal(1, "first", ApplicationConstructionDeliveryService.Kind.PAGE, "旧页面", List.of("title"), List.of("title"), List.of())))
-                    .hasMessageContaining("已交付");
+                    .hasMessageContaining("标准页面编排");
         }
         verifyNoInteractions(publisher, menus);
     }

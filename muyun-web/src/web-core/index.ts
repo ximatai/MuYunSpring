@@ -23,3 +23,5 @@ export * from './assistantConversationClient';
 
 export * from './operationConfirmation';
 export * from './operationErrors';
+
+export * from './operationReceipt';

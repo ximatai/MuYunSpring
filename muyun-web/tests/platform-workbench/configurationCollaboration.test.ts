@@ -69,7 +69,7 @@ function fixture() {
 
 it('asks for a task mode before edits and holds that choice until an explicit switch', async () => {
   const f = fixture();
-  expect(f.codes()).toEqual(['rules.select-module', 'rules.describe']);
+  expect(f.codes()).toEqual(['rules.select-module', 'rules.open-editor', 'rules.describe']);
   await expect(f.invoke('rules.revise')).rejects.toThrow();
   await f.invoke('configuration.start-task', { goal: '调整订单', mode: 'conversation' });
   expect(f.codes()).toContain('rules.prepare-apply');
@@ -105,7 +105,7 @@ it('restores only the task preference and rejects malformed or implicit choices'
   expect(f.codes()).toContain('rules.prepare-apply');
   expect(f.saved).not.toHaveBeenCalled();
   f.collaboration.restore();
-  expect(f.codes()).toEqual(['rules.select-module', 'rules.describe']);
+  expect(f.codes()).toEqual(['rules.select-module', 'rules.open-editor', 'rules.describe']);
 });
 
 it('defaults to visual collaboration and supports conversation confirmation with the same proposal', async () => {
@@ -118,31 +118,20 @@ it('defaults to visual collaboration and supports conversation confirmation with
   expect(f.saved).toHaveBeenCalledOnce();
 });
 
-it('uses shared page candidates by default and confines legacy page publication to explicit conversation mode', async () => {
+it('permits page discovery and navigation without a construction task and shares candidates across modes', () => {
   const collaboration = createConfigurationCollaboration();
-  const publish = vi.fn(async () => ({ title: 'published', lines: [] }));
-  const page: AssistantCapability = {
-    descriptor: { code: 'construction.prepare-page', description: '', inputSchema: {} },
-    effect: 'read',
+  const capability = (code: string, effect: AssistantCapability['effect']): AssistantCapability => ({
+    descriptor: { code, description: '', inputSchema: {} },
+    effect,
     parseInput: (v) => v,
     execute: vi.fn(),
-    propose: () => ({
-      modelSummary: '',
-      presentation: { title: '', lines: [] },
-      confirmLabel: '',
-      expiresAt: Date.now() + 60_000,
-      lookup: async () => undefined,
-      isCurrent: () => true,
-      execute: publish,
-    }),
-  };
-  expect(collaboration.filterConstruction([page])).toEqual([]);
-  collaboration.restore({ goal: '页面配置', mode: 'visual' });
-  expect(collaboration.filterConstruction([page])).toEqual([]);
+  });
+  const select = capability('configuration.select-page-module', 'configuration-draft');
+  const open = capability('configuration.open-page-editor', 'page');
+  const revise = capability('configuration.revise-page-candidate', 'configuration-draft');
+  expect(collaboration.filter([select, open, revise])).toEqual([select, open]);
   collaboration.restore({ goal: '页面配置', mode: 'conversation' });
-  const proposal = collaboration.filterConstruction([page])[0]!.propose!({});
+  expect(collaboration.filter([select, open, revise])).toEqual([select, revise]);
   collaboration.restore({ goal: '页面配置', mode: 'visual' });
-  expect(proposal.isCurrent()).toBe(false);
-  await expect(proposal.execute()).rejects.toThrow();
-  expect(publish).not.toHaveBeenCalled();
+  expect(collaboration.filter([select, open, revise], true)).toEqual([select, open, revise]);
 });

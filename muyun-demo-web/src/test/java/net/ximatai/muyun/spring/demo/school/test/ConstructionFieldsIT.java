@@ -177,9 +177,7 @@ class ConstructionFieldsIT {
             var json = new com.fasterxml.jackson.databind.ObjectMapper();
             var description = constructionFields.describe(planId, "entry");
             assertThat(delivery.task(planId).objects().getFirst().options()).extracting(ApplicationConstructionDeliveryService.TaskOption::action).contains(ApplicationConstructionDeliveryService.TaskAction.CONFIGURE_FIELDS);
-            assertThatThrownBy(() -> delivery.preview(planId, new ApplicationConstructionDeliveryService.Proposal(1, "entry",
-                    ApplicationConstructionDeliveryService.Kind.PAGE, "订单", List.of("orderNumber"), List.of("orderNumber"), List.of())))
-                    .hasMessageContaining("尚未落实到字段、关系或计算配置");
+            assertThat(delivery.progress(planId, "entry").remainingWork()).anyMatch(value -> value.contains("未兑现"));
             String spec = description.specs().stream().filter(value -> value.type().equals("STRING")).findFirst().orElseThrow().alias();
             var fieldProposal = new net.ximatai.muyun.spring.platform.application.ApplicationConstructionFieldService.Proposal(1, "entry", description.metadataVersion(),
                     List.of(new net.ximatai.muyun.spring.platform.application.ApplicationConstructionFieldService.Field("orderNumber", "订单号", spec, true, true, true, null, false), new ApplicationConstructionFieldService.Field("remark", "备注", spec, false, false, false, null, false)));
@@ -209,19 +207,14 @@ class ConstructionFieldsIT {
             assertThat(constructionDatabase.query("select column_name from information_schema.columns where table_schema = 'public' and table_name = ? and column_name = 'order_number'", preview.tableName())).hasSize(1);
             var duplicateProposal = new net.ximatai.muyun.spring.platform.application.ApplicationConstructionFieldService.Proposal(1, "entry", metadataService.select(result.receipt().metadataId()).getVersion(), fieldProposal.fields());
             assertThat(constructionFields.preview(planId, duplicateProposal).errors()).isNotEmpty();
-            var pageProposal = new ApplicationConstructionDeliveryService.Proposal(1, "entry", ApplicationConstructionDeliveryService.Kind.PAGE,
+            var pageProposal = new PageLayout("entry",
                     "订单登记", List.of("orderNumber"), List.of("orderNumber"), List.of("orderNumber"));
-            assertThatThrownBy(() -> delivery.preview(planId, pageProposal)).hasMessageContaining("包含选填字段");
-            var completePageProposal = new ApplicationConstructionDeliveryService.Proposal(1, "entry", ApplicationConstructionDeliveryService.Kind.PAGE,
+            publishStandardPage(planId, pageProposal);
+            assertThat(delivery.progress(planId, "entry").needsReview()).isTrue();
+            var completePageProposal = new PageLayout("entry",
                     "订单登记", List.of("orderNumber"), List.of("orderNumber", "remark"), List.of("orderNumber"));
-            var pagePreview = delivery.preview(planId, completePageProposal);
-            var pageCommand = new ApplicationConstructionDeliveryService.Command(UUID.randomUUID().toString(), completePageProposal, pagePreview.fingerprint());
-            assertThat(delivery.progress(planId, "entry").pagePublished()).isFalse();
-            new TransactionTemplate(transactions).executeWithoutResult(status -> { delivery.confirm(planId, pageCommand); status.setRollbackOnly(); });
-            assertThat(delivery.result(planId, pageCommand.requestId())).isNull();
-            assertThat(delivery.progress(planId, "entry").pagePublished()).isFalse();
-            var pageReceipt = delivery.confirm(planId, pageCommand);
-            assertThat(delivery.confirm(planId, pageCommand)).isEqualTo(pageReceipt);
+            var pageReceipt = publishStandardPage(planId, completePageProposal);
+            assertThat(constructionPlans.read(planId).deliveries()).isEmpty();
             assertThat(delivery.progress(planId, "entry").pagePublished()).isTrue();
             assertThat(delivery.task(planId).objects().getFirst().options()).extracting(ApplicationConstructionDeliveryService.TaskOption::action).contains(ApplicationConstructionDeliveryService.TaskAction.CREATE_ENTRY);
             var installedContext = runtimeContexts.context(result.receipt().moduleAlias());
@@ -287,7 +280,6 @@ class ConstructionFieldsIT {
                 new ApplicationConstructionPlanContent("修订订单", content.goal(), content.inScope(), content.outOfScope(), content.objects(), content.relationships(), content.rules(), content.questions(), content.assumptions(), content.decisions(), content.acceptanceExamples(), content.requirements()))))
                     .hasMessageContaining("已交付");
             assertThat(constructionFields.confirm(planId, fieldCommand).receipt().fields()).hasSize(2);
-            assertThat(delivery.confirm(planId, pageCommand)).isEqualTo(pageReceipt);
             assertThatThrownBy(() -> delivery.previewAcceptance(planId, "entry")).hasMessageContaining("已交付");
             assertThatThrownBy(() -> constructionFields.preview(planId, fieldProposal)).hasMessageContaining("当前低代码治理配置");
             try (var other = CurrentUserContext.use(CurrentUser.systemUser("other-owner", "其他用户"))) {
@@ -330,9 +322,9 @@ class ConstructionFieldsIT {
                     .anyMatch(message -> message.contains("标准 title"));
             assertThat(constructionFields.describe(planId, "party").metadataVersion()).isEqualTo(targetBefore.metadataVersion());
             publishFields(planId, "party", List.of(new ApplicationConstructionFieldService.Field("title", "单位名称", spec, true, false, false, null, true)));
-            var targetPage = new ApplicationConstructionDeliveryService.Proposal(1, "party", ApplicationConstructionDeliveryService.Kind.PAGE,
+            var targetPage = new PageLayout("party",
                     "单位资料", List.of("title"), List.of("title"), List.of("title"));
-            delivery.confirm(planId, new ApplicationConstructionDeliveryService.Command(UUID.randomUUID().toString(), targetPage, delivery.preview(planId, targetPage).fingerprint()));
+            publishStandardPage(planId, targetPage);
             String targetAlias = app + ".party";
             assertThat(constructionFields.businessObjects()).extracting(ReferenceTargetFieldCatalogService.ModuleCandidate::alias).contains(targetAlias);
             var target = constructionFields.referenceTarget(targetAlias);
@@ -353,12 +345,13 @@ class ConstructionFieldsIT {
             assertThat(delivery.task(planId).objects().stream().filter(item -> item.objectKey().equals("agreement")).findFirst().orElseThrow().requirements())
                     .filteredOn(item -> item.section() == ApplicationConstructionRequirement.Section.RELATION)
                     .allSatisfy(item -> assertThat(item.status()).isEqualTo(ApplicationConstructionRequirements.Status.CONFIGURATION_MATCHED));
-            var page = new ApplicationConstructionDeliveryService.Proposal(1, "agreement", ApplicationConstructionDeliveryService.Kind.PAGE,
+            var page = new PageLayout("agreement",
                     "协议登记", List.of("partyId"), List.of("partyId"), List.of());
-            var missingFieldPage = new ApplicationConstructionDeliveryService.Proposal(1, "agreement", ApplicationConstructionDeliveryService.Kind.PAGE,
+            var missingFieldPage = new PageLayout("agreement",
                     "协议登记", List.of("partyId"), List.of("subject"), List.of());
-            assertThatThrownBy(() -> delivery.preview(planId, missingFieldPage)).hasMessageContaining("包含选填字段");
-            delivery.confirm(planId, new ApplicationConstructionDeliveryService.Command(UUID.randomUUID().toString(), page, delivery.preview(planId, page).fingerprint()));
+            publishStandardPage(planId, missingFieldPage);
+            assertThat(delivery.progress(planId, "agreement").needsReview()).isTrue();
+            publishStandardPage(planId, page);
 
             // A second, unrelated business reuses the same public target without adopting its configuration.
             String reusePlan = UUID.randomUUID().toString().replace("-", "");
@@ -437,21 +430,21 @@ class ConstructionFieldsIT {
                     assertThat(item.status()).isEqualTo(ApplicationConstructionRequirements.Status.CONFIGURATION_MATCHED));
             assertThat(status.requirements()).filteredOn(item -> item.section() == ApplicationConstructionRequirement.Section.RULE)
                     .allSatisfy(item -> assertThat(item.status()).isEqualTo(ApplicationConstructionRequirements.Status.CONFIGURATION_MISSING));
-            var page = new ApplicationConstructionDeliveryService.Proposal(1, "entry", ApplicationConstructionDeliveryService.Kind.PAGE,
+            var page = new PageLayout("entry",
                     "订货单", List.of("number", "total"), List.of("number", "total"), List.of(),
                     java.util.Map.of("lines", List.of("quantity", "price", "amount")));
-            assertThatThrownBy(() -> delivery.preview(planId, page)).hasMessageContaining("尚未落实");
+            assertThat(delivery.progress(planId, "entry").remainingWork()).anyMatch(value -> value.contains("未兑现"));
             var rules = List.of(new BusinessRuleProposal("lineAmount", net.ximatai.muyun.spring.common.formula.FormulaRuleKind.CALCULATION,
                             "lines.amount", "{lines.quantity} * {lines.price}", true, null),
                     new BusinessRuleProposal("total", net.ximatai.muyun.spring.common.formula.FormulaRuleKind.CALCULATION, "total", "SUM({lines.amount})", true, null));
             var rulePreview = businessRules.preview(binding.moduleAlias(), new BusinessRulePreviewCommand(rules));
             assertThat(rulePreview.errors()).isEmpty();
             businessRules.apply(binding.moduleAlias(), new BusinessRuleApplyCommand(rules, rulePreview.snapshot().baselineFingerprint(), rulePreview.proposalFingerprint()));
-            var missingChild = new ApplicationConstructionDeliveryService.Proposal(1, "entry", ApplicationConstructionDeliveryService.Kind.PAGE,
-                    "订货单", List.of("number", "total"), List.of("number", "total", "lines"), List.of());
-            assertThatThrownBy(() -> delivery.preview(planId, missingChild)).hasMessageContaining("包含选填字段");
-            var pagePreview = delivery.preview(planId, page);
-            var published = delivery.confirm(planId, new ApplicationConstructionDeliveryService.Command(UUID.randomUUID().toString(), page, pagePreview.fingerprint()));
+            var missingChild = new PageLayout("entry",
+                    "订货单", List.of("number", "total"), List.of("number", "total"), List.of());
+            publishStandardPage(planId, missingChild);
+            assertThat(delivery.progress(planId, "entry").needsReview()).isTrue();
+            var published = publishStandardPage(planId, page);
             assertThat(delivery.progress(planId, "entry").needsReview()).isFalse();
             assertThat(delivery.progress(planId, "entry").requirements()).allSatisfy(item ->
                     assertThat(item.status()).isEqualTo(ApplicationConstructionRequirements.Status.CONFIGURATION_MATCHED));
@@ -512,10 +505,9 @@ class ConstructionFieldsIT {
             var customerTitle = governedField("title", text);
             customerTitle.field().setRequired(true); customerTitle.field().setTitleField(true);
             applyGovernedFields(customer.moduleAlias(), customer.relationId(), metadataService.select(customer.metadataId()).getVersion(), List.of(customerTitle));
-            var customerPage = new ApplicationConstructionDeliveryService.Proposal(1, "customer", ApplicationConstructionDeliveryService.Kind.PAGE,
+            var customerPage = new PageLayout("customer",
                     "客户资料", List.of("title"), List.of("title"), List.of());
-            delivery.confirm(planId, new ApplicationConstructionDeliveryService.Command(UUID.randomUUID().toString(), customerPage,
-                    delivery.preview(planId, customerPage).fingerprint()));
+            publishStandardPage(planId, customerPage);
             var customerReference = new MetadataFieldReferenceConfigDraft(customer.moduleAlias(), customer.metadataId(), "id", "title",
                     net.ximatai.muyun.spring.ability.reference.ReferenceCardinality.ONE,
                     net.ximatai.muyun.spring.ability.reference.ReferenceTargetUnavailablePolicy.PRESERVE_HISTORY, List.of(), false);
@@ -535,10 +527,10 @@ class ConstructionFieldsIT {
             var checked = businessRules.preview(order.moduleAlias(), new BusinessRulePreviewCommand(rules));
             assertThat(checked.errors()).isEmpty();
             businessRules.apply(order.moduleAlias(), new BusinessRuleApplyCommand(rules, checked.snapshot().baselineFingerprint(), checked.proposalFingerprint()));
-            var page = new ApplicationConstructionDeliveryService.Proposal(1, "order", ApplicationConstructionDeliveryService.Kind.PAGE,
+            var page = new PageLayout("order",
                     "订单登记", List.of("number", "customerId", "total"), List.of("number", "customerId", "total"), List.of(),
                     java.util.Map.of("lines", List.of("quantity", "price", "amount")));
-            delivery.confirm(planId, new ApplicationConstructionDeliveryService.Command(UUID.randomUUID().toString(), page, delivery.preview(planId, page).fingerprint()));
+            publishStandardPage(planId, page);
             var entry = new ApplicationConstructionDeliveryService.Proposal(1, "order", ApplicationConstructionDeliveryService.Kind.ENTRY,
                     "订单登记", List.of(), List.of(), List.of());
             delivery.confirm(planId, new ApplicationConstructionDeliveryService.Command(UUID.randomUUID().toString(), entry, delivery.preview(planId, entry).fingerprint()));
@@ -621,6 +613,53 @@ class ConstructionFieldsIT {
         var preview = metadataPreviews.preview(module, changes);
         assertThat(preview.errors()).isEmpty();
         metadataPublisher.apply(module, new MetadataModelChangeSetApplyCommand(changes, preview.proposalFingerprint()));
+    }
+
+    private record PageLayout(String objectKey, String title, List<String> listFields, List<String> formFields,
+                              List<String> searchFields, java.util.Map<String, List<String>> childFields) {
+        PageLayout(String objectKey, String title, List<String> listFields, List<String> formFields, List<String> searchFields) {
+            this(objectKey, title, listFields, formFields, searchFields, java.util.Map.of());
+        }
+    }
+    private record PublishedPage(String pageId, String variantId, String revisionId) {}
+
+    /** Test data enters the same standard page/compiler/publication services as the visual editor. */
+    private PublishedPage publishStandardPage(String planId, PageLayout layout) {
+        return new TransactionTemplate(transactions).execute(status -> {
+            var binding = constructionPlans.read(planId).initializations().stream()
+                    .filter(item -> item.objectKey().equals(layout.objectKey())).findFirst().orElseThrow();
+            var page = constructionPages.resolveGlobalPage(binding.moduleAlias(), "management").orElse(null);
+            String pageId;
+            if (page == null) {
+                page = new PlatformPageDefinition(); page.setModuleAlias(binding.moduleAlias()); page.setAlias("management");
+                page.setMainRelationId(binding.relationId()); page.setContractType(PlatformPageContractType.MANAGEMENT);
+                page.setEnabled(true); page.setTitle(layout.title()); pageId = constructionPages.insert(page);
+            } else pageId = page.getId();
+            var variants = presentationVariants.list(net.ximatai.muyun.database.core.orm.Criteria.of().eq("pageId", pageId));
+            String variantId;
+            if (variants.isEmpty()) {
+                var variant = new PlatformPresentationVariant(); variant.setPageId(pageId); variant.setTitle(layout.title());
+                variant.setEnabled(true); variant.setClientType(PlatformPresentationClientType.WEB); variant.setScopeType(PlatformPresentationScopeType.GLOBAL);
+                variantId = presentationVariants.insert(variant);
+            } else variantId = variants.getFirst().getId();
+            int number = presentationRevisions.list(net.ximatai.muyun.database.core.orm.Criteria.of().eq("variantId", variantId))
+                    .stream().mapToInt(PlatformPresentationRevision::getRevisionNo).max().orElse(0) + 1;
+            var revision = new PlatformPresentationRevision(); revision.setVariantId(variantId); revision.setRevisionNo(number);
+            revision.setTitle(layout.title()); revision.setEnabled(true); revision.setStatus(PlatformPresentationRevisionStatus.DRAFT);
+            revision.setTemplateAlias("management"); revision.setTemplateVersion(2);
+            try {
+                revision.setUiTreeJson(new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(java.util.Map.of(
+                        "template", "management", "templateVersion", 2, "mode", "LIST_CARD", "quickSearchFields", layout.searchFields(),
+                        "nodes", List.of(java.util.Map.of("slot", "list", "title", layout.title(), "fields", layout.listFields()),
+                                java.util.Map.of("slot", "form", "title", layout.title(), "fields", layout.formFields(), "relations",
+                                        layout.childFields().entrySet().stream().map(entry -> java.util.Map.of(
+                                                "relation", entry.getKey(), "title", entry.getKey(), "fields", entry.getValue())).toList())))));
+            } catch (com.fasterxml.jackson.core.JsonProcessingException error) { throw new IllegalStateException(error); }
+            runtimeContexts.previewDynamicPageDescriptor(page, revision, revision.getUiTreeJson());
+            String revisionId = presentationRevisions.insert(revision);
+            presentationPublisher.publish(revisionId);
+            return new PublishedPage(pageId, variantId, revisionId);
+        });
     }
 
     private static PlatformPresentationRevision standardRevision(String variantId, int number, String groupTitle) {

@@ -97,13 +97,10 @@ function fixture() {
 const proposal = {
   objectKey: 'order',
   title: '订单',
-  listFields: ['number'],
-  formFields: ['number'],
-  searchFields: ['number'],
 };
-it('keeps page publication frozen and human-only; a lost response recovers the exact receipt', async () => {
+it('keeps entry creation frozen and human-only; a lost response recovers the exact receipt', async () => {
   const { invoke, client, accept } = fixture();
-  const result = await invoke('construction.prepare-page', proposal);
+  const result = await invoke('construction.prepare-entry', proposal);
   expect(JSON.stringify(result.value)).not.toContain('private-proof');
   expect(client.publishDelivery).not.toHaveBeenCalled();
   const original = client.publishDelivery.getMockImplementation()!;
@@ -122,7 +119,7 @@ it.each(['generation', 'revision', 'dirty', 'editing'] as const)(
   'expires prepared publication and acceptance when %s changes',
   async (change) => {
     const { invoke, state, client } = fixture();
-    const page = await invoke('construction.prepare-page', proposal);
+    const page = await invoke('construction.prepare-entry', proposal);
     const acceptance = await invoke('construction.prepare-acceptance', { objectKey: 'order' });
     if (change === 'generation') state.generation++;
     else if (change === 'revision') state.saved = { ...state.saved, revision: 2 };
@@ -154,16 +151,11 @@ it('keeps committed success when the workbench menu refresh fails', async () => 
   expect(result.confirmation!.result?.lines.join(' ')).toContain('刷新失败');
 });
 
-it('freezes actual child page placements in human confirmation and rejects empty detail layouts', async () => {
+it('retires the legacy page capability and rejects undeclared entry parameters', async () => {
   const { invoke, client } = fixture();
-  const childFields = { lines: ['quantity', 'price', 'amount'] };
-  const pending = await invoke('construction.prepare-page', { ...proposal, childFields });
-  childFields.lines.pop();
-  await pending.confirmation!.confirm();
-  expect(client.publishDelivery.mock.calls[0][1].proposal.childFields).toEqual({
-    lines: ['quantity', 'price', 'amount'],
-  });
+  await expect(invoke('construction.prepare-page', proposal)).rejects.toThrow();
   await expect(
-    invoke('construction.prepare-page', { ...proposal, childFields: { lines: [] } }),
+    invoke('construction.prepare-entry', { ...proposal, formFields: ['title'] }),
   ).rejects.toThrow();
+  expect(client.previewDelivery).not.toHaveBeenCalled();
 });
