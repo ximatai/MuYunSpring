@@ -1661,3 +1661,47 @@ it('opens an existing conversation candidate without reloading it and shares man
   expect(session.dirty.value).toBe(false);
   expect(prepared.isCurrent()).toBe(false);
 });
+
+it('tells manual editors that apply committed when only the follow-up read failed', async () => {
+  const http = fakeHttp();
+  const original = vi.mocked(http.request).getMockImplementation()!;
+  let applied = false;
+  let syncFails = true;
+  vi.mocked(http.request).mockImplementation(async (options) => {
+    if (options.path.endsWith('/apply')) applied = true;
+    if (applied && syncFails && options.path.endsWith('/ui-controls')) throw new Error('read unavailable');
+    return original(options);
+  });
+  const workspace = createBusinessRuleWorkspace(
+    http,
+    () => 'user',
+    () => true,
+  );
+  const session = workspace.session('education.exam');
+  await session.load();
+  workspace.focus(session);
+  session.adapter.revise({
+    code: 'sharedCalculation',
+    kind: 'CALCULATION',
+    targetField: 'amount',
+    expression: '{quantity} * 3',
+    enabled: true,
+  });
+  const wrapper = mountSurface(http, 'education.exam', undefined, undefined, workspace);
+  await flushPromises();
+  await action(wrapper, '应用更改').trigger('click');
+  await flushPromises();
+  expect(wrapper.findComponent({ name: 'UiEmpty' }).props('description')).toContain('业务规则已提交');
+  expect(wrapper.findComponent({ name: 'UiEmpty' }).props('description')).toContain('不要重复提交');
+  expect(session.ready.value).toBe(false);
+  expect(session.dirty.value).toBe(false);
+  syncFails = false;
+  await action(wrapper, '重试').trigger('click');
+  await flushPromises();
+  expect(session.ready.value).toBe(true);
+  expect(session.committedNeedsReload.value).toBe(false);
+  expect(
+    vi.mocked(http.request).mock.calls.filter(([request]) => request.path.endsWith('/apply')),
+  ).toHaveLength(1);
+  workspace.dispose();
+});
