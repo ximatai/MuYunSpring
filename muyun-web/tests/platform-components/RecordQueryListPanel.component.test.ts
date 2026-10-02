@@ -19,6 +19,35 @@ afterEach(() => {
 });
 
 describe('RecordQueryListPanel', () => {
+  it('refreshes the unfiltered recycle count after reloading a filtered recycle page', async () => {
+    const context = createContext({ id: 'active' });
+    context.abilities.has = () => true;
+    context.can = () => true;
+    let allDeleted = 2;
+    const request = vi.fn(async ({ body }: { body: WebQueryRequest }) => ({
+      records: [],
+      total: body.page?.pageSize === 1 ? allDeleted : 0,
+      totalKnown: true,
+      pageNum: 1,
+      pageSize: body.page?.pageSize ?? 20,
+      pages: 1,
+    }));
+    context.http = { request } as unknown as HttpClient;
+    const wrapper = shallowMount(RecordQueryListPanel, {
+      props: { context, title: '记录', showRecycleBin: true },
+    });
+    await flushPromises();
+    expect(wrapper.findComponent({ name: 'RecycleBinModeButton' }).props('count')).toBe(2);
+    await wrapper.setProps({ mode: 'recycleBin' });
+    await flushPromises();
+    allDeleted = 1;
+    await wrapper.setProps({ reloadKey: 1 });
+    await flushPromises();
+    expect(wrapper.findComponent({ name: 'RecordQueryListSurface' }).props('total')).toBe(0);
+    expect(wrapper.findComponent({ name: 'RecycleBinModeButton' }).props('count')).toBe(1);
+    wrapper.unmount();
+  });
+
   it('publishes a standard query controller that applies quick search and projects visible rows', async () => {
     const requests: WebQueryRequest[] = [];
     const context = createContext({ id: 'note-1', title: 'Daily report', secret: 'hidden' }, requests);

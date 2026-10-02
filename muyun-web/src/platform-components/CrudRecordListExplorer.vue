@@ -11,13 +11,10 @@ import {
 import { canQueryRecycleBin, hasRecycleBinAbility, type ModuleContext } from '@muyun/web-core';
 import RecordListExplorer, { type RecordListExplorerRecord } from './RecordListExplorer.vue';
 import type { RecordExplorerItemDescriptor } from './recordExplorerItemModel';
-import {
-  defaultCrudRecordListMatches,
-  defaultCrudRecordListTitle,
-  type CrudRecordListBase,
-} from './crudRecordListModel';
+import { defaultCrudRecordListTitle, type CrudRecordListBase } from './crudRecordListModel';
 import { presentPlatformError } from './platformErrorFeedback';
 import { recycleBinRestoreUnavailableReason, useRecycleBinState } from './recycleBinState';
+import type { WebQueryRequest } from '@muyun/web-contracts';
 import { sortPartitionKey } from './sortPartitionKey';
 import type {
   RecordQueryListQueryController,
@@ -40,8 +37,7 @@ const props = withDefaults(
     externalQueryValues?: Record<string, unknown>;
     navigatorHostModuleAlias?: string;
     navigatorTargetLevelKey?: string;
-    /** Server-side search for large explorer sources; `keyword` still filters the rendered labels. */
-    quickSearch?: string;
+    /** Searches the complete authorized result through the standard server query contract. */
     keyword?: string;
     emptyDescription?: string;
     loadingTip?: string;
@@ -50,7 +46,6 @@ const props = withDefaults(
     subtitleOf?: (record: CrudRecordListBase) => string | undefined;
     itemOf?: (record: CrudRecordListBase) => RecordExplorerItemDescriptor | undefined;
     actionsOf?: (record: CrudRecordListBase) => UiRecordInlineAction[];
-    filterOption?: (record: CrudRecordListBase, normalizedKeyword: string) => boolean;
     tagOf?: (record: CrudRecordListBase) => string | undefined;
     mutedOf?: (record: CrudRecordListBase) => boolean;
     mode?: CrudRecordListMode;
@@ -65,7 +60,6 @@ const props = withDefaults(
     externalQueryValues: undefined,
     navigatorHostModuleAlias: undefined,
     navigatorTargetLevelKey: undefined,
-    quickSearch: undefined,
     keyword: '',
     emptyDescription: '暂无记录',
     loadingTip: '加载记录列表',
@@ -74,7 +68,6 @@ const props = withDefaults(
     subtitleOf: undefined,
     itemOf: undefined,
     actionsOf: undefined,
-    filterOption: undefined,
     tagOf: undefined,
     mutedOf: undefined,
     mode: 'normal',
@@ -106,6 +99,10 @@ let recordsRequestSeq = 0;
 let queryControllerRevision = 0;
 const loadedTotal = ref<number>();
 const loadedTotalKnown = ref(false);
+const pageNum = ref(1);
+const pageSize = ref(200);
+const pages = ref(1);
+const appliedKeyword = ref('');
 interface QueryControllerSettlement {
   resolve(): void;
   reject(cause: Error): void;
@@ -154,6 +151,7 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
+  recordsRequestSeq += 1;
   emit('queryControllerChange', undefined);
   for (const settlement of queryControllerSettlements) {
     queryControllerSettlements.delete(settlement);
@@ -183,86 +181,101 @@ watch(
 );
 
 watch(
-  () => props.context,
-  () => loadRecords(),
-);
-
-watch(
-  () => props.externalQueryValues,
-  () => loadRecords(),
+  () => [
+    props.context,
+    props.externalQueryValues,
+    props.navigatorHostModuleAlias,
+    props.navigatorTargetLevelKey,
+    props.mode,
+    props.keyword.trim(),
+  ],
+  () => {
+    assistantKeyword.value = props.keyword.trim();
+    void loadRecords('reset', 1);
+  },
   { deep: true },
 );
 
-watch(
-  () => props.quickSearch,
-  () => loadRecords('interaction'),
-);
-
-watch(
-  () => props.mode,
-  () => loadRecords(),
-);
-
-watch(
-  () => props.keyword,
-  (value) => {
-    const normalized = value.trim();
-    if (assistantKeyword.value === normalized) return;
-    assistantKeyword.value = normalized;
-    queryControllerRevision += 1;
-  },
-);
-
-async function loadRecords(reason: UiTreeChangeReason = 'reset') {
+async function loadRecords(reason: UiTreeChangeReason = 'reset', requestedPage = pageNum.value) {
   queryControllerRevision += 1;
   const requestSeq = ++recordsRequestSeq;
+  const context = props.context;
+  const mode = props.mode;
+  const keyword = props.keyword.trim();
+  const request: WebQueryRequest = {
+    page: { pageNum: requestedPage, pageSize: pageSize.value },
+    ...(keyword ? { quickSearch: keyword } : {}),
+    ...(props.externalQueryValues ? { externalQueryValues: { ...props.externalQueryValues } } : {}),
+    ...(props.navigatorHostModuleAlias && props.navigatorTargetLevelKey
+      ? {
+          navigatorHostModuleAlias: props.navigatorHostModuleAlias,
+          navigatorTargetLevelKey: props.navigatorTargetLevelKey,
+        }
+      : {}),
+  };
   loading.value = true;
   loadError.value = false;
-  if (reason === 'reset') records.value = [];
+  if (reason === 'reset') {
+    records.value = [];
+    loadedTotal.value = undefined;
+    loadedTotalKnown.value = false;
+    appliedKeyword.value = '';
+    pageNum.value = requestedPage;
+    pages.value = 1;
+  }
   try {
-    await props.context.runtime.ready;
-    if (props.mode === 'recycleBin') {
-      await recycleBinState.load();
+    await context.runtime.ready;
+    if (requestSeq !== recordsRequestSeq) return;
+    const searchFields = context.runtime.snapshot()?.uiDescriptor?.page?.quickSearchFields;
+    if (keyword && searchFields != null) request.quickSearchFields = [...searchFields];
+    let response;
+    if (mode === 'recycleBin') {
+      const loaded = await recycleBinState.load(request);
       if (requestSeq !== recordsRequestSeq) return;
-      records.value = recycleBinState.items.value.map((item) => item.record);
-      loadedTotal.value = records.value.length;
-      loadedTotalKnown.value = false;
-      emit('loaded', records.value);
+      if (!loaded) {
+        loadError.value = true;
+        return;
+      }
+      response = {
+        records: recycleBinState.items.value.map((item) => item.record),
+        total: recycleBinState.total.value,
+        totalKnown: recycleBinState.totalKnown.value,
+        pageNum: recycleBinState.pageNum.value,
+        pageSize: recycleBinState.pageSize.value,
+        pages: recycleBinState.pages.value,
+      };
+    } else {
+      response = await context.abilities.crud().query(request);
+    }
+    if (requestSeq !== recordsRequestSeq) return;
+    // Deletion can empty the last page. Re-read the last available page once.
+    if (response.totalKnown !== false && requestedPage > Math.max(1, response.pages)) {
+      await loadRecords(reason, Math.max(1, response.pages));
       return;
     }
-    const response = await props.context.abilities.crud().query({
-      page: { pageNum: 1, pageSize: 200 },
-      ...(props.quickSearch?.trim() ? { quickSearch: props.quickSearch.trim() } : {}),
-      ...(props.externalQueryValues && Object.keys(props.externalQueryValues).length > 0
-        ? { externalQueryValues: props.externalQueryValues }
-        : {}),
-      ...(props.navigatorHostModuleAlias && props.navigatorTargetLevelKey
-        ? {
-            navigatorHostModuleAlias: props.navigatorHostModuleAlias,
-            navigatorTargetLevelKey: props.navigatorTargetLevelKey,
-          }
-        : {}),
-    });
-    if (requestSeq !== recordsRequestSeq) return;
     changeReason.value = reason;
     records.value = response.records;
     loadedTotal.value = response.total;
     loadedTotalKnown.value = response.totalKnown !== false;
+    pageNum.value = response.pageNum;
+    pageSize.value = response.pageSize;
+    pages.value = Math.max(1, response.pages);
+    appliedKeyword.value = keyword;
     emit('loaded', response.records, response.totalKnown === false ? undefined : response.total);
-    if (canQueryRecycleBin(props.context)) void recycleBinState.refreshSummary();
+    if (canQueryRecycleBin(context)) void recycleBinState.refreshSummary();
   } catch (cause) {
     if (requestSeq !== recordsRequestSeq) return;
     loadError.value = true;
-    loadedTotal.value = undefined;
-    loadedTotalKnown.value = false;
-    if (reason === 'reset') {
-      records.value = [];
-      emit('loaded', []);
-    }
+    if (reason === 'reset') emit('loaded', []);
     presentPlatformError(cause, { source: 'crud-record-list-explorer', phase: 'load' });
   } finally {
     if (requestSeq === recordsRequestSeq) loading.value = false;
   }
+}
+
+function changePage(nextPage: number) {
+  if (loading.value || sortingRequest.value || nextPage < 1 || nextPage > pages.value) return;
+  void loadRecords('interaction', nextPage);
 }
 
 function recordTitle(record: CrudRecordListBase) {
@@ -279,19 +292,9 @@ function recordCode(record: CrudRecordListBase) {
       : (record.alias ?? record.code ?? record.id);
 }
 
-function matchesKeyword(record: CrudRecordListBase, normalized: string) {
-  return (
-    props.filterOption?.(record, normalized) ??
-    defaultCrudRecordListMatches(record, normalized, recordTitle, recordCode)
-  );
-}
-
 function queryControllerSnapshot(): RecordQueryListQuerySnapshot {
-  const keyword = assistantKeyword.value;
-  const matchingRecords = keyword
-    ? records.value.filter((record) => matchesKeyword(record, keyword.toLowerCase()))
-    : records.value;
-  const cacheComplete = loadedTotalKnown.value && (loadedTotal.value ?? 0) <= records.value.length;
+  const keyword = appliedKeyword.value;
+  const matchingRecords = records.value;
   const rows = matchingRecords.slice(0, 20).map((record) => ({
     ...(record.id == null ? {} : { id: String(record.id) }),
     cells: [
@@ -307,8 +310,8 @@ function queryControllerSnapshot(): RecordQueryListQuerySnapshot {
         : []),
     ],
   }));
-  const totalKnown = keyword ? cacheComplete : loadedTotalKnown.value;
-  const total = keyword ? matchingRecords.length : (loadedTotal.value ?? records.value.length);
+  const totalKnown = loadedTotalKnown.value;
+  const total = loadedTotal.value ?? records.value.length;
   return {
     mode: props.mode,
     status: loading.value ? 'loading' : loadError.value ? 'error' : 'ready',
@@ -318,8 +321,8 @@ function queryControllerSnapshot(): RecordQueryListQuerySnapshot {
       { name: 'secondary', title: '辅助标识', valueType: 'STRING' },
     ],
     ...(keyword ? { appliedQuickSearch: keyword } : {}),
-    pageNum: 1,
-    pageSize: rows.length,
+    pageNum: pageNum.value,
+    pageSize: pageSize.value,
     total,
     totalKnown,
     rows,
@@ -329,7 +332,8 @@ function queryControllerSnapshot(): RecordQueryListQuerySnapshot {
 
 const queryController: RecordQueryListQueryController = {
   revision: () => queryControllerRevision,
-  interactionRevision: () => JSON.stringify({ mode: props.mode, keyword: assistantKeyword.value }),
+  interactionRevision: () =>
+    JSON.stringify({ mode: props.mode, keyword: assistantKeyword.value, pageNum: pageNum.value }),
   snapshot: queryControllerSnapshot,
   async settle(signal?: AbortSignal) {
     for (let attempt = 0; attempt < 8; attempt += 1) {
@@ -358,7 +362,7 @@ const queryController: RecordQueryListQueryController = {
     emit('update:keyword', normalized);
     for (let attempt = 0; attempt < 8; attempt += 1) {
       await nextTick();
-      if (props.keyword.trim() === normalized) return queryControllerSnapshot();
+      if (props.keyword.trim() === normalized) return queryController.settle();
     }
     if (assistantKeyword.value === normalized) {
       assistantKeyword.value = previous;
@@ -520,12 +524,10 @@ async function handleRecycleBinAction(action: UiRecordInlineAction, record: Crud
       :change-reason="changeReason"
       :selected-id="selectedId"
       :key-of="(record) => record.id"
-      :keyword="keyword"
       :empty-description="emptyDescription"
       :title-of="(record) => recordTitle(record as CrudRecordListBase)"
       :code-of="(record) => recordCode(record as CrudRecordListBase)"
       :item-of="(record) => itemOf?.(record as CrudRecordListBase)"
-      :filter-option="(record, normalized) => matchesKeyword(record as CrudRecordListBase, normalized)"
       :actions-of="(record) => recordActions(record as CrudRecordListBase)"
       :tag-of="(record) => tagOf?.(record as CrudRecordListBase)"
       :muted-of="(record) => mutedOf?.(record as CrudRecordListBase) ?? record.enabled === false"
@@ -536,6 +538,24 @@ async function handleRecycleBinAction(action: UiRecordInlineAction, record: Crud
       @action="(action, record) => handleAction(action, record as CrudRecordListBase)"
       @sort="handleSort"
     />
+    <footer v-if="loadedTotal !== undefined" class="crud-record-list-pagination">
+      <span>{{ loadedTotalKnown ? '共' : '至少' }} {{ loadedTotal }} 条</span>
+      <UiButton
+        aria-label="上一页"
+        title="上一页"
+        icon-name="left"
+        :disabled="loading || sortingRequest || pageNum <= 1"
+        @click="changePage(pageNum - 1)"
+      />
+      <span>第 {{ pageNum }} 页</span>
+      <UiButton
+        aria-label="下一页"
+        title="下一页"
+        icon-name="right"
+        :disabled="loading || sortingRequest || pageNum >= pages"
+        @click="changePage(pageNum + 1)"
+      />
+    </footer>
   </div>
 </template>
 
@@ -551,5 +571,14 @@ async function handleRecycleBinAction(action: UiRecordInlineAction, record: Crud
 .crud-record-list-explorer :deep(.record-list-explorer) {
   flex: 1 1 auto;
   min-height: 0;
+}
+
+.crud-record-list-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  flex: 0 0 auto;
+  padding: 8px;
 }
 </style>

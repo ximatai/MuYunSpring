@@ -1467,7 +1467,7 @@ it('record lists reuse their existing region for recycle-bin data and lifecycle 
   assert.match(hostSource, /@restored="handleRecycleBinRestore"/);
   assert.match(explorerSource, /export type CrudRecordListMode = 'normal' \| 'recycleBin'/);
   assert.match(explorerSource, /hasRecycleBinAbility\(props\.context\)/);
-  assert.match(explorerSource, /if \(canQueryRecycleBin\(props\.context\)\)/);
+  assert.match(explorerSource, /if \(canQueryRecycleBin\(context\)\)/);
   assert.match(explorerSource, /props\.mode === 'recycleBin'/);
   assert.match(explorerSource, /const requestSeq = \+\+recordsRequestSeq/);
   assert.match(explorerSource, /requestSeq !== recordsRequestSeq/);

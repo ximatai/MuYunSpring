@@ -42,7 +42,7 @@ const emit = defineEmits<{
   create: [];
   select: [record: QueryListRecord];
   deselect: [];
-  loaded: [records: QueryListRecord[]];
+  loaded: [records: QueryListRecord[], completeUnfilteredResult: boolean];
   queryControllerChange: [
     levelKey: string,
     controller: RecordQueryListQueryController | RecordTreeQueryController | undefined,
@@ -102,7 +102,7 @@ function itemOf(record: NavigatorItemRecord) {
       :actions-of="managementAvailable ? actionsOf : undefined"
       :can-drop-inside="treeParentPolicy?.canUseAsParent"
       :sorting="sort.active"
-      @loaded="emit('loaded', $event as QueryListRecord[])"
+      @loaded="emit('loaded', $event as QueryListRecord[], true)"
       @query-controller-change="emit('queryControllerChange', level.descriptor.key, $event)"
       @select="emit('select', $event as QueryListRecord)"
       @deselect="emit('deselect')"
@@ -121,7 +121,10 @@ function itemOf(record: NavigatorItemRecord) {
       :item-of="itemOf"
       :actions-of="managementAvailable ? actionsOf : undefined"
       :sorting="sort.active"
-      @loaded="emit('loaded', $event as QueryListRecord[])"
+      @loaded="
+        (records, total) =>
+          emit('loaded', records as QueryListRecord[], !keyword.trim() && total === records.length)
+      "
       @query-controller-change="emit('queryControllerChange', level.descriptor.key, $event)"
       @select="emit('select', $event as QueryListRecord)"
       @deselect="emit('deselect')"

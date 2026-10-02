@@ -49,7 +49,6 @@ function handleLoaded(records: QueryListRecord[], total?: number) {
       :context="context"
       :selected-id="selectedId"
       :reload-key="reloadKey"
-      :quick-search="keyword"
       :keyword="keyword"
       empty-description="没有可访问的活跃租户"
       @loaded="(records, total) => handleLoaded(records as QueryListRecord[], total)"

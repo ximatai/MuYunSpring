@@ -60,6 +60,25 @@ describe('PageNavigatorExplorer', () => {
     expect(wrapper.findComponent({ name: 'RecordPanelState' }).props('description')).toBe('请先选择导航范围');
   });
 
+  it('only marks a flat candidate set complete when the unfiltered server total matches', async () => {
+    const { wrapper } = mountNavigator(false);
+    const list = wrapper.findComponent({ name: 'CrudRecordListExplorer' });
+    const records = [{ id: 'one' }];
+    list.vm.$emit('loaded', records, 201);
+    await wrapper.setProps({ keyword: '匹配' });
+    list.vm.$emit('loaded', records, 1);
+    await wrapper.setProps({ keyword: '' });
+    list.vm.$emit('loaded', records);
+    list.vm.$emit('loaded', records, 1);
+    expect(wrapper.emitted('loaded')).toEqual([
+      [records, false],
+      [records, false],
+      [records, false],
+      [records, true],
+    ]);
+    wrapper.unmount();
+  });
+
   it('keeps an unmanaged list free of record management actions', () => {
     const { wrapper } = mountNavigator(false);
     expect(wrapper.findComponent({ name: 'CrudRecordListExplorer' }).props('actionsOf')).toBeUndefined();

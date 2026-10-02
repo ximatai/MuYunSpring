@@ -2222,10 +2222,14 @@ export function useModulePageSession(
     clearSelectionForScopeChange();
   }
 
-  function handleNavigatorLoaded(level: NavigatorLevelRuntime, records: Array<{ id?: string }>) {
+  function handleNavigatorLoaded(
+    level: NavigatorLevelRuntime,
+    records: Array<{ id?: string }>,
+    completeUnfilteredResult = false,
+  ) {
     preloadNavigatorRecordActions(level, records);
     const key = level.descriptor.key;
-    const single = records.length === 1 && records[0]?.id != null;
+    const single = completeUnfilteredResult && records.length === 1 && records[0]?.id != null;
     const alreadyMarkedSingle = navigatorSingleResultKeys.value.includes(key);
     // Explorer `loaded` events are also emitted after a parent layout update. Keep
     // the collection identity when cardinality has not changed; otherwise a
@@ -2236,17 +2240,21 @@ export function useModulePageSession(
         : navigatorSingleResultKeys.value.filter((candidate) => candidate !== key);
     }
     if (navigatorEntrySelectionPendingFor(level)) {
-      resolveNavigatorEntryFromRecords(level, records);
+      resolveNavigatorEntryFromRecords(level, records, completeUnfilteredResult);
       return;
     }
-    selectAutomaticNavigatorRecord(level, records);
+    selectAutomaticNavigatorRecord(level, records, completeUnfilteredResult);
   }
 
   function resolveLockedNavigatorEntry(level: NavigatorLevelRuntime) {
     resolveNavigatorEntryFromRecords(level, []);
   }
 
-  function resolveNavigatorEntryFromRecords(level: NavigatorLevelRuntime, records: Array<{ id?: string }>) {
+  function resolveNavigatorEntryFromRecords(
+    level: NavigatorLevelRuntime,
+    records: Array<{ id?: string }>,
+    completeUnfilteredResult = false,
+  ) {
     const key = level.descriptor.key;
     const scopeIdentity = navigatorEntryScopeIdentity(key);
     void resolveNavigatorEntrySelection(level, records, navigatorExplorerQueryValues(key)).then(
@@ -2263,15 +2271,19 @@ export function useModulePageSession(
           selectNavigatorRecord(key, resolution.record, 'entry');
           return;
         }
-        selectAutomaticNavigatorRecord(level, records);
+        selectAutomaticNavigatorRecord(level, records, completeUnfilteredResult);
       },
     );
   }
 
-  function selectAutomaticNavigatorRecord(level: NavigatorLevelRuntime, records: Array<{ id?: string }>) {
+  function selectAutomaticNavigatorRecord(
+    level: NavigatorLevelRuntime,
+    records: Array<{ id?: string }>,
+    completeUnfilteredResult: boolean,
+  ) {
     if (isLockedNavigator(level.descriptor.key)) return;
     const key = level.descriptor.key;
-    const single = records.length === 1 && records[0]?.id != null;
+    const single = completeUnfilteredResult && records.length === 1 && records[0]?.id != null;
     const selectsSingleResult =
       single &&
       level.descriptor.singleResultPolicy !== undefined &&

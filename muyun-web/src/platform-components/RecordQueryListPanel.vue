@@ -756,11 +756,12 @@ async function loadRecords(updateLoading = true) {
         return record;
       });
       total.value = recycleBinState.total.value;
-      totalKnown.value = true;
+      totalKnown.value = recycleBinState.totalKnown.value;
       querySummaryValues.value = [];
       pageNum.value = recycleBinState.pageNum.value;
       pageSize.value = recycleBinState.pageSize.value;
       emit('loaded', records.value);
+      refreshRecycleBinSummary();
       return true;
     } finally {
       if (updateLoading && requestSeq === recordsRequestSeq) loading.value = false;
