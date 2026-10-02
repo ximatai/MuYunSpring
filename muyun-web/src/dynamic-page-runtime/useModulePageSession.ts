@@ -4179,6 +4179,8 @@ export function useModulePageSession(
       pageReady.value &&
       editorMode.value === 'edit' &&
       !sessionDirty.value &&
+      mainFormValid.value &&
+      relationDraftValid.value &&
       !interactionBusy.value &&
       !navigatorManagementDetail.open.value &&
       !localEditOpen.value &&

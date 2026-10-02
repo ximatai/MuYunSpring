@@ -4176,15 +4176,31 @@ describe('ModulePageHost', () => {
       session.updateReferenceRecordDetailInteraction({ editing: false, busy: false, dirty: true });
       expect(session.canLeaveUnchangedEditor()).toBe(false);
       session.updateReferenceRecordDetailInteraction({ editing: false, busy: false, dirty: false });
-      await leaveEditor.execute(
-        {},
-        {
-          signal: new AbortController().signal,
-          isCurrent: () => true,
-          commitInternalState: (commit) => commit(),
-          applyEffect: (effect) => effect(),
-        },
-      );
+      const leave = () =>
+        leaveEditor.execute(
+          {},
+          {
+            signal: new AbortController().signal,
+            isCurrent: () => true,
+            commitInternalState: (commit) => commit(),
+            applyEffect: (effect) => effect(),
+          },
+        );
+      // Parsing errors keep the previous draft value but must preserve the user's editor buffer.
+      for (const updateValidity of [
+        (valid: boolean) => session.updateMainFormValidity({ valid }),
+        (valid: boolean) => session.updateRelationDraftValidity(valid),
+      ]) {
+        updateValidity(false);
+        expect(session.sessionDirty).toBe(false);
+        expect(surface.capabilities().map(({ descriptor }) => descriptor.code)).not.toContain(
+          'record.leave-unchanged-editor',
+        );
+        await expect(leave()).rejects.toThrow('编辑状态已变化');
+        expect(session.editorMode).toBe('edit');
+        updateValidity(true);
+      }
+      await leave();
       expect(session.editorMode).toBe('view');
       expect(session.selectedRecord?.id).toBe('main-1');
       expect(session.sessionDirty).toBe(false);
