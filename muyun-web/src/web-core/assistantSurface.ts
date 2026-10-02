@@ -1,4 +1,4 @@
-import { assistantCapabilityCatalog } from './assistantCapabilityCatalog';
+import { assistantCapabilityCatalog, ASSISTANT_CAPABILITY_LOAD_CODE } from './assistantCapabilityCatalog';
 import {
   createAssistantOperationConfirmation,
   type AssistantOperationProposal,
@@ -456,7 +456,7 @@ export function createAssistantSurfaceRegistry(
       return (async () => {
         const available = validateAssistantCapabilities(registration.surface.capabilities());
         const capability =
-          call.code === 'assistant.load-capabilities'
+          call.code === ASSISTANT_CAPABILITY_LOAD_CODE
             ? assistantCapabilityCatalog(available.filter((item) => permitted(item, policy))).discovery
             : available.find(({ descriptor }) => descriptor.code === call.code);
         if (!capability)

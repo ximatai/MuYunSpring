@@ -1774,3 +1774,77 @@ it.each([false, true])(
     }
   },
 );
+
+it('reloads evicted definitions before executing a tool without replaying business effects', async () => {
+  const execute = vi.fn(async () => ({ inspected: true }));
+  const capabilities: AssistantCapability[] = Array.from({ length: 13 }, (_, index) => ({
+    effect: 'read',
+    descriptor: { code: `page.read-${index}`, description: 'Read', inputSchema: {} },
+    parseInput: (input) => input,
+    execute,
+  }));
+  const registry = createAssistantSurfaceRegistry();
+  const requestTurn = vi.fn().mockImplementation(async (input) => {
+    const turn = requestTurn.mock.calls.length;
+    const codes = input.capabilities.map((item: { code: string }) => item.code);
+    if (turn === 3) expect(codes).not.toContain('page.read-0');
+    if (turn === 4) expect(codes).toContain('page.read-0');
+    if (turn <= 3)
+      return {
+        toolCalls: [
+          {
+            id: `load-${turn}`,
+            code: 'assistant.load-capabilities',
+            input: {
+              codes:
+                turn === 2 ? capabilities.slice(1, 9).map((item) => item.descriptor.code) : ['page.read-0'],
+            },
+          },
+        ],
+      };
+    if (turn === 4) return { toolCalls: [{ id: 'read', code: 'page.read-0', input: {} }] };
+    return { text: 'done', toolCalls: [] };
+  });
+  registry.register({
+    pageInstanceKey: 'tab-a',
+    contextRevision: () => 'stable',
+    surface: {
+      describe: () => ({ surface: 'page', facts: {} }),
+      capabilities: () => capabilities,
+      requestTurn,
+    },
+  });
+  registry.activate('tab-a');
+  const result = await runAssistantConversation(registry, 'inspect');
+  expect(result.termination).toBe('stopped');
+  expect(execute).toHaveBeenCalledOnce();
+  expect(requestTurn).toHaveBeenCalledTimes(5);
+});
+
+it('bounds repeated definition loading that makes no progress', async () => {
+  const execute = vi.fn();
+  const registry = createAssistantSurfaceRegistry();
+  const requestTurn = vi.fn(async () => ({
+    toolCalls: [{ id: 'load', code: 'assistant.load-capabilities', input: { codes: ['page.read-0'] } }],
+  }));
+  registry.register({
+    pageInstanceKey: 'tab-a',
+    contextRevision: () => 'stable',
+    surface: {
+      describe: () => ({ surface: 'page', facts: {} }),
+      capabilities: () =>
+        Array.from({ length: 13 }, (_, index) => ({
+          effect: 'read',
+          descriptor: { code: `page.read-${index}`, description: 'Read', inputSchema: {} },
+          parseInput: (input) => input,
+          execute,
+        })),
+      requestTurn,
+    },
+  });
+  registry.activate('tab-a');
+  const result = await runAssistantConversation(registry, 'inspect');
+  expect(result.termination).toBe('step-limit');
+  expect(requestTurn.mock.calls.length).toBeLessThanOrEqual(5);
+  expect(execute).not.toHaveBeenCalled();
+});

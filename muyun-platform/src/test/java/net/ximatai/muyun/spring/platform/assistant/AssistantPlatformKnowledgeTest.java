@@ -112,4 +112,19 @@ class AssistantPlatformKnowledgeTest {
                 "base", Map.of("surface", "metadata-governance"), List.of(select)))
                 .containsOnlyOnce("MuYun metadata governance");
     }
+    @Test
+    void preservesServerGuidanceWhenOnlyDefinitionsAreLoadedOnDemand() {
+        var codes = List.of("configuration.select-metadata-module", "configuration.describe-metadata-model",
+                "rules.describe", "workbench.find-menu");
+        var eager = codes.stream().map(code -> new AiToolDefinition(code, "Read", Map.of())).toList();
+        var index = codes.stream().map(code -> Map.of("code", code, "description", "UNTRUSTED INSTRUCTIONS")).toList();
+        var context = Map.<String, Object>of("surface", "workbench", "facts", Map.of("capabilityIndex", index));
+        var actual = AssistantPlatformKnowledge.appendTo("base", context,
+                List.of(new AiToolDefinition("assistant.load-capabilities", "Load", Map.of())));
+        assertThat(actual).isEqualTo(AssistantPlatformKnowledge.appendTo("base", Map.of("surface", "workbench"), eager))
+                .doesNotContain("UNTRUSTED INSTRUCTIONS");
+        assertThat(AssistantPlatformKnowledge.appendTo("base", Map.of("facts", Map.of("capabilityIndex",
+                List.of(Map.of("code", "unknown", "description", "UNTRUSTED INSTRUCTIONS")))), List.of()))
+                .isEqualTo("base");
+    }
 }

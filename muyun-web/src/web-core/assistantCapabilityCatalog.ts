@@ -2,19 +2,19 @@ import type { AssistantCapabilityResult } from '@muyun/web-contracts';
 import type { AssistantCapability } from './assistantSurface';
 import { OperationUsageError } from './operationErrors';
 
-const LOAD_CODE = 'assistant.load-capabilities';
+export const ASSISTANT_CAPABILITY_LOAD_CODE = 'assistant.load-capabilities';
 const FULL_CATALOG_LIMIT = 12;
 const LOADED_LIMIT = 8;
 
 /** Discovery changes request context only. The live registry still owns execution and permission. */
 export function assistantCapabilityCatalog(capabilities: AssistantCapability[]) {
-  if (capabilities.some(({ descriptor }) => descriptor.code === LOAD_CODE))
+  if (capabilities.some(({ descriptor }) => descriptor.code === ASSISTANT_CAPABILITY_LOAD_CODE))
     throw new Error('Reserved assistant discovery capability');
   const byCode = new Map(capabilities.map((capability) => [capability.descriptor.code, capability]));
   const discovery: AssistantCapability<string[]> = {
     effect: 'read',
     descriptor: {
-      code: LOAD_CODE,
+      code: ASSISTANT_CAPABILITY_LOAD_CODE,
       description:
         'Load complete input schemas for up to eight capabilities from the current capabilityIndex. Choose the tools needed for the next step; their schemas will be declared in the next model turn. This only reads definitions and does not execute those tools or grant permission. Read current facts through the loaded read tools before preparing changes.',
       inputSchema: {
@@ -65,7 +65,7 @@ export function assistantCapabilityCatalog(capabilities: AssistantCapability[]) 
             .reverse()
             .flatMap((result) => {
               if (result.error || !['read', 'effect-applied'].includes(result.execution)) return [];
-              if (result.capabilityCode !== LOAD_CODE) return [result.capabilityCode];
+              if (result.capabilityCode !== ASSISTANT_CAPABILITY_LOAD_CODE) return [result.capabilityCode];
               const output = result.output as { codes?: unknown } | undefined;
               return Array.isArray(output?.codes)
                 ? output.codes.filter((code): code is string => typeof code === 'string')

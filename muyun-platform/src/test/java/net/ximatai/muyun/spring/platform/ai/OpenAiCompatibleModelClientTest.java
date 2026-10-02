@@ -170,6 +170,9 @@ class OpenAiCompatibleModelClientTest {
             public void onComplete(AiTurnResponse response) { completed.set(response); }
         });
         assertThat(completed.get().usage()).isEqualTo(expected);
+        var deltas = new StringBuilder();
+        client.stream(configured, text, deltas::append);
+        assertThat(deltas.toString()).isEqualTo("OK");
     }
 
     @Test

@@ -137,27 +137,36 @@ final class AssistantPlatformKnowledge {
 
     static String appendTo(String basePrompt, Map<String, Object> context, List<AiToolDefinition> capabilities) {
         Set<String> archetypes = new LinkedHashSet<>();
+        Set<String> capabilityCodes = new LinkedHashSet<>();
+        capabilities.stream().map(AiToolDefinition::code).forEach(capabilityCodes::add);
+        // Schema loading must not remove server-owned operating guidance. The index selects only
+        // fixed guidance below; its descriptions are never promoted to instructions or authorization.
+        if (context.get("facts") instanceof Map<?, ?> facts && facts.get("capabilityIndex") instanceof List<?> index) {
+            index.stream().limit(64).filter(Map.class::isInstance).map(Map.class::cast)
+                    .map(item -> item.get("code")).filter(String.class::isInstance).map(String.class::cast)
+                    .filter(code -> code.length() <= 128).forEach(capabilityCodes::add);
+        }
         Object surface = context.get("surface");
         if (surface instanceof String value && SURFACE_GUIDANCE.containsKey(value)) {
             archetypes.add(value);
         }
-        if (capabilities.stream().map(AiToolDefinition::code).anyMatch(name -> name.startsWith("workbench."))) {
+        if (capabilityCodes.stream().anyMatch(name -> name.startsWith("workbench."))) {
             archetypes.add("workbench");
         }
-        if (capabilities.stream().map(AiToolDefinition::code).anyMatch(name -> name.startsWith("construction."))) {
+        if (capabilityCodes.stream().anyMatch(name -> name.startsWith("construction."))) {
             archetypes.add("construction");
         }
-        if (capabilities.stream().map(AiToolDefinition::code).anyMatch(name -> name.equals("configuration.select-metadata-module"))) {
+        if (capabilityCodes.stream().anyMatch(name -> name.equals("configuration.select-metadata-module"))) {
             archetypes.add("configuration");
         }
-        if (capabilities.stream().map(AiToolDefinition::code).anyMatch(name -> name.startsWith("rules."))) {
+        if (capabilityCodes.stream().anyMatch(name -> name.startsWith("rules."))) {
             archetypes.add("configuration");
         }
         // Discovery of a target is not an active editor; inject detailed guidance only once its catalog exists.
-        if (capabilities.stream().map(AiToolDefinition::code).anyMatch("configuration.describe-metadata-model"::equals)) {
+        if (capabilityCodes.stream().anyMatch("configuration.describe-metadata-model"::equals)) {
             archetypes.add("metadata-governance");
         }
-        if (capabilities.stream().map(AiToolDefinition::code).anyMatch("rules.describe"::equals)) {
+        if (capabilityCodes.stream().anyMatch("rules.describe"::equals)) {
             archetypes.add("business-rule-governance");
         }
         if (archetypes.isEmpty()) return basePrompt;

@@ -1,3 +1,4 @@
+import { ASSISTANT_CAPABILITY_LOAD_CODE } from './assistantCapabilityCatalog';
 import { AppError, platformErrorCodes } from './errors';
 import type { AssistantOperationConfirmation } from './assistantConfirmation';
 import type {
@@ -649,7 +650,9 @@ async function runAssistantStepWithSettledCalls({
   let restoredReadContext = false;
   for (const call of output.toolCalls) {
     const callKey = capabilityCallKey(snapshot.token, call.code, call.input);
-    const settled = settledCalls.get(callKey);
+    // Definition selection changes the next request even when the same observation remains in history.
+    // Reapply this read-only selection; the existing no-progress and hard-step limits still bound loops.
+    const settled = call.code === ASSISTANT_CAPABILITY_LOAD_CODE ? undefined : settledCalls.get(callKey);
     if (settled) {
       results.push({ ...settled, callId: call.id });
       // Evicted evidence may be requested again without repeating its execution.
