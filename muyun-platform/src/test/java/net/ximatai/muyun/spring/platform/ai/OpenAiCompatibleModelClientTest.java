@@ -70,9 +70,18 @@ class OpenAiCompatibleModelClientTest {
     }
 
     @org.junit.jupiter.params.ParameterizedTest
-    @org.junit.jupiter.params.provider.ValueSource(strings = {"text", "turn", "text-stream", "turn-stream"})
-    void allTransportsLogSafeBodyErrorFactsWithoutChangingFailureOrRetry(String transport) throws Exception {
-        String error = "{\"error\":{\"code\":\"upstream_unavailable\",\"type\":\"private type\","
+    @org.junit.jupiter.params.provider.CsvSource({
+            "text,upstream_unavailable,AI_PROVIDER_UNAVAILABLE,503",
+            "turn,upstream_unavailable,AI_PROVIDER_UNAVAILABLE,503",
+            "text-stream,upstream_unavailable,AI_PROVIDER_UNAVAILABLE,503",
+            "turn-stream,upstream_unavailable,AI_PROVIDER_UNAVAILABLE,503",
+            "text,private-code,AI_PROVIDER_REQUEST_REJECTED,502",
+            "turn,private-code,AI_PROVIDER_REQUEST_REJECTED,502",
+            "text-stream,private-code,AI_PROVIDER_REQUEST_REJECTED,502",
+            "turn-stream,private-code,AI_PROVIDER_REQUEST_REJECTED,502"})
+    void allTransportsClassifyKnownBodyOutageWithoutRetryOrExposingProviderPayload(
+            String transport, String providerCode, String platformCode, int platformStatus) throws Exception {
+        String error = "{\"error\":{\"code\":\"" + providerCode + "\",\"type\":\"private type\","
                 + "\"status\":503,\"message\":\"private provider secret\"}}";
         var requests = new java.util.concurrent.atomic.AtomicInteger();
         var client = responseClient(200, transport.endsWith("stream") ? "data: " + error + "\n\n" : error, requests);
@@ -96,8 +105,8 @@ class OpenAiCompatibleModelClientTest {
                 }
             }).isInstanceOf(PlatformException.class).hasNoCause().hasMessageNotContaining("private")
                     .satisfies(failure -> {
-                        assertThat(((PlatformException) failure).code()).isEqualTo("AI_PROVIDER_REQUEST_REJECTED");
-                        assertThat(((PlatformException) failure).httpStatus()).isEqualTo(502);
+                        assertThat(((PlatformException) failure).code()).isEqualTo(platformCode);
+                        assertThat(((PlatformException) failure).httpStatus()).isEqualTo(platformStatus);
                     });
         } finally {
             logger.detachAppender(events);
@@ -105,7 +114,8 @@ class OpenAiCompatibleModelClientTest {
         }
         assertThat(events.list).extracting(ch.qos.logback.classic.spi.ILoggingEvent::getFormattedMessage)
                 .anySatisfy(message -> assertThat(message).contains("transport=body httpStatus=200",
-                        "code=upstream_unavailable", "type=other", "reportedStatus=503"))
+                        "code=" + (providerCode.equals("upstream_unavailable") ? "upstream_unavailable" : "other"),
+                        "type=other", "reportedStatus=503"))
                 .allSatisfy(message -> assertThat(message).doesNotContain("private", "secret"));
         assertThat(events.list).allSatisfy(event -> assertThat(event.getThrowableProxy()).isNull());
         assertThat(requests.get()).isEqualTo(1);
@@ -670,8 +680,9 @@ class OpenAiCompatibleModelClientTest {
         assertThat(count.get()).isEqualTo(expected);
     }
 
-    @Test
-    void neverRetriesAnErrorAfterStreamingHasStarted() throws Exception {
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {false, true})
+    void neverRetriesAnErrorAfterStreamingHasStarted(boolean structured) throws Exception {
         var count = new java.util.concurrent.atomic.AtomicInteger();
         server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         server.createContext("/v1/chat/completions", exchange -> {
@@ -686,8 +697,16 @@ class OpenAiCompatibleModelClientTest {
         server.start();
         var output = new StringBuilder();
         var client = new OpenAiCompatibleModelClient(new ObjectMapper());
-        assertThatThrownBy(() -> client.stream(route(), AiTextRequest.userText("hello"), output::append))
-                .isInstanceOf(PlatformException.class);
+        assertThatThrownBy(() -> {
+            if (structured) client.stream(route(),
+                    new AiTurnRequest(List.of(new AiChatMessage(AiChatMessage.Role.USER, "hello")), List.of(), null, null),
+                    new AiTurnStreamConsumer() {
+                        public void onTextDelta(String text) { output.append(text); }
+                        public void onComplete(AiTurnResponse result) { throw new AssertionError(); }
+                    });
+            else client.stream(route(), AiTextRequest.userText("hello"), output::append);
+        }).isInstanceOf(PlatformException.class).hasMessageContaining("暂时不可用")
+                .satisfies(failure -> assertThat(((PlatformException) failure).code()).isEqualTo("AI_PROVIDER_UNAVAILABLE"));
         assertThat(output.toString()).isEqualTo("partial");
         assertThat(count.get()).isEqualTo(1);
     }

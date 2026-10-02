@@ -254,6 +254,9 @@ final class OpenAiCompatibleModelClient implements AiModelClient {
         if (response.hasNonNull("error")) {
             log.warn("AI provider rejected response transport=body httpStatus={} diagnostics={}",
                     httpStatus, providerErrorDiagnostics(response.get("error")));
+            if ("upstream_unavailable".equals(response.path("error").path("code").asText())) {
+                throw new PlatformException("AI_PROVIDER_UNAVAILABLE", 503, "模型服务暂时不可用，请稍后重试。");
+            }
             throw new PlatformException("AI_PROVIDER_REQUEST_REJECTED", 502, "模型服务拒绝了本次请求，请联系管理员检查模型配置与服务状态。");
         }
         return response;
