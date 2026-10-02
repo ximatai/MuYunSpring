@@ -29,6 +29,13 @@ public interface ReferenceAbility<T extends EntityContract & TitledCapable> exte
         return ReferenceTargets.fromModuleAlias(getModuleAlias());
     }
 
+    /** Protected values are never public candidate context, even if a human output policy permits them. */
+    default boolean isReferenceFieldProtected(String fieldName) {
+        var plan = this instanceof FieldProtectionAbility<?> protection ? protection.fieldProtectionPlan()
+                : net.ximatai.muyun.spring.ability.security.StaticFieldProtectionResolver.resolve(modelClass());
+        return plan.fields().stream().anyMatch(field -> field.fieldName().equals(fieldName));
+    }
+
     default void clearReferenceReferrers(String id) {
         ReferenceDependencyRegistry.clearReferrers(referenceTarget(), id);
     }

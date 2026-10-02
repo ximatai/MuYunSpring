@@ -105,6 +105,114 @@ class StaticReferenceResolveFacadeTest {
         verify(organization).projections(List.of("organization-1"), List.of("regionCode"));
     }
 
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.EnumSource(value = WebReferenceResolveMode.class, names = {"QUERY", "TRANSLATE"})
+    void shouldDistinguishSameTitleCandidatesThroughDeclaredRelatedContext(WebReferenceResolveMode mode) {
+        @SuppressWarnings("unchecked") CrudAbility<ContextOrder> source = mock(CrudAbility.class);
+        doReturn(ContextOrder.class).when(source).modelClass();
+        doReturn("sales.context_order").when(source).getModuleAlias();
+        @SuppressWarnings("unchecked") ReferenceAbility<SelectionCustomer> customer = mock(ReferenceAbility.class);
+        doReturn(SelectionCustomer.class).when(customer).modelClass();
+        doReturn("crm.customer").when(customer).getModuleAlias();
+        when(customer.referenceOptions(any(), any(PageRequest.class))).thenReturn(PageResult.of(List.of(
+                new ReferenceOption("customer-1", "客户"), new ReferenceOption("customer-2", "客户")), 2, PageRequest.of(1, 20)));
+        when(customer.projections(List.of("customer-1", "customer-2"), List.of("organizationId")))
+                .thenReturn(Map.of("customer-1", Map.of("organizationId", "org-1"),
+                        "customer-2", Map.of("organizationId", "org-2")));
+        @SuppressWarnings("unchecked") ReferenceAbility<SelectionOrganization> organization = mock(ReferenceAbility.class);
+        doReturn(SelectionOrganization.class).when(organization).modelClass();
+        doReturn("crm.organization").when(organization).getModuleAlias();
+        when(organization.projections(List.of("org-1", "org-2"), List.of("title")))
+                .thenReturn(Map.of("org-1", Map.of("title", "南店"), "org-2", Map.of("title", "北店")));
+        StaticModuleDefinition definition = StaticModuleDefinition.builder("sales", "sales.context_order", "订单")
+                .modelClass(ContextOrder.class).build();
+        StaticReferenceResolveFacade facade = new StaticReferenceResolveFacade(
+                new StaticModuleDefinitionCatalog(List.of(definition)), new StaticAbilityCatalog(List.of(source, customer, organization)));
+        var response = facade.resolve("sales.context_order", "customerId", new WebReferenceResolveRequest(
+                mode, null, "客户", List.of("customer-1", "customer-2"), List.of(), null,
+                new net.ximatai.muyun.spring.web.WebPageRequest(1, 20), false, null, null, null, null, null));
+        var items = mode == WebReferenceResolveMode.QUERY ? response.options()
+                : response.results().stream().map(result -> result.item()).toList();
+        assertThat(items).extracting(item -> item.title()).containsExactly("客户", "客户");
+        assertThat(items).extracting(item -> item.subtitle()).containsExactly("南店", "北店");
+        assertThat(items).allSatisfy(item -> assertThat(item.projections()).isEmpty());
+        verify(organization).projections(List.of("org-1", "org-2"), List.of("title"));
+        when(customer.projections(List.of("customer-1", "customer-2"), List.of("organizationId")))
+                .thenThrow(new net.ximatai.muyun.spring.common.exception.PlatformAccessDeniedException("context denied"));
+        var withoutContext = facade.resolve("sales.context_order", "customerId", WebReferenceResolveRequest.empty());
+        assertThat(withoutContext.options()).extracting(item -> item.title()).containsExactly("客户", "客户");
+        assertThat(withoutContext.options()).allSatisfy(item -> assertThat(item.subtitle()).isNull());
+        when(customer.referenceOptions(any(), any(PageRequest.class)))
+                .thenThrow(new net.ximatai.muyun.spring.common.exception.PlatformAccessDeniedException("candidate denied"));
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> facade.resolve("sales.context_order", "customerId", WebReferenceResolveRequest.empty()))
+                .isInstanceOf(net.ximatai.muyun.spring.common.exception.PlatformAccessDeniedException.class);
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.EnumSource(value = WebReferenceResolveMode.class, names = {"TREE", "TREE_CHILDREN"})
+    void shouldOmitDisabledSelectionProjectionsWhileRetainingTreeContext(WebReferenceResolveMode mode) {
+        @SuppressWarnings("unchecked") ReferenceAbility<TreeCustomer> target = mock(ReferenceAbility.class,
+                withSettings().extraInterfaces(TreeAbility.class));
+        doReturn(TreeCustomer.class).when(target).modelClass();
+        doReturn("crm.customer").when(target).getModuleAlias();
+        TreeCustomer customer = new TreeCustomer();
+        customer.setId("one");
+        customer.setTitle("客户");
+        when(target.list(any(), any(PageRequest.class))).thenReturn(List.of(customer));
+        when(target.referenceTitle(customer)).thenReturn("客户");
+        when(target.referenceOptions(any(), any(PageRequest.class)))
+                .thenReturn(PageResult.of(List.of(new ReferenceOption("one", "客户")), 1, PageRequest.of(1, 20)));
+        when(target.projections(List.of("one"), List.of("title"))).thenReturn(Map.of("one", Map.of("title", "北店")));
+        StaticModuleDefinition definition = StaticModuleDefinition.builder("sales", "sales.tree_context", "订单")
+                .modelClass(TreeContextOrder.class).build();
+        StaticReferenceResolveFacade facade = new StaticReferenceResolveFacade(
+                new StaticModuleDefinitionCatalog(List.of(definition)), new StaticAbilityCatalog(List.of(target)));
+        var response = facade.resolve("sales.tree_context", "customerId", new WebReferenceResolveRequest(
+                mode, null, null, List.of(), List.of(), null, null, false, null, null, null, null, null));
+        var items = mode == WebReferenceResolveMode.TREE ? response.tree().stream().map(node -> node.record()).toList()
+                : response.options();
+        assertThat(items).singleElement().satisfies(item -> {
+            assertThat(item.subtitle()).isEqualTo("北店");
+            assertThat(item.projections()).isEmpty();
+        });
+        verify(target, never()).projections(any(), eq(List.of("sortOrder")));
+    }
+
+    @Test
+    void shouldHonorServiceDeclaredProtectionForCandidateContext() {
+        @SuppressWarnings("unchecked") ReferenceAbility<Customer> target = mock(ReferenceAbility.class,
+                withSettings().extraInterfaces(net.ximatai.muyun.spring.ability.security.FieldProtectionAbility.class));
+        doReturn(Customer.class).when(target).modelClass();
+        @SuppressWarnings("unchecked") net.ximatai.muyun.spring.ability.security.ProtectedFieldAccessor<Customer> accessor =
+                mock(net.ximatai.muyun.spring.ability.security.ProtectedFieldAccessor.class);
+        when(accessor.fieldName()).thenReturn("title");
+        doReturn(new net.ximatai.muyun.spring.ability.security.FieldProtectionPlan<>(List.of(accessor)))
+                .when((net.ximatai.muyun.spring.ability.security.FieldProtectionAbility<?>) target).fieldProtectionPlan();
+        org.mockito.Mockito.doCallRealMethod().when(target).isReferenceFieldProtected(any());
+        assertThat(target.isReferenceFieldProtected("title")).isTrue();
+        assertThat(target.isReferenceFieldProtected("unprotected")).isFalse();
+        var referenceTarget = net.ximatai.muyun.spring.ability.reference.ReferenceTarget.of("crm", "customer");
+        assertThat(net.ximatai.muyun.spring.ability.reference.ReferenceCandidateSubtitleReader.read(referenceTarget,
+                List.of("one"), new net.ximatai.muyun.spring.ability.reference.ReferenceSelectionProjection("title"),
+                key -> java.util.Optional.of(target))).isEmpty();
+        verify(target, never()).projections(any(), any());
+    }
+
+    @Test
+    void shouldPreserveNullableSelectionProjectionValuesInBothResponseAdapters() {
+        Map<String, Object> projections = new LinkedHashMap<>();
+        projections.put("organizationId.title", null);
+        var web = new net.ximatai.muyun.spring.web.WebReferenceResolveItem("one", "客户", null, projections, null);
+        var dynamic = new net.ximatai.muyun.spring.dynamic.runtime.DynamicReferenceResolveItem("one", "客户", null, projections, null);
+        projections.clear();
+        assertThat(web.projections()).containsEntry("organizationId.title", null);
+        assertThat(dynamic.projections()).containsEntry("organizationId.title", null);
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> web.projections().clear())
+                .isInstanceOf(UnsupportedOperationException.class);
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> dynamic.projections().clear())
+                .isInstanceOf(UnsupportedOperationException.class);
+    }
+
     @Test
     void shouldKeepNullBusinessValuesInReferenceResolveFormContext() {
         Map<String, Object> formValues = new LinkedHashMap<>();
@@ -584,6 +692,17 @@ class StaticReferenceResolveFacadeTest {
 
     private static final class MultiHopSelectionOrder extends StandardEntity {
         @ReferenceTo(moduleAlias = "crm", entityAlias = "customer", selectionProjections = "organizationId.regionCode")
+        private String customerId;
+    }
+
+    private static final class TreeContextOrder extends StandardEntity {
+        @ReferenceTo(moduleAlias = "crm", entityAlias = "customer", selectionProjections = "sortOrder",
+                candidateSubtitleProjection = "title")
+        private String customerId;
+    }
+
+    private static final class ContextOrder extends StandardEntity {
+        @ReferenceTo(moduleAlias = "crm", entityAlias = "customer", candidateSubtitleProjection = "organizationId.title")
         private String customerId;
     }
 

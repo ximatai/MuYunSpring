@@ -14,11 +14,21 @@ public record WebReferenceResolveItem(
          * Whether this candidate has at least one visible child in a lazy tree response.
          * It is intentionally absent for ordinary query and translation results.
          */
-        Boolean hasChildren
+        Boolean hasChildren,
+        String subtitle
 ) {
     public WebReferenceResolveItem {
-        projections = projections == null ? Map.of() : Map.copyOf(new LinkedHashMap<>(projections));
+        projections = projections == null ? Map.of() : java.util.Collections.unmodifiableMap(new LinkedHashMap<>(projections));
         affectPatch = affectPatch == null ? Map.of() : Map.copyOf(new LinkedHashMap<>(affectPatch));
+    }
+
+    public WebReferenceResolveItem(String id, String title, WebReferenceMatchMode matchedBy,
+                                   Map<String, Object> projections, Map<String, Object> affectPatch, Boolean hasChildren) {
+        this(id, title, matchedBy, projections, affectPatch, hasChildren, null);
+    }
+
+    public WebReferenceResolveItem withSubtitle(String subtitle) {
+        return new WebReferenceResolveItem(id, title, matchedBy, projections, affectPatch, hasChildren, subtitle);
     }
 
     /** Compatibility constructor for callers that do not deliver lazy-tree structure. */

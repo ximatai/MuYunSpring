@@ -26,8 +26,18 @@ public record DynamicReferenceDescriptor(
         List<DynamicReferenceFilterDescriptor> filters,
         List<DynamicReferenceAffectDescriptor> affects,
         ReferenceIntegrityPolicy integrity,
-        ReferenceTenantScope tenantScope
+        ReferenceTenantScope tenantScope,
+        String candidateSubtitleProjection
 ) {
+    public DynamicReferenceDescriptor(String sourceEntityAlias, String sourceField, String targetModuleAlias,
+                                      String targetEntityAlias, ReferenceCardinality cardinality,
+                                      List<DynamicReferenceProjectionDescriptor> projections, String keyField,
+                                      String labelField, String generateRuleId, String queryTemplateId, Set<String> plusFields,
+                                      List<DynamicReferenceFilterDescriptor> filters, List<DynamicReferenceAffectDescriptor> affects,
+                                      ReferenceIntegrityPolicy integrity, ReferenceTenantScope tenantScope) {
+        this(sourceEntityAlias, sourceField, targetModuleAlias, targetEntityAlias, cardinality, projections,
+                keyField, labelField, generateRuleId, queryTemplateId, plusFields, filters, affects, integrity, tenantScope, null);
+    }
     public DynamicReferenceDescriptor(String sourceEntityAlias,
                                       String sourceField,
                                       String targetModuleAlias,
@@ -84,6 +94,8 @@ public record DynamicReferenceDescriptor(
         affects = affects == null ? List.of() : List.copyOf(affects);
         integrity = integrity == null ? ReferenceIntegrityPolicy.DEFAULT : integrity;
         tenantScope = tenantScope == null ? ReferenceTenantScope.SAME_TENANT : tenantScope;
+        candidateSubtitleProjection = candidateSubtitleProjection == null || candidateSubtitleProjection.isBlank() ? null
+                : new net.ximatai.muyun.spring.ability.reference.ReferenceSelectionProjection(candidateSubtitleProjection).key();
     }
 
     public static DynamicReferenceDescriptor from(EntityReferenceDefinition reference) {
@@ -103,7 +115,7 @@ public record DynamicReferenceDescriptor(
                 reference.filters().stream().map(DynamicReferenceFilterDescriptor::from).toList(),
                 reference.affects().stream().map(DynamicReferenceAffectDescriptor::from).toList(),
                 reference.integrity(),
-                reference.tenantScope()
+                reference.tenantScope(), reference.candidateSubtitleProjection()
         );
     }
 

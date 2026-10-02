@@ -20,6 +20,7 @@ import RecordExplorerPanel from './RecordExplorerPanel.vue';
 import {
   normalizeReferencePickerIds,
   referencePickerSummary,
+  referencePickerDisplayTitle,
   referencePickerValue,
   type ReferencePickerAxisSelection,
   type ReferencePickerCandidate,
@@ -110,7 +111,13 @@ let clearEmittedForDraft = false;
 
 const externalIds = computed(() => normalizeReferencePickerIds(props.value, props.multiple));
 const pageCount = computed(() => Math.max(1, Math.ceil(page.value.total / props.pageSize)));
-const dataColumns = computed<UiDataTableColumn[]>(() => props.columns.map((column) => ({ ...column })));
+const dataColumns = computed<UiDataTableColumn[]>(() => [
+  ...props.columns.map((column) => ({ ...column })),
+  ...(page.value.records.some((candidate) => candidate.subtitle) &&
+  !props.columns.some((column) => column.key === 'subtitle')
+    ? [{ key: 'subtitle', title: '说明' }]
+    : []),
+]);
 const rows = computed<UiDataTableRecord[]>(() =>
   page.value.records.map((candidate) => ({
     ...(candidate.projections ?? {}),
@@ -126,12 +133,15 @@ const inputSummary = computed(() => {
   if (!summary.value.length) return '';
   if (props.multiple) return `已选择 ${summary.value.length} 个${props.selectionNoun}`;
   const selected = summary.value[0]!;
-  return selected.unavailable ? `${selected.title}（不可用）` : selected.title;
+  const title = referencePickerDisplayTitle(selected);
+  return selected.unavailable ? `${title}（不可用）` : title;
 });
 const tags = computed(() =>
   selectedCandidates(draftIds.value).map((candidate) => ({
     key: candidate.id,
-    label: candidate.unavailable ? `${candidate.title}（不可用）` : candidate.title,
+    label: candidate.unavailable
+      ? `${referencePickerDisplayTitle(candidate)}（不可用）`
+      : referencePickerDisplayTitle(candidate),
   })),
 );
 const selection = computed<UiDataTableSelection | undefined>(() =>
@@ -158,7 +168,9 @@ const dropdownOptions = computed(() =>
     ...externalIds.value.map(selectionCandidate),
   ].map((candidate) => ({
     value: candidate.id,
-    label: candidate.unavailable ? `${candidate.title}（不可用）` : candidate.title,
+    label: candidate.unavailable
+      ? `${referencePickerDisplayTitle(candidate)}（不可用）`
+      : referencePickerDisplayTitle(candidate),
     disabled:
       candidate.unavailable ||
       candidate.disabled ||

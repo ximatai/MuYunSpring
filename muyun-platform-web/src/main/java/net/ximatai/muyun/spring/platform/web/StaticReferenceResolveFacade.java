@@ -82,12 +82,17 @@ public class StaticReferenceResolveFacade {
         WebReferenceResolveRequest normalized = request == null ? WebReferenceResolveRequest.empty() : request;
         return WebReferenceTenantScope.within(normalized, plan.tenantScope(),
                 sourceRecordId -> persistedSourceTenant(source, sourceRecordId),
-                () -> switch (normalized.mode()) {
+                () -> withSubtitles(plan, switch (normalized.mode()) {
                     case TRANSLATE -> translate(plan, normalized);
                     case TREE -> tree(plan, normalized);
                     case TREE_CHILDREN -> treeChildren(plan, normalized);
                     case QUERY -> query(plan, normalized);
-                });
+                }));
+    }
+
+    private WebReferenceResolveResponse withSubtitles(ReferencePlan plan, WebReferenceResolveResponse response) {
+        return net.ximatai.muyun.spring.web.WebReferenceCandidateSubtitles.apply(response, plan.target(),
+                plan.candidateSubtitleProjection(), selectionProjectionResolver());
     }
 
     /**
@@ -109,8 +114,8 @@ public class StaticReferenceResolveFacade {
         }
         PageRequest pageRequest = PageRequest.of(page.pageNum(), page.pageSize());
         PageResult<ReferenceOption> result = referenceOptions(plan, criteria, pageRequest);
-        Map<String, Map<String, Object>> selectionProjections = selectionProjections(plan,
-                result.getRecords().stream().map(ReferenceOption::id).toList());
+        Map<String, Map<String, Object>> selectionProjections = request.includeProjections() ? selectionProjections(plan,
+                result.getRecords().stream().map(ReferenceOption::id).toList()) : Map.of();
         List<WebReferenceResolveItem> options = result.getRecords().stream()
                 .map(option -> new WebReferenceResolveItem(option.id(), option.title(), null,
                         selectionProjections.get(option.id()), null)).toList();
@@ -128,8 +133,8 @@ public class StaticReferenceResolveFacade {
         }
         List<ReferenceOption> resolved = referenceOptions(plan, criteria, PageRequests.all()).getRecords();
         Map<String, ReferenceOption> optionsByMatchValue = optionsByMatchValue(plan, resolved);
-        Map<String, Map<String, Object>> selectionProjections = selectionProjections(plan,
-                optionsByMatchValue.values().stream().map(ReferenceOption::id).distinct().toList());
+        Map<String, Map<String, Object>> selectionProjections = request.includeProjections() ? selectionProjections(plan,
+                optionsByMatchValue.values().stream().map(ReferenceOption::id).distinct().toList()) : Map.of();
         List<WebReferenceResolveResult> results = request.values().stream().map(value -> {
             String matchValue = value == null ? null : String.valueOf(value);
             ReferenceOption option = matchValue == null ? null : optionsByMatchValue.get(matchValue);
@@ -175,9 +180,9 @@ public class StaticReferenceResolveFacade {
                 : referenceOptions(plan, criteria, PageRequests.all()).getRecords().stream()
                 .collect(java.util.stream.Collectors.toMap(ReferenceOption::id, option -> option,
                         (left, right) -> left, LinkedHashMap::new));
-        Map<String, Map<String, Object>> selectionProjections = selectionProjections(plan,
+        Map<String, Map<String, Object>> selectionProjections = request.includeProjections() ? selectionProjections(plan,
                 children.values().stream()
-                        .flatMap(List::stream).map(TreeCapable::getId).toList());
+                        .flatMap(List::stream).map(TreeCapable::getId).toList()) : Map.of();
         return targetTree(referenceAbility, children, selectionProjections, optionsByRecordId);
     }
 
@@ -201,8 +206,8 @@ public class StaticReferenceResolveFacade {
         WebPageRequest page = request.page() == null ? WebPageRequest.DEFAULT : request.page();
         PageRequest pageRequest = PageRequest.of(page.pageNum(), page.pageSize());
         PageResult<ReferenceOption> result = referenceOptions(plan, criteria, pageRequest);
-        Map<String, Map<String, Object>> selectionProjections = selectionProjections(plan,
-                result.getRecords().stream().map(ReferenceOption::id).toList());
+        Map<String, Map<String, Object>> selectionProjections = request.includeProjections() ? selectionProjections(plan,
+                result.getRecords().stream().map(ReferenceOption::id).toList()) : Map.of();
         java.util.Set<String> parentsWithVisibleChildren = visibleTreeParents(plan, request,
                 result.getRecords().stream().map(ReferenceOption::id).toList());
         List<WebReferenceResolveItem> options = result.getRecords().stream()

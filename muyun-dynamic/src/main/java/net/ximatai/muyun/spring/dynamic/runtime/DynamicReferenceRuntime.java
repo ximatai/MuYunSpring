@@ -22,6 +22,11 @@ final class DynamicReferenceRuntime extends DynamicAbilityRuntime<DynamicTitledR
     }
 
     @Override
+    public boolean isReferenceFieldProtected(String fieldName) {
+        return owner.fieldProtectionPlan().fields().stream().anyMatch(field -> field.fieldName().equals(fieldName));
+    }
+
+    @Override
     public Object readReferenceField(DynamicTitledRecord entity, String field) {
         return switch (field) {
             case "id" -> entity.getId();

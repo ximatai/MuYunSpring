@@ -30,6 +30,7 @@ public record WebReferenceResolveRequest(
         String parentId
 ) {
     public WebReferenceResolveRequest {
+        mode = mode == null ? WebReferenceResolveMode.QUERY : mode;
         values = values == null ? List.of() : List.copyOf(values);
         conditions = conditions == null ? List.of() : List.copyOf(conditions);
         includeProjections = includeProjections == null || includeProjections;

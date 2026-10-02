@@ -199,6 +199,7 @@ class DynamicEntityServiceReferenceReadTest {
                 .entities(List.of(line))
                 .references(List.of(EntityReferenceDefinition.to("line", "studentId", target)
                         .withProjection("studentNo", "studentNo")
+                        .withCandidateSubtitleProjection("title")
                         .withInteractionRules(List.of(), List.of(
                                 new EntityReferenceAffectDefinition("studentNo", "studentNoSnapshot")))))
                 .build();
@@ -212,6 +213,8 @@ class DynamicEntityServiceReferenceReadTest {
                         1, invocation.getArgument(1)));
         when(student.projections(List.of("student-1"), List.of("studentNo")))
                 .thenReturn(Map.of("student-1", Map.of("studentNo", "S-001")));
+        when(student.projections(List.of("student-1"), List.of("title")))
+                .thenReturn(Map.of("student-1", Map.of("title", "工程学院")));
         when(student.referenceFacts(eq(List.of("student-1")), any())).thenReturn(Map.of("student-1", Map.of()));
         when(student.titles(List.of("missing"))).thenReturn(Map.of());
         PlatformAbilityRuntime.configureReferenceTargetResolver(reference -> target.equals(reference)
@@ -228,6 +231,7 @@ class DynamicEntityServiceReferenceReadTest {
         assertThat(response.options()).singleElement().satisfies(option -> {
             assertThat(option.id()).isEqualTo("student-1");
             assertThat(option.title()).isEqualTo("张三");
+            assertThat(option.subtitle()).isEqualTo("工程学院");
             assertThat(option.projections()).containsEntry("studentNo", "S-001");
             assertThat(option.affectPatch()).containsEntry("studentNoSnapshot", "S-001");
         });
@@ -235,6 +239,7 @@ class DynamicEntityServiceReferenceReadTest {
                 DynamicReferenceResolveRequest.query("张三").withoutProjections());
         assertThat(compactResponse.options()).singleElement().satisfies(option -> {
             assertThat(option.projections()).isEmpty();
+            assertThat(option.subtitle()).isEqualTo("工程学院");
             assertThat(option.affectPatch()).containsEntry("studentNoSnapshot", "S-001");
         });
         service.beforeInsert(new DynamicRecord(line).setValue("studentId", "student-1"));

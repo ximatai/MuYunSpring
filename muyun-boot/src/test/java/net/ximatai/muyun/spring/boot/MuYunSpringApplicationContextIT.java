@@ -1097,6 +1097,60 @@ class MuYunSpringApplicationContextIT {
     }
 
     @Test
+    void shouldDeliverApplicationContextForSameTitleMenuModuleCandidatesThroughRealHttp() {
+        String suffix = Long.toUnsignedString(System.nanoTime(), 36);
+        String title = "Candidate customer " + suffix;
+        try (CurrentUserContext.Scope user = CurrentUserContext.use(CurrentUser.systemUser("candidate-fixture", "Fixture"));
+             TenantContext.Scope tenant = TenantContext.system("candidate reference fixture")) {
+            transactionTemplate.executeWithoutResult(status -> {
+                for (String store : List.of("south", "north")) {
+                    String alias = "candidate_" + store + "_" + suffix;
+                    Application application = new Application();
+                    application.setAlias(alias);
+                    application.setTitle(store + " application");
+                    applicationService.insert(application);
+                    PlatformModule module = new PlatformModule();
+                    module.setAlias(alias + ".customer");
+                    module.setApplicationAlias(alias);
+                    module.setModuleKind(ModuleKind.DYNAMIC);
+                    module.setTitle(title);
+                    moduleService.insert(module);
+                }
+            });
+        }
+        HttpHeaders headers = bearerHeaders(issueSuperAdminSessionToken());
+        ResponseEntity<JsonNode> query = restTemplate.exchange(
+                "/platform.module/platform.menu/references/moduleAlias/resolve", HttpMethod.POST,
+                new HttpEntity<>(Map.of("fuzzy", title,
+                        "page", Map.of("pageNum", 1, "pageSize", 20)), headers), JsonNode.class);
+        assertThat(query.getStatusCode()).withFailMessage("candidate response: %s", query.getBody()).isEqualTo(HttpStatus.OK);
+        JsonNode options = query.getBody().path("options");
+        assertThat(options).hasSize(2);
+        List<String> ids = new java.util.ArrayList<>();
+        Set<String> subtitles = new LinkedHashSet<>();
+        options.forEach(item -> {
+            assertThat(item.path("title").asText()).isEqualTo(title);
+            assertThat(item.path("projections").has("applicationAlias.title")).isFalse();
+            assertThat(item.path("projections").path("entryType").asText()).isNotBlank();
+            ids.add(item.path("id").asText());
+            subtitles.add(item.path("subtitle").asText());
+        });
+        assertThat(subtitles).containsExactlyInAnyOrder("south application", "north application");
+        ResponseEntity<JsonNode> translated = restTemplate.exchange(
+                "/platform.module/platform.menu/references/moduleAlias/resolve", HttpMethod.POST,
+                new HttpEntity<>(Map.of("mode", "TRANSLATE", "values", ids, "includeProjections", false), headers), JsonNode.class);
+        assertThat(translated.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(translated.getBody().path("results")).hasSize(2);
+        translated.getBody().path("results").forEach(result -> {
+            assertThat(result.path("item").path("subtitle").asText()).isIn("south application", "north application");
+            assertThat(result.path("item").path("projections")).isEmpty();
+        });
+        ResponseEntity<JsonNode> denied = restTemplate.postForEntity(
+                "/platform.module/platform.menu/references/moduleAlias/resolve", Map.of("mode", "QUERY", "fuzzy", title), JsonNode.class);
+        assertThat(denied.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+    }
+
+    @Test
     void shouldOpenStaticReferenceDetailWithViewButWithoutMenuPermission() {
         String suffix = Long.toUnsignedString(System.nanoTime(), 36);
         String tenantId = insertActiveTenant("reference_view_" + suffix);

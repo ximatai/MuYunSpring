@@ -140,6 +140,20 @@ class ModuleDefinitionValidatorTest {
     }
 
     @Test
+    void shouldValidateCandidateSubtitleEvenWithoutSelectionProjections() {
+        EntityDefinition line = new EntityDefinition("line", "sales_line", "Line", List.of(
+                FieldDefinition.string("customerId", "Customer").column("customer_id")));
+        EntityDefinition customer = new EntityDefinition("customer", "sales_customer", "Customer", List.of(
+                FieldDefinition.titleField()), Set.of(EntityCapability.CRUD, EntityCapability.REFERENCE));
+        ModuleDefinition module = ModuleDefinition.builder("sales.contract", "Contract")
+                .entities(List.of(line, customer)).references(List.of(
+                        EntityReferenceDefinition.to("line", "customerId", "sales.contract.customer")
+                                .withCandidateSubtitleProjection("missing"))).build();
+        assertThatThrownBy(() -> validator.validate(module)).isInstanceOf(ModuleDefinitionException.class)
+                .hasMessageContaining("terminal field").hasMessageContaining("missing");
+    }
+
+    @Test
     void shouldRejectManySelectionProjectionHopAtDynamicModulePublishTime() {
         EntityDefinition line = new EntityDefinition("line", "sales_line", "Line", List.of(
                 FieldDefinition.string("customerId", "Customer").column("customer_id")));

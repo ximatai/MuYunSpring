@@ -828,6 +828,8 @@ export interface WebReferenceResolveRequest {
 export interface WebReferenceResolveItem {
   id: string;
   title?: string;
+  /** Public, source-declared candidate context; never an arbitrary projection dump. */
+  subtitle?: string;
   matchedBy?: WebReferenceMatchMode;
   projections?: Record<string, unknown>;
   affectPatch?: Record<string, unknown>;

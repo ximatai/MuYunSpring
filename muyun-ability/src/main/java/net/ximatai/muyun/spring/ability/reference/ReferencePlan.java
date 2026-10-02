@@ -21,7 +21,8 @@ public record ReferencePlan(
         List<ReferenceCandidateDependency> candidateDependencies,
         List<ReferenceSelectionProjection> selectionProjections,
         String targetKeyField,
-        String targetLabelField
+        String targetLabelField,
+        ReferenceSelectionProjection candidateSubtitleProjection
 ) {
     public ReferencePlan {
         if (sourceField == null || sourceField.isBlank()) {
@@ -50,6 +51,20 @@ public record ReferencePlan(
             throw new PlatformException("CASCADE_DELETE reference deletion requires cardinality ONE: " + sourceField);
         }
         validateOutputFields(sourceField, projections);
+    }
+
+    public ReferencePlan(String sourceField, ReferenceTarget target, ReferenceCardinality cardinality,
+                         List<ReferenceProjection> projections, ReferenceIntegrityPolicy integrity,
+                         ReferenceTenantScope tenantScope, List<ReferenceCandidateDependency> candidateDependencies,
+                         List<ReferenceSelectionProjection> selectionProjections, String targetKeyField, String targetLabelField) {
+        this(sourceField, target, cardinality, projections, integrity, tenantScope, candidateDependencies,
+                selectionProjections, targetKeyField, targetLabelField, null);
+    }
+
+    public ReferencePlan withCandidateSubtitleProjection(String path) {
+        return new ReferencePlan(sourceField, target, cardinality, projections, integrity, tenantScope,
+                candidateDependencies, selectionProjections, targetKeyField, targetLabelField,
+                path == null || path.isBlank() ? null : new ReferenceSelectionProjection(path));
     }
 
     public ReferencePlan(String sourceField,
@@ -81,7 +96,7 @@ public record ReferencePlan(
     public ReferencePlan withProjection(String targetField, String outputField) {
         return new ReferencePlan(sourceField(), target, cardinality,
                 appendProjection(new ReferenceProjection(targetField, outputField)), integrity, tenantScope,
-                candidateDependencies, selectionProjections, targetKeyField, targetLabelField);
+                candidateDependencies, selectionProjections, targetKeyField, targetLabelField, candidateSubtitleProjection);
     }
 
     /** Compatibility constructor for callers created before picker selection projections existed. */
@@ -103,7 +118,7 @@ public record ReferencePlan(
     /** Configures candidate matching and rendering without changing the persisted record id. */
     public ReferencePlan withTargetFields(String targetKeyField, String targetLabelField) {
         return new ReferencePlan(sourceField, target, cardinality, projections, integrity, tenantScope,
-                candidateDependencies, selectionProjections, targetKeyField, targetLabelField);
+                candidateDependencies, selectionProjections, targetKeyField, targetLabelField, candidateSubtitleProjection);
     }
 
     /** True when existing id/title reference facades remain sufficient. */

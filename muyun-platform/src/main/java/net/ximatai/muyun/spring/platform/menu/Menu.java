@@ -40,7 +40,7 @@ public class Menu extends StandardEnabledTreeEntity implements PlatformManagedCa
     @Column(name = "module_alias", type = ColumnType.VARCHAR, length = 128, comment = "Target module alias")
     @ReferenceTo(target = PlatformModuleService.class,
             tenantScope = ReferenceTenantScope.GLOBAL,
-            selectionProjections = {"entryType"})
+            selectionProjections = {"entryType"}, candidateSubtitleProjection = "applicationAlias.title")
     private String moduleAlias;
 
     @Column(name = "route", type = ColumnType.VARCHAR, length = 256, comment = "Route path")

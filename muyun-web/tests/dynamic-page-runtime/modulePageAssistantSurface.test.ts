@@ -1323,6 +1323,8 @@ describe('module page assistant surface', () => {
     const candidate = {
       id: 'tenant-1',
       title: '示范租户',
+      subtitle: ' 华东业务 '.trim(),
+      projections: { privateToken: 'never-send-this', ownerId: 'owner-internal-1' },
       affectPatch: { tenantName: '示范租户' },
     };
     const searchPage = vi.fn().mockResolvedValue({ records: [candidate], total: 1 });
@@ -1384,13 +1386,19 @@ describe('module page assistant surface', () => {
       pageSize: 10,
       scope: { selections: [] },
     });
-    expect(result.options).toEqual([{ selectionKey, title: '示范租户' }]);
+    expect(result.options).toEqual([{ selectionKey, title: '示范租户', subtitle: '华东业务' }]);
+    expect(JSON.stringify(result)).not.toContain('never-send-this');
+    expect(JSON.stringify(result)).not.toContain('owner-internal-1');
     expect(JSON.stringify(result)).not.toContain('tenant-1');
     await expect(
       patch.execute(patch.parseInput({ selectionKey: 'guessed-id' }), executionContext()),
     ).rejects.toThrow('Reference selection is no longer available');
 
-    await patch.execute(patch.parseInput({ selectionKey }), executionContext());
+    expect(await patch.execute(patch.parseInput({ selectionKey }), executionContext())).toEqual({
+      changedField: 'tenantId',
+      selectedTitle: '示范租户',
+      selectedSubtitle: '华东业务',
+    });
     expect(view.updateDraftReference).toHaveBeenCalledWith('tenantId', candidate, 'assistant');
   });
 

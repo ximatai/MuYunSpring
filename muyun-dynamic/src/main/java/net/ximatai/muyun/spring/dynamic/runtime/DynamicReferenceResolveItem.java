@@ -8,8 +8,17 @@ public record DynamicReferenceResolveItem(
         String title,
         DynamicReferenceMatchMode matchedBy,
         Map<String, Object> projections,
-        Map<String, Object> affectPatch
+        Map<String, Object> affectPatch,
+        String subtitle
 ) {
+    public DynamicReferenceResolveItem(String id, String title, DynamicReferenceMatchMode matchedBy,
+                                       Map<String, Object> projections, Map<String, Object> affectPatch) {
+        this(id, title, matchedBy, projections, affectPatch, null);
+    }
+
+    public DynamicReferenceResolveItem withSubtitle(String subtitle) {
+        return new DynamicReferenceResolveItem(id, title, matchedBy, projections, affectPatch, subtitle);
+    }
     public DynamicReferenceResolveItem(String id,
                                        String title,
                                        DynamicReferenceMatchMode matchedBy,
@@ -18,7 +27,7 @@ public record DynamicReferenceResolveItem(
     }
 
     public DynamicReferenceResolveItem {
-        projections = projections == null ? Map.of() : Map.copyOf(new LinkedHashMap<>(projections));
+        projections = projections == null ? Map.of() : java.util.Collections.unmodifiableMap(new LinkedHashMap<>(projections));
         affectPatch = affectPatch == null ? Map.of() : Map.copyOf(new LinkedHashMap<>(affectPatch));
     }
 }

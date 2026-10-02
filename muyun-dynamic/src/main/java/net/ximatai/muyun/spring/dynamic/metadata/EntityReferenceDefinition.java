@@ -25,8 +25,24 @@ public record EntityReferenceDefinition(
         List<EntityReferenceFilterDefinition> filters,
         List<EntityReferenceAffectDefinition> affects,
         ReferenceIntegrityPolicy integrity,
-        ReferenceTenantScope tenantScope
+        ReferenceTenantScope tenantScope,
+        String candidateSubtitleProjection
 ) {
+    public EntityReferenceDefinition(String sourceEntityAlias, String sourceField, String targetQualifiedName,
+                                     ReferenceCardinality cardinality, List<ReferenceProjection> projections,
+                                     String keyField, String labelField, String generateRuleId, String queryTemplateId,
+                                     Set<String> plusFields, List<EntityReferenceFilterDefinition> filters,
+                                     List<EntityReferenceAffectDefinition> affects, ReferenceIntegrityPolicy integrity,
+                                     ReferenceTenantScope tenantScope) {
+        this(sourceEntityAlias, sourceField, targetQualifiedName, cardinality, projections, keyField, labelField,
+                generateRuleId, queryTemplateId, plusFields, filters, affects, integrity, tenantScope, null);
+    }
+
+    public EntityReferenceDefinition withCandidateSubtitleProjection(String path) {
+        return new EntityReferenceDefinition(sourceEntityAlias, sourceField, targetQualifiedName, cardinality,
+                projections, keyField, labelField, generateRuleId, queryTemplateId, plusFields, filters, affects,
+                integrity, tenantScope, path);
+    }
     public EntityReferenceDefinition(String sourceEntityAlias, String sourceField, String targetQualifiedName) {
         this(sourceEntityAlias, sourceField, targetQualifiedName, ReferenceCardinality.ONE, List.of(),
                 null, null, null, null, Set.of(), List.of(), List.of(), ReferenceIntegrityPolicy.DEFAULT,
@@ -70,6 +86,8 @@ public record EntityReferenceDefinition(
         affects = affects == null ? List.of() : List.copyOf(affects);
         integrity = integrity == null ? ReferenceIntegrityPolicy.DEFAULT : integrity;
         tenantScope = tenantScope == null ? ReferenceTenantScope.SAME_TENANT : tenantScope;
+        candidateSubtitleProjection = candidateSubtitleProjection == null || candidateSubtitleProjection.isBlank() ? null
+                : new net.ximatai.muyun.spring.ability.reference.ReferenceSelectionProjection(candidateSubtitleProjection).key();
     }
 
     public static EntityReferenceDefinition to(String sourceEntityAlias, String sourceField, ReferenceTarget target) {
@@ -87,13 +105,13 @@ public record EntityReferenceDefinition(
     public ReferencePlan plan() {
         return new ReferencePlan(sourceField, target(), cardinality, projections, integrity, tenantScope,
                 List.of(), plusFields.stream().map(net.ximatai.muyun.spring.ability.reference.ReferenceSelectionProjection::new).toList(),
-                keyField, labelField);
+                keyField, labelField).withCandidateSubtitleProjection(candidateSubtitleProjection);
     }
 
     public EntityReferenceDefinition many() {
         return new EntityReferenceDefinition(sourceEntityAlias, sourceField, targetQualifiedName,
                 ReferenceCardinality.MANY, projections,
-                keyField, labelField, generateRuleId, queryTemplateId, plusFields, filters, affects, integrity, tenantScope);
+                keyField, labelField, generateRuleId, queryTemplateId, plusFields, filters, affects, integrity, tenantScope, candidateSubtitleProjection);
     }
 
     public EntityReferenceDefinition withProjection(String targetField, String outputField) {
@@ -101,7 +119,7 @@ public record EntityReferenceDefinition(
         next.add(new ReferenceProjection(targetField, outputField));
         return new EntityReferenceDefinition(this.sourceEntityAlias, this.sourceField, targetQualifiedName,
                 cardinality, List.copyOf(next),
-                keyField, labelField, generateRuleId, queryTemplateId, plusFields, filters, affects, integrity, tenantScope);
+                keyField, labelField, generateRuleId, queryTemplateId, plusFields, filters, affects, integrity, tenantScope, candidateSubtitleProjection);
     }
 
 
@@ -112,26 +130,26 @@ public record EntityReferenceDefinition(
                                                        Set<String> plusFields) {
         return new EntityReferenceDefinition(sourceEntityAlias, sourceField, targetQualifiedName,
                 cardinality, projections,
-                keyField, labelField, generateRuleId, queryTemplateId, plusFields, filters, affects, integrity, tenantScope);
+                keyField, labelField, generateRuleId, queryTemplateId, plusFields, filters, affects, integrity, tenantScope, candidateSubtitleProjection);
     }
 
     public EntityReferenceDefinition withInteractionRules(List<EntityReferenceFilterDefinition> filters,
                                                           List<EntityReferenceAffectDefinition> affects) {
         return new EntityReferenceDefinition(sourceEntityAlias, sourceField, targetQualifiedName,
                 cardinality, projections,
-                keyField, labelField, generateRuleId, queryTemplateId, plusFields, filters, affects, integrity, tenantScope);
+                keyField, labelField, generateRuleId, queryTemplateId, plusFields, filters, affects, integrity, tenantScope, candidateSubtitleProjection);
     }
 
     public EntityReferenceDefinition withIntegrity(ReferenceIntegrityPolicy integrity) {
         return new EntityReferenceDefinition(sourceEntityAlias, sourceField, targetQualifiedName,
                 cardinality, projections,
-                keyField, labelField, generateRuleId, queryTemplateId, plusFields, filters, affects, integrity, tenantScope);
+                keyField, labelField, generateRuleId, queryTemplateId, plusFields, filters, affects, integrity, tenantScope, candidateSubtitleProjection);
     }
 
     /** Declares an intentional non-default tenant boundary for this dynamic reference. */
     public EntityReferenceDefinition withTenantScope(ReferenceTenantScope tenantScope) {
         return new EntityReferenceDefinition(sourceEntityAlias, sourceField, targetQualifiedName,
                 cardinality, projections,
-                keyField, labelField, generateRuleId, queryTemplateId, plusFields, filters, affects, integrity, tenantScope);
+                keyField, labelField, generateRuleId, queryTemplateId, plusFields, filters, affects, integrity, tenantScope, candidateSubtitleProjection);
     }
 }

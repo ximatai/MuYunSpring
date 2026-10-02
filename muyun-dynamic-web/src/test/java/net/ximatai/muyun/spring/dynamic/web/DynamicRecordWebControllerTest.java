@@ -3424,6 +3424,40 @@ class DynamicRecordWebControllerTest {
     }
 
     @Test
+    void shouldPreserveCandidateContextForDynamicSourceTreeSelection() throws Exception {
+        var target = net.ximatai.muyun.spring.ability.reference.ReferenceTarget.of("crm.customer", "customer");
+        var definition = net.ximatai.muyun.spring.dynamic.metadata.EntityReferenceDefinition.to(ENTITY, "customerId", target)
+                .withCandidateSubtitleProjection("code");
+        when(service.reference(MODULE, ENTITY, "customerId")).thenReturn(DynamicReferenceDescriptor.from(definition));
+        when(service.hasRegisteredDynamicEntity("crm.customer", "customer")).thenReturn(true);
+        DynamicRecord root = new DynamicRecord(entity()).setValue("code", "客户");
+        root.setId("root-1");
+        DynamicRecord child = new DynamicRecord(entity()).setValue("code", "客户");
+        child.setId("child-1");
+        when(service.childrenForAction(eq("crm.customer"), eq("customer"), eq(PlatformAction.REFERENCE.code()), any(), anyString()))
+                .thenAnswer(invocation -> switch (invocation.getArgument(4, String.class)) {
+                    case "root" -> List.of(root);
+                    case "root-1" -> List.of(child);
+                    default -> List.of();
+                });
+        @SuppressWarnings("unchecked") var ability = mock(net.ximatai.muyun.spring.ability.reference.ReferenceAbility.class);
+        when(ability.projections(List.of("root-1", "child-1"), List.of("code")))
+                .thenReturn(Map.of("root-1", Map.of("code", "南店"), "child-1", Map.of("code", "北店")));
+        net.ximatai.muyun.spring.ability.PlatformAbilityRuntime.configureReferenceTargetResolver(
+                key -> target.equals(key) ? java.util.Optional.of(ability) : java.util.Optional.empty());
+        try {
+            mvc.perform(post("/{moduleAlias}/references/{fieldName}/resolve", MODULE, "customerId")
+                            .contentType("application/json").content("{\"mode\":\"TREE\"}"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.tree[0].record.subtitle").value("南店"))
+                    .andExpect(jsonPath("$.tree[0].children[0].record.subtitle").value("北店"));
+            verify(ability).projections(List.of("root-1", "child-1"), List.of("code"));
+        } finally {
+            net.ximatai.muyun.spring.ability.PlatformAbilityRuntime.resetReferenceTargetResolver();
+        }
+    }
+
+    @Test
     void shouldResolveDynamicReferenceInsideThePersistedSourceTenant() throws Exception {
         DynamicRecord source = new DynamicRecord(entity());
         source.setId("contract-1");

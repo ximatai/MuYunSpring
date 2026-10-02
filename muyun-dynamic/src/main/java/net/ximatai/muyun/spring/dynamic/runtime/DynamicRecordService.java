@@ -188,6 +188,12 @@ public class DynamicRecordService {
                 }
 
                 @Override
+                public boolean isReferenceFieldProtected(String fieldName) {
+                    return entityService(target.moduleAlias(), target.entityAlias()).fieldProtectionPlan()
+                            .fields().stream().anyMatch(field -> field.fieldName().equals(fieldName));
+                }
+
+                @Override
                 public ReferenceTarget referenceTarget() {
                     return target;
                 }
