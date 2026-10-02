@@ -92,7 +92,7 @@ public class DemoBootstrapTask implements PlatformBootstrapTask {
             try (TenantContext.Scope ignoredSystem = TenantContext.system("initialize demo tenant")) {
                 tenantService.provisionTenant(TENANT_ALIAS);
             }
-            tenantApplicationService.configureApplications(TENANT_ALIAS, DEMO_TENANT_APPLICATIONS);
+            tenantApplicationService.ensureApplicationsOpened(TENANT_ALIAS, DEMO_TENANT_APPLICATIONS);
             try (TenantContext.Scope ignoredTenant = TenantContext.use(TENANT_ALIAS)) {
                 Organization organization = ensureOrganization();
                 if (!isActive(organization)) {

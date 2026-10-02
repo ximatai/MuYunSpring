@@ -3,12 +3,7 @@ package net.ximatai.muyun.spring.iam.web;
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.database.core.orm.Sort;
-import net.ximatai.muyun.spring.ability.DataScopeAbility;
-import net.ximatai.muyun.spring.common.platform.ActionAccessMode;
-import net.ximatai.muyun.spring.common.platform.ActionDefaultGrantPolicy;
-import net.ximatai.muyun.spring.common.platform.ActionExecutionPolicy;
-import net.ximatai.muyun.spring.common.platform.DataScopeCriteriaResult;
-import net.ximatai.muyun.spring.common.platform.PlatformActionLevel;
+import net.ximatai.muyun.spring.ability.query.QueryLikePattern;
 import net.ximatai.muyun.spring.iam.user.UserAccount;
 import net.ximatai.muyun.spring.iam.user.UserAccountService;
 import net.ximatai.muyun.spring.platform.web.StaticRecordReadProjectionService;
@@ -27,15 +22,6 @@ import java.util.Map;
  */
 @Component
 public class RoleAccountCandidateQueryService {
-    private static final ActionExecutionPolicy CANDIDATE_READ_POLICY = new ActionExecutionPolicy(
-            "accountRoleGrants",
-            PlatformActionLevel.RECORD,
-            ActionAccessMode.AUTH_REQUIRED,
-            true,
-            true,
-            ActionDefaultGrantPolicy.NONE,
-            null
-    );
     private static final List<String> OUTPUT_FIELDS = List.of(
             "id", "username", "employeeId", "employeeNo", "employeeTitle",
             "employeeOrganizationId", "organizationTitle", "employeeDepartmentId", "departmentTitle"
@@ -53,26 +39,24 @@ public class RoleAccountCandidateQueryService {
         this.projectionService = projectionService;
     }
 
-    public WebPageResponse<UserSelectorItem> query(String keyword, WebPageRequest page) {
+    public WebPageResponse<UserSelectorItem> query(String tenantId, String keyword, WebPageRequest page) {
         if (projectionService == null) {
             throw new IllegalStateException("user selector projection is not available");
         }
-        Criteria criteria = Criteria.of().eq("enabled", Boolean.TRUE);
+        if (tenantId == null || tenantId.isBlank()) {
+            throw new IllegalArgumentException("candidate tenantId is required");
+        }
+        Criteria criteria = Criteria.of().eq("tenantId", tenantId).eq("enabled", Boolean.TRUE);
         if (keyword != null && !keyword.isBlank()) {
-            criteria.andGroup(Criteria.of().orGroup(Criteria.of().like("username", keyword.trim()).getRoot()).getRoot());
+            criteria.andGroup(Criteria.of().orGroup(Criteria.of().like("username", QueryLikePattern.containsLiteral(keyword.trim())).getRoot()).getRoot());
         }
         WebPageRequest normalizedPage = page == null ? WebPageRequest.DEFAULT : page;
         PageRequest pageRequest = PageRequest.of(normalizedPage.pageNum(), normalizedPage.pageSize());
-        if (userAccountService instanceof DataScopeAbility<?>) {
-            DataScopeAbility<UserAccount> dataScopeAbility = DataScopeAbility.cast(userAccountService);
-            DataScopeCriteriaResult scope = dataScopeAbility.readScopeByPolicy(CANDIDATE_READ_POLICY, criteria);
-            return dataScopeAbility.withDataScopeTenant(scope, () -> project(scope.criteria(), pageRequest));
-        }
         return project(criteria, pageRequest);
     }
 
     private WebPageResponse<UserSelectorItem> project(Criteria criteria, PageRequest pageRequest) {
-        return projectionService.queryExplicitList(
+        return projectionService.queryAuthorizedCandidates(
                         UserAccountService.MODULE_ALIAS,
                         "role_account_candidates",
                         OUTPUT_FIELDS,

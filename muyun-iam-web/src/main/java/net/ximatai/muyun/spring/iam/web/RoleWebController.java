@@ -250,7 +250,7 @@ public class RoleWebController extends WebSupport<RoleService> implements
             RoleService.AccountRoleBindingScope scope = service().resolveAccountRoleBindingScope(
                     roleId, normalized.targetTenantId());
             return MutationTenantScopeExecutor.forAuthoritativeTenantScope(scope.tenantId(),
-                    () -> roleAccountCandidateQueryService.query(normalized.keyword(), normalized.pageOrDefault()));
+                    () -> roleAccountCandidateQueryService.query(scope.tenantId(), normalized.keyword(), normalized.pageOrDefault()));
         });
     }
 

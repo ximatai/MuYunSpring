@@ -8,7 +8,6 @@ import net.ximatai.muyun.database.core.orm.SqlSubQuery;
 import net.ximatai.muyun.spring.common.identity.CurrentUser;
 import net.ximatai.muyun.spring.common.platform.ActionExecutionContext;
 import net.ximatai.muyun.spring.common.platform.ActionExecutionContextHolder;
-import net.ximatai.muyun.spring.common.platform.DataScopeCriteriaResult;
 import net.ximatai.muyun.spring.common.platform.PlatformAction;
 import net.ximatai.muyun.spring.iam.user.UserAccount;
 import net.ximatai.muyun.spring.iam.user.UserAccountService;
@@ -24,12 +23,10 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
-import java.util.function.Supplier;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -42,13 +39,6 @@ class EmployeeAccountCandidateQueryServiceTest {
     @Test
     void shouldKeepEligibleAccountFilteringInThePagedDatabaseQuery() {
         EmployeeAccountCandidateQueryService service = new EmployeeAccountCandidateQueryService(userAccountService);
-        when(userAccountService.readScopeByPolicy(any(), any(Criteria.class)))
-                .thenAnswer(invocation -> DataScopeCriteriaResult.unrestricted(invocation.getArgument(1)));
-        doAnswer(invocation -> {
-            @SuppressWarnings("unchecked")
-            Supplier<WebPageResponse<UserSelectorItem>> action = invocation.getArgument(1);
-            return action.get();
-        }).when(userAccountService).withDataScopeTenant(any(), any());
         when(userAccountService.activeCriteria(any(Criteria.class))).thenAnswer(invocation -> invocation.getArgument(0));
         UserAccount user = new UserAccount();
         user.setId("user-1");
@@ -93,13 +83,6 @@ class EmployeeAccountCandidateQueryServiceTest {
     @Test
     void shouldTreatWildcardCharactersInAccountSearchAsLiteralText() {
         EmployeeAccountCandidateQueryService service = new EmployeeAccountCandidateQueryService(userAccountService);
-        when(userAccountService.readScopeByPolicy(any(), any(Criteria.class)))
-                .thenAnswer(invocation -> DataScopeCriteriaResult.unrestricted(invocation.getArgument(1)));
-        doAnswer(invocation -> {
-            @SuppressWarnings("unchecked")
-            Supplier<WebPageResponse<UserSelectorItem>> action = invocation.getArgument(1);
-            return action.get();
-        }).when(userAccountService).withDataScopeTenant(any(), any());
         when(userAccountService.activeCriteria(any(Criteria.class))).thenAnswer(invocation -> invocation.getArgument(0));
         when(userAccountService.pageQuery(criteriaCaptor.capture(), any(PageRequest.class), any()))
                 .thenReturn(PageResult.of(List.of(), 0, PageRequest.of(1, 20)));
@@ -116,13 +99,6 @@ class EmployeeAccountCandidateQueryServiceTest {
     @Test
     void shouldQuerySafeAccountProjectionInsideTheEmployeeRecordActionContext() {
         EmployeeAccountCandidateQueryService service = new EmployeeAccountCandidateQueryService(userAccountService);
-        when(userAccountService.readScopeByPolicy(any(), any(Criteria.class)))
-                .thenAnswer(invocation -> DataScopeCriteriaResult.unrestricted(invocation.getArgument(1)));
-        doAnswer(invocation -> {
-            @SuppressWarnings("unchecked")
-            Supplier<WebPageResponse<UserSelectorItem>> action = invocation.getArgument(1);
-            return action.get();
-        }).when(userAccountService).withDataScopeTenant(any(), any());
         when(userAccountService.activeCriteria(any(Criteria.class))).thenAnswer(invocation -> invocation.getArgument(0));
         UserAccount user = new UserAccount();
         user.setId("user-1");

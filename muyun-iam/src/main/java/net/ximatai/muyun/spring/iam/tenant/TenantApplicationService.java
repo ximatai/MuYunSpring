@@ -96,13 +96,30 @@ public class TenantApplicationService extends AbstractAbilityService<TenantAppli
     /** Ensures every tenant retains the IAM application required for tenant administration. */
     @Transactional
     public void ensureRequiredApplications(String tenantId) {
+        ensureApplicationsOpened(tenantId, List.of(IAM_APPLICATION_ALIAS));
+    }
+
+    /** Opens required applications additively; provisioning must not revoke operator-owned entitlements. */
+    @Transactional
+    public void ensureApplicationsOpened(String tenantId, Collection<String> applicationAliases) {
         String validTenantId = requireTenantAlias(tenantId);
-        if (!isApplicationOpened(validTenantId, IAM_APPLICATION_ALIAS)) {
-            TenantApplication tenantApplication = new TenantApplication();
-            tenantApplication.setTenantId(validTenantId);
-            tenantApplication.setApplicationAlias(IAM_APPLICATION_ALIAS);
-            insert(tenantApplication);
+        Set<String> aliases = new LinkedHashSet<>();
+        Objects.requireNonNull(applicationAliases, "applicationAliases").forEach(alias ->
+                aliases.add(PlatformNameRules.requireApplicationAlias(alias)));
+        aliases.forEach(this::requireEnabledTenantApplication);
+        aliases.forEach(alias -> ensureApplicationOpened(validTenantId, alias));
+    }
+
+    private void ensureApplicationOpened(String tenantId, String applicationAlias) {
+        TenantApplication existing = selectIgnoreSoftDelete(idOf(tenantId, applicationAlias));
+        if (existing != null) {
+            if (Boolean.TRUE.equals(existing.getDeleted())) restore(existing.getId(), existing.getVersion());
+            return;
         }
+        TenantApplication record = new TenantApplication();
+        record.setTenantId(tenantId);
+        record.setApplicationAlias(applicationAlias);
+        insert(record);
     }
 
     /** Reconciles the child rows that express a tenant's available applications. */
@@ -127,10 +144,7 @@ public class TenantApplicationService extends AbstractAbilityService<TenantAppli
             }
         }
         for (String applicationAlias : desiredAliases) {
-            TenantApplication tenantApplication = new TenantApplication();
-            tenantApplication.setTenantId(validTenantId);
-            tenantApplication.setApplicationAlias(applicationAlias);
-            insert(tenantApplication);
+            ensureApplicationOpened(validTenantId, applicationAlias);
         }
     }
 

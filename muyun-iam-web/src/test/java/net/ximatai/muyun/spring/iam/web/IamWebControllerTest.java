@@ -1245,7 +1245,7 @@ class IamWebControllerTest {
         when(roleService.select("role-1")).thenReturn(role);
         when(roleService.resolveAccountRoleBindingScope("role-1", "tenant_a"))
                 .thenReturn(new RoleService.AccountRoleBindingScope("tenant_a", ManagementScopeType.TENANT, "tenant_a"));
-        when(candidateQueryService.query("alice", WebPageRequest.DEFAULT))
+        when(candidateQueryService.query("tenant_a", "alice", WebPageRequest.DEFAULT))
                 .thenReturn(new WebPageResponse<>(List.of(user), 1, 0, 20, 1, true, null));
 
         WebPageResponse<UserSelectorItem> response = controller.accountRoleCandidates(
@@ -1253,7 +1253,7 @@ class IamWebControllerTest {
 
         assertThat(response.records()).containsExactly(user);
         verify(roleService).resolveAccountRoleBindingScope("role-1", "tenant_a");
-        verify(candidateQueryService).query("alice", WebPageRequest.DEFAULT);
+        verify(candidateQueryService).query("tenant_a", "alice", WebPageRequest.DEFAULT);
     }
 
     @Test
