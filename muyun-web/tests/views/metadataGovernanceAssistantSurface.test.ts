@@ -238,6 +238,56 @@ describe('metadata governance assistant surface', () => {
     });
   });
 
+  it('discovers bounded selection mappings and rejects malformed or dictionary mappings', async () => {
+    const adapter = fixture();
+    adapter.findFieldTargets = vi.fn();
+    adapter.preparePropertyFieldDraft = vi.fn();
+    adapter.preparePropertyFieldCommit = vi.fn();
+    adapter.referenceAffectDirectory = vi.fn(async () => ({
+      sources: Array.from({ length: 41 }, (_, i) => ({ fieldName: `field${i}`, title: `字段${i}` })),
+      destinations: [{ fieldName: 'dealPrice', title: '成交价' }],
+    }));
+    const capabilities = createMetadataGovernanceAssistantSurface(adapter, vi.fn()).capabilities();
+    const read = capabilities.find(
+      ({ descriptor }) => descriptor.code === 'configuration.describe-reference-affects',
+    )!;
+    const add = capabilities.find(
+      ({ descriptor }) => descriptor.code === 'configuration.add-metadata-property-field-draft',
+    )!;
+    const first = await read.execute(read.parseInput({ target: 'sales.product' }), executionContext());
+    expect(first).toMatchObject({ sourceCount: 41, destinationCount: 1, nextOffset: 40 });
+    expect((first as { sources: unknown[] }).sources).toHaveLength(40);
+    await expect(
+      read.execute(read.parseInput({ target: 'sales.product', offset: 40 }), executionContext()),
+    ).resolves.toMatchObject({
+      sources: [{ fieldName: 'field40', title: '字段40' }],
+      destinations: [],
+      nextOffset: null,
+    });
+    expect(applyEffectSpy).not.toHaveBeenCalled();
+    for (const input of [
+      { target: 'sales.product', offset: -1 },
+      { target: 'sales.product', offset: 0.5 },
+      { target: 'sales.product', extra: true },
+    ])
+      expect(() => read.parseInput(input)).toThrow();
+    const input = {
+      kind: 'MODULE_REFERENCE',
+      title: '商品',
+      target: 'sales.product',
+      affectMappings: ['price:dealPrice'],
+    };
+    expect(add.parseInput(input)).toEqual(input);
+    for (const affectMappings of [
+      ['price:dealPrice:other'],
+      ['price:deal_price'],
+      ['price:dealPrice', 'price:dealPrice'],
+      Array.from({ length: 9 }, (_, i) => `price:field${i}`),
+    ])
+      expect(() => add.parseInput({ ...input, affectMappings })).toThrow();
+    expect(() => add.parseInput({ ...input, kind: 'DICTIONARY' })).toThrow();
+  });
+
   it('previews the exact current candidate without exposing a publish capability', async () => {
     const adapter = fixture();
     const surface = createMetadataGovernanceAssistantSurface(adapter, vi.fn());
@@ -471,6 +521,7 @@ it.each([false, true])('advertises disjoint reference and dictionary inputs (mul
   adapter.prepareFieldPlan = vi.fn();
   adapter.findFieldTargets = vi.fn();
   adapter.preparePropertyFieldDraft = vi.fn();
+  adapter.preparePropertyFieldCommit = vi.fn();
   adapter.preparePropertyFieldCommit = vi.fn();
   const capabilities = createMetadataGovernanceAssistantSurface(adapter, vi.fn()).capabilities();
   const single = capabilities.find(

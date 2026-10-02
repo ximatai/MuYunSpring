@@ -78,17 +78,17 @@ M2、M3 的变更可能要求重新核实 M4；它们不是永久单向流水线
 
 以下以代码与证据入口持续校准；平台公共链路已更新为入口无关契约和模块级页面会话。证据索引指向实现和现有测试，不代表所有测试在任意环境均通过。状态含义：**已有基础**表示实现与对应测试存在；**待治理**表示已识别边界或闭环缺口；**待验收**表示缺少当前统一目标下的完整证据；**延期**表示不进入本轮。
 
-不按文件数、工具数或旧阶段编号计算完成百分比。当前总体状态是：**P 阶段待收口；A 有大量存量能力但须随平台校准；D 尚不能标记完成。** 旧文档中的局部浏览器样本不抹去，也不能提升为当前组合目标的通过结论。
+不按文件数、工具数或旧阶段编号计算完成百分比。当前总体状态是：**阶段 1–3 的公共链路、助手操作与上下文机制已落地；阶段 4 已有人工业务闭环，普通租户身份和完整真实助手交付仍待验收。** 旧文档中的局部浏览器样本不抹去，也不能提升为当前组合目标的通过结论。
 
 | 主干 | 平台实现与测试基础 | 助手接入现状 | 当前结论 / 证据 |
 | --- | --- | --- | --- |
-| M1 对象与归属 | 标准应用/模块 CRUD、主实体创建、历史建设初始化与回执存在 | 新建已转向标准管理页，主实体候选页面保存；初始化工具只查历史状态 | 已有基础；人工 0→1 衔接待验收，不能继续按历史合并初始化描述新入口。E1 |
+| M1 对象与归属 | 标准应用/模块 CRUD、主实体创建、历史建设初始化与回执存在 | 新建已转向标准管理页，主实体候选页面保存；初始化工具只查历史状态 | 人工已从标准入口建立独立应用、客户/商品/订单模块及主实体；助手完整组合待验收。E1 |
 | M2 字段与引用 | 模块级共享元数据会话、批量候选、change-set、引用目录和保护存在 | 普通字段、引用、字典复用标准会话，人工修改使旧确认失效 | 公共编辑契约已归平台；业务组合仍待验收。E2 |
 | M2 直接子表 | 正式子元数据创建、父关系与物理表事务、请求回执存在 | 可准备同一子表候选并人工确认 | 人工与助手共用平台确认状态机；保留各自呈现。E3 |
-| M3 规则 | 共享规则候选、预检/试算/应用、明细先计算再汇总、保存复算存在 | 规则适配读取目录并修订同一候选 | 公共异常及提议已归平台；完整价格语义待验收。E4 |
+| M3 规则 | 共享规则候选、预检/试算/应用、明细先计算再汇总、保存复算存在 | 规则适配读取目录并修订同一候选 | 公共异常及提议已归平台；价格快照和保存计算已有 HTTP 与人工浏览器证据。E4 |
 | M4 页面 | 标准编排、预检、修订发布与精确发布结果核实存在 | 纯对话与可视入口共用页面候选；旧 construction 页面写路径已退役 | 模块级会话与组件解耦；旧回执只读查询保留。E5 |
 | M5 菜单与访问 | 标准“添加到菜单”、IAM 开通/授权、运行态刷新存在 | 建设入口不授予业务权限，回执后刷新菜单 | 已有基础；目标普通用户可用性须纳入平台门槛。E6 |
-| M6 业务保存 | 真实 PostgreSQL 与 HTTP 测试覆盖引用、主子表计算、新增/修改/删行/重开 | 主记录及一层聚合草稿、普通业务保存确认与回执查询存在 | 已有跨层证据；未证明商品改价后的历史成交价，以及全浏览器从空白建设。E7、E8 |
+| M6 业务保存 | 真实 PostgreSQL 与 HTTP 测试覆盖引用、主子表计算、新增/修改/删行/重开 | 主记录及一层聚合草稿、普通业务保存确认与回执查询存在 | 商品调价、旧单非价格修改、改数量、增删明细、重开和查询已通过人工浏览器验证；普通用户与助手交付分别验收。E7、E8 |
 | 助手公共链 | 标准字段策略、网关、作用域 HTTP 和正式业务入口存在 | 原生工具消息、Surface 令牌、有界循环、确认、会话历史存在 | 引用查询参数已对齐；记录、子表及标准页面发布支持最小引用的跨刷新只读核实，已按需交付工具定义与元数据关系目录，实际用量贯通；完整任务效率仍待真实模型对照验收。E8、E9 |
 | 完整交付 | 领域与组件测试覆盖多个片段 | 真实模型局部样本不能证明连续多模块目标 | 待验收：同一基线下人工、助手与真实业务证据尚未合并。E7、E10 |
 
@@ -102,7 +102,7 @@ M2、M3 的变更可能要求重新核实 M4；它们不是永久单向流水线
 - **E4 规则**：[规则编辑会话](../../muyun-web/src/views/businessRuleSession.ts)、[会话测试](../../muyun-web/tests/views/businessRuleSession.test.ts)、[规则数据库契约](../../muyun-platform/src/test/java/net/ximatai/muyun/spring/platform/metadata/BusinessRuleGovernanceRepositoryIT.java)。
 - **E5 页面**：[页面会话](../../muyun-web/src/views/pageCompositionSession.ts)、[模块工作区](../../muyun-web/src/views/pageCompositionWorkspace.ts)、[共享发布命令](../../muyun-web/src/views/pageCompositionPublication.ts)、[建设入口与验收适配](../../muyun-web/src/platform-workbench/constructionDelivery.ts)、[页面发布组件测试](../../muyun-web/tests/views/PageCompositionWorkspace.publish.component.test.ts)。
 - **E6 入口与生效**：[模块菜单入口](../../muyun-web/src/platform-admin-runtime/module-menu/ModuleMenuDrawer.vue)、[菜单组件测试](../../muyun-web/tests/platform-admin-runtime/module-menu/ModuleMenuDrawer.component.test.ts)、[运行态集成测试](../../muyun-platform/src/test/java/net/ximatai/muyun/spring/platform/runtime/PlatformDynamicRuntimeRefresherIT.java)、[权限专题](topics/identity-permission/OVERVIEW.md)。
-- **E7 业务组合**：[ConstructionFieldsIT](../../muyun-demo-web/src/test/java/net/ximatai/muyun/spring/demo/school/test/ConstructionFieldsIT.java)。含引用客户、明细计算、页面/菜单及租户标准 HTTP 保存、修改删行、重开和详情；前半段直接 Service 建配置，未包含商品改价后的历史成交价验证，不能证明人工或模型从空白浏览器建设。
+- **E7 业务组合**：[ConstructionFieldsIT](../../muyun-demo-web/src/test/java/net/ximatai/muyun/spring/demo/school/test/ConstructionFieldsIT.java)。含引用客户/商品、选择回填（含空值）、商品改价后保留历史成交价、明细计算、页面/菜单及租户标准 HTTP 保存、修改删行、重开和详情；配置 fixture 直接调用标准 Service，不能证明人工或模型从空白浏览器建设。
 - **E8 确认与结果**：[平台确认契约](../../muyun-web/src/web-core/operationConfirmation.ts)、[标准页面保存](../../muyun-web/src/dynamic-page-runtime/useModulePageSession.ts)、[回执事务测试](../../muyun-platform/src/test/java/net/ximatai/muyun/spring/platform/save/RecordSaveReceiptRepositoryIT.java)。
 - **E9 运行与恢复**：[助手运行器](../../muyun-web/src/web-core/assistantRuntime.ts)、[运行器测试](../../muyun-web/tests/web-core/assistantRuntime.test.ts)、[会话控制器](../../muyun-web/src/platform-workbench/useAssistantConversation.ts)、[历史恢复测试](../../muyun-web/tests/platform-workbench/useAssistantConversationArchive.test.ts)、[查询引用测试](../../muyun-web/tests/web-core/operationReceipt.test.ts)、[跨刷新面板测试](../../muyun-web/tests/platform-workbench/WorkbenchAssistantPanel.component.test.ts)。
 - **E10 页面交互**：[页面浏览器测试](../../muyun-web/tests/views/PageCompositionWorkspace.browser.test.ts)、[标准页面组件测试](../../muyun-web/tests/dynamic-page-runtime/DynamicModuleHost.component.test.ts)。组件及使用 HTTP fixture 的浏览器测试不能替代全栈、真实模型交付演练。
@@ -180,9 +180,23 @@ M2、M3 的变更可能要求重新核实 M4；它们不是永久单向流水线
 
 交付门槛：上述三类结论均有可复现证据，未支持项如实交接；中途追问、人工修改、部分提交失败、刷新后只读核实不丢目标或重复写入。系统配置成功、测试通过、模型宣称完成或人工点击验收按钮，均不能单独替代交付结果。
 
+### 人工业务验收证据
+
+2026-10-02 本地隔离应用“澄石商贸”通过标准页面从空白建立客户、商品、订单与直接子表，配置客户/商品引用、商品售价到成交价的选择回填、行计算与汇总、列表/表单/详情及菜单。没有通过数据库或 API 预置该应用。配置身份为系统管理员，业务记录选择演示租户；这不替代普通租户用户授权验收。
+
+浏览器保存两行订单：`2 × 12.5 + 3 × 7 = 46`。商品现价改为 `20` 后，旧单重开及修改订单编号仍保留原价；数量改为 `4` 得到合计 `71`；移除墨水行、新增一行现价纸张后得到 `4 × 12.5 + 1 × 20 = 70`。刷新、按订单编号部分文本筛选并查看详情，仍显示两行不同成交价与合计 `70`。高级筛选的“包含”由编辑层转为转义后的 LIKE 模式，底层查询协议不变。
+
+HTTP 回归见 `ConstructionFieldsIT.standardGovernanceDeliversAnOrderWhoseTenantBusinessSaveRecalculatesDetails`；组件回归覆盖人工引用回填候选、页面会话加载稳定性及包含查询特殊字符。HTTP fixture 仅是自动化契约证据，不代替上述人工建设。
+
+### 尚未通过的交付门槛
+
+独立助手样例“晴川商贸”从空白会话以业务语言提出完整目标，已通过标准表单建立应用和客户模块；人工在保存客户模块前补充“联系电话可以留空”。该样例尚未建立主元数据、商品/订单及明细、规则、页面和业务入口，不能标记助手完整交付或新会话接管通过。模型中途达到回合预算，需一次人工继续；供应商还存在间歇空响应/不可用。后续从现行配置续接，保留人工补充，不重复初始化已有对象。
+
+普通租户用户的浏览器验收缺少可用测试登录信息。当前管理员选定演示租户保存数据只证明该身份下的业务行为；租户应用开通、目标角色授权、普通身份可见与可用仍需通过标准 IAM 页面独立核实。不得为验收绕过权限或把管理员菜单当作普通用户交付。
+
 ### 上下文效率的实测边界
 
-2026-10-02 在相同本地客户页面、空白会话、同一 `gpt-6.1-sol` 配置下，以“打开商品页面配置，查看列表和表单布局，不修改或保存”为只读任务，仅切换全量或按需工具定义。全量方案首轮返回空内容并报告 length；按需方案前两轮成功，供应商报告输入 5,922、输出 92、总计 6,014 token，第三轮供应商不可用，人工点击继续一次仍不可用。后两次失败没有用量，6,014 仅为已报告部分，两组任务均未完成。该样本证明用量可观测和失败可区分，不能证明节省比例或交付成功；该样本早于按需加载保留完整领域指引的修正，最终版本须在可用服务下重新完成同任务对照。
+2026-10-02 在相同本地客户页面、空白会话、同一 `gpt-6.1-sol` 配置下，以“打开商品页面配置，查看列表和表单布局，不修改或保存”为只读任务，仅切换全量或按需工具定义。全量方案首轮返回空内容并报告 length；按需方案前两轮成功，供应商报告输入 5,922、输出 92、总计 6,014 token，第三轮供应商不可用，人工点击继续一次仍不可用。后两次失败没有用量，6,014 仅为已报告部分，两组任务均未完成。该样本证明用量可观测和失败可区分，不能证明节省比例或交付成功；该样本早于按需加载保留完整领域指引的修正，最终版本须在可用服务下重新完成同任务对照。页面就绪链路修正后的全量目录复测仍在首轮收到空内容（供应商报告 0 token）；失败样本不作为成本优势，临时全量配置已还原。
 
 ## 验证与维护
 

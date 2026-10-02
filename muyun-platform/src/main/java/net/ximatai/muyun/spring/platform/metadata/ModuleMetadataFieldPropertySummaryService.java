@@ -72,7 +72,7 @@ public class ModuleMetadataFieldPropertySummaryService {
                             reference.getTargetMetadataId(), reference.getTargetKeyField(), reference.getTargetLabelField(),
                             reference.getCardinality(), reference.getTargetUnavailablePolicy(),
                             reference.projections().stream().map(item -> item.targetField() + ":" + item.outputField()).toList(),
-                            Boolean.TRUE.equals(reference.getRequireEnabled())), null);
+                            Boolean.TRUE.equals(reference.getRequireEnabled()), MetadataFieldReferenceConfig.affectMappings(reference)), null);
         }
         if (dictionary != null && dictionary.hasDictionaryBinding()) {
             return new ModuleMetadataFieldPropertySummary(field.getId(), field.getFieldName(), field.getFieldSpecAlias(),

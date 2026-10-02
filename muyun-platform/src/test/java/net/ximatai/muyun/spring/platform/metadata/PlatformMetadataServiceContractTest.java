@@ -1452,6 +1452,28 @@ class PlatformMetadataServiceContractTest {
     }
 
     @Test
+    void selectionAffectsRequireDistinctSavedBusinessDestinations() {
+        String productId = metadataService.insert(metadata("crm", "product"));
+        String lineId = metadataService.insert(metadata("crm", "line"));
+        fieldService.insert(titleField(productId));
+        fieldService.insert(field(productId, "price", "price", FieldType.DECIMAL));
+        fieldService.insert(field(lineId, "dealPrice", "deal_price", FieldType.DECIMAL));
+        MetadataField product = field(lineId, "productId", "product_id", FieldType.STRING);
+        fieldService.insert(product);
+        var config = referenceConfig(product.getId(), productId);
+        config.setAffectMappings("price:dealPrice");
+        String id = referenceConfigService.insert(config);
+        var saved = referenceConfigService.select(id);
+        assertThat(saved.affects()).containsExactly(new net.ximatai.muyun.spring.dynamic.metadata.EntityReferenceAffectDefinition("price", "dealPrice"));
+        var draft = MetadataFieldReferenceConfigDraft.fromConfig(saved);
+        assertThat(draft.toConfig().affects()).isEqualTo(saved.affects());
+        for (String invalid : List.of("price:id", "price:productId", "price:missing", "missing:dealPrice", "price:dealPrice,price:dealPrice")) {
+            saved.setAffectMappings(invalid);
+            assertThatThrownBy(() -> referenceConfigService.update(saved)).isInstanceOf(PlatformException.class);
+        }
+    }
+
+    @Test
     void strictReferenceMustRejectTargetWithoutEnabledCapabilityBeforeSaving() {
         String customerId = metadataService.insert(metadata("crm", "customer"));
         String contactId = metadataService.insert(metadata("crm", "contact"));

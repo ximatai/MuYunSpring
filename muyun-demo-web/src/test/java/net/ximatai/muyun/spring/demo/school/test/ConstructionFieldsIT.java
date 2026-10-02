@@ -471,6 +471,7 @@ class ConstructionFieldsIT {
         String app = "sales" + planId.substring(0, 12);
         var content = new ApplicationConstructionPlanContent("订单登记", "选择客户并登记订单明细", List.of("登记订单"), List.of(),
                 List.of(new ApplicationConstructionPlanContent.BusinessObject("customer", "客户", "客户资料"),
+                        new ApplicationConstructionPlanContent.BusinessObject("product", "商品", "当前售价"),
                         new ApplicationConstructionPlanContent.BusinessObject("order", "订单", "订单登记")),
                 List.of("引用已有客户", "订单包含明细"), List.of("逐行计算小计并汇总总额"), List.of(), List.of(), List.of(),
                 List.of("保存、重开并修改明细"), List.of(
@@ -490,13 +491,14 @@ class ConstructionFieldsIT {
         try (var identity = CurrentUserContext.use(CurrentUser.systemUser("construction-admin", "建设管理员"));
              var system = TenantContext.system("order delivery contract")) {
             constructionPlans.confirm(planId, new ApplicationConstructionPlanService.ConfirmCommand(UUID.randomUUID().toString(), 0, content));
-            for (String object : List.of("customer", "order")) {
+            for (String object : List.of("customer", "product", "order")) {
                 var proposal = new ApplicationConstructionInitializationService.Proposal(1, object, app, "订单登记", object);
                 construction.confirm(planId, new ApplicationConstructionInitializationService.ConfirmCommand(
                         UUID.randomUUID().toString(), proposal, construction.preview(planId, proposal).fingerprint()));
             }
             var bindings = constructionPlans.read(planId).initializations();
             var customer = bindings.stream().filter(item -> item.objectKey().equals("customer")).findFirst().orElseThrow();
+            var product = bindings.stream().filter(item -> item.objectKey().equals("product")).findFirst().orElseThrow();
             var order = bindings.stream().filter(item -> item.objectKey().equals("order")).findFirst().orElseThrow();
             var description = constructionFields.describe(planId, "order");
             String text = description.specs().stream().filter(spec -> spec.type().equals("STRING") && spec.length() != null && spec.length() >= 32)
@@ -508,6 +510,11 @@ class ConstructionFieldsIT {
             var customerPage = new PageLayout("customer",
                     "客户资料", List.of("title"), List.of("title"), List.of());
             publishStandardPage(planId, customerPage);
+            var productTitle = governedField("title", text);
+            productTitle.field().setRequired(true); productTitle.field().setTitleField(true);
+            applyGovernedFields(product.moduleAlias(), product.relationId(), metadataService.select(product.metadataId()).getVersion(),
+                    List.of(productTitle, governedField("price", decimal)));
+            publishStandardPage(planId, new PageLayout("product", "商品", List.of("title", "price"), List.of("title", "price"), List.of()));
             var customerReference = new MetadataFieldReferenceConfigDraft(customer.moduleAlias(), customer.metadataId(), "id", "title",
                     net.ximatai.muyun.spring.ability.reference.ReferenceCardinality.ONE,
                     net.ximatai.muyun.spring.ability.reference.ReferenceTargetUnavailablePolicy.PRESERVE_HISTORY, List.of(), false);
@@ -520,6 +527,32 @@ class ConstructionFieldsIT {
                     new ModuleChildMetadataCreateCommand("lines", "订单明细", "public", "order_lines_" + planId));
             applyGovernedFields(order.moduleAlias(), child.relation().getId(), child.metadata().getVersion(),
                     List.of(governedField("quantity", decimal), governedField("price", decimal), governedField("amount", decimal)));
+            var productReference = new MetadataFieldReferenceConfigDraft(product.moduleAlias(), product.metadataId(), "id", "title",
+                    net.ximatai.muyun.spring.ability.reference.ReferenceCardinality.ONE,
+                    net.ximatai.muyun.spring.ability.reference.ReferenceTargetUnavailablePolicy.PRESERVE_HISTORY,
+                    List.of(), false, List.of("price:price"));
+            var productCandidate = new MetadataModelChangeSetPreviewCommand(List.of(new MetadataModelRelationChangeSetDraft(
+                    child.relation().getId(), metadataService.select(child.metadata().getId()).getVersion(), java.util.Map.of(),
+                    List.of(new MetadataFieldChangeSetDraft(MetadataFieldChangeSetDraft.Operation.ADD, null, null,
+                            governedField("productId", text).field(),
+                            new MetadataFieldPropertyDraft(MetadataFieldPropertyKind.MODULE_REFERENCE, null, productReference, null))))), List.of(), List.of());
+            var productPreview = metadataPreviews.preview(order.moduleAlias(), productCandidate);
+            assertThat(productPreview.errors()).isEmpty();
+            var revisedReference = new MetadataFieldReferenceConfigDraft(product.moduleAlias(), product.metadataId(), "id", "title",
+                    productReference.cardinality(), productReference.targetUnavailablePolicy(), List.of(), false, List.of("price:amount"));
+            var revisedCandidate = new MetadataModelChangeSetPreviewCommand(List.of(new MetadataModelRelationChangeSetDraft(
+                    child.relation().getId(), metadataService.select(child.metadata().getId()).getVersion(), java.util.Map.of(),
+                    List.of(new MetadataFieldChangeSetDraft(MetadataFieldChangeSetDraft.Operation.ADD, null, null,
+                            governedField("productId", text).field(),
+                            new MetadataFieldPropertyDraft(MetadataFieldPropertyKind.MODULE_REFERENCE, null, revisedReference, null))))), List.of(), List.of());
+            var revisedPreview = metadataPreviews.preview(order.moduleAlias(), revisedCandidate);
+            assertThat(revisedPreview.errors()).isEmpty();
+            assertThat(revisedPreview.proposalFingerprint()).isNotEqualTo(productPreview.proposalFingerprint());
+            assertThatThrownBy(() -> metadataPublisher.apply(order.moduleAlias(),
+                    new MetadataModelChangeSetApplyCommand(revisedCandidate, productPreview.proposalFingerprint())))
+                    .hasMessageContaining("fingerprint is stale");
+            metadataPublisher.apply(order.moduleAlias(),
+                    new MetadataModelChangeSetApplyCommand(productCandidate, productPreview.proposalFingerprint()));
             var rules = List.of(new BusinessRuleProposal("lineAmount", net.ximatai.muyun.spring.common.formula.FormulaRuleKind.CALCULATION,
                             "lines.amount", "{lines.quantity} * {lines.price}", true, null),
                     new BusinessRuleProposal("total", net.ximatai.muyun.spring.common.formula.FormulaRuleKind.CALCULATION,
@@ -529,7 +562,7 @@ class ConstructionFieldsIT {
             businessRules.apply(order.moduleAlias(), new BusinessRuleApplyCommand(rules, checked.snapshot().baselineFingerprint(), checked.proposalFingerprint()));
             var page = new PageLayout("order",
                     "订单登记", List.of("number", "customerId", "total"), List.of("number", "customerId", "total"), List.of(),
-                    java.util.Map.of("lines", List.of("quantity", "price", "amount")));
+                    java.util.Map.of("lines", List.of("productId", "quantity", "price", "amount")));
             publishStandardPage(planId, page);
             var entry = new ApplicationConstructionDeliveryService.Proposal(1, "order", ApplicationConstructionDeliveryService.Kind.ENTRY,
                     "订单登记", List.of(), List.of(), List.of());
@@ -553,10 +586,31 @@ class ConstructionFieldsIT {
                 assertThat(createdCustomer.getStatus()).as(createdCustomer.getContentAsString()).isEqualTo(201);
                 var customerRecord = dynamicRecords.mainEntity(customer.moduleAlias()).list(net.ximatai.muyun.database.core.orm.Criteria.of()
                         .eq("title", "晨光客户"), net.ximatai.muyun.database.core.orm.PageRequest.of(1, 10)).getFirst();
+                for (String values : List.of("{\"title\":\"纸张\",\"price\":12.5}", "{\"title\":\"墨水\",\"price\":7}", "{\"title\":\"待定价商品\",\"price\":null}")) {
+                    var response = mvc.perform(post("/" + product.moduleAlias() + "/insert").contentType("application/json")
+                            .content("{\"values\":" + values + "}")).andReturn().getResponse();
+                    assertThat(response.getStatus()).as(response.getContentAsString()).isEqualTo(201);
+                }
+                var products = dynamicRecords.mainEntity(product.moduleAlias());
+                var paper = products.list(net.ximatai.muyun.database.core.orm.Criteria.of().eq("title", "纸张"),
+                        net.ximatai.muyun.database.core.orm.PageRequest.of(1, 10)).getFirst();
+                var ink = products.list(net.ximatai.muyun.database.core.orm.Criteria.of().eq("title", "墨水"),
+                        net.ximatai.muyun.database.core.orm.PageRequest.of(1, 10)).getFirst();
+                var resolved = mvc.perform(post("/" + order.moduleAlias() + "/" + child.metadata().getAlias() + "/references/productId/resolve")
+                        .contentType("application/json").content("{}")).andReturn().getResponse();
+                assertThat(resolved.getStatus()).as(resolved.getContentAsString()).isEqualTo(200);
+                var candidates = new com.fasterxml.jackson.databind.ObjectMapper().readTree(resolved.getContentAsString());
+                if (candidates.has("data")) candidates = candidates.required("data");
+                var prices = new java.util.HashMap<String, java.math.BigDecimal>();
+                candidates.required("options").forEach(option -> prices.put(option.required("id").asText(),
+                        option.required("affectPatch").required("price").isNull() ? null : option.required("affectPatch").required("price").decimalValue()));
+                assertThat(prices).hasSize(3).containsValue(null);
+                assertThat(prices.get(paper.getId())).isEqualByComparingTo("12.5");
+                assertThat(prices.get(ink.getId())).isEqualByComparingTo("7");
                 String body = """
                         {"values":{"number":"SO-001","customerId":"%s"},"children":{"lines":[
-                         {"values":{"quantity":2,"price":12.5}}, {"values":{"quantity":3,"price":7}}]}}
-                        """.formatted(customerRecord.getId());
+                         {"values":{"productId":"%s","quantity":2,"price":%s}}, {"values":{"productId":"%s","quantity":3,"price":%s}}]}}
+                        """.formatted(customerRecord.getId(), paper.getId(), prices.get(paper.getId()), ink.getId(), prices.get(ink.getId()));
                 var created = mvc.perform(post("/" + order.moduleAlias() + "/insert").contentType("application/json").content(body)).andReturn().getResponse();
                 assertThat(created.getStatus()).as(created.getContentAsString()).isEqualTo(201);
                 var records = dynamicRecords.mainEntity(order.moduleAlias());
@@ -573,19 +627,38 @@ class ConstructionFieldsIT {
                             .multiply(new java.math.BigDecimal(line.getValue("price").toString()));
                     assertThat(new java.math.BigDecimal(line.getValue("amount").toString())).isEqualByComparingTo(expected);
                 });
-                var retained = lines.getFirst();
+                var repriced = mvc.perform(post("/" + product.moduleAlias() + "/update/" + paper.getId())
+                        .contentType("application/json").content("""
+                        {"version":%d,"values":{"title":"纸张新价","price":20}}
+                        """.formatted(paper.getVersion()))).andReturn().getResponse();
+                assertThat(repriced.getStatus()).as(repriced.getContentAsString()).isEqualTo(200);
+                var retained = lines.stream().filter(line -> paper.getId().equals(line.getValue("productId"))).findFirst().orElseThrow();
+                // A non-price edit carries the stored snapshot; the selection effect must not run during save.
+                String unchangedLines = lines.stream().map(line -> """
+                        {"id":"%s","version":%d,"values":{"productId":"%s","quantity":%s,"price":%s}}
+                        """.formatted(line.getId(), line.getVersion(), line.getValue("productId"), line.getValue("quantity"), line.getValue("price")))
+                        .collect(java.util.stream.Collectors.joining(","));
+                var renamed = mvc.perform(post("/" + order.moduleAlias() + "/update/" + saved.getId()).contentType("application/json").content("""
+                        {"version":%d,"values":{"number":"SO-001-note","customerId":"%s"},"children":{"lines":[%s]}}
+                        """.formatted(saved.getVersion(), customerRecord.getId(), unchangedLines))).andReturn().getResponse();
+                assertThat(renamed.getStatus()).as(renamed.getContentAsString()).isEqualTo(200);
+                saved = records.select(saved.getId());
+                retained = childRecords.select(retained.getId());
+                assertThat(new java.math.BigDecimal(retained.getValue("price").toString())).isEqualByComparingTo("12.5");
+                assertThat(new java.math.BigDecimal(saved.getValue("total").toString())).isEqualByComparingTo("46");
                 String update = """
                         {"version":%d,"values":{"number":"SO-001","customerId":"%s"},"children":{"lines":[
-                         {"id":"%s","version":%d,"values":{"quantity":4,"price":12.5}}]}}
-                        """.formatted(saved.getVersion(), customerRecord.getId(), retained.getId(), retained.getVersion());
+                         {"id":"%s","version":%d,"values":{"productId":"%s","quantity":4,"price":12.5}}]}}
+                        """.formatted(saved.getVersion(), customerRecord.getId(), retained.getId(), retained.getVersion(), paper.getId());
                 var updated = mvc.perform(post("/" + order.moduleAlias() + "/update/" + saved.getId())
                         .contentType("application/json").content(update)).andReturn().getResponse();
                 assertThat(updated.getStatus()).as(updated.getContentAsString()).isEqualTo(200);
                 var reopened = records.select(saved.getId());
                 assertThat(new java.math.BigDecimal(reopened.getValue("total").toString())).isEqualByComparingTo("50");
+                String retainedId = retained.getId();
                 assertThat(childRecords.list(lineScope, net.ximatai.muyun.database.core.orm.PageRequest.of(1, 10)))
                         .singleElement().satisfies(line -> {
-                    assertThat(line.getId()).isEqualTo(retained.getId());
+                    assertThat(line.getId()).isEqualTo(retainedId);
                     assertThat(new java.math.BigDecimal(line.getValue("amount").toString())).isEqualByComparingTo("50");
                 });
                 var viewed = mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get(

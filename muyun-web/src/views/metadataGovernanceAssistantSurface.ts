@@ -85,6 +85,9 @@ export function createMetadataGovernanceAssistantSurface(
       ...(adapter.candidate?.() ? [describeMetadataCandidateCapability(adapter)] : []),
       ...(canAddFieldDraft(adapter) ? [addMetadataFieldDraftCapability(adapter)] : []),
       ...(canUpdateFieldDraft(adapter) ? [updateMetadataFieldDraftCapability(adapter)] : []),
+      ...(adapter.referenceAffectDirectory && canAddPropertyFieldDraft(adapter)
+        ? [referenceAffectDirectoryCapability(adapter)]
+        : []),
       ...(canAddPropertyFieldDraft(adapter)
         ? [findMetadataFieldTargetsCapability(adapter), addMetadataPropertyFieldDraftCapability(adapter)]
         : []),
@@ -305,9 +308,66 @@ function metadataPropertyFieldSchemas(adapter: MetadataGovernanceAssistantAdapte
             },
           }
         : {}),
+      ...(kind === 'MODULE_REFERENCE'
+        ? {
+            affectMappings: {
+              type: 'array',
+              maxItems: 8,
+              uniqueItems: true,
+              items: {
+                type: 'string',
+                maxLength: 127,
+                pattern: '^[a-z][A-Za-z0-9]{0,62}:[a-z][A-Za-z0-9]{0,62}$',
+              },
+            },
+          }
+        : {}),
       required: { type: 'boolean' },
     },
   }));
+}
+
+function referenceAffectDirectoryCapability(
+  adapter: MetadataGovernanceAssistantAdapter,
+): AssistantCapability {
+  return {
+    effect: 'read',
+    descriptor: {
+      code: 'configuration.describe-reference-affects',
+      description:
+        'Read selectable source fields from a discovered reference target and saved destination fields in the current entity. Use sourceField:destinationField mappings when adding a reference. Selection copies a value into the draft only; reopening or saving never refreshes it from the source. Save destination fields before configuring mappings.',
+      inputSchema: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['target'],
+        properties: {
+          target: { type: 'string', minLength: 1, maxLength: 128 },
+          offset: { type: 'integer', minimum: 0 },
+        },
+      },
+    },
+    parseInput(input) {
+      if (
+        !isRecord(input) ||
+        Object.keys(input).some((key) => !['target', 'offset'].includes(key)) ||
+        (input.offset !== undefined && (!Number.isSafeInteger(input.offset) || Number(input.offset) < 0))
+      )
+        throw new AssistantCapabilityUsageError('请提供引用目标与有效分页位置。');
+      return { target: boundedString(input.target, 'target', 128, true), offset: Number(input.offset ?? 0) };
+    },
+    async execute(value, context) {
+      const input = value as { target: string; offset: number };
+      const directory = await adapter.referenceAffectDirectory!(input.target, context.signal);
+      const total = Math.max(directory.sources.length, directory.destinations.length);
+      return {
+        sources: directory.sources.slice(input.offset, input.offset + 40),
+        destinations: directory.destinations.slice(input.offset, input.offset + 40),
+        sourceCount: directory.sources.length,
+        destinationCount: directory.destinations.length,
+        nextOffset: input.offset + 40 < total ? input.offset + 40 : null,
+      };
+    },
+  };
 }
 
 function addMetadataPropertyFieldDraftCapability(
@@ -703,7 +763,15 @@ function parseAddPropertyFieldDraftInput(
   dictionarySelectionModes: Array<'SINGLE' | 'MULTIPLE'>,
 ): AddMetadataPropertyFieldDraftInput {
   if (!isRecord(input)) throw new AssistantCapabilityUsageError('Capability input must be an object');
-  const allowed = new Set(['kind', 'title', 'fieldName', 'target', 'selectionMode', 'required']);
+  const allowed = new Set([
+    'kind',
+    'title',
+    'fieldName',
+    'target',
+    'selectionMode',
+    'required',
+    'affectMappings',
+  ]);
   if (Object.keys(input).some((key) => !allowed.has(key)))
     throw new AssistantCapabilityUsageError(
       'Capability input contains unsupported metadata property field properties',
@@ -727,6 +795,21 @@ function parseAddPropertyFieldDraftInput(
     throw new AssistantCapabilityUsageError(
       'selectionMode is unavailable because its storage field specification is disabled',
     );
+  if (
+    input.affectMappings !== undefined &&
+    (kind !== 'MODULE_REFERENCE' ||
+      !Array.isArray(input.affectMappings) ||
+      input.affectMappings.length > 8 ||
+      new Set(input.affectMappings).size !== input.affectMappings.length ||
+      input.affectMappings.some(
+        (item) =>
+          typeof item !== 'string' ||
+          item.length > 127 ||
+          item.split(':').length !== 2 ||
+          !item.split(':').every(isPlatformFieldName),
+      ))
+  )
+    throw new AssistantCapabilityUsageError('选择回填必须使用最多八项不同的来源字段:当前字段映射。');
   const required = optionalBooleanProperties(input, ['required']).required;
   return {
     kind,
@@ -735,6 +818,7 @@ function parseAddPropertyFieldDraftInput(
     target,
     ...(kind === 'DICTIONARY' ? { selectionMode: selectionMode ?? 'SINGLE' } : {}),
     ...(required !== undefined ? { required } : {}),
+    ...(input.affectMappings !== undefined ? { affectMappings: input.affectMappings as string[] } : {}),
   };
 }
 

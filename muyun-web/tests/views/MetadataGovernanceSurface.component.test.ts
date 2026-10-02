@@ -265,6 +265,69 @@ it.each([
   },
 );
 
+it('keeps saved affect destinations after a manual field editor is cancelled', async () => {
+  const http = fakeHttp();
+  const original = http.request.bind(http);
+  vi.spyOn(http, 'request').mockImplementation((options) => {
+    if (options.path === '/platform.field_spec/query')
+      return Promise.resolve({
+        records: [{ alias: 'string', title: '文本', enabled: true }],
+        pages: 1,
+      }) as never;
+    return original(options);
+  });
+  configureModuleContext({ http });
+  const registry = createAssistantSurfaceRegistry();
+  registry.activate('page-1');
+  const Harness = defineComponent({
+    setup() {
+      provideAssistantSurfaceHost({ registry, activePageInstanceKey: () => 'page-1' });
+      return () => h(MetadataGovernanceSurface, { moduleAlias: 'education.exam' });
+    },
+  });
+  const wrapper = shallowMount(Harness, {
+    global: { stubs: { ...governanceStubs(), MetadataGovernanceSurface: false } },
+  });
+  mounted.add(wrapper);
+  await flushPromises();
+  await registry.invoke(
+    {
+      id: 'edit',
+      code: 'configuration.update-metadata-field-draft',
+      input: { fieldName: 'title', title: '临时标题' },
+    },
+    registry.snapshot()!.token,
+  );
+  await flushPromises();
+  await wrapper
+    .findAll('button')
+    .find((button) => button.text() === '取消')!
+    .trigger('click');
+  await flushPromises();
+  const directory = await registry.invoke(
+    { id: 'affects', code: 'configuration.describe-reference-affects', input: { target: 'iam.user' } },
+    registry.snapshot()!.token,
+  );
+  expect(directory.value).toMatchObject({
+    destinations: expect.arrayContaining([expect.objectContaining({ fieldName: 'title' })]),
+  });
+  const added = await registry.invoke(
+    {
+      id: 'reference',
+      code: 'configuration.add-metadata-property-field-draft',
+      input: {
+        kind: 'MODULE_REFERENCE',
+        fieldName: 'ownerId',
+        title: '负责人',
+        target: 'iam.user',
+        affectMappings: ['displayName:title'],
+      },
+    },
+    registry.snapshot()!.token,
+  );
+  expect(added.value).toMatchObject({ fieldName: 'ownerId' });
+});
+
 it('opens an existing ordinary field as a visible assistant update candidate without applying it', async () => {
   const http = fakeHttp();
   const request = vi.spyOn(http, 'request');
@@ -1062,6 +1125,15 @@ it('creates a module reference in simple mode and preserves advanced settings ac
   await flushPromises();
   expect(field('显示名称').findComponent({ name: 'UiInput' }).props('value')).toBe('用户');
   field('显示名称').findComponent({ name: 'UiInput' }).vm.$emit('update:value', '负责人');
+  await wrapper
+    .findAll('button')
+    .find((button) => button.text() === '添加回填')!
+    .trigger('click');
+  await flushPromises();
+  field('来源字段').findComponent({ name: 'UiSelect' }).vm.$emit('update:value', 'displayName');
+  field('填入字段').findComponent({ name: 'UiSelect' }).vm.$emit('update:value', 'title');
+  await flushPromises();
+
   wrapper.findComponent({ name: 'UiRadioGroup' }).vm.$emit('update:value', 'ADVANCED');
   await flushPromises();
   field('被引用记录删除时').findComponent({ name: 'UiSelect' }).vm.$emit('update:value', 'RESTRICT');
@@ -1076,6 +1148,7 @@ it('creates a module reference in simple mode and preserves advanced settings ac
   const preview = request.mock.calls.find(([options]) => options.path.endsWith('change-set-preview'));
   expect(JSON.stringify(preview?.[0].body)).toContain('refFuZeRenId');
   expect(JSON.stringify(preview?.[0].body)).toContain('RESTRICT');
+  expect(JSON.stringify(preview?.[0].body)).toContain('displayName:title');
   expect(JSON.stringify(preview?.[0].body)).toContain('displayName');
   expect(request.mock.calls.some(([options]) => options.path.endsWith('change-set-apply'))).toBe(false);
 });

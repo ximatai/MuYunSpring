@@ -482,6 +482,47 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
           .filter(Boolean);
       },
     });
+    const referenceAffectMappings = computed(
+      () => fieldPropertyDraft.value.referenceConfig?.affectMappings ?? [],
+    );
+    const referenceAffectSourceOptions = computed(() =>
+      referenceFieldOptions(referenceTargetFieldCatalog.value?.labelFields ?? [], undefined),
+    );
+    const savedReferenceAffectTargetOptions = computed(() =>
+      displayedFields.value
+        .filter(
+          (field) =>
+            field.id &&
+            field.fieldName &&
+            fieldEditableInSession(field) &&
+            fieldPropertyOf(field).kind === 'BASIC',
+        )
+        .map((field) => ({ value: field.fieldName!, label: field.title || field.fieldName! })),
+    );
+    const referenceAffectTargetOptions = computed(() =>
+      savedReferenceAffectTargetOptions.value.filter((field) => field.value !== fieldDraft.value.fieldName),
+    );
+    function updateReferenceAffect(index: number, side: number, value: unknown) {
+      const reference = fieldPropertyDraft.value.referenceConfig;
+      if (!reference) return;
+      const mappings = [...(reference.affectMappings ?? [])];
+      const parts = (mappings[index] ?? ':').split(':');
+      parts[side] = typeof value === 'string' ? value : '';
+      mappings[index] = parts.join(':');
+      reference.affectMappings = mappings;
+    }
+    function addReferenceAffect() {
+      const reference = fieldPropertyDraft.value.referenceConfig;
+      if (reference && (reference.affectMappings?.length ?? 0) < 8)
+        reference.affectMappings = [...(reference.affectMappings ?? []), ':'];
+    }
+    function removeReferenceAffect(index: number) {
+      const reference = fieldPropertyDraft.value.referenceConfig;
+      if (reference)
+        reference.affectMappings = (reference.affectMappings ?? []).filter(
+          (_, position) => position !== index,
+        );
+    }
     const referenceKeyFieldOptions = computed(() =>
       referenceFieldOptions(
         referenceTargetFieldCatalog.value?.keyFields ?? [],
@@ -510,6 +551,20 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
       if (!candidateIsSelectable(catalog.labelFields, reference.targetLabelField)) {
         return `目标展示字段“${reference.targetLabelField || '未选择'}”不在可选目录中，请调整。`;
       }
+      const destinations = new Set<string>();
+      for (const mapping of reference.affectMappings ?? []) {
+        const [source, destination, extra] = mapping.split(':');
+        if (
+          extra !== undefined ||
+          !source ||
+          !destination ||
+          !catalog.labelFields.some((field) => field.fieldName === source && field.selectable) ||
+          !referenceAffectTargetOptions.value.some((field) => field.value === destination) ||
+          destinations.has(destination)
+        )
+          return '请为每项选择回填指定可读取的来源字段和不同的当前普通字段。目标字段需先保存。';
+        destinations.add(destination);
+      }
       return undefined;
     });
 
@@ -520,6 +575,7 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
       if (reference.targetModuleAlias?.trim() !== targetModuleAlias.trim()) {
         referenceTargetFieldCatalogRequestToken += 1;
         reference.targetMetadataId = undefined;
+        reference.affectMappings = [];
         reference.targetKeyField = 'id';
         reference.targetLabelField = undefined;
         referenceTargetFieldCatalog.value = undefined;
@@ -826,6 +882,7 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
         标题字段: value.titleField ?? false,
         启用: value.enabled !== false,
         引用目标: binding?.referenceConfig?.targetModuleAlias,
+        选择回填: binding?.referenceConfig?.affectMappings?.join('；'),
         字典应用: binding?.dictionaryConfig?.dictionaryApplicationAlias,
         字典类别: binding?.dictionaryConfig?.dictionaryCategoryAlias,
         字典选择: binding?.dictionaryConfig?.selectionMode,
@@ -999,6 +1056,23 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
       ];
     }
 
+    async function referenceAffectDirectory(target: string, signal: AbortSignal) {
+      const relationId = selectedRelationId.value;
+      if (!relationId) throw new OperationUsageError('请先选择元数据节点。');
+      const targets = await loadAssistantReferenceTargets(relationId, signal);
+      if (!targets.some((item) => item.target === target)) throw new OperationUsageError('引用目标不可用。');
+      const catalog = await requestReferenceTargetFieldCatalog(relationId, target, undefined, signal);
+      return {
+        sources: catalog.labelFields
+          .filter((field) => field.selectable)
+          .map(({ fieldName, title }) => ({ fieldName, title })),
+        destinations: savedReferenceAffectTargetOptions.value.map(({ value, label }) => ({
+          fieldName: value,
+          title: label,
+        })),
+      };
+    }
+
     async function prepareAssistantPropertyFieldDraft(
       input: AddMetadataPropertyFieldDraftInput,
       signal: AbortSignal,
@@ -1018,6 +1092,18 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
         const targetLabelField = defaultCandidateField(catalog.labelFields);
         if (!targetKeyField || !targetLabelField)
           throw new Error('The reference target does not expose selectable key and label fields');
+        const destinations = new Set<string>();
+        for (const mapping of input.affectMappings ?? []) {
+          const [source, destination] = mapping.split(':');
+          if (
+            !catalog.labelFields.some((field) => field.fieldName === source && field.selectable) ||
+            destination === fieldName ||
+            !savedReferenceAffectTargetOptions.value.some((field) => field.value === destination) ||
+            destinations.has(destination!)
+          )
+            throw new OperationUsageError('请选择目录中的来源字段和不同的已保存普通字段。');
+          destinations.add(destination!);
+        }
         requireEnabledFieldSpec('string');
         return {
           relationId,
@@ -1032,6 +1118,7 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
             targetMetadataId: catalog.targetMetadataId ?? undefined,
             targetKeyField,
             targetLabelField,
+            affectMappings: [...(input.affectMappings ?? [])],
           },
         };
       }
@@ -2218,6 +2305,7 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
       prepareNewFieldDraft: prepareAssistantNewFieldDraft,
       prepareFieldUpdate: prepareAssistantFieldUpdate,
       findFieldTargets: findAssistantFieldTargets,
+      referenceAffectDirectory,
       preparePropertyFieldDraft: prepareAssistantPropertyFieldDraft,
       preparePropertyFieldCommit: prepareAssistantPropertyFieldCommit,
     };
@@ -2323,6 +2411,12 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
         updateFieldName,
         updateColumnName,
         projectionMappingsText,
+        referenceAffectMappings,
+        referenceAffectSourceOptions,
+        referenceAffectTargetOptions,
+        updateReferenceAffect,
+        addReferenceAffect,
+        removeReferenceAffect,
         referenceKeyFieldOptions,
         referenceLabelFieldOptions,
         referenceTargetFieldCatalogProblem,

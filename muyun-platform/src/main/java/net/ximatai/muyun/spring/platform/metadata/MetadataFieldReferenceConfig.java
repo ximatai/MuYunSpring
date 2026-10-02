@@ -69,6 +69,27 @@ public class MetadataFieldReferenceConfig extends StandardEntity {
     @Column(name = "projection_mappings", type = ColumnType.VARCHAR, length = 512, comment = "Projection mappings")
     private String projectionMappings;
 
+    @Column(name = "affect_mappings", type = ColumnType.VARCHAR, length = 512,
+            comment = "Selection-only source:destination field mappings")
+    private String affectMappings;
+
+    public List<net.ximatai.muyun.spring.dynamic.metadata.EntityReferenceAffectDefinition> affects() {
+        if (affectMappings == null || affectMappings.isBlank()) return List.of();
+        return Arrays.stream(affectMappings.split("[,;]"))
+                .map(String::trim).filter(value -> !value.isBlank()).map(value -> {
+                    String[] parts = value.split(":", -1);
+                    if (parts.length != 2) throw new IllegalArgumentException("reference affect must use sourceField:targetField");
+                    return new net.ximatai.muyun.spring.dynamic.metadata.EntityReferenceAffectDefinition(
+                            net.ximatai.muyun.spring.common.util.PlatformNameRules.requireFieldName(parts[0].trim(), "reference affect source"),
+                            net.ximatai.muyun.spring.common.util.PlatformNameRules.requireFieldName(parts[1].trim(), "reference affect target"));
+                }).toList();
+    }
+
+    public static List<String> affectMappings(MetadataFieldReferenceConfig config) {
+        return config == null ? List.of() : config.affects().stream()
+                .map(item -> item.referenceField() + ":" + item.targetField()).toList();
+    }
+
     public List<ReferenceProjection> projections() {
         if (projectionMappings == null || projectionMappings.isBlank()) {
             return List.of();

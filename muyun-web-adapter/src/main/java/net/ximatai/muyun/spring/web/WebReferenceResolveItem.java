@@ -19,7 +19,7 @@ public record WebReferenceResolveItem(
 ) {
     public WebReferenceResolveItem {
         projections = projections == null ? Map.of() : java.util.Collections.unmodifiableMap(new LinkedHashMap<>(projections));
-        affectPatch = affectPatch == null ? Map.of() : Map.copyOf(new LinkedHashMap<>(affectPatch));
+        affectPatch = affectPatch == null ? Map.of() : java.util.Collections.unmodifiableMap(new LinkedHashMap<>(affectPatch));
     }
 
     public WebReferenceResolveItem(String id, String title, WebReferenceMatchMode matchedBy,

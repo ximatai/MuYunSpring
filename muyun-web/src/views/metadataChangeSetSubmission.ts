@@ -121,6 +121,7 @@ function metadataPropertyConfirmationLines(property?: MetadataFieldPropertyChang
           : reference.requireEnabled
             ? '每次保存时要求目标存在且已启用'
             : '不限制启用状态'),
+      '选择回填：' + (reference.affectMappings?.length ? reference.affectMappings.join('；') : '无'),
       '引用投影：' + (reference.projectionMappings?.length ? reference.projectionMappings.join('；') : '无'),
     ];
   }

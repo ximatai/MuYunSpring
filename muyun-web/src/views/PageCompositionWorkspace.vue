@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { shallowRef, onActivated, onDeactivated, onMounted, onBeforeUnmount, watch } from 'vue';
+import { shallowRef, nextTick, onActivated, onDeactivated, onMounted, onBeforeUnmount, watch } from 'vue';
 import { useModuleContext, useAssistantSurfaceHost, createAssistantTurnRequester } from '@muyun/web-core';
 import { createPageCompositionSession } from './pageCompositionSession';
 import { usePageCompositionWorkspace } from './pageCompositionWorkspace';
@@ -14,6 +14,8 @@ const workspace = usePageCompositionWorkspace();
 const host = useAssistantSurfaceHost();
 let active = false;
 let unregister: (() => void) | undefined;
+let settlement: AbortController | undefined;
+let stopReadiness: (() => void) | undefined;
 let fallback: ReturnType<typeof createPageCompositionSession> | undefined;
 const session = shallowRef<ReturnType<typeof createPageCompositionSession>>(null!);
 watch(
@@ -33,38 +35,68 @@ watch(
 );
 
 function clear() {
+  stopReadiness?.();
+  stopReadiness = undefined;
+  settlement?.abort();
+  settlement = undefined;
   unregister?.();
   unregister = undefined;
 }
 function activate() {
+  // KeepAlive invokes mounted and activated on first entry; register one stable surface.
+  if (active && (unregister || settlement)) return;
   active = true;
   workspace?.focus(session.value);
   workspace?.showEditor(session.value);
   clear();
   const pageInstanceKey = host?.activePageInstanceKey();
-  if (host && pageInstanceKey)
-    unregister = host.registry.register({
-      pageInstanceKey,
-      contextRevision: () => `${props.moduleAlias}:${session.value.contextRevision.value}`,
-      settle: (signal) =>
-        waitForConfigurationEditor(
-          () => !session.value.isMutating.value && !session.value.catalogueRefreshPending.value,
-          signal,
-        ),
-      surface: {
-        ...createPageCompositionAssistantSurface(
-          session.value.adapter,
-          createAssistantTurnRequester(context.http),
-          () => host.capabilities?.() ?? [],
-        ),
-        // Keep the mounted page readiness signal; the shared workspace owns its tools.
-        ...(workspace ? { capabilities: () => host.capabilities?.() ?? workspace.capabilities() } : {}),
-      },
-    });
+  if (!host || !pageInstanceKey) return;
+  const current = session.value;
+  const controller = new AbortController();
+  settlement = controller;
+  const ready = () => !current.isMutating.value && !current.catalogueRefreshPending.value;
+  // Lifecycle readiness survives a navigation timeout; a slow successful load must still register.
+  stopReadiness = watch(
+    ready,
+    async (available) => {
+      if (!available) return;
+      await nextTick();
+      if (
+        controller.signal.aborted ||
+        settlement !== controller ||
+        !active ||
+        !ready() ||
+        session.value !== current ||
+        host.activePageInstanceKey() !== pageInstanceKey
+      )
+        return;
+      stopReadiness?.();
+      stopReadiness = undefined;
+      settlement = undefined;
+      unregister = host.registry.register({
+        pageInstanceKey,
+        contextRevision: () => `${current.moduleAlias}:${current.contextRevision.value}`,
+        settle: (signal) => waitForConfigurationEditor(ready, signal),
+        surface: {
+          ...createPageCompositionAssistantSurface(
+            current.adapter,
+            createAssistantTurnRequester(context.http),
+            () => host.capabilities?.() ?? [],
+          ),
+          // Keep the mounted page readiness signal; the shared workspace owns its tools.
+          ...(workspace ? { capabilities: () => host.capabilities?.() ?? workspace.capabilities() } : {}),
+        },
+      });
+    },
+    { immediate: true, flush: 'post' },
+  );
 }
 watch(session, (value, previous) => {
   if (previous) workspace?.hideEditor(previous);
-  if (active) activate();
+  if (active) {
+    clear();
+    activate();
+  }
 });
 onMounted(activate);
 onActivated(activate);

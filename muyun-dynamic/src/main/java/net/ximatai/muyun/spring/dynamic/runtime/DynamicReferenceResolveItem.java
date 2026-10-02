@@ -28,6 +28,6 @@ public record DynamicReferenceResolveItem(
 
     public DynamicReferenceResolveItem {
         projections = projections == null ? Map.of() : java.util.Collections.unmodifiableMap(new LinkedHashMap<>(projections));
-        affectPatch = affectPatch == null ? Map.of() : Map.copyOf(new LinkedHashMap<>(affectPatch));
+        affectPatch = affectPatch == null ? Map.of() : java.util.Collections.unmodifiableMap(new LinkedHashMap<>(affectPatch));
     }
 }

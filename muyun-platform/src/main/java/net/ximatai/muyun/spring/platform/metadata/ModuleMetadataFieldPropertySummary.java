@@ -24,8 +24,15 @@ public record ModuleMetadataFieldPropertySummary(
             ReferenceCardinality cardinality,
             ReferenceTargetUnavailablePolicy targetUnavailablePolicy,
             List<String> projectionMappings,
-            boolean requireEnabled
+            boolean requireEnabled,
+            List<String> affectMappings
     ) {
+        public Reference(String targetModuleAlias, String targetMetadataId, String targetKeyField, String targetLabelField,
+                         ReferenceCardinality cardinality, ReferenceTargetUnavailablePolicy targetUnavailablePolicy,
+                         List<String> projectionMappings, boolean requireEnabled) {
+            this(targetModuleAlias, targetMetadataId, targetKeyField, targetLabelField, cardinality,
+                    targetUnavailablePolicy, projectionMappings, requireEnabled, List.of());
+        }
     }
 
     public record Dictionary(

@@ -102,6 +102,7 @@ it('keeps module-reference and dictionary business properties separate from stor
       targetKeyField: ' ',
       targetLabelField: ' ',
       projectionMappings: [' title:subjectCategoryIdTitle ', ''],
+      affectMappings: [' price:dealPrice ', ''],
     },
   });
   assert.deepEqual(reference, {
@@ -111,6 +112,7 @@ it('keeps module-reference and dictionary business properties separate from stor
       targetKeyField: 'id',
       targetLabelField: 'title',
       projectionMappings: ['title:subjectCategoryIdTitle'],
+      affectMappings: ['price:dealPrice'],
     },
   });
   assert.equal(isValidFieldPropertyDraft(reference), true);
@@ -143,6 +145,7 @@ it('adapts relation-scoped property summaries to the change-set property contrac
         targetLabelField: 'name',
         cardinality: 'ONE',
         projectionMappings: ['name:subjectCategoryIdTitle'],
+        affectMappings: ['price:dealPrice'],
       },
     }),
     {
@@ -154,6 +157,7 @@ it('adapts relation-scoped property summaries to the change-set property contrac
         targetLabelField: 'name',
         cardinality: 'ONE',
         projectionMappings: ['name:subjectCategoryIdTitle'],
+        affectMappings: ['price:dealPrice'],
       },
     },
   );

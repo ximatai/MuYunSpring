@@ -22,6 +22,78 @@ vi.mock('@muyun/vue-ui-antdv', async (importOriginal) => ({
 }));
 
 describe('PageCompositionWorkspace publication flow', () => {
+  it.each([
+    [false, 0],
+    [true, 0],
+    [false, 16_000],
+    [true, 16_000],
+  ] as const)(
+    'registers one settled KeepAlive surface and cancels late mounting (leave=%s, delay=%s)',
+    async (leave, delay) => {
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+      let finish!: () => void;
+      const pending = new Promise<void>((resolve) => {
+        finish = resolve;
+      });
+      const fixture = publicationFlowHttp([]);
+      const http: HttpClient = {
+        request: async (options) => {
+          await pending;
+          return fixture.request(options);
+        },
+      };
+      configureModuleContext({ http });
+      const registry = createAssistantSurfaceRegistry();
+      const register = vi.spyOn(registry, 'register');
+      registry.register({
+        pageInstanceKey: 'shell',
+        fallback: true,
+        contextRevision: () => '',
+        surface: {
+          describe: () => ({ surface: 'workbench', facts: {} }),
+          capabilities: () => [],
+          requestTurn: vi.fn(),
+        },
+      });
+      registry.activate('shell');
+      const visible = ref(true);
+      const Host = defineComponent({
+        setup() {
+          provideAssistantSurfaceHost({ registry, activePageInstanceKey: () => 'shell' });
+          return () =>
+            h(KeepAlive, null, {
+              default: () =>
+                visible.value ? h(PageCompositionWorkspace, { moduleAlias: 'education.exam' }) : h('div'),
+            });
+        },
+      });
+      const wrapper = mount(Host, { global: { stubs: workspaceStubs() } });
+      try {
+        await flushPromises();
+        expect(registry.snapshot()!.token.fallback).toBe(true);
+        if (leave) {
+          visible.value = false;
+          await nextTick();
+        }
+        await vi.advanceTimersByTimeAsync(delay);
+        expect(registry.snapshot()!.token.fallback).toBe(true);
+        finish();
+        await flushPromises();
+        expect(registry.snapshot()!.token.fallback).toBe(leave);
+        expect(register).toHaveBeenCalledTimes(leave ? 1 : 2);
+        if (!leave) {
+          const before = registry.snapshot()!.token;
+          const ready = await registry.settleActiveSurface(before);
+          expect(ready.token).toEqual(before);
+          expect(ready.context.surface).toBe('page-composition');
+        }
+      } finally {
+        wrapper.unmount();
+        vi.useRealTimers();
+      }
+    },
+  );
+
   it('retains a headless candidate through visual handoff and invalidates it on identity change', async () => {
     const requests: HttpRequestOptions[] = [];
     const http = publicationFlowHttp(requests);
