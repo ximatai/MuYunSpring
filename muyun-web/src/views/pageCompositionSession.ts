@@ -875,100 +875,114 @@ export function createPageCompositionSession(
       }
     }
 
-    async function loadMetadataTree(
-      requestSequence = workspaceLoadSequence,
-      moduleAlias = props.moduleAlias,
-    ) {
-      const metadataSequence = ++metadataLoadSequence;
-      referenceDirectoryEpoch += 1;
-      // Reset synchronously: otherwise a stale in-flight request can leave the new binding's
-      // same-named field in the loading gate while the directory read is still pending or fails.
-      invalidateDictionaryRadioFacts();
-      referenceDirectoryRequests.clear();
-      referenceFieldDirectories.value = new Map();
-      metadataTreeReloadKey.value += 1;
-      const current = () =>
-        requestSequence === workspaceLoadSequence && metadataSequence === metadataLoadSequence;
-      loading.value = true;
-      metadataLoadFailed.value = false;
-      try {
-        const [profile, runtime] = await Promise.all([
-          moduleContext.http.request<{
-            overviewMode: CompositionMode;
-            compositionSkeletons: CompositionSkeleton[];
-            searchableFields?: string[];
-            platformFieldPolicies: PlatformFieldPolicy[];
-          }>({ method: 'GET', path: `/platform.module/${encodeURIComponent(moduleAlias)}/overview-mode` }),
-          Promise.resolve()
-            .then(() =>
-              moduleContext.http.request<{ actions?: ModuleRuntimeAction[] }>({
-                method: 'GET',
-                path: `/platform.module/${encodeURIComponent(moduleAlias)}/context`,
-              }),
-            )
-            .catch(() => undefined),
-        ]);
-        if (!current()) return false;
-        if (!profile.compositionSkeletons?.length)
-          throw new Error('服务端尚未提供页面骨架，请重启后端后重新加载');
-        const relations = await loadAll<ModuleMetadataRelation>(
+    /** Read a detached directory; callers commit it at their own current-scope boundary. */
+    async function prepareCatalogRefresh() {
+      const moduleAlias = props.moduleAlias;
+      const [profile, runtime, relations, referenceRoot] = await Promise.all([
+        moduleContext.http.request<{
+          overviewMode: CompositionMode;
+          compositionSkeletons: CompositionSkeleton[];
+          searchableFields?: string[];
+          platformFieldPolicies: PlatformFieldPolicy[];
+        }>({ path: `/platform.module/${encodeURIComponent(moduleAlias)}/overview-mode` }),
+        moduleContext.http
+          .request<{
+            actions?: ModuleRuntimeAction[];
+          }>({ path: `/platform.module/${encodeURIComponent(moduleAlias)}/context` })
+          .catch(() => undefined),
+        loadAll<ModuleMetadataRelation>(
           `/platform.module/${encodeURIComponent(moduleAlias)}/metadata-relations/query`,
-        );
-        if (!current()) return;
-        const main = relations.find((item) => item.relationRole === 'main' || item.relationRole === 'MAIN');
-        if (!profile.platformFieldPolicies)
-          throw new Error('服务端尚未提供平台字段策略，请重启后端后重新加载');
-        platformFieldPolicies.value = new Map(
-          profile.platformFieldPolicies.map((policy) => [policy.fieldName, policy]),
-        );
-        const toFields = (fields: MetadataField[]) =>
-          fields
-            .filter((field) => field.enabled !== false && !isRuntimeReservedMetadataField(field))
-            .map(toComposerField)
-            .filter((field): field is PageComposerField => field != null);
-        const fields = main?.metadataId
-          ? await loadAll<MetadataField>(
-              `/platform.metadata/${encodeURIComponent(main.metadataId)}/fields/query`,
-            )
-          : [];
-        if (!current()) return;
-        const directChildren = relations.filter(
-          (candidate) =>
-            main?.metadataId &&
-            candidate.parentMetadataId === main.metadataId &&
-            Boolean(candidate.metadataId),
-        );
-        const childFieldEntries = await Promise.all(
-          directChildren.map(
+        ),
+        moduleContext.http.request<{ fields?: PageReferenceField[]; dictionaryRadioMaxOptions?: number }>({
+          path: `/platform.module/${encodeURIComponent(moduleAlias)}/page-reference-fields`,
+        }),
+      ]);
+      if (!profile.compositionSkeletons?.length || !profile.platformFieldPolicies)
+        throw new Error('服务端尚未提供页面骨架或字段策略，请重新加载');
+      const main = relations.find((item) => item.relationRole?.toUpperCase() === 'MAIN');
+      const children = relations.filter(
+        (item) => main?.metadataId && item.parentMetadataId === main.metadataId && Boolean(item.metadataId),
+      );
+      const [fields, childEntries] = await Promise.all([
+        main?.metadataId
+          ? loadAll<MetadataField>(`/platform.metadata/${encodeURIComponent(main.metadataId)}/fields/query`)
+          : Promise.resolve([]),
+        Promise.all(
+          children.map(
             async (child) =>
               [
                 child.id ?? child.metadataId!,
-                toFields(
-                  await loadAll<MetadataField>(
-                    `/platform.metadata/${encodeURIComponent(child.metadataId!)}/fields/query`,
-                  ),
+                await loadAll<MetadataField>(
+                  `/platform.metadata/${encodeURIComponent(child.metadataId!)}/fields/query`,
                 ),
               ] as const,
           ),
-        );
-        if (!current()) return;
-        // Install a complete catalogue together. Refresh never empties the navigator or loses local edits.
+        ),
+      ]);
+      const referenceEntries = await Promise.all(
+        [...referenceFieldDirectories.value.keys()]
+          .filter((key) => key !== referenceDirectoryKey(moduleAlias, ''))
+          .map(async (key) => {
+            const path = key.slice(moduleAlias.length + 1);
+            const result = await moduleContext.http
+              .request<{
+                fields?: PageReferenceField[];
+              }>({
+                path: `/platform.module/${encodeURIComponent(moduleAlias)}/page-reference-fields`,
+                query: { path },
+              })
+              .catch(() => ({ fields: [] }));
+            return [
+              key,
+              (result.fields ?? [])
+                .map(toReferenceComposerField)
+                .filter((field): field is PageComposerField => field != null),
+            ] as const;
+          }),
+      );
+      const refreshedComponents =
+        componentCatalog.value && !publishing.value && revision.value?.id
+          ? await moduleContext.http.request<ComponentCatalog>({
+              path: `/platform.presentation_publish/revisions/${encodeURIComponent(revision.value.id)}/component-catalog`,
+            })
+          : undefined;
+      return () => {
+        if (!valid()) throw new OperationUsageError('页面编辑身份已变化');
+        referenceDirectoryEpoch += 1;
+        invalidateDictionaryRadioFacts();
+        referenceDirectoryRequests.clear();
+        referenceFieldDirectories.value = new Map();
+        metadataTreeReloadKey.value += 1;
         const treeJson = currentUiTreeJson.value;
         const selected = state.selectedNodeId.value;
+        platformFieldPolicies.value = new Map(
+          profile.platformFieldPolicies.map((policy) => [policy.fieldName, policy]),
+        );
+        const toFields = (values: MetadataField[]) =>
+          values
+            .filter((field) => field.enabled !== false && !isRuntimeReservedMetadataField(field))
+            .map(toComposerField)
+            .filter((field): field is PageComposerField => field != null);
         skeletons.value = profile.compositionSkeletons;
         configuredMode.value = profile.overviewMode.toUpperCase() as CompositionMode;
         persistedSearchableFields.value = profile.searchableFields ?? [];
         if (runtime) moduleActions.value = runtime.actions ?? [];
         relation.value = main;
         metadataRelations.value = relations;
-        const fallbackFields = toFields(fields);
-        // Preserve metadata identities and field policies while adding the directory's reference facts.
-        const referenceRoot = await loadReferenceDirectory(moduleAlias, '');
-        if (!current()) return;
-        const referenceByName = new Map(referenceRoot.map((field) => [field.fieldName, field]));
-        // A metadata edit can rebind a field to another dictionary while this KeepAlive workspace remains mounted.
-        // The presentation-only facts were already reset before any async directory read started.
-        metadataFields.value = fallbackFields.map((field) => {
+        if (
+          Number.isSafeInteger(referenceRoot.dictionaryRadioMaxOptions) &&
+          referenceRoot.dictionaryRadioMaxOptions! > 0
+        )
+          dictionaryRadioMaxOptions.value = referenceRoot.dictionaryRadioMaxOptions!;
+        const references = (referenceRoot.fields ?? [])
+          .map(toReferenceComposerField)
+          .filter((field): field is PageComposerField => field != null);
+        referenceFieldDirectories.value = new Map([
+          [referenceDirectoryKey(moduleAlias, ''), references],
+          ...referenceEntries,
+        ]);
+        const referenceByName = new Map(references.map((field) => [field.fieldName, field]));
+        metadataFields.value = toFields(fields).map((field) => {
           const reference = referenceByName.get(field.fieldName);
           return reference
             ? {
@@ -982,12 +996,33 @@ export function createPageCompositionSession(
               }
             : field;
         });
-        childMetadataFields.value = new Map(childFieldEntries);
+        childMetadataFields.value = new Map(childEntries.map(([key, values]) => [key, toFields(values)]));
         if (revision.value && !draftParseError.value) {
-          await hydrateDraft({ ...revision.value, uiTreeJson: treeJson }, false);
+          void hydrateDraft({ ...revision.value, uiTreeJson: treeJson }, false, true);
           if (state.nodes.value.some((node) => node.id === selected)) state.selectedNodeId.value = selected;
         }
-        if (componentCatalog.value && !publishing.value) await loadComponentCatalog();
+        if (refreshedComponents) componentCatalog.value = refreshedComponents;
+        metadataLoadFailed.value = false;
+      };
+    }
+    async function loadMetadataTree(
+      requestSequence = workspaceLoadSequence,
+      moduleAlias = props.moduleAlias,
+    ) {
+      const metadataSequence = ++metadataLoadSequence;
+      referenceDirectoryEpoch += 1;
+      invalidateDictionaryRadioFacts();
+      const current = () =>
+        valid() &&
+        requestSequence === workspaceLoadSequence &&
+        metadataSequence === metadataLoadSequence &&
+        moduleAlias === props.moduleAlias;
+      loading.value = true;
+      metadataLoadFailed.value = false;
+      try {
+        const commit = await prepareCatalogRefresh();
+        if (!current()) return;
+        commit();
         return true;
       } catch (cause) {
         if (current()) {
@@ -1532,7 +1567,11 @@ export function createPageCompositionSession(
       return response.records;
     }
 
-    async function hydrateDraft(current: PresentationRevision | undefined, markSaved = true) {
+    async function hydrateDraft(
+      current: PresentationRevision | undefined,
+      markSaved = true,
+      referencesLoaded = false,
+    ) {
       if (!current?.uiTreeJson) {
         state.replaceQuerySummaries([]);
         return;
@@ -1576,7 +1615,7 @@ export function createPageCompositionSession(
           ])
           .map((entry) => (typeof entry === 'string' ? entry : entry.field))
           .filter((name): name is string => typeof name === 'string' && name.includes('.'));
-        if (persistedFieldNames.length) await ensureReferencePaths(persistedFieldNames);
+        if (persistedFieldNames.length && !referencesLoaded) await ensureReferencePaths(persistedFieldNames);
         if (
           sequence !== hydrateSequence ||
           workspaceSequence !== workspaceLoadSequence ||
@@ -3363,6 +3402,7 @@ export function createPageCompositionSession(
       deactivate,
       contextRevision,
       loadWorkspace,
+      prepareCatalogRefresh,
       describePage,
       moduleAlias: props.moduleAlias,
       adapter: {

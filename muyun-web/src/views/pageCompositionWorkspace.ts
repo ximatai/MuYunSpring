@@ -152,10 +152,15 @@ export function createPageCompositionWorkspace(
             return alias;
           },
           async execute(alias: string, context) {
+            const retained = sessions.has(alias);
             const value = session(alias);
             // Loading belongs to the retained session; only focus is an invocation effect.
             await waitForConfigurationEditor(() => !value.isMutating.value, context.signal);
-            context.applyEffect(() => focus(value));
+            const install = retained ? await value.prepareCatalogRefresh() : undefined;
+            context.applyEffect(() => {
+              install?.();
+              focus(value);
+            });
             return value.adapter.describe();
           },
         } satisfies AssistantCapability<string>,

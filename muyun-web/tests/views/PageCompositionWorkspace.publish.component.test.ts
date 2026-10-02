@@ -1,3 +1,4 @@
+import { provideWorkspaceViewHost } from '@/platform-workbench/workspaceViewHost';
 import {
   createPageCompositionWorkspace,
   providePageCompositionWorkspace,
@@ -30,15 +31,43 @@ describe('PageCompositionWorkspace publication flow', () => {
       () => identity,
       () => true,
     );
+    const registry = createAssistantSurfaceRegistry(() => identity, workspace.current);
+    registry.register({
+      pageInstanceKey: 'shell',
+      contextRevision: () => '',
+      surface: {
+        describe: () => ({ surface: 'workbench', facts: {} }),
+        capabilities: workspace.capabilities,
+        requestTurn: vi.fn(),
+      },
+    });
+    registry.activate('shell');
     const session = workspace.session('education.exam');
     workspace.focus(session);
     await flushPromises();
     session.adapter.prepare({ list: [{ fieldName: 'title' }] })();
     const proposal = await session.adapter.prepareConfirmation(new AbortController().signal);
     expect(proposal.isCurrent()).toBe(true);
+    let wouldLoseDraft: (() => boolean) | undefined;
     const Host = defineComponent({
       setup() {
+        provideWorkspaceViewHost({
+          presentation: 'tab',
+          setTitle() {},
+          replaceQuery() {},
+          dismiss() {},
+          close() {},
+          registerUnsavedState(_source, dirty) {
+            wouldLoseDraft = dirty;
+            return () => {};
+          },
+        });
         providePageCompositionWorkspace(workspace);
+        provideAssistantSurfaceHost({
+          registry,
+          activePageInstanceKey: () => 'shell',
+          capabilities: workspace.capabilities,
+        });
         return () => h(PageCompositionWorkspace, { moduleAlias: 'education.exam' });
       },
     });
@@ -49,6 +78,12 @@ describe('PageCompositionWorkspace publication flow', () => {
         { fieldName: 'title' },
       ]);
       expect(workspace.session('education.exam')).toBe(session);
+      expect(wouldLoseDraft?.()).toBe(false);
+      expect(registry.snapshot()!.context.surface).toBe('workbench');
+      await registry.invoke(
+        { id: 'describe', code: 'configuration.describe-page-composition', input: {} },
+        registry.snapshot()!.token,
+      );
       wrapper.unmount();
       expect(session.adapter.candidate().saved).toBe(false);
       expect(session.adapter.describe().editable).toBe(true);
@@ -61,6 +96,62 @@ describe('PageCompositionWorkspace publication flow', () => {
       expect(requests.length).toBe(before);
       expect(workspace.session('education.exam')).not.toBe(session);
       await flushPromises();
+    } finally {
+      workspace.dispose();
+    }
+  });
+
+  it('refreshes a retained headless directory after metadata changes without losing placements', async () => {
+    const fields = [
+      {
+        id: 'field-title',
+        fieldName: 'title',
+        title: '名称',
+        fieldOwnership: 'BUSINESS',
+        fieldForm: 'PHYSICAL',
+      },
+    ];
+    const http = publicationFlowHttp([], initialTree(), fields);
+    const workspace = createPageCompositionWorkspace(
+      http,
+      () => 'operator',
+      () => true,
+    );
+    const registry = createAssistantSurfaceRegistry(() => 'operator', workspace.current);
+    registry.register({
+      pageInstanceKey: 'shell',
+      contextRevision: () => '',
+      surface: {
+        describe: () => ({ surface: 'workbench', facts: {} }),
+        capabilities: workspace.capabilities,
+        requestTurn: vi.fn(),
+      },
+    });
+    registry.activate('shell');
+    const select = () =>
+      registry.invoke(
+        { id: 'select', code: 'configuration.select-page-module', input: { moduleAlias: 'education.exam' } },
+        registry.snapshot()!.token,
+      );
+    try {
+      await select();
+      const session = workspace.session('education.exam');
+      session.adapter.prepare({ list: [{ fieldName: 'title' }] })();
+      fields.push({
+        id: 'field-note',
+        fieldName: 'note',
+        title: '备注',
+        fieldOwnership: 'BUSINESS',
+        fieldForm: 'PHYSICAL',
+      });
+      await select();
+      expect(session.adapter.describe().fields).toContainEqual(
+        expect.objectContaining({ fieldName: 'note' }),
+      );
+      expect(session.adapter.describe().list).toMatchObject([{ fieldName: 'title' }]);
+      expect(session.hasUnsavedChanges.value).toBe(true);
+      session.adapter.prepare({ list: [{ fieldName: 'title' }, { fieldName: 'note' }] })();
+      expect(session.adapter.describe().list).toHaveLength(2);
     } finally {
       workspace.dispose();
     }

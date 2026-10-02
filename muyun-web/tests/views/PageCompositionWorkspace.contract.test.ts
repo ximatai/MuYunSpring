@@ -76,7 +76,7 @@ it('preflights dictionary radio eligibility in composition instead of deferring 
   assert.match(workspaceSource, /dictionaryRadioFactRequestEpoch\.invalidate\(\);/);
   assert.match(
     workspaceSource,
-    /async function loadMetadataTree[\s\S]*?referenceDirectoryEpoch \+= 1;[\s\S]*?invalidateDictionaryRadioFacts\(\);[\s\S]*?await Promise\.all/,
+    /async function loadMetadataTree[\s\S]*?referenceDirectoryEpoch \+= 1;[\s\S]*?invalidateDictionaryRadioFacts\(\);[\s\S]*?await prepareCatalogRefresh/,
   );
   assert.match(
     workspaceSource,

@@ -41,6 +41,7 @@ function activate() {
   workspace?.focus(session.value);
   workspace?.showEditor(session.value);
   clear();
+  if (workspace) return;
   const pageInstanceKey = host?.activePageInstanceKey();
   if (host && pageInstanceKey)
     unregister = host.registry.register({
@@ -76,4 +77,6 @@ onBeforeUnmount(() => {
   fallback?.dispose();
 });
 </script>
-<template><PageCompositionEditor :key="moduleAlias" :session="session" /></template>
+<template>
+  <PageCompositionEditor :key="moduleAlias" :session="session" :retained="Boolean(workspace)" />
+</template>

@@ -34,7 +34,9 @@ import PageCompositionTree from './PageCompositionTree.vue';
 import { PAGE_COMPOSITION_DRAG_PAYLOAD_TYPE } from './pageCompositionDragPayload';
 
 import type { PageCompositionSession } from './pageCompositionSession';
-const props = defineProps<{ session: PageCompositionSession }>();
+const props = withDefaults(defineProps<{ session: PageCompositionSession; retained?: boolean }>(), {
+  retained: false,
+});
 const {
   state,
   paletteMode,
@@ -177,7 +179,11 @@ const {
   layoutHandlers,
   candidateChanges,
 } = props.session;
-useWorkspaceViewUnsavedState('页面配置', () => props.session.hasUnsavedChanges.value);
+useWorkspaceViewUnsavedState(
+  '页面配置',
+  () => !props.retained && props.session.hasUnsavedChanges.value,
+  () => props.session.isMutating.value,
+);
 onActivated(props.session.activate);
 onDeactivated(props.session.deactivate);
 </script>
