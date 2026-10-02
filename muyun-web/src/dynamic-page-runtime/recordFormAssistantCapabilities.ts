@@ -203,6 +203,7 @@ function referenceSearchCapability(
             selectionKey,
             selection: { fieldName, contextRevision, searchRevision, candidate },
             title: candidate.title.slice(0, 500),
+            ...(candidate.subtitle?.trim() ? { subtitle: candidate.subtitle.trim().slice(0, 500) } : {}),
           };
         });
       context.commitInternalState(() => {
@@ -214,7 +215,11 @@ function referenceSearchCapability(
           state.selections.set(option.selectionKey, option.selection);
         }
       });
-      const projectedOptions = options.map(({ selectionKey, title }) => ({ selectionKey, title }));
+      const projectedOptions = options.map(({ selectionKey, title, subtitle }) => ({
+        selectionKey,
+        title,
+        ...(subtitle ? { subtitle } : {}),
+      }));
       return {
         fieldName,
         options: projectedOptions,
@@ -279,7 +284,13 @@ function referencePatchCapability(
         view.updateDraftReference(current.fieldName, current.candidate, 'assistant');
         state.selections.clear();
       });
-      return { changedField: selection.fieldName, selectedTitle: selection.candidate.title.slice(0, 500) };
+      return {
+        changedField: selection.fieldName,
+        selectedTitle: selection.candidate.title.slice(0, 500),
+        ...(selection.candidate.subtitle?.trim()
+          ? { selectedSubtitle: selection.candidate.subtitle.trim().slice(0, 500) }
+          : {}),
+      };
     },
   };
 }

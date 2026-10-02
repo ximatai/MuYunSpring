@@ -20,6 +20,7 @@ import {
 } from './recordFormAssistantCapabilities';
 import { assistantQueryResult, createAssistantQueryCapabilities } from './assistantQueryCapabilities';
 import type { ModulePageSessionView } from './useModulePageSession';
+import type { RecordFormDraftAccess } from './recordFormDraftAccess';
 import { assistantEditableRecordIds, hasActiveRecordEditor } from './assistantRecordEditorPolicy';
 import {
   modulePageScopeCapabilities,
@@ -35,6 +36,12 @@ export function modulePageAssistantContextRevision(view: ModulePageSessionView):
     relations: view.relationDrafts?.revision(),
     query: querySnapshot ? assistantQueryProjectionDigest(view, querySnapshot) : null,
     tree: view.treeQueryController?.revision() ?? null,
+    navigatorEditor: view.assistantNavigatorEditor && [
+      view.assistantNavigatorEditor.key,
+      view.assistantNavigatorEditor.moduleAlias,
+      view.assistantNavigatorEditor.form.editorMode,
+      view.assistantNavigatorEditor.form.contextRevision(),
+    ],
   });
 }
 
@@ -66,26 +73,27 @@ export function createModulePageAssistantSurface(
   contributedCapabilities: () => AssistantCapability[] = () => [],
   tenantScope?: ModulePageAssistantTenantScope,
 ): AssistantSurface {
+  const activeForm = () => view.assistantNavigatorEditor?.form ?? view;
   const formCapabilities = createRecordFormAssistantCapabilities({
     get editorMode() {
-      return view.editorMode;
+      return activeForm().editorMode;
     },
     get editingRecord() {
-      return view.editingRecord;
+      return activeForm().editingRecord;
     },
     get selectedRecord() {
-      return view.selectedRecord;
+      return activeForm().selectedRecord;
     },
     get formFields() {
-      return view.formFields;
+      return activeForm().formFields;
     },
     get referencePickerConfigs() {
-      return view.referencePickerConfigs;
+      return activeForm().referencePickerConfigs;
     },
     contextRevision: () => modulePageAssistantContextRevision(view),
-    relations: () => assistantRelationFacts(view),
-    updateDraftFields: (...args) => view.updateDraftFields(...args),
-    updateDraftReference: (...args) => view.updateDraftReference(...args),
+    relations: () => (view.assistantNavigatorEditor ? [] : assistantRelationFacts(view)),
+    updateDraftFields: (...args) => activeForm().updateDraftFields(...args),
+    updateDraftReference: (...args) => activeForm().updateDraftReference(...args),
   });
   const relationCapabilities = view.relationDrafts
     ? createRelationDraftAssistantCapabilities(view.relationDrafts, () =>
@@ -96,12 +104,14 @@ export function createModulePageAssistantSurface(
   const capabilities = (): AssistantCapability[] => [
     ...contributedCapabilities(),
     ...modulePageScopeCapabilities(view, tenantScope, scopeCandidates),
-    ...(view.listQueryController ? queryCapabilities(view) : []),
-    ...(view.treeQueryController ? treeQueryCapabilities(view) : []),
+    ...navigatorCreationCapabilities(view),
+    ...(!view.assistantNavigatorEditor && view.listQueryController ? queryCapabilities(view) : []),
+    ...(!view.assistantNavigatorEditor && view.treeQueryController ? treeQueryCapabilities(view) : []),
     ...recordEditorCapabilities(view),
-    ...(hasEditableDraft(view) ? relationCapabilities() : []),
-    ...(hasEditableDraft(view)
-      ? [...formCapabilities(), ...(view.assistantSaveAvailable ? [formSaveProposalCapability(view)] : [])]
+    ...(!view.assistantNavigatorEditor && hasEditableDraft(view) ? relationCapabilities() : []),
+    ...(view.assistantNavigatorEditor?.busy ? [] : formCapabilities()),
+    ...(!view.assistantNavigatorEditor && hasEditableDraft(view) && view.assistantSaveAvailable
+      ? [formSaveProposalCapability(view)]
       : []),
   ];
   return {
@@ -120,8 +130,51 @@ export function createModulePageAssistantSurface(
   };
 }
 
+function navigatorCreationCapabilities(view: ModulePageSessionView): AssistantCapability[] {
+  const keys = view.assistantNavigatorCreationTargets().map(({ key }) => key);
+  if (!keys.length) return [];
+  return [
+    {
+      effect: 'page',
+      descriptor: {
+        code: 'navigator.start-create',
+        description:
+          'Open the standard new-record form for a manageable navigator shown in facts.navigatorCreationTargets. Use its scopeKey, not the main module create action. Then describe and fill the active form. This only prepares a visible unsaved draft; the user reviews and saves using the standard editor. It neither creates a main record nor changes the current selection.',
+        inputSchema: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['scopeKey'],
+          properties: { scopeKey: { type: 'string', enum: keys } },
+        },
+      },
+      parseInput(input) {
+        if (
+          !isRecord(input) ||
+          Object.keys(input).some((key) => key !== 'scopeKey') ||
+          typeof input.scopeKey !== 'string' ||
+          !keys.includes(input.scopeKey)
+        )
+          throw new AssistantCapabilityUsageError('请选择当前可新建的导航区');
+        return { scopeKey: input.scopeKey };
+      },
+      async execute(input, context) {
+        const commit = await view.prepareAssistantNavigatorCreate((input as { scopeKey: string }).scopeKey);
+        return context.applyEffect(commit, () =>
+          view.settleAssistantPageState(context.cancellationSignal ?? context.signal),
+        );
+      },
+    },
+  ];
+}
+
 function recordEditorCapabilities(view: ModulePageSessionView): AssistantCapability[] {
-  if (view.editorMode !== 'view' || view.detailLoading || view.detailLoadFailed) return [];
+  if (
+    view.assistantNavigatorEditor ||
+    view.editorMode !== 'view' ||
+    view.detailLoading ||
+    view.detailLoadFailed
+  )
+    return [];
   const querySnapshot = view.listQueryController?.snapshot();
   if (querySnapshot?.mode === 'recycleBin') return [];
   const capabilities: AssistantCapability[] = [];
@@ -200,7 +253,7 @@ function recordEditorCapabilities(view: ModulePageSessionView): AssistantCapabil
   return capabilities;
 }
 
-function hasEditableDraft(view: ModulePageSessionView) {
+function hasEditableDraft(view: Pick<RecordFormDraftAccess, 'editorMode' | 'editingRecord'>) {
   return hasActiveRecordEditor(view.editorMode, view.editingRecord);
 }
 
@@ -359,15 +412,32 @@ function surfaceContext(
     title: view.modulePageTitle,
     facts: {
       moduleAlias: view.context.moduleAlias,
-      editorMode: view.editorMode,
-      selectedRecordId: recordIdentity(view.selectedRecord),
-      editing: hasEditableDraft(view),
-      dirty: view.detailDirty,
+      editorMode: view.assistantNavigatorEditor?.form.editorMode ?? view.editorMode,
+      selectedRecordId: recordIdentity(
+        view.assistantNavigatorEditor
+          ? view.assistantNavigatorEditor.form.selectedRecord
+          : view.selectedRecord,
+      ),
+      editing: hasEditableDraft(view.assistantNavigatorEditor?.form ?? view),
+      dirty: view.assistantNavigatorEditor?.dirty ?? view.detailDirty,
+      ...(view.assistantNavigatorEditor
+        ? {
+            editorOwner: {
+              kind: 'NAVIGATOR',
+              key: view.assistantNavigatorEditor.key,
+              moduleAlias: view.assistantNavigatorEditor.moduleAlias,
+              title: view.assistantNavigatorEditor.title,
+              loading: view.assistantNavigatorEditor.loading,
+              loadFailed: view.assistantNavigatorEditor.loadFailed,
+            },
+          }
+        : {}),
+      navigatorCreationTargets: view.assistantNavigatorCreationTargets(),
       creation: view.recordCreationState(),
       ...(view.listQueryController
         ? { query: assistantQueryContext(view, view.listQueryController.snapshot()) }
         : {}),
-      relations: assistantRelationFacts(view),
+      relations: view.assistantNavigatorEditor ? [] : assistantRelationFacts(view),
       ...(tenantScope?.tenantScopeExplorerVisible.value
         ? { tenant: tenantScope.selected.value ? recordTitle(tenantScope.selected.value) : null }
         : {}),

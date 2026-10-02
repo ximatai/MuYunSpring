@@ -22,6 +22,7 @@ function viewFixture(): ModulePageSessionView {
     assistantInteractionRevision: 3,
     recordCreationState: vi.fn(() => ({ ready: true })),
     assistantNavigatorScopes: vi.fn(() => []),
+    assistantNavigatorCreationTargets: vi.fn(() => []),
     selectedNavigatorRecords: {},
     settleAssistantPageState: vi.fn(async () => {}),
     formFields: new Map([
@@ -59,6 +60,89 @@ function viewFixture(): ModulePageSessionView {
 }
 
 describe('module page assistant surface', () => {
+  it('opens an authorized navigator draft through its standard management entry', async () => {
+    const view = viewFixture();
+    view.editorMode = 'view';
+    Object.assign(view, {
+      assistantNavigatorCreationTargets: () => [{ key: 'catalog', title: '目录' }],
+      prepareAssistantNavigatorCreate: vi.fn(async () => vi.fn(() => ({ created: true }))),
+    });
+    const surface = createModulePageAssistantSurface(view, vi.fn());
+    const create = surface
+      .capabilities()
+      .find(({ descriptor }) => descriptor.code === 'navigator.start-create')!;
+    expect(create).toBeDefined();
+    expect(() => create.parseInput({ scopeKey: 'invented' })).toThrow();
+    await create.execute(create.parseInput({ scopeKey: 'catalog' }), {
+      ...executionContext(),
+      applyEffect<T>(effect: () => T, settled?: () => unknown) {
+        const result = effect();
+        settled?.();
+        return result;
+      },
+    });
+    expect(view.prepareAssistantNavigatorCreate).toHaveBeenCalledWith('catalog');
+    expect(view.settleAssistantPageState).toHaveBeenCalled();
+    expect(surface.describe().facts?.navigatorCreationTargets).toEqual([{ key: 'catalog', title: '目录' }]);
+  });
+
+  it('routes the shared form contract to the active navigator without touching the main record', async () => {
+    const view = viewFixture();
+    view.editorMode = 'view';
+    const update = vi.fn();
+    Object.assign(view, {
+      assistantNavigatorEditor: {
+        key: 'catalog',
+        moduleAlias: 'work.catalog',
+        title: '目录',
+        dirty: false,
+        form: {
+          editorMode: 'create',
+          editingRecord: { title: '新目录' },
+          formFields: new Map([
+            ['title', { ...view.formFields.get('summary'), fieldName: 'title', label: '名称' }],
+          ]),
+          referencePickerConfigs: {},
+          contextRevision: () => '1',
+          updateDraftFields: update,
+          updateDraftReference: vi.fn(),
+        },
+      },
+    });
+    const surface = createModulePageAssistantSurface(view, vi.fn());
+    const capabilities = surface.capabilities();
+    const describe = capabilities.find(({ descriptor }) => descriptor.code === 'form.describe')!;
+    expect(describe).toBeDefined();
+    await expect(describe.execute({}, executionContext())).resolves.toMatchObject({
+      fields: [expect.objectContaining({ fieldName: 'title' })],
+    });
+    const patch = capabilities.find(({ descriptor }) => descriptor.code === 'form.patch-draft')!;
+    await patch.execute(
+      patch.parseInput({ changes: [{ fieldName: 'title', value: '新的目录' }] }),
+      executionContext(),
+    );
+    expect(update).toHaveBeenCalledWith([{ fieldName: 'title', value: '新的目录' }], 'assistant');
+    expect(view.updateDraftFields).not.toHaveBeenCalled();
+    await expect(
+      patch.execute(
+        patch.parseInput({ changes: [{ fieldName: 'summary', value: '错误目标' }] }),
+        executionContext(),
+      ),
+    ).rejects.toThrow('not editable');
+    expect(capabilities.map(({ descriptor }) => descriptor.code)).not.toContain('record.start-create');
+    expect(capabilities.map(({ descriptor }) => descriptor.code)).not.toContain('form.prepare-save');
+    expect(surface.describe().facts).toMatchObject({
+      moduleAlias: 'work.daily_report',
+      editorMode: 'create',
+      editing: true,
+      editorOwner: { kind: 'NAVIGATOR', key: 'catalog', moduleAlias: 'work.catalog', title: '目录' },
+    });
+    expect(surface.describe().facts?.selectedRecordId).toBeUndefined();
+    const revision = modulePageAssistantContextRevision(view);
+    Object.assign(view.assistantNavigatorEditor!, { key: 'other' });
+    expect(modulePageAssistantContextRevision(view)).not.toBe(revision);
+  });
+
   it('projects a narrow page context and patches through the standard field entry', async () => {
     const view = viewFixture();
     const surface = createModulePageAssistantSurface(view, vi.fn());
@@ -1239,6 +1323,8 @@ describe('module page assistant surface', () => {
     const candidate = {
       id: 'tenant-1',
       title: '示范租户',
+      subtitle: ' 华东业务 '.trim(),
+      projections: { privateToken: 'never-send-this', ownerId: 'owner-internal-1' },
       affectPatch: { tenantName: '示范租户' },
     };
     const searchPage = vi.fn().mockResolvedValue({ records: [candidate], total: 1 });
@@ -1300,13 +1386,19 @@ describe('module page assistant surface', () => {
       pageSize: 10,
       scope: { selections: [] },
     });
-    expect(result.options).toEqual([{ selectionKey, title: '示范租户' }]);
+    expect(result.options).toEqual([{ selectionKey, title: '示范租户', subtitle: '华东业务' }]);
+    expect(JSON.stringify(result)).not.toContain('never-send-this');
+    expect(JSON.stringify(result)).not.toContain('owner-internal-1');
     expect(JSON.stringify(result)).not.toContain('tenant-1');
     await expect(
       patch.execute(patch.parseInput({ selectionKey: 'guessed-id' }), executionContext()),
     ).rejects.toThrow('Reference selection is no longer available');
 
-    await patch.execute(patch.parseInput({ selectionKey }), executionContext());
+    expect(await patch.execute(patch.parseInput({ selectionKey }), executionContext())).toEqual({
+      changedField: 'tenantId',
+      selectedTitle: '示范租户',
+      selectedSubtitle: '华东业务',
+    });
     expect(view.updateDraftReference).toHaveBeenCalledWith('tenantId', candidate, 'assistant');
   });
 

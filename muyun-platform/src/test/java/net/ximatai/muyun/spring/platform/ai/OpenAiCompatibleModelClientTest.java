@@ -36,6 +36,91 @@ class OpenAiCompatibleModelClientTest {
                 .isEqualTo("other");
     }
 
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.CsvSource({
+            "upstream_unavailable,server_error,503", "invalid_api_key,authentication_error,401",
+            "rate_limit_exceeded,rate_limit_error,429", "content_filter,invalid_request_error,400"})
+    void errorDiagnosticsPreserveOnlyRegisteredProtocolHints(String code, String type, int status) {
+        var error = new ObjectMapper().valueToTree(Map.of("code", code, "type", type, "status", status,
+                "message", "private provider detail", "credential", "secret"));
+        assertThat(OpenAiCompatibleModelClient.providerErrorDiagnostics(error))
+                .containsOnlyKeys("shape", "code", "type", "reportedStatus")
+                .containsEntry("shape", "object").containsEntry("code", code)
+                .containsEntry("type", type).containsEntry("reportedStatus", status);
+    }
+
+    @Test
+    void errorDiagnosticsHideUnknownValuesAndRejectMalformedStatusHints() throws Exception {
+        var mapper = new ObjectMapper();
+        var privateError = mapper.readTree("{\"code\":\"private\\ncredential\",\"type\":\"secret\",\"status\":\"503\"}");
+        assertThat(OpenAiCompatibleModelClient.providerErrorDiagnostics(privateError))
+                .containsEntry("code", "other").containsEntry("type", "other").containsEntry("reportedStatus", "invalid");
+        for (String payload : List.of("{\"code\":{},\"type\":[],\"status\":600}",
+                "{\"code\":true,\"type\":1,\"status\":99}", "{\"code\":{},\"type\":[],\"status\":503.0}",
+                "{\"code\":{},\"type\":[],\"status\":9999999999999}")) {
+            assertThat(OpenAiCompatibleModelClient.providerErrorDiagnostics(mapper.readTree(payload)))
+                    .containsEntry("shape", "object").containsEntry("code", "invalid")
+                    .containsEntry("type", "invalid").containsEntry("reportedStatus", "invalid");
+        }
+        for (String payload : List.of("{}", "null", "[]", "\"private payload\"")) {
+            assertThat(OpenAiCompatibleModelClient.providerErrorDiagnostics(mapper.readTree(payload)))
+                    .containsEntry("shape", payload.equals("{}") ? "object" : "invalid")
+                    .containsEntry("code", "missing").containsEntry("type", "missing").containsEntry("reportedStatus", "missing");
+        }
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.CsvSource({
+            "text,upstream_unavailable,AI_PROVIDER_UNAVAILABLE,503",
+            "turn,upstream_unavailable,AI_PROVIDER_UNAVAILABLE,503",
+            "text-stream,upstream_unavailable,AI_PROVIDER_UNAVAILABLE,503",
+            "turn-stream,upstream_unavailable,AI_PROVIDER_UNAVAILABLE,503",
+            "text,private-code,AI_PROVIDER_REQUEST_REJECTED,502",
+            "turn,private-code,AI_PROVIDER_REQUEST_REJECTED,502",
+            "text-stream,private-code,AI_PROVIDER_REQUEST_REJECTED,502",
+            "turn-stream,private-code,AI_PROVIDER_REQUEST_REJECTED,502"})
+    void allTransportsClassifyKnownBodyOutageWithoutRetryOrExposingProviderPayload(
+            String transport, String providerCode, String platformCode, int platformStatus) throws Exception {
+        String error = "{\"error\":{\"code\":\"" + providerCode + "\",\"type\":\"private type\","
+                + "\"status\":503,\"message\":\"private provider secret\"}}";
+        var requests = new java.util.concurrent.atomic.AtomicInteger();
+        var client = responseClient(200, transport.endsWith("stream") ? "data: " + error + "\n\n" : error, requests);
+        var logger = (ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory.getLogger(OpenAiCompatibleModelClient.class);
+        var events = new ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent>();
+        events.start();
+        logger.addAppender(events);
+        try {
+            var text = AiTextRequest.userText("hello");
+            var turn = new AiTurnRequest(List.of(new AiChatMessage(AiChatMessage.Role.USER, "hello")), List.of(), null, null);
+            assertThatThrownBy(() -> {
+                switch (transport) {
+                    case "text" -> client.generate(route(), text);
+                    case "turn" -> client.complete(route(), turn);
+                    case "text-stream" -> client.stream(route(), text, delta -> { throw new AssertionError(); });
+                    case "turn-stream" -> client.stream(route(), turn, new AiTurnStreamConsumer() {
+                        public void onTextDelta(String delta) { throw new AssertionError(); }
+                        public void onComplete(AiTurnResponse result) { throw new AssertionError(); }
+                    });
+                    default -> throw new AssertionError();
+                }
+            }).isInstanceOf(PlatformException.class).hasNoCause().hasMessageNotContaining("private")
+                    .satisfies(failure -> {
+                        assertThat(((PlatformException) failure).code()).isEqualTo(platformCode);
+                        assertThat(((PlatformException) failure).httpStatus()).isEqualTo(platformStatus);
+                    });
+        } finally {
+            logger.detachAppender(events);
+            events.stop();
+        }
+        assertThat(events.list).extracting(ch.qos.logback.classic.spi.ILoggingEvent::getFormattedMessage)
+                .anySatisfy(message -> assertThat(message).contains("transport=body httpStatus=200",
+                        "code=" + (providerCode.equals("upstream_unavailable") ? "upstream_unavailable" : "other"),
+                        "type=other", "reportedStatus=503"))
+                .allSatisfy(message -> assertThat(message).doesNotContain("private", "secret"));
+        assertThat(events.list).allSatisfy(event -> assertThat(event.getThrowableProxy()).isNull());
+        assertThat(requests.get()).isEqualTo(1);
+    }
+
     @Test
     void guardsAllTransportsBeforeSendingWithoutDroppingToolsOrMessages() {
         var client = new OpenAiCompatibleModelClient(new ObjectMapper());
@@ -595,8 +680,9 @@ class OpenAiCompatibleModelClientTest {
         assertThat(count.get()).isEqualTo(expected);
     }
 
-    @Test
-    void neverRetriesAnErrorAfterStreamingHasStarted() throws Exception {
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {false, true})
+    void neverRetriesAnErrorAfterStreamingHasStarted(boolean structured) throws Exception {
         var count = new java.util.concurrent.atomic.AtomicInteger();
         server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         server.createContext("/v1/chat/completions", exchange -> {
@@ -611,8 +697,16 @@ class OpenAiCompatibleModelClientTest {
         server.start();
         var output = new StringBuilder();
         var client = new OpenAiCompatibleModelClient(new ObjectMapper());
-        assertThatThrownBy(() -> client.stream(route(), AiTextRequest.userText("hello"), output::append))
-                .isInstanceOf(PlatformException.class);
+        assertThatThrownBy(() -> {
+            if (structured) client.stream(route(),
+                    new AiTurnRequest(List.of(new AiChatMessage(AiChatMessage.Role.USER, "hello")), List.of(), null, null),
+                    new AiTurnStreamConsumer() {
+                        public void onTextDelta(String text) { output.append(text); }
+                        public void onComplete(AiTurnResponse result) { throw new AssertionError(); }
+                    });
+            else client.stream(route(), AiTextRequest.userText("hello"), output::append);
+        }).isInstanceOf(PlatformException.class).hasMessageContaining("暂时不可用")
+                .satisfies(failure -> assertThat(((PlatformException) failure).code()).isEqualTo("AI_PROVIDER_UNAVAILABLE"));
         assertThat(output.toString()).isEqualTo("partial");
         assertThat(count.get()).isEqualTo(1);
     }
@@ -679,8 +773,14 @@ class OpenAiCompatibleModelClientTest {
     }
 
     private OpenAiCompatibleModelClient responseClient(int status, String response) throws IOException {
+        return responseClient(status, response, new java.util.concurrent.atomic.AtomicInteger());
+    }
+
+    private OpenAiCompatibleModelClient responseClient(int status, String response,
+                                                     java.util.concurrent.atomic.AtomicInteger requests) throws IOException {
         server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         server.createContext("/v1/chat/completions", exchange -> {
+            requests.incrementAndGet();
             exchange.getRequestBody().readAllBytes();
             byte[] body = response.getBytes(StandardCharsets.UTF_8);
             exchange.getResponseHeaders().add("Content-Type", "text/event-stream");

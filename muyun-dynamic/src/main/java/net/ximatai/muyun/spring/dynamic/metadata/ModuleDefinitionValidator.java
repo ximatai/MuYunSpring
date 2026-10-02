@@ -1174,14 +1174,19 @@ public class ModuleDefinitionValidator {
                                               Map<String, EntityDefinition> entities,
                                               String moduleAlias,
                                               List<EntityReferenceDefinition> references) {
-        if (plan.selectionProjections().isEmpty()) {
+        if (plan.selectionProjections().isEmpty() && plan.candidateSubtitleProjection() == null) {
             return;
         }
-        if (plan.cardinality() != net.ximatai.muyun.spring.ability.reference.ReferenceCardinality.ONE) {
+        if (!plan.selectionProjections().isEmpty()
+                && plan.cardinality() != net.ximatai.muyun.spring.ability.reference.ReferenceCardinality.ONE) {
             throw new ModuleDefinitionException("reference selection projection requires cardinality ONE: "
                     + plan.sourceField());
         }
-        for (ReferenceSelectionProjection projection : plan.selectionProjections()) {
+        List<ReferenceSelectionProjection> candidateReads = new java.util.ArrayList<>(plan.selectionProjections());
+        if (plan.candidateSubtitleProjection() != null) {
+            candidateReads.add(plan.candidateSubtitleProjection());
+        }
+        for (ReferenceSelectionProjection projection : candidateReads) {
             ReferenceTarget current = target;
             List<String> path = projection.path();
             for (String viaField : path.subList(0, path.size() - 1)) {

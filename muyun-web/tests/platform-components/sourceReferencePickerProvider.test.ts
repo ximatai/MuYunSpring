@@ -21,6 +21,7 @@ describe('source reference picker provider', () => {
           {
             id: 'student-2',
             title: '李明',
+            subtitle: '理学院',
             projections: { studentNo: 'S2' },
             affectPatch: { studentNo: 'S2' },
           },
@@ -29,7 +30,9 @@ describe('source reference picker provider', () => {
       })
       .mockResolvedValueOnce({
         results: [
-          { item: { id: 'student-1', title: '王华', projections: { studentNo: 'S1' } } },
+          {
+            item: { id: 'student-1', title: '王华', subtitle: '工程学院', projections: { studentNo: 'S1' } },
+          },
           { item: { id: 'student-unrequested', title: '不应回显' } },
         ],
       });
@@ -49,6 +52,7 @@ describe('source reference picker provider', () => {
         {
           id: 'student-2',
           title: '李明',
+          subtitle: '理学院',
           projections: { studentNo: 'S2' },
           affectPatch: { studentNo: 'S2' },
         },
@@ -56,7 +60,13 @@ describe('source reference picker provider', () => {
       total: 71,
     });
     await expect(provider.resolve(['student-1'])).resolves.toEqual([
-      { id: 'student-1', title: '王华', projections: { studentNo: 'S1' }, affectPatch: undefined },
+      {
+        id: 'student-1',
+        title: '王华',
+        subtitle: '工程学院',
+        projections: { studentNo: 'S1' },
+        affectPatch: undefined,
+      },
     ]);
 
     expect(provider.identity).toEqual({

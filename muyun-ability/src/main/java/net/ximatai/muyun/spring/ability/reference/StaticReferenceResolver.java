@@ -308,7 +308,7 @@ public final class StaticReferenceResolver {
                         .toList(),
                 java.util.Arrays.stream(referenceTo.selectionProjections())
                         .map(ReferenceSelectionProjection::new).toList()
-        );
+        ).withCandidateSubtitleProjection(referenceTo.candidateSubtitleProjection());
     }
 
     private static ReferenceTarget targetOf(ReferenceTo reference) {

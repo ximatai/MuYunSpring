@@ -63,7 +63,25 @@ final class DynamicReferenceResolver {
                 ? DynamicReferenceResolveRequest.query(null)
                 : request;
         sourceService.requireSameEntityAliasForReference(plan);
-        return effective.mode() == DynamicReferenceResolveMode.TRANSLATE ? translate(effective) : query(effective);
+        return withSubtitles(effective.mode() == DynamicReferenceResolveMode.TRANSLATE ? translate(effective) : query(effective));
+    }
+
+    private DynamicReferenceResolveResponse withSubtitles(DynamicReferenceResolveResponse response) {
+        if (plan.candidateSubtitleProjection() == null) return response;
+        java.util.LinkedHashSet<String> ids = new java.util.LinkedHashSet<>();
+        response.options().forEach(item -> ids.add(item.id()));
+        response.results().forEach(result -> {
+            if (result.item() != null) ids.add(result.item().id());
+            result.candidates().forEach(item -> ids.add(item.id()));
+        });
+        var subtitles = net.ximatai.muyun.spring.ability.reference.ReferenceCandidateSubtitleReader.read(
+                plan.target(), List.copyOf(ids), plan.candidateSubtitleProjection(), sourceService.referenceTargetResolver());
+        return new DynamicReferenceResolveResponse(response.status(), response.mode(),
+                response.options().stream().map(item -> item.withSubtitle(subtitles.get(item.id()))).toList(),
+                response.results().stream().map(result -> new DynamicReferenceResolveResult(result.input(), result.status(),
+                        result.matchedBy(), result.item() == null ? null : result.item().withSubtitle(subtitles.get(result.item().id())),
+                        result.candidates().stream().map(item -> item.withSubtitle(subtitles.get(item.id()))).toList())).toList(),
+                response.offset(), response.limit(), response.total());
     }
 
     private DynamicReferenceResolveResponse query(DynamicReferenceResolveRequest request) {

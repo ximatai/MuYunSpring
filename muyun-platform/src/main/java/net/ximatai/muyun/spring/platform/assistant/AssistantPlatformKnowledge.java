@@ -76,14 +76,15 @@ final class AssistantPlatformKnowledge {
             "module-page", """
                     This is a standard MuYun record workspace. Start drafts only when the user asked to create or change data;
                     navigation is already complete and must not start a draft.
-                    Read facts once; patch known ordinary fields together. Resolve references via declared capabilities;
-                    currentValue is the selected name or unavailable label, not empty. Search is not selection consent.
-                    relations describes child grids: counts, rows, removedRows, truncation. Missing main fields do not mean
-                    missing children. For assistantWritable=false use page row edits, then confirm the aggregate save.
-                    Leave drafts unsaved. For save/review use form.prepare-save when available, never the page button;
-                    only a human confirmation click saves. Otherwise hand off to page save. For trial-only requests,
-                    offer later review without confirmation. Clarification answers supply only the requested choice;
-                    never copy a scope or reference title into unrelated fields. For missing required values, ask one concise question.
+                    navigatorCreationTargets: navigator.start-create; record.start-create opens main drafts. editorOwner owns the form.
+                    Reuse facts; patch known ordinary fields together before resolving remaining references.
+                    Opening is not filling. Tree child records need a saved parent; aggregate child drafts save together.
+                    References use capabilities; currentValue is a selected/unavailable label, not empty.
+                    Search is not consent. relations reports children even without main fields.
+                    assistantWritable=false: page row edits, aggregate save.
+                    Leave drafts unsaved; form.prepare-save or page save; only human confirmation saves. Trials need none.
+                    Answers supply only the requested choice; never copy a scope or reference title into unrelated fields.
+                    For missing required or ambiguous values, ask one concise question; reuse clear answers.
                     """,
             "page-composition", """
                     The active surface is MuYun template-constrained page composition. Read the current template,
@@ -92,6 +93,8 @@ final class AssistantPlatformKnowledge {
                     omitted regions, grouped fields and actions remain unchanged. Removing display never deletes business data.
                     Use only returned fields and supported properties. Review candidate differences and validation, then
                     offer human publication confirmation through the available capability; users may also save on the page.
+                    Reuse supplied catalogs and the current candidate. Once the user's requested changes are expressible,
+                    revise and preview the candidate; do not repeat discovery. Opening the editor does not change the candidate.
                     Candidate creation and preview never publish a page or create metadata.
                     """,
             "business-rule-governance", """

@@ -2132,6 +2132,27 @@ class DynamicRecordServiceTest {
     }
 
     @Test
+    void shouldRetainDynamicFieldProtectionInTheScopedReferenceAdapter() {
+        EntityDefinition targetEntity = new EntityDefinition("contract", "app_contract", "Contract", List.of(
+                FieldDefinition.titleField(), FieldDefinition.string("secret", "Secret").protection(
+                        new net.ximatai.muyun.spring.common.security.FieldProtectionDefinition(
+                                net.ximatai.muyun.spring.common.security.FieldEncryptionMode.NONE,
+                                net.ximatai.muyun.spring.common.security.FieldSignatureMode.NONE,
+                                net.ximatai.muyun.spring.common.security.FieldMaskingPolicy.PHONE))))
+                .withCapabilities(EntityCapability.CRUD, EntityCapability.REFERENCE);
+        IDatabaseOperations<Object> operations = operations();
+        DynamicRecordService service = service(operations, targetEntity);
+        ReferenceTarget target = ReferenceTarget.of(MODULE, "contract");
+        var adapter = service.referenceAbility(target).orElseThrow();
+        assertThat(adapter.isReferenceFieldProtected("secret")).isTrue();
+        assertThat(adapter.isReferenceFieldProtected("title")).isFalse();
+        assertThat(net.ximatai.muyun.spring.ability.reference.ReferenceCandidateSubtitleReader.read(target,
+                List.of("one"), new net.ximatai.muyun.spring.ability.reference.ReferenceSelectionProjection("secret"),
+                key -> java.util.Optional.of(adapter))).isEmpty();
+        verify(operations, never()).query(anyString(), anyMap());
+    }
+
+    @Test
     void shouldOmitDynamicReferenceProjectionWhenReferenceScopeCannotSeeTheTarget() {
         IDatabaseOperations<Object> operations = operations();
         when(operations.query(anyString(), anyMap())).thenReturn(List.of());

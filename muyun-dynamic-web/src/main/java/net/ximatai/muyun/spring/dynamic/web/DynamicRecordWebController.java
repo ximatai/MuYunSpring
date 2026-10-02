@@ -1709,13 +1709,23 @@ public class DynamicRecordWebController implements
             if (staticReferenceResolveFacade == null) {
                 throw new PlatformException("static reference tree resolver is not configured");
             }
-            return staticReferenceResolveFacade.resolveTargetTree(
-                    ReferenceTarget.of(reference.targetModuleAlias(), reference.targetEntityAlias()), criteria);
+            return withTreeCandidateSubtitles(reference, staticReferenceResolveFacade.resolveTargetTree(
+                    ReferenceTarget.of(reference.targetModuleAlias(), reference.targetEntityAlias()), criteria));
         }
         List<WebTreeNode<WebReferenceResolveItem>> tree = dynamicReferenceChildren(reference, criteria, TreeAbility.ROOT_ID)
                 .stream().map(record -> dynamicReferenceTreeNode(reference, criteria, record)).toList();
-        return new WebReferenceResolveResponse(tree.isEmpty() ? WebReferenceResolveStatus.NOT_FOUND : WebReferenceResolveStatus.OK,
-                WebReferenceResolveMode.TREE, List.of(), List.of(), 0, 0, tree.size(), tree);
+        return withTreeCandidateSubtitles(reference, new WebReferenceResolveResponse(
+                tree.isEmpty() ? WebReferenceResolveStatus.NOT_FOUND : WebReferenceResolveStatus.OK,
+                WebReferenceResolveMode.TREE, List.of(), List.of(), 0, 0, tree.size(), tree));
+    }
+
+    private WebReferenceResolveResponse withTreeCandidateSubtitles(DynamicReferenceDescriptor reference,
+                                                                    WebReferenceResolveResponse response) {
+        String path = reference.candidateSubtitleProjection();
+        return net.ximatai.muyun.spring.web.WebReferenceCandidateSubtitles.apply(response,
+                ReferenceTarget.of(reference.targetModuleAlias(), reference.targetEntityAlias()),
+                path == null ? null : new net.ximatai.muyun.spring.ability.reference.ReferenceSelectionProjection(path),
+                net.ximatai.muyun.spring.ability.PlatformAbilityRuntime.referenceTargetResolver());
     }
 
     private List<DynamicRecord> dynamicReferenceChildren(DynamicReferenceDescriptor reference,
@@ -1785,7 +1795,7 @@ public class DynamicRecordWebController implements
         return new WebReferenceResolveItem(
                 item.id(), item.title(),
                 item.matchedBy() == null ? null : WebReferenceMatchMode.valueOf(item.matchedBy().name()),
-                item.projections(), item.affectPatch());
+                item.projections(), item.affectPatch()).withSubtitle(item.subtitle());
     }
 
     private ReferenceRecordGenerationFacade referenceGenerationFacade() {

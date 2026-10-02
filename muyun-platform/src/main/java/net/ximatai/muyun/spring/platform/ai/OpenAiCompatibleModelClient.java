@@ -62,7 +62,7 @@ final class OpenAiCompatibleModelClient implements AiModelClient {
             HttpResponse<InputStream> response = send(request(route, request, false));
             final JsonNode root;
             try (InputStream body = new TimedResponseBody(response.body(), bodyTimeout)) {
-                root = readResponseObject(readBoundedStructuredBody(body), "AI model returned an invalid response");
+                root = readResponseObject(readBoundedStructuredBody(body), "AI model returned an invalid response", response.statusCode());
             }
             JsonNode choice = root.path("choices").path(0);
             String text = choice.path("message").path("content").asText(null);
@@ -87,7 +87,7 @@ final class OpenAiCompatibleModelClient implements AiModelClient {
         try {
             HttpResponse<InputStream> response = send(request(route, request, true));
             try (InputStream body = new TimedResponseBody(response.body(), bodyTimeout)) {
-                if (consumeSseStream(body, payload -> consumeStreamEvent(payload, consumer))) return;
+                if (consumeSseStream(body, payload -> consumeStreamEvent(payload, consumer, response.statusCode()))) return;
                 throw new PlatformException("AI_MODEL_INCOMPLETE_RESPONSE", 502, "模型回复在完成前断开。");
             }
         } catch (PlatformException exception) {
@@ -107,7 +107,7 @@ final class OpenAiCompatibleModelClient implements AiModelClient {
             final JsonNode root;
             try (InputStream body = new TimedResponseBody(response.body(), bodyTimeout)) {
                 root = readResponseObject(readBoundedStructuredBody(body),
-                        "AI model returned an invalid structured response");
+                        "AI model returned an invalid structured response", response.statusCode());
             }
             JsonNode choices = root.path("choices");
             if (!choices.isArray() || choices.isEmpty() || !choices.path(0).isObject()
@@ -138,7 +138,7 @@ final class OpenAiCompatibleModelClient implements AiModelClient {
             try (InputStream body = new TimedResponseBody(response.body(), bodyTimeout)) {
                 StructuredTurnAccumulator accumulator = new StructuredTurnAccumulator(request.tools(), consumer,
                         response.headers().firstValue("x-request-id").orElse(null));
-                if (consumeSseStream(body, payload -> consumeStructuredStreamEvent(payload, accumulator))) return;
+                if (consumeSseStream(body, payload -> consumeStructuredStreamEvent(payload, accumulator, response.statusCode()))) return;
                 throw new PlatformException("AI_MODEL_INCOMPLETE_RESPONSE", 502, "模型回复在完成前断开。");
             }
         } catch (PlatformException exception) {
@@ -195,11 +195,11 @@ final class OpenAiCompatibleModelClient implements AiModelClient {
     }
 
     /** Error payloads may contain provider details; never expose them through platform exceptions. */
-    private boolean consumeStreamEvent(String value, AiTextStreamConsumer consumer) {
+    private boolean consumeStreamEvent(String value, AiTextStreamConsumer consumer, int httpStatus) {
         String payload = value.trim();
         if (payload.isEmpty()) return false;
         if ("[DONE]".equals(payload)) return true;
-        JsonNode event = readResponseObject(payload, "AI model stream contains an invalid event");
+        JsonNode event = readResponseObject(payload, "AI model stream contains an invalid event", httpStatus);
         usage(event);
         JsonNode delta = event.path("choices").path(0).path("delta").path("content");
         if (!delta.isMissingNode() && !delta.isNull() && !delta.asText().isEmpty()) {
@@ -240,7 +240,7 @@ final class OpenAiCompatibleModelClient implements AiModelClient {
         return node.isIntegralNumber() && node.canConvertToLong() && node.longValue() >= 0 ? node.longValue() : null;
     }
 
-    private JsonNode readResponseObject(String payload, String invalidMessage) {
+    private JsonNode readResponseObject(String payload, String invalidMessage, int httpStatus) {
         final JsonNode response;
         try {
             response = objectMapper.readTree(payload);
@@ -252,10 +252,37 @@ final class OpenAiCompatibleModelClient implements AiModelClient {
             throw new PlatformException(invalidMessage);
         }
         if (response.hasNonNull("error")) {
-            log.warn("AI provider rejected response transport=body");
+            log.warn("AI provider rejected response transport=body httpStatus={} diagnostics={}",
+                    httpStatus, providerErrorDiagnostics(response.get("error")));
+            if ("upstream_unavailable".equals(response.path("error").path("code").asText())) {
+                throw new PlatformException("AI_PROVIDER_UNAVAILABLE", 503, "模型服务暂时不可用，请稍后重试。");
+            }
             throw new PlatformException("AI_PROVIDER_REQUEST_REJECTED", 502, "模型服务拒绝了本次请求，请联系管理员检查模型配置与服务状态。");
         }
         return response;
+    }
+
+    /** Only protocol allowlists enter logs; provider messages, unknown tokens and causes stay private. */
+    static Map<String, Object> providerErrorDiagnostics(JsonNode error) {
+        Map<String, Object> diagnostics = new LinkedHashMap<>();
+        diagnostics.put("shape", error.isObject() ? "object" : "invalid");
+        diagnostics.put("code", safeProviderErrorValue(error.path("code"), List.of(
+                "upstream_unavailable", "invalid_api_key", "rate_limit_exceeded", "insufficient_quota",
+                "content_filter", "content_policy_violation", "context_length_exceeded")));
+        diagnostics.put("type", safeProviderErrorValue(error.path("type"), List.of(
+                "authentication_error", "rate_limit_error", "server_error", "invalid_request_error")));
+        JsonNode status = error.path("status");
+        diagnostics.put("reportedStatus", status.isMissingNode() || status.isNull() ? "missing"
+                : status.isIntegralNumber() && status.canConvertToInt() && status.intValue() >= 100
+                && status.intValue() <= 599 ? status.intValue() : "invalid");
+        return diagnostics;
+    }
+
+    private static String safeProviderErrorValue(JsonNode value, List<String> allowed) {
+        if (value.isMissingNode() || value.isNull()) return "missing";
+        if (!value.isTextual()) return "invalid";
+        // Return the platform's literal, never the provider's string.
+        return allowed.stream().filter(known -> known.equals(value.textValue())).findFirst().orElse("other");
     }
 
     private HttpRequest request(ResolvedAiModelRoute route, AiTextRequest request, boolean stream) throws Exception {
@@ -309,14 +336,14 @@ final class OpenAiCompatibleModelClient implements AiModelClient {
                 .build();
     }
 
-    private boolean consumeStructuredStreamEvent(String value, StructuredTurnAccumulator accumulator) {
+    private boolean consumeStructuredStreamEvent(String value, StructuredTurnAccumulator accumulator, int httpStatus) {
         String payload = value.trim();
         if (payload.isEmpty()) return false;
         if ("[DONE]".equals(payload)) {
             accumulator.complete();
             return true;
         }
-        accumulator.accept(readResponseObject(payload, "AI model structured stream contains an invalid event"));
+        accumulator.accept(readResponseObject(payload, "AI model structured stream contains an invalid event", httpStatus));
         return false;
     }
 

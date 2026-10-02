@@ -339,3 +339,5 @@ export { parseRecordQueryListStandardQuery } from './recordQueryListStandardQuer
 export { default as ManagementTabs } from './ManagementTabs.vue';
 
 export { referenceDisplayProjections } from './recordFormFieldModel';
+
+export { referencePickerDisplayTitle } from './referencePickerModel';

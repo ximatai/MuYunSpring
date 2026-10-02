@@ -143,3 +143,9 @@ export function referencePickerSummary(candidate: ReferencePickerCandidate): Ref
     unavailable: candidate.unavailable,
   };
 }
+
+export function referencePickerDisplayTitle(
+  candidate: Pick<ReferencePickerCandidate, 'title' | 'subtitle'>,
+): string {
+  return candidate.subtitle?.trim() ? `${candidate.title} · ${candidate.subtitle.trim()}` : candidate.title;
+}

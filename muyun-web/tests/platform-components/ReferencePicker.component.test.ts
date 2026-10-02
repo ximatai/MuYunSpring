@@ -1001,3 +1001,29 @@ it('returns an invalidated completion to editing when its provider resets', asyn
     { valid: false, status: 'editing', message: '请完成引用选择' },
   ]);
 });
+
+it('shows belonging context for same-title candidates in dropdowns and the detailed table', async () => {
+  const candidates = [
+    { id: 'south', title: '客户', subtitle: '南店' },
+    { id: 'north', title: '客户', subtitle: '北店' },
+  ];
+  const wrapper = mountPicker({
+    value: 'north',
+    mode: 'dropdown',
+    provider: provider({
+      resolve: vi.fn().mockResolvedValue([candidates[1]]),
+      searchPage: vi.fn().mockResolvedValue({ records: candidates, total: 2 }),
+    }),
+  });
+  await flushPromises();
+  expect(wrapper.findComponent({ name: 'UiSelect' }).props('options')).toEqual([
+    { value: 'south', label: '客户 · 南店', disabled: false },
+    { value: 'north', label: '客户 · 北店', disabled: false },
+  ]);
+  await wrapper.find('button').trigger('click');
+  await flushPromises();
+  expect(wrapper.findComponent({ name: 'UiDataTable' }).props('columns')).toContainEqual({
+    key: 'subtitle',
+    title: '说明',
+  });
+});

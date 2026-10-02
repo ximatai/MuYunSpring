@@ -31,6 +31,9 @@ public @interface ReferenceTo {
      */
     String[] selectionProjections() default {};
 
+    /** Public scalar context shown beside candidate titles, shared by the picker and assistant. */
+    String candidateSubtitleProjection() default "";
+
     /** Tenant boundary for candidate lookup and value translation. */
     ReferenceTenantScope tenantScope() default ReferenceTenantScope.SAME_TENANT;
 

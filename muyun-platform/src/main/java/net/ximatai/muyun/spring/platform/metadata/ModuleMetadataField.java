@@ -94,6 +94,10 @@ public class ModuleMetadataField extends StandardSortableEntity {
     @Column(name = "reference_module_plus_fields", type = ColumnType.JSON_SET, comment = "Reference module plus fields")
     private Set<String> referenceModulePlusFields;
 
+    @Column(name = "reference_candidate_subtitle_projection", type = ColumnType.VARCHAR, length = 256,
+            comment = "Public reference candidate subtitle path")
+    private String referenceCandidateSubtitleProjection;
+
     @Column(name = "unit_category_alias", type = ColumnType.VARCHAR, length = 64, comment = "Measure unit category alias")
     private String unitCategoryAlias;
 

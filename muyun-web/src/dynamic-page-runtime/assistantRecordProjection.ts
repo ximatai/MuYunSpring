@@ -5,6 +5,7 @@ import type {
 } from '@muyun/web-contracts';
 import {
   evaluateUiFormula,
+  referencePickerDisplayTitle,
   resolveRecordFormFields,
   resolveRecordFormFieldState,
   resolveRecordDetailDisplayValue,
@@ -45,7 +46,8 @@ export async function assistantConfirmationFieldDisplay(
       const candidate = candidates.find((item) => item.id === id);
       if (!candidate || candidate.identifierFallback || !candidate.title || candidate.title === id)
         return '已选择（名称暂不可用）';
-      return candidate.unavailable ? `${candidate.title}（不可用）` : candidate.title;
+      const title = referencePickerDisplayTitle(candidate);
+      return candidate.unavailable ? `${title}（不可用）` : title;
     })
     .join('、');
 }

@@ -42,6 +42,7 @@ export function createSourceReferencePickerProvider({
   const candidateOf = (item: {
     id: string;
     title?: string;
+    subtitle?: string;
     projections?: Record<string, unknown>;
     affectPatch?: Record<string, unknown>;
   }): ReferencePickerCandidate => {
@@ -49,6 +50,7 @@ export function createSourceReferencePickerProvider({
     return {
       id: item.id,
       title: title ?? item.id,
+      ...(item.subtitle?.trim() ? { subtitle: item.subtitle.trim() } : {}),
       ...(!title ? { identifierFallback: true } : {}),
       projections: item.projections,
       affectPatch: item.affectPatch,

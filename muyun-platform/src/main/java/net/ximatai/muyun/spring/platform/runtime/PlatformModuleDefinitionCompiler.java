@@ -467,7 +467,7 @@ public class PlatformModuleDefinitionCompiler {
         .withInteractionRules(
                 referenceFilters(moduleField),
                 referenceAffects(moduleField)
-        );
+        ).withCandidateSubtitleProjection(moduleField.getReferenceCandidateSubtitleProjection());
     }
 
     private List<EntityReferenceFilterDefinition> referenceFilters(ModuleMetadataField moduleField) {

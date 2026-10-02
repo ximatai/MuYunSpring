@@ -1,6 +1,7 @@
 import { expect, it } from 'vitest';
 import {
   assistantFieldDisplay,
+  assistantConfirmationFieldDisplay,
   assistantRelationProjection,
 } from '@/dynamic-page-runtime/assistantRecordProjection';
 import { resolveRecordFormFieldState, resolveRecordFormFields } from '@muyun/platform-components';
@@ -163,4 +164,24 @@ it('resolves confirmation reference names through the picker without changing th
   expect(await assistantConfirmationFieldDisplay(field, record)).toBe('已选择（名称暂不可用）');
   resolve.mockRejectedValueOnce(new Error('permission changed'));
   await expect(assistantConfirmationFieldDisplay(field, record)).rejects.toThrow('permission changed');
+});
+
+it('retains authorized belonging context in a same-title reference confirmation', async () => {
+  const ui = {
+    defaultEditor: {
+      fields: [
+        {
+          fieldRef: { fieldName: 'moduleId' },
+          label: '模块',
+          reference: { targetModuleAlias: 'platform.module', cardinality: 'ONE' },
+        },
+      ],
+    },
+  } as unknown as ResolvedModuleUiDescriptor;
+  const fields = resolveRecordFormFields(ui);
+  const state = resolveRecordFormFieldState('moduleId', { fields, record: {} })!;
+  state.pickerConfig = {
+    provider: { resolve: async () => [{ id: 'north', title: '客户', subtitle: '北店' }] },
+  } as never;
+  expect(await assistantConfirmationFieldDisplay(state, { moduleId: 'north' })).toBe('客户 · 北店');
 });

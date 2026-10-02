@@ -371,6 +371,8 @@ public class ModuleMetadataFieldService extends AbstractAbilityService<ModuleMet
         }
         moduleField.setReferenceModulePlusFields(normalizeReferenceSelectionProjectionSet(
                 moduleField.getReferenceModulePlusFields(), "referenceModulePlusFields"));
+        moduleField.setReferenceCandidateSubtitleProjection(hasText(moduleField.getReferenceCandidateSubtitleProjection())
+                ? new ReferenceSelectionProjection(moduleField.getReferenceCandidateSubtitleProjection()).key() : null);
     }
 
     private void normalizeMeasureUnitConfig(ModuleMetadataField moduleField,
@@ -761,6 +763,7 @@ public class ModuleMetadataFieldService extends AbstractAbilityService<ModuleMet
 
     private boolean hasReferenceDependentConfig(ModuleMetadataField moduleField) {
         return hasText(moduleField.getReferenceModuleKeyField())
+                || hasText(moduleField.getReferenceCandidateSubtitleProjection())
                 || hasText(moduleField.getReferenceModuleLabelField())
                 || hasText(moduleField.getReferenceGenerateRuleId())
                 || hasText(moduleField.getReferenceQueryTemplateId())

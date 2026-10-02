@@ -349,6 +349,7 @@ class PlatformModuleDefinitionCompilerTest {
         customerField.setReferenceGenerateRuleId("generate-order");
         customerField.setReferenceQueryTemplateId("customer-query");
         customerField.setReferenceModulePlusFields(java.util.Set.of("region"));
+        customerField.setReferenceCandidateSubtitleProjection(" region ");
         moduleFieldService.update(customerField);
         ModuleMetadataField referenceRegion = moduleField(
                 moduleFieldService.ensureForRelation(customerRelationId),
@@ -378,6 +379,8 @@ class PlatformModuleDefinitionCompilerTest {
         assertThat(reference.generateRuleId()).isEqualTo("generate-order");
         assertThat(reference.queryTemplateId()).isEqualTo("customer-query");
         assertThat(reference.plusFields()).containsExactlyInAnyOrder("region");
+        assertThat(reference.candidateSubtitleProjection()).isEqualTo("region");
+        assertThat(reference.plan().candidateSubtitleProjection().key()).isEqualTo("region");
         assertThat(reference.filters()).singleElement()
                 .satisfies(compiledFilter -> {
                     assertThat(compiledFilter.formField()).isEqualTo("customerRegion");
