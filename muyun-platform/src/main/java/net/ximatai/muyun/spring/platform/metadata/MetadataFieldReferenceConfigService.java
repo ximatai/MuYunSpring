@@ -111,6 +111,23 @@ public class MetadataFieldReferenceConfigService extends AbstractAbilityService<
         return findByMetadataFieldId(metadataFieldId);
     }
 
+    /** Resolves encoded selection mappings to field identities before destructive metadata changes. */
+    Optional<String> findAffectReferenceId(String fieldId) {
+        MetadataField field = fieldService.select(fieldId);
+        if (field == null) return Optional.empty();
+        for (MetadataFieldReferenceConfig config : list(Criteria.of().isNotNull("affectMappings"), PageRequests.all())) {
+            MetadataField owner = fieldService.select(config.getMetadataFieldId());
+            boolean sourceEntity = Objects.equals(field.getMetadataId(), config.getTargetMetadataId());
+            boolean destinationEntity = owner != null && Objects.equals(field.getMetadataId(), owner.getMetadataId());
+            if (config.affects().stream().anyMatch(mapping ->
+                    sourceEntity && field.getFieldName().equals(mapping.referenceField())
+                    || destinationEntity && field.getFieldName().equals(mapping.targetField()))) {
+                return Optional.of(config.getId());
+            }
+        }
+        return Optional.empty();
+    }
+
     private void normalizeAndValidate(MetadataFieldReferenceConfig config) {
         MetadataField sourceField = requireField(config.getMetadataFieldId(), "source metadata field");
         ModuleMetadataRelation sourceRelation = normalizeRelation(config, sourceField);
@@ -447,10 +464,48 @@ public class MetadataFieldReferenceConfigService extends AbstractAbilityService<
                     || destination.getFieldForm() != MetadataFieldForm.PHYSICAL || Boolean.TRUE.equals(destination.getSystemManaged())
                     || STANDARD_FIELDS.contains(mapping.targetField()) || source.getFieldName().equals(mapping.targetField()))
                 throw new PlatformException("选择回填目标必须是当前实体已保存的普通业务字段：" + mapping.targetField());
+            FieldType sourceType = affectSourceType(config, target, mapping.referenceField());
+            FieldType destinationType = fieldTypeService.requireFieldType(destination.getFieldSpecAlias()).getFieldType();
+            if (!canAssignAffect(sourceType, destinationType)) {
+                throw new PlatformException("选择回填字段类型不兼容：" + mapping.referenceField() + " → "
+                        + mapping.targetField());
+            }
             if (!destinations.add(mapping.targetField()))
                 throw new PlatformException("选择回填目标不能重复：" + mapping.targetField());
         }
         config.setAffectMappings(MetadataFieldReferenceConfig.encodeProjections(MetadataFieldReferenceConfig.affectMappings(config)));
+    }
+
+    private FieldType affectSourceType(MetadataFieldReferenceConfig config, ReferenceTarget target, String name) {
+        if (!targetsStaticEntity(config)) {
+            MetadataField field = fieldService.list(Criteria.of().eq("metadataId", config.getTargetMetadataId())
+                    .eq("fieldName", name), PageRequests.all()).getFirst();
+            return fieldTypeService.requireFieldType(field.getFieldSpecAlias()).getFieldType();
+        }
+        ReferenceAbility<?> ability = PlatformAbilityRuntime.referenceTargetResolver().resolve(target).orElseThrow();
+        var field = org.springframework.util.ReflectionUtils.findField(ability.modelClass(), name);
+        Class<?> type = field == null ? null : field.getType();
+        if (type == String.class) return FieldType.STRING;
+        if (type == Integer.class || type == int.class || type == Short.class || type == short.class
+                || type == Byte.class || type == byte.class) return FieldType.INTEGER;
+        if (type == Long.class || type == long.class) return FieldType.LONG;
+        if (type == java.math.BigDecimal.class) return FieldType.DECIMAL;
+        if (type == Boolean.class || type == boolean.class) return FieldType.BOOLEAN;
+        if (type == java.time.LocalDate.class) return FieldType.DATE;
+        if (type == java.time.Instant.class) return FieldType.TIMESTAMP;
+        return null;
+    }
+
+    // Selection copies scalar facts; it is not a conversion engine. Numeric widening follows
+    // the standard form's numeric parsing, while JSON and zoned instants need richer contracts.
+    private static boolean canAssignAffect(FieldType source, FieldType destination) {
+        if (source == null || destination == null || source == FieldType.JSON || destination == FieldType.JSON
+                || source == FieldType.ZONED_TIMESTAMP || destination == FieldType.ZONED_TIMESTAMP) return false;
+        if (source == destination) return true;
+        if ((source == FieldType.STRING || source == FieldType.TEXT)
+                && (destination == FieldType.STRING || destination == FieldType.TEXT)) return true;
+        return source == FieldType.INTEGER && (destination == FieldType.LONG || destination == FieldType.DECIMAL)
+                || source == FieldType.LONG && destination == FieldType.DECIMAL;
     }
 
     private void requireTargetFieldIfPresent(MetadataFieldReferenceConfig config,

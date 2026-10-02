@@ -60,6 +60,83 @@ class ConstructionFieldsIT {
     @Autowired PlatformPresentationRevisionService presentationRevisions;
     @Autowired PlatformPresentationRevisionPublishService presentationPublisher;
 
+    @Autowired MetadataFieldService metadataFields;
+    @Autowired MetadataModelDeletionService modelDeletion;
+    @Autowired MetadataFieldReferenceConfigService referenceConfigs;
+
+    @Test void selectionMappingsProtectBothFieldIdentitiesThroughRealDeletion() {
+        String planId = UUID.randomUUID().toString().replace("-", "");
+        String app = "affect" + planId.substring(0, 12);
+        var content = new ApplicationConstructionPlanContent("回填依赖", "字段删除契约", List.of("选择商品"), List.of(),
+                List.of(new ApplicationConstructionPlanContent.BusinessObject("product", "商品", "来源"),
+                        new ApplicationConstructionPlanContent.BusinessObject("order", "订单", "目的"),
+                        new ApplicationConstructionPlanContent.BusinessObject("other", "其他", "无关实体")),
+                List.of(), List.of(), List.of(), List.of(), List.of(), List.of("删除依赖"),
+                List.of(new ApplicationConstructionRequirement(ApplicationConstructionRequirement.Section.SCOPE, 0, "product",
+                        ApplicationConstructionRequirement.Mode.FIELD, "title", "商品名称", null)));
+        try (var identity = CurrentUserContext.use(CurrentUser.systemUser("construction-admin", "建设管理员"));
+             var system = TenantContext.system("reference dependency contract")) {
+            constructionPlans.confirm(planId, new ApplicationConstructionPlanService.ConfirmCommand(UUID.randomUUID().toString(), 0, content));
+            for (String object : List.of("product", "order", "other")) {
+                var proposal = new ApplicationConstructionInitializationService.Proposal(1, object, app, "回填依赖", object);
+                construction.confirm(planId, new ApplicationConstructionInitializationService.ConfirmCommand(
+                        UUID.randomUUID().toString(), proposal, construction.preview(planId, proposal).fingerprint()));
+            }
+            var bindings = constructionPlans.read(planId).initializations();
+            var product = bindings.stream().filter(item -> item.objectKey().equals("product")).findFirst().orElseThrow();
+            var order = bindings.stream().filter(item -> item.objectKey().equals("order")).findFirst().orElseThrow();
+            var other = bindings.stream().filter(item -> item.objectKey().equals("other")).findFirst().orElseThrow();
+            var specs = constructionFields.describe(planId, "order").specs();
+            String text = specs.stream().filter(spec -> spec.type().equals("STRING") && spec.length() != null && spec.length() >= 32).findFirst().orElseThrow().alias();
+            String decimal = specs.stream().filter(spec -> spec.type().equals("DECIMAL")).findFirst().orElseThrow().alias();
+            for (var binding : bindings) {
+                var title = governedField("title", text);
+                title.field().setTitleField(true);
+                applyGovernedFields(binding.moduleAlias(), binding.relationId(), metadataService.select(binding.metadataId()).getVersion(),
+                        List.of(title, governedField("price", decimal)));
+            }
+            var reference = new MetadataFieldReferenceConfigDraft(product.moduleAlias(), product.metadataId(), "id", "title",
+                    net.ximatai.muyun.spring.ability.reference.ReferenceCardinality.ONE,
+                    net.ximatai.muyun.spring.ability.reference.ReferenceTargetUnavailablePolicy.PRESERVE_HISTORY,
+                    List.of(), false, List.of("price:price"));
+            var incompatible = new MetadataFieldReferenceConfigDraft(product.moduleAlias(), product.metadataId(), "id", "title",
+                    reference.cardinality(), reference.targetUnavailablePolicy(), List.of(), false, List.of("title:price"));
+            var invalidCandidate = new MetadataModelChangeSetPreviewCommand(List.of(new MetadataModelRelationChangeSetDraft(
+                    order.relationId(), metadataService.select(order.metadataId()).getVersion(), java.util.Map.of(),
+                    List.of(new MetadataFieldChangeSetDraft(MetadataFieldChangeSetDraft.Operation.ADD, null, null,
+                            governedField("productId", text).field(),
+                            new MetadataFieldPropertyDraft(MetadataFieldPropertyKind.MODULE_REFERENCE, null, incompatible, null))))), List.of(), List.of());
+            assertThat(metadataPreviews.preview(order.moduleAlias(), invalidCandidate).errors())
+                    .anySatisfy(error -> assertThat(error.message()).contains("类型不兼容"));
+            applyGovernedFields(order.moduleAlias(), order.relationId(), metadataService.select(order.metadataId()).getVersion(),
+                    List.of(new MetadataFieldChangeSetDraft(MetadataFieldChangeSetDraft.Operation.ADD, null, null,
+                            governedField("productId", text).field(),
+                            new MetadataFieldPropertyDraft(MetadataFieldPropertyKind.MODULE_REFERENCE, null, reference, null))));
+            for (var binding : List.of(product, order)) {
+                var field = metadataFields.list(net.ximatai.muyun.database.core.orm.Criteria.of()
+                        .eq("metadataId", binding.metadataId()).eq("fieldName", "price"), net.ximatai.muyun.spring.ability.PageRequests.all()).getFirst();
+                assertThatThrownBy(() -> modelDeletion.deleteField(binding.moduleAlias(), binding.relationId(), field.getId()))
+                        .isInstanceOf(net.ximatai.muyun.spring.common.exception.PlatformException.class)
+                        .satisfies(error -> assertThat(((net.ximatai.muyun.spring.common.exception.PlatformException) error).details())
+                                .containsEntry("referencedResource", "fieldReferenceAffect"));
+                assertThat(metadataFields.select(field.getId())).isNotNull();
+            }
+            var unrelated = metadataFields.list(net.ximatai.muyun.database.core.orm.Criteria.of()
+                    .eq("metadataId", other.metadataId()).eq("fieldName", "price"), net.ximatai.muyun.spring.ability.PageRequests.all()).getFirst();
+            modelDeletion.deleteField(other.moduleAlias(), other.relationId(), unrelated.getId());
+            assertThat(metadataFields.select(unrelated.getId())).isNull();
+            var owner = metadataFields.list(net.ximatai.muyun.database.core.orm.Criteria.of()
+                    .eq("metadataId", order.metadataId()).eq("fieldName", "productId"), net.ximatai.muyun.spring.ability.PageRequests.all()).getFirst();
+            var config = referenceConfigs.findForRelation(owner.getId(), order.relationId());
+            config.setAffectMappings(null);
+            referenceConfigs.update(config);
+            var released = metadataFields.list(net.ximatai.muyun.database.core.orm.Criteria.of()
+                    .eq("metadataId", product.metadataId()).eq("fieldName", "price"), net.ximatai.muyun.spring.ability.PageRequests.all()).getFirst();
+            modelDeletion.deleteField(product.moduleAlias(), product.relationId(), released.getId());
+            assertThat(metadataFields.select(released.getId())).isNull();
+        }
+    }
+
     @Test void recognizesStandardGovernanceWithoutConstructionPublicationReceipts() {
         String planId = UUID.randomUUID().toString().replace("-", "");
         var content = new ApplicationConstructionPlanContent("订单", "登记订单", List.of("登记订单号"), List.of(),
