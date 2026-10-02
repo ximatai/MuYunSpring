@@ -144,6 +144,7 @@ class OpenAiCompatibleModelClientTest {
         server.createContext("/v1/chat/completions", exchange -> {
             var body = new ObjectMapper().readTree(exchange.getRequestBody());
             assertThat(body.path("max_tokens").asInt()).isEqualTo(16384);
+            if (body.path("stream").asBoolean()) assertThat(body.path("stream_options").path("include_usage").asBoolean()).isTrue();
             String usage = "\"usage\":{\"prompt_tokens\":42,\"completion_tokens\":10,\"total_tokens\":52}";
             String response = body.path("stream").asBoolean()
                     ? "data: {\"choices\":[{\"delta\":{\"content\":\"OK\"},\"finish_reason\":\"stop\"}]}\n\ndata: {\"choices\":[]," + usage + "}\n\ndata: [DONE]\n\n"
@@ -169,6 +170,9 @@ class OpenAiCompatibleModelClientTest {
             public void onComplete(AiTurnResponse response) { completed.set(response); }
         });
         assertThat(completed.get().usage()).isEqualTo(expected);
+        var deltas = new StringBuilder();
+        client.stream(configured, text, deltas::append);
+        assertThat(deltas.toString()).isEqualTo("OK");
     }
 
     @Test

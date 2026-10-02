@@ -54,7 +54,7 @@ it('streams text deltas and resolves only the terminal structured turn', async (
           controller.enqueue(encoder.encode('event: text\ndata: {"text":"处理"}\n\n'));
           controller.enqueue(
             encoder.encode(
-              'event: complete\ndata: {"text":"正在处理","toolCalls":[],"finishReason":"stop","requestId":"request-1"}\n\n',
+              'event: complete\ndata: {"text":"正在处理","toolCalls":[],"finishReason":"stop","requestId":"request-1","usage":{"inputTokens":42,"outputTokens":10,"totalTokens":52}}\n\n',
             ),
           );
           controller.close();
@@ -76,6 +76,7 @@ it('streams text deltas and resolves only the terminal structured turn', async (
     toolCalls: [],
     finishReason: 'stop',
     requestId: 'request-1',
+    usage: { inputTokens: 42, outputTokens: 10, totalTokens: 52 },
   });
   expect(deltas).toEqual(['正在', '处理']);
   expect(stream).toHaveBeenCalledWith(
@@ -214,4 +215,17 @@ it('preserves platform error semantics from the stream terminal event', async ()
       new AbortController().signal,
     ),
   ).rejects.toMatchObject({ code: 'CONFIG_MISSING', status: 409, message: '未配置模型', traceId: 'trace-1' });
+});
+
+it('preserves unknown or partial usage instead of estimating missing tokens', async () => {
+  const input = { message: 'inspect', context: { surface: 'workbench', facts: {} }, capabilities: [] };
+  const request = vi
+    .fn()
+    .mockResolvedValueOnce({ toolCalls: [] })
+    .mockResolvedValueOnce({ toolCalls: [], usage: { inputTokens: 0, outputTokens: null } })
+    .mockResolvedValueOnce({ toolCalls: [], usage: { totalTokens: -1 } });
+  const requester = createAssistantTurnRequester({ request } as HttpClient);
+  expect((await requester(input, new AbortController().signal)).usage).toBeUndefined();
+  expect((await requester(input, new AbortController().signal)).usage).toEqual({ inputTokens: 0 });
+  await expect(requester(input, new AbortController().signal)).rejects.toThrow('无效响应');
 });

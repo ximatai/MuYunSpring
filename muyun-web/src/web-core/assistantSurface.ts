@@ -1,3 +1,4 @@
+import { assistantCapabilityCatalog, ASSISTANT_CAPABILITY_LOAD_CODE } from './assistantCapabilityCatalog';
 import {
   createAssistantOperationConfirmation,
   type AssistantOperationProposal,
@@ -420,14 +421,18 @@ export function createAssistantSurfaceRegistry(
       if (token.executionScopePending) return Promise.reject(new StaleAssistantInvocationError());
       return controlled(token, signal, true, (registration, controlledSignal) => {
         const current = requireCurrent(token);
+        const catalog = assistantCapabilityCatalog(
+          validateAssistantCapabilities(
+            input.executionBudget?.phase === 'summary' ? [] : current.surface.capabilities(),
+          ).filter((capability) => permitted(capability, policy)),
+        ).project(input.results);
+        const context = describe(current);
         const request = {
           ...input,
-          context: describe(current),
-          capabilities: validateAssistantCapabilities(
-            input.executionBudget?.phase === 'summary' ? [] : current.surface.capabilities(),
-          )
-            .filter((capability) => permitted(capability, policy))
-            .map(({ descriptor }) => descriptor),
+          context: catalog.index
+            ? { ...context, facts: { ...context.facts, capabilityIndex: catalog.index } }
+            : context,
+          capabilities: catalog.descriptors,
         };
         return progress
           ? registration.surface.requestTurn(request, controlledSignal, progress)
@@ -449,9 +454,11 @@ export function createAssistantSurfaceRegistry(
       pending.add(controller);
       let effectState: 'not-applied' | 'effect-applied' | 'unknown' = 'not-applied';
       return (async () => {
-        const capability = validateAssistantCapabilities(registration.surface.capabilities()).find(
-          ({ descriptor }) => descriptor.code === call.code,
-        );
+        const available = validateAssistantCapabilities(registration.surface.capabilities());
+        const capability =
+          call.code === ASSISTANT_CAPABILITY_LOAD_CODE
+            ? assistantCapabilityCatalog(available.filter((item) => permitted(item, policy))).discovery
+            : available.find(({ descriptor }) => descriptor.code === call.code);
         if (!capability)
           throw new AssistantCapabilityUsageError('Capability is no longer available', 'PRECONDITION_FAILED');
 

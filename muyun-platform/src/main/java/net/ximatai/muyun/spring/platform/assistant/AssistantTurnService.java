@@ -122,6 +122,7 @@ public class AssistantTurnService {
     public void stream(AssistantTurnCommand command, AssistantTurnStreamConsumer consumer) {
         Objects.requireNonNull(consumer, "consumer must not be null");
         logStarted("stream", command);
+        var completionFailure = new java.util.concurrent.atomic.AtomicReference<RuntimeException>();
         try {
             AiTurnRequest request = request(command);
             gateway.stream(request, new AiTurnStreamConsumer() {
@@ -138,6 +139,7 @@ public class AssistantTurnService {
                         logCompleted("stream", result);
                     } catch (RuntimeException error) {
                         logFailed("stream", error);
+                        completionFailure.set(error);
                         throw new AssistantTurnCallbackException(error);
                     }
                     AssistantTurnResult delivered = result;
@@ -145,6 +147,9 @@ public class AssistantTurnService {
                 }
             });
         } catch (RuntimeException error) {
+            // A provider adapter may sanitize callback exception causes. Preserve our own validation
+            // failure locally so an output truncation does not become a misleading transport failure.
+            if (completionFailure.get() != null) throw completionFailure.get();
             RuntimeException callbackFailure = callbackFailure(error);
             if (callbackFailure != null) throw callbackFailure;
             logFailed("stream", error);
@@ -333,7 +338,7 @@ public class AssistantTurnService {
         String text = selection != null && response.toolCalls().size() > 1
                 ? "请先确认下面的问题；本轮尚未执行同时提出的操作。" : response.text();
         return new AssistantTurnResult(text, capabilityCalls, selection,
-                response.finishReason(), response.requestId());
+                response.finishReason(), response.requestId(), response.usage());
     }
 
     private AssistantSelectionInteraction selection(AiToolCall call) {

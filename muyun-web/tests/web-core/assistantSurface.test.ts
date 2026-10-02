@@ -530,3 +530,115 @@ it.each(['resolve', 'reject', 'thenable'] as const)(
     await new Promise((resolve) => setTimeout(resolve, 0));
   },
 );
+
+it('loads bounded schemas from a complete current index without caching permission or stale definitions', async () => {
+  let revision = 'one';
+  let identity = 'owner';
+  let readOnly = false;
+  let capabilities: AssistantCapability[] = Array.from({ length: 18 }, (_, index) => ({
+    effect: index === 17 ? 'draft' : 'read',
+    descriptor: {
+      code: `catalog.tool-${index}`,
+      description: `Tool ${index}`,
+      inputSchema: { type: 'object', properties: { current: { const: revision } } },
+    },
+    parseInput: (input) => input,
+    execute: vi.fn(async () => ({ read: true })),
+  }));
+  const requestTurn = vi.fn<AssistantSurface['requestTurn']>(async () => ({ toolCalls: [] }));
+  const registry = createAssistantSurfaceRegistry(() => identity);
+  registry.register({
+    pageInstanceKey: 'catalog',
+    contextRevision: () => revision,
+    surface: {
+      describe: () => ({ surface: 'workbench', facts: {} }),
+      capabilities: () => capabilities,
+      requestTurn,
+    },
+  });
+  registry.activate('catalog');
+  const request = async (results: import('@/web-contracts').AssistantCapabilityResult[] = []) => {
+    await registry.requestTurn(
+      { message: 'inspect', results },
+      registry.snapshot()!.token,
+      undefined,
+      undefined,
+      { readOnly },
+    );
+    return requestTurn.mock.calls.at(-1)![0] as import('@/web-contracts').AssistantTurnInput;
+  };
+  let input = await request();
+  expect(input.capabilities.map(({ code }) => code)).toEqual(['assistant.load-capabilities']);
+  expect(input.context.facts.capabilityIndex).toHaveLength(18);
+  expect(JSON.stringify(input.context.facts.capabilityIndex)).not.toContain('inputSchema');
+  const loaded = await registry.invoke(
+    {
+      id: 'load',
+      code: 'assistant.load-capabilities',
+      input: { codes: ['catalog.tool-2', 'catalog.tool-17'] },
+    },
+    registry.snapshot()!.token,
+  );
+  expect(loaded.contextChanged).toBe(false);
+  expect(capabilities.every((item) => vi.mocked(item.execute).mock.calls.length === 0)).toBe(true);
+  const observation: import('@/web-contracts').AssistantCapabilityResult = {
+    callId: 'load',
+    capabilityCode: 'assistant.load-capabilities',
+    input: { codes: ['catalog.tool-2', 'catalog.tool-17'] },
+    execution: 'read',
+    output: loaded.value,
+  };
+  input = await request([observation]);
+  expect(input.capabilities.map(({ code }) => code)).toEqual([
+    'assistant.load-capabilities',
+    'catalog.tool-2',
+    'catalog.tool-17',
+  ]);
+  revision = 'two';
+  capabilities[2] = {
+    ...capabilities[2]!,
+    descriptor: {
+      ...capabilities[2]!.descriptor,
+      inputSchema: { type: 'object', properties: { current: { const: 'two' } } },
+    },
+  };
+  input = await request([observation]);
+  expect(input.capabilities.find(({ code }) => code === 'catalog.tool-2')!.inputSchema).toMatchObject({
+    properties: { current: { const: 'two' } },
+  });
+  readOnly = true;
+  input = await request([observation]);
+  expect(input.capabilities.map(({ code }) => code)).not.toContain('catalog.tool-17');
+  expect(JSON.stringify(input.context.facts.capabilityIndex)).not.toContain('catalog.tool-17');
+  await expect(
+    registry.invoke(
+      { id: 'denied', code: 'assistant.load-capabilities', input: { codes: ['catalog.tool-17'] } },
+      registry.snapshot()!.token,
+      undefined,
+      { readOnly: true },
+    ),
+  ).rejects.toThrow();
+  await expect(
+    registry.invoke(
+      {
+        id: 'invalid',
+        code: 'assistant.load-capabilities',
+        input: { codes: ['catalog.tool-2'], execute: true },
+      },
+      registry.snapshot()!.token,
+    ),
+  ).rejects.toThrow();
+  const many = { ...observation, output: { codes: capabilities.map(({ descriptor }) => descriptor.code) } };
+  expect((await request([many])).capabilities).toHaveLength(9);
+  const oldToken = registry.snapshot()!.token;
+  identity = 'other';
+  await expect(
+    registry.invoke(
+      { id: 'stale', code: 'assistant.load-capabilities', input: { codes: ['catalog.tool-2'] } },
+      oldToken,
+    ),
+  ).rejects.toThrow();
+  expect((await request()).capabilities.map(({ code }) => code)).toEqual(['assistant.load-capabilities']);
+  capabilities = capabilities.slice(0, 3);
+  expect((await request()).capabilities).toHaveLength(3);
+});

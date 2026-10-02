@@ -2,6 +2,7 @@ import type {
   AssistantSelectionInteraction,
   AssistantTurnInput,
   AssistantTurnOutput,
+  AssistantTokenUsage,
 } from '@muyun/web-contracts';
 import { AppError, platformErrorCodes } from './errors';
 import { isHttpStreamClient, type HttpClient } from './http';
@@ -125,9 +126,22 @@ function parseTurnOutput(value: unknown): AssistantTurnOutput {
       throw invalidResponse();
     }
   }
+  let usage: AssistantTokenUsage | undefined;
+  if (value.usage !== undefined && value.usage !== null) {
+    if (!isRecord(value.usage)) throw invalidResponse();
+    const counts: AssistantTokenUsage = {};
+    for (const key of ['inputTokens', 'outputTokens', 'totalTokens'] as const) {
+      const count = value.usage[key];
+      if (count === undefined || count === null) continue;
+      if (typeof count !== 'number' || !Number.isSafeInteger(count) || count < 0) throw invalidResponse();
+      counts[key] = count;
+    }
+    if (Object.keys(counts).length) usage = counts;
+  }
   const selection =
     value.selection === undefined || value.selection === null ? undefined : parseSelection(value.selection);
   return {
+    ...(usage ? { usage } : {}),
     ...(typeof value.text === 'string' ? { text: value.text } : {}),
     toolCalls: value.toolCalls as AssistantTurnOutput['toolCalls'],
     ...(selection ? { selection } : {}),

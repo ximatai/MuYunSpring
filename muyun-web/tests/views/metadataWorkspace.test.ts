@@ -856,3 +856,15 @@ it('prepares a missing main entity in the shared editor without creating storage
     f.invoke('configuration.prepare-metadata-main-draft', { title: '重复创建' }),
   ).rejects.toThrow();
 });
+
+it('reads relation identities on demand instead of repeating them in every workspace snapshot', async () => {
+  const f = fixture();
+  await f.select();
+  expect(f.workspace.current().facts.metadataConfiguration).not.toHaveProperty('relations');
+  const result = await f.invoke('configuration.list-metadata-relations', {});
+  expect(result.contextChanged).toBe(false);
+  expect(result.value).toMatchObject({ moduleAlias: 'demo.order', total: 2, nextOffset: null });
+  expect((result.value as { relations: unknown[] }).relations).toHaveLength(2);
+  await expect(f.invoke('configuration.list-metadata-relations', { offset: -1 })).rejects.toThrow();
+  await expect(f.invoke('configuration.list-metadata-relations', { payload: {} })).rejects.toThrow();
+});
