@@ -32,6 +32,20 @@ class AssistantPlatformKnowledgeTest {
     }
 
     @Test
+    void guidesAuthorizedDraftProgressWithoutBypassingDependenciesOrHumanSave() {
+        assertThat(AssistantPlatformKnowledge.appendTo("base", Map.of("surface", "module-page"), List.of()))
+                .contains("patch known ordinary fields together before resolving remaining references",
+                        "Opening is not filling", "Tree child records need a saved parent",
+                        "aggregate child drafts save together", "only human confirmation saves",
+                        "missing required or ambiguous values", "reuse clear answers")
+                .doesNotContain("platform.menu", "customer", "product");
+        assertThat(AssistantPlatformKnowledge.appendTo("base", Map.of("surface", "page-composition"), List.of()))
+                .contains("Reuse supplied catalogs", "revise and preview the candidate",
+                        "do not repeat discovery", "human publication confirmation",
+                        "Opening the editor does not change the candidate");
+    }
+
+    @Test
     void combinesPageAndWorkbenchKnowledgeWhenNavigationCapabilitiesAreContributed() {
         AiToolDefinition navigation = new AiToolDefinition("workbench.find-menu", "Find visible menus", Map.of());
 
