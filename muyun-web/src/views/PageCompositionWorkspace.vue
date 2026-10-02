@@ -41,7 +41,6 @@ function activate() {
   workspace?.focus(session.value);
   workspace?.showEditor(session.value);
   clear();
-  if (workspace) return;
   const pageInstanceKey = host?.activePageInstanceKey();
   if (host && pageInstanceKey)
     unregister = host.registry.register({
@@ -52,11 +51,15 @@ function activate() {
           () => !session.value.isMutating.value && !session.value.catalogueRefreshPending.value,
           signal,
         ),
-      surface: createPageCompositionAssistantSurface(
-        session.value.adapter,
-        createAssistantTurnRequester(context.http),
-        () => host.capabilities?.() ?? [],
-      ),
+      surface: {
+        ...createPageCompositionAssistantSurface(
+          session.value.adapter,
+          createAssistantTurnRequester(context.http),
+          () => host.capabilities?.() ?? [],
+        ),
+        // Keep the mounted page readiness signal; the shared workspace owns its tools.
+        ...(workspace ? { capabilities: () => host.capabilities?.() ?? workspace.capabilities() } : {}),
+      },
     });
 }
 watch(session, (value, previous) => {

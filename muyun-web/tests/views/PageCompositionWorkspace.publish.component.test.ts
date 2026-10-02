@@ -3,7 +3,8 @@ import {
   createPageCompositionWorkspace,
   providePageCompositionWorkspace,
 } from '@/views/pageCompositionWorkspace';
-import { defineComponent, h, ref, KeepAlive } from 'vue';
+import { defineComponent, h, ref, KeepAlive, nextTick } from 'vue';
+import { createMetadataWorkspace } from '@/views/metadataWorkspace';
 import { createAssistantSurfaceRegistry, provideAssistantSurfaceHost } from '@/web-core';
 import { inputComponents } from './pageCompositionComponentFixtures';
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils';
@@ -32,12 +33,38 @@ describe('PageCompositionWorkspace publication flow', () => {
       () => true,
     );
     const registry = createAssistantSurfaceRegistry(() => identity, workspace.current);
+    const visible = ref(false);
+    const metadata = createMetadataWorkspace(
+      http,
+      () => identity,
+      () => true,
+      undefined,
+      undefined,
+      () => {
+        visible.value = true;
+      },
+    );
+    const capabilities = () => [
+      ...workspace.capabilities(),
+      ...metadata.capabilities(async (signal, requireFormal) => {
+        await nextTick();
+        return (
+          await registry.waitForActiveSurface({
+            pageInstanceKey: 'shell',
+            requireFormal,
+            signal,
+            timeoutMs: 200,
+          })
+        ).token;
+      }),
+    ];
     registry.register({
       pageInstanceKey: 'shell',
+      fallback: true,
       contextRevision: () => '',
       surface: {
         describe: () => ({ surface: 'workbench', facts: {} }),
-        capabilities: workspace.capabilities,
+        capabilities,
         requestTurn: vi.fn(),
       },
     });
@@ -66,20 +93,30 @@ describe('PageCompositionWorkspace publication flow', () => {
         provideAssistantSurfaceHost({
           registry,
           activePageInstanceKey: () => 'shell',
-          capabilities: workspace.capabilities,
+          capabilities,
         });
-        return () => h(PageCompositionWorkspace, { moduleAlias: 'education.exam' });
+        return () => (visible.value ? h(PageCompositionWorkspace, { moduleAlias: 'education.exam' }) : null);
       },
     });
     const wrapper = mount(Host, { global: { stubs: workspaceStubs() } });
     try {
+      await registry.invoke(
+        { id: 'open', code: 'configuration.open-page-editor', input: { moduleAlias: 'education.exam' } },
+        registry.snapshot()!.token,
+      );
       await flushPromises();
       expect(wrapper.findComponent(PageCompositionTree).props('listFields')).toMatchObject([
         { fieldName: 'title' },
       ]);
       expect(workspace.session('education.exam')).toBe(session);
       expect(wouldLoseDraft?.()).toBe(false);
-      expect(registry.snapshot()!.context.surface).toBe('workbench');
+      const ready = await registry.waitForActiveSurface({
+        pageInstanceKey: 'shell',
+        requireFormal: true,
+        timeoutMs: 100,
+      });
+      expect(ready.context.surface).toBe('page-composition');
+      expect(new Set(ready.capabilities.map((item) => item.code)).size).toBe(ready.capabilities.length);
       await registry.invoke(
         { id: 'describe', code: 'configuration.describe-page-composition', input: {} },
         registry.snapshot()!.token,
@@ -97,6 +134,7 @@ describe('PageCompositionWorkspace publication flow', () => {
       expect(workspace.session('education.exam')).not.toBe(session);
       await flushPromises();
     } finally {
+      metadata.dispose();
       workspace.dispose();
     }
   });
