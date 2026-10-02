@@ -80,10 +80,5 @@ export interface AssistantTurnOutput {
   requestId?: string;
 }
 
-/** Trusted local capability presentation; never interpreted from model prose. */
-export interface AssistantResultPresentation {
-  title: string;
-  lines: string[];
-  /** Secondary, fully reviewable details; never used as an execution payload. */
-  details?: { title: string; lines: string[] };
-}
+export type { OperationPresentation as AssistantResultPresentation } from './operation';
+import type { OperationPresentation as AssistantResultPresentation } from './operation';

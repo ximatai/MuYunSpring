@@ -5,7 +5,8 @@ import { resolve } from 'node:path';
 const root = resolve(import.meta.dirname, '../..');
 
 it('keeps management quick search as a constrained template component', () => {
-  const workspaceSource = readSource('src/views/PageCompositionWorkspace.vue');
+  const workspaceSource =
+    readSource('src/views/pageCompositionSession.ts') + readSource('src/views/PageCompositionEditor.vue');
   const treeSource = readSource('src/views/PageCompositionTree.vue');
   const draftStateSource = readSource('src/views/pageCompositionDraftState.ts');
 
@@ -28,7 +29,8 @@ it('keeps management quick search as a constrained template component', () => {
 });
 
 it('keeps the last successful descriptor visibly stale and retries the current draft safely', () => {
-  const workspaceSource = readSource('src/views/PageCompositionWorkspace.vue');
+  const workspaceSource =
+    readSource('src/views/pageCompositionSession.ts') + readSource('src/views/PageCompositionEditor.vue');
 
   assert.match(workspaceSource, /当前展示的是上一次成功解析结果，不代表当前草稿。/);
   assert.match(workspaceSource, /@click="retryPreviewDescriptor"/);
@@ -43,7 +45,8 @@ it('keeps the last successful descriptor visibly stale and retries the current d
 });
 
 it('keeps dictionary presentation separate from record-picker configuration and derives aliases by cardinality', () => {
-  const workspaceSource = readSource('src/views/PageCompositionWorkspace.vue');
+  const workspaceSource =
+    readSource('src/views/pageCompositionSession.ts') + readSource('src/views/PageCompositionEditor.vue');
   const draftStateSource = readSource('src/views/pageCompositionDraftState.ts');
 
   assert.match(workspaceSource, /selectedDirectDictionaryFormField/);
@@ -58,11 +61,12 @@ it('keeps dictionary presentation separate from record-picker configuration and 
 });
 
 it('preflights dictionary radio eligibility in composition instead of deferring hierarchy errors to the business form', () => {
-  const workspaceSource = readSource('src/views/PageCompositionWorkspace.vue');
+  const workspaceSource =
+    readSource('src/views/pageCompositionSession.ts') + readSource('src/views/PageCompositionEditor.vue');
 
   assert.match(
     workspaceSource,
-    /loadOptionFieldItems\(moduleContext, fieldName, undefined, props\.moduleAlias, true\)/,
+    /loadOptionFieldItems\(\s*moduleContext,\s*fieldName,\s*undefined,\s*props\.moduleAlias,\s*true,?\s*\)/,
   );
   assert.match(workspaceSource, /hasOptionHierarchy\(items\)/);
   assert.match(workspaceSource, /!path[\s\S]{0,120}dictionaryRadioMaxOptions/);
@@ -72,7 +76,7 @@ it('preflights dictionary radio eligibility in composition instead of deferring 
   assert.match(workspaceSource, /dictionaryRadioFactRequestEpoch\.invalidate\(\);/);
   assert.match(
     workspaceSource,
-    /async function loadMetadataTree[\s\S]*?referenceDirectoryEpoch \+= 1;[\s\S]*?invalidateDictionaryRadioFacts\(\);[\s\S]*?await Promise\.all/,
+    /async function loadMetadataTree[\s\S]*?referenceDirectoryEpoch \+= 1;[\s\S]*?invalidateDictionaryRadioFacts\(\);[\s\S]*?await prepareCatalogRefresh/,
   );
   assert.match(
     workspaceSource,

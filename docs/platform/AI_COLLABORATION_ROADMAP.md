@@ -76,17 +76,17 @@ M2、M3 的变更可能要求重新核实 M4；它们不是永久单向流水线
 
 ## 代码校准与进度
 
-以下按代码基线 `6c275f7ac` 核对。证据索引指向实现和现有测试，不代表所有测试在任意环境均通过。状态含义：**已有基础**表示实现与对应测试存在；**待治理**表示已识别边界或闭环缺口；**待验收**表示缺少当前统一目标下的完整证据；**延期**表示不进入本轮。
+以下以代码与证据入口持续校准；平台公共链路已更新为入口无关契约和模块级页面会话。证据索引指向实现和现有测试，不代表所有测试在任意环境均通过。状态含义：**已有基础**表示实现与对应测试存在；**待治理**表示已识别边界或闭环缺口；**待验收**表示缺少当前统一目标下的完整证据；**延期**表示不进入本轮。
 
 不按文件数、工具数或旧阶段编号计算完成百分比。当前总体状态是：**P 阶段待收口；A 有大量存量能力但须随平台校准；D 尚不能标记完成。** 旧文档中的局部浏览器样本不抹去，也不能提升为当前组合目标的通过结论。
 
 | 主干 | 平台实现与测试基础 | 助手接入现状 | 当前结论 / 证据 |
 | --- | --- | --- | --- |
 | M1 对象与归属 | 标准应用/模块 CRUD、主实体创建、历史建设初始化与回执存在 | 新建已转向标准管理页，主实体候选页面保存；初始化工具只查历史状态 | 已有基础；人工 0→1 衔接待验收，不能继续按历史合并初始化描述新入口。E1 |
-| M2 字段与引用 | 模块级共享元数据会话、批量候选、change-set、引用目录和保护存在 | 普通字段、引用、字典复用标准会话，人工修改使旧确认失效 | 已有基础；公共会话反向依赖助手类型待治理。E2 |
-| M2 直接子表 | 正式子元数据创建、父关系与物理表事务、请求回执存在 | 可准备同一子表候选并人工确认 | 已有基础；人工保存也使用助手确认状态机，需校准归属。E3 |
-| M3 规则 | 共享规则候选、预检/试算/应用、明细先计算再汇总、保存复算存在 | 规则适配读取目录并修订同一候选 | 已有基础；公共异常及提议归属待治理；完整价格语义待验收。E4 |
-| M4 页面 | 标准编排、预检、修订发布与精确发布结果核实存在 | 可视入口复用页面候选；纯对话还保留独立 construction 页面发布 | 待治理：页面会话与组件解耦并收敛第二候选路径。E5 |
+| M2 字段与引用 | 模块级共享元数据会话、批量候选、change-set、引用目录和保护存在 | 普通字段、引用、字典复用标准会话，人工修改使旧确认失效 | 公共编辑契约已归平台；业务组合仍待验收。E2 |
+| M2 直接子表 | 正式子元数据创建、父关系与物理表事务、请求回执存在 | 可准备同一子表候选并人工确认 | 人工与助手共用平台确认状态机；保留各自呈现。E3 |
+| M3 规则 | 共享规则候选、预检/试算/应用、明细先计算再汇总、保存复算存在 | 规则适配读取目录并修订同一候选 | 公共异常及提议已归平台；完整价格语义待验收。E4 |
+| M4 页面 | 标准编排、预检、修订发布与精确发布结果核实存在 | 可视入口复用页面候选；纯对话还保留独立 construction 页面发布 | 模块级会话已与组件解耦；旧 construction 写路径在阶段 2 回收。E5 |
 | M5 菜单与访问 | 标准“添加到菜单”、IAM 开通/授权、运行态刷新存在 | 建设入口不授予业务权限，回执后刷新菜单 | 已有基础；目标普通用户可用性须纳入平台门槛。E6 |
 | M6 业务保存 | 真实 PostgreSQL 与 HTTP 测试覆盖引用、主子表计算、新增/修改/删行/重开 | 主记录及一层聚合草稿、普通业务保存确认与回执查询存在 | 已有跨层证据；未证明商品改价后的历史成交价，以及全浏览器从空白建设。E7、E8 |
 | 助手公共链 | 标准字段策略、网关、作用域 HTTP 和正式业务入口存在 | 原生工具消息、Surface 令牌、有界循环、确认、会话历史存在 | 已有基础；参数契约一致性、通用未知结果跨刷新核实待治理。E8、E9 |
@@ -100,10 +100,10 @@ M2、M3 的变更可能要求重新核实 M4；它们不是永久单向流水线
 - **E2 字段候选**：[共享元数据工作区](../../muyun-web/src/views/metadataWorkspace.ts)、[工作区契约测试](../../muyun-web/tests/views/metadataWorkspace.test.ts)、[真实 change-set 测试](../../muyun-platform/src/test/java/net/ximatai/muyun/spring/platform/metadata/MetadataRelationChangeSetApplyIT.java)。
 - **E3 子表创建**：[领域创建服务](../../muyun-platform/src/main/java/net/ximatai/muyun/spring/platform/metadata/ModuleChildMetadataCreationService.java)、[人工与助手编辑会话](../../muyun-web/src/views/metadataEditorSession.ts)、E2 工作区测试中的创建及未知结果用例。
 - **E4 规则**：[规则编辑会话](../../muyun-web/src/views/businessRuleSession.ts)、[会话测试](../../muyun-web/tests/views/businessRuleSession.test.ts)、[规则数据库契约](../../muyun-platform/src/test/java/net/ximatai/muyun/spring/platform/metadata/BusinessRuleGovernanceRepositoryIT.java)。
-- **E5 页面**：[页面工作区](../../muyun-web/src/views/PageCompositionWorkspace.vue)、[共享发布命令](../../muyun-web/src/views/pageCompositionPublication.ts)、[独立建设交付适配](../../muyun-web/src/platform-workbench/constructionDelivery.ts)、[页面发布组件测试](../../muyun-web/tests/views/PageCompositionWorkspace.publish.component.test.ts)。
+- **E5 页面**：[页面会话](../../muyun-web/src/views/pageCompositionSession.ts)、[模块工作区](../../muyun-web/src/views/pageCompositionWorkspace.ts)、[共享发布命令](../../muyun-web/src/views/pageCompositionPublication.ts)、[独立建设交付适配](../../muyun-web/src/platform-workbench/constructionDelivery.ts)、[页面发布组件测试](../../muyun-web/tests/views/PageCompositionWorkspace.publish.component.test.ts)。
 - **E6 入口与生效**：[模块菜单入口](../../muyun-web/src/platform-admin-runtime/module-menu/ModuleMenuDrawer.vue)、[菜单组件测试](../../muyun-web/tests/platform-admin-runtime/module-menu/ModuleMenuDrawer.component.test.ts)、[运行态集成测试](../../muyun-platform/src/test/java/net/ximatai/muyun/spring/platform/runtime/PlatformDynamicRuntimeRefresherIT.java)、[权限专题](topics/identity-permission/OVERVIEW.md)。
 - **E7 业务组合**：[ConstructionFieldsIT](../../muyun-demo-web/src/test/java/net/ximatai/muyun/spring/demo/school/test/ConstructionFieldsIT.java)。含引用客户、明细计算、页面/菜单及租户标准 HTTP 保存、修改删行、重开和详情；前半段直接 Service 建配置，未包含商品改价后的历史成交价验证，不能证明人工或模型从空白浏览器建设。
-- **E8 确认与结果**：[确认契约](../../muyun-web/src/web-core/assistantConfirmation.ts)、[标准页面保存](../../muyun-web/src/dynamic-page-runtime/useModulePageSession.ts)、[回执事务测试](../../muyun-platform/src/test/java/net/ximatai/muyun/spring/platform/save/RecordSaveReceiptRepositoryIT.java)。
+- **E8 确认与结果**：[平台确认契约](../../muyun-web/src/web-core/operationConfirmation.ts)、[标准页面保存](../../muyun-web/src/dynamic-page-runtime/useModulePageSession.ts)、[回执事务测试](../../muyun-platform/src/test/java/net/ximatai/muyun/spring/platform/save/RecordSaveReceiptRepositoryIT.java)。
 - **E9 运行与恢复**：[助手运行器](../../muyun-web/src/web-core/assistantRuntime.ts)、[运行器测试](../../muyun-web/tests/web-core/assistantRuntime.test.ts)、[会话控制器](../../muyun-web/src/platform-workbench/useAssistantConversation.ts)、[历史恢复测试](../../muyun-web/tests/platform-workbench/useAssistantConversationArchive.test.ts)。
 - **E10 页面交互**：[页面浏览器测试](../../muyun-web/tests/views/PageCompositionWorkspace.browser.test.ts)、[标准页面组件测试](../../muyun-web/tests/dynamic-page-runtime/DynamicModuleHost.component.test.ts)。组件及使用 HTTP fixture 的浏览器测试不能替代全栈、真实模型交付演练。
 
@@ -131,6 +131,16 @@ M2、M3 的变更可能要求重新核实 M4；它们不是永久单向流水线
 | 工作流任务协作、后台执行、外部协议、多智能体 | 延期，真实需求触发 | 继续遵守工作流、后台任务与外部写入专题；不从已具备聊天历史推导持续执行能力 |
 
 ## 下一步工作计划与阶段门槛
+
+短期交付按四个可独立审查与合并的能力单元推进；下述 P/A/D 是业务门槛，不要求单个 PR 覆盖整个门槛。
+
+| 提交阶段 | 范围 | 验收边界 |
+| --- | --- | --- |
+| 1 平台公共链路 | 入口无关的编辑契约、确认状态机、按模块持有的页面候选 | 人工/助手共享候选；挂载切换保留更改；身份和版本变化阻断旧提交 |
+| 2 助手通用操作 | 回收场景专属重复编排、对齐参数契约、已有回执的只读恢复 | 两个不同模块复用工具；无业务特判；未知结果不重放 |
+| 3 上下文效率 | 能力按需加载、事实按范围读取、工具摘要与有界历史 | 对比同任务总 token、调用轮数、成功与人工介入；不以字符数代替 token |
+| 4 交付验收 | 人工建设、助手接入、实际业务及新会话接管 | 真实身份与持久化结果可复现，未验证项不能标记通过 |
+
 
 ### P：平台治理
 

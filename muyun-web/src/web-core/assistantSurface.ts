@@ -195,17 +195,11 @@ export class StaleAssistantInvocationError extends Error {
   }
 }
 
-/** Safe, bounded feedback that helps the model repair a rejected capability call. */
-export class AssistantCapabilityUsageError extends Error {
-  constructor(
-    message: string,
-    readonly code:
-      | 'CAPABILITY_USAGE_INVALID'
-      | 'CANDIDATE_AMBIGUOUS'
-      | 'CANDIDATE_EXPIRED'
-      | 'PRECONDITION_FAILED' = 'CAPABILITY_USAGE_INVALID',
-  ) {
-    super(message);
+import { OperationUsageError } from './operationErrors';
+/** Preserves the public assistant error contract at the adapter boundary. */
+export class AssistantCapabilityUsageError extends OperationUsageError {
+  constructor(message: string, code?: OperationUsageError['code']) {
+    super(message, code);
     this.name = 'AssistantCapabilityUsageError';
   }
 }
@@ -586,6 +580,8 @@ export function createAssistantSurfaceRegistry(
         .catch((error: unknown) => {
           if (effectState !== 'not-applied')
             throw new AssistantEffectInterruptedError(token, effectState, error);
+          if (error instanceof OperationUsageError && !(error instanceof AssistantCapabilityUsageError))
+            throw new AssistantCapabilityUsageError(error.message, error.code);
           throw error;
         })
         .finally(() => {

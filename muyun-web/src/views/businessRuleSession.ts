@@ -1,9 +1,9 @@
 import { computed, effectScope, ref, watch } from 'vue';
 import {
-  AssistantCapabilityUsageError,
+  OperationUsageError,
   withHttpHeaders,
   type HttpClient,
-  type AssistantOperationProposal,
+  type OperationProposal,
 } from '@muyun/web-core';
 import {
   businessRuleChangeImpact,
@@ -20,9 +20,9 @@ import {
   type BusinessRuleApplyResult,
   type BusinessRuleIssue,
 } from './businessRuleGovernance';
-import type { BusinessRuleAssistantAdapter, BusinessRuleTrialInput } from './businessRuleAssistantSurface';
+import type { BusinessRuleEditor, BusinessRuleTrialInput } from './businessRuleEditor';
 
-export class BusinessRulePrecheckError extends AssistantCapabilityUsageError {
+export class BusinessRulePrecheckError extends OperationUsageError {
   constructor(readonly issues: BusinessRuleIssue[]) {
     super(issues.map((issue) => issue.message).join('；'));
   }
@@ -59,11 +59,11 @@ export function createBusinessRuleSession(
     let loadEpoch = 0;
     watch([rules, snapshot, ui, tenantId], () => revision.value++, { deep: true, flush: 'sync' });
     function requireValid() {
-      if (!valid()) throw new AssistantCapabilityUsageError('身份已变化，请重新读取规则');
+      if (!valid()) throw new OperationUsageError('身份已变化，请重新读取规则');
     }
     function requireReady() {
       requireValid();
-      if (!ready.value) throw new AssistantCapabilityUsageError('请等待规则加载或应用完成');
+      if (!ready.value) throw new OperationUsageError('请等待规则加载或应用完成');
     }
     async function merge(loaded: BusinessRuleSnapshot) {
       const controls = await http.request<UiControlSnapshot>({ path: path + '/ui-controls' });
@@ -86,12 +86,12 @@ export function createBusinessRuleSession(
     // Publish the loaded baseline through the caller's guarded commit when selecting from the assistant.
     async function load(force = false, commit: (accept: () => void) => void = (accept) => accept()) {
       requireValid();
-      if (applying.value) throw new AssistantCapabilityUsageError('规则正在应用');
+      if (applying.value) throw new OperationUsageError('规则正在应用');
       if (snapshot.value && !loadFailed.value && !force) {
         commit(() => {});
         return;
       }
-      if (dirty.value) throw new AssistantCapabilityUsageError('请先应用或放弃当前未保存更改');
+      if (dirty.value) throw new OperationUsageError('请先应用或放弃当前未保存更改');
       const epoch = ++loadEpoch;
       loading.value = true;
       loadFailed.value = false;
@@ -144,7 +144,7 @@ export function createBusinessRuleSession(
     async function apply(stillCurrent: () => boolean = () => true) {
       requireReady();
       if (!dirty.value) return;
-      if (editing.value) throw new AssistantCapabilityUsageError('请先完成当前规则编辑');
+      if (editing.value) throw new OperationUsageError('请先完成当前规则编辑');
       const captured = capture();
       const current = () => captured() && stillCurrent();
       const proposed = rules.value.map(toProposal);
@@ -187,7 +187,7 @@ export function createBusinessRuleSession(
         applying.value = false;
       }
     }
-    const adapter: BusinessRuleAssistantAdapter = {
+    const adapter: BusinessRuleEditor = {
       summary: () => ({
         moduleAlias,
         editable: valid() && ready.value && !editing.value,
@@ -206,16 +206,16 @@ export function createBusinessRuleSession(
                   : [...rules.value, ...(snapshot.value ? readonlyRules(snapshot.value) : [])],
       revise(rule) {
         requireReady();
-        if (editing.value) throw new AssistantCapabilityUsageError('请先完成页面中的规则编辑');
+        if (editing.value) throw new OperationUsageError('请先完成页面中的规则编辑');
         if (snapshot.value!.rules.some((item) => item.code === rule.code && !item.editable))
-          throw new AssistantCapabilityUsageError('不能覆盖只读规则');
+          throw new OperationUsageError('不能覆盖只读规则');
         if (
           rule.kind === 'CALCULATION' &&
           ![...snapshot.value!.editableFields, ...(snapshot.value!.childFields ?? [])].some(
             (field) => field.fieldName === rule.targetField,
           )
         )
-          throw new AssistantCapabilityUsageError('计算目标必须来自主表或直接子表的可写字段目录');
+          throw new OperationUsageError('计算目标必须来自主表或直接子表的可写字段目录');
         if (rule.kind === 'UI_CONTROL') {
           const form = ui.value?.forms.find((form) => form.key === rule.formKey);
           if (
@@ -223,7 +223,7 @@ export function createBusinessRuleSession(
             !rule.targets?.length ||
             rule.targets.some((target) => !form.elements.some((element) => element.key === target.elementKey))
           )
-            throw new AssistantCapabilityUsageError('界面目标必须来自表单目录');
+            throw new OperationUsageError('界面目标必须来自表单目录');
         }
         const index = rules.value.findIndex((item) => item.code === rule.code);
         const next = rules.value.slice();
@@ -233,14 +233,14 @@ export function createBusinessRuleSession(
       },
       preview,
       trial,
-      async prepareConfirmation(signal): Promise<AssistantOperationProposal> {
+      async prepareConfirmation(signal): Promise<OperationProposal> {
         requireReady();
-        if (!dirty.value) throw new AssistantCapabilityUsageError('当前没有待应用的规则更改');
-        if (editing.value) throw new AssistantCapabilityUsageError('请先完成页面中的规则编辑');
+        if (!dirty.value) throw new OperationUsageError('当前没有待应用的规则更改');
+        if (editing.value) throw new OperationUsageError('请先完成页面中的规则编辑');
         const captured = capture();
         const current = () => captured() && confirmationScope();
         const checked = await preview(signal);
-        if (!current()) throw new AssistantCapabilityUsageError('规则候选已变化，请重新检查');
+        if (!current()) throw new OperationUsageError('规则候选已变化，请重新检查');
         if (checked.errors.length) throw new BusinessRulePrecheckError(checked.errors);
         const impact = businessRuleChangeImpact(snapshot.value!, rules.value);
         const describe = (rule: BusinessRuleProposal) => {
@@ -275,7 +275,6 @@ export function createBusinessRuleSession(
               '应用当前整组更改，包含页面已有人工编辑；影响后续业务操作，不回算历史记录。草稿仅保留在当前工作区，刷新后不会恢复。',
             ],
           },
-          modelSummary: '规则更改等待用户确认，尚未应用。',
           confirmLabel: '确认应用规则',
           expiresAt: Date.now() + 10 * 60_000,
           isCurrent: () => current() && !editing.value && !applying.value,

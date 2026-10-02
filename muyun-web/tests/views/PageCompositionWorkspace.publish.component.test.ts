@@ -1,4 +1,10 @@
-import { defineComponent, h, ref, KeepAlive } from 'vue';
+import { provideWorkspaceViewHost } from '@/platform-workbench/workspaceViewHost';
+import {
+  createPageCompositionWorkspace,
+  providePageCompositionWorkspace,
+} from '@/views/pageCompositionWorkspace';
+import { defineComponent, h, ref, KeepAlive, nextTick } from 'vue';
+import { createMetadataWorkspace } from '@/views/metadataWorkspace';
 import { createAssistantSurfaceRegistry, provideAssistantSurfaceHost } from '@/web-core';
 import { inputComponents } from './pageCompositionComponentFixtures';
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils';
@@ -16,6 +22,179 @@ vi.mock('@muyun/vue-ui-antdv', async (importOriginal) => ({
 }));
 
 describe('PageCompositionWorkspace publication flow', () => {
+  it('retains a headless candidate through visual handoff and invalidates it on identity change', async () => {
+    const requests: HttpRequestOptions[] = [];
+    const http = publicationFlowHttp(requests);
+    configureModuleContext({ http });
+    let identity = 'operator-a';
+    const workspace = createPageCompositionWorkspace(
+      http,
+      () => identity,
+      () => true,
+    );
+    const registry = createAssistantSurfaceRegistry(() => identity, workspace.current);
+    const visible = ref(false);
+    const metadata = createMetadataWorkspace(
+      http,
+      () => identity,
+      () => true,
+      undefined,
+      undefined,
+      () => {
+        visible.value = true;
+      },
+    );
+    const capabilities = () => [
+      ...workspace.capabilities(),
+      ...metadata.capabilities(async (signal, requireFormal) => {
+        await nextTick();
+        return (
+          await registry.waitForActiveSurface({
+            pageInstanceKey: 'shell',
+            requireFormal,
+            signal,
+            timeoutMs: 200,
+          })
+        ).token;
+      }),
+    ];
+    registry.register({
+      pageInstanceKey: 'shell',
+      fallback: true,
+      contextRevision: () => '',
+      surface: {
+        describe: () => ({ surface: 'workbench', facts: {} }),
+        capabilities,
+        requestTurn: vi.fn(),
+      },
+    });
+    registry.activate('shell');
+    const session = workspace.session('education.exam');
+    workspace.focus(session);
+    await flushPromises();
+    session.adapter.prepare({ list: [{ fieldName: 'title' }] })();
+    const proposal = await session.adapter.prepareConfirmation(new AbortController().signal);
+    expect(proposal.isCurrent()).toBe(true);
+    let wouldLoseDraft: (() => boolean) | undefined;
+    const Host = defineComponent({
+      setup() {
+        provideWorkspaceViewHost({
+          presentation: 'tab',
+          setTitle() {},
+          replaceQuery() {},
+          dismiss() {},
+          close() {},
+          registerUnsavedState(_source, dirty) {
+            wouldLoseDraft = dirty;
+            return () => {};
+          },
+        });
+        providePageCompositionWorkspace(workspace);
+        provideAssistantSurfaceHost({
+          registry,
+          activePageInstanceKey: () => 'shell',
+          capabilities,
+        });
+        return () => (visible.value ? h(PageCompositionWorkspace, { moduleAlias: 'education.exam' }) : null);
+      },
+    });
+    const wrapper = mount(Host, { global: { stubs: workspaceStubs() } });
+    try {
+      await registry.invoke(
+        { id: 'open', code: 'configuration.open-page-editor', input: { moduleAlias: 'education.exam' } },
+        registry.snapshot()!.token,
+      );
+      await flushPromises();
+      expect(wrapper.findComponent(PageCompositionTree).props('listFields')).toMatchObject([
+        { fieldName: 'title' },
+      ]);
+      expect(workspace.session('education.exam')).toBe(session);
+      expect(wouldLoseDraft?.()).toBe(false);
+      const ready = await registry.waitForActiveSurface({
+        pageInstanceKey: 'shell',
+        requireFormal: true,
+        timeoutMs: 100,
+      });
+      expect(ready.context.surface).toBe('page-composition');
+      expect(new Set(ready.capabilities.map((item) => item.code)).size).toBe(ready.capabilities.length);
+      await registry.invoke(
+        { id: 'describe', code: 'configuration.describe-page-composition', input: {} },
+        registry.snapshot()!.token,
+      );
+      wrapper.unmount();
+      expect(session.adapter.candidate().saved).toBe(false);
+      expect(session.adapter.describe().editable).toBe(true);
+      session.adapter.prepare({ list: [] })();
+      expect(proposal.isCurrent()).toBe(false);
+      const before = requests.length;
+      identity = 'operator-b';
+      workspace.current();
+      await expect(proposal.execute()).rejects.toThrow();
+      expect(requests.length).toBe(before);
+      expect(workspace.session('education.exam')).not.toBe(session);
+      await flushPromises();
+    } finally {
+      metadata.dispose();
+      workspace.dispose();
+    }
+  });
+
+  it('refreshes a retained headless directory after metadata changes without losing placements', async () => {
+    const fields = [
+      {
+        id: 'field-title',
+        fieldName: 'title',
+        title: '名称',
+        fieldOwnership: 'BUSINESS',
+        fieldForm: 'PHYSICAL',
+      },
+    ];
+    const http = publicationFlowHttp([], initialTree(), fields);
+    const workspace = createPageCompositionWorkspace(
+      http,
+      () => 'operator',
+      () => true,
+    );
+    const registry = createAssistantSurfaceRegistry(() => 'operator', workspace.current);
+    registry.register({
+      pageInstanceKey: 'shell',
+      contextRevision: () => '',
+      surface: {
+        describe: () => ({ surface: 'workbench', facts: {} }),
+        capabilities: workspace.capabilities,
+        requestTurn: vi.fn(),
+      },
+    });
+    registry.activate('shell');
+    const select = () =>
+      registry.invoke(
+        { id: 'select', code: 'configuration.select-page-module', input: { moduleAlias: 'education.exam' } },
+        registry.snapshot()!.token,
+      );
+    try {
+      await select();
+      const session = workspace.session('education.exam');
+      session.adapter.prepare({ list: [{ fieldName: 'title' }] })();
+      fields.push({
+        id: 'field-note',
+        fieldName: 'note',
+        title: '备注',
+        fieldOwnership: 'BUSINESS',
+        fieldForm: 'PHYSICAL',
+      });
+      await select();
+      expect(session.adapter.describe().fields).toContainEqual(
+        expect.objectContaining({ fieldName: 'note' }),
+      );
+      expect(session.adapter.describe().list).toMatchObject([{ fieldName: 'title' }]);
+      expect(session.hasUnsavedChanges.value).toBe(true);
+      session.adapter.prepare({ list: [{ fieldName: 'title' }, { fieldName: 'note' }] })();
+      expect(session.adapter.describe().list).toHaveLength(2);
+    } finally {
+      workspace.dispose();
+    }
+  });
+
   it.each([undefined, 'education.exam', '考试登记'])(
     'uses the known business title for first page creation with module title %s',
     async (moduleTitle) => {
@@ -1353,7 +1532,7 @@ describe('PageCompositionWorkspace publication flow', () => {
       failReload = false;
       await button('加载最新配置').trigger('click');
       await flushPromises();
-      expect(tree.props('listFields')).toEqual([]);
+      expect(wrapper.findComponent(PageCompositionTree).props('listFields')).toEqual([]);
       expect(wrapper.find('[role="alert"]').exists()).toBe(false);
       expect(canDiscardChanges(wrapper)).toBe(false);
       expect(button('保存并生效').attributes('disabled')).toBeUndefined();
@@ -1426,7 +1605,7 @@ describe('PageCompositionWorkspace publication flow', () => {
           : { ...(saveBody as object), id: 'old-revision', version: 2 },
       );
       await flushPromises();
-      expect(tree.props('listFields')).toEqual([]);
+      expect(wrapper.findComponent(PageCompositionTree).props('listFields')).toEqual([]);
       expect(wrapper.find('[role="alert"]').exists()).toBe(false);
       expect(canDiscardChanges(wrapper)).toBe(false);
       expect(

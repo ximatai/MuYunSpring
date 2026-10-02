@@ -55,7 +55,13 @@ export function createPageCompositionAssistantSurface(
               parseInput: parseEmptyAssistantCapabilityInput,
               async execute(_input: unknown, context: Parameters<AssistantCapability['execute']>[1]) {
                 context.commitInternalState(() => {
-                  prepared = adapter.prepareEditing!();
+                  prepared = {
+                    ...adapter.prepareEditing!(),
+                    continuation: {
+                      message: '页面编辑已准备，请核实当前草稿并继续本次用户需求，发布仍需确认。',
+                      isCurrent: () => adapter.describe().editable,
+                    },
+                  };
                 });
                 return { pendingConfirmation: true, published: false };
               },

@@ -23,14 +23,14 @@ import type {
   WebPageResponse,
 } from '@muyun/web-contracts';
 import {
-  AssistantCapabilityUsageError,
-  AssistantOperationRejectedError,
-  createAssistantOperationConfirmation,
+  OperationUsageError,
+  OperationRejectedError,
+  createOperationConfirmation,
   AppError,
   type HttpClient,
   type HttpRequestOptions,
-  type AssistantOperationProposal,
-  type AssistantOperationConfirmation,
+  type OperationProposal,
+  type OperationConfirmation,
   createStaticResourceCrudClient,
 } from '@muyun/web-core';
 import {
@@ -69,7 +69,7 @@ import {
   MetadataChangeSetPrecheckError,
 } from './metadataChangeSetSubmission';
 import type {
-  MetadataGovernanceAssistantAdapter,
+  MetadataGovernanceEditor,
   MetadataFieldCandidate,
   MetadataFieldPlanInput,
   AddMetadataFieldDraftInput,
@@ -77,7 +77,7 @@ import type {
   FindMetadataFieldTargetsInput,
   PreparedMetadataPropertyFieldDraft,
   UpdateMetadataFieldDraftInput,
-} from './metadataGovernanceAssistantSurface';
+} from './metadataGovernanceEditor';
 import {
   buildMetadataModelTree,
   canReorderMetadataModelTree,
@@ -102,7 +102,7 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
   let disposed = false;
   const valid = () => !disposed && (options.valid?.() ?? true);
   function requireValid() {
-    if (!valid()) throw new AssistantCapabilityUsageError('身份或编辑会话已变化，请重新选择模块');
+    if (!valid()) throw new OperationUsageError('身份或编辑会话已变化，请重新选择模块');
   }
   const http: HttpClient = {
     async request<T>(request: HttpRequestOptions): Promise<T> {
@@ -560,7 +560,7 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
     async function loadWorkspace(commit?: (accept: () => void) => void) {
       requireValid();
       if (editSession.isDirty.value || state.mode.value !== 'view')
-        throw new AssistantCapabilityUsageError('请先保存或取消当前元数据候选，再刷新基线');
+        throw new OperationUsageError('请先保存或取消当前元数据候选，再刷新基线');
       const requestRevision = ++workspaceLoadRevision;
       const selectionBeforeRefresh = selectedTreeKey.value;
       if (!commit) {
@@ -600,7 +600,7 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
           }),
         );
         if (requestRevision !== workspaceLoadRevision || !valid() || moduleAlias !== props.moduleAlias) {
-          if (commit) throw new AssistantCapabilityUsageError('元数据读取已过期，请重新选择');
+          if (commit) throw new OperationUsageError('元数据读取已过期，请重新选择');
           return;
         }
         const accept = () => {
@@ -749,9 +749,9 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
     function prepareAssistantNewFieldDraft(input: AddMetadataFieldDraftInput) {
       const relationId = selectedRelationId.value;
       if (!relationId || !state.selectedMetadata.value?.id)
-        throw new AssistantCapabilityUsageError('No metadata relation is selected');
+        throw new OperationUsageError('No metadata relation is selected');
       if (state.fieldEditorOpen.value || sorting.value)
-        throw new AssistantCapabilityUsageError(
+        throw new OperationUsageError(
           'Finish or cancel the current metadata editor before adding another field',
         );
       requireEnabledFieldSpec(input.fieldSpecAlias);
@@ -879,7 +879,7 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
 
     function prepareAssistantFieldUpdate(input: UpdateMetadataFieldDraftInput) {
       const relationId = selectedRelationId.value;
-      if (!relationId) throw new AssistantCapabilityUsageError('No metadata relation is selected');
+      if (!relationId) throw new OperationUsageError('No metadata relation is selected');
       const revising = state.fieldEditorOpen.value;
       const candidate = assistantCandidate();
       if (
@@ -887,7 +887,7 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
         saving.value ||
         (revising && (!candidate?.editable || candidate.fieldName !== input.fieldName))
       )
-        throw new AssistantCapabilityUsageError(
+        throw new OperationUsageError(
           'Only the current editable candidate can be revised',
           'PRECONDITION_FAILED',
         );
@@ -900,13 +900,13 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
         !field ||
         (!revising && (!fieldEditableInSession(field) || fieldPropertyOf(field).kind !== 'BASIC'))
       )
-        throw new AssistantCapabilityUsageError('The selected metadata field is unavailable for editing');
+        throw new OperationUsageError('The selected metadata field is unavailable for editing');
       if (input.fieldSpecAlias) {
         const options = selectedRelationHasBusinessRecords.value
           ? dataSafeFieldSpecOptions(state.fieldSpecs.value, field.fieldSpecAlias)
           : state.fieldSpecOptions.value;
         if (!options.some((option) => option.value === input.fieldSpecAlias))
-          throw new AssistantCapabilityUsageError(
+          throw new OperationUsageError(
             'The selected field specification is unsafe for the current metadata data',
           );
       }
@@ -922,7 +922,7 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
         ...(input.enabled !== undefined ? { enabled: input.enabled } : {}),
       };
       if (JSON.stringify(updated) === JSON.stringify(field))
-        throw new AssistantCapabilityUsageError(
+        throw new OperationUsageError(
           'The requested metadata field update does not change the current value',
         );
       const property = revising
@@ -1184,11 +1184,11 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
     function prepareAssistantPropertyFieldCommit(prepared: PreparedMetadataPropertyFieldDraft) {
       const relationId = selectedRelationId.value;
       if (!relationId || relationId !== prepared.relationId)
-        throw new AssistantCapabilityUsageError(
+        throw new OperationUsageError(
           'The selected metadata relation changed before the candidate could be opened',
         );
       if (state.fieldEditorOpen.value || sorting.value)
-        throw new AssistantCapabilityUsageError(
+        throw new OperationUsageError(
           'Finish or cancel the current metadata editor before adding another field',
         );
       validateAssistantNewFieldName(relationId, prepared.fieldName);
@@ -1220,26 +1220,22 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
 
     function validateAssistantNewFieldName(relationId: string, fieldName: string) {
       if (!isPlatformFieldName(fieldName))
-        throw new AssistantCapabilityUsageError('The metadata field name is invalid');
+        throw new OperationUsageError('The metadata field name is invalid');
       if (isDynamicRecordReservedFieldName(fieldName))
-        throw new AssistantCapabilityUsageError(
-          'The metadata field name is reserved by the dynamic record protocol',
-        );
+        throw new OperationUsageError('The metadata field name is reserved by the dynamic record protocol');
       if (
         editSession
           .fieldsForDisplay(relationId, state.allFields.value)
           .some((field) => field.fieldName?.toLowerCase() === fieldName.toLowerCase())
       )
-        throw new AssistantCapabilityUsageError(
+        throw new OperationUsageError(
           `Metadata field “${fieldName}” already exists in the selected relation`,
         );
     }
 
     function requireEnabledFieldSpec(alias: string) {
       if (!state.fieldSpecs.value.some((spec) => spec.enabled !== false && (spec.alias ?? spec.id) === alias))
-        throw new AssistantCapabilityUsageError(
-          `The required metadata field specification is unavailable: ${alias}`,
-        );
+        throw new OperationUsageError(`The required metadata field specification is unavailable: ${alias}`);
     }
 
     function startCreateMainMetadata() {
@@ -1431,14 +1427,11 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
         !workspaceLoadFailed.value;
     }
 
-    async function prepareAssistantMetadataConfirmation(
-      signal: AbortSignal,
-    ): Promise<AssistantOperationProposal> {
-      if (saving.value || loading.value)
-        throw new AssistantCapabilityUsageError('请等待元数据加载或保存完成');
-      if (creatingChildMetadata.value) return prepareChildConfirmation(true);
+    async function prepareAssistantMetadataConfirmation(signal: AbortSignal): Promise<OperationProposal> {
+      if (saving.value || loading.value) throw new OperationUsageError('请等待元数据加载或保存完成');
+      if (creatingChildMetadata.value) return prepareChildConfirmation(options.confirmationScope);
       const proposal = assistantProposal();
-      if (!proposal) throw new AssistantCapabilityUsageError('请先完成有效的字段候选');
+      if (!proposal) throw new OperationUsageError('请先完成有效的字段候选');
       const moduleAlias = props.moduleAlias;
       const captured = captureMetadataCandidate();
       const current = () => captured() && (options.confirmationScope?.() ?? true);
@@ -1452,8 +1445,7 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
           state.fieldSpecs.value.map((spec) => [spec.alias ?? '', spec.title || spec.alias || '']),
         ),
       ).catch((cause: unknown) => {
-        if (cause instanceof MetadataChangeSetPrecheckError)
-          throw new AssistantCapabilityUsageError(cause.message);
+        if (cause instanceof MetadataChangeSetPrecheckError) throw new OperationUsageError(cause.message);
         throw cause;
       });
       return {
@@ -1466,7 +1458,6 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
           ],
           details: { title: '查看详细配置和影响', lines: submission.details },
         },
-        modelSummary: '元数据更改等待用户确认，尚未保存。',
         confirmLabel: '确认保存配置',
         expiresAt: Date.now() + 10 * 60_000,
         isCurrent: () => current() && !saving.value,
@@ -1635,11 +1626,10 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
     function prepareAssistantMainDraft(input: { title: string }) {
       requireValid();
       if (saving.value || loading.value || !workspaceReady.value)
-        throw new AssistantCapabilityUsageError('请先读取模块元数据');
+        throw new OperationUsageError('请先读取模块元数据');
       if (state.relations.value.length > 0)
-        throw new AssistantCapabilityUsageError('模块已有元数据，请选择现有节点继续配置');
-      if (dirty.value && !state.mainEditorOpen.value)
-        throw new AssistantCapabilityUsageError('请先保存或放弃当前候选');
+        throw new OperationUsageError('模块已有元数据，请选择现有节点继续配置');
+      if (dirty.value && !state.mainEditorOpen.value) throw new OperationUsageError('请先保存或放弃当前候选');
       return () => {
         if (!state.mainEditorOpen.value) startCreateMainMetadata();
         state.mainMetadataDraft.value.title = input.title;
@@ -1650,11 +1640,11 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
     function prepareAssistantChildDraft(input: { alias: string; title: string }) {
       requireValid();
       if (saving.value || loading.value || !workspaceReady.value || !selectedRelationId.value)
-        throw new AssistantCapabilityUsageError('请先选择并读取父元数据');
+        throw new OperationUsageError('请先选择并读取父元数据');
       if (dirty.value && !creatingChildMetadata.value)
-        throw new AssistantCapabilityUsageError('请先保存或放弃当前字段候选，再建设明细');
+        throw new OperationUsageError('请先保存或放弃当前字段候选，再建设明细');
       if (state.relations.value.some((relation) => relation.relationAlias === input.alias))
-        throw new AssistantCapabilityUsageError('此明细标识已存在，请选择现有明细继续配置');
+        throw new OperationUsageError('此明细标识已存在，请选择现有明细继续配置');
       return () => {
         if (!creatingChildMetadata.value) startCreateChildMetadataNode();
         childAliasManuallyEdited.value = true;
@@ -1663,7 +1653,7 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
       };
     }
 
-    function prepareChildConfirmation(assistant: boolean): AssistantOperationProposal {
+    function prepareChildConfirmation(scopeIsCurrent: () => boolean = () => true): OperationProposal {
       requireValid();
       const relationId = selectedRelationId.value;
       const draft = {
@@ -1680,13 +1670,13 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
         !draft.title ||
         draft.title.length > 120
       )
-        throw new AssistantCapabilityUsageError(childAliasError.value ?? '请填写不超过 120 字的明细名称');
+        throw new OperationUsageError(childAliasError.value ?? '请填写不超过 120 字的明细名称');
       if (state.relations.value.some((relation) => relation.relationAlias === draft.alias))
-        throw new AssistantCapabilityUsageError('此明细标识已存在，请选择现有明细继续配置');
+        throw new OperationUsageError('此明细标识已存在，请选择现有明细继续配置');
       const requestId = crypto.randomUUID();
       const parentTreeKey = metadataNodeKey(relationId);
       const captured = captureMetadataCandidate();
-      const current = () => captured() && (!assistant || (options.confirmationScope?.() ?? true));
+      const current = () => captured() && scopeIsCurrent();
       async function completeCreation(createdRelationId: string | undefined) {
         if (valid()) options.onCommitted?.(props.moduleAlias);
         try {
@@ -1696,7 +1686,7 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
           editSession.cancel();
           await loadWorkspace();
           if (!valid() || workspaceLoadFailed.value) throw new Error('最新元数据读取失败或上下文已失效');
-          if (assistant && !(options.confirmationScope?.() ?? true)) throw new Error('编辑上下文已变化');
+          if (!scopeIsCurrent()) throw new Error('编辑上下文已变化');
           state.focusRelation(createdRelationId);
           if (createdRelationId) {
             hydrateSelectedRelation(createdRelationId);
@@ -1736,13 +1726,12 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
             ],
           },
         },
-        modelSummary: '空明细及父关联等待确认，业务字段、规则和页面尚未完成。',
         confirmLabel: '确认建立明细',
         expiresAt: Date.now() + 10 * 60_000,
         isCurrent: () => current() && !saving.value && !loading.value,
         async execute() {
           if (!current() || saving.value || loading.value)
-            throw new AssistantOperationRejectedError('明细候选或编辑上下文已变化，请重新确认');
+            throw new OperationRejectedError('明细候选或编辑上下文已变化，请重新确认');
           saving.value = true;
           try {
             const result = await moduleContext.http
@@ -1753,7 +1742,7 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
               })
               .catch((cause: unknown) => {
                 if (cause instanceof AppError && [400, 401, 403, 404, 409, 422].includes(cause.status ?? 0))
-                  throw new AssistantOperationRejectedError(cause.message);
+                  throw new OperationRejectedError(cause.message);
                 throw cause;
               });
             return await completeCreation(result.relation.id);
@@ -1783,7 +1772,7 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
       };
     }
 
-    let manualChildCreation: AssistantOperationConfirmation | undefined;
+    let manualChildCreation: OperationConfirmation | undefined;
     async function createChildMetadata() {
       if (saving.value || loading.value) return;
       try {
@@ -1791,7 +1780,7 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
         if (manualChildCreation?.state === 'unknown') {
           await manualChildCreation.check();
         } else {
-          manualChildCreation = createAssistantOperationConfirmation(prepareChildConfirmation(false), valid);
+          manualChildCreation = createOperationConfirmation(prepareChildConfirmation(), valid);
           await manualChildCreation.confirm();
         }
         if (!valid()) return;
@@ -2197,12 +2186,12 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
       () => contextRevision.value++,
       { deep: true, flush: 'sync' },
     );
-    const adapter: MetadataGovernanceAssistantAdapter = {
+    const adapter: MetadataGovernanceEditor = {
       prepareMainDraft: prepareAssistantMainDraft,
       prepareChildDraft: prepareAssistantChildDraft,
       discardCandidate() {
         requireValid();
-        if (saving.value) throw new AssistantCapabilityUsageError('配置正在保存，请等待完成');
+        if (saving.value) throw new OperationUsageError('配置正在保存，请等待完成');
         sorting.value = false;
         cancelFieldPlan();
       },
@@ -2235,15 +2224,14 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
     async function ensureLoaded(refresh = false, commit?: (accept: () => void) => void) {
       requireValid();
       if (commit && (loading.value || saving.value))
-        throw new AssistantCapabilityUsageError('元数据正在读取或保存，请稍后再选择');
+        throw new OperationUsageError('元数据正在读取或保存，请稍后再选择');
       if (workspaceReady.value && fieldSpecsReady.value && (!refresh || dirty.value)) {
         commit?.(() => {});
         return;
       }
       if (commit) {
         if (!fieldSpecsReady.value) await loadFieldSpecs();
-        if (!fieldSpecsReady.value)
-          throw new AssistantCapabilityUsageError('字段规格加载未完成，请重新选择模块');
+        if (!fieldSpecsReady.value) throw new OperationUsageError('字段规格加载未完成，请重新选择模块');
         await loadWorkspace(commit);
         return;
       }
@@ -2252,7 +2240,7 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
           .then(() => {
             requireValid();
             if (!workspaceReady.value || workspaceLoadFailed.value || !fieldSpecsReady.value)
-              throw new AssistantCapabilityUsageError('元数据加载未完成，请重新选择模块');
+              throw new OperationUsageError('元数据加载未完成，请重新选择模块');
           })
           .finally(() => {
             pendingLoad = undefined;
@@ -2263,9 +2251,9 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
       requireValid();
       if (selectedRelationId.value === relationId) return;
       if (state.mode.value !== 'view' || editSession.isDirty.value || fieldPlanActive.value)
-        throw new AssistantCapabilityUsageError('请先保存或取消当前字段候选，再切换元数据');
+        throw new OperationUsageError('请先保存或取消当前字段候选，再切换元数据');
       const relation = state.relations.value.find((item) => item.id === relationId);
-      if (!relation) throw new AssistantCapabilityUsageError('元数据节点不存在，请读取实际节点目录');
+      if (!relation) throw new OperationUsageError('元数据节点不存在，请读取实际节点目录');
       state.selectRelation(relation);
       hydrateSelectedRelation(relationId);
       selectedTreeKey.value = metadataNodeKey(relationId);

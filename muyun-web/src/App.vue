@@ -13,6 +13,10 @@ import {
 } from 'vue';
 import { createWorkspaceViewDescriptor } from './platform-workbench/workspaceViews';
 import { moduleGovernanceWorkspaceView } from './views/moduleGovernanceWorkspaceView';
+import {
+  createPageCompositionWorkspace,
+  providePageCompositionWorkspace,
+} from './views/pageCompositionWorkspace';
 import { createMetadataWorkspace, provideMetadataWorkspace } from './views/metadataWorkspace';
 import { createBusinessRuleWorkspace, provideBusinessRuleWorkspace } from './views/businessRuleWorkspace';
 import { type RouteLocationNormalizedLoaded } from 'vue-router';
@@ -230,36 +234,57 @@ const businessRuleWorkspace = createBusinessRuleWorkspace(
   configurationIdentity,
   () => currentUser.value?.system === true,
   (alias) => openConfigurationEditor(alias, 'rules'),
-  () => metadataWorkspace.clearFocus(),
+  () => {
+    metadataWorkspace.clearFocus();
+    pageCompositionWorkspace.clearFocus();
+  },
 );
 const metadataWorkspace = createMetadataWorkspace(
   createBackendHttpClient(),
   configurationIdentity,
   () => currentUser.value?.system === true,
   (alias, title) => openConfigurationEditor(alias, 'metadata', title),
-  () => businessRuleWorkspace.clearFocus(),
+  () => {
+    businessRuleWorkspace.clearFocus();
+    pageCompositionWorkspace.clearFocus();
+  },
   (alias, title) => openConfigurationEditor(alias, 'ui', title),
 );
+const pageCompositionWorkspace = createPageCompositionWorkspace(
+  createBackendHttpClient(),
+  configurationIdentity,
+  () => currentUser.value?.system === true,
+  (alias) => openConfigurationEditor(alias, 'ui'),
+  () => {
+    metadataWorkspace.clearFocus();
+    businessRuleWorkspace.clearFocus();
+  },
+);
+providePageCompositionWorkspace(pageCompositionWorkspace);
 provideBusinessRuleWorkspace(businessRuleWorkspace);
 provideMetadataWorkspace(metadataWorkspace);
 const configurationWorkspace = {
-  editor: () => metadataWorkspace.editor() ?? businessRuleWorkspace.editor(),
+  editor: () =>
+    metadataWorkspace.editor() ?? businessRuleWorkspace.editor() ?? pageCompositionWorkspace.editor(),
   current() {
     const rules = businessRuleWorkspace.current();
     const metadata = metadataWorkspace.current();
+    const pages = pageCompositionWorkspace.current();
     return {
-      revision: JSON.stringify([rules.revision, metadata.revision]),
-      facts: { ...rules.facts, ...metadata.facts },
+      revision: JSON.stringify([rules.revision, metadata.revision, pages.revision]),
+      facts: { ...rules.facts, ...metadata.facts, ...pages.facts },
     };
   },
   capabilities: (settle?: Parameters<typeof metadataWorkspace.capabilities>[0]) => [
     ...businessRuleWorkspace.capabilities(settle),
     ...metadataWorkspace.capabilities(settle),
+    ...pageCompositionWorkspace.capabilities(),
   ],
 };
 watch(currentUser, () => configurationWorkspace.current(), { flush: 'sync' });
 onUnmounted(() => {
   metadataWorkspace.dispose();
+  pageCompositionWorkspace.dispose();
   businessRuleWorkspace.dispose();
 });
 

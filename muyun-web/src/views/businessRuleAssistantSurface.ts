@@ -10,24 +10,19 @@ import {
 } from '@muyun/web-core';
 import type {
   BusinessRuleProposal,
-  BusinessRulePreview,
   BusinessRuleTrialResult,
   BusinessRuleSnapshotRule,
 } from './businessRuleGovernance';
 import { toProposal, businessRuleTrialValue } from './businessRuleGovernance';
 
-export interface BusinessRuleTrialInput {
-  sampleValues: Record<string, unknown>;
-  sampleChildren: Record<string, Record<string, unknown>[]>;
-}
-export interface BusinessRuleAssistantAdapter {
-  summary(): { moduleAlias: string; title?: string; editable: boolean };
-  catalog(section: string): unknown[];
-  revise(rule: BusinessRuleProposal): void;
-  preview(signal: AbortSignal): Promise<BusinessRulePreview>;
-  trial(input: BusinessRuleTrialInput, signal: AbortSignal): Promise<BusinessRuleTrialResult>;
-  prepareConfirmation(signal: AbortSignal): Promise<AssistantOperationProposal>;
-}
+import type {
+  BusinessRuleTrialInput,
+  BusinessRuleEditor as BusinessRuleAssistantAdapter,
+} from './businessRuleEditor';
+export type {
+  BusinessRuleTrialInput,
+  BusinessRuleEditor as BusinessRuleAssistantAdapter,
+} from './businessRuleEditor';
 const sections = ['fields', 'childFields', 'aggregateFields', 'functions', 'rules', 'forms'] as const;
 const object = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === 'object' && !Array.isArray(value);
