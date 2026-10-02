@@ -1,4 +1,4 @@
-import { expect, it } from 'vitest';
+import { expect, it, vi } from 'vitest';
 import {
   assistantFieldDisplay,
   assistantConfirmationFieldDisplay,
@@ -31,6 +31,26 @@ const relation = {
   embeddedField: 'members',
   targetEntityAlias: 'member',
 } as ResolvedDetailRelationDescriptor;
+
+it('does not resolve a stale computed reference for save confirmation', async () => {
+  const fields = resolveRecordFormFields({
+    defaultEditor: {
+      fields: [
+        {
+          fieldRef: { fieldName: 'ownerId' },
+          calculationTiming: 'ON_SAVE',
+          readOnly: { constant: true },
+          reference: { targetModuleAlias: 'iam.user', cardinality: 'ONE' },
+        },
+      ],
+    },
+  } as unknown as ResolvedModuleUiDescriptor);
+  const field = resolveRecordFormFieldState('ownerId', { fields, mode: 'edit' });
+  const resolve = vi.fn(async () => [{ id: 'old', title: '旧负责人' }]);
+  field.pickerConfig = { provider: { resolve } } as unknown as typeof field.pickerConfig;
+  expect(await assistantConfirmationFieldDisplay(field, { ownerId: 'old' })).toBe('保存后计算');
+  expect(resolve).not.toHaveBeenCalled();
+});
 
 it('marks unsaved calculated values in context and confirmation while retaining saved facts', () => {
   const calculated = structuredClone(descriptor);

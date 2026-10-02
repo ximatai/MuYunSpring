@@ -36,6 +36,7 @@ export async function assistantConfirmationFieldDisplay(
   field: RecordFormFieldState,
   record: RecordFormRecord,
 ) {
+  if (field.calculationPending) return assistantFieldDisplay(field, record);
   const value = record[field.fieldName];
   if (!field.reference || !field.pickerConfig?.provider || value == null || value === '')
     return assistantFieldDisplay(field, record);

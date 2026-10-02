@@ -284,7 +284,7 @@ public record ResolvedViewFieldDescriptor(ViewFieldRef fieldRef,
     }
 
     public ResolvedViewFieldDescriptor withComputedValue(String hint) {
-        return withComputedValue(hint, null);
+        return withComputedValue(hint, calculationTiming);
     }
 
     public ResolvedViewFieldDescriptor withComputedValue(String hint, CalculationTiming timing) {

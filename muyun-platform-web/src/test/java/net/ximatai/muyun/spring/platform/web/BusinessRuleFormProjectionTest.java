@@ -50,6 +50,7 @@ class BusinessRuleFormProjectionTest {
         assertThat(childOutput.readOnly().disabledHint()).contains("保存时自动计算");
         assertThat(childOutput.withReadOnly(UiRule.constant(true)).withUiState(UiRule.constant(true), UiRule.constant(true))
                 .withAssistantPolicy(childOutput.assistantPolicy()).withInputRequirements(childOutput.inputRequirements())
+                .withComputedValue("updated hint")
                 .calculationTiming()).isEqualTo(ResolvedViewFieldDescriptor.CalculationTiming.ON_SAVE);
         assertThat(projected.fields().getFirst().calculationTiming())
                 .isEqualTo(ResolvedViewFieldDescriptor.CalculationTiming.IMMEDIATE);
