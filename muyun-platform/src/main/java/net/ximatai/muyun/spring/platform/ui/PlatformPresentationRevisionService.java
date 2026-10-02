@@ -180,14 +180,14 @@ public class PlatformPresentationRevisionService extends AbstractAbilityService<
 
     private void rejectPublishedContentMutation(PlatformPresentationRevision existing,
                                                 PlatformPresentationRevision incoming) {
-        if (existing == null || existing.getStatus() != PlatformPresentationRevisionStatus.PUBLISHED) {
+        if (existing == null || existing.getStatus() == PlatformPresentationRevisionStatus.DRAFT) {
             return;
         }
         if (!Objects.equals(existing.getTemplateAlias(), incoming.getTemplateAlias())
                 || !Objects.equals(existing.getTemplateVersion(), incoming.getTemplateVersion())
                 || !Objects.equals(existing.getUiTreeJson(), incoming.getUiTreeJson())) {
             throw BusinessExceptions.warning("platform.presentation-revision.published-content-mutation-denied",
-                    "Published presentation revision template and UI tree cannot be changed; create a draft revision");
+                    "Published or archived presentation revision template and UI tree cannot be changed; create a draft revision");
         }
     }
 
@@ -201,7 +201,7 @@ public class PlatformPresentationRevisionService extends AbstractAbilityService<
                     "Presentation revision status can only be changed through presentation revision publish service: "
                             + incoming.getId());
         }
-        if (existing != null || incoming.getStatus() != PlatformPresentationRevisionStatus.PUBLISHED) {
+        if (existing != null || incoming.getStatus() == PlatformPresentationRevisionStatus.DRAFT) {
             return;
         }
         throw BusinessExceptions.warning("platform.presentation-revision.direct-publish-denied",

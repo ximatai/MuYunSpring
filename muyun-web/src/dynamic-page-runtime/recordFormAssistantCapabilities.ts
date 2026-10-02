@@ -79,6 +79,7 @@ function referenceResolveAndPatchCapability(
     parseInput(input) {
       if (
         !isRecord(input) ||
+        Object.keys(input).some((key) => !['fieldName', 'title'].includes(key)) ||
         typeof input.fieldName !== 'string' ||
         !fieldNames.includes(input.fieldName) ||
         typeof input.title !== 'string' ||
@@ -163,6 +164,7 @@ function referenceSearchCapability(
     parseInput(input) {
       if (
         !isRecord(input) ||
+        Object.keys(input).some((key) => !['fieldName', 'keyword'].includes(key)) ||
         typeof input.fieldName !== 'string' ||
         !fieldNames.includes(input.fieldName) ||
         typeof input.keyword !== 'string' ||

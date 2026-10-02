@@ -1,3 +1,5 @@
+import { pagePublicationDigest } from '@muyun/web-core';
+import type { OperationReceiptReference } from '@muyun/web-contracts';
 import type { HttpClient } from '@muyun/web-core';
 import { pageCompositionTransport } from './pageCompositionTransport';
 
@@ -29,6 +31,15 @@ export function createPageCompositionPublicationCommand(options: {
   const composition = options.composition && JSON.parse(JSON.stringify(options.composition));
   const receipt = () => ({ title: '页面已保存并生效', lines: ['业务页面将使用本次确认的配置。'] });
   return {
+    async receiptReference(): Promise<OperationReceiptReference | undefined> {
+      if (composition) return undefined;
+      return {
+        kind: 'page-publication',
+        variantId: options.variantId,
+        revisionId: candidate.id!,
+        contentDigest: await pagePublicationDigest(candidate),
+      };
+    },
     async execute() {
       options.requireCurrent();
       await options.http.request({
@@ -65,9 +76,13 @@ export function createPageCompositionPublicationCommand(options: {
           : undefined;
       }
       const saved = (await options.readRevisions()).find((value) => value.id === candidate.id);
-      return saved?.status === pageCompositionTransport.publishedRevision &&
+      return (saved?.status === pageCompositionTransport.publishedRevision || saved?.status === 'archived') &&
+        saved.templateAlias === candidate.templateAlias &&
+        saved.templateVersion === candidate.templateVersion &&
         saved.uiTreeJson === candidate.uiTreeJson
-        ? receipt()
+        ? saved.status === 'archived'
+          ? { title: '原页面发布已确认', lines: ['本次配置已提交；当前业务页面以最新发布修订为准。'] }
+          : receipt()
         : undefined;
     },
   };

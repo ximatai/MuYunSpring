@@ -1774,3 +1774,95 @@ it.each(['继续处理', '调整需求'])(
     wrapper.unmount();
   },
 );
+
+it('checkpoints the receipt before submission and restores only read-only recovery after a lost response', async () => {
+  const reference = {
+    kind: 'record-save' as const,
+    moduleAlias: 'sales.order',
+    requestId: 'original-request-123',
+  };
+  let saved: import('@muyun/web-core').AssistantConversationSnapshot | undefined;
+  const execute = vi.fn(async () => {
+    expect(
+      saved?.content.messages.some(
+        (message) =>
+          message.operationReceipt?.reference.kind === 'record-save' &&
+          message.operationReceipt.reference.requestId === reference.requestId,
+      ),
+    ).toBe(true);
+    throw new Error('response lost after commit');
+  });
+  const client: import('@muyun/web-core').AssistantConversationClient = {
+    list: vi.fn(async () => [{ id: 'history', title: '保存订单', updatedAt: '' }]),
+    read: vi.fn(async () => saved!),
+    save: vi.fn(async (_id, _scope, revision, content) => {
+      saved = {
+        id: 'history',
+        revision: revision + 1,
+        updatedAt: '',
+        content: JSON.parse(JSON.stringify(content)),
+      };
+      return saved;
+    }),
+    lookupOperation: vi.fn(async () => ({ title: '原保存已确认', lines: ['记录仍存在'] })),
+  };
+  const requestTurn = vi.fn(async () => ({
+    toolCalls: [{ id: 'prepare', code: 'record.prepare', input: {} }],
+  }));
+  const registry = createRegistryWithCapabilities(requestTurn, [
+    {
+      effect: 'read',
+      descriptor: { code: 'record.prepare', description: '', inputSchema: {} },
+      parseInput: (input) => input,
+      execute: async () => ({}),
+      propose: () => ({
+        receiptReference: reference,
+        presentation: { title: '保存订单', lines: [] },
+        expiresAt: Date.now() + 60000,
+        isCurrent: () => true,
+        execute,
+        lookup: async () => undefined,
+      }),
+    },
+  ]);
+  let wrapper = mount(WorkbenchAssistantPanel, {
+    props: { open: true, registry, conversationClient: client },
+  });
+  await wrapper.get('textarea').setValue('保存订单');
+  await wrapper.get('button.ant-btn-primary').trigger('click');
+  await flushPromises();
+  await wrapper
+    .findAll('button')
+    .find((button) => button.text() === '确认保存')!
+    .trigger('click');
+  await flushPromises();
+  expect(execute).toHaveBeenCalledOnce();
+  expect(wrapper.text()).toContain('查询操作结果');
+  wrapper.unmount();
+  wrapper = mount(WorkbenchAssistantPanel, { props: { open: true, registry, conversationClient: client } });
+  await wrapper
+    .findAll('button')
+    .find((button) => button.text() === '历史会话')!
+    .trigger('click');
+  await flushPromises();
+  await wrapper
+    .findAll('button')
+    .find((button) => button.text().includes('保存订单'))!
+    .trigger('click');
+  await flushPromises();
+  await wrapper
+    .findAll('button')
+    .find((button) => button.text() === '查看之前的对话')!
+    .trigger('click');
+  expect(wrapper.findAll('button').some((button) => button.text() === '确认保存')).toBe(false);
+  await wrapper
+    .findAll('button')
+    .find((button) => button.text() === '查询操作结果')!
+    .trigger('click');
+  await flushPromises();
+  expect(client.lookupOperation).toHaveBeenCalledExactlyOnceWith(reference);
+  expect(wrapper.text()).toContain('原保存已确认');
+  expect(execute).toHaveBeenCalledOnce();
+  expect(requestTurn).toHaveBeenCalledOnce();
+  wrapper.unmount();
+});

@@ -86,10 +86,10 @@ M2、M3 的变更可能要求重新核实 M4；它们不是永久单向流水线
 | M2 字段与引用 | 模块级共享元数据会话、批量候选、change-set、引用目录和保护存在 | 普通字段、引用、字典复用标准会话，人工修改使旧确认失效 | 公共编辑契约已归平台；业务组合仍待验收。E2 |
 | M2 直接子表 | 正式子元数据创建、父关系与物理表事务、请求回执存在 | 可准备同一子表候选并人工确认 | 人工与助手共用平台确认状态机；保留各自呈现。E3 |
 | M3 规则 | 共享规则候选、预检/试算/应用、明细先计算再汇总、保存复算存在 | 规则适配读取目录并修订同一候选 | 公共异常及提议已归平台；完整价格语义待验收。E4 |
-| M4 页面 | 标准编排、预检、修订发布与精确发布结果核实存在 | 可视入口复用页面候选；纯对话还保留独立 construction 页面发布 | 模块级会话已与组件解耦；旧 construction 写路径在阶段 2 回收。E5 |
+| M4 页面 | 标准编排、预检、修订发布与精确发布结果核实存在 | 纯对话与可视入口共用页面候选；旧 construction 页面写路径已退役 | 模块级会话与组件解耦；旧回执只读查询保留。E5 |
 | M5 菜单与访问 | 标准“添加到菜单”、IAM 开通/授权、运行态刷新存在 | 建设入口不授予业务权限，回执后刷新菜单 | 已有基础；目标普通用户可用性须纳入平台门槛。E6 |
 | M6 业务保存 | 真实 PostgreSQL 与 HTTP 测试覆盖引用、主子表计算、新增/修改/删行/重开 | 主记录及一层聚合草稿、普通业务保存确认与回执查询存在 | 已有跨层证据；未证明商品改价后的历史成交价，以及全浏览器从空白建设。E7、E8 |
-| 助手公共链 | 标准字段策略、网关、作用域 HTTP 和正式业务入口存在 | 原生工具消息、Surface 令牌、有界循环、确认、会话历史存在 | 已有基础；参数契约一致性、通用未知结果跨刷新核实待治理。E8、E9 |
+| 助手公共链 | 标准字段策略、网关、作用域 HTTP 和正式业务入口存在 | 原生工具消息、Surface 令牌、有界循环、确认、会话历史存在 | 引用查询参数已对齐；记录、子表及标准页面发布支持最小引用的跨刷新只读核实，上下文效率待治理。E8、E9 |
 | 完整交付 | 领域与组件测试覆盖多个片段 | 真实模型局部样本不能证明连续多模块目标 | 待验收：同一基线下人工、助手与真实业务证据尚未合并。E7、E10 |
 
 ### 证据索引
@@ -100,11 +100,11 @@ M2、M3 的变更可能要求重新核实 M4；它们不是永久单向流水线
 - **E2 字段候选**：[共享元数据工作区](../../muyun-web/src/views/metadataWorkspace.ts)、[工作区契约测试](../../muyun-web/tests/views/metadataWorkspace.test.ts)、[真实 change-set 测试](../../muyun-platform/src/test/java/net/ximatai/muyun/spring/platform/metadata/MetadataRelationChangeSetApplyIT.java)。
 - **E3 子表创建**：[领域创建服务](../../muyun-platform/src/main/java/net/ximatai/muyun/spring/platform/metadata/ModuleChildMetadataCreationService.java)、[人工与助手编辑会话](../../muyun-web/src/views/metadataEditorSession.ts)、E2 工作区测试中的创建及未知结果用例。
 - **E4 规则**：[规则编辑会话](../../muyun-web/src/views/businessRuleSession.ts)、[会话测试](../../muyun-web/tests/views/businessRuleSession.test.ts)、[规则数据库契约](../../muyun-platform/src/test/java/net/ximatai/muyun/spring/platform/metadata/BusinessRuleGovernanceRepositoryIT.java)。
-- **E5 页面**：[页面会话](../../muyun-web/src/views/pageCompositionSession.ts)、[模块工作区](../../muyun-web/src/views/pageCompositionWorkspace.ts)、[共享发布命令](../../muyun-web/src/views/pageCompositionPublication.ts)、[独立建设交付适配](../../muyun-web/src/platform-workbench/constructionDelivery.ts)、[页面发布组件测试](../../muyun-web/tests/views/PageCompositionWorkspace.publish.component.test.ts)。
+- **E5 页面**：[页面会话](../../muyun-web/src/views/pageCompositionSession.ts)、[模块工作区](../../muyun-web/src/views/pageCompositionWorkspace.ts)、[共享发布命令](../../muyun-web/src/views/pageCompositionPublication.ts)、[建设入口与验收适配](../../muyun-web/src/platform-workbench/constructionDelivery.ts)、[页面发布组件测试](../../muyun-web/tests/views/PageCompositionWorkspace.publish.component.test.ts)。
 - **E6 入口与生效**：[模块菜单入口](../../muyun-web/src/platform-admin-runtime/module-menu/ModuleMenuDrawer.vue)、[菜单组件测试](../../muyun-web/tests/platform-admin-runtime/module-menu/ModuleMenuDrawer.component.test.ts)、[运行态集成测试](../../muyun-platform/src/test/java/net/ximatai/muyun/spring/platform/runtime/PlatformDynamicRuntimeRefresherIT.java)、[权限专题](topics/identity-permission/OVERVIEW.md)。
 - **E7 业务组合**：[ConstructionFieldsIT](../../muyun-demo-web/src/test/java/net/ximatai/muyun/spring/demo/school/test/ConstructionFieldsIT.java)。含引用客户、明细计算、页面/菜单及租户标准 HTTP 保存、修改删行、重开和详情；前半段直接 Service 建配置，未包含商品改价后的历史成交价验证，不能证明人工或模型从空白浏览器建设。
 - **E8 确认与结果**：[平台确认契约](../../muyun-web/src/web-core/operationConfirmation.ts)、[标准页面保存](../../muyun-web/src/dynamic-page-runtime/useModulePageSession.ts)、[回执事务测试](../../muyun-platform/src/test/java/net/ximatai/muyun/spring/platform/save/RecordSaveReceiptRepositoryIT.java)。
-- **E9 运行与恢复**：[助手运行器](../../muyun-web/src/web-core/assistantRuntime.ts)、[运行器测试](../../muyun-web/tests/web-core/assistantRuntime.test.ts)、[会话控制器](../../muyun-web/src/platform-workbench/useAssistantConversation.ts)、[历史恢复测试](../../muyun-web/tests/platform-workbench/useAssistantConversationArchive.test.ts)。
+- **E9 运行与恢复**：[助手运行器](../../muyun-web/src/web-core/assistantRuntime.ts)、[运行器测试](../../muyun-web/tests/web-core/assistantRuntime.test.ts)、[会话控制器](../../muyun-web/src/platform-workbench/useAssistantConversation.ts)、[历史恢复测试](../../muyun-web/tests/platform-workbench/useAssistantConversationArchive.test.ts)、[查询引用测试](../../muyun-web/tests/web-core/operationReceipt.test.ts)、[跨刷新面板测试](../../muyun-web/tests/platform-workbench/WorkbenchAssistantPanel.component.test.ts)。
 - **E10 页面交互**：[页面浏览器测试](../../muyun-web/tests/views/PageCompositionWorkspace.browser.test.ts)、[标准页面组件测试](../../muyun-web/tests/dynamic-page-runtime/DynamicModuleHost.component.test.ts)。组件及使用 HTTP fixture 的浏览器测试不能替代全栈、真实模型交付演练。
 
 ## 分支链路与处理顺序

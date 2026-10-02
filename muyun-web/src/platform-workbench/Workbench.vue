@@ -203,7 +203,7 @@ function workbenchAssistantCapabilities() {
       },
       settleAssistantNavigation,
     ),
-    ...configurationCollaboration.filterConstruction(constructionPlan?.capabilities() ?? []),
+    ...(constructionPlan?.capabilities() ?? []),
     ...(constructionPlan?.continueConfiguration(shared, configurationEditor.value?.moduleAlias) ?? shared),
     ...(configuration.length ? configurationCollaboration.capabilities() : []),
   ];

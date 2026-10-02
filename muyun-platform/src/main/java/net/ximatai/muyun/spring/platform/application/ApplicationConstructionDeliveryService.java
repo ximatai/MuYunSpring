@@ -11,7 +11,6 @@ import net.ximatai.muyun.spring.common.platform.ActionExecutionContext;
 import net.ximatai.muyun.spring.common.platform.ActionExecutionPolicyService;
 import net.ximatai.muyun.spring.common.tenant.TenantContext;
 import net.ximatai.muyun.spring.platform.menu.*;
-import net.ximatai.muyun.spring.platform.metadata.MetadataField;
 import net.ximatai.muyun.spring.platform.runtime.DynamicRuntimeActivationService;
 import net.ximatai.muyun.spring.platform.ui.*;
 import org.springframework.stereotype.Service;
@@ -22,7 +21,7 @@ import java.security.MessageDigest;
 import java.time.Instant;
 import java.util.*;
 
-/** Requirements-bound publication; page and menu nodes retain separate confirmation/transaction boundaries. */
+/** Requirements-bound entry and acceptance; page editing belongs to standard page governance. */
 @Service
 public class ApplicationConstructionDeliveryService {
     private static final ObjectMapper JSON = new ObjectMapper().findAndRegisterModules();
@@ -33,11 +32,7 @@ public class ApplicationConstructionDeliveryService {
     private final ApplicationConstructionAcceptanceDao acceptances;
     private final PlatformPageDefinitionService pages;
     private final PlatformPresentationVariantService variants;
-    private final PlatformPresentationRevisionService revisions;
-    private final PlatformPresentationRevisionPublishService publisher;
     private final PlatformPresentationRevisionResolver presentationResolver;
-    private final PlatformPresentationTemplateCatalog templates;
-    private final ApplicationConstructionPageCompiler compiler;
     private final MenuService menus;
     private final MenuSchemeService schemes;
     private final DynamicRuntimeActivationService activation;
@@ -45,12 +40,10 @@ public class ApplicationConstructionDeliveryService {
 
     public ApplicationConstructionDeliveryService(net.ximatai.muyun.database.core.IDatabaseOperations<?> database, ApplicationConstructionPlanService plans, ApplicationConstructionFieldService fields,
             ApplicationConstructionDeliveryDao receipts, ApplicationConstructionAcceptanceDao acceptances, PlatformPageDefinitionService pages, PlatformPresentationVariantService variants,
-            PlatformPresentationRevisionService revisions, PlatformPresentationRevisionPublishService publisher, PlatformPresentationRevisionResolver presentationResolver,
-            PlatformPresentationTemplateCatalog templates, ApplicationConstructionPageCompiler compiler, MenuService menus,
+            PlatformPresentationRevisionResolver presentationResolver, MenuService menus,
             MenuSchemeService schemes, DynamicRuntimeActivationService activation, ActionExecutionPolicyService permissions) {
         this.presentationResolver = Objects.requireNonNull(presentationResolver);
         this.database = Objects.requireNonNull(database); this.plans = Objects.requireNonNull(plans); this.fields = Objects.requireNonNull(fields); this.receipts = Objects.requireNonNull(receipts); this.acceptances = Objects.requireNonNull(acceptances); this.pages = Objects.requireNonNull(pages); this.variants = Objects.requireNonNull(variants);
-        this.revisions = Objects.requireNonNull(revisions); this.publisher = Objects.requireNonNull(publisher); this.templates = Objects.requireNonNull(templates); this.compiler = Objects.requireNonNull(compiler);
         this.menus = Objects.requireNonNull(menus); this.schemes = Objects.requireNonNull(schemes); this.activation = Objects.requireNonNull(activation); this.permissions = Objects.requireNonNull(permissions);
     }
     public enum Kind { PAGE, ENTRY }
@@ -93,7 +86,8 @@ public class ApplicationConstructionDeliveryService {
     public Preview preview(String planId, Proposal proposal) {
         requireOperator();
         if (proposal == null) throw new IllegalArgumentException("建设节点参数无效");
-        requirePermissions(proposal.kind());
+        requireEntry(proposal.kind());
+        requirePermissions();
         var plan = plans.read(planId);
         plan.requireOpen(proposal.objectKey());
         if (plan.revision() != proposal.planRevision()) throw new IllegalArgumentException("需求版本已变化，请重新预检");
@@ -103,56 +97,8 @@ public class ApplicationConstructionDeliveryService {
             throw new IllegalArgumentException("已确认要求尚未落实到字段、关系或计算配置，请先补齐再发布页面或入口");
         var binding = plan.initializations().stream().filter(value -> value.objectKey().equals(proposal.objectKey())).findFirst().orElseThrow();
         try (var ignored = TenantContext.system("construction delivery preview")) {
-            var own = latest(planId, proposal.objectKey(), Kind.PAGE);
-            var page = own == null ? null : pages.select(own.pageId());
-            if (proposal.kind() == Kind.PAGE && own != null && (page == null || !page.getModuleAlias().equals(binding.moduleAlias()) || !page.getMainRelationId().equals(binding.relationId())))
-                throw new IllegalArgumentException("已建页面绑定发生变化，请核对后继续");
-            if (proposal.kind() == Kind.PAGE && own != null && !published(own)) throw new IllegalArgumentException("已建页面已被其他修订替换或停用，请先核对正式页面");
-            if (proposal.kind() == Kind.PAGE && page == null && pages.resolveGlobalPage(binding.moduleAlias(), "management").isPresent())
-                throw new IllegalArgumentException("模块已有独立页面，不能自动接管");
             var lines = new ArrayList<String>();
             Object baseline;
-            if (proposal.kind() == Kind.PAGE) {
-                var byName = new LinkedHashMap<String, MetadataField>();
-                description.fields().forEach(field -> byName.put(field.getFieldName(), field));
-                for (String name : java.util.stream.Stream.of(proposal.listFields(), proposal.formFields(), proposal.searchFields()).flatMap(List::stream).toList())
-                    if (!byName.containsKey(name)) throw new IllegalArgumentException("字段不在实际目录中：" + name);
-                for (var field : description.fields()) {
-                    if (Boolean.TRUE.equals(field.getRequired()) && !SYSTEM_FIELDS.contains(field.getFieldName()) && !proposal.formFields().contains(field.getFieldName()))
-                        throw new IllegalArgumentException("表单必须包含必填字段：" + field.getTitle());
-                }
-                var placed = new HashSet<>(proposal.formFields());
-                for (var placement : proposal.childFields().entrySet()) {
-                    var child = description.children().get(placement.getKey());
-                    if (child == null) throw new IllegalArgumentException("明细不在当前主表的实际目录中：" + placement.getKey());
-                    var byChildName = new LinkedHashMap<String, MetadataField>();
-                    child.fields().stream().filter(field -> !Boolean.FALSE.equals(field.getEnabled()))
-                            .forEach(field -> byChildName.put(field.getFieldName(), field));
-                    for (String name : placement.getValue()) {
-                        if (!byChildName.containsKey(name) || SYSTEM_FIELDS.contains(name) || name.equals(child.relation().getForeignKey()))
-                            throw new IllegalArgumentException("明细字段不可放入表单：" + placement.getKey() + "." + name);
-                        placed.add(placement.getKey() + "." + name);
-                    }
-                    for (var field : byChildName.values())
-                        if (Boolean.TRUE.equals(field.getRequired()) && !SYSTEM_FIELDS.contains(field.getFieldName())
-                                && !field.getFieldName().equals(child.relation().getForeignKey()) && !placement.getValue().contains(field.getFieldName()))
-                            throw new IllegalArgumentException("明细表单必须包含必填字段：" + field.getTitle());
-                    lines.add("明细“" + child.relation().getTitle() + "”：" + titles(placement.getValue(), byChildName));
-                }
-                var requiredInputs = requiredInputs(plan.content(), proposal.objectKey());
-                if (!placed.containsAll(requiredInputs) || !proposal.childFields().keySet().containsAll(requiredChildren(plan.content(), proposal.objectKey())))
-                    throw new IllegalArgumentException("页面表单必须包含已确认需求对应的登记字段，包含选填字段");
-                if (proposal.formFields().stream().anyMatch(SYSTEM_FIELDS::contains)) throw new IllegalArgumentException("系统字段不能作为可编辑表单字段");
-                var candidate = page == null ? page(binding, proposal.title()) : page;
-                var revision = revision(null, proposal, 1, description);
-                templates.validateUiTree(revision, templates.require("management", PlatformPresentationTemplateCatalog.MODE_AWARE_VERSION, PlatformPresentationClientType.WEB, PlatformPageContractType.MANAGEMENT));
-                compiler.validate(candidate, revision);
-                lines.add("列表：" + titles(proposal.listFields(), byName));
-                lines.add("表单与详情：" + titles(proposal.formFields(), byName));
-                lines.add("快速查询：" + titles(proposal.searchFields(), byName));
-                lines.add("仅发布列表、表单、详情及查询配置；不修改字段约束、关系或其他业务规则。");
-                baseline = page == null ? "NEW" : List.of(page, variants.requireVisibleVariant(own.variantId()), revisions.list(Criteria.of().eq("variantId", own.variantId())));
-            } else {
                 var currentPage = currentPage(plan, proposal.objectKey());
                 if (currentPage == null) throw new IllegalArgumentException("请先完成页面发布");
                 if (!pageCoversRequirements(plan.content(), proposal.objectKey(), currentPage.revision()))
@@ -164,7 +110,6 @@ public class ApplicationConstructionDeliveryService {
                 lines.add("在当前系统工作台菜单方案“" + scheme.getTitle() + "”下创建入口：" + proposal.title());
                 lines.add("入口使用已发布页面，不授予角色或租户业务用户新的业务权限。");
                 baseline = List.of(currentPage, scheme);
-            }
             lines.add("依据需求第 " + plan.revision() + " 版；业务可用性仍需按验收例子核对。");
             return new Preview(proposal, binding.moduleAlias(), List.copyOf(lines), digest(json(List.of(planId, proposal, description, baseline))));
         }
@@ -174,7 +119,8 @@ public class ApplicationConstructionDeliveryService {
     public Receipt confirm(String planId, Command command) {
         requireOperator();
         if (command == null || command.proposal() == null || command.fingerprint() == null) throw new IllegalArgumentException("确认参数无效");
-        requirePermissions(command.proposal().kind()); plans.read(planId); requireRequestId(command.requestId());
+        requireEntry(command.proposal().kind());
+        requirePermissions(); plans.read(planId); requireRequestId(command.requestId());
         PlatformAbilityRuntime.lockMutationPartition("platform.application-construction-plan", planId);
         String id = digest(planId + ":" + command.requestId()).substring(0, 32);
         var previous = receipts.findById(id);
@@ -189,27 +135,7 @@ public class ApplicationConstructionDeliveryService {
         var plan = plans.read(planId);
         var binding = plan.initializations().stream().filter(value -> value.objectKey().equals(proposal.objectKey())).findFirst().orElseThrow();
         try (var ignored = TenantContext.system("confirmed construction delivery")) {
-            var old = latest(planId, proposal.objectKey(), Kind.PAGE);
             Receipt result;
-            if (proposal.kind() == Kind.PAGE) {
-                String pageId, variantId;
-                int number = 1;
-                if (old == null) {
-                    pageId = pages.insert(page(binding, proposal.title()));
-                    var variant = new PlatformPresentationVariant(); variant.setPageId(pageId); variant.setTitle(proposal.title());
-                    variant.setEnabled(true); variant.setClientType(PlatformPresentationClientType.WEB); variant.setScopeType(PlatformPresentationScopeType.GLOBAL);
-                    variantId = variants.insert(variant);
-                } else {
-                    pageId = old.pageId(); variantId = old.variantId();
-                    number = revisions.list(Criteria.of().eq("variantId", variantId)).stream().mapToInt(PlatformPresentationRevision::getRevisionNo).max().orElse(0) + 1;
-                }
-                var description = fields.describe(planId, proposal.objectKey());
-                var revision = revision(variantId, proposal, number, description);
-                String revisionId = revisions.insert(revision);
-                publisher.publish(revisionId);
-                result = new Receipt(command.requestId(), proposal.objectKey(), plan.revision(), Kind.PAGE, binding.moduleAlias(), pageId, variantId, revisionId, null,
-                        description.metadataVersion());
-            } else {
                 var scheme = schemes.resolveCurrentUserScheme(CurrentUserContext.currentUser().orElseThrow());
                 var menu = new Menu(); menu.setSchemeId(scheme.getId()); menu.setParentId(TreeAbility.ROOT_ID);
                 menu.setTitle(proposal.title()); menu.setModuleAlias(binding.moduleAlias()); menu.setEnabled(true);
@@ -217,7 +143,6 @@ public class ApplicationConstructionDeliveryService {
                 String menuId = menus.insert(menu);
                 var currentPage = Objects.requireNonNull(currentPage(plan, proposal.objectKey()));
                 result = new Receipt(command.requestId(), proposal.objectKey(), plan.revision(), Kind.ENTRY, binding.moduleAlias(), currentPage.page().getId(), currentPage.variant().getId(), currentPage.revision().getId(), menuId, fields.describe(planId, proposal.objectKey()).metadataVersion());
-            }
             var stored = new ApplicationConstructionDelivery(); stored.setId(id); stored.setPlanId(planId); stored.setPlanRevision(plan.revision());
             stored.setObjectKey(proposal.objectKey()); stored.setRequestId(command.requestId()); stored.setRequestDigest(digest(json(command)));
             stored.setModuleAlias(binding.moduleAlias()); stored.setKind(result.kind().name()); stored.setReceiptJson(json(result));
@@ -440,57 +365,24 @@ public class ApplicationConstructionDeliveryService {
             if (menu != null) database.query("select id from platform_menu where id = ? for update", menu.getId());
         }
     }
-    private boolean published(Receipt receipt) {
-        var page = pages.select(receipt.pageId()); var variant = variants.select(receipt.variantId()); var revision = revisions.select(receipt.revisionId());
-        return page != null && Boolean.TRUE.equals(page.getEnabled()) && variant != null && Boolean.TRUE.equals(variant.getEnabled())
-                && receipt.moduleAlias().equals(page.getModuleAlias()) && receipt.pageId().equals(variant.getPageId())
-                && variant.getClientType() == PlatformPresentationClientType.WEB && variant.getScopeType() == PlatformPresentationScopeType.GLOBAL
-                && revision != null && receipt.variantId().equals(revision.getVariantId())
-                && Boolean.TRUE.equals(revision.getEnabled()) && revision.getStatus() == PlatformPresentationRevisionStatus.PUBLISHED;
-    }
-    private Receipt latest(String planId, String objectKey, Kind kind) {
-        return receipts.list(Criteria.of().eq("planId", planId).eq("objectKey", objectKey).eq("kind", kind.name())).stream()
-                .max(Comparator.comparing(ApplicationConstructionDelivery::getCreatedAt).thenComparing(ApplicationConstructionDelivery::getId))
-                .map(ApplicationConstructionDeliveryService::receipt).orElse(null);
-    }
     public static Receipt receipt(ApplicationConstructionDelivery stored) {
         try { return JSON.readValue(stored.getReceiptJson(), Receipt.class); }
         catch (Exception error) { throw new IllegalStateException("建设回执无法读取", error); }
     }
-    private static PlatformPageDefinition page(ApplicationConstructionPlanService.Initialization binding, String title) {
-        var page = new PlatformPageDefinition(); page.setModuleAlias(binding.moduleAlias()); page.setAlias("management");
-        page.setMainRelationId(binding.relationId()); page.setContractType(PlatformPageContractType.MANAGEMENT); page.setTitle(title); page.setEnabled(true);
-        return page;
-    }
-    /** This node owns field placement, while the mode-aware template inherits standard module actions. */
-    private static PlatformPresentationRevision revision(String variantId, Proposal proposal, int number, ApplicationConstructionFieldService.Description description) {
-        var revision = new PlatformPresentationRevision(); revision.setVariantId(variantId); revision.setRevisionNo(number);
-        revision.setTemplateAlias("management"); revision.setTemplateVersion(PlatformPresentationTemplateCatalog.MODE_AWARE_VERSION); revision.setEnabled(true); revision.setTitle(proposal.title());
-        revision.setStatus(PlatformPresentationRevisionStatus.DRAFT);
-        revision.setUiTreeJson(json(Map.of("template", "management", "templateVersion", PlatformPresentationTemplateCatalog.MODE_AWARE_VERSION, "mode", "LIST_CARD", "quickSearchFields", proposal.searchFields(),
-                "nodes", List.of(Map.of("slot", "list", "title", proposal.title(), "fields", proposal.listFields()),
-                        Map.of("slot", "form", "title", proposal.title(), "fields", proposal.formFields(),
-                                "relations", proposal.childFields().entrySet().stream().map(entry ->
-                                        Map.of("relation", entry.getKey(), "title", description.children().get(entry.getKey()).relation().getTitle(), "fields", entry.getValue())).toList())))));
-        return revision;
-    }
     private void requireOperator() {
         if (!CurrentUserContext.currentUser().map(user -> user.system()).orElse(false)) throw new PlatformAccessDeniedException("页面与入口建设要求系统配置身份");
     }
-    private void requirePermissions(Kind kind) {
-        List<String> actions = kind == Kind.PAGE ? List.of("platform.page_definition.create", "platform.presentation_variant.create", "platform.presentation_revision.create", "platform.presentation_publish.publish") : List.of("platform.menu.create");
-        for (String action : actions) {
-            int split = action.lastIndexOf('.');
-            permissions.requireAuthorized(ActionExecutionContext.ofActionCode(action.substring(0, split), action.substring(split + 1), Set.of(), CurrentUserContext.currentUser()));
-        }
+    private static void requireEntry(Kind kind) {
+        if (kind != Kind.ENTRY) throw new IllegalArgumentException("页面建设已统一到标准页面编排，请读取并确认共享页面候选；历史结果仅支持查询");
     }
-    private static final Set<String> SYSTEM_FIELDS = Set.of("id", "tenantId", "version", "deleted", "deletedAt", "deletedBy", "createdAt", "createdBy", "updatedAt", "updatedBy");
+    private void requirePermissions() {
+        permissions.requireAuthorized(ActionExecutionContext.ofActionCode("platform.menu", "create", Set.of(), CurrentUserContext.currentUser()));
+    }
     private static List<String> checkedNames(List<String> names) {
         if (names == null || names.size() > 40 || names.stream().anyMatch(value -> value == null || !value.matches("[a-z][a-zA-Z0-9_]{0,63}")) || names.stream().distinct().count() != names.size())
             throw new IllegalArgumentException("页面字段必须来自实际目录，每个区域最多 40 项且不能重复");
         return List.copyOf(names);
     }
-    private static String titles(List<String> names, Map<String, MetadataField> fields) { return String.join("、", names.stream().map(name -> fields.get(name).getTitle()).toList()); }
     private static void requireRequestId(String value) { if (value == null || !value.matches("[a-zA-Z0-9-]{16,80}")) throw new IllegalArgumentException("确认标识格式无效"); }
     private static String json(Object value) { try { return JSON.writeValueAsString(value); } catch (Exception error) { throw new IllegalArgumentException("建设参数无效", error); } }
     private static String digest(String value) { try { return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(value.getBytes(StandardCharsets.UTF_8))); } catch (Exception error) { throw new IllegalStateException(error); } }

@@ -3205,12 +3205,14 @@ export function createPageCompositionSession(
       if (problem || !hasPendingChanges.value) throw new OperationUsageError(problem ?? '没有待生效的更改。');
       const fingerprint = pageCandidateFingerprint();
       const command = pagePublicationCommand(() => {});
+      const receiptReference = await command.receiptReference();
       const preview = await previewCandidate(signal);
       if (!preview.valid || fingerprint !== pageCandidateFingerprint())
         throw new OperationUsageError(preview.errors.join('；') || '候选已变化，请重新预检。');
       const current = () =>
         valid() && options.active() && fingerprint === pageCandidateFingerprint() && !editingProblem();
       return {
+        receiptReference,
         presentation: {
           title: '确认页面配置',
           lines: candidateChanges.value.length

@@ -1,7 +1,8 @@
-import type { OperationPresentation } from '@muyun/web-contracts';
+import type { OperationPresentation, OperationReceiptReference } from '@muyun/web-contracts';
 
 /** Captured platform command. The caller owns the candidate and execution scope. */
 export interface OperationProposal {
+  receiptReference?: OperationReceiptReference;
   presentation: OperationPresentation;
   confirmLabel?: string;
   expiresAt: number;

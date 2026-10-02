@@ -24,7 +24,10 @@ public class AssistantConversationService {
     public AssistantConversationService(AssistantConversationDao conversations) {
         this.conversations = Objects.requireNonNull(conversations);
     }
-    public record Message(String role, String text) {}
+    public record OperationReceipt(String executionScopeKey, com.fasterxml.jackson.databind.JsonNode reference) {}
+    public record Message(String role, String text, OperationReceipt operationReceipt) {
+        public Message(String role, String text) { this(role, text, null); }
+    }
     public record ConfigurationTask(String goal, String mode) {}
     public record Content(String title, List<Message> messages, List<Message> history, String planId,
                           String pendingRequest, ConfigurationTask configurationTask, String executionScopeKey) {}
@@ -127,7 +130,62 @@ public class AssistantConversationService {
             if (message == null || message.text() == null || message.text().length() > length ||
                     !("user".equals(message.role()) || "assistant".equals(message.role()) || status && "status".equals(message.role())))
                 throw new IllegalArgumentException("会话消息格式无效");
+            if (message.operationReceipt() != null) {
+                if (!status || !"assistant".equals(message.role())) throw new IllegalArgumentException("操作查询引用只属于助手展示消息");
+                validateReceipt(message.operationReceipt());
+            }
         }
+    }
+    private static void validateReceipt(OperationReceipt receipt) {
+        validateScope(receipt.executionScopeKey());
+        var value = receipt.reference();
+        if (value == null || !value.isObject()) throw new IllegalArgumentException("操作查询引用无效");
+        String kind = value.path("kind").asText();
+        java.util.Set<String> keys;
+        if ("page-publication".equals(kind)) {
+            keys = java.util.Set.of("kind", "variantId", "revisionId", "contentDigest");
+            receiptField(value, "variantId", "[a-zA-Z0-9_-]{1,80}");
+            receiptField(value, "revisionId", "[a-zA-Z0-9_-]{1,80}");
+            receiptField(value, "contentDigest", "[a-f0-9]{64}");
+        } else if ("record-save".equals(kind) || "child-metadata".equals(kind)) {
+            keys = "record-save".equals(kind) ? java.util.Set.of("kind", "moduleAlias", "requestId", "tenantId", "menuId", "pageContext", "pageSelection")
+                    : java.util.Set.of("kind", "moduleAlias", "requestId", "relationId");
+            receiptField(value, "moduleAlias", "[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+");
+            if (value.path("moduleAlias").asText().length() > 128) throw new IllegalArgumentException("操作模块标识过长");
+            receiptField(value, "requestId", "[a-zA-Z0-9-]{16,80}");
+            if ("child-metadata".equals(kind)) receiptField(value, "relationId", "[a-zA-Z0-9_-]{1,80}");
+            if (value.has("tenantId")) receiptField(value, "tenantId", "[a-zA-Z0-9_-]{1,80}");
+            if (value.has("menuId")) receiptField(value, "menuId", "[a-zA-Z0-9_.:-]{1,128}");
+        } else throw new IllegalArgumentException("不支持的操作查询引用");
+        if ("record-save".equals(kind)) {
+            var context = value.get("pageContext");
+            if (context != null) {
+                if (!context.isObject() || context.size() > 16) throw new IllegalArgumentException("页面查询范围无效");
+                context.fields().forEachRemaining(entry -> {
+                    if (!entry.getKey().matches("[a-zA-Z0-9_.:-]{1,80}")) throw new IllegalArgumentException("页面查询范围无效");
+                    receiptScopeValue(entry.getValue());
+                });
+            }
+            var selection = value.get("pageSelection");
+            if (selection != null) {
+                if (!selection.isObject() || selection.size() != 2 || !selection.has("kind") || !selection.has("key"))
+                    throw new IllegalArgumentException("页面选择查询引用无效");
+                receiptField(selection, "kind", "[a-zA-Z0-9_.:-]{1,80}");
+                receiptScopeValue(selection.get("key"));
+            }
+        }
+        value.fieldNames().forEachRemaining(key -> {
+            if (!keys.contains(key)) throw new IllegalArgumentException("操作查询引用不能包含写入参数");
+        });
+    }
+    private static void receiptScopeValue(com.fasterxml.jackson.databind.JsonNode value) {
+        if (!value.isTextual() || value.asText().isBlank() || value.asText().length() > 512
+                || value.asText().chars().anyMatch(c -> c < 32 || c == 127))
+            throw new IllegalArgumentException("页面范围查询标识无效");
+    }
+    private static void receiptField(com.fasterxml.jackson.databind.JsonNode value, String key, String pattern) {
+        if (!value.path(key).isTextual() || !value.path(key).asText().matches(pattern))
+            throw new IllegalArgumentException("操作查询引用字段无效：" + key);
     }
     private Snapshot snapshot(AssistantConversation row) {
         try { return new Snapshot(row.getId(), row.getVersion() + 1, row.getUpdatedAt(), JSON.readValue(row.getContentJson(), Content.class)); }

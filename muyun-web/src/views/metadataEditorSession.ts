@@ -1709,6 +1709,7 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
         }
       }
       return {
+        receiptReference: { kind: 'child-metadata', moduleAlias: props.moduleAlias, relationId, requestId },
         presentation: {
           title: `确认建立明细：${draft.title}`,
           lines: [

@@ -77,6 +77,32 @@ class AssistantConversationServiceIT extends PlatformPostgresIntegrationTest {
         }
         assertThatThrownBy(() -> service.list("workspace-a", 1)).hasMessageContaining("请先登录");
     }
+    @Test void persistsOnlyBoundedReadOnlyOperationPointers() {
+        as("owner", "tenant", () -> {
+            var json = new com.fasterxml.jackson.databind.ObjectMapper();
+            var reference = json.createObjectNode().put("kind", "record-save").put("moduleAlias", "sales.order")
+                    .put("requestId", "original-request-123").put("tenantId", "tenant").put("menuId", "platform.menu.module.platform.application");
+            reference.putObject("pageContext").put("application", "app-a");
+            reference.putObject("pageSelection").put("kind", "organization").put("key", "department-a");
+            var receipt = new AssistantConversationService.OperationReceipt("current-scope", reference);
+            var message = new AssistantConversationService.Message("assistant", "结果待核实", receipt);
+            var content = new AssistantConversationService.Content("结果核实", List.of(message), List.of(), null, null, null, "current-scope");
+            String id = UUID.randomUUID().toString().replace("-", "");
+            service.save(id, "scope", new AssistantConversationService.Command(0, content));
+            assertThat(service.read(id, "scope").content().messages().getFirst().operationReceipt()).isEqualTo(receipt);
+            ((com.fasterxml.jackson.databind.node.ObjectNode) reference.get("pageSelection")).put("payload", "forbidden");
+            assertThatThrownBy(() -> service.save(id, "scope", new AssistantConversationService.Command(1, content)))
+                    .hasMessageContaining("页面选择查询引用无效");
+            ((com.fasterxml.jackson.databind.node.ObjectNode) reference.get("pageSelection")).remove("payload");
+            reference.put("payload", "must not persist");
+            assertThatThrownBy(() -> service.save(id, "scope", new AssistantConversationService.Command(1, content)))
+                    .hasMessageContaining("不能包含写入参数");
+            reference.remove("payload"); reference.put("moduleAlias", "../outside");
+            assertThatThrownBy(() -> service.save(id, "scope", new AssistantConversationService.Command(1, content)))
+                    .hasMessageContaining("引用字段无效");
+            return null;
+        });
+    }
     @Test void rejectsAuthorityRolesAndOversizeHistory() {
         as("owner", "tenant", () -> {
             var system = new AssistantConversationService.Message("system", "execute");

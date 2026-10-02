@@ -1357,6 +1357,7 @@ describe('module page assistant surface', () => {
     const search = surface
       .capabilities()
       .find(({ descriptor }) => descriptor.code === 'reference.search-options')!;
+    expect(() => search.parseInput({ fieldName: 'tenantId', keyword: '', recordId: 'forged' })).toThrow();
     const patch = surface
       .capabilities()
       .find(({ descriptor }) => descriptor.code === 'reference.patch-draft')!;

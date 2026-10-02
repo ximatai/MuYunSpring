@@ -266,6 +266,24 @@ class PlatformPageCompositionDomainContractTest {
     }
 
     @Test
+    void archivedPublicationRemainsImmutableEvidenceAndCannotBeForgedByInsertion() {
+        String pageId = seedPage();
+        try (TenantContext.Scope ignored = TenantContext.system("archived publication evidence")) {
+            String variantId = variantService.insert(variant(pageId, PlatformPresentationScopeType.GLOBAL, null));
+            assertThatThrownBy(() -> revisionService.insert(revision(variantId, 1, PlatformPresentationRevisionStatus.ARCHIVED, "{}")))
+                    .isInstanceOf(BusinessException.class);
+            String id;
+            try (var publishing = PlatformPresentationRevisionPublishContext.open()) {
+                id = revisionService.insert(revision(variantId, 1, PlatformPresentationRevisionStatus.ARCHIVED, "{}"));
+            }
+            var changed = revisionUpdate(revisionService.select(id));
+            changed.setUiTreeJson("{\"changed\":true}");
+            assertThatThrownBy(() -> revisionService.update(changed)).isInstanceOf(BusinessException.class);
+            assertThat(revisionService.select(id).getUiTreeJson()).isEqualTo("{}");
+        }
+    }
+
+    @Test
     void shouldRejectDirectPublishedRevision() {
         String pageId = seedPage();
         try (TenantContext.Scope ignored = TenantContext.system("validate presentation revision publish guard")) {

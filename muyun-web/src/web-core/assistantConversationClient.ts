@@ -1,3 +1,5 @@
+import { lookupOperationReceipt } from './operationReceipt';
+import type { OperationReceiptReference, OperationPresentation } from '@muyun/web-contracts';
 import type { HttpClient } from './http';
 import type { AssistantConversationMessage } from '@muyun/web-contracts';
 
@@ -10,7 +12,11 @@ export interface AssistantConversationContent {
   /** Scope of model history, not conversation ownership or permission. */
   executionScopeKey?: string;
   title: string;
-  messages: Array<{ role: 'user' | 'assistant' | 'status'; text: string }>;
+  messages: Array<{
+    role: 'user' | 'assistant' | 'status';
+    text: string;
+    operationReceipt?: { reference: OperationReceiptReference; executionScopeKey: string };
+  }>;
   history: AssistantConversationMessage[];
   planId?: string;
   pendingRequest?: string;
@@ -27,6 +33,7 @@ export interface AssistantConversationSummary {
   updatedAt: string;
 }
 export interface AssistantConversationClient {
+  lookupOperation?(reference: OperationReceiptReference): Promise<OperationPresentation | undefined>;
   list(scopeKey: string, page: number): Promise<AssistantConversationSummary[]>;
   read(id: string, scopeKey: string): Promise<AssistantConversationSnapshot>;
   save(
@@ -39,6 +46,7 @@ export interface AssistantConversationClient {
 export function createAssistantConversationClient(http: HttpClient): AssistantConversationClient {
   const path = '/platform.assistant-conversations';
   return {
+    lookupOperation: (reference) => lookupOperationReceipt(http, reference),
     list: (scopeKey, page) => http.request({ path, query: { scopeKey, page } }),
     read: (id, scopeKey) => http.request({ path: `${path}/${encodeURIComponent(id)}`, query: { scopeKey } }),
     save: (id, scopeKey, expectedRevision, content) =>

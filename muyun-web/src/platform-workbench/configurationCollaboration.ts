@@ -86,10 +86,15 @@ export function createConfigurationCollaboration() {
       .filter((capability) => {
         // Target selection loads an authorized catalog; it neither opens the editor nor changes a candidate.
         if (
-          ['rules.select-module', 'configuration.select-metadata-module'].includes(capability.descriptor.code)
+          [
+            'rules.select-module',
+            'configuration.select-metadata-module',
+            'configuration.select-page-module',
+          ].includes(capability.descriptor.code)
         )
           return true;
-        if (!task.value) return capability.effect === 'read' && !capability.propose;
+        if (!task.value)
+          return capability.effect === 'page' || (capability.effect === 'read' && !capability.propose);
         if (task.value.mode === 'conversation') return capability.effect !== 'page';
         return (
           capability.effect !== 'configuration-draft' ||
@@ -118,14 +123,6 @@ export function createConfigurationCollaboration() {
         } satisfies AssistantCapability;
       });
   }
-  function filterConstruction(capabilities: AssistantCapability[]) {
-    return capabilities.flatMap((capability) => {
-      if (capability.descriptor.code !== 'construction.prepare-page') return [capability];
-      // The headless page workspace is not yet available. Keep the existing bounded publisher
-      // only for an explicit conversation-only task; visual work uses the shared page candidate.
-      return task.value?.mode === 'conversation' ? filter([capability]) : [];
-    });
-  }
-  return { task, revision, restore, capabilities, filter, filterConstruction };
+  return { task, revision, restore, capabilities, filter };
 }
 export type ConfigurationCollaboration = ReturnType<typeof createConfigurationCollaboration>;

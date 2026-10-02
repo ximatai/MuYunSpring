@@ -238,7 +238,7 @@ it('composes initialized construction, navigation and referenced aggregate edito
     applyEffect: (commit) => commit(),
   });
   const catalog = surface.capabilities().map((entry) => entry.descriptor);
-  expect(catalog.length).toBeGreaterThan(32);
+  expect(catalog.map((entry) => entry.code)).not.toContain('construction.prepare-page');
   expect(catalog.length).toBeLessThanOrEqual(64);
   expect(catalog.map((entry) => entry.code)).toEqual(
     expect.arrayContaining([

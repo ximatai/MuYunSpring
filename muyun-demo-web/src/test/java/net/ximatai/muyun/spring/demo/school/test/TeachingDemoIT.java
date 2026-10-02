@@ -290,6 +290,13 @@ public class TeachingDemoIT {
                     .select(app + ".entry");
             assertThat(stored.getApplicationAlias()).isEqualTo(app);
             assertThat(stored.getDescription()).isEqualTo("记录日常登记事项");
+            var missingScope = mvc.perform(get("/platform.module/save-receipts/{requestId}", requestId)).andReturn().getResponse();
+            assertThat(missingScope.getStatus()).isBetween(400, 499);
+            var recovered = mvc.perform(get("/platform.module/save-receipts/{requestId}", requestId)
+                    .header("X-MuYun-Page-Context", "{\"application\":\"" + app + "\"}"))
+                    .andReturn().getResponse();
+            assertThat(recovered.getStatus()).as(recovered.getContentAsString()).isEqualTo(200);
+            assertThat(recovered.getContentAsString()).contains("\"committed\":true", app + ".entry");
         }
     }
 

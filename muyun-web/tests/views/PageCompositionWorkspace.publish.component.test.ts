@@ -139,6 +139,58 @@ describe('PageCompositionWorkspace publication flow', () => {
     }
   });
 
+  it('uses the same generic tools for unrelated modules while preserving each candidate', async () => {
+    const fixture = publicationFlowHttp([]);
+    const http: HttpClient = {
+      request: (options) =>
+        fixture.request({
+          ...options,
+          path: options.path
+            .replace('catalog.product', 'education.exam')
+            .replace('service.ticket', 'education.exam'),
+        }),
+    };
+    const workspace = createPageCompositionWorkspace(
+      http,
+      () => 'operator',
+      () => true,
+    );
+    const registry = createAssistantSurfaceRegistry(() => 'operator', workspace.current);
+    registry.register({
+      pageInstanceKey: 'shell',
+      contextRevision: () => '',
+      surface: {
+        describe: () => ({ surface: 'workbench', facts: {} }),
+        capabilities: workspace.capabilities,
+        requestTurn: vi.fn(),
+      },
+    });
+    registry.activate('shell');
+    const invoke = (code: string, input: unknown) =>
+      registry.invoke({ id: code, code, input }, registry.snapshot()!.token);
+    try {
+      for (const [moduleAlias, label] of [
+        ['catalog.product', '商品名称'],
+        ['service.ticket', '事项名称'],
+      ]) {
+        await invoke('configuration.select-page-module', { moduleAlias });
+        await invoke('configuration.revise-page-candidate', {
+          list: [{ fieldName: 'title', properties: { label } }],
+        });
+        expect(workspace.session(moduleAlias).adapter.describe().list).toMatchObject([
+          { fieldName: 'title', properties: { label } },
+        ]);
+      }
+      await invoke('configuration.select-page-module', { moduleAlias: 'catalog.product' });
+      expect(workspace.session('catalog.product').adapter.describe().list).toMatchObject([
+        { fieldName: 'title', properties: { label: '商品名称' } },
+      ]);
+      expect(workspace.session('service.ticket').hasUnsavedChanges.value).toBe(true);
+    } finally {
+      workspace.dispose();
+    }
+  });
+
   it('refreshes a retained headless directory after metadata changes without losing placements', async () => {
     const fields = [
       {

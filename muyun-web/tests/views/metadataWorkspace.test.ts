@@ -689,7 +689,7 @@ it('continues initialized construction in the shared metadata candidate and hono
   expect(current.presentation.lines.join(' ')).toContain('人工补充的备注');
   await current.confirm();
   expect(current.state).toBe('succeeded');
-  expect(current.takeContinuation()).toContain('标准应用、模块管理页面');
+  expect(current.takeContinuation()).toContain('现行配置是事实来源');
   expect(current.takeContinuation()).toBeUndefined();
   expect(f.request.mock.calls.filter(([request]) => request.path.endsWith('change-set-apply'))).toHaveLength(
     1,
