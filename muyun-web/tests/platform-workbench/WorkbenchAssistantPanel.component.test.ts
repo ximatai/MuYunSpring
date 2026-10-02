@@ -1177,7 +1177,7 @@ it.each([false, true])(
     expect(requestTurn).toHaveBeenCalledTimes(typing ? 0 : 1);
     if (!typing) {
       expect(requestTurn.mock.calls[0]?.[0].message).toContain('用户最近明确提出的要求：帮我准备');
-      expect(wrapper.text()).toContain('正在核实已完成结果并准备下一步');
+      expect(wrapper.text()).toContain('正在核实当前状态并准备下一步');
       expect(wrapper.findAll('.assistant-message--user').map((item) => item.text())).toEqual(['帮我准备']);
       for (let index = 0; index < 4; index++) {
         await wrapper

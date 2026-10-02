@@ -281,7 +281,7 @@ export function useAssistantConversation(props: {
       continuation
         ? readOnly
           ? '正在核实当前进度，暂不修改或保存。'
-          : '正在核实已完成结果并准备下一步，可随时停止。'
+          : '正在核实当前状态并准备下一步，可随时停止。'
         : message,
     );
     busy.value = true;
