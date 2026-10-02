@@ -305,7 +305,16 @@ export function useAssistantConversation(props: {
         onDiagnostic(event) {
           if (event.type === 'capability.completed')
             diagnostics.push(`${event.stepIndex + 1}: ${event.capabilityCode} · ${event.outcome}`);
-          else if (event.type === 'summary.completed')
+          else if (event.type === 'decision.failed') {
+            const stages = {
+              'context-changed': '页面上下文已变化',
+              cancelled: '本轮已取消',
+              'surface-unavailable': '页面操作入口尚未就绪',
+              'surface-settlement-failed': '页面状态准备失败',
+              'model-request-failed': '模型请求未完成',
+            };
+            diagnostics.push(`${event.stepIndex + 1}: ${stages[event.reason]}`);
+          } else if (event.type === 'summary.completed')
             diagnostics.push(`结果整理：${event.succeeded ? '完成' : (event.reason ?? '未完成')}`);
         },
         onExecutionScopeChange() {
@@ -469,7 +478,7 @@ export function useAssistantConversation(props: {
       } else {
         reopenSelection(sourceSelection);
         commitTurn(assistantTexts);
-        append('status', assistantFailureMessage(error));
+        append('status', assistantFailureMessage(error), undefined, diagnostics.join('\n'));
       }
     } finally {
       if (epoch === conversationEpoch) {

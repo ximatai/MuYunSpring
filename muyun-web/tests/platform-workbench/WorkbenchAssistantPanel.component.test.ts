@@ -399,6 +399,8 @@ it('removes an uncommitted partial response when its stream fails', async () => 
   expect(wrapper.text()).not.toContain('不完整的回答');
   expect(wrapper.text()).not.toContain('stream failed');
   expect(wrapper.text()).toContain('本轮回复未能完成');
+  expect(wrapper.text()).toContain('查看诊断信息');
+  expect(wrapper.text()).toContain('模型请求未完成');
 });
 
 it('cancels an in-flight request from the panel', async () => {
@@ -1866,5 +1868,19 @@ it('checkpoints the receipt before submission and restores only read-only recove
   expect(wrapper.text()).toContain('原保存已确认');
   expect(execute).toHaveBeenCalledOnce();
   expect(requestTurn).toHaveBeenCalledOnce();
+  wrapper.unmount();
+});
+
+it('identifies preparation failure before a model request without exposing transport details', async () => {
+  const requestTurn = vi.fn();
+  const registry = createRegistry(requestTurn);
+  vi.spyOn(registry, 'settleActiveSurface').mockRejectedValue(new Error('private page payload'));
+  const wrapper = mount(WorkbenchAssistantPanel, { props: { open: true, registry } });
+  await wrapper.get('textarea').setValue('查看当前页面');
+  await wrapper.get('button.ant-btn-primary').trigger('click');
+  await flushPromises();
+  expect(requestTurn).not.toHaveBeenCalled();
+  expect(wrapper.text()).toContain('页面状态准备失败');
+  expect(wrapper.text()).not.toContain('private page payload');
   wrapper.unmount();
 });

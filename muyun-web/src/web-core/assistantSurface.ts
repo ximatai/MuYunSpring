@@ -87,6 +87,7 @@ export interface AssistantSurfaceRegistration {
 
 interface RegisteredAssistantSurface extends AssistantSurfaceRegistration {
   surfaceGeneration: number;
+  readStateRevision: number;
 }
 
 export interface AssistantInvocationToken {
@@ -95,6 +96,8 @@ export interface AssistantInvocationToken {
   executionScopeKey?: string;
   pageInstanceKey: string;
   surfaceGeneration: number;
+  /** Invalidates observations when selection or candidate state changes without a page effect. */
+  readStateRevision?: number;
   contextRevision: string;
   interactionRevision?: string;
   fallback: boolean;
@@ -147,6 +150,7 @@ export interface AssistantSurfaceRegistry {
   ): Promise<{
     value: unknown;
     contextChanged: boolean;
+    readStateChanged?: boolean;
     presentation?: AssistantResultPresentation;
     confirmation?: AssistantOperationConfirmation;
   }>;
@@ -246,7 +250,7 @@ export function createAssistantSurfaceRegistry(
 
   function register(registration: AssistantSurfaceRegistration) {
     validateAssistantCapabilities(registration.surface.capabilities());
-    const registered = { ...registration, surfaceGeneration: ++nextSurfaceGeneration };
+    const registered = { ...registration, surfaceGeneration: ++nextSurfaceGeneration, readStateRevision: 0 };
     const stack = registrations.get(registration.pageInstanceKey) ?? [];
     if (registration.fallback) stack.unshift(registered);
     else stack.push(registered);
@@ -289,6 +293,7 @@ export function createAssistantSurfaceRegistry(
       executionScopeKey: registration.executionScopePending ? undefined : JSON.stringify([identity, scope]),
       pageInstanceKey: registration.pageInstanceKey,
       surfaceGeneration: registration.surfaceGeneration,
+      ...(registration.readStateRevision ? { readStateRevision: registration.readStateRevision } : {}),
       contextRevision: workspaceContext
         ? JSON.stringify([registration.contextRevision(), workspaceContext().revision])
         : registration.contextRevision(),
@@ -469,6 +474,7 @@ export function createAssistantSurfaceRegistry(
           );
         const input = capability.parseInput(call.input);
         requireCurrent(token);
+        let postReadToken: AssistantInvocationToken | undefined;
         let postEffectToken: AssistantInvocationToken | undefined;
         let postEffectSettlement: Promise<void> | undefined;
         let effectApplied = false;
@@ -477,7 +483,7 @@ export function createAssistantSurfaceRegistry(
           cancellationSignal: cancellationController.signal,
           isCurrent: () => {
             try {
-              requireCurrent(token);
+              requireCurrent(postReadToken ?? token);
               return true;
             } catch {
               return false;
@@ -487,14 +493,20 @@ export function createAssistantSurfaceRegistry(
             if (controller.signal.aborted) {
               throw new DOMException('Assistant invocation was cancelled', 'AbortError');
             }
-            requireCurrent(token);
-            return commit();
+            const before = postReadToken ?? token;
+            const registration = requireCurrent(before);
+            const result = commit();
+            // Internal state cannot authorize a concurrent page or identity change.
+            requireCurrent(before);
+            registration.readStateRevision += 1;
+            postReadToken = tokenOf(registration);
+            return result;
           },
           applyEffect(effect, settle) {
             if (controller.signal.aborted) {
               throw new DOMException('Assistant invocation was cancelled', 'AbortError');
             }
-            requireCurrent(token);
+            requireCurrent(postReadToken ?? token);
             if (capability.effect === 'read') throw new Error('Read capability cannot apply page effects');
             effectState = 'unknown';
             const result = effect();
@@ -562,11 +574,12 @@ export function createAssistantSurfaceRegistry(
         if (controller.signal.aborted) {
           throw new DOMException('Assistant invocation was cancelled', 'AbortError');
         }
-        if (!currentToken || !sameAssistantInvocationToken(token, currentToken))
+        if (!currentToken || !sameAssistantInvocationToken(postReadToken ?? token, currentToken))
           throw new StaleAssistantInvocationError();
         return {
           value,
           contextChanged: false,
+          ...(postReadToken ? { readStateChanged: true } : {}),
           ...(capability.propose
             ? {
                 confirmation: createAssistantOperationConfirmation(capability.propose(value), () => {
@@ -612,6 +625,7 @@ export function sameAssistantInvocationToken(
     left.pageInstanceKey === right.pageInstanceKey &&
     left.surfaceGeneration === right.surfaceGeneration &&
     left.contextRevision === right.contextRevision &&
+    (left.readStateRevision ?? 0) === (right.readStateRevision ?? 0) &&
     left.interactionRevision === right.interactionRevision &&
     left.fallback === right.fallback
   );

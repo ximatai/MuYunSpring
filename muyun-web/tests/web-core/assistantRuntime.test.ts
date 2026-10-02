@@ -1848,3 +1848,146 @@ it('bounds repeated definition loading that makes no progress', async () => {
   expect(requestTurn.mock.calls.length).toBeLessThanOrEqual(5);
   expect(execute).not.toHaveBeenCalled();
 });
+
+it.each([false, true])(
+  'reads the newly selected row without stale observations (batched: %s)',
+  async (batched) => {
+    let row = 'first-row';
+    const read = vi.fn(async () => ({ row }));
+    const requestTurn = vi
+      .fn()
+      .mockResolvedValueOnce({ toolCalls: [{ id: 'read-1', code: 'row.read', input: {} }] })
+      .mockResolvedValueOnce({
+        toolCalls: [
+          ...(batched ? [{ id: 'read-again', code: 'row.read', input: {} }] : []),
+          { id: 'select', code: 'row.select', input: {} },
+        ],
+      })
+      .mockResolvedValueOnce({ toolCalls: [{ id: 'read-2', code: 'row.read', input: {} }] })
+      .mockResolvedValue({ text: 'done', toolCalls: [] });
+    const registry = createAssistantSurfaceRegistry();
+    registry.register({
+      pageInstanceKey: 'page',
+      contextRevision: () => 'stable',
+      surface: {
+        describe: () => ({ surface: 'module-page', facts: {} }),
+        requestTurn,
+        capabilities: () => [
+          {
+            effect: 'read',
+            descriptor: { code: 'row.read', description: 'Read selected row', inputSchema: {} },
+            parseInput: (value) => value,
+            execute: read,
+          },
+          {
+            effect: 'read',
+            descriptor: { code: 'row.select', description: 'Select row', inputSchema: {} },
+            parseInput: (value) => value,
+            execute: async (_input, context) => {
+              context.commitInternalState(() => {
+                row = 'second-row';
+              });
+              return { selected: true };
+            },
+          },
+        ],
+      },
+    });
+    registry.activate('page');
+    const result = await runAssistantConversation(registry, 'Read both rows');
+    expect(read).toHaveBeenCalledTimes(2);
+    expect(JSON.stringify(requestTurn.mock.calls[2]![0].results)).not.toContain('first-row');
+    expect(JSON.stringify(requestTurn.mock.calls[3]![0].results)).toContain('second-row');
+    expect(JSON.stringify(requestTurn.mock.calls[3]![0].results)).not.toContain('first-row');
+    expect(result.steps.every((step) => step.appliedEffectCount === 0)).toBe(true);
+  },
+);
+
+it('keeps loaded definitions across draft changes while discarding stale business reads', async () => {
+  let revision = 'before';
+  const registry = createAssistantSurfaceRegistry();
+  const requestTurn = vi
+    .fn()
+    .mockResolvedValueOnce({
+      toolCalls: [
+        { id: 'load', code: 'assistant.load-capabilities', input: { codes: ['page.read', 'form.patch'] } },
+      ],
+    })
+    .mockResolvedValueOnce({ toolCalls: [{ id: 'read', code: 'page.read', input: {} }] })
+    .mockResolvedValueOnce({ toolCalls: [{ id: 'patch', code: 'form.patch', input: {} }] })
+    .mockResolvedValue({ text: 'done', toolCalls: [] });
+  registry.register({
+    pageInstanceKey: 'page',
+    contextRevision: () => revision,
+    surface: {
+      describe: () => ({ surface: 'module-page', facts: {} }),
+      requestTurn,
+      capabilities: () => [
+        ...Array.from(
+          { length: 13 },
+          (_, i): AssistantCapability => ({
+            effect: 'read',
+            descriptor: { code: `page.extra-${i}`, description: 'Other', inputSchema: {} },
+            parseInput: (value) => value,
+            execute: async () => ({}),
+          }),
+        ),
+        {
+          effect: 'read',
+          descriptor: {
+            code: 'page.read',
+            description: 'Read',
+            inputSchema: { type: 'object', properties: { revision: { enum: [revision] } } },
+          },
+          parseInput: (value) => value,
+          execute: async () => ({ privateValue: 'obsolete-business-fact' }),
+        },
+        {
+          effect: 'draft',
+          descriptor: { code: 'form.patch', description: 'Patch', inputSchema: {} },
+          parseInput: (value) => value,
+          execute: async (_input, context) => {
+            context.applyEffect(() => {
+              revision = 'after';
+            });
+            return { changed: true };
+          },
+        },
+      ],
+    },
+  });
+  registry.activate('page');
+  await runAssistantConversation(registry, 'Read then update');
+  const last = requestTurn.mock.calls[3]![0];
+  expect(last.capabilities).toContainEqual(
+    expect.objectContaining({
+      code: 'page.read',
+      inputSchema: { type: 'object', properties: { revision: { enum: ['after'] } } },
+    }),
+  );
+  expect(JSON.stringify(last.results)).not.toContain('obsolete-business-fact');
+});
+
+it('reports formal surface wait failure before requesting the model', async () => {
+  const registry = createAssistantSurfaceRegistry();
+  const requestTurn = vi.fn();
+  registry.register({
+    pageInstanceKey: 'pending',
+    fallback: true,
+    executionScopePending: true,
+    contextRevision: () => '',
+    surface: { describe: () => ({ surface: 'workbench', facts: {} }), capabilities: () => [], requestTurn },
+  });
+  registry.activate('pending');
+  vi.spyOn(registry, 'waitForActiveSurface').mockRejectedValue(new Error('private page payload'));
+  const onDiagnostic = vi.fn();
+  await expect(runAssistantConversation(registry, 'read', { onDiagnostic })).rejects.toThrow(
+    'private page payload',
+  );
+  expect(requestTurn).not.toHaveBeenCalled();
+  expect(onDiagnostic).toHaveBeenCalledExactlyOnceWith({
+    type: 'decision.failed',
+    stepIndex: 0,
+    reason: 'surface-unavailable',
+  });
+});
