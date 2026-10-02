@@ -1351,6 +1351,60 @@ describe('module page assistant surface', () => {
     ).rejects.toThrow('Form field is not editable by the assistant: ownerId');
   });
 
+  it('reads authorized reference labels without reselecting or exposing candidate internals', async () => {
+    const view = referenceViewFixture([]);
+    view.editingRecord!.tenantId = 'tenant-internal';
+    const resolve = vi.fn(async () => [
+      { id: 'tenant-internal', title: '示范租户', subtitle: '华东', projections: { secret: 'private' } },
+    ]);
+    view.referencePickerConfigs.tenantId!.provider!.resolve = resolve;
+    const describe = createModulePageAssistantSurface(view, vi.fn())
+      .capabilities()
+      .find(({ descriptor }) => descriptor.code === 'form.describe')!;
+    const result = await describe.execute({}, executionContext());
+    expect(resolve).toHaveBeenCalledWith(['tenant-internal']);
+    expect(JSON.stringify(result)).toContain('示范租户');
+    expect(JSON.stringify(result)).not.toMatch(/tenant-internal|private|secret/);
+    expect(view.updateDraftReference).not.toHaveBeenCalled();
+    view.formFields.get('tenantId')!.assistantPolicy = 'DESCRIBE';
+    resolve.mockClear();
+    expect(JSON.stringify(await describe.execute({}, executionContext()))).not.toContain('示范租户');
+    expect(resolve).not.toHaveBeenCalled();
+  });
+
+  it('bounds reference reads, keeps other facts on resolution failure and rejects stale reads', async () => {
+    const view = referenceViewFixture([]);
+    view.editingRecord!.tenantId = Array.from({ length: 21 }, (_, i) => `internal-${i}`);
+    const resolve = vi.fn<() => Promise<Array<{ id: string; title: string }>>>();
+    view.referencePickerConfigs.tenantId!.provider!.resolve = resolve;
+    const describe = createModulePageAssistantSurface(view, vi.fn())
+      .capabilities()
+      .find(({ descriptor }) => descriptor.code === 'form.describe')!;
+    expect(await describe.execute({}, executionContext())).toMatchObject({ currentValuesTruncated: true });
+    expect(resolve).not.toHaveBeenCalled();
+    view.editingRecord!.tenantId = 'internal-1';
+    resolve.mockRejectedValueOnce(new Error('private transport diagnostic'));
+    const result = await describe.execute({}, executionContext());
+    expect(result).toMatchObject({
+      fields: expect.arrayContaining([
+        expect.objectContaining({ fieldName: 'tenantId', currentValueUnavailable: true }),
+        expect.objectContaining({ fieldName: 'summary', currentValue: 'before' }),
+      ]),
+    });
+    expect(JSON.stringify(result)).not.toMatch(/private transport|internal-1/);
+    let finish!: (value: Array<{ id: string; title: string }>) => void;
+    resolve.mockImplementationOnce(
+      () =>
+        new Promise((done) => {
+          finish = done;
+        }),
+    );
+    const pending = describe.execute({}, executionContext());
+    view.assistantContextRevision += 1;
+    finish([{ id: 'internal-1', title: '旧范围名称' }]);
+    await expect(pending).rejects.toThrow('表单或范围已变化');
+  });
+
   it('searches authorized reference candidates and applies only an opaque searched selection', async () => {
     const view = viewFixture();
     const candidate = {

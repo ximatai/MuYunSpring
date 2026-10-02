@@ -1,5 +1,5 @@
 import { createRelationDraftRegistry } from './relationDraftController';
-import { assistantConfirmationFieldDisplay, assistantRelationProjection } from './assistantRecordProjection';
+import { assistantResolvedFieldDisplay, assistantRelationProjection } from './assistantRecordProjection';
 import type { AssistantResultPresentation, OptionItemDescriptor } from '@muyun/web-contracts';
 import type { AssistantOperationProposal } from '@muyun/web-core';
 import { recordCreationReadiness } from './recordCreationReadiness';
@@ -3606,7 +3606,7 @@ export function useModulePageSession(
     const fieldLines = await Promise.all(
       displayFields.map(
         async (field) =>
-          `${field.label}：${await assistantConfirmationFieldDisplay(field, editingRecord.value!)}`,
+          `${field.label}：${await assistantResolvedFieldDisplay(field, editingRecord.value!)}`,
       ),
     );
     if (!isCurrent()) throw new AssistantOperationRejectedError('草稿已变化，请重新确认');

@@ -1,7 +1,7 @@
 import { expect, it, vi } from 'vitest';
 import {
   assistantFieldDisplay,
-  assistantConfirmationFieldDisplay,
+  assistantResolvedFieldDisplay,
   assistantRelationProjection,
 } from '@/dynamic-page-runtime/assistantRecordProjection';
 import { resolveRecordFormFieldState, resolveRecordFormFields } from '@muyun/platform-components';
@@ -48,7 +48,7 @@ it('does not resolve a stale computed reference for save confirmation', async ()
   const field = resolveRecordFormFieldState('ownerId', { fields, mode: 'edit' });
   const resolve = vi.fn(async () => [{ id: 'old', title: '旧负责人' }]);
   field.pickerConfig = { provider: { resolve } } as unknown as typeof field.pickerConfig;
-  expect(await assistantConfirmationFieldDisplay(field, { ownerId: 'old' })).toBe('保存后计算');
+  expect(await assistantResolvedFieldDisplay(field, { ownerId: 'old' })).toBe('保存后计算');
   expect(resolve).not.toHaveBeenCalled();
 });
 
@@ -187,8 +187,7 @@ it('shows the complete human confirmation while keeping hidden relation values p
 });
 
 it('resolves confirmation reference names through the picker without changing the draft', async () => {
-  const { assistantConfirmationFieldDisplay } =
-    await import('@/dynamic-page-runtime/assistantRecordProjection');
+  const { assistantResolvedFieldDisplay } = await import('@/dynamic-page-runtime/assistantRecordProjection');
   const { vi } = await import('vitest');
   const record = { customerId: 'customer-1' };
   const resolve = vi.fn(async () => [
@@ -199,13 +198,13 @@ it('resolves confirmation reference names through the picker without changing th
     reference: { cardinality: 'ONE' },
     pickerConfig: { provider: { resolve } },
   } as unknown as import('@muyun/platform-components').RecordFormFieldState;
-  expect(await assistantConfirmationFieldDisplay(field, record)).toBe('试用客户');
+  expect(await assistantResolvedFieldDisplay(field, record)).toBe('试用客户');
   expect(resolve).toHaveBeenCalledWith(['customer-1']);
   expect(record).toEqual({ customerId: 'customer-1' });
   resolve.mockResolvedValueOnce([{ id: 'another', title: '其他客户', affectPatch: { secret: 'ignored' } }]);
-  expect(await assistantConfirmationFieldDisplay(field, record)).toBe('已选择（名称暂不可用）');
+  expect(await assistantResolvedFieldDisplay(field, record)).toBe('已选择（名称暂不可用）');
   resolve.mockRejectedValueOnce(new Error('permission changed'));
-  await expect(assistantConfirmationFieldDisplay(field, record)).rejects.toThrow('permission changed');
+  await expect(assistantResolvedFieldDisplay(field, record)).rejects.toThrow('permission changed');
 });
 
 it('retains authorized belonging context in a same-title reference confirmation', async () => {
@@ -225,5 +224,5 @@ it('retains authorized belonging context in a same-title reference confirmation'
   state.pickerConfig = {
     provider: { resolve: async () => [{ id: 'north', title: '客户', subtitle: '北店' }] },
   } as never;
-  expect(await assistantConfirmationFieldDisplay(state, { moduleId: 'north' })).toBe('客户 · 北店');
+  expect(await assistantResolvedFieldDisplay(state, { moduleId: 'north' })).toBe('客户 · 北店');
 });

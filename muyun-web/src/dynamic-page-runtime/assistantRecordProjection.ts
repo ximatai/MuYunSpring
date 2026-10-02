@@ -31,11 +31,8 @@ export function assistantFieldDisplay(
   return resolveRecordDetailDisplayValue(field, record, { emptyText: '空', optionItems });
 }
 
-/** Resolve confirmation labels through the same authorized provider used by the picker. */
-export async function assistantConfirmationFieldDisplay(
-  field: RecordFormFieldState,
-  record: RecordFormRecord,
-) {
+/** Resolve display labels through the same authorized provider used by the picker. */
+export async function assistantResolvedFieldDisplay(field: RecordFormFieldState, record: RecordFormRecord) {
   if (field.calculationPending) return assistantFieldDisplay(field, record);
   const value = record[field.fieldName];
   if (!field.reference || !field.pickerConfig?.provider || value == null || value === '')

@@ -60,3 +60,53 @@ it('keeps every row reachable across pagination and oversized details', async ()
   await expect(invoke('relation.describe', { offset: -1 })).rejects.toThrow('无效明细分页参数');
   await expect(invoke('relation.describe', { relationCode: 'missing' })).rejects.toThrow('明细已不可用');
 });
+
+it('reads selected aggregate reference names through the row provider without modifying the draft', async () => {
+  const registry = createRelationDraftRegistry();
+  const resolve = vi.fn(async () => [
+    { id: 'product-id', title: '业务商品', projections: { secret: 'hidden' } },
+  ]);
+  const form: RecordFormDraftAccess = {
+    editorMode: 'edit',
+    editingRecord: { productId: 'product-id' },
+    referencePickerConfigs: {
+      productId: { provider: { resolve } },
+    } as unknown as RecordFormDraftAccess['referencePickerConfigs'],
+    formFields: new Map([
+      [
+        'productId',
+        {
+          fieldRef: { fieldName: 'productId' },
+          label: '商品',
+          reference: { cardinality: 'ONE', targetModuleAlias: 'demo.product' },
+        },
+      ],
+    ]) as RecordFormDraftAccess['formFields'],
+    contextRevision: () => '1',
+    updateDraftFields: vi.fn(),
+    updateDraftReference: vi.fn(),
+  };
+  registry.register({
+    code: 'lines',
+    title: '明细',
+    revision: () => '1',
+    settle: async () => {},
+    rowKeys: () => ['row'],
+    form: () => form,
+    add: vi.fn(),
+    remove: vi.fn(),
+  });
+  const capabilities = createRelationDraftAssistantCapabilities(registry, registry.revision);
+  const context = {
+    signal: new AbortController().signal,
+    isCurrent: () => true,
+    commitInternalState: <T>(fn: () => T) => fn(),
+    applyEffect: <T>(fn: () => T) => fn(),
+  };
+  const describe = capabilities().find((item) => item.descriptor.code === 'relation.describe')!;
+  const result = await describe.execute(describe.parseInput({}), context);
+  expect(resolve).toHaveBeenCalledWith(['product-id']);
+  expect(JSON.stringify(result)).toContain('业务商品');
+  expect(JSON.stringify(result)).not.toMatch(/product-id|hidden|secret/);
+  expect(form.updateDraftReference).not.toHaveBeenCalled();
+});

@@ -1,5 +1,5 @@
 import type { RecordFormDraftAccess } from './recordFormDraftAccess';
-import { assistantFieldDisplay } from './assistantRecordProjection';
+import { assistantFieldDisplay, assistantResolvedFieldDisplay } from './assistantRecordProjection';
 import { hasActiveRecordEditor } from './assistantRecordEditorPolicy';
 import {
   AssistantCapabilityUsageError,
@@ -320,35 +320,76 @@ function formDescribeCapability(view: RecordFormDraftAccess): AssistantCapabilit
       inputSchema: emptyAssistantCapabilityInputSchema(),
     },
     parseInput: parseEmptyAssistantCapabilityInput,
-    async execute() {
-      const valueBudget = { remaining: MAX_ASSISTANT_FORM_CURRENT_VALUE_CHARS, truncated: false };
-      const fields = formFieldStates(view)
-        .filter((field) => field.visible && !isSensitiveField(field))
-        .map((field) => {
-          const currentValue = assistantCurrentValue(view, field, valueBudget);
-          const writeMode = assistantFieldWriteMode(view, field);
-          return {
-            fieldName: field.fieldName,
-            label: field.label,
-            required: field.required,
-            readOnly: field.readOnly,
-            ...(field.calculationPending ? { calculationPending: true } : {}),
-            valueType: field.valueType,
-            ...(field.inputRequirements ? { inputRequirements: field.inputRequirements } : {}),
-            ...(assistantValueHint(field) ? { valueHint: assistantValueHint(field) } : {}),
-            controlType: field.controlType,
-            assistantWritable: writeMode !== undefined,
-            ...(writeMode ? { assistantWriteMode: writeMode } : {}),
-            ...(field.reference
-              ? {
-                  referenceCardinality: field.reference.cardinality,
-                  referenceTargetModuleAlias: field.reference.targetModuleAlias,
-                }
-              : {}),
-            ...(currentValue !== undefined ? { currentValue } : {}),
-            options: field.assistantPolicy === 'DESCRIBE' ? [] : assistantOptions(field),
-          };
-        });
+    async execute(_input, context) {
+      const revision = view.contextRevision();
+      const record = { ...(view.editingRecord ?? view.selectedRecord ?? {}) };
+      const visibleFields = formFieldStates(view).filter(
+        (field) => field.visible && !isSensitiveField(field),
+      );
+      const resolved = new Map<string, { display: string; unavailable?: boolean }>();
+      let remainingReferences = 20;
+      let referencesTruncated = false;
+      await Promise.all(
+        visibleFields.map(async (field) => {
+          if (
+            !field.reference ||
+            field.assistantPolicy === 'DESCRIBE' ||
+            field.fileReference ||
+            field.calculationPending
+          )
+            return;
+          const value = record[field.fieldName];
+          const count = value == null || value === '' ? 0 : Array.isArray(value) ? value.length : 1;
+          if (field.pickerConfig?.provider && count > remainingReferences) {
+            referencesTruncated = true;
+            resolved.set(field.fieldName, {
+              display: '已选择（名称读取已截断，请在页面核实）',
+              unavailable: true,
+            });
+            return;
+          }
+          if (field.pickerConfig?.provider) remainingReferences -= count;
+          try {
+            resolved.set(field.fieldName, { display: await assistantResolvedFieldDisplay(field, record) });
+          } catch {
+            // Display failure is not permission to reselect, reveal IDs or forward transport details.
+            resolved.set(field.fieldName, { display: '已选择（名称暂不可用）', unavailable: true });
+          }
+        }),
+      );
+      if (!context.isCurrent() || revision !== view.contextRevision())
+        throw new AssistantCapabilityUsageError('表单或范围已变化，请重新读取');
+      const valueBudget = {
+        remaining: MAX_ASSISTANT_FORM_CURRENT_VALUE_CHARS,
+        truncated: referencesTruncated,
+      };
+      const fields = visibleFields.map((field) => {
+        const reference = resolved.get(field.fieldName);
+        const currentValue = assistantCurrentValue(view, field, valueBudget, reference?.display);
+        const writeMode = assistantFieldWriteMode(view, field);
+        return {
+          fieldName: field.fieldName,
+          label: field.label,
+          required: field.required,
+          readOnly: field.readOnly,
+          ...(field.calculationPending ? { calculationPending: true } : {}),
+          valueType: field.valueType,
+          ...(field.inputRequirements ? { inputRequirements: field.inputRequirements } : {}),
+          ...(assistantValueHint(field) ? { valueHint: assistantValueHint(field) } : {}),
+          controlType: field.controlType,
+          assistantWritable: writeMode !== undefined,
+          ...(writeMode ? { assistantWriteMode: writeMode } : {}),
+          ...(field.reference
+            ? {
+                referenceCardinality: field.reference.cardinality,
+                referenceTargetModuleAlias: field.reference.targetModuleAlias,
+              }
+            : {}),
+          ...(currentValue !== undefined ? { currentValue } : {}),
+          ...(reference?.unavailable ? { currentValueUnavailable: true } : {}),
+          options: field.assistantPolicy === 'DESCRIBE' ? [] : assistantOptions(field),
+        };
+      });
       return {
         editorMode: view.editorMode,
         editable: hasEditableDraft(view),
@@ -527,13 +568,17 @@ function assistantCurrentValue(
   view: RecordFormDraftAccess,
   field: RecordFormFieldState,
   budget: { remaining: number; truncated: boolean },
+  resolvedReferenceDisplay?: string,
 ) {
   if (isSensitiveField(field) || field.assistantPolicy === 'DESCRIBE' || field.fileReference)
     return undefined;
   const value = field.calculationPending
     ? '保存后计算'
     : field.reference
-      ? assistantFieldDisplay(field, view.editingRecord ?? view.selectedRecord ?? {}).slice(0, 500)
+      ? (
+          resolvedReferenceDisplay ??
+          assistantFieldDisplay(field, view.editingRecord ?? view.selectedRecord ?? {})
+        ).slice(0, 500)
       : (view.editingRecord ?? view.selectedRecord)?.[field.fieldName];
   let candidate: null | string | number | boolean | Array<string | number | boolean> | undefined;
   if (value === undefined) return undefined;
