@@ -283,6 +283,9 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
         mainCandidate: state.mainEditorOpen.value
           ? {
               ...state.mainMetadataDraft.value,
+              storageDefaultsOnSave: (['schemaName', 'tableName'] as const).filter(
+                (field) => !state.mainMetadataDraft.value[field].trim(),
+              ),
               saved: false as const,
               nextStep: 'REVIEW_AND_SAVE_STRUCTURE_BEFORE_FIELDS' as const,
             }

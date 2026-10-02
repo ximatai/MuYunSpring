@@ -90,8 +90,6 @@ async function fixture() {
         { alias: 'text-32', title: '短文本', type: 'STRING', length: 32, precision: null, scale: null },
       ],
     })),
-    previewFields: vi.fn(),
-    publishFields: vi.fn(),
     fieldChange: vi.fn(),
   };
   const session = createConstructionPlanSession(
@@ -125,8 +123,6 @@ it('exposes construction evidence without a parallel field publication candidate
     'construction.prepare-fields',
   );
   await f.discover();
-  expect(f.client.previewFields).not.toHaveBeenCalled();
-  expect(f.client.publishFields).not.toHaveBeenCalled();
 });
 
 it('bounds model catalog pages without losing full metadata or later fields', async () => {
@@ -257,7 +253,6 @@ it('discovers reusable objects and their authoritative reference catalog', async
   expect(discovery.value).toMatchObject({ modules: [{ alias: 'crm.customer', title: '客户' }] });
   const target = await f.invoke('construction.describe-reference-target', { moduleAlias: 'crm.customer' });
   expect(target.value).toMatchObject({ targetMetadataId: 'customer-metadata' });
-  expect(f.client.publishFields).not.toHaveBeenCalled();
 });
 
 it('preserves reviewed reuse intent and rejects ambiguous or self-referencing target identities', async () => {
@@ -309,7 +304,6 @@ it('discovers child configuration and calculation evidence without treating it a
     children: { lines: { relation: { id: 'child' }, fields: [{ fieldName: 'amount' }] } },
     calculationRules: [{ targetField: 'lines.amount' }],
   });
-  expect(f.client.publishFields).not.toHaveBeenCalled();
 });
 
 it('reads historical field receipts without preparing or replaying a publication', async () => {
@@ -327,5 +321,4 @@ it('reads historical field receipts without preparing or replaying a publication
   const status = await f.invoke('construction.field-change-status', { requestId: 'previous-request' });
   expect(status.value).toMatchObject({ receipt: { requestId: 'previous-request' } });
   expect(f.session.current().saved!.fieldChanges).toHaveLength(1);
-  expect(f.client.publishFields).not.toHaveBeenCalled();
 });

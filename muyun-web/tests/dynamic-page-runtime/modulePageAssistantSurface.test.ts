@@ -60,6 +60,33 @@ function viewFixture(): ModulePageSessionView {
 }
 
 describe('module page assistant surface', () => {
+  it('leaves only unchanged editors through the standard cancel operation and rechecks stale calls', async () => {
+    const view = viewFixture();
+    view.canLeaveUnchangedEditor = () =>
+      view.editorMode === 'edit' && !view.sessionDirty && !view.detailActionBusy;
+    view.sessionDirty = false;
+    view.leaveUnchangedEditor = vi.fn(async () => {
+      view.editorMode = 'view';
+    });
+    const surface = createModulePageAssistantSurface(view, vi.fn());
+    const leave = () =>
+      surface.capabilities().find(({ descriptor }) => descriptor.code === 'record.leave-unchanged-editor');
+    const stale = leave()!;
+    expect(stale).toBeDefined();
+    view.sessionDirty = true;
+    expect(leave()).toBeUndefined();
+    await expect(stale.execute({}, executionContext())).rejects.toThrow('编辑状态已变化');
+    expect(view.leaveUnchangedEditor).not.toHaveBeenCalled();
+    view.sessionDirty = false;
+    view.detailActionBusy = true;
+    expect(leave()).toBeUndefined();
+    view.detailActionBusy = false;
+    const result = await leave()!.execute({}, executionContext());
+    expect(result).toEqual({ editing: false, saved: false });
+    expect(view.leaveUnchangedEditor).toHaveBeenCalledOnce();
+    expect(view.editorMode).toBe('view');
+    expect(leave()).toBeUndefined();
+  });
   it('opens an authorized navigator draft through its standard management entry', async () => {
     const view = viewFixture();
     view.editorMode = 'view';
@@ -990,6 +1017,40 @@ describe('module page assistant surface', () => {
     expect(capabilities.map(({ descriptor }) => descriptor.code)).not.toContain('record.save');
   });
 
+  it('opens readonly details with view permission and never exposes draft writes', async () => {
+    const view = viewFixture();
+    view.editorMode = 'view';
+    view.context.can = vi.fn((action) => action === 'view');
+    view.prepareAssistantView = vi.fn(async (recordId: string) => () => ({
+      editorMode: 'view' as const,
+      recordId,
+      editable: false,
+      dirty: false,
+    }));
+    const surface = createModulePageAssistantSurface(view, vi.fn());
+    const capabilities = surface.capabilities();
+    const open = capabilities.find(({ descriptor }) => descriptor.code === 'record.open-view')!;
+    expect(open.effect).toBe('page');
+    await expect(
+      open.execute(open.parseInput({ recordId: 'record-1' }), executionContext()),
+    ).resolves.toMatchObject({ editorMode: 'view', editable: false, dirty: false });
+    expect(view.prepareAssistantView).toHaveBeenCalledWith('record-1');
+    expect(open.present?.({})).toMatchObject({ lines: ['当前为只读查看，未修改记录。'] });
+    expect(() => open.parseInput({ recordId: 'outside' })).toThrow();
+    expect(() => open.parseInput({ recordId: 'record-1', edit: true })).toThrow();
+    for (const code of ['record.start-edit', 'form.patch-draft', 'form.prepare-save']) {
+      expect(capabilities.map(({ descriptor }) => descriptor.code)).not.toContain(code);
+    }
+    view.pageEnhancement = { recordView: {} } as ModulePageSessionView['pageEnhancement'];
+    expect(surface.capabilities().map(({ descriptor }) => descriptor.code)).not.toContain('record.open-view');
+    view.pageEnhancement = undefined;
+    view.editorMode = 'edit';
+    expect(surface.capabilities().map(({ descriptor }) => descriptor.code)).not.toContain('record.open-view');
+    view.editorMode = 'view';
+    view.context.can = vi.fn(() => false);
+    expect(surface.capabilities().map(({ descriptor }) => descriptor.code)).not.toContain('record.open-view');
+  });
+
   it('prepares a child only through the selected standard tree session', async () => {
     const view = viewFixture();
     view.editorMode = 'view';
@@ -1183,15 +1244,51 @@ describe('module page assistant surface', () => {
     expect(capabilityCodes).not.toContain('query.apply-quick-search');
   });
 
-  it('does not expose form capabilities while the page is outside an edit session', () => {
+  it('reads only declared detail fields without requiring an edit session and invalidates closed details', async () => {
     const view = viewFixture();
     view.editorMode = 'view';
-    view.editingRecord = { id: 'record-1', version: 2, summary: 'read-only detail' };
+    view.selectedRecord = {
+      id: 'record-1',
+      version: 2,
+      remark: '正式备注',
+      hidden: 'secret',
+      described: 'private',
+      password: 'password-secret',
+    };
+    view.editingRecord = { id: 'record-1', remark: 'stale draft' };
+    view.detailDisplayFields = new Map<
+      string,
+      import('@muyun/platform-components').RecordFormFieldDescriptor
+    >([
+      ['remark', { fieldRef: { fieldName: 'remark' }, label: '备注' }],
+      ['hidden', { fieldRef: { fieldName: 'hidden' }, assistantPolicy: 'HIDDEN' }],
+      ['described', { fieldRef: { fieldName: 'described' }, assistantPolicy: 'DESCRIBE' }],
+      [
+        'password',
+        {
+          fieldRef: { fieldName: 'password' },
+          fieldControl: { alias: 'password', rendererType: 'INPUT', valueShape: 'SCALAR' },
+        },
+      ],
+    ]);
+    view.recordDetailReady = vi.fn(() => true);
     const surface = createModulePageAssistantSurface(view, vi.fn());
-
-    const capabilityCodes = surface.capabilities().map(({ descriptor }) => descriptor.code);
-    expect(capabilityCodes).not.toContain('form.describe');
-    expect(capabilityCodes).not.toContain('form.patch-draft');
+    const capabilities = surface.capabilities();
+    expect(capabilities.map(({ descriptor }) => descriptor.code)).not.toContain('form.patch-draft');
+    const describe = capabilities.find(({ descriptor }) => descriptor.code === 'form.describe')!;
+    const result = await describe.execute({}, executionContext());
+    expect(result).toMatchObject({
+      editable: false,
+      fields: [
+        { fieldName: 'remark', currentValue: '正式备注', assistantWritable: false },
+        { fieldName: 'described', assistantWritable: false },
+      ],
+    });
+    expect(JSON.stringify(result)).not.toMatch(/secret|private|stale draft/);
+    expect(view.updateDraftFields).not.toHaveBeenCalled();
+    view.recordDetailReady = () => false;
+    expect(surface.capabilities().map(({ descriptor }) => descriptor.code)).not.toContain('form.describe');
+    await expect(describe.execute({}, executionContext())).rejects.toThrow('不可读取');
   });
 
   it('bounds the total current values projected for a large form', async () => {
@@ -1316,6 +1413,91 @@ describe('module page assistant surface', () => {
         executionContext(),
       ),
     ).rejects.toThrow('Form field is not editable by the assistant: ownerId');
+  });
+
+  it.each([
+    { title: '详情授权名称', expected: '详情授权名称' },
+    { title: undefined, expected: '已选择（名称暂不可用）' },
+  ])('reads detail reference projection $title without querying candidates', async ({ title, expected }) => {
+    const view = referenceViewFixture([]);
+    view.formFields.get('tenantId')!.reference!.titleField = 'tenantTitle';
+    view.editorMode = 'view';
+    view.recordDetailReady = () => true;
+    view.detailDisplayFields = view.formFields;
+    view.selectedRecord = { id: 'record-1', tenantId: 'tenant-internal', tenantTitle: title };
+    const provider = view.referencePickerConfigs.tenantId!.provider!;
+    vi.mocked(provider.resolve).mockResolvedValue([]);
+    const surface = createModulePageAssistantSurface(view, vi.fn());
+    const describe = surface.capabilities().find(({ descriptor }) => descriptor.code === 'form.describe')!;
+    const result = await describe.execute({}, executionContext());
+    expect(result).toMatchObject({
+      editable: false,
+      currentValuesTruncated: false,
+      fields: expect.arrayContaining([
+        expect.objectContaining({ fieldName: 'tenantId', currentValue: expected, assistantWritable: false }),
+      ]),
+    });
+    expect(provider.resolve).not.toHaveBeenCalled();
+    expect(provider.searchPage).not.toHaveBeenCalled();
+    expect(JSON.stringify(result)).not.toContain('tenant-internal');
+    expect(view.updateDraftReference).not.toHaveBeenCalled();
+  });
+
+  it('reads authorized reference labels without reselecting or exposing candidate internals', async () => {
+    const view = referenceViewFixture([]);
+    view.formFields.get('tenantId')!.reference!.titleField = 'tenantTitle';
+    view.selectedRecord = { id: 'record-1', tenantId: 'previous-tenant', tenantTitle: '旧投影名称' };
+    view.editingRecord!.tenantId = 'tenant-internal';
+    view.editingRecord!.tenantTitle = '旧投影名称';
+    const resolve = vi.fn(async () => [
+      { id: 'tenant-internal', title: '示范租户', subtitle: '华东', projections: { secret: 'private' } },
+    ]);
+    view.referencePickerConfigs.tenantId!.provider!.resolve = resolve;
+    const describe = createModulePageAssistantSurface(view, vi.fn())
+      .capabilities()
+      .find(({ descriptor }) => descriptor.code === 'form.describe')!;
+    const result = await describe.execute({}, executionContext());
+    expect(resolve).toHaveBeenCalledWith(['tenant-internal']);
+    expect(JSON.stringify(result)).toContain('示范租户');
+    expect(JSON.stringify(result)).not.toMatch(/tenant-internal|private|secret|旧投影名称/);
+    expect(view.updateDraftReference).not.toHaveBeenCalled();
+    view.formFields.get('tenantId')!.assistantPolicy = 'DESCRIBE';
+    resolve.mockClear();
+    expect(JSON.stringify(await describe.execute({}, executionContext()))).not.toContain('示范租户');
+    expect(resolve).not.toHaveBeenCalled();
+  });
+
+  it('bounds reference reads, keeps other facts on resolution failure and rejects stale reads', async () => {
+    const view = referenceViewFixture([]);
+    view.editingRecord!.tenantId = Array.from({ length: 21 }, (_, i) => `internal-${i}`);
+    const resolve = vi.fn<() => Promise<Array<{ id: string; title: string }>>>();
+    view.referencePickerConfigs.tenantId!.provider!.resolve = resolve;
+    const describe = createModulePageAssistantSurface(view, vi.fn())
+      .capabilities()
+      .find(({ descriptor }) => descriptor.code === 'form.describe')!;
+    expect(await describe.execute({}, executionContext())).toMatchObject({ currentValuesTruncated: true });
+    expect(resolve).not.toHaveBeenCalled();
+    view.editingRecord!.tenantId = 'internal-1';
+    resolve.mockRejectedValueOnce(new Error('private transport diagnostic'));
+    const result = await describe.execute({}, executionContext());
+    expect(result).toMatchObject({
+      fields: expect.arrayContaining([
+        expect.objectContaining({ fieldName: 'tenantId', currentValueUnavailable: true }),
+        expect.objectContaining({ fieldName: 'summary', currentValue: 'before' }),
+      ]),
+    });
+    expect(JSON.stringify(result)).not.toMatch(/private transport|internal-1/);
+    let finish!: (value: Array<{ id: string; title: string }>) => void;
+    resolve.mockImplementationOnce(
+      () =>
+        new Promise((done) => {
+          finish = done;
+        }),
+    );
+    const pending = describe.execute({}, executionContext());
+    view.assistantContextRevision += 1;
+    finish([{ id: 'internal-1', title: '旧范围名称' }]);
+    await expect(pending).rejects.toThrow('表单或范围已变化');
   });
 
   it('searches authorized reference candidates and applies only an opaque searched selection', async () => {

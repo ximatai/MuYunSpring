@@ -11,6 +11,8 @@ it('reads historical initialization receipts without exposing a combined creatio
     path: '/platform.application-construction-plans/plan/initializations/customer',
   });
   expect(client).not.toHaveProperty('initialize');
+  expect(client).not.toHaveProperty('previewFields');
+  expect(client).not.toHaveProperty('publishFields');
   expect(client).not.toHaveProperty('previewInitialization');
 });
 

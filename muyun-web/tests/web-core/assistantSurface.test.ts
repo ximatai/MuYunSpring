@@ -45,6 +45,7 @@ it('compares every invocation boundary without depending on property order', () 
   for (const change of [
     { pageInstanceKey: 'page-b' },
     { surfaceGeneration: 2 },
+    { readStateRevision: 1 },
     { contextRevision: 'context-b' },
     { interactionRevision: 'interaction-b' },
     { interactionRevision: undefined },
@@ -333,7 +334,7 @@ describe('assistant surface registry', () => {
 
     await expect(
       registry.invoke({ id: 'call-1', code: 'form.patch-draft', input: 'value' }, registry.snapshot()!.token),
-    ).resolves.toEqual({ value: 'remembered', contextChanged: false });
+    ).resolves.toEqual({ value: 'remembered', contextChanged: false, readStateChanged: true });
     expect(remembered).toBe('value');
   });
 
@@ -594,6 +595,24 @@ it('loads bounded schemas from a complete current index without caching permissi
     'catalog.tool-2',
     'catalog.tool-17',
   ]);
+  const indexedCodes = (value: typeof input) =>
+    (value.context.facts.capabilityIndex as { code: string }[]).map(({ code }) => code);
+  expect(indexedCodes(input)).toHaveLength(16);
+  expect(indexedCodes(input)).not.toContain('catalog.tool-2');
+  expect(indexedCodes(input)).not.toContain('catalog.tool-17');
+  expect(new Set([...indexedCodes(input), ...input.capabilities.slice(1).map(({ code }) => code)])).toEqual(
+    new Set(capabilities.map(({ descriptor }) => descriptor.code)),
+  );
+  // A bounded definition window must not make an evicted tool undiscoverable.
+  const newer = {
+    ...observation,
+    output: { codes: Array.from({ length: 8 }, (_, index) => `catalog.tool-${index + 3}`) },
+  };
+  input = await request([observation, newer]);
+  expect(input.capabilities).toHaveLength(9);
+  expect(indexedCodes(input)).toContain('catalog.tool-2');
+  expect(indexedCodes(input)).toContain('catalog.tool-17');
+  expect(indexedCodes(input)).not.toContain('catalog.tool-3');
   revision = 'two';
   capabilities[2] = {
     ...capabilities[2]!,
@@ -641,4 +660,31 @@ it('loads bounded schemas from a complete current index without caching permissi
   expect((await request()).capabilities.map(({ code }) => code)).toEqual(['assistant.load-capabilities']);
   capabilities = capabilities.slice(0, 3);
   expect((await request()).capabilities).toHaveLength(3);
+});
+
+it('rejects an in-flight observation after another call commits selection state', async () => {
+  let finishRead!: (value: string) => void;
+  const registry = createAssistantSurfaceRegistry();
+  registry.register(
+    fixture({
+      pageInstanceKey: 'page',
+      revision: () => 'stable',
+      execute: async (input, context) => {
+        if (input === 'read')
+          return new Promise<string>((resolve) => {
+            finishRead = resolve;
+          });
+        context.commitInternalState(() => undefined);
+        expect(context.isCurrent()).toBe(true);
+        return 'selected';
+      },
+    }),
+  );
+  registry.activate('page');
+  const token = registry.snapshot()!.token;
+  const pending = registry.invoke({ id: 'read', code: 'form.patch-draft', input: 'read' }, token);
+  await registry.invoke({ id: 'select', code: 'form.patch-draft', input: 'select' }, token);
+  finishRead('obsolete row');
+  await expect(pending).rejects.toBeInstanceOf(StaleAssistantInvocationError);
+  expect(sameAssistantInvocationToken(token, registry.snapshot()!.token)).toBe(false);
 });

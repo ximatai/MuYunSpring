@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
-  assistantEditableRecordIds,
+  assistantVisibleRecordIds,
   assistantEditCancelDestination,
   hasActiveRecordEditor,
-  hasAvailableRecordUpdate,
+  hasAvailableRecordAction,
 } from '@/dynamic-page-runtime/assistantRecordEditorPolicy';
 
 describe('assistant record editor policy', () => {
@@ -26,24 +26,33 @@ describe('assistant record editor policy', () => {
       rows: [{ id: 'row-1', cells: [] }],
       truncated: false,
     };
-    expect(assistantEditableRecordIds('selected', normal)).toEqual(['selected', 'row-1']);
-    expect(assistantEditableRecordIds('deleted', { ...normal, mode: 'recycleBin' })).toEqual([]);
+    expect(assistantVisibleRecordIds('selected', normal)).toEqual(['selected', 'row-1']);
+    expect(assistantVisibleRecordIds('deleted', { ...normal, mode: 'recycleBin' })).toEqual([]);
   });
 
-  it('requires the record-level update action to be available', () => {
-    expect(
-      hasAvailableRecordUpdate({
-        recordId: 'record-1',
-        actions: [{ actionCode: 'update', available: false, reason: 'locked' }],
-      }),
-    ).toBe(false);
-    expect(
-      hasAvailableRecordUpdate({
-        recordId: 'record-1',
-        actions: [{ actionCode: 'update', available: true }],
-      }),
-    ).toBe(true);
-  });
+  it.each(['view', 'update'] as const)(
+    'requires the record-level %s action to be available',
+    (actionCode) => {
+      expect(
+        hasAvailableRecordAction(
+          {
+            recordId: 'record-1',
+            actions: [{ actionCode, available: false, reason: 'locked' }],
+          },
+          actionCode,
+        ),
+      ).toBe(false);
+      expect(
+        hasAvailableRecordAction(
+          {
+            recordId: 'record-1',
+            actions: [{ actionCode, available: true }],
+          },
+          actionCode,
+        ),
+      ).toBe(true);
+    },
+  );
 
   it('restores only a detail that is currently open for the edited record', () => {
     expect(assistantEditCancelDestination(true, 'record-1', 'record-1')).toBe('restore-view');

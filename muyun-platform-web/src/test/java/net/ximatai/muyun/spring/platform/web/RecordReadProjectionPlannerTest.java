@@ -31,6 +31,41 @@ import static org.mockito.Mockito.when;
 
 class RecordReadProjectionPlannerTest {
     @Test
+    void candidatesKeepTheAuthorizedSourceAndTargetFieldPolicyWithoutWeakeningListReads() {
+        var compilation = ModuleUiDescriptorCompiler.compileModule(staticDefinition(
+                TestModulePages.listDetail("iam.employee", list -> list.field("employeeNo").field("mobile"))));
+        var policy = new net.ximatai.muyun.spring.common.platform.ActionExecutionPolicy("accountRoleGrants",
+                net.ximatai.muyun.spring.common.platform.PlatformActionLevel.RECORD,
+                net.ximatai.muyun.spring.common.platform.ActionAccessMode.AUTH_REQUIRED, true, true,
+                net.ximatai.muyun.spring.common.platform.ActionDefaultGrantPolicy.NONE, null);
+        var source = ActionExecutionContext.ofPolicy("iam.role", policy, Set.of("role-1"),
+                java.util.Optional.of(net.ximatai.muyun.spring.common.identity.CurrentUser.tenantUser(
+                        "operator", "Operator", "tenant-a")));
+        var authorized = source.withAuthorizationResult(
+                net.ximatai.muyun.spring.common.platform.ActionAuthorizationResult.allowed(source));
+        FieldReadAbility readable = new FieldReadAbility() {
+            @Override public FieldReadPolicy fieldReadPolicy(ActionExecutionContext action) {
+                assertThat(action).isSameAs(authorized);
+                return FieldReadPolicy.readableFields(List.of("employeeNo"));
+            }
+        };
+        try (var ignored = net.ximatai.muyun.spring.common.platform.ActionExecutionContextHolder.use(authorized)) {
+            var projection = RecordReadProjectionPlanner.authorizedCandidates("iam.employee", compilation.readModel(),
+                    "role_candidates", List.of("employeeNo", "mobile"), readable, authorized);
+            assertThat(projection.moduleAlias()).isEqualTo("iam.employee");
+            assertThat(projection.permissionCode()).isEqualTo(source.permissionCode());
+            assertThat(projection.outputFields()).extracting(ViewFieldRef::fieldName).containsExactly("employeeNo");
+            assertThat(net.ximatai.muyun.spring.common.platform.ActionExecutionContextHolder.current()).contains(authorized);
+            assertThatThrownBy(() -> RecordReadProjectionPlanner.explicit("iam.employee", compilation.readModel(),
+                    "list", List.of("employeeNo"), readable, authorized))
+                    .hasMessageContaining("action module alias mismatch");
+        }
+        assertThatThrownBy(() -> RecordReadProjectionPlanner.authorizedCandidates("iam.employee", compilation.readModel(),
+                "role_candidates", List.of("employeeNo"), readable, source))
+                .hasMessageContaining("authorized source record action");
+    }
+
+    @Test
     void shouldNotTreatTreeManagementAsADefaultListProjection() {
         ResolvedModuleUiDescriptor descriptor = ModuleUiDescriptorCompiler.compile(
                 ModuleUiDefinition.builder("mr.tag")

@@ -55,6 +55,31 @@ public final class RecordReadProjectionPlanner {
                                                 List<String> outputFieldNames,
                                                 Object recordService,
                                                 ActionExecutionContext actionContext) {
+        validateActionContext(moduleAlias, actionContext);
+        return explicitFields(moduleAlias, readModel, viewCode, outputFieldNames, recordService, actionContext);
+    }
+
+    /** Plans a bounded candidate read authorized by its owning record action, not a target list grant. */
+    public static RecordReadProjection authorizedCandidates(String moduleAlias,
+                                                            ResolvedModuleReadModel readModel,
+                                                            String viewCode,
+                                                            List<String> outputFieldNames,
+                                                            Object recordService,
+                                                            ActionExecutionContext sourceAction) {
+        if (sourceAction == null || sourceAction.authorizationResult() == null
+                || sourceAction.currentUser().isEmpty() || !sourceAction.hasRecordContext()
+                || sourceAction.actionPolicy().level() != PlatformActionLevel.RECORD) {
+            throw new IllegalArgumentException("candidate projection requires an authorized source record action");
+        }
+        return explicitFields(moduleAlias, readModel, viewCode, outputFieldNames, recordService, sourceAction);
+    }
+
+    private static RecordReadProjection explicitFields(String moduleAlias,
+                                                        ResolvedModuleReadModel readModel,
+                                                        String viewCode,
+                                                        List<String> outputFieldNames,
+                                                        Object recordService,
+                                                        ActionExecutionContext actionContext) {
         if (readModel == null) {
             throw new IllegalArgumentException("resolved module read model must not be null");
         }
@@ -71,7 +96,6 @@ public final class RecordReadProjectionPlanner {
         if (outputFieldNames == null || outputFieldNames.isEmpty()) {
             throw new IllegalArgumentException("record read projection output fields must not be empty");
         }
-        validateActionContext(moduleAlias, actionContext);
         Set<String> readableFields = readableFields(readModel);
         FieldReadPolicy fieldReadPolicy = fieldReadPolicy(recordService, actionContext);
         LinkedHashSet<ViewFieldRef> outputFields = new LinkedHashSet<>();

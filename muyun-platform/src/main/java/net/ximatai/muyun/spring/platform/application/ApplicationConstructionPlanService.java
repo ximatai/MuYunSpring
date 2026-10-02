@@ -48,11 +48,24 @@ public class ApplicationConstructionPlanService {
     public record ConfirmCommand(String requestId, int expectedRevision, ApplicationConstructionPlanContent content) {}
     public record Snapshot(String planId, int revision, ApplicationConstructionPlanContent content,
                            Instant confirmedAt, String constructionStatus, List<Initialization> initializations, List<ApplicationConstructionFieldService.Receipt> fieldChanges, List<ApplicationConstructionDeliveryService.Receipt> deliveries, List<String> deliveredObjectKeys) {
+        /** Explicit plan associations supersede legacy receipt identities; neither proves current readiness. */
+        @com.fasterxml.jackson.annotation.JsonProperty
+        public List<ModuleBinding> moduleBindings() { return moduleBindings(content, initializations); }
+        private static List<ModuleBinding> moduleBindings(ApplicationConstructionPlanContent content, List<Initialization> receipts) {
+            return content.objects().stream().flatMap(object -> {
+                String alias = object.moduleAlias();
+                if (alias == null) alias = receipts.stream().filter(item -> item.objectKey().equals(object.key()))
+                        .map(Initialization::moduleAlias).findFirst().orElse(null);
+                return alias == null || alias.isBlank() ? java.util.stream.Stream.empty()
+                        : java.util.stream.Stream.of(new ModuleBinding(object.key(), alias));
+            }).toList();
+        }
         public void requireOpen(String objectKey) {
             if ("DELIVERED".equals(constructionStatus) || objectKey != null && deliveredObjectKeys.contains(objectKey))
                 throw BusinessExceptions.warning("platform.construction-plan.delivered", "此业务已交付，请读取当前低代码治理配置进行改进；历史方案不再用于建设");
         }
     }
+    public record ModuleBinding(String objectKey, String moduleAlias) {}
     public record Initialization(String objectKey, int planRevision, String moduleAlias, String metadataId, String relationId, String requestId) {}
     public static Initialization initialization(ApplicationConstructionInitialization receipt) {
         return new Initialization(receipt.getObjectKey(), receipt.getPlanRevision(), receipt.getModuleAlias(), receipt.getMetadataId(), receipt.getRelationId(), receipt.getRequestId());
@@ -147,12 +160,12 @@ public class ApplicationConstructionPlanService {
     }
 
     /** An acceptance belongs to its object and requirement meaning, not the current list indexes. */
-    private static void requireDeliveredContentUnchanged(Snapshot current, ApplicationConstructionPlanContent candidate) {
+    static void requireDeliveredContentUnchanged(Snapshot current, ApplicationConstructionPlanContent candidate) {
         for (String key : current.deliveredObjectKeys()) {
             var original = current.content().objects().stream().filter(object -> object.key().equals(key)).findFirst();
             var replacement = candidate.objects().stream().filter(object -> object.key().equals(key)).findFirst();
             if (!original.equals(replacement)
-                    || !requirementMeanings(current.content(), key).equals(requirementMeanings(candidate, key)))
+                    || !requirementMeanings(current.content(), key, current.initializations()).equals(requirementMeanings(candidate, key, current.initializations())))
                 throw BusinessExceptions.warning("platform.construction-plan.delivered",
                         "已交付业务对象及其需求不能修改或移除，请读取当前低代码治理配置进行改进");
         }
@@ -160,13 +173,16 @@ public class ApplicationConstructionPlanService {
 
     private record RequirementMeaning(ApplicationConstructionRequirement.Section section, String statement,
             ApplicationConstructionRequirement.Mode mode, String fieldName, String explanation,
-            ApplicationConstructionRequirement.Reference reference) {}
+            ApplicationConstructionRequirement.Reference reference, String targetModuleAlias) {}
 
-    private static Map<RequirementMeaning, Long> requirementMeanings(ApplicationConstructionPlanContent content, String key) {
+    private static Map<RequirementMeaning, Long> requirementMeanings(ApplicationConstructionPlanContent content, String key, List<Initialization> receipts) {
+        var modules = Snapshot.moduleBindings(content, receipts).stream().collect(Collectors.toMap(ModuleBinding::objectKey, ModuleBinding::moduleAlias));
         return content.requirements().stream().filter(requirement -> requirement.objectKey().equals(key))
                 .map(requirement -> new RequirementMeaning(requirement.section(),
                         ApplicationConstructionRequirements.source(content, requirement.section()).get(requirement.index()),
-                        requirement.mode(), requirement.fieldName(), requirement.explanation(), requirement.reference()))
+                        requirement.mode(), requirement.fieldName(), requirement.explanation(), requirement.reference(),
+                        requirement.reference() == null ? null : !requirement.reference().moduleAlias().isEmpty()
+                                ? requirement.reference().moduleAlias() : modules.get(requirement.reference().objectKey())))
                 .collect(Collectors.groupingBy(Function.identity(), Collectors.counting()));
     }
 
@@ -197,7 +213,7 @@ public class ApplicationConstructionPlanService {
                 .map(ApplicationConstructionAcceptance::getObjectKey).distinct().sorted().toList();
         // Delivery is historical: later governance edits do not reopen the old construction plan.
         String status = !content.objects().isEmpty() && content.objects().stream().allMatch(object -> delivered.contains(object.key()))
-                ? "DELIVERED" : !delivered.isEmpty() ? "PARTIALLY_DELIVERED" : bindings.isEmpty() ? "NOT_STARTED" : "INITIALIZED";
+                ? "DELIVERED" : !delivered.isEmpty() ? "PARTIALLY_DELIVERED" : Snapshot.moduleBindings(content, bindings).isEmpty() ? "NOT_STARTED" : "LINKED";
         return new Snapshot(planId, revision, content, confirmedAt, status, bindings, fieldChanges.list(Criteria.of().eq("planId", planId)).stream().map(ApplicationConstructionFieldService::receipt).toList(), deliveries.list(Criteria.of().eq("planId", planId)).stream().map(ApplicationConstructionDeliveryService::receipt).toList(), delivered);
     }
     private static void requireId(String value) {

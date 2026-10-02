@@ -353,7 +353,7 @@ class DemoBootstrapTaskTest {
         task.run();
         task.run();
 
-        verify(tenantApplicationService, times(2)).configureApplications(DemoBootstrapTask.TENANT_ALIAS,
+        verify(tenantApplicationService, times(2)).ensureApplicationsOpened(DemoBootstrapTask.TENANT_ALIAS,
                 List.of("iam", "education"));
 
         Tenant tenant = tenantService.select(DemoBootstrapTask.TENANT_ALIAS);

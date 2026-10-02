@@ -36,9 +36,15 @@ public record ApplicationConstructionPlanContent(
         }
     }
     /** Independently managed module scope. Owned details belong to its CHILD requirements, not another object. */
-    public record BusinessObject(String key, String name, String purpose) {
+    public record BusinessObject(String key, String name, String purpose, String moduleAlias) {
+        public BusinessObject(String key, String name, String purpose) { this(key, name, purpose, null); }
         public BusinessObject {
             key = text(key, 64); name = text(name, 120); purpose = text(purpose, 500);
+            if (moduleAlias != null) {
+                moduleAlias = moduleAlias.trim();
+                if (!moduleAlias.isEmpty() && (moduleAlias.length() > 128 || !moduleAlias.matches("[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+")))
+                    throw new IllegalArgumentException("请选择实际标准模块的别名");
+            }
             if (!key.matches("[a-z][a-z0-9_-]*")) throw new IllegalArgumentException("业务对象标识格式无效");
         }
     }

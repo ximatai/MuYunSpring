@@ -3,6 +3,7 @@ import type {
   RecordQueryListFilterField,
   RecordQueryListStandardQuery,
 } from './recordQueryListQueryController';
+import { validQueryNumericValue } from './queryNumericValue';
 import { isValueLessQueryOperator } from './queryCriteriaDraft';
 
 /** Validate the entire replacement before the page commits any query state. */
@@ -79,9 +80,8 @@ function validValue(value: unknown, field: RecordQueryListFilterField): boolean 
       return typeof value === 'boolean';
     case 'INTEGER':
     case 'LONG':
-      return typeof value === 'number' && Number.isSafeInteger(value);
     case 'DECIMAL':
-      return typeof value === 'number' && Number.isFinite(value);
+      return validQueryNumericValue(value, field.valueType);
     case 'DATE':
       return validDate(value);
     case 'INSTANT':

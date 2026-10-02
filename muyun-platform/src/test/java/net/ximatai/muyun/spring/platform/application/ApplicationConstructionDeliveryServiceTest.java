@@ -54,12 +54,11 @@ class ApplicationConstructionDeliveryServiceTest {
                 mock(PlatformPresentationVariantService.class), mock(PlatformPresentationRevisionResolver.class), menus,
                 mock(MenuSchemeService.class), mock(DynamicRuntimeActivationService.class), mock(ActionExecutionPolicyService.class)));
         var content = new ApplicationConstructionPlanContent("登记", "登记两个独立对象", List.of("记录基本信息"), List.of(),
-                List.of(new ApplicationConstructionPlanContent.BusinessObject("first", "对象一", "登记"),
+                List.of(new ApplicationConstructionPlanContent.BusinessObject("first", "对象一", "登记", "sample.first"),
                         new ApplicationConstructionPlanContent.BusinessObject("second", "对象二", "登记")),
                 List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of());
         when(plans.read("plan")).thenReturn(new ApplicationConstructionPlanService.Snapshot("plan", 1, content,
-                java.time.Instant.EPOCH, "INITIALIZED", List.of(
-                new ApplicationConstructionPlanService.Initialization("first", 1, "sample.first", "m", "r", "request")), List.of(), List.of(), List.of()));
+                java.time.Instant.EPOCH, "LINKED", List.of(), List.of(), List.of(), List.of()));
         doReturn(new ApplicationConstructionDeliveryService.Progress("first", "sample.first", "ACTIVE", false,
                 false, null, false, false, List.of(), List.of(), List.of())).when(service).progress("plan", "first");
         try (var identity = CurrentUserContext.use(CurrentUser.systemUser("admin", "管理员"))) {
@@ -70,6 +69,11 @@ class ApplicationConstructionDeliveryServiceTest {
                     .containsExactly(ApplicationConstructionDeliveryService.TaskAction.INITIALIZE);
             assertThat(task.objects().get(1).requirements()).anyMatch(item ->
                     item.status() == ApplicationConstructionRequirements.Status.UNMAPPED);
+            doThrow(new IllegalArgumentException("关联模块尚无可用主实体")).when(service).progress("plan", "first");
+            assertThat(service.task("plan").objects().getFirst().options())
+                    .extracting(ApplicationConstructionDeliveryService.TaskOption::action)
+                    .containsExactly(ApplicationConstructionDeliveryService.TaskAction.REVIEW_CONFIGURATION);
+
             assertThat(task.objects().get(1).options().getFirst().explanation()).contains("逐页准备可见表单");
             doReturn(new ApplicationConstructionDeliveryService.Progress("first", "sample.first", "ACTIVE", true,
                     true, "menu", false, false, List.of(), List.of(), List.of())).when(service).progress("plan", "first");

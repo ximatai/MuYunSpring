@@ -1,5 +1,4 @@
 import { constructionObjectKeySchema, type ConstructionPlanState } from './constructionPlanGuard';
-import type { ConstructionInitializationResult } from '@muyun/web-contracts';
 import {
   AssistantCapabilityUsageError,
   type AssistantCapability,
@@ -10,7 +9,6 @@ import {
 export function createConstructionInitializationCapabilities(
   client: ConstructionPlanClient,
   current: () => ConstructionPlanState,
-  accept: (result: ConstructionInitializationResult, invalidate?: boolean) => void,
 ): AssistantCapability[] {
   function objectInput(input: unknown) {
     if (!input || typeof input !== 'object' || Array.isArray(input))
@@ -40,12 +38,11 @@ export function createConstructionInitializationCapabilities(
       parseInput(input) {
         return { objectKey: string(objectInput(input), 'objectKey', 64) };
       },
-      async execute(input, context) {
+      async execute(input) {
         const saved = current().saved;
         if (!saved) throw new AssistantCapabilityUsageError('请先确认或恢复需求方案');
         const result = await client.initialization(saved.planId, (input as { objectKey: string }).objectKey);
-        if (result) context.commitInternalState(() => accept(result, false));
-        return result ?? { status: 'NOT_INITIALIZED' };
+        return result ?? { status: 'NO_HISTORICAL_RECEIPT' };
       },
     },
   ];

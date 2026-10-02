@@ -279,6 +279,31 @@ public class StaticRecordReadProjectionService {
                                                                             PageRequest pageRequest,
                                                                             Object recordService,
                                                                             Sort... sorts) {
+        return queryExplicitList(moduleAlias, viewCode, outputFields, criteria, pageRequest, recordService, false, sorts);
+    }
+
+    /**
+     * The owning record action must already be authorized and must supply its bounded candidate criteria.
+     * Keeps that source context for field policy and audit; it never grants a target-module list action.
+     */
+    public Optional<WebPageResponse<Map<String, Object>>> queryAuthorizedCandidates(String moduleAlias,
+                                                                                    String viewCode,
+                                                                                    List<String> outputFields,
+                                                                                    Criteria criteria,
+                                                                                    PageRequest pageRequest,
+                                                                                    Object recordService,
+                                                                                    Sort... sorts) {
+        return queryExplicitList(moduleAlias, viewCode, outputFields, criteria, pageRequest, recordService, true, sorts);
+    }
+
+    private Optional<WebPageResponse<Map<String, Object>>> queryExplicitList(String moduleAlias,
+                                                                             String viewCode,
+                                                                             List<String> outputFields,
+                                                                             Criteria criteria,
+                                                                             PageRequest pageRequest,
+                                                                             Object recordService,
+                                                                             boolean sourceAuthorizedCandidates,
+                                                                             Sort... sorts) {
         StaticModuleDefinition definition = staticModuleDefinitionCatalog.find(moduleAlias).orElse(null);
         if (definition == null) {
             return Optional.empty();
@@ -287,13 +312,13 @@ public class StaticRecordReadProjectionService {
         if (plan == null) {
             return Optional.empty();
         }
-        RecordReadProjection projection = withReferenceSourceFields(moduleAlias, recordService, RecordReadProjectionPlanner.explicit(
-                moduleAlias,
-                plan.readModel(),
-                viewCode,
-                outputFields,
-                recordService,
-                ActionExecutionContextHolder.current().orElse(null)));
+        var sourceAction = ActionExecutionContextHolder.current().orElse(null);
+        RecordReadProjection declared = sourceAuthorizedCandidates
+                ? RecordReadProjectionPlanner.authorizedCandidates(moduleAlias, plan.readModel(), viewCode,
+                        outputFields, recordService, sourceAction)
+                : RecordReadProjectionPlanner.explicit(moduleAlias, plan.readModel(), viewCode,
+                        outputFields, recordService, sourceAction);
+        RecordReadProjection projection = withReferenceSourceFields(moduleAlias, recordService, declared);
         PageResult<Map<String, Object>> page = relationProjectionReadService.queryList(
                 staticModuleDefinitionCatalog.definitions(),
                 definition,

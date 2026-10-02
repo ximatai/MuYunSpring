@@ -5,13 +5,7 @@ import net.ximatai.muyun.database.core.orm.PageRequest;
 import net.ximatai.muyun.database.core.orm.PageResult;
 import net.ximatai.muyun.database.core.orm.Sort;
 import net.ximatai.muyun.database.core.orm.SqlSubQuery;
-import net.ximatai.muyun.spring.ability.DataScopeAbility;
 import net.ximatai.muyun.spring.ability.query.QueryLikePattern;
-import net.ximatai.muyun.spring.common.platform.ActionAccessMode;
-import net.ximatai.muyun.spring.common.platform.ActionDefaultGrantPolicy;
-import net.ximatai.muyun.spring.common.platform.ActionExecutionPolicy;
-import net.ximatai.muyun.spring.common.platform.DataScopeCriteriaResult;
-import net.ximatai.muyun.spring.common.platform.PlatformActionLevel;
 import net.ximatai.muyun.spring.iam.user.UserAccount;
 import net.ximatai.muyun.spring.iam.user.UserAccountService;
 import net.ximatai.muyun.spring.web.WebPageRequest;
@@ -39,15 +33,6 @@ public class EmployeeAccountCandidateQueryService {
             from iam_employee_account
             where tenant_id = :tenantId
             """;
-    private static final ActionExecutionPolicy CANDIDATE_READ_POLICY = new ActionExecutionPolicy(
-            "employeeAccounts",
-            PlatformActionLevel.RECORD,
-            ActionAccessMode.AUTH_REQUIRED,
-            true,
-            true,
-            ActionDefaultGrantPolicy.NONE,
-            null
-    );
     private final UserAccountService userAccountService;
 
     public EmployeeAccountCandidateQueryService(UserAccountService userAccountService) {
@@ -58,6 +43,9 @@ public class EmployeeAccountCandidateQueryService {
                                                     String keyword,
                                                     List<String> ids,
                                                     WebPageRequest page) {
+        if (tenantId == null || tenantId.isBlank()) {
+            throw new IllegalArgumentException("candidate tenantId is required");
+        }
         Criteria criteria = Criteria.of()
                 .eq("tenantId", tenantId)
                 .eq("enabled", Boolean.TRUE)
@@ -73,11 +61,6 @@ public class EmployeeAccountCandidateQueryService {
         }
         WebPageRequest normalizedPage = page == null ? WebPageRequest.DEFAULT : page;
         PageRequest pageRequest = PageRequest.of(normalizedPage.pageNum(), normalizedPage.pageSize());
-        if (userAccountService instanceof DataScopeAbility<?>) {
-            DataScopeAbility<UserAccount> dataScopeAbility = DataScopeAbility.cast(userAccountService);
-            DataScopeCriteriaResult scope = dataScopeAbility.readScopeByPolicy(CANDIDATE_READ_POLICY, criteria);
-            return dataScopeAbility.withDataScopeTenant(scope, () -> project(scope.criteria(), pageRequest));
-        }
         return project(criteria, pageRequest);
     }
 
@@ -85,9 +68,8 @@ public class EmployeeAccountCandidateQueryService {
         /*
          * This record action authorizes the employee binding, while the candidate set is a safe,
          * deliberately small user-account projection.  Do not send the outer iam.employee action
-         * context into the iam.user read-projection planner: its alias check correctly rejects
-         * that cross-module context.  The explicit data-scope policy above remains the sole
-         * authorization input for this internal candidate read.
+         * context into the iam.user list planner. The employee record action owns authorization;
+         * the authoritative tenant above bounds this deliberately small candidate read.
          */
         PageResult<UserAccount> page = userAccountService.pageQuery(
                 userAccountService.activeCriteria(criteria), pageRequest, Sort.asc("username"));

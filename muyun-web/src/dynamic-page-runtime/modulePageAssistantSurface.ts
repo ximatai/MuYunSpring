@@ -21,7 +21,7 @@ import {
 import { assistantQueryResult, createAssistantQueryCapabilities } from './assistantQueryCapabilities';
 import type { ModulePageSessionView } from './useModulePageSession';
 import type { RecordFormDraftAccess } from './recordFormDraftAccess';
-import { assistantEditableRecordIds, hasActiveRecordEditor } from './assistantRecordEditorPolicy';
+import { assistantVisibleRecordIds, hasActiveRecordEditor } from './assistantRecordEditorPolicy';
 import {
   modulePageScopeCapabilities,
   modulePageScopeCandidateFacts,
@@ -74,27 +74,32 @@ export function createModulePageAssistantSurface(
   tenantScope?: ModulePageAssistantTenantScope,
 ): AssistantSurface {
   const activeForm = () => view.assistantNavigatorEditor?.form ?? view;
-  const formCapabilities = createRecordFormAssistantCapabilities({
-    get editorMode() {
-      return activeForm().editorMode;
+  const formCapabilities = createRecordFormAssistantCapabilities(
+    {
+      get editorMode() {
+        return activeForm().editorMode;
+      },
+      get editingRecord() {
+        return activeForm().editorMode === 'view' ? undefined : activeForm().editingRecord;
+      },
+      get selectedRecord() {
+        return activeForm().selectedRecord;
+      },
+      get formFields() {
+        return !view.assistantNavigatorEditor && view.editorMode === 'view'
+          ? view.detailDisplayFields
+          : activeForm().formFields;
+      },
+      get referencePickerConfigs() {
+        return activeForm().referencePickerConfigs;
+      },
+      contextRevision: () => modulePageAssistantContextRevision(view),
+      relations: () => (view.assistantNavigatorEditor ? [] : assistantRelationFacts(view)),
+      updateDraftFields: (...args) => activeForm().updateDraftFields(...args),
+      updateDraftReference: (...args) => activeForm().updateDraftReference(...args),
     },
-    get editingRecord() {
-      return activeForm().editingRecord;
-    },
-    get selectedRecord() {
-      return activeForm().selectedRecord;
-    },
-    get formFields() {
-      return activeForm().formFields;
-    },
-    get referencePickerConfigs() {
-      return activeForm().referencePickerConfigs;
-    },
-    contextRevision: () => modulePageAssistantContextRevision(view),
-    relations: () => (view.assistantNavigatorEditor ? [] : assistantRelationFacts(view)),
-    updateDraftFields: (...args) => activeForm().updateDraftFields(...args),
-    updateDraftReference: (...args) => activeForm().updateDraftReference(...args),
-  });
+    { canReadDetail: () => !view.assistantNavigatorEditor && view.recordDetailReady?.() === true },
+  );
   const relationCapabilities = view.relationDrafts
     ? createRelationDraftAssistantCapabilities(view.relationDrafts, () =>
         modulePageAssistantContextRevision(view),
@@ -108,6 +113,7 @@ export function createModulePageAssistantSurface(
     ...(!view.assistantNavigatorEditor && view.listQueryController ? queryCapabilities(view) : []),
     ...(!view.assistantNavigatorEditor && view.treeQueryController ? treeQueryCapabilities(view) : []),
     ...recordEditorCapabilities(view),
+    ...cleanEditorExitCapabilities(view),
     ...(!view.assistantNavigatorEditor && hasEditableDraft(view) ? relationCapabilities() : []),
     ...(view.assistantNavigatorEditor?.busy ? [] : formCapabilities()),
     ...(!view.assistantNavigatorEditor && hasEditableDraft(view) && view.assistantSaveAvailable
@@ -188,6 +194,10 @@ function recordEditorCapabilities(view: ModulePageSessionView): AssistantCapabil
         inputSchema: emptyAssistantCapabilityInputSchema(),
       },
       parseInput: parseEmptyAssistantCapabilityInput,
+      present: () => ({
+        title: `已打开${view.modulePageTitle}新增表单`,
+        lines: ['已建立未保存草稿，尚未新增正式记录。'],
+      }),
       async execute(_input, context) {
         const commit = await view.prepareAssistantCreate();
         return context.applyEffect(commit, () =>
@@ -214,36 +224,51 @@ function recordEditorCapabilities(view: ModulePageSessionView): AssistantCapabil
       });
     }
   }
-  const editableRecordIds = assistantEditableRecordIds(view.selectedRecord?.id, querySnapshot);
-  if (view.context.can('update') === true && editableRecordIds.length > 0) {
+  const visibleRecordIds = assistantVisibleRecordIds(view.selectedRecord?.id, querySnapshot);
+  for (const mode of ['view', 'edit'] as const) {
+    if (mode === 'view' && view.pageEnhancement?.recordView) continue;
+    if (view.context.can(mode === 'view' ? 'view' : 'update') !== true || visibleRecordIds.length === 0)
+      continue;
+    const code = mode === 'view' ? 'record.open-view' : 'record.start-edit';
     capabilities.push({
       effect: 'page',
       descriptor: {
-        code: 'record.start-edit',
+        code,
         description:
-          '打开当前页面已选中或当前列表结果中某条记录的标准编辑表单；只能使用当前页面提供的 recordId。它不会保存。',
+          mode === 'view'
+            ? '只读打开当前页面已选中或当前列表中的记录详情，读取正式保存的字段和明细。查看、解释或核对数据时使用，不建立编辑草稿；只能使用当前页面提供的 recordId。'
+            : '用户要求修改记录时，打开当前页面已选中或当前列表中的记录的标准编辑表单。仅查看数据应使用 record.open-view；只能使用当前页面提供的 recordId。它不会保存。',
         inputSchema: {
           type: 'object',
           additionalProperties: false,
           required: ['recordId'],
-          properties: { recordId: { type: 'string', enum: editableRecordIds } },
+          properties: { recordId: { type: 'string', enum: visibleRecordIds } },
         },
       },
       parseInput(input) {
         if (
           !isRecord(input) ||
+          Object.keys(input).some((key) => key !== 'recordId') ||
           typeof input.recordId !== 'string' ||
-          !editableRecordIds.includes(input.recordId)
+          !visibleRecordIds.includes(input.recordId)
         ) {
-          throw new AssistantCapabilityUsageError(
-            'record.start-edit requires a recordId from the current page',
-          );
+          throw new AssistantCapabilityUsageError(`${code} requires a recordId from the current page`);
         }
         return { recordId: input.recordId };
       },
+      present: () => ({
+        title: `已打开${view.modulePageTitle}${mode === 'view' ? '详情' : '编辑表单'}`,
+        lines: [
+          mode === 'view'
+            ? '当前为只读查看，未修改记录。'
+            : '仅打开编辑表单，尚未提交修改；后续填写仍需审阅保存。',
+        ],
+      }),
       async execute(input, context) {
         const { recordId } = input as { recordId: string };
-        const commit = await view.prepareAssistantEdit(recordId);
+        const commit = await (mode === 'view'
+          ? view.prepareAssistantView(recordId)
+          : view.prepareAssistantEdit(recordId));
         return context.applyEffect(commit, () =>
           view.settleAssistantPageState(context.cancellationSignal ?? context.signal),
         );
@@ -255,6 +280,36 @@ function recordEditorCapabilities(view: ModulePageSessionView): AssistantCapabil
 
 function hasEditableDraft(view: Pick<RecordFormDraftAccess, 'editorMode' | 'editingRecord'>) {
   return hasActiveRecordEditor(view.editorMode, view.editingRecord);
+}
+
+function cleanEditorExitCapabilities(view: ModulePageSessionView): AssistantCapability[] {
+  const ready = () => view.canLeaveUnchangedEditor?.() === true;
+  if (!ready()) return [];
+  return [
+    {
+      effect: 'page',
+      descriptor: {
+        code: 'record.leave-unchanged-editor',
+        description:
+          '用户要求退出编辑或返回查看时，退出没有未保存更改的标准编辑表单，按页面原有规则回到详情或列表。不保存、不丢弃更改；存在未保存更改时不可用，应交由用户审阅处理。',
+        inputSchema: emptyAssistantCapabilityInputSchema(),
+      },
+      parseInput: parseEmptyAssistantCapabilityInput,
+      async execute(_input, context) {
+        if (!ready()) throw new AssistantCapabilityUsageError('编辑状态已变化，请先审阅当前草稿');
+        let pending!: Promise<void>;
+        context.applyEffect(
+          () => {
+            pending = view.leaveUnchangedEditor();
+          },
+          () => pending,
+        );
+        await pending;
+        return { editing: false, saved: false };
+      },
+      present: () => ({ title: '已退出未修改的编辑表单', lines: ['原有保存记录保留，本次没有提交修改。'] }),
+    },
+  ];
 }
 
 function queryCapabilities(view: ModulePageSessionView): AssistantCapability[] {
@@ -453,6 +508,7 @@ function assistantRelationFacts(view: ModulePageSessionView) {
     view.assistantDisplayRecord ?? view.editingRecord ?? view.selectedRecord ?? {},
     {
       baseline: view.selectedRecord,
+      draft: view.editorMode !== 'view',
       relationOptions: view.assistantRelationOptions,
       editableRelations: new Set(view.relationDrafts?.list().map((item) => item.code) ?? []),
     },

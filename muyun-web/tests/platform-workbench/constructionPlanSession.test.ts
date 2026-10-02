@@ -2,6 +2,7 @@ import { expect, it, vi } from 'vitest';
 import {
   createConstructionPlanSession,
   parseConstructionPlan,
+  constructionPlanBindings,
 } from '@/platform-workbench/constructionPlanSession';
 import {
   createAssistantOperationConfirmation,
@@ -23,7 +24,7 @@ const content: ConstructionPlanContent = {
   decisions: [{ statement: '第一版不做库存', source: 'RECOMMENDATION' }],
   acceptanceExamples: ['可以录入并查看一张订单'],
 };
-function fixture() {
+function fixture(canGovern = false) {
   let identity = 'user-a';
   let snapshot: ConstructionPlanSnapshot;
   const client: ConstructionPlanClient = {
@@ -58,8 +59,6 @@ function fixture() {
       labelFields: [{ fieldName: 'name', title: '客户名称', defaultField: true, selectable: true }],
     })),
     describeFields: vi.fn(),
-    previewFields: vi.fn(),
-    publishFields: vi.fn(),
     fieldChange: vi.fn(),
     initialization: vi.fn(),
     list: vi.fn(async () => [
@@ -83,7 +82,11 @@ function fixture() {
     }),
     confirmation: vi.fn(async () => snapshot && structuredClone(snapshot)),
   };
-  const session = createConstructionPlanSession(client, () => identity);
+  const session = createConstructionPlanSession(
+    client,
+    () => identity,
+    () => canGovern,
+  );
   return {
     session,
     client,
@@ -520,4 +523,23 @@ it('saves business consensus before technical mapping without treating agreed hu
   expect(proposal.presentation.lines.join('\n')).toContain('已约定由人处理');
   expect(proposal.presentation.lines.join('\n')).not.toContain('暂不能完整交付');
   expect(proposal.presentation.lines.join('\n')).not.toContain('待映射');
+});
+
+it('preserves explicit standard module associations without inventing initialization receipts', async () => {
+  const { session } = fixture(true);
+  const linked = parseConstructionPlan({
+    ...content,
+    objects: [{ ...content.objects[0], moduleAlias: 'trial.order' }],
+  });
+  session.edit(linked);
+  const proposal = session.prepare();
+  // Associations are part of the existing human-reviewed plan revision.
+  expect(proposal.presentation.details?.lines.join(' ')).toContain('trial.order');
+  const snapshot = { content: linked, initializations: [] } as unknown as ConstructionPlanSnapshot;
+  await createAssistantOperationConfirmation(proposal, () => true).confirm();
+  expect(session.capabilities().map(({ descriptor }) => descriptor.code)).toContain('construction.progress');
+  expect(constructionPlanBindings(snapshot)).toEqual([{ objectKey: 'order', moduleAlias: 'trial.order' }]);
+  expect(() =>
+    parseConstructionPlan({ ...linked, objects: [{ ...linked.objects[0], moduleAlias: 'invented' }] }),
+  ).toThrow();
 });

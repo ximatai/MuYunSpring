@@ -104,7 +104,7 @@ export function createRelationDraftAssistantCapabilities(
         descriptor: {
           code: 'relation.describe',
           description:
-            '分页读取当前可编辑聚合明细及稳定行标识；用 relationCode 和 nextOffset 继续读取。detailsOmitted 表示需选行后用 relation.form.describe 读取详情。先选行或新增行，再使用 relation.form/reference 修改；最后由主表 form.prepare-save 审阅整单，不能独立保存明细。',
+            '分页读取当前可编辑聚合明细及稳定行标识；用 relationCode 和 nextOffset 继续读取。概要只消费已有引用名称投影，不额外查询；需要完整名称或 detailsOmitted 为 true 时，选行后用 relation.form.describe 读取详情。先选行或新增行，再使用 relation.form/reference 修改；最后由主表 form.prepare-save 审阅整单，不能独立保存明细。',
           inputSchema: {
             type: 'object',
             additionalProperties: false,
@@ -153,12 +153,12 @@ export function createRelationDraftAssistantCapabilities(
             for (const [index, rowKey] of keys.slice(offset, offset + limit).entries()) {
               const form = controller.form(rowKey);
               if (!form) continue;
-              const describe = createRecordFormAssistantCapabilities(form)().find(
-                (capability) => capability.descriptor.code === 'form.describe',
-              );
-              const facts = describe ? await describe.execute({}, context) : undefined;
+              const describe = createRecordFormAssistantCapabilities(form, {
+                resolveReferenceNames: false,
+              })().find((capability) => capability.descriptor.code === 'form.describe');
+              const facts = remaining > 0 && describe ? await describe.execute({}, context) : undefined;
               const cost = JSON.stringify(facts ?? {}).length;
-              const detailsOmitted = cost > remaining;
+              const detailsOmitted = remaining <= 0 || cost > remaining;
               if (!detailsOmitted) remaining -= cost;
               rows.push({
                 rowKey,

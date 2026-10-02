@@ -42,10 +42,18 @@ class BusinessRuleFormProjectionTest {
         assertThat(serverOnly.formComputeRules()).isEmpty();
         assertThat(serverOnly.fields().getFirst().readOnly().constant()).isTrue();
         assertThat(serverOnly.fields().getFirst().readOnly().disabledHint()).contains("保存时自动计算");
+        assertThat(serverOnly.fields().getFirst().calculationTiming())
+                .isEqualTo(ResolvedViewFieldDescriptor.CalculationTiming.ON_SAVE);
         var childOutput = serverDescriptor.editorContributions().getFirst().editor().fields().getFirst();
         assertThat(childOutput.readOnly().constant()).isTrue();
         assertThat(childOutput.required().constant()).isFalse();
         assertThat(childOutput.readOnly().disabledHint()).contains("保存时自动计算");
+        assertThat(childOutput.withReadOnly(UiRule.constant(true)).withUiState(UiRule.constant(true), UiRule.constant(true))
+                .withAssistantPolicy(childOutput.assistantPolicy()).withInputRequirements(childOutput.inputRequirements())
+                .withComputedValue("updated hint")
+                .calculationTiming()).isEqualTo(ResolvedViewFieldDescriptor.CalculationTiming.ON_SAVE);
+        assertThat(projected.fields().getFirst().calculationTiming())
+                .isEqualTo(ResolvedViewFieldDescriptor.CalculationTiming.IMMEDIATE);
 
         assertThat(projected.formComputeRules()).singleElement().satisfies(rule -> {
             assertThat(rule.code()).isEqualTo("contractAmountSum");

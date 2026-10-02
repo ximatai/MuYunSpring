@@ -131,7 +131,7 @@ public class PlatformRecordActionAvailabilityService {
             for (String recordId : recordIds) {
                 PlatformRecordActionAvailability.Action decision;
                 if (!action.authorized()) {
-                    decision = unavailable(action.actionCode(), "no action auth");
+                    decision = unavailable(action.actionCode(), "没有此操作的权限");
                 } else if (!dataScopedIds.contains(recordId)) {
                     decision = unavailable(action.actionCode(), "no data auth");
                 } else {
@@ -223,7 +223,7 @@ public class PlatformRecordActionAvailabilityService {
             }
             List<PlatformRecordActionAvailability.Action> resolved = actions.stream().map(action -> {
                 if (!action.authorized()) {
-                    return unavailable(action.actionCode(), "no action auth");
+                    return unavailable(action.actionCode(), "没有此操作的权限");
                 }
                 DynamicActionAvailability decision = availability.actions().get(action.actionCode());
                 if (decision == null) {
@@ -243,7 +243,7 @@ public class PlatformRecordActionAvailabilityService {
                                                                         DynamicRecordHolder recordHolder,
                                                                         PlatformModuleRuntimeAction action) {
         if (!action.authorized()) {
-            return unavailable(action.actionCode(), "no action auth");
+            return unavailable(action.actionCode(), "没有此操作的权限");
         }
         DynamicActionAvailability authorization = dynamicRecordService.actionAuthorizationAvailability(
                 moduleAlias, entityAlias, action.actionCode(), Set.of(recordId));
@@ -270,7 +270,7 @@ public class PlatformRecordActionAvailabilityService {
                                                                        String recordId,
                                                                        PlatformModuleRuntimeAction action) {
         if (!action.authorized()) {
-            return unavailable(action.actionCode(), "no action auth");
+            return unavailable(action.actionCode(), "没有此操作的权限");
         }
         ActionExecutionPolicy policy = policy(action);
         if (policy.requiresDataScope() && !hasRecordDataScope(moduleAlias, recordId, policy)) {

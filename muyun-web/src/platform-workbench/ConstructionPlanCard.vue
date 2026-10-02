@@ -2,7 +2,11 @@
 import { computed, ref, watch } from 'vue';
 import type { ConstructionPlanSnapshot, ConstructionProgress, ConstructionTask } from '@muyun/web-contracts';
 import { UiButton } from '@muyun/vue-ui-antdv';
-import { presentConstructionPlan, type ConstructionPlanSession } from './constructionPlanSession';
+import {
+  constructionPlanBindings,
+  presentConstructionPlan,
+  type ConstructionPlanSession,
+} from './constructionPlanSession';
 const props = defineProps<{ session: ConstructionPlanSession; disabled?: boolean }>();
 const error = ref('');
 const working = ref(false);
@@ -127,9 +131,9 @@ async function run(action: () => unknown) {
       {{ state.saved ? `已确认第 ${state.saved.revision} 版` : '尚未确认' }} ·
       {{ session.dirty() ? '有未确认修改' : '与已确认版本一致' }} ·
       {{
-        state.saved?.initializations.length
-          ? '已有建设记录，当前配置与验收状态以实际查询为准'
-          : '尚无建设记录'
+        constructionPlanBindings(state.saved).length
+          ? '已关联标准模块，当前配置与验收状态以实际查询为准'
+          : '尚未关联标准模块'
       }}
     </p>
     <details
@@ -161,12 +165,12 @@ async function run(action: () => unknown) {
       目标或范围已修改。原有问题、假设和规则待重新核对，请告诉助手“核对修改后的方案”再确认；不会自动视为已解决。
     </p>
     <UiButton
-      v-if="state.saved?.initializations.length && !delivered"
+      v-if="constructionPlanBindings(state.saved).length && !delivered"
       :disabled="disabled || working"
       @click="
         run(async () => {
           const loaded: ConstructionProgress[] = [];
-          for (const object of state.saved?.initializations ?? [])
+          for (const object of constructionPlanBindings(state.saved))
             if (!state.saved?.deliveredObjectKeys.includes(object.objectKey))
               loaded.push(await session.progress(object.objectKey));
           progress = loaded;
@@ -184,7 +188,7 @@ async function run(action: () => unknown) {
       <p v-for="line in item.remainingWork" :key="line">{{ line }}</p>
     </section>
     <UiButton
-      v-if="state.saved && !delivered && session.facts().initializationAvailable"
+      v-if="state.saved && !delivered && session.facts().governanceAvailable"
       :disabled="disabled || working || session.dirty()"
       @click="run(() => session.readTask())"
       >查看下一步</UiButton

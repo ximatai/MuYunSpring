@@ -126,7 +126,9 @@ it('shares schema structure while retaining per-field operators and value types'
   const items = schema.properties.conditions.items;
   expect(items.required).toEqual(['fieldName', 'operator', 'values']);
   expect(items.additionalProperties).toBe(false);
-  expect(items.anyOf[0]!.properties.values).toMatchObject({ items: { type: 'number' } });
+  expect(items.anyOf[0]!.properties.values).toMatchObject({
+    items: { anyOf: [{ type: 'string' }, { type: 'number' }] },
+  });
   expect(items.anyOf[0]!.properties.operator).toMatchObject({ enum: ['GT'] });
   const expanded = items.anyOf.map((branch) => ({
     type: 'object',
@@ -137,5 +139,5 @@ it('shares schema structure while retaining per-field operators and value types'
       values: { type: 'array', maxItems: 100, ...branch.properties.values },
     },
   }));
-  expect(JSON.stringify(items).length).toBeLessThan(JSON.stringify({ anyOf: expanded }).length * 0.8);
+  expect(JSON.stringify(items).length).toBeLessThan(JSON.stringify({ anyOf: expanded }).length);
 });

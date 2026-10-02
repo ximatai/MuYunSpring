@@ -1,5 +1,5 @@
 import { createRelationDraftRegistry } from './relationDraftController';
-import { assistantConfirmationFieldDisplay, assistantRelationProjection } from './assistantRecordProjection';
+import { assistantResolvedFieldDisplay, assistantRelationProjection } from './assistantRecordProjection';
 import type { AssistantResultPresentation, OptionItemDescriptor } from '@muyun/web-contracts';
 import type { AssistantOperationProposal } from '@muyun/web-core';
 import { recordCreationReadiness } from './recordCreationReadiness';
@@ -62,6 +62,7 @@ import { FormulaRuntime } from '../formula/FormulaRuntime';
 import {
   AppError,
   AssistantOperationRejectedError,
+  OperationUsageError,
   createModuleContext,
   createReferenceResolveClient,
   createStaticResourceTreeClient,
@@ -75,9 +76,10 @@ import {
 } from '@muyun/web-core';
 import { canMutateModuleDetail } from './moduleDetailStateModel';
 import {
-  assistantEditableRecordIds,
+  assistantVisibleRecordIds,
   assistantEditCancelDestination,
-  hasAvailableRecordUpdate,
+  hasActiveRecordEditor,
+  hasAvailableRecordAction,
 } from './assistantRecordEditorPolicy';
 import { recordMutationPayload } from './recordMutationPayload';
 import { createSourceReferencePickerConfigAssembler } from './sourceReferencePickerConfig';
@@ -3351,27 +3353,38 @@ export function useModulePageSession(
     return pageReady.value && editorMode.value === 'view' && recordEditInteractionReady();
   }
 
-  function assistantRecordEditReady() {
+  function assistantRecordOpenReady() {
     // Row edits may reload a new target; assistant proposals reuse current detail facts.
     return recordEditReady() && !detailLoading.value && !detailLoadFailed.value;
   }
 
-  async function prepareAssistantEdit(recordId: string) {
-    if (!assistantRecordEditReady()) throw new Error('A form draft is already active');
+  function prepareAssistantView(recordId: string) {
+    // Dedicated record-view contributions own their presentation and authorization contract.
+    if (pageEnhancement.value?.recordView) throw new Error('Standard record viewing is unavailable');
+    return prepareAssistantRecord(recordId, 'view');
+  }
+
+  function prepareAssistantEdit(recordId: string) {
+    return prepareAssistantRecord(recordId, 'edit');
+  }
+
+  async function prepareAssistantRecord(recordId: string, mode: 'view' | 'edit') {
+    const actionCode = mode === 'view' ? 'view' : 'update';
+    if (!assistantRecordOpenReady()) throw new Error('A form draft is already active');
     const revision = assistantContextRevision.value;
     const normalizedId = recordId.trim();
     const querySnapshot = listQueryController.value?.snapshot();
     if (querySnapshot?.mode === 'recycleBin') {
       throw new Error('Record editing is unavailable in recycle bin mode');
     }
-    const visibleIds = new Set(assistantEditableRecordIds(selectedRecord.value?.id, querySnapshot));
+    const visibleIds = new Set(assistantVisibleRecordIds(selectedRecord.value?.id, querySnapshot));
     if (!normalizedId || !visibleIds.has(normalizedId)) {
       throw new Error(`Record is not available on the current page: ${recordId}`);
     }
     const selected = selectedRecord.value;
-    if (context.can('update') !== true) throw new Error('Record editing is unavailable');
-    if (!(await assistantRecordUpdateAvailable(normalizedId))) {
-      throw new Error('Record editing is unavailable');
+    if (context.can(actionCode) !== true) throw new Error('Record action is unavailable');
+    if (!(await assistantRecordActionAvailable(normalizedId, actionCode))) {
+      throw new Error('Record action is unavailable');
     }
     const loaded =
       selected?.id != null && String(selected.id) === normalizedId
@@ -3380,32 +3393,49 @@ export function useModulePageSession(
     return () => {
       if (
         revision !== assistantContextRevision.value ||
-        !assistantRecordEditReady() ||
-        context.can('update') !== true
+        !assistantRecordOpenReady() ||
+        context.can(actionCode) !== true ||
+        (mode === 'view' && Boolean(pageEnhancement.value?.recordView)) ||
+        !assistantVisibleRecordIds(selectedRecord.value?.id, listQueryController.value?.snapshot()).includes(
+          normalizedId,
+        )
       )
-        throw new Error('编辑状态或范围已变化，请重新准备编辑');
-      commitLoadedRecord(loaded, 'edit', {
+        throw new Error('编辑状态或范围已变化，请重新准备操作');
+      commitLoadedRecord(loaded, mode, {
         cancelDestination: assistantEditCancelDestination(detailOpen.value, selected?.id, normalizedId),
       });
       return assistantEditorState();
     };
   }
 
-  async function assistantRecordUpdateAvailable(recordId: string) {
+  async function assistantRecordActionAvailable(recordId: string, actionCode: 'view' | 'update') {
     try {
       const availability = await context.recordActions(recordId);
-      return hasAvailableRecordUpdate(availability);
+      return hasAvailableRecordAction(availability, actionCode);
     } catch (cause) {
       presentPlatformError(cause, { source: 'module-assistant', phase: 'authorization' });
       return false;
     }
   }
 
+  function recordDetailReady() {
+    return (
+      pageReady.value &&
+      detailOpen.value &&
+      editorMode.value === 'view' &&
+      selectedRecord.value?.id != null &&
+      !detailLoading.value &&
+      !detailLoadFailed.value &&
+      !recycleBinDetailActive.value &&
+      !pageEnhancement.value?.recordView
+    );
+  }
+
   function assistantEditorState() {
     return {
       editorMode: editorMode.value,
       recordId: editingRecord.value?.id == null ? undefined : String(editingRecord.value.id),
-      editable: Boolean(editingRecord.value),
+      editable: hasActiveRecordEditor(editorMode.value, editingRecord.value),
       dirty: detailDirty.value,
     };
   }
@@ -3580,6 +3610,7 @@ export function useModulePageSession(
           fields: formFields.value,
           pickerConfigs: referencePickerConfigs.value,
           record: editingRecord.value!,
+          mode: editorMode.value,
         }),
       )
       .filter(
@@ -3589,7 +3620,7 @@ export function useModulePageSession(
     const fieldLines = await Promise.all(
       displayFields.map(
         async (field) =>
-          `${field.label}：${await assistantConfirmationFieldDisplay(field, editingRecord.value!)}`,
+          `${field.label}：${await assistantResolvedFieldDisplay(field, editingRecord.value!)}`,
       ),
     );
     if (!isCurrent()) throw new AssistantOperationRejectedError('草稿已变化，请重新确认');
@@ -4156,6 +4187,27 @@ export function useModulePageSession(
     }
   }
 
+  function canLeaveUnchangedEditor() {
+    return (
+      pageReady.value &&
+      editorMode.value === 'edit' &&
+      !sessionDirty.value &&
+      mainFormValid.value &&
+      relationDraftValid.value &&
+      !interactionBusy.value &&
+      !navigatorManagementDetail.open.value &&
+      !localEditOpen.value &&
+      !referenceRecordDetailInteraction.value.editing &&
+      !detailLoading.value &&
+      !detailLoadFailed.value
+    );
+  }
+
+  function leaveUnchangedEditor() {
+    if (!canLeaveUnchangedEditor()) throw new OperationUsageError('编辑状态已变化，请先审阅当前草稿');
+    return cancelDetailEditing();
+  }
+
   async function closeTreeCardEditor() {
     if (saving.value) return;
     assistantInteractionRevision.value += 1;
@@ -4247,6 +4299,7 @@ export function useModulePageSession(
     navigatorListScopeReady,
     selectedRecord,
     assistantDisplayRecord,
+    recordDetailReady,
     assistantRelationOptions,
     flatManagementSorting,
     navigatorListQueryValues,
@@ -4310,6 +4363,7 @@ export function useModulePageSession(
     recordCreationState,
     prepareAssistantCreate,
     prepareAssistantEdit,
+    prepareAssistantView,
     assistantNavigatorScopes,
     assistantNavigatorCreationTargets,
     prepareAssistantNavigatorCreate,
@@ -4364,6 +4418,8 @@ export function useModulePageSession(
     placedDetailButtons,
     placedFormActions,
     cancelDetailEditing,
+    canLeaveUnchangedEditor,
+    leaveUnchangedEditor,
     saveRecord,
     prepareAssistantSave,
     assistantSaveAvailable,

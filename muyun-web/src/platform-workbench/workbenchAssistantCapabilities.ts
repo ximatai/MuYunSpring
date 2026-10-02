@@ -56,7 +56,7 @@ function openMenuCapability(
   menus: () => MenuTreeNode[],
   openMenu: (menu: MenuRecord) => boolean,
   settleNavigation: (signal?: AbortSignal) => Promise<void | AssistantInvocationToken>,
-): AssistantCapability<{ menuId: string }> {
+): AssistantCapability<{ menuId: string }, { openedMenuId?: string; title?: string }> {
   return {
     effect: 'page',
     descriptor: {
@@ -74,6 +74,10 @@ function openMenuCapability(
       if (!menuId) throw new AssistantCapabilityUsageError('workbench.open-menu requires a non-empty menuId');
       return { menuId };
     },
+    present: ({ title }) => ({
+      title: `已打开${title || '所选业务入口'}`,
+      lines: ['仅切换页面，未修改或保存业务数据。'],
+    }),
     async execute({ menuId }, context) {
       const { signal } = context;
       if (signal.aborted) throw new DOMException('Assistant invocation was cancelled', 'AbortError');

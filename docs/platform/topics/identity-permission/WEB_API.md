@@ -242,6 +242,7 @@
 | `POST` | `/iam.role/enable/{id}`                                 | 启用角色。                                                                                |
 | `POST` | `/iam.role/disable/{id}`                                | 停用角色。                                                                                |
 | `POST` | `/iam.role/sort/{id}`                                   | 调整角色排序。                                                                            |
+| `POST` | `/iam.role/{roleId}/account-role-candidates/query` | 查询该角色可绑定的启用账号；请求可含 `targetTenantId`、`keyword`、`page`，权限归来源角色记录动作，租户由领域解析。 |
 | `GET`  | `/iam.role/{roleId}/account-grants`                     | 查询账号角色授权实例。                                                                    |
 | `POST` | `/iam.role/{roleId}/account-grants`                     | 给用户账号授予账号角色，可携带管理作用域。                                                |
 | `POST` | `/iam.role/{roleId}/account-grants/{grantId}/delete`    | 删除账号角色授权实例。                                                                    |

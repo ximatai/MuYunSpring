@@ -71,12 +71,18 @@ export const constructionPlanContentSchema = itemSchema({
   },
   objects: {
     description:
-      '本期需要独立管理的模块。每项会建立独立模块与主实体；仅作为某个模块内部明细的子表不要另列对象，以所属模块的 CHILD 需求和 relation.field 字段路径表达。对象 key 是方案标识，不是 moduleAlias 或 metadataId。',
+      '本期需要独立管理的模块。各项通过标准治理独立配置；moduleAlias 仅填写已发现的实际标准模块，关联不创建配置，未关联填写空字符串；仅作为某个模块内部明细的子表不要另列对象，以所属模块的 CHILD 需求和 relation.field 字段路径表达。对象 key 是方案标识，不是 moduleAlias 或 metadataId。',
     ...arraySchema(
       itemSchema({
         key: { ...textSchema(64), pattern: '^[a-z][a-z0-9_-]*$' },
         name: textSchema(120),
         purpose: textSchema(500),
+        moduleAlias: {
+          type: ['string', 'null'],
+          maxLength: 128,
+          description:
+            '已发现的标准模块别名；空字符串解除关联，null 保留旧方案历史关联。不得从对象 key 猜测。',
+        },
       }),
     ),
   },
@@ -156,7 +162,20 @@ export function parseConstructionPlan(value: unknown): ConstructionPlanContent {
         const object = record(value);
         const key = text(object.key, 64);
         if (!/^[a-z][a-z0-9_-]*$/.test(key)) fail('业务对象标识格式无效');
-        return { key, name: text(object.name, 120), purpose: text(object.purpose, 500) };
+        const moduleAlias = object.moduleAlias;
+        if (
+          moduleAlias != null &&
+          (typeof moduleAlias !== 'string' ||
+            moduleAlias.length > 128 ||
+            (moduleAlias !== '' && !/^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$/.test(moduleAlias)))
+        )
+          fail('请选择实际标准模块的别名');
+        return {
+          key,
+          name: text(object.name, 120),
+          purpose: text(object.purpose, 500),
+          ...(moduleAlias !== undefined ? { moduleAlias } : {}),
+        };
       },
       'objects',
     ),
@@ -268,7 +287,10 @@ export function presentConstructionPlan(content: ConstructionPlanContent) {
     {
       title: '业务对象',
       expanded: true,
-      lines: content.objects.map((object) => `业务对象：${object.name} — ${object.purpose}`),
+      lines: content.objects.map(
+        (object) =>
+          `业务对象：${object.name} — ${object.purpose}${object.moduleAlias ? `（关联模块：${object.moduleAlias}）` : ''}`,
+      ),
     },
     {
       title: '用户要求与建议',
@@ -316,7 +338,7 @@ export function presentConstructionPlan(content: ConstructionPlanContent) {
 export function createConstructionPlanSession(
   client: ConstructionPlanClient,
   identity: () => string,
-  initializationAvailable: () => boolean = () => false,
+  governanceAvailable: () => boolean = () => false,
   onDelivered: (receipt: ConstructionDeliveryReceipt) => Promise<void> = async () => {},
 ) {
   const state = shallowRef<{
@@ -534,9 +556,9 @@ export function createConstructionPlanSession(
         title: '需求方案已确认',
         lines: [
           `${result.content.title} · 第 ${result.revision} 版`,
-          result.initializations.length
-            ? '已有模块初始化记录；后续配置变更仍须独立审阅和授权。'
-            : '尚未建设。后续配置变更仍须独立审阅和授权。',
+          constructionPlanBindings(result).length
+            ? '已关联标准模块；当前配置须查询核实，后续变更仍须独立审阅和授权。'
+            : '尚未关联标准模块。后续配置变更仍须独立审阅和授权。',
         ],
       };
     }
@@ -635,10 +657,11 @@ export function createConstructionPlanSession(
       confirmationResultUnknown: unresolved,
       constructionStatus: value.saved?.constructionStatus ?? 'NOT_STARTED',
       initializations: value.saved?.initializations ?? [],
+      moduleBindings: constructionPlanBindings(value.saved),
       fieldChanges: value.saved?.fieldChanges ?? [],
       deliveries: value.saved?.deliveries ?? [],
       confirmationIsNotPublication: true,
-      initializationAvailable: initializationAvailable(),
+      governanceAvailable: governanceAvailable(),
     };
   }
   const fieldCapabilities = createConstructionFieldCapabilities(
@@ -719,7 +742,7 @@ export function createConstructionPlanSession(
   }
   function withContinuation(capability: AssistantCapability): AssistantCapability {
     if (
-      !initializationAvailable() ||
+      !governanceAvailable() ||
       !capability.propose ||
       capability.descriptor.code === 'construction.prepare-acceptance'
     )
@@ -762,48 +785,27 @@ export function createConstructionPlanSession(
     });
     const value = current();
     const canBuild =
-      initializationAvailable() &&
+      governanceAvailable() &&
       !!value.saved &&
       value.saved.constructionStatus !== 'DELIVERED' &&
       !dirty() &&
       !value.reviewRequired &&
       !manualEditing.value;
     const result: AssistantCapability[] = [
-      ...(initializationAvailable() ? createConstructionReferenceDiscoveryCapabilities(client) : []),
-      ...(canBuild && value.saved!.initializations.length
+      ...(governanceAvailable() ? createConstructionReferenceDiscoveryCapabilities(client) : []),
+      ...(canBuild && constructionPlanBindings(value.saved).length
         ? [...fieldCapabilities, ...deliveryCapabilities]
         : []),
       ...(canBuild
-        ? createConstructionInitializationCapabilities(
-            client,
-            () => {
-              const value = current();
-              return {
-                saved: value.saved,
-                generation: value.generation,
-                dirty: dirty() || !!value.reviewRequired,
-                editing: manualEditing.value,
-              };
-            },
-            (result, invalidate = true) => {
-              const value = current();
-              if (!value.saved) return;
-              state.value = {
-                ...value,
-                saved: {
-                  ...value.saved,
-                  constructionStatus: 'INITIALIZED',
-                  initializations: [
-                    ...value.saved.initializations.filter(
-                      (item) => item.objectKey !== result.receipt.objectKey,
-                    ),
-                    result.receipt,
-                  ],
-                },
-                generation: value.generation + (invalidate ? 1 : 0),
-              };
-            },
-          )
+        ? createConstructionInitializationCapabilities(client, () => {
+            const value = current();
+            return {
+              saved: value.saved,
+              generation: value.generation,
+              dirty: dirty() || !!value.reviewRequired,
+              editing: manualEditing.value,
+            };
+          })
         : []),
       ...(canBuild
         ? [
@@ -944,7 +946,7 @@ export function createConstructionPlanSession(
         value.reviewRequired ||
         manualEditing.value ||
         !moduleAlias ||
-        !value.saved.initializations.some(
+        !constructionPlanBindings(value.saved).some(
           (binding) =>
             binding.moduleAlias === moduleAlias &&
             !value.saved!.deliveredObjectKeys.includes(binding.objectKey),
@@ -966,3 +968,15 @@ export function createConstructionPlanSession(
   };
 }
 export type ConstructionPlanSession = ReturnType<typeof createConstructionPlanSession>;
+
+/** Legacy snapshots retain receipt identity only until a plan explicitly associates its standard modules. */
+export function constructionPlanBindings(snapshot?: ConstructionPlanSnapshot) {
+  if (!snapshot) return [];
+  if (snapshot.moduleBindings) return snapshot.moduleBindings;
+  return snapshot.content.objects.flatMap((object) => {
+    const moduleAlias =
+      object.moduleAlias ??
+      snapshot.initializations.find((item) => item.objectKey === object.key)?.moduleAlias;
+    return moduleAlias ? [{ objectKey: object.key, moduleAlias }] : [];
+  });
+}

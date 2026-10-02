@@ -1,7 +1,7 @@
-import { expect, it } from 'vitest';
+import { expect, it, vi } from 'vitest';
 import {
   assistantFieldDisplay,
-  assistantConfirmationFieldDisplay,
+  assistantResolvedFieldDisplay,
   assistantRelationProjection,
 } from '@/dynamic-page-runtime/assistantRecordProjection';
 import { resolveRecordFormFieldState, resolveRecordFormFields } from '@muyun/platform-components';
@@ -31,6 +31,48 @@ const relation = {
   embeddedField: 'members',
   targetEntityAlias: 'member',
 } as ResolvedDetailRelationDescriptor;
+
+it('does not resolve a stale computed reference for save confirmation', async () => {
+  const fields = resolveRecordFormFields({
+    defaultEditor: {
+      fields: [
+        {
+          fieldRef: { fieldName: 'ownerId' },
+          calculationTiming: 'ON_SAVE',
+          readOnly: { constant: true },
+          reference: { targetModuleAlias: 'iam.user', cardinality: 'ONE' },
+        },
+      ],
+    },
+  } as unknown as ResolvedModuleUiDescriptor);
+  const field = resolveRecordFormFieldState('ownerId', { fields, mode: 'edit' });
+  const resolve = vi.fn(async () => [{ id: 'old', title: '旧负责人' }]);
+  field.pickerConfig = { provider: { resolve } } as unknown as typeof field.pickerConfig;
+  expect(await assistantResolvedFieldDisplay(field, { ownerId: 'old' })).toBe('保存后计算');
+  expect(resolve).not.toHaveBeenCalled();
+});
+
+it('marks unsaved calculated values in context and confirmation while retaining saved facts', () => {
+  const calculated = structuredClone(descriptor);
+  calculated.editorContributions![0]!.editor.fields = [
+    {
+      fieldRef: { fieldName: 'amount' },
+      label: '小计',
+      readOnly: { constant: true },
+      calculationTiming: 'ON_SAVE',
+    },
+  ];
+  const record = { members: [{ id: '1', amount: '65.00' }] };
+  const baseline = { members: [{ id: '2', amount: '20.00' }] };
+  for (const options of [{ draft: true }, { purpose: 'confirmation' as const }]) {
+    const result = assistantRelationProjection(calculated, [relation], record, { ...options, baseline });
+    expect(result[0]!.rows[0]!.values[0]!.value).toBe('保存后计算');
+    expect(result[0]!.removedRows[0]!.values[0]!.value).toBe('20.00');
+  }
+  expect(assistantRelationProjection(calculated, [relation], record)[0]!.rows[0]!.values[0]!.value).toBe(
+    '65.00',
+  );
+});
 
 it('projects aggregate rows and removals without revealing hidden fields or inventing edit capability', () => {
   const result = assistantRelationProjection(
@@ -145,8 +187,7 @@ it('shows the complete human confirmation while keeping hidden relation values p
 });
 
 it('resolves confirmation reference names through the picker without changing the draft', async () => {
-  const { assistantConfirmationFieldDisplay } =
-    await import('@/dynamic-page-runtime/assistantRecordProjection');
+  const { assistantResolvedFieldDisplay } = await import('@/dynamic-page-runtime/assistantRecordProjection');
   const { vi } = await import('vitest');
   const record = { customerId: 'customer-1' };
   const resolve = vi.fn(async () => [
@@ -157,13 +198,13 @@ it('resolves confirmation reference names through the picker without changing th
     reference: { cardinality: 'ONE' },
     pickerConfig: { provider: { resolve } },
   } as unknown as import('@muyun/platform-components').RecordFormFieldState;
-  expect(await assistantConfirmationFieldDisplay(field, record)).toBe('试用客户');
+  expect(await assistantResolvedFieldDisplay(field, record)).toBe('试用客户');
   expect(resolve).toHaveBeenCalledWith(['customer-1']);
   expect(record).toEqual({ customerId: 'customer-1' });
   resolve.mockResolvedValueOnce([{ id: 'another', title: '其他客户', affectPatch: { secret: 'ignored' } }]);
-  expect(await assistantConfirmationFieldDisplay(field, record)).toBe('已选择（名称暂不可用）');
+  expect(await assistantResolvedFieldDisplay(field, record)).toBe('已选择（名称暂不可用）');
   resolve.mockRejectedValueOnce(new Error('permission changed'));
-  await expect(assistantConfirmationFieldDisplay(field, record)).rejects.toThrow('permission changed');
+  await expect(assistantResolvedFieldDisplay(field, record)).rejects.toThrow('permission changed');
 });
 
 it('retains authorized belonging context in a same-title reference confirmation', async () => {
@@ -183,5 +224,5 @@ it('retains authorized belonging context in a same-title reference confirmation'
   state.pickerConfig = {
     provider: { resolve: async () => [{ id: 'north', title: '客户', subtitle: '北店' }] },
   } as never;
-  expect(await assistantConfirmationFieldDisplay(state, { moduleId: 'north' })).toBe('客户 · 北店');
+  expect(await assistantResolvedFieldDisplay(state, { moduleId: 'north' })).toBe('客户 · 北店');
 });

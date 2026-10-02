@@ -281,7 +281,7 @@ export function useAssistantConversation(props: {
       continuation
         ? readOnly
           ? '正在核实当前进度，暂不修改或保存。'
-          : '正在核实已完成结果并准备下一步，可随时停止。'
+          : '正在核实当前状态并准备下一步，可随时停止。'
         : message,
     );
     busy.value = true;
@@ -305,7 +305,16 @@ export function useAssistantConversation(props: {
         onDiagnostic(event) {
           if (event.type === 'capability.completed')
             diagnostics.push(`${event.stepIndex + 1}: ${event.capabilityCode} · ${event.outcome}`);
-          else if (event.type === 'summary.completed')
+          else if (event.type === 'decision.failed') {
+            const stages = {
+              'context-changed': '页面上下文已变化',
+              cancelled: '本轮已取消',
+              'surface-unavailable': '页面操作入口尚未就绪',
+              'surface-settlement-failed': '页面状态准备失败',
+              'model-request-failed': '模型请求未完成',
+            };
+            diagnostics.push(`${event.stepIndex + 1}: ${stages[event.reason]}`);
+          } else if (event.type === 'summary.completed')
             diagnostics.push(`结果整理：${event.succeeded ? '完成' : (event.reason ?? '未完成')}`);
         },
         onExecutionScopeChange() {
@@ -451,6 +460,11 @@ export function useAssistantConversation(props: {
         const unknown = error.steps.some((step) =>
           step.results.some((result) => result.execution === 'unknown'),
         );
+        const hasPresentedEffects =
+          error.steps
+            .flatMap((step) => step.results)
+            .filter((result) => result.execution === 'effect-applied' && result.presentation).length >=
+          applied;
         const reason =
           error.termination === 'cancelled'
             ? '本轮已取消'
@@ -461,7 +475,12 @@ export function useAssistantConversation(props: {
           'status',
           unknown
             ? `${reason}，有页面操作的结果尚不确定。请检查当前页面；不会自动重试。`
-            : `前面的 ${applied} 项页面操作已生效，${reason}，目标可能尚未完成。请检查草稿和待填项，再告诉我继续。` +
+            : `${reason}，目标尚未核实完成。` +
+                (applied > 0
+                  ? hasPresentedEffects
+                    ? '已生效步骤见上方平台操作记录；打开页面、准备草稿不代表保存。'
+                    : '本轮已有页面操作生效，但缺少具体结果说明，请核对当前页面；不能据此判断已保存。'
+                  : '本轮没有已确认生效的页面操作。') +
                 (error.termination === 'model-failed' ? `\n${assistantFailureMessage(error.cause)}` : ''),
           undefined,
           diagnostics.join('\n'),
@@ -469,7 +488,7 @@ export function useAssistantConversation(props: {
       } else {
         reopenSelection(sourceSelection);
         commitTurn(assistantTexts);
-        append('status', assistantFailureMessage(error));
+        append('status', assistantFailureMessage(error), undefined, diagnostics.join('\n'));
       }
     } finally {
       if (epoch === conversationEpoch) {
@@ -767,6 +786,9 @@ export function useAssistantConversation(props: {
 
 function assistantFailureMessage(error: unknown) {
   if (error instanceof AppError) {
+    if (error.code === 'CONFIG_MISSING') {
+      return '当前身份缺少可用的模型配置。请联系管理员检查租户模型连接、平台共享范围及凭据配置。已确认的保存结果仍有效，待确认内容没有提交。';
+    }
     const modelMessage = modelFailureMessage(error);
     if (modelMessage) {
       const recovery = ['AI_MODEL_TIMEOUT', 'AI_MODEL_INCOMPLETE_RESPONSE', 'AI_MODEL_INTERRUPTED'].includes(

@@ -37,10 +37,6 @@ public class ApplicationConstructionPlanWebController {
     }
     @GetMapping("/{planId}/objects/{objectKey}/fields")
     public ApplicationConstructionFieldService.Description fields(@PathVariable String planId, @PathVariable String objectKey) { return fields.describe(planId, objectKey); }
-    @PostMapping("/{planId}/field-changes/preview")
-    public ApplicationConstructionFieldService.Preview previewFields(@PathVariable String planId, @RequestBody ApplicationConstructionFieldService.Proposal proposal) { return fields.preview(planId, proposal); }
-    @PostMapping("/{planId}/field-changes")
-    public ApplicationConstructionFieldService.Result confirmFields(@PathVariable String planId, @RequestBody ApplicationConstructionFieldService.Command command) { return fields.confirm(planId, command); }
     @GetMapping("/{planId}/field-changes/{requestId}")
     public ResponseEntity<ApplicationConstructionFieldService.Result> fieldChange(@PathVariable String planId, @PathVariable String requestId) {
         var result = fields.status(planId, requestId);

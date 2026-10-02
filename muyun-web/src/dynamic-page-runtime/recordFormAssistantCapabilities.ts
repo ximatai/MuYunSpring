@@ -1,5 +1,5 @@
 import type { RecordFormDraftAccess } from './recordFormDraftAccess';
-import { assistantFieldDisplay } from './assistantRecordProjection';
+import { assistantFieldDisplay, assistantResolvedFieldDisplay } from './assistantRecordProjection';
 import { hasActiveRecordEditor } from './assistantRecordEditorPolicy';
 import {
   AssistantCapabilityUsageError,
@@ -18,12 +18,21 @@ import {
   type RecordFormFieldValue,
 } from '@muyun/platform-components';
 
-export function createRecordFormAssistantCapabilities(view: RecordFormDraftAccess) {
+export function createRecordFormAssistantCapabilities(
+  view: RecordFormDraftAccess,
+  {
+    resolveReferenceNames = true,
+    canReadDetail,
+  }: { resolveReferenceNames?: boolean; canReadDetail?: () => boolean } = {},
+) {
   const references: AssistantReferenceSelectionState = { selections: new Map(), searchRevision: 0 };
-  return () =>
-    hasEditableDraft(view)
-      ? [formDescribeCapability(view), formPatchCapability(view), ...referenceCapabilities(view, references)]
-      : [];
+  const canDescribe = () => hasEditableDraft(view) || canReadDetail?.() === true;
+  return () => [
+    ...(canDescribe() ? [formDescribeCapability(view, resolveReferenceNames, canDescribe)] : []),
+    ...(hasEditableDraft(view)
+      ? [formPatchCapability(view), ...referenceCapabilities(view, references)]
+      : []),
+  ];
 }
 
 const MAX_ASSISTANT_FORM_CURRENT_VALUE_CHARS = 8_000;
@@ -311,43 +320,94 @@ function hasEditableDraft(view: RecordFormDraftAccess) {
   return hasActiveRecordEditor(view.editorMode, view.editingRecord);
 }
 
-function formDescribeCapability(view: RecordFormDraftAccess): AssistantCapability<Record<string, never>> {
+function formDescribeCapability(
+  view: RecordFormDraftAccess,
+  resolveReferenceNames: boolean,
+  canDescribe: () => boolean,
+): AssistantCapability<Record<string, never>> {
   return {
     effect: 'read',
     descriptor: {
       code: 'form.describe',
-      description: 'Describe visible form fields and whether a draft is currently editable',
+      description:
+        'Read the current visible detail or draft fields. Read-only details do not create an editing draft.',
       inputSchema: emptyAssistantCapabilityInputSchema(),
     },
     parseInput: parseEmptyAssistantCapabilityInput,
-    async execute() {
-      const valueBudget = { remaining: MAX_ASSISTANT_FORM_CURRENT_VALUE_CHARS, truncated: false };
-      const fields = formFieldStates(view)
-        .filter((field) => field.visible && !isSensitiveField(field))
-        .map((field) => {
-          const currentValue = assistantCurrentValue(view, field, valueBudget);
-          const writeMode = assistantFieldWriteMode(view, field);
-          return {
-            fieldName: field.fieldName,
-            label: field.label,
-            required: field.required,
-            readOnly: field.readOnly,
-            valueType: field.valueType,
-            ...(field.inputRequirements ? { inputRequirements: field.inputRequirements } : {}),
-            ...(assistantValueHint(field) ? { valueHint: assistantValueHint(field) } : {}),
-            controlType: field.controlType,
-            assistantWritable: writeMode !== undefined,
-            ...(writeMode ? { assistantWriteMode: writeMode } : {}),
-            ...(field.reference
-              ? {
-                  referenceCardinality: field.reference.cardinality,
-                  referenceTargetModuleAlias: field.reference.targetModuleAlias,
-                }
-              : {}),
-            ...(currentValue !== undefined ? { currentValue } : {}),
-            options: field.assistantPolicy === 'DESCRIBE' ? [] : assistantOptions(field),
-          };
-        });
+    async execute(_input, context) {
+      if (!canDescribe()) throw new AssistantCapabilityUsageError('详情或草稿已不可读取');
+      const revision = view.contextRevision();
+      const record = { ...(view.editingRecord ?? view.selectedRecord ?? {}) };
+      const visibleFields = formFieldStates(view).filter(
+        (field) => field.visible && !isSensitiveField(field),
+      );
+      // Persisted details already carry authorized projections; candidate eligibility is a draft concern.
+      const resolveDraftReferences = resolveReferenceNames && hasEditableDraft(view);
+      const resolved = new Map<string, { display: string; unavailable?: boolean }>();
+      let remainingReferences = 20;
+      let referencesTruncated = false;
+      await Promise.all(
+        visibleFields.map(async (field) => {
+          if (
+            !resolveDraftReferences ||
+            !field.reference ||
+            field.assistantPolicy === 'DESCRIBE' ||
+            field.fileReference ||
+            field.calculationPending
+          )
+            return;
+          const value = record[field.fieldName];
+          const count = value == null || value === '' ? 0 : Array.isArray(value) ? value.length : 1;
+          if (field.pickerConfig?.provider && count > remainingReferences) {
+            referencesTruncated = true;
+            resolved.set(field.fieldName, {
+              display: '已选择（名称读取已截断，请在页面核实）',
+              unavailable: true,
+            });
+            return;
+          }
+          if (field.pickerConfig?.provider) remainingReferences -= count;
+          try {
+            resolved.set(field.fieldName, { display: await assistantResolvedFieldDisplay(field, record) });
+          } catch {
+            // Display failure is not permission to reselect, reveal IDs or forward transport details.
+            resolved.set(field.fieldName, { display: '已选择（名称暂不可用）', unavailable: true });
+          }
+        }),
+      );
+      if (!context.isCurrent() || !canDescribe() || revision !== view.contextRevision())
+        throw new AssistantCapabilityUsageError('表单或范围已变化，请重新读取');
+      const valueBudget = {
+        remaining: MAX_ASSISTANT_FORM_CURRENT_VALUE_CHARS,
+        truncated: referencesTruncated,
+      };
+      const fields = visibleFields.map((field) => {
+        const reference = resolved.get(field.fieldName);
+        const currentValue = assistantCurrentValue(view, field, valueBudget, reference?.display);
+        const writeMode = assistantFieldWriteMode(view, field);
+        return {
+          fieldName: field.fieldName,
+          label: field.label,
+          required: field.required,
+          readOnly: field.readOnly,
+          ...(field.calculationPending ? { calculationPending: true } : {}),
+          valueType: field.valueType,
+          ...(field.inputRequirements ? { inputRequirements: field.inputRequirements } : {}),
+          ...(assistantValueHint(field) ? { valueHint: assistantValueHint(field) } : {}),
+          controlType: field.controlType,
+          assistantWritable: writeMode !== undefined,
+          ...(writeMode ? { assistantWriteMode: writeMode } : {}),
+          ...(field.reference
+            ? {
+                referenceCardinality: field.reference.cardinality,
+                referenceTargetModuleAlias: field.reference.targetModuleAlias,
+              }
+            : {}),
+          ...(currentValue !== undefined ? { currentValue } : {}),
+          ...(reference?.unavailable ? { currentValueUnavailable: true } : {}),
+          options: field.assistantPolicy === 'DESCRIBE' ? [] : assistantOptions(field),
+        };
+      });
       return {
         editorMode: view.editorMode,
         editable: hasEditableDraft(view),
@@ -526,12 +586,18 @@ function assistantCurrentValue(
   view: RecordFormDraftAccess,
   field: RecordFormFieldState,
   budget: { remaining: number; truncated: boolean },
+  resolvedReferenceDisplay?: string,
 ) {
   if (isSensitiveField(field) || field.assistantPolicy === 'DESCRIBE' || field.fileReference)
     return undefined;
-  const value = field.reference
-    ? assistantFieldDisplay(field, view.editingRecord ?? view.selectedRecord ?? {}).slice(0, 500)
-    : (view.editingRecord ?? view.selectedRecord)?.[field.fieldName];
+  const value = field.calculationPending
+    ? '保存后计算'
+    : field.reference
+      ? (
+          resolvedReferenceDisplay ??
+          assistantFieldDisplay(field, view.editingRecord ?? view.selectedRecord ?? {})
+        ).slice(0, 500)
+      : (view.editingRecord ?? view.selectedRecord)?.[field.fieldName];
   let candidate: null | string | number | boolean | Array<string | number | boolean> | undefined;
   if (value === undefined) return undefined;
   if (value === null || typeof value === 'number' || typeof value === 'boolean') candidate = value;

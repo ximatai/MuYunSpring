@@ -25,6 +25,14 @@ function menuTree(): MenuTreeNode[] {
 }
 
 describe('workbench assistant capabilities', () => {
+  it('presents the actual opened entry as navigation, not a business save', async () => {
+    const open = createWorkbenchAssistantCapabilities(menuTree, () => true)[1]!;
+    const result = await open.execute(open.parseInput({ menuId: 'daily-report' }), executionContext());
+    expect(open.present?.(result)).toEqual({
+      title: '已打开日报填报',
+      lines: ['仅切换页面，未修改或保存业务数据。'],
+    });
+  });
   it('finds only entries from the current visible tree with case-insensitive matching', async () => {
     const capabilities = createWorkbenchAssistantCapabilities(menuTree, () => true);
     const find = capabilities.find(({ descriptor }) => descriptor.code === 'workbench.find-menu')!;

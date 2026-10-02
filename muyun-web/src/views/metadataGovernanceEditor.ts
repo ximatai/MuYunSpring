@@ -29,6 +29,7 @@ export interface MetadataGovernanceSummary {
     title: string;
     schemaName: string;
     tableName: string;
+    storageDefaultsOnSave: Array<'schemaName' | 'tableName'>;
     saved: false;
     nextStep: 'REVIEW_AND_SAVE_STRUCTURE_BEFORE_FIELDS';
   };

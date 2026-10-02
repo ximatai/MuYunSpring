@@ -156,14 +156,19 @@ it.each([{}, { moduleAlias: '../outside' }, { moduleAlias: 'demo.order', url: '/
 
 it('prepares, revises and confirms without mounting a page, and opens exactly the same candidate on request', async () => {
   const f = fixture();
-  await f.select();
+  const selection = await f.select();
+  expect(selection.presentation).toMatchObject({
+    title: '已选中配置对象：订单',
+    lines: expect.arrayContaining(['当前仅在工作区选中对象，尚未打开对应编辑页。']),
+  });
   await f.add();
   expect(f.openEditor).not.toHaveBeenCalled();
   const shared = f.workspace.session('demo.order');
   shared.view.fieldDraft.value.title = '人工修改';
   await f.invoke('configuration.update-metadata-field-draft', { fieldName: 'note', required: true });
   expect(shared.view.fieldDraft.value.title).toBe('人工修改');
-  await f.invoke('configuration.open-metadata-editor');
+  const opened = await f.invoke('configuration.open-metadata-editor');
+  expect(opened.presentation?.title).toBe('已打开配置编辑页：订单');
   expect(f.openEditor).toHaveBeenCalledExactlyOnceWith('demo.order', '订单');
   await shared.ensureLoaded();
   expect(shared.view.fieldDraft.value.title).toBe('人工修改');
@@ -830,6 +835,7 @@ it('prepares a missing main entity in the shared editor without creating storage
       alias: 'order',
       title: '客户',
       saved: false,
+      storageDefaultsOnSave: ['schemaName', 'tableName'],
       nextStep: 'REVIEW_AND_SAVE_STRUCTURE_BEFORE_FIELDS',
     },
     draft: { active: true, dirty: true, editorOpen: true },
@@ -839,6 +845,7 @@ it('prepares a missing main entity in the shared editor without creating storage
   ).toBe(false);
   await f.invoke('configuration.open-metadata-editor');
   shared.view.mainMetadataDraft.value.tableName = 'manual_customer';
+  expect(shared.adapter.summary().mainCandidate?.storageDefaultsOnSave).toEqual(['schemaName']);
   const beforeEdit = shared.contextRevision.value;
   shared.view.mainMetadataDraft.value.schemaName = 'public';
   expect(shared.contextRevision.value).toBeGreaterThan(beforeEdit);
@@ -847,7 +854,11 @@ it('prepares a missing main entity in the shared editor without creating storage
     title: '客户资料',
     tableName: 'manual_customer',
     schemaName: 'public',
+    storageDefaultsOnSave: [],
   });
+  shared.view.mainMetadataDraft.value.schemaName = '   ';
+  expect(shared.adapter.summary().mainCandidate?.storageDefaultsOnSave).toEqual(['schemaName']);
+  expect(shared.view.mainMetadataDraft.value.tableName).toBe('manual_customer');
   await shared.view.createMainMetadata();
   expect(f.request.mock.calls.filter(([r]) => r.path.endsWith('/create-main-metadata'))).toHaveLength(1);
   expect(shared.adapter.summary().mainCandidate).toBeUndefined();

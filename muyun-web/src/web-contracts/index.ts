@@ -1058,6 +1058,8 @@ export interface ResolvedFieldControlBindingDescriptor {
 }
 
 export interface ResolvedViewFieldDescriptor {
+  /** Computed values are previews or are unavailable until the next successful save. */
+  calculationTiming?: 'IMMEDIATE' | 'ON_SAVE' | null;
   inputRequirements?: {
     requiredOnInsert: boolean;
     requiredOnUpdate: boolean;

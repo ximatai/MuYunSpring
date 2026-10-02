@@ -108,7 +108,7 @@ function prepareMetadataMainDraftCapability(
     descriptor: {
       code: 'configuration.prepare-metadata-main-draft',
       description:
-        'Prepare the missing main entity in the standard metadata editor. Available only when the module has no metadata relations. The standard editor derives its identifier from the module; provide the business title. This only prepares a visible draft, never creates storage. Open the metadata editor and ask the user to review and save there; then reread metadata before adding fields. Preserve existing manual storage settings.',
+        'Prepare the missing main entity in the standard metadata editor. Available only when the module has no metadata relations. The standard editor derives its identifier from the module; provide the business title. This only prepares a visible draft, never creates storage. Open the metadata editor and ask the user to review and save there; then reread metadata before adding fields. storageDefaultsOnSave lists blank optional settings that the platform fills on save; these are not missing required inputs and do not require a user decision about storage. Preserve existing manual storage settings.',
       inputSchema: {
         type: 'object',
         additionalProperties: false,

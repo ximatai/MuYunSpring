@@ -18,6 +18,7 @@ function createRegistry(requestTurn: AssistantTurnRequester) {
 }
 
 it.each([
+  ['CONFIG_MISSING', '当前身份缺少可用的模型配置'],
   ['AI_PROVIDER_AUTHENTICATION_FAILED', '模型连接鉴权失败'],
   ['AI_PROVIDER_RATE_LIMITED', '模型服务限制了本次请求'],
   ['AI_PROVIDER_UNAVAILABLE', '模型服务暂时不可用'],
@@ -43,6 +44,7 @@ it.each([
     if (['AI_MODEL_TIMEOUT', 'AI_MODEL_INCOMPLETE_RESPONSE', 'AI_MODEL_INTERRUPTED'].includes(code))
       expect(wrapper.text()).toContain('请核实当前页面后继续处理');
     expect(wrapper.text()).not.toContain('opaque diagnostic');
+    if (code === 'CONFIG_MISSING') expect(wrapper.text()).not.toContain('可以调整需求后继续处理');
     expect(requestTurn).toHaveBeenCalledOnce();
     wrapper.unmount();
   },
@@ -397,6 +399,8 @@ it('removes an uncommitted partial response when its stream fails', async () => 
   expect(wrapper.text()).not.toContain('不完整的回答');
   expect(wrapper.text()).not.toContain('stream failed');
   expect(wrapper.text()).toContain('本轮回复未能完成');
+  expect(wrapper.text()).toContain('查看诊断信息');
+  expect(wrapper.text()).toContain('模型请求未完成');
 });
 
 it('cancels an in-flight request from the panel', async () => {
@@ -542,6 +546,7 @@ it('keeps successful operation feedback when the model follow-up fails', async (
       effect: 'page',
       descriptor: { code: 'form.patch-draft', description: 'Patch draft', inputSchema: {} },
       parseInput: (input) => input,
+      present: () => ({ title: '已打开编辑表单', lines: ['未填写、未保存'] }),
       async execute(_input, context) {
         context.applyEffect(() => undefined);
         return { changed: true };
@@ -555,14 +560,23 @@ it('keeps successful operation feedback when the model follow-up fails', async (
   await flushPromises();
 
   expect(wrapper.text()).not.toContain('已应用 1 项页面操作');
-  expect(wrapper.text()).toContain('前面的 1 项页面操作已生效，后续处理失败，目标可能尚未完成');
+  expect(wrapper.text()).toContain('后续处理失败，目标尚未核实完成');
+  expect(wrapper.text()).toContain('已生效步骤见上方平台操作记录');
+  expect(wrapper.text()).toContain('已打开编辑表单');
+  expect(wrapper.text()).toContain('未填写、未保存');
   expect(wrapper.text()).not.toContain('model returned no executable content');
 
   await wrapper.get('textarea').setValue('继续');
   await wrapper.get('.assistant-panel__actions button').trigger('click');
   await flushPromises();
   expect(requestTurn).toHaveBeenLastCalledWith(
-    expect.objectContaining({ message: '继续', history: [{ role: 'user', text: '填写当前草稿' }] }),
+    expect.objectContaining({
+      message: '继续',
+      history: [
+        { role: 'user', text: '填写当前草稿' },
+        { role: 'assistant', text: '平台操作事实：已打开编辑表单\n未填写、未保存' },
+      ],
+    }),
     expect.any(AbortSignal),
     expect.any(Object),
   );
@@ -599,7 +613,7 @@ it.each([
   expect(requestTurn).toHaveBeenCalledTimes(2);
   expect(wrapper.text()).toContain(expected);
   expect(wrapper.text()).toContain('待确认内容没有提交');
-  expect(wrapper.text()).toContain('前面的 1 项页面操作已生效');
+  expect(wrapper.text()).toContain('本轮已有页面操作生效，但缺少具体结果说明');
 });
 
 const requiredChoice: AssistantTurnOutput = {
@@ -1173,7 +1187,7 @@ it.each([false, true])(
     expect(requestTurn).toHaveBeenCalledTimes(typing ? 0 : 1);
     if (!typing) {
       expect(requestTurn.mock.calls[0]?.[0].message).toContain('用户最近明确提出的要求：帮我准备');
-      expect(wrapper.text()).toContain('正在核实已完成结果并准备下一步');
+      expect(wrapper.text()).toContain('正在核实当前状态并准备下一步');
       expect(wrapper.findAll('.assistant-message--user').map((item) => item.text())).toEqual(['帮我准备']);
       for (let index = 0; index < 4; index++) {
         await wrapper
@@ -1864,5 +1878,19 @@ it('checkpoints the receipt before submission and restores only read-only recove
   expect(wrapper.text()).toContain('原保存已确认');
   expect(execute).toHaveBeenCalledOnce();
   expect(requestTurn).toHaveBeenCalledOnce();
+  wrapper.unmount();
+});
+
+it('identifies preparation failure before a model request without exposing transport details', async () => {
+  const requestTurn = vi.fn();
+  const registry = createRegistry(requestTurn);
+  vi.spyOn(registry, 'settleActiveSurface').mockRejectedValue(new Error('private page payload'));
+  const wrapper = mount(WorkbenchAssistantPanel, { props: { open: true, registry } });
+  await wrapper.get('textarea').setValue('查看当前页面');
+  await wrapper.get('button.ant-btn-primary').trigger('click');
+  await flushPromises();
+  expect(requestTurn).not.toHaveBeenCalled();
+  expect(wrapper.text()).toContain('页面状态准备失败');
+  expect(wrapper.text()).not.toContain('private page payload');
   wrapper.unmount();
 });

@@ -48,13 +48,40 @@ interface AssistantReadContext {
   results: AssistantCapabilityResult[];
 }
 
+function sameDefinitionScope(left: AssistantInvocationToken | undefined, right: AssistantInvocationToken) {
+  return (
+    left !== undefined &&
+    left.identityScopeKey === right.identityScopeKey &&
+    left.executionScopePending === right.executionScopePending &&
+    left.executionScopeKey === right.executionScopeKey &&
+    left.pageInstanceKey === right.pageInstanceKey &&
+    left.surfaceGeneration === right.surfaceGeneration &&
+    left.interactionRevision === right.interactionRevision &&
+    left.fallback === right.fallback
+  );
+}
+
+function isDefinitionObservation(result: AssistantCapabilityResult) {
+  return (
+    result.capabilityCode === ASSISTANT_CAPABILITY_LOAD_CODE &&
+    result.execution === 'read' &&
+    !result.error &&
+    (result.output as { definitionsOnly?: unknown } | undefined)?.definitionsOnly === true
+  );
+}
+
 function withReadContext(
   current: AssistantCapabilityResult[],
   memory: AssistantReadContext | undefined,
   token: AssistantInvocationToken,
 ): AssistantCapabilityResult[] {
   if (!memory) return current;
-  if (!sameAssistantInvocationToken(memory.token, token)) memory.results = [];
+  if (!sameAssistantInvocationToken(memory.token, token)) {
+    // Retain names only; the live catalog rebuilds schemas and permissions on every request.
+    memory.results = sameDefinitionScope(memory.token, token)
+      ? memory.results.filter(isDefinitionObservation)
+      : [];
+  }
   memory.token = token;
   const keys = new Set(current.map((result) => JSON.stringify([result.capabilityCode, result.input])));
   let budget = 12_000;
@@ -80,6 +107,7 @@ export interface AssistantRuntimeStepResult {
 }
 
 interface InternalAssistantRuntimeStepResult extends AssistantRuntimeStepResult {
+  readStateChanged?: boolean;
   attemptedCallCount: number;
   restoredReadContext?: boolean;
   continuationToken?: AssistantInvocationToken;
@@ -133,7 +161,12 @@ export type AssistantRuntimeDiagnosticEvent =
   | {
       type: 'decision.failed';
       stepIndex: number;
-      reason: 'context-changed' | 'cancelled' | 'surface-settlement-failed' | 'model-request-failed';
+      reason:
+        | 'context-changed'
+        | 'cancelled'
+        | 'surface-unavailable'
+        | 'surface-settlement-failed'
+        | 'model-request-failed';
     }
   | {
       type: 'capability.completed';
@@ -202,13 +235,22 @@ export async function runAssistantConversation(
   message: string,
   options: AssistantConversationOptions = {},
 ): Promise<AssistantConversationResult> {
-  function waitForFormalSurface(token: AssistantInvocationToken) {
-    return registry.waitForActiveSurface({
-      pageInstanceKey: token.pageInstanceKey,
-      requireFormal: true,
-      signal: options.signal,
-      timeoutMs: 15_000,
-    });
+  async function waitForFormalSurface(token: AssistantInvocationToken, stepIndex = 0) {
+    try {
+      return await registry.waitForActiveSurface({
+        pageInstanceKey: token.pageInstanceKey,
+        requireFormal: true,
+        signal: options.signal,
+        timeoutMs: 15_000,
+      });
+    } catch (error) {
+      emitDiagnostic(options.onDiagnostic, {
+        type: 'decision.failed',
+        stepIndex,
+        reason: isAbortError(error) ? 'cancelled' : 'surface-unavailable',
+      });
+      throw error;
+    }
   }
   let initial = registry.snapshot();
   const identityScope = initial?.token.identityScopeKey;
@@ -234,7 +276,7 @@ export async function runAssistantConversation(
   for (let index = 0; index < hardLimit; index += 1) {
     if ((index >= maxSteps && !madeProgress) || unproductiveSteps >= 2) break;
     let current = registry.snapshot();
-    if (current?.token.executionScopePending) current = await waitForFormalSurface(current.token);
+    if (current?.token.executionScopePending) current = await waitForFormalSurface(current.token, index);
     if (
       current?.token.identityScopeKey !== identityScope ||
       current?.token.executionScopeKey !== executionScope
@@ -407,11 +449,14 @@ export async function runAssistantConversation(
     const observationToken = registry.snapshot()?.token;
     if (
       step.contextChanged ||
+      step.readStateChanged ||
       !observationToken ||
       !sameAssistantInvocationToken(readContext.token, observationToken)
     ) {
-      readContext.results = [];
-      readContext.token = undefined;
+      readContext.results = observationToken
+        ? withReadContext([], readContext, observationToken).filter(isDefinitionObservation)
+        : [];
+      readContext.token = observationToken;
     } else {
       readContext.results = withReadContext(results, readContext, observationToken)
         .filter((result) => result.execution === 'read' && !result.error)
@@ -701,14 +746,14 @@ async function runAssistantStepWithSettledCalls({
         };
       }
       replayableCalls.set(callKey, result);
-      if (invocation.contextChanged) {
-        appliedEffectCount += 1;
+      if (invocation.contextChanged || invocation.readStateChanged) {
+        if (invocation.contextChanged) appliedEffectCount += 1;
         emitDiagnostic(onDiagnostic, {
           type: 'capability.completed',
           stepIndex,
           capabilityCode: diagnosticCapabilityCode(call.code),
           outcome: 'succeeded',
-          pageEffectApplied: true,
+          pageEffectApplied: invocation.contextChanged,
         });
         const continuationToken = registry.snapshot()?.token;
         if (continuationToken) {
@@ -716,8 +761,12 @@ async function runAssistantStepWithSettledCalls({
         }
         return {
           output,
-          results,
-          contextChanged: true,
+          // Reads made before the state transition no longer describe the current selection/draft.
+          results: results.filter(
+            (entry) => entry === result || entry.execution !== 'read' || isDefinitionObservation(entry),
+          ),
+          contextChanged: invocation.contextChanged,
+          readStateChanged: invocation.readStateChanged,
           attemptedCallCount,
           appliedEffectCount,
           continuationToken,

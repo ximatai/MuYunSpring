@@ -787,8 +787,11 @@ function groupEndsAt(field: RecordFormFieldState, index: number) {
           </div>
         </div>
         <div class="record-form-field-control">
+          <span v-if="field.calculationPending" class="record-form-field-calculation-pending"
+            >保存后计算</span
+          >
           <RecordStatusSwitch
-            v-if="field.controlType === 'enabledStatus'"
+            v-else-if="field.controlType === 'enabledStatus'"
             :enabled="enabledStatusFieldValue(field.fieldName)"
             :disabled="fieldDisabled(field)"
             :show-label="false"

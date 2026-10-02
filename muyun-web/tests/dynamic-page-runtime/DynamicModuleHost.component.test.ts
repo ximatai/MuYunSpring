@@ -4014,6 +4014,7 @@ describe('ModulePageHost', () => {
   it.each(['complete', 'fail'])(
     'retains navigator ownership while its detail loads (%s)',
     async (outcome) => {
+      let viewAvailable = true;
       let resolveView!: (response: Response) => void;
       const pendingView = new Promise<Response>((resolve) => (resolveView = resolve));
       let resolveFailedMain!: (response: Response) => void;
@@ -4025,7 +4026,10 @@ describe('ModulePageHost', () => {
             moduleAlias: 'demo.main',
             capabilities: ['TREE'],
             abilities: ['tree'],
-            actions: [{ actionCode: 'update', authorized: true }],
+            actions: [
+              { actionCode: 'update', authorized: true },
+              { actionCode: 'view', authorized: true },
+            ],
             uiDescriptor: {
               moduleAlias: 'demo.main',
               page: page({
@@ -4055,7 +4059,12 @@ describe('ModulePageHost', () => {
           return Response.json({ id: 'main-1', title: '主记录', version: 1 });
         if (request.url.endsWith('/demo.main/view/failed-main')) return pendingFailedMain;
         if (request.url.includes('/actions/'))
-          return Response.json({ actions: [{ actionCode: 'update', available: true }] });
+          return Response.json({
+            actions: [
+              { actionCode: 'update', available: true },
+              { actionCode: 'view', available: viewAvailable },
+            ],
+          });
         throw new Error(`Unexpected request: ${request.url}`);
       };
       configureModuleContext({ httpFactory: () => createHttpClient({ baseUrl: 'http://api.local' }) });
@@ -4092,6 +4101,24 @@ describe('ModulePageHost', () => {
         .props('session') as ModulePageSessionView;
       const surface = createModulePageAssistantSurface(session, vi.fn());
       expect(surface.capabilities().map(({ descriptor }) => descriptor.code)).toContain('record.start-edit');
+      viewAvailable = false;
+      await expect(session.prepareAssistantView('main-1')).rejects.toThrow('Record action is unavailable');
+      expect(session.editorMode).toBe('view');
+      viewAvailable = true;
+      await expect(session.prepareAssistantView('outside-page')).rejects.toThrow('Record is not available');
+      const openView = await session.prepareAssistantView('main-1');
+      expect(openView()).toMatchObject({
+        editorMode: 'view',
+        recordId: 'main-1',
+        editable: false,
+        dirty: false,
+      });
+      expect(surface.capabilities().map(({ descriptor }) => descriptor.code)).not.toContain(
+        'form.patch-draft',
+      );
+      expect(session.recordDetailReady()).toBe(true);
+      expect(surface.capabilities().map(({ descriptor }) => descriptor.code)).toContain('form.describe');
+      const staleView = await session.prepareAssistantView('main-1');
       const staleEdit = await session.prepareAssistantEdit('main-1');
       wrapper
         .findComponent({ name: 'PageNavigatorExplorer' })
@@ -4108,6 +4135,7 @@ describe('ModulePageHost', () => {
       );
       await expect(session.prepareAssistantEdit('main-1')).rejects.toThrow('A form draft is already active');
       expect(() => staleEdit()).toThrow('编辑状态或范围已变化');
+      expect(() => staleView()).toThrow('编辑状态或范围已变化');
       resolveView(
         outcome === 'complete'
           ? Response.json({ id: 'catalog-1', title: '分类一', version: 1 })
@@ -4131,13 +4159,53 @@ describe('ModulePageHost', () => {
       expect(() => staleEdit()).toThrow('编辑状态或范围已变化');
       (await session.prepareAssistantEdit('main-1'))();
       expect(session.editorMode).toBe('edit');
+      await expect(session.prepareAssistantView('main-1')).rejects.toThrow('A form draft is already active');
       wrapper
         .findComponent({ name: 'PageNavigatorExplorer' })
         .vm.$emit('action', { key: 'edit' }, { id: 'catalog-1', title: '分类一' });
       await flushPromises();
       expect(session.assistantNavigatorEditor).toBeUndefined();
       expect(session.editorMode).toBe('edit');
-      await session.closeTreeCardEditor();
+      const leaveEditor = surface
+        .capabilities()
+        .find(({ descriptor }) => descriptor.code === 'record.leave-unchanged-editor')!;
+      expect(leaveEditor).toBeDefined();
+      session.updateReferenceRecordDetailInteraction({ editing: true, busy: false, dirty: false });
+      expect(session.canLeaveUnchangedEditor()).toBe(false);
+      expect(() => session.leaveUnchangedEditor()).toThrow('编辑状态已变化');
+      session.updateReferenceRecordDetailInteraction({ editing: false, busy: true, dirty: false });
+      expect(session.canLeaveUnchangedEditor()).toBe(false);
+      session.updateReferenceRecordDetailInteraction({ editing: false, busy: false, dirty: true });
+      expect(session.canLeaveUnchangedEditor()).toBe(false);
+      session.updateReferenceRecordDetailInteraction({ editing: false, busy: false, dirty: false });
+      const leave = () =>
+        leaveEditor.execute(
+          {},
+          {
+            signal: new AbortController().signal,
+            isCurrent: () => true,
+            commitInternalState: (commit) => commit(),
+            applyEffect: (effect) => effect(),
+          },
+        );
+      // Parsing errors keep the previous draft value but must preserve the user's editor buffer.
+      for (const updateValidity of [
+        (valid: boolean) => session.updateMainFormValidity({ valid }),
+        (valid: boolean) => session.updateRelationDraftValidity(valid),
+      ]) {
+        updateValidity(false);
+        expect(session.sessionDirty).toBe(false);
+        expect(surface.capabilities().map(({ descriptor }) => descriptor.code)).not.toContain(
+          'record.leave-unchanged-editor',
+        );
+        await expect(leave()).rejects.toThrow('编辑状态已变化');
+        expect(session.editorMode).toBe('edit');
+        updateValidity(true);
+      }
+      await leave();
+      expect(session.editorMode).toBe('view');
+      expect(session.selectedRecord?.id).toBe('main-1');
+      expect(session.sessionDirty).toBe(false);
       wrapper
         .findComponent({ name: 'TreeRecordExplorer' })
         .vm.$emit('select', { id: 'failed-main', title: '加载失败的旧记录' });
