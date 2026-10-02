@@ -1062,6 +1062,15 @@ it('creates a module reference in simple mode and preserves advanced settings ac
   await flushPromises();
   expect(field('显示名称').findComponent({ name: 'UiInput' }).props('value')).toBe('用户');
   field('显示名称').findComponent({ name: 'UiInput' }).vm.$emit('update:value', '负责人');
+  await wrapper
+    .findAll('button')
+    .find((button) => button.text() === '添加回填')!
+    .trigger('click');
+  await flushPromises();
+  field('来源字段').findComponent({ name: 'UiSelect' }).vm.$emit('update:value', 'displayName');
+  field('填入字段').findComponent({ name: 'UiSelect' }).vm.$emit('update:value', 'title');
+  await flushPromises();
+
   wrapper.findComponent({ name: 'UiRadioGroup' }).vm.$emit('update:value', 'ADVANCED');
   await flushPromises();
   field('被引用记录删除时').findComponent({ name: 'UiSelect' }).vm.$emit('update:value', 'RESTRICT');
@@ -1076,6 +1085,7 @@ it('creates a module reference in simple mode and preserves advanced settings ac
   const preview = request.mock.calls.find(([options]) => options.path.endsWith('change-set-preview'));
   expect(JSON.stringify(preview?.[0].body)).toContain('refFuZeRenId');
   expect(JSON.stringify(preview?.[0].body)).toContain('RESTRICT');
+  expect(JSON.stringify(preview?.[0].body)).toContain('displayName:title');
   expect(JSON.stringify(preview?.[0].body)).toContain('displayName');
   expect(request.mock.calls.some(([options]) => options.path.endsWith('change-set-apply'))).toBe(false);
 });

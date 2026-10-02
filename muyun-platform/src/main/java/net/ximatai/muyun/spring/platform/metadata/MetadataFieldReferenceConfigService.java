@@ -67,7 +67,7 @@ public class MetadataFieldReferenceConfigService extends AbstractAbilityService<
 
     @Override
     public QueryDescriptor queryDescriptor() {
-        return QueryDescriptors.fromModel(MODULE_ALIAS, MetadataFieldReferenceConfig.class, java.util.List.of("id", "metadataFieldId", "relationId", "targetModuleAlias", "targetMetadataId", "targetKeyField", "targetLabelField", "cardinality", "targetUnavailablePolicy", "requireEnabled", "projectionMappings", "createdAt", "updatedAt"));
+        return QueryDescriptors.fromModel(MODULE_ALIAS, MetadataFieldReferenceConfig.class, java.util.List.of("id", "metadataFieldId", "relationId", "targetModuleAlias", "targetMetadataId", "targetKeyField", "targetLabelField", "cardinality", "targetUnavailablePolicy", "requireEnabled", "projectionMappings", "affectMappings", "createdAt", "updatedAt"));
     }
 
     @Override
@@ -146,6 +146,7 @@ public class MetadataFieldReferenceConfigService extends AbstractAbilityService<
                     + sourceField.getFieldName());
         }
         validateTargetKey(config, target);
+        validateAffects(config, sourceField, target);
         if (config.getTargetUnavailablePolicy() == null) {
             config.setTargetUnavailablePolicy(ReferenceTargetUnavailablePolicy.PRESERVE_HISTORY);
         }
@@ -431,6 +432,25 @@ public class MetadataFieldReferenceConfigService extends AbstractAbilityService<
                 throw new PlatformException("Duplicate reference output field: " + projection.outputField());
             }
         }
+    }
+
+    private void validateAffects(MetadataFieldReferenceConfig config, MetadataField source, ReferenceTarget target) {
+        var mappings = config.affects();
+        if (mappings.size() > 8 || (config.getAffectMappings() != null && config.getAffectMappings().length() > 512))
+            throw new PlatformException("最多配置八项选择回填，配置总长不得超过512字符");
+        Set<String> destinations = new LinkedHashSet<>();
+        for (var mapping : mappings) {
+            requireTargetField(config, target, mapping.referenceField());
+            var destination = fieldService.list(Criteria.of().eq("metadataId", source.getMetadataId())
+                    .eq("fieldName", mapping.targetField()), PageRequests.all()).stream().findFirst().orElse(null);
+            if (destination == null || destination.getFieldOwnership() != MetadataFieldOwnership.BUSINESS
+                    || destination.getFieldForm() != MetadataFieldForm.PHYSICAL || Boolean.TRUE.equals(destination.getSystemManaged())
+                    || STANDARD_FIELDS.contains(mapping.targetField()) || source.getFieldName().equals(mapping.targetField()))
+                throw new PlatformException("选择回填目标必须是当前实体已保存的普通业务字段：" + mapping.targetField());
+            if (!destinations.add(mapping.targetField()))
+                throw new PlatformException("选择回填目标不能重复：" + mapping.targetField());
+        }
+        config.setAffectMappings(MetadataFieldReferenceConfig.encodeProjections(MetadataFieldReferenceConfig.affectMappings(config)));
     }
 
     private void requireTargetFieldIfPresent(MetadataFieldReferenceConfig config,

@@ -551,6 +551,7 @@ public class MetadataRelationChangeSetPreviewService {
         result.setTargetUnavailablePolicy(source.getTargetUnavailablePolicy());
         result.setRequireEnabled(source.getRequireEnabled());
         result.setProjectionMappings(source.getProjectionMappings());
+        result.setAffectMappings(source.getAffectMappings());
         return result;
     }
 

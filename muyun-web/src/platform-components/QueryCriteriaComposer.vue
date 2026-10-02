@@ -238,7 +238,11 @@ function resolveNode(
     kind: 'CONDITION',
     fieldName: field.name,
     operator,
-    values: node.values,
+    // The visual editor promises literal "contains"; the transport LIKE contract remains a SQL pattern.
+    values:
+      operator === 'LIKE'
+        ? node.values.map((value) => `%${String(value).replace(/[\\%_]/g, '\\$&')}%`)
+        : node.values,
   };
   return condition;
 }

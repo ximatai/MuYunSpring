@@ -43,6 +43,36 @@ describe('QueryCriteriaComposer', () => {
     });
   });
 
+  it('converts visual contains into escaped LIKE without changing the draft on repeated apply', async () => {
+    const wrapper = mountComposer();
+    await wrapper.setProps({
+      fields: [{ name: 'title', valueType: 'STRING', operators: ['LIKE'], defaultOperator: 'LIKE' }],
+    });
+    const group = wrapper.findComponent({ name: 'QueryCriteriaGroupEditor' });
+    const literal = String.raw`CS-001_50%\folder`;
+    group.vm.$emit('update:group', {
+      kind: 'GROUP',
+      id: 1,
+      operator: 'AND',
+      children: [
+        {
+          kind: 'GROUP',
+          id: 2,
+          operator: 'OR',
+          children: [{ kind: 'CONDITION', id: 3, fieldName: 'title', operator: 'LIKE', values: [literal] }],
+        },
+      ],
+    });
+    await wrapper.vm.$nextTick();
+    for (let attempt = 0; attempt < 2; attempt++) (wrapper.vm as unknown as { apply: () => void }).apply();
+    expect(wrapper.emitted('apply')).toHaveLength(2);
+    for (const [criteria] of wrapper.emitted('apply')!)
+      expect(criteria).toMatchObject({
+        children: [{ children: [{ values: [String.raw`%CS-001\_50\%\\folder%`] }] }],
+      });
+    expect(group.props('group').children[0].children[0].values).toEqual([literal]);
+  });
+
   it('requires both BETWEEN endpoints before applying the condition', async () => {
     const wrapper = mountComposer();
     wrapper.findComponent({ name: 'QueryCriteriaGroupEditor' }).vm.$emit('update:group', {

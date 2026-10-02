@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { shallowRef, onActivated, onDeactivated, onMounted, onBeforeUnmount, watch } from 'vue';
 import { useModuleContext, useAssistantSurfaceHost, createAssistantTurnRequester } from '@muyun/web-core';
+import { presentPlatformError } from '@muyun/platform-components';
 import { createPageCompositionSession } from './pageCompositionSession';
 import { usePageCompositionWorkspace } from './pageCompositionWorkspace';
 import { createPageCompositionAssistantSurface } from './pageCompositionAssistantSurface';
@@ -14,6 +15,7 @@ const workspace = usePageCompositionWorkspace();
 const host = useAssistantSurfaceHost();
 let active = false;
 let unregister: (() => void) | undefined;
+let settlement: AbortController | undefined;
 let fallback: ReturnType<typeof createPageCompositionSession> | undefined;
 const session = shallowRef<ReturnType<typeof createPageCompositionSession>>(null!);
 watch(
@@ -33,38 +35,62 @@ watch(
 );
 
 function clear() {
+  settlement?.abort();
+  settlement = undefined;
   unregister?.();
   unregister = undefined;
 }
 function activate() {
+  // KeepAlive invokes mounted and activated on first entry; register one stable surface.
+  if (active && (unregister || settlement)) return;
   active = true;
   workspace?.focus(session.value);
   workspace?.showEditor(session.value);
   clear();
   const pageInstanceKey = host?.activePageInstanceKey();
-  if (host && pageInstanceKey)
-    unregister = host.registry.register({
-      pageInstanceKey,
-      contextRevision: () => `${props.moduleAlias}:${session.value.contextRevision.value}`,
-      settle: (signal) =>
-        waitForConfigurationEditor(
-          () => !session.value.isMutating.value && !session.value.catalogueRefreshPending.value,
-          signal,
-        ),
-      surface: {
-        ...createPageCompositionAssistantSurface(
-          session.value.adapter,
-          createAssistantTurnRequester(context.http),
-          () => host.capabilities?.() ?? [],
-        ),
-        // Keep the mounted page readiness signal; the shared workspace owns its tools.
-        ...(workspace ? { capabilities: () => host.capabilities?.() ?? workspace.capabilities() } : {}),
-      },
+  if (!host || !pageInstanceKey) return;
+  const current = session.value;
+  const controller = new AbortController();
+  settlement = controller;
+  const ready = () => !current.isMutating.value && !current.catalogueRefreshPending.value;
+  void waitForConfigurationEditor(ready, controller.signal)
+    .then(() => {
+      if (
+        controller.signal.aborted ||
+        settlement !== controller ||
+        !active ||
+        session.value !== current ||
+        host.activePageInstanceKey() !== pageInstanceKey
+      )
+        return;
+      settlement = undefined;
+      unregister = host.registry.register({
+        pageInstanceKey,
+        contextRevision: () => `${current.moduleAlias}:${current.contextRevision.value}`,
+        settle: (signal) => waitForConfigurationEditor(ready, signal),
+        surface: {
+          ...createPageCompositionAssistantSurface(
+            current.adapter,
+            createAssistantTurnRequester(context.http),
+            () => host.capabilities?.() ?? [],
+          ),
+          // Keep the mounted page readiness signal; the shared workspace owns its tools.
+          ...(workspace ? { capabilities: () => host.capabilities?.() ?? workspace.capabilities() } : {}),
+        },
+      });
+    })
+    .catch((cause) => {
+      if (settlement === controller) settlement = undefined;
+      if (!controller.signal.aborted)
+        presentPlatformError(cause, { source: 'page-composition', phase: 'load' });
     });
 }
 watch(session, (value, previous) => {
   if (previous) workspace?.hideEditor(previous);
-  if (active) activate();
+  if (active) {
+    clear();
+    activate();
+  }
 });
 onMounted(activate);
 onActivated(activate);

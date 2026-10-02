@@ -36,6 +36,7 @@ export interface MetadataFieldReferencePropertyConfig {
   targetUnavailablePolicy?: 'PRESERVE_HISTORY' | 'RESTRICT' | 'CASCADE_DELETE';
   requireEnabled?: boolean;
   projectionMappings?: string[];
+  affectMappings?: string[];
 }
 
 export interface MetadataFieldDictionaryPropertyConfig {
@@ -300,6 +301,7 @@ export function copyFieldPropertyDraft(property: MetadataFieldPropertyDraft): Me
           referenceConfig: {
             ...draft.referenceConfig,
             projectionMappings: [...(draft.referenceConfig.projectionMappings ?? [])],
+            affectMappings: [...(draft.referenceConfig.affectMappings ?? [])],
           },
         }
       : {}),
@@ -373,6 +375,7 @@ export function normalizeFieldPropertyDraft(
         targetKeyField: reference.targetKeyField?.trim() || 'id',
         targetLabelField: reference.targetLabelField?.trim() || 'title',
         projectionMappings: (reference.projectionMappings ?? []).map((value) => value.trim()).filter(Boolean),
+        affectMappings: (reference.affectMappings ?? []).map((value) => value.trim()).filter(Boolean),
       },
     };
   }

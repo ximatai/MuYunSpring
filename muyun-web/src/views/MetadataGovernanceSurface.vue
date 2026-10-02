@@ -97,6 +97,12 @@ const creatingChildMetadata = binding('creatingChildMetadata');
 const updateChildAlias = binding('updateChildAlias');
 const childAliasError = binding('childAliasError');
 const referenceTargetFieldCatalogLoading = binding('referenceTargetFieldCatalogLoading');
+const referenceAffectMappings = binding('referenceAffectMappings');
+const referenceAffectSourceOptions = binding('referenceAffectSourceOptions');
+const referenceAffectTargetOptions = binding('referenceAffectTargetOptions');
+const updateReferenceAffect = binding('updateReferenceAffect');
+const addReferenceAffect = binding('addReferenceAffect');
+const removeReferenceAffect = binding('removeReferenceAffect');
 const referenceTargetFieldCatalogError = binding('referenceTargetFieldCatalogError');
 const selectedField = binding('selectedField');
 const selectedNodeIsField = binding('selectedNodeIsField');
@@ -464,6 +470,40 @@ onUnmounted(() => {
                 style="width: 100%"
               />
             </label>
+            <section v-if="fieldPropertyEditorKind === 'MODULE_REFERENCE'" class="record-form-full-row">
+              <h3>选择后回填</h3>
+              <p>
+                选择引用记录时，将指定值填入当前表单。保存后的值独立保留，后续重新打开或保存不会随来源改动。
+              </p>
+              <div
+                v-for="(mapping, index) in referenceAffectMappings"
+                :key="index"
+                class="orchestration-form-grid"
+              >
+                <label
+                  ><span>来源字段</span
+                  ><UiSelect
+                    :value="mapping.split(':')[0] || undefined"
+                    :options="referenceAffectSourceOptions"
+                    placeholder="选择来源字段"
+                    @update:value="updateReferenceAffect(index, 0, $event)"
+                /></label>
+                <label
+                  ><span>填入字段</span
+                  ><UiSelect
+                    :value="mapping.split(':')[1] || undefined"
+                    :options="referenceAffectTargetOptions"
+                    placeholder="选择当前已保存字段"
+                    @update:value="updateReferenceAffect(index, 1, $event)"
+                /></label>
+                <UiButton @click="removeReferenceAffect(index)">移除回填</UiButton>
+              </div>
+              <UiButton
+                :disabled="referenceAffectMappings.length >= 8 || referenceTargetFieldCatalogLoading"
+                @click="addReferenceAffect"
+                >添加回填</UiButton
+              >
+            </section>
             <template v-if="editorMode === 'ADVANCED' && fieldPropertyEditorKind === 'MODULE_REFERENCE'">
               <div class="orchestration-form-grid record-form-full-row">
                 <label

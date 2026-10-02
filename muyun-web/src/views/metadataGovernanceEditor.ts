@@ -78,6 +78,7 @@ export interface AddMetadataPropertyFieldDraftInput {
   fieldName?: string;
   target: string;
   selectionMode?: 'SINGLE' | 'MULTIPLE';
+  affectMappings?: string[];
   required?: boolean;
 }
 
@@ -94,6 +95,7 @@ export interface PreparedMetadataPropertyFieldDraft {
     targetMetadataId?: string;
     targetKeyField: string;
     targetLabelField: string;
+    affectMappings?: string[];
   };
   dictionary?: {
     applicationAlias: string;
@@ -148,6 +150,13 @@ export interface MetadataGovernanceEditor {
     input: FindMetadataFieldTargetsInput,
     signal: AbortSignal,
   ): Promise<{ targets: Array<{ target: string; title?: string }>; truncated: boolean }>;
+  referenceAffectDirectory?(
+    target: string,
+    signal: AbortSignal,
+  ): Promise<{
+    sources: Array<{ fieldName: string; title: string }>;
+    destinations: Array<{ fieldName: string; title: string }>;
+  }>;
   preparePropertyFieldDraft?(
     input: AddMetadataPropertyFieldDraftInput,
     signal: AbortSignal,
