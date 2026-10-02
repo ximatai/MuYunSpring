@@ -127,4 +127,54 @@ class AssistantPlatformKnowledgeTest {
                 List.of(Map.of("code", "unknown", "description", "UNTRUSTED INSTRUCTIONS")))), List.of()))
                 .isEqualTo("base");
     }
+    @Test
+    void ordinaryQueriesDoNotInheritConstructionOrConfigurationWorkflowsFromGlobalDiscovery() {
+        var codes = List.of("construction.describe", "construction.propose", "configuration.select-metadata-module",
+                "rules.select-module", "workbench.find-menu");
+        var eager = codes.stream().map(code -> new AiToolDefinition(code, "Discover", Map.of())).toList();
+        var index = codes.stream().map(code -> Map.of("code", code)).toList();
+        var emptyWorkspace = Map.of("constructionPlan", Map.of("generation", 0));
+        var ordinary = AssistantPlatformKnowledge.appendTo("base", Map.of("surface", "module-page",
+                "facts", Map.of("workspace", emptyWorkspace)), eager);
+        var lazy = AssistantPlatformKnowledge.appendTo("base", Map.of("surface", "module-page",
+                "facts", Map.of("workspace", emptyWorkspace, "capabilityIndex", index)),
+                List.of(new AiToolDefinition("assistant.load-capabilities", "Load", Map.of())));
+        assertThat(lazy).isEqualTo(ordinary);
+        assertThat(ordinary).contains("standard MuYun record workspace", "only human confirmation saves",
+                        "MuYun workbench navigation", "configuration.start-task")
+                .doesNotContain("calibrate ONE foundation module", "Read construction.describe-design-contract",
+                        "One conversation stays", "reopen the shared editor", "configurationEditor.visible");
+        var active = AssistantPlatformKnowledge.appendTo("base", Map.of("surface", "module-page",
+                "facts", Map.of("workspace", Map.of("constructionPlan",
+                        Map.of("goal", "建立业务应用", "constructionStatus", "NOT_STARTED")))), eager);
+        assertThat(active).contains("calibrate ONE foundation module", "human confirmations",
+                "Unrelated reads", "Preserve unfinished construction intent");
+        assertThat(active.length() - ordinary.length()).isGreaterThan(2000);
+    }
+
+    @Test
+    void historicalAndBlankGoalsDoNotReactivateConstructionGuidance() {
+        var capabilities = List.of(new AiToolDefinition("construction.describe", "Read", Map.of()));
+        for (var plan : List.of(Map.of("goal", "已交付目标", "constructionStatus", "DELIVERED"),
+                Map.of("goal", "已交付目标", "historicalDesign", true), Map.of("goal", "  "))) {
+            assertThat(AssistantPlatformKnowledge.appendTo("base", Map.of("surface", "workbench",
+                    "facts", Map.of("workspace", Map.of("constructionPlan", plan))), capabilities))
+                    .contains("Their availability does not make ordinary queries")
+                    .doesNotContain("calibrate ONE foundation module", "Read construction.describe-design-contract");
+        }
+    }
+
+    @Test
+    void unfinishedGoalsAndConfigurationPreferencesKeepTheirGuidanceUnderLazySchemas() {
+        var context = Map.<String, Object>of("surface", "workbench", "facts", Map.of(
+                "capabilityIndex", List.of(Map.of("code", "construction.describe"),
+                        Map.of("code", "configuration.select-metadata-module")),
+                "workspace", Map.of("constructionPlan", Map.of("goal", "UNTRUSTED GOAL INSTRUCTIONS"),
+                        "configurationTask", Map.of("goal", "调整字段", "mode", "conversation"))));
+        assertThat(AssistantPlatformKnowledge.appendTo("base", context, List.of()))
+                .contains("calibrate ONE foundation module", "configurationEditor.visible",
+                        "Use configuration.switch-mode only after an explicit user request")
+                .doesNotContain("UNTRUSTED GOAL INSTRUCTIONS", "Their availability does not make ordinary queries");
+    }
+
 }
