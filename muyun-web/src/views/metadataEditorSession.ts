@@ -488,17 +488,19 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
     const referenceAffectSourceOptions = computed(() =>
       referenceFieldOptions(referenceTargetFieldCatalog.value?.labelFields ?? [], undefined),
     );
-    const referenceAffectTargetOptions = computed(() =>
+    const savedReferenceAffectTargetOptions = computed(() =>
       displayedFields.value
         .filter(
           (field) =>
             field.id &&
             field.fieldName &&
             fieldEditableInSession(field) &&
-            fieldPropertyOf(field).kind === 'BASIC' &&
-            field.fieldName !== fieldDraft.value.fieldName,
+            fieldPropertyOf(field).kind === 'BASIC',
         )
         .map((field) => ({ value: field.fieldName!, label: field.title || field.fieldName! })),
+    );
+    const referenceAffectTargetOptions = computed(() =>
+      savedReferenceAffectTargetOptions.value.filter((field) => field.value !== fieldDraft.value.fieldName),
     );
     function updateReferenceAffect(index: number, side: number, value: unknown) {
       const reference = fieldPropertyDraft.value.referenceConfig;
@@ -1064,7 +1066,7 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
         sources: catalog.labelFields
           .filter((field) => field.selectable)
           .map(({ fieldName, title }) => ({ fieldName, title })),
-        destinations: referenceAffectTargetOptions.value.map(({ value, label }) => ({
+        destinations: savedReferenceAffectTargetOptions.value.map(({ value, label }) => ({
           fieldName: value,
           title: label,
         })),
@@ -1095,7 +1097,8 @@ export function createMetadataEditorSession(source: HttpClient, options: Metadat
           const [source, destination] = mapping.split(':');
           if (
             !catalog.labelFields.some((field) => field.fieldName === source && field.selectable) ||
-            !referenceAffectTargetOptions.value.some((field) => field.value === destination) ||
+            destination === fieldName ||
+            !savedReferenceAffectTargetOptions.value.some((field) => field.value === destination) ||
             destinations.has(destination!)
           )
             throw new OperationUsageError('请选择目录中的来源字段和不同的已保存普通字段。');

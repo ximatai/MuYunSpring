@@ -531,10 +531,28 @@ class ConstructionFieldsIT {
                     net.ximatai.muyun.spring.ability.reference.ReferenceCardinality.ONE,
                     net.ximatai.muyun.spring.ability.reference.ReferenceTargetUnavailablePolicy.PRESERVE_HISTORY,
                     List.of(), false, List.of("price:price"));
-            applyGovernedFields(order.moduleAlias(), child.relation().getId(), metadataService.select(child.metadata().getId()).getVersion(),
+            var productCandidate = new MetadataModelChangeSetPreviewCommand(List.of(new MetadataModelRelationChangeSetDraft(
+                    child.relation().getId(), metadataService.select(child.metadata().getId()).getVersion(), java.util.Map.of(),
                     List.of(new MetadataFieldChangeSetDraft(MetadataFieldChangeSetDraft.Operation.ADD, null, null,
                             governedField("productId", text).field(),
-                            new MetadataFieldPropertyDraft(MetadataFieldPropertyKind.MODULE_REFERENCE, null, productReference, null))));
+                            new MetadataFieldPropertyDraft(MetadataFieldPropertyKind.MODULE_REFERENCE, null, productReference, null))))), List.of(), List.of());
+            var productPreview = metadataPreviews.preview(order.moduleAlias(), productCandidate);
+            assertThat(productPreview.errors()).isEmpty();
+            var revisedReference = new MetadataFieldReferenceConfigDraft(product.moduleAlias(), product.metadataId(), "id", "title",
+                    productReference.cardinality(), productReference.targetUnavailablePolicy(), List.of(), false, List.of("price:amount"));
+            var revisedCandidate = new MetadataModelChangeSetPreviewCommand(List.of(new MetadataModelRelationChangeSetDraft(
+                    child.relation().getId(), metadataService.select(child.metadata().getId()).getVersion(), java.util.Map.of(),
+                    List.of(new MetadataFieldChangeSetDraft(MetadataFieldChangeSetDraft.Operation.ADD, null, null,
+                            governedField("productId", text).field(),
+                            new MetadataFieldPropertyDraft(MetadataFieldPropertyKind.MODULE_REFERENCE, null, revisedReference, null))))), List.of(), List.of());
+            var revisedPreview = metadataPreviews.preview(order.moduleAlias(), revisedCandidate);
+            assertThat(revisedPreview.errors()).isEmpty();
+            assertThat(revisedPreview.proposalFingerprint()).isNotEqualTo(productPreview.proposalFingerprint());
+            assertThatThrownBy(() -> metadataPublisher.apply(order.moduleAlias(),
+                    new MetadataModelChangeSetApplyCommand(revisedCandidate, productPreview.proposalFingerprint())))
+                    .hasMessageContaining("fingerprint is stale");
+            metadataPublisher.apply(order.moduleAlias(),
+                    new MetadataModelChangeSetApplyCommand(productCandidate, productPreview.proposalFingerprint()));
             var rules = List.of(new BusinessRuleProposal("lineAmount", net.ximatai.muyun.spring.common.formula.FormulaRuleKind.CALCULATION,
                             "lines.amount", "{lines.quantity} * {lines.price}", true, null),
                     new BusinessRuleProposal("total", net.ximatai.muyun.spring.common.formula.FormulaRuleKind.CALCULATION,

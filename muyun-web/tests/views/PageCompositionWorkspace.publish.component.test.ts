@@ -22,9 +22,15 @@ vi.mock('@muyun/vue-ui-antdv', async (importOriginal) => ({
 }));
 
 describe('PageCompositionWorkspace publication flow', () => {
-  it.each([false, true])(
-    'registers one settled KeepAlive surface and cancels late mounting (leave=%s)',
-    async (leave) => {
+  it.each([
+    [false, 0],
+    [true, 0],
+    [false, 16_000],
+    [true, 16_000],
+  ] as const)(
+    'registers one settled KeepAlive surface and cancels late mounting (leave=%s, delay=%s)',
+    async (leave, delay) => {
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
       let finish!: () => void;
       const pending = new Promise<void>((resolve) => {
         finish = resolve;
@@ -69,6 +75,8 @@ describe('PageCompositionWorkspace publication flow', () => {
           visible.value = false;
           await nextTick();
         }
+        await vi.advanceTimersByTimeAsync(delay);
+        expect(registry.snapshot()!.token.fallback).toBe(true);
         finish();
         await flushPromises();
         expect(registry.snapshot()!.token.fallback).toBe(leave);
@@ -81,6 +89,7 @@ describe('PageCompositionWorkspace publication flow', () => {
         }
       } finally {
         wrapper.unmount();
+        vi.useRealTimers();
       }
     },
   );

@@ -1,7 +1,6 @@
 <script setup lang="ts">
-import { shallowRef, onActivated, onDeactivated, onMounted, onBeforeUnmount, watch } from 'vue';
+import { shallowRef, nextTick, onActivated, onDeactivated, onMounted, onBeforeUnmount, watch } from 'vue';
 import { useModuleContext, useAssistantSurfaceHost, createAssistantTurnRequester } from '@muyun/web-core';
-import { presentPlatformError } from '@muyun/platform-components';
 import { createPageCompositionSession } from './pageCompositionSession';
 import { usePageCompositionWorkspace } from './pageCompositionWorkspace';
 import { createPageCompositionAssistantSurface } from './pageCompositionAssistantSurface';
@@ -16,6 +15,7 @@ const host = useAssistantSurfaceHost();
 let active = false;
 let unregister: (() => void) | undefined;
 let settlement: AbortController | undefined;
+let stopReadiness: (() => void) | undefined;
 let fallback: ReturnType<typeof createPageCompositionSession> | undefined;
 const session = shallowRef<ReturnType<typeof createPageCompositionSession>>(null!);
 watch(
@@ -35,6 +35,8 @@ watch(
 );
 
 function clear() {
+  stopReadiness?.();
+  stopReadiness = undefined;
   settlement?.abort();
   settlement = undefined;
   unregister?.();
@@ -53,16 +55,23 @@ function activate() {
   const controller = new AbortController();
   settlement = controller;
   const ready = () => !current.isMutating.value && !current.catalogueRefreshPending.value;
-  void waitForConfigurationEditor(ready, controller.signal)
-    .then(() => {
+  // Lifecycle readiness survives a navigation timeout; a slow successful load must still register.
+  stopReadiness = watch(
+    ready,
+    async (available) => {
+      if (!available) return;
+      await nextTick();
       if (
         controller.signal.aborted ||
         settlement !== controller ||
         !active ||
+        !ready() ||
         session.value !== current ||
         host.activePageInstanceKey() !== pageInstanceKey
       )
         return;
+      stopReadiness?.();
+      stopReadiness = undefined;
       settlement = undefined;
       unregister = host.registry.register({
         pageInstanceKey,
@@ -78,12 +87,9 @@ function activate() {
           ...(workspace ? { capabilities: () => host.capabilities?.() ?? workspace.capabilities() } : {}),
         },
       });
-    })
-    .catch((cause) => {
-      if (settlement === controller) settlement = undefined;
-      if (!controller.signal.aborted)
-        presentPlatformError(cause, { source: 'page-composition', phase: 'load' });
-    });
+    },
+    { immediate: true, flush: 'post' },
+  );
 }
 watch(session, (value, previous) => {
   if (previous) workspace?.hideEditor(previous);

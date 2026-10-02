@@ -102,7 +102,7 @@ M2、M3 的变更可能要求重新核实 M4；它们不是永久单向流水线
 - **E4 规则**：[规则编辑会话](../../muyun-web/src/views/businessRuleSession.ts)、[会话测试](../../muyun-web/tests/views/businessRuleSession.test.ts)、[规则数据库契约](../../muyun-platform/src/test/java/net/ximatai/muyun/spring/platform/metadata/BusinessRuleGovernanceRepositoryIT.java)。
 - **E5 页面**：[页面会话](../../muyun-web/src/views/pageCompositionSession.ts)、[模块工作区](../../muyun-web/src/views/pageCompositionWorkspace.ts)、[共享发布命令](../../muyun-web/src/views/pageCompositionPublication.ts)、[建设入口与验收适配](../../muyun-web/src/platform-workbench/constructionDelivery.ts)、[页面发布组件测试](../../muyun-web/tests/views/PageCompositionWorkspace.publish.component.test.ts)。
 - **E6 入口与生效**：[模块菜单入口](../../muyun-web/src/platform-admin-runtime/module-menu/ModuleMenuDrawer.vue)、[菜单组件测试](../../muyun-web/tests/platform-admin-runtime/module-menu/ModuleMenuDrawer.component.test.ts)、[运行态集成测试](../../muyun-platform/src/test/java/net/ximatai/muyun/spring/platform/runtime/PlatformDynamicRuntimeRefresherIT.java)、[权限专题](topics/identity-permission/OVERVIEW.md)。
-- **E7 业务组合**：[ConstructionFieldsIT](../../muyun-demo-web/src/test/java/net/ximatai/muyun/spring/demo/school/test/ConstructionFieldsIT.java)。含引用客户、明细计算、页面/菜单及租户标准 HTTP 保存、修改删行、重开和详情；前半段直接 Service 建配置，未包含商品改价后的历史成交价验证，不能证明人工或模型从空白浏览器建设。
+- **E7 业务组合**：[ConstructionFieldsIT](../../muyun-demo-web/src/test/java/net/ximatai/muyun/spring/demo/school/test/ConstructionFieldsIT.java)。含引用客户/商品、选择回填（含空值）、商品改价后保留历史成交价、明细计算、页面/菜单及租户标准 HTTP 保存、修改删行、重开和详情；配置 fixture 直接调用标准 Service，不能证明人工或模型从空白浏览器建设。
 - **E8 确认与结果**：[平台确认契约](../../muyun-web/src/web-core/operationConfirmation.ts)、[标准页面保存](../../muyun-web/src/dynamic-page-runtime/useModulePageSession.ts)、[回执事务测试](../../muyun-platform/src/test/java/net/ximatai/muyun/spring/platform/save/RecordSaveReceiptRepositoryIT.java)。
 - **E9 运行与恢复**：[助手运行器](../../muyun-web/src/web-core/assistantRuntime.ts)、[运行器测试](../../muyun-web/tests/web-core/assistantRuntime.test.ts)、[会话控制器](../../muyun-web/src/platform-workbench/useAssistantConversation.ts)、[历史恢复测试](../../muyun-web/tests/platform-workbench/useAssistantConversationArchive.test.ts)、[查询引用测试](../../muyun-web/tests/web-core/operationReceipt.test.ts)、[跨刷新面板测试](../../muyun-web/tests/platform-workbench/WorkbenchAssistantPanel.component.test.ts)。
 - **E10 页面交互**：[页面浏览器测试](../../muyun-web/tests/views/PageCompositionWorkspace.browser.test.ts)、[标准页面组件测试](../../muyun-web/tests/dynamic-page-runtime/DynamicModuleHost.component.test.ts)。组件及使用 HTTP fixture 的浏览器测试不能替代全栈、真实模型交付演练。
@@ -188,9 +188,15 @@ M2、M3 的变更可能要求重新核实 M4；它们不是永久单向流水线
 
 HTTP 回归见 `ConstructionFieldsIT.standardGovernanceDeliversAnOrderWhoseTenantBusinessSaveRecalculatesDetails`；组件回归覆盖人工引用回填候选、页面会话加载稳定性及包含查询特殊字符。HTTP fixture 仅是自动化契约证据，不代替上述人工建设。
 
+### 尚未通过的交付门槛
+
+独立助手样例“晴川商贸”从空白会话以业务语言提出完整目标，已通过标准表单建立应用和客户模块；人工在保存客户模块前补充“联系电话可以留空”。该样例尚未建立主元数据、商品/订单及明细、规则、页面和业务入口，不能标记助手完整交付或新会话接管通过。模型中途达到回合预算，需一次人工继续；供应商还存在间歇空响应/不可用。后续从现行配置续接，保留人工补充，不重复初始化已有对象。
+
+普通租户用户的浏览器验收缺少可用测试登录信息。当前管理员选定演示租户保存数据只证明该身份下的业务行为；租户应用开通、目标角色授权、普通身份可见与可用仍需通过标准 IAM 页面独立核实。不得为验收绕过权限或把管理员菜单当作普通用户交付。
+
 ### 上下文效率的实测边界
 
-2026-10-02 在相同本地客户页面、空白会话、同一 `gpt-6.1-sol` 配置下，以“打开商品页面配置，查看列表和表单布局，不修改或保存”为只读任务，仅切换全量或按需工具定义。全量方案首轮返回空内容并报告 length；按需方案前两轮成功，供应商报告输入 5,922、输出 92、总计 6,014 token，第三轮供应商不可用，人工点击继续一次仍不可用。后两次失败没有用量，6,014 仅为已报告部分，两组任务均未完成。该样本证明用量可观测和失败可区分，不能证明节省比例或交付成功；该样本早于按需加载保留完整领域指引的修正，最终版本须在可用服务下重新完成同任务对照。
+2026-10-02 在相同本地客户页面、空白会话、同一 `gpt-6.1-sol` 配置下，以“打开商品页面配置，查看列表和表单布局，不修改或保存”为只读任务，仅切换全量或按需工具定义。全量方案首轮返回空内容并报告 length；按需方案前两轮成功，供应商报告输入 5,922、输出 92、总计 6,014 token，第三轮供应商不可用，人工点击继续一次仍不可用。后两次失败没有用量，6,014 仅为已报告部分，两组任务均未完成。该样本证明用量可观测和失败可区分，不能证明节省比例或交付成功；该样本早于按需加载保留完整领域指引的修正，最终版本须在可用服务下重新完成同任务对照。页面就绪链路修正后的全量目录复测仍在首轮收到空内容（供应商报告 0 token）；失败样本不作为成本优势，临时全量配置已还原。
 
 ## 验证与维护
 
