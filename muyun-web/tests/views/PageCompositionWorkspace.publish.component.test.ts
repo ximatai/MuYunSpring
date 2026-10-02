@@ -1,3 +1,7 @@
+import {
+  createPageCompositionWorkspace,
+  providePageCompositionWorkspace,
+} from '@/views/pageCompositionWorkspace';
 import { defineComponent, h, ref, KeepAlive } from 'vue';
 import { createAssistantSurfaceRegistry, provideAssistantSurfaceHost } from '@/web-core';
 import { inputComponents } from './pageCompositionComponentFixtures';
@@ -16,6 +20,52 @@ vi.mock('@muyun/vue-ui-antdv', async (importOriginal) => ({
 }));
 
 describe('PageCompositionWorkspace publication flow', () => {
+  it('retains a headless candidate through visual handoff and invalidates it on identity change', async () => {
+    const requests: HttpRequestOptions[] = [];
+    const http = publicationFlowHttp(requests);
+    configureModuleContext({ http });
+    let identity = 'operator-a';
+    const workspace = createPageCompositionWorkspace(
+      http,
+      () => identity,
+      () => true,
+    );
+    const session = workspace.session('education.exam');
+    workspace.focus(session);
+    await flushPromises();
+    session.adapter.prepare({ list: [{ fieldName: 'title' }] })();
+    const proposal = await session.adapter.prepareConfirmation(new AbortController().signal);
+    expect(proposal.isCurrent()).toBe(true);
+    const Host = defineComponent({
+      setup() {
+        providePageCompositionWorkspace(workspace);
+        return () => h(PageCompositionWorkspace, { moduleAlias: 'education.exam' });
+      },
+    });
+    const wrapper = mount(Host, { global: { stubs: workspaceStubs() } });
+    try {
+      await flushPromises();
+      expect(wrapper.findComponent(PageCompositionTree).props('listFields')).toMatchObject([
+        { fieldName: 'title' },
+      ]);
+      expect(workspace.session('education.exam')).toBe(session);
+      wrapper.unmount();
+      expect(session.adapter.candidate().saved).toBe(false);
+      expect(session.adapter.describe().editable).toBe(true);
+      session.adapter.prepare({ list: [] })();
+      expect(proposal.isCurrent()).toBe(false);
+      const before = requests.length;
+      identity = 'operator-b';
+      workspace.current();
+      await expect(proposal.execute()).rejects.toThrow();
+      expect(requests.length).toBe(before);
+      expect(workspace.session('education.exam')).not.toBe(session);
+      await flushPromises();
+    } finally {
+      workspace.dispose();
+    }
+  });
+
   it.each([undefined, 'education.exam', '考试登记'])(
     'uses the known business title for first page creation with module title %s',
     async (moduleTitle) => {
@@ -1353,7 +1403,7 @@ describe('PageCompositionWorkspace publication flow', () => {
       failReload = false;
       await button('加载最新配置').trigger('click');
       await flushPromises();
-      expect(tree.props('listFields')).toEqual([]);
+      expect(wrapper.findComponent(PageCompositionTree).props('listFields')).toEqual([]);
       expect(wrapper.find('[role="alert"]').exists()).toBe(false);
       expect(canDiscardChanges(wrapper)).toBe(false);
       expect(button('保存并生效').attributes('disabled')).toBeUndefined();
@@ -1426,7 +1476,7 @@ describe('PageCompositionWorkspace publication flow', () => {
           : { ...(saveBody as object), id: 'old-revision', version: 2 },
       );
       await flushPromises();
-      expect(tree.props('listFields')).toEqual([]);
+      expect(wrapper.findComponent(PageCompositionTree).props('listFields')).toEqual([]);
       expect(wrapper.find('[role="alert"]').exists()).toBe(false);
       expect(canDiscardChanges(wrapper)).toBe(false);
       expect(

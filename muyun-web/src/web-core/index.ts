@@ -20,3 +20,6 @@ export * from './assistantConfirmation';
 export * from './constructionPlanClient';
 
 export * from './assistantConversationClient';
+
+export * from './operationConfirmation';
+export * from './operationErrors';

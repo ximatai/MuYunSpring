@@ -2033,3 +2033,5 @@ export type {
 } from './constructionPlan';
 
 export type { ReferenceTargetFieldCatalog, ReferenceTargetFieldCandidate } from './referenceTarget';
+
+export * from './operation';

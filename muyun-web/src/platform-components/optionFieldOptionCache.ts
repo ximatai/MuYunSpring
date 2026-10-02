@@ -5,10 +5,13 @@ import type { ModuleContext } from '@muyun/web-core';
  * Shares the runtime option catalog between form and detail surfaces of one module context.
  * Option values remain server-resolved because dictionary scope is tenant-sensitive.
  */
-const optionRequests = new WeakMap<ModuleContext<unknown>, Map<string, Promise<OptionItemDescriptor[]>>>();
+const optionRequests = new WeakMap<
+  Pick<ModuleContext<unknown>, 'moduleAlias' | 'http'>,
+  Map<string, Promise<OptionItemDescriptor[]>>
+>();
 
 export function loadOptionFieldItems(
-  context: ModuleContext<unknown>,
+  context: Pick<ModuleContext<unknown>, 'moduleAlias' | 'http'>,
   fieldName: string,
   entityAlias?: string,
   moduleAlias = context.moduleAlias,
