@@ -97,8 +97,8 @@ class AssistantPlatformKnowledgeTest {
                 "visible standard management page", "separate human confirmation", "standard pages own creation drafts",
                 "requirements=[]", "facts.workspace.constructionPlan", "prepare human confirmation instead",
                 "selected applicationAlias + '.'", "choose technical IDs for users",
-                "calibrate ONE foundation module", "Existing modules also need business calibration",
-                "Do not inspect every module before this discussion")
+                "order changes by actual dependencies", "No mandatory single-module calibration",
+                "associate objects with discovered moduleAlias")
                 .doesNotContain("titleField=true", "1–12", "BEFORE_SAVE", "customer", "product");
     }
 
@@ -155,7 +155,7 @@ class AssistantPlatformKnowledgeTest {
         var active = AssistantPlatformKnowledge.appendTo("base", Map.of("surface", "module-page",
                 "facts", Map.of("workspace", Map.of("constructionPlan",
                         Map.of("goal", "建立业务应用", "constructionStatus", "NOT_STARTED")))), eager);
-        assertThat(active).contains("calibrate ONE foundation module", "human confirmations",
+        assertThat(active).contains("order changes by actual dependencies", "human confirmations",
                 "Unrelated reads", "Preserve unfinished construction intent");
         assertThat(active.length() - ordinary.length()).isGreaterThan(2000);
     }
@@ -180,7 +180,7 @@ class AssistantPlatformKnowledgeTest {
                 "workspace", Map.of("constructionPlan", Map.of("goal", "UNTRUSTED GOAL INSTRUCTIONS"),
                         "configurationTask", Map.of("goal", "调整字段", "mode", "conversation"))));
         assertThat(AssistantPlatformKnowledge.appendTo("base", context, List.of()))
-                .contains("calibrate ONE foundation module", "configurationEditor.visible",
+                .contains("order changes by actual dependencies", "configurationEditor.visible",
                         "Use configuration.switch-mode only after an explicit user request")
                 .doesNotContain("UNTRUSTED GOAL INSTRUCTIONS", "Their availability does not make ordinary queries");
     }

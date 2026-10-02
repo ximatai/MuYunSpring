@@ -51,8 +51,6 @@ function fixture() {
       labelFields: [{ fieldName: 'name', title: '客户名称', defaultField: true, selectable: true }],
     })),
     describeFields: vi.fn(),
-    previewFields: vi.fn(),
-    publishFields: vi.fn(),
     fieldChange: vi.fn(),
     initialization: vi.fn(),
     list: vi.fn(async () => []),
@@ -131,7 +129,7 @@ it.each([false, true])(
     expect(client.confirm).toHaveBeenCalledTimes(rejectFirst ? 2 : 1);
     expect(requestTurn).toHaveBeenCalledTimes(2);
     expect(wrapper.text()).toContain('需求方案已确认');
-    expect(wrapper.text()).toContain('尚无建设记录');
+    expect(wrapper.text()).toContain('尚未关联标准模块');
     wrapper.unmount();
   },
 );
@@ -182,7 +180,6 @@ it('shows independent planning choices without treating their display order as e
   const wrapper = mount(ConstructionPlanCard, { props: { session } });
   expect(wrapper.text()).toContain('需要时补充登记内容');
   expect(wrapper.text()).toContain('已有内容满足要求，可以准备页面');
-  expect(client.publishFields).not.toHaveBeenCalled();
   expect(client.publishDelivery).not.toHaveBeenCalled();
   wrapper.unmount();
 });
@@ -249,7 +246,7 @@ it('loads current progress on restore without asking the user to query or writin
 
 it('does not infer missing configuration from absent construction field and page receipts', async () => {
   const { client, session } = fixture();
-  session.edit(content);
+  session.edit({ ...content, objects: [{ key: 'order', name: '订单', purpose: '登记' }] });
   await session.prepare().execute();
   const snapshot = {
     ...session.current().saved!,

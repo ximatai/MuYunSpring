@@ -1,56 +1,63 @@
 package net.ximatai.muyun.spring.platform.application;
 
-import net.ximatai.muyun.database.core.IDatabaseOperations;
 import net.ximatai.muyun.spring.common.exception.PlatformAccessDeniedException;
 import net.ximatai.muyun.spring.common.identity.CurrentUser;
 import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
 import net.ximatai.muyun.spring.common.platform.ActionExecutionPolicyService;
-import net.ximatai.muyun.spring.platform.metadata.MetadataService;
-import net.ximatai.muyun.spring.platform.metadata.ModuleMetadataOrchestrationService;
-import net.ximatai.muyun.spring.platform.module.PlatformModuleService;
 import net.ximatai.muyun.spring.platform.runtime.DynamicRuntimeActivationService;
 import org.junit.jupiter.api.Test;
 import static org.mockito.Mockito.*;
 import static org.assertj.core.api.Assertions.*;
 
 class ApplicationConstructionInitializationServiceTest {
-    @Test void reusesTheRegisteredMetadataRelationActionPermissionBeforeReadingOrWritingConfiguration() {
+    @Test void requiresConfigurationPermissionBeforeReadingHistoricalReceipts() {
         var plans = mock(ApplicationConstructionPlanService.class);
-        var modules = mock(PlatformModuleService.class);
-        var orchestration = mock(ModuleMetadataOrchestrationService.class);
+        var receipts = mock(ApplicationConstructionInitializationDao.class);
         var actions = new java.util.ArrayList<String>();
         ActionExecutionPolicyService permissions = context -> {
             actions.add(context.permissionCode());
             if (context.moduleAlias().equals("platform.module_metadata_relation"))
                 throw new PlatformAccessDeniedException("主实体创建权限已撤销");
         };
-        var service = new ApplicationConstructionInitializationService(plans, mock(ApplicationConstructionInitializationDao.class),
-                mock(ApplicationService.class), modules, orchestration, mock(MetadataService.class),
-                mock(DynamicRuntimeActivationService.class), permissions, mock(IDatabaseOperations.class), new net.ximatai.muyun.spring.ability.action.DataChangeRecorder());
+        var service = new ApplicationConstructionInitializationService(plans, receipts,
+                mock(DynamicRuntimeActivationService.class), permissions);
         try (var user = CurrentUserContext.use(CurrentUser.systemUser("operator", "Operator"))) {
-            assertThatThrownBy(() -> service.preview("plan", null)).hasMessageContaining("权限已撤销");
+            assertThatThrownBy(() -> service.status("plan", "entry")).hasMessageContaining("权限已撤销");
             assertThat(actions).anyMatch(code -> code.contains("platform.module_metadata_relation") && code.contains("createMainMetadata"));
-            verifyNoInteractions(plans, modules, orchestration);
+            verifyNoInteractions(plans, receipts);
         }
     }
-    @Test void rejectsUnimplementedRelationshipsBeforeCreatingAnEmptyApplication() {
+
+    @Test void checksPlanOwnershipBeforeLookingUpHistoricalReceipts() {
         var plans = mock(ApplicationConstructionPlanService.class);
-        var plan = mock(ApplicationConstructionPlanService.Snapshot.class);
-        var content = mock(ApplicationConstructionPlanContent.class);
-        when(plans.read("plan")).thenReturn(plan);
-        when(plan.revision()).thenReturn(1);
-        when(plan.content()).thenReturn(content);
-        when(content.relationships()).thenReturn(java.util.List.of("一张订单有多条商品明细"));
-        var applications = mock(ApplicationService.class);
-        var modules = mock(PlatformModuleService.class);
-        var orchestration = mock(ModuleMetadataOrchestrationService.class);
-        var service = new ApplicationConstructionInitializationService(plans, mock(ApplicationConstructionInitializationDao.class),
-                applications, modules, orchestration, mock(MetadataService.class), mock(DynamicRuntimeActivationService.class),
-                context -> {}, mock(IDatabaseOperations.class), new net.ximatai.muyun.spring.ability.action.DataChangeRecorder());
+        var receipts = mock(ApplicationConstructionInitializationDao.class);
+        var activation = mock(DynamicRuntimeActivationService.class);
+        when(plans.read("plan")).thenThrow(new PlatformAccessDeniedException("无权读取方案"));
+        var service = new ApplicationConstructionInitializationService(plans, receipts, activation, context -> {});
         try (var user = CurrentUserContext.use(CurrentUser.systemUser("operator", "Operator"))) {
-            assertThatThrownBy(() -> service.preview("plan", new ApplicationConstructionInitializationService.Proposal(1, "order", "trial", "试用", "order")))
-                    .hasMessageContaining("先商定并确认分期范围");
-            verifyNoInteractions(applications, modules, orchestration);
+            assertThatThrownBy(() -> service.status("plan", "entry")).hasMessageContaining("无权读取方案");
+            verifyNoInteractions(receipts, activation);
+        }
+    }
+
+    @Test void readsLegacyReceiptAndRuntimeWithoutRequiringItForNewPlans() {
+        var plans = mock(ApplicationConstructionPlanService.class);
+        var receipts = mock(ApplicationConstructionInitializationDao.class);
+        var activation = mock(DynamicRuntimeActivationService.class);
+        var service = new ApplicationConstructionInitializationService(plans, receipts, activation, context -> {});
+        try (var user = CurrentUserContext.use(CurrentUser.systemUser("operator", "Operator"))) {
+            assertThat(service.status("plan", "entry")).isNull();
+            verifyNoInteractions(activation);
+            var receipt = new ApplicationConstructionInitialization();
+            receipt.setObjectKey("entry"); receipt.setPlanRevision(1); receipt.setModuleAlias("legacy.entry");
+            receipt.setMetadataId("metadata"); receipt.setRelationId("relation"); receipt.setRequestId("request");
+            when(receipts.findById(anyString())).thenReturn(receipt);
+            var result = service.status("plan", "entry");
+            assertThat(result.receipt()).isEqualTo(new ApplicationConstructionPlanService.Initialization(
+                    "entry", 1, "legacy.entry", "metadata", "relation", "request"));
+            verify(activation).status("legacy.entry");
+            verify(receipts, times(2)).findById(anyString());
+            verifyNoMoreInteractions(receipts);
         }
     }
 }

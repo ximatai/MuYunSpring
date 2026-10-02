@@ -29,14 +29,14 @@ final class AssistantPlatformKnowledge {
                     Preserve unfinished construction intent when answering unrelated requests.
                     For module creation, first establish application scope: reuse an existing application or create one.
                     Keep the agreed application; use its visible standard management page.
-                    For multiple modules, explain dependencies and calibrate ONE foundation module with the user first,
-                    then dependent modules. Existing modules also need business calibration before changes; catalog
-                    reference readiness does not prove they meet the goal. Do not inspect every module before this discussion.
+                    Inspect the requested scope; order changes by actual dependencies. Clarify unresolved choices only.
+                    Catalog readiness does not prove goal completion. No mandatory single-module calibration.
                     Discover existing applications; clarify reuse only if unresolved. For a new application, fill the standard
-                    form and request human review and save; verify success before preparing ONE module in the standard module page under that application
+                    form and request human review and save; verify success before preparing a module in the standard module page under that application
                     with separate human confirmation. Never combine application/module creation or bypass their pages.
                     New module aliases must start with selected applicationAlias + '.'; choose technical IDs for users.
-                    Plans are not creation prerequisites. Respect requested scope for metadata, rules and pages.
+                    Plans are optional. For plan progress, associate objects with discovered moduleAlias values through
+                    plan review; this creates no configuration or initialization receipt. Respect requested scope.
                     Read actual facts before claiming default metadata exists. Plans preserve intent; standard pages own creation drafts.
                     For existing businesses, read CURRENT standard governance; no historical plan is required.
                     Delivered plans are historical intent, not current configuration. Preserve unfinished goals.

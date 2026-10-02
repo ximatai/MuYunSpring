@@ -4,7 +4,7 @@ export interface ConstructionPlanContent {
   goal: string;
   inScope: string[];
   outOfScope: string[];
-  objects: { key: string; name: string; purpose: string }[];
+  objects: { key: string; name: string; purpose: string; moduleAlias?: string | null }[];
   relationships: string[];
   rules: string[];
   questions: string[];
@@ -18,8 +18,10 @@ export interface ConstructionPlanSnapshot {
   revision: number;
   content: ConstructionPlanContent;
   confirmedAt: string;
-  constructionStatus: 'NOT_STARTED' | 'INITIALIZED' | 'PARTIALLY_DELIVERED' | 'DELIVERED';
+  constructionStatus: 'NOT_STARTED' | 'LINKED' | 'INITIALIZED' | 'PARTIALLY_DELIVERED' | 'DELIVERED';
   deliveredObjectKeys: string[];
+  /** Current explicit associations; old snapshots may only carry historical initialization receipts. */
+  moduleBindings?: { objectKey: string; moduleAlias: string }[];
   initializations: ConstructionInitialization[];
   fieldChanges: ConstructionFieldReceipt[];
   deliveries: ConstructionDeliveryReceipt[];
@@ -38,25 +40,6 @@ export interface ConstructionInitialization {
   metadataId: string;
   relationId: string;
   requestId: string;
-}
-export interface ConstructionInitializationProposal {
-  planRevision: number;
-  objectKey: string;
-  applicationAlias: string;
-  applicationTitle: string;
-  moduleName: string;
-}
-export interface ConstructionInitializationPreview {
-  proposal: ConstructionInitializationProposal;
-  applicationTitle: string;
-  createsApplication: boolean;
-  applicationVersion: number | null;
-  moduleAlias: string;
-  moduleTitle: string;
-  schemaName: string;
-  tableName: string;
-  remainingWork: string[];
-  fingerprint: string;
 }
 export interface ConstructionInitializationResult {
   receipt: ConstructionInitialization;
@@ -82,12 +65,6 @@ export interface ConstructionField {
     projectionMappings: string[];
   } | null;
 }
-export interface ConstructionFieldProposal {
-  planRevision: number;
-  objectKey: string;
-  expectedMetadataVersion: number;
-  fields: ConstructionField[];
-}
 export interface ConstructionFieldDescription {
   children?: Record<
     string,
@@ -112,15 +89,6 @@ export interface ConstructionFieldDescription {
     precision: number | null;
     scale: number | null;
   }[];
-}
-export interface ConstructionFieldPreview {
-  proposal: ConstructionFieldProposal;
-  moduleAlias: string;
-  fieldImpacts: unknown[];
-  schemaImpacts: unknown[];
-  warnings: { code: string; message: string }[];
-  errors: { code: string; message: string }[];
-  fingerprint: string;
 }
 export interface ConstructionFieldReceipt {
   requestId: string;

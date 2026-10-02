@@ -95,7 +95,7 @@ public class ApplicationConstructionDeliveryService {
         var description = fields.describe(planId, proposal.objectKey());
         if (ApplicationConstructionRequirements.missingConfiguration(fields.evidence(plan, proposal.objectKey(), description)))
             throw new IllegalArgumentException("已确认要求尚未落实到字段、关系或计算配置，请先补齐再发布页面或入口");
-        var binding = plan.initializations().stream().filter(value -> value.objectKey().equals(proposal.objectKey())).findFirst().orElseThrow();
+        var binding = fields.binding(plan, proposal.objectKey());
         try (var ignored = TenantContext.system("construction delivery preview")) {
             var lines = new ArrayList<String>();
             Object baseline;
@@ -133,7 +133,7 @@ public class ApplicationConstructionDeliveryService {
         if (!checked.fingerprint().equals(command.fingerprint())) throw new IllegalArgumentException("建设预检已过期，请重新审阅");
         var proposal = command.proposal();
         var plan = plans.read(planId);
-        var binding = plan.initializations().stream().filter(value -> value.objectKey().equals(proposal.objectKey())).findFirst().orElseThrow();
+        var binding = fields.binding(plan, proposal.objectKey());
         try (var ignored = TenantContext.system("confirmed construction delivery")) {
             Receipt result;
                 var scheme = schemes.resolveCurrentUserScheme(CurrentUserContext.currentUser().orElseThrow());
@@ -199,14 +199,20 @@ public class ApplicationConstructionDeliveryService {
                         List.of(new TaskOption(TaskAction.REVIEW_CURRENT_CONFIGURATION, "已交付；后续改进读取当前低代码治理配置，历史方案仅供参考")), List.of(), null));
                 continue;
             }
-            boolean initialized = plan.initializations().stream().anyMatch(item -> item.objectKey().equals(object.key()));
+            boolean associated = plan.moduleBindings().stream().anyMatch(item -> item.objectKey().equals(object.key()));
             var evidence = ApplicationConstructionRequirements.evaluate(plan.content(), object.key(), List.of());
             var options = new ArrayList<TaskOption>();
             boolean complete = false;
-            Progress progress = initialized ? progress(planId, object.key()) : null;
+            Progress progress;
+            try { progress = associated ? progress(planId, object.key()) : null; }
+            catch (IllegalArgumentException unavailable) {
+                objects.add(new TaskObject(object.key(), object.name(), false,
+                        List.of(new TaskOption(TaskAction.REVIEW_CONFIGURATION, unavailable.getMessage())), evidence, null));
+                continue;
+            }
             if (progress != null) evidence = progress.requirements();
-            if (!initialized) {
-                options.add(new TaskOption(TaskAction.INITIALIZE, "先核对当前标准应用与模块目录；缺少时逐页准备可见表单并分别确认，已有对象直接进入标准治理，不以完整需求映射为创建前置"));
+            if (!associated) {
+                options.add(new TaskOption(TaskAction.INITIALIZE, "先核对当前标准应用与模块目录；缺少时逐页准备可见表单并分别确认，已有对象直接进入标准治理，并将实际标准模块关联到方案对象；关联不要求完整需求映射"));
             } else if (ApplicationConstructionRequirements.blocked(evidence)) {
                 options.add(new TaskOption(TaskAction.REVIEW_REQUIREMENTS, "此对象仍有未兑现要求，请说明阻断项；不能承诺下一步自动完成"));
                 options.add(new TaskOption(TaskAction.REVIEW_CONFIGURATION, "已有配置保留，可核对当前成果；不要重复初始化或将局部成果视为完整交付"));
@@ -340,7 +346,7 @@ public class ApplicationConstructionDeliveryService {
     private record CurrentPage(PlatformPageDefinition page, PlatformPresentationVariant variant, PlatformPresentationRevision revision) {}
     /** Receipts prove past writes; standard resolution determines what is effective now. */
     private CurrentPage currentPage(ApplicationConstructionPlanService.Snapshot plan, String objectKey) {
-        var binding = plan.initializations().stream().filter(value -> value.objectKey().equals(objectKey)).findFirst().orElseThrow();
+        var binding = fields.binding(plan, objectKey);
         var page = pages.resolveGlobalPage(binding.moduleAlias(), "management").orElse(null);
         if (page == null || !Objects.equals(page.getMainRelationId(), binding.relationId())
                 || page.getContractType() != PlatformPageContractType.MANAGEMENT) return null;
@@ -351,8 +357,7 @@ public class ApplicationConstructionDeliveryService {
         return digest(json(Arrays.asList(plan.planId(), plan.revision(), description, page, menu)));
     }
     private void lockBaseline(String planId, String objectKey) {
-        var binding = plans.read(planId).initializations().stream().filter(value -> value.objectKey().equals(objectKey)).findFirst()
-                .orElseThrow(() -> new IllegalArgumentException("业务对象尚未初始化"));
+        var binding = fields.binding(plans.read(planId), objectKey);
         database.query("select id from platform_metadata where id in (select metadata_id from platform_module_metadata_relation where module_alias = ?) order by id for update", binding.moduleAlias());
         database.query("select id from platform_module_metadata_relation where module_alias = ? order by id for update", binding.moduleAlias());
         try (var ignored = TenantContext.system("lock current construction delivery")) {

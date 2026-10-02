@@ -9,8 +9,6 @@ import type {
   ConstructionDeliveryReceipt,
   ConstructionProgress,
   ConstructionFieldDescription,
-  ConstructionFieldProposal,
-  ConstructionFieldPreview,
   ConstructionFieldResult,
   ConstructionInitializationResult,
   ConstructionPlanSnapshot,
@@ -59,11 +57,6 @@ export interface ConstructionPlanClient {
   delivery(id: string, requestId: string): Promise<ConstructionDeliveryReceipt | undefined>;
   progress(id: string, objectKey: string): Promise<ConstructionProgress>;
   describeFields(id: string, objectKey: string): Promise<ConstructionFieldDescription>;
-  previewFields(id: string, proposal: ConstructionFieldProposal): Promise<ConstructionFieldPreview>;
-  publishFields(
-    id: string,
-    command: { requestId: string; proposal: ConstructionFieldProposal; fingerprint: string },
-  ): Promise<ConstructionFieldResult>;
   fieldChange(id: string, requestId: string): Promise<ConstructionFieldResult | undefined>;
   initialization(id: string, objectKey: string): Promise<ConstructionInitializationResult | undefined>;
   list(): Promise<ConstructionPlanSummary[]>;
@@ -100,10 +93,6 @@ export function createConstructionPlanClient(http: HttpClient): ConstructionPlan
       http.request({ path: `${path(id)}/objects/${encodeURIComponent(objectKey)}/progress` }),
     describeFields: (id, objectKey) =>
       http.request({ path: `${path(id)}/objects/${encodeURIComponent(objectKey)}/fields` }),
-    previewFields: (id, proposal) =>
-      http.request({ path: `${path(id)}/field-changes/preview`, method: 'POST', body: proposal }),
-    publishFields: (id, command) =>
-      http.request({ path: `${path(id)}/field-changes`, method: 'POST', body: command }),
     fieldChange: (id, requestId) =>
       http.request({ path: `${path(id)}/field-changes/${encodeURIComponent(requestId)}` }),
     initialization: (id, objectKey) =>

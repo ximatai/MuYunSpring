@@ -3,8 +3,8 @@ package net.ximatai.muyun.spring.demo.school.test;
 import net.ximatai.muyun.spring.boot.MuYunSpringApplication;
 import net.ximatai.muyun.spring.platform.application.*;
 import net.ximatai.muyun.spring.platform.metadata.*;
+import net.ximatai.muyun.spring.platform.module.*;
 import net.ximatai.muyun.spring.platform.ui.*;
-import net.ximatai.muyun.database.core.IDatabaseOperations;
 import net.ximatai.muyun.spring.common.identity.CurrentUser;
 import net.ximatai.muyun.spring.common.identity.CurrentUserContext;
 import net.ximatai.muyun.spring.common.tenant.TenantContext;
@@ -37,6 +37,9 @@ class ConstructionFieldsIT {
         registry.add("spring.datasource.driver-class-name", postgres::getDriverClassName);
         registry.add("muyun.database.repository-schema-mode", () -> "ENSURE");
     }
+    @Autowired ApplicationService applications;
+    @Autowired PlatformModuleService modules;
+    @Autowired ModuleMetadataRelationService moduleRelations;
     @Autowired ModuleMetadataOrchestrationService orchestration;
     @Autowired BusinessRuleGovernanceService businessRules;
     @Autowired ApplicationConstructionPlanService constructionPlans;
@@ -48,7 +51,6 @@ class ConstructionFieldsIT {
     @Autowired MetadataModelChangeSetApplyService metadataPublisher;
     @Autowired net.ximatai.muyun.spring.iam.tenant.TenantService tenants;
     @Autowired net.ximatai.muyun.spring.dynamic.runtime.DynamicRecordService dynamicRecords;
-    @Autowired IDatabaseOperations<?> constructionDatabase;
     @Autowired PlatformTransactionManager transactions;
     @Autowired WebApplicationContext webApplicationContext;
     @Autowired net.ximatai.muyun.spring.platform.web.PlatformModuleRuntimeContextService runtimeContexts;
@@ -65,6 +67,49 @@ class ConstructionFieldsIT {
     @Autowired MetadataModelDeletionService modelDeletion;
     @Autowired MetadataFieldReferenceConfigService referenceConfigs;
 
+    @Test void standardGovernanceCanBeLinkedAndAcceptedWithoutInitializationReceipts() {
+        String planId = UUID.randomUUID().toString().replace("-", "");
+        String app = "linked" + planId.substring(0, 10);
+        String moduleAlias = app + ".entry";
+        try (var user = CurrentUserContext.use(CurrentUser.systemUser("construction-admin", "建设管理员"));
+             var scope = TenantContext.system("standard governance plan association")) {
+            var application = new Application(); application.setAlias(app); application.setTitle("标准治理应用");
+            applications.insert(application);
+            var module = new PlatformModule(); module.setApplicationAlias(app); module.setAlias(moduleAlias);
+            module.setTitle("登记"); module.setModuleKind(ModuleKind.DYNAMIC); modules.insert(module);
+            var main = orchestration.createMainMetadata(moduleAlias,
+                    new ModuleMainMetadataCreateCommand("entry", "登记", "public", "linked_" + planId, false));
+            var content = new ApplicationConstructionPlanContent("登记", "使用现有标准模块", List.of("登记名称"), List.of(),
+                    List.of(new ApplicationConstructionPlanContent.BusinessObject("entry", "登记", "名称录入", moduleAlias)),
+                    List.of(), List.of(), List.of(), List.of(), List.of(), List.of("录入并查看名称"),
+                    List.of(new ApplicationConstructionRequirement(ApplicationConstructionRequirement.Section.SCOPE, 0, "entry",
+                            ApplicationConstructionRequirement.Mode.FIELD, "title", "名称字段", null)));
+            var plan = constructionPlans.confirm(planId, new ApplicationConstructionPlanService.ConfirmCommand(UUID.randomUUID().toString(), 0, content));
+            assertThat(plan.initializations()).isEmpty();
+            assertThat(plan.constructionStatus()).isEqualTo("LINKED");
+            assertThat(plan.moduleBindings()).containsExactly(new ApplicationConstructionPlanService.ModuleBinding("entry", moduleAlias));
+            assertThat(construction.status(planId, "entry")).isNull();
+            var description = constructionFields.describe(planId, "entry");
+            assertThat(description.moduleAlias()).isEqualTo(moduleAlias);
+            String spec = description.specs().stream().filter(value -> value.type().equals("STRING")).findFirst().orElseThrow().alias();
+            var title = governedField("title", spec); title.field().setTitleField(true);
+            applyGovernedFields(moduleAlias, main.relation().getId(), description.metadataVersion(), List.of(title));
+            assertThat(delivery.task(planId).objects().getFirst().options())
+                    .extracting(ApplicationConstructionDeliveryService.TaskOption::action)
+                    .contains(ApplicationConstructionDeliveryService.TaskAction.PUBLISH_PAGE)
+                    .doesNotContain(ApplicationConstructionDeliveryService.TaskAction.INITIALIZE);
+            publishStandardPage(planId, new PageLayout("entry", "登记", List.of("title"), List.of("title"), List.of("title")));
+            var proposal = new ApplicationConstructionDeliveryService.Proposal(1, "entry", ApplicationConstructionDeliveryService.Kind.ENTRY,
+                    "登记", List.of(), List.of(), List.of());
+            delivery.confirm(planId, new ApplicationConstructionDeliveryService.Command(UUID.randomUUID().toString(), proposal, delivery.preview(planId, proposal).fingerprint()));
+            assertThat(delivery.progress(planId, "entry").entryVisible()).isTrue();
+            var acceptance = delivery.previewAcceptance(planId, "entry");
+            delivery.confirmAcceptance(planId, new ApplicationConstructionDeliveryService.AcceptanceCommand(UUID.randomUUID().toString(), "entry", acceptance.fingerprint()));
+            assertThat(constructionPlans.read(planId).constructionStatus()).isEqualTo("DELIVERED");
+            assertThat(constructionPlans.read(planId).initializations()).isEmpty();
+        }
+    }
+
     @Test void selectionMappingsProtectBothFieldIdentitiesThroughRealDeletion() {
         String planId = UUID.randomUUID().toString().replace("-", "");
         String app = "affect" + planId.substring(0, 12);
@@ -77,13 +122,8 @@ class ConstructionFieldsIT {
                         ApplicationConstructionRequirement.Mode.FIELD, "title", "商品名称", null)));
         try (var identity = CurrentUserContext.use(CurrentUser.systemUser("construction-admin", "建设管理员"));
              var system = TenantContext.system("reference dependency contract")) {
-            constructionPlans.confirm(planId, new ApplicationConstructionPlanService.ConfirmCommand(UUID.randomUUID().toString(), 0, content));
-            for (String object : List.of("product", "order", "other")) {
-                var proposal = new ApplicationConstructionInitializationService.Proposal(1, object, app, "回填依赖", object);
-                construction.confirm(planId, new ApplicationConstructionInitializationService.ConfirmCommand(
-                        UUID.randomUUID().toString(), proposal, construction.preview(planId, proposal).fingerprint()));
-            }
-            var bindings = constructionPlans.read(planId).initializations();
+            createStandardPlan(planId, content, app, java.util.Map.of());
+            var bindings = currentBindings(planId);
             var product = bindings.stream().filter(item -> item.objectKey().equals("product")).findFirst().orElseThrow();
             var order = bindings.stream().filter(item -> item.objectKey().equals("order")).findFirst().orElseThrow();
             var other = bindings.stream().filter(item -> item.objectKey().equals("other")).findFirst().orElseThrow();
@@ -173,12 +213,9 @@ class ConstructionFieldsIT {
                         "entry", ApplicationConstructionRequirement.Mode.REQUIRED, "orderNumber", "订单号必填", null)));
         try (var identity = CurrentUserContext.use(CurrentUser.systemUser("construction-admin", "建设管理员"));
              var scope = TenantContext.system("standard governance construction test")) {
-            constructionPlans.confirm(planId, new ApplicationConstructionPlanService.ConfirmCommand(UUID.randomUUID().toString(), 0, content));
-            var initial = new ApplicationConstructionInitializationService.Proposal(1, "entry", "manual" + planId.substring(0, 12), "订单应用", "registration_records");
-            construction.confirm(planId, new ApplicationConstructionInitializationService.ConfirmCommand(
-                    UUID.randomUUID().toString(), initial, construction.preview(planId, initial).fingerprint()));
+            createStandardPlan(planId, content, "manual" + planId.substring(0, 12), java.util.Map.of("entry", "registration_records"));
             assertThat(delivery.task(planId).objects().getFirst().options()).extracting(ApplicationConstructionDeliveryService.TaskOption::action).contains(ApplicationConstructionDeliveryService.TaskAction.CONFIGURE_FIELDS);
-            var binding = constructionPlans.read(planId).initializations().getFirst();
+            var binding = currentBindings(planId).getFirst();
             var description = constructionFields.describe(planId, "entry");
             var field = new MetadataField();
             field.setMetadataId(binding.metadataId()); field.setFieldName("orderNumber"); field.setColumnName("order_number");
@@ -245,7 +282,7 @@ class ConstructionFieldsIT {
         }
     }
 
-    @Test void commitsFieldsAndReceiptAtomicallyWithRepeatableConfirmation() throws Exception {
+    @Test void standardFieldPublicationFlowsIntoPageEntryAndBusinessAcceptance() throws Exception {
         String planId = UUID.randomUUID().toString().replace("-", "");
         String app = "field" + planId.substring(0, 12);
         var content = new ApplicationConstructionPlanContent("订单", "登记订单", List.of("录入", "记录备注"), List.of("审批"),
@@ -257,60 +294,29 @@ class ConstructionFieldsIT {
                 new ApplicationConstructionRequirement(ApplicationConstructionRequirement.Section.RULE, 0, "entry", ApplicationConstructionRequirement.Mode.UNIQUE, "orderNumber", "系统拒绝重复订单号", null),
                 new ApplicationConstructionRequirement(ApplicationConstructionRequirement.Section.SCOPE, 1, "entry", ApplicationConstructionRequirement.Mode.FIELD, "remark", "可选填备注", null)));
         try (var user = CurrentUserContext.use(CurrentUser.systemUser("construction-admin", "建设管理员")); var scope = TenantContext.system("field acceptance")) {
-            constructionPlans.confirm(planId, new ApplicationConstructionPlanService.ConfirmCommand(UUID.randomUUID().toString(), 0, content));
-            assertThat(delivery.task(planId).objects().getFirst().options()).extracting(ApplicationConstructionDeliveryService.TaskOption::action).contains(ApplicationConstructionDeliveryService.TaskAction.INITIALIZE);
-            var proposal = new ApplicationConstructionInitializationService.Proposal(1, "entry", app, "订单应用", "registration_records");
-            var preview = construction.preview(planId, proposal);
-            var initializationCommand = new ApplicationConstructionInitializationService.ConfirmCommand(UUID.randomUUID().toString(), proposal, preview.fingerprint());
-            var mutations = new net.ximatai.muyun.spring.ability.action.MutationContext();
-            ApplicationConstructionInitializationService.Result result;
-            try (var mutationScope = net.ximatai.muyun.spring.ability.action.MutationContextHolder.use(mutations)) {
-                result = construction.confirm(planId, initializationCommand);
-            }
-            var changes = mutations.committedChangeSet(type -> type == ApplicationService.class ? "platform.application" : "platform.module").changes();
-            assertThat(changes).extracting(net.ximatai.muyun.spring.ability.action.DataChange::moduleAlias)
-                    .containsExactly("platform.application", "platform.module");
-            assertThat(changes).extracting(net.ximatai.muyun.spring.ability.action.DataChange::recordId)
-                    .containsExactly(app, result.receipt().moduleAlias());
-            var retried = new net.ximatai.muyun.spring.ability.action.MutationContext();
-            try (var mutationScope = net.ximatai.muyun.spring.ability.action.MutationContextHolder.use(retried)) {
-                construction.confirm(planId, initializationCommand);
-            }
-            assertThat(retried.committedChangeSet(type -> "unused").changes()).isEmpty();
+            createStandardPlan(planId, content, app, java.util.Map.of("entry", "registration_records"));
             MockMvc mvc = webAppContextSetup(webApplicationContext).build();
-            var json = new com.fasterxml.jackson.databind.ObjectMapper();
             var description = constructionFields.describe(planId, "entry");
             assertThat(delivery.task(planId).objects().getFirst().options()).extracting(ApplicationConstructionDeliveryService.TaskOption::action).contains(ApplicationConstructionDeliveryService.TaskAction.CONFIGURE_FIELDS);
             assertThat(delivery.progress(planId, "entry").remainingWork()).anyMatch(value -> value.contains("未兑现"));
             String spec = description.specs().stream().filter(value -> value.type().equals("STRING")).findFirst().orElseThrow().alias();
-            var fieldProposal = new net.ximatai.muyun.spring.platform.application.ApplicationConstructionFieldService.Proposal(1, "entry", description.metadataVersion(),
-                    List.of(new net.ximatai.muyun.spring.platform.application.ApplicationConstructionFieldService.Field("orderNumber", "订单号", spec, true, true, true, null, false), new ApplicationConstructionFieldService.Field("remark", "备注", spec, false, false, false, null, false)));
-            var fieldPreview = constructionFields.preview(planId, fieldProposal);
-            assertThat(fieldPreview.errors()).isEmpty();
-            var fieldCommand = new net.ximatai.muyun.spring.platform.application.ApplicationConstructionFieldService.Command(UUID.randomUUID().toString(), fieldProposal, fieldPreview.fingerprint());
-            assertThat(constructionPlans.read(planId).fieldChanges()).isEmpty();
-            assertThatThrownBy(() -> constructionFields.confirm(planId, new net.ximatai.muyun.spring.platform.application.ApplicationConstructionFieldService.Command(fieldCommand.requestId(), fieldProposal, "0".repeat(64))))
-                    .hasMessageContaining("预检已过期");
-            new TransactionTemplate(transactions).executeWithoutResult(status -> { constructionFields.confirm(planId, fieldCommand); status.setRollbackOnly(); });
-            assertThat(constructionFields.status(planId, fieldCommand.requestId())).isNull();
-            assertThat(constructionDatabase.query("select column_name from information_schema.columns where table_schema = 'public' and table_name = ? and column_name = 'order_number'", preview.tableName())).isEmpty();
-            try (var pool = java.util.concurrent.Executors.newFixedThreadPool(2)) {
-                var writes = java.util.stream.IntStream.range(0, 2).mapToObj(i -> pool.submit(() -> {
-                    try (var identity = CurrentUserContext.use(CurrentUser.systemUser("construction-admin", "建设管理员"))) {
-                        return constructionFields.confirm(planId, fieldCommand);
-                    }
-                })).toList();
-                for (var write : writes) assertThat(write.get(15, java.util.concurrent.TimeUnit.SECONDS).receipt().fields()).hasSize(2);
+            var binding = currentBindings(planId).getFirst();
+            var fieldDrafts = List.of(new FieldDraft("orderNumber", "订单号", spec, true, true, true, null, false),
+                    new FieldDraft("remark", "备注", spec, false, false, false, null, false));
+            new TransactionTemplate(transactions).executeWithoutResult(status -> {
+                publishFields(planId, "entry", fieldDrafts); status.setRollbackOnly();
+            });
+            assertThat(constructionFields.describe(planId, "entry").fields()).noneMatch(field -> field.getFieldName().equals("orderNumber"));
+            publishFields(planId, "entry", fieldDrafts);
+            for (String suffix : List.of("/field-changes", "/field-changes/preview", "/initializations")) {
+                var response = mvc.perform(post("/platform.application-construction-plans/" + planId + suffix)
+                        .contentType("application/json").content("{}")).andReturn().getResponse();
+                assertThat(response.getStatus()).as("retired construction writes").isIn(404, 405);
             }
-            var fieldHttp = mvc.perform(post("/platform.application-construction-plans/" + planId + "/field-changes")
-                    .contentType("application/json").content(json.writeValueAsString(fieldCommand))).andReturn().getResponse();
-            assertThat(fieldHttp.getStatus()).as(fieldHttp.getContentAsString()).isEqualTo(200);
-            assertThat(constructionFields.status(planId, fieldCommand.requestId()).runtime().status()).isEqualTo("ACTIVE");
-            assertThat(constructionPlans.read(planId).fieldChanges()).hasSize(1);
-            assertThat(delivery.task(planId).objects().getFirst().options()).extracting(ApplicationConstructionDeliveryService.TaskOption::action).contains(ApplicationConstructionDeliveryService.TaskAction.PUBLISH_PAGE);
-            assertThat(constructionDatabase.query("select column_name from information_schema.columns where table_schema = 'public' and table_name = ? and column_name = 'order_number'", preview.tableName())).hasSize(1);
-            var duplicateProposal = new net.ximatai.muyun.spring.platform.application.ApplicationConstructionFieldService.Proposal(1, "entry", metadataService.select(result.receipt().metadataId()).getVersion(), fieldProposal.fields());
-            assertThat(constructionFields.preview(planId, duplicateProposal).errors()).isNotEmpty();
+            assertThat(constructionPlans.read(planId).fieldChanges()).isEmpty();
+            assertThat(delivery.task(planId).objects().getFirst().options()).extracting(ApplicationConstructionDeliveryService.TaskOption::action)
+                    .contains(ApplicationConstructionDeliveryService.TaskAction.PUBLISH_PAGE);
+            assertThat(metadataPreviews.preview(binding.moduleAlias(), fieldChanges(planId, "entry", fieldDrafts)).errors()).isNotEmpty();
             var pageProposal = new PageLayout("entry",
                     "订单登记", List.of("orderNumber"), List.of("orderNumber"), List.of("orderNumber"));
             publishStandardPage(planId, pageProposal);
@@ -321,7 +327,7 @@ class ConstructionFieldsIT {
             assertThat(constructionPlans.read(planId).deliveries()).isEmpty();
             assertThat(delivery.progress(planId, "entry").pagePublished()).isTrue();
             assertThat(delivery.task(planId).objects().getFirst().options()).extracting(ApplicationConstructionDeliveryService.TaskOption::action).contains(ApplicationConstructionDeliveryService.TaskAction.CREATE_ENTRY);
-            var installedContext = runtimeContexts.context(result.receipt().moduleAlias());
+            var installedContext = runtimeContexts.context(binding.moduleAlias());
             var installedPage = installedContext.uiDescriptor();
             assertThat(installedPage.page().detail().editor()).isNotNull();
             assertThat(installedContext.actions()).anyMatch(action -> "create".equals(action.actionCode()));
@@ -342,7 +348,7 @@ class ConstructionFieldsIT {
             businessTenant.setTitle("建设验收租户"); businessTenant.setAlias("accept_" + planId.substring(0, 10));
             String tenantId = tenants.insert(businessTenant);
             try (var businessScope = TenantContext.use(tenantId)) {
-            String module = result.receipt().moduleAlias();
+            String module = binding.moduleAlias();
             var created = mvc.perform(post("/" + module + "/insert").contentType("application/json")
                     .content("{\"values\":{\"orderNumber\":\"ACCEPT-001\"}}" )).andReturn().getResponse();
             assertThat(created.getStatus()).as(created.getContentAsString()).isEqualTo(201);
@@ -383,11 +389,9 @@ class ConstructionFieldsIT {
             assertThatThrownBy(() -> constructionPlans.confirm(planId, new ApplicationConstructionPlanService.ConfirmCommand(UUID.randomUUID().toString(), 1,
                 new ApplicationConstructionPlanContent("修订订单", content.goal(), content.inScope(), content.outOfScope(), content.objects(), content.relationships(), content.rules(), content.questions(), content.assumptions(), content.decisions(), content.acceptanceExamples(), content.requirements()))))
                     .hasMessageContaining("已交付");
-            assertThat(constructionFields.confirm(planId, fieldCommand).receipt().fields()).hasSize(2);
             assertThatThrownBy(() -> delivery.previewAcceptance(planId, "entry")).hasMessageContaining("已交付");
-            assertThatThrownBy(() -> constructionFields.preview(planId, fieldProposal)).hasMessageContaining("当前低代码治理配置");
             try (var other = CurrentUserContext.use(CurrentUser.systemUser("other-owner", "其他用户"))) {
-                assertThatThrownBy(() -> constructionFields.status(planId, fieldCommand.requestId())).isInstanceOf(net.ximatai.muyun.spring.common.exception.PlatformAccessDeniedException.class);
+                assertThatThrownBy(() -> constructionFields.describe(planId, "entry")).isInstanceOf(net.ximatai.muyun.spring.common.exception.PlatformAccessDeniedException.class);
             }
         }
         try (var user = CurrentUserContext.use(CurrentUser.tenantUser("tenant-user", "用户", "tenant"))) {
@@ -408,24 +412,18 @@ class ConstructionFieldsIT {
                         new ApplicationConstructionRequirement.Reference("party", ""))));
         try (var user = CurrentUserContext.use(CurrentUser.systemUser("construction-admin", "建设管理员"));
              var system = TenantContext.system("reference construction acceptance")) {
-            constructionPlans.confirm(planId, new ApplicationConstructionPlanService.ConfirmCommand(UUID.randomUUID().toString(), 0, content));
-            for (var object : objects) {
-                var proposal = new ApplicationConstructionInitializationService.Proposal(1, object.key(), app, "关联登记", object.key());
-                construction.confirm(planId, new ApplicationConstructionInitializationService.ConfirmCommand(
-                        UUID.randomUUID().toString(), proposal, construction.preview(planId, proposal).fingerprint()));
-            }
+            createStandardPlan(planId, content, app, java.util.Map.of());
             var targetBefore = constructionFields.describe(planId, "party");
             String spec = targetBefore.specs().stream().filter(value -> value.type().equals("STRING") && value.length() != null && value.length() >= 32)
                     .findFirst().orElseThrow().alias();
             // A record name can enable references without an assistant-specific FIELD binding.
             // Its structure is still checked by the standard metadata publisher.
-            var invalidName = constructionFields.preview(planId, new ApplicationConstructionFieldService.Proposal(
-                    1, "party", targetBefore.metadataVersion(), List.of(new ApplicationConstructionFieldService.Field(
-                    "partyName", "单位名称", spec, true, false, false, null, true))));
+            var invalidName = metadataPreviews.preview(app + ".party", fieldChanges(planId, "party",
+                    List.of(new FieldDraft("partyName", "单位名称", spec, true, false, false, null, true))));
             assertThat(invalidName.errors()).extracting(MetadataChangeSetValidationIssue::message)
                     .anyMatch(message -> message.contains("标准 title"));
             assertThat(constructionFields.describe(planId, "party").metadataVersion()).isEqualTo(targetBefore.metadataVersion());
-            publishFields(planId, "party", List.of(new ApplicationConstructionFieldService.Field("title", "单位名称", spec, true, false, false, null, true)));
+            publishFields(planId, "party", List.of(new FieldDraft("title", "单位名称", spec, true, false, false, null, true)));
             var targetPage = new PageLayout("party",
                     "单位资料", List.of("title"), List.of("title"), List.of("title"));
             publishStandardPage(planId, targetPage);
@@ -436,15 +434,8 @@ class ConstructionFieldsIT {
             var reference = new MetadataFieldReferenceConfigDraft(targetAlias, target.targetMetadataId(), "id", "title",
                     net.ximatai.muyun.spring.ability.reference.ReferenceCardinality.ONE,
                     net.ximatai.muyun.spring.ability.reference.ReferenceTargetUnavailablePolicy.PRESERVE_HISTORY, List.of(), false);
-            var field = new ApplicationConstructionFieldService.Field("partyId", "往来单位", spec, false, false, false, reference, false);
-            var before = constructionFields.describe(planId, "agreement");
-            var wrongReference = new MetadataFieldReferenceConfigDraft(app + ".agreement", before.fields().getFirst().getMetadataId(), "id", "id",
-                    reference.cardinality(), reference.targetUnavailablePolicy(), List.of(), false);
-            assertThatThrownBy(() -> constructionFields.preview(planId, new ApplicationConstructionFieldService.Proposal(1, "agreement", before.metadataVersion(),
-                    List.of(new ApplicationConstructionFieldService.Field("partyId", "往来单位", spec, true, false, false, wrongReference, false)))))
-                    .hasMessageContaining("已确认需求不一致");
-            var command = publishFields(planId, "agreement", List.of(field, new ApplicationConstructionFieldService.Field("subject", "主题", spec, false, false, false, null, false)));
-            assertThat(constructionFields.confirm(planId, command).receipt().fields()).contains(field);
+            var field = new FieldDraft("partyId", "往来单位", spec, false, false, false, reference, false);
+            publishFields(planId, "agreement", List.of(field, new FieldDraft("subject", "主题", spec, false, false, false, null, false)));
             assertThat(constructionFields.describe(planId, "agreement").references().get("partyId").targetModuleAlias()).isEqualTo(targetAlias);
             assertThat(delivery.task(planId).objects().stream().filter(item -> item.objectKey().equals("agreement")).findFirst().orElseThrow().requirements())
                     .filteredOn(item -> item.section() == ApplicationConstructionRequirement.Section.RELATION)
@@ -466,12 +457,11 @@ class ConstructionFieldsIT {
                             new ApplicationConstructionRequirement(ApplicationConstructionRequirement.Section.RELATION, 0, "visit",
                             ApplicationConstructionRequirement.Mode.REFERENCE, "partyId", "复用已有单位资料",
                             new ApplicationConstructionRequirement.Reference("", targetAlias))));
-            constructionPlans.confirm(reusePlan, new ApplicationConstructionPlanService.ConfirmCommand(UUID.randomUUID().toString(), 0, reuseContent));
-            var reuse = new ApplicationConstructionInitializationService.Proposal(1, "visit", app, "关联登记", "visit");
-            construction.confirm(reusePlan, new ApplicationConstructionInitializationService.ConfirmCommand(UUID.randomUUID().toString(), reuse, construction.preview(reusePlan, reuse).fingerprint()));
+            createStandardPlan(reusePlan, reuseContent, app, java.util.Map.of());
             int targetVersion = constructionFields.describe(planId, "party").metadataVersion();
             publishFields(reusePlan, "visit", List.of(field));
-            assertThat(constructionPlans.read(reusePlan).initializations()).hasSize(1);
+            assertThat(constructionPlans.read(reusePlan).initializations()).isEmpty();
+            assertThat(constructionPlans.read(reusePlan).moduleBindings()).hasSize(1);
             assertThat(constructionFields.describe(planId, "party").metadataVersion()).isEqualTo(targetVersion);
             assertThat(constructionFields.describe(reusePlan, "visit").references().get("partyId").targetModuleAlias()).isEqualTo(targetAlias);
 
@@ -507,16 +497,14 @@ class ConstructionFieldsIT {
                 new ApplicationConstructionRequirement(ApplicationConstructionRequirement.Section.RULE, 0, "entry", ApplicationConstructionRequirement.Mode.CALCULATION, "total", "汇总明细，需样例试算", null)));
         try (var identity = CurrentUserContext.use(CurrentUser.systemUser("construction-admin", "建设管理员"));
              var scope = TenantContext.system("child construction contract")) {
-            constructionPlans.confirm(planId, new ApplicationConstructionPlanService.ConfirmCommand(UUID.randomUUID().toString(), 0, content));
-            var initial = new ApplicationConstructionInitializationService.Proposal(1, "entry", "child" + planId.substring(0, 12), "订货", "orders");
-            construction.confirm(planId, new ApplicationConstructionInitializationService.ConfirmCommand(UUID.randomUUID().toString(), initial, construction.preview(planId, initial).fingerprint()));
-            var binding = constructionPlans.read(planId).initializations().getFirst();
+            createStandardPlan(planId, content, "child" + planId.substring(0, 12), java.util.Map.of("entry", "orders"));
+            var binding = currentBindings(planId).getFirst();
             var description = constructionFields.describe(planId, "entry");
             String text = description.specs().stream().filter(spec -> spec.type().equals("STRING")).findFirst().orElseThrow().alias();
             String decimal = description.specs().stream().filter(spec -> spec.type().equals("DECIMAL")).findFirst().orElseThrow().alias();
-            publishFields(planId, "entry", List.of(new ApplicationConstructionFieldService.Field("number", "单号", text, true, false, false, null, false),
-                    new ApplicationConstructionFieldService.Field("total", "合计", decimal, false, false, false, null, false),
-                    new ApplicationConstructionFieldService.Field("lines", "同名备注", text, false, false, false, null, false)));
+            publishFields(planId, "entry", List.of(new FieldDraft("number", "单号", text, true, false, false, null, false),
+                    new FieldDraft("total", "合计", decimal, false, false, false, null, false),
+                    new FieldDraft("lines", "同名备注", text, false, false, false, null, false)));
             var child = orchestration.createChildMetadata(binding.moduleAlias(), binding.relationId(),
                     new ModuleChildMetadataCreateCommand("lines", "订货明细", "public", "child_" + planId));
             var childDrafts = List.of("quantity", "price", "amount").stream().map(name -> {
@@ -594,13 +582,8 @@ class ConstructionFieldsIT {
                         ApplicationConstructionRequirement.Mode.CALCULATION, "total", "订单合计", null)));
         try (var identity = CurrentUserContext.use(CurrentUser.systemUser("construction-admin", "建设管理员"));
              var system = TenantContext.system("order delivery contract")) {
-            constructionPlans.confirm(planId, new ApplicationConstructionPlanService.ConfirmCommand(UUID.randomUUID().toString(), 0, content));
-            for (String object : List.of("customer", "product", "order")) {
-                var proposal = new ApplicationConstructionInitializationService.Proposal(1, object, app, "订单登记", object);
-                construction.confirm(planId, new ApplicationConstructionInitializationService.ConfirmCommand(
-                        UUID.randomUUID().toString(), proposal, construction.preview(planId, proposal).fingerprint()));
-            }
-            var bindings = constructionPlans.read(planId).initializations();
+            createStandardPlan(planId, content, app, java.util.Map.of());
+            var bindings = currentBindings(planId);
             var customer = bindings.stream().filter(item -> item.objectKey().equals("customer")).findFirst().orElseThrow();
             var product = bindings.stream().filter(item -> item.objectKey().equals("product")).findFirst().orElseThrow();
             var order = bindings.stream().filter(item -> item.objectKey().equals("order")).findFirst().orElseThrow();
@@ -803,13 +786,15 @@ class ConstructionFieldsIT {
     /** Test data enters the same standard page/compiler/publication services as the visual editor. */
     private PublishedPage publishStandardPage(String planId, PageLayout layout) {
         return new TransactionTemplate(transactions).execute(status -> {
-            var binding = constructionPlans.read(planId).initializations().stream()
+            var binding = constructionPlans.read(planId).moduleBindings().stream()
                     .filter(item -> item.objectKey().equals(layout.objectKey())).findFirst().orElseThrow();
+            var mainRelation = moduleRelations.list(net.ximatai.muyun.database.core.orm.Criteria.of()
+                    .eq("moduleAlias", binding.moduleAlias()).eq("relationRole", RelationRole.MAIN)).getFirst();
             var page = constructionPages.resolveGlobalPage(binding.moduleAlias(), "management").orElse(null);
             String pageId;
             if (page == null) {
                 page = new PlatformPageDefinition(); page.setModuleAlias(binding.moduleAlias()); page.setAlias("management");
-                page.setMainRelationId(binding.relationId()); page.setContractType(PlatformPageContractType.MANAGEMENT);
+                page.setMainRelationId(mainRelation.getId()); page.setContractType(PlatformPageContractType.MANAGEMENT);
                 page.setEnabled(true); page.setTitle(layout.title()); pageId = constructionPages.insert(page);
             } else pageId = page.getId();
             var variants = presentationVariants.list(net.ximatai.muyun.database.core.orm.Criteria.of().eq("pageId", pageId));
@@ -852,14 +837,57 @@ class ConstructionFieldsIT {
         return revision;
     }
 
-    private ApplicationConstructionFieldService.Command publishFields(String planId, String objectKey, List<ApplicationConstructionFieldService.Field> fields) {
-        var description = constructionFields.describe(planId, objectKey);
-        var proposal = new ApplicationConstructionFieldService.Proposal(description.planRevision(), objectKey, description.metadataVersion(), fields);
-        var preview = constructionFields.preview(planId, proposal);
+    private record FieldDraft(String name, String title, String specAlias, boolean required, boolean unique,
+                              boolean indexed, MetadataFieldReferenceConfigDraft reference, boolean titleField) {}
+
+    private void publishFields(String planId, String objectKey, List<FieldDraft> fields) {
+        var binding = currentBindings(planId).stream().filter(item -> item.objectKey().equals(objectKey)).findFirst().orElseThrow();
+        var changes = fieldChanges(planId, objectKey, fields);
+        var preview = metadataPreviews.preview(binding.moduleAlias(), changes);
         assertThat(preview.errors()).isEmpty();
-        var command = new ApplicationConstructionFieldService.Command(UUID.randomUUID().toString(), proposal, preview.fingerprint());
-        constructionFields.confirm(planId, command);
-        return command;
+        metadataPublisher.apply(binding.moduleAlias(), new MetadataModelChangeSetApplyCommand(changes, preview.proposalFingerprint()));
+    }
+
+    private MetadataModelChangeSetPreviewCommand fieldChanges(String planId, String objectKey, List<FieldDraft> fields) {
+        var binding = currentBindings(planId).stream().filter(item -> item.objectKey().equals(objectKey)).findFirst().orElseThrow();
+        var drafts = fields.stream().map(value -> {
+            var field = governedField(value.name(), value.specAlias()).field(); field.setTitle(value.title());
+            field.setMetadataId(binding.metadataId());
+            field.setRequired(value.required()); field.setUniqueField(value.unique()); field.setIndexed(value.indexed());
+            field.setTitleField(value.titleField());
+            return new MetadataFieldChangeSetDraft(MetadataFieldChangeSetDraft.Operation.ADD, null, null, field,
+                    value.reference() == null ? null : new MetadataFieldPropertyDraft(MetadataFieldPropertyKind.MODULE_REFERENCE, null, value.reference(), null));
+        }).toList();
+        return new MetadataModelChangeSetPreviewCommand(List.of(new MetadataModelRelationChangeSetDraft(binding.relationId(),
+                metadataService.select(binding.metadataId()).getVersion(), java.util.Map.of(), drafts)), List.of(), List.of());
+    }
+
+    private List<ApplicationConstructionFieldService.Binding> currentBindings(String planId) {
+        return constructionPlans.read(planId).moduleBindings().stream().map(link -> {
+            var relation = moduleRelations.list(net.ximatai.muyun.database.core.orm.Criteria.of()
+                    .eq("moduleAlias", link.moduleAlias()).eq("relationRole", RelationRole.MAIN)).getFirst();
+            return new ApplicationConstructionFieldService.Binding(link.objectKey(), link.moduleAlias(), relation.getMetadataId(), relation.getId());
+        }).toList();
+    }
+
+    /** Fixtures use the same separate standard services as the management pages, never retired builders. */
+    private void createStandardPlan(String planId, ApplicationConstructionPlanContent content, String app, java.util.Map<String, String> moduleNames) {
+        if (applications.select(app) == null) {
+            var application = new Application(); application.setAlias(app); application.setTitle(content.title());
+            applications.insert(application);
+        }
+        var objects = content.objects().stream().map(object -> {
+            String name = moduleNames.getOrDefault(object.key(), object.key());
+            String alias = app + "." + name;
+            var module = new PlatformModule(); module.setApplicationAlias(app); module.setAlias(alias);
+            module.setTitle(object.name()); module.setModuleKind(ModuleKind.DYNAMIC); modules.insert(module);
+            orchestration.createMainMetadata(alias, new ModuleMainMetadataCreateCommand(name, object.name(), "public", null, false));
+            return new ApplicationConstructionPlanContent.BusinessObject(object.key(), object.name(), object.purpose(), alias);
+        }).toList();
+        var linked = new ApplicationConstructionPlanContent(content.title(), content.goal(), content.inScope(), content.outOfScope(), objects,
+                content.relationships(), content.rules(), content.questions(), content.assumptions(), content.decisions(), content.acceptanceExamples(), content.requirements());
+        constructionPlans.confirm(planId, new ApplicationConstructionPlanService.ConfirmCommand(UUID.randomUUID().toString(), 0, linked));
+        assertThat(constructionPlans.read(planId).initializations()).isEmpty();
     }
 
 }

@@ -37,7 +37,7 @@ describe('standard query validation', () => {
   it.each([
     { fieldName: 'secret', operator: 'EQ', values: ['value'] },
     { fieldName: 'amount', operator: 'EQ', values: [10] },
-    { fieldName: 'amount', operator: 'GT', values: ['10'] },
+    { fieldName: 'amount', operator: 'GT', values: ['10oops'] },
     { fieldName: 'amount', operator: 'BETWEEN', values: [10] },
     { fieldName: 'amount', operator: 'NULL', values: [10] },
     { fieldName: 'status', operator: 'EQ', values: ['UNKNOWN'] },
@@ -94,4 +94,34 @@ it.each([
       instantFields,
     ),
   ).toThrow();
+});
+
+it('preserves exact numeric text and rejects overflow before changing the query', () => {
+  for (const [valueType, value] of [
+    ['LONG', '9007199254740993'],
+    ['LONG', '-9223372036854775808'],
+    ['DECIMAL', '123456789012345.678901'],
+  ] as const) {
+    const fields = [
+      {
+        name: 'value',
+        title: 'Value',
+        valueType,
+        operators: ['EQ'] as import('@muyun/web-contracts').QueryOperator[],
+        sortable: true,
+      },
+    ];
+    const query = parseRecordQueryListStandardQuery(
+      { conditions: [{ fieldName: 'value', operator: 'EQ', values: [value] }], sorts: [] },
+      fields,
+    );
+    expect(query.conditions[0]?.values).toEqual([value]);
+  }
+  for (const value of ['9223372036854775808', '-9223372036854775809', '1.5', Number('9007199254740993')])
+    expect(() =>
+      parseRecordQueryListStandardQuery(
+        { conditions: [{ fieldName: 'value', operator: 'EQ', values: [value] }], sorts: [] },
+        [{ name: 'value', title: 'Value', valueType: 'LONG', operators: ['EQ'], sortable: true }],
+      ),
+    ).toThrow();
 });

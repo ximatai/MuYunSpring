@@ -4116,6 +4116,8 @@ describe('ModulePageHost', () => {
       expect(surface.capabilities().map(({ descriptor }) => descriptor.code)).not.toContain(
         'form.patch-draft',
       );
+      expect(session.recordDetailReady()).toBe(true);
+      expect(surface.capabilities().map(({ descriptor }) => descriptor.code)).toContain('form.describe');
       const staleView = await session.prepareAssistantView('main-1');
       const staleEdit = await session.prepareAssistantEdit('main-1');
       wrapper

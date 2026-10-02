@@ -1244,15 +1244,51 @@ describe('module page assistant surface', () => {
     expect(capabilityCodes).not.toContain('query.apply-quick-search');
   });
 
-  it('does not expose form capabilities while the page is outside an edit session', () => {
+  it('reads only declared detail fields without requiring an edit session and invalidates closed details', async () => {
     const view = viewFixture();
     view.editorMode = 'view';
-    view.editingRecord = { id: 'record-1', version: 2, summary: 'read-only detail' };
+    view.selectedRecord = {
+      id: 'record-1',
+      version: 2,
+      remark: '正式备注',
+      hidden: 'secret',
+      described: 'private',
+      password: 'password-secret',
+    };
+    view.editingRecord = { id: 'record-1', remark: 'stale draft' };
+    view.detailDisplayFields = new Map<
+      string,
+      import('@muyun/platform-components').RecordFormFieldDescriptor
+    >([
+      ['remark', { fieldRef: { fieldName: 'remark' }, label: '备注' }],
+      ['hidden', { fieldRef: { fieldName: 'hidden' }, assistantPolicy: 'HIDDEN' }],
+      ['described', { fieldRef: { fieldName: 'described' }, assistantPolicy: 'DESCRIBE' }],
+      [
+        'password',
+        {
+          fieldRef: { fieldName: 'password' },
+          fieldControl: { alias: 'password', rendererType: 'INPUT', valueShape: 'SCALAR' },
+        },
+      ],
+    ]);
+    view.recordDetailReady = vi.fn(() => true);
     const surface = createModulePageAssistantSurface(view, vi.fn());
-
-    const capabilityCodes = surface.capabilities().map(({ descriptor }) => descriptor.code);
-    expect(capabilityCodes).not.toContain('form.describe');
-    expect(capabilityCodes).not.toContain('form.patch-draft');
+    const capabilities = surface.capabilities();
+    expect(capabilities.map(({ descriptor }) => descriptor.code)).not.toContain('form.patch-draft');
+    const describe = capabilities.find(({ descriptor }) => descriptor.code === 'form.describe')!;
+    const result = await describe.execute({}, executionContext());
+    expect(result).toMatchObject({
+      editable: false,
+      fields: [
+        { fieldName: 'remark', currentValue: '正式备注', assistantWritable: false },
+        { fieldName: 'described', assistantWritable: false },
+      ],
+    });
+    expect(JSON.stringify(result)).not.toMatch(/secret|private|stale draft/);
+    expect(view.updateDraftFields).not.toHaveBeenCalled();
+    view.recordDetailReady = () => false;
+    expect(surface.capabilities().map(({ descriptor }) => descriptor.code)).not.toContain('form.describe');
+    await expect(describe.execute({}, executionContext())).rejects.toThrow('不可读取');
   });
 
   it('bounds the total current values projected for a large form', async () => {

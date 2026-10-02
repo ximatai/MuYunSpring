@@ -1,5 +1,6 @@
 import {
   parseRecordQueryListStandardQuery,
+  queryNumericValueSchema,
   type RecordQueryListQueryController,
   type RecordQueryListQuerySnapshot,
 } from '@muyun/platform-components';
@@ -47,20 +48,15 @@ export function createAssistantQueryCapabilities(
                     values: {
                       items: field.options
                         ? { enum: field.options }
-                        : {
-                            type:
-                              field.valueType === 'BOOLEAN'
-                                ? 'boolean'
-                                : ['INTEGER', 'LONG'].includes(field.valueType)
-                                  ? 'integer'
-                                  : field.valueType === 'DECIMAL'
-                                    ? 'number'
-                                    : 'string',
-                            description:
-                              field.valueType === 'INSTANT'
-                                ? 'UTC seconds: YYYY-MM-DDTHH:mm:ssZ; BETWEEN also accepts two YYYY-MM-DD dates in the business timezone.'
-                                : field.valueType,
-                          },
+                        : ['INTEGER', 'LONG', 'DECIMAL'].includes(field.valueType)
+                          ? queryNumericValueSchema(field.valueType)
+                          : {
+                              type: field.valueType === 'BOOLEAN' ? 'boolean' : 'string',
+                              description:
+                                field.valueType === 'INSTANT'
+                                  ? 'UTC seconds: YYYY-MM-DDTHH:mm:ssZ; BETWEEN also accepts two YYYY-MM-DD dates in the business timezone.'
+                                  : field.valueType,
+                            },
                     },
                   },
                 })),

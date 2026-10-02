@@ -74,27 +74,32 @@ export function createModulePageAssistantSurface(
   tenantScope?: ModulePageAssistantTenantScope,
 ): AssistantSurface {
   const activeForm = () => view.assistantNavigatorEditor?.form ?? view;
-  const formCapabilities = createRecordFormAssistantCapabilities({
-    get editorMode() {
-      return activeForm().editorMode;
+  const formCapabilities = createRecordFormAssistantCapabilities(
+    {
+      get editorMode() {
+        return activeForm().editorMode;
+      },
+      get editingRecord() {
+        return activeForm().editorMode === 'view' ? undefined : activeForm().editingRecord;
+      },
+      get selectedRecord() {
+        return activeForm().selectedRecord;
+      },
+      get formFields() {
+        return !view.assistantNavigatorEditor && view.editorMode === 'view'
+          ? view.detailDisplayFields
+          : activeForm().formFields;
+      },
+      get referencePickerConfigs() {
+        return activeForm().referencePickerConfigs;
+      },
+      contextRevision: () => modulePageAssistantContextRevision(view),
+      relations: () => (view.assistantNavigatorEditor ? [] : assistantRelationFacts(view)),
+      updateDraftFields: (...args) => activeForm().updateDraftFields(...args),
+      updateDraftReference: (...args) => activeForm().updateDraftReference(...args),
     },
-    get editingRecord() {
-      return activeForm().editingRecord;
-    },
-    get selectedRecord() {
-      return activeForm().selectedRecord;
-    },
-    get formFields() {
-      return activeForm().formFields;
-    },
-    get referencePickerConfigs() {
-      return activeForm().referencePickerConfigs;
-    },
-    contextRevision: () => modulePageAssistantContextRevision(view),
-    relations: () => (view.assistantNavigatorEditor ? [] : assistantRelationFacts(view)),
-    updateDraftFields: (...args) => activeForm().updateDraftFields(...args),
-    updateDraftReference: (...args) => activeForm().updateDraftReference(...args),
-  });
+    { canReadDetail: () => !view.assistantNavigatorEditor && view.recordDetailReady?.() === true },
+  );
   const relationCapabilities = view.relationDrafts
     ? createRelationDraftAssistantCapabilities(view.relationDrafts, () =>
         modulePageAssistantContextRevision(view),

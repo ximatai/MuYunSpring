@@ -20,17 +20,19 @@ import {
 
 export function createRecordFormAssistantCapabilities(
   view: RecordFormDraftAccess,
-  { resolveReferenceNames = true }: { resolveReferenceNames?: boolean } = {},
+  {
+    resolveReferenceNames = true,
+    canReadDetail,
+  }: { resolveReferenceNames?: boolean; canReadDetail?: () => boolean } = {},
 ) {
   const references: AssistantReferenceSelectionState = { selections: new Map(), searchRevision: 0 };
-  return () =>
-    hasEditableDraft(view)
-      ? [
-          formDescribeCapability(view, resolveReferenceNames),
-          formPatchCapability(view),
-          ...referenceCapabilities(view, references),
-        ]
-      : [];
+  const canDescribe = () => hasEditableDraft(view) || canReadDetail?.() === true;
+  return () => [
+    ...(canDescribe() ? [formDescribeCapability(view, resolveReferenceNames, canDescribe)] : []),
+    ...(hasEditableDraft(view)
+      ? [formPatchCapability(view), ...referenceCapabilities(view, references)]
+      : []),
+  ];
 }
 
 const MAX_ASSISTANT_FORM_CURRENT_VALUE_CHARS = 8_000;
@@ -321,16 +323,19 @@ function hasEditableDraft(view: RecordFormDraftAccess) {
 function formDescribeCapability(
   view: RecordFormDraftAccess,
   resolveReferenceNames: boolean,
+  canDescribe: () => boolean,
 ): AssistantCapability<Record<string, never>> {
   return {
     effect: 'read',
     descriptor: {
       code: 'form.describe',
-      description: 'Describe visible form fields and whether a draft is currently editable',
+      description:
+        'Read the current visible detail or draft fields. Read-only details do not create an editing draft.',
       inputSchema: emptyAssistantCapabilityInputSchema(),
     },
     parseInput: parseEmptyAssistantCapabilityInput,
     async execute(_input, context) {
+      if (!canDescribe()) throw new AssistantCapabilityUsageError('详情或草稿已不可读取');
       const revision = view.contextRevision();
       const record = { ...(view.editingRecord ?? view.selectedRecord ?? {}) };
       const visibleFields = formFieldStates(view).filter(
@@ -368,7 +373,7 @@ function formDescribeCapability(
           }
         }),
       );
-      if (!context.isCurrent() || revision !== view.contextRevision())
+      if (!context.isCurrent() || !canDescribe() || revision !== view.contextRevision())
         throw new AssistantCapabilityUsageError('表单或范围已变化，请重新读取');
       const valueBudget = {
         remaining: MAX_ASSISTANT_FORM_CURRENT_VALUE_CHARS,

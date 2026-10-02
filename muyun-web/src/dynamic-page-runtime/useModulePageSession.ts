@@ -3418,6 +3418,19 @@ export function useModulePageSession(
     }
   }
 
+  function recordDetailReady() {
+    return (
+      pageReady.value &&
+      detailOpen.value &&
+      editorMode.value === 'view' &&
+      selectedRecord.value?.id != null &&
+      !detailLoading.value &&
+      !detailLoadFailed.value &&
+      !recycleBinDetailActive.value &&
+      !pageEnhancement.value?.recordView
+    );
+  }
+
   function assistantEditorState() {
     return {
       editorMode: editorMode.value,
@@ -4286,6 +4299,7 @@ export function useModulePageSession(
     navigatorListScopeReady,
     selectedRecord,
     assistantDisplayRecord,
+    recordDetailReady,
     assistantRelationOptions,
     flatManagementSorting,
     navigatorListQueryValues,
