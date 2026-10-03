@@ -2900,6 +2900,7 @@ describe('ModulePageHost', () => {
     async (moduleKind) => {
       const requests: string[] = [];
       let omitChildren = false;
+      let failView = false;
       const savedRecord = {
         id: 'saved-invoice',
         total: '257.60',
@@ -2908,8 +2909,10 @@ describe('ModulePageHost', () => {
       globalThis.fetch = async (input) => {
         const request = new Request(input);
         requests.push(request.url);
-        if (request.url.endsWith('/view/saved-invoice'))
+        if (request.url.endsWith('/view/saved-invoice')) {
+          if (failView) throw new Error('canonical view unavailable');
           return Response.json(omitChildren ? { id: savedRecord.id, total: savedRecord.total } : savedRecord);
+        }
         if (request.url.includes('/actions/'))
           return Response.json({ actions: [{ actionCode: 'update', available: true }] });
         if (request.url.endsWith('/reference-context'))
@@ -3192,6 +3195,9 @@ describe('ModulePageHost', () => {
       expect(confirmation.result?.title).toBe('已放弃未保存草稿');
       expect(session.editorMode).toBe('view');
       expect(session.editingRecord).toBeUndefined();
+      expect(confirmation.continuationReadOnly).toBe(true);
+      expect(confirmation.takeContinuation()).toContain('仅只读核实当前结果');
+      expect(confirmation.takeContinuation()).toBeUndefined();
       expect(requests.every((url) => url.endsWith('context') || url.includes('/fields/status/options'))).toBe(
         true,
       );
@@ -3202,7 +3208,7 @@ describe('ModulePageHost', () => {
       await flushPromises();
       expect(wrapper.findComponent({ name: 'ModulePageRecordContent' }).props('record')).toEqual(savedRecord);
       expect(session.editingRecord).toEqual(savedRecord);
-      await session.editRecord({ id: savedRecord.id });
+      await session.editRecord({ id: savedRecord.id }, 'restore-view');
       await flushPromises();
       session.updateEmbeddedChildren('lineRows', [], []);
       await flushPromises();
@@ -3213,12 +3219,16 @@ describe('ModulePageHost', () => {
       expect(JSON.stringify(removedReview.value)).toContain('移除：quantity：12.00');
       expect(JSON.stringify(removedReview.value)).toContain('原保存第 1 行：quantity：12.00');
       expect(JSON.stringify(removedReview.value)).toContain('amount：213.60');
-      await session.cancelDetailEditing();
+      const discardEdit = await session.prepareRecordDraftDiscard();
+      const editResult = await discardEdit.execute();
+      expect(editResult.detailReady).toBe(true);
+      expect(editResult.isCurrent()).toBe(true);
       omitChildren = true;
       session.openFlatManagementRecord({ id: savedRecord.id });
       await flushPromises();
+      expect(editResult.isCurrent()).toBe(false);
       expect(session.selectedRecord).not.toHaveProperty('lineRows');
-      await session.editRecord({ id: savedRecord.id });
+      await session.editRecord({ id: savedRecord.id }, 'restore-view');
       await flushPromises();
       session.updateEmbeddedChildren('lineRows', [], []);
       await flushPromises();
@@ -3240,6 +3250,11 @@ describe('ModulePageHost', () => {
       await expect(session.prepareAssistantSave()).rejects.toThrow('明细未完整加载');
       expect(requests).toHaveLength(beforeSave);
       expect(session.editorMode).toBe('edit');
+      const discardWithoutView = await session.prepareRecordDraftDiscard();
+      failView = true;
+      const unavailable = await discardWithoutView.execute();
+      expect(unavailable).toMatchObject({ discarded: true, saved: false, detailReady: false });
+      expect(unavailable.isCurrent()).toBe(false);
       wrapper.unmount();
     },
   );

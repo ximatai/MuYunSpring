@@ -1217,6 +1217,67 @@ it.each([false, true])(
   },
 );
 
+it('finishes a confirmed discard through read-only capabilities without starting another draft', async () => {
+  const draftChange = vi.fn(async () => ({}));
+  const read = vi.fn(async () => ({ saved: false, discarded: true }));
+  const requestTurn = vi
+    .fn<AssistantTurnRequester>()
+    .mockResolvedValueOnce({ toolCalls: [{ id: 'prepare', code: 'form.prepare-discard', input: {} }] })
+    .mockResolvedValueOnce({ toolCalls: [{ id: 'read', code: 'page.read', input: {} }] })
+    .mockResolvedValue({ text: '已放弃这次未保存内容，登记没有提交。', toolCalls: [] });
+  const registry = createRegistryWithCapabilities(requestTurn, [
+    {
+      effect: 'read',
+      descriptor: { code: 'form.prepare-discard', description: 'prepare', inputSchema: {} },
+      parseInput: (input) => input,
+      execute: async () => ({}),
+      propose: () => ({
+        confirmLabel: '确认放弃',
+        presentation: { title: '放弃确认', lines: [] },
+        expiresAt: Date.now() + 60000,
+        isCurrent: () => true,
+        execute: async () => ({ title: '已放弃草稿', lines: ['本次没有提交登记'] }),
+        lookup: async () => undefined,
+        continuation: { message: '只读核实放弃结果', readOnly: true, isCurrent: () => true },
+      }),
+    },
+    {
+      effect: 'draft',
+      descriptor: { code: 'form.patch-draft', description: 'change', inputSchema: {} },
+      parseInput: (input) => input,
+      execute: draftChange,
+    },
+    {
+      effect: 'read',
+      descriptor: { code: 'page.read', description: 'read', inputSchema: {} },
+      parseInput: (input) => input,
+      execute: read,
+    },
+  ]);
+  const wrapper = mount(WorkbenchAssistantPanel, { props: { open: true, registry } });
+  await wrapper.get('textarea').setValue('这次报名不参加了，填的先放弃');
+  await wrapper.get('.assistant-panel__actions button').trigger('click');
+  await flushPromises();
+  await wrapper
+    .findAll('button')
+    .find((button) => button.text() === '确认放弃')!
+    .trigger('click');
+  await flushPromises();
+  expect(read).toHaveBeenCalledOnce();
+  expect(draftChange).not.toHaveBeenCalled();
+  for (const [input] of requestTurn.mock.calls.slice(1)) {
+    expect(input.capabilities.map(({ code }) => code)).toEqual(['page.read']);
+    expect(input.message).toContain('只读核实放弃结果');
+    expect(input.message).toContain('这次报名不参加了，填的先放弃');
+  }
+  expect(wrapper.text()).toContain('正在核实当前进度，暂不修改或保存');
+  expect(wrapper.text()).toContain('已放弃这次未保存内容，登记没有提交');
+  expect(wrapper.findAll('.assistant-message--user').map((item) => item.text())).toEqual([
+    '这次报名不参加了，填的先放弃',
+  ]);
+  wrapper.unmount();
+});
+
 it('restores persisted text after remount without reactivating old confirmation or selection controls', async () => {
   const { createAssistantConversationClient } = await import('@muyun/web-core');
   const configurationCollaboration = createConfigurationCollaboration();

@@ -3764,8 +3764,25 @@ export function useModulePageSession(
       isCurrent: review.isCurrent,
       async execute() {
         if (!review.isCurrent()) throw new OperationRejectedError('草稿或范围已变化，请重新审阅放弃内容');
+        const expectedInteraction = assistantInteractionRevision.value + 1;
         await cancelDetailEditing();
-        return { discarded: true, saved: false, detailReady: recordDetailReady() };
+        await nextTick();
+        const fingerprint = recordDraftReviewFingerprint();
+        const detailReady = recordDetailReady();
+        const settled = !detailOpen.value || detailReady;
+        return {
+          discarded: true,
+          saved: false,
+          detailReady,
+          isCurrent: () =>
+            settled &&
+            expectedInteraction === assistantInteractionRevision.value &&
+            fingerprint === recordDraftReviewFingerprint() &&
+            editorMode.value === 'view' &&
+            !interactionBusy.value &&
+            !detailLoading.value &&
+            !detailLoadFailed.value,
+        };
       },
     };
   }

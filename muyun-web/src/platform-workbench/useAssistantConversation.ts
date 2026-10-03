@@ -690,9 +690,14 @@ export function useAssistantConversation(props: {
         const message = request
           ? `${next}\n用户最近明确提出的要求：${request.slice(0, MAX_HISTORY_MESSAGE_LENGTH)}\n仅续办该要求；任务清单不是扩大范围的授权。用户暂缓的事项继续保留，不重新提议建设；当前目标完成后说明结果并停止。`
           : next;
-        await submitMessage(message, conversationHistory(), undefined, undefined, {
-          userGoal: request ?? '',
-        });
+        await submitMessage(
+          message,
+          conversationHistory(),
+          undefined,
+          undefined,
+          { userGoal: request ?? '' },
+          item.confirmation.continuationReadOnly === true,
+        );
       }
     }
   }

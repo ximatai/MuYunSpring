@@ -11,11 +11,12 @@ export type { OperationConfirmationState as AssistantConfirmationState } from '.
 /** Assistant-only explanation and continuation decorate a platform command. */
 export interface AssistantOperationProposal extends OperationProposal {
   modelSummary?: string;
-  continuation?: { message: string; isCurrent(): boolean };
+  continuation?: { message: string; readOnly?: boolean; isCurrent(): boolean };
 }
 export interface AssistantOperationConfirmation extends OperationConfirmation {
   readonly modelSummary: string;
   readonly receiptReference?: OperationReceiptReference;
+  readonly continuationReadOnly?: boolean;
   takeContinuation(): string | undefined;
 }
 export function createAssistantOperationConfirmation(
@@ -44,6 +45,7 @@ export function createAssistantOperationConfirmation(
     check: confirmation.check,
     cancel: confirmation.cancel,
     modelSummary: proposal.modelSummary ?? '有一项操作等待用户确认，尚未执行。',
+    continuationReadOnly: continuation?.readOnly === true,
     takeContinuation() {
       if (taken || confirmation.state !== 'succeeded' || !scopeIsCurrent() || !continuation?.isCurrent())
         return undefined;
