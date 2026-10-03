@@ -1278,6 +1278,8 @@ it.each([false, true])(
     await wrapper.get('textarea').setValue('这次报名不参加了，填的先放弃');
     await wrapper.get('.assistant-panel__actions button').trigger('click');
     await flushPromises();
+    expect(wrapper.get('section[aria-label="放弃确认"]').text()).toContain('确认放弃');
+    expect(wrapper.find('section[aria-label="保存确认"]').exists()).toBe(false);
     pauseSave = true;
     await wrapper
       .findAll('button')

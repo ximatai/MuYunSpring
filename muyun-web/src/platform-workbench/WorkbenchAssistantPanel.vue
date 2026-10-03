@@ -220,7 +220,11 @@ function close() {
       >
         <template v-if="item.role === 'assistant'">
           <AssistantMarkdownContent v-if="item.text" :content="item.text" />
-          <section v-if="item.confirmation" class="assistant-panel__welcome" aria-label="保存确认">
+          <section
+            v-if="item.confirmation"
+            class="assistant-panel__welcome"
+            :aria-label="item.confirmation.presentation.title"
+          >
             <strong>{{ item.confirmation.presentation.title }}</strong>
             <span v-for="(line, index) in item.confirmation.presentation.lines" :key="index">{{ line }}</span>
             <details v-if="item.confirmation.presentation.details" class="assistant-confirmation__details">
