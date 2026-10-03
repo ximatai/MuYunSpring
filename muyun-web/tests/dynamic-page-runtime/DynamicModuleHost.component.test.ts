@@ -3196,7 +3196,7 @@ describe('ModulePageHost', () => {
       expect(session.editorMode).toBe('view');
       expect(session.editingRecord).toBeUndefined();
       expect(confirmation.continuationReadOnly).toBe(true);
-      expect(confirmation.takeContinuation()).toContain('仅只读核实当前结果');
+      expect(confirmation.takeContinuation()).toContain('仅只读核实本次草稿及其对应记录的当前状态');
       expect(confirmation.takeContinuation()).toBeUndefined();
       expect(requests.every((url) => url.endsWith('context') || url.includes('/fields/status/options'))).toBe(
         true,
