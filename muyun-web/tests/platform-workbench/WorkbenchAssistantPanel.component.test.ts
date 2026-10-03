@@ -1382,7 +1382,7 @@ it('restores persisted text after remount without reactivating old confirmation 
   expect(wrapper.text()).toContain('我想记录合同');
   expect(configurationCollaboration.task.value).toEqual({ goal: '调整合同字段', mode: 'visual' });
   expect(wrapper.text()).toContain('边看配置页面，边在对话中确认');
-  expect(wrapper.text()).toContain('已建业务按当前配置继续改进');
+  expect(wrapper.text()).toContain('未完成目标会核实后接续');
   expect(wrapper.text()).toContain('历史记录不会恢复旧确认授权');
   expect(requestTurn).toHaveBeenCalledOnce();
   expect(JSON.stringify(saved?.content.history)).not.toContain('历史会话已恢复。');
@@ -1618,6 +1618,7 @@ it('resumes the original request with a fresh budget without inventing a new use
   expect(requestTurn.mock.calls.at(-1)?.[0].executionBudget?.step).toBe(1);
   expect(requestTurn.mock.calls.at(-1)?.[0].message).toContain('看看能不能记订单，先别改');
   expect(requestTurn.mock.calls.at(-1)?.[0].message).toContain('新的保存仍须重新确认');
+  expect(requestTurn.mock.calls.at(-1)?.[0].message).not.toContain('配置或业务候选');
   wrapper.unmount();
 });
 

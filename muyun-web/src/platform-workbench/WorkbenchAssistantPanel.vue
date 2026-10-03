@@ -297,7 +297,7 @@ function close() {
             configurationEditor.title
           }}」的未保存配置。继续处理时会核实是否属于这次任务。</span
         >
-        <span>已建业务按当前配置继续改进；未完成设计会核实后接续。历史记录不会恢复旧确认授权。</span>
+        <span>已完成事项会先核实结果；未完成目标会核实后接续。历史记录不会恢复旧确认授权。</span>
         <div class="assistant-panel__archive-actions">
           <UiButton
             :disabled="busy || archiveLoading || Boolean(draft.trim()) || !registry.snapshot()"
