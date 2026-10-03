@@ -840,7 +840,7 @@ function recordDraftCapabilities(view: ModulePageSessionView): AssistantCapabili
           continuation: {
             readOnly: true,
             message:
-              '用户已确认放弃本次整单未保存草稿，本次没有保存或删除正式记录。仅只读核实当前结果，并用业务语言说明是否完成用户最近的要求；已有记录仅依据当前授权范围内的事实说明，新建草稿放弃不表示全库不存在同名记录。不要重新打开草稿、修改数据或准备保存提议，说明结果后停止。',
+              '用户已确认放弃本次整单未保存草稿，本次没有保存或删除正式记录。仅只读核实本次草稿及其对应记录的当前状态，用业务语言简要说明用户最近的要求是否完成；回答限定这次办理结果，不扩展其他业务结论。说明结果后停止。',
             isCurrent: () => resultIsCurrent?.() === true,
           },
           async execute() {

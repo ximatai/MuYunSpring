@@ -749,7 +749,7 @@ it.each([false, true])(
     expect(wrapper.text()).toContain('tenant-a secret');
     expect(wrapper.text()).not.toContain('old answer');
     expect(plan.current().planId).toBe('old-plan');
-    expect(wrapper.text()).toContain('对话与建设目标保留');
+    expect(wrapper.text()).toContain('对话与目标保留');
     expect(requestTurn).toHaveBeenCalledTimes(1);
     expect(wrapper.text()).not.toContain('本轮已暂停');
     expect(wrapper.findAll('button').some((button) => button.text() === '调整需求')).toBe(false);
@@ -1278,6 +1278,8 @@ it.each([false, true])(
     await wrapper.get('textarea').setValue('这次报名不参加了，填的先放弃');
     await wrapper.get('.assistant-panel__actions button').trigger('click');
     await flushPromises();
+    expect(wrapper.get('section[aria-label="放弃确认"]').text()).toContain('确认放弃');
+    expect(wrapper.find('section[aria-label="保存确认"]').exists()).toBe(false);
     pauseSave = true;
     await wrapper
       .findAll('button')
@@ -1380,7 +1382,7 @@ it('restores persisted text after remount without reactivating old confirmation 
   expect(wrapper.text()).toContain('我想记录合同');
   expect(configurationCollaboration.task.value).toEqual({ goal: '调整合同字段', mode: 'visual' });
   expect(wrapper.text()).toContain('边看配置页面，边在对话中确认');
-  expect(wrapper.text()).toContain('已建业务按当前配置继续改进');
+  expect(wrapper.text()).toContain('未完成目标会核实后接续');
   expect(wrapper.text()).toContain('历史记录不会恢复旧确认授权');
   expect(requestTurn).toHaveBeenCalledOnce();
   expect(JSON.stringify(saved?.content.history)).not.toContain('历史会话已恢复。');
@@ -1616,6 +1618,7 @@ it('resumes the original request with a fresh budget without inventing a new use
   expect(requestTurn.mock.calls.at(-1)?.[0].executionBudget?.step).toBe(1);
   expect(requestTurn.mock.calls.at(-1)?.[0].message).toContain('看看能不能记订单，先别改');
   expect(requestTurn.mock.calls.at(-1)?.[0].message).toContain('新的保存仍须重新确认');
+  expect(requestTurn.mock.calls.at(-1)?.[0].message).not.toContain('配置或业务候选');
   wrapper.unmount();
 });
 

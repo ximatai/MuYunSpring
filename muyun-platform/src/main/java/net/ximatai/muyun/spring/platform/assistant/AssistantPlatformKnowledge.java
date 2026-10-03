@@ -121,7 +121,7 @@ final class AssistantPlatformKnowledge {
                     Use rules.revise for one visible candidate rule, preserving other rules, then preview and trial appropriate samples.
                     The childFields catalog identifies writable row calculation targets. Trial executes supported child-row and
                     main calculations in dependency order and returns computed children, then validates the results.
-                    Server save recalculates; do not promise browser-local instant child calculation.
+                    Server save recalculates; browser previews support only declared portable calculations.
                     Missing child samples are not empty tables. Reference values come from authorized server reads in the selected tenant.
                     Explain formulas using business names and the user's language. Never replace business logic with JavaScript.
                     rules.prepare-apply creates a human confirmation for the WHOLE visible candidate, including manual edits.
@@ -171,8 +171,10 @@ final class AssistantPlatformKnowledge {
             archetypes.add("workbench");
         }
         Map<?, ?> workspace = workspace(context);
+        // Global discovery does not make an ordinary record page a configuration workflow.
         if (capabilityCodes.stream().anyMatch(name -> name.startsWith("construction."))
-                && !archetypes.contains("construction")) {
+                && !archetypes.contains("construction")
+                && (!"module-page".equals(surface) || activeConstruction(workspace))) {
             archetypes.add(activeConstruction(workspace) ? "construction" : "construction-discovery");
         }
         if (capabilityCodes.stream().anyMatch(name -> name.startsWith("configuration.") || name.startsWith("rules."))) {
@@ -180,7 +182,9 @@ final class AssistantPlatformKnowledge {
                     || Set.of("configuration", "metadata-governance", "business-rule-governance", "page-composition").contains(surface instanceof String name ? name : "")
                     || capabilityCodes.contains("configuration.describe-metadata-model")
                     || capabilityCodes.contains("rules.describe");
-            archetypes.add(configurationActive ? "configuration" : "configuration-discovery");
+            if (configurationActive || !"module-page".equals(surface)) {
+                archetypes.add(configurationActive ? "configuration" : "configuration-discovery");
+            }
         }
         // Discovery of a target is not an active editor; inject detailed guidance only once its catalog exists.
         if (capabilityCodes.stream().anyMatch("configuration.describe-metadata-model"::equals)) {

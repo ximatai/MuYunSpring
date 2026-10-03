@@ -48,6 +48,9 @@ class AssistantPlatformKnowledgeTest {
                         "Without save preparation", "Draft-only requests remain unsaved",
                         "hand off to the page save action, never a selection card")
                 .doesNotContain("platform.menu", "customer", "product");
+        assertThat(AssistantPlatformKnowledge.appendTo("base", Map.of("surface", "business-rule-governance"), List.of()))
+                .contains("Server save recalculates", "browser previews support only declared portable calculations")
+                .doesNotContain("do not promise browser-local instant child calculation");
         assertThat(AssistantPlatformKnowledge.appendTo("base", Map.of("surface", "page-composition"), List.of()))
                 .contains("Reuse supplied catalogs", "revise and preview the candidate",
                         "do not repeat discovery", "human publication confirmation",
@@ -156,10 +159,11 @@ class AssistantPlatformKnowledgeTest {
                 List.of(new AiToolDefinition("assistant.load-capabilities", "Load", Map.of())));
         assertThat(lazy).isEqualTo(ordinary);
         assertThat(ordinary).contains("standard MuYun record workspace", "only human confirmation saves",
-                        "MuYun workbench navigation", "configuration.start-task",
-                        "Configuration governance requires an explicit configuration goal",
+                        "MuYun workbench navigation", "Configuration governance requires an explicit configuration goal",
                         "Do not offer schema", "say what remains unsaved", "unrelated fields")
-                .doesNotContain("calibrate ONE foundation module", "Read construction.describe-design-contract",
+                .doesNotContain("construction-discovery", "configuration.start-task",
+                        "Construction capabilities are available", "When the user requests configuration changes",
+                        "calibrate ONE foundation module", "Read construction.describe-design-contract",
                         "One conversation stays", "reopen the shared editor", "configurationEditor.visible",
                         "find visible standard governance entry");
         var active = AssistantPlatformKnowledge.appendTo("base", Map.of("surface", "module-page",
@@ -168,6 +172,14 @@ class AssistantPlatformKnowledgeTest {
         assertThat(active).contains("order changes by actual dependencies", "human confirmations",
                 "Unrelated reads", "Preserve unfinished construction intent");
         assertThat(active.length() - ordinary.length()).isGreaterThan(2000);
+        var configuration = AssistantPlatformKnowledge.appendTo("base", Map.of("surface", "module-page",
+                "facts", Map.of("workspace", Map.of("configurationTask", Map.of("goal", "调整现有字段")))), eager);
+        assertThat(configuration).contains("configuration.start-task", "configurationEditor.visible")
+                .doesNotContain("Construction capabilities are available", "Read construction.describe-design-contract");
+        var historical = AssistantPlatformKnowledge.appendTo("base", Map.of("surface", "module-page",
+                "facts", Map.of("workspace", Map.of("constructionPlan",
+                        Map.of("goal", "过去的建设", "constructionStatus", "DELIVERED")))), eager);
+        assertThat(historical).isEqualTo(ordinary);
     }
 
     @Test

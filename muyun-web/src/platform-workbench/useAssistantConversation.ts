@@ -114,7 +114,7 @@ export function useAssistantConversation(props: {
     const readOnly = interruptedRequest.value?.readOnly ?? true;
     const message = readOnly
       ? `请核实当前需求的实际进度并建议下一步，暂不修改或保存。用户需求：${userGoal}`
-      : `请先核实当前事实，再继续准备用户需求尚缺的配置或业务候选；已有操作结果未知时先查询结果，不重提。新的保存仍须重新确认。用户需求：${userGoal}`;
+      : `请先核实当前事实，再继续完成用户需求中尚未完成的事项；已有操作结果未知时先查询结果，不重提。新的保存仍须重新确认。用户需求：${userGoal}`;
     restored.value = false;
     interruptedRequest.value = undefined;
     supersedePendingSelections();
@@ -549,7 +549,7 @@ export function useAssistantConversation(props: {
         interruptedRequest.value = undefined;
         restoredRequest.value = '';
         supersedePendingSelections();
-        append('status', '业务范围已变化，对话与建设目标保留；后续操作将重新核实当前页面的数据。');
+        append('status', '业务范围已变化，对话与目标保留；后续操作将重新核实当前页面的数据。');
       }
     }
     refreshConfirmations();

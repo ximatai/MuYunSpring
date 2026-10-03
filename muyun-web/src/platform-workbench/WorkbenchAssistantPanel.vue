@@ -172,7 +172,7 @@ function close() {
           <UiButton :disabled="busy || archiveLoading" @click="archive.retryRead()">重试读取会话</UiButton>
         </div>
         <div v-if="historyOpen" class="assistant-panel__history">
-          <span>当前登录身份的历史会话；切换页面可以继续同一个建设目标。</span>
+          <span>当前登录身份的历史会话；切换页面可以继续同一个目标。</span>
           <UiButton :disabled="archiveLoading" @click="historyOpen = false">收起历史</UiButton>
           <span v-if="!archiveLoading && !historyEntries.length">暂无已保存会话</span>
           <UiButton
@@ -220,7 +220,11 @@ function close() {
       >
         <template v-if="item.role === 'assistant'">
           <AssistantMarkdownContent v-if="item.text" :content="item.text" />
-          <section v-if="item.confirmation" class="assistant-panel__welcome" aria-label="保存确认">
+          <section
+            v-if="item.confirmation"
+            class="assistant-panel__welcome"
+            :aria-label="item.confirmation.presentation.title"
+          >
             <strong>{{ item.confirmation.presentation.title }}</strong>
             <span v-for="(line, index) in item.confirmation.presentation.lines" :key="index">{{ line }}</span>
             <details v-if="item.confirmation.presentation.details" class="assistant-confirmation__details">
@@ -293,7 +297,7 @@ function close() {
             configurationEditor.title
           }}」的未保存配置。继续处理时会核实是否属于这次任务。</span
         >
-        <span>已建业务按当前配置继续改进；未完成设计会核实后接续。历史记录不会恢复旧确认授权。</span>
+        <span>已完成事项会先核实结果；未完成目标会核实后接续。历史记录不会恢复旧确认授权。</span>
         <div class="assistant-panel__archive-actions">
           <UiButton
             :disabled="busy || archiveLoading || Boolean(draft.trim()) || !registry.snapshot()"
