@@ -51,7 +51,9 @@ export function resolveRecordDetailDisplayValue(
   if (options.draft && field.controlType === 'enabledStatus') {
     return resolveRecordEnabledStatusValue(value) ? '启用' : '停用';
   }
-  const optionTitle = field.optionTitleField ? record[field.optionTitleField] : undefined;
+  // Saved name projections have no identity binding to a newly computed draft code.
+  const computedDraft = options.draft && field.calculationTiming === 'IMMEDIATE';
+  const optionTitle = !computedDraft && field.optionTitleField ? record[field.optionTitleField] : undefined;
   if (isPresent(optionTitle)) {
     return String(optionTitle);
   }
@@ -73,6 +75,9 @@ export function resolveRecordDetailDisplayValue(
   // it is an absent parent rather than record data, so preserve the platform empty-value display.
   if (field.treeRootTitle && value === 'root') {
     return emptyText;
+  }
+  if (computedDraft && field.reference) {
+    return isPresent(value) ? '已选择（名称暂不可用）' : emptyText;
   }
   const referenceTitle = field.referenceTitleField ? record[field.referenceTitleField] : undefined;
   if (field.reference) {

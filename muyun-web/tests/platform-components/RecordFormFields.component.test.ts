@@ -57,6 +57,68 @@ describe('RecordFormFields', () => {
     wrapper.unmount();
   });
 
+  it.each([true, false])('shows current computed option labels with inline items=%s', async (inline) => {
+    const items = [
+      { code: 'A', title: '待处理', enabled: true },
+      { code: 'B', title: '已处理', enabled: true },
+    ];
+    const request = vi.fn(async () => items);
+    const fields = new Map<string, RecordFormFieldDescriptor>([
+      [
+        'status',
+        {
+          fieldRef: { fieldName: 'status' },
+          label: '状态',
+          readOnly: { constant: true },
+          calculationTiming: 'IMMEDIATE',
+          option: {
+            binding: { sourceType: 'dictionary', source: 'demo.status' },
+            selectionMode: 'SINGLE',
+            titleField: 'statusTitle',
+            ...(inline ? { inlineItems: items } : {}),
+          },
+        },
+      ],
+    ]);
+    const record = { status: 'A', statusTitle: '待处理' };
+    const wrapper = mount(RecordFormFields, {
+      props: { fields, record, mode: 'edit', optionContext: moduleContext('demo.item', request) },
+    });
+    await flushPromises();
+    expect(wrapper.get('.record-form-field-calculation-preview').text()).toBe('待处理');
+    await wrapper.setProps({ record: { status: 'B', statusTitle: '待处理' } });
+    expect(wrapper.get('.record-form-field-calculation-preview').text()).toBe('已处理');
+    if (!inline) expect(request).toHaveBeenCalledOnce();
+    expect(wrapper.emitted('update:field')).toBeUndefined();
+    expect(record).toEqual({ status: 'A', statusTitle: '待处理' });
+    wrapper.unmount();
+  });
+
+  it('does not present an old reference title as the newly computed reference', async () => {
+    const fields = new Map<string, RecordFormFieldDescriptor>([
+      [
+        'ownerId',
+        {
+          fieldRef: { fieldName: 'ownerId' },
+          label: '负责人',
+          readOnly: { constant: true },
+          calculationTiming: 'IMMEDIATE',
+          reference: { targetModuleAlias: 'iam.user', cardinality: 'ONE', titleField: 'ownerTitle' },
+        },
+      ],
+    ]);
+    const record = { ownerId: 'user-b', ownerTitle: '甲用户' };
+    const wrapper = mount(RecordFormFields, { props: { fields, record, mode: 'edit' } });
+    expect(wrapper.get('.record-form-field-calculation-preview').text()).toBe('已选择（名称暂不可用）');
+    expect(wrapper.text()).not.toContain('甲用户');
+    expect(wrapper.text()).not.toContain('user-b');
+    await wrapper.setProps({ mode: 'view' });
+    expect(wrapper.get('.record-form-field-calculation-preview').text()).toBe('甲用户');
+    expect(record).toEqual({ ownerId: 'user-b', ownerTitle: '甲用户' });
+    expect(wrapper.emitted('update:field')).toBeUndefined();
+    wrapper.unmount();
+  });
+
   it('keeps normalized required errors consistent with validity without changing the draft', async () => {
     const fields = new Map<string, RecordFormFieldDescriptor>([
       [

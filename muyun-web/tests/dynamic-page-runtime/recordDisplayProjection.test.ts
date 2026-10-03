@@ -183,6 +183,37 @@ it('distinguishes an unselected reference from a selected reference with an unav
   expect(recordFieldDisplay(state, { teacherId: 'internal-id', teacherTitle: '王老师' })).toBe('王老师');
 });
 
+it('separates computed draft codes and references from saved title projections', () => {
+  const fields = resolveRecordFormFields({
+    defaultEditor: {
+      fields: [
+        {
+          fieldRef: { fieldName: 'status' },
+          readOnly: { constant: true },
+          calculationTiming: 'IMMEDIATE',
+          option: {
+            titleField: 'statusTitle',
+            inlineItems: [{ code: 'B', title: '已处理', enabled: true }],
+          },
+        },
+        {
+          fieldRef: { fieldName: 'ownerId' },
+          readOnly: { constant: true },
+          calculationTiming: 'IMMEDIATE',
+          reference: { targetModuleAlias: 'iam.user', cardinality: 'ONE', titleField: 'ownerTitle' },
+        },
+      ],
+    },
+  } as unknown as ResolvedModuleUiDescriptor);
+  const record = { status: 'B', statusTitle: '待处理', ownerId: 'user-b', ownerTitle: '甲用户' };
+  const status = resolveRecordFormFieldState('status', { fields, mode: 'edit' });
+  const owner = resolveRecordFormFieldState('ownerId', { fields, mode: 'edit' });
+  expect(recordFieldDisplay(status, record, undefined, true)).toBe('已处理');
+  expect(recordFieldDisplay(owner, record, undefined, true)).toBe('已选择（名称暂不可用）');
+  expect(recordFieldDisplay(status, record)).toBe('待处理');
+  expect(recordFieldDisplay(owner, record)).toBe('甲用户');
+});
+
 it('does not interpret an unloaded aggregate as empty or removed', () => {
   expect(
     recordRelationProjection(

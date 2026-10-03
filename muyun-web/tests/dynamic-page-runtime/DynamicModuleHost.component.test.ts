@@ -2914,6 +2914,8 @@ describe('ModulePageHost', () => {
           return Response.json({ actions: [{ actionCode: 'update', available: true }] });
         if (request.url.endsWith('/reference-context'))
           return Response.json({ moduleAlias: 'demo.product', capabilities: [], actions: [] });
+        if (request.url.includes('/fields/status/options'))
+          return Response.json([{ code: 'B', title: '已处理', enabled: true }]);
         if (!request.url.endsWith('/context')) throw new Error(`Unexpected request: ${request.url}`);
         return Response.json({
           moduleAlias: 'demo.invoice',
@@ -2972,6 +2974,17 @@ describe('ModulePageHost', () => {
                       assistantPolicy: 'DESCRIBE',
                     },
                     { fieldRef: { fieldName: 'categoryId' } },
+                    {
+                      fieldRef: { fieldName: 'status' },
+                      label: '处理状态',
+                      readOnly: { constant: true },
+                      calculationTiming: 'IMMEDIATE',
+                      option: {
+                        binding: { sourceType: 'dictionary', source: 'demo.status' },
+                        titleField: 'statusTitle',
+                        selectionMode: 'SINGLE',
+                      },
+                    },
                     {
                       fieldRef: { fieldName: 'productId' },
                       reference: {
@@ -3093,9 +3106,19 @@ describe('ModulePageHost', () => {
       await flushPromises();
       expect(content.props('record')).toMatchObject({ total: 275.4, lineRows: inputs });
       content.vm.$emit('update:field', 'privateNote', '只供人工核对');
+      content.vm.$emit('update:field', 'status', 'B');
+      content.vm.$emit('update:field', 'statusTitle', '待处理');
+      content.vm.$emit('update:field', 'productId', 'product');
       await flushPromises();
+      const resolveName = vi
+        .spyOn(session.referencePickerConfigs.productId!.provider!, 'resolve')
+        .mockRejectedValue(new Error('reference label access unavailable'));
       session.updateMainFormValidity({ valid: false });
       const review = await session.reviewRecordDraft();
+      expect(resolveName).toHaveBeenCalled();
+      expect(review.fieldLines.join(' ')).toContain('已选择（名称暂不可用）');
+      expect(review.fieldLines.join(' ')).toContain('处理状态：已处理');
+      expect(requests.filter((url) => url.includes('/fields/status/options'))).toHaveLength(1);
       expect(review.inputValid).toBe(false);
       expect(review.fieldLines.join(' ')).toContain('275.40');
       expect(review.relationLines.join(' ')).toContain('amount：231.40');
@@ -3134,7 +3157,9 @@ describe('ModulePageHost', () => {
       content.vm.$emit('children-change', 'lineRows', [], []);
       await flushPromises();
       expect(content.props('record')).toMatchObject({ total: 0, lineRows: [] });
-      expect(requests.every((url) => url.endsWith('context'))).toBe(true);
+      expect(requests.every((url) => url.endsWith('context') || url.includes('/fields/status/options'))).toBe(
+        true,
+      );
       await expect(
         registry.invoke(
           { id: 'readonly-discard', code: 'form.prepare-discard', input: {} },
@@ -3167,7 +3192,9 @@ describe('ModulePageHost', () => {
       expect(confirmation.result?.title).toBe('已放弃未保存草稿');
       expect(session.editorMode).toBe('view');
       expect(session.editingRecord).toBeUndefined();
-      expect(requests.every((url) => url.endsWith('context'))).toBe(true);
+      expect(requests.every((url) => url.endsWith('context') || url.includes('/fields/status/options'))).toBe(
+        true,
+      );
       session.openFlatManagementRecord({ id: savedRecord.id });
       await flushPromises();
       expect(session.editorMode).toBe('view');

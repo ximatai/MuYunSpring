@@ -29,6 +29,7 @@ import {
   recordPickerModeOf,
   resolveRecordFormFields,
   resolveRecordFormFieldState,
+  loadOptionFieldItems,
   useRecycleBinExplorerMode,
   type RecordFormFieldPickerConfig,
   type RecordPickerRecord,
@@ -3683,7 +3684,14 @@ export function useModulePageSession(
     const values = await Promise.all(
       fields.map(async (field) => ({
         field,
-        value: await resolvedRecordFieldDisplay(field, record),
+        // Optional name enrichment must not block reviewing or abandoning a local draft.
+        value: await resolvedRecordFieldDisplay(
+          field,
+          record,
+          field.hasOption && field.calculationTiming === 'IMMEDIATE' && !field.optionItems
+            ? await loadOptionFieldItems(context, field.fieldName).catch(() => [])
+            : field.optionItems,
+        ).catch(() => (field.reference ? '已选择（名称暂不可用）' : '显示值暂不可用')),
         ...(mode === 'edit'
           ? {
               before: recordFieldDisplay(

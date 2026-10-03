@@ -20,7 +20,8 @@ export function recordFieldDisplay(
   optionItems?: OptionItemDescriptor[],
   draft = false,
 ): string {
-  if (field.calculationPending) return resolveRecordDetailDisplayValue(field, record);
+  if (field.calculationPending || (draft && field.calculationTiming === 'IMMEDIATE'))
+    return resolveRecordDetailDisplayValue(field, record, { emptyText: '空', optionItems, draft });
   if (field.reference) {
     const value = record[field.fieldName];
     if (value == null || value === '' || (Array.isArray(value) && !value.length)) return '未选择';
@@ -33,11 +34,15 @@ export function recordFieldDisplay(
 }
 
 /** Resolve display labels through the same authorized provider used by the picker. */
-export async function resolvedRecordFieldDisplay(field: RecordFormFieldState, record: RecordFormRecord) {
+export async function resolvedRecordFieldDisplay(
+  field: RecordFormFieldState,
+  record: RecordFormRecord,
+  optionItems?: OptionItemDescriptor[],
+) {
   if (field.calculationPending) return recordFieldDisplay(field, record);
   const value = record[field.fieldName];
   if (!field.reference || !field.pickerConfig?.provider || value == null || value === '')
-    return recordFieldDisplay(field, record, undefined, true);
+    return recordFieldDisplay(field, record, optionItems, true);
   const ids = (Array.isArray(value) ? value : [value]).map(String);
   if (!ids.length) return '未选择';
   const candidates = await field.pickerConfig.provider.resolve(ids);

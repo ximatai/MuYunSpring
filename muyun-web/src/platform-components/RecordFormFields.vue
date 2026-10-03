@@ -794,7 +794,12 @@ function groupEndsAt(field: RecordFormFieldState, index: number) {
             v-else-if="field.readOnly && field.calculationTiming === 'IMMEDIATE'"
             class="record-form-field-calculation-preview"
           >
-            {{ resolveRecordDetailDisplayValue(field, record) }}
+            {{
+              resolveRecordDetailDisplayValue(field, record, {
+                draft: mode !== 'view',
+                optionItems: optionFieldItems(field),
+              })
+            }}
           </span>
           <RecordStatusSwitch
             v-else-if="field.controlType === 'enabledStatus'"
