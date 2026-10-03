@@ -260,13 +260,14 @@ export function useAssistantConversation(props: {
     history: AssistantConversationMessage[],
     selectionResponse?: AssistantSelectionResponse,
     sourceSelection?: ConversationSelection,
-    continuation?: { userGoal: string },
+    continuation?: { userGoal: string; isCurrent?: () => boolean },
     readOnly = false,
   ) {
     const beforeSync = conversationEpoch;
     expireStaleSelections();
     if (beforeSync !== conversationEpoch) return;
     if (!message || busy.value || archive.loading.value || !props.registry.snapshot()) return;
+    if (continuation?.isCurrent?.() === false) return;
     const epoch = conversationEpoch;
     let requestScope = executionGeneration;
     requestGeneration = requestScope;
@@ -291,6 +292,7 @@ export function useAssistantConversation(props: {
     try {
       const saved = await archive.save();
       if (epoch !== conversationEpoch || requestScope !== executionGeneration) return;
+      if (continuation?.isCurrent?.() === false) return;
       if (!saved) {
         rememberInterruption();
         reopenSelection(sourceSelection);
@@ -695,7 +697,7 @@ export function useAssistantConversation(props: {
           conversationHistory(),
           undefined,
           undefined,
-          { userGoal: request ?? '' },
+          { userGoal: request ?? '', isCurrent: item.confirmation.continuationIsCurrent },
           item.confirmation.continuationReadOnly === true,
         );
       }
