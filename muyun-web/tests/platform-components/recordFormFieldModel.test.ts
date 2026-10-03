@@ -124,6 +124,89 @@ it('preserves transitive reference selections when the source value did not chan
   ).toEqual({ tenantId: 'tenant-a', organizationId: 'organization-a', departmentId: 'department-a' });
 });
 
+it('clears downstream reference display facts through empty intermediaries and cycles', () => {
+  const fields = new Map<string, RecordFormFieldDescriptor>([
+    ['tenantId', dependentReferenceField('tenantId', '租户', 'departmentId')],
+    ['organizationId', dependentReferenceField('organizationId', '机构', 'tenantId')],
+    [
+      'departmentId',
+      {
+        ...dependentReferenceField('departmentId', '部门', 'organizationId'),
+        reference: {
+          ...dependentReferenceField('departmentId', '部门', 'organizationId').reference!,
+          titleField: 'departmentTitle',
+          displayProjections: [{ targetField: 'code', outputField: 'departmentCode' }],
+        },
+      },
+    ],
+  ]);
+  const record = {
+    tenantId: 'a',
+    organizationId: undefined,
+    departmentId: 'old',
+    'organizationId.title': '旧机构',
+    'departmentId.title': '旧部门',
+    departmentTitle: '旧部门',
+    departmentCode: 'old-code',
+    'unrelatedId.title': '不变',
+    departmentIdentifier: '不变',
+  };
+  expect(applyReferenceDependencyClears(record, 'tenantId', 'a', fields)).toEqual(record);
+  expect(applyReferenceDependencyClears(record, 'tenantId', 'b', fields)).toEqual({
+    tenantId: 'b',
+    organizationId: undefined,
+    departmentId: undefined,
+    'unrelatedId.title': '不变',
+    departmentIdentifier: '不变',
+  });
+});
+
+it('never displays an old saved value or custom display while a draft calculation is pending', () => {
+  const fields = new Map<string, RecordFormFieldDescriptor>([
+    [
+      'amount',
+      {
+        ...descriptorField('amount', '金额'),
+        readOnly: { constant: true },
+        calculationTiming: 'ON_SAVE',
+      },
+    ],
+  ]);
+  const record = { amount: 90 };
+  const pending = resolveRecordFormFieldState('amount', { fields, record, mode: 'edit' });
+  expect(resolveRecordDetailDisplayValue(pending, record, { displayOf: () => '旧金额 90' })).toBe(
+    '保存后计算',
+  );
+  const saved = resolveRecordFormFieldState('amount', { fields, record, mode: 'view' });
+  expect(resolveRecordDetailDisplayValue(saved, record)).toBe('90');
+});
+
+it('formats numeric decimal previews by the declared scale without changing the calculation or exact strings', () => {
+  const field = resolveRecordFormFieldState('amount', {
+    fields: new Map([
+      [
+        'amount',
+        {
+          ...descriptorField('amount', '金额'),
+          valueType: 'DECIMAL',
+          inputRequirements: { requiredOnInsert: false, requiredOnUpdate: false, precision: 20, scale: 2 },
+        },
+      ],
+    ]),
+    record: {},
+    mode: 'edit',
+  });
+  const record = { amount: 213.60000000000002 };
+  expect(resolveRecordDetailDisplayValue(field, record)).toBe('213.60');
+  expect(record.amount).toBe(213.60000000000002);
+  expect(resolveRecordDetailDisplayValue(field, { amount: '123456789012345678.90' })).toBe(
+    '123456789012345678.90',
+  );
+  expect(resolveRecordDetailDisplayValue(field, record, { displayOf: () => '自定义金额' })).toBe(
+    '自定义金额',
+  );
+});
+
 it('exposes only descriptor-authorized reference selection projections to WEB_UI formulas', () => {
   const reference = {
     targetModuleAlias: 'platform.module',

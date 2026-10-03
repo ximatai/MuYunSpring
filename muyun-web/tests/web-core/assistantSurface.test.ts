@@ -688,3 +688,56 @@ it('rejects an in-flight observation after another call commits selection state'
   await expect(pending).rejects.toBeInstanceOf(StaleAssistantInvocationError);
   expect(sameAssistantInvocationToken(token, registry.snapshot()!.token)).toBe(false);
 });
+
+it.each(['identity', 'scope', 'interaction'] as const)(
+  'checks the settled effect token without accepting a later %s change',
+  async (change) => {
+    let identity = 'user',
+      scope = 'tenant',
+      interaction = 'stable',
+      revision = 'before';
+    let finish!: () => void;
+    const pendingRead = new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+    const registry = createAssistantSurfaceRegistry(() => identity);
+    const currentChecks: boolean[] = [];
+    registry.register({
+      pageInstanceKey: 'page',
+      contextRevision: () => revision,
+      interactionRevision: () => interaction,
+      executionScopeKey: () => scope,
+      surface: {
+        describe: () => ({ surface: 'test', facts: {} }),
+        requestTurn: vi.fn(),
+        capabilities: () => [
+          {
+            effect: 'draft',
+            descriptor: { code: 'draft.add', description: 'Add', inputSchema: {} },
+            parseInput: (input) => input,
+            async execute(_input, context) {
+              context.applyEffect(() => {
+                revision = 'after';
+              });
+              currentChecks.push(context.isCurrent());
+              await pendingRead;
+              currentChecks.push(context.isCurrent());
+              return 'added';
+            },
+          },
+        ],
+      },
+    });
+    registry.activate('page');
+    const pending = registry.invoke({ id: 'add', code: 'draft.add', input: {} }, registry.snapshot()!.token);
+    if (change === 'identity') identity = 'other';
+    if (change === 'scope') scope = 'other';
+    if (change === 'interaction') interaction = 'manual-edit';
+    finish();
+    await expect(pending).rejects.toMatchObject({
+      name: 'AssistantEffectInterruptedError',
+      execution: 'effect-applied',
+    });
+    expect(currentChecks).toEqual([true, false]);
+  },
+);

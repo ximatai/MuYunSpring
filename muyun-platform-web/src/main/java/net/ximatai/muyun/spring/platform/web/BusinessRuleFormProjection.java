@@ -69,31 +69,34 @@ final class BusinessRuleFormProjection {
 
     static ResolvedModuleUiDescriptor projectLenient(ResolvedModuleUiDescriptor descriptor, List<FormulaRule> rules) {
         if (descriptor == null || rules == null || rules.isEmpty()) return descriptor;
-        Map<String, FormulaFieldDefinition> childFields = directChildFields(descriptor);
+        ChildProjection childProjection = projectChildren(descriptor, rules);
+        ResolvedModuleUiDescriptor projectedDescriptor = descriptor.withEditorContributions(childProjection.contributions());
+        Map<String, FormulaFieldDefinition> childFields = directChildFields(projectedDescriptor);
         ResolvedModulePageDescriptor page = descriptor.page();
         if (page != null && page.detail() != null && page.detail().editor() != null) {
-            ResolvedViewDescriptor editor = project(page.detail().editor(), rules, childFields);
+            ResolvedViewDescriptor editor = project(page.detail().editor(), rules, childFields, childProjection.immediateTargets());
             page = page.withDetail(new ResolvedPageDetailDescriptor(page.detail().emptyDescription(),
                     page.detail().createTitle(), page.detail().display(), editor, page.detail().workspaceView(),
                     page.detail().showSystemInfo()));
         }
         ResolvedViewDescriptor defaultEditor = descriptor.defaultEditor() == null ? null
-                : project(descriptor.defaultEditor(), rules, childFields);
+                : project(descriptor.defaultEditor(), rules, childFields, childProjection.immediateTargets());
         List<ResolvedEditorSurfaceDescriptor> surfaces = descriptor.editorSurfaces().stream()
-                .map(surface -> new ResolvedEditorSurfaceDescriptor(surface.key(), project(surface.editor(), rules, childFields)))
+                .map(surface -> new ResolvedEditorSurfaceDescriptor(surface.key(), project(surface.editor(), rules, childFields, childProjection.immediateTargets())))
                 .toList();
         Set<String> computedTargets = unconditionalTargets(writers(rules.stream()
                 .filter(rule -> rule != null && rule.enabled()).toList()));
-        List<ResolvedPageDetailEditorContribution> contributions = descriptor.editorContributions().stream()
+        List<ResolvedPageDetailEditorContribution> contributions = projectedDescriptor.editorContributions().stream()
                 .map(contribution -> {
                     var relation = descriptor.detailRelations().stream()
                             .filter(candidate -> candidate.embeddedField() != null
                                     && candidate.targetEntityAlias().equals(contribution.resource()))
                             .findFirst().orElse(null);
                     if (relation == null) return contribution;
-                    Set<String> immediateTargets = relation.formComputeRules().stream()
-                            .map(net.ximatai.muyun.spring.platform.ui.ResolvedRelationFormComputeRuleDescriptor::targetField)
-                            .collect(Collectors.toSet());
+                    Set<String> immediateTargets = new LinkedHashSet<>(contribution.editor().formComputeRules().stream()
+                            .map(ResolvedFormComputeRuleDescriptor::targetField).toList());
+                    immediateTargets.addAll(relation.formComputeRules().stream()
+                            .map(net.ximatai.muyun.spring.platform.ui.ResolvedRelationFormComputeRuleDescriptor::targetField).toList());
                     var fields = contribution.editor().fields().stream().map(field ->
                             computedTargets.contains(relation.parentBinding() + "." + field.fieldRef().fieldName())
                                     ? field.withComputedValue(immediateTargets.contains(field.fieldRef().fieldName())
@@ -105,6 +108,83 @@ final class BusinessRuleFormProjection {
                 }).toList();
         return descriptor.withEditors(page, defaultEditor, surfaces).withEditorContributions(contributions);
     }
+
+    private static ChildProjection projectChildren(ResolvedModuleUiDescriptor descriptor, List<FormulaRule> rules) {
+        Set<String> immediateTargets = new LinkedHashSet<>();
+        Map<String, List<FormulaRule>> allWriters = writers(rules.stream()
+                .filter(rule -> rule != null && rule.enabled()).toList());
+        List<ResolvedPageDetailEditorContribution> contributions = descriptor.editorContributions().stream()
+                .map(contribution -> {
+                    var relations = descriptor.detailRelations().stream()
+                            .filter(relation -> relation.embeddedField() != null
+                                    && !relation.readOnly()
+                                    && relation.editing().saveMode() == net.ximatai.muyun.spring.platform.ui.ResolvedDetailRelationEditing.SaveMode.AGGREGATE_DRAFT
+                                    && relation.targetEntityAlias().equals(contribution.resource())).toList();
+                    // A shared child editor cannot carry programs for two different aggregate scopes.
+                    if (relations.size() != 1) return contribution;
+                    var relation = relations.getFirst();
+                    String prefix = relation.parentBinding() + ".";
+                    Map<String, ResolvedViewFieldDescriptor> fields = contribution.editor().fields().stream()
+                            .filter(field -> field.fieldRef().relationCode() != null)
+                            .filter(field -> Boolean.TRUE.equals(field.visible().constant()))
+                            .filter(field -> PlatformFieldPolicy.find(field.fieldRef().fieldName()) == null)
+                            .collect(Collectors.toMap(field -> field.fieldRef().fieldName(), Function.identity(),
+                                    (left, right) -> left, LinkedHashMap::new));
+                    Map<String, Candidate> candidates = new LinkedHashMap<>();
+                    allWriters.forEach((target, writers) -> {
+                        if (!target.startsWith(prefix) || writers.size() != 1) return;
+                        FormulaRule rule = writers.getFirst();
+                        String localTarget = target.substring(prefix.length());
+                        if (!portable(fields.get(localTarget))) return;
+                        try {
+                            if (!target.equals(ENGINE.unconditionalCalculationTarget(rule))) return;
+                            var program = ENGINE.compileRowFormComputeProgram(formComputeExpression(rule, target), relation.parentBinding());
+                            Set<String> inputs = ENGINE.valueSideReferencedFields(rule.expression());
+                            if (inputs.stream().anyMatch(input -> !input.startsWith(prefix)
+                                    || !portable(fields.get(input.substring(prefix.length()))))) return;
+                            candidates.put(target, new Candidate(rule, target, inputs, program, fields.get(localTarget).valueType()));
+                        } catch (FormulaEvaluationException | IllegalArgumentException ignored) {
+                            // Unsupported or unavailable inputs keep the whole dependent chain server-side.
+                        }
+                    });
+                    Set<String> allowed = portableTargets(candidates, allWriters, Set.of());
+                    List<Candidate> portable = candidates.values().stream()
+                            .filter(candidate -> allowed.contains(candidate.targetField())).toList();
+                    List<FormulaFieldDefinition> definitions = fields.values().stream().map(field ->
+                            new FormulaFieldDefinition(FormulaFieldPath.parse(prefix + field.fieldRef().fieldName()),
+                                    formulaType(field.valueType()), false, true)).toList();
+                    FormulaRuleExecutionPlan plan;
+                    try {
+                        plan = FormulaRuleExecutionPlan.forAggregateRecord(portable.stream().map(Candidate::rule).toList(),
+                                definitions, Set.of(relation.parentBinding()));
+                    } catch (FormulaEvaluationException exception) {
+                        return contribution;
+                    }
+                    Map<String, Candidate> byCode = portable.stream().collect(Collectors.toMap(
+                            candidate -> candidate.rule().id(), Function.identity()));
+                    List<ResolvedFormComputeRuleDescriptor> rowRules = plan.calculationRules().stream().map(rule -> {
+                        Candidate candidate = byCode.get(rule.id());
+                        immediateTargets.add(candidate.targetField());
+                        return new ResolvedFormComputeRuleDescriptor(rule.id(), candidate.program(),
+                                candidate.targetField().substring(prefix.length()), candidate.targetType(),
+                                candidate.inputFields().stream().map(input -> input.substring(prefix.length())).toList(),
+                                FormComputeWritePolicy.ALWAYS);
+                    }).toList();
+                    Set<String> localWriterTargets = allWriters.keySet().stream().filter(target -> target.startsWith(prefix))
+                            .map(target -> target.substring(prefix.length())).collect(Collectors.toSet());
+                    Set<String> localImmediateTargets = rowRules.stream().map(ResolvedFormComputeRuleDescriptor::targetField)
+                            .collect(Collectors.toSet());
+                    List<ResolvedFormComputeRuleDescriptor> projected = new ArrayList<>(rowRules);
+                    projected.addAll(serverAuthoritativeAuthoredRules(contribution.editor().formComputeRules(),
+                            localWriterTargets, localImmediateTargets, rowRules.stream()
+                                    .map(ResolvedFormComputeRuleDescriptor::code).collect(Collectors.toSet())));
+                    return new ResolvedPageDetailEditorContribution(contribution.resource(),
+                            contribution.editor().withFormulaProjection(contribution.editor().fields(), projected));
+                }).toList();
+        return new ChildProjection(contributions, Set.copyOf(immediateTargets));
+    }
+
+    private record ChildProjection(List<ResolvedPageDetailEditorContribution> contributions, Set<String> immediateTargets) {}
 
     /** Compiles portable static DSL validation rules after the concrete form fields have been resolved. */
     static List<ResolvedFormValidationRuleDescriptor> compileDslValidationRules(
@@ -125,7 +205,8 @@ final class BusinessRuleFormProjection {
 
     private static ResolvedViewDescriptor project(ResolvedViewDescriptor view,
                                                   List<FormulaRule> rules,
-                                                  Map<String, FormulaFieldDefinition> childFields) {
+                                                  Map<String, FormulaFieldDefinition> childFields,
+                                                  Set<String> immediateChildTargets) {
         if (view == null || view.viewKind() != ModuleViewKind.FORM || rules == null || rules.isEmpty()) return view;
         Map<String, ResolvedViewFieldDescriptor> fields = visibleMainFields(view);
         List<FormulaFieldDefinition> definitions = new ArrayList<>(fieldDefinitions(fields.values()));
@@ -151,7 +232,7 @@ final class BusinessRuleFormProjection {
         }
 
         Map<String, Candidate> candidatesByTarget = uniqueCandidatesByTarget(candidates);
-        Set<String> portableTargets = portableTargets(candidatesByTarget, allWriters);
+        Set<String> portableTargets = portableTargets(candidatesByTarget, allWriters, immediateChildTargets);
         List<Candidate> portable = candidates.stream()
                 .filter(candidate -> portableTargets.contains(candidate.targetField()))
                 .toList();
@@ -348,13 +429,14 @@ final class BusinessRuleFormProjection {
     }
 
     private static Set<String> portableTargets(Map<String, Candidate> candidates,
-                                               Map<String, List<FormulaRule>> allWriters) {
-        Set<String> allowed = new LinkedHashSet<>();
+                                               Map<String, List<FormulaRule>> allWriters, Set<String> externalImmediateTargets) {
+        Set<String> allowed = new LinkedHashSet<>(externalImmediateTargets);
+        Set<String> localAllowed = new LinkedHashSet<>();
         Set<String> visiting = new LinkedHashSet<>();
         for (String target : candidates.keySet()) {
-            if (canProject(target, candidates, allWriters, allowed, visiting)) allowed.add(target);
+            if (canProject(target, candidates, allWriters, allowed, visiting)) localAllowed.add(target);
         }
-        return allowed;
+        return localAllowed;
     }
 
     private static boolean canProject(String target,
@@ -416,6 +498,8 @@ final class BusinessRuleFormProjection {
                     if (editor == null) return;
                     editor.editor().fields().stream()
                             .filter(field -> field.fieldRef().relationCode() != null)
+                            .filter(field -> Boolean.TRUE.equals(field.visible().constant()))
+                            .filter(field -> PlatformFieldPolicy.find(field.fieldRef().fieldName()) == null)
                             .filter(field -> field.valueType() != null)
                             .forEach(field -> {
                                 String path = relation.parentBinding() + "." + field.fieldRef().fieldName();

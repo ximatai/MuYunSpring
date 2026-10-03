@@ -405,8 +405,8 @@ export function useAssistantConversation(props: {
         append(
           'status',
           result.steps.some((step) => step.appliedEffectCount > 0)
-            ? '本轮已暂停，已完成的操作保留；这不代表配置或业务已保存。可以继续核实剩余事项。'
-            : '本轮已暂停，尚未完成的事项可以继续核实；读取信息不代表修改或保存。',
+            ? '本轮已暂停：本次自动处理已达上限。已完成的操作保留，但不代表业务已保存；点击“继续处理”即可接着核对剩余事项，无需重复刚才的要求。'
+            : '本轮已暂停：本次自动处理已达上限。点击“继续处理”可接着核对剩余事项，无需重复刚才的要求；读取信息不代表修改或保存。',
           undefined,
           diagnostics.join('\n'),
         );

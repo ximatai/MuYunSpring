@@ -36,7 +36,7 @@ class BusinessRuleFormProjectionTest {
         var serverDescriptor = BusinessRuleFormProjection.projectLenient(descriptor, List.of(
                 new FormulaRule("contractAmountSum", "{contractAmount} = SUM({lines.lineAmount})",
                         FormulaRuleKind.CALCULATION, FormulaRulePhase.BEFORE_SAVE, "contractAmount"),
-                new FormulaRule("lineAmount", "10", FormulaRuleKind.CALCULATION,
+                new FormulaRule("lineAmount", "{customer.credit}", FormulaRuleKind.CALCULATION,
                         FormulaRulePhase.BEFORE_SAVE, "lines.lineAmount")));
         var serverOnly = serverDescriptor.defaultEditor();
         assertThat(serverOnly.formComputeRules()).isEmpty();
@@ -62,6 +62,52 @@ class BusinessRuleFormProjectionTest {
         });
         assertThat(projected.fields()).singleElement().satisfies(field ->
                 assertThat(field.readOnly().constant()).isTrue());
+    }
+
+    @Test
+    void projectsSameRowDependenciesBeforeTheParentSummaryForBothModuleKinds() {
+        for (ModuleKind kind : List.of(ModuleKind.STATIC, ModuleKind.DYNAMIC)) {
+            var parent = form("parent", field("total"));
+            var child = new ResolvedViewDescriptor("child", ModuleViewKind.FORM, ModuleUiClientType.WEB, null,
+                    List.of(relationField("line", "quantity"), relationField("line", "unitPrice"),
+                            relationField("line", "amount"), relationField("line", "rounded")));
+            var lines = new ResolvedDetailRelationDescriptor("line_rows", "明细", false, "sales.contract", "contract",
+                    "sales.contract", "line", "lines", null, null, null,
+                    new ResolvedDetailRelationEditing(ResolvedDetailRelationEditing.Mode.INLINE,
+                            ResolvedDetailRelationEditing.SaveMode.AGGREGATE_DRAFT),
+                    true, "line_rows", null, List.of(), ResolvedUiRule.constant(true));
+            var descriptor = new ResolvedModuleUiDescriptor(null, "sales.contract", kind, "合同", List.of(), null,
+                    List.of(), null, parent, List.of(), List.of(new ResolvedPageDetailEditorContribution("line", child)),
+                    List.of(lines));
+            var rules = List.of(new FormulaRule("total", "{total} = SUM({lines.rounded})"),
+                    new FormulaRule("rounded", "ROUND({lines.amount}, 2)", FormulaRuleKind.CALCULATION,
+                            FormulaRulePhase.BEFORE_SAVE, "lines.rounded"),
+                    new FormulaRule("amount", "{lines.quantity} * {lines.unitPrice}", FormulaRuleKind.CALCULATION,
+                            FormulaRulePhase.BEFORE_SAVE, "lines.amount"));
+            var projected = BusinessRuleFormProjection.projectLenient(descriptor, rules);
+            assertThat(projected.defaultEditor().formComputeRules()).extracting(ResolvedFormComputeRuleDescriptor::code)
+                    .containsExactly("total");
+            assertThat(projected.defaultEditor().fields().getFirst().calculationTiming())
+                    .isEqualTo(ResolvedViewFieldDescriptor.CalculationTiming.IMMEDIATE);
+            var childEditor = projected.editorContributions().getFirst().editor();
+            assertThat(childEditor.formComputeRules()).extracting(ResolvedFormComputeRuleDescriptor::targetField)
+                    .containsExactly("amount", "rounded");
+            assertThat(childEditor.formComputeRules().getFirst().triggerFields())
+                    .containsExactlyInAnyOrder("quantity", "unitPrice");
+            assertThat(childEditor.fields().subList(2, 4)).allSatisfy(output -> {
+                assertThat(output.readOnly().constant()).isTrue();
+                assertThat(output.calculationTiming()).isEqualTo(ResolvedViewFieldDescriptor.CalculationTiming.IMMEDIATE);
+            });
+            var hiddenChild = child.withFields(child.fields().stream().map(output ->
+                    output.fieldRef().fieldName().equals("quantity") ? output.withUiState(UiRule.constant(false), UiRule.constant(true))
+                            : output).toList());
+            var unavailable = BusinessRuleFormProjection.projectLenient(descriptor.withEditorContributions(
+                    List.of(new ResolvedPageDetailEditorContribution("line", hiddenChild))), rules);
+            assertThat(unavailable.editorContributions().getFirst().editor().formComputeRules()).isEmpty();
+            assertThat(unavailable.defaultEditor().formComputeRules()).isEmpty();
+            assertThat(unavailable.defaultEditor().fields().getFirst().calculationTiming())
+                    .isEqualTo(ResolvedViewFieldDescriptor.CalculationTiming.ON_SAVE);
+        }
     }
 
     @Test

@@ -21,6 +21,22 @@ class FormulaEngineTest {
     );
 
     @Test
+    void compilesAggregateRowCalculationsWithoutChangingMainOrCrossRowProfiles() {
+        var program = engine.compileRowFormComputeProgram(
+                "{lines.amount} = ROUND({lines.quantity} * {lines.unitPrice}, 2)", "lines");
+        assertThat(program.root().arguments().getFirst().field()).isEqualTo("amount");
+        assertThat(program.referencedFields()).containsExactlyInAnyOrder("amount", "quantity", "unitPrice");
+        assertThatThrownBy(() -> engine.compileFormComputeProgram("{lines.amount} = {lines.quantity} * 2"))
+                .isInstanceOf(FormulaEvaluationException.class);
+        for (String expression : List.of("{lines.amount} = {quantity} * 2",
+                "{lines.amount} = {other.quantity} * 2", "{lines.amount} = SUM({lines.quantity})",
+                "{lines.amount} = 10 WHEN {lines.enabled}", "others({lines.amount}) = 10")) {
+            assertThatThrownBy(() -> engine.compileRowFormComputeProgram(expression, "lines"))
+                    .as(expression).isInstanceOf(FormulaEvaluationException.class);
+        }
+    }
+
+    @Test
     void distinguishesComputedOutputsFromConditionalAndSelfDependentInputs() {
         assertThat(engine.unconditionalCalculationTarget(new FormulaRule("total", "{total} = SUM({lines.amount})")))
                 .isEqualTo("total");

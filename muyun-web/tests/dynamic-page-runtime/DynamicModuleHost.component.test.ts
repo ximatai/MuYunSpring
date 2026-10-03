@@ -3,8 +3,11 @@ import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vites
 import { defineComponent } from 'vue';
 import ModulePageHost from '@/dynamic-page-runtime/ModulePageHost.vue';
 import type { ModulePageSessionView } from '@/dynamic-page-runtime/useModulePageSession';
-import { createModulePageAssistantSurface } from '@/dynamic-page-runtime/modulePageAssistantSurface';
-import { configureModuleContext, createHttpClient } from '@muyun/web-core';
+import {
+  createModulePageAssistantSurface,
+  modulePageAssistantContextRevision,
+} from '@/dynamic-page-runtime/modulePageAssistantSurface';
+import { configureModuleContext, createHttpClient, createAssistantSurfaceRegistry } from '@muyun/web-core';
 import { configureModulePageEnhancements } from '@/dynamic-page-runtime/modulePageEnhancements.ts';
 import { refreshModulePageList } from '@/dynamic-page-runtime/modulePageListRefresh.ts';
 
@@ -2892,6 +2895,328 @@ describe('ModulePageHost', () => {
     wrapper.unmount();
   });
 
+  it.each(['STATIC', 'DYNAMIC'])(
+    'summarizes current child preview facts without putting derived child outputs into the draft (%s)',
+    async (moduleKind) => {
+      const requests: string[] = [];
+      let omitChildren = false;
+      const savedRecord = {
+        id: 'saved-invoice',
+        total: '257.60',
+        lineRows: [{ id: 'old-line', quantity: 12, unitPrice: 17.8, amount: '213.60' }],
+      };
+      globalThis.fetch = async (input) => {
+        const request = new Request(input);
+        requests.push(request.url);
+        if (request.url.endsWith('/view/saved-invoice'))
+          return Response.json(omitChildren ? { id: savedRecord.id, total: savedRecord.total } : savedRecord);
+        if (request.url.includes('/actions/'))
+          return Response.json({ actions: [{ actionCode: 'update', available: true }] });
+        if (request.url.endsWith('/reference-context'))
+          return Response.json({ moduleAlias: 'demo.product', capabilities: [], actions: [] });
+        if (!request.url.endsWith('/context')) throw new Error(`Unexpected request: ${request.url}`);
+        return Response.json({
+          moduleAlias: 'demo.invoice',
+          capabilities: [],
+          actions: ['create', 'view', 'update'].map((actionCode) => ({ actionCode, authorized: true })),
+          uiDescriptor: {
+            moduleAlias: 'demo.invoice',
+            moduleKind,
+            editorContributions: [
+              {
+                ...childEditor('line', 'amount'),
+                editor: {
+                  ...childEditor('line', 'amount').editor,
+                  fields: ['quantity', 'unitPrice', 'amount'].map((fieldName) => ({
+                    fieldRef: { relationCode: 'line', fieldName },
+                    label: fieldName,
+                    visible: { constant: true },
+                    valueType: 'DECIMAL',
+                    inputRequirements: { scale: 2 },
+                    readOnly: { constant: fieldName === 'amount' },
+                  })),
+                },
+              },
+            ],
+            detailRelations: [
+              {
+                code: 'lineRows',
+                title: '明细',
+                readOnly: false,
+                sourceModuleAlias: 'demo.invoice',
+                sourceEntityAlias: 'invoice',
+                targetModuleAlias: 'demo.invoice',
+                targetEntityAlias: 'line',
+                parentBinding: 'lines',
+                embeddedField: 'lineRows',
+                refreshOnDetailReload: true,
+                editing: { mode: 'INLINE', saveMode: 'AGGREGATE_DRAFT' },
+              },
+            ],
+            page: page({
+              detail: {
+                emptyDescription: '请选择记录',
+                createTitle: '新建记录',
+                editor: {
+                  viewCode: 'default_form',
+                  viewKind: 'FORM',
+                  fields: [
+                    {
+                      fieldRef: { fieldName: 'total' },
+                      valueType: 'DECIMAL',
+                      inputRequirements: { scale: 2 },
+                    },
+                    {
+                      fieldRef: { fieldName: 'privateNote' },
+                      label: '人工备注',
+                      assistantPolicy: 'DESCRIBE',
+                    },
+                    { fieldRef: { fieldName: 'categoryId' } },
+                    {
+                      fieldRef: { fieldName: 'productId' },
+                      reference: {
+                        targetModuleAlias: 'demo.product',
+                        cardinality: 'ONE',
+                        candidateDelivery: 'SOURCE_FIELD',
+                        resolvePath: '/references/productId/resolve',
+                        candidateDependencies: [
+                          { sourceField: 'categoryId', targetField: 'categoryId', required: true },
+                        ],
+                      },
+                    },
+                    { fieldRef: { fieldName: 'hasProduct' } },
+                  ],
+                  formComputeRules: [
+                    {
+                      code: 'hasProduct',
+                      targetField: 'hasProduct',
+                      targetValueType: 'BOOLEAN',
+                      triggerFields: ['productId'],
+                      writePolicy: 'ALWAYS',
+                      program: {
+                        schemaVersion: 1,
+                        profile: 'FORM_COMPUTE',
+                        referencedFields: ['hasProduct', 'productId'],
+                        root: {
+                          kind: 'ASSIGN',
+                          operator: '=',
+                          arguments: [
+                            { kind: 'FIELD', field: 'hasProduct', arguments: [] },
+                            {
+                              kind: 'FUNCTION',
+                              operator: 'PRESENT',
+                              arguments: [{ kind: 'FIELD', field: 'productId', arguments: [] }],
+                            },
+                          ],
+                        },
+                      },
+                    },
+                    {
+                      code: 'total',
+                      targetField: 'total',
+                      targetValueType: 'DECIMAL',
+                      triggerFields: ['lines.amount'],
+                      writePolicy: 'ALWAYS',
+                      program: {
+                        schemaVersion: 1,
+                        profile: 'FORM_COMPUTE',
+                        referencedFields: ['total', 'lines.amount'],
+                        root: {
+                          kind: 'ASSIGN',
+                          operator: '=',
+                          arguments: [
+                            { kind: 'FIELD', field: 'total', arguments: [] },
+                            {
+                              kind: 'FUNCTION',
+                              operator: 'SUM',
+                              arguments: [{ kind: 'FIELD', field: 'lines.amount', arguments: [] }],
+                            },
+                          ],
+                        },
+                      },
+                    },
+                  ],
+                },
+              },
+            }),
+          },
+        });
+      };
+      configureModuleContext({ httpFactory: () => createHttpClient({ baseUrl: 'http://api.local' }) });
+      const wrapper = shallowMount(ModulePageHost, {
+        props: {
+          descriptor: {
+            pageType: 'dynamic-module',
+            openMode: 'dynamic-runner',
+            hostType: 'module-page-host',
+            tabPolicy: { identity: 'by-menu' },
+            target: { moduleAlias: 'demo.invoice', pageMode: 'LIST' },
+          },
+        },
+        global: {
+          stubs: {
+            ManagementWorkspace: { template: '<section><slot /><slot name="detail" /></section>' },
+            RecordDetailPanel: { template: '<section><slot name="actions" /><slot /></section>' },
+            ModulePageRecordContent: false,
+          },
+        },
+      });
+      await flushPromises();
+      wrapper.findComponent({ name: 'RecordQueryListPanel' }).vm.$emit('action', { key: 'create' });
+      await flushPromises();
+      const session = wrapper
+        .findComponent({ name: 'ModulePageHostRuntime' })
+        .props('session') as import('@/dynamic-page-runtime/useModulePageSession').ModulePageSessionView;
+      const content = wrapper.findComponent({ name: 'ModulePageRecordContent' });
+      content.vm.$emit('update:field', 'categoryId', 'old');
+      content.vm.$emit('update:field', 'productId', 'product');
+      await flushPromises();
+      expect(content.props('record')).toMatchObject({ productId: 'product', hasProduct: true });
+      content.vm.$emit('update:field', 'categoryId', 'new');
+      await flushPromises();
+      expect(content.props('record')).toMatchObject({ productId: undefined, hasProduct: false });
+      const inputs = [
+        { quantity: 12, unitPrice: 17.8 },
+        { quantity: 5, unitPrice: 8.8 },
+      ];
+      content.vm.$emit('children-change', 'lineRows', inputs, [
+        { ...inputs[0], amount: 213.6 },
+        { ...inputs[1], amount: 44 },
+      ]);
+      await flushPromises();
+      expect(content.props('record')).toMatchObject({ total: 257.6, lineRows: inputs });
+      // Display-only refreshes still update the summary; the raw input snapshot is unchanged.
+      content.vm.$emit('children-change', 'lineRows', inputs, [
+        { ...inputs[0], amount: 231.4 },
+        { ...inputs[1], amount: 44 },
+      ]);
+      await flushPromises();
+      expect(content.props('record')).toMatchObject({ total: 275.4, lineRows: inputs });
+      content.vm.$emit('update:field', 'privateNote', '只供人工核对');
+      await flushPromises();
+      session.updateMainFormValidity({ valid: false });
+      const review = await session.reviewRecordDraft();
+      expect(review.inputValid).toBe(false);
+      expect(review.fieldLines.join(' ')).toContain('275.40');
+      expect(review.relationLines.join(' ')).toContain('amount：231.40');
+      expect(review.fieldLines.join(' ')).toContain('只供人工核对');
+      const surface = createModulePageAssistantSurface(session, vi.fn());
+      const registry = createAssistantSurfaceRegistry();
+      registry.register({
+        pageInstanceKey: 'draft-page',
+        surface,
+        contextRevision: () => modulePageAssistantContextRevision(session),
+      });
+      registry.activate('draft-page');
+      const reviewInvocation = await registry.invoke(
+        { id: 'review', code: 'form.review-draft', input: {} },
+        registry.snapshot()!.token,
+        undefined,
+        { readOnly: true },
+      );
+      const facts = reviewInvocation.value;
+      expect(reviewInvocation.confirmation).toBeUndefined();
+      expect(JSON.stringify(facts)).toContain('275.40');
+      expect(JSON.stringify(facts)).not.toContain('只供人工核对');
+      expect(reviewInvocation.presentation?.lines.join(' ')).toContain('只供人工核对');
+      expect(reviewInvocation.contextChanged).toBe(false);
+      const discard = await session.prepareRecordDraftDiscard();
+      expect(discard.isCurrent()).toBe(true);
+      session.updateMainFormValidity({ valid: false });
+      expect(discard.isCurrent()).toBe(false);
+      await expect(discard.execute()).rejects.toThrow('已变化');
+      const stale = await session.prepareRecordDraftDiscard();
+      content.vm.$emit('children-change', 'lineRows', inputs, inputs);
+      await flushPromises();
+      expect(content.props('record').total).toBeUndefined();
+      await expect(stale.execute()).rejects.toThrow('已变化');
+      expect(session.editorMode).toBe('create');
+      content.vm.$emit('children-change', 'lineRows', [], []);
+      await flushPromises();
+      expect(content.props('record')).toMatchObject({ total: 0, lineRows: [] });
+      expect(requests.every((url) => url.endsWith('context'))).toBe(true);
+      await expect(
+        registry.invoke(
+          { id: 'readonly-discard', code: 'form.prepare-discard', input: {} },
+          registry.snapshot()!.token,
+          undefined,
+          { readOnly: true },
+        ),
+      ).rejects.toThrow('only permits reading');
+      const cancelled = (
+        await registry.invoke(
+          { id: 'discard-cancel', code: 'form.prepare-discard', input: {} },
+          registry.snapshot()!.token,
+        )
+      ).confirmation!;
+      expect(cancelled.confirmLabel).toBe('确认放弃');
+      cancelled.cancel();
+      await cancelled.confirm();
+      expect(cancelled.state).toBe('cancelled');
+      expect(session.editorMode).toBe('create');
+      const confirmation = (
+        await registry.invoke(
+          { id: 'discard-confirm', code: 'form.prepare-discard', input: {} },
+          registry.snapshot()!.token,
+        )
+      ).confirmation!;
+      expect(confirmation.state).toBe('pending');
+      expect(session.editorMode).toBe('create');
+      await Promise.all([confirmation.confirm(), confirmation.confirm()]);
+      expect(confirmation.state).toBe('succeeded');
+      expect(confirmation.result?.title).toBe('已放弃未保存草稿');
+      expect(session.editorMode).toBe('view');
+      expect(session.editingRecord).toBeUndefined();
+      expect(requests.every((url) => url.endsWith('context'))).toBe(true);
+      session.openFlatManagementRecord({ id: savedRecord.id });
+      await flushPromises();
+      expect(session.editorMode).toBe('view');
+      session.updateEmbeddedChildren('lineRows', savedRecord.lineRows, [{ amount: 999 }]);
+      await flushPromises();
+      expect(wrapper.findComponent({ name: 'ModulePageRecordContent' }).props('record')).toEqual(savedRecord);
+      expect(session.editingRecord).toEqual(savedRecord);
+      await session.editRecord({ id: savedRecord.id });
+      await flushPromises();
+      session.updateEmbeddedChildren('lineRows', [], []);
+      await flushPromises();
+      const removedReview = await registry.invoke(
+        { id: 'removed-review', code: 'form.review-draft', input: {} },
+        registry.snapshot()!.token,
+      );
+      expect(JSON.stringify(removedReview.value)).toContain('移除：quantity：12.00');
+      expect(JSON.stringify(removedReview.value)).toContain('原保存第 1 行：quantity：12.00');
+      expect(JSON.stringify(removedReview.value)).toContain('amount：213.60');
+      await session.cancelDetailEditing();
+      omitChildren = true;
+      session.openFlatManagementRecord({ id: savedRecord.id });
+      await flushPromises();
+      expect(session.selectedRecord).not.toHaveProperty('lineRows');
+      await session.editRecord({ id: savedRecord.id });
+      await flushPromises();
+      session.updateEmbeddedChildren('lineRows', [], []);
+      await flushPromises();
+      const incomplete = await session.reviewRecordDraft();
+      expect(incomplete.complete).toBe(false);
+      expect(incomplete.relations[0]).toMatchObject({ loaded: false, count: null });
+      expect(incomplete.relationLines.join(' ')).toContain('明细未完整加载');
+      const incompleteFacts = await registry.invoke(
+        { id: 'incomplete-review', code: 'form.review-draft', input: {} },
+        registry.snapshot()!.token,
+      );
+      expect(incompleteFacts.value).toMatchObject({ complete: false });
+      expect(JSON.stringify(incompleteFacts.value)).toContain('明细未完整加载');
+      expect(JSON.stringify(incompleteFacts.value)).not.toContain('当前 null 行');
+      session.updateEmbeddedChildren('lineRows', [], []);
+      await flushPromises();
+      const beforeSave = requests.length;
+      await session.saveRecord();
+      await expect(session.prepareAssistantSave()).rejects.toThrow('明细未完整加载');
+      expect(requests).toHaveLength(beforeSave);
+      expect(session.editorMode).toBe('edit');
+      wrapper.unmount();
+    },
+  );
+
   it('applies signed form-compute rules through the host draft coordinator after a field edit', async () => {
     globalThis.fetch = async (input) => {
       const request = new Request(input);
@@ -3140,6 +3465,7 @@ describe('ModulePageHost', () => {
     async (moduleKind) => {
       const writes: Array<{ payload: unknown; requestId: string | null }> = [];
       let lostResponse = false;
+      let viewFails = false;
       const persisted = { id: 'saved-record', title: '已确认名称', version: 1 };
       globalThis.fetch = async (input, init) => {
         const request = new Request(input, init);
@@ -3242,7 +3568,10 @@ describe('ModulePageHost', () => {
         }
         if (path.includes('/save-receipts/'))
           return Response.json({ committed: true, recordId: persisted.id, recordVersion: 1 });
-        if (path.includes('/view/')) return Response.json(persisted);
+        if (path.includes('/view/')) {
+          if (viewFails) throw new Error('saved view refresh failed');
+          return Response.json(persisted);
+        }
         if (path.includes('/actions/'))
           return Response.json({ actions: [{ actionCode: 'update', available: true }] });
         return Response.json({ records: [], total: 0 });
@@ -3318,7 +3647,9 @@ describe('ModulePageHost', () => {
         expect(proposal.presentation.lines.find((line) => line.startsWith('取货时间：'))).not.toContain(
           'T07:00:00Z',
         );
+        expect(proposal.continuation?.isCurrent()).toBe(false);
         const savedPresentation = await proposal.execute();
+        expect(proposal.continuation?.isCurrent()).toBe(true);
         expect(savedPresentation.lines.join(' ')).not.toContain('记录标识');
         expect(savedPresentation.details).toEqual({
           title: '保存详情',
@@ -3336,11 +3667,22 @@ describe('ModulePageHost', () => {
         expect(session.editorMode).toBe('view');
         (await session.prepareAssistantCreate())();
         await flushPromises();
+        expect(proposal.continuation?.isCurrent()).toBe(false);
         const next = await session.prepareAssistantSave();
         lostResponse = true;
         await expect(next.execute()).rejects.toBeDefined();
+        expect(next.continuation?.isCurrent()).toBe(false);
         expect((await next.lookup())?.title).toBe('保存成功');
+        expect(next.continuation?.isCurrent()).toBe(false);
         expect(writes).toHaveLength(2);
+        (await session.prepareAssistantCreate())();
+        await flushPromises();
+        const refreshFailed = await session.prepareAssistantSave();
+        lostResponse = false;
+        viewFails = true;
+        expect((await refreshFailed.execute()).title).toBe('保存成功');
+        expect(refreshFailed.continuation?.isCurrent()).toBe(false);
+        expect(writes).toHaveLength(3);
       } finally {
         wrapper.unmount();
       }

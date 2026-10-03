@@ -49,10 +49,45 @@ export class FormComputeCoordinator {
     if (!this.propagationOrder || this.propagationOrder.length === 0) return draft;
     let next: FormulaRecord = { ...draft };
     const propagatedFields = new Set(changedFields);
+    const unavailableFields = new Set<string>();
+    const activeTargets = new Set(
+      this.propagationOrder
+        .filter((rule) => allRules || rule.triggerFields.some((field) => propagatedFields.has(field)))
+        .map((rule) => rule.targetField),
+    );
+    // Revalidate calculation ancestors even when only a downstream input changed. A missing
+    // ancestor output may be a prior failure, rather than a successful null calculation.
+    let expanded = true;
+    while (expanded) {
+      expanded = false;
+      const requiredInputs = new Set(
+        this.propagationOrder
+          .filter((rule) => activeTargets.has(rule.targetField))
+          .flatMap((rule) => [...referencedValueFields(rule)]),
+      );
+      for (const rule of this.propagationOrder) {
+        if (activeTargets.has(rule.targetField)) continue;
+        if (
+          requiredInputs.has(rule.targetField) ||
+          rule.triggerFields.some((field) => activeTargets.has(field))
+        ) {
+          activeTargets.add(rule.targetField);
+          expanded = true;
+        }
+      }
+    }
 
     for (const rule of this.propagationOrder) {
-      if (!allRules && !rule.triggerFields.some((field) => propagatedFields.has(field))) continue;
+      if (!activeTargets.has(rule.targetField)) continue;
       try {
+        // The previous output is not a preview of the new input snapshot. Remove it first so
+        // an unavailable evaluation cannot leave a stale result visible to the user or assistant.
+        delete next[rule.targetField];
+        propagatedFields.add(rule.targetField);
+        if ([...referencedValueFields(rule)].some((field) => unavailableFields.has(field))) {
+          unavailableFields.add(rule.targetField);
+          continue;
+        }
         // Child rows are stored under page relation field names in the save draft. Formula programs
         // retain metadata relation codes, so use a transient overlay solely for evaluation.
         const evaluationContext = childAggregateRows ? { ...next, ...childAggregateRows } : next;
@@ -60,15 +95,19 @@ export class FormComputeCoordinator {
           rule.program,
           evaluationContext,
           rule.targetValueType,
+          { includeUnchanged: true },
         );
-        if (result.changedFields.length === 0) continue;
+        if (result.changedFields.length === 0) {
+          unavailableFields.add(rule.targetField);
+          continue;
+        }
         if (!isExpectedWrite(result, rule.targetField)) return draft;
         next = { ...next, ...result.patch };
         result.changedFields.forEach((field) => propagatedFields.add(field));
       } catch {
-        // Descriptors are server-issued, but unexpected payloads must not
-        // partially overwrite a user draft.
-        return draft;
+        // Runtime limits are also unavailable previews. Keep the user's inputs
+        // and prevent dependent calculations from treating the failed output as null.
+        unavailableFields.add(rule.targetField);
       }
     }
     return next as TDraft;
@@ -146,6 +185,8 @@ function isWellFormedRule(rule: ResolvedFormComputeRuleDescriptor): boolean {
     typeof rule.targetField !== 'string' ||
     rule.targetField.length === 0 ||
     !Array.isArray(rule.triggerFields) ||
+    rule.program?.schemaVersion !== 1 ||
+    rule.program.profile !== 'FORM_COMPUTE' ||
     !rule.triggerFields.every((field) => typeof field === 'string' && field.length > 0)
   ) {
     return false;
@@ -169,4 +210,20 @@ function isExpectedWrite(
     result.changedFields[0] === targetField &&
     Object.hasOwn(result.patch, targetField)
   );
+}
+
+/** Includes platform effects such as cleared dependent references in the calculation trigger set. */
+export function formComputeChangedFields(
+  previous: FormulaRecord,
+  current: FormulaRecord,
+  explicitFields: readonly string[],
+): string[] {
+  return [
+    ...new Set([
+      ...explicitFields,
+      ...[...new Set([...Object.keys(previous), ...Object.keys(current)])].filter(
+        (field) => !Object.is(previous[field], current[field]),
+      ),
+    ]),
+  ];
 }

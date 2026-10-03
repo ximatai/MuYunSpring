@@ -25,11 +25,28 @@ export function resolveRecordDetailDisplayValue(
     draft?: boolean;
   } = {},
 ) {
+  if (field.calculationPending) return '保存后计算';
   const emptyText = options.emptyText ?? '-';
   const value = record[field.fieldName];
   const customValue = options.displayOf?.(field.fieldName, value, record, field);
   if (isPresent(customValue)) {
     return String(customValue);
+  }
+  const scale = field.inputRequirements?.scale;
+  if (
+    field.valueType === 'DECIMAL' &&
+    typeof value === 'number' &&
+    Number.isFinite(value) &&
+    typeof scale === 'number' &&
+    Number.isInteger(scale) &&
+    scale >= 0 &&
+    scale <= 20
+  ) {
+    return new Intl.NumberFormat('en-US', {
+      useGrouping: false,
+      minimumFractionDigits: scale,
+      maximumFractionDigits: scale,
+    }).format(value);
   }
   if (options.draft && field.controlType === 'enabledStatus') {
     return resolveRecordEnabledStatusValue(value) ? '启用' : '停用';

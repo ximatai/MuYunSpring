@@ -31,6 +31,14 @@ final class FormulaFormComputeProfile {
     }
 
     static FormulaProgram compile(FormulaExpressionSupport.ParsedExpression parsed) {
+        return compile(parsed, null);
+    }
+
+    static FormulaProgram compileRow(FormulaExpressionSupport.ParsedExpression parsed, String relationCode) {
+        return compile(parsed, relationCode + ".");
+    }
+
+    private static FormulaProgram compile(FormulaExpressionSupport.ParsedExpression parsed, String rowPrefix) {
         if (parsed == null || parsed.expression() == null || parsed.expression().isBlank()
                 || parsed.expression().length() > MAX_EXPRESSION_LENGTH
                 || !(parsed.ast() instanceof AssignNode assignment)) {
@@ -39,7 +47,7 @@ final class FormulaFormComputeProfile {
         LinkedHashSet<String> fields = new LinkedHashSet<>();
         CompileBudget budget = new CompileBudget();
         budget.visit(1);
-        FormulaNode target = compileTarget(assignment.left, fields, budget, 2);
+        FormulaNode target = compileTarget(assignment.left, fields, budget, 2, rowPrefix);
         FormulaNode value = compileScalar(assignment.right, fields, budget, 2);
         FormulaNode condition = assignment.condition == null ? null
                 : compileScalar(assignment.condition, fields, budget, 2);
@@ -156,7 +164,8 @@ final class FormulaFormComputeProfile {
         return new FormulaNode(FormulaNode.Kind.FIELD, null, field.dataIndex, null, List.of());
     }
 
-    private static FormulaNode compileTarget(AstNode node, Set<String> fields, CompileBudget budget, int depth) {
+    private static FormulaNode compileTarget(AstNode node, Set<String> fields, CompileBudget budget, int depth,
+                                             String rowPrefix) {
         if (node instanceof OthersNode others) {
             budget.visit(depth);
             if (!others.dataIndex.matches("[A-Za-z][A-Za-z0-9_]*\\.[A-Za-z][A-Za-z0-9_]*")) {
@@ -166,7 +175,10 @@ final class FormulaFormComputeProfile {
             return new FormulaNode(FormulaNode.Kind.OTHERS, null, others.dataIndex, null, List.of());
         }
         budget.visit(depth);
-        if (!(node instanceof FieldNode field) || !field.dataIndex.matches("[A-Za-z][A-Za-z0-9_]*")) {
+        if (!(node instanceof FieldNode field) || !(rowPrefix == null
+                ? field.dataIndex.matches("[A-Za-z][A-Za-z0-9_]*")
+                : field.dataIndex.startsWith(rowPrefix)
+                    && field.dataIndex.substring(rowPrefix.length()).matches("[A-Za-z][A-Za-z0-9_]*"))) {
             throw unsupportedNode(node);
         }
         fields.add(field.dataIndex);

@@ -36,7 +36,25 @@ describe('RecordFormFields', () => {
       fields: new Map([['amount', { ...fields.get('amount')!, calculationTiming: 'IMMEDIATE' }]]),
     });
     expect(wrapper.text()).not.toContain('保存后计算');
-    expect(wrapper.get('input').element.value).toBe('65.00');
+    expect(wrapper.text()).toContain('65.00');
+    expect(wrapper.find('input').exists()).toBe(false);
+    await wrapper.setProps({
+      record: { amount: 213.60000000000002 },
+      fields: new Map([
+        [
+          'amount',
+          {
+            ...fields.get('amount')!,
+            calculationTiming: 'IMMEDIATE',
+            inputRequirements: { requiredOnInsert: false, requiredOnUpdate: false, scale: 2 },
+          },
+        ],
+      ]),
+    });
+    expect(wrapper.text()).toContain('213.60');
+    expect(wrapper.text()).not.toContain('213.60000000000002');
+    expect(wrapper.emitted('update:field')).toBeUndefined();
+    wrapper.unmount();
   });
 
   it('keeps normalized required errors consistent with validity without changing the draft', async () => {
