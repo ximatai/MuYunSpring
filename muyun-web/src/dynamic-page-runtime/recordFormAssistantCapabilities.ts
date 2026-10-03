@@ -13,6 +13,7 @@ import {
   decodeNumberEditorValue,
   resolveRecordFormFieldState,
   resolveRecordDetailDisplayValue,
+  resolveRecordEnabledStatusValue,
   type ReferencePickerCandidate,
   type RecordFormFieldState,
   type RecordFormFieldValue,
@@ -23,14 +24,21 @@ export function createRecordFormAssistantCapabilities(
   {
     resolveReferenceNames = true,
     canReadDetail,
-  }: { resolveReferenceNames?: boolean; canReadDetail?: () => boolean } = {},
+    schemaDiscovery,
+  }: {
+    resolveReferenceNames?: boolean;
+    canReadDetail?: () => boolean;
+    schemaDiscovery?: AssistantCapability['schemaDiscovery'];
+  } = {},
 ) {
   const references: AssistantReferenceSelectionState = { selections: new Map(), searchRevision: 0 };
   const canDescribe = () => hasEditableDraft(view) || canReadDetail?.() === true;
   return () => [
-    ...(canDescribe() ? [formDescribeCapability(view, resolveReferenceNames, canDescribe)] : []),
+    ...(canDescribe()
+      ? [{ ...formDescribeCapability(view, resolveReferenceNames, canDescribe), schemaDiscovery }]
+      : []),
     ...(hasEditableDraft(view)
-      ? [formPatchCapability(view), ...referenceCapabilities(view, references)]
+      ? [{ ...formPatchCapability(view), schemaDiscovery }, ...referenceCapabilities(view, references)]
       : []),
   ];
 }
@@ -121,6 +129,12 @@ function referenceResolveAndPatchCapability(
         );
       }
       const candidate = page.records[0];
+      if (page.total === 0 && page.records.length === 0) {
+        throw new AssistantCapabilityUsageError(
+          'No reference candidates matched this title in the authorized source; search with a shorter business name or an empty keyword and compare candidate titles and subtitles. This does not prove the record is absent.',
+          'PRECONDITION_FAILED',
+        );
+      }
       if (
         page.total !== 1 ||
         page.records.length !== 1 ||
@@ -159,7 +173,7 @@ function referenceSearchCapability(
     descriptor: {
       code: 'reference.search-options',
       description:
-        'Search the current form reference candidates through its authorized picker source. Use the returned opaque selectionKey; never invent an internal ID.',
+        'Search the current form reference candidates through its authorized picker source. Compare candidate titles and subtitles before selecting. If no options match, broaden the business-name keyword or use an empty keyword; no matches do not prove absence. Use the returned opaque selectionKey; never invent an internal ID.',
       inputSchema: {
         type: 'object',
         additionalProperties: false,
@@ -455,10 +469,11 @@ function formPatchCapability(
         const field = formFieldStates(view).find((item) => item.fieldName === fieldName);
         // Reference summaries already contain authorized display text, not reference IDs.
         if (field && !field.reference)
-          return resolveRecordDetailDisplayValue(field, { [fieldName]: value }, { emptyText: '空' }).slice(
-            0,
-            200,
-          );
+          return resolveRecordDetailDisplayValue(
+            field,
+            { [fieldName]: value },
+            { emptyText: '空', draft: true },
+          ).slice(0, 200);
         return value === undefined || value === null || value === '' ? '空' : String(value).slice(0, 200);
       };
       return {
@@ -597,7 +612,9 @@ function assistantCurrentValue(
           resolvedReferenceDisplay ??
           assistantFieldDisplay(field, view.editingRecord ?? view.selectedRecord ?? {})
         ).slice(0, 500)
-      : (view.editingRecord ?? view.selectedRecord)?.[field.fieldName];
+      : field.controlType === 'enabledStatus' && hasEditableDraft(view)
+        ? resolveRecordEnabledStatusValue(view.editingRecord?.[field.fieldName])
+        : (view.editingRecord ?? view.selectedRecord)?.[field.fieldName];
   let candidate: null | string | number | boolean | Array<string | number | boolean> | undefined;
   if (value === undefined) return undefined;
   if (value === null || typeof value === 'number' || typeof value === 'boolean') candidate = value;

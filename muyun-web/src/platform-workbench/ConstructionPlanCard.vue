@@ -68,7 +68,12 @@ watch(() => state.value.generation, refreshTask, { immediate: true });
 function progressLabel(object: ConstructionTask['objects'][number]) {
   if (object.complete) return '已验收；后续修改以当前配置为准';
   const value = object.progress;
-  if (!value) return '尚未建立';
+  if (!value)
+    return constructionPlanBindings(state.value.saved).some(
+      (binding) => binding.objectKey === object.objectKey,
+    )
+      ? '已关联模块，当前配置尚未核实'
+      : '尚未关联模块，当前配置尚未核实';
   if (value.runtimeStatus !== 'ACTIVE') return '配置已提交，正在等待可用状态确认';
   if (value.needsReview) return '已有配置，需要核对最新变化';
   if (value.entryVisible && value.pagePublished) return '页面和入口已可用，待实际试用';

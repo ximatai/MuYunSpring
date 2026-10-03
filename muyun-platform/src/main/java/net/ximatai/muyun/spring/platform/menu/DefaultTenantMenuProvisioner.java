@@ -12,6 +12,8 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
+import java.util.HashSet;
+import java.util.Set;
 import java.util.Objects;
 
 public class DefaultTenantMenuProvisioner implements TenantCreationProvisioner {
@@ -43,7 +45,9 @@ public class DefaultTenantMenuProvisioner implements TenantCreationProvisioner {
         String validTenantId = requireText(tenantId, "tenantId");
         try (TenantContext.Scope ignored = TenantContext.use(validTenantId)) {
             MenuScheme scheme = ensureTenantAdminScheme(validTenantId);
-            copySystemAdminMenus(validTenantId, scheme.getId(), TreeAbility.ROOT_ID);
+            Set<String> defaultMenuIds = new HashSet<>();
+            collectDefaultMenuPaths(TreeAbility.ROOT_ID, defaultMenuIds);
+            reconcileSystemMenuCopies(validTenantId, scheme.getId(), TreeAbility.ROOT_ID, true, defaultMenuIds);
         }
     }
 
@@ -94,12 +98,51 @@ public class DefaultTenantMenuProvisioner implements TenantCreationProvisioner {
         }
     }
 
-    private void copySystemAdminMenus(String tenantId, String targetSchemeId, String sourceParentId) {
+    /** Code-declared entries need their container path; containers carry no business target. */
+    private boolean collectDefaultMenuPaths(String parentId, Set<String> defaultMenuIds) {
+        boolean hasDefaultMenu = false;
+        for (Menu source : menuService.children(MenuSchemeService.ADMIN_SCHEME_ID, parentId)) {
+            boolean hasDefaultChild = collectDefaultMenuPaths(source.getId(), defaultMenuIds);
+            boolean container = source.getModuleAlias() == null || source.getModuleAlias().isBlank();
+            if (Boolean.TRUE.equals(source.getSystemManaged()) || (container && hasDefaultChild)) {
+                defaultMenuIds.add(source.getId());
+                hasDefaultMenu = true;
+            }
+        }
+        return hasDefaultMenu;
+    }
+
+    private void reconcileSystemMenuCopies(String tenantId, String targetSchemeId, String sourceParentId,
+                                          boolean managedAncestors, Set<String> defaultMenuIds) {
         for (Menu source : menuService.children(MenuSchemeService.ADMIN_SCHEME_ID, sourceParentId)) {
             String targetId = tenantMenuId(tenantId, source.getId());
-            ensureMenuCopy(source, targetSchemeId, targetId, targetParentId(tenantId, source.getParentId()));
-            copySystemAdminMenus(tenantId, targetSchemeId, source.getId());
+            boolean managedPath = managedAncestors && defaultMenuIds.contains(source.getId());
+            if (managedPath) {
+                ensureMenuCopy(source, targetSchemeId, targetId, targetParentId(tenantId, source.getParentId()));
+            } else {
+                retireUnownedSourceCopy(targetSchemeId, targetId);
+            }
+            reconcileSystemMenuCopies(tenantId, targetSchemeId, source.getId(), managedPath, defaultMenuIds);
         }
+    }
+
+    /** Manual system entries are not tenant defaults; preserve manually taken-over or unmarked copies. */
+    private void retireUnownedSourceCopy(String targetSchemeId, String targetId) {
+        Menu existing = menuService.selectIgnoreSoftDelete(targetId);
+        if (existing == null || !Boolean.TRUE.equals(existing.getPlatformManaged())) return;
+        if (!Objects.equals(existing.getSchemeId(), targetSchemeId)) {
+            throw new PlatformException("Default tenant menu identity drift: " + existing.getId());
+        }
+        if (hasOperatorOwnedDescendant(targetSchemeId, existing.getId())) return;
+        if (!Boolean.FALSE.equals(existing.getEnabled()) && !Boolean.TRUE.equals(existing.getDeleted())) {
+            menuService.disable(existing.getId());
+        }
+    }
+
+    private boolean hasOperatorOwnedDescendant(String schemeId, String parentId) {
+        return menuService.children(schemeId, parentId).stream()
+                .anyMatch(menu -> !Boolean.TRUE.equals(menu.getPlatformManaged())
+                        || hasOperatorOwnedDescendant(schemeId, menu.getId()));
     }
 
     private String targetParentId(String tenantId, String sourceParentId) {

@@ -54,6 +54,12 @@ it('keeps every row reachable across pagination and oversized details', async ()
   expect(last.relations[0]!.rows.map((row) => row.rowKey)).toEqual(keys.slice(20));
   expect(last.relations[0]!.nextOffset).toBeNull();
   await invoke('relation.select-row', { relationCode: 'lines', rowKey: 'row-24' });
+  expect(capabilities.selection()).toEqual({ relationCode: 'lines', rowKey: 'row-24' });
+  expect(
+    capabilities()
+      .filter((item) => item.schemaDiscovery === 'eager')
+      .map((item) => item.descriptor.code),
+  ).toEqual(['relation.form.describe', 'relation.form.patch-draft']);
   const selected = (await invoke('relation.form.describe', {})) as { fields: unknown[] };
   expect(selected.fields).toHaveLength(100);
   expect(update).not.toHaveBeenCalled();

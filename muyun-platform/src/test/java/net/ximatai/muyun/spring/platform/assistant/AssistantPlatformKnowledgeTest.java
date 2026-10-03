@@ -36,8 +36,13 @@ class AssistantPlatformKnowledgeTest {
         assertThat(AssistantPlatformKnowledge.appendTo("base", Map.of("surface", "module-page"), List.of()))
                 .contains("patch known ordinary fields together before resolving remaining references",
                         "Opening is not filling", "Tree children need saved parents",
+                        "creation.ready only controls opening another draft", "fill an existing writable form",
+                        "Use CURRENT edit facts", "row tools appear after selection",
                         "aggregate children save together", "only human confirmation saves",
-                        "Missing values: ask one concise question")
+                        "Missing values: ask one concise question", "form.prepare-save if available (load if indexed)",
+                        "prepares review without writing", "Do not replace an available",
+                        "If no preparation capability is declared", "Draft-only requests remain unsaved",
+                        "hand off to the page save action, never a selection card")
                 .doesNotContain("platform.menu", "customer", "product");
         assertThat(AssistantPlatformKnowledge.appendTo("base", Map.of("surface", "page-composition"), List.of()))
                 .contains("Reuse supplied catalogs", "revise and preview the candidate",
@@ -52,13 +57,14 @@ class AssistantPlatformKnowledgeTest {
         assertThat(AssistantPlatformKnowledge.appendTo(
                 "base", Map.of("surface", "module-page"), List.of(navigation)))
                 .contains("standard MuYun record workspace", "MuYun workbench navigation",
-                        "with pageContext.title",
+                        "pageContext.title",
                         "facts.moduleAlias",
-                        "open only an exact returned menuId",
-                        "Use the correct module", "Never copy scope/reference answers into unrelated fields");
+                        "open exact returned menuIds", "Current-list absence is not global absence",
+                        "clarify ambiguous scope before offering creation", "Preserve the user's explicit business scope",
+                        "Never copy scope/reference answers into unrelated fields");
         assertThat(AssistantPlatformKnowledge.appendTo(
                 "base", Map.of("surface", "page-composition"), List.of(navigation)))
-                .contains("find the matching business entry",
+                .contains("find matching visible menus",
                         "Configuration governance requires an explicit configuration goal")
                 .doesNotContain("find visible standard governance entry");
     }

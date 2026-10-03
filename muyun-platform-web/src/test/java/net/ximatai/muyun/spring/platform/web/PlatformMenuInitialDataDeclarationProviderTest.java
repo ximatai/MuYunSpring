@@ -25,6 +25,7 @@ import net.ximatai.muyun.spring.platform.initialdata.InitialDataConflictExceptio
 import net.ximatai.muyun.spring.platform.initialdata.InitialDataDeclaration;
 import net.ximatai.muyun.spring.platform.initialdata.InitialDataExecutor;
 import net.ximatai.muyun.spring.platform.menu.Menu;
+import net.ximatai.muyun.spring.platform.menu.DefaultTenantMenuProvisioner;
 import net.ximatai.muyun.spring.platform.menu.MenuOpenMode;
 import net.ximatai.muyun.spring.platform.menu.MenuPageMode;
 import net.ximatai.muyun.spring.platform.menu.MenuScheme;
@@ -114,6 +115,34 @@ class PlatformMenuInitialDataDeclarationProviderTest {
                     .extracting(Menu::getModuleAlias)
                     .containsExactly("iam.role");
             assertThat(moduleMenu("platform.hidden")).isNull();
+        }
+    }
+
+    @Test
+    void shouldCopyRealDeclaredMenuPathsWithoutCopyingManualSystemEntries() {
+        try (GenericApplicationContext context = context(PlatformModuleWeb.class)) {
+            registerStaticModules(context);
+            initializePlatformMenus(context);
+            Menu manual = menu("manual-system-entry", MenuSchemeService.ADMIN_SCHEME_ID,
+                    PlatformMenuGroups.MODELING);
+            manual.setTitle("人工入口");
+            manual.setModuleAlias("platform.module");
+            manual.setOpenMode(MenuOpenMode.TAB);
+            menuService.insert(manual);
+            new PlatformMenuContributionReconciliationTask(menuService,
+                    new PlatformMenuInitialDataDeclarationProvider(menuService, context)).run();
+
+            new DefaultTenantMenuProvisioner(schemeService, menuService).afterTenantCreated("demo");
+
+            try (TenantContext.Scope ignored = TenantContext.use("demo")) {
+                String schemeId = DefaultTenantMenuProvisioner.tenantAdminSchemeId("demo");
+                assertThat(menuService.list(Criteria.of().eq("schemeId", schemeId)))
+                        .hasSize(3)
+                        .allSatisfy(menu -> assertThat(menu.getEnabled()).isTrue())
+                        .extracting(Menu::getTitle).doesNotContain("人工入口");
+                assertThat(menuService.list(Criteria.of().eq("schemeId", schemeId)
+                        .eq("moduleAlias", "platform.module"))).hasSize(1);
+            }
         }
     }
 

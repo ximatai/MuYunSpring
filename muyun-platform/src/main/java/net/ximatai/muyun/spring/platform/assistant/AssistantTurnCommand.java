@@ -16,8 +16,16 @@ public record AssistantTurnCommand(
         List<AiToolDefinition> capabilities,
         List<AssistantCapabilityResult> results,
         AssistantSelectionResponse selectionResponse,
-        ExecutionBudget executionBudget
+        ExecutionBudget executionBudget,
+        String decisionFeedback
 ) {
+    public AssistantTurnCommand(String message, List<AssistantConversationMessage> history,
+                                Map<String, Object> context, List<AiToolDefinition> capabilities,
+                                List<AssistantCapabilityResult> results, AssistantSelectionResponse selectionResponse,
+                                ExecutionBudget executionBudget) {
+        this(message, history, context, capabilities, results, selectionResponse, executionBudget, null);
+    }
+
     public record ExecutionBudget(String phase, int step, int normalLimit, int hardLimit) {
         public ExecutionBudget {
             if (!("work".equals(phase) || "summary".equals(phase)) || normalLimit < 1
@@ -35,6 +43,9 @@ public record AssistantTurnCommand(
     }
 
     public AssistantTurnCommand {
+        if (decisionFeedback != null && !"undeclared-tool".equals(decisionFeedback)) {
+            throw new IllegalArgumentException("invalid assistant decision feedback");
+        }
         if (history != null && history.stream().anyMatch(Objects::isNull)) {
             throw new IllegalArgumentException("assistant history item must not be null");
         }

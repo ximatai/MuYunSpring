@@ -3125,7 +3125,11 @@ export function useModulePageSession(
   function assistantNavigatorCreationTargets() {
     return visibleNavigatorLevels.value
       .filter((level) => navigatorRecordCreationState(level).ready)
-      .map((level) => ({ key: level.descriptor.key, title: level.descriptor.title }));
+      .map((level) => ({
+        key: level.descriptor.key,
+        title: level.descriptor.title,
+        moduleAlias: level.context.moduleAlias,
+      }));
   }
 
   async function prepareAssistantNavigatorCreate(levelKey: string) {
@@ -3614,7 +3618,8 @@ export function useModulePageSession(
       JSON.stringify(recordMutationPayload(editingRecord.value!, formFields.value.values())) === snapshot;
     const receiptPresentation = (recordId: string): AssistantResultPresentation => ({
       title: '保存成功',
-      lines: [`${modulePageTitle.value}已保存`, `记录标识：${recordId}`],
+      lines: [`${modulePageTitle.value}已保存`],
+      details: { title: '保存详情', lines: [`记录标识：${recordId}`] },
     });
     const displayFields = [...formFields.value.keys()]
       .map((fieldName) =>

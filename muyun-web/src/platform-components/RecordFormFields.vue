@@ -34,6 +34,7 @@ import {
   resolveRecordFormFieldNames,
   resolveRecordFormFieldState,
   resolveRecordBooleanStatusValue,
+  resolveRecordEnabledStatusValue,
   resolveReferenceSelectionContext,
   referenceDisplayProjections,
   decodeDateTimeLocalEditorValue,
@@ -449,9 +450,7 @@ function booleanFieldValue(fieldName: string) {
 }
 
 function enabledStatusFieldValue(fieldName: string) {
-  // Enablement is the platform's opt-out status: a newly created record is enabled
-  // unless it explicitly carries `false`.
-  return props.record[fieldName] !== false;
+  return resolveRecordEnabledStatusValue(props.record[fieldName]);
 }
 
 function businessBooleanStatusValue(fieldName: string) {

@@ -64,6 +64,8 @@ export interface AssistantExecutionBudget {
 
 export interface AssistantTurnInput {
   executionBudget?: AssistantExecutionBudget;
+  /** Rejected planning output; never an execution receipt or authorization. */
+  decisionFeedback?: 'undeclared-tool';
   message: string;
   history?: AssistantConversationMessage[];
   context: AssistantSurfaceContext;

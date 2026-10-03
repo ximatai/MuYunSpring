@@ -7,6 +7,7 @@ import type {
   AssistantConversationMessage,
   AssistantSelectionResponse,
   AssistantTurnOutput,
+  AssistantTurnInput,
 } from '@muyun/web-contracts';
 import {
   AssistantCapabilityUsageError,
@@ -19,6 +20,21 @@ import {
 } from './assistantSurface';
 
 const MAX_CALLS_PER_STEP = 8;
+
+/** Shared transport limits: newest dialogue and display observations fit the existing history contract. */
+export function boundedAssistantConversationHistory(
+  history: AssistantConversationMessage[],
+): AssistantConversationMessage[] {
+  const selected: AssistantConversationMessage[] = [];
+  let remaining = 16_000;
+  for (const item of history.slice(-12).reverse()) {
+    const text = item.text.slice(0, 4_000);
+    if (text.length > remaining) break;
+    selected.unshift({ role: item.role, text });
+    remaining -= text.length;
+  }
+  return selected;
+}
 
 function capabilityFailure(error: unknown) {
   if (error instanceof AssistantCapabilityUsageError)
@@ -111,6 +127,7 @@ interface InternalAssistantRuntimeStepResult extends AssistantRuntimeStepResult 
   attemptedCallCount: number;
   restoredReadContext?: boolean;
   continuationToken?: AssistantInvocationToken;
+  priorObservation?: { pageInstanceKey: string; text: string };
   replayableCalls: Map<string, AssistantCapabilityResult>;
 }
 
@@ -156,7 +173,7 @@ export type AssistantRuntimeDiagnosticEvent =
       type: 'decision.restarted';
       stepIndex: number;
       attempt: number;
-      reason: 'background-context-refresh' | 'formal-surface-ready';
+      reason: 'background-context-refresh' | 'formal-surface-ready' | 'undeclared-tool';
     }
   | {
       type: 'decision.failed';
@@ -225,6 +242,15 @@ class AssistantDecisionContextChangedError extends Error {
   }
 }
 
+class AssistantRejectedDecisionError extends Error {
+  constructor(
+    readonly token: AssistantInvocationToken,
+    readonly failure: AppError,
+  ) {
+    super('Assistant model decision rejected before execution', { cause: failure });
+  }
+}
+
 /**
  * Runs the bounded tool loop for one user message. Every step takes a fresh
  * Surface snapshot so navigation and draft changes are observed before the
@@ -258,6 +284,12 @@ export async function runAssistantConversation(
   if (initial?.token.identityScopeKey !== identityScope) throw new StaleAssistantInvocationError();
   let executionScope = initial?.token.executionScopeKey;
   let history = options.history ?? [];
+  const priorObservations: Array<{ pageInstanceKey: string; text: string }> = [];
+  const requestHistory = () =>
+    boundedAssistantConversationHistory([
+      ...history,
+      ...priorObservations.map(({ text }) => ({ role: 'assistant' as const, text })),
+    ]);
   const maxSteps = options.maxSteps ?? DEFAULT_MAX_STEPS;
   if (!Number.isInteger(maxSteps) || maxSteps < 1 || maxSteps > DEFAULT_MAX_STEPS) {
     throw new Error(`Assistant conversation maxSteps must be between 1 and ${DEFAULT_MAX_STEPS}`);
@@ -273,6 +305,9 @@ export async function runAssistantConversation(
   let settledCalls = new Map<string, AssistantCapabilityResult>();
   let expectedReplacementToken: AssistantInvocationToken | undefined;
   let decisionRestarts = 0;
+  let repairedDecision = false;
+  let decisionFeedback: AssistantTurnInput['decisionFeedback'];
+  let pendingSelectionResponse = options.selectionResponse;
   for (let index = 0; index < hardLimit; index += 1) {
     if ((index >= maxSteps && !madeProgress) || unproductiveSteps >= 2) break;
     let current = registry.snapshot();
@@ -289,12 +324,12 @@ export async function runAssistantConversation(
       step = await runAssistantStepWithSettledCalls({
         registry,
         message,
-        history,
+        history: requestHistory(),
         previousResults: results,
         signal: options.signal,
         settledCalls,
         stepIndex: index,
-        selectionResponse: index === 0 ? options.selectionResponse : undefined,
+        selectionResponse: pendingSelectionResponse,
         onActivity: options.onActivity,
         onDiagnostic: options.onDiagnostic,
         onTextDelta: options.onTextDelta
@@ -305,10 +340,31 @@ export async function runAssistantConversation(
           : undefined,
         readContext,
         executionPolicy: options.executionPolicy,
+        decisionFeedback,
         executionBudget: { phase: 'work', step: index + 1, normalLimit: maxSteps, hardLimit },
       });
-    } catch (error) {
+    } catch (caught) {
+      let error = caught;
       if (streamedText) options.onTextDiscard?.(index);
+      // The entire model decision was rejected before any calls reached the browser.
+      // Re-plan once within the existing step budget; never retry transport or execution failures.
+      if (error instanceof AssistantRejectedDecisionError) {
+        if (!sameAssistantInvocationToken(error.token, registry.snapshot()?.token)) {
+          error = new AssistantDecisionContextChangedError(error.token);
+        } else if (!options.signal?.aborted && !repairedDecision) {
+          repairedDecision = true;
+          decisionFeedback = 'undeclared-tool';
+          emitDiagnostic(options.onDiagnostic, {
+            type: 'decision.restarted',
+            stepIndex: index,
+            attempt: 1,
+            reason: 'undeclared-tool',
+          });
+          continue;
+        } else {
+          error = error.failure;
+        }
+      }
       const replacement = registry.snapshot()?.token;
       const backgroundContextRefreshed =
         !hasAppliedCapabilityEffect(steps) && isSamePageSurfaceContextRefresh(error, replacement);
@@ -364,6 +420,8 @@ export async function runAssistantConversation(
       }
       throw error;
     }
+    pendingSelectionResponse = undefined;
+    decisionFeedback = undefined;
     decisionRestarts = 0;
     expectedReplacementToken = step.continuationToken;
     const crossedScope =
@@ -379,11 +437,31 @@ export async function runAssistantConversation(
         throw new StaleAssistantInvocationError();
       executionScope = step.continuationToken?.executionScopeKey;
       history = [];
+      priorObservations.length = 0;
       results = [];
       completedEffects.length = 0;
       readContext.results = [];
       readContext.token = undefined;
       observations.clear();
+    }
+    if (
+      !crossedScope &&
+      step.priorObservation &&
+      sameAssistantInvocationToken(step.continuationToken, registry.snapshot()?.token)
+    ) {
+      const existing = priorObservations.findIndex(
+        ({ pageInstanceKey }) => pageInstanceKey === step.priorObservation!.pageInstanceKey,
+      );
+      if (existing >= 0) priorObservations.splice(existing, 1);
+      const summary = step.priorObservation.text;
+      priorObservations.push({
+        pageInstanceKey: step.priorObservation.pageInstanceKey,
+        text:
+          '本次任务的此前页面观察（读取时的显示值，可用于汇总回答；不能作为当前操作参数、权限或保存依据）：\n' +
+          summary.slice(0, 2_000) +
+          (summary.length > 2_000 ? '\n（观察已截断）' : ''),
+      });
+      if (priorObservations.length > 4) priorObservations.shift();
     }
     settledCalls = crossedScope ? new Map() : step.replayableCalls;
     let newObservations = 0;
@@ -490,7 +568,7 @@ export async function runAssistantConversation(
       const output = await registry.requestTurn(
         {
           message,
-          history,
+          history: requestHistory(),
           results: withReadContext(results, readContext, token),
           executionBudget: { phase: 'summary', step: steps.length + 1, normalLimit: maxSteps, hardLimit },
         },
@@ -588,6 +666,7 @@ interface AssistantStepRequest {
   readContext?: AssistantReadContext;
   executionPolicy?: AssistantExecutionPolicy;
   executionBudget?: AssistantExecutionBudget;
+  decisionFeedback?: AssistantTurnInput['decisionFeedback'];
 }
 
 async function runAssistantStepWithSettledCalls({
@@ -605,6 +684,7 @@ async function runAssistantStepWithSettledCalls({
   readContext,
   executionPolicy,
   executionBudget,
+  decisionFeedback,
 }: AssistantStepRequest): Promise<InternalAssistantRuntimeStepResult> {
   const initialSnapshot = registry.snapshot();
   if (!initialSnapshot) throw new Error('No assistant surface is active');
@@ -639,6 +719,7 @@ async function runAssistantStepWithSettledCalls({
             history,
             results: previousResults,
             executionBudget,
+            ...(decisionFeedback ? { decisionFeedback } : {}),
             ...(selectionResponse ? { selectionResponse } : {}),
           },
           snapshot.token,
@@ -657,6 +738,7 @@ async function runAssistantStepWithSettledCalls({
             history,
             results: previousResults,
             executionBudget,
+            ...(decisionFeedback ? { decisionFeedback } : {}),
             ...(selectionResponse ? { selectionResponse } : {}),
           },
           snapshot.token,
@@ -673,6 +755,8 @@ async function runAssistantStepWithSettledCalls({
       stepIndex,
       reason: isAbortError(error) ? 'cancelled' : 'model-request-failed',
     });
+    if (error instanceof AppError && error.code === 'AI_MODEL_UNDECLARED_TOOL')
+      throw new AssistantRejectedDecisionError(snapshot.token, error);
     throw error;
   }
   emitDiagnostic(onDiagnostic, {
@@ -770,6 +854,24 @@ async function runAssistantStepWithSettledCalls({
           attemptedCallCount,
           appliedEffectCount,
           continuationToken,
+          ...(invocation.contextChanged &&
+          snapshot.observationSummary &&
+          continuationToken &&
+          !snapshot.token.fallback &&
+          !continuationToken.fallback &&
+          !snapshot.token.executionScopePending &&
+          !continuationToken.executionScopePending &&
+          snapshot.token.executionScopeKey !== undefined &&
+          snapshot.token.executionScopeKey === continuationToken.executionScopeKey &&
+          snapshot.token.identityScopeKey === continuationToken.identityScopeKey &&
+          snapshot.token.pageInstanceKey !== continuationToken.pageInstanceKey
+            ? {
+                priorObservation: {
+                  pageInstanceKey: snapshot.token.pageInstanceKey,
+                  text: snapshot.observationSummary,
+                },
+              }
+            : {}),
           replayableCalls,
         };
       }

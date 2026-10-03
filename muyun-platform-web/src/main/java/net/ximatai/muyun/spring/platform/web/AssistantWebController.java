@@ -136,7 +136,8 @@ public class AssistantWebController {
                 request.context(), request.capabilities(),
                 request.results().stream().map(AssistantCapabilityResultWeb::toDomain).toList(),
                 request.selectionResponse() == null ? null : request.selectionResponse().toDomain(),
-                request.executionBudget() == null ? null : request.executionBudget().toDomain());
+                request.executionBudget() == null ? null : request.executionBudget().toDomain(),
+                request.decisionFeedback());
     }
 
     private static AssistantTurnWebResponse response(AssistantTurnResult response) {
@@ -161,7 +162,14 @@ record AssistantTurnWebRequest(String message,
                                List<AiToolDefinition> capabilities,
                                List<AssistantCapabilityResultWeb> results,
                                AssistantSelectionResponseWeb selectionResponse,
-                               AssistantExecutionBudgetWeb executionBudget) {
+                               AssistantExecutionBudgetWeb executionBudget, String decisionFeedback) {
+    AssistantTurnWebRequest(String message, List<AssistantConversationMessageWeb> history,
+                            Map<String, Object> context, List<AiToolDefinition> capabilities,
+                            List<AssistantCapabilityResultWeb> results, AssistantSelectionResponseWeb selectionResponse,
+                            AssistantExecutionBudgetWeb executionBudget) {
+        this(message, history, context, capabilities, results, selectionResponse, executionBudget, null);
+    }
+
     AssistantTurnWebRequest(String message, List<AssistantConversationMessageWeb> history,
                             Map<String, Object> context, List<AiToolDefinition> capabilities,
                             List<AssistantCapabilityResultWeb> results, AssistantSelectionResponseWeb selectionResponse) {

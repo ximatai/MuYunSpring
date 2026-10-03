@@ -130,7 +130,7 @@ watch(
       <UiTooltip
         v-for="action in directActions"
         :key="action.key"
-        :title="action.disabled ? (action.disabledReason ?? '') : ''"
+        :title="action.disabled && action.disabledReason ? `${action.title}：${action.disabledReason}` : ''"
       >
         <span class="adaptive-header-action-bar__trigger record-action-tooltip-trigger">
           <UiActionButton

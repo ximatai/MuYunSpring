@@ -127,7 +127,10 @@ class AssistantTurnServiceTest {
             var request = ArgumentCaptor.forClass(AiTurnRequest.class);
             verify(gateway).complete(request.capture());
             assertThat(request.getValue().tools()).isEmpty();
-            assertThat(request.getValue().messages().getFirst().content()).contains("No tools are available")
+            assertThat(request.getValue().messages().getFirst().content()).contains("No tools are available",
+                            "Do not turn unobserved business conventions into requirements or blockers",
+                            "Navigation changes execution authority, not read evidence",
+                            "never restore IDs, candidates, permissions or confirmation authority")
                     .doesNotContain("Use only declared capabilities");
             assertThat(request.getValue().messages().getLast().content()).contains("executionBudget", "summary", "observations", "当前业务");
             assertThat(request.getValue().messages()).noneMatch(message -> message.role() == AiChatMessage.Role.TOOL);
@@ -398,7 +401,7 @@ class AssistantTurnServiceTest {
         assertThat(request.getValue().messages()).hasSize(2);
         assertThat(request.getValue().messages().getFirst().role().name()).isEqualTo("SYSTEM");
         assertThat(normalizeWhitespace(request.getValue().messages().getFirst().content()))
-                .contains("MuYun workbench", "open only an exact", "returned menuId", "navigate manually")
+                .contains("MuYun workbench", "open exact returned menuIds", "navigate manually")
                 .doesNotContain("employee", "department", "daily report");
         assertThat(request.getValue().messages().get(1).content()).contains("find customers", "workbench");
         assertThat(request.getValue().tools()).extracting(AiToolDefinition::code)
@@ -556,10 +559,17 @@ class AssistantTurnServiceTest {
         assertThat(prompt)
                 .contains("standard MuYun record workspace", "patch known ordinary fields together",
                         "only when the user asked to create or change", "already complete and must not start a draft",
-                        "Leave drafts unsaved", "ask one concise question", "workbench navigation",
-                        "creation.reason", "scope.search", "missing capabilities alone do not prove denied permission",
-                        "navigatorCreationTargets", "navigator.start-create", "record.start-create", "editorOwner")
+                        "prepares review without writing", "Draft-only requests remain unsaved",
+                        "Offer declared human review", "no tool names or internal IDs",
+                        "ask one concise question", "workbench navigation",
+                        "creation.reason", "scope.search", "absent tools do not prove permission denial",
+                        "navigatorCreationTargets", "navigator.start-create", "record.start-create", "editorOwner",
+                        "Selection answers are not receipts", "never save, publish, approve or grant permission through them",
+                        "Current-list absence is not global absence", "hand off to the page save action")
                 .doesNotContain("employee", "department", "daily report");
+        assertThat(request.getValue().tools()).filteredOn(tool -> AssistantTurnService.PRESENT_SELECTION_CODE.equals(tool.code()))
+                .singleElement().satisfies(tool -> assertThat(tool.description())
+                        .contains("It never saves, publishes or approves", "real operation proposal"));
     }
 
     private static String normalizeWhitespace(String value) {
@@ -594,7 +604,7 @@ class AssistantTurnServiceTest {
         assertThat(request.getValue().messages().get(2).content()).contains("在哪个租户");
         assertThat(request.getValue().messages().get(3).content()).contains("演示租户", "employee");
         assertThat(request.getValue().messages().getFirst().content())
-                .contains("do not ask users to repeat explicit goals", "Ask one concise clarification");
+                .contains("Never ask users to repeat goals", "Clarify once");
     }
 
     @Test
@@ -652,7 +662,8 @@ class AssistantTurnServiceTest {
         try (CurrentUserContext.Scope ignored = CurrentUserContext.use(CurrentUser.systemUser("system", "System"))) {
             assertThatThrownBy(() -> service.turn(command))
                     .isInstanceOf(PlatformException.class)
-                    .hasMessageContaining("undeclared capability call");
+                    .hasMessageContaining("undeclared capability call")
+                    .satisfies(error -> assertThat(((PlatformException) error).code()).isEqualTo("AI_MODEL_UNDECLARED_TOOL"));
         }
     }
 
@@ -718,4 +729,28 @@ class AssistantTurnServiceTest {
                     .hasMessageContaining("模型未返回可执行内容");
         }
     }
+    @Test
+    void decisionFeedbackUsesFixedPlanningFactsWithoutExpandingTools() throws Exception {
+        var gateway = mock(AiModelGateway.class);
+        when(gateway.complete(org.mockito.ArgumentMatchers.any())).thenReturn(
+                new AiTurnResponse("ready", List.of(), "stop", "request"));
+        var service = new AssistantTurnService(gateway, new ObjectMapper());
+        var command = new AssistantTurnCommand("continue", List.of(), Map.of(), List.of(), List.of(),
+                null, null, "undeclared-tool");
+        try (var ignored = CurrentUserContext.use(CurrentUser.systemUser("system", "System"))) {
+            service.turn(command);
+        }
+        var request = org.mockito.ArgumentCaptor.forClass(AiTurnRequest.class);
+        org.mockito.Mockito.verify(gateway).complete(request.capture());
+        assertThat(request.getValue().tools()).extracting(AiToolDefinition::code)
+                .containsExactly("assistant.present-selection");
+        var payload = new ObjectMapper().readTree(request.getValue().messages().getLast().content());
+        assertThat(payload.path("decisionFeedback").path("code").asText()).isEqualTo("undeclared-tool");
+        assertThat(payload.path("decisionFeedback").path("message").asText())
+                .contains("rejected before executing", "Earlier effects remain applied", "load missing");
+        assertThatThrownBy(() -> new AssistantTurnCommand("continue", List.of(), Map.of(), List.of(),
+                List.of(), null, null, "arbitrary instructions"))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
 }

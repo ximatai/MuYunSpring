@@ -5,12 +5,18 @@ import { OperationUsageError } from './operationErrors';
 export const ASSISTANT_CAPABILITY_LOAD_CODE = 'assistant.load-capabilities';
 const FULL_CATALOG_LIMIT = 12;
 const LOADED_LIMIT = 8;
+const EAGER_LIMIT = FULL_CATALOG_LIMIT - LOADED_LIMIT - 1;
 
 /** Discovery changes request context only. The live registry still owns execution and permission. */
 export function assistantCapabilityCatalog(capabilities: AssistantCapability[]) {
   if (capabilities.some(({ descriptor }) => descriptor.code === ASSISTANT_CAPABILITY_LOAD_CODE))
     throw new Error('Reserved assistant discovery capability');
   const byCode = new Map(capabilities.map((capability) => [capability.descriptor.code, capability]));
+  // Overflow remains discoverable. Current surface hints do not constrain valid combinations.
+  const eager = capabilities
+    .filter((capability) => capability.schemaDiscovery === 'eager')
+    .slice(0, EAGER_LIMIT);
+  const eagerCodes = new Set(eager.map(({ descriptor }) => descriptor.code));
   const discovery: AssistantCapability<string[]> = {
     effect: 'read',
     descriptor: {
@@ -71,18 +77,19 @@ export function assistantCapabilityCatalog(capabilities: AssistantCapability[]) 
                 ? output.codes.filter((code): code is string => typeof code === 'string')
                 : [];
             })
-            .filter((code) => byCode.has(code)),
+            .filter((code) => byCode.has(code) && !eagerCodes.has(code)),
         ),
       ].slice(0, LOADED_LIMIT);
       return {
         descriptors: [
           discovery.descriptor,
+          ...eager.map(({ descriptor }) => descriptor),
           ...[...new Set(codes)].flatMap((code) => (byCode.has(code) ? [byCode.get(code)!.descriptor] : [])),
         ],
         // Declared tools already carry their full description. Keep only the remaining
         // tools in discovery; eviction makes a tool discoverable again on the next turn.
         index: capabilities
-          .filter(({ descriptor }) => !codes.includes(descriptor.code))
+          .filter(({ descriptor }) => !eagerCodes.has(descriptor.code) && !codes.includes(descriptor.code))
           .map(({ descriptor }) => ({
             code: descriptor.code,
             description: descriptor.description,

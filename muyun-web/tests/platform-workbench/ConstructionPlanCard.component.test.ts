@@ -184,6 +184,37 @@ it('shows independent planning choices without treating their display order as e
   wrapper.unmount();
 });
 
+it.each([false, true])(
+  'keeps missing progress unknown when a standard module exists, with binding=%s',
+  async (bound) => {
+    const { client, session } = fixture();
+    session.edit({
+      ...content,
+      objects: [
+        {
+          key: 'customer',
+          name: '客户',
+          purpose: '登记客户',
+          ...(bound ? { moduleAlias: 'crm.customer' } : {}),
+        },
+      ],
+    });
+    await session.prepare().execute();
+    vi.mocked(client.task).mockResolvedValue({
+      planRevision: 1,
+      objects: [{ objectKey: 'customer', title: '客户', complete: false, requirements: [], options: [] }],
+    });
+    const wrapper = mount(ConstructionPlanCard, { props: { session } });
+    await flushPromises();
+    const progress = wrapper.get('[aria-label="当前建设进度"]').text();
+    expect(progress).toContain(bound ? '已关联模块，当前配置尚未核实' : '尚未关联模块，当前配置尚未核实');
+    expect(progress).not.toMatch(/尚未建立|已验收|页面和入口已可用/);
+    expect(client.progress).not.toHaveBeenCalled();
+    expect(client.publishDelivery).not.toHaveBeenCalled();
+    wrapper.unmount();
+  },
+);
+
 it('shows delivered design as read-only history without switching or rebuilding controls', async () => {
   const { session, client } = fixture();
   session.edit(content);

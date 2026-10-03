@@ -1,4 +1,5 @@
 import { AppError } from '@/web-core/errors';
+import type { AssistantTurnInput, AssistantConversationMessage } from '@muyun/web-contracts';
 import { expect, it, vi } from 'vitest';
 import {
   AssistantCapabilityUsageError,
@@ -1700,6 +1701,83 @@ it.each([403, 404])('reports inaccessible resources without leaking server detai
   expect(JSON.stringify(result.results)).not.toContain('secret-resource-detail');
 });
 
+it.each([
+  { history: [] },
+  {
+    history: Array.from(
+      { length: 12 },
+      (_, index): AssistantConversationMessage => ({
+        role: index % 2 ? 'assistant' : 'user',
+        text: 'h'.repeat(1_300),
+      }),
+    ),
+  },
+])(
+  'retains bounded display evidence across same-scope navigation without restoring old execution context, history: %s',
+  async ({ history: initialHistory }) => {
+    const registry = createAssistantSurfaceRegistry(() => 'owner');
+    const requests: AssistantTurnInput[] = [];
+    for (let index = 0; index < 6; index += 1) {
+      registry.register({
+        pageInstanceKey: `page-${index}`,
+        executionScopeKey: () => 'tenant-a',
+        contextRevision: () => '',
+        surface: {
+          describe: () => ({ surface: 'test', facts: { recordId: `internal-${index}` } }),
+          observationSummary: () => `页面 ${index}：目录价 ${17 + index} 元；${'x'.repeat(3_000)}`,
+          capabilities: () =>
+            index === 5
+              ? []
+              : [
+                  {
+                    effect: 'page',
+                    descriptor: { code: `page.open-${index}`, description: 'Open', inputSchema: {} },
+                    parseInput: (value) => value,
+                    execute: async (_input, context) => {
+                      context.applyEffect(
+                        () => registry.activate(`page-${index + 1}`),
+                        async () => registry.snapshot()?.token,
+                      );
+                      return { opened: true };
+                    },
+                  },
+                ],
+          requestTurn: async (input) => {
+            requests.push(input);
+            return index === 5
+              ? { text: '已核对', toolCalls: [] }
+              : { toolCalls: [{ id: 'open', code: `page.open-${index}`, input: {} }] };
+          },
+        },
+      });
+    }
+    registry.activate('page-0');
+    const oldToken = registry.snapshot()!.token;
+    const result = await runAssistantConversation(registry, '核对多模块价格', { history: initialHistory });
+    expect(result.termination).toBe('stopped');
+    expect(requests).toHaveLength(6);
+    expect(requests[1]!.history!.slice(-1)).toEqual([
+      { role: 'assistant', text: expect.stringContaining('目录价 17 元') },
+    ]);
+    for (const request of requests) {
+      expect(request.history!.length).toBeLessThanOrEqual(12);
+      expect(request.history!.reduce((total, item) => total + item.text.length, 0)).toBeLessThanOrEqual(
+        16_000,
+      );
+      expect(request.history!.every(({ text }) => text.length <= 4_000)).toBe(true);
+    }
+    const history = requests.at(-1)!.history!.filter(({ text }) => text.startsWith('本次任务的此前页面观察'));
+    expect(history).toHaveLength(4);
+    expect(history.map(({ text }) => text).join('')).not.toContain('页面 0');
+    expect(history.every(({ text }) => text.length < 2_100 && text.includes('观察已截断'))).toBe(true);
+    expect(JSON.stringify(history)).not.toContain('internal-');
+    expect(requests.at(-1)!.executionBudget?.hardLimit).toBe(requests[0]!.executionBudget?.hardLimit);
+    await expect(
+      registry.invoke({ id: 'stale', code: 'page.open-0', input: {} }, oldToken),
+    ).rejects.toBeInstanceOf(StaleAssistantInvocationError);
+  },
+);
+
 it.each([false, true])(
   'continues validated cross-scope navigation without old observations, identity changed: %s',
   async (changeIdentity) => {
@@ -1724,6 +1802,7 @@ it.each([false, true])(
       contextRevision: () => '',
       surface: {
         describe: () => ({ surface: 'test', facts: {} }),
+        observationSummary: () => 'old tenant private observation',
         requestTurn: vi
           .fn()
           .mockResolvedValueOnce({ toolCalls: [{ id: 'read', code: 'page.read', input: {} }] })
@@ -1990,4 +2069,181 @@ it('reports formal surface wait failure before requesting the model', async () =
     stepIndex: 0,
     reason: 'surface-unavailable',
   });
+});
+
+it('replans one rejected model decision against fresh facts without replaying earlier effects', async () => {
+  let revision = 'before';
+  const applied = vi.fn();
+  const read = vi.fn(async () => ({ verified: true }));
+  const discarded = vi.fn();
+  const requestTurn = vi
+    .fn()
+    .mockResolvedValueOnce({ toolCalls: [{ id: 'write', code: 'form.patch', input: {} }] })
+    .mockImplementationOnce(async (_input, _signal, progress) => {
+      progress?.onTextDelta('unvalidated reply');
+      throw new AppError('private model output', { code: 'AI_MODEL_UNDECLARED_TOOL', status: 502 });
+    })
+    .mockResolvedValueOnce({ toolCalls: [{ id: 'read', code: 'page.read', input: {} }] })
+    .mockResolvedValue({ text: 'verified', toolCalls: [] });
+  const registry = createAssistantSurfaceRegistry();
+  registry.register({
+    pageInstanceKey: 'page',
+    contextRevision: () => revision,
+    surface: {
+      describe: () => ({ surface: 'module-page', facts: { revision } }),
+      requestTurn,
+      capabilities: () => [
+        {
+          effect: 'draft',
+          descriptor: { code: 'form.patch', description: 'Patch', inputSchema: {} },
+          parseInput: (input) => input,
+          execute: async (_input, context) => {
+            context.applyEffect(() => {
+              applied();
+              revision = 'after';
+            });
+            return { changed: true };
+          },
+        },
+        {
+          effect: 'read',
+          descriptor: { code: 'page.read', description: 'Read', inputSchema: {} },
+          parseInput: (input) => input,
+          execute: read,
+        },
+      ],
+    },
+  });
+  registry.activate('page');
+  expect(
+    (await runAssistantConversation(registry, 'continue', { onTextDelta() {}, onTextDiscard: discarded }))
+      .termination,
+  ).toBe('stopped');
+  expect(applied).toHaveBeenCalledOnce();
+  expect(read).toHaveBeenCalledOnce();
+  expect(discarded).toHaveBeenCalledWith(1);
+  expect(requestTurn.mock.calls[2]![0]).toMatchObject({
+    decisionFeedback: 'undeclared-tool',
+    context: { facts: { revision: 'after' } },
+    executionBudget: { step: 3 },
+  });
+  expect(JSON.stringify(requestTurn.mock.calls[2]![0])).not.toContain('private model output');
+  expect(requestTurn.mock.calls[3]![0].decisionFeedback).toBeUndefined();
+});
+
+it.each(['AI_MODEL_UNDECLARED_TOOL', 'AI_MODEL_CONNECTION_FAILED', 'ACCESS_DENIED'])(
+  'bounds rejected decision recovery without retrying other failures (%s)',
+  async (code) => {
+    const registry = createAssistantSurfaceRegistry();
+    const execute = vi.fn();
+    const error = new AppError('failed', { code, status: 502 });
+    const requestTurn = vi.fn().mockRejectedValue(error);
+    registry.register({
+      pageInstanceKey: 'page',
+      contextRevision: () => 'stable',
+      surface: {
+        describe: () => ({ surface: 'module-page', facts: {} }),
+        capabilities: () => [
+          {
+            effect: 'read',
+            descriptor: { code: 'page.read', description: 'Read', inputSchema: {} },
+            parseInput: (input) => input,
+            execute,
+          },
+        ],
+        requestTurn,
+      },
+    });
+    registry.activate('page');
+    await expect(runAssistantConversation(registry, 'inspect')).rejects.toBe(error);
+    expect(requestTurn).toHaveBeenCalledTimes(code === 'AI_MODEL_UNDECLARED_TOOL' ? 2 : 1);
+    expect(execute).not.toHaveBeenCalled();
+  },
+);
+
+it('charges rejected decisions to the existing hard limit and never repairs a summary', async () => {
+  const registry = createAssistantSurfaceRegistry();
+  const requestTurn = vi
+    .fn()
+    .mockRejectedValueOnce(new AppError('rejected', { code: 'AI_MODEL_UNDECLARED_TOOL', status: 502 }))
+    .mockResolvedValueOnce({ text: 'unfinished', toolCalls: [] });
+  registry.register({
+    pageInstanceKey: 'page',
+    contextRevision: () => 'stable',
+    surface: {
+      describe: () => ({ surface: 'module-page', facts: {} }),
+      capabilities: () => [],
+      requestTurn,
+    },
+  });
+  registry.activate('page');
+  expect((await runAssistantConversation(registry, 'inspect', { maxSteps: 1 })).termination).toBe(
+    'step-limit',
+  );
+  expect(requestTurn).toHaveBeenCalledTimes(2);
+  expect(requestTurn.mock.calls[1]![0]).toMatchObject({ executionBudget: { phase: 'summary' } });
+  expect(requestTurn.mock.calls[1]![0].decisionFeedback).toBeUndefined();
+});
+
+it.each(['interaction', 'page', 'identity', 'cancel'])(
+  'never replans a rejected decision across user intervention (%s)',
+  async (change) => {
+    let interaction = 'before';
+    let identity = 'user';
+    const controller = new AbortController();
+    const execute = vi.fn();
+    const registry = createAssistantSurfaceRegistry(() => identity);
+    const requestTurn = vi.fn(async () => {
+      if (change === 'interaction') interaction = 'after';
+      if (change === 'page') registry.activate('other');
+      if (change === 'identity') identity = 'other-user';
+      if (change === 'cancel') controller.abort();
+      throw new AppError('rejected', { code: 'AI_MODEL_UNDECLARED_TOOL', status: 502 });
+    });
+    for (const pageInstanceKey of ['page', 'other'])
+      registry.register({
+        pageInstanceKey,
+        contextRevision: () => 'stable',
+        interactionRevision: () => interaction,
+        surface: {
+          describe: () => ({ surface: 'module-page', facts: {} }),
+          requestTurn,
+          capabilities: () => [
+            {
+              effect: 'draft',
+              descriptor: { code: 'form.patch', description: 'Patch', inputSchema: {} },
+              parseInput: (input) => input,
+              execute,
+            },
+          ],
+        },
+      });
+    registry.activate('page');
+    await expect(
+      runAssistantConversation(registry, 'continue', { signal: controller.signal }),
+    ).rejects.toThrow();
+    expect(requestTurn).toHaveBeenCalledOnce();
+    expect(execute).not.toHaveBeenCalled();
+  },
+);
+
+it('keeps an explicit selection until the first accepted decision after rejection', async () => {
+  const choice = { interactionId: 'choice-1', optionId: 'customer-1', label: '客户甲' };
+  const registry = createAssistantSurfaceRegistry();
+  const requestTurn = vi
+    .fn()
+    .mockRejectedValueOnce(new AppError('rejected', { code: 'AI_MODEL_UNDECLARED_TOOL', status: 502 }))
+    .mockResolvedValue({ text: 'done', toolCalls: [] });
+  registry.register({
+    pageInstanceKey: 'page',
+    contextRevision: () => 'stable',
+    surface: {
+      describe: () => ({ surface: 'module-page', facts: {} }),
+      capabilities: () => [],
+      requestTurn,
+    },
+  });
+  registry.activate('page');
+  await runAssistantConversation(registry, '客户甲', { selectionResponse: choice });
+  expect(requestTurn.mock.calls.map(([input]) => input.selectionResponse)).toEqual([choice, choice]);
 });

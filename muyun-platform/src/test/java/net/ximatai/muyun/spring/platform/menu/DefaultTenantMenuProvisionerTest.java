@@ -2,6 +2,7 @@ package net.ximatai.muyun.spring.platform.menu;
 
 import net.ximatai.muyun.database.core.orm.Criteria;
 import net.ximatai.muyun.spring.ability.TreeAbility;
+import net.ximatai.muyun.spring.ability.PlatformManagedMutationContext;
 import net.ximatai.muyun.spring.common.tenant.TenantContext;
 import net.ximatai.muyun.spring.platform.menu.Menu;
 import net.ximatai.muyun.spring.platform.menu.MenuDao;
@@ -87,18 +88,19 @@ class DefaultTenantMenuProvisionerTest {
             Menu business = new Menu();
             business.setId("platform.menu.group.business");
             business.setSchemeId(MenuSchemeService.ADMIN_SCHEME_ID);
+            business.setSystemManaged(Boolean.TRUE);
             business.setParentId(TreeAbility.ROOT_ID);
             business.setTitle("业务支撑");
             business.setEnabled(Boolean.TRUE);
             business.setSortOrder(2);
-            menuService.insert(business);
+            PlatformManagedMutationContext.runAsPlatformManaged(() -> menuService.insert(business));
 
             Menu systemUserMenu = menuService.list(Criteria.of()
                             .eq("schemeId", MenuSchemeService.ADMIN_SCHEME_ID)
                             .eq("moduleAlias", "iam.user"))
                     .getFirst();
             systemUserMenu.setParentId(business.getId());
-            menuService.update(systemUserMenu);
+            PlatformManagedMutationContext.runAsPlatformManaged(() -> menuService.update(systemUserMenu));
         }
 
         provisioner.afterTenantCreated("demo");
@@ -133,7 +135,7 @@ class DefaultTenantMenuProvisionerTest {
             systemMenu.setModuleAlias("iam.position");
             systemMenu.setRoute(null);
             systemMenu.setPageMode(MenuPageMode.LIST);
-            menuService.update(systemMenu);
+            PlatformManagedMutationContext.runAsPlatformManaged(() -> menuService.update(systemMenu));
         }
 
         provisioner.reconcileTenantAdminMenus("demo");
@@ -159,6 +161,7 @@ class DefaultTenantMenuProvisionerTest {
             Menu organization = new Menu();
             organization.setId("platform.menu.module.iam.organization");
             organization.setSchemeId(MenuSchemeService.ADMIN_SCHEME_ID);
+            organization.setSystemManaged(Boolean.TRUE);
             organization.setParentId("platform.menu.group.identity");
             organization.setTitle("机构管理");
             organization.setOpenMode(MenuOpenMode.TAB);
@@ -166,7 +169,7 @@ class DefaultTenantMenuProvisionerTest {
             organization.setRoute("/iam/organizations");
             organization.setEnabled(Boolean.TRUE);
             organization.setSortOrder(2);
-            menuService.insert(organization);
+            PlatformManagedMutationContext.runAsPlatformManaged(() -> menuService.insert(organization));
         }
         provisioner.afterTenantCreated("demo");
 
@@ -179,7 +182,7 @@ class DefaultTenantMenuProvisionerTest {
             systemOrganization.setPageMode(MenuPageMode.LIST);
             systemOrganization.setTitle("组织管理");
             systemOrganization.setSortOrder(9);
-            menuService.update(systemOrganization);
+            PlatformManagedMutationContext.runAsPlatformManaged(() -> menuService.update(systemOrganization));
         }
 
         provisioner.reconcileTenantAdminMenus("demo");
@@ -240,7 +243,7 @@ class DefaultTenantMenuProvisionerTest {
                             .eq("moduleAlias", "iam.user"))
                     .getFirst();
             systemUser.setEnabled(Boolean.FALSE);
-            menuService.update(systemUser);
+            PlatformManagedMutationContext.runAsPlatformManaged(() -> menuService.update(systemUser));
         }
 
         provisioner.reconcileTenantAdminMenus("demo");
@@ -283,6 +286,156 @@ class DefaultTenantMenuProvisionerTest {
         }
     }
 
+    @Test
+    void shouldNotCopyManualSystemEntriesOrTheirUnneededContainers() {
+        when(moduleService.resolveVisibleModule("iam.user")).thenReturn(module("iam.user"));
+        createSystemAdminMenuTree();
+        try (TenantContext.Scope ignored = TenantContext.system("manual system menu")) {
+            Menu group = menuService.select("platform.menu.group.identity");
+            group.setSystemManaged(null);
+            PlatformManagedMutationContext.runAsPlatformManaged(() -> menuService.update(group));
+            Menu user = menuService.select("platform.menu.module.iam.user");
+            user.setSystemManaged(Boolean.FALSE);
+            PlatformManagedMutationContext.runAsPlatformManaged(() -> menuService.update(user));
+        }
+
+        provisioner.afterTenantCreated("demo");
+
+        try (TenantContext.Scope ignored = TenantContext.use("demo")) {
+            assertThat(menuService.list(Criteria.of().eq("schemeId",
+                    DefaultTenantMenuProvisioner.tenantAdminSchemeId("demo")))).isEmpty();
+        }
+    }
+
+    @Test
+    void shouldNotCopyCodeEntryThroughManualBusinessAncestor() {
+        when(moduleService.resolveVisibleModule("iam.user")).thenReturn(module("iam.user"));
+        createSystemAdminMenuTree();
+        try (TenantContext.Scope ignored = TenantContext.system("manual business ancestor")) {
+            Menu parent = menuService.select("platform.menu.group.identity");
+            parent.setModuleAlias("iam.user");
+            parent.setOpenMode(MenuOpenMode.TAB);
+            menuService.update(parent);
+        }
+
+        provisioner.afterTenantCreated("demo");
+
+        try (TenantContext.Scope ignored = TenantContext.use("demo")) {
+            assertThat(menuService.list(Criteria.of().eq("schemeId",
+                    DefaultTenantMenuProvisioner.tenantAdminSchemeId("demo")))).isEmpty();
+        }
+    }
+
+    @Test
+    void shouldRetireOnlyOwnedCopiesWhenSourcePathIsNoLongerSystemManaged() {
+        when(moduleService.resolveVisibleModule("iam.user")).thenReturn(module("iam.user"));
+        createSystemAdminMenuTree();
+        provisioner.afterTenantCreated("demo");
+        String schemeId = DefaultTenantMenuProvisioner.tenantAdminSchemeId("demo");
+        try (TenantContext.Scope ignored = TenantContext.system("manual system menu")) {
+            Menu group = menuService.select("platform.menu.group.identity");
+            group.setSystemManaged(Boolean.FALSE);
+            PlatformManagedMutationContext.runAsPlatformManaged(() -> menuService.update(group));
+            Menu user = menuService.select("platform.menu.module.iam.user");
+            user.setSystemManaged(Boolean.FALSE);
+            PlatformManagedMutationContext.runAsPlatformManaged(() -> menuService.update(user));
+        }
+        try (TenantContext.Scope ignored = TenantContext.use("demo")) {
+            Menu manual = new Menu();
+            manual.setId("tenant-manual-entry");
+            manual.setSchemeId(schemeId);
+            manual.setParentId(TreeAbility.ROOT_ID);
+            manual.setTitle("人工业务入口");
+            manual.setEnabled(Boolean.TRUE);
+            menuService.insert(manual);
+        }
+
+        provisioner.reconcileTenantAdminMenus("demo");
+
+        try (TenantContext.Scope ignored = TenantContext.use("demo")) {
+            assertThat(menuService.list(Criteria.of().eq("schemeId", schemeId)
+                            .eq("platformManaged", Boolean.TRUE)))
+                    .hasSize(2)
+                    .allSatisfy(menu -> assertThat(menu.getEnabled()).isFalse());
+            assertThat(menuService.select("tenant-manual-entry").getEnabled()).isTrue();
+            menuDao.resetUpdateCount();
+            provisioner.reconcileTenantAdminMenus("demo");
+            assertThat(menuDao.updateCount()).isZero();
+        }
+        try (TenantContext.Scope ignored = TenantContext.system("verify source preserved")) {
+            assertThat(menuService.select("platform.menu.group.identity").getEnabled()).isTrue();
+            assertThat(menuService.select("platform.menu.module.iam.user").getEnabled()).isTrue();
+        }
+    }
+
+    @Test
+    void shouldPreserveTakenOverAndUnmarkedCopiesWhenSourceIsManual() {
+        when(moduleService.resolveVisibleModule("iam.user")).thenReturn(module("iam.user"));
+        createSystemAdminMenuTree();
+        provisioner.afterTenantCreated("demo");
+        String schemeId = DefaultTenantMenuProvisioner.tenantAdminSchemeId("demo");
+        try (TenantContext.Scope ignored = TenantContext.use("demo")) {
+            for (Menu menu : menuService.list(Criteria.of().eq("schemeId", schemeId))) {
+                menu.setPlatformManaged(menu.getModuleAlias() == null ? null : Boolean.FALSE);
+                menuService.update(menu);
+            }
+        }
+        try (TenantContext.Scope ignored = TenantContext.system("manual system menu")) {
+            Menu group = menuService.select("platform.menu.group.identity");
+            group.setSystemManaged(Boolean.FALSE);
+            PlatformManagedMutationContext.runAsPlatformManaged(() -> menuService.update(group));
+            Menu user = menuService.select("platform.menu.module.iam.user");
+            user.setSystemManaged(Boolean.FALSE);
+            PlatformManagedMutationContext.runAsPlatformManaged(() -> menuService.update(user));
+        }
+
+        menuDao.resetUpdateCount();
+        provisioner.reconcileTenantAdminMenus("demo");
+
+        assertThat(menuDao.updateCount()).isZero();
+        try (TenantContext.Scope ignored = TenantContext.use("demo")) {
+            assertThat(menuService.list(Criteria.of().eq("schemeId", schemeId)))
+                    .hasSize(2)
+                    .allSatisfy(menu -> assertThat(menu.getEnabled()).isTrue());
+        }
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {false, true})
+    void shouldKeepCopiedAncestorNeededByManualTenantMenus(boolean businessParent) {
+        when(moduleService.resolveVisibleModule("iam.user")).thenReturn(module("iam.user"));
+        createSystemAdminMenuTree();
+        provisioner.afterTenantCreated("demo");
+        String schemeId = DefaultTenantMenuProvisioner.tenantAdminSchemeId("demo");
+        try (TenantContext.Scope ignored = TenantContext.use("demo")) {
+            Menu copiedParent = businessParent
+                    ? menuService.list(Criteria.of().eq("schemeId", schemeId).eq("moduleAlias", "iam.user")).getFirst()
+                    : menuService.rootMenus(schemeId).getFirst();
+            Menu manual = new Menu();
+            manual.setId("tenant-manual-child");
+            manual.setSchemeId(schemeId);
+            manual.setParentId(copiedParent.getId());
+            manual.setTitle("人工目录");
+            manual.setEnabled(Boolean.TRUE);
+            menuService.insert(manual);
+        }
+        try (TenantContext.Scope ignored = TenantContext.system("withdraw default entry")) {
+            Menu user = menuService.select("platform.menu.module.iam.user");
+            user.setSystemManaged(Boolean.FALSE);
+            PlatformManagedMutationContext.runAsPlatformManaged(() -> menuService.update(user));
+        }
+
+        provisioner.reconcileTenantAdminMenus("demo");
+
+        try (TenantContext.Scope ignored = TenantContext.use("demo")) {
+            assertThat(menuService.rootMenus(schemeId)).singleElement()
+                    .satisfies(menu -> assertThat(menu.getEnabled()).isTrue());
+            assertThat(menuService.select("tenant-manual-child").getEnabled()).isTrue();
+            assertThat(menuService.list(Criteria.of().eq("schemeId", schemeId).eq("moduleAlias", "iam.user")))
+                    .singleElement().satisfies(menu -> assertThat(menu.getEnabled()).isEqualTo(businessParent));
+        }
+    }
+
     private void createSystemAdminMenuTree() {
         try (TenantContext.Scope ignored = TenantContext.system("test")) {
             MenuScheme scheme = new MenuScheme();
@@ -296,22 +449,24 @@ class DefaultTenantMenuProvisionerTest {
             Menu group = new Menu();
             group.setId("platform.menu.group.identity");
             group.setSchemeId(MenuSchemeService.ADMIN_SCHEME_ID);
+            group.setSystemManaged(null);
             group.setParentId(TreeAbility.ROOT_ID);
             group.setTitle("组织与权限");
             group.setEnabled(Boolean.TRUE);
             group.setSortOrder(1);
-            menuService.insert(group);
+            PlatformManagedMutationContext.runAsPlatformManaged(() -> menuService.insert(group));
 
             Menu user = new Menu();
             user.setId("platform.menu.module.iam.user");
             user.setSchemeId(MenuSchemeService.ADMIN_SCHEME_ID);
+            user.setSystemManaged(Boolean.TRUE);
             user.setParentId(group.getId());
             user.setTitle("用户");
             user.setOpenMode(MenuOpenMode.TAB);
             user.setModuleAlias("iam.user");
             user.setEnabled(Boolean.TRUE);
             user.setSortOrder(1);
-            menuService.insert(user);
+            PlatformManagedMutationContext.runAsPlatformManaged(() -> menuService.insert(user));
         }
     }
 
