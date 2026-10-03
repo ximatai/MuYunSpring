@@ -9,10 +9,10 @@ assertj = "3.27.7"
 postgresql = "42.7.13"
 testcontainers = "1.21.4"
 lombok = "1.18.46"
-caffeine = "3.2.4"
-jackson = "2.22.2"
+caffeine = "3.3.0"
+jackson = "2.22.3"
 poi = "5.5.1"
-swagger-parser = "2.1.47"
+swagger-parser = "2.1.48"
 
 [libraries]
 metadata-extractor = { module = "com.drewnoakes:metadata-extractor", version.ref = "metadata-extractor" }
