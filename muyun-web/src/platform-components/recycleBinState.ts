@@ -66,6 +66,8 @@ export function useRecycleBinState<TRecord>(options: RecycleBinStateOptions<TRec
   const acting = ref(false);
   const actingOperationId = ref<string>();
   const total = ref(0);
+  const totalKnown = ref(false);
+  const pages = ref(1);
   const summaryTotal = ref<number>();
   const pageNum = ref(1);
   const pageSize = ref(20);
@@ -85,6 +87,8 @@ export function useRecycleBinState<TRecord>(options: RecycleBinStateOptions<TRec
       pendingActions.value = [];
       items.value = [];
       total.value = 0;
+      totalKnown.value = false;
+      pages.value = 1;
       summaryTotal.value = undefined;
       loadRequestSeq++;
       summaryRequestSeq++;
@@ -123,7 +127,8 @@ export function useRecycleBinState<TRecord>(options: RecycleBinStateOptions<TRec
       if (requestSeq !== loadRequestSeq || context !== toValue(options.context)) return false;
       items.value = response.records;
       total.value = response.total;
-      summaryTotal.value = response.total;
+      totalKnown.value = response.totalKnown !== false;
+      pages.value = response.pages;
       pageNum.value = response.pageNum;
       pageSize.value = response.pageSize;
       return true;
@@ -131,6 +136,8 @@ export function useRecycleBinState<TRecord>(options: RecycleBinStateOptions<TRec
       if (requestSeq !== loadRequestSeq || context !== toValue(options.context)) return false;
       items.value = [];
       total.value = 0;
+      totalKnown.value = false;
+      pages.value = 1;
       presentPlatformError(cause, { source: 'recycle-bin', phase: 'load' });
       return false;
     } finally {
@@ -213,6 +220,8 @@ export function useRecycleBinState<TRecord>(options: RecycleBinStateOptions<TRec
     acting,
     actingOperationId,
     total,
+    totalKnown,
+    pages,
     summaryTotal,
     pageNum,
     pageSize,

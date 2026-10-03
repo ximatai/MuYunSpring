@@ -1416,6 +1416,62 @@ class MuYunSpringApplicationContextIT {
     }
 
     @Test
+    void shouldSearchAndPageBeyondTwoHundredRecordsThroughStaticAndDynamicHttpQueries() {
+        String suffix = Long.toUnsignedString(System.nanoTime(), 36);
+        String application = "query" + suffix;
+        String module = application + ".target";
+        String tenant = insertActiveTenant("query_tenant_" + suffix);
+        String outsideTenant = insertActiveTenant("query_outside_" + suffix);
+        installDynamicReferenceTarget(application, module, "target");
+        openTenantApplication(tenant, application);
+        String operator = "query_user_" + suffix;
+        insertUser(tenant, operator, operator);
+        jdbcTemplate.update("update iam_user set password_status = 'NORMAL' where id = ?", operator);
+        grantTenantScopedEmploymentAction(tenant, operator, suffix, module, PlatformAction.VIEW, DataScopePolicy.OWNER);
+        String prefix = "Query " + suffix + " ";
+        for (int index = 0; index < 201; index++) {
+            String title = prefix + String.format("%03d", index);
+            insertDynamicReferenceTarget(module, "target", tenant, operator, title);
+            try (var user = CurrentUserContext.use(CurrentUser.systemUser("query-fixture", "Query fixture"));
+                 var scope = TenantContext.system("static query fixture")) {
+                Application record = new Application();
+                record.setAlias(application + "_" + index);
+                record.setTitle(title);
+                applicationService.insert(record);
+            }
+        }
+        insertDynamicReferenceTarget(module, "target", tenant, "another-owner", prefix + "200");
+        insertDynamicReferenceTarget(module, "target", outsideTenant, operator, prefix + "200");
+        HttpHeaders dynamicHeaders = bearerHeaders(issueActiveSessionToken(tenant, operator, "query"));
+        HttpHeaders staticHeaders = bearerHeaders(issueSuperAdminSessionToken());
+        for (String target : List.of("platform.application", module)) {
+            HttpHeaders headers = target.equals(module) ? dynamicHeaders : staticHeaders;
+            String searchTitle = null;
+            Set<String> ids = new LinkedHashSet<>();
+            for (int page : List.of(1, 2)) {
+                ResponseEntity<JsonNode> response = restTemplate.exchange("/" + target + "/query", HttpMethod.POST,
+                        new HttpEntity<>(Map.of("quickSearch", prefix,
+                                "page", Map.of("pageNum", page, "pageSize", 200)), headers), JsonNode.class);
+                assertThat(response.getStatusCode()).withFailMessage("query %s: %s", target, response.getBody()).isEqualTo(HttpStatus.OK);
+                assertThat(response.getBody().path("total").asInt()).isEqualTo(201);
+                assertThat(response.getBody().path("records")).hasSize(page == 1 ? 200 : 1);
+                response.getBody().path("records").forEach(record -> ids.add(record.path("id").asText()));
+                if (page == 2) {
+                    JsonNode record = response.getBody().path("records").get(0);
+                    searchTitle = (record.has("values") ? record.path("values") : record).path("title").asText();
+                    assertThat(searchTitle).startsWith(prefix).isNotEqualTo(prefix);
+                }
+            }
+            assertThat(ids).hasSize(201);
+            ResponseEntity<JsonNode> search = restTemplate.exchange("/" + target + "/query", HttpMethod.POST,
+                    new HttpEntity<>(Map.of("quickSearch", searchTitle, "page", Map.of("pageNum", 1, "pageSize", 200)), headers), JsonNode.class);
+            assertThat(search.getStatusCode()).isEqualTo(HttpStatus.OK);
+            assertThat(search.getBody().path("total").asInt()).as("matching total for %s", target).isEqualTo(1);
+            assertThat(search.getBody().path("records")).hasSize(1);
+        }
+    }
+
+    @Test
     void shouldOpenDynamicReferenceDetailWithViewButWithoutMenuPermission() {
         String suffix = Long.toUnsignedString(System.nanoTime(), 36);
         String applicationAlias = "refdyn" + suffix;

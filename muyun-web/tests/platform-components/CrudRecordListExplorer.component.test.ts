@@ -2,10 +2,10 @@ import { flushPromises, shallowMount } from '@vue/test-utils';
 import { describe, expect, it } from 'vitest';
 import CrudRecordListExplorer from '@/platform-components/CrudRecordListExplorer.vue';
 import type { ModuleContext } from '@muyun/web-core';
-import type { WebQueryRequest } from '@muyun/web-contracts';
+import type { WebPageResponse, WebQueryRequest } from '@muyun/web-contracts';
 
 describe('CrudRecordListExplorer', () => {
-  it('exposes query state from the owning explorer and does not overstate partial search results', async () => {
+  it('settles server search and reports the matching total without filtering result labels again', async () => {
     let resolveQuery!: (value: {
       records: Array<{ id: string; title: string }>;
       total: number;
@@ -65,14 +65,128 @@ describe('CrudRecordListExplorer', () => {
     await expect(settled).resolves.toMatchObject({ status: 'ready' });
     expect(controller.snapshot()).toMatchObject({ total: 201, totalKnown: true, truncated: true });
 
+    context.crud.query = async () => ({
+      records: [{ id: 'hidden', title: '名称不同但备注匹配' }],
+      total: 1,
+      pageNum: 1,
+      pageSize: 200,
+      pages: 1,
+      totalKnown: true,
+    });
     const search = controller.applyQuickSearch('演示');
     await wrapper.setProps({ keyword: '演示' });
     await expect(search).resolves.toMatchObject({
       appliedQuickSearch: '演示',
       total: 1,
-      totalKnown: false,
-      truncated: true,
+      totalKnown: true,
+      truncated: false,
     });
+  });
+
+  it('reaches records beyond 200, refreshes the current page and resets search to page one', async () => {
+    const requests: WebQueryRequest[] = [];
+    const context = createContext([]);
+    context.crud.query = async (request = {}) => {
+      requests.push(request);
+      const page = request.page?.pageNum ?? 1;
+      return {
+        records: [{ id: request.quickSearch ? 'match-250' : `page-${page}` }],
+        total: request.quickSearch ? 1 : 250,
+        pageNum: page,
+        pageSize: 200,
+        pages: request.quickSearch ? 1 : 2,
+        totalKnown: true,
+      };
+    };
+    const wrapper = shallowMount(CrudRecordListExplorer, { props: { context } });
+    await flushPromises();
+    wrapper
+      .findAllComponents({ name: 'UiButton' })
+      .find((button) => button.attributes('aria-label') === '下一页')!
+      .vm.$emit('click');
+    await flushPromises();
+    expect(requests.at(-1)?.page?.pageNum).toBe(2);
+    expect(wrapper.findComponent({ name: 'RecordListExplorer' }).props('records')).toEqual([
+      { id: 'page-2' },
+    ]);
+    await wrapper.setProps({ reloadKey: 1 });
+    await flushPromises();
+    expect(requests.at(-1)?.page?.pageNum).toBe(2);
+    await wrapper.setProps({ keyword: '备注匹配' });
+    await flushPromises();
+    expect(requests.at(-1)).toMatchObject({ page: { pageNum: 1 }, quickSearch: '备注匹配' });
+    expect(wrapper.findComponent({ name: 'RecordListExplorer' }).props('records')).toEqual([
+      { id: 'match-250' },
+    ]);
+    expect(wrapper.findComponent({ name: 'RecordListExplorer' }).props('keyword')).toBe('');
+    await wrapper.setProps({ reloadKey: 2 });
+    await flushPromises();
+    expect(requests.at(-1)?.quickSearch).toBe('备注匹配');
+    wrapper.unmount();
+  });
+
+  it('discards stale searches and does not claim a draft keyword was applied', async () => {
+    const pending: Array<(value: WebPageResponse<{ id: string }>) => void> = [];
+    const context = createContext([]);
+    context.crud.query = () => new Promise((resolve) => pending.push(resolve));
+    const wrapper = shallowMount(CrudRecordListExplorer, { props: { context } });
+    const controller = wrapper.emitted('queryControllerChange')![0][0] as {
+      snapshot(): { appliedQuickSearch?: string };
+    };
+    await flushPromises();
+    await wrapper.setProps({ keyword: '旧条件' });
+    await flushPromises();
+    await wrapper.setProps({ keyword: '新条件', externalQueryValues: { tenantId: 'new' } });
+    await flushPromises();
+    expect(controller.snapshot().appliedQuickSearch).toBeUndefined();
+    const result = (id: string) => ({
+      records: [{ id }],
+      total: 1,
+      pageNum: 1,
+      pageSize: 200,
+      pages: 1,
+      totalKnown: true,
+    });
+    pending[2](result('new'));
+    await flushPromises();
+    pending[1](result('old'));
+    pending[0](result('initial'));
+    await flushPromises();
+    expect(controller.snapshot().appliedQuickSearch).toBe('新条件');
+    expect(wrapper.findComponent({ name: 'RecordListExplorer' }).props('records')).toEqual([{ id: 'new' }]);
+    expect(wrapper.emitted('loaded')).toEqual([[[{ id: 'new' }], 1]]);
+    wrapper.unmount();
+  });
+
+  it('returns to the available last page after deletion empties the current page', async () => {
+    const requests: number[] = [];
+    const context = createContext([]);
+    let total = 201;
+    context.crud.query = async (request = {}) => {
+      const page = request.page?.pageNum ?? 1;
+      requests.push(page);
+      return {
+        records: page <= Math.ceil(total / 200) ? [{ id: 'row' }] : [],
+        total,
+        pageNum: page,
+        pageSize: 200,
+        pages: Math.ceil(total / 200),
+        totalKnown: true,
+      };
+    };
+    const wrapper = shallowMount(CrudRecordListExplorer, { props: { context } });
+    await flushPromises();
+    wrapper
+      .findAllComponents({ name: 'UiButton' })
+      .find((button) => button.attributes('aria-label') === '下一页')!
+      .vm.$emit('click');
+    await flushPromises();
+    total = 200;
+    await wrapper.setProps({ reloadKey: 1 });
+    await flushPromises();
+    expect(requests).toEqual([1, 2, 2, 1]);
+    expect(wrapper.text()).toContain('第 1 页');
+    wrapper.unmount();
   });
 
   it('forwards upstream navigator criteria and reloads when they change', async () => {

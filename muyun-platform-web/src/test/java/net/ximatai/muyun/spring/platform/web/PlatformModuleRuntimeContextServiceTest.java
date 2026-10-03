@@ -747,15 +747,16 @@ class PlatformModuleRuntimeContextServiceTest {
     }
 
     @org.junit.jupiter.params.ParameterizedTest
-    @org.junit.jupiter.params.provider.ValueSource(booleans = {true, false})
-    void shouldCompileExplicitTreeSearchIntoQueryAndReadContracts(boolean searchable) {
+    @org.junit.jupiter.params.provider.CsvSource({"TREE_MANAGEMENT,true", "TREE_MANAGEMENT,false",
+            "FLAT_MANAGEMENT,true", "FLAT_MANAGEMENT,false", "FLAT_MANAGEMENT,"})
+    void shouldCompileExplorerSearchIntoQueryAndReadContracts(ModulePageTemplate template, Boolean searchable) {
         PlatformModuleService moduleService = mock(PlatformModuleService.class);
         PlatformModuleActionService actionService = mock(PlatformModuleActionService.class);
         DynamicRecordService dynamicRecordService = mock(DynamicRecordService.class);
         DynamicPublishedPageDefinitionResolver resolver = mock(DynamicPublishedPageDefinitionResolver.class);
         DynamicModuleDescriptor descriptor = new DynamicModuleDescriptor(
                 "sales.contract", "合同", "contract", List.of(),
-                List.of(DynamicEntityDescriptor.from(entity("contract", Set.of(EntityCapability.CRUD, EntityCapability.TREE)))),
+                List.of(DynamicEntityDescriptor.from(entity("contract", Set.of(EntityCapability.CRUD, EntityCapability.TREE, EntityCapability.SORT)))),
                 List.of(), List.of(), List.of());
         PlatformPageDefinition page = new PlatformPageDefinition();
         page.setId("page-contract");
@@ -763,7 +764,12 @@ class PlatformModuleRuntimeContextServiceTest {
         revision.setId("revision-contract");
         revision.setRevisionNo(3);
         ModuleUiDefinition definition = ModuleUiDefinition.builder("sales.contract")
-                .page(PageTemplates.treeManagement(tree -> tree
+                .page(template == ModulePageTemplate.FLAT_MANAGEMENT
+                        ? PageTemplates.flatManagement(flat -> {
+                            flat.explorer(explorer -> explorer.titleField("title"))
+                                    .detail(detail -> detail.editor(fields -> {}));
+                            if (searchable != null) flat.quickSearch(searchable ? new String[]{"title"} : new String[]{});
+                        }) : PageTemplates.treeManagement(tree -> tree
                         .quickSearch(searchable ? new String[]{"title"} : new String[]{})
                         .explorer(explorer -> explorer.titleField("title"))
                         .detail(detail -> detail.editor(fields -> {}))))
@@ -788,10 +794,10 @@ class PlatformModuleRuntimeContextServiceTest {
         assertThat(plan.formUiConfigId()).isNull();
         assertThat(plan.readModel().fields()).extracting(ResolvedModuleReadField::fieldName)
                 .containsExactly("title");
-        assertThat(plan.querySchema().quickSearch().fields()).isEqualTo(searchable ? List.of("title") : List.of());
-        assertThat(plan.querySchema().quickSearch().enabled()).isEqualTo(searchable);
+        assertThat(plan.querySchema().quickSearch().fields()).isEqualTo(!Boolean.FALSE.equals(searchable) ? List.of("title") : List.of());
+        assertThat(plan.querySchema().quickSearch().enabled()).isEqualTo(!Boolean.FALSE.equals(searchable));
         assertThat(plan.uiDescriptor().page().explorer().titleField()).isEqualTo("title");
-        assertThat(plan.uiDescriptor().page().template()).isEqualTo(ModulePageTemplate.TREE_MANAGEMENT);
+        assertThat(plan.uiDescriptor().page().template()).isEqualTo(template);
     }
 
     @Test

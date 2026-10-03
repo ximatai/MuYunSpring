@@ -483,6 +483,13 @@ public class PlatformModuleRuntimeContextService {
                 .filter(field -> !Boolean.FALSE.equals(field.visible().constant()))
                 .map(field -> field.fieldRef().fieldName()).distinct().toList();
         List<String> quickSearchFields = listFields.stream().filter(field -> isSearchableText(mainEntity, field)).toList();
+        if (descriptor.page() != null && descriptor.page().template() == ModulePageTemplate.FLAT_MANAGEMENT
+                && descriptor.page().explorer() != null) {
+            var explorer = descriptor.page().explorer();
+            quickSearchFields = java.util.stream.Stream.of(explorer.titleField(), explorer.secondaryField())
+                    .filter(java.util.Objects::nonNull).distinct()
+                    .filter(field -> isSearchableText(mainEntity, field)).toList();
+        }
         if (descriptor.page() != null && descriptor.page().quickSearchFields() != null) {
             quickSearchFields = descriptor.page().quickSearchFields();
             if (quickSearchFields.stream().anyMatch(field -> !isSearchableText(mainEntity, field)))

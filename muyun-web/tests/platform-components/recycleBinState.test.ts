@@ -138,6 +138,20 @@ it('recycle bin state refreshes a lightweight summary without replacing loaded i
   assert.equal(state.items.value[0].record.id, 'loaded_tenant');
 });
 
+it('keeps the global recycle count separate from a filtered page and preserves unknown totals', async () => {
+  const context = createContext({
+    request: async () => ({ records: [], total: 7, totalKnown: false, pageNum: 2, pageSize: 200, pages: 3 }),
+  });
+  const state = useRecycleBinState({ context });
+  state.summaryTotal.value = 250;
+  await state.load({ page: { pageNum: 2, pageSize: 200 }, quickSearch: '筛选' });
+  assert.equal(state.summaryTotal.value, 250);
+  assert.equal(state.total.value, 7);
+  assert.equal(state.totalKnown.value, false);
+  assert.equal(state.pageNum.value, 2);
+  assert.equal(state.pages.value, 3);
+});
+
 it('recycle bin state restores item and reloads list', async () => {
   const calls: string[] = [];
   const restoreReport: RestoreReport = {

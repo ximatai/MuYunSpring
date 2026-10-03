@@ -1570,7 +1570,11 @@ describe('ModulePageHost', () => {
 
     const navigator = wrapper.findComponent({ name: 'PageNavigatorExplorer' });
     const list = wrapper.findComponent({ name: 'RecordQueryListPanel' });
-    navigator.vm.$emit('loaded', [{ id: 'xcmg', title: '徐工集团' }]);
+    navigator.vm.$emit('loaded', [{ id: 'partial', title: '当前页唯一记录' }], false);
+    await flushPromises();
+    expect(list.props('externalQueryValues')).not.toEqual({ tenantId: 'partial' });
+    expect(wrapper.findComponent({ name: 'PageNavigatorExplorer' }).exists()).toBe(true);
+    navigator.vm.$emit('loaded', [{ id: 'xcmg', title: '徐工集团' }], true);
     await flushPromises();
 
     expect(list.props('externalQueryValues')).toEqual({ tenantId: 'xcmg' });

@@ -284,7 +284,10 @@ export default defineComponent({
             @update:keyword="scopeSearchKeyword = $event"
             @refresh="scopeReloadKey += 1"
             @create="createNavigatorRecord(navigatorLevelAt(index - tenantScopeExplorerCount)!)"
-            @loaded="handleNavigatorLoaded(navigatorLevelAt(index - tenantScopeExplorerCount)!, $event)"
+            @loaded="
+              (records, complete) =>
+                handleNavigatorLoaded(navigatorLevelAt(index - tenantScopeExplorerCount)!, records, complete)
+            "
             @query-controller-change="bindNavigatorQueryController"
             @select="
               selectNavigatorRecord(
@@ -394,7 +397,6 @@ export default defineComponent({
             "
             :fallback-title="flatManagementContent?.fallbackTitle"
             :item-of="flatManagementItemOf"
-            :filter-option="runtimePage?.quickSearchFields != null ? matchesPageQuickSearch : undefined"
             @recycle-bin-summary="flatManagementRecycleBin.updateSummary"
             @loaded="(records) => handleFlatManagementLoaded(records)"
             @update:keyword="flatManagementSearchKeyword = $event"
@@ -579,7 +581,7 @@ export default defineComponent({
             @update:keyword="scopeSearchKeyword = $event"
             @refresh="scopeReloadKey += 1"
             @create="createNavigatorRecord(level)"
-            @loaded="handleNavigatorLoaded(level, $event)"
+            @loaded="(records, complete) => handleNavigatorLoaded(level, records, complete)"
             @query-controller-change="bindNavigatorQueryController"
             @select="selectNavigatorRecord(level.descriptor.key, $event)"
             @deselect="clearNavigatorRecord(level.descriptor.key)"
@@ -855,7 +857,7 @@ export default defineComponent({
             @update:keyword="scopeSearchKeyword = $event"
             @refresh="scopeReloadKey += 1"
             @create="createNavigatorRecord(level)"
-            @loaded="handleNavigatorLoaded(level, $event)"
+            @loaded="(records, complete) => handleNavigatorLoaded(level, records, complete)"
             @query-controller-change="bindNavigatorQueryController"
             @select="selectNavigatorRecord(level.descriptor.key, $event)"
             @deselect="clearNavigatorRecord(level.descriptor.key)"
