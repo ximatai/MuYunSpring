@@ -60,13 +60,13 @@ describe('FormComputeCoordinator', () => {
     });
   });
 
-  it('refreshes a parent aggregate from complete child draft rows and leaves partial child data authoritative', () => {
+  it('refreshes a parent aggregate only from complete child draft rows and clears stale previews', () => {
     const coordinator = new FormComputeCoordinator([
       rule('contractAmount', ['lines.lineAmount'], functionNode('SUM', field('lines.lineAmount'))),
     ]);
     const draft = { contractAmount: 0, lineRows: [{ lineAmount: 399 }, { lineAmount: 3897 }] };
 
-    expect(coordinator.applyAfterChange(draft, ['lines.lineAmount'])).toEqual(draft);
+    expect(coordinator.applyAfterChange(draft, ['lines.lineAmount'])).toEqual({ lineRows: draft.lineRows });
     expect(
       coordinator.applyAfterChange(draft, ['lines.lineAmount'], {
         lines: draft.lineRows,
@@ -78,7 +78,7 @@ describe('FormComputeCoordinator', () => {
         ['lines.lineAmount'],
         { lines: [{ id: 'line-1' }] },
       ),
-    ).toEqual({ contractAmount: 0, lineRows: [{ id: 'line-1' }] });
+    ).toEqual({ lineRows: [{ id: 'line-1' }] });
   });
 
   it('does nothing for a form without rules or a change outside every trigger', () => {
@@ -119,6 +119,49 @@ describe('FormComputeCoordinator', () => {
   ])('fails closed without partial writes for %s', (_reason, rules) => {
     const draft = { source: 3, a: 0, b: 0, left: 0, right: 0, target: 0 };
     expect(new FormComputeCoordinator(rules).applyAfterChange(draft, ['source', 'b'])).toBe(draft);
+  });
+
+  it('blocks downstream outputs when a computation fails but preserves successful null semantics', () => {
+    const coordinator = new FormComputeCoordinator([
+      {
+        ...rule('dueDate', ['date', 'days'], functionNode('DATE_ADD', field('date'), field('days'))),
+        targetValueType: 'DATE',
+      },
+      {
+        ...rule(
+          'dueYear',
+          ['dueDate', 'offset'],
+          binary('+', functionNode('YEAR', field('dueDate')), field('offset')),
+        ),
+        targetValueType: 'INTEGER',
+      },
+    ]);
+    const initial = coordinator.applyOnCreate({ date: '2026-10-03', days: 1, offset: 0 });
+    expect(initial).toMatchObject({ dueDate: '2026-10-04', dueYear: 2026 });
+    expect(coordinator.applyAfterChange({ ...initial, days: 1_000_000_000 }, ['days'])).toEqual({
+      date: '2026-10-03',
+      days: 1_000_000_000,
+      offset: 0,
+    });
+    const failed = coordinator.applyAfterChange({ ...initial, days: 1.5 }, ['days']);
+    expect(failed).toEqual({ date: '2026-10-03', days: 1.5, offset: 0 });
+    expect(coordinator.applyAfterChange({ ...failed, offset: 1 }, ['offset'])).toEqual({
+      date: '2026-10-03',
+      days: 1.5,
+      offset: 1,
+    });
+    expect(coordinator.applyAfterChange({ ...failed, days: 2, offset: 1 }, ['days'])).toMatchObject({
+      dueDate: '2026-10-05',
+      dueYear: 2027,
+    });
+    const optional = new FormComputeCoordinator([
+      rule('optional', [], value(null)),
+      {
+        ...rule('empty', ['optional'], functionNode('ISNULL', field('optional'))),
+        targetValueType: 'BOOLEAN',
+      },
+    ]);
+    expect(optional.applyOnCreate({ optional: 1, empty: false })).toEqual({ optional: null, empty: true });
   });
 
   it('fails closed for an unexpected program without discarding the user field update', () => {
@@ -180,6 +223,6 @@ function field(fieldName: string): FormulaNode {
   return { kind: 'FIELD', field: fieldName, arguments: [] };
 }
 
-function value(input: string | number): FormulaNode {
+function value(input: string | number | null): FormulaNode {
   return { kind: 'VALUE', value: input, arguments: [] };
 }

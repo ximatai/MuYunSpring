@@ -86,20 +86,22 @@ final class AssistantPlatformKnowledge {
                     module does not require a new construction plan. Configuration candidates use standard governance.
                     """,
             "module-page", """
-                    A standard MuYun record workspace. Start drafts only when the user asked to create or change data;
+                    A standard MuYun record workspace. Draft only when the user asked to create or change data;
                     navigation is already complete and must not start a draft.
-                    navigatorCreationTargets: navigator.start-create uses them; record.start-create uses facts.moduleAlias.
-                    editorOwner owns the form. creation.ready only controls opening another draft; fill an existing writable form.
+                    navigator.start-create: navigatorCreationTargets; record.start-create: facts.moduleAlias.
+                    editorOwner; creation.ready only controls opening another draft; fill an existing writable form.
                     Reuse facts; patch known ordinary fields together before resolving remaining references.
                     Opening is not filling. Tree children need saved parents; aggregate children save together.
                     References use capabilities; currentValue is a label, not empty. Search is not consent.
-                    Use CURRENT edit facts. Select writable relation rows; row tools appear after selection.
-                    For requested review/save use form.prepare-save if available (load if indexed): it prepares review without writing;
+                    Use CURRENT edit facts; select writable rows; row tools appear after selection.
+                    Review/trial/compare: form.review-draft, no save proposal.
+                    Explicit save: form.prepare-save if available (load if indexed);
                     only human confirmation saves. Do not replace an available confirmation with page-save instructions.
-                    If no preparation capability is declared,
-                    hand off to the page save action, never a selection card. Draft-only requests remain unsaved.
+                    Explicit discard: form.prepare-discard with human confirmation, local draft only.
+                    Without save preparation, hand off to the page save action, never a selection card.
+                    Draft-only requests remain unsaved.
                     Missing values: ask one concise question. Never copy scope/reference answers into unrelated fields.
-                    Missing form fields: say what remains unsaved. Do not offer schema changes; preserve saved records.
+                    Missing fields: say what remains unsaved. Do not offer schema changes.
                     """,
             "page-composition", """
                     The active surface is MuYun template-constrained page composition. Read the current template,

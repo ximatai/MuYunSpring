@@ -490,7 +490,8 @@ export function createAssistantSurfaceRegistry(
           cancellationSignal: cancellationController.signal,
           isCurrent: () => {
             try {
-              requireCurrent(postReadToken ?? token);
+              if (postEffectToken && !sameExecutionScope(token, postEffectToken)) return false;
+              requireCurrent(postEffectToken ?? postReadToken ?? token);
               return true;
             } catch {
               return false;

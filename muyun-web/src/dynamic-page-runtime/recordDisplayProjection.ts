@@ -14,13 +14,14 @@ import {
 } from '@muyun/platform-components';
 
 /** Read the same authorized display facts as the form; never expose a reference ID as its label. */
-export function assistantFieldDisplay(
+export function recordFieldDisplay(
   field: RecordFormFieldState,
   record: RecordFormRecord,
   optionItems?: OptionItemDescriptor[],
   draft = false,
 ): string {
-  if (field.calculationPending) return '保存后计算';
+  if (field.calculationPending || (draft && field.calculationTiming === 'IMMEDIATE'))
+    return resolveRecordDetailDisplayValue(field, record, { emptyText: '空', optionItems, draft });
   if (field.reference) {
     const value = record[field.fieldName];
     if (value == null || value === '' || (Array.isArray(value) && !value.length)) return '未选择';
@@ -33,11 +34,15 @@ export function assistantFieldDisplay(
 }
 
 /** Resolve display labels through the same authorized provider used by the picker. */
-export async function assistantResolvedFieldDisplay(field: RecordFormFieldState, record: RecordFormRecord) {
-  if (field.calculationPending) return assistantFieldDisplay(field, record);
+export async function resolvedRecordFieldDisplay(
+  field: RecordFormFieldState,
+  record: RecordFormRecord,
+  optionItems?: OptionItemDescriptor[],
+) {
+  if (field.calculationPending) return recordFieldDisplay(field, record);
   const value = record[field.fieldName];
   if (!field.reference || !field.pickerConfig?.provider || value == null || value === '')
-    return assistantFieldDisplay(field, record, undefined, true);
+    return recordFieldDisplay(field, record, optionItems, true);
   const ids = (Array.isArray(value) ? value : [value]).map(String);
   if (!ids.length) return '未选择';
   const candidates = await field.pickerConfig.provider.resolve(ids);
@@ -63,7 +68,7 @@ export function assistantReadableField(field: RecordFormFieldState) {
 }
 
 /** Embedded aggregate facts only; no additional queries or inferred independent-relation rows. */
-export function assistantRelationProjection(
+export function recordRelationProjection(
   descriptor: ResolvedModuleUiDescriptor | undefined,
   relations: ResolvedDetailRelationDescriptor[],
   record: RecordFormRecord,
@@ -73,9 +78,13 @@ export function assistantRelationProjection(
     draft = purpose === 'confirmation',
     relationOptions = {},
     editableRelations = new Set<string>(),
+    includeDescribedValues = false,
+    includeBaseline = false,
   }: {
     draft?: boolean;
     editableRelations?: ReadonlySet<string>;
+    includeDescribedValues?: boolean;
+    includeBaseline?: boolean;
     baseline?: RecordFormRecord;
     purpose?: 'context' | 'confirmation' | 'observation';
     relationOptions?: Record<string, Record<string, OptionItemDescriptor[]>>;
@@ -106,7 +115,13 @@ export function assistantRelationProjection(
           record: row,
           mode: pending ? 'edit' : 'view',
         });
-        return !hidden && assistantReadableField(field)
+        return !hidden &&
+          (assistantReadableField(field) ||
+            (includeDescribedValues &&
+              field.visible &&
+              field.assistantPolicy === 'DESCRIBE' &&
+              field.fieldControl?.alias !== 'password' &&
+              !field.fileReference))
           ? [
               {
                 label:
@@ -114,7 +129,8 @@ export function assistantRelationProjection(
                     ?.title ??
                   field.label ??
                   name,
-                value: assistantFieldDisplay(field, row, relationOptions[key]?.[name], pending).slice(
+                ...(field.assistantPolicy ? { assistantPolicy: field.assistantPolicy } : {}),
+                value: recordFieldDisplay(field, row, relationOptions[key]?.[name], pending).slice(
                   0,
                   confirmation ? undefined : 2000,
                 ),
@@ -127,20 +143,22 @@ export function assistantRelationProjection(
       {
         relationCode: relation.code,
         title: relation.title ?? relation.code,
-        assistantWritable: editableRelations.has(relation.code),
-        operationBoundary: editableRelations.has(relation.code)
-          ? '可通过 relation.describe 读取和编辑明细草稿；最后审阅并保存整单。'
-          : !loaded
-            ? '已声明明细，但当前没有完整行数据，不能据此判断为空。'
-            : !draft
-              ? '当前展示只读明细；若用户要求修改且 record.start-edit 可用，先打开主记录编辑草稿，再核实当前明细编辑能力。'
-              : '当前草稿未开放助手明细写入；请在页面增改明细后回到对话确认保存整单。',
+        editable: editableRelations.has(relation.code),
+        source: draft ? 'unsaved-draft' : 'saved-record',
         loaded,
         count: loaded ? rows.length : null,
         removedCount: removed.length,
-        truncated: !confirmation && (rows.length > 20 || removed.length > 20),
+        truncated:
+          !confirmation &&
+          (rows.length > 20 || removed.length > 20 || (includeBaseline && before.length > 20)),
         rows: rows.slice(0, rowLimit).map((row, index) => project(row, index)),
         removedRows: removed.slice(0, rowLimit).map((row, index) => project(row, index, false)),
+        ...(includeBaseline
+          ? {
+              savedCount: Array.isArray(baseline[key]) ? before.length : null,
+              savedRows: before.slice(0, rowLimit).map((row, index) => project(row, index, false)),
+            }
+          : {}),
       },
     ];
   });

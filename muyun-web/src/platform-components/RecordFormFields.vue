@@ -52,6 +52,7 @@ import {
 } from './recordFormFieldModel';
 import { hasOptionHierarchy, optionItemsToOptions, optionItemsToTree } from './optionFieldOptions';
 import { loadOptionFieldItems } from './optionFieldOptionCache';
+import { resolveRecordDetailDisplayValue } from './recordDetailFieldModel';
 
 defineOptions({ name: 'RecordFormFields' });
 
@@ -786,9 +787,20 @@ function groupEndsAt(field: RecordFormFieldState, index: number) {
           </div>
         </div>
         <div class="record-form-field-control">
-          <span v-if="field.calculationPending" class="record-form-field-calculation-pending"
-            >保存后计算</span
+          <span v-if="field.calculationPending" class="record-form-field-calculation-pending">
+            {{ resolveRecordDetailDisplayValue(field, record) }}</span
           >
+          <span
+            v-else-if="field.readOnly && field.calculationTiming === 'IMMEDIATE'"
+            class="record-form-field-calculation-preview"
+          >
+            {{
+              resolveRecordDetailDisplayValue(field, record, {
+                draft: mode !== 'view',
+                optionItems: optionFieldItems(field),
+              })
+            }}
+          </span>
           <RecordStatusSwitch
             v-else-if="field.controlType === 'enabledStatus'"
             :enabled="enabledStatusFieldValue(field.fieldName)"
@@ -1158,6 +1170,11 @@ function groupEndsAt(field: RecordFormFieldState, index: number) {
   gap: 4px;
   color: var(--muyun-danger-base);
   font-size: 12px;
+}
+
+.record-form-field-calculation-preview {
+  display: inline-block;
+  padding: 5px 11px;
 }
 
 .record-form-field-control {

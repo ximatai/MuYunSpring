@@ -14,7 +14,18 @@ export class RelationFormComputeCoordinator {
     keyOf: (row: TRow) => string,
     changedField: string,
   ): TRow[] {
-    const applicable = (this.rules ?? []).filter((rule) => rule.triggerFields.includes(changedField));
+    return this.applyAfterChanges(rows, changedRowKey, keyOf, [changedField]);
+  }
+
+  applyAfterChanges<TRow extends FormulaRecord>(
+    rows: readonly TRow[],
+    changedRowKey: string,
+    keyOf: (row: TRow) => string,
+    changedFields: readonly string[],
+  ): TRow[] {
+    const applicable = (this.rules ?? []).filter((rule) =>
+      rule.triggerFields.some((field) => changedFields.includes(field)),
+    );
     if (applicable.length === 0) return [...rows];
     let next = [...rows];
     const changed = next.find((row) => keyOf(row) === changedRowKey);

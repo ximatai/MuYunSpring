@@ -144,6 +144,340 @@ describe('managed detail relation surface', () => {
     },
   );
 
+  it.each(['static.child', 'dynamic_child'])(
+    'publishes a complete multi-field draft once (%s)',
+    async (entity) => {
+      const aggregate = relation('properties');
+      aggregate.targetEntityAlias = entity;
+      aggregate.embeddedField = 'properties';
+      aggregate.editing = { mode: 'INLINE', saveMode: 'AGGREGATE_DRAFT' };
+      aggregate.queryContract!.listProjection!.fields.push({ fieldName: 'title', title: '名称' });
+      aggregate.formComputeRules = [
+        {
+          code: 'clearOtherTitles',
+          targetField: 'title',
+          targetValueType: 'STRING',
+          triggerFields: ['attributeAlias', 'title'],
+          program: {
+            schemaVersion: 1,
+            profile: 'FORM_COMPUTE',
+            referencedFields: ['title'],
+            root: {
+              kind: 'ASSIGN',
+              operator: '=',
+              arguments: [
+                { kind: 'OTHERS', field: 'properties.title', arguments: [] },
+                { kind: 'VALUE', value: '不应写入', arguments: [] },
+                {
+                  kind: 'BINARY',
+                  operator: '==',
+                  arguments: [
+                    { kind: 'FIELD', field: 'title', arguments: [] },
+                    { kind: 'VALUE', value: '旧名称', arguments: [] },
+                  ],
+                },
+              ],
+            },
+          },
+        },
+      ];
+      const sibling = { id: 'other', attributeAlias: 'other', title: '另一行' };
+      const ui = descriptor();
+      ui.editorContributions![0]!.resource = entity;
+      for (const field of ui.editorContributions![0]!.editor.fields) field.fieldRef.relationCode = entity;
+      const registry = createRelationDraftRegistry();
+      const parent = mount(
+        defineComponent({
+          setup() {
+            provideRelationDraftRegistry(() => registry);
+            return () =>
+              h(ManagedDetailRelationInlineSurface, {
+                sourceContext: context(vi.fn()),
+                uiDescriptor: ui,
+                relation: aggregate,
+                parentRecord: {
+                  id: 'parent',
+                  properties: [{ id: 'existing', attributeAlias: 'old', title: '旧名称' }, sibling],
+                },
+                mutationEnabled: true,
+              });
+          },
+        }),
+      );
+      await flushPromises();
+      const child = parent.findComponent(ManagedDetailRelationInlineSurface);
+      const controller = registry.list()[0]!;
+      const form = controller.form(controller.rowKeys()[0]!)!;
+      const before = child.emitted('records-change')?.length ?? 0;
+      form.updateDraftFields(
+        [
+          { fieldName: 'attributeAlias', value: 'new' },
+          { fieldName: 'title', value: '新名称' },
+        ],
+        'assistant',
+      );
+      expect(
+        child
+          .emitted('records-change')
+          ?.slice(before)
+          .map(([records]) => records),
+      ).toEqual([[{ id: 'existing', attributeAlias: 'new', title: '新名称' }, sibling]]);
+      expect(registry.interactionRevision()).toBe(0);
+      const beforeSelection = child.emitted('records-change')?.length ?? 0;
+      form.updateDraftReference(
+        'attributeAlias',
+        {
+          id: 'selected',
+          title: '选中的属性',
+          affectPatch: { title: '回填名称' },
+          projections: { 'attributeAlias.title': '选中的属性' },
+        },
+        'assistant',
+      );
+      const selectionEvents = child.emitted('records-change')?.slice(beforeSelection);
+      expect(selectionEvents).toHaveLength(1);
+      expect(selectionEvents?.[0]?.[0]).toEqual([
+        { id: 'existing', attributeAlias: 'selected', title: '回填名称' },
+        sibling,
+      ]);
+      expect(selectionEvents?.[0]?.[1]).toMatchObject([
+        {
+          id: 'existing',
+          attributeAlias: 'selected',
+          title: '回填名称',
+          'attributeAlias.title': '选中的属性',
+        },
+        sibling,
+      ]);
+      form.updateDraftFields([{ fieldName: 'attributeAlias', value: 'different' }], 'user');
+      expect(form.editingRecord?.['attributeAlias.title']).toBeUndefined();
+      expect(registry.interactionRevision()).toBe(1);
+      parent.unmount();
+    },
+  );
+
+  it.each(['static.child', 'dynamic_child'])(
+    'previews same-row calculations for human and assistant edits without saving (%s)',
+    async (entity) => {
+      const aggregate = relation('properties');
+      aggregate.targetEntityAlias = entity;
+      aggregate.embeddedField = 'properties';
+      aggregate.editing = { mode: 'INLINE', saveMode: 'AGGREGATE_DRAFT' };
+      aggregate.listProjection = {
+        fields: ['quantity', 'unitPrice', 'amount'].map((fieldName) => ({ fieldName, title: fieldName })),
+      };
+      const ui = descriptor();
+      const editor = ui.editorContributions![0]!.editor;
+      ui.editorContributions![0]!.resource = entity;
+      editor.fields = ['quantity', 'unitPrice', 'amount'].map((fieldName) => ({
+        fieldRef: { relationCode: entity, fieldName },
+        label: fieldName,
+        valueType: 'DECIMAL',
+        visible: { constant: true },
+        required: { constant: false },
+        readOnly: { constant: fieldName === 'amount' },
+        ...(fieldName === 'amount' ? { calculationTiming: 'IMMEDIATE' as const } : {}),
+      }));
+      editor.formComputeRules = [
+        {
+          code: 'amount',
+          targetField: 'amount',
+          targetValueType: 'DECIMAL',
+          triggerFields: ['quantity', 'unitPrice'],
+          writePolicy: 'ALWAYS',
+          program: {
+            schemaVersion: 1,
+            profile: 'FORM_COMPUTE',
+            referencedFields: ['amount', 'quantity', 'unitPrice'],
+            root: {
+              kind: 'ASSIGN',
+              operator: '=',
+              arguments: [
+                { kind: 'FIELD', field: 'amount', arguments: [] },
+                {
+                  kind: 'BINARY',
+                  operator: '*',
+                  arguments: [
+                    { kind: 'FIELD', field: 'quantity', arguments: [] },
+                    { kind: 'FIELD', field: 'unitPrice', arguments: [] },
+                  ],
+                },
+              ],
+            },
+          },
+        },
+      ];
+      aggregate.formComputeRules = [
+        {
+          code: 'setOtherQuantity',
+          targetField: 'quantity',
+          targetValueType: 'DECIMAL',
+          triggerFields: ['quantity'],
+          program: {
+            schemaVersion: 1,
+            profile: 'FORM_COMPUTE',
+            referencedFields: ['quantity'],
+            root: {
+              kind: 'ASSIGN',
+              operator: '=',
+              arguments: [
+                { kind: 'OTHERS', field: 'quantity', arguments: [] },
+                { kind: 'VALUE', value: 1, arguments: [] },
+                {
+                  kind: 'BINARY',
+                  operator: '==',
+                  arguments: [
+                    { kind: 'FIELD', field: 'quantity', arguments: [] },
+                    { kind: 'VALUE', value: 7, arguments: [] },
+                  ],
+                },
+              ],
+            },
+          },
+        },
+      ];
+      const registry = createRelationDraftRegistry();
+      const request = vi.fn();
+      const parent = mount(
+        defineComponent({
+          setup() {
+            provideRelationDraftRegistry(() => registry);
+            return () =>
+              h(ManagedDetailRelationInlineSurface, {
+                sourceContext: context(request),
+                uiDescriptor: ui,
+                relation: aggregate,
+                parentRecord: {
+                  id: 'parent',
+                  properties: [
+                    { id: 'first', quantity: 12, unitPrice: 17.8, amount: 213.6 },
+                    { id: 'second', quantity: 5, unitPrice: 8.8, amount: 44 },
+                  ],
+                },
+                mutationEnabled: true,
+              });
+          },
+        }),
+      );
+      await flushPromises();
+      const child = parent.findComponent(ManagedDetailRelationInlineSurface);
+      child.findAllComponents({ name: 'RecordFormFields' })[0]!.vm.$emit('update:field', 'quantity', 13);
+      await flushPromises();
+      expect(
+        (child.emitted('records-change')?.at(-1)?.[1] as QueryListRecord[]).map((record) => {
+          const displayed = { ...record };
+          delete displayed.__draftKey;
+          return displayed;
+        }),
+      ).toEqual([
+        { id: 'first', quantity: 13, unitPrice: 17.8, amount: 231.4 },
+        { id: 'second', quantity: 5, unitPrice: 8.8, amount: 44 },
+      ]);
+      expect(child.emitted('records-change')?.at(-1)?.[0]).toEqual([
+        { id: 'first', quantity: 13, unitPrice: 17.8 },
+        { id: 'second', quantity: 5, unitPrice: 8.8 },
+      ]);
+      const form = registry.list()[0]!.form(registry.list()[0]!.rowKeys()[0]!)!;
+      const before = child.emitted('records-change')?.length ?? 0;
+      form.updateDraftFields(
+        [
+          { fieldName: 'quantity', value: 3 },
+          { fieldName: 'unitPrice', value: 20 },
+        ],
+        'assistant',
+      );
+      expect(child.emitted('records-change')?.slice(before)).toHaveLength(1);
+      expect(form.editingRecord).toMatchObject({ quantity: 3, unitPrice: 20, amount: 60 });
+      form.updateDraftFields([{ fieldName: 'quantity', value: 7 }], 'assistant');
+      expect(child.emitted('records-change')?.at(-1)?.[1]).toEqual([
+        expect.objectContaining({ quantity: 7, unitPrice: 20, amount: 140 }),
+        expect.objectContaining({ quantity: 1, unitPrice: 8.8, amount: 8.8 }),
+      ]);
+      expect(request).not.toHaveBeenCalled();
+      parent.unmount();
+    },
+  );
+
+  it('recomputes a row after a platform dependency clears a reference', async () => {
+    const aggregate = relation('properties');
+    aggregate.embeddedField = 'properties';
+    aggregate.editing = { mode: 'INLINE', saveMode: 'AGGREGATE_DRAFT' };
+    aggregate.listProjection = {
+      fields: ['categoryId', 'productId', 'hasProduct'].map((fieldName) => ({ fieldName, title: fieldName })),
+    };
+    const ui = descriptor();
+    const editor = ui.editorContributions![0]!.editor;
+    editor.fields = ['categoryId', 'productId', 'hasProduct'].map((fieldName) => ({
+      fieldRef: { relationCode: aggregate.targetEntityAlias, fieldName },
+      label: fieldName,
+      valueType: fieldName === 'hasProduct' ? 'BOOLEAN' : 'STRING',
+      visible: { constant: true },
+      required: { constant: false },
+      readOnly: { constant: fieldName === 'hasProduct' },
+      ...(fieldName === 'hasProduct' ? { calculationTiming: 'IMMEDIATE' as const } : {}),
+      ...(fieldName === 'productId'
+        ? {
+            reference: {
+              targetModuleAlias: 'demo.product',
+              candidateDelivery: 'SOURCE_FIELD' as const,
+              resolvePath: '/references/productId/resolve',
+              cardinality: 'ONE' as const,
+              candidateDependencies: [
+                { sourceField: 'categoryId', targetField: 'categoryId', required: true },
+              ],
+            },
+          }
+        : {}),
+    }));
+    editor.formComputeRules = [
+      {
+        code: 'hasProduct',
+        targetField: 'hasProduct',
+        targetValueType: 'BOOLEAN',
+        triggerFields: ['productId'],
+        writePolicy: 'ALWAYS',
+        program: {
+          schemaVersion: 1,
+          profile: 'FORM_COMPUTE',
+          referencedFields: ['hasProduct', 'productId'],
+          root: {
+            kind: 'ASSIGN',
+            operator: '=',
+            arguments: [
+              { kind: 'FIELD', field: 'hasProduct', arguments: [] },
+              {
+                kind: 'FUNCTION',
+                operator: 'PRESENT',
+                arguments: [{ kind: 'FIELD', field: 'productId', arguments: [] }],
+              },
+            ],
+          },
+        },
+      },
+    ];
+    const request = vi.fn();
+    const wrapper = shallowMount(ManagedDetailRelationInlineSurface, {
+      props: {
+        sourceContext: context(request),
+        uiDescriptor: ui,
+        relation: aggregate,
+        parentRecord: {
+          id: 'parent',
+          properties: [{ id: 'row', categoryId: 'old', productId: 'product', hasProduct: true }],
+        },
+        mutationEnabled: true,
+      },
+    });
+    await flushPromises();
+    wrapper.findAllComponents({ name: 'RecordFormFields' })[0]!.vm.$emit('update:field', 'categoryId', 'new');
+    await flushPromises();
+    expect(wrapper.emitted('records-change')?.at(-1)?.[1]).toEqual([
+      expect.objectContaining({ categoryId: 'new', productId: undefined, hasProduct: false }),
+    ]);
+    expect(request).not.toHaveBeenCalled();
+    wrapper.unmount();
+  });
+
   it('allows aggregate draft rows before the parent has been persisted', async () => {
     const aggregate = relation('properties');
     aggregate.embeddedField = 'properties';
@@ -720,10 +1054,45 @@ describe('managed detail relation surface', () => {
       recycleBinEnabled: true,
     };
     aggregate.queryContract!.listProjection!.fields.push({ fieldName: 'title', title: '属性名称' });
+    const ui = descriptor();
+    const editor = ui.editorContributions![0]!.editor;
+    const title = editor.fields.find((field) => field.fieldRef.fieldName === 'title')!;
+    title.readOnly = { constant: true };
+    title.calculationTiming = 'IMMEDIATE';
+    title.valueType = 'STRING';
+    editor.formComputeRules = [
+      {
+        code: 'currentTitle',
+        targetField: 'title',
+        targetValueType: 'STRING',
+        triggerFields: ['attributeAlias'],
+        writePolicy: 'ALWAYS',
+        program: {
+          schemaVersion: 1,
+          profile: 'FORM_COMPUTE',
+          referencedFields: ['title', 'attributeAlias'],
+          root: {
+            kind: 'ASSIGN',
+            operator: '=',
+            arguments: [
+              { kind: 'FIELD', field: 'title', arguments: [] },
+              {
+                kind: 'BINARY',
+                operator: '+',
+                arguments: [
+                  { kind: 'VALUE', value: '新规则:', arguments: [] },
+                  { kind: 'FIELD', field: 'attributeAlias', arguments: [] },
+                ],
+              },
+            ],
+          },
+        },
+      },
+    ];
     const wrapper = shallowMount(ManagedDetailRelationInlineSurface, {
       props: {
         sourceContext: context(request),
-        uiDescriptor: descriptor(),
+        uiDescriptor: ui,
         relation: aggregate,
         parentRecord: { id: 'select', properties: [] },
         mutationEnabled: true,
@@ -754,8 +1123,9 @@ describe('managed detail relation surface', () => {
     await flushPromises();
 
     expect(request).toHaveBeenCalledTimes(2);
-    expect(wrapper.emitted('records-change')?.at(-1)?.[0]).toEqual([
-      { attributeAlias: 'rows', title: '显示行数' },
+    expect(wrapper.emitted('records-change')?.at(-1)?.[0]).toEqual([{ attributeAlias: 'rows' }]);
+    expect(wrapper.emitted('records-change')?.at(-1)?.[1]).toEqual([
+      expect.objectContaining({ attributeAlias: 'rows', title: '新规则:rows' }),
     ]);
     expect(wrapper.emitted('recycle-bin-availability-change')?.at(-1)).toEqual([false]);
 
@@ -765,9 +1135,7 @@ describe('managed detail relation surface', () => {
     expect(request).toHaveBeenCalledTimes(3);
     expect(wrapper.find('.managed-relation-inline__recycle-table').text()).toContain('暂无可恢复记录');
     expect(wrapper.findAllComponents({ name: 'RecordSelectionCheckbox' })).toHaveLength(2);
-    expect(wrapper.emitted('records-change')?.at(-1)?.[0]).toEqual([
-      { attributeAlias: 'rows', title: '显示行数' },
-    ]);
+    expect(wrapper.emitted('records-change')?.at(-1)?.[0]).toEqual([{ attributeAlias: 'rows' }]);
   });
 
   it('shows the aggregate recycle-bin entry only after retained rows are discovered', async () => {

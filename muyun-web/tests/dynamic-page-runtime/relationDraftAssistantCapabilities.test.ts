@@ -53,7 +53,12 @@ it('keeps every row reachable across pagination and oversized details', async ()
   const last = (await invoke('relation.describe', { relationCode: 'lines', offset: 20 })) as typeof first;
   expect(last.relations[0]!.rows.map((row) => row.rowKey)).toEqual(keys.slice(20));
   expect(last.relations[0]!.nextOffset).toBeNull();
-  await invoke('relation.select-row', { relationCode: 'lines', rowKey: 'row-24' });
+  const selectedFacts = (await invoke('relation.select-row', {
+    relationCode: 'lines',
+    rowKey: 'row-24',
+  })) as { detailsOmitted?: boolean; form?: { fields: unknown[] } };
+  expect(selectedFacts.detailsOmitted).toBe(true);
+  expect(selectedFacts.form).toBeUndefined();
   expect(capabilities.selection()).toEqual({ relationCode: 'lines', rowKey: 'row-24' });
   expect(
     capabilities()
@@ -113,11 +118,69 @@ it('reads selected aggregate reference names through the row provider without mo
   await describe.execute(describe.parseInput({}), context);
   expect(resolve).not.toHaveBeenCalled();
   const select = capabilities().find((item) => item.descriptor.code === 'relation.select-row')!;
-  await select.execute(select.parseInput({ relationCode: 'lines', rowKey: 'row-0' }), context);
+  const selectionFacts = await select.execute(
+    select.parseInput({ relationCode: 'lines', rowKey: 'row-0' }),
+    context,
+  );
+  expect(resolve).not.toHaveBeenCalled();
+  expect(JSON.stringify(selectionFacts)).not.toMatch(/product-id|hidden|secret/);
   const selected = capabilities().find((item) => item.descriptor.code === 'relation.form.describe')!;
   const result = await selected.execute({}, context);
   expect(resolve).toHaveBeenCalledWith(['product-id']);
   expect(JSON.stringify(result)).toContain('业务商品');
   expect(JSON.stringify(result)).not.toMatch(/product-id|hidden|secret/);
   expect(form.updateDraftReference).not.toHaveBeenCalled();
+});
+
+it('returns bounded field facts after adding a row through the real effect boundary', async () => {
+  const { createAssistantSurfaceRegistry } = await import('@muyun/web-core');
+  let revision = 0;
+  const keys: string[] = [];
+  const resolve = vi.fn();
+  const rows = createRelationDraftRegistry();
+  const form: RecordFormDraftAccess = {
+    editorMode: 'edit',
+    editingRecord: { quantity: 2 },
+    referencePickerConfigs: {},
+    formFields: new Map([['quantity', { fieldRef: { fieldName: 'quantity' }, label: '数量' }]]),
+    contextRevision: () => String(revision),
+    updateDraftFields: vi.fn(),
+    updateDraftReference: resolve,
+  };
+  rows.register({
+    code: 'lines',
+    title: '明细',
+    revision: () => String(revision),
+    settle: async () => {},
+    rowKeys: () => keys,
+    form: (key) => (keys.includes(key) ? form : undefined),
+    add: () => {
+      keys.push('new-row');
+      revision++;
+      return 'new-row';
+    },
+    remove: vi.fn(),
+  });
+  const capabilities = createRelationDraftAssistantCapabilities(rows, rows.revision);
+  const registry = createAssistantSurfaceRegistry(() => 'user');
+  registry.register({
+    pageInstanceKey: 'page',
+    contextRevision: () => String(revision),
+    interactionRevision: () => 'stable',
+    executionScopeKey: () => 'tenant',
+    surface: { describe: () => ({ surface: 'test', facts: {} }), capabilities, requestTurn: vi.fn() },
+  });
+  registry.activate('page');
+  const result = await registry.invoke(
+    { id: 'add', code: 'relation.add-row', input: { relationCode: 'lines' } },
+    registry.snapshot()!.token,
+  );
+  expect(result.contextChanged).toBe(true);
+  expect(result.value).toMatchObject({
+    rowKey: 'new-row',
+    saved: false,
+    form: { editable: true, fields: [{ fieldName: 'quantity' }] },
+  });
+  expect(keys).toEqual(['new-row']);
+  expect(resolve).not.toHaveBeenCalled();
 });

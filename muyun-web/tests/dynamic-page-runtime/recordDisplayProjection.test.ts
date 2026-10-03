@@ -1,9 +1,9 @@
 import { expect, it, vi } from 'vitest';
 import {
-  assistantFieldDisplay,
-  assistantResolvedFieldDisplay,
-  assistantRelationProjection,
-} from '@/dynamic-page-runtime/assistantRecordProjection';
+  recordFieldDisplay,
+  resolvedRecordFieldDisplay,
+  recordRelationProjection,
+} from '@/dynamic-page-runtime/recordDisplayProjection';
 import { resolveRecordFormFieldState, resolveRecordFormFields } from '@muyun/platform-components';
 import type { ResolvedModuleUiDescriptor, ResolvedDetailRelationDescriptor } from '@muyun/web-contracts';
 
@@ -32,20 +32,16 @@ const relation = {
   targetEntityAlias: 'member',
 } as ResolvedDetailRelationDescriptor;
 
-it('distinguishes viewing from an editing restriction using the current aggregate state', () => {
+it('projects aggregate completeness and editability without assistant instructions', () => {
   const record = { members: [{ name: '陈晨' }] };
-  const read = assistantRelationProjection(descriptor, [relation], record)[0]!;
-  expect(read.assistantWritable).toBe(false);
-  expect(read.operationBoundary).toContain('record.start-edit');
-  const blocked = assistantRelationProjection(descriptor, [relation], record, { draft: true })[0]!;
-  expect(blocked.assistantWritable).toBe(false);
-  expect(blocked.operationBoundary).toContain('当前草稿未开放');
-  const edit = assistantRelationProjection(descriptor, [relation], record, {
+  const read = recordRelationProjection(descriptor, [relation], record)[0]!;
+  expect(read).toMatchObject({ loaded: true, editable: false, count: 1 });
+  expect(read).not.toHaveProperty('operationBoundary');
+  const edit = recordRelationProjection(descriptor, [relation], record, {
     draft: true,
     editableRelations: new Set(['members']),
   })[0]!;
-  expect(edit.assistantWritable).toBe(true);
-  expect(edit.operationBoundary).toContain('relation.describe');
+  expect(edit.editable).toBe(true);
 });
 
 it('shows editor enablement defaults in confirmation without inventing saved or ordinary boolean values', async () => {
@@ -55,10 +51,10 @@ it('shows editor enablement defaults in confirmation without inventing saved or 
   const ordinary = resolveRecordFormFieldState('checked', {
     fallback: { checked: { controlType: 'switch', label: '选择' } },
   });
-  expect(await assistantResolvedFieldDisplay(enabled, {})).toBe('启用');
-  expect(await assistantResolvedFieldDisplay(enabled, { enabled: false })).toBe('停用');
-  expect(await assistantResolvedFieldDisplay(ordinary, {})).toBe('空');
-  expect(assistantFieldDisplay(enabled, {})).toBe('空');
+  expect(await resolvedRecordFieldDisplay(enabled, {})).toBe('启用');
+  expect(await resolvedRecordFieldDisplay(enabled, { enabled: false })).toBe('停用');
+  expect(await resolvedRecordFieldDisplay(ordinary, {})).toBe('空');
+  expect(recordFieldDisplay(enabled, {})).toBe('空');
 });
 
 it('does not resolve a stale computed reference for save confirmation', async () => {
@@ -77,7 +73,7 @@ it('does not resolve a stale computed reference for save confirmation', async ()
   const field = resolveRecordFormFieldState('ownerId', { fields, mode: 'edit' });
   const resolve = vi.fn(async () => [{ id: 'old', title: '旧负责人' }]);
   field.pickerConfig = { provider: { resolve } } as unknown as typeof field.pickerConfig;
-  expect(await assistantResolvedFieldDisplay(field, { ownerId: 'old' })).toBe('保存后计算');
+  expect(await resolvedRecordFieldDisplay(field, { ownerId: 'old' })).toBe('保存后计算');
   expect(resolve).not.toHaveBeenCalled();
 });
 
@@ -94,17 +90,17 @@ it('marks unsaved calculated values in context and confirmation while retaining 
   const record = { members: [{ id: '1', amount: '65.00' }] };
   const baseline = { members: [{ id: '2', amount: '20.00' }] };
   for (const options of [{ draft: true }, { purpose: 'confirmation' as const }]) {
-    const result = assistantRelationProjection(calculated, [relation], record, { ...options, baseline });
+    const result = recordRelationProjection(calculated, [relation], record, { ...options, baseline });
     expect(result[0]!.rows[0]!.values[0]!.value).toBe('保存后计算');
     expect(result[0]!.removedRows[0]!.values[0]!.value).toBe('20.00');
   }
-  expect(assistantRelationProjection(calculated, [relation], record)[0]!.rows[0]!.values[0]!.value).toBe(
+  expect(recordRelationProjection(calculated, [relation], record)[0]!.rows[0]!.values[0]!.value).toBe(
     '65.00',
   );
 });
 
 it('projects aggregate rows and removals without revealing hidden fields or inventing edit capability', () => {
-  const result = assistantRelationProjection(
+  const result = recordRelationProjection(
     descriptor,
     [relation],
     {
@@ -119,18 +115,52 @@ it('projects aggregate rows and removals without revealing hidden fields or inve
       },
     },
   );
-  expect(result[0]).toMatchObject({ count: 2, removedCount: 1, assistantWritable: false, truncated: false });
+  expect(result[0]).toMatchObject({ count: 2, removedCount: 1, editable: false, truncated: false });
   expect(JSON.stringify(result)).toContain('陈晨');
   expect(JSON.stringify(result)).toContain('旧成员');
   expect(JSON.stringify(result)).not.toContain('hidden');
   expect(
-    assistantRelationProjection(descriptor, [relation], {
+    recordRelationProjection(descriptor, [relation], {
       members: Array.from({ length: 21 }, () => ({ name: '陈晨' })),
     })[0],
   ).toMatchObject({ count: 21, truncated: true });
+  expect(recordRelationProjection(descriptor, [{ ...relation, visible: { constant: false } }], {})).toEqual(
+    [],
+  );
+});
+
+it('projects saved rows separately from reordered draft rows without recalculating the baseline', () => {
+  const ui = structuredClone(descriptor);
+  ui.editorContributions![0]!.editor.fields = [
+    {
+      fieldRef: { fieldName: 'amount' },
+      label: '小计',
+      readOnly: { constant: true },
+      calculationTiming: 'ON_SAVE',
+    },
+    { fieldRef: { fieldName: 'secret' }, assistantPolicy: 'HIDDEN' },
+  ];
+  const baseline = {
+    members: [
+      { id: 'a', amount: '213.60', secret: 'hidden-a' },
+      { id: 'b', amount: '44.00' },
+    ],
+  };
+  const current = { members: [{ id: 'b', amount: '59.50' }, { amount: '153.00' }] };
+  const projected = recordRelationProjection(ui, [relation], current, {
+    purpose: 'confirmation',
+    baseline,
+    includeBaseline: true,
+  })[0]!;
+  expect(projected.savedCount).toBe(2);
+  expect(projected.savedRows?.map((row) => row.values[0]?.value)).toEqual(['213.60', '44.00']);
+  expect(projected.rows.map((row) => row.values[0]?.value)).toEqual(['保存后计算', '保存后计算']);
+  expect(projected.removedRows[0]?.values[0]?.value).toBe('213.60');
+  expect(JSON.stringify(projected)).not.toContain('hidden-a');
+  expect(baseline.members[0]?.amount).toBe('213.60');
   expect(
-    assistantRelationProjection(descriptor, [{ ...relation, visible: { constant: false } }], {}),
-  ).toEqual([]);
+    recordRelationProjection(ui, [relation], current, { includeBaseline: true })[0]!.savedCount,
+  ).toBeNull();
 });
 
 it('distinguishes an unselected reference from a selected reference with an unavailable label', () => {
@@ -148,14 +178,45 @@ it('distinguishes an unselected reference from a selected reference with an unav
   const fields = resolveRecordFormFields(ui);
   const state = resolveRecordFormFieldState('teacherId', { fields, record: {} })!;
   state.referenceTitleField = 'teacherTitle';
-  expect(assistantFieldDisplay(state, {})).toBe('未选择');
-  expect(assistantFieldDisplay(state, { teacherId: 'internal-id' })).toBe('已选择（名称暂不可用）');
-  expect(assistantFieldDisplay(state, { teacherId: 'internal-id', teacherTitle: '王老师' })).toBe('王老师');
+  expect(recordFieldDisplay(state, {})).toBe('未选择');
+  expect(recordFieldDisplay(state, { teacherId: 'internal-id' })).toBe('已选择（名称暂不可用）');
+  expect(recordFieldDisplay(state, { teacherId: 'internal-id', teacherTitle: '王老师' })).toBe('王老师');
+});
+
+it('separates computed draft codes and references from saved title projections', () => {
+  const fields = resolveRecordFormFields({
+    defaultEditor: {
+      fields: [
+        {
+          fieldRef: { fieldName: 'status' },
+          readOnly: { constant: true },
+          calculationTiming: 'IMMEDIATE',
+          option: {
+            titleField: 'statusTitle',
+            inlineItems: [{ code: 'B', title: '已处理', enabled: true }],
+          },
+        },
+        {
+          fieldRef: { fieldName: 'ownerId' },
+          readOnly: { constant: true },
+          calculationTiming: 'IMMEDIATE',
+          reference: { targetModuleAlias: 'iam.user', cardinality: 'ONE', titleField: 'ownerTitle' },
+        },
+      ],
+    },
+  } as unknown as ResolvedModuleUiDescriptor);
+  const record = { status: 'B', statusTitle: '待处理', ownerId: 'user-b', ownerTitle: '甲用户' };
+  const status = resolveRecordFormFieldState('status', { fields, mode: 'edit' });
+  const owner = resolveRecordFormFieldState('ownerId', { fields, mode: 'edit' });
+  expect(recordFieldDisplay(status, record, undefined, true)).toBe('已处理');
+  expect(recordFieldDisplay(owner, record, undefined, true)).toBe('已选择（名称暂不可用）');
+  expect(recordFieldDisplay(status, record)).toBe('待处理');
+  expect(recordFieldDisplay(owner, record)).toBe('甲用户');
 });
 
 it('does not interpret an unloaded aggregate as empty or removed', () => {
   expect(
-    assistantRelationProjection(
+    recordRelationProjection(
       descriptor,
       [relation],
       { id: 'parent' },
@@ -181,7 +242,7 @@ it('uses business column titles and loaded scoped option labels for confirmation
     ...relation,
     queryContract: { listProjection: { fields: [{ fieldName: 'attendanceStatus', title: '参加状态' }] } },
   } as ResolvedDetailRelationDescriptor;
-  const result = assistantRelationProjection(
+  const result = recordRelationProjection(
     ui,
     [detail],
     { members: [{ attendanceStatus: 'ATTENDED' }] },
@@ -196,8 +257,8 @@ it('uses business column titles and loaded scoped option labels for confirmation
 
 it('shows the complete human confirmation while keeping hidden relation values private', () => {
   const record = { members: Array.from({ length: 21 }, () => ({ name: '内容'.repeat(1200) })) };
-  const context = assistantRelationProjection(descriptor, [relation], record)[0]!;
-  const confirmation = assistantRelationProjection(descriptor, [relation], record, {
+  const context = recordRelationProjection(descriptor, [relation], record)[0]!;
+  const confirmation = recordRelationProjection(descriptor, [relation], record, {
     purpose: 'confirmation',
   })[0]!;
   expect(context.rows).toHaveLength(20);
@@ -205,7 +266,7 @@ it('shows the complete human confirmation while keeping hidden relation values p
   expect(confirmation.rows).toHaveLength(21);
   expect(confirmation.rows[0]?.values[0]?.value).toHaveLength(2400);
   expect(confirmation.truncated).toBe(false);
-  const hidden = assistantRelationProjection(
+  const hidden = recordRelationProjection(
     descriptor,
     [{ ...relation, visible: { constant: false } }],
     record,
@@ -215,8 +276,42 @@ it('shows the complete human confirmation while keeping hidden relation values p
   expect(hidden.rows.every((row) => row.values.length === 0)).toBe(true);
 });
 
+it('includes described child values only for human review and always keeps hidden values private', () => {
+  const humanDescriptor = {
+    editorContributions: [
+      {
+        resource: 'member',
+        editor: {
+          fields: [
+            ...descriptor.editorContributions![0]!.editor.fields,
+            {
+              fieldRef: { fieldName: 'note' },
+              label: '人工备注',
+              assistantPolicy: 'DESCRIBE',
+              visible: { constant: true },
+            },
+          ],
+        },
+      },
+    ],
+  } as unknown as ResolvedModuleUiDescriptor;
+  const record = { members: [{ name: '陈晨', note: '人工核对内容', secret: '不应出现' }] };
+  const model = recordRelationProjection(humanDescriptor, [relation], record, { purpose: 'confirmation' });
+  expect(JSON.stringify(model)).not.toContain('人工核对内容');
+  const human = recordRelationProjection(humanDescriptor, [relation], record, {
+    purpose: 'confirmation',
+    includeDescribedValues: true,
+  });
+  expect(human[0]?.rows[0]?.values).toContainEqual({
+    label: '人工备注',
+    assistantPolicy: 'DESCRIBE',
+    value: '人工核对内容',
+  });
+  expect(JSON.stringify(human)).not.toContain('不应出现');
+});
+
 it('resolves confirmation reference names through the picker without changing the draft', async () => {
-  const { assistantResolvedFieldDisplay } = await import('@/dynamic-page-runtime/assistantRecordProjection');
+  const { resolvedRecordFieldDisplay } = await import('@/dynamic-page-runtime/recordDisplayProjection');
   const { vi } = await import('vitest');
   const record = { customerId: 'customer-1' };
   const resolve = vi.fn(async () => [
@@ -227,13 +322,13 @@ it('resolves confirmation reference names through the picker without changing th
     reference: { cardinality: 'ONE' },
     pickerConfig: { provider: { resolve } },
   } as unknown as import('@muyun/platform-components').RecordFormFieldState;
-  expect(await assistantResolvedFieldDisplay(field, record)).toBe('试用客户');
+  expect(await resolvedRecordFieldDisplay(field, record)).toBe('试用客户');
   expect(resolve).toHaveBeenCalledWith(['customer-1']);
   expect(record).toEqual({ customerId: 'customer-1' });
   resolve.mockResolvedValueOnce([{ id: 'another', title: '其他客户', affectPatch: { secret: 'ignored' } }]);
-  expect(await assistantResolvedFieldDisplay(field, record)).toBe('已选择（名称暂不可用）');
+  expect(await resolvedRecordFieldDisplay(field, record)).toBe('已选择（名称暂不可用）');
   resolve.mockRejectedValueOnce(new Error('permission changed'));
-  await expect(assistantResolvedFieldDisplay(field, record)).rejects.toThrow('permission changed');
+  await expect(resolvedRecordFieldDisplay(field, record)).rejects.toThrow('permission changed');
 });
 
 it('retains authorized belonging context in a same-title reference confirmation', async () => {
@@ -253,7 +348,7 @@ it('retains authorized belonging context in a same-title reference confirmation'
   state.pickerConfig = {
     provider: { resolve: async () => [{ id: 'north', title: '客户', subtitle: '北店' }] },
   } as never;
-  expect(await assistantResolvedFieldDisplay(state, { moduleId: 'north' })).toBe('客户 · 北店');
+  expect(await resolvedRecordFieldDisplay(state, { moduleId: 'north' })).toBe('客户 · 北店');
 });
 
 it('excludes declared identity fields only from historical display observations', () => {
@@ -263,8 +358,23 @@ it('excludes declared identity fields only from historical display observations'
     { fieldRef: { fieldName: 'version' }, label: '行版本', visible: { constant: true } },
   );
   const record = { members: [{ id: 'line-private-id', version: 91, name: '墨水' }] };
-  const observed = assistantRelationProjection(ui, [relation], record, { purpose: 'observation' });
+  const observed = recordRelationProjection(ui, [relation], record, { purpose: 'observation' });
   expect(observed[0]!.rows[0]!.values).toEqual([{ label: '学生', value: '墨水' }]);
   expect(JSON.stringify(observed)).not.toContain('line-private-id');
-  expect(JSON.stringify(assistantRelationProjection(ui, [relation], record))).toContain('line-private-id');
+  expect(JSON.stringify(recordRelationProjection(ui, [relation], record))).toContain('line-private-id');
+});
+
+it('marks a truncated saved baseline even when the current draft is empty', () => {
+  const facts = recordRelationProjection(
+    descriptor,
+    [relation],
+    { members: [] },
+    {
+      includeBaseline: true,
+      baseline: { members: Array.from({ length: 21 }, () => ({ name: '旧成员' })) },
+      draft: true,
+    },
+  )[0]!;
+  expect(facts).toMatchObject({ savedCount: 21, truncated: true, source: 'unsaved-draft' });
+  expect(facts.savedRows).toHaveLength(20);
 });

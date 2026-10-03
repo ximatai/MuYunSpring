@@ -1,5 +1,5 @@
 import type { RecordFormDraftAccess } from './recordFormDraftAccess';
-import { assistantFieldDisplay, assistantResolvedFieldDisplay } from './assistantRecordProjection';
+import { recordFieldDisplay, resolvedRecordFieldDisplay } from './recordDisplayProjection';
 import { hasActiveRecordEditor } from './assistantRecordEditorPolicy';
 import {
   AssistantCapabilityUsageError,
@@ -382,7 +382,7 @@ function formDescribeCapability(
           }
           if (field.pickerConfig?.provider) remainingReferences -= count;
           try {
-            resolved.set(field.fieldName, { display: await assistantResolvedFieldDisplay(field, record) });
+            resolved.set(field.fieldName, { display: await resolvedRecordFieldDisplay(field, record) });
           } catch {
             // Display failure is not permission to reselect, reveal IDs or forward transport details.
             resolved.set(field.fieldName, { display: '已选择（名称暂不可用）', unavailable: true });
@@ -606,11 +606,11 @@ function assistantCurrentValue(
   if (isSensitiveField(field) || field.assistantPolicy === 'DESCRIBE' || field.fileReference)
     return undefined;
   const value = field.calculationPending
-    ? '保存后计算'
+    ? recordFieldDisplay(field, view.editingRecord ?? view.selectedRecord ?? {})
     : field.reference
       ? (
           resolvedReferenceDisplay ??
-          assistantFieldDisplay(field, view.editingRecord ?? view.selectedRecord ?? {})
+          recordFieldDisplay(field, view.editingRecord ?? view.selectedRecord ?? {})
         ).slice(0, 500)
       : field.controlType === 'enabledStatus' && hasEditableDraft(view)
         ? resolveRecordEnabledStatusValue(view.editingRecord?.[field.fieldName])

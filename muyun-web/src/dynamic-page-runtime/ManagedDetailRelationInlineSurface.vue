@@ -15,6 +15,7 @@ import {
   recordPickerModeOf,
   resolveRecordDetailDisplayValue,
   applyReferenceDependencyClears,
+  referenceDependencyFields,
   resolveRecordFormFieldState,
   resolveRecordFormFields,
   type QueryListRecord,
@@ -36,6 +37,7 @@ import {
   type ModuleContext,
 } from '@muyun/web-core';
 import { RelationFormComputeCoordinator } from './relationFormComputeCoordinator';
+import { FormComputeCoordinator, formComputeChangedFields } from './formComputeCoordinator';
 
 defineOptions({ name: 'ManagedDetailRelationInlineSurface' });
 
@@ -154,6 +156,14 @@ const columns = computed(
 );
 const relationFormCompute = computed(
   () => new RelationFormComputeCoordinator(props.relation.formComputeRules),
+);
+const rowFormCompute = computed(
+  () =>
+    new FormComputeCoordinator(
+      props.uiDescriptor.editorContributions?.find(
+        (contribution) => contribution.resource === props.relation.targetEntityAlias,
+      )?.editor.formComputeRules,
+    ),
 );
 function pickerConfigsOf(row: DraftRow): Record<string, RecordFormFieldPickerConfig> {
   const result: Record<string, RecordFormFieldPickerConfig> = {};
@@ -313,7 +323,10 @@ function cellInvalid(row: DraftRow, fieldName: string) {
 
 function blankNewRow(row: DraftRow) {
   if (row.id != null) return false;
-  return columns.value.every((column) => blankValue(row[column.fieldName]));
+  return columns.value.every(
+    (column) =>
+      formFields.value.get(column.fieldName)?.calculationTiming != null || blankValue(row[column.fieldName]),
+  );
 }
 
 function blankValue(value: unknown) {
@@ -330,7 +343,10 @@ async function load() {
   const field = embeddedField.value;
   if (!embedded.value || !field) throw new Error('inline relation requires an embedded child field');
   const records = Array.isArray(props.parentRecord[field]) ? props.parentRecord[field] : [];
-  rows.value = records.map((record) => toDraftRow(record as QueryListRecord));
+  rows.value = records.map((record) => {
+    const row = toDraftRow(record as QueryListRecord);
+    return props.mutationEnabled ? rowFormCompute.value.applyOnCreate(row) : row;
+  });
   rowsLoaded = true;
   referenceProjectionValues.value = {};
   removed.value = [];
@@ -438,11 +454,11 @@ function recoverSelected() {
     .map((record) => {
       draftSequence += 1;
       const sourceId = String(record.id);
-      return {
+      return rowFormCompute.value.applyOnCreate({
         ...recoveredDraft(record),
         __draftKey: `recovered:${draftSequence}`,
         __recycleSourceId: sourceId,
-      } as DraftRow;
+      } as DraftRow);
     });
   recoveredSourceIds.value = new Set([
     ...recoveredSourceIds.value,
@@ -460,7 +476,10 @@ function addRow(source: 'user' | 'assistant' = 'user') {
   if (source === 'user') draftRegistry()?.userChanged();
   draftSequence += 1;
   const key = `new:${draftSequence}`;
-  rows.value = [...rows.value, { ...inheritedReferenceDefaults(), __draftKey: key }];
+  rows.value = [
+    ...rows.value,
+    rowFormCompute.value.applyOnCreate({ ...inheritedReferenceDefaults(), __draftKey: key }),
+  ];
   publishDraft();
   return key;
 }
@@ -512,7 +531,7 @@ function undoRemove() {
   if (!row) return;
   draftRegistry()?.userChanged();
   removed.value = removed.value.slice(0, -1);
-  rows.value = [...rows.value, toDraftRow(row)];
+  rows.value = [...rows.value, rowFormCompute.value.applyOnCreate(toDraftRow(row))];
   publishDraft();
 }
 
@@ -522,18 +541,51 @@ function updateField(
   value: RecordFormFieldValue,
   source: 'user' | 'assistant' = 'user',
 ) {
-  if (source === 'user') draftRegistry()?.userChanged();
+  updateFields(row, [{ fieldName, value }], source);
+}
+
+function updateFields(
+  row: DraftRow,
+  changes: Array<{ fieldName: string; value: RecordFormFieldValue }>,
+  source: 'user' | 'assistant' = 'user',
+  selection?: { fieldName: string; projections: Record<string, unknown> },
+) {
+  let nextRow = rows.value.find((candidate) => candidate.__draftKey === row.__draftKey);
+  if (!nextRow || changes.length === 0) return;
+  const projections = { ...(referenceProjectionValues.value[row.__draftKey] ?? {}) };
+  for (const change of changes) {
+    if (nextRow[change.fieldName] !== change.value) {
+      for (const field of referenceDependencyFields(change.fieldName, formFields.value))
+        delete projections[field];
+    }
+    nextRow = applyReferenceDependencyClears(
+      nextRow,
+      change.fieldName,
+      change.value,
+      formFields.value,
+    ) as DraftRow;
+  }
   const updatedRows = rows.value.map((candidate) =>
-    candidate.__draftKey === row.__draftKey
-      ? { ...candidate, ...applyReferenceDependencyClears(candidate, fieldName, value, formFields.value) }
-      : candidate,
+    candidate.__draftKey === row.__draftKey ? nextRow! : candidate,
   );
-  rows.value = relationFormCompute.value.applyAfterChange(
-    updatedRows,
-    row.__draftKey,
-    (candidate) => candidate.__draftKey,
-    fieldName,
+  const changedFields = formComputeChangedFields(
+    row,
+    nextRow,
+    changes.map((change) => change.fieldName),
   );
+  // Match save ordering: cross-row effects precede same-row calculations, then the parent
+  // consumes one complete snapshot. Sibling rows changed by an effect need fresh outputs too.
+  const computedRows = relationFormCompute.value
+    .applyAfterChanges(updatedRows, row.__draftKey, (candidate) => candidate.__draftKey, changedFields)
+    .map((candidate) => rowFormCompute.value.applyOnCreate(candidate));
+  if (selection) {
+    if (Object.keys(selection.projections).length) projections[selection.fieldName] = selection.projections;
+    else delete projections[selection.fieldName];
+  }
+  // Stage the complete row and its platform effects before publishing a single parent draft.
+  if (source === 'user') draftRegistry()?.userChanged();
+  referenceProjectionValues.value = { ...referenceProjectionValues.value, [row.__draftKey]: projections };
+  rows.value = computedRows;
   publishDraft();
 }
 
@@ -643,24 +695,23 @@ function rowForm(rowKey: string): RecordFormDraftAccess | undefined {
     updateDraftFields(changes, source) {
       const row = current();
       if (!row || !editingEnabled.value) throw new Error('子表草稿已不可编辑');
-      for (const change of changes) updateField(row, change.fieldName, change.value, source);
+      updateFields(row, changes, source);
     },
     updateDraftReference(fieldName, candidate, source) {
       const row = current();
       if (!row || !editingEnabled.value) throw new Error('子表草稿已不可编辑');
-      updateField(row, fieldName, candidate.id, source);
+      const changes = [{ fieldName, value: candidate.id as RecordFormFieldValue }];
       for (const [name, value] of Object.entries(candidate.affectPatch ?? {})) {
-        if (name !== fieldName) updateField(row, name, value as RecordFormFieldValue, source);
+        if (name !== fieldName) changes.push({ fieldName: name, value: value as RecordFormFieldValue });
       }
-      updateReferenceProjections(
-        row,
+      updateFields(row, changes, source, {
         fieldName,
-        referenceDisplayProjections(formFields.value.get(fieldName)?.reference, {
+        projections: referenceDisplayProjections(formFields.value.get(fieldName)?.reference, {
           ...candidate.projections,
           ...candidate,
           projections: candidate.projections ? { ...candidate.projections } : undefined,
         }),
-      );
+      });
     },
   };
 }

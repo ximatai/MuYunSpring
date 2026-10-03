@@ -1,9 +1,9 @@
 import { createRelationDraftAssistantCapabilities } from './relationDraftAssistantCapabilities';
 import {
-  assistantRelationProjection,
+  recordRelationProjection,
   assistantReadableField,
-  assistantFieldDisplay,
-} from './assistantRecordProjection';
+  recordFieldDisplay,
+} from './recordDisplayProjection';
 import type { AssistantSurfaceContext } from '@muyun/web-contracts';
 import {
   AssistantCapabilityUsageError,
@@ -128,6 +128,7 @@ export function createModulePageAssistantSurface(
       ...(!view.assistantNavigatorEditor && view.treeQueryController ? treeQueryCapabilities(view) : []),
       ...recordEditorCapabilities(view),
       ...cleanEditorExitCapabilities(view),
+      ...(view.canReviewRecordDraft?.() ? recordDraftCapabilities(view) : []),
       ...relations,
       ...(view.assistantNavigatorEditor?.busy
         ? []
@@ -186,7 +187,7 @@ function modulePageObservationSummary(view: ModulePageSessionView): string | und
         mode: 'view',
       });
       if (assistantReadableField(field))
-        append(`${field.label}：${displayValue(assistantFieldDisplay(field, view.selectedRecord))}`);
+        append(`${field.label}：${displayValue(recordFieldDisplay(field, view.selectedRecord))}`);
     }
     for (const relation of assistantRelationFacts(view, 'observation')) {
       append(
@@ -596,18 +597,28 @@ function surfaceContext(
 }
 
 function assistantRelationFacts(view: ModulePageSessionView, purpose: 'context' | 'observation' = 'context') {
-  return assistantRelationProjection(
+  return recordRelationProjection(
     view.runtimeUiDescriptor,
     view.executableDetailRelations ?? [],
-    view.assistantDisplayRecord ?? view.editingRecord ?? view.selectedRecord ?? {},
+    view.recordDisplayRecord ?? view.editingRecord ?? view.selectedRecord ?? {},
     {
       baseline: view.selectedRecord,
       purpose,
       draft: view.editorMode !== 'view',
-      relationOptions: view.assistantRelationOptions,
+      relationOptions: view.recordRelationOptions,
       editableRelations: new Set(view.relationDrafts?.list().map((item) => item.code) ?? []),
     },
-  );
+  ).map((relation) => ({
+    ...relation,
+    assistantWritable: relation.editable,
+    operationBoundary: relation.editable
+      ? '可通过 relation.describe 读取和编辑明细草稿；整单核对用 form.review-draft，保存用 form.prepare-save。'
+      : !relation.loaded
+        ? '已声明明细，但当前没有完整行数据，不能据此判断为空。'
+        : view.editorMode === 'view'
+          ? '当前展示只读明细；若用户要求修改且 record.start-edit 可用，先打开主记录编辑草稿，再核实明细编辑能力。'
+          : '当前草稿未开放助手明细写入；请在页面增改明细后回到对话审阅整单。',
+  }));
 }
 
 function recordTitle(record: Record<string, unknown>) {
@@ -707,6 +718,146 @@ function assistantQuerySnapshot(
   };
 }
 
+function recordDraftCapabilities(view: ModulePageSessionView): AssistantCapability[] {
+  let review: Awaited<ReturnType<ModulePageSessionView['reviewRecordDraft']>> | undefined;
+  let discard: Awaited<ReturnType<ModulePageSessionView['prepareRecordDraftDiscard']>> | undefined;
+  return [
+    {
+      effect: 'read',
+      schemaDiscovery: 'eager',
+      descriptor: {
+        code: 'form.review-draft',
+        description:
+          '只读审阅当前整单未保存草稿，包含字段、明细小计、合计和移除内容；不准备保存确认，不要求草稿已通过校验。用户只要求试改、试算、比较或核对时使用此能力，不使用 form.prepare-save。',
+        inputSchema: emptyAssistantCapabilityInputSchema(),
+      },
+      parseInput: parseEmptyAssistantCapabilityInput,
+      async execute(_input, context) {
+        const prepared = await view.reviewRecordDraft();
+        context.commitInternalState(() => {
+          review = prepared;
+        });
+        const lines = [
+          '当前整单未保存草稿（原保存值单独标注）：',
+          ...prepared.values
+            .filter(({ field }) => assistantReadableField(field))
+            .map(
+              ({ field, value, before }) =>
+                `${field.label}：${value}${before !== undefined ? `（原保存值：${before}）` : ''}`,
+            ),
+          ...prepared.relations.flatMap((relation) => [
+            relation.loaded
+              ? `${relation.title}：当前 ${relation.count} 行，移除 ${relation.removedCount} 行`
+              : `${relation.title}：明细未完整加载，内容暂不能核对`,
+            ...(relation.savedRows
+              ? [
+                  relation.savedCount === null
+                    ? '原保存明细未完整加载，暂不能比较'
+                    : `原保存明细：${relation.savedCount} 行`,
+                  ...relation.savedRows.slice(0, 20).map(
+                    (row) =>
+                      `原保存第 ${row.row} 行：${row.values
+                        .filter((value) => value.assistantPolicy !== 'DESCRIBE')
+                        .map((value) => `${value.label}：${value.value}`)
+                        .join('；')}`,
+                  ),
+                ]
+              : []),
+            ...relation.rows.slice(0, 20).map(
+              (row) =>
+                `当前草稿第 ${row.row} 行：${row.values
+                  .filter((value) => value.assistantPolicy !== 'DESCRIBE')
+                  .map((value) => `${value.label}：${value.value}`)
+                  .join('；')}`,
+            ),
+            ...relation.removedRows.slice(0, 20).map(
+              (row) =>
+                `移除：${row.values
+                  .filter((value) => value.assistantPolicy !== 'DESCRIBE')
+                  .map((value) => `${value.label}：${value.value}`)
+                  .join('；')}`,
+            ),
+          ]),
+        ].join('\n');
+        return {
+          saved: false,
+          inputValid: prepared.inputValid,
+          complete: prepared.complete,
+          lines: lines.slice(0, 8000),
+          truncated:
+            lines.length > 8000 ||
+            prepared.relations.some(
+              (relation) =>
+                (relation.count ?? 0) > 20 || relation.removedCount > 20 || (relation.savedCount ?? 0) > 20,
+            ),
+        };
+      },
+      present: () => ({
+        title: '整单草稿审阅（尚未保存）',
+        lines: [
+          ...(review?.isCurrent() ? review.fieldLines : ['草稿已变化，请重新审阅。']),
+          ...(review && !review.inputValid ? ['存在未通过校验的输入，请在页面核对；本次未保存。'] : []),
+        ],
+        ...(review?.isCurrent() && review.relationLines.length
+          ? { details: { title: '查看全部明细与移除内容', lines: review.relationLines } }
+          : {}),
+      }),
+    },
+    {
+      effect: 'read',
+      schemaDiscovery: 'eager',
+      descriptor: {
+        code: 'form.prepare-discard',
+        description:
+          '用户明确要求放弃、取消本次试改或未保存草稿时，准备整单放弃确认。仅用户点击确认后按页面取消规则丢弃主表及聚合明细草稿；不删除或修改正式记录。草稿、身份或范围变化后必须重新准备。',
+        inputSchema: emptyAssistantCapabilityInputSchema(),
+      },
+      parseInput: parseEmptyAssistantCapabilityInput,
+      async execute(_input, context) {
+        const prepared = await view.prepareRecordDraftDiscard();
+        context.commitInternalState(() => {
+          discard = prepared;
+        });
+        return { awaitingHumanConfirmation: true, saved: false };
+      },
+      propose() {
+        if (!discard) throw new AssistantCapabilityUsageError('尚未准备放弃草稿');
+        const command = discard;
+        let discardedPresentation: { title: string; lines: string[] } | undefined;
+        return {
+          confirmLabel: '确认放弃',
+          modelSummary: '等待用户确认放弃当前整单未保存草稿；没有保存或删除正式记录。',
+          presentation: {
+            title: '确认放弃未保存草稿',
+            lines: ['放弃这份草稿的全部未保存更改；已保存的数据不受影响。', ...command.review.fieldLines],
+            ...(command.review.relationLines.length
+              ? { details: { title: '查看将放弃的明细更改', lines: command.review.relationLines } }
+              : {}),
+          },
+          expiresAt: Date.now() + 5 * 60_000,
+          isCurrent: command.isCurrent,
+          async execute() {
+            const result = await command.execute();
+            discardedPresentation = {
+              title: '已放弃未保存草稿',
+              lines: [
+                '本次没有保存或删除正式记录。',
+                ...(result.detailReady
+                  ? ['已重新读取正式详情。']
+                  : ['需要核对原记录时，请重新打开正式详情。']),
+              ],
+            };
+            return discardedPresentation;
+          },
+          async lookup() {
+            return discardedPresentation;
+          },
+        };
+      },
+    },
+  ];
+}
+
 function formSaveProposalCapability(view: ModulePageSessionView): AssistantCapability {
   let proposal: Awaited<ReturnType<ModulePageSessionView['prepareAssistantSave']>> | undefined;
   return {
@@ -715,7 +866,7 @@ function formSaveProposalCapability(view: ModulePageSessionView): AssistantCapab
     descriptor: {
       code: 'form.prepare-save',
       description:
-        '当前草稿填写完成、需要审阅或保存时，准备对话内的保存确认卡片。卡片只展示当前字段与明细；标记保存后计算的值仍待计算，准备卡片不会提前产生正式计算结果。用户审阅并点击确认后才保存，再读回正式结果。',
+        '用户明确要求保存当前草稿时，准备对话内的保存确认卡片。仅试算、比较或审阅未保存内容时使用 form.review-draft。卡片只展示当前字段与明细；标记保存后计算的值仍待计算，准备卡片不会提前产生正式计算结果。用户审阅并点击确认后才保存，再读回正式结果。',
       inputSchema: emptyAssistantCapabilityInputSchema(),
     },
     parseInput: parseEmptyAssistantCapabilityInput,

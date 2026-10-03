@@ -37,6 +37,7 @@ export class FormulaRuntime {
     program: FormulaProgram | undefined,
     draft: FormulaRecord,
     targetValueType?: ViewFieldValueType,
+    options: { includeUnchanged?: boolean } = {},
   ): FormulaComputeResult {
     if (!program || program.schemaVersion !== 1 || program.profile !== 'FORM_COMPUTE' || !program.root)
       return EMPTY_COMPUTE_RESULT;
@@ -52,7 +53,10 @@ export class FormulaRuntime {
     const value = normalizeComputeWriteValue(evaluated, targetValueType);
     if (value === INVALID_FORMULA_VALUE) return EMPTY_COMPUTE_RESULT;
     const field = target.field;
-    if (Object.is(draft[field], value) || (draft[field] == null && value == null))
+    if (
+      !options.includeUnchanged &&
+      (Object.is(draft[field], value) || (draft[field] == null && value == null))
+    )
       return EMPTY_COMPUTE_RESULT;
     return Object.freeze({
       patch: Object.freeze({ [field]: value }),

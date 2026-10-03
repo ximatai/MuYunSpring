@@ -253,6 +253,7 @@ export type {
 export {
   recordFormInputConstraintError,
   applyReferenceDependencyClears,
+  referenceDependencyFields,
   childResourceDefaultFormViewCode,
   decodeDateTimeLocalEditorValue,
   decodeNumberEditorValue,

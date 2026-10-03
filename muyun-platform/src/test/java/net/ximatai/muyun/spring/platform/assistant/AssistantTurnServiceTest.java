@@ -559,7 +559,9 @@ class AssistantTurnServiceTest {
         assertThat(prompt)
                 .contains("standard MuYun record workspace", "patch known ordinary fields together",
                         "only when the user asked to create or change", "already complete and must not start a draft",
-                        "prepares review without writing", "Draft-only requests remain unsaved",
+                        "Draft-only requests remain unsaved",
+                        "Review/trial/compare: form.review-draft", "no save proposal",
+                        "Explicit save: form.prepare-save", "Explicit discard: form.prepare-discard",
                         "Offer declared human review", "no tool names or internal IDs",
                         "ask one concise question", "workbench navigation",
                         "creation.reason", "scope.search", "absent tools do not prove permission denial",

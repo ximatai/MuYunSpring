@@ -268,6 +268,31 @@ public class FormulaEngine {
                         .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new)));
     }
 
+    /** Issues a same-row assignment from a declared aggregate calculation, without exposing formula text. */
+    public FormulaProgram compileRowFormComputeProgram(String expression, String relationCode) {
+        if (relationCode == null || !relationCode.matches("[A-Za-z][A-Za-z0-9_]*")) {
+            throw new FormulaEvaluationException("FORMULA_RELATION_SCOPE_INVALID", "invalid row relation scope");
+        }
+        FormulaProgram program = FormulaFormComputeProfile.compileRow(parse("row-form-compute", expression), relationCode);
+        String prefix = relationCode + ".";
+        if (program.root().arguments().size() != 2
+                || program.root().arguments().getFirst().kind() != FormulaNode.Kind.FIELD
+                || program.referencedFields().stream().anyMatch(field -> !field.startsWith(prefix))
+                || containsRowAggregate(program.root())) {
+            throw new FormulaEvaluationException("FORMULA_RELATION_SCOPE_INVALID",
+                    "row form compute requires an unconditional assignment using only same-row fields");
+        }
+        return new FormulaProgram(program.schemaVersion(), program.profile(), scopeRelationNode(program.root(), prefix),
+                program.referencedFields().stream().map(field -> field.substring(prefix.length()))
+                        .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new)));
+    }
+
+    private static boolean containsRowAggregate(FormulaNode node) {
+        return node.kind() == FormulaNode.Kind.OTHERS
+                || node.kind() == FormulaNode.Kind.FUNCTION && FormulaFunctions.isAggregate(node.operator())
+                || node.arguments().stream().anyMatch(FormulaEngine::containsRowAggregate);
+    }
+
     private static String prefix(String field) {
         if (field == null) return null;
         int dot = field.indexOf('.');

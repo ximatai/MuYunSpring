@@ -54,9 +54,9 @@ export function createRelationDraftAssistantCapabilities(
       code: `relation.${action}`,
       description:
         action === 'add-row'
-          ? '在指定明细增加空白草稿行并选中供助手填写，不保存。随后使用 relation.form 和 relation.reference 能力。'
+          ? '在指定明细增加空白草稿行并选中供助手填写，返回当前行字段事实，不保存。根据返回字段使用 relation.form 和 relation.reference 能力，无需重复读取整表。'
           : action === 'select-row'
-            ? '选择 relation.describe 返回的明细行供助手填写；这不会修改其他行或保存。'
+            ? '选择 relation.describe 返回的明细行，返回当前行字段事实供助手填写，无需重复读取整表；这不会修改其他行或保存。'
             : '从当前整单草稿移除指定明细行，需整单保存确认后才生效。',
       inputSchema: {
         type: 'object',
@@ -95,7 +95,20 @@ export function createRelationDraftAssistantCapabilities(
             if (active?.controller === controller && active.rowKey === rowKey) active = undefined;
           }
         }, nextTick);
-      return { relationCode, rowKey: selected, saved: false };
+      const form = action !== 'remove-row' && selected ? controller.form(selected) : undefined;
+      const describe = form
+        ? createRecordFormAssistantCapabilities(form, { resolveReferenceNames: false })().find(
+            (capability) => capability.descriptor.code === 'form.describe',
+          )
+        : undefined;
+      const facts = describe ? await describe.execute({}, context) : undefined;
+      const detailsOmitted = facts !== undefined && JSON.stringify(facts).length > 12000;
+      return {
+        relationCode,
+        rowKey: selected,
+        saved: false,
+        ...(facts !== undefined ? (detailsOmitted ? { detailsOmitted: true } : { form: facts }) : {}),
+      };
     },
   });
   const capabilities = (): AssistantCapability[] => {
@@ -107,7 +120,7 @@ export function createRelationDraftAssistantCapabilities(
         descriptor: {
           code: 'relation.describe',
           description:
-            '分页读取当前可编辑聚合明细及稳定行标识；用 relationCode 和 nextOffset 继续读取。概要只消费已有引用名称投影，不额外查询；需要完整名称或 detailsOmitted 为 true 时，选行后用 relation.form.describe 读取详情。先选行或新增行，再使用 relation.form/reference 修改；最后由主表 form.prepare-save 审阅整单，不能独立保存明细。',
+            '分页读取当前可编辑聚合明细及稳定行标识；用 relationCode 和 nextOffset 继续读取。概要只消费已有引用名称投影，不额外查询；需要完整名称或 detailsOmitted 为 true 时，选行后用 relation.form.describe 读取详情。先选行或新增行，再使用 relation.form/reference 修改；最后由主表 form.review-draft 核对整单，仅用户要求保存时使用 form.prepare-save，不能独立保存明细。',
           inputSchema: {
             type: 'object',
             additionalProperties: false,
@@ -180,6 +193,8 @@ export function createRelationDraftAssistantCapabilities(
             });
           }
           return {
+            source: 'unsaved-draft',
+            saved: false,
             relations,
             active: selected ? { relationCode: selected.controller.code, rowKey: selected.rowKey } : null,
           };

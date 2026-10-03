@@ -40,8 +40,12 @@ class AssistantPlatformKnowledgeTest {
                         "Use CURRENT edit facts", "row tools appear after selection",
                         "aggregate children save together", "only human confirmation saves",
                         "Missing values: ask one concise question", "form.prepare-save if available (load if indexed)",
-                        "prepares review without writing", "Do not replace an available",
-                        "If no preparation capability is declared", "Draft-only requests remain unsaved",
+                        "Do not replace an available",
+                        "Review/trial/compare: form.review-draft",
+                        "no save proposal", "Explicit save:",
+                        "Explicit discard: form.prepare-discard",
+                        "with human confirmation, local draft only",
+                        "Without save preparation", "Draft-only requests remain unsaved",
                         "hand off to the page save action, never a selection card")
                 .doesNotContain("platform.menu", "customer", "product");
         assertThat(AssistantPlatformKnowledge.appendTo("base", Map.of("surface", "page-composition"), List.of()))

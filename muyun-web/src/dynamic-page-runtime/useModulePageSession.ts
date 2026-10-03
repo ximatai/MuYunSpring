@@ -1,5 +1,9 @@
 import { createRelationDraftRegistry } from './relationDraftController';
-import { assistantResolvedFieldDisplay, assistantRelationProjection } from './assistantRecordProjection';
+import {
+  resolvedRecordFieldDisplay,
+  recordRelationProjection,
+  recordFieldDisplay,
+} from './recordDisplayProjection';
 import type { AssistantResultPresentation, OptionItemDescriptor } from '@muyun/web-contracts';
 import type { AssistantOperationProposal } from '@muyun/web-core';
 import { recordCreationReadiness } from './recordCreationReadiness';
@@ -25,6 +29,7 @@ import {
   recordPickerModeOf,
   resolveRecordFormFields,
   resolveRecordFormFieldState,
+  loadOptionFieldItems,
   useRecycleBinExplorerMode,
   type RecordFormFieldPickerConfig,
   type RecordPickerRecord,
@@ -63,6 +68,7 @@ import {
   AppError,
   AssistantOperationRejectedError,
   OperationUsageError,
+  OperationRejectedError,
   createModuleContext,
   createReferenceResolveClient,
   createStaticResourceTreeClient,
@@ -123,7 +129,7 @@ import {
   resolvePageContextTargetValues,
   reuseEquivalentQueryValues,
 } from './pageContextRuntime';
-import { FormComputeCoordinator } from './formComputeCoordinator';
+import { FormComputeCoordinator, formComputeChangedFields } from './formComputeCoordinator';
 import {
   aggregateChildRelationCodes,
   aggregateChildTriggers,
@@ -395,13 +401,14 @@ export function useModulePageSession(
       { snapshot: string; rows: QueryListRecord[]; options: Record<string, OptionItemDescriptor[]> }
     >
   >({});
-  const assistantRelationOptions = computed(() =>
+  const recordRelationOptions = computed(() =>
     Object.fromEntries(Object.entries(childDisplayFacts.value).map(([key, value]) => [key, value.options])),
   );
-  const assistantDisplayRecord = computed(() => {
+  const incompleteAggregateChildRelations = ref(new Set<string>());
+  const recordDisplayRecord = computed(() => {
     const record = editorMode.value === 'view' ? selectedRecord.value : editingRecord.value;
     if (!record) return {};
-    return {
+    const displayRecord = {
       ...record,
       ...Object.fromEntries(
         Object.entries(childDisplayFacts.value)
@@ -409,6 +416,13 @@ export function useModulePageSession(
           .map(([key, value]) => [key, value.rows]),
       ),
     };
+    if (editorMode.value !== 'view') {
+      for (const relation of context.runtime.snapshot()?.uiDescriptor?.detailRelations ?? []) {
+        if (relation.embeddedField && incompleteAggregateChildRelations.value.has(relation.parentBinding))
+          delete displayRecord[relation.embeddedField];
+      }
+    }
+    return displayRecord;
   });
   watch(
     formSessionKey,
@@ -473,12 +487,13 @@ export function useModulePageSession(
   const referenceRecordDetailInteraction = ref({ editing: false, busy: false, dirty: false });
   const mainFormValid = ref(true);
   const relationDraftValid = ref(true);
-  const incompleteAggregateChildRelations = ref(new Set<string>());
   const formValidationRequestKey = ref(0);
   const localEditFormValid = ref(true);
   const recordOnlyAuthorizing = ref(false);
   let recordOnlySession = 0;
+  const recordDraftValidityRevision = ref(0);
   function updateMainFormValidity(validity: { valid: boolean }) {
+    recordDraftValidityRevision.value += 1;
     mainFormValid.value = validity.valid;
   }
   function updateEmbeddedChildren(
@@ -487,6 +502,7 @@ export function useModulePageSession(
     displayRecords?: QueryListRecord[],
     options: Record<string, OptionItemDescriptor[]> = {},
   ) {
+    const previousDisplay = childDisplayFacts.value[relationField]?.rows;
     childDisplayFacts.value = {
       ...childDisplayFacts.value,
       [relationField]: {
@@ -495,8 +511,12 @@ export function useModulePageSession(
         options,
       },
     };
-    if (!editingRecord.value) return;
-    if (JSON.stringify(editingRecord.value[relationField] ?? []) === JSON.stringify(records)) return;
+    if (!editingRecord.value || editorMode.value === 'view') return;
+    if (
+      JSON.stringify(editingRecord.value[relationField] ?? []) === JSON.stringify(records) &&
+      JSON.stringify(previousDisplay) === JSON.stringify(displayRecords ?? records)
+    )
+      return;
     const next = { ...editingRecord.value, [relationField]: records };
     const descriptor = context.runtime.snapshot()?.uiDescriptor;
     if (editingRecord.value.id != null && !Object.hasOwn(editingRecord.value, relationField)) {
@@ -513,6 +533,7 @@ export function useModulePageSession(
     );
   }
   function updateRelationDraftValidity(valid: boolean) {
+    recordDraftValidityRevision.value += 1;
     relationDraftValid.value = valid;
   }
   function updateLocalEditFormValidity(validity: { valid: boolean }) {
@@ -2717,7 +2738,11 @@ export function useModulePageSession(
       ),
     ).applyAfterChange(
       next,
-      changes.map(({ fieldName }) => fieldName),
+      formComputeChangedFields(
+        draft,
+        next,
+        changes.map(({ fieldName }) => fieldName),
+      ),
     );
   }
 
@@ -2940,7 +2965,11 @@ export function useModulePageSession(
     }
     editingRecord.value = applyFormComputeAfterChanges(
       next,
-      changes.map(({ fieldName }) => fieldName),
+      formComputeChangedFields(
+        editingRecord.value,
+        next,
+        changes.map(({ fieldName }) => fieldName),
+      ),
       rules,
     );
   }
@@ -3013,11 +3042,21 @@ export function useModulePageSession(
     changedFields: readonly string[],
     rules: readonly ResolvedFormComputeRuleDescriptor[] | undefined,
   ): RecordFormRecord {
+    // Computed child values are read-side facts, stripped from mutation inputs. Only use facts
+    // whose input snapshot still matches this draft; they never flow back into the save payload.
+    const evaluationDraft = {
+      ...draft,
+      ...Object.fromEntries(
+        Object.entries(childDisplayFacts.value)
+          .filter(([key, fact]) => JSON.stringify(draft[key]) === fact.snapshot)
+          .map(([key, fact]) => [key, fact.rows]),
+      ),
+    };
     return new FormComputeCoordinator(rules).applyAfterChange(
       draft,
       changedFields,
       resolveChildAggregateRows(
-        draft,
+        evaluationDraft,
         context.runtime.snapshot()?.uiDescriptor,
         incompleteAggregateChildRelations.value,
       ),
@@ -3459,6 +3498,17 @@ export function useModulePageSession(
   async function prepareRecordSave(presentValidation = true) {
     const draft = editingRecord.value;
     if (!draft) return;
+    if (
+      incompleteAggregateChildRelations.value.size > 0 ||
+      (editorMode.value === 'edit' &&
+        executableDetailRelations.value.some(
+          (relation) =>
+            relation.embeddedField &&
+            relation.editing?.saveMode === 'AGGREGATE_DRAFT' &&
+            !Array.isArray(draft[relation.embeddedField]),
+        ))
+    )
+      throw new OperationUsageError('明细未完整加载，无法安全保存；请重新打开记录后再修改');
     if (!mainFormValid.value || !relationDraftValid.value) {
       if (presentValidation) formValidationRequestKey.value += 1;
       return;
@@ -3547,7 +3597,7 @@ export function useModulePageSession(
         refreshList();
         await presentModuleActionSuccess(result, '保存成功');
         reportDetailRefreshFailure(refreshFailure, 'module-action');
-        return result;
+        return { result, viewRefreshed: false };
       }
       selectedRecord.value = persistedRecord;
       if (persistentTreeDetail.value) {
@@ -3563,7 +3613,7 @@ export function useModulePageSession(
       formSessionKey.value += 1;
       await presentModuleActionSuccess(result, '保存成功');
       if (refreshFailure) reportDetailRefreshFailure(refreshFailure, 'module-action');
-      return result;
+      return { result, viewRefreshed: !refreshFailure };
     } finally {
       activeDetailActionKey.value = undefined;
       saving.value = false;
@@ -3577,6 +3627,149 @@ export function useModulePageSession(
       !['platform', 'iam'].includes(context.moduleAlias.split('.')[0] ?? ''),
   );
 
+  function canReviewRecordDraft() {
+    return (
+      pageReady.value &&
+      detailOpen.value &&
+      (editorMode.value === 'create' || editorMode.value === 'edit') &&
+      Boolean(editingRecord.value) &&
+      !interactionBusy.value &&
+      !detailLoading.value &&
+      !detailLoadFailed.value &&
+      !navigatorManagementDetail.open.value &&
+      !localEditOpen.value &&
+      !referenceRecordDetailInteraction.value.editing
+    );
+  }
+
+  function recordDraftReviewFingerprint() {
+    return JSON.stringify([
+      currentUser?.value,
+      tenantScopeId.value,
+      pageContextHeader.value,
+      navigatorExtensionSelection.value,
+      formSessionKey.value,
+      editorMode.value,
+      editingRecord.value,
+      selectedRecord.value,
+      childDisplayFacts.value,
+      [...incompleteAggregateChildRelations.value],
+      runtimeUiDescriptor.value,
+      mainFormValid.value,
+      relationDraftValid.value,
+      recordDraftValidityRevision.value,
+    ]);
+  }
+
+  /** Whole-draft review is a read operation, independent of validation and submission. */
+  async function reviewRecordDraft() {
+    if (!canReviewRecordDraft()) throw new OperationUsageError('当前没有可审阅的记录草稿');
+    const fingerprint = recordDraftReviewFingerprint();
+    const isCurrent = () => canReviewRecordDraft() && fingerprint === recordDraftReviewFingerprint();
+    const mode = editorMode.value;
+    const record = { ...editingRecord.value! };
+    const fields = [...formFields.value.keys()]
+      .map((fieldName) =>
+        resolveRecordFormFieldState(fieldName, {
+          fields: formFields.value,
+          pickerConfigs: referencePickerConfigs.value,
+          record,
+          mode,
+        }),
+      )
+      .filter(
+        (field) =>
+          field.visible && field.assistantPolicy !== 'HIDDEN' && field.fieldControl?.alias !== 'password',
+      );
+    const values = await Promise.all(
+      fields.map(async (field) => ({
+        field,
+        // Optional name enrichment must not block reviewing or abandoning a local draft.
+        value: await resolvedRecordFieldDisplay(
+          field,
+          record,
+          field.hasOption && field.calculationTiming === 'IMMEDIATE' && !field.optionItems
+            ? await loadOptionFieldItems(context, field.fieldName).catch(() => [])
+            : field.optionItems,
+        ).catch(() => (field.reference ? '已选择（名称暂不可用）' : '显示值暂不可用')),
+        ...(mode === 'edit'
+          ? {
+              before: recordFieldDisplay(
+                resolveRecordFormFieldState(field.fieldName, {
+                  fields: formFields.value,
+                  record: selectedRecord.value,
+                  mode: 'view',
+                }),
+                selectedRecord.value ?? {},
+              ),
+            }
+          : {}),
+      })),
+    );
+    const relations = recordRelationProjection(
+      runtimeUiDescriptor.value,
+      executableDetailRelations.value,
+      recordDisplayRecord.value,
+      {
+        baseline: selectedRecord.value,
+        purpose: 'confirmation',
+        includeDescribedValues: true,
+        includeBaseline: mode === 'edit',
+        relationOptions: recordRelationOptions.value,
+      },
+    );
+    if (!isCurrent()) throw new OperationUsageError('草稿或范围已变化，请重新审阅');
+    return {
+      mode,
+      values,
+      relations,
+      complete: relations.every((relation) => relation.loaded),
+      isCurrent,
+      inputValid: mainFormValid.value && relationDraftValid.value,
+      fieldLines: values.map(
+        ({ field, value, before }) =>
+          `${field.label}：${value}${before !== undefined ? `（原保存值：${before}）` : ''}`,
+      ),
+      relationLines: relations.flatMap((relation) => [
+        relation.loaded
+          ? `${relation.title}：当前 ${relation.count} 行，移除 ${relation.removedCount} 行`
+          : `${relation.title}：明细未完整加载，内容暂不能核对`,
+        ...(relation.savedRows
+          ? [
+              relation.savedCount === null
+                ? '原保存明细未完整加载，暂不能比较'
+                : `原保存明细：${relation.savedCount} 行`,
+              ...relation.savedRows.map(
+                (row) =>
+                  `原保存第 ${row.row} 行：${row.values.map((value) => `${value.label}：${value.value}`).join('；')}`,
+              ),
+            ]
+          : []),
+        ...relation.rows.map(
+          (row) =>
+            `第 ${row.row} 行：${row.values.map((value) => `${value.label}：${value.value}`).join('；')}`,
+        ),
+        ...relation.removedRows.map(
+          (row) => `移除：${row.values.map((value) => `${value.label}：${value.value}`).join('；')}`,
+        ),
+      ]),
+    };
+  }
+
+  /** Confirmation adapters submit this captured local command; it never writes business records. */
+  async function prepareRecordDraftDiscard() {
+    const review = await reviewRecordDraft();
+    return {
+      review,
+      isCurrent: review.isCurrent,
+      async execute() {
+        if (!review.isCurrent()) throw new OperationRejectedError('草稿或范围已变化，请重新审阅放弃内容');
+        await cancelDetailEditing();
+        return { discarded: true, saved: false, detailReady: recordDetailReady() };
+      },
+    };
+  }
+
   async function prepareAssistantSave(): Promise<AssistantOperationProposal> {
     if (!assistantSaveAvailable.value) throw new Error('当前表单不支持对话内保存');
     const revision = assistantContextRevision.value;
@@ -3585,34 +3778,19 @@ export function useModulePageSession(
     const record = await prepareRecordSave(false);
     if (!record || revision !== assistantContextRevision.value)
       throw new Error('请完成表单校验后重新准备保存');
-    const relationFacts = assistantRelationProjection(
-      runtimeUiDescriptor.value,
-      executableDetailRelations.value,
-      assistantDisplayRecord.value,
-      {
-        baseline: selectedRecord.value,
-        purpose: 'confirmation',
-        relationOptions: assistantRelationOptions.value,
-      },
-    ).filter((relation) => relation.loaded);
-    const relationLines = relationFacts.flatMap((relation) => [
-      `${relation.title}：保存 ${relation.count} 行，移除 ${relation.removedCount} 行`,
-      ...relation.rows.map(
-        (row) =>
-          `第 ${row.row} 行：${row.values.map((value) => `${value.label}：${value.value}`).join('；')}`,
-      ),
-      ...relation.removedRows.map(
-        (row) => `移除：${row.values.map((value) => `${value.label}：${value.value}`).join('；')}`,
-      ),
-    ]);
+    const review = await reviewRecordDraft();
+    const relationFacts = review.relations.filter((relation) => relation.loaded);
+    const relationLines = review.relationLines;
     const snapshot = JSON.stringify(record);
     const definition = JSON.stringify(context.runtime.snapshot()?.uiDescriptor);
     const requestId = crypto.randomUUID();
+    let savedContinuation: { interaction: number; recordId: string } | undefined;
     const isCurrent = () =>
       identity === JSON.stringify([currentUser?.value, tenantScopeId.value]) &&
       revision === assistantContextRevision.value &&
       definition === JSON.stringify(context.runtime.snapshot()?.uiDescriptor) &&
       mode === editorMode.value &&
+      review.isCurrent() &&
       !detailActionBusy.value &&
       Boolean(editingRecord.value) &&
       JSON.stringify(recordMutationPayload(editingRecord.value!, formFields.value.values())) === snapshot;
@@ -3621,25 +3799,7 @@ export function useModulePageSession(
       lines: [`${modulePageTitle.value}已保存`],
       details: { title: '保存详情', lines: [`记录标识：${recordId}`] },
     });
-    const displayFields = [...formFields.value.keys()]
-      .map((fieldName) =>
-        resolveRecordFormFieldState(fieldName, {
-          fields: formFields.value,
-          pickerConfigs: referencePickerConfigs.value,
-          record: editingRecord.value!,
-          mode: editorMode.value,
-        }),
-      )
-      .filter(
-        (field) =>
-          field.visible && field.assistantPolicy !== 'HIDDEN' && field.fieldControl?.alias !== 'password',
-      );
-    const fieldLines = await Promise.all(
-      displayFields.map(
-        async (field) =>
-          `${field.label}：${await assistantResolvedFieldDisplay(field, editingRecord.value!)}`,
-      ),
-    );
+    const fieldLines = review.fieldLines;
     if (!isCurrent()) throw new AssistantOperationRejectedError('草稿已变化，请重新确认');
     return {
       receiptReference: {
@@ -3670,12 +3830,32 @@ export function useModulePageSession(
       },
       expiresAt: Date.now() + 5 * 60_000,
       isCurrent,
+      continuation: {
+        message:
+          '本次记录已保存并读回。先核实原始需求的实际进度，再继续尚未完成的部分；不得重建已保存记录。用户要求仅审阅、暂缓或取消的事项不得执行；新的保存仍须另行确认。目标已完成时说明结果并停止。',
+        isCurrent: () =>
+          savedContinuation !== undefined &&
+          identity === JSON.stringify([currentUser?.value, tenantScopeId.value]) &&
+          savedContinuation.interaction === assistantInteractionRevision.value &&
+          String(selectedRecord.value?.id ?? '') === savedContinuation.recordId &&
+          editorMode.value === 'view' &&
+          !detailActionBusy.value,
+      },
       async execute() {
         if (!isCurrent()) throw new AssistantOperationRejectedError('草稿已变化，请重新确认');
         const validated = await prepareRecordSave();
         if (!validated || !isCurrent())
           throw new AssistantOperationRejectedError('保存条件已变化，请重新确认');
-        const result = await submitPreparedRecord(JSON.parse(snapshot), mode, 'save', requestId);
+        const expectedInteraction = assistantInteractionRevision.value + 1;
+        const { result, viewRefreshed } = await submitPreparedRecord(
+          JSON.parse(snapshot),
+          mode,
+          'save',
+          requestId,
+        );
+        if (viewRefreshed && assistantInteractionRevision.value === expectedInteraction) {
+          savedContinuation = { interaction: expectedInteraction, recordId: String(result.record.id) };
+        }
         return receiptPresentation(String(result.record.id));
       },
       async lookup() {
@@ -4315,9 +4495,9 @@ export function useModulePageSession(
     navigatorManagementFormValid,
     navigatorListScopeReady,
     selectedRecord,
-    assistantDisplayRecord,
+    recordDisplayRecord,
     recordDetailReady,
-    assistantRelationOptions,
+    recordRelationOptions,
     flatManagementSorting,
     navigatorListQueryValues,
     flatManagementItemOf,
@@ -4439,6 +4619,9 @@ export function useModulePageSession(
     leaveUnchangedEditor,
     saveRecord,
     prepareAssistantSave,
+    canReviewRecordDraft,
+    reviewRecordDraft,
+    prepareRecordDraftDiscard,
     assistantSaveAvailable,
     editRecord,
     deleteRecord,

@@ -56,40 +56,40 @@ export function applyReferenceDependencyClears(
   const next = { ...record, [fieldName]: value };
   if (record[fieldName] === value || !fields) return next;
 
-  // Read-only paths under a changed ONE reference are display projections, never draft inputs.
-  // Drop their previous values before the picker selection can supply descriptor-authorized fresh ones.
-  const projectionPrefix = `${fieldName}.`;
-  for (const projectedFieldName of Object.keys(next)) {
-    if (projectedFieldName.startsWith(projectionPrefix)) delete next[projectedFieldName];
-  }
-
-  // Candidate dependencies form a directed graph. Traverse the whole graph,
-  // including an already-empty intermediary, because a lower-level picker can
-  // still hold a value invalidated by an ancestor change.
-  const pendingSourceFields = [fieldName];
-  const visitedSourceFields = new Set<string>();
-  while (pendingSourceFields.length > 0) {
-    const sourceField = pendingSourceFields.shift();
-    if (!sourceField || visitedSourceFields.has(sourceField)) continue;
-    visitedSourceFields.add(sourceField);
-
-    for (const [dependentFieldName, descriptor] of fields) {
-      if (
-        dependentFieldName === fieldName ||
-        !descriptor.reference?.candidateDependencies?.some(
-          (dependency) => dependency.sourceField === sourceField,
-        )
-      ) {
-        continue;
-      }
-      if (next[dependentFieldName] != null) {
-        next[dependentFieldName] = undefined;
-      }
-      pendingSourceFields.push(dependentFieldName);
+  for (const affectedField of referenceDependencyFields(fieldName, fields)) {
+    if (affectedField !== fieldName && next[affectedField] != null) next[affectedField] = undefined;
+    const reference = fields.get(affectedField)?.reference;
+    const displayFields = new Set([
+      ...(reference?.titleField ? [reference.titleField] : []),
+      ...(reference?.displayProjections ?? []).map((projection) => projection.outputField),
+    ]);
+    for (const name of Object.keys(next)) {
+      if (name.startsWith(`${affectedField}.`) || displayFields.has(name)) delete next[name];
     }
   }
   return next;
 }
+
+/** Includes the changed source and every dependent reference, even through empty values or cycles. */
+export function referenceDependencyFields(
+  fieldName: string,
+  fields: ReadonlyMap<string, RecordFormFieldDescriptor>,
+): Set<string> {
+  const affected = new Set([fieldName]);
+  for (const sourceField of affected) {
+    for (const [dependentFieldName, descriptor] of fields) {
+      if (
+        descriptor.reference?.candidateDependencies?.some(
+          (dependency) => dependency.sourceField === sourceField,
+        )
+      ) {
+        affected.add(dependentFieldName);
+      }
+    }
+  }
+  return affected;
+}
+
 /**
  * Transport values emitted by the standard editor. JSON is deliberately represented as parsed
  * objects/arrays rather than a display string, so dynamic records retain their JSON column

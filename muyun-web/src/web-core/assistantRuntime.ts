@@ -25,15 +25,26 @@ const MAX_CALLS_PER_STEP = 8;
 export function boundedAssistantConversationHistory(
   history: AssistantConversationMessage[],
 ): AssistantConversationMessage[] {
-  const selected: AssistantConversationMessage[] = [];
+  const selected = new Map<number, AssistantConversationMessage>();
   let remaining = 16_000;
-  for (const item of history.slice(-12).reverse()) {
+  const retain = (index: number) => {
+    if (selected.has(index) || selected.size >= 12) return;
+    const item = history[index]!;
     const text = item.text.slice(0, 4_000);
-    if (text.length > remaining) break;
-    selected.unshift({ role: item.role, text });
+    if (text.length > remaining) return;
+    selected.set(index, { role: item.role, text });
     remaining -= text.length;
+  };
+  // Keep explicit requirements and corrections ahead of generated commentary. They remain
+  // dialogue, never a restored authorization or a platform-owned business workflow.
+  let requests = 0;
+  for (let index = history.length - 1; index >= 0 && requests < 3; index -= 1) {
+    if (history[index]!.role !== 'user') continue;
+    retain(index);
+    requests += 1;
   }
-  return selected;
+  for (let index = history.length - 1; index >= 0 && selected.size < 12; index -= 1) retain(index);
+  return [...selected].sort(([left], [right]) => left - right).map(([, item]) => item);
 }
 
 function capabilityFailure(error: unknown) {
