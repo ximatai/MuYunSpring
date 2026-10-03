@@ -104,11 +104,11 @@ class OrganizationRepositoryContractTest {
     void repositoryShouldResolveStaticEntityForEnsureTable() {
         IDatabaseOperations<Object> operations = mockedOperationsWithExistingOrganizationTable();
 
-        assertThat(repository(operations).ensureTable()).isFalse();
+        assertThat(repository(operations).ensureTable()).isTrue();
 
         verify(operations).execute(contains("comment on table \"public\".\"iam_organization\""));
-        verify(operations).execute(contains("drop index"));
-        verify(operations).execute(contains("\"tenant_id\",\"code\""));
+        verify(operations, never()).execute(contains("drop index"));
+        verify(operations).execute(contains("\"tenant_id\" ASC,\"code\" ASC"));
         verify(operations, never()).insertItem(anyString(), anyString(), anyMap(), anyString());
     }
 
@@ -131,8 +131,8 @@ class OrganizationRepositoryContractTest {
 
         repository(operations, DemoStaticRepositoryDao.class).ensureTable();
 
-        verify(operations).execute(contains("drop index"));
-        verify(operations).execute(contains("\"tenant_id\",\"code\""));
+        verify(operations, never()).execute(contains("drop index"));
+        verify(operations).execute(contains("\"tenant_id\" ASC,\"code\" ASC"));
         verify(operations, never()).execute(contains("unique (\"code\")"));
     }
 
