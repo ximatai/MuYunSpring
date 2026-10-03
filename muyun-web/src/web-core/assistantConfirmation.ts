@@ -11,11 +11,13 @@ export type { OperationConfirmationState as AssistantConfirmationState } from '.
 /** Assistant-only explanation and continuation decorate a platform command. */
 export interface AssistantOperationProposal extends OperationProposal {
   modelSummary?: string;
-  continuation?: { message: string; isCurrent(): boolean };
+  continuation?: { message: string; readOnly?: boolean; isCurrent(): boolean };
 }
 export interface AssistantOperationConfirmation extends OperationConfirmation {
   readonly modelSummary: string;
   readonly receiptReference?: OperationReceiptReference;
+  readonly continuationReadOnly?: boolean;
+  readonly continuationIsCurrent?: () => boolean;
   takeContinuation(): string | undefined;
 }
 export function createAssistantOperationConfirmation(
@@ -25,6 +27,8 @@ export function createAssistantOperationConfirmation(
 ): AssistantOperationConfirmation {
   const confirmation = createOperationConfirmation(proposal, scopeIsCurrent, now);
   const continuation = proposal.continuation && { ...proposal.continuation };
+  const continuationIsCurrent = () =>
+    confirmation.state === 'succeeded' && scopeIsCurrent() && continuation?.isCurrent() === true;
   let taken = false;
   return {
     get confirmLabel() {
@@ -44,11 +48,12 @@ export function createAssistantOperationConfirmation(
     check: confirmation.check,
     cancel: confirmation.cancel,
     modelSummary: proposal.modelSummary ?? '有一项操作等待用户确认，尚未执行。',
+    continuationReadOnly: continuation?.readOnly === true,
+    continuationIsCurrent,
     takeContinuation() {
-      if (taken || confirmation.state !== 'succeeded' || !scopeIsCurrent() || !continuation?.isCurrent())
-        return undefined;
+      if (taken || !continuationIsCurrent()) return undefined;
       taken = true;
-      return continuation.message;
+      return continuation!.message;
     },
   };
 }

@@ -65,6 +65,7 @@ describe('module page assistant surface', () => {
   it('declares the selected row schemas and retains the main save boundary when form focus changes', async () => {
     const view = viewFixture();
     view.assistantSaveAvailable = true;
+    view.canReviewRecordDraft = () => true;
     const rows = new Map(['a', 'b'].map((key) => [key, { ...viewFixture(), contextRevision: () => 'one' }]));
     view.relationDrafts = createRelationDraftRegistry();
     const unregister = view.relationDrafts.register({
@@ -102,7 +103,7 @@ describe('module page assistant surface', () => {
       'assistant.load-capabilities',
       'form.describe',
       'form.patch-draft',
-      'form.prepare-save',
+      'form.review-draft',
     ]);
     for (const key of ['a', 'b']) {
       await registry.invoke(
@@ -115,8 +116,10 @@ describe('module page assistant surface', () => {
         'assistant.load-capabilities',
         'relation.form.describe',
         'relation.form.patch-draft',
-        'form.prepare-save',
+        'form.review-draft',
       ]);
+      expect(JSON.stringify(current.context.facts.capabilityIndex)).toContain('form.prepare-save');
+      expect(JSON.stringify(current.context.facts.capabilityIndex)).toContain('form.prepare-discard');
       await registry.invoke(
         {
           id: `patch-${key}`,

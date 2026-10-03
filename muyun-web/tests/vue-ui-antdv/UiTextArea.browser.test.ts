@@ -59,7 +59,7 @@ it('shows a caret marker and drops a typed field payload at the textarea inserti
 it('resolves a drop against the visible soft-wrapped and scrolled textarea line', async () => {
   const selections = ref<number[]>([]);
   const droppedValue = ref('');
-  const value = '一二三四五六七八九十'.repeat(18);
+  const value = '一二三四五六七八九十'.repeat(50);
   const Fixture = defineComponent({
     setup() {
       return () =>
@@ -77,7 +77,7 @@ it('resolves a drop against the visible soft-wrapped and scrolled textarea line'
           }),
           h(UiTextArea, {
             value,
-            rows: 2,
+            rows: 4,
             acceptDrop: () => true,
             onDrop: (event) => {
               selections.value.push(event.selection.start);
@@ -101,10 +101,18 @@ it('resolves a drop against the visible soft-wrapped and scrolled textarea line'
     await commands.treeGesture(
       '#formula-textarea-wrap-fixture [data-ui-tree-key="source"]',
       '#formula-textarea-wrap-fixture textarea',
-      0.9,
+      0.5,
       'hold',
       0.05,
     );
+    // The path enters through the textarea's top edge and may auto-scroll while dragging.
+    // Restore the intended viewport after that path, then resolve the pointer in the centre,
+    // outside both 28px auto-scroll edge zones. This tests the actual scrolled drop position.
+    textarea.scrollTop = initialScrollTop;
+    textarea.dispatchEvent(new Event('scroll'));
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    await commands.treeMove('#formula-textarea-wrap-fixture textarea', 0.5, 0.05);
+    expect(textarea.scrollTop).toBe(initialScrollTop);
     await expect.poll(() => wrapper.find('.ui-text-area__drop-caret').exists()).toBe(true);
     const marker = wrapper.get('.ui-text-area__drop-caret').element as HTMLElement;
     const markerTop = Number.parseFloat(marker.style.top);

@@ -260,13 +260,14 @@ export function useAssistantConversation(props: {
     history: AssistantConversationMessage[],
     selectionResponse?: AssistantSelectionResponse,
     sourceSelection?: ConversationSelection,
-    continuation?: { userGoal: string },
+    continuation?: { userGoal: string; isCurrent?: () => boolean },
     readOnly = false,
   ) {
     const beforeSync = conversationEpoch;
     expireStaleSelections();
     if (beforeSync !== conversationEpoch) return;
     if (!message || busy.value || archive.loading.value || !props.registry.snapshot()) return;
+    if (continuation?.isCurrent?.() === false) return;
     const epoch = conversationEpoch;
     let requestScope = executionGeneration;
     requestGeneration = requestScope;
@@ -291,6 +292,7 @@ export function useAssistantConversation(props: {
     try {
       const saved = await archive.save();
       if (epoch !== conversationEpoch || requestScope !== executionGeneration) return;
+      if (continuation?.isCurrent?.() === false) return;
       if (!saved) {
         rememberInterruption();
         reopenSelection(sourceSelection);
@@ -690,9 +692,14 @@ export function useAssistantConversation(props: {
         const message = request
           ? `${next}\n用户最近明确提出的要求：${request.slice(0, MAX_HISTORY_MESSAGE_LENGTH)}\n仅续办该要求；任务清单不是扩大范围的授权。用户暂缓的事项继续保留，不重新提议建设；当前目标完成后说明结果并停止。`
           : next;
-        await submitMessage(message, conversationHistory(), undefined, undefined, {
-          userGoal: request ?? '',
-        });
+        await submitMessage(
+          message,
+          conversationHistory(),
+          undefined,
+          undefined,
+          { userGoal: request ?? '', isCurrent: item.confirmation.continuationIsCurrent },
+          item.confirmation.continuationReadOnly === true,
+        );
       }
     }
   }

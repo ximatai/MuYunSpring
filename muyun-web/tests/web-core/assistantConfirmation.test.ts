@@ -155,6 +155,18 @@ it('offers a trusted continuation once, only after a known receipt in the origin
   expect(f.proposal.execute).toHaveBeenCalledOnce();
 });
 
+it('captures a read-only continuation without restoring write authority', async () => {
+  const f = fixture();
+  f.proposal.continuation = { message: '核实放弃结果', readOnly: true, isCurrent: () => true };
+  const confirmation = createAssistantOperationConfirmation(f.proposal, f.scope, () => 10);
+  f.proposal.continuation.readOnly = false;
+  expect(confirmation.continuationReadOnly).toBe(true);
+  expect(confirmation.takeContinuation()).toBeUndefined();
+  await confirmation.confirm();
+  expect(confirmation.takeContinuation()).toBe('核实放弃结果');
+  expect(confirmation.takeContinuation()).toBeUndefined();
+});
+
 it('freezes the explicit model summary without falling back to human presentation', () => {
   const { proposal, confirmation, scope } = fixture();
   expect(confirmation.modelSummary).toBe('有一项操作等待用户确认，尚未执行。');

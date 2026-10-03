@@ -128,13 +128,13 @@ export function createModulePageAssistantSurface(
       ...(!view.assistantNavigatorEditor && view.treeQueryController ? treeQueryCapabilities(view) : []),
       ...recordEditorCapabilities(view),
       ...cleanEditorExitCapabilities(view),
-      ...(view.canReviewRecordDraft?.() ? recordDraftCapabilities(view) : []),
       ...relations,
       ...(view.assistantNavigatorEditor?.busy
         ? []
         : formCapabilities().map((capability) =>
             rowSelected ? { ...capability, schemaDiscovery: undefined } : capability,
           )),
+      ...(view.canReviewRecordDraft?.() ? recordDraftCapabilities(view) : []),
       ...(!view.assistantNavigatorEditor && hasEditableDraft(view) && view.assistantSaveAvailable
         ? [formSaveProposalCapability(view)]
         : []),
@@ -824,6 +824,7 @@ function recordDraftCapabilities(view: ModulePageSessionView): AssistantCapabili
         if (!discard) throw new AssistantCapabilityUsageError('尚未准备放弃草稿');
         const command = discard;
         let discardedPresentation: { title: string; lines: string[] } | undefined;
+        let resultIsCurrent: (() => boolean) | undefined;
         return {
           confirmLabel: '确认放弃',
           modelSummary: '等待用户确认放弃当前整单未保存草稿；没有保存或删除正式记录。',
@@ -836,8 +837,15 @@ function recordDraftCapabilities(view: ModulePageSessionView): AssistantCapabili
           },
           expiresAt: Date.now() + 5 * 60_000,
           isCurrent: command.isCurrent,
+          continuation: {
+            readOnly: true,
+            message:
+              '用户已确认放弃本次整单未保存草稿，本次没有保存或删除正式记录。仅只读核实当前结果，并用业务语言说明是否完成用户最近的要求；已有记录仅依据当前授权范围内的事实说明，新建草稿放弃不表示全库不存在同名记录。不要重新打开草稿、修改数据或准备保存提议，说明结果后停止。',
+            isCurrent: () => resultIsCurrent?.() === true,
+          },
           async execute() {
             const result = await command.execute();
+            resultIsCurrent = result.isCurrent;
             discardedPresentation = {
               title: '已放弃未保存草稿',
               lines: [
