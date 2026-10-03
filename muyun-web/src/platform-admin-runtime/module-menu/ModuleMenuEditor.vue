@@ -19,6 +19,7 @@ async function startAnother() {
 const disabled = computed(
   () => form.loading.value || form.saving.value || form.resultUnknown.value || !form.authorized.value,
 );
+const candidateDisabled = computed(() => disabled.value || form.updating.value);
 const options = computed(() =>
   form.options.value.map((item) => ({
     value: item.id!,
@@ -61,7 +62,7 @@ defineExpose({ save });
       <label
         >菜单名称<UiInput
           :value="form.title.value"
-          :disabled="disabled"
+          :disabled="candidateDisabled"
           aria-label="菜单名称"
           @update:value="form.update({ title: String($event ?? '') })"
       /></label>
@@ -78,8 +79,8 @@ defineExpose({ save });
           :value="form.parentId.value"
           :tree-data="directories"
           :allow-clear="false"
-          :disabled="disabled"
-          :loading="form.loading.value"
+          :disabled="candidateDisabled"
+          :loading="form.loading.value || form.updating.value"
           @update:value="form.update({ parentId: String($event ?? 'root') })"
       /></label>
       <details>
@@ -88,7 +89,7 @@ defineExpose({ save });
           >打开方式<UiSelect
             :value="form.openMode.value"
             :allow-clear="false"
-            :disabled="disabled"
+            :disabled="candidateDisabled"
             :options="[
               { value: 'tab', label: '页签内打开' },
               { value: 'window', label: '新窗口打开' },
@@ -100,6 +101,7 @@ defineExpose({ save });
         此位置已有「{{ form.duplicate.value.menu.title }}」，仍可另加入口。
       </p>
       <p class="hint">只添加访问入口，不开通应用或授予业务权限。</p>
+      <p v-if="form.updating.value" role="status">正在读取菜单方案，请等待候选就绪。</p>
       <UiButton
         v-if="showSave && !form.resultUnknown.value"
         type="primary"

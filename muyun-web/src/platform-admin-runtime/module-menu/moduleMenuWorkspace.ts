@@ -67,7 +67,10 @@ export function createModuleMenuWorkspace(
           if (identity() === scope && generation === accessGeneration)
             allowed.value = result.actions.some((item) => item.actionCode === 'create' && item.authorized);
         })
-        .catch(() => {});
+        .catch(() => {
+          // A later interaction may retry; do not lock this identity out after a transient read failure.
+          if (identity() === scope && generation === accessGeneration) permissionOwner = undefined;
+        });
     }
   }
   function session(alias: string) {

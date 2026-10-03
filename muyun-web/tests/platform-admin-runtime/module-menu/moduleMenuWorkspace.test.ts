@@ -65,6 +65,18 @@ async function openCandidate(t: ReturnType<typeof setup>) {
 }
 
 describe('thin menu assistant adapter', () => {
+  it('retries a failed authorization read on the next interaction without a retry loop', async () => {
+    const t = setup();
+    t.request.mockRejectedValueOnce(new Error('temporarily offline'));
+    t.workspace.current();
+    await t.request.mock.results[0].value.catch(() => {});
+    await Promise.resolve();
+    expect(t.request).toHaveBeenCalledOnce();
+    t.workspace.current();
+    await vi.waitFor(() => expect(t.capability('configuration.open-menu-editor')).toBeDefined());
+    expect(t.request).toHaveBeenCalledTimes(2);
+  });
+
   it('uses actual create authorization rather than administrator status or a construction plan', async () => {
     const t = setup();
     const session = await openCandidate(t);

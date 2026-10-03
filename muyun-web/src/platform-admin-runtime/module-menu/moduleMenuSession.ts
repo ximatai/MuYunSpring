@@ -45,6 +45,7 @@ export function createModuleMenuSession(
 ) {
   const revision = ref(0);
   const loading = ref(false);
+  const updating = ref(false);
   const saving = ref(false);
   const error = ref('');
   const entryIssue = ref('');
@@ -64,6 +65,7 @@ export function createModuleMenuSession(
   const resultUnknown = ref(false);
   let disposed = false;
   let loadGeneration = 0;
+  let updateGeneration = 0;
   let pending:
     | {
         requestId: string;
@@ -84,6 +86,7 @@ export function createModuleMenuSession(
       ready.value &&
       authorized.value &&
       !loading.value &&
+      !updating.value &&
       !saving.value &&
       !pending &&
       !saved.value &&
@@ -98,14 +101,24 @@ export function createModuleMenuSession(
   function requireCurrent() {
     if (!valid()) throw new OperationUsageError('菜单编辑范围已变化，请重新打开');
   }
-  function requireEditable() {
+  function requireEditable(allowUpdating = false) {
     requireCurrent();
-    if (!ready.value || !authorized.value || loading.value || saving.value || pending || saved.value)
+    if (
+      !ready.value ||
+      !authorized.value ||
+      loading.value ||
+      saving.value ||
+      pending ||
+      saved.value ||
+      (!allowUpdating && updating.value)
+    )
       throw new OperationUsageError('请先等待菜单候选就绪，或查询未确定的保存结果');
   }
   async function load() {
     requireCurrent();
     if (saved.value || (pending && ready.value)) return;
+    updateGeneration++;
+    updating.value = false;
     const generation = ++loadGeneration;
     loading.value = true;
     ready.value = false;
@@ -160,35 +173,71 @@ export function createModuleMenuSession(
       if (valid() && generation === loadGeneration) loading.value = false;
     }
   }
-  async function planRevision(input: ModuleMenuRevision) {
-    requireEditable();
-    const before = revision.value;
+  function resolveRevision(input: ModuleMenuRevision) {
     const targetScheme = input.schemeId ?? schemeId.value;
     if (!options.value.some((item) => item.id === targetScheme))
       throw new OperationUsageError('请选择当前可用的菜单方案');
     const targetTitle = input.title ?? title.value;
     if ([...targetTitle].length > 120) throw new OperationUsageError('菜单名称不能超过120个字符');
-    const nodes = targetScheme === schemeId.value ? tree.value : await client.tree(targetScheme);
     const targetParent = input.parentId ?? (targetScheme === schemeId.value ? parentId.value : 'root');
-    if (targetParent !== 'root' && !availableDirectories(nodes).some((item) => item.menu.id === targetParent))
-      throw new OperationUsageError('请选择当前方案中的启用目录');
+    const targetOpenMode = input.openMode ?? openMode.value;
+    const resolveNodes = (nodes: MenuTreeNode[]) => {
+      if (
+        targetParent !== 'root' &&
+        !availableDirectories(nodes).some((item) => item.menu.id === targetParent)
+      )
+        throw new OperationUsageError('请选择当前方案中的启用目录');
+      return {
+        schemeId: targetScheme,
+        nodes,
+        parentId: targetParent,
+        title: targetTitle,
+        openMode: targetOpenMode,
+      };
+    };
+    return targetScheme === schemeId.value
+      ? resolveNodes(tree.value)
+      : client.tree(targetScheme).then(resolveNodes);
+  }
+  function applyRevision(next: Awaited<ReturnType<typeof resolveRevision>>) {
+    schemeId.value = next.schemeId;
+    tree.value = next.nodes;
+    parentId.value = next.parentId;
+    title.value = next.title;
+    openMode.value = next.openMode;
+    revision.value++;
+  }
+  async function planRevision(input: ModuleMenuRevision) {
+    requireEditable();
+    const before = revision.value;
+    const next = await resolveRevision(input);
     return () => {
       requireEditable();
       if (before !== revision.value) throw new OperationUsageError('菜单候选已变化，请重新读取');
-      schemeId.value = targetScheme;
-      tree.value = nodes;
-      parentId.value = targetParent;
-      title.value = targetTitle;
-      openMode.value = input.openMode ?? openMode.value;
-      revision.value++;
+      applyRevision(next);
     };
   }
   async function update(input: ModuleMenuRevision) {
+    let generation: number | undefined;
     try {
-      (await planRevision(input))();
+      requireEditable(true);
+      generation = ++updateGeneration;
+      updating.value = true;
+      const before = ++revision.value;
+      error.value = '';
+      const prepared = resolveRevision(input);
+      // Local edits finish before Vue flushes; only a remote tree read keeps the editor waiting.
+      const next = 'then' in prepared ? await prepared : prepared;
+      if (!valid() || generation !== updateGeneration) return;
+      requireEditable(true);
+      if (before !== revision.value) throw new OperationUsageError('菜单候选已变化，请重新读取');
+      applyRevision(next);
       error.value = '';
     } catch (cause) {
-      error.value = messageOf(cause);
+      if (valid() && (generation === undefined || generation === updateGeneration))
+        error.value = messageOf(cause);
+    } finally {
+      if (generation === updateGeneration) updating.value = false;
     }
   }
   async function refreshVisibility() {
@@ -309,6 +358,7 @@ export function createModuleMenuSession(
       scope.active() &&
       ready.value &&
       authorized.value &&
+      !updating.value &&
       !pending &&
       !saved.value &&
       revision.value === before;
@@ -410,6 +460,7 @@ export function createModuleMenuSession(
     moduleAlias,
     revision,
     loading,
+    updating,
     saving,
     error,
     entryIssue,
@@ -454,9 +505,13 @@ export function createModuleMenuSession(
     dispose() {
       disposed = true;
       loadGeneration++;
+      updateGeneration++;
+      updating.value = false;
       revision.value++;
     },
     invalidate() {
+      updateGeneration++;
+      updating.value = false;
       revision.value++;
     },
   };

@@ -13,7 +13,7 @@ function setup(receipts?: ModuleMenuReceiptStore) {
   let active = true;
   const client = {
     schemes: vi.fn(async (): Promise<MenuScheme[]> => [{ id: 'a', title: '业务菜单', enabled: true }]),
-    tree: vi.fn(async () => [] as MenuTreeNode[]),
+    tree: vi.fn<ModuleMenuClient['tree']>(async () => [] as MenuTreeNode[]),
     context: vi.fn(async () => ({
       title: '客户',
       actions: [{ actionCode: 'create', authorized: true }],
@@ -52,6 +52,93 @@ function setup(receipts?: ModuleMenuReceiptStore) {
 }
 
 describe('shared standard menu candidate', () => {
+  it('applies local field edits synchronously without disabling the input between keystrokes', async () => {
+    const t = setup();
+    await t.session.load();
+    const edit = t.session.update({ title: '人工候选' });
+    expect(t.session.title.value).toBe('人工候选');
+    expect(t.session.updating.value).toBe(false);
+    expect(t.session.canSave.value).toBe(true);
+    await edit;
+    expect(t.client.tree).toHaveBeenCalledOnce();
+  });
+
+  it.each(['older-first', 'newer-first'])(
+    'keeps the latest manual scheme choice and blocks old saves while loading (%s)',
+    async (order) => {
+      const t = setup();
+      t.client.schemes.mockResolvedValue(['a', 'b', 'c'].map((id) => ({ id, title: id, enabled: true })));
+      let finishB!: (nodes: MenuTreeNode[]) => void;
+      let finishC!: (nodes: MenuTreeNode[]) => void;
+      t.client.tree.mockImplementation(async (id: string) => {
+        if (id === 'b') return new Promise<MenuTreeNode[]>((resolve) => (finishB = resolve));
+        if (id === 'c') return new Promise<MenuTreeNode[]>((resolve) => (finishC = resolve));
+        return [];
+      });
+      await t.session.load();
+      const oldProposal = await t.session.prepare();
+      const older = t.session.update({ schemeId: 'b' });
+      const newer = t.session.update({ schemeId: 'c' });
+      expect(t.session.canSave.value).toBe(false);
+      expect(oldProposal.isCurrent()).toBe(false);
+      await expect(oldProposal.execute()).rejects.toThrow('已变化');
+      await expect(t.session.prepare()).rejects.toThrow('等待');
+      if (order === 'older-first') {
+        finishB([]);
+        await older;
+        expect(t.session.canSave.value).toBe(false);
+        finishC([]);
+        await newer;
+      } else {
+        finishC([]);
+        await newer;
+        finishB([]);
+        await older;
+      }
+      expect(t.session.schemeId.value).toBe('c');
+      expect(t.session.error.value).toBe('');
+      expect(t.session.canSave.value).toBe(true);
+      expect(t.client.insert).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(['invalidate', 'reload', 'dispose'])(
+    'ignores a late manual scheme response after %s',
+    async (action) => {
+      const t = setup();
+      t.client.schemes.mockResolvedValue(['a', 'b'].map((id) => ({ id, title: id, enabled: true })));
+      await t.session.load();
+      let finish!: (nodes: MenuTreeNode[]) => void;
+      t.client.tree.mockImplementationOnce(
+        async () => new Promise<MenuTreeNode[]>((resolve) => (finish = resolve)),
+      );
+      const update = t.session.update({ schemeId: 'b' });
+      if (action === 'reload') await t.session.load();
+      else if (action === 'dispose') t.session.dispose();
+      else t.session.invalidate();
+      finish([]);
+      await update;
+      expect(t.session.schemeId.value).toBe('a');
+      expect(t.session.error.value).toBe('');
+      expect(t.client.insert).not.toHaveBeenCalled();
+    },
+  );
+
+  it('keeps assistant revision preparation pure and rejects application after a manual edit', async () => {
+    const t = setup();
+    t.client.schemes.mockResolvedValue(['a', 'b'].map((id) => ({ id, title: id, enabled: true })));
+    await t.session.load();
+    const before = t.session.revision.value;
+    const install = await t.session.planRevision({ schemeId: 'b', title: '助手候选' });
+    expect(t.session.revision.value).toBe(before);
+    expect(t.session.schemeId.value).toBe('a');
+    expect(t.session.canSave.value).toBe(true);
+    await t.session.update({ title: '人工候选' });
+    expect(() => install()).toThrow('已变化');
+    expect(t.session.title.value).toBe('人工候选');
+    expect(t.session.schemeId.value).toBe('a');
+  });
+
   it('invalidates prepared confirmation after manual revision or leaving the page', async () => {
     const t = setup();
     await t.session.load();
