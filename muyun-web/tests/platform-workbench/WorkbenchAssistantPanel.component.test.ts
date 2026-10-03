@@ -749,7 +749,7 @@ it.each([false, true])(
     expect(wrapper.text()).toContain('tenant-a secret');
     expect(wrapper.text()).not.toContain('old answer');
     expect(plan.current().planId).toBe('old-plan');
-    expect(wrapper.text()).toContain('对话与建设目标保留');
+    expect(wrapper.text()).toContain('对话与目标保留');
     expect(requestTurn).toHaveBeenCalledTimes(1);
     expect(wrapper.text()).not.toContain('本轮已暂停');
     expect(wrapper.findAll('button').some((button) => button.text() === '调整需求')).toBe(false);

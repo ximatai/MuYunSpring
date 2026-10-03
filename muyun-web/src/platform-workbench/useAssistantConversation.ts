@@ -549,7 +549,7 @@ export function useAssistantConversation(props: {
         interruptedRequest.value = undefined;
         restoredRequest.value = '';
         supersedePendingSelections();
-        append('status', '业务范围已变化，对话与建设目标保留；后续操作将重新核实当前页面的数据。');
+        append('status', '业务范围已变化，对话与目标保留；后续操作将重新核实当前页面的数据。');
       }
     }
     refreshConfirmations();

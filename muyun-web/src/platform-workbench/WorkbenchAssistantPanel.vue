@@ -172,7 +172,7 @@ function close() {
           <UiButton :disabled="busy || archiveLoading" @click="archive.retryRead()">重试读取会话</UiButton>
         </div>
         <div v-if="historyOpen" class="assistant-panel__history">
-          <span>当前登录身份的历史会话；切换页面可以继续同一个建设目标。</span>
+          <span>当前登录身份的历史会话；切换页面可以继续同一个目标。</span>
           <UiButton :disabled="archiveLoading" @click="historyOpen = false">收起历史</UiButton>
           <span v-if="!archiveLoading && !historyEntries.length">暂无已保存会话</span>
           <UiButton
